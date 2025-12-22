@@ -1,0 +1,92 @@
+name: corvus
+version: 0.1.0.0
+synopsis: Daemon/client application with RPC communication
+description: A Haskell daemon that runs as a systemd service with a CLI client
+license: BSD-3-Clause
+author: Author
+maintainer: author@example.com
+
+dependencies:
+  - base >= 4.7 && < 5
+  - binary
+  - network-simple
+  - async
+  - stm
+  - text
+  - bytestring
+  - optparse-applicative
+  - unix
+  - directory
+  - filepath
+  - process
+  - network
+  - time
+  - persistent
+  - persistent-postgresql
+  - esqueleto
+  - monad-logger
+  - resource-pool
+  - mtl
+  - unliftio-core
+  - exceptions
+
+default-extensions:
+  - OverloadedStrings
+  - DeriveGeneric
+  - DeriveAnyClass
+  - DerivingStrategies
+  - GeneralizedNewtypeDeriving
+  - StandaloneDeriving
+  - TypeFamilies
+  - GADTs
+  - UndecidableInstances
+  - DataKinds
+  - FlexibleInstances
+  - MultiParamTypeClasses
+  - QuasiQuotes
+  - TemplateHaskell
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - Corvus.Protocol
+    - Corvus.Types
+    - Corvus.Server
+    - Corvus.Handlers
+    - Corvus.Handlers.Core
+    - Corvus.Handlers.Vm
+    - Corvus.Client
+    - Corvus.Client.Config
+    - Corvus.Client.Connection
+    - Corvus.Client.Rpc
+    - Corvus.Client.Types
+    - Corvus.Client.Parser
+    - Corvus.Client.Commands
+    - Corvus.Model
+    - Corvus.Qemu
+    - Corvus.Qemu.Config
+    - Corvus.Qemu.Runtime
+    - Corvus.Qemu.Qmp
+    - Corvus.Qemu.Process
+    - Corvus.Qemu.Command
+    - Corvus.Qemu.Virtiofsd
+
+executables:
+  corvus:
+    main: Main.hs
+    source-dirs: app/daemon
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+    dependencies:
+      - corvus
+
+  crv:
+    main: Main.hs
+    source-dirs: app/client
+    ghc-options:
+      - -threaded
+      - -rtsopts
+    dependencies:
+      - corvus

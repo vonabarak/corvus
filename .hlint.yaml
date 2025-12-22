@@ -1,0 +1,5 @@
+# HLint configuration for Corvus project
+
+# Exclude files with Template Haskell that hlint can't parse
+- arguments: [-XQuasiQuotes, -XTemplateHaskell]
+
