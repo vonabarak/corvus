@@ -9,21 +9,32 @@ module Corvus.Client.Connection
 
     -- * Connecting
     withConnection,
+    withTcpConnection,
+    withUnixConnection,
 
     -- * Low-level communication
     sendRequest,
   )
 where
 
-import Control.Exception (Exception, SomeException, try)
+import Control.Exception (Exception, SomeException, bracket, try)
 import Corvus.Protocol (Request, Response)
+import Corvus.Types (ListenAddress (..))
 import Data.Binary (decodeOrFail, encode)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Network.Simple.TCP (Socket, connect)
+import Network.Simple.TCP (connect)
+import Network.Socket
+  ( Family (AF_UNIX),
+    Socket,
+    SocketType (Stream),
+    close,
+    socket,
+  )
+import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
 
 -- | Connection handle
@@ -41,9 +52,25 @@ data ConnectionError
 instance Exception ConnectionError
 
 -- | Connect to the server and run an action with the connection
-withConnection :: String -> Int -> (Connection -> IO a) -> IO (Either ConnectionError a)
-withConnection host port action = do
+withConnection :: ListenAddress -> (Connection -> IO a) -> IO (Either ConnectionError a)
+withConnection addr action = case addr of
+  TcpAddress host port -> withTcpConnection host port action
+  UnixAddress path -> withUnixConnection path action
+
+-- | Connect via TCP
+withTcpConnection :: String -> Int -> (Connection -> IO a) -> IO (Either ConnectionError a)
+withTcpConnection host port action = do
   result <- try $ connect host (show port) $ \(sock, _addr) ->
+    action (Connection sock)
+  case result of
+    Left (e :: SomeException) -> pure $ Left $ ConnectFailed $ T.pack $ show e
+    Right a -> pure $ Right a
+
+-- | Connect via Unix socket
+withUnixConnection :: FilePath -> (Connection -> IO a) -> IO (Either ConnectionError a)
+withUnixConnection path action = do
+  result <- try $ bracket (socket AF_UNIX Stream 0) close $ \sock -> do
+    NS.connect sock (NS.SockAddrUnix path)
     action (Connection sock)
   case result of
     Left (e :: SomeException) -> pure $ Left $ ConnectFailed $ T.pack $ show e

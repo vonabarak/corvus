@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | TCP server for handling client connections.
+-- | Server for handling client connections over TCP or Unix sockets.
 -- This module handles network communication, message framing,
 -- and connection lifecycle. Business logic is delegated to Corvus.Handlers.
 module Corvus.Server
@@ -10,6 +10,8 @@ module Corvus.Server
 where
 
 import Control.Concurrent.STM (atomically, modifyTVar')
+import Control.Exception (bracket)
+import Control.Monad (forever)
 import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
@@ -22,21 +24,59 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Network.Simple.TCP (HostPreference (..), Socket, serve)
-import Network.Socket (SockAddr)
+import Network.Simple.TCP (HostPreference (..), serve)
+import Network.Socket
+  ( Family (AF_UNIX),
+    SockAddr (..),
+    Socket,
+    SocketType (Stream),
+    accept,
+    bind,
+    close,
+    listen,
+    maxListenQueue,
+    socket,
+  )
 import Network.Socket.ByteString (recv, sendAll)
+import System.Directory (removeFile)
+import System.IO.Error (catchIOError)
 
 --------------------------------------------------------------------------------
 -- Server
 --------------------------------------------------------------------------------
 
--- | Run the TCP server with logging
-runServer :: ServerState -> String -> Int -> IO ()
-runServer state host port = runStdoutLoggingT $ do
-  logInfoN $ "Server starting on " <> T.pack host <> ":" <> T.pack (show port)
-  let hostPref = Host host
-  liftIO $ serve hostPref (show port) $ \(sock, addr) ->
-    runStdoutLoggingT $ handleConnection state sock addr
+-- | Run the server with logging (TCP or Unix socket)
+runServer :: ServerState -> ListenAddress -> IO ()
+runServer state addr = runStdoutLoggingT $ case addr of
+  TcpAddress host port -> do
+    logInfoN $ "Server starting on " <> T.pack host <> ":" <> T.pack (show port)
+    let hostPref = Host host
+    liftIO $ serve hostPref (show port) $ \(sock, sockAddr) ->
+      runStdoutLoggingT $ handleConnection state sock sockAddr
+  UnixAddress path -> do
+    logInfoN $ "Server starting on Unix socket: " <> T.pack path
+    liftIO $ runUnixServer state path
+
+-- | Run server on a Unix socket
+runUnixServer :: ServerState -> FilePath -> IO ()
+runUnixServer state path = do
+  -- Remove existing socket file if present
+  removeFile path `catchIOError` const (pure ())
+  bracket
+    (socket AF_UNIX Stream 0)
+    ( \sock -> do
+        close sock
+        removeFile path `catchIOError` const (pure ())
+    )
+    $ \sock -> do
+      bind sock (SockAddrUnix path)
+      listen sock maxListenQueue
+      forever $ do
+        (clientSock, clientAddr) <- accept sock
+        -- Handle in same thread for simplicity (could fork)
+        runStdoutLoggingT $
+          handleConnection state clientSock clientAddr
+            `finally` liftIO (close clientSock)
 
 --------------------------------------------------------------------------------
 -- Connection Handling

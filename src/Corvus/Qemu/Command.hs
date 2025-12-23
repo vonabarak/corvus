@@ -144,6 +144,7 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
         memoryArgs,
         ["-smp", show (vmCpuCount vm)],
         spiceArgs,
+        usbRedirArgs,
         monitorArgs,
         concatMap (driveArgs basePath) (zip [0 ..] drives),
         concatMap netArgs (zip [0 ..] netIfs),
@@ -175,6 +176,24 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
         "virtio-serial",
         "-device",
         "virtserialport,chardev=vdagent,name=com.redhat.spice.0"
+      ]
+
+    -- USB redirection over SPICE (3 USB devices)
+    usbRedirArgs =
+      [ "-device",
+        "nec-usb-xhci,id=xhci",
+        "-chardev",
+        "spicevmc,id=usbredirchardev1,name=usbredir",
+        "-device",
+        "usb-redir,chardev=usbredirchardev1,id=usbredirdev1",
+        "-chardev",
+        "spicevmc,id=usbredirchardev2,name=usbredir",
+        "-device",
+        "usb-redir,chardev=usbredirchardev2,id=usbredirdev2",
+        "-chardev",
+        "spicevmc,id=usbredirchardev3,name=usbredir",
+        "-device",
+        "usb-redir,chardev=usbredirchardev3,id=usbredirdev3"
       ]
 
     -- monitor for human interaction

@@ -9,14 +9,21 @@ module Corvus.Types
     -- * Configuration
     ServerConfig (..),
     defaultServerConfig,
+
+    -- * Listen Address
+    ListenAddress (..),
+    getDefaultSocketPath,
   )
 where
 
 import Control.Concurrent.STM (TVar, newTVarIO)
+import Data.Maybe (fromMaybe)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Database.Persist.Postgresql (SqlBackend)
+import System.Environment (lookupEnv)
+import System.FilePath ((</>))
 
 -- | Shared server state
 data ServerState = ServerState
@@ -66,3 +73,19 @@ defaultServerConfig =
       scUnixSocket = Nothing,
       scDbUri = "postgresql://localhost/corvus"
     }
+
+-- | Address to listen on or connect to
+data ListenAddress
+  = -- | TCP host and port
+    TcpAddress !String !Int
+  | -- | Unix socket path
+    UnixAddress !FilePath
+  deriving (Eq, Show)
+
+-- | Get the default socket path ($XDG_RUNTIME_DIR/corvus/corvus.sock)
+-- Falls back to /tmp/corvus/corvus.sock if XDG_RUNTIME_DIR is not set
+getDefaultSocketPath :: IO FilePath
+getDefaultSocketPath = do
+  mRuntimeDir <- lookupEnv "XDG_RUNTIME_DIR"
+  let baseDir = fromMaybe "/tmp" mRuntimeDir
+  pure $ baseDir </> "corvus" </> "corvus.sock"

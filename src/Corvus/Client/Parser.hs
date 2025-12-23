@@ -149,12 +149,24 @@ commandParser =
 optionsParser :: Parser Options
 optionsParser =
   Options
-    <$> strOption
+    <$> optional
+      ( strOption
+          ( long "socket"
+              <> short 's'
+              <> metavar "PATH"
+              <> help "Unix socket path (default: $XDG_RUNTIME_DIR/corvus/corvus.sock)"
+          )
+      )
+    <*> switch
+      ( long "tcp"
+          <> help "Use TCP instead of Unix socket"
+      )
+    <*> strOption
       ( long "host"
-          <> short 'h'
+          <> short 'H'
           <> metavar "HOST"
           <> value "127.0.0.1"
-          <> help "Host to connect to (default: 127.0.0.1)"
+          <> help "Host to connect to when using --tcp (default: 127.0.0.1)"
       )
     <*> option
       auto
@@ -162,7 +174,7 @@ optionsParser =
           <> short 'p'
           <> metavar "PORT"
           <> value 9876
-          <> help "Port to connect to (default: 9876)"
+          <> help "Port to connect to when using --tcp (default: 9876)"
       )
     <*> commandParser
 

@@ -10,7 +10,9 @@ import Data.Int (Int64)
 
 -- | Command line options
 data Options = Options
-  { optHost :: String,
+  { optSocket :: Maybe FilePath,
+    optTcp :: Bool,
+    optHost :: String,
     optPort :: Int,
     optCommand :: Command
   }

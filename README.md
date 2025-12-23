@@ -43,8 +43,14 @@ createdb corvus
 ### Starting the Daemon
 
 ```bash
-# Run directly
-corvus --host 127.0.0.1 --port 9876 --database postgresql://localhost/corvus
+# Run with Unix socket (default: $XDG_RUNTIME_DIR/corvus/corvus.sock)
+corvus --database postgresql://localhost/corvus
+
+# Custom socket path
+corvus --socket /tmp/corvus.sock --database postgresql://localhost/corvus
+
+# Run with TCP instead
+corvus --tcp --host 127.0.0.1 --port 9876 --database postgresql://localhost/corvus
 
 # Or install as a user service
 mkdir -p ~/.config/systemd/user
@@ -83,7 +89,14 @@ crv shutdown
 ### Connection Options
 
 ```bash
-crv --host 127.0.0.1 --port 9876 vm list
+# Unix socket (default: $XDG_RUNTIME_DIR/corvus/corvus.sock)
+crv vm list
+
+# Custom socket path
+crv --socket /tmp/corvus.sock vm list
+
+# TCP connection
+crv --tcp --host 127.0.0.1 --port 9876 vm list
 ```
 
 ## Development
@@ -150,7 +163,7 @@ stack run crv -- vm list
 
 ### Communication Protocol
 
-Client and daemon communicate over TCP using a simple binary protocol:
+Client and daemon communicate over TCP or Unix socket using a simple binary protocol:
 
 1. **Length prefix**: 8-byte big-endian integer
 2. **Payload**: Binary-encoded request/response
@@ -160,16 +173,15 @@ Messages are serialized using GHC's `Data.Binary` with auto-derived instances.
 ### VM State Machine
 
 ```
-           start
-  stopped ───────► running
-     ▲               │ │
-     │ stop/reset    │ │ pause
-     │               ▼ │
-     └────────── paused◄┘
-                    │
-                    │ start
-                    ▼
-                 running
+ stop/reset
+┌───────────────────────┐
+│                       │
+▼         start         │
+stopped ────────► running
+▲                  │    ▲
+│             pause│    │unpause
+│stop/reset        ▼    │
+└───────────────── paused
 ```
 
 State transitions are validated server-side. The `reset` command forces any VM to `stopped` state.
@@ -214,7 +226,7 @@ shared_dir (id, vm_id, path, tag, cache, read_only, pid)
 - **No Storage Pools**: Disk images must be pre-created
 - **No Network Management**: Host bridges/TAP devices must be configured manually
 - **No Authentication**: Client-daemon communication is unauthenticated
-- **No TLS**: Communication is unencrypted (use localhost or SSH tunnel)
+- **No TLS**: TCP communication is unencrypted (use Unix socket or SSH tunnel)
 - **Linux Only**: Relies on KVM, Unix sockets, and POSIX signals
 
 ## License

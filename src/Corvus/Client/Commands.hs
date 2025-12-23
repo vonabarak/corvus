@@ -17,28 +17,39 @@ import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, bracket, try)
 import Control.Monad (forever, when)
-import Corvus.Client.Config
+import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
 import Corvus.Client.Rpc
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (DriveInfo (..), NetIfInfo (..), StatusInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import qualified Data.ByteString as BS
 import Data.Char (ord)
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Data.Time (defaultTimeLocale, formatTime)
-import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, connect, defaultProtocol, socket)
+import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, defaultProtocol, socket)
+import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (BufferMode (..), hFlush, hPutChar, hReady, hSetBuffering, hSetEcho, stdin, stdout)
 import System.Process (callProcess)
 import Text.Printf (printf)
 
+-- | Get the listen address from options
+getListenAddress :: Options -> IO ListenAddress
+getListenAddress opts
+  | optTcp opts = pure $ TcpAddress (optHost opts) (optPort opts)
+  | otherwise = case optSocket opts of
+      Just path -> pure $ UnixAddress path
+      Nothing -> UnixAddress <$> getDefaultSocketPath
+
 -- | Execute the selected command
 runCommand :: Options -> IO ()
 runCommand opts = do
-  connResult <- withConnection (optHost opts) (optPort opts) $ \conn ->
+  addr <- getListenAddress opts
+  connResult <- withConnection addr $ \conn ->
     case optCommand opts of
       Ping -> do
         resp <- sendPing conn
@@ -179,7 +190,7 @@ runMonitorSession sockPath = do
       bracket
         ( do
             sock <- socket AF_UNIX Stream defaultProtocol
-            connect sock (SockAddrUnix sockPath)
+            NS.connect sock (SockAddrUnix sockPath)
             pure sock
         )
         close

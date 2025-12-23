@@ -4,9 +4,8 @@ After=network.target
 
 [Service]
 Type=exec
+# Uses Unix socket by default: $XDG_RUNTIME_DIR/corvus/corvus.sock
 ExecStart=%h/.local/bin/corvus \
-    --host 127.0.0.1 \
-    --port 9876 \
     --database postgresql://localhost/corvus
 
 Restart=on-failure

@@ -8,12 +8,8 @@ module Corvus.Client.Config
 where
 
 -- | Client configuration
-data ClientConfig = ClientConfig
-  { -- | Daemon host
-    ccHost :: String,
-    -- | Daemon port
-    ccPort :: Int,
-    -- | Path to remote-viewer executable
+newtype ClientConfig = ClientConfig
+  { -- | Path to remote-viewer executable
     ccRemoteViewer :: FilePath
   }
   deriving (Eq, Show)
@@ -22,7 +18,5 @@ data ClientConfig = ClientConfig
 defaultClientConfig :: ClientConfig
 defaultClientConfig =
   ClientConfig
-    { ccHost = "127.0.0.1",
-      ccPort = 9876,
-      ccRemoteViewer = "remote-viewer"
+    { ccRemoteViewer = "remote-viewer"
     }
