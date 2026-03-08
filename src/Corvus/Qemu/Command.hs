@@ -60,6 +60,8 @@ generateQemuCommand config vmId = do
       drives <- selectList [DriveVmId ==. key] []
       netIfs <- selectList [NetworkInterfaceVmId ==. key] []
       sharedDirs <- selectList [SharedDirVmId ==. key] []
+      -- Fetch disk images for each drive
+      driveWithImages <- mapM fetchDriveWithImage drives
       -- Get actual paths from environment
       basePath <- liftIO $ getEffectiveBasePath config
       monitorSock <- liftIO $ getMonitorSocket vmId
@@ -76,10 +78,17 @@ generateQemuCommand config vmId = do
               qmpSock
               spiceSock
               vmRuntimeDir
-              (map entityVal drives)
+              driveWithImages
               (map entityVal netIfs)
               (map entityVal sharedDirs)
       pure $ Just $ unwords (binary : args)
+
+-- | Fetch a drive with its disk image
+fetchDriveWithImage :: Entity Drive -> SqlPersistT IO (Drive, Maybe DiskImage)
+fetchDriveWithImage (Entity _ drive) = do
+  let diskImageKey = driveDiskImageId drive
+  mDiskImage <- get diskImageKey
+  pure (drive, mDiskImage)
 
 -- | Generate QEMU command with socket paths (returns binary and args separately)
 generateQemuCommandWithSockets ::
@@ -98,6 +107,7 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSoc
     Nothing -> pure Nothing
     Just vm -> do
       drives <- selectList [DriveVmId ==. key] []
+      driveWithImages <- mapM fetchDriveWithImage drives
       netIfs <- selectList [NetworkInterfaceVmId ==. key] []
       sharedDirs <- selectList [SharedDirVmId ==. key] []
       pure $
@@ -111,7 +121,7 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSoc
             qmpSock
             spiceSock
             vmRuntimeDir
-            (map entityVal drives)
+            driveWithImages
             (map entityVal netIfs)
             (map entityVal sharedDirs)
 
@@ -129,7 +139,7 @@ buildCommandWithSockets ::
   FilePath ->
   FilePath ->
   FilePath ->
-  [Drive] ->
+  [(Drive, Maybe DiskImage)] ->
   [NetworkInterface] ->
   [SharedDir] ->
   (FilePath, [String])
@@ -210,39 +220,42 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
 
 -- | Generate drive arguments
 -- Resolves relative paths against the base path
-driveArgs :: FilePath -> (Int, Drive) -> [String]
-driveArgs basePath (idx, drive) = case driveInterface drive of
-  -- Pflash uses simpler format (for UEFI firmware)
-  InterfacePflash ->
-    [ "-drive",
-      intercalate "," $
-        catMaybes
-          [ Just $ "file=" ++ filePath,
-            Just $ "format=" ++ T.unpack (enumToText $ driveFormat drive),
-            Just "if=pflash",
-            if driveReadOnly drive then Just "readonly=on" else Nothing
-          ]
-    ]
-  -- Regular drives
-  _ ->
-    [ "-drive",
-      intercalate "," $
-        catMaybes
-          [ Just $ "file=" ++ filePath,
-            Just $ "format=" ++ T.unpack (enumToText $ driveFormat drive),
-            Just $ "if=" ++ interfaceForQemu (driveInterface drive),
-            fmap (\m -> "media=" ++ T.unpack (enumToText m)) (driveMedia drive),
-            Just $ "cache=" ++ T.unpack (enumToText $ driveCacheType drive),
-            if driveDiscard drive then Just "discard=on" else Just "discard=off",
-            if driveReadOnly drive then Just "readonly=on" else Nothing
-          ]
-    ]
+driveArgs :: FilePath -> (Int, (Drive, Maybe DiskImage)) -> [String]
+driveArgs basePath (idx, (drive, mDiskImage)) = case mDiskImage of
+  Nothing -> [] -- Skip drives with missing disk images
+  Just diskImage -> case driveInterface drive of
+    -- Pflash uses simpler format (for UEFI firmware)
+    InterfacePflash ->
+      [ "-drive",
+        intercalate "," $
+          catMaybes
+            [ Just $ "file=" ++ filePath diskImage,
+              Just $ "format=" ++ T.unpack (enumToText $ diskImageFormat diskImage),
+              Just "if=pflash",
+              if driveReadOnly drive then Just "readonly=on" else Nothing
+            ]
+      ]
+    -- Regular drives
+    _ ->
+      [ "-drive",
+        intercalate "," $
+          catMaybes
+            [ Just $ "file=" ++ filePath diskImage,
+              Just $ "format=" ++ T.unpack (enumToText $ diskImageFormat diskImage),
+              Just $ "if=" ++ interfaceForQemu (driveInterface drive),
+              fmap (\m -> "media=" ++ T.unpack (enumToText m)) (driveMedia drive),
+              Just $ "cache=" ++ T.unpack (enumToText $ driveCacheType drive),
+              if driveDiscard drive then Just "discard=on" else Just "discard=off",
+              if driveReadOnly drive then Just "readonly=on" else Nothing
+            ]
+      ]
   where
     -- Resolve relative paths against base path
-    rawPath = T.unpack (driveFilePath drive)
-    filePath
-      | "/" `isPrefixOf` rawPath = rawPath -- Absolute path
-      | otherwise = basePath </> rawPath -- Relative path
+    filePath diskImage =
+      let rawPath = T.unpack (diskImageFilePath diskImage)
+       in if "/" `isPrefixOf` rawPath
+            then rawPath -- Absolute path
+            else basePath </> rawPath -- Relative path
 
 -- | Check if a string starts with a prefix
 isPrefixOf :: String -> String -> Bool

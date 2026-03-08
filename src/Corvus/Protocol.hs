@@ -16,6 +16,8 @@ module Corvus.Protocol
     VmDetails (..),
     DriveInfo (..),
     NetIfInfo (..),
+    DiskImageInfo (..),
+    SnapshotInfo (..),
   )
 where
 
@@ -44,6 +46,33 @@ data Request
     ReqVmPause !Int64
   | -- | Reset VM (any -> stopped)
     ReqVmReset !Int64
+  | -- | Disk image operations
+    -- | Create disk image (name, format, sizeMb)
+    ReqDiskCreate !Text !DriveFormat !Int64
+  | -- | Delete disk image (diskImageId)
+    ReqDiskDelete !Int64
+  | -- | Resize disk image (diskImageId, newSizeMb)
+    ReqDiskResize !Int64 !Int64
+  | -- | List all disk images
+    ReqDiskList
+  | -- | Show disk image details (diskImageId)
+    ReqDiskShow !Int64
+  | -- | Snapshot operations (qcow2 only)
+    -- | Create snapshot (diskImageId, snapshotName)
+    ReqSnapshotCreate !Int64 !Text
+  | -- | Delete snapshot (diskImageId, snapshotId)
+    ReqSnapshotDelete !Int64 !Int64
+  | -- | Rollback to snapshot (diskImageId, snapshotId)
+    ReqSnapshotRollback !Int64 !Int64
+  | -- | Merge snapshot (diskImageId, snapshotId)
+    ReqSnapshotMerge !Int64 !Int64
+  | -- | List snapshots (diskImageId)
+    ReqSnapshotList !Int64
+  | -- | Attach/detach operations
+    -- | Attach disk to VM (vmId, diskImageId, interface, media)
+    ReqDiskAttach !Int64 !Int64 !DriveInterface !(Maybe DriveMedia)
+  | -- | Detach disk from VM (vmId, driveId)
+    ReqDiskDetach !Int64 !Int64
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -70,6 +99,7 @@ data VmInfo = VmInfo
 -- | Drive info for details view
 data DriveInfo = DriveInfo
   { diId :: !Int64,
+    diDiskImageId :: !Int64,
     diInterface :: !DriveInterface,
     diFilePath :: !Text,
     diFormat :: !DriveFormat,
@@ -107,6 +137,28 @@ data VmDetails = VmDetails
   }
   deriving (Eq, Show, Generic, Binary)
 
+-- | Disk image info for list/show view
+data DiskImageInfo = DiskImageInfo
+  { diiId :: !Int64,
+    diiName :: !Text,
+    diiFilePath :: !Text,
+    diiFormat :: !DriveFormat,
+    diiSizeMb :: !(Maybe Int),
+    diiCreatedAt :: !UTCTime,
+    -- | VM IDs this disk is attached to
+    diiAttachedTo :: ![Int64]
+  }
+  deriving (Eq, Show, Generic, Binary)
+
+-- | Snapshot info
+data SnapshotInfo = SnapshotInfo
+  { sniId :: !Int64,
+    sniName :: !Text,
+    sniCreatedAt :: !UTCTime,
+    sniSizeMb :: !(Maybe Int)
+  }
+  deriving (Eq, Show, Generic, Binary)
+
 -- | Server responses
 data Response
   = RespPong
@@ -120,6 +172,36 @@ data Response
     RespVmStateChanged !VmStatus
   | -- | Current status and error message
     RespInvalidTransition !VmStatus !Text
+  | -- | Disk image responses
+    -- | List of disk images
+    RespDiskList ![DiskImageInfo]
+  | -- | Single disk image info
+    RespDiskInfo !DiskImageInfo
+  | -- | Disk created successfully (new disk ID)
+    RespDiskCreated !Int64
+  | -- | Disk image not found
+    RespDiskNotFound
+  | -- | Disk operation successful
+    RespDiskOk
+  | -- | Snapshot responses
+    -- | List of snapshots
+    RespSnapshotList ![SnapshotInfo]
+  | -- | Snapshot created successfully (new snapshot ID)
+    RespSnapshotCreated !Int64
+  | -- | Snapshot not found
+    RespSnapshotNotFound
+  | -- | Snapshot operation successful
+    RespSnapshotOk
+  | -- | Drive attached successfully (new drive ID)
+    RespDiskAttached !Int64
+  | -- | Drive not found
+    RespDriveNotFound
+  | -- | Operation not supported for this format
+    RespFormatNotSupported !Text
+  | -- | VM must be stopped for this operation
+    RespVmMustBeStopped
+  | -- | Disk is still attached to VMs
+    RespDiskInUse ![Int64]
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with a length prefix (8 bytes, big-endian)

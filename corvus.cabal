@@ -21,6 +21,7 @@ library
       Corvus.Handlers
       Corvus.Handlers.Core
       Corvus.Handlers.Vm
+      Corvus.Handlers.Disk
       Corvus.Client
       Corvus.Client.Config
       Corvus.Client.Connection
@@ -33,9 +34,11 @@ library
       Corvus.Qemu.Config
       Corvus.Qemu.Runtime
       Corvus.Qemu.Qmp
+      Corvus.Qemu.QmpQQ
       Corvus.Qemu.Process
       Corvus.Qemu.Command
       Corvus.Qemu.Virtiofsd
+      Corvus.Qemu.Image
   other-modules:
       Paths_corvus
   autogen-modules:
@@ -58,7 +61,9 @@ library
       QuasiQuotes
       TemplateHaskell
   build-depends:
-      async
+      aeson
+    , aeson-qq
+    , async
     , base >=4.7 && <5
     , binary
     , bytestring
@@ -76,6 +81,7 @@ library
     , process
     , resource-pool
     , stm
+    , template-haskell
     , text
     , time
     , unix
@@ -107,7 +113,9 @@ executable corvus
       TemplateHaskell
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
-      async
+      aeson
+    , aeson-qq
+    , async
     , base >=4.7 && <5
     , binary
     , bytestring
@@ -126,6 +134,7 @@ executable corvus
     , process
     , resource-pool
     , stm
+    , template-haskell
     , text
     , time
     , unix
@@ -157,7 +166,9 @@ executable crv
       TemplateHaskell
   ghc-options: -threaded -rtsopts
   build-depends:
-      async
+      aeson
+    , aeson-qq
+    , async
     , base >=4.7 && <5
     , binary
     , bytestring
@@ -176,6 +187,7 @@ executable crv
     , process
     , resource-pool
     , stm
+    , template-haskell
     , text
     , time
     , unix

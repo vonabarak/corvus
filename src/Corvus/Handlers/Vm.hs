@@ -21,8 +21,8 @@ where
 import Control.Concurrent (forkIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, runStdoutLoggingT)
-import Corvus.Model (VmStatus (..))
-import Corvus.Model hiding (VmStatus)
+import Corvus.Model (DriveFormat (..), VmStatus (..))
+import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Qemu
@@ -305,6 +305,8 @@ getVmDetails vmId = do
       -- Get socket paths
       monitorSock <- liftIO $ getMonitorSocket vmId
       spiceSock <- liftIO $ getSpiceSocket vmId
+      -- Build drive info by fetching disk images
+      driveInfos <- mapM toDriveInfo drives
       pure $
         Just
           VmDetails
@@ -315,26 +317,45 @@ getVmDetails vmId = do
               vdCpuCount = vmCpuCount vm,
               vdRamMb = vmRamMb vm,
               vdDescription = vmDescription vm,
-              vdDrives = map toDriveInfo drives,
+              vdDrives = driveInfos,
               vdNetIfs = map toNetIfInfo netIfs,
               vdMonitorSocket = T.pack monitorSock,
               vdSpiceSocket = T.pack spiceSock
             }
   where
-    toDriveInfo (Entity key drive) =
-      DriveInfo
-        { diId = fromSqlKey key,
-          diInterface = driveInterface drive,
-          diFilePath = driveFilePath drive,
-          diFormat = driveFormat drive,
-          diMedia = driveMedia drive,
-          diReadOnly = driveReadOnly drive,
-          diCacheType = driveCacheType drive,
-          diDiscard = driveDiscard drive
-        }
-    toNetIfInfo (Entity key netIf) =
+    toDriveInfo (Entity driveKey drive) = do
+      let diskImageKey = driveDiskImageId drive
+      mDiskImage <- get diskImageKey
+      case mDiskImage of
+        Nothing ->
+          pure
+            DriveInfo
+              { diId = fromSqlKey driveKey,
+                diDiskImageId = fromSqlKey diskImageKey,
+                diInterface = driveInterface drive,
+                diFilePath = "(deleted)",
+                diFormat = FormatRaw,
+                diMedia = driveMedia drive,
+                diReadOnly = driveReadOnly drive,
+                diCacheType = driveCacheType drive,
+                diDiscard = driveDiscard drive
+              }
+        Just diskImage ->
+          pure
+            DriveInfo
+              { diId = fromSqlKey driveKey,
+                diDiskImageId = fromSqlKey diskImageKey,
+                diInterface = driveInterface drive,
+                diFilePath = diskImageFilePath diskImage,
+                diFormat = diskImageFormat diskImage,
+                diMedia = driveMedia drive,
+                diReadOnly = driveReadOnly drive,
+                diCacheType = driveCacheType drive,
+                diDiscard = driveDiscard drive
+              }
+    toNetIfInfo (Entity netIfKey netIf) =
       NetIfInfo
-        { niId = fromSqlKey key,
+        { niId = fromSqlKey netIfKey,
           niType = networkInterfaceInterfaceType netIf,
           niHostDevice = networkInterfaceHostDevice netIf,
           niMacAddress = networkInterfaceMacAddress netIf

@@ -13,11 +13,15 @@ module Corvus.Model
     Vm (..),
     Drive (..),
     NetworkInterface (..),
+    DiskImage (..),
+    Snapshot (..),
 
     -- * Entity IDs
     VmId,
     DriveId,
     NetworkInterfaceId,
+    DiskImageId,
+    SnapshotId,
 
     -- * Entity Fields (for queries)
     EntityField (..),
@@ -321,11 +325,26 @@ Vm
     UniqueName name
     deriving Show Eq Generic
 
-Drive
-    vmId VmId
-    interface DriveInterface
+DiskImage
+    name Text
     filePath Text
     format DriveFormat
+    sizeMb Int Maybe
+    createdAt UTCTime
+    UniqueImagePath filePath
+    deriving Show Eq Generic
+
+Snapshot
+    diskImageId DiskImageId
+    name Text
+    createdAt UTCTime
+    sizeMb Int Maybe
+    deriving Show Eq Generic
+
+Drive
+    vmId VmId
+    diskImageId DiskImageId
+    interface DriveInterface
     media DriveMedia Maybe
     readOnly Bool default=false
     cacheType CacheType
@@ -352,6 +371,10 @@ SharedDir
 -- Binary instances for entities (for network serialization)
 instance Binary Vm
 
+instance Binary DiskImage
+
+instance Binary Snapshot
+
 instance Binary Drive
 
 instance Binary NetworkInterface
@@ -360,6 +383,14 @@ instance Binary SharedDir
 
 -- Binary instances for keys
 instance Binary (Key Vm) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key DiskImage) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key Snapshot) where
   put = Bin.put . fromSqlKey
   get = toSqlKey <$> Bin.get
 

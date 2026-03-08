@@ -32,6 +32,24 @@ module Corvus.Client
     vmPause,
     vmReset,
 
+    -- * Disk operations
+    DiskResult (..),
+    diskCreate,
+    diskDelete,
+    diskResize,
+    diskList,
+    diskShow,
+    diskAttach,
+    diskDetach,
+
+    -- * Snapshot operations
+    SnapshotResult (..),
+    snapshotCreate,
+    snapshotDelete,
+    snapshotRollback,
+    snapshotMerge,
+    snapshotList,
+
     -- * CLI types
     Options (..),
     Command (..),

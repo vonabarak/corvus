@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | QMP (QEMU Machine Protocol) interaction.
@@ -12,13 +13,24 @@ module Corvus.Qemu.Qmp
     qmpContinue,
     qmpStop,
 
+    -- * Hot-plug commands
+    qmpBlockdevAdd,
+    qmpDeviceAddDrive,
+    qmpDeviceDel,
+    qmpBlockdevDel,
+
     -- * Low-level
     sendQmpCommand,
     withUnixSocket,
+
+    -- * Re-export quasi-quoter
+    qmpQQ,
   )
 where
 
 import Control.Exception (SomeException, bracket, try)
+import Corvus.Model (DriveFormat (..), DriveInterface (..), EnumText (..))
+import Corvus.Qemu.QmpQQ (qmpQQ)
 import Corvus.Qemu.Runtime (getQmpSocket)
 import qualified Data.ByteString.Char8 as BS
 import Data.Int (Int64)
@@ -44,15 +56,125 @@ data QmpResult
 
 -- | Send graceful shutdown command via QMP
 qmpShutdown :: Int64 -> IO QmpResult
-qmpShutdown vmId = sendQmpCommand vmId "{\"execute\": \"system_powerdown\"}\n"
+qmpShutdown vmId =
+  sendQmpCommand vmId [qmpQQ| { "execute": "system_powerdown" } |]
 
 -- | Send continue command via QMP (resume paused VM)
 qmpContinue :: Int64 -> IO QmpResult
-qmpContinue vmId = sendQmpCommand vmId "{\"execute\": \"cont\"}\n"
+qmpContinue vmId =
+  sendQmpCommand vmId [qmpQQ| { "execute": "cont" } |]
 
 -- | Send stop command via QMP (pause VM)
 qmpStop :: Int64 -> IO QmpResult
-qmpStop vmId = sendQmpCommand vmId "{\"execute\": \"stop\"}\n"
+qmpStop vmId =
+  sendQmpCommand vmId [qmpQQ| { "execute": "stop" } |]
+
+--------------------------------------------------------------------------------
+-- Hot-plug Commands
+--------------------------------------------------------------------------------
+
+-- | Add a block device (for hot-plug)
+qmpBlockdevAdd ::
+  -- | VM ID
+  Int64 ->
+  -- | Node name (unique identifier for this block device)
+  Text ->
+  -- | File path to disk image
+  FilePath ->
+  -- | Disk format
+  DriveFormat ->
+  IO QmpResult
+qmpBlockdevAdd vmId nodeName filePath format = do
+  let formatStr = enumToText format
+      filePathText = T.pack filePath
+      cmd =
+        [qmpQQ|
+          {
+            "execute": "blockdev-add",
+            "arguments": {
+              "driver": #{formatStr},
+              "node-name": #{nodeName},
+              "file": {
+                "driver": "file",
+                "filename": #{filePathText}
+              }
+            }
+          }
+        |]
+  sendQmpCommand vmId cmd
+
+-- | Add a device using a block device (for hot-plug)
+qmpDeviceAddDrive ::
+  -- | VM ID
+  Int64 ->
+  -- | Device ID (unique identifier for this device)
+  Text ->
+  -- | Block device node name (from qmpBlockdevAdd)
+  Text ->
+  -- | Drive interface type
+  DriveInterface ->
+  IO QmpResult
+qmpDeviceAddDrive vmId deviceId nodeName iface = do
+  let driver = T.pack $ interfaceToDriver iface
+      cmd =
+        [qmpQQ|
+          {
+            "execute": "device_add",
+            "arguments": {
+              "driver": #{driver},
+              "id": #{deviceId},
+              "drive": #{nodeName}
+            }
+          }
+        |]
+  sendQmpCommand vmId cmd
+
+-- | Map drive interface to QEMU device driver name
+interfaceToDriver :: DriveInterface -> String
+interfaceToDriver InterfaceVirtio = "virtio-blk-pci"
+interfaceToDriver InterfaceIde = "ide-hd"
+interfaceToDriver InterfaceScsi = "scsi-hd"
+interfaceToDriver InterfaceSata = "ide-hd"
+interfaceToDriver InterfaceNvme = "nvme"
+interfaceToDriver InterfacePflash = "pflash"
+
+-- | Remove a device (for hot-unplug)
+qmpDeviceDel ::
+  -- | VM ID
+  Int64 ->
+  -- | Device ID (same as used in qmpDeviceAddDrive)
+  Text ->
+  IO QmpResult
+qmpDeviceDel vmId deviceId =
+  sendQmpCommand
+    vmId
+    [qmpQQ|
+      {
+        "execute": "device_del",
+        "arguments": {
+          "id": #{deviceId}
+        }
+      }
+    |]
+
+-- | Remove a block device (for hot-unplug, after device is removed)
+qmpBlockdevDel ::
+  -- | VM ID
+  Int64 ->
+  -- | Node name (same as used in qmpBlockdevAdd)
+  Text ->
+  IO QmpResult
+qmpBlockdevDel vmId nodeName =
+  sendQmpCommand
+    vmId
+    [qmpQQ|
+      {
+        "execute": "blockdev-del",
+        "arguments": {
+          "node-name": #{nodeName}
+        }
+      }
+    |]
 
 --------------------------------------------------------------------------------
 -- Low-level QMP Communication
@@ -66,7 +188,7 @@ sendQmpCommand vmId cmd = do
     -- Read QMP greeting
     _ <- recv sock 4096
     -- Send qmp_capabilities to enter command mode
-    sendAll sock "{\"execute\": \"qmp_capabilities\"}\n"
+    sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
     _ <- recv sock 4096
     -- Send the actual command
     sendAll sock cmd

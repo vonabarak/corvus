@@ -10,30 +10,32 @@ module Corvus.Client.Commands
     formatUptime,
     printVmInfo,
     printVmDetails,
+    printDiskInfo,
+    printSnapshotInfo,
   )
 where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, bracket, try)
-import Control.Monad (forever, when)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
 import Corvus.Client.Rpc
 import Corvus.Client.Types
-import Corvus.Model (EnumText (..), VmStatus (..))
-import Corvus.Protocol (DriveInfo (..), NetIfInfo (..), StatusInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Model (DriveFormat (..), DriveInterface (..), DriveMedia (..), EnumText (..), VmStatus (..), enumFromText)
+import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SnapshotInfo (..), StatusInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import qualified Data.ByteString as BS
 import Data.Char (ord)
 import Data.Int (Int64)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (defaultTimeLocale, formatTime)
 import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, defaultProtocol, socket)
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
 import System.Exit (exitFailure, exitSuccess)
-import System.IO (BufferMode (..), hFlush, hPutChar, hReady, hSetBuffering, hSetEcho, stdin, stdout)
+import System.IO (BufferMode (..), hFlush, hSetBuffering, hSetEcho, stdin, stdout)
 import System.Process (callProcess)
 import Text.Printf (printf)
 
@@ -160,6 +162,32 @@ runCommand opts = do
                 putStrLn "Press Ctrl+] to exit."
                 putStrLn ""
                 runMonitorSession monitorSock
+      -- Disk commands
+      DiskCreate name formatStr sizeMb -> do
+        case parseFormat formatStr of
+          Left err -> do
+            putStrLn $ "Error: " ++ T.unpack err
+            pure False
+          Right format -> handleDiskCreate conn name format sizeMb
+      DiskDelete diskId -> handleDiskDelete conn diskId
+      DiskResize diskId newSizeMb -> handleDiskResize conn diskId newSizeMb
+      DiskList -> handleDiskList conn
+      DiskShow diskId -> handleDiskShow conn diskId
+      DiskAttach vmId diskId ifaceStr media -> do
+        case parseInterface ifaceStr of
+          Left err -> do
+            putStrLn $ "Error: " ++ T.unpack err
+            pure False
+          Right iface -> do
+            let parsedMedia = media >>= parseMedia
+            handleDiskAttach conn vmId diskId iface parsedMedia
+      DiskDetach vmId driveId -> handleDiskDetach conn vmId driveId
+      -- Snapshot commands
+      SnapshotCreate diskId name -> handleSnapshotCreate conn diskId name
+      SnapshotDelete diskId snapshotId -> handleSnapshotDelete conn diskId snapshotId
+      SnapshotRollback diskId snapshotId -> handleSnapshotRollback conn diskId snapshotId
+      SnapshotMerge diskId snapshotId -> handleSnapshotMerge conn diskId snapshotId
+      SnapshotList diskId -> handleSnapshotList conn diskId
 
   case connResult of
     Left err -> do
@@ -333,3 +361,336 @@ formatUptime secs
         ++ "h "
         ++ show ((secs `mod` 3600) `div` 60)
         ++ "m"
+
+--------------------------------------------------------------------------------
+-- Disk Command Handlers
+--------------------------------------------------------------------------------
+
+-- | Parse format string to DriveFormat
+parseFormat :: Text -> Either Text DriveFormat
+parseFormat = enumFromText
+
+-- | Parse interface string to DriveInterface
+parseInterface :: Text -> Either Text DriveInterface
+parseInterface = enumFromText
+
+-- | Parse media string to DriveMedia
+parseMedia :: Text -> Maybe DriveMedia
+parseMedia t = case enumFromText t of
+  Right m -> Just m
+  Left _ -> Nothing
+
+-- | Handle disk create command
+handleDiskCreate :: Connection -> Text -> DriveFormat -> Int64 -> IO Bool
+handleDiskCreate conn name format sizeMb = do
+  resp <- diskCreate conn name format sizeMb
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (DiskCreated diskId) -> do
+      putStrLn $ "Disk image created with ID: " ++ show diskId
+      pure True
+    Right (DiskError msg) -> do
+      putStrLn $ "Error creating disk: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle disk delete command
+handleDiskDelete :: Connection -> Int64 -> IO Bool
+handleDiskDelete conn diskId = do
+  resp <- diskDelete conn diskId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right DiskOk -> do
+      putStrLn "Disk image deleted."
+      pure True
+    Right DiskNotFound -> do
+      putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right (DiskInUse vmIds) -> do
+      putStrLn $ "Disk is attached to VMs: " ++ show vmIds
+      putStrLn "Detach the disk first before deleting."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle disk resize command
+handleDiskResize :: Connection -> Int64 -> Int64 -> IO Bool
+handleDiskResize conn diskId newSizeMb = do
+  resp <- diskResize conn diskId newSizeMb
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right DiskOk -> do
+      putStrLn $ "Disk resized to " ++ show newSizeMb ++ " MB."
+      pure True
+    Right DiskNotFound -> do
+      putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right VmMustBeStopped -> do
+      putStrLn "Cannot resize disk while VM is running. Stop the VM first."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle disk list command
+handleDiskList :: Connection -> IO Bool
+handleDiskList conn = do
+  resp <- diskList conn
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (DiskListResult disks) -> do
+      if null disks
+        then putStrLn "No disk images found."
+        else do
+          putStrLn $
+            printf
+              "%-6s %-20s %-8s %10s %-20s"
+              ("ID" :: String)
+              ("NAME" :: String)
+              ("FORMAT" :: String)
+              ("SIZE_MB" :: String)
+              ("ATTACHED_TO" :: String)
+          putStrLn $ replicate 70 '-'
+          mapM_ printDiskInfo disks
+      pure True
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle disk show command
+handleDiskShow :: Connection -> Int64 -> IO Bool
+handleDiskShow conn diskId = do
+  resp <- diskShow conn diskId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (DiskInfo info) -> do
+      printDiskDetails info
+      pure True
+    Right DiskNotFound -> do
+      putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle disk attach command
+handleDiskAttach :: Connection -> Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> IO Bool
+handleDiskAttach conn vmId diskId iface media = do
+  resp <- diskAttach conn vmId diskId iface media
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (DriveAttached driveId) -> do
+      putStrLn $ "Disk attached. Drive ID: " ++ show driveId
+      pure True
+    Right DiskNotFound -> do
+      putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right DiskVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right (DiskError msg) -> do
+      putStrLn $ "Error attaching disk: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle disk detach command
+handleDiskDetach :: Connection -> Int64 -> Int64 -> IO Bool
+handleDiskDetach conn vmId driveId = do
+  resp <- diskDetach conn vmId driveId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right DiskOk -> do
+      putStrLn "Disk detached."
+      pure True
+    Right DriveNotFound -> do
+      putStrLn $ "Drive with ID " ++ show driveId ++ " not found."
+      pure False
+    Right DiskVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right (DiskError msg) -> do
+      putStrLn $ "Error detaching disk: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+--------------------------------------------------------------------------------
+-- Snapshot Command Handlers
+--------------------------------------------------------------------------------
+
+-- | Handle snapshot create command
+handleSnapshotCreate :: Connection -> Int64 -> Text -> IO Bool
+handleSnapshotCreate conn diskId name = do
+  resp <- snapshotCreate conn diskId name
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (SnapshotCreated snapId) -> do
+      putStrLn $ "Snapshot created with ID: " ++ show snapId
+      pure True
+    Right SnapshotDiskNotFound -> do
+      putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right (SnapshotFormatNotSupported msg) -> do
+      putStrLn $ "Error: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle snapshot delete command
+handleSnapshotDelete :: Connection -> Int64 -> Int64 -> IO Bool
+handleSnapshotDelete conn diskId snapshotId = do
+  resp <- snapshotDelete conn diskId snapshotId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right SnapshotOk -> do
+      putStrLn "Snapshot deleted."
+      pure True
+    Right SnapshotNotFound -> do
+      putStrLn $ "Snapshot with ID " ++ show snapshotId ++ " not found."
+      pure False
+    Right SnapshotDiskNotFound -> do
+      putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle snapshot rollback command
+handleSnapshotRollback :: Connection -> Int64 -> Int64 -> IO Bool
+handleSnapshotRollback conn diskId snapshotId = do
+  resp <- snapshotRollback conn diskId snapshotId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right SnapshotOk -> do
+      putStrLn "Rollback complete."
+      pure True
+    Right SnapshotNotFound -> do
+      putStrLn $ "Snapshot with ID " ++ show snapshotId ++ " not found."
+      pure False
+    Right SnapshotDiskNotFound -> do
+      putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right SnapshotVmMustBeStopped -> do
+      putStrLn "Cannot rollback while VM is running. Stop the VM first."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle snapshot merge command
+handleSnapshotMerge :: Connection -> Int64 -> Int64 -> IO Bool
+handleSnapshotMerge conn diskId snapshotId = do
+  resp <- snapshotMerge conn diskId snapshotId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right SnapshotOk -> do
+      putStrLn "Snapshot merged."
+      pure True
+    Right SnapshotNotFound -> do
+      putStrLn $ "Snapshot with ID " ++ show snapshotId ++ " not found."
+      pure False
+    Right SnapshotDiskNotFound -> do
+      putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right SnapshotVmMustBeStopped -> do
+      putStrLn "Cannot merge while VM is running. Stop the VM first."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle snapshot list command
+handleSnapshotList :: Connection -> Int64 -> IO Bool
+handleSnapshotList conn diskId = do
+  resp <- snapshotList conn diskId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (SnapshotListResult snaps) -> do
+      if null snaps
+        then putStrLn "No snapshots found."
+        else do
+          putStrLn $
+            printf
+              "%-6s %-30s %-20s %10s"
+              ("ID" :: String)
+              ("NAME" :: String)
+              ("CREATED" :: String)
+              ("SIZE_MB" :: String)
+          putStrLn $ replicate 70 '-'
+          mapM_ printSnapshotInfo snaps
+      pure True
+    Right SnapshotDiskNotFound -> do
+      putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+--------------------------------------------------------------------------------
+-- Disk/Snapshot Printers
+--------------------------------------------------------------------------------
+
+-- | Print disk image info in table format
+printDiskInfo :: DiskImageInfo -> IO ()
+printDiskInfo d =
+  putStrLn $
+    printf
+      "%-6d %-20s %-8s %10s %-20s"
+      (diiId d)
+      (T.unpack $ diiName d)
+      (T.unpack $ enumToText $ diiFormat d)
+      (maybe "-" show $ diiSizeMb d)
+      (if null (diiAttachedTo d) then "-" else show (diiAttachedTo d))
+
+-- | Print disk image details
+printDiskDetails :: DiskImageInfo -> IO ()
+printDiskDetails d = do
+  putStrLn $ "Disk ID:     " ++ show (diiId d)
+  putStrLn $ "Name:        " ++ T.unpack (diiName d)
+  putStrLn $ "File Path:   " ++ T.unpack (diiFilePath d)
+  putStrLn $ "Format:      " ++ T.unpack (enumToText $ diiFormat d)
+  putStrLn $ "Size (MB):   " ++ maybe "(unknown)" show (diiSizeMb d)
+  putStrLn $ "Created:     " ++ formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d)
+  putStrLn $ "Attached to: " ++ if null (diiAttachedTo d) then "(none)" else show (diiAttachedTo d)
+
+-- | Print snapshot info in table format
+printSnapshotInfo :: SnapshotInfo -> IO ()
+printSnapshotInfo s =
+  putStrLn $
+    printf
+      "%-6d %-30s %-20s %10s"
+      (sniId s)
+      (T.unpack $ sniName s)
+      (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (sniCreatedAt s))
+      (maybe "-" show $ sniSizeMb s)

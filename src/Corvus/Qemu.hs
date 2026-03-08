@@ -8,6 +8,7 @@
 -- * "Corvus.Qemu.Process" - VM process management
 -- * "Corvus.Qemu.Command" - QEMU command line generation
 -- * "Corvus.Qemu.Virtiofsd" - Virtiofsd process management for shared directories
+-- * "Corvus.Qemu.Image" - Disk image management using qemu-img
 module Corvus.Qemu
   ( -- * Configuration
     QemuConfig (..),
@@ -30,6 +31,11 @@ module Corvus.Qemu
     qmpShutdown,
     qmpContinue,
     qmpStop,
+    qmpBlockdevAdd,
+    qmpDeviceAddDrive,
+    qmpDeviceDel,
+    qmpBlockdevDel,
+    qmpQQ,
 
     -- * Process management
     killVmProcess,
@@ -43,11 +49,26 @@ module Corvus.Qemu
     -- * Command generation
     generateQemuCommand,
     generateQemuCommandIO,
+
+    -- * Disk image management
+    createImage,
+    deleteImage,
+    resizeImage,
+    getImageInfo,
+    createSnapshot,
+    deleteSnapshot,
+    rollbackSnapshot,
+    mergeSnapshot,
+    listSnapshots,
+    ImageInfo (..),
+    SnapshotData (..),
+    ImageResult (..),
   )
 where
 
 import Corvus.Qemu.Command
 import Corvus.Qemu.Config
+import Corvus.Qemu.Image
 import Corvus.Qemu.Process
 import Corvus.Qemu.Qmp
 import Corvus.Qemu.Runtime

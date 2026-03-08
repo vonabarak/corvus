@@ -9,6 +9,9 @@ module Corvus.Client.Parser
 where
 
 import Corvus.Client.Types
+import Data.Int (Int64)
+import Data.Text (Text)
+import qualified Data.Text as T
 import Options.Applicative
 
 -- | Parser for the ping command
@@ -127,6 +130,256 @@ vmCommandParser =
           (info vmMonitorCommand (progDesc "Connect to VM's HMP monitor (Ctrl+] to exit)"))
     )
 
+--------------------------------------------------------------------------------
+-- Disk Image Command Parsers
+--------------------------------------------------------------------------------
+
+-- | Helper to parse size with unit suffix (e.g., "10G", "1024M")
+parseSizeWithUnit :: ReadM Int64
+parseSizeWithUnit = eitherReader $ \s ->
+  case reads s of
+    [(n, "")] -> Right n
+    [(n, "M")] -> Right n
+    [(n, "G")] -> Right (n * 1024)
+    [(n, "T")] -> Right (n * 1024 * 1024)
+    _ -> Left $ "Invalid size format: " ++ s ++ " (use number with optional M/G/T suffix)"
+
+-- | Parser for disk create
+diskCreateCommand :: Parser Command
+diskCreateCommand =
+  DiskCreate
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the disk image"
+      )
+    <*> strOption
+      ( long "format"
+          <> short 'f'
+          <> metavar "FORMAT"
+          <> value "qcow2"
+          <> help "Disk format: qcow2, raw, vmdk, vdi (default: qcow2)"
+      )
+    <*> option
+      parseSizeWithUnit
+      ( long "size"
+          <> short 's'
+          <> metavar "SIZE"
+          <> help "Disk size in MB (or with suffix: 10G, 100M)"
+      )
+
+-- | Parser for disk delete
+diskDeleteCommand :: Parser Command
+diskDeleteCommand =
+  DiskDelete
+    <$> argument
+      auto
+      ( metavar "DISK_ID"
+          <> help "ID of the disk image to delete"
+      )
+
+-- | Parser for disk resize
+diskResizeCommand :: Parser Command
+diskResizeCommand =
+  DiskResize
+    <$> argument
+      auto
+      ( metavar "DISK_ID"
+          <> help "ID of the disk image to resize"
+      )
+    <*> option
+      parseSizeWithUnit
+      ( long "size"
+          <> short 's'
+          <> metavar "SIZE"
+          <> help "New size in MB (or with suffix: 20G, 2048M)"
+      )
+
+-- | Parser for disk list
+diskListCommand :: Parser Command
+diskListCommand = pure DiskList
+
+-- | Parser for disk show
+diskShowCommand :: Parser Command
+diskShowCommand =
+  DiskShow
+    <$> argument
+      auto
+      ( metavar "DISK_ID"
+          <> help "ID of the disk image to show"
+      )
+
+-- | Parser for disk attach
+diskAttachCommand :: Parser Command
+diskAttachCommand =
+  DiskAttach
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+    <*> argument
+      auto
+      ( metavar "DISK_ID"
+          <> help "ID of the disk image to attach"
+      )
+    <*> strOption
+      ( long "interface"
+          <> short 'i'
+          <> metavar "INTERFACE"
+          <> value "virtio"
+          <> help "Drive interface: virtio, ide, scsi, sata, nvme (default: virtio)"
+      )
+    <*> optional
+      ( strOption
+          ( long "media"
+              <> short 'm'
+              <> metavar "MEDIA"
+              <> help "Media type: disk, cdrom"
+          )
+      )
+
+-- | Parser for disk detach
+diskDetachCommand :: Parser Command
+diskDetachCommand =
+  DiskDetach
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+    <*> argument
+      auto
+      ( metavar "DRIVE_ID"
+          <> help "ID of the drive to detach"
+      )
+
+-- | Parser for all disk subcommands
+diskCommandParser :: Parser Command
+diskCommandParser =
+  subparser
+    ( command
+        "create"
+        (info diskCreateCommand (progDesc "Create a new disk image"))
+        <> command
+          "delete"
+          (info diskDeleteCommand (progDesc "Delete a disk image"))
+        <> command
+          "resize"
+          (info diskResizeCommand (progDesc "Resize a disk image"))
+        <> command
+          "list"
+          (info diskListCommand (progDesc "List all disk images"))
+        <> command
+          "show"
+          (info diskShowCommand (progDesc "Show disk image details"))
+        <> command
+          "attach"
+          (info diskAttachCommand (progDesc "Attach a disk to a VM"))
+        <> command
+          "detach"
+          (info diskDetachCommand (progDesc "Detach a disk from a VM"))
+    )
+
+--------------------------------------------------------------------------------
+-- Snapshot Command Parsers
+--------------------------------------------------------------------------------
+
+-- | Parser for snapshot create
+snapshotCreateCommand :: Parser Command
+snapshotCreateCommand =
+  SnapshotCreate
+    <$> argument
+      auto
+      ( metavar "DISK_ID"
+          <> help "ID of the disk image"
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the snapshot"
+      )
+
+-- | Parser for snapshot delete
+snapshotDeleteCommand :: Parser Command
+snapshotDeleteCommand =
+  SnapshotDelete
+    <$> argument
+      auto
+      ( metavar "DISK_ID"
+          <> help "ID of the disk image"
+      )
+    <*> argument
+      auto
+      ( metavar "SNAPSHOT_ID"
+          <> help "ID of the snapshot to delete"
+      )
+
+-- | Parser for snapshot rollback
+snapshotRollbackCommand :: Parser Command
+snapshotRollbackCommand =
+  SnapshotRollback
+    <$> argument
+      auto
+      ( metavar "DISK_ID"
+          <> help "ID of the disk image"
+      )
+    <*> argument
+      auto
+      ( metavar "SNAPSHOT_ID"
+          <> help "ID of the snapshot to rollback to"
+      )
+
+-- | Parser for snapshot merge
+snapshotMergeCommand :: Parser Command
+snapshotMergeCommand =
+  SnapshotMerge
+    <$> argument
+      auto
+      ( metavar "DISK_ID"
+          <> help "ID of the disk image"
+      )
+    <*> argument
+      auto
+      ( metavar "SNAPSHOT_ID"
+          <> help "ID of the snapshot to merge"
+      )
+
+-- | Parser for snapshot list
+snapshotListCommand :: Parser Command
+snapshotListCommand =
+  SnapshotList
+    <$> argument
+      auto
+      ( metavar "DISK_ID"
+          <> help "ID of the disk image"
+      )
+
+-- | Parser for all snapshot subcommands
+snapshotCommandParser :: Parser Command
+snapshotCommandParser =
+  subparser
+    ( command
+        "create"
+        (info snapshotCreateCommand (progDesc "Create a snapshot (qcow2 only)"))
+        <> command
+          "delete"
+          (info snapshotDeleteCommand (progDesc "Delete a snapshot"))
+        <> command
+          "rollback"
+          (info snapshotRollbackCommand (progDesc "Rollback to a snapshot (VM must be stopped)"))
+        <> command
+          "merge"
+          (info snapshotMergeCommand (progDesc "Merge a snapshot (VM must be stopped)"))
+        <> command
+          "list"
+          (info snapshotListCommand (progDesc "List snapshots for a disk"))
+    )
+
+--------------------------------------------------------------------------------
+-- Main Command Parser
+--------------------------------------------------------------------------------
+
 -- | Parser for all commands
 commandParser :: Parser Command
 commandParser =
@@ -143,6 +396,12 @@ commandParser =
         <> command
           "vm"
           (info vmCommandParser (progDesc "VM management commands"))
+        <> command
+          "disk"
+          (info diskCommandParser (progDesc "Disk image management commands"))
+        <> command
+          "snapshot"
+          (info snapshotCommandParser (progDesc "Snapshot management commands"))
     )
 
 -- | Parser for global options
