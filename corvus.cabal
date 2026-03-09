@@ -193,3 +193,72 @@ executable crv
     , unix
     , unliftio-core
   default-language: Haskell2010
+
+test-suite corvus-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Corvus.DiskSpec
+      Corvus.SnapshotSpec
+      Corvus.VmSpec
+      Test.Database
+      Test.DSL.Core
+      Test.DSL.Given
+      Test.DSL.Then
+      Test.DSL.When
+      Test.Prelude
+      Paths_corvus
+  autogen-modules:
+      Paths_corvus
+  hs-source-dirs:
+      test
+  default-extensions:
+      OverloadedStrings
+      DeriveGeneric
+      DeriveAnyClass
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      StandaloneDeriving
+      TypeFamilies
+      GADTs
+      UndecidableInstances
+      DataKinds
+      FlexibleInstances
+      MultiParamTypeClasses
+      QuasiQuotes
+      TemplateHaskell
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      QuickCheck
+    , aeson
+    , aeson-qq
+    , async
+    , base >=4.7 && <5
+    , binary
+    , bytestring
+    , corvus
+    , directory
+    , esqueleto
+    , exceptions
+    , filepath
+    , hspec
+    , hspec-discover
+    , hspec-expectations
+    , monad-logger
+    , mtl
+    , network
+    , network-simple
+    , optparse-applicative
+    , persistent
+    , persistent-postgresql
+    , process
+    , random
+    , resource-pool
+    , stm
+    , template-haskell
+    , text
+    , time
+    , unix
+    , unliftio-core
+    , uuid
+  default-language: Haskell2010

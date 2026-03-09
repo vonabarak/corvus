@@ -178,7 +178,7 @@ handleDiskResponse result = case result of
   Right RespVmMustBeStopped -> Right VmMustBeStopped
   Right (RespFormatNotSupported msg) -> Right $ FormatNotSupported msg
   Right RespVmNotFound -> Right DiskVmNotFound
-  Right (RespError msg) -> Left $ ServerError msg
+  Right (RespError msg) -> Right $ DiskError msg
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Create a new disk image
@@ -254,7 +254,7 @@ handleSnapshotResponse result = case result of
   Right RespDiskNotFound -> Right SnapshotDiskNotFound
   Right RespVmMustBeStopped -> Right SnapshotVmMustBeStopped
   Right (RespFormatNotSupported msg) -> Right $ SnapshotFormatNotSupported msg
-  Right (RespError msg) -> Left $ ServerError msg
+  Right (RespError msg) -> Right $ SnapshotError msg
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Create a snapshot

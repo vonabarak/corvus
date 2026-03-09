@@ -185,10 +185,17 @@ parseImageInfo output = do
         [] -> Nothing
 
     extractSizeMb line =
-      let parts = T.words line
-       in case mapMaybe (readMaybe . T.unpack) parts of
-            (n : _) -> Right $ n `div` (1024 * 1024)
-            [] -> Left "Could not parse size"
+      -- qemu-img info output: "virtual size: 10 GiB (10737418240 bytes)"
+      -- Extract the byte count from inside parentheses
+      case T.breakOn "(" line of
+        (_, rest)
+          | not (T.null rest) ->
+              -- rest is "(10737418240 bytes)" - extract the number
+              let numStr = T.takeWhile (`elem` ['0' .. '9']) $ T.drop 1 rest
+               in case readMaybe (T.unpack numStr) of
+                    Just n -> Right $ n `div` (1024 * 1024)
+                    Nothing -> Left "Could not parse byte count from parentheses"
+        _ -> Left "Could not find byte count in parentheses"
 
     parseSnapshots ls =
       let textLines = map T.pack ls
@@ -277,23 +284,20 @@ rollbackSnapshot path name = do
             then pure $ ImageFormatNotSupported "Snapshots require qcow2 format"
             else pure $ ImageError $ T.pack stderr
 
--- | Merge/commit a snapshot (converts snapshot to base)
--- This uses qemu-img commit to merge changes into the backing file
+-- | Merge a snapshot (deletes snapshot metadata, preserving current disk state)
+-- For internal qcow2 snapshots, merging simply removes the snapshot record
+-- while keeping all current data intact. This is the opposite of rollback.
 mergeSnapshot ::
   -- | File path
   FilePath ->
-  -- | Snapshot name (to delete after merge)
+  -- | Snapshot name to merge (delete)
   Text ->
   IO ImageResult
 mergeSnapshot path name = do
   exists <- doesFileExist path
   if not exists
     then pure ImageNotFound
-    else do
-      rollbackResult <- rollbackSnapshot path name
-      case rollbackResult of
-        ImageSuccess -> deleteSnapshot path name
-        other -> pure other
+    else deleteSnapshot path name
 
 -- | List snapshots in an image (qcow2 only)
 listSnapshots ::

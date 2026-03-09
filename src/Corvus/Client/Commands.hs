@@ -179,8 +179,13 @@ runCommand opts = do
             putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right iface -> do
-            let parsedMedia = media >>= parseMedia
-            handleDiskAttach conn vmId diskId iface parsedMedia
+            case media of
+              Nothing -> handleDiskAttach conn vmId diskId iface Nothing
+              Just m -> case parseMedia m of
+                Left err -> do
+                  putStrLn $ "Error: " ++ T.unpack err
+                  pure False
+                Right parsedMedia -> handleDiskAttach conn vmId diskId iface (Just parsedMedia)
       DiskDetach vmId driveId -> handleDiskDetach conn vmId driveId
       -- Snapshot commands
       SnapshotCreate diskId name -> handleSnapshotCreate conn diskId name
@@ -375,10 +380,8 @@ parseInterface :: Text -> Either Text DriveInterface
 parseInterface = enumFromText
 
 -- | Parse media string to DriveMedia
-parseMedia :: Text -> Maybe DriveMedia
-parseMedia t = case enumFromText t of
-  Right m -> Just m
-  Left _ -> Nothing
+parseMedia :: Text -> Either Text DriveMedia
+parseMedia = enumFromText
 
 -- | Handle disk create command
 handleDiskCreate :: Connection -> Text -> DriveFormat -> Int64 -> IO Bool
@@ -555,6 +558,9 @@ handleSnapshotCreate conn diskId name = do
     Right (SnapshotFormatNotSupported msg) -> do
       putStrLn $ "Error: " ++ T.unpack msg
       pure False
+    Right SnapshotVmMustBeStopped -> do
+      putStrLn "Cannot create snapshot while VM is running. Stop the VM first."
+      pure False
     Right other -> do
       putStrLn $ "Unexpected response: " ++ show other
       pure False
@@ -575,6 +581,9 @@ handleSnapshotDelete conn diskId snapshotId = do
       pure False
     Right SnapshotDiskNotFound -> do
       putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right SnapshotVmMustBeStopped -> do
+      putStrLn "Cannot delete snapshot while VM is running. Stop the VM first."
       pure False
     Right other -> do
       putStrLn $ "Unexpected response: " ++ show other
