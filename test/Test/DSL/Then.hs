@@ -16,6 +16,15 @@ module Test.DSL.Then
     responseIsSnapshotCreated,
     responseIsSnapshotNotFound,
 
+    -- * Shared directory response assertions
+    thenSharedDirListIsEmpty,
+    thenSharedDirListHasCount,
+    thenSharedDirAdded,
+    thenSharedDirOk,
+    thenSharedDirNotFound,
+    thenSharedDirError,
+    thenVmNotFound,
+
     -- * Database state assertions
     vmExists,
     vmNotExists,
@@ -46,6 +55,8 @@ import Corvus.Model
 import Corvus.Protocol
 import Data.Int (Int64)
 import Data.Maybe (isJust, isNothing)
+import Data.Text (Text)
+import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Sql (toSqlKey)
 import Test.DSL.Core (TestM, getLastResponse, runDb)
@@ -270,3 +281,50 @@ shouldBeFalse value = liftIO $ value `shouldBe` False
 -- | Assert equality
 shouldEqual :: (Show a, Eq a) => a -> a -> TestM ()
 shouldEqual actual expected = liftIO $ actual `shouldBe` expected
+
+--------------------------------------------------------------------------------
+-- Shared Directory Response Assertions
+--------------------------------------------------------------------------------
+
+-- | Assert that the response is an empty shared directory list
+thenSharedDirListIsEmpty :: Response -> TestM ()
+thenSharedDirListIsEmpty resp = case resp of
+  RespSharedDirList dirs -> liftIO $ length dirs `shouldBe` 0
+  other -> liftIO $ fail $ "Expected RespSharedDirList, got: " ++ show other
+
+-- | Assert that the response is a shared directory list with the given count
+thenSharedDirListHasCount :: Response -> Int -> TestM ()
+thenSharedDirListHasCount resp expected = case resp of
+  RespSharedDirList dirs -> liftIO $ length dirs `shouldBe` expected
+  other -> liftIO $ fail $ "Expected RespSharedDirList, got: " ++ show other
+
+-- | Assert that a shared directory was added successfully
+thenSharedDirAdded :: Response -> TestM ()
+thenSharedDirAdded resp = case resp of
+  RespSharedDirAdded _ -> pure ()
+  other -> liftIO $ fail $ "Expected RespSharedDirAdded, got: " ++ show other
+
+-- | Assert that the response is RespSharedDirOk
+thenSharedDirOk :: Response -> TestM ()
+thenSharedDirOk resp = case resp of
+  RespSharedDirOk -> pure ()
+  other -> liftIO $ fail $ "Expected RespSharedDirOk, got: " ++ show other
+
+-- | Assert that the response is RespSharedDirNotFound
+thenSharedDirNotFound :: Response -> TestM ()
+thenSharedDirNotFound resp = case resp of
+  RespSharedDirNotFound -> pure ()
+  other -> liftIO $ fail $ "Expected RespSharedDirNotFound, got: " ++ show other
+
+-- | Assert that the response is a shared directory error containing the given text
+thenSharedDirError :: Response -> Text -> TestM ()
+thenSharedDirError resp expectedText = case resp of
+  RespError msg ->
+    liftIO $ msg `shouldSatisfy` T.isInfixOf expectedText
+  other -> liftIO $ fail $ "Expected RespError containing '" ++ T.unpack expectedText ++ "', got: " ++ show other
+
+-- | Assert that the response is RespVmNotFound
+thenVmNotFound :: Response -> TestM ()
+thenVmNotFound resp = case resp of
+  RespVmNotFound -> pure ()
+  other -> liftIO $ fail $ "Expected RespVmNotFound, got: " ++ show other

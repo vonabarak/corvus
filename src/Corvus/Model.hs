@@ -39,6 +39,15 @@ module Corvus.Model
     SharedDir (..),
     SharedDirId,
 
+    -- * SSH key entities
+    SshKey (..),
+    SshKeyId,
+    VmSshKey (..),
+    VmSshKeyId,
+
+    -- * Unique constraints
+    Unique (..),
+
     -- * Enum conversion type class
     EnumText (..),
 
@@ -366,6 +375,19 @@ SharedDir
     readOnly Bool default=false
     pid Int Maybe
     deriving Show Eq Generic
+
+SshKey
+    name Text
+    publicKey Text
+    createdAt UTCTime
+    UniqueSshKeyName name
+    deriving Show Eq Generic
+
+VmSshKey
+    vmId VmId
+    sshKeyId SshKeyId
+    UniqueVmSshKey vmId sshKeyId
+    deriving Show Eq Generic
 |]
 
 -- Binary instances for entities (for network serialization)
@@ -380,6 +402,10 @@ instance Binary Drive
 instance Binary NetworkInterface
 
 instance Binary SharedDir
+
+instance Binary SshKey
+
+instance Binary VmSshKey
 
 -- Binary instances for keys
 instance Binary (Key Vm) where
@@ -403,5 +429,13 @@ instance Binary (Key NetworkInterface) where
   get = toSqlKey <$> Bin.get
 
 instance Binary (Key SharedDir) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key SshKey) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key VmSshKey) where
   put = Bin.put . fromSqlKey
   get = toSqlKey <$> Bin.get

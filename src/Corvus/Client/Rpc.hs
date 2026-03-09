@@ -11,6 +11,12 @@ module Corvus.Client.Rpc
     listVms,
     showVm,
 
+    -- * VM lifecycle
+    VmCreateResult (..),
+    VmDeleteResult (..),
+    vmCreate,
+    vmDelete,
+
     -- * VM actions
     VmActionResult (..),
     vmStart,
@@ -21,6 +27,7 @@ module Corvus.Client.Rpc
     -- * Disk operations
     DiskResult (..),
     diskCreate,
+    diskRegister,
     diskDelete,
     diskResize,
     diskList,
@@ -35,11 +42,32 @@ module Corvus.Client.Rpc
     snapshotRollback,
     snapshotMerge,
     snapshotList,
+
+    -- * Shared directory operations
+    SharedDirResult (..),
+    sharedDirAdd,
+    sharedDirRemove,
+    sharedDirList,
+
+    -- * Network interface operations
+    NetIfResult (..),
+    netIfAdd,
+    netIfRemove,
+    netIfList,
+
+    -- * SSH key operations
+    SshKeyResult (..),
+    sshKeyCreate,
+    sshKeyDelete,
+    sshKeyList,
+    sshKeyAttach,
+    sshKeyDetach,
+    sshKeyListForVm,
   )
 where
 
 import Corvus.Client.Connection
-import Corvus.Model (DriveFormat, DriveInterface, DriveMedia, VmStatus)
+import Corvus.Model (DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, VmStatus)
 import Corvus.Protocol
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -103,6 +131,46 @@ showVm conn vmId = do
     Right (RespVmDetails details) -> pure $ Right (Just details)
     Right RespVmNotFound -> pure $ Right Nothing
     Right (RespError msg) -> pure $ Left $ ServerError msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+--------------------------------------------------------------------------------
+-- VM Lifecycle
+--------------------------------------------------------------------------------
+
+-- | Result of VM create
+data VmCreateResult
+  = VmCreated !Int64
+  | VmCreateError !Text
+  deriving (Eq, Show)
+
+-- | Result of VM delete
+data VmDeleteResult
+  = VmDeleted
+  | VmDeleteNotFound
+  | VmDeleteRunning
+  | VmDeleteError !Text
+  deriving (Eq, Show)
+
+-- | Create a new VM
+vmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> IO (Either ConnectionError VmCreateResult)
+vmCreate conn name cpuCount ramMb description = do
+  result <- sendRequest conn (ReqVmCreate name cpuCount ramMb description)
+  case result of
+    Left err -> pure $ Left err
+    Right (RespVmCreated vmId) -> pure $ Right $ VmCreated vmId
+    Right (RespError msg) -> pure $ Right $ VmCreateError msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+-- | Delete a VM
+vmDelete :: Connection -> Int64 -> IO (Either ConnectionError VmDeleteResult)
+vmDelete conn vmId = do
+  result <- sendRequest conn (ReqVmDelete vmId)
+  case result of
+    Left err -> pure $ Left err
+    Right RespVmDeleted -> pure $ Right VmDeleted
+    Right RespVmNotFound -> pure $ Right VmDeleteNotFound
+    Right RespVmRunning -> pure $ Right VmDeleteRunning
+    Right (RespError msg) -> pure $ Right $ VmDeleteError msg
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 -- | Helper for VM action responses
@@ -185,6 +253,17 @@ handleDiskResponse result = case result of
 diskCreate :: Connection -> Text -> DriveFormat -> Int64 -> IO (Either ConnectionError DiskResult)
 diskCreate conn name format sizeMb =
   handleDiskResponse <$> sendRequest conn (ReqDiskCreate name format sizeMb)
+
+-- | Register an existing disk image file
+diskRegister ::
+  Connection ->
+  Text ->
+  Text ->
+  DriveFormat ->
+  Maybe Int64 ->
+  IO (Either ConnectionError DiskResult)
+diskRegister conn name filePath format sizeMb =
+  handleDiskResponse <$> sendRequest conn (ReqDiskRegister name filePath format sizeMb)
 
 -- | Delete a disk image
 diskDelete :: Connection -> Int64 -> IO (Either ConnectionError DiskResult)
@@ -281,3 +360,178 @@ snapshotMerge conn diskId snapshotId =
 snapshotList :: Connection -> Int64 -> IO (Either ConnectionError SnapshotResult)
 snapshotList conn diskId =
   handleSnapshotResponse <$> sendRequest conn (ReqSnapshotList diskId)
+
+--------------------------------------------------------------------------------
+-- Shared Directory Operations
+--------------------------------------------------------------------------------
+
+-- | Result of a shared directory operation
+data SharedDirResult
+  = -- | Operation succeeded
+    SharedDirOk
+  | -- | Shared directory added with new ID
+    SharedDirAdded !Int64
+  | -- | List of shared directories
+    SharedDirListResult ![SharedDirInfo]
+  | -- | Shared directory not found
+    SharedDirNotFound
+  | -- | VM not found
+    SharedDirVmNotFound
+  | -- | VM must be stopped for this operation
+    SharedDirVmMustBeStopped
+  | -- | Error with message
+    SharedDirError !Text
+  deriving (Eq, Show)
+
+-- | Helper for shared directory operation responses
+handleSharedDirResponse :: Either ConnectionError Response -> Either ConnectionError SharedDirResult
+handleSharedDirResponse result = case result of
+  Left err -> Left err
+  Right RespSharedDirOk -> Right SharedDirOk
+  Right (RespSharedDirAdded dirId) -> Right $ SharedDirAdded dirId
+  Right (RespSharedDirList dirs) -> Right $ SharedDirListResult dirs
+  Right RespSharedDirNotFound -> Right SharedDirNotFound
+  Right RespVmNotFound -> Right SharedDirVmNotFound
+  Right RespVmMustBeStopped -> Right SharedDirVmMustBeStopped
+  Right (RespError msg) -> Right $ SharedDirError msg
+  Right _ -> Left $ DecodeFailed "Unexpected response"
+
+-- | Add a shared directory to a VM
+sharedDirAdd ::
+  Connection ->
+  Int64 ->
+  Text ->
+  Text ->
+  SharedDirCache ->
+  Bool ->
+  IO (Either ConnectionError SharedDirResult)
+sharedDirAdd conn vmId path tag cache readOnly =
+  handleSharedDirResponse <$> sendRequest conn (ReqSharedDirAdd vmId path tag cache readOnly)
+
+-- | Remove a shared directory from a VM
+sharedDirRemove :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError SharedDirResult)
+sharedDirRemove conn vmId sharedDirId =
+  handleSharedDirResponse <$> sendRequest conn (ReqSharedDirRemove vmId sharedDirId)
+
+-- | List shared directories for a VM
+sharedDirList :: Connection -> Int64 -> IO (Either ConnectionError SharedDirResult)
+sharedDirList conn vmId =
+  handleSharedDirResponse <$> sendRequest conn (ReqSharedDirList vmId)
+
+--------------------------------------------------------------------------------
+-- Network Interface Operations
+--------------------------------------------------------------------------------
+
+-- | Result of a network interface operation
+data NetIfResult
+  = -- | Operation succeeded
+    NetIfOk
+  | -- | Network interface added with new ID
+    NetIfAdded !Int64
+  | -- | List of network interfaces
+    NetIfListResult ![NetIfInfo]
+  | -- | Network interface not found
+    NetIfNotFound
+  | -- | VM not found
+    NetIfVmNotFound
+  | -- | Error with message
+    NetIfError !Text
+  deriving (Eq, Show)
+
+-- | Helper for network interface operation responses
+handleNetIfResponse :: Either ConnectionError Response -> Either ConnectionError NetIfResult
+handleNetIfResponse result = case result of
+  Left err -> Left err
+  Right RespNetIfOk -> Right NetIfOk
+  Right (RespNetIfAdded netIfId) -> Right $ NetIfAdded netIfId
+  Right (RespNetIfList netIfs) -> Right $ NetIfListResult netIfs
+  Right RespNetIfNotFound -> Right NetIfNotFound
+  Right RespVmNotFound -> Right NetIfVmNotFound
+  Right (RespError msg) -> Right $ NetIfError msg
+  Right _ -> Left $ DecodeFailed "Unexpected response"
+
+-- | Add a network interface to a VM
+netIfAdd ::
+  Connection ->
+  Int64 ->
+  NetInterfaceType ->
+  Text ->
+  Text ->
+  IO (Either ConnectionError NetIfResult)
+netIfAdd conn vmId ifaceType hostDevice macAddress =
+  handleNetIfResponse <$> sendRequest conn (ReqNetIfAdd vmId ifaceType hostDevice macAddress)
+
+-- | Remove a network interface from a VM
+netIfRemove :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError NetIfResult)
+netIfRemove conn vmId netIfId =
+  handleNetIfResponse <$> sendRequest conn (ReqNetIfRemove vmId netIfId)
+
+-- | List network interfaces for a VM
+netIfList :: Connection -> Int64 -> IO (Either ConnectionError NetIfResult)
+netIfList conn vmId =
+  handleNetIfResponse <$> sendRequest conn (ReqNetIfList vmId)
+
+--------------------------------------------------------------------------------
+-- SSH Key Operations
+--------------------------------------------------------------------------------
+
+-- | Result of an SSH key operation
+data SshKeyResult
+  = -- | Operation succeeded
+    SshKeyOk
+  | -- | SSH key created with new ID
+    SshKeyCreated !Int64
+  | -- | List of SSH keys
+    SshKeyListResult ![SshKeyInfo]
+  | -- | SSH key not found
+    SshKeyNotFound
+  | -- | SSH key is in use by VMs
+    SshKeyInUse ![Int64]
+  | -- | VM not found
+    SshKeyVmNotFound
+  | -- | Error with message
+    SshKeyError !Text
+  deriving (Eq, Show)
+
+-- | Helper for SSH key operation responses
+handleSshKeyResponse :: Either ConnectionError Response -> Either ConnectionError SshKeyResult
+handleSshKeyResponse result = case result of
+  Left err -> Left err
+  Right RespSshKeyOk -> Right SshKeyOk
+  Right (RespSshKeyCreated keyId) -> Right $ SshKeyCreated keyId
+  Right (RespSshKeyList keys) -> Right $ SshKeyListResult keys
+  Right RespSshKeyNotFound -> Right SshKeyNotFound
+  Right (RespSshKeyInUse vmIds) -> Right $ SshKeyInUse vmIds
+  Right RespVmNotFound -> Right SshKeyVmNotFound
+  Right (RespError msg) -> Right $ SshKeyError msg
+  Right _ -> Left $ DecodeFailed "Unexpected response"
+
+-- | Create a new SSH key
+sshKeyCreate :: Connection -> Text -> Text -> IO (Either ConnectionError SshKeyResult)
+sshKeyCreate conn name publicKey =
+  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyCreate name publicKey)
+
+-- | Delete an SSH key
+sshKeyDelete :: Connection -> Int64 -> IO (Either ConnectionError SshKeyResult)
+sshKeyDelete conn keyId =
+  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyDelete keyId)
+
+-- | List all SSH keys
+sshKeyList :: Connection -> IO (Either ConnectionError SshKeyResult)
+sshKeyList conn =
+  handleSshKeyResponse <$> sendRequest conn ReqSshKeyList
+
+-- | Attach an SSH key to a VM
+sshKeyAttach :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError SshKeyResult)
+sshKeyAttach conn vmId keyId =
+  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyAttach vmId keyId)
+
+-- | Detach an SSH key from a VM
+sshKeyDetach :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError SshKeyResult)
+sshKeyDetach conn vmId keyId =
+  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyDetach vmId keyId)
+
+-- | List SSH keys for a VM
+sshKeyListForVm :: Connection -> Int64 -> IO (Either ConnectionError SshKeyResult)
+sshKeyListForVm conn vmId =
+  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyListForVm vmId)

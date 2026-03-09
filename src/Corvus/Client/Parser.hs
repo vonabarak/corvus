@@ -254,6 +254,29 @@ diskDetachCommand =
           <> help "ID of the drive to detach"
       )
 
+-- | Parser for disk import
+diskImportCommand :: Parser Command
+diskImportCommand =
+  DiskImport
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the disk image"
+      )
+    <*> argument
+      str
+      ( metavar "PATH"
+          <> help "Path to existing disk image file"
+      )
+    <*> optional
+      ( strOption
+          ( long "format"
+              <> short 'f'
+              <> metavar "FORMAT"
+              <> help "Disk format: qcow2, raw (auto-detected from extension if not specified)"
+          )
+      )
+
 -- | Parser for all disk subcommands
 diskCommandParser :: Parser Command
 diskCommandParser =
@@ -261,6 +284,9 @@ diskCommandParser =
     ( command
         "create"
         (info diskCreateCommand (progDesc "Create a new disk image"))
+        <> command
+          "import"
+          (info diskImportCommand (progDesc "Import an existing disk image"))
         <> command
           "delete"
           (info diskDeleteCommand (progDesc "Delete a disk image"))
@@ -377,6 +403,103 @@ snapshotCommandParser =
     )
 
 --------------------------------------------------------------------------------
+-- SSH Key Command Parsers
+--------------------------------------------------------------------------------
+
+-- | Parser for ssh-key create
+sshKeyCreateCommand :: Parser Command
+sshKeyCreateCommand =
+  SshKeyCreate
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the SSH key"
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "PUBLIC_KEY"
+          <> help "SSH public key content"
+      )
+
+-- | Parser for ssh-key delete
+sshKeyDeleteCommand :: Parser Command
+sshKeyDeleteCommand =
+  SshKeyDelete
+    <$> argument
+      auto
+      ( metavar "KEY_ID"
+          <> help "ID of the SSH key to delete"
+      )
+
+-- | Parser for ssh-key list
+sshKeyListCommand :: Parser Command
+sshKeyListCommand = pure SshKeyList
+
+-- | Parser for ssh-key attach
+sshKeyAttachCommand :: Parser Command
+sshKeyAttachCommand =
+  SshKeyAttach
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+    <*> argument
+      auto
+      ( metavar "KEY_ID"
+          <> help "ID of the SSH key to attach"
+      )
+
+-- | Parser for ssh-key detach
+sshKeyDetachCommand :: Parser Command
+sshKeyDetachCommand =
+  SshKeyDetach
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+    <*> argument
+      auto
+      ( metavar "KEY_ID"
+          <> help "ID of the SSH key to detach"
+      )
+
+-- | Parser for ssh-key list-vm
+sshKeyListVmCommand :: Parser Command
+sshKeyListVmCommand =
+  SshKeyListForVm
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+
+-- | Parser for all ssh-key subcommands
+sshKeyCommandParser :: Parser Command
+sshKeyCommandParser =
+  subparser
+    ( command
+        "create"
+        (info sshKeyCreateCommand (progDesc "Create a new SSH key"))
+        <> command
+          "delete"
+          (info sshKeyDeleteCommand (progDesc "Delete an SSH key"))
+        <> command
+          "list"
+          (info sshKeyListCommand (progDesc "List all SSH keys"))
+        <> command
+          "attach"
+          (info sshKeyAttachCommand (progDesc "Attach an SSH key to a VM"))
+        <> command
+          "detach"
+          (info sshKeyDetachCommand (progDesc "Detach an SSH key from a VM"))
+        <> command
+          "list-vm"
+          (info sshKeyListVmCommand (progDesc "List SSH keys attached to a VM"))
+    )
+
+--------------------------------------------------------------------------------
 -- Main Command Parser
 --------------------------------------------------------------------------------
 
@@ -402,6 +525,9 @@ commandParser =
         <> command
           "snapshot"
           (info snapshotCommandParser (progDesc "Snapshot management commands"))
+        <> command
+          "ssh-key"
+          (info sshKeyCommandParser (progDesc "SSH key management commands"))
     )
 
 -- | Parser for global options

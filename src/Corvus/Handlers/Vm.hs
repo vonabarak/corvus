@@ -7,6 +7,8 @@ module Corvus.Handlers.Vm
   ( -- * Handlers
     handleVmList,
     handleVmShow,
+    handleVmCreate,
+    handleVmDelete,
     handleVmStart,
     handleVmStop,
     handleVmPause,
@@ -33,6 +35,7 @@ import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
+import Data.Time (getCurrentTime)
 import System.Exit (ExitCode (..))
 import System.Process (waitForProcess)
 
@@ -91,6 +94,25 @@ handleVmShow state vmId = do
   case result of
     Nothing -> pure RespVmNotFound
     Just details -> pure $ RespVmDetails details
+
+-- | Handle VM create command
+handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> IO Response
+handleVmCreate state name cpuCount ramMb description = do
+  vmId <- runSqlPool (createVm name cpuCount ramMb description) (ssDbPool state)
+  pure $ RespVmCreated vmId
+
+-- | Handle VM delete command
+handleVmDelete :: ServerState -> Int64 -> IO Response
+handleVmDelete state vmId = do
+  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+  case result of
+    Nothing -> pure RespVmNotFound
+    Just (_, status) ->
+      if status == VmRunning || status == VmPaused
+        then pure RespVmRunning
+        else do
+          runSqlPool (deleteVm vmId) (ssDbPool state)
+          pure RespVmDeleted
 
 -- | Handle VM start command
 -- If stopped: set to running, start QEMU in background thread, monitor for exit
@@ -276,6 +298,38 @@ setVmStatus :: Int64 -> VmStatus -> SqlPersistT IO ()
 setVmStatus vmId status = do
   let key = toSqlKey vmId :: VmId
   update key [M.VmStatus =. status]
+
+-- | Create a new VM
+createVm :: Text -> Int -> Int -> Maybe Text -> SqlPersistT IO Int64
+createVm name cpuCount ramMb description = do
+  now <- liftIO getCurrentTime
+  let vm =
+        Vm
+          { vmName = name,
+            vmCreatedAt = now,
+            vmStatus = VmStopped,
+            vmCpuCount = cpuCount,
+            vmRamMb = ramMb,
+            vmDescription = description,
+            vmPid = Nothing
+          }
+  key <- insert vm
+  pure $ fromSqlKey key
+
+-- | Delete a VM and all associated resources
+deleteVm :: Int64 -> SqlPersistT IO ()
+deleteVm vmId = do
+  let key = toSqlKey vmId :: VmId
+  -- Delete SSH key associations
+  deleteWhere [M.VmSshKeyVmId ==. key]
+  -- Delete drives
+  deleteWhere [M.DriveVmId ==. key]
+  -- Delete network interfaces
+  deleteWhere [M.NetworkInterfaceVmId ==. key]
+  -- Delete shared directories
+  deleteWhere [M.SharedDirVmId ==. key]
+  -- Delete VM
+  delete key
 
 -- | List all VMs
 listVms :: SqlPersistT IO [VmInfo]

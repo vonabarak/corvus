@@ -9,9 +9,10 @@ module Corvus.Server
   )
 where
 
+import Control.Concurrent (forkFinally)
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Exception (bracket)
-import Control.Monad (forever)
+import Control.Monad (forever, void)
 import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
@@ -73,10 +74,12 @@ runUnixServer state path = do
       listen sock maxListenQueue
       forever $ do
         (clientSock, clientAddr) <- accept sock
-        -- Handle in same thread for simplicity (could fork)
-        runStdoutLoggingT $
-          handleConnection state clientSock clientAddr
-            `finally` liftIO (close clientSock)
+        void $
+          forkFinally
+            ( runStdoutLoggingT $
+                handleConnection state clientSock clientAddr
+            )
+            (\_ -> close clientSock)
 
 --------------------------------------------------------------------------------
 -- Connection Handling

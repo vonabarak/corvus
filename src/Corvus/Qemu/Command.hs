@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards   #-}
 
 -- | QEMU command line generation.
 -- Builds complete QEMU command lines from VM configuration.
@@ -17,20 +17,22 @@ module Corvus.Qemu.Command
   )
 where
 
-import Control.Monad.IO.Class (liftIO)
-import Corvus.Model
-import Corvus.Qemu.Config (QemuConfig (..), getEffectiveBasePath)
-import Corvus.Qemu.Runtime (getMonitorSocket, getQmpSocket, getSpiceSocket, getVmRuntimeDir)
-import Data.Int (Int64)
-import Data.List (intercalate)
-import Data.Maybe (catMaybes, fromMaybe)
-import Data.Pool (Pool)
-import Data.Text (Text)
-import qualified Data.Text as T
-import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlBackend, SqlPersistT, toSqlKey)
-import System.FilePath ((</>))
+import           Control.Monad.IO.Class      (liftIO)
+import           Corvus.Model
+import           Corvus.Qemu.Config          (QemuConfig (..),
+                                              getEffectiveBasePath)
+import           Corvus.Qemu.Runtime         (getMonitorSocket, getQmpSocket,
+                                              getSpiceSocket, getVmRuntimeDir)
+import           Data.Int                    (Int64)
+import           Data.List                   (intercalate)
+import           Data.Maybe                  (catMaybes, fromMaybe)
+import           Data.Pool                   (Pool)
+import           Data.Text                   (Text)
+import qualified Data.Text                   as T
+import           Database.Persist
+import           Database.Persist.Postgresql (runSqlPool)
+import           Database.Persist.Sql        (SqlBackend, SqlPersistT, toSqlKey)
+import           System.FilePath             ((</>))
 
 --------------------------------------------------------------------------------
 -- Command Generation (Public API)
@@ -46,7 +48,7 @@ generateQemuCommandIO pool config vmId = do
   vmRuntimeDir <- getVmRuntimeDir vmId
   result <- runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock vmRuntimeDir) pool
   pure $ case result of
-    Nothing -> Nothing
+    Nothing             -> Nothing
     Just (binary, args) -> Just $ unwords (binary : args)
 
 -- | Generate QEMU command line (runs in SqlPersistT)
@@ -264,7 +266,7 @@ isPrefixOf prefix str = take (length prefix) str == prefix
 -- | QEMU interface string (special case: nvme uses "none")
 interfaceForQemu :: DriveInterface -> String
 interfaceForQemu InterfaceNvme = "none" -- NVMe uses -device instead
-interfaceForQemu iface = T.unpack (enumToText iface)
+interfaceForQemu iface         = T.unpack (enumToText iface)
 
 --------------------------------------------------------------------------------
 -- Network Arguments
@@ -280,7 +282,9 @@ netArgs (idx, netIf) =
 
     netdevArgs = case networkInterfaceInterfaceType netIf of
       NetUser ->
-        ["-netdev", "user,id=" ++ netId]
+        -- For user mode, hostDevice can contain options like "hostfwd=tcp::2222-:22"
+        let userOpts = if null hostDev then "" else "," ++ hostDev
+         in ["-netdev", "user,id=" ++ netId ++ userOpts]
       NetTap ->
         ["-netdev", "tap,id=" ++ netId ++ ",ifname=" ++ hostDev ++ ",script=no,downscript=no"]
       NetBridge ->

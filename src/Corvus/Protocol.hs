@@ -18,10 +18,12 @@ module Corvus.Protocol
     NetIfInfo (..),
     DiskImageInfo (..),
     SnapshotInfo (..),
+    SharedDirInfo (..),
+    SshKeyInfo (..),
   )
 where
 
-import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, VmStatus)
+import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, VmStatus)
 import Data.Binary (Binary, decodeOrFail, encode)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as BL
@@ -38,6 +40,10 @@ data Request
   | ReqListVms
   | -- | VM ID
     ReqShowVm !Int64
+  | -- | Create VM (name, cpuCount, ramMb, description)
+    ReqVmCreate !Text !Int !Int !(Maybe Text)
+  | -- | Delete VM (vmId)
+    ReqVmDelete !Int64
   | -- | Start VM (stopped/paused -> running)
     ReqVmStart !Int64
   | -- | Stop VM (running -> stopped)
@@ -49,6 +55,8 @@ data Request
   | -- | Disk image operations
     -- | Create disk image (name, format, sizeMb)
     ReqDiskCreate !Text !DriveFormat !Int64
+  | -- | Register existing disk image (name, filePath, format, sizeMb)
+    ReqDiskRegister !Text !Text !DriveFormat !(Maybe Int64)
   | -- | Delete disk image (diskImageId)
     ReqDiskDelete !Int64
   | -- | Resize disk image (diskImageId, newSizeMb)
@@ -73,6 +81,33 @@ data Request
     ReqDiskAttach !Int64 !Int64 !DriveInterface !(Maybe DriveMedia)
   | -- | Detach disk from VM (vmId, driveId)
     ReqDiskDetach !Int64 !Int64
+  | -- | Shared directory operations
+    -- | Add shared directory to VM (vmId, hostPath, tag, cache, readOnly)
+    ReqSharedDirAdd !Int64 !Text !Text !SharedDirCache !Bool
+  | -- | Remove shared directory from VM (vmId, sharedDirId)
+    ReqSharedDirRemove !Int64 !Int64
+  | -- | List shared directories for VM (vmId)
+    ReqSharedDirList !Int64
+  | -- | Network interface operations
+    -- | Add network interface to VM (vmId, interfaceType, hostDevice, macAddress)
+    ReqNetIfAdd !Int64 !NetInterfaceType !Text !Text
+  | -- | Remove network interface from VM (vmId, netIfId)
+    ReqNetIfRemove !Int64 !Int64
+  | -- | List network interfaces for VM (vmId)
+    ReqNetIfList !Int64
+  | -- | SSH key operations
+    -- | Create SSH key (name, publicKey)
+    ReqSshKeyCreate !Text !Text
+  | -- | Delete SSH key (keyId)
+    ReqSshKeyDelete !Int64
+  | -- | List all SSH keys
+    ReqSshKeyList
+  | -- | Attach SSH key to VM (vmId, keyId)
+    ReqSshKeyAttach !Int64 !Int64
+  | -- | Detach SSH key from VM (vmId, keyId)
+    ReqSshKeyDetach !Int64 !Int64
+  | -- | List SSH keys for VM (vmId)
+    ReqSshKeyListForVm !Int64
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -159,6 +194,29 @@ data SnapshotInfo = SnapshotInfo
   }
   deriving (Eq, Show, Generic, Binary)
 
+-- | Shared directory info
+data SharedDirInfo = SharedDirInfo
+  { sdiId :: !Int64,
+    sdiPath :: !Text,
+    sdiTag :: !Text,
+    sdiCache :: !SharedDirCache,
+    sdiReadOnly :: !Bool,
+    -- | virtiofsd PID if running
+    sdiPid :: !(Maybe Int)
+  }
+  deriving (Eq, Show, Generic, Binary)
+
+-- | SSH key info
+data SshKeyInfo = SshKeyInfo
+  { skiId :: !Int64,
+    skiName :: !Text,
+    skiPublicKey :: !Text,
+    skiCreatedAt :: !UTCTime,
+    -- | VMs this key is attached to
+    skiAttachedVms :: ![Int64]
+  }
+  deriving (Eq, Show, Generic, Binary)
+
 -- | Server responses
 data Response
   = RespPong
@@ -168,6 +226,12 @@ data Response
   | RespVmList ![VmInfo]
   | RespVmDetails !VmDetails
   | RespVmNotFound
+  | -- | VM created successfully (new VM ID)
+    RespVmCreated !Int64
+  | -- | VM deleted successfully
+    RespVmDeleted
+  | -- | VM is running and cannot be deleted
+    RespVmRunning
   | -- | New status after successful transition
     RespVmStateChanged !VmStatus
   | -- | Current status and error message
@@ -202,6 +266,35 @@ data Response
     RespVmMustBeStopped
   | -- | Disk is still attached to VMs
     RespDiskInUse ![Int64]
+  | -- | Shared directory responses
+    -- | List of shared directories
+    RespSharedDirList ![SharedDirInfo]
+  | -- | Shared directory added (new ID)
+    RespSharedDirAdded !Int64
+  | -- | Shared directory operation successful
+    RespSharedDirOk
+  | -- | Shared directory not found
+    RespSharedDirNotFound
+  | -- | Network interface responses
+    -- | List of network interfaces
+    RespNetIfList ![NetIfInfo]
+  | -- | Network interface added (new ID)
+    RespNetIfAdded !Int64
+  | -- | Network interface operation successful
+    RespNetIfOk
+  | -- | Network interface not found
+    RespNetIfNotFound
+  | -- | SSH key responses
+    -- | List of SSH keys
+    RespSshKeyList ![SshKeyInfo]
+  | -- | SSH key created (new ID)
+    RespSshKeyCreated !Int64
+  | -- | SSH key operation successful
+    RespSshKeyOk
+  | -- | SSH key not found
+    RespSshKeyNotFound
+  | -- | SSH key is in use by VMs
+    RespSshKeyInUse ![Int64]
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with a length prefix (8 bytes, big-endian)

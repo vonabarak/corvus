@@ -12,6 +12,7 @@ module Corvus.Client.Commands
     printVmDetails,
     printDiskInfo,
     printSnapshotInfo,
+    printSshKeyInfo,
   )
 where
 
@@ -23,8 +24,12 @@ import Corvus.Client.Connection
 import Corvus.Client.Rpc
 import Corvus.Client.Types
 import Corvus.Model (DriveFormat (..), DriveInterface (..), DriveMedia (..), EnumText (..), VmStatus (..), enumFromText)
-import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SnapshotInfo (..), StatusInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SnapshotInfo (..), SshKeyInfo (..), StatusInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
+import Data.Maybe (fromMaybe)
+import System.Directory (canonicalizePath, doesFileExist)
+import System.Environment (lookupEnv)
+import System.FilePath (makeRelative, takeExtension, (</>))
 import qualified Data.ByteString as BS
 import Data.Char (ord)
 import Data.Int (Int64)
@@ -169,6 +174,7 @@ runCommand opts = do
             putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right format -> handleDiskCreate conn name format sizeMb
+      DiskImport name path mFormatStr -> handleDiskImport conn name path mFormatStr
       DiskDelete diskId -> handleDiskDelete conn diskId
       DiskResize diskId newSizeMb -> handleDiskResize conn diskId newSizeMb
       DiskList -> handleDiskList conn
@@ -193,6 +199,13 @@ runCommand opts = do
       SnapshotRollback diskId snapshotId -> handleSnapshotRollback conn diskId snapshotId
       SnapshotMerge diskId snapshotId -> handleSnapshotMerge conn diskId snapshotId
       SnapshotList diskId -> handleSnapshotList conn diskId
+      -- SSH key commands
+      SshKeyCreate name publicKey -> handleSshKeyCreate conn name publicKey
+      SshKeyDelete keyId -> handleSshKeyDelete conn keyId
+      SshKeyList -> handleSshKeyList conn
+      SshKeyAttach vmId keyId -> handleSshKeyAttach conn vmId keyId
+      SshKeyDetach vmId keyId -> handleSshKeyDetach conn vmId keyId
+      SshKeyListForVm vmId -> handleSshKeyListForVm conn vmId
 
   case connResult of
     Left err -> do
@@ -400,6 +413,67 @@ handleDiskCreate conn name format sizeMb = do
     Right other -> do
       putStrLn $ "Unexpected response: " ++ show other
       pure False
+
+-- | Handle disk import command
+handleDiskImport :: Connection -> Text -> FilePath -> Maybe Text -> IO Bool
+handleDiskImport conn name path mFormatStr = do
+  exists <- doesFileExist path
+  if not exists
+    then do
+      putStrLn $ "Error: File not found: " ++ path
+      pure False
+    else do
+      let ext = takeExtension path
+          format = case mFormatStr of
+            Just f -> parseFormat f
+            Nothing -> detectFormat ext
+      case format of
+        Left err -> do
+          putStrLn $ "Error: " ++ T.unpack err
+          pure False
+        Right fmt -> do
+          absPath <- canonicalizePath path
+          basePath <- getBaseImagesPath
+          let storedPath =
+                if basePath `isPrefixOfPath` absPath
+                  then makeRelative basePath absPath
+                  else absPath
+          resp <- diskRegister conn name (T.pack storedPath) fmt Nothing
+          case resp of
+            Left err -> do
+              putStrLn $ "Error: " ++ show err
+              pure False
+            Right (DiskCreated diskId) -> do
+              putStrLn $ "Disk image imported with ID: " ++ show diskId
+              if storedPath /= absPath
+                then putStrLn $ "Stored as relative path: " ++ storedPath
+                else putStrLn $ "Stored as absolute path: " ++ storedPath
+              pure True
+            Right (DiskError msg) -> do
+              putStrLn $ "Error importing disk: " ++ T.unpack msg
+              pure False
+            Right other -> do
+              putStrLn $ "Unexpected response: " ++ show other
+              pure False
+  where
+    detectFormat :: String -> Either Text DriveFormat
+    detectFormat ".qcow2" = Right FormatQcow2
+    detectFormat ".raw" = Right FormatRaw
+    detectFormat ".img" = Right FormatRaw
+    detectFormat ".vmdk" = Right FormatVmdk
+    detectFormat ".vdi" = Right FormatVdi
+    detectFormat ext = Left $ "Unknown format for extension: " <> T.pack ext <> ". Use --format to specify."
+
+    isPrefixOfPath :: FilePath -> FilePath -> Bool
+    isPrefixOfPath prefix path' =
+      let prefixWithSlash = if last prefix == '/' then prefix else prefix ++ "/"
+       in prefixWithSlash == take (length prefixWithSlash) path' || prefix == path'
+
+-- | Get base images path ($HOME/VMs by default)
+getBaseImagesPath :: IO FilePath
+getBaseImagesPath = do
+  mHome <- lookupEnv "HOME"
+  pure $ fromMaybe "/var/lib/qemu" mHome </> "VMs"
 
 -- | Handle disk delete command
 handleDiskDelete :: Connection -> Int64 -> IO Bool
@@ -703,3 +777,182 @@ printSnapshotInfo s =
       (T.unpack $ sniName s)
       (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (sniCreatedAt s))
       (maybe "-" show $ sniSizeMb s)
+
+--------------------------------------------------------------------------------
+-- SSH Key Command Handlers
+--------------------------------------------------------------------------------
+
+-- | Handle ssh-key create command
+handleSshKeyCreate :: Connection -> Text -> Text -> IO Bool
+handleSshKeyCreate conn name publicKey = do
+  resp <- sshKeyCreate conn name publicKey
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (SshKeyCreated keyId) -> do
+      putStrLn $ "SSH key created with ID: " ++ show keyId
+      pure True
+    Right (SshKeyError msg) -> do
+      putStrLn $ "Error creating SSH key: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle ssh-key delete command
+handleSshKeyDelete :: Connection -> Int64 -> IO Bool
+handleSshKeyDelete conn keyId = do
+  resp <- sshKeyDelete conn keyId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right SshKeyOk -> do
+      putStrLn "SSH key deleted."
+      pure True
+    Right SshKeyNotFound -> do
+      putStrLn $ "SSH key with ID " ++ show keyId ++ " not found."
+      pure False
+    Right (SshKeyInUse vmIds) -> do
+      putStrLn $ "SSH key is attached to VMs: " ++ show vmIds
+      putStrLn "Detach the key from all VMs first."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle ssh-key list command
+handleSshKeyList :: Connection -> IO Bool
+handleSshKeyList conn = do
+  resp <- sshKeyList conn
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (SshKeyListResult keys) -> do
+      if null keys
+        then putStrLn "No SSH keys found."
+        else do
+          putStrLn $
+            printf
+              "%-6s %-20s %-50s %-15s"
+              ("ID" :: String)
+              ("NAME" :: String)
+              ("PUBLIC_KEY" :: String)
+              ("ATTACHED_VMS" :: String)
+          putStrLn $ replicate 95 '-'
+          mapM_ printSshKeyInfo keys
+      pure True
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle ssh-key attach command
+handleSshKeyAttach :: Connection -> Int64 -> Int64 -> IO Bool
+handleSshKeyAttach conn vmId keyId = do
+  resp <- sshKeyAttach conn vmId keyId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right SshKeyOk -> do
+      putStrLn "SSH key attached to VM."
+      pure True
+    Right SshKeyNotFound -> do
+      putStrLn $ "SSH key with ID " ++ show keyId ++ " not found."
+      pure False
+    Right SshKeyVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right (SshKeyError msg) -> do
+      putStrLn $ "Error attaching SSH key: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle ssh-key detach command
+handleSshKeyDetach :: Connection -> Int64 -> Int64 -> IO Bool
+handleSshKeyDetach conn vmId keyId = do
+  resp <- sshKeyDetach conn vmId keyId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right SshKeyOk -> do
+      putStrLn "SSH key detached from VM."
+      pure True
+    Right SshKeyNotFound -> do
+      putStrLn $ "SSH key with ID " ++ show keyId ++ " not found or not attached to VM."
+      pure False
+    Right SshKeyVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right (SshKeyError msg) -> do
+      putStrLn $ "Error detaching SSH key: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle ssh-key list-vm command
+handleSshKeyListForVm :: Connection -> Int64 -> IO Bool
+handleSshKeyListForVm conn vmId = do
+  resp <- sshKeyListForVm conn vmId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (SshKeyListResult keys) -> do
+      if null keys
+        then putStrLn "No SSH keys attached to this VM."
+        else do
+          putStrLn $
+            printf
+              "%-6s %-20s %-50s"
+              ("ID" :: String)
+              ("NAME" :: String)
+              ("PUBLIC_KEY" :: String)
+          putStrLn $ replicate 80 '-'
+          mapM_ printSshKeyInfoShort keys
+      pure True
+    Right SshKeyVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+--------------------------------------------------------------------------------
+-- SSH Key Printers
+--------------------------------------------------------------------------------
+
+-- | Print SSH key info in table format
+printSshKeyInfo :: SshKeyInfo -> IO ()
+printSshKeyInfo k =
+  putStrLn $
+    printf
+      "%-6d %-20s %-50s %-15s"
+      (skiId k)
+      (T.unpack $ skiName k)
+      (truncateKey 50 $ skiPublicKey k)
+      (if null (skiAttachedVms k) then "-" else show (skiAttachedVms k))
+
+-- | Print SSH key info without attached VMs column
+printSshKeyInfoShort :: SshKeyInfo -> IO ()
+printSshKeyInfoShort k =
+  putStrLn $
+    printf
+      "%-6d %-20s %-50s"
+      (skiId k)
+      (T.unpack $ skiName k)
+      (truncateKey 50 $ skiPublicKey k)
+
+-- | Truncate SSH public key for display
+truncateKey :: Int -> Text -> String
+truncateKey maxLen key =
+  let keyStr = T.unpack key
+   in if length keyStr > maxLen
+        then take (maxLen - 3) keyStr ++ "..."
+        else keyStr

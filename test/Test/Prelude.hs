@@ -12,6 +12,7 @@ module Test.Prelude
     given,
     when_,
     then_,
+    liftIO,
 
     -- * DSL Given (setup)
     module Test.DSL.Given,
@@ -40,6 +41,7 @@ module Test.Prelude
   )
 where
 
+import Control.Monad.IO.Class (liftIO)
 import Corvus.Model
   ( CacheType (..),
     DriveFormat (..),

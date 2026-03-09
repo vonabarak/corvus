@@ -25,6 +25,11 @@ module Test.DSL.When
     snapshotMerge,
     snapshotList,
 
+    -- * Shared directory commands
+    whenSharedDirAdd,
+    whenSharedDirRemove,
+    whenSharedDirList,
+
     -- * Low-level
     executeRequest,
     createTestServerState,
@@ -34,7 +39,7 @@ where
 import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Handlers (handleRequest)
-import Corvus.Model (DriveFormat, DriveInterface, DriveMedia)
+import Corvus.Model (DriveFormat, DriveInterface, DriveMedia, SharedDirCache)
 import Corvus.Protocol
 import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
@@ -165,3 +170,21 @@ snapshotMerge diskId snapshotId =
 -- | List snapshots for a disk
 snapshotList :: Int64 -> TestM Response
 snapshotList diskId = executeRequest (ReqSnapshotList diskId)
+
+--------------------------------------------------------------------------------
+-- Shared Directory Commands
+--------------------------------------------------------------------------------
+
+-- | Add a shared directory to a VM
+whenSharedDirAdd :: Int64 -> Text -> Text -> SharedDirCache -> Bool -> TestM Response
+whenSharedDirAdd vmId path tag cache readOnly =
+  executeRequest (ReqSharedDirAdd vmId path tag cache readOnly)
+
+-- | Remove a shared directory from a VM
+whenSharedDirRemove :: Int64 -> Int64 -> TestM Response
+whenSharedDirRemove vmId sharedDirId =
+  executeRequest (ReqSharedDirRemove vmId sharedDirId)
+
+-- | List shared directories for a VM
+whenSharedDirList :: Int64 -> TestM Response
+whenSharedDirList vmId = executeRequest (ReqSharedDirList vmId)

@@ -39,6 +39,8 @@ data Command
 
     -- | Create disk image (name, format, sizeMb)
     DiskCreate !Text !Text !Int64
+  | -- | Import existing disk image (name, path, format)
+    DiskImport !Text !FilePath !(Maybe Text)
   | -- | Delete disk image
     DiskDelete !Int64
   | -- | Resize disk image (diskId, newSizeMb)
@@ -63,4 +65,17 @@ data Command
     SnapshotMerge !Int64 !Int64
   | -- | List snapshots (diskId)
     SnapshotList !Int64
+  | -- SSH key commands
+    -- | Create SSH key (name, publicKey)
+    SshKeyCreate !Text !Text
+  | -- | Delete SSH key (keyId)
+    SshKeyDelete !Int64
+  | -- | List all SSH keys
+    SshKeyList
+  | -- | Attach SSH key to VM (vmId, keyId)
+    SshKeyAttach !Int64 !Int64
+  | -- | Detach SSH key from VM (vmId, keyId)
+    SshKeyDetach !Int64 !Int64
+  | -- | List SSH keys for VM (vmId)
+    SshKeyListForVm !Int64
   deriving (Show)

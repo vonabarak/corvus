@@ -22,6 +22,10 @@ library
       Corvus.Handlers.Core
       Corvus.Handlers.Vm
       Corvus.Handlers.Disk
+      Corvus.Handlers.SharedDir
+      Corvus.Handlers.NetIf
+      Corvus.Handlers.SshKey
+      Corvus.CloudInit
       Corvus.Client
       Corvus.Client.Config
       Corvus.Client.Connection
@@ -199,14 +203,23 @@ test-suite corvus-test
   main-is: Spec.hs
   other-modules:
       Corvus.DiskSpec
+      Corvus.SharedDirSpec
+      Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec
+      Corvus.VirtiofsIntegrationSpec
+      Corvus.VmIntegrationSpec
       Corvus.VmSpec
+      Test.Daemon
       Test.Database
       Test.DSL.Core
+      Test.DSL.Daemon
       Test.DSL.Given
       Test.DSL.Then
       Test.DSL.When
       Test.Prelude
+      Test.VM.CloudInit
+      Test.VM.Image
+      Test.VM.Ssh
       Paths_corvus
   autogen-modules:
       Paths_corvus
@@ -256,6 +269,7 @@ test-suite corvus-test
     , resource-pool
     , stm
     , template-haskell
+    , temporary
     , text
     , time
     , unix

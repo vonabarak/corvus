@@ -6,10 +6,13 @@ module Test.DSL.Given
   ( -- * VM setup
     insertVm,
     insertVmFull,
+    givenVmExists,
+    givenRunningVmExists,
 
     -- * Disk image setup
     insertDiskImage,
     insertDiskImageFull,
+    givenDiskExists,
 
     -- * Drive setup
     attachDrive,
@@ -17,12 +20,14 @@ module Test.DSL.Given
 
     -- * Snapshot setup
     insertSnapshot,
+    givenSnapshotExists,
 
     -- * Network interface setup
     insertNetworkInterface,
 
     -- * Shared directory setup
     insertSharedDir,
+    givenSharedDirExists,
 
     -- * Utilities
     defaultVm,
@@ -283,3 +288,27 @@ insertSharedDir vmId path tag cache readOnly = do
             sharedDirPid = Nothing
           }
   pure $ fromSqlKey key
+
+--------------------------------------------------------------------------------
+-- Convenience Wrappers (given* functions)
+--------------------------------------------------------------------------------
+
+-- | Create a stopped VM with the given name
+givenVmExists :: Text -> TestM Int64
+givenVmExists name = insertVm name VmStopped
+
+-- | Create a running VM with the given name
+givenRunningVmExists :: Text -> TestM Int64
+givenRunningVmExists name = insertVm name VmRunning
+
+-- | Create a qcow2 disk image with the given name
+givenDiskExists :: Text -> TestM Int64
+givenDiskExists name = insertDiskImage name ("/test/images/" <> name <> ".qcow2") FormatQcow2
+
+-- | Create a snapshot for a disk
+givenSnapshotExists :: Int64 -> Text -> TestM Int64
+givenSnapshotExists diskId name = insertSnapshot diskId name
+
+-- | Create a shared directory for a VM with default settings
+givenSharedDirExists :: Int64 -> Text -> Text -> TestM Int64
+givenSharedDirExists vmId path tag = insertSharedDir vmId path tag CacheAuto False

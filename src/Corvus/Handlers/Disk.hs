@@ -5,6 +5,7 @@
 module Corvus.Handlers.Disk
   ( -- * Disk image handlers
     handleDiskCreate,
+    handleDiskRegister,
     handleDiskDelete,
     handleDiskResize,
     handleDiskList,
@@ -115,6 +116,35 @@ handleDiskCreate state name format sizeMb = runStdoutLoggingT $ do
                 (ssDbPool state)
           logInfoN $ "Created disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
           pure $ RespDiskCreated $ fromSqlKey diskId
+
+-- | Register an existing disk image file
+handleDiskRegister ::
+  ServerState ->
+  Text ->
+  Text ->
+  DriveFormat ->
+  Maybe Int64 ->
+  IO Response
+handleDiskRegister state name filePath format mSizeMb = runStdoutLoggingT $ do
+  logInfoN $ "Registering disk image: " <> name <> " at " <> filePath
+
+  -- Store in database
+  now <- liftIO getCurrentTime
+  diskId <-
+    liftIO $
+      runSqlPool
+        ( insert
+            DiskImage
+              { diskImageName = name,
+                diskImageFilePath = filePath,
+                diskImageFormat = format,
+                diskImageSizeMb = fmap fromIntegral mSizeMb,
+                diskImageCreatedAt = now
+              }
+        )
+        (ssDbPool state)
+  logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
+  pure $ RespDiskCreated $ fromSqlKey diskId
 
 -- | Delete a disk image
 handleDiskDelete :: ServerState -> Int64 -> IO Response

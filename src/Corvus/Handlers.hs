@@ -8,11 +8,17 @@ module Corvus.Handlers
     module Corvus.Handlers.Core,
     module Corvus.Handlers.Vm,
     module Corvus.Handlers.Disk,
+    module Corvus.Handlers.SharedDir,
+    module Corvus.Handlers.NetIf,
+    module Corvus.Handlers.SshKey,
   )
 where
 
 import Corvus.Handlers.Core
 import Corvus.Handlers.Disk
+import Corvus.Handlers.NetIf
+import Corvus.Handlers.SharedDir
+import Corvus.Handlers.SshKey
 import Corvus.Handlers.Vm
 import Corvus.Protocol
 import Corvus.Types
@@ -31,12 +37,15 @@ handleRequest state req = case req of
   -- VM handlers
   ReqListVms -> handleVmList state
   ReqShowVm vmId -> handleVmShow state vmId
+  ReqVmCreate name cpus ram desc -> handleVmCreate state name cpus ram desc
+  ReqVmDelete vmId -> handleVmDelete state vmId
   ReqVmStart vmId -> handleVmStart state vmId
   ReqVmStop vmId -> handleVmStop state vmId
   ReqVmPause vmId -> handleVmPause state vmId
   ReqVmReset vmId -> handleVmReset state vmId
   -- Disk image handlers
   ReqDiskCreate name format sizeMb -> handleDiskCreate state name format sizeMb
+  ReqDiskRegister name path format sizeMb -> handleDiskRegister state name path format sizeMb
   ReqDiskDelete diskId -> handleDiskDelete state diskId
   ReqDiskResize diskId newSizeMb -> handleDiskResize state diskId newSizeMb
   ReqDiskList -> handleDiskList state
@@ -50,3 +59,18 @@ handleRequest state req = case req of
   -- Attach/detach handlers
   ReqDiskAttach vmId diskId interface media -> handleDiskAttach state vmId diskId interface media
   ReqDiskDetach vmId driveId -> handleDiskDetach state vmId driveId
+  -- Shared directory handlers
+  ReqSharedDirAdd vmId path tag cache readOnly -> handleSharedDirAdd state vmId path tag cache readOnly
+  ReqSharedDirRemove vmId sharedDirId -> handleSharedDirRemove state vmId sharedDirId
+  ReqSharedDirList vmId -> handleSharedDirList state vmId
+  -- Network interface handlers
+  ReqNetIfAdd vmId ifaceType hostDev mac -> handleNetIfAdd state vmId ifaceType hostDev mac
+  ReqNetIfRemove vmId netIfId -> handleNetIfRemove state vmId netIfId
+  ReqNetIfList vmId -> handleNetIfList state vmId
+  -- SSH key handlers
+  ReqSshKeyCreate name publicKey -> handleSshKeyCreate state name publicKey
+  ReqSshKeyDelete keyId -> handleSshKeyDelete state keyId
+  ReqSshKeyList -> handleSshKeyList state
+  ReqSshKeyAttach vmId keyId -> handleSshKeyAttach state vmId keyId
+  ReqSshKeyDetach vmId keyId -> handleSshKeyDetach state vmId keyId
+  ReqSshKeyListForVm vmId -> handleSshKeyListForVm state vmId

@@ -59,6 +59,10 @@ library:
     - Corvus.Handlers.Core
     - Corvus.Handlers.Vm
     - Corvus.Handlers.Disk
+    - Corvus.Handlers.SharedDir
+    - Corvus.Handlers.NetIf
+    - Corvus.Handlers.SshKey
+    - Corvus.CloudInit
     - Corvus.Client
     - Corvus.Client.Config
     - Corvus.Client.Connection
@@ -113,3 +117,5 @@ tests:
       - QuickCheck
       - random
       - uuid
+      - temporary
+      - async

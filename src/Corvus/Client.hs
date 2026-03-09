@@ -25,6 +25,12 @@ module Corvus.Client
     listVms,
     showVm,
 
+    -- * VM lifecycle
+    VmCreateResult (..),
+    VmDeleteResult (..),
+    vmCreate,
+    vmDelete,
+
     -- * VM actions
     VmActionResult (..),
     vmStart,
@@ -35,6 +41,7 @@ module Corvus.Client
     -- * Disk operations
     DiskResult (..),
     diskCreate,
+    diskRegister,
     diskDelete,
     diskResize,
     diskList,
@@ -49,6 +56,27 @@ module Corvus.Client
     snapshotRollback,
     snapshotMerge,
     snapshotList,
+
+    -- * Shared directory operations
+    SharedDirResult (..),
+    sharedDirAdd,
+    sharedDirRemove,
+    sharedDirList,
+
+    -- * Network interface operations
+    NetIfResult (..),
+    netIfAdd,
+    netIfRemove,
+    netIfList,
+
+    -- * SSH key operations
+    SshKeyResult (..),
+    sshKeyCreate,
+    sshKeyDelete,
+    sshKeyList,
+    sshKeyAttach,
+    sshKeyDetach,
+    sshKeyListForVm,
 
     -- * CLI types
     Options (..),
