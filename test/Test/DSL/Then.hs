@@ -13,6 +13,7 @@ module Test.DSL.Then
     responseIsDiskCreated,
     responseIsDiskNotFound,
     responseIsDiskInUse,
+    responseIsDiskHasOverlays,
     responseIsSnapshotCreated,
     responseIsSnapshotNotFound,
 
@@ -136,6 +137,13 @@ responseIsDiskInUse = responseIs isDiskInUse
   where
     isDiskInUse (RespDiskInUse _) = True
     isDiskInUse _ = False
+
+-- | Assert response is disk has overlays
+responseIsDiskHasOverlays :: TestM ()
+responseIsDiskHasOverlays = responseIs isDiskHasOverlays
+  where
+    isDiskHasOverlays (RespDiskHasOverlays _) = True
+    isDiskHasOverlays _ = False
 
 -- | Assert response is snapshot created
 responseIsSnapshotCreated :: TestM ()

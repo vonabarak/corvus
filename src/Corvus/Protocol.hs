@@ -57,6 +57,8 @@ data Request
     ReqDiskCreate !Text !DriveFormat !Int64
   | -- | Register existing disk image (name, filePath, format, sizeMb)
     ReqDiskRegister !Text !Text !DriveFormat !(Maybe Int64)
+  | -- | Create overlay disk image (overlayName, baseDiskImageId)
+    ReqDiskCreateOverlay !Text !Int64
   | -- | Delete disk image (diskImageId)
     ReqDiskDelete !Int64
   | -- | Resize disk image (diskImageId, newSizeMb)
@@ -77,8 +79,8 @@ data Request
   | -- | List snapshots (diskImageId)
     ReqSnapshotList !Int64
   | -- | Attach/detach operations
-    -- | Attach disk to VM (vmId, diskImageId, interface, media)
-    ReqDiskAttach !Int64 !Int64 !DriveInterface !(Maybe DriveMedia)
+    -- | Attach disk to VM (vmId, diskImageId, interface, media, readOnly)
+    ReqDiskAttach !Int64 !Int64 !DriveInterface !(Maybe DriveMedia) !Bool
   | -- | Detach disk from VM (vmId, driveId)
     ReqDiskDetach !Int64 !Int64
   | -- | Shared directory operations
@@ -181,7 +183,11 @@ data DiskImageInfo = DiskImageInfo
     diiSizeMb :: !(Maybe Int),
     diiCreatedAt :: !UTCTime,
     -- | VM IDs this disk is attached to
-    diiAttachedTo :: ![Int64]
+    diiAttachedTo :: ![Int64],
+    -- | Backing image ID (if this is an overlay)
+    diiBackingImageId :: !(Maybe Int64),
+    -- | Backing image name (if this is an overlay)
+    diiBackingImageName :: !(Maybe Text)
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -266,6 +272,8 @@ data Response
     RespVmMustBeStopped
   | -- | Disk is still attached to VMs
     RespDiskInUse ![Int64]
+  | -- | Disk is used as backing image for overlays
+    RespDiskHasOverlays ![Int64]
   | -- | Shared directory responses
     -- | List of shared directories
     RespSharedDirList ![SharedDirInfo]

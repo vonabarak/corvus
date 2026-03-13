@@ -45,6 +45,7 @@ handleRequest state req = case req of
   ReqVmReset vmId -> handleVmReset state vmId
   -- Disk image handlers
   ReqDiskCreate name format sizeMb -> handleDiskCreate state name format sizeMb
+  ReqDiskCreateOverlay name baseDiskId -> handleDiskCreateOverlay state name baseDiskId
   ReqDiskRegister name path format sizeMb -> handleDiskRegister state name path format sizeMb
   ReqDiskDelete diskId -> handleDiskDelete state diskId
   ReqDiskResize diskId newSizeMb -> handleDiskResize state diskId newSizeMb
@@ -57,7 +58,7 @@ handleRequest state req = case req of
   ReqSnapshotMerge diskId snapshotId -> handleSnapshotMerge state diskId snapshotId
   ReqSnapshotList diskId -> handleSnapshotList state diskId
   -- Attach/detach handlers
-  ReqDiskAttach vmId diskId interface media -> handleDiskAttach state vmId diskId interface media
+  ReqDiskAttach vmId diskId interface media readOnly -> handleDiskAttach state vmId diskId interface media readOnly
   ReqDiskDetach vmId driveId -> handleDiskDetach state vmId driveId
   -- Shared directory handlers
   ReqSharedDirAdd vmId path tag cache readOnly -> handleSharedDirAdd state vmId path tag cache readOnly

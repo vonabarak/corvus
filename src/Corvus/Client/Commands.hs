@@ -174,24 +174,25 @@ runCommand opts = do
             putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right format -> handleDiskCreate conn name format sizeMb
+      DiskCreateOverlay name baseDiskId -> handleDiskCreateOverlay conn name baseDiskId
       DiskImport name path mFormatStr -> handleDiskImport conn name path mFormatStr
       DiskDelete diskId -> handleDiskDelete conn diskId
       DiskResize diskId newSizeMb -> handleDiskResize conn diskId newSizeMb
       DiskList -> handleDiskList conn
       DiskShow diskId -> handleDiskShow conn diskId
-      DiskAttach vmId diskId ifaceStr media -> do
+      DiskAttach vmId diskId ifaceStr media readOnly -> do
         case parseInterface ifaceStr of
           Left err -> do
             putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right iface -> do
             case media of
-              Nothing -> handleDiskAttach conn vmId diskId iface Nothing
+              Nothing -> handleDiskAttach conn vmId diskId iface Nothing readOnly
               Just m -> case parseMedia m of
                 Left err -> do
                   putStrLn $ "Error: " ++ T.unpack err
                   pure False
-                Right parsedMedia -> handleDiskAttach conn vmId diskId iface (Just parsedMedia)
+                Right parsedMedia -> handleDiskAttach conn vmId diskId iface (Just parsedMedia) readOnly
       DiskDetach vmId driveId -> handleDiskDetach conn vmId driveId
       -- Snapshot commands
       SnapshotCreate diskId name -> handleSnapshotCreate conn diskId name
@@ -414,6 +415,27 @@ handleDiskCreate conn name format sizeMb = do
       putStrLn $ "Unexpected response: " ++ show other
       pure False
 
+-- | Handle disk overlay command
+handleDiskCreateOverlay :: Connection -> Text -> Int64 -> IO Bool
+handleDiskCreateOverlay conn name baseDiskId = do
+  resp <- diskCreateOverlay conn name baseDiskId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (DiskCreated diskId) -> do
+      putStrLn $ "Overlay created with ID: " ++ show diskId
+      pure True
+    Right DiskNotFound -> do
+      putStrLn $ "Base disk with ID " ++ show baseDiskId ++ " not found."
+      pure False
+    Right (DiskError msg) -> do
+      putStrLn $ "Error creating overlay: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
 -- | Handle disk import command
 handleDiskImport :: Connection -> Text -> FilePath -> Maybe Text -> IO Bool
 handleDiskImport conn name path mFormatStr = do
@@ -493,6 +515,10 @@ handleDiskDelete conn diskId = do
       putStrLn $ "Disk is attached to VMs: " ++ show vmIds
       putStrLn "Detach the disk first before deleting."
       pure False
+    Right (DiskHasOverlays overlayIds) -> do
+      putStrLn $ "Disk is used as backing image for overlays: " ++ show overlayIds
+      putStrLn "Delete the overlay disks first."
+      pure False
     Right other -> do
       putStrLn $ "Unexpected response: " ++ show other
       pure False
@@ -564,9 +590,9 @@ handleDiskShow conn diskId = do
       pure False
 
 -- | Handle disk attach command
-handleDiskAttach :: Connection -> Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> IO Bool
-handleDiskAttach conn vmId diskId iface media = do
-  resp <- diskAttach conn vmId diskId iface media
+handleDiskAttach :: Connection -> Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> Bool -> IO Bool
+handleDiskAttach conn vmId diskId iface media readOnly = do
+  resp <- diskAttach conn vmId diskId iface media readOnly
   case resp of
     Left err -> do
       putStrLn $ "Error: " ++ show err
@@ -579,6 +605,10 @@ handleDiskAttach conn vmId diskId iface media = do
       pure False
     Right DiskVmNotFound -> do
       putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right (DiskHasOverlays overlayIds) -> do
+      putStrLn $ "Error: Disk is used as backing image for overlays: " ++ show overlayIds
+      putStrLn "Base images must be attached in read-only mode using --read-only."
       pure False
     Right (DiskError msg) -> do
       putStrLn $ "Error attaching disk: " ++ T.unpack msg
@@ -766,6 +796,10 @@ printDiskDetails d = do
   putStrLn $ "Size (MB):   " ++ maybe "(unknown)" show (diiSizeMb d)
   putStrLn $ "Created:     " ++ formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d)
   putStrLn $ "Attached to: " ++ if null (diiAttachedTo d) then "(none)" else show (diiAttachedTo d)
+  case diiBackingImageName d of
+    Nothing -> pure ()
+    Just backingName ->
+      putStrLn $ "Backing:     " ++ T.unpack backingName ++ " (ID: " ++ maybe "?" show (diiBackingImageId d) ++ ")"
 
 -- | Print snapshot info in table format
 printSnapshotInfo :: SnapshotInfo -> IO ()

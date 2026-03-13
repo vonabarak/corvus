@@ -27,6 +27,7 @@ module Corvus.Client.Rpc
     -- * Disk operations
     DiskResult (..),
     diskCreate,
+    diskCreateOverlay,
     diskRegister,
     diskDelete,
     diskResize,
@@ -221,6 +222,8 @@ data DiskResult
     DriveNotFound
   | -- | Disk is in use by VMs
     DiskInUse ![Int64]
+  | -- | Disk has overlay images depending on it
+    DiskHasOverlays ![Int64]
   | -- | VM must be stopped
     VmMustBeStopped
   | -- | Format not supported for operation
@@ -243,6 +246,7 @@ handleDiskResponse result = case result of
   Right RespDiskNotFound -> Right DiskNotFound
   Right RespDriveNotFound -> Right DriveNotFound
   Right (RespDiskInUse vmIds) -> Right $ DiskInUse vmIds
+  Right (RespDiskHasOverlays overlayIds) -> Right $ DiskHasOverlays overlayIds
   Right RespVmMustBeStopped -> Right VmMustBeStopped
   Right (RespFormatNotSupported msg) -> Right $ FormatNotSupported msg
   Right RespVmNotFound -> Right DiskVmNotFound
@@ -253,6 +257,11 @@ handleDiskResponse result = case result of
 diskCreate :: Connection -> Text -> DriveFormat -> Int64 -> IO (Either ConnectionError DiskResult)
 diskCreate conn name format sizeMb =
   handleDiskResponse <$> sendRequest conn (ReqDiskCreate name format sizeMb)
+
+-- | Create an overlay disk image backed by an existing disk
+diskCreateOverlay :: Connection -> Text -> Int64 -> IO (Either ConnectionError DiskResult)
+diskCreateOverlay conn name baseDiskId =
+  handleDiskResponse <$> sendRequest conn (ReqDiskCreateOverlay name baseDiskId)
 
 -- | Register an existing disk image file
 diskRegister ::
@@ -289,9 +298,10 @@ diskAttach ::
   Int64 ->
   DriveInterface ->
   Maybe DriveMedia ->
+  Bool ->
   IO (Either ConnectionError DiskResult)
-diskAttach conn vmId diskId interface media =
-  handleDiskResponse <$> sendRequest conn (ReqDiskAttach vmId diskId interface media)
+diskAttach conn vmId diskId interface media readOnly =
+  handleDiskResponse <$> sendRequest conn (ReqDiskAttach vmId diskId interface media readOnly)
 
 -- | Detach a disk from a VM
 diskDetach :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError DiskResult)

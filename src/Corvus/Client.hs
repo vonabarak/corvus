@@ -41,6 +41,7 @@ module Corvus.Client
     -- * Disk operations
     DiskResult (..),
     diskCreate,
+    diskCreateOverlay,
     diskRegister,
     diskDelete,
     diskResize,

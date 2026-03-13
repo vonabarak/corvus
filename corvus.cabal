@@ -202,7 +202,9 @@ test-suite corvus-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Corvus.DiskOverlayIntegrationSpec
       Corvus.DiskSpec
+      Corvus.OverlayExtraSpec
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec

@@ -83,10 +83,13 @@ qmpBlockdevAdd ::
   FilePath ->
   -- | Disk format
   DriveFormat ->
+  -- | Read-only mode
+  Bool ->
   IO QmpResult
-qmpBlockdevAdd vmId nodeName filePath format = do
+qmpBlockdevAdd vmId nodeName filePath format readOnly = do
   let formatStr = enumToText format
       filePathText = T.pack filePath
+      readOnlyStr = if readOnly then "true" :: Text else "false" :: Text
       cmd =
         [qmpQQ|
           {
@@ -94,9 +97,11 @@ qmpBlockdevAdd vmId nodeName filePath format = do
             "arguments": {
               "driver": #{formatStr},
               "node-name": #{nodeName},
+              "read-only": #{readOnlyStr},
               "file": {
                 "driver": "file",
-                "filename": #{filePathText}
+                "filename": #{filePathText},
+                "read-only": #{readOnlyStr}
               }
             }
           }

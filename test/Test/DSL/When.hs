@@ -11,11 +11,13 @@ module Test.DSL.When
 
     -- * Disk commands
     diskCreate,
+    diskCreateOverlay,
     diskDelete,
     diskResize,
     diskList,
     diskShow,
     diskAttach,
+    diskAttachReadOnly,
     diskDetach,
 
     -- * Snapshot commands
@@ -117,6 +119,11 @@ diskCreate :: Text -> DriveFormat -> Int64 -> TestM Response
 diskCreate name format sizeMb =
   executeRequest (ReqDiskCreate name format sizeMb)
 
+-- | Create an overlay disk image backed by an existing disk
+diskCreateOverlay :: Text -> Int64 -> TestM Response
+diskCreateOverlay name baseDiskId =
+  executeRequest (ReqDiskCreateOverlay name baseDiskId)
+
 -- | Delete a disk image
 diskDelete :: Int64 -> TestM Response
 diskDelete diskId = executeRequest (ReqDiskDelete diskId)
@@ -137,7 +144,12 @@ diskShow diskId = executeRequest (ReqDiskShow diskId)
 -- | Attach a disk to a VM
 diskAttach :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM Response
 diskAttach vmId diskId interface media =
-  executeRequest (ReqDiskAttach vmId diskId interface media)
+  executeRequest (ReqDiskAttach vmId diskId interface media False)
+
+-- | Attach a disk to a VM in read-only mode
+diskAttachReadOnly :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM Response
+diskAttachReadOnly vmId diskId interface media =
+  executeRequest (ReqDiskAttach vmId diskId interface media True)
 
 -- | Detach a drive from a VM
 diskDetach :: Int64 -> Int64 -> TestM Response

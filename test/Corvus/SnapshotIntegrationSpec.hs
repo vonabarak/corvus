@@ -467,7 +467,7 @@ createVm daemon = do
 attachDisk :: TestDaemon -> Int64 -> Int64 -> IO ()
 attachDisk daemon vmId diskId = do
   result <- withDaemonConnection daemon $ \conn ->
-    diskAttach conn vmId diskId InterfaceVirtio Nothing
+    diskAttach conn vmId diskId InterfaceVirtio Nothing False
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err

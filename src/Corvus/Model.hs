@@ -340,6 +340,7 @@ DiskImage
     format DriveFormat
     sizeMb Int Maybe
     createdAt UTCTime
+    backingImageId DiskImageId Maybe
     UniqueImagePath filePath
     deriving Show Eq Generic
 

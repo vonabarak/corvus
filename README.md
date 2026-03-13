@@ -160,6 +160,27 @@ crv --socket /tmp/corvus.sock vm list
 crv --tcp --host 127.0.0.1 --port 9876 vm list
 ```
 
+### Shell Completion
+
+`crv` supports generating shell completion scripts via `optparse-applicative`. Completions are derived directly from the parser definitions, so they always reflect the current set of commands and options.
+
+```bash
+# Zsh — generate and install completion
+crv --zsh-completion-script $(which crv) > ~/.local/share/zsh/site-functions/_crv
+
+# Bash
+crv --bash-completion-script $(which crv) > ~/.local/share/bash-completion/completions/crv
+
+# Fish
+crv --fish-completion-script $(which crv) > ~/.config/fish/completions/crv.fish
+```
+
+For a quick one-off test without installing:
+
+```bash
+source <(crv --zsh-completion-script $(which crv))
+```
+
 ## Development
 
 ### Project Structure

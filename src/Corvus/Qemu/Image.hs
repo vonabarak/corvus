@@ -5,6 +5,7 @@
 module Corvus.Qemu.Image
   ( -- * Image operations
     createImage,
+    createOverlay,
     deleteImage,
     resizeImage,
     getImageInfo,
@@ -98,6 +99,31 @@ createImage path format sizeMb = do
       case exitCode of
         ExitSuccess -> pure ImageSuccess
         ExitFailure _ -> pure $ ImageError $ T.pack stderr
+
+-- | Create a qcow2 overlay backed by an existing image
+createOverlay ::
+  -- | Overlay file path
+  FilePath ->
+  -- | Backing file path
+  FilePath ->
+  -- | Backing file format
+  DriveFormat ->
+  IO ImageResult
+createOverlay overlayPath backingPath backingFormat = do
+  exists <- doesFileExist overlayPath
+  if exists
+    then pure $ ImageError "Overlay file already exists"
+    else do
+      backingExists <- doesFileExist backingPath
+      if not backingExists
+        then pure $ ImageError $ "Backing file not found: " <> T.pack backingPath
+        else do
+          let formatStr = T.unpack $ enumToText backingFormat
+              args = ["create", "-f", "qcow2", "-b", backingPath, "-F", formatStr, overlayPath]
+          (exitCode, _, stderr) <- readProcessWithExitCode qemuImgBinary args ""
+          case exitCode of
+            ExitSuccess -> pure ImageSuccess
+            ExitFailure _ -> pure $ ImageError $ T.pack stderr
 
 -- | Delete a disk image
 deleteImage ::

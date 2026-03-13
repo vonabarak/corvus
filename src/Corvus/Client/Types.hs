@@ -41,6 +41,8 @@ data Command
     DiskCreate !Text !Text !Int64
   | -- | Import existing disk image (name, path, format)
     DiskImport !Text !FilePath !(Maybe Text)
+  | -- | Create overlay disk image (name, baseDiskId)
+    DiskCreateOverlay !Text !Int64
   | -- | Delete disk image
     DiskDelete !Int64
   | -- | Resize disk image (diskId, newSizeMb)
@@ -49,8 +51,8 @@ data Command
     DiskList
   | -- | Show disk image details
     DiskShow !Int64
-  | -- | Attach disk to VM (vmId, diskId, interface, media)
-    DiskAttach !Int64 !Int64 !Text !(Maybe Text)
+  | -- | Attach disk to VM (vmId, diskId, interface, media, readOnly)
+    DiskAttach !Int64 !Int64 !Text !(Maybe Text) !Bool
   | -- | Detach disk from VM (vmId, driveId)
     DiskDetach !Int64 !Int64
   | -- Snapshot commands

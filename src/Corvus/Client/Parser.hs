@@ -238,6 +238,10 @@ diskAttachCommand =
               <> help "Media type: disk, cdrom"
           )
       )
+    <*> switch
+      ( long "read-only"
+          <> help "Attach the disk in read-only mode (required for base images with overlays)"
+      )
 
 -- | Parser for disk detach
 diskDetachCommand :: Parser Command
@@ -277,6 +281,21 @@ diskImportCommand =
           )
       )
 
+-- | Parser for disk overlay
+diskOverlayCommand :: Parser Command
+diskOverlayCommand =
+  DiskCreateOverlay
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the overlay disk image"
+      )
+    <*> argument
+      auto
+      ( metavar "BASE_DISK_ID"
+          <> help "ID of the base disk image to overlay"
+      )
+
 -- | Parser for all disk subcommands
 diskCommandParser :: Parser Command
 diskCommandParser =
@@ -284,6 +303,9 @@ diskCommandParser =
     ( command
         "create"
         (info diskCreateCommand (progDesc "Create a new disk image"))
+        <> command
+          "overlay"
+          (info diskOverlayCommand (progDesc "Create a qcow2 overlay backed by an existing disk"))
         <> command
           "import"
           (info diskImportCommand (progDesc "Import an existing disk image"))

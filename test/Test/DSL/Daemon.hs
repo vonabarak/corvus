@@ -207,7 +207,7 @@ deleteDaemonVm daemon vmId = do
 addVmDisk :: TestDaemon -> Int64 -> Int64 -> IO ()
 addVmDisk daemon vmId diskImageId = do
   result <- withDaemonConnection daemon $ \conn ->
-    diskAttach conn vmId diskImageId InterfaceVirtio Nothing
+    diskAttach conn vmId diskImageId InterfaceVirtio Nothing False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error attaching disk: " <> show err

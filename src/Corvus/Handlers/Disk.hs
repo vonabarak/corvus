@@ -5,6 +5,7 @@
 module Corvus.Handlers.Disk
   ( -- * Disk image handlers
     handleDiskCreate,
+    handleDiskCreateOverlay,
     handleDiskRegister,
     handleDiskDelete,
     handleDiskResize,
@@ -110,7 +111,8 @@ handleDiskCreate state name format sizeMb = runStdoutLoggingT $ do
                         diskImageFilePath = T.pack filePath,
                         diskImageFormat = format,
                         diskImageSizeMb = Just (fromIntegral sizeMb),
-                        diskImageCreatedAt = now
+                        diskImageCreatedAt = now,
+                        diskImageBackingImageId = Nothing
                       }
                 )
                 (ssDbPool state)
@@ -139,12 +141,71 @@ handleDiskRegister state name filePath format mSizeMb = runStdoutLoggingT $ do
                 diskImageFilePath = filePath,
                 diskImageFormat = format,
                 diskImageSizeMb = fmap fromIntegral mSizeMb,
-                diskImageCreatedAt = now
+                diskImageCreatedAt = now,
+                diskImageBackingImageId = Nothing
               }
         )
         (ssDbPool state)
   logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
   pure $ RespDiskCreated $ fromSqlKey diskId
+
+-- | Create a qcow2 overlay backed by an existing disk image
+handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> IO Response
+handleDiskCreateOverlay state name baseDiskId = runStdoutLoggingT $ do
+  logInfoN $ "Creating overlay '" <> name <> "' backed by disk " <> T.pack (show baseDiskId)
+
+  case sanitizeDiskName name of
+    Left err -> do
+      logWarnN $ "Invalid overlay name: " <> err
+      pure $ RespError err
+    Right safeName -> do
+      mBaseDisk <- liftIO $ runSqlPool (get (toSqlKey baseDiskId :: DiskImageId)) (ssDbPool state)
+      case mBaseDisk of
+        Nothing -> pure RespDiskNotFound
+        Just baseDisk -> do
+          rwDrives <-
+            liftIO $
+              runSqlPool
+                ( selectList
+                    [ M.DriveDiskImageId ==. toSqlKey baseDiskId,
+                      M.DriveReadOnly ==. False
+                    ]
+                    []
+                )
+                (ssDbPool state)
+          if not (null rwDrives)
+            then do
+              let vmIds = map (fromSqlKey . driveVmId . entityVal) rwDrives
+              logWarnN $ "Base image is attached read-write to VMs: " <> T.pack (show vmIds)
+              pure $ RespError "Cannot use as base: image is attached read-write to VM(s)"
+            else do
+              basePath <- liftIO $ getEffectiveBasePath defaultQemuConfig
+              let overlayFileName = T.unpack safeName <> ".qcow2"
+                  overlayFilePath = basePath </> overlayFileName
+              baseFilePath <- liftIO $ resolveDiskPath baseDisk
+              result <- liftIO $ createOverlay overlayFilePath baseFilePath (diskImageFormat baseDisk)
+              case result of
+                ImageError err -> do
+                  logWarnN $ "Failed to create overlay: " <> err
+                  pure $ RespError err
+                _ -> do
+                  now <- liftIO getCurrentTime
+                  diskId <-
+                    liftIO $
+                      runSqlPool
+                        ( insert
+                            DiskImage
+                              { diskImageName = safeName,
+                                diskImageFilePath = T.pack overlayFilePath,
+                                diskImageFormat = FormatQcow2,
+                                diskImageSizeMb = diskImageSizeMb baseDisk,
+                                diskImageCreatedAt = now,
+                                diskImageBackingImageId = Just (toSqlKey baseDiskId)
+                              }
+                        )
+                        (ssDbPool state)
+                  logInfoN $ "Created overlay with ID: " <> T.pack (show $ fromSqlKey diskId)
+                  pure $ RespDiskCreated $ fromSqlKey diskId
 
 -- | Delete a disk image
 handleDiskDelete :: ServerState -> Int64 -> IO Response
@@ -160,22 +221,27 @@ handleDiskDelete state diskId = runStdoutLoggingT $ do
       if not (null attachedVms)
         then pure $ RespDiskInUse attachedVms
         else do
-          -- Delete the file (resolve relative path against base path)
-          filePath <- liftIO $ resolveDiskPath disk
-          result <- liftIO $ deleteImage filePath
-          case result of
-            ImageError err -> do
-              logWarnN $ "Failed to delete image file: " <> err
-              pure $ RespError err
-            ImageNotFound -> do
-              logWarnN "Image file not found, removing from database anyway"
-              liftIO $ runSqlPool (deleteDiskAndSnapshots diskId) (ssDbPool state)
-              pure RespDiskOk
-            _ -> do
-              -- Delete from database
-              liftIO $ runSqlPool (deleteDiskAndSnapshots diskId) (ssDbPool state)
-              logInfoN $ "Deleted disk image: " <> T.pack (show diskId)
-              pure RespDiskOk
+          -- Check if disk is used as backing image for overlays
+          overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) (ssDbPool state)
+          if not (null overlayIds)
+            then pure $ RespDiskHasOverlays overlayIds
+            else do
+              -- Delete the file (resolve relative path against base path)
+              filePath <- liftIO $ resolveDiskPath disk
+              result <- liftIO $ deleteImage filePath
+              case result of
+                ImageError err -> do
+                  logWarnN $ "Failed to delete image file: " <> err
+                  pure $ RespError err
+                ImageNotFound -> do
+                  logWarnN "Image file not found, removing from database anyway"
+                  liftIO $ runSqlPool (deleteDiskAndSnapshots diskId) (ssDbPool state)
+                  pure RespDiskOk
+                _ -> do
+                  -- Delete from database
+                  liftIO $ runSqlPool (deleteDiskAndSnapshots diskId) (ssDbPool state)
+                  logInfoN $ "Deleted disk image: " <> T.pack (show diskId)
+                  pure RespDiskOk
 
 -- | Resize a disk image (VM must be stopped)
 handleDiskResize :: ServerState -> Int64 -> Int64 -> IO Response
@@ -191,22 +257,27 @@ handleDiskResize state diskId newSizeMb = runStdoutLoggingT $ do
       if not (null runningVms)
         then pure RespVmMustBeStopped
         else do
-          filePath <- liftIO $ resolveDiskPath disk
-          result <- liftIO $ resizeImage filePath newSizeMb
-          case result of
-            ImageSuccess -> do
-              -- Update size in database
-              liftIO $
-                runSqlPool
-                  (update (toSqlKey diskId :: DiskImageId) [M.DiskImageSizeMb =. Just (fromIntegral newSizeMb)])
-                  (ssDbPool state)
-              logInfoN "Disk resized successfully"
-              pure RespDiskOk
-            ImageError err -> do
-              logWarnN $ "Failed to resize: " <> err
-              pure $ RespError err
-            ImageNotFound -> pure RespDiskNotFound
-            ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
+          -- Check if disk is used as backing image for overlays
+          overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) (ssDbPool state)
+          if not (null overlayIds)
+            then pure $ RespDiskHasOverlays overlayIds
+            else do
+              filePath <- liftIO $ resolveDiskPath disk
+              result <- liftIO $ resizeImage filePath newSizeMb
+              case result of
+                ImageSuccess -> do
+                  -- Update size in database
+                  liftIO $
+                    runSqlPool
+                      (update (toSqlKey diskId :: DiskImageId) [M.DiskImageSizeMb =. Just (fromIntegral newSizeMb)])
+                      (ssDbPool state)
+                  logInfoN "Disk resized successfully"
+                  pure RespDiskOk
+                ImageError err -> do
+                  logWarnN $ "Failed to resize: " <> err
+                  pure $ RespError err
+                ImageNotFound -> pure RespDiskNotFound
+                ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
 
 -- | List all disk images
 handleDiskList :: ServerState -> IO Response
@@ -407,13 +478,15 @@ handleDiskAttach ::
   Int64 ->
   DriveInterface ->
   Maybe DriveMedia ->
+  Bool ->
   IO Response
-handleDiskAttach state vmId diskId interface media = runStdoutLoggingT $ do
+handleDiskAttach state vmId diskId interface media readOnly = runStdoutLoggingT $ do
   logInfoN $
     "Attaching disk "
       <> T.pack (show diskId)
       <> " to VM "
       <> T.pack (show vmId)
+      <> if readOnly then " (read-only)" else ""
 
   -- Check disk exists
   mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
@@ -425,62 +498,68 @@ handleDiskAttach state vmId diskId interface media = runStdoutLoggingT $ do
       case mVm of
         Nothing -> pure RespVmNotFound
         Just vm -> do
-          -- Create drive record
-          driveId <-
-            liftIO $
-              runSqlPool
-                ( insert
-                    Drive
-                      { driveVmId = toSqlKey vmId,
-                        driveDiskImageId = toSqlKey diskId,
-                        driveInterface = interface,
-                        driveMedia = media,
-                        driveReadOnly = False,
-                        driveCacheType = CacheWriteback,
-                        driveDiscard = True
-                      }
-                )
-                (ssDbPool state)
+          -- Check if disk is used as backing image for overlays
+          -- We only allow attaching base images as read-only.
+          overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) (ssDbPool state)
+          if not (null overlayIds) && not readOnly
+            then pure $ RespDiskHasOverlays overlayIds
+            else do
+              -- Create drive record
+              driveId <-
+                liftIO $
+                  runSqlPool
+                    ( insert
+                        Drive
+                          { driveVmId = toSqlKey vmId,
+                            driveDiskImageId = toSqlKey diskId,
+                            driveInterface = interface,
+                            driveMedia = media,
+                            driveReadOnly = readOnly,
+                            driveCacheType = if readOnly then CacheNone else CacheWriteback,
+                            driveDiscard = not readOnly
+                          }
+                    )
+                    (ssDbPool state)
 
-          -- If VM is running or paused, hot-plug via QMP (both have live QEMU process)
-          if vmStatus vm == VmRunning || vmStatus vm == VmPaused
-            then do
-              logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-plug"
-              let nodeName = "drive-" <> T.pack (show $ fromSqlKey driveId)
-                  deviceId = "device-" <> T.pack (show $ fromSqlKey driveId)
-                  format = diskImageFormat disk
-              filePath <- liftIO $ resolveDiskPath disk
+              -- If VM is running or paused, hot-plug via QMP (both have live QEMU process)
+              if vmStatus vm == VmRunning || vmStatus vm == VmPaused
+                then do
+                  logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-plug"
+                  let nodeName = "drive-" <> T.pack (show $ fromSqlKey driveId)
+                      deviceId = "device-" <> T.pack (show $ fromSqlKey driveId)
+                      format = diskImageFormat disk
+                  filePath <- liftIO $ resolveDiskPath disk
 
-              -- Add block device
-              blockResult <- liftIO $ qmpBlockdevAdd vmId nodeName filePath format
-              case blockResult of
-                QmpSuccess -> do
-                  -- Add device
-                  deviceResult <- liftIO $ qmpDeviceAddDrive vmId deviceId nodeName interface
-                  case deviceResult of
+                  -- Add block device
+                  blockResult <- liftIO $ qmpBlockdevAdd vmId nodeName filePath format readOnly
+                  case blockResult of
                     QmpSuccess -> do
-                      logInfoN "Hot-plug successful"
-                      pure $ RespDiskAttached $ fromSqlKey driveId
+                      -- Add device
+                      deviceResult <- liftIO $ qmpDeviceAddDrive vmId deviceId nodeName interface
+                      case deviceResult of
+                        QmpSuccess -> do
+                          logInfoN "Hot-plug successful"
+                          pure $ RespDiskAttached $ fromSqlKey driveId
+                        QmpError err -> do
+                          logWarnN $ "Device add failed: " <> err
+                          -- Try to clean up blockdev
+                          _ <- liftIO $ qmpBlockdevDel vmId nodeName
+                          -- Remove drive record
+                          liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                          pure $ RespError $ "Device add failed: " <> err
+                        QmpConnectionFailed err -> do
+                          liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                          pure $ RespError $ "QMP connection failed: " <> err
                     QmpError err -> do
-                      logWarnN $ "Device add failed: " <> err
-                      -- Try to clean up blockdev
-                      _ <- liftIO $ qmpBlockdevDel vmId nodeName
-                      -- Remove drive record
+                      logWarnN $ "Blockdev add failed: " <> err
                       liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                      pure $ RespError $ "Device add failed: " <> err
+                      pure $ RespError $ "Blockdev add failed: " <> err
                     QmpConnectionFailed err -> do
                       liftIO $ runSqlPool (delete driveId) (ssDbPool state)
                       pure $ RespError $ "QMP connection failed: " <> err
-                QmpError err -> do
-                  logWarnN $ "Blockdev add failed: " <> err
-                  liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                  pure $ RespError $ "Blockdev add failed: " <> err
-                QmpConnectionFailed err -> do
-                  liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                  pure $ RespError $ "QMP connection failed: " <> err
-            else do
-              logInfoN "VM is not active, disk attached to database only"
-              pure $ RespDiskAttached $ fromSqlKey driveId
+                else do
+                  logInfoN "VM is not active, disk attached to database only"
+                  pure $ RespDiskAttached $ fromSqlKey driveId
 
 -- | Detach a disk from a VM
 handleDiskDetach :: ServerState -> Int64 -> Int64 -> IO Response
@@ -561,11 +640,24 @@ getRunningAttachedVms diskId = do
   activeVms <- selectList [M.VmId <-. vmKeys, M.VmStatus <-. [VmRunning, VmPaused]] []
   pure $ map (fromSqlKey . entityKey) activeVms
 
+-- | Get overlay disk IDs that reference this disk as a backing image
+getOverlayIds :: Int64 -> SqlPersistT IO [Int64]
+getOverlayIds diskId = do
+  overlays <- selectList [M.DiskImageBackingImageId ==. Just (toSqlKey diskId)] []
+  pure $ map (fromSqlKey . entityKey) overlays
+
 -- | Delete disk and its snapshots
 deleteDiskAndSnapshots :: Int64 -> SqlPersistT IO ()
 deleteDiskAndSnapshots diskId = do
   deleteWhere [M.SnapshotDiskImageId ==. toSqlKey diskId]
   delete (toSqlKey diskId :: DiskImageId)
+
+-- | Resolve backing image name from optional key
+getBackingImageName :: Maybe DiskImageId -> SqlPersistT IO (Maybe T.Text)
+getBackingImageName Nothing = pure Nothing
+getBackingImageName (Just backingKey) = do
+  mBacking <- get backingKey
+  pure $ fmap diskImageName mBacking
 
 -- | List all disk images with attachment info
 listDiskImages :: SqlPersistT IO [DiskImageInfo]
@@ -573,6 +665,7 @@ listDiskImages = do
   disks <- selectList [] [Asc M.DiskImageName]
   forM disks $ \(Entity key disk) -> do
     attachedVms <- getAttachedVms (fromSqlKey key)
+    backingName <- getBackingImageName (diskImageBackingImageId disk)
     pure $
       DiskImageInfo
         { diiId = fromSqlKey key,
@@ -581,7 +674,9 @@ listDiskImages = do
           diiFormat = diskImageFormat disk,
           diiSizeMb = diskImageSizeMb disk,
           diiCreatedAt = diskImageCreatedAt disk,
-          diiAttachedTo = attachedVms
+          diiAttachedTo = attachedVms,
+          diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk),
+          diiBackingImageName = backingName
         }
 
 -- | Get disk image info
@@ -592,6 +687,7 @@ getDiskImageInfo diskId = do
     Nothing -> pure Nothing
     Just disk -> do
       attachedVms <- getAttachedVms diskId
+      backingName <- getBackingImageName (diskImageBackingImageId disk)
       pure $
         Just
           DiskImageInfo
@@ -601,7 +697,9 @@ getDiskImageInfo diskId = do
               diiFormat = diskImageFormat disk,
               diiSizeMb = diskImageSizeMb disk,
               diiCreatedAt = diskImageCreatedAt disk,
-              diiAttachedTo = attachedVms
+              diiAttachedTo = attachedVms,
+              diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk),
+              diiBackingImageName = backingName
             }
 
 -- | Get snapshots for a disk

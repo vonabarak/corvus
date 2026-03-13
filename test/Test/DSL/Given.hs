@@ -12,6 +12,7 @@ module Test.DSL.Given
     -- * Disk image setup
     insertDiskImage,
     insertDiskImageFull,
+    insertDiskImageWithBacking,
     givenDiskExists,
 
     -- * Drive setup
@@ -124,7 +125,8 @@ insertDiskImage name path format = do
             diskImageFilePath = path,
             diskImageFormat = format,
             diskImageSizeMb = Nothing,
-            diskImageCreatedAt = now
+            diskImageCreatedAt = now,
+            diskImageBackingImageId = Nothing
           }
   pure $ fromSqlKey key
 
@@ -145,7 +147,31 @@ insertDiskImageFull name path format sizeMb = do
             diskImageFilePath = path,
             diskImageFormat = format,
             diskImageSizeMb = sizeMb,
-            diskImageCreatedAt = now
+            diskImageCreatedAt = now,
+            diskImageBackingImageId = Nothing
+          }
+  pure $ fromSqlKey key
+
+-- | Insert a disk image with an optional backing image (for overlay disks)
+insertDiskImageWithBacking ::
+  Text ->
+  Text ->
+  DriveFormat ->
+  Maybe Int ->
+  Maybe Int64 ->
+  TestM Int64
+insertDiskImageWithBacking name path format sizeMb mBackingId = do
+  now <- liftIO getCurrentTime
+  key <-
+    runDb $
+      insert
+        DiskImage
+          { diskImageName = name,
+            diskImageFilePath = path,
+            diskImageFormat = format,
+            diskImageSizeMb = sizeMb,
+            diskImageCreatedAt = now,
+            diskImageBackingImageId = fmap toSqlKey mBackingId
           }
   pure $ fromSqlKey key
 
@@ -159,7 +185,8 @@ defaultDiskImage = do
         diskImageFilePath = T.pack "test/disk.qcow2",
         diskImageFormat = FormatQcow2,
         diskImageSizeMb = Just 10240,
-        diskImageCreatedAt = now
+        diskImageCreatedAt = now,
+        diskImageBackingImageId = Nothing
       }
 
 --------------------------------------------------------------------------------

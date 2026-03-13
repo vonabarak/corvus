@@ -323,7 +323,8 @@ ensureCloudInitDiskRegistered state vmId vmName isoPath = runStdoutLoggingT $ do
                     diskImageFilePath = isoPath,
                     diskImageFormat = FormatRaw,
                     diskImageSizeMb = Nothing,
-                    diskImageCreatedAt = now
+                    diskImageCreatedAt = now,
+                    diskImageBackingImageId = Nothing
                   }
             )
             pool

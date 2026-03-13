@@ -3,6 +3,8 @@
 
 module Corvus.DiskSpec (spec) where
 
+import Corvus.Protocol (DiskImageInfo (..), Response (..))
+import qualified Data.Text as T
 import Test.Prelude
 
 spec :: Spec
@@ -86,6 +88,43 @@ spec = withTestDb $ do
         pure ()
       when_ $ diskAttach 1 999 InterfaceVirtio (Just MediaDisk)
       then_ responseIsDiskNotFound
+
+  describe "disk overlay" $ do
+    testCase "fails for non-existent base disk" $ do
+      when_ $ diskCreateOverlay "overlay1" 999
+      then_ responseIsDiskNotFound
+
+    testCase "fails when base is attached read-write to a VM" $ do
+      given $ do
+        _ <- insertVm "test-vm" VmStopped
+        _ <- insertDiskImage "base-disk" "base.qcow2" FormatQcow2
+        _ <- attachDrive 1 1 InterfaceVirtio
+        pure ()
+      when_ $ diskCreateOverlay "overlay1" 1
+      then_ $ responseIs $ \case
+        RespError msg -> "read-write" `T.isInfixOf` msg
+        _ -> False
+
+    testCase "fails when disk has overlays (cannot delete base)" $ do
+      given $ do
+        _ <- insertDiskImage "base-disk" "base.qcow2" FormatQcow2
+        _ <- insertDiskImageWithBacking "overlay-disk" "overlay.qcow2" FormatQcow2 Nothing (Just 1)
+        pure ()
+      when_ $ diskDelete 1
+      then_ responseIsDiskHasOverlays
+
+  describe "disk show backing info" $ do
+    testCase "shows backing image for overlay disk" $ do
+      given $ do
+        _ <- insertDiskImage "base-disk" "base.qcow2" FormatQcow2
+        _ <- insertDiskImageWithBacking "overlay-disk" "overlay.qcow2" FormatQcow2 Nothing (Just 1)
+        pure ()
+      when_ $ diskShow 2
+      then_ $ responseIs $ \case
+        RespDiskInfo info ->
+          diiBackingImageId info == Just 1
+            && diiBackingImageName info == Just "base-disk"
+        _ -> False
 
   describe "disk detach" $ do
     testCase "detaches drive from stopped VM" $ do
