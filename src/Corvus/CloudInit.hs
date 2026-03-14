@@ -21,9 +21,12 @@ where
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
+import Corvus.Utils.Yaml (yamlQQ)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as TIO
+import qualified Data.Yaml as Yaml
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -68,45 +71,40 @@ getCloudInitIsoPath config vmName = do
 -- | Generate user-data YAML for cloud-init with multiple SSH keys
 generateUserData :: CloudInitConfig -> [Text] -> Text
 generateUserData config sshPubKeys =
-  T.unlines $
-    [ "#cloud-config",
-      "",
-      "# Generate SSH host keys if missing",
-      "ssh_genkeytypes:",
-      "  - rsa",
-      "  - ed25519",
-      "",
-      "# Ensure host keys exist before SSH starts",
-      "bootcmd:",
-      "  - test -f /etc/ssh/ssh_host_rsa_key || ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N ''",
-      "  - test -f /etc/ssh/ssh_host_ed25519_key || ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ''",
-      "",
-      "users:",
-      "  - name: " <> ciUser config,
-      "    sudo: ALL=(ALL) NOPASSWD:ALL",
-      "    shell: /bin/bash",
-      "    lock_passwd: true",
-      "    ssh_authorized_keys:"
-    ]
-      ++ map (\key -> "      - " <> T.strip key) sshPubKeys
-      ++ [ "",
-           "ssh_pwauth: false",
-           "disable_root: true",
-           "",
-           "package_update: false",
-           "package_upgrade: false",
-           "",
-           "runcmd:",
-           "  - systemctl restart ssh || systemctl restart sshd || true"
-         ]
+  "#cloud-config\n"
+    <> T.decodeUtf8
+      ( Yaml.encode
+          [yamlQQ|
+            ssh_genkeytypes:
+              - rsa
+              - ed25519
+            bootcmd:
+              - test -f /etc/ssh/ssh_host_rsa_key || ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N ''
+              - test -f /etc/ssh/ssh_host_ed25519_key || ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ''
+            users:
+              - name: #{ciUser config}
+                sudo: ALL=(ALL) NOPASSWD:ALL
+                shell: /bin/bash
+                lock_passwd: true
+                ssh_authorized_keys: #{sshPubKeys}
+            ssh_pwauth: false
+            disable_root: true
+            package_update: false
+            package_upgrade: false
+            runcmd:
+              - systemctl restart ssh || systemctl restart sshd || true
+          |]
+      )
 
 -- | Generate meta-data for cloud-init
 generateMetaData :: CloudInitConfig -> Text
 generateMetaData config =
-  T.unlines
-    [ "instance-id: " <> ciInstanceId config,
-      "local-hostname: " <> ciHostname config
-    ]
+  T.decodeUtf8 $
+    Yaml.encode
+      [yamlQQ|
+        instance-id: #{ciInstanceId config}
+        local-hostname: #{ciHostname config}
+      |]
 
 -- | Generate a cloud-init NoCloud ISO image with multiple SSH keys.
 -- The ISO contains user-data and meta-data files.

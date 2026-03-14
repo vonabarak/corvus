@@ -38,12 +38,13 @@ library
       Corvus.Qemu.Config
       Corvus.Qemu.Runtime
       Corvus.Qemu.Qmp
-      Corvus.Qemu.QmpQQ
+      Corvus.Utils.Yaml
       Corvus.Qemu.Process
       Corvus.Qemu.Command
       Corvus.Qemu.Virtiofsd
       Corvus.Qemu.Image
   other-modules:
+      Corvus.Qemu.QmpQQ
       Paths_corvus
   autogen-modules:
       Paths_corvus
@@ -75,6 +76,7 @@ library
     , esqueleto
     , exceptions
     , filepath
+    , haskell-src-meta
     , monad-logger
     , mtl
     , network
@@ -90,6 +92,8 @@ library
     , time
     , unix
     , unliftio-core
+    , vector
+    , yaml
   default-language: Haskell2010
 
 executable corvus
@@ -128,6 +132,7 @@ executable corvus
     , esqueleto
     , exceptions
     , filepath
+    , haskell-src-meta
     , monad-logger
     , mtl
     , network
@@ -143,6 +148,8 @@ executable corvus
     , time
     , unix
     , unliftio-core
+    , vector
+    , yaml
   default-language: Haskell2010
 
 executable crv
@@ -181,6 +188,7 @@ executable crv
     , esqueleto
     , exceptions
     , filepath
+    , haskell-src-meta
     , monad-logger
     , mtl
     , network
@@ -196,6 +204,8 @@ executable crv
     , time
     , unix
     , unliftio-core
+    , vector
+    , yaml
   default-language: Haskell2010
 
 test-suite corvus-test
@@ -256,6 +266,7 @@ test-suite corvus-test
     , esqueleto
     , exceptions
     , filepath
+    , haskell-src-meta
     , hspec
     , hspec-discover
     , hspec-expectations
@@ -277,4 +288,6 @@ test-suite corvus-test
     , unix
     , unliftio-core
     , uuid
+    , vector
+    , yaml
   default-language: Haskell2010

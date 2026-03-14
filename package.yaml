@@ -14,6 +14,7 @@ dependencies:
   - stm
   - text
   - bytestring
+  - vector
   - optparse-applicative
   - unix
   - directory
@@ -31,7 +32,9 @@ dependencies:
   - exceptions
   - aeson
   - aeson-qq
+  - yaml
   - template-haskell
+  - haskell-src-meta
 
 default-extensions:
   - OverloadedStrings
@@ -75,7 +78,7 @@ library:
     - Corvus.Qemu.Config
     - Corvus.Qemu.Runtime
     - Corvus.Qemu.Qmp
-    - Corvus.Qemu.QmpQQ
+    - Corvus.Utils.Yaml
     - Corvus.Qemu.Process
     - Corvus.Qemu.Command
     - Corvus.Qemu.Virtiofsd

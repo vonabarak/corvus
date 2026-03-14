@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Cloud-init configuration generation for VM integration tests.
 -- Creates NoCloud datasource ISOs for injecting SSH keys and configuration.
@@ -16,9 +18,12 @@ where
 
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
+import Corvus.Utils.Yaml (yamlQQ)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import qualified Data.Text.IO as TIO
+import qualified Data.Yaml as Yaml
 import System.Directory (doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
@@ -47,35 +52,35 @@ defaultCloudInitConfig =
 -- | Generate user-data YAML for cloud-init
 generateUserData :: CloudInitConfig -> Text -> Text
 generateUserData config sshPubKey =
-  T.unlines
-    [ "#cloud-config",
-      "",
-      "users:",
-      "  - name: " <> ciUser config,
-      "    sudo: ALL=(ALL) NOPASSWD:ALL",
-      "    shell: /bin/bash",
-      "    lock_passwd: true",
-      "    ssh_authorized_keys:",
-      "      - " <> T.strip sshPubKey,
-      "",
-      "ssh_pwauth: false",
-      "disable_root: true",
-      "",
-      "package_update: false",
-      "package_upgrade: false",
-      "",
-      "runcmd:",
-      "  - systemctl enable ssh",
-      "  - systemctl start ssh"
-    ]
+  "#cloud-config\n"
+    <> T.decodeUtf8
+      ( Yaml.encode
+          [yamlQQ|
+            users:
+              - name: #{ciUser config}
+                sudo: ALL=(ALL) NOPASSWD:ALL
+                shell: /bin/bash
+                lock_passwd: true
+                ssh_authorized_keys: [#{T.strip sshPubKey}]
+            ssh_pwauth: false
+            disable_root: true
+            package_update: false
+            package_upgrade: false
+            runcmd:
+              - systemctl enable ssh
+              - systemctl start ssh
+          |]
+      )
 
 -- | Generate meta-data for cloud-init
 generateMetaData :: CloudInitConfig -> Text
 generateMetaData config =
-  T.unlines
-    [ "instance-id: " <> ciInstanceId config,
-      "local-hostname: " <> ciHostname config
-    ]
+  T.decodeUtf8 $
+    Yaml.encode
+      [yamlQQ|
+        instance-id: #{ciInstanceId config}
+        local-hostname: #{ciHostname config}
+      |]
 
 -- | Generate a cloud-init NoCloud ISO image.
 -- The ISO contains user-data and meta-data files.
