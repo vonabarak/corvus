@@ -111,8 +111,8 @@ withDaemonConnection ::
   TestDaemon ->
   (Connection -> IO a) ->
   IO (Either ConnectionError a)
-withDaemonConnection daemon action =
-  withConnection (UnixAddress (tdSocketPath daemon)) action
+withDaemonConnection daemon =
+  withConnection (UnixAddress (tdSocketPath daemon))
 
 --------------------------------------------------------------------------------
 -- Internal Helpers

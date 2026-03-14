@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | DSL helpers for running VMs through the Corvus daemon.
@@ -35,28 +35,36 @@ module Test.DSL.Daemon
   )
 where
 
-import           Control.Concurrent     (threadDelay)
-import           Control.Exception      (SomeException, try)
-import           Control.Monad          (unless, when)
-import           Control.Monad.IO.Class (MonadIO, liftIO)
-import           Corvus.Client
-import           Corvus.Model           (DriveFormat (..), DriveInterface (..),
-                                         NetInterfaceType (..),
-                                         SharedDirCache (..))
-import           Data.Int               (Int64)
-import           Data.Text              (Text)
-import qualified Data.Text              as T
-import           Data.UUID              (toText)
-import           Data.UUID.V4           (nextRandom)
-import           Network.Socket         (Family (..), SocketType (..), close,
-                                         defaultProtocol, socket)
-import qualified Network.Socket         as NS
-import           System.Directory       (doesFileExist, removeFile)
-import           System.Exit            (ExitCode (..))
-import           System.FilePath        ((</>))
-import           System.IO.Temp         (withSystemTempDirectory)
-import           System.Process         (readProcessWithExitCode)
-import           Test.Daemon            (TestDaemon (..), withDaemonConnection)
+import Control.Concurrent (threadDelay)
+import Control.Exception (SomeException, try)
+import Control.Monad (unless, when)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Corvus.Client
+import Corvus.Model
+  ( DriveFormat (..),
+    DriveInterface (..),
+    NetInterfaceType (..),
+    SharedDirCache (..),
+  )
+import Data.Int (Int64)
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.UUID (toText)
+import Data.UUID.V4 (nextRandom)
+import Network.Socket
+  ( Family (..),
+    SocketType (..),
+    close,
+    defaultProtocol,
+    socket,
+  )
+import qualified Network.Socket as NS
+import System.Directory (doesFileExist, removeFile)
+import System.Exit (ExitCode (..))
+import System.FilePath ((</>))
+import System.IO.Temp (withSystemTempDirectory)
+import System.Process (readProcessWithExitCode)
+import Test.Daemon (TestDaemon (..), withDaemonConnection)
 
 --------------------------------------------------------------------------------
 -- Types
@@ -65,17 +73,17 @@ import           Test.Daemon            (TestDaemon (..), withDaemonConnection)
 -- | A VM running through the daemon with SSH access
 data DaemonVm = DaemonVm
   { -- | VM ID in the database
-    dvmId            :: !Int64,
+    dvmId :: !Int64,
     -- | SSH port
-    dvmSshPort       :: !Int,
+    dvmSshPort :: !Int,
     -- | SSH host (IP address of the VM)
-    dvmSshHost       :: !String,
+    dvmSshHost :: !String,
     -- | Test daemon reference
-    dvmDaemon        :: !TestDaemon,
+    dvmDaemon :: !TestDaemon,
     -- | Path to private key file for SSH access
     dvmSshPrivateKey :: !FilePath,
     -- | SSH key ID in the daemon
-    dvmSshKeyId      :: !Int64
+    dvmSshKeyId :: !Int64
   }
 
 --------------------------------------------------------------------------------
@@ -113,7 +121,7 @@ withDaemonVm daemon diskImageId mSharedDir action = do
 
     -- Add shared directory if requested
     case mSharedDir of
-      Nothing   -> pure ()
+      Nothing -> pure ()
       Just path -> addVmSharedDir daemon vmId (T.pack path) "share"
 
     -- Set up SSH key for access (creates cloud-init ISO automatically)
@@ -197,7 +205,7 @@ deleteDaemonVm daemon vmId = do
     vmDelete conn vmId
   case result of
     Right (Right VmDeleted) -> pure ()
-    _                       -> pure ()
+    _ -> pure ()
 
 --------------------------------------------------------------------------------
 -- VM Configuration
@@ -248,7 +256,7 @@ setupVmSshKey daemon vmId tmpDir = do
   -- Generate SSH key pair
   keyPairResult <- generateSshKeyPair tmpDir
   (privateKey, publicKey) <- case keyPairResult of
-    Left err      -> fail $ "Failed to generate SSH key pair: " <> T.unpack err
+    Left err -> fail $ "Failed to generate SSH key pair: " <> T.unpack err
     Right keyPair -> pure (skpPrivateKey keyPair, skpPublicKey keyPair)
 
   -- Read the public key content
@@ -292,7 +300,7 @@ cleanupSshKey daemon keyId = do
   result <- withDaemonConnection daemon $ \conn ->
     sshKeyDelete conn keyId
   case result of
-    Left _  -> pure () -- Ignore errors during cleanup
+    Left _ -> pure () -- Ignore errors during cleanup
     Right _ -> pure ()
 
 -- | Generate SSH key pair (local helper)
@@ -338,7 +346,7 @@ generateSshKeyPair tmpDir = do
 -- | SSH key pair data
 data SshKeyPair = SshKeyPair
   { skpPrivateKey :: !FilePath,
-    skpPublicKey  :: !FilePath
+    skpPublicKey :: !FilePath
   }
   deriving (Show, Eq)
 
@@ -402,7 +410,7 @@ data SshProbeResult
 
 -- | Wait for SSH to be available on the VM (legacy, without key)
 waitForDaemonVmSsh :: String -> Int -> Int -> IO ()
-waitForDaemonVmSsh host port timeoutSec = waitForDaemonVmSshWithKey host port "" timeoutSec
+waitForDaemonVmSsh host port = waitForDaemonVmSshWithKey host port ""
 
 -- | Wait for SSH to be available on the VM using a specific key.
 -- Fails fast if SSH is up but key authentication is rejected (after a
@@ -420,7 +428,7 @@ waitForDaemonVmSshWithKey host port privateKey timeoutSec = go timeoutSec Nothin
         SshOk -> pure ()
         SshAuthRejected stderr -> do
           let countdown = case mAuthCountdown of
-                Just c  -> c - 1
+                Just c -> c - 1
                 Nothing -> authGracePeriod
           putStrLn $ "[ssh] Auth rejected, grace period: " <> show countdown <> "s remaining"
           if countdown <= 0
@@ -475,12 +483,12 @@ waitForDaemonVmSshWithKey host port privateKey timeoutSec = go timeoutSec Nothin
     isInfixOf needle haystack = any (isPrefixOf needle) (tails haystack)
 
     isPrefixOf :: String -> String -> Bool
-    isPrefixOf [] _              = True
-    isPrefixOf _ []              = False
+    isPrefixOf [] _ = True
+    isPrefixOf _ [] = False
     isPrefixOf (x : xs) (y : ys) = x == y && isPrefixOf xs ys
 
     tails :: String -> [String]
-    tails []         = [[]]
+    tails [] = [[]]
     tails s@(_ : xs) = s : tails xs
 
 -- | Generate a random MAC address
@@ -507,4 +515,4 @@ findFreePort = do
   close sock
   case addr of
     NS.SockAddrInet port _ -> pure $ fromIntegral port
-    _                      -> pure 2222 -- Fallback
+    _ -> pure 2222 -- Fallback

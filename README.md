@@ -32,8 +32,8 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 ### Building
 
 ```bash
-stack build
-stack install  # Installs to ~/.local/bin/
+make build
+make install  # Installs to ~/.local/bin/ and sets up systemd user service
 ```
 
 ### Database Setup
@@ -57,11 +57,8 @@ corvus --socket /tmp/corvus.sock --database postgresql://localhost/corvus
 # Run with TCP instead
 corvus --tcp --host 127.0.0.1 --port 9876 --database postgresql://localhost/corvus
 
-# Or install as a user service
-mkdir -p ~/.config/systemd/user
-cp corvus.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now corvus
+# Or install and start as a user service
+make install
 ```
 
 ### Client Commands
@@ -228,13 +225,13 @@ corvus/
 
 ```bash
 # Build
-stack build
+make build
 
 # Build with file watching
 stack build --file-watch
 
 # Run tests
-stack test
+make all-tests
 
 # Run daemon locally
 stack run corvus -- --host 127.0.0.1 --port 9876 --database postgresql://localhost/corvus
@@ -247,10 +244,10 @@ stack run crv -- vm list
 
 ```bash
 # Linting
-~/.local/bin/hlint src app
+make lint
 
 # Formatting
-~/.local/bin/ormolu --mode inplace $(find src app -name '*.hs')
+make format
 ```
 
 ## Architecture

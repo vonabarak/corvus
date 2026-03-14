@@ -192,7 +192,7 @@ tryMkIsofs userDataPath metaDataPath isoPath = do
 
 -- | Remove cloud-init ISO file
 removeCloudInitIso :: FilePath -> IO ()
-removeCloudInitIso isoPath = removeIfExists isoPath
+removeCloudInitIso = removeIfExists
 
 -- | Helper to remove file if it exists
 removeIfExists :: FilePath -> IO ()

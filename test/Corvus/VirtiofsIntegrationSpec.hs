@@ -24,9 +24,9 @@ import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (getCanonicalTemporaryDirectory)
+import Test.DSL.Daemon
 import Test.Daemon (startTestDaemon, stopTestDaemon, withDaemonConnection)
 import Test.Database (withTestDb)
-import Test.DSL.Daemon
 import Test.Hspec
 import Test.VM.Image (createOverlay, defaultImageConfig, ensureBaseImage, removeOverlay)
 
@@ -65,34 +65,36 @@ spec = withTestDb $ do
 
       bracket
         (pure ())
-        (\_ -> do
-          stopTestDaemon daemon
-          removeOverlay overlayPath
-          removeDirectoryRecursive testDir)
-        (\_ -> do
-          -- Register the overlay as a disk in the daemon
-          diskResult <- withDaemonConnection daemon $ \conn ->
-            diskRegister conn "debian-cloud" (T.pack overlayPath) FormatQcow2 Nothing
+        ( \_ -> do
+            stopTestDaemon daemon
+            removeOverlay overlayPath
+            removeDirectoryRecursive testDir
+        )
+        ( \_ -> do
+            -- Register the overlay as a disk in the daemon
+            diskResult <- withDaemonConnection daemon $ \conn ->
+              diskRegister conn "debian-cloud" (T.pack overlayPath) FormatQcow2 Nothing
 
-          diskId <- case diskResult of
-            Left err -> fail $ "Connection error: " <> show err
-            Right (Left err) -> fail $ "Failed to register disk: " <> show err
-            Right (Right (DiskCreated dId)) -> pure dId
-            Right (Right other) -> fail $ "Unexpected response: " <> show other
+            diskId <- case diskResult of
+              Left err -> fail $ "Connection error: " <> show err
+              Right (Left err) -> fail $ "Failed to register disk: " <> show err
+              Right (Right (DiskCreated dId)) -> pure dId
+              Right (Right other) -> fail $ "Unexpected response: " <> show other
 
-          -- Run the test with a daemon-managed VM
-          withDaemonVm daemon diskId (Just testDir) $ \vm -> do
-            -- Mount the shared directory
-            (code2, _, _) <- runInDaemonVm vm "sudo mkdir -p /mnt/share"
-            code2 `shouldBe` ExitSuccess
+            -- Run the test with a daemon-managed VM
+            withDaemonVm daemon diskId (Just testDir) $ \vm -> do
+              -- Mount the shared directory
+              (code2, _, _) <- runInDaemonVm vm "sudo mkdir -p /mnt/share"
+              code2 `shouldBe` ExitSuccess
 
-            (code3, _, _) <-
-              runInDaemonVm
-                vm
-                "sudo mount -t virtiofs share /mnt/share"
-            code3 `shouldBe` ExitSuccess
+              (code3, _, _) <-
+                runInDaemonVm
+                  vm
+                  "sudo mount -t virtiofs share /mnt/share"
+              code3 `shouldBe` ExitSuccess
 
-            -- Read the test file
-            (code4, stdout4, _) <- runInDaemonVm vm "cat /mnt/share/testfile.txt"
-            code4 `shouldBe` ExitSuccess
-            T.strip stdout4 `shouldBe` T.pack testContent)
+              -- Read the test file
+              (code4, stdout4, _) <- runInDaemonVm vm "cat /mnt/share/testfile.txt"
+              code4 `shouldBe` ExitSuccess
+              T.strip stdout4 `shouldBe` T.pack testContent
+        )

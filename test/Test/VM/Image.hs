@@ -76,7 +76,7 @@ ensureBaseImage config = do
 downloadImage :: ImageConfig -> FilePath -> IO (Either Text FilePath)
 downloadImage config destPath = do
   putStrLn $ "Downloading VM image from: " ++ T.unpack (icImageUrl config)
-  putStrLn $ "This may take a few minutes..."
+  putStrLn "This may take a few minutes..."
 
   let url = T.unpack (icImageUrl config)
 

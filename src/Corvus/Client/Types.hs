@@ -68,6 +68,7 @@ data Command
   | -- | List snapshots (diskId)
     SnapshotList !Int64
   | -- SSH key commands
+
     -- | Create SSH key (name, publicKey)
     SshKeyCreate !Text !Text
   | -- | Delete SSH key (keyId)

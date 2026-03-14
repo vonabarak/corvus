@@ -334,7 +334,7 @@ givenDiskExists name = insertDiskImage name ("/test/images/" <> name <> ".qcow2"
 
 -- | Create a snapshot for a disk
 givenSnapshotExists :: Int64 -> Text -> TestM Int64
-givenSnapshotExists diskId name = insertSnapshot diskId name
+givenSnapshotExists = insertSnapshot
 
 -- | Create a shared directory for a VM with default settings
 givenSharedDirExists :: Int64 -> Text -> Text -> TestM Int64

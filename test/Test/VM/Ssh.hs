@@ -130,7 +130,7 @@ runSshCommand config cmd = do
 -- Polls every second until SSH responds or timeout is reached.
 -- Returns True if SSH is available, False if timeout.
 waitForSsh :: SshConfig -> Int -> IO Bool
-waitForSsh config timeoutSeconds = go timeoutSeconds
+waitForSsh config = go
   where
     go 0 = pure False
     go remaining = do

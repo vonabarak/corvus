@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Network interface management handlers.
 module Corvus.Handlers.NetIf
   ( handleNetIfAdd,

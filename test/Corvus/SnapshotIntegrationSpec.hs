@@ -15,7 +15,6 @@
 module Corvus.SnapshotIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
-
 import Control.Exception (bracket)
 import Control.Monad (when)
 import Corvus.Client
@@ -31,9 +30,9 @@ import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (getCanonicalTemporaryDirectory, withSystemTempDirectory)
 import System.Process (readProcessWithExitCode)
+import Test.DSL.Daemon (findFreePort, generateMacAddress)
 import Test.Daemon (TestDaemon (..), startTestDaemon, stopTestDaemon, withDaemonConnection)
 import Test.Database (TestEnv, withTestDb)
-import Test.DSL.Daemon (findFreePort, generateMacAddress)
 import Test.Hspec
 import Test.VM.Image (createOverlay, defaultImageConfig, ensureBaseImage, removeOverlay)
 
@@ -379,14 +378,15 @@ setupTestVm daemon tmpDir = do
   -- Set up SSH key for cloud-init
   (sshKeyId, privateKeyPath) <- setupSshKey daemon vmId tmpDir
 
-  pure TestContext
-    { tcDiskId = diskId,
-      tcVmId = vmId,
-      tcSshPort = sshPort,
-      tcOverlayPath = overlayPath,
-      tcSshKeyId = sshKeyId,
-      tcPrivateKeyPath = privateKeyPath
-    }
+  pure
+    TestContext
+      { tcDiskId = diskId,
+        tcVmId = vmId,
+        tcSshPort = sshPort,
+        tcOverlayPath = overlayPath,
+        tcSshKeyId = sshKeyId,
+        tcPrivateKeyPath = privateKeyPath
+      }
 
 -- | Set up SSH key for VM access via cloud-init
 setupSshKey :: TestDaemon -> Int64 -> FilePath -> IO (Int64, FilePath)
@@ -600,12 +600,18 @@ tryMergeSnapshot daemon diskId snapshotId = do
 runSshCommandWithKey :: TestContext -> String -> IO (ExitCode, String, String)
 runSshCommandWithKey ctx cmd = do
   let args =
-        [ "-o", "StrictHostKeyChecking=no",
-          "-o", "UserKnownHostsFile=/dev/null",
-          "-o", "BatchMode=yes",
-          "-o", "ConnectTimeout=10",
-          "-i", tcPrivateKeyPath ctx,
-          "-p", show (tcSshPort ctx),
+        [ "-o",
+          "StrictHostKeyChecking=no",
+          "-o",
+          "UserKnownHostsFile=/dev/null",
+          "-o",
+          "BatchMode=yes",
+          "-o",
+          "ConnectTimeout=10",
+          "-i",
+          tcPrivateKeyPath ctx,
+          "-p",
+          show (tcSshPort ctx),
           "corvus@localhost",
           cmd
         ]
@@ -613,7 +619,7 @@ runSshCommandWithKey ctx cmd = do
 
 -- | Wait for SSH to become available using the test context
 waitForSshWithKey :: TestContext -> Int -> IO ()
-waitForSshWithKey ctx timeoutSec = go timeoutSec
+waitForSshWithKey ctx = go
   where
     go 0 = fail $ "Timeout waiting for SSH on port " <> show (tcSshPort ctx)
     go n = do

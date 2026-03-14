@@ -72,11 +72,10 @@ handleSharedDirAdd state vmId path tag cache readOnly = do
           case vmStatus vm of
             VmRunning -> do
               runStdoutLoggingT $ logInfoN "VM is running, starting virtiofsd..."
-              virtiofsdResult <-
+              _ <-
                 runStdoutLoggingT $
                   startVirtiofsdProcesses pool defaultQemuConfig vmId
-              case virtiofsdResult of
-                _ -> pure () -- Log result but continue
+              pure () -- Log result but continue
             _ -> pure ()
 
           pure $ RespSharedDirAdded dirIdInt

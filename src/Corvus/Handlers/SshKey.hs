@@ -16,7 +16,7 @@ module Corvus.Handlers.SshKey
   )
 where
 
-import Control.Monad (forM)
+import Control.Monad (forM, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN, runStdoutLoggingT)
 import Corvus.CloudInit
@@ -26,6 +26,7 @@ import Corvus.Protocol
 import Corvus.Qemu.Config (defaultQemuConfig)
 import Corvus.Types
 import Data.Int (Int64)
+import Data.Maybe (catMaybes)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -265,7 +266,7 @@ regenerateCloudInitIso state vmId vmName = do
     mKey <- runSqlPool (get (vmSshKeySshKeyId attachment)) pool
     pure $ fmap sshKeyPublicKey mKey
 
-  let publicKeys = [k | Just k <- sshKeys]
+  let publicKeys = catMaybes sshKeys
 
   if null publicKeys
     then do
@@ -293,9 +294,7 @@ removeCloudInitIsoForVm :: Text -> IO ()
 removeCloudInitIsoForVm vmName = do
   isoPath <- getCloudInitIsoPath defaultQemuConfig vmName
   exists <- doesFileExist isoPath
-  if exists
-    then removeFile isoPath
-    else pure ()
+  when exists $ removeFile isoPath
 
 -- | Ensure cloud-init disk is registered and attached to VM
 ensureCloudInitDiskRegistered :: ServerState -> Int64 -> Text -> Text -> IO ()
@@ -364,4 +363,3 @@ ensureDiskAttached pool vmKey diskId = do
             )
             pool
       logInfoN $ "Attached cloud-init disk as CDROM, drive ID: " <> T.pack (show $ fromSqlKey driveId)
-

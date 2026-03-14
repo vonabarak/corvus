@@ -21,9 +21,9 @@ import Data.UUID.V4 (nextRandom)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (getCanonicalTemporaryDirectory)
+import Test.DSL.Daemon
 import Test.Daemon (startTestDaemon, stopTestDaemon, withDaemonConnection)
 import Test.Database (TestEnv, withTestDb)
-import Test.DSL.Daemon
 import Test.Hspec
 import Test.VM.Image (createOverlay, defaultImageConfig, ensureBaseImage, removeOverlay)
 
@@ -103,18 +103,20 @@ withTestVm env action = do
   -- Use bracket to ensure cleanup
   bracket
     (pure ())
-    (\_ -> do
-      stopTestDaemon daemon
-      removeOverlay overlayPath)
-    (\_ -> do
-      -- Register the overlay as a disk
-      diskResult <- withDaemonConnection daemon $ \conn ->
-        diskRegister conn "test-boot-disk" (T.pack overlayPath) FormatQcow2 Nothing
+    ( \_ -> do
+        stopTestDaemon daemon
+        removeOverlay overlayPath
+    )
+    ( \_ -> do
+        -- Register the overlay as a disk
+        diskResult <- withDaemonConnection daemon $ \conn ->
+          diskRegister conn "test-boot-disk" (T.pack overlayPath) FormatQcow2 Nothing
 
-      diskId <- case diskResult of
-        Left err -> fail $ "Connection error: " <> show err
-        Right (Left err) -> fail $ "Failed to register disk: " <> show err
-        Right (Right (DiskCreated dId)) -> pure dId
-        Right (Right other) -> fail $ "Unexpected response: " <> show other
+        diskId <- case diskResult of
+          Left err -> fail $ "Connection error: " <> show err
+          Right (Left err) -> fail $ "Failed to register disk: " <> show err
+          Right (Right (DiskCreated dId)) -> pure dId
+          Right (Right other) -> fail $ "Unexpected response: " <> show other
 
-      withDaemonVm daemon diskId Nothing action)
+        withDaemonVm daemon diskId Nothing action
+    )
