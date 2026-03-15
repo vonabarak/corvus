@@ -11,6 +11,7 @@ module Corvus.Handlers
     module Corvus.Handlers.SharedDir,
     module Corvus.Handlers.NetIf,
     module Corvus.Handlers.SshKey,
+    module Corvus.Handlers.Template,
   )
 where
 
@@ -19,6 +20,7 @@ import Corvus.Handlers.Disk
 import Corvus.Handlers.NetIf
 import Corvus.Handlers.SharedDir
 import Corvus.Handlers.SshKey
+import Corvus.Handlers.Template
 import Corvus.Handlers.Vm
 import Corvus.Protocol
 import Corvus.Types
@@ -51,6 +53,7 @@ handleRequest state req = case req of
   ReqDiskResize diskId newSizeMb -> handleDiskResize state diskId newSizeMb
   ReqDiskList -> handleDiskList state
   ReqDiskShow diskId -> handleDiskShow state diskId
+  ReqDiskClone name baseDiskId optionalPath -> handleDiskClone state name baseDiskId optionalPath
   -- Snapshot handlers
   ReqSnapshotCreate diskId name -> handleSnapshotCreate state diskId name
   ReqSnapshotDelete diskId snapshotId -> handleSnapshotDelete state diskId snapshotId
@@ -75,3 +78,9 @@ handleRequest state req = case req of
   ReqSshKeyAttach vmId keyId -> handleSshKeyAttach state vmId keyId
   ReqSshKeyDetach vmId keyId -> handleSshKeyDetach state vmId keyId
   ReqSshKeyListForVm vmId -> handleSshKeyListForVm state vmId
+  -- Template handlers
+  ReqTemplateCreate yaml -> handleTemplateCreate state yaml
+  ReqTemplateDelete tid -> handleTemplateDelete state tid
+  ReqTemplateList -> handleTemplateList state
+  ReqTemplateShow tid -> handleTemplateShow state tid
+  ReqTemplateInstantiate tid name -> handleTemplateInstantiate state tid name

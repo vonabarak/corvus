@@ -38,7 +38,10 @@ import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
 
 -- | Connection handle
-newtype Connection = Connection Socket
+data Connection = Connection
+  { connSendRequest :: Request -> IO (Either ConnectionError Response),
+    connClose :: IO ()
+  }
 
 -- | Connection errors
 data ConnectionError
@@ -61,7 +64,7 @@ withConnection addr action = case addr of
 withTcpConnection :: String -> Int -> (Connection -> IO a) -> IO (Either ConnectionError a)
 withTcpConnection host port action = do
   result <- try $ connect host (show port) $ \(sock, _addr) ->
-    action (Connection sock)
+    action (socketConnection sock)
   case result of
     Left (e :: SomeException) -> pure $ Left $ ConnectFailed $ T.pack $ show e
     Right a -> pure $ Right a
@@ -71,14 +74,25 @@ withUnixConnection :: FilePath -> (Connection -> IO a) -> IO (Either ConnectionE
 withUnixConnection path action = do
   result <- try $ bracket (socket AF_UNIX Stream 0) close $ \sock -> do
     NS.connect sock (NS.SockAddrUnix path)
-    action (Connection sock)
+    action (socketConnection sock)
   case result of
     Left (e :: SomeException) -> pure $ Left $ ConnectFailed $ T.pack $ show e
     Right a -> pure $ Right a
 
+-- | Create a Connection from a Socket
+socketConnection :: Socket -> Connection
+socketConnection sock = Connection
+  { connSendRequest = realSendRequest sock,
+    connClose = close sock
+  }
+
 -- | Send a request and receive a response
 sendRequest :: Connection -> Request -> IO (Either ConnectionError Response)
-sendRequest (Connection sock) req = do
+sendRequest = connSendRequest
+
+-- | Real implementation of sendRequest for a socket
+realSendRequest :: Socket -> Request -> IO (Either ConnectionError Response)
+realSendRequest sock req = do
   -- Encode and send request
   let payload = BL.toStrict $ encode req
       len = fromIntegral (BS.length payload) :: Int64

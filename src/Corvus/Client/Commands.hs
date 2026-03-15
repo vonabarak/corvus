@@ -13,18 +13,21 @@ module Corvus.Client.Commands
     printDiskInfo,
     printSnapshotInfo,
     printSshKeyInfo,
+    printTemplateVMInfo,
+    printTemplateDetails,
   )
 where
 
 import Control.Concurrent (forkIO)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, bracket, try)
+import Control.Monad (forM_, when)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
 import Corvus.Client.Rpc
 import Corvus.Client.Types
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), EnumText (..), NetInterfaceType (..), SharedDirCache (..), VmStatus (..), enumFromText, enumToText)
-import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SharedDirInfo (..), SnapshotInfo (..), SshKeyInfo (..), StatusInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SharedDirInfo (..), SnapshotInfo (..), SshKeyInfo (..), StatusInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateVMInfo (..), TemplateNetIfInfo (..), TemplateSshKeyInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import qualified Data.ByteString as BS
 import Data.Char (ord)
@@ -32,6 +35,7 @@ import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as T.IO
 import Data.Time (defaultTimeLocale, formatTime)
 import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, defaultProtocol, socket)
 import qualified Network.Socket as NS
@@ -182,6 +186,7 @@ runCommand opts = do
       DiskResize diskId newSizeMb -> handleDiskResize conn diskId newSizeMb
       DiskList -> handleDiskList conn
       DiskShow diskId -> handleDiskShow conn diskId
+      DiskClone name baseDiskId optionalPath -> handleDiskClone conn name baseDiskId optionalPath
       DiskAttach vmId diskId ifaceStr media readOnly discard cacheStr -> do
         case parseInterface ifaceStr of
           Left err -> do
@@ -232,6 +237,11 @@ runCommand opts = do
       SshKeyAttach vmId keyId -> handleSshKeyAttach conn vmId keyId
       SshKeyDetach vmId keyId -> handleSshKeyDetach conn vmId keyId
       SshKeyListForVm vmId -> handleSshKeyListForVm conn vmId
+      TemplateCreate path -> handleTemplateCreate conn path
+      TemplateDelete tid -> handleTemplateDelete conn tid
+      TemplateList -> handleTemplateList conn
+      TemplateShow tid -> handleTemplateShow conn tid
+      TemplateInstantiate tid name -> handleTemplateInstantiate conn tid name
 
   case connResult of
     Left err -> do
@@ -657,6 +667,30 @@ handleDiskShow conn diskId = do
       pure True
     Right DiskNotFound -> do
       putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle disk clone command
+handleDiskClone :: Connection -> Text -> Int64 -> Maybe Text -> IO Bool
+handleDiskClone conn name baseDiskId optionalPath = do
+  resp <- diskClone conn name baseDiskId optionalPath
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (DiskCreated diskId) -> do
+      putStrLn $ "Disk cloned successfully. New disk ID: " ++ show diskId
+      pure True
+    Right DiskNotFound -> do
+      putStrLn $ "Base disk with ID " ++ show baseDiskId ++ " not found."
+      pure False
+    Right VmMustBeStopped -> do
+      putStrLn "Error: Disk is attached to a running VM. Please stop the VM before cloning."
+      pure False
+    Right (DiskError msg) -> do
+      putStrLn $ "Error cloning disk: " ++ T.unpack msg
       pure False
     Right other -> do
       putStrLn $ "Unexpected response: " ++ show other
@@ -1249,3 +1283,197 @@ truncateKey maxLen key =
    in if length keyStr > maxLen
         then take (maxLen - 3) keyStr ++ "..."
         else keyStr
+
+--------------------------------------------------------------------------------
+-- Template Handlers
+--------------------------------------------------------------------------------
+
+-- | Handle template create command
+handleTemplateCreate :: Connection -> FilePath -> IO Bool
+handleTemplateCreate conn path = do
+  exists <- doesFileExist path
+  if not exists
+    then do
+      putStrLn $ "Error: YAML file not found: " ++ path
+      pure False
+    else do
+      content <- T.IO.readFile path
+      resp <- templateCreate conn content
+      case resp of
+        Left err -> do
+          putStrLn $ "Error: " ++ show err
+          pure False
+        Right (TemplateCreated tid) -> do
+          putStrLn $ "Template created with ID: " ++ show tid
+          pure True
+        Right (TemplateError msg) -> do
+          putStrLn $ "Error: " ++ T.unpack msg
+          pure False
+        Right other -> do
+          putStrLn $ "Unexpected response: " ++ show other
+          pure False
+
+-- | Handle template delete command
+handleTemplateDelete :: Connection -> Int64 -> IO Bool
+handleTemplateDelete conn tid = do
+  resp <- templateDelete conn tid
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right TemplateDeleted -> do
+      putStrLn "Template deleted."
+      pure True
+    Right TemplateNotFound -> do
+      putStrLn "Template not found."
+      pure False
+    Right (TemplateError msg) -> do
+      putStrLn $ "Error: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle template list command
+handleTemplateList :: Connection -> IO Bool
+handleTemplateList conn = do
+  resp <- templateList conn
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (TemplateListResult templates) -> do
+      if null templates
+        then putStrLn "No templates found."
+        else do
+          putStrLn $
+            printf
+              "%-6s %-30s %-6s %-8s"
+              ("ID" :: String)
+              ("NAME" :: String)
+              ("CPUS" :: String)
+              ("RAM_MB" :: String)
+          putStrLn $ replicate 55 '-'
+          mapM_ printTemplateVMInfo templates
+      pure True
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle template show command
+handleTemplateShow :: Connection -> Int64 -> IO Bool
+handleTemplateShow conn tid = do
+  resp <- templateShow conn tid
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (TemplateDetailsResult details) -> do
+      printTemplateDetails details
+      pure True
+    Right TemplateNotFound -> do
+      putStrLn "Template not found."
+      pure False
+    Right (TemplateError msg) -> do
+      putStrLn $ "Error: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle template instantiate command
+handleTemplateInstantiate :: Connection -> Int64 -> Text -> IO Bool
+handleTemplateInstantiate conn tid name = do
+  resp <- templateInstantiate conn tid name
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (TemplateInstantiated vmId) -> do
+      putStrLn $ "VM instantiated with ID: " ++ show vmId
+      pure True
+    Right TemplateNotFound -> do
+      putStrLn "Template not found."
+      pure False
+    Right (TemplateError msg) -> do
+      putStrLn $ "Error: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+--------------------------------------------------------------------------------
+-- Template Printers
+--------------------------------------------------------------------------------
+
+-- | Print template VM info in list view
+printTemplateVMInfo :: TemplateVMInfo -> IO ()
+printTemplateVMInfo t =
+  putStrLn $
+    printf
+      "%-6d %-30s %-6d %-8d"
+      (tviId t)
+      (T.unpack $ tviName t)
+      (tviCpuCount t)
+      (tviRamMb t)
+
+-- | Print full template details
+printTemplateDetails :: TemplateDetails -> IO ()
+printTemplateDetails t = do
+  putStrLn $ "Template ID:  " ++ show (tvdId t)
+  putStrLn $ "Name:         " ++ T.unpack (tvdName t)
+  putStrLn $ "CPUs:         " ++ show (tvdCpuCount t)
+  putStrLn $ "RAM:          " ++ show (tvdRamMb t) ++ " MB"
+  putStrLn $ "Created At:   " ++ formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (tvdCreatedAt t)
+  case tvdDescription t of
+    Just desc -> putStrLn $ "Description:  " ++ T.unpack desc
+    Nothing -> pure ()
+
+  putStrLn "\nDrives:"
+  if null (tvdDrives t)
+    then putStrLn "  No drives defined."
+    else do
+      putStrLn $
+        printf
+          "  %-15s %-12s %-10s %-10s %-10s %-8s"
+          ("IMAGE" :: String)
+          ("INTERFACE" :: String)
+          ("STRATEGY" :: String)
+          ("READ_ONLY" :: String)
+          ("CACHE" :: String)
+          ("NEW_SIZE" :: String)
+      putStrLn $ "  " ++ replicate 75 '-'
+      forM_ (tvdDrives t) $ \d ->
+        putStrLn $
+          printf
+            "  %-15s %-12s %-10s %-10s %-10s %-8s"
+            (T.unpack $ tvdiDiskImageName d)
+            (T.unpack $ enumToText $ tvdiInterface d)
+            (T.unpack $ enumToText $ tvdiCloneStrategy d)
+            (show $ tvdiReadOnly d)
+            (T.unpack $ enumToText $ tvdiCacheType d)
+            (maybe "-" show (tvdiNewSizeMb d))
+
+  putStrLn "\nNetwork Interfaces:"
+  if null (tvdNetIfs t)
+    then putStrLn "  No network interfaces defined."
+    else do
+      putStrLn $
+        printf
+          "  %-10s %-20s"
+          ("TYPE" :: String)
+          ("HOST_DEVICE" :: String)
+      putStrLn $ "  " ++ replicate 35 '-'
+      forM_ (tvdNetIfs t) $ \ni ->
+        putStrLn $
+          printf
+            "  %-10s %-20s"
+            (T.unpack $ enumToText $ tvniType ni)
+            (maybe "-" T.unpack $ tvniHostDevice ni)
+
+  putStrLn "\nSSH Keys:"
+  if null (tvdSshKeys t)
+    then putStrLn "  No SSH keys defined."
+    else do
+      forM_ (tvdSshKeys t) $ \k ->
+        putStrLn $ "  - " ++ T.unpack (tvskiName k) ++ " (ID: " ++ show (tvskiId k) ++ ")"

@@ -11,6 +11,7 @@ module Corvus.Handlers.Disk
     handleDiskResize,
     handleDiskList,
     handleDiskShow,
+    handleDiskClone,
 
     -- * Snapshot handlers
     handleSnapshotCreate,
@@ -22,10 +23,15 @@ module Corvus.Handlers.Disk
     -- * Attach/detach handlers
     handleDiskAttach,
     handleDiskDetach,
+
+    -- * Helpers
+    sanitizeDiskName,
+    resolveDiskPath,
+    getRunningAttachedVms,
   )
 where
 
-import Control.Monad (forM, when)
+import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, runStdoutLoggingT)
 import Corvus.Model
@@ -218,6 +224,65 @@ handleDiskCreateOverlay state name baseDiskId = runStdoutLoggingT $ do
                         (ssDbPool state)
                   logInfoN $ "Created overlay with ID: " <> T.pack (show $ fromSqlKey diskId)
                   pure $ RespDiskCreated $ fromSqlKey diskId
+
+-- | Clone a disk image
+handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Text -> IO Response
+handleDiskClone state name baseDiskId optionalPath = runStdoutLoggingT $ do
+  logInfoN $ "Cloning disk image " <> T.pack (show baseDiskId) <> " to '" <> name <> "'"
+
+  case sanitizeDiskName name of
+    Left err -> do
+      logWarnN $ "Invalid disk name: " <> err
+      pure $ RespError err
+    Right safeName -> do
+      mBaseDisk <- liftIO $ runSqlPool (get (toSqlKey baseDiskId :: DiskImageId)) (ssDbPool state)
+      case mBaseDisk of
+        Nothing -> pure RespDiskNotFound
+        Just baseDisk -> do
+          -- Check if any attached VM is running or paused
+          runningVms <- liftIO $ runSqlPool (getRunningAttachedVms baseDiskId) (ssDbPool state)
+          if not (null runningVms)
+            then pure RespVmMustBeStopped
+            else do
+              basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+              let fileName = T.unpack safeName <> "." <> T.unpack (enumToText (diskImageFormat baseDisk))
+                  destPath = case optionalPath of
+                    Just p -> T.unpack p
+                    Nothing -> basePath </> fileName
+
+              srcPath <- liftIO $ resolveDiskPath (ssQemuConfig state) baseDisk
+              result <- liftIO $ cloneImage srcPath destPath
+              case result of
+                ImageError err -> do
+                  logWarnN $ "Failed to clone image: " <> err
+                  pure $ RespError err
+                ImageNotFound -> pure $ RespError "Source image file not found"
+                _ -> do
+                  now <- liftIO getCurrentTime
+                  newDiskId <-
+                    liftIO $
+                      runSqlPool
+                        ( do
+                            dId <-
+                              insert
+                                DiskImage
+                                  { diskImageName = safeName,
+                                    diskImageFilePath = T.pack destPath,
+                                    diskImageFormat = diskImageFormat baseDisk,
+                                    diskImageSizeMb = diskImageSizeMb baseDisk,
+                                    diskImageCreatedAt = now,
+                                    diskImageBackingImageId = diskImageBackingImageId baseDisk
+                                  }
+                            -- Clone snapshots as well
+                            baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey baseDiskId] []
+                            forM_ baseSnapshots $ \snapEntity -> do
+                              let snap = entityVal snapEntity
+                              insert snap {snapshotDiskImageId = dId}
+                            pure dId
+                        )
+                        (ssDbPool state)
+                  logInfoN $ "Cloned disk image with ID: " <> T.pack (show $ fromSqlKey newDiskId)
+                  pure $ RespDiskCreated $ fromSqlKey newDiskId
 
 -- | Delete a disk image
 handleDiskDelete :: ServerState -> Int64 -> IO Response

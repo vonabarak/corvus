@@ -20,10 +20,15 @@ module Corvus.Protocol
     SnapshotInfo (..),
     SharedDirInfo (..),
     SshKeyInfo (..),
+    TemplateVMInfo (..),
+    TemplateDetails (..),
+    TemplateDriveInfo (..),
+    TemplateNetIfInfo (..),
+    TemplateSshKeyInfo (..),
   )
 where
 
-import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, VmStatus)
+import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TemplateCloneStrategy, VmStatus)
 import Data.Binary (Binary, decodeOrFail, encode)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as BL
@@ -67,6 +72,8 @@ data Request
     ReqDiskList
   | -- | Show disk image details (diskImageId)
     ReqDiskShow !Int64
+  | -- | Clone disk image (name, baseDiskImageId, optionalPath)
+    ReqDiskClone !Text !Int64 !(Maybe Text)
   | -- | Snapshot operations (qcow2 only)
     -- | Create snapshot (diskImageId, snapshotName)
     ReqSnapshotCreate !Int64 !Text
@@ -110,6 +117,17 @@ data Request
     ReqSshKeyDetach !Int64 !Int64
   | -- | List SSH keys for VM (vmId)
     ReqSshKeyListForVm !Int64
+  | -- | Template operations
+    -- | Create template from YAML (yamlContent)
+    ReqTemplateCreate !Text
+  | -- | Delete template (templateId)
+    ReqTemplateDelete !Int64
+  | -- | List all templates
+    ReqTemplateList
+  | -- | Show template details (templateId)
+    ReqTemplateShow !Int64
+  | -- | Instantiate template (templateId, newVmName)
+    ReqTemplateInstantiate !Int64 !Text
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -223,6 +241,58 @@ data SshKeyInfo = SshKeyInfo
   }
   deriving (Eq, Show, Generic, Binary)
 
+-- | Template VM summary for list view
+data TemplateVMInfo = TemplateVMInfo
+  { tviId :: !Int64,
+    tviName :: !Text,
+    tviCpuCount :: !Int,
+    tviRamMb :: !Int,
+    tviDescription :: !(Maybe Text)
+  }
+  deriving (Eq, Show, Generic, Binary)
+
+-- | Template drive info for details view
+data TemplateDriveInfo = TemplateDriveInfo
+  { tvdiDiskImageId :: !Int64,
+    tvdiDiskImageName :: !Text,
+    tvdiInterface :: !DriveInterface,
+    tvdiMedia :: !(Maybe DriveMedia),
+    tvdiReadOnly :: !Bool,
+    tvdiCacheType :: !CacheType,
+    tvdiDiscard :: !Bool,
+    tvdiCloneStrategy :: !TemplateCloneStrategy,
+    tvdiNewSizeMb :: !(Maybe Int)
+  }
+  deriving (Eq, Show, Generic, Binary)
+
+-- | Template network interface info
+data TemplateNetIfInfo = TemplateNetIfInfo
+  { tvniType :: !NetInterfaceType,
+    tvniHostDevice :: !(Maybe Text)
+  }
+  deriving (Eq, Show, Generic, Binary)
+
+-- | Template SSH key info
+data TemplateSshKeyInfo = TemplateSshKeyInfo
+  { tvskiId :: !Int64,
+    tvskiName :: !Text
+  }
+  deriving (Eq, Show, Generic, Binary)
+
+-- | Template VM full details
+data TemplateDetails = TemplateDetails
+  { tvdId :: !Int64,
+    tvdName :: !Text,
+    tvdCpuCount :: !Int,
+    tvdRamMb :: !Int,
+    tvdDescription :: !(Maybe Text),
+    tvdCreatedAt :: !UTCTime,
+    tvdDrives :: ![TemplateDriveInfo],
+    tvdNetIfs :: ![TemplateNetIfInfo],
+    tvdSshKeys :: ![TemplateSshKeyInfo]
+  }
+  deriving (Eq, Show, Generic, Binary)
+
 -- | Server responses
 data Response
   = RespPong
@@ -303,6 +373,19 @@ data Response
     RespSshKeyNotFound
   | -- | SSH key is in use by VMs
     RespSshKeyInUse ![Int64]
+  | -- | Template responses
+    -- | List of templates
+    RespTemplateList ![TemplateVMInfo]
+  | -- | Single template info
+    RespTemplateInfo !TemplateDetails
+  | -- | Template created successfully (new template ID)
+    RespTemplateCreated !Int64
+  | -- | Template not found
+    RespTemplateNotFound
+  | -- | Template deleted successfully
+    RespTemplateDeleted
+  | -- | Template instantiated successfully (new VM ID)
+    RespTemplateInstantiated !Int64
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with a length prefix (8 bytes, big-endian)

@@ -34,6 +34,7 @@ module Corvus.Model
     CacheType (..),
     NetInterfaceType (..),
     SharedDirCache (..),
+    TemplateCloneStrategy (..),
 
     -- * Shared directory entity
     SharedDir (..),
@@ -44,6 +45,16 @@ module Corvus.Model
     SshKeyId,
     VmSshKey (..),
     VmSshKeyId,
+
+    -- * Template entities
+    TemplateVM (..),
+    TemplateVMId,
+    TemplateDrive (..),
+    TemplateDriveId,
+    TemplateNetworkInterface (..),
+    TemplateNetworkInterfaceId,
+    TemplateSshKey (..),
+    TemplateSshKeyId,
 
     -- * Unique constraints
     Unique (..),
@@ -61,6 +72,8 @@ where
 
 import Data.Binary (Binary)
 import qualified Data.Binary as Bin
+import Data.Aeson (FromJSON (..), ToJSON (..), Value (..))
+import qualified Data.Aeson.Types as AT
 import Data.List (find)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -102,6 +115,18 @@ class (Eq a) => EnumText a where
       Just (val, _) -> Right val
       Nothing -> Left $ "Invalid " <> enumTypeName @a <> ": " <> t
 
+-- | Standard parser for enums using EnumText
+parseEnumJSON :: (EnumText a) => Value -> AT.Parser a
+parseEnumJSON (String t) =
+  case enumFromText t of
+    Right val -> pure val
+    Left err -> fail (T.unpack err)
+parseEnumJSON _ = fail "Expected String"
+
+-- | Standard serializer for enums using EnumText
+toEnumJSON :: (EnumText a) => a -> Value
+toEnumJSON = String . enumToText
+
 -- | Helper to create PersistField instance
 enumToPersistValue :: (EnumText a) => a -> PersistValue
 enumToPersistValue = PersistText . enumToText
@@ -132,6 +157,12 @@ instance EnumText VmStatus where
       (VmPaused, "paused"),
       (VmError, "error")
     ]
+
+instance FromJSON VmStatus where
+  parseJSON = parseEnumJSON
+
+instance ToJSON VmStatus where
+  toJSON = toEnumJSON
 
 instance PersistField VmStatus where
   toPersistValue = enumToPersistValue
@@ -166,6 +197,12 @@ instance EnumText DriveInterface where
       (InterfacePflash, "pflash")
     ]
 
+instance FromJSON DriveInterface where
+  parseJSON = parseEnumJSON
+
+instance ToJSON DriveInterface where
+  toJSON = toEnumJSON
+
 instance PersistField DriveInterface where
   toPersistValue = enumToPersistValue
   fromPersistValue = enumFromPersistValue
@@ -194,6 +231,12 @@ instance EnumText DriveFormat where
       (FormatVmdk, "vmdk"),
       (FormatVdi, "vdi")
     ]
+
+instance FromJSON DriveFormat where
+  parseJSON = parseEnumJSON
+
+instance ToJSON DriveFormat where
+  toJSON = toEnumJSON
 
 instance PersistField DriveFormat where
   toPersistValue = enumToPersistValue
@@ -226,6 +269,12 @@ instance EnumText CacheType where
       (CacheUnsafe, "unsafe")
     ]
 
+instance FromJSON CacheType where
+  parseJSON = parseEnumJSON
+
+instance ToJSON CacheType where
+  toJSON = toEnumJSON
+
 instance PersistField CacheType where
   toPersistValue = enumToPersistValue
   fromPersistValue = enumFromPersistValue
@@ -250,6 +299,12 @@ instance EnumText DriveMedia where
     [ (MediaDisk, "disk"),
       (MediaCdrom, "cdrom")
     ]
+
+instance FromJSON DriveMedia where
+  parseJSON = parseEnumJSON
+
+instance ToJSON DriveMedia where
+  toJSON = toEnumJSON
 
 instance PersistField DriveMedia where
   toPersistValue = enumToPersistValue
@@ -282,6 +337,12 @@ instance EnumText NetInterfaceType where
       (NetVde, "vde")
     ]
 
+instance FromJSON NetInterfaceType where
+  parseJSON = parseEnumJSON
+
+instance ToJSON NetInterfaceType where
+  toJSON = toEnumJSON
+
 instance PersistField NetInterfaceType where
   toPersistValue = enumToPersistValue
   fromPersistValue = enumFromPersistValue
@@ -309,11 +370,50 @@ instance EnumText SharedDirCache where
       (CacheNever, "never")
     ]
 
+instance FromJSON SharedDirCache where
+  parseJSON = parseEnumJSON
+
+instance ToJSON SharedDirCache where
+  toJSON = toEnumJSON
+
 instance PersistField SharedDirCache where
   toPersistValue = enumToPersistValue
   fromPersistValue = enumFromPersistValue
 
 instance PersistFieldSql SharedDirCache where
+  sqlType _ = SqlString
+
+--------------------------------------------------------------------------------
+-- TemplateCloneStrategy
+--------------------------------------------------------------------------------
+
+data TemplateCloneStrategy
+  = StrategyClone
+  | StrategyOverlay
+  | StrategyDirect
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+
+instance Binary TemplateCloneStrategy
+
+instance EnumText TemplateCloneStrategy where
+  enumTypeName = "TemplateCloneStrategy"
+  enumMapping =
+    [ (StrategyClone, "clone"),
+      (StrategyOverlay, "overlay"),
+      (StrategyDirect, "direct")
+    ]
+
+instance FromJSON TemplateCloneStrategy where
+  parseJSON = parseEnumJSON
+
+instance ToJSON TemplateCloneStrategy where
+  toJSON = toEnumJSON
+
+instance PersistField TemplateCloneStrategy where
+  toPersistValue = enumToPersistValue
+  fromPersistValue = enumFromPersistValue
+
+instance PersistFieldSql TemplateCloneStrategy where
   sqlType _ = SqlString
 
 --------------------------------------------------------------------------------
@@ -341,6 +441,7 @@ DiskImage
     sizeMb Int Maybe
     createdAt UTCTime
     backingImageId DiskImageId Maybe
+    UniqueDiskImageName name
     UniqueImagePath filePath
     deriving Show Eq Generic
 
@@ -389,6 +490,39 @@ VmSshKey
     sshKeyId SshKeyId
     UniqueVmSshKey vmId sshKeyId
     deriving Show Eq Generic
+
+TemplateVM
+    name Text
+    cpuCount Int
+    ramMb Int
+    description Text Maybe
+    createdAt UTCTime
+    UniqueTemplateVMName name
+    deriving Show Eq Generic
+
+TemplateDrive
+    templateId TemplateVMId
+    diskImageId DiskImageId
+    interface DriveInterface
+    media DriveMedia Maybe
+    readOnly Bool default=false
+    cacheType CacheType
+    discard Bool default=false
+    cloneStrategy TemplateCloneStrategy
+    newSizeMb Int Maybe
+    deriving Show Eq Generic
+
+TemplateNetworkInterface
+    templateId TemplateVMId
+    interfaceType NetInterfaceType
+    hostDevice Text Maybe
+    deriving Show Eq Generic
+
+TemplateSshKey
+    templateId TemplateVMId
+    sshKeyId SshKeyId
+    UniqueTemplateSshKey templateId sshKeyId
+    deriving Show Eq Generic
 |]
 
 -- Binary instances for entities (for network serialization)
@@ -407,6 +541,14 @@ instance Binary SharedDir
 instance Binary SshKey
 
 instance Binary VmSshKey
+
+instance Binary TemplateVM
+
+instance Binary TemplateDrive
+
+instance Binary TemplateNetworkInterface
+
+instance Binary TemplateSshKey
 
 -- Binary instances for keys
 instance Binary (Key Vm) where
@@ -438,5 +580,21 @@ instance Binary (Key SshKey) where
   get = toSqlKey <$> Bin.get
 
 instance Binary (Key VmSshKey) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key TemplateVM) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key TemplateDrive) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key TemplateNetworkInterface) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key TemplateSshKey) where
   put = Bin.put . fromSqlKey
   get = toSqlKey <$> Bin.get

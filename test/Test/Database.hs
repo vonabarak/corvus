@@ -7,6 +7,7 @@ module Test.Database
     withTestDb,
     setupTestDb,
     teardownTestDb,
+    createTestTempDir,
 
     -- * Test environment
     TestEnv (..),
@@ -23,8 +24,10 @@ where
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (runNoLoggingT)
+import Corvus.Protocol (Response)
 import Corvus.Model (migrateAll)
 import Data.ByteString.Char8 (pack)
+import Data.IORef (IORef, newIORef)
 import Data.Pool (Pool, destroyAllResources)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -32,6 +35,9 @@ import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import Database.Persist.Postgresql (SqlBackend, createPostgresqlPool, runMigration, runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
+import System.Directory (createDirectoryIfMissing, removePathForcibly)
+import System.FilePath ((</>))
+import System.IO.Temp (getCanonicalTemporaryDirectory)
 import System.Process (callCommand)
 import Test.Hspec (Spec, SpecWith, afterAll, beforeAll)
 import Test.Settings
@@ -47,7 +53,11 @@ data TestEnv = TestEnv
     -- | Test database name (for cleanup)
     teDbName :: !Text,
     -- | Configuration used
-    teConfig :: !TestDbConfig
+    teConfig :: !TestDbConfig,
+    -- | Last response from handler/RPC
+    teLastResponse :: !(IORef (Maybe Response)),
+    -- | Temporary directory for test files
+    teTempDir :: !FilePath
   }
 
 -- | Get the database pool from the test environment
@@ -80,11 +90,17 @@ setupTestDb = do
   pool <- runNoLoggingT $ createPostgresqlPool connStr 1
   runSqlPool (runMigration migrateAll) pool
 
+  -- Initialize other fields
+  respRef <- newIORef Nothing
+  tempDir <- createTestTempDir
+
   pure
     TestEnv
       { tePool = pool,
         teDbName = dbName,
-        teConfig = config
+        teConfig = config,
+        teLastResponse = respRef,
+        teTempDir = tempDir
       }
 
 -- | Destroy the test database
@@ -96,9 +112,21 @@ teardownTestDb env = do
   -- Drop the database
   runPsqlAdmin (teConfig env) $ "DROP DATABASE IF EXISTS " <> teDbName env
 
+  -- Clean up temp directory
+  removePathForcibly (teTempDir env)
+
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
+
+-- | Create a unique temporary directory for tests
+createTestTempDir :: IO FilePath
+createTestTempDir = do
+  sysTmp <- getCanonicalTemporaryDirectory
+  uuid <- nextRandom
+  let tempDir = sysTmp </> ("corvus-test-" <> T.unpack (T.take 8 (toText uuid)))
+  createDirectoryIfMissing True tempDir
+  pure tempDir
 
 -- | Generate a unique test database name
 generateTestDbName :: IO Text

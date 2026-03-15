@@ -35,8 +35,7 @@ import Network.Socket (Family (..), SockAddr (..), SocketType (..), close, conne
 import qualified Network.Socket as NS
 import System.Directory (createDirectoryIfMissing, removePathForcibly)
 import System.FilePath ((</>))
-import System.IO.Temp (getCanonicalTemporaryDirectory)
-import Test.Database (TestEnv (..))
+import Test.Database (TestEnv (..), createTestTempDir)
 
 --------------------------------------------------------------------------------
 -- Test Daemon Types
@@ -62,10 +61,7 @@ data TestDaemon = TestDaemon
 startTestDaemon :: TestEnv -> IO TestDaemon
 startTestDaemon env = do
   -- Create temporary directory for the daemon socket
-  sysTmp <- getCanonicalTemporaryDirectory
-  uuid <- nextRandom
-  let tempDir = sysTmp </> ("corvus-test-" <> T.unpack (T.take 8 (toText uuid)))
-  createDirectoryIfMissing True tempDir
+  tempDir <- createTestTempDir
 
   let socketPath = tempDir </> "daemon.sock"
       listenAddr = UnixAddress socketPath

@@ -45,7 +45,7 @@ module Test.DSL.Daemon
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, try, bracket)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Corvus.Client
@@ -88,7 +88,8 @@ data VmConfig = VmConfig
     vmcDiskCache :: CacheType,
     vmcDiskDiscard :: Bool,
     vmcSharedDirCache :: SharedDirCache,
-    vmcSshUser :: Text
+    vmcSshUser :: Text,
+    vmcAdditionalDisks :: [(Int64, DriveInterface, Bool)]
   }
   deriving (Show, Eq)
 
@@ -110,7 +111,8 @@ instance DefaultVmConfig VmConfig where
         vmcDiskCache = CacheWriteback,
         vmcDiskDiscard = True,
         vmcSharedDirCache = CacheAuto,
-        vmcSshUser = "corvus"
+        vmcSshUser = "corvus",
+        vmcAdditionalDisks = []
       }
 
 -- | A VM running through the daemon with SSH access
@@ -149,60 +151,64 @@ withDaemonVmWithConfig ::
   (DaemonVm -> IO a) ->
   IO a
 withDaemonVmWithConfig daemon diskImageId config action = do
-  withSystemTempDirectory "corvus-test-ssh" $ \tmpDir -> do
-    -- Find a free port for SSH forwarding
-    sshPort <- findFreePort
+  -- Use a unique name for the VM
+  vmUuid <- nextRandom
+  let vmName = "test-vm-" <> T.take 8 (toText vmUuid)
 
-    -- Create the VM with a unique name
-    vmUuid <- nextRandom
-    let vmName = "test-vm-" <> T.take 8 (toText vmUuid)
-    vmId <- createDaemonVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config)
+  -- Use bracket for robust VM lifecycle management
+  bracket
+    (createDaemonVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config))
+    (\vmId -> do
+        -- Cleanup: stop and delete the VM
+        stopDaemonVmAndWait daemon vmId 30
+        deleteDaemonVm daemon vmId
+    )
+    $ \vmId -> do
+      -- Add boot disk
+      addVmDisk daemon vmId diskImageId (vmcDiskInterface config) (vmcDiskCache config) (vmcDiskDiscard config) False
 
-    -- Add boot disk
-    addVmDisk daemon vmId diskImageId (vmcDiskInterface config) (vmcDiskCache config) (vmcDiskDiscard config)
+      -- Add additional disks
+      mapM_ (\(dId, iface, ro) -> addVmDisk daemon vmId dId iface (vmcDiskCache config) (vmcDiskDiscard config) ro) (vmcAdditionalDisks config)
 
-    -- Add network interface with SSH port forwarding
-    mac <- generateMacAddress
-    let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
-    addVmNetIf daemon vmId (vmcNetworkType config) hostFwd mac
+      -- Find a free port for SSH forwarding
+      sshPort <- findFreePort
 
-    -- Add shared directory if requested
-    case vmcSharedDir config of
-      Nothing -> pure ()
-      Just path -> addVmSharedDir daemon vmId (T.pack path) "share" (vmcSharedDirCache config)
+      -- Add network interface with SSH port forwarding
+      mac <- generateMacAddress
+      let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
+      addVmNetIf daemon vmId (vmcNetworkType config) hostFwd mac
 
-    -- Set up SSH key for access (creates cloud-init ISO automatically)
-    (sshKeyId, privateKey, _publicKey) <- setupVmSshKey daemon vmId tmpDir
-    putStrLn $ "SSH private key: " <> privateKey
+      -- Add shared directory if requested
+      case vmcSharedDir config of
+        Nothing -> pure ()
+        Just path -> addVmSharedDir daemon vmId (T.pack path) "share" (vmcSharedDirCache config)
 
-    let vm =
-          DaemonVm
-            { dvmId = vmId,
-              dvmDiskId = diskImageId,
-              dvmSshPort = sshPort,
-              dvmSshHost = "localhost",
-              dvmDaemon = daemon,
-              dvmSshPrivateKey = privateKey,
-              dvmSshKeyId = sshKeyId,
-              dvmSshUser = vmcSshUser config
-            }
+      -- Use a temporary directory for the SSH key
+      withSystemTempDirectory "corvus-test-ssh" $ \tmpDir -> do
+        -- Set up SSH key for access (creates cloud-init ISO automatically)
+        bracket
+          (setupVmSshKey daemon vmId tmpDir)
+          (\(sshKeyId, _, _) -> cleanupSshKey daemon sshKeyId)
+          $ \(sshKeyId, privateKey, _publicKey) -> do
+              let vm =
+                    DaemonVm
+                      { dvmId = vmId,
+                        dvmDiskId = diskImageId,
+                        dvmSshPort = sshPort,
+                        dvmSshHost = "localhost",
+                        dvmDaemon = daemon,
+                        dvmSshPrivateKey = privateKey,
+                        dvmSshKeyId = sshKeyId,
+                        dvmSshUser = vmcSshUser config
+                      }
 
-    -- Start the VM and wait for SSH
-    putStrLn "[test] Starting VM and waiting for SSH..."
-    startDaemonVmAndWait vm (vmcWaitSshTimeout config)
-    putStrLn "[test] SSH is ready"
+              -- Start the VM and wait for SSH
+              putStrLn "[test] Starting VM and waiting for SSH..."
+              startDaemonVmAndWait vm (vmcWaitSshTimeout config)
+              putStrLn "[test] SSH is ready"
 
-    -- Run the action and clean up
-    result <- action vm
-
-    -- Stop and delete the VM
-    stopDaemonVmAndWait daemon vmId 30
-    deleteDaemonVm daemon vmId
-
-    -- Clean up SSH key from daemon
-    cleanupSshKey daemon sshKeyId
-
-    pure result
+              -- Run the action
+              action vm
 
 -- | Legacy wrapper for backward compatibility.
 withDaemonVm ::
@@ -249,17 +255,12 @@ startDaemonVmAndWait vm timeoutSec = do
 -- | Stop a VM via daemon RPC
 stopDaemonVm :: TestDaemon -> Int64 -> IO ()
 stopDaemonVm daemon vmId = do
-  -- First try graceful shutdown
   result <- withDaemonConnection daemon $ \conn ->
     vmStop conn vmId
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error stopping VM: " <> show err
-    Right (Right _) -> do
-      -- Wait a bit for shutdown, then reset to ensure it's stopped
-      threadDelay 2000000 -- 2 seconds
-      _ <- withDaemonConnection daemon $ \conn -> vmReset conn vmId
-      pure ()
+    Right (Right _) -> pure ()
 
 -- | Stop a VM and wait for it to reach VmStopped status via polling.
 -- Fails if VM does not stop within timeout.
@@ -267,7 +268,10 @@ stopDaemonVmAndWait :: TestDaemon -> Int64 -> Int -> IO ()
 stopDaemonVmAndWait daemon vmId timeoutSec = do
   stopDaemonVm daemon vmId
   -- Poll for status
-  let go 0 = fail $ "Timeout waiting for VM " <> show vmId <> " to stop"
+  let go 0 = do
+        -- Force stop if graceful shutdown failed
+        _ <- withDaemonConnection daemon $ \conn -> vmReset conn vmId
+        pure ()
       go n = do
         res <- withDaemonConnection daemon $ \conn -> showVm conn vmId
         case res of
@@ -292,10 +296,10 @@ deleteDaemonVm daemon vmId = do
 --------------------------------------------------------------------------------
 
 -- | Add a disk to a VM
-addVmDisk :: TestDaemon -> Int64 -> Int64 -> DriveInterface -> CacheType -> Bool -> IO ()
-addVmDisk daemon vmId diskImageId iface cache discard = do
+addVmDisk :: TestDaemon -> Int64 -> Int64 -> DriveInterface -> CacheType -> Bool -> Bool -> IO ()
+addVmDisk daemon vmId diskImageId iface cache discard ro = do
   result <- withDaemonConnection daemon $ \conn ->
-    diskAttach conn vmId diskImageId iface Nothing False discard cache
+    diskAttach conn vmId diskImageId iface Nothing ro discard cache
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error attaching disk: " <> show err

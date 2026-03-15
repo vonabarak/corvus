@@ -35,6 +35,7 @@ dependencies:
   - yaml
   - template-haskell
   - haskell-src-meta
+  - random
 
 default-extensions:
   - OverloadedStrings

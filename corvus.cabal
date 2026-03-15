@@ -44,6 +44,7 @@ library
       Corvus.Qemu.Virtiofsd
       Corvus.Qemu.Image
   other-modules:
+      Corvus.Handlers.Template
       Corvus.Qemu.QmpQQ
       Paths_corvus
   autogen-modules:
@@ -85,6 +86,7 @@ library
     , persistent
     , persistent-postgresql
     , process
+    , random
     , resource-pool
     , stm
     , template-haskell
@@ -141,6 +143,7 @@ executable corvus
     , persistent
     , persistent-postgresql
     , process
+    , random
     , resource-pool
     , stm
     , template-haskell
@@ -197,6 +200,7 @@ executable crv
     , persistent
     , persistent-postgresql
     , process
+    , random
     , resource-pool
     , stm
     , template-haskell
@@ -212,12 +216,14 @@ test-suite corvus-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Corvus.DiskCloneIntegrationSpec
       Corvus.DiskOverlayIntegrationSpec
       Corvus.DiskSpec
       Corvus.OverlayExtraSpec
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec
+      Corvus.TemplateIntegrationSpec
       Corvus.VirtiofsIntegrationSpec
       Corvus.VmIntegrationSpec
       Corvus.VmSpec

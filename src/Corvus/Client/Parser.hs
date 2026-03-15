@@ -358,6 +358,29 @@ diskOverlayCommand =
           <> help "ID of the base disk image to overlay"
       )
 
+-- | Parser for disk clone
+diskCloneCommand :: Parser Command
+diskCloneCommand =
+  DiskClone
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the cloned disk image"
+      )
+    <*> argument
+      auto
+      ( metavar "BASE_DISK_ID"
+          <> help "ID of the base disk image to clone"
+      )
+    <*> optional
+      ( strOption
+          ( long "path"
+              <> short 'p'
+              <> metavar "PATH"
+              <> help "Optional destination path for the cloned image file"
+          )
+      )
+
 -- | Parser for all disk subcommands
 diskCommandParser :: Parser Command
 diskCommandParser =
@@ -383,6 +406,9 @@ diskCommandParser =
         <> command
           "show"
           (info diskShowCommand (progDesc "Show disk image details"))
+        <> command
+          "clone"
+          (info diskCloneCommand (progDesc "Clone a disk image"))
         <> command
           "attach"
           (info diskAttachCommand (progDesc "Attach a disk to a VM"))
@@ -718,6 +744,55 @@ netIfListCommand =
           <> help "ID of the VM"
       )
 
+-- | Parser for template create
+templateCreateCommand :: Parser Command
+templateCreateCommand =
+  TemplateCreate
+    <$> argument
+      str
+      ( metavar "FILE"
+          <> help "Path to the YAML template file"
+      )
+
+-- | Parser for template delete
+templateDeleteCommand :: Parser Command
+templateDeleteCommand =
+  TemplateDelete
+    <$> argument
+      auto
+      ( metavar "TEMPLATE_ID"
+          <> help "ID of the template to delete"
+      )
+
+-- | Parser for template list
+templateListCommand :: Parser Command
+templateListCommand = pure TemplateList
+
+-- | Parser for template show
+templateShowCommand :: Parser Command
+templateShowCommand =
+  TemplateShow
+    <$> argument
+      auto
+      ( metavar "TEMPLATE_ID"
+          <> help "ID of the template to show"
+      )
+
+-- | Parser for template instantiate
+templateInstantiateCommand :: Parser Command
+templateInstantiateCommand =
+  TemplateInstantiate
+    <$> argument
+      auto
+      ( metavar "TEMPLATE_ID"
+          <> help "ID of the template to instantiate"
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "VM_NAME"
+          <> help "Name for the new VM"
+      )
+
 -- | Parser for all net-if subcommands
 netIfCommandParser :: Parser Command
 netIfCommandParser =
@@ -731,6 +806,27 @@ netIfCommandParser =
         <> command
           "list"
           (info netIfListCommand (progDesc "List network interfaces for a VM"))
+    )
+
+-- | Parser for all template subcommands
+templateCommandParser :: Parser Command
+templateCommandParser =
+  subparser
+    ( command
+        "create"
+        (info templateCreateCommand (progDesc "Create a template from a YAML file"))
+        <> command
+          "delete"
+          (info templateDeleteCommand (progDesc "Delete a template"))
+        <> command
+          "list"
+          (info templateListCommand (progDesc "List all templates"))
+        <> command
+          "show"
+          (info templateShowCommand (progDesc "Show template details"))
+        <> command
+          "instantiate"
+          (info templateInstantiateCommand (progDesc "Instantiate a VM from a template"))
     )
 
 --------------------------------------------------------------------------------
@@ -768,6 +864,9 @@ commandParser =
         <> command
           "shared-dir"
           (info sharedDirCommandParser (progDesc "Shared directory management commands"))
+        <> command
+          "template"
+          (info templateCommandParser (progDesc "Template management commands"))
     )
 
 -- | Parser for global options

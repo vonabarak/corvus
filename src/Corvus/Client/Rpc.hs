@@ -31,6 +31,7 @@ module Corvus.Client.Rpc
     diskRegister,
     diskDelete,
     diskResize,
+    diskClone,
     diskList,
     diskShow,
     diskAttach,
@@ -64,6 +65,14 @@ module Corvus.Client.Rpc
     sshKeyAttach,
     sshKeyDetach,
     sshKeyListForVm,
+
+    -- * Template operations
+    TemplateResult (..),
+    templateCreate,
+    templateDelete,
+    templateList,
+    templateShow,
+    templateInstantiate,
   )
 where
 
@@ -290,6 +299,11 @@ diskList conn = handleDiskResponse <$> sendRequest conn ReqDiskList
 -- | Show disk image details
 diskShow :: Connection -> Int64 -> IO (Either ConnectionError DiskResult)
 diskShow conn diskId = handleDiskResponse <$> sendRequest conn (ReqDiskShow diskId)
+
+-- | Clone a disk image
+diskClone :: Connection -> Text -> Int64 -> Maybe Text -> IO (Either ConnectionError DiskResult)
+diskClone conn name baseDiskId optionalPath =
+  handleDiskResponse <$> sendRequest conn (ReqDiskClone name baseDiskId optionalPath)
 
 -- | Attach a disk to a VM
 diskAttach ::
@@ -547,3 +561,63 @@ sshKeyDetach conn vmId keyId =
 sshKeyListForVm :: Connection -> Int64 -> IO (Either ConnectionError SshKeyResult)
 sshKeyListForVm conn vmId =
   handleSshKeyResponse <$> sendRequest conn (ReqSshKeyListForVm vmId)
+
+--------------------------------------------------------------------------------
+-- Template Operations
+--------------------------------------------------------------------------------
+
+-- | Result of a template operation
+data TemplateResult
+  = -- | Template created with new ID
+    TemplateCreated !Int64
+  | -- | List of templates
+    TemplateListResult ![TemplateVMInfo]
+  | -- | Single template details
+    TemplateDetailsResult !TemplateDetails
+  | -- | Template deleted
+    TemplateDeleted
+  | -- | VM instantiated from template (new VM ID)
+    TemplateInstantiated !Int64
+  | -- | Template not found
+    TemplateNotFound
+  | -- | Error with message
+    TemplateError !Text
+  deriving (Eq, Show)
+
+-- | Helper for template operation responses
+handleTemplateResponse :: Either ConnectionError Response -> Either ConnectionError TemplateResult
+handleTemplateResponse result = case result of
+  Left err -> Left err
+  Right (RespTemplateCreated tid) -> Right $ TemplateCreated tid
+  Right (RespTemplateList templates) -> Right $ TemplateListResult templates
+  Right (RespTemplateInfo details) -> Right $ TemplateDetailsResult details
+  Right RespTemplateDeleted -> Right TemplateDeleted
+  Right (RespTemplateInstantiated vmId) -> Right $ TemplateInstantiated vmId
+  Right RespTemplateNotFound -> Right TemplateNotFound
+  Right (RespError msg) -> Right $ TemplateError msg
+  Right _ -> Left $ DecodeFailed "Unexpected response"
+
+-- | Create a template from YAML
+templateCreate :: Connection -> Text -> IO (Either ConnectionError TemplateResult)
+templateCreate conn yaml =
+  handleTemplateResponse <$> sendRequest conn (ReqTemplateCreate yaml)
+
+-- | Delete a template
+templateDelete :: Connection -> Int64 -> IO (Either ConnectionError TemplateResult)
+templateDelete conn tid =
+  handleTemplateResponse <$> sendRequest conn (ReqTemplateDelete tid)
+
+-- | List all templates
+templateList :: Connection -> IO (Either ConnectionError TemplateResult)
+templateList conn =
+  handleTemplateResponse <$> sendRequest conn ReqTemplateList
+
+-- | Show template details
+templateShow :: Connection -> Int64 -> IO (Either ConnectionError TemplateResult)
+templateShow conn tid =
+  handleTemplateResponse <$> sendRequest conn (ReqTemplateShow tid)
+
+-- | Instantiate a template
+templateInstantiate :: Connection -> Int64 -> Text -> IO (Either ConnectionError TemplateResult)
+templateInstantiate conn tid newVmName =
+  handleTemplateResponse <$> sendRequest conn (ReqTemplateInstantiate tid newVmName)

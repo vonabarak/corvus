@@ -45,6 +45,7 @@ module Corvus.Client
     diskRegister,
     diskDelete,
     diskResize,
+    diskClone,
     diskList,
     diskShow,
     diskAttach,
@@ -78,6 +79,14 @@ module Corvus.Client
     sshKeyAttach,
     sshKeyDetach,
     sshKeyListForVm,
+
+    -- * Template operations
+    TemplateResult (..),
+    templateCreate,
+    templateDelete,
+    templateList,
+    templateShow,
+    templateInstantiate,
 
     -- * CLI types
     Options (..),

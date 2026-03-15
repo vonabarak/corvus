@@ -7,8 +7,8 @@ module Test.VM.Common
 where
 
 import Control.Exception (bracket)
-import Corvus.Client (DiskResult (..), SshKeyResult (..), diskCreateOverlay, diskDelete, diskRegister, sshKeyAttach, sshKeyCreate)
-import Corvus.Model (DriveFormat (..))
+import Corvus.Client (DiskResult (..), SshKeyResult (..), diskClone, diskCreateOverlay, diskDelete, diskRegister, sshKeyAttach, sshKeyCreate)
+import Corvus.Model (DriveFormat (..), DriveInterface (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (toText)
@@ -53,14 +53,47 @@ withTestVm env config action = do
     Right (Right other) -> fail $ "Unexpected response creating overlay: " <> show other
     Left err -> fail $ "Connection error creating overlay: " <> show err
 
-  -- Use bracket to ensure cleanup of the VM and overlay
+  -- Register OVMF disks
+  resOvmfCode <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn "ovmf-code" "/usr/share/edk2/OvmfX64/OVMF_CODE.fd" FormatRaw Nothing
+  ovmfCodeId <- case resOvmfCode of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to register OVMF_CODE disk: " <> show err
+    _ -> fail "Unexpected response registering OVMF_CODE"
+
+  resOvmfVarsTemplate <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn "ovmf-vars-template" "/usr/share/edk2/OvmfX64/OVMF_VARS.fd" FormatRaw Nothing
+  ovmfVarsTemplateId <- case resOvmfVarsTemplate of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to register OVMF_VARS template disk: " <> show err
+    _ -> fail "Unexpected response registering OVMF_VARS template"
+
+  -- Clone OVMF vars for this test
+  resOvmfVars <- withDaemonConnection daemon $ \conn ->
+    diskClone conn "ovmf-vars" ovmfVarsTemplateId Nothing
+  ovmfVarsId <- case resOvmfVars of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to clone OVMF_VARS: " <> show err
+    _ -> fail "Unexpected response cloning OVMF_VARS"
+
+  let configWithOvmf =
+        config
+          { vmcAdditionalDisks =
+              [ (ovmfCodeId, InterfacePflash, True), -- Read-only
+                (ovmfVarsId, InterfacePflash, False) -- Read-write
+              ]
+          }
+
+  -- Use bracket to ensure cleanup of the VM, overlay, and cloned OVMF vars
   bracket
     (pure ())
     ( \_ -> do
         -- Delete overlay via RPC (also deletes the file since it's in daemon's basePath)
         _ <- withDaemonConnection daemon $ \conn -> diskDelete conn overlayDiskId
+        -- Delete cloned OVMF vars
+        _ <- withDaemonConnection daemon $ \conn -> diskDelete conn ovmfVarsId
         stopTestDaemon daemon
     )
     ( \_ -> do
-        withDaemonVmWithConfig daemon overlayDiskId config action
+        withDaemonVmWithConfig daemon overlayDiskId configWithOvmf action
     )

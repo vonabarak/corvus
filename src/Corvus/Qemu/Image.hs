@@ -16,6 +16,7 @@ module Corvus.Qemu.Image
     rollbackSnapshot,
     mergeSnapshot,
     listSnapshots,
+    cloneImage,
 
     -- * Types
     ImageInfo (..),
@@ -32,7 +33,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime)
-import System.Directory (doesFileExist, removeFile)
+import System.Directory (copyFile, doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 import Text.Read (readMaybe)
@@ -339,3 +340,19 @@ listSnapshots path = do
       case infoResult of
         Left err -> pure $ Left err
         Right info -> pure $ Right $ iiSnapshots info
+
+-- | Clone a disk image file
+cloneImage :: FilePath -> FilePath -> IO ImageResult
+cloneImage src dest = do
+  exists <- doesFileExist src
+  if not exists
+    then pure ImageNotFound
+    else do
+      destExists <- doesFileExist dest
+      if destExists
+        then pure $ ImageError "Destination file already exists"
+        else do
+          result <- try $ copyFile src dest
+          case result of
+            Left (e :: SomeException) -> pure $ ImageError $ T.pack $ show e
+            Right () -> pure ImageSuccess

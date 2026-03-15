@@ -55,6 +55,8 @@ data Command
     DiskList
   | -- | Show disk image details
     DiskShow !Int64
+  | -- | Clone disk image (name, baseDiskId, optionalPath)
+    DiskClone !Text !Int64 !(Maybe Text)
   | -- | Attach disk to VM (vmId, diskId, interface, media, readOnly, discard, cache)
     DiskAttach !Int64 !Int64 !Text !(Maybe Text) !Bool !Bool !Text
   | -- | Detach disk from VM (vmId, driveId)
@@ -101,4 +103,15 @@ data Command
     SshKeyDetach !Int64 !Int64
   | -- | List SSH keys for VM (vmId)
     SshKeyListForVm !Int64
+  | -- Template commands
+    -- | Create template from YAML file (file path)
+    TemplateCreate !FilePath
+  | -- | Delete template (template id)
+    TemplateDelete !Int64
+  | -- | List all templates
+    TemplateList
+  | -- | Show template details (template id)
+    TemplateShow !Int64
+  | -- | Instantiate a template (template id, new vm name)
+    TemplateInstantiate !Int64 !Text
   deriving (Show)
