@@ -15,7 +15,9 @@ module Test.DSL.Daemon
     withDaemonVmWithConfig,
     createDaemonVm,
     startDaemonVm,
+    startDaemonVmAndWait,
     stopDaemonVm,
+    stopDaemonVmAndWait,
     deleteDaemonVm,
 
     -- * VM configuration
@@ -35,8 +37,10 @@ module Test.DSL.Daemon
 
     -- * Utilities
     waitForDaemonVmSsh,
+    waitForDaemonVmSshWithKey,
     generateMacAddress,
     findFreePort,
+    waitForVmStopped,
   )
 where
 
@@ -46,12 +50,7 @@ import Control.Monad (unless, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Corvus.Client
 import Corvus.Model
-  ( CacheType (..),
-    DriveFormat (..),
-    DriveInterface (..),
-    NetInterfaceType (..),
-    SharedDirCache (..),
-  )
+import Corvus.Protocol (VmDetails (..))
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -118,6 +117,8 @@ instance DefaultVmConfig VmConfig where
 data DaemonVm = DaemonVm
   { -- | VM ID in the database
     dvmId :: !Int64,
+    -- | ID of the boot disk
+    dvmDiskId :: !Int64,
     -- | SSH port
     dvmSshPort :: !Int,
     -- | SSH host (IP address of the VM)
@@ -174,33 +175,28 @@ withDaemonVmWithConfig daemon diskImageId config action = do
     (sshKeyId, privateKey, _publicKey) <- setupVmSshKey daemon vmId tmpDir
     putStrLn $ "SSH private key: " <> privateKey
 
-    -- Start the VM
-    putStrLn "[test] Starting VM..."
-    startDaemonVm daemon vmId
-    putStrLn "[test] VM started, waiting for SSH..."
-
-    let sshHost = "localhost"
-
-    -- Wait for SSH to be available (with the configured key)
-    waitForDaemonVmSshWithKey sshHost sshPort privateKey (vmcSshUser config) (vmcWaitSshTimeout config)
-    putStrLn "[test] SSH is ready"
-
     let vm =
           DaemonVm
             { dvmId = vmId,
+              dvmDiskId = diskImageId,
               dvmSshPort = sshPort,
-              dvmSshHost = sshHost,
+              dvmSshHost = "localhost",
               dvmDaemon = daemon,
               dvmSshPrivateKey = privateKey,
               dvmSshKeyId = sshKeyId,
               dvmSshUser = vmcSshUser config
             }
 
+    -- Start the VM and wait for SSH
+    putStrLn "[test] Starting VM and waiting for SSH..."
+    startDaemonVmAndWait vm (vmcWaitSshTimeout config)
+    putStrLn "[test] SSH is ready"
+
     -- Run the action and clean up
     result <- action vm
 
     -- Stop and delete the VM
-    stopDaemonVm daemon vmId
+    stopDaemonVmAndWait daemon vmId 30
     deleteDaemonVm daemon vmId
 
     -- Clean up SSH key from daemon
@@ -243,6 +239,13 @@ startDaemonVm daemon vmId = do
     Right (Right (VmActionSuccess _)) -> pure ()
     Right (Right other) -> fail $ "Failed to start VM: " <> show other
 
+-- | Start a VM and wait for SSH connection to be established.
+-- Fails if SSH is not established within timeout.
+startDaemonVmAndWait :: DaemonVm -> Int -> IO ()
+startDaemonVmAndWait vm timeoutSec = do
+  startDaemonVm (dvmDaemon vm) (dvmId vm)
+  waitForDaemonVmSshWithKey (dvmSshHost vm) (dvmSshPort vm) (dvmSshPrivateKey vm) (dvmSshUser vm) timeoutSec
+
 -- | Stop a VM via daemon RPC
 stopDaemonVm :: TestDaemon -> Int64 -> IO ()
 stopDaemonVm daemon vmId = do
@@ -257,6 +260,23 @@ stopDaemonVm daemon vmId = do
       threadDelay 2000000 -- 2 seconds
       _ <- withDaemonConnection daemon $ \conn -> vmReset conn vmId
       pure ()
+
+-- | Stop a VM and wait for it to reach VmStopped status via polling.
+-- Fails if VM does not stop within timeout.
+stopDaemonVmAndWait :: TestDaemon -> Int64 -> Int -> IO ()
+stopDaemonVmAndWait daemon vmId timeoutSec = do
+  stopDaemonVm daemon vmId
+  -- Poll for status
+  let go 0 = fail $ "Timeout waiting for VM " <> show vmId <> " to stop"
+      go n = do
+        res <- withDaemonConnection daemon $ \conn -> showVm conn vmId
+        case res of
+          Right (Right (Just details)) ->
+            if vdStatus details == VmStopped
+              then pure ()
+              else threadDelay 1000000 >> go (n - 1)
+          _ -> threadDelay 1000000 >> go (n - 1)
+  go timeoutSec
 
 -- | Delete a VM via daemon RPC (best-effort cleanup, ignores errors)
 deleteDaemonVm :: TestDaemon -> Int64 -> IO ()
@@ -549,6 +569,10 @@ waitForDaemonVmSshWithKey host port privateKey user timeoutSec = go timeoutSec N
     tails :: String -> [String]
     tails [] = [[]]
     tails s@(_ : xs) = s : tails xs
+
+-- | Wait for VM to fully stop (dummy for now, just delays)
+waitForVmStopped :: Int -> IO ()
+waitForVmStopped seconds = threadDelay (seconds * 1000000)
 
 -- | Generate a random MAC address
 generateMacAddress :: IO Text

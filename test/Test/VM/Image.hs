@@ -4,15 +4,8 @@
 -- | VM image management for integration tests.
 -- Downloads and caches cloud images, creates overlays for test isolation.
 module Test.VM.Image
-  ( -- * Configuration
-    ImageConfig (..),
-    getImageConfig,
-
-    -- * Image operations
+  ( -- * Image operations
     ensureBaseImage,
-
-    -- * Utilities
-    getCacheDir,
   )
 where
 

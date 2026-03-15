@@ -15,27 +15,19 @@
 module Corvus.SnapshotIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (bracket)
-import Control.Monad (when)
 import Corvus.Client
-import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), NetInterfaceType (NetUser))
 import Corvus.Protocol (SnapshotInfo (..))
 import Data.Int (Int64)
 import Data.List (sort)
 import qualified Data.Text as T
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
-import System.Directory (doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
-import System.IO.Temp (getCanonicalTemporaryDirectory, withSystemTempDirectory)
-import System.Process (readProcessWithExitCode)
-import Test.DSL.Daemon (findFreePort, generateMacAddress)
-import Test.Daemon (TestDaemon (..), startTestDaemon, stopTestDaemon, withDaemonConnection)
+import Test.DSL.Daemon
+import Test.Daemon (TestDaemon (..), withDaemonConnection)
 import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
-import Test.Settings (getImageConfig)
-import Test.VM.Image (ensureBaseImage)
+import Test.VM.Common (withTestVm)
 
 spec :: Spec
 spec = withTestDb $ do
@@ -67,452 +59,233 @@ spec = withTestDb $ do
 -- | Test that snapshot rollback restores a deleted file
 testSnapshotRollback :: TestEnv -> IO ()
 testSnapshotRollback env = do
-  daemon <- startTestDaemon env
-
-  withSystemTempDirectory "snapshot-test-ssh" $ \tmpDir -> do
-    ctx <- setupTestVm daemon tmpDir
+  withTestVm env defaultVmConfig $ \vm -> do
+    let daemon = dvmDaemon vm
+        diskId = dvmDiskId vm
+        vmId = dvmId vm
 
     uuid <- nextRandom
     let testContent = "SNAPSHOT-TEST:" <> T.unpack (toText uuid)
         testFile = "/home/corvus/testfile.txt"
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
-
-    (code1, _, _) <- runSshCommandWithKey ctx $ "echo '" <> testContent <> "' > " <> testFile
+    (code1, _, _) <- runInDaemonVm vm $ "echo '" <> T.pack testContent <> "' > " <> T.pack testFile
     code1 `shouldBe` ExitSuccess
 
-    (code2, stdout2, _) <- runSshCommandWithKey ctx $ "cat " <> testFile
+    (code2, stdout2, _) <- runInDaemonVm vm $ "cat " <> T.pack testFile
     code2 `shouldBe` ExitSuccess
-    T.strip (T.pack stdout2) `shouldBe` T.pack testContent
+    T.strip stdout2 `shouldBe` T.pack testContent
 
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
+    stopDaemonVmAndWait daemon vmId 10
 
-    snapshotId <- createSnapshot daemon (tcDiskId ctx) "before-delete"
+    snapshotId <- createSnapshot daemon diskId "before-delete"
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
+    startDaemonVmAndWait vm 120
 
-    _ <- runSshCommandWithKey ctx $ "rm -f " <> testFile
+    _ <- runInDaemonVm vm $ "rm -f " <> T.pack testFile
 
-    (code3, _, _) <- runSshCommandWithKey ctx $ "test -f " <> testFile
+    (code3, _, _) <- runInDaemonVm vm $ "test -f " <> T.pack testFile
     code3 `shouldNotBe` ExitSuccess
 
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
+    stopDaemonVmAndWait daemon vmId 10
 
-    rollbackSnapshot daemon (tcDiskId ctx) snapshotId
+    rollbackSnapshot daemon diskId snapshotId
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
+    startDaemonVmAndWait vm 120
 
-    (code4, stdout4, _) <- runSshCommandWithKey ctx $ "cat " <> testFile
+    (code4, stdout4, _) <- runInDaemonVm vm $ "cat " <> T.pack testFile
     code4 `shouldBe` ExitSuccess
-    T.strip (T.pack stdout4) `shouldBe` T.pack testContent
+    T.strip stdout4 `shouldBe` T.pack testContent
 
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
+    stopDaemonVmAndWait daemon vmId 10
 
-    deleteSnapshot daemon (tcDiskId ctx) snapshotId
-    cleanupTestContext daemon ctx
-
-  stopTestDaemon daemon
+    deleteSnapshot daemon diskId snapshotId
 
 -- | Test creating multiple snapshots and rolling back to a specific one
 testMultipleSnapshots :: TestEnv -> IO ()
 testMultipleSnapshots env = do
-  daemon <- startTestDaemon env
+  withTestVm env defaultVmConfig $ \vm -> do
+    let daemon = dvmDaemon vm
+        diskId = dvmDiskId vm
+        vmId = dvmId vm
+        testFile = "/home/corvus/counter.txt"
 
-  withSystemTempDirectory "snapshot-test-ssh" $ \tmpDir -> do
-    ctx <- setupTestVm daemon tmpDir
-    let testFile = "/home/corvus/counter.txt"
+    _ <- runInDaemonVm vm "echo '1' > /home/corvus/counter.txt"
+    stopDaemonVmAndWait daemon vmId 10
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
-    _ <- runSshCommandWithKey ctx "echo '1' > /home/corvus/counter.txt"
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
+    snap1 <- createSnapshot daemon diskId "state-1"
 
-    snap1 <- createSnapshot daemon (tcDiskId ctx) "state-1"
+    startDaemonVmAndWait vm 120
+    _ <- runInDaemonVm vm "echo '2' > /home/corvus/counter.txt"
+    stopDaemonVmAndWait daemon vmId 10
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
-    _ <- runSshCommandWithKey ctx "echo '2' > /home/corvus/counter.txt"
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
+    snap2 <- createSnapshot daemon diskId "state-2"
 
-    snap2 <- createSnapshot daemon (tcDiskId ctx) "state-2"
+    startDaemonVmAndWait vm 120
+    _ <- runInDaemonVm vm "echo '3' > /home/corvus/counter.txt"
+    (_, stdout3, _) <- runInDaemonVm vm $ "cat " <> T.pack testFile
+    T.strip stdout3 `shouldBe` "3"
+    stopDaemonVmAndWait daemon vmId 10
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
-    _ <- runSshCommandWithKey ctx "echo '3' > /home/corvus/counter.txt"
-    (_, stdout3, _) <- runSshCommandWithKey ctx $ "cat " <> testFile
-    T.strip (T.pack stdout3) `shouldBe` "3"
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
+    rollbackSnapshot daemon diskId snap1
 
-    rollbackSnapshot daemon (tcDiskId ctx) snap1
+    startDaemonVmAndWait vm 120
+    (_, stdout1, _) <- runInDaemonVm vm $ "cat " <> T.pack testFile
+    T.strip stdout1 `shouldBe` "1"
+    stopDaemonVmAndWait daemon vmId 10
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
-    (_, stdout1, _) <- runSshCommandWithKey ctx $ "cat " <> testFile
-    T.strip (T.pack stdout1) `shouldBe` "1"
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
-
-    deleteSnapshot daemon (tcDiskId ctx) snap2
-    deleteSnapshot daemon (tcDiskId ctx) snap1
-
-    cleanupTestContext daemon ctx
-
-  stopTestDaemon daemon
+    deleteSnapshot daemon diskId snap2
+    deleteSnapshot daemon diskId snap1
 
 -- | Test that snapshot list correctly shows created snapshots
 testSnapshotList :: TestEnv -> IO ()
 testSnapshotList env = do
-  daemon <- startTestDaemon env
+  withTestVm env defaultVmConfig $ \vm -> do
+    let daemon = dvmDaemon vm
+        diskId = dvmDiskId vm
+        vmId = dvmId vm
 
-  withSystemTempDirectory "snapshot-test-ssh" $ \tmpDir -> do
-    ctx <- setupTestVm daemon tmpDir
+    stopDaemonVmAndWait daemon vmId 10
 
-    snap1 <- createSnapshot daemon (tcDiskId ctx) "snapshot-alpha"
-    snap2 <- createSnapshot daemon (tcDiskId ctx) "snapshot-beta"
+    snap1 <- createSnapshot daemon diskId "snapshot-alpha"
+    snap2 <- createSnapshot daemon diskId "snapshot-beta"
 
-    snapshots <- listSnapshots daemon (tcDiskId ctx)
+    snapshots <- listSnapshots daemon diskId
     length snapshots `shouldSatisfy` (>= 2)
 
     let names = map sniName snapshots
     names `shouldSatisfy` elem "snapshot-alpha"
     names `shouldSatisfy` elem "snapshot-beta"
 
-    deleteSnapshot daemon (tcDiskId ctx) snap2
-    deleteSnapshot daemon (tcDiskId ctx) snap1
-    cleanupTestContext daemon ctx
-
-  stopTestDaemon daemon
+    deleteSnapshot daemon diskId snap2
+    deleteSnapshot daemon diskId snap1
 
 -- | Test that merging a snapshot consolidates changes and removes it
 testSnapshotMerge :: TestEnv -> IO ()
 testSnapshotMerge env = do
-  daemon <- startTestDaemon env
+  withTestVm env defaultVmConfig $ \vm -> do
+    let daemon = dvmDaemon vm
+        diskId = dvmDiskId vm
+        vmId = dvmId vm
+        testFile = "/home/corvus/merge-test.txt"
 
-  withSystemTempDirectory "snapshot-test-ssh" $ \tmpDir -> do
-    ctx <- setupTestVm daemon tmpDir
-    let testFile = "/home/corvus/merge-test.txt"
+    _ <- runInDaemonVm vm "echo 'initial' > /home/corvus/merge-test.txt"
+    stopDaemonVmAndWait daemon vmId 10
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
-    _ <- runSshCommandWithKey ctx "echo 'initial' > /home/corvus/merge-test.txt"
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
+    snap1 <- createSnapshot daemon diskId "to-merge"
 
-    snap1 <- createSnapshot daemon (tcDiskId ctx) "to-merge"
+    startDaemonVmAndWait vm 120
+    _ <- runInDaemonVm vm "echo 'modified' > /home/corvus/merge-test.txt"
+    stopDaemonVmAndWait daemon vmId 10
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
-    _ <- runSshCommandWithKey ctx "echo 'modified' > /home/corvus/merge-test.txt"
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
-
-    snapshotsBefore <- listSnapshots daemon (tcDiskId ctx)
+    snapshotsBefore <- listSnapshots daemon diskId
     let countBefore = length snapshotsBefore
 
-    mergeSnapshot daemon (tcDiskId ctx) snap1
+    mergeSnapshot daemon diskId snap1
 
-    snapshotsAfter <- listSnapshots daemon (tcDiskId ctx)
+    snapshotsAfter <- listSnapshots daemon diskId
     let countAfter = length snapshotsAfter
     countAfter `shouldBe` (countBefore - 1)
 
     let snapIds = map sniId snapshotsAfter
     snapIds `shouldNotSatisfy` elem snap1
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
-    (code, stdout, _) <- runSshCommandWithKey ctx $ "cat " <> testFile
+    startDaemonVmAndWait vm 120
+    (code, stdout, _) <- runInDaemonVm vm $ "cat " <> T.pack testFile
     code `shouldBe` ExitSuccess
-    T.strip (T.pack stdout) `shouldBe` "modified"
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 5
-
-    cleanupTestContext daemon ctx
-
-  stopTestDaemon daemon
+    T.strip stdout `shouldBe` "modified"
+    stopDaemonVmAndWait daemon vmId 10
 
 -- | Test that snapshots with duplicate names are allowed (each gets unique ID)
 testSnapshotNameDuplicates :: TestEnv -> IO ()
 testSnapshotNameDuplicates env = do
-  daemon <- startTestDaemon env
+  withTestVm env defaultVmConfig $ \vm -> do
+    let daemon = dvmDaemon vm
+        diskId = dvmDiskId vm
+        vmId = dvmId vm
 
-  withSystemTempDirectory "snapshot-test-ssh" $ \tmpDir -> do
-    ctx <- setupTestVm daemon tmpDir
+    stopDaemonVmAndWait daemon vmId 10
 
-    snap1 <- createSnapshot daemon (tcDiskId ctx) "same-name"
-    snap2 <- createSnapshot daemon (tcDiskId ctx) "same-name"
-    snap3 <- createSnapshot daemon (tcDiskId ctx) "same-name"
+    snap1 <- createSnapshot daemon diskId "same-name"
+    snap2 <- createSnapshot daemon diskId "same-name"
+    snap3 <- createSnapshot daemon diskId "same-name"
 
     snap1 `shouldNotBe` snap2
     snap2 `shouldNotBe` snap3
     snap1 `shouldNotBe` snap3
 
-    snapshots <- listSnapshots daemon (tcDiskId ctx)
+    snapshots <- listSnapshots daemon diskId
     let sameNameSnaps = filter (\s -> sniName s == "same-name") snapshots
     length sameNameSnaps `shouldBe` 3
 
     let ids = sort $ map sniId sameNameSnaps
     ids `shouldBe` sort [snap1, snap2, snap3]
 
-    deleteSnapshot daemon (tcDiskId ctx) snap3
-    deleteSnapshot daemon (tcDiskId ctx) snap2
-    deleteSnapshot daemon (tcDiskId ctx) snap1
-    cleanupTestContext daemon ctx
-
-  stopTestDaemon daemon
+    deleteSnapshot daemon diskId snap3
+    deleteSnapshot daemon diskId snap2
+    deleteSnapshot daemon diskId snap1
 
 -- | Test that snapshot operations on running VMs are rejected
 testSnapshotOnRunningVmRejected :: TestEnv -> IO ()
 testSnapshotOnRunningVmRejected env = do
-  daemon <- startTestDaemon env
+  withTestVm env defaultVmConfig $ \vm -> do
+    let daemon = dvmDaemon vm
+        diskId = dvmDiskId vm
+        vmId = dvmId vm
 
-  withSystemTempDirectory "snapshot-test-ssh" $ \tmpDir -> do
-    ctx <- setupTestVm daemon tmpDir
+    snap1 <- do
+      stopDaemonVmAndWait daemon vmId 10
+      createSnapshot daemon diskId "test-snap"
 
-    snap1 <- createSnapshot daemon (tcDiskId ctx) "test-snap"
+    startDaemonVmAndWait vm 120
 
-    startVm daemon (tcVmId ctx)
-    waitForSshWithKey ctx 120
-
-    createResult <- tryCreateSnapshot daemon (tcDiskId ctx) "should-fail"
+    createResult <- tryCreateSnapshot daemon diskId "should-fail"
     createResult `shouldBe` SnapshotVmMustBeStopped
 
-    rollbackResult <- tryRollbackSnapshot daemon (tcDiskId ctx) snap1
+    rollbackResult <- tryRollbackSnapshot daemon diskId snap1
     rollbackResult `shouldBe` SnapshotVmMustBeStopped
 
-    mergeResult <- tryMergeSnapshot daemon (tcDiskId ctx) snap1
+    mergeResult <- tryMergeSnapshot daemon diskId snap1
     mergeResult `shouldBe` SnapshotVmMustBeStopped
 
-    stopVm daemon (tcVmId ctx)
-    waitForVmStopped 10
+    stopDaemonVmAndWait daemon vmId 10
 
-    snap2 <- createSnapshot daemon (tcDiskId ctx) "after-stop"
+    snap2 <- createSnapshot daemon diskId "after-stop"
     snap2 `shouldSatisfy` (> 0)
 
-    deleteSnapshot daemon (tcDiskId ctx) snap2
-    deleteSnapshot daemon (tcDiskId ctx) snap1
-    cleanupTestContext daemon ctx
-
-  stopTestDaemon daemon
+    deleteSnapshot daemon diskId snap2
+    deleteSnapshot daemon diskId snap1
 
 -- | Test that multiple rapid snapshot operations are handled correctly
 testConcurrentSnapshotOperations :: TestEnv -> IO ()
 testConcurrentSnapshotOperations env = do
-  daemon <- startTestDaemon env
+  withTestVm env defaultVmConfig $ \vm -> do
+    let daemon = dvmDaemon vm
+        diskId = dvmDiskId vm
+        vmId = dvmId vm
 
-  withSystemTempDirectory "snapshot-test-ssh" $ \tmpDir -> do
-    ctx <- setupTestVm daemon tmpDir
+    stopDaemonVmAndWait daemon vmId 10
 
-    snap1 <- createSnapshot daemon (tcDiskId ctx) "concurrent-1"
-    snap2 <- createSnapshot daemon (tcDiskId ctx) "concurrent-2"
-    snap3 <- createSnapshot daemon (tcDiskId ctx) "concurrent-3"
+    snap1 <- createSnapshot daemon diskId "concurrent-1"
+    snap2 <- createSnapshot daemon diskId "concurrent-2"
+    snap3 <- createSnapshot daemon diskId "concurrent-3"
 
     let ids = [snap1, snap2, snap3]
     length ids `shouldBe` 3
     length (filter (> 0) ids) `shouldBe` 3
 
-    snapshots <- listSnapshots daemon (tcDiskId ctx)
+    snapshots <- listSnapshots daemon diskId
     let concurrentSnaps = filter (\s -> "concurrent-" `T.isPrefixOf` sniName s) snapshots
     length concurrentSnaps `shouldBe` 3
 
-    deleteSnapshot daemon (tcDiskId ctx) snap3
-    deleteSnapshot daemon (tcDiskId ctx) snap2
-    deleteSnapshot daemon (tcDiskId ctx) snap1
-    cleanupTestContext daemon ctx
-
-  stopTestDaemon daemon
+    deleteSnapshot daemon diskId snap3
+    deleteSnapshot daemon diskId snap2
+    deleteSnapshot daemon diskId snap1
 
 --------------------------------------------------------------------------------
 -- Test Helpers
 --------------------------------------------------------------------------------
 
--- | Test context with resources that need cleanup
-data TestContext = TestContext
-  { tcDiskId :: !Int64,
-    tcVmId :: !Int64,
-    tcSshPort :: !Int,
-    tcSshKeyId :: !Int64,
-    tcPrivateKeyPath :: !FilePath
-  }
 
--- | Set up a test VM with disk and network, returning test context
--- The caller must call cleanupTestContext when done
-setupTestVm :: TestDaemon -> FilePath -> IO TestContext
-setupTestVm daemon tmpDir = do
-  -- Ensure base image exists (locally)
-  imageResult <- ensureBaseImage "almalinux-10"
-  localBasePath <- case imageResult of
-    Left err -> fail $ "Failed to get base image: " <> T.unpack err
-    Right path -> pure path
-
-  -- Register base image with daemon
-  resBase <- withDaemonConnection daemon $ \conn ->
-    diskRegister conn "base-image" (T.pack localBasePath) FormatQcow2 Nothing
-  baseDiskId <- case resBase of
-    Right (Right (DiskCreated dId)) -> pure dId
-    Right (Left err) -> fail $ "Failed to register base disk: " <> show err
-    Right (Right other) -> fail $ "Unexpected response registering base disk: " <> show other
-    Left err -> fail $ "Connection error registering base disk: " <> show err
-
-  -- Create overlay via daemon
-  resOverlay <- withDaemonConnection daemon $ \conn ->
-    diskCreateOverlay conn "snapshot-test-overlay" baseDiskId
-  diskId <- case resOverlay of
-    Right (Right (DiskCreated dId)) -> pure dId
-    Right (Left err) -> fail $ "Failed to create overlay: " <> show err
-    Right (Right other) -> fail $ "Unexpected response creating overlay: " <> show other
-    Left err -> fail $ "Connection error creating overlay: " <> show err
-
-  vmId <- createVm daemon
-
-  attachDisk daemon vmId diskId
-
-  sshPort <- findFreePort
-  mac <- generateMacAddress
-  let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
-  addNetworkInterface daemon vmId hostFwd mac
-
-  -- Set up SSH key for cloud-init
-  (sshKeyId, privateKeyPath) <- setupSshKey daemon vmId tmpDir
-
-  pure
-    TestContext
-      { tcDiskId = diskId,
-        tcVmId = vmId,
-        tcSshPort = sshPort,
-        tcSshKeyId = sshKeyId,
-        tcPrivateKeyPath = privateKeyPath
-      }
-
--- | Set up SSH key for VM access via cloud-init
-setupSshKey :: TestDaemon -> Int64 -> FilePath -> IO (Int64, FilePath)
-setupSshKey daemon vmId tmpDir = do
-  -- Generate SSH key pair
-  let privateKey = tmpDir </> "test_vm_key"
-      publicKey = privateKey ++ ".pub"
-
-  -- Remove existing keys if present
-  privExists <- doesFileExist privateKey
-  when privExists $ removeFile privateKey
-  pubExists <- doesFileExist publicKey
-  when pubExists $ removeFile publicKey
-
-  -- Generate new key pair
-  (code, _, stderr) <-
-    readProcessWithExitCode
-      "ssh-keygen"
-      ["-t", "ed25519", "-f", privateKey, "-N", "", "-C", "corvus-test@localhost"]
-      ""
-
-  case code of
-    ExitFailure n -> fail $ "Failed to generate SSH key: " ++ stderr
-    ExitSuccess -> pure ()
-
-  -- Read public key content
-  pubKeyContent <- T.pack <$> readFile publicKey
-
-  -- Create SSH key in daemon with a unique name
-  keyUuid <- nextRandom
-  let keyName = "test-key-" <> T.take 8 (toText keyUuid)
-  keyResult <- withDaemonConnection daemon $ \conn ->
-    sshKeyCreate conn keyName pubKeyContent
-  keyId <- case keyResult of
-    Left err -> fail $ "Connection error: " <> show err
-    Right (Left err) -> fail $ "RPC error creating SSH key: " <> show err
-    Right (Right (SshKeyCreated kId)) -> pure kId
-    Right (Right other) -> fail $ "Unexpected response: " <> show other
-
-  -- Attach key to VM (triggers cloud-init ISO generation)
-  attachResult <- withDaemonConnection daemon $ \conn ->
-    sshKeyAttach conn vmId keyId
-  case attachResult of
-    Left err -> fail $ "Connection error: " <> show err
-    Right (Left err) -> fail $ "RPC error attaching SSH key: " <> show err
-    Right (Right SshKeyOk) -> pure ()
-    Right (Right other) -> fail $ "Unexpected response: " <> show other
-
-  pure (keyId, privateKey)
-
--- | Register a disk image with the daemon
-registerDisk :: TestDaemon -> FilePath -> IO Int64
-registerDisk daemon imagePath = do
-  uuid <- nextRandom
-  let diskName = "test-disk-" <> T.take 8 (toText uuid)
-  result <- withDaemonConnection daemon $ \conn ->
-    diskRegister conn diskName (T.pack imagePath) FormatQcow2 Nothing
-  case result of
-    Left err -> fail $ "Connection error: " <> show err
-    Right (Left err) -> fail $ "RPC error: " <> show err
-    Right (Right (DiskCreated dId)) -> pure dId
-    Right (Right other) -> fail $ "Unexpected response: " <> show other
-
--- | Create a VM via daemon
-createVm :: TestDaemon -> IO Int64
-createVm daemon = do
-  uuid <- nextRandom
-  let name = "snapshot-test-" <> T.take 8 (toText uuid)
-  result <- withDaemonConnection daemon $ \conn ->
-    vmCreate conn name 2 2048 Nothing
-  case result of
-    Left err -> fail $ "Connection error: " <> show err
-    Right (Left err) -> fail $ "RPC error: " <> show err
-    Right (Right (VmCreated vId)) -> pure vId
-    Right (Right other) -> fail $ "Unexpected response: " <> show other
-
--- | Attach a disk to a VM
-attachDisk :: TestDaemon -> Int64 -> Int64 -> IO ()
-attachDisk daemon vmId diskId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    diskAttach conn vmId diskId InterfaceVirtio Nothing False False CacheWriteback
-  case result of
-    Left err -> fail $ "Connection error: " <> show err
-    Right (Left err) -> fail $ "RPC error: " <> show err
-    Right (Right (DriveAttached _)) -> pure ()
-    Right (Right other) -> fail $ "Unexpected response: " <> show other
-
--- | Add a network interface to a VM
-addNetworkInterface :: TestDaemon -> Int64 -> T.Text -> T.Text -> IO ()
-addNetworkInterface daemon vmId hostDevice mac = do
-  result <- withDaemonConnection daemon $ \conn ->
-    netIfAdd conn vmId NetUser hostDevice mac
-  case result of
-    Left err -> fail $ "Connection error: " <> show err
-    Right (Left err) -> fail $ "RPC error: " <> show err
-    Right (Right (NetIfAdded _)) -> pure ()
-    Right (Right other) -> fail $ "Unexpected response: " <> show other
-
--- | Start a VM
-startVm :: TestDaemon -> Int64 -> IO ()
-startVm daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    vmStart conn vmId
-  case result of
-    Left err -> fail $ "Connection error: " <> show err
-    Right (Left err) -> fail $ "RPC error: " <> show err
-    Right (Right (VmActionSuccess _)) -> pure ()
-    Right (Right other) -> fail $ "Unexpected response: " <> show other
-
--- | Stop a VM
-stopVm :: TestDaemon -> Int64 -> IO ()
-stopVm daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    vmStop conn vmId
-  case result of
-    Left err -> fail $ "Connection error: " <> show err
-    Right (Left err) -> fail $ "RPC error: " <> show err
-    Right (Right _) -> pure ()
-
--- | Wait for VM to fully stop
-waitForVmStopped :: Int -> IO ()
-waitForVmStopped seconds = threadDelay (seconds * 1000000)
 
 -- | Create a snapshot
 createSnapshot :: TestDaemon -> Int64 -> T.Text -> IO Int64
@@ -600,60 +373,3 @@ tryMergeSnapshot daemon diskId snapshotId = do
     Right (Left err) -> fail $ "RPC error: " <> show err
     Right (Right res) -> pure res
 
--- | Run an SSH command on the VM using the test context
-runSshCommandWithKey :: TestContext -> String -> IO (ExitCode, String, String)
-runSshCommandWithKey ctx cmd = do
-  let args =
-        [ "-o",
-          "StrictHostKeyChecking=no",
-          "-o",
-          "UserKnownHostsFile=/dev/null",
-          "-o",
-          "BatchMode=yes",
-          "-o",
-          "ConnectTimeout=10",
-          "-i",
-          tcPrivateKeyPath ctx,
-          "-p",
-          show (tcSshPort ctx),
-          "corvus@localhost",
-          cmd
-        ]
-  readProcessWithExitCode "ssh" args ""
-
--- | Wait for SSH to become available using the test context
-waitForSshWithKey :: TestContext -> Int -> IO ()
-waitForSshWithKey ctx = go
-  where
-    go 0 = fail $ "Timeout waiting for SSH on port " <> show (tcSshPort ctx)
-    go n = do
-      (code, _, _) <- runSshCommandWithKey ctx "true"
-      case code of
-        ExitSuccess -> pure ()
-        _ -> do
-          threadDelay 1000000
-          go (n - 1)
-
--- | Clean up test resources
-cleanupTestContext :: TestDaemon -> TestContext -> IO ()
-cleanupTestContext daemon ctx = do
-  -- Delete VM
-  result <- withDaemonConnection daemon $ \conn ->
-    vmDelete conn (tcVmId ctx)
-  case result of
-    Right (Right VmDeleted) -> pure ()
-    Right (Right VmDeleteRunning) -> do
-      _ <- withDaemonConnection daemon $ \conn -> vmReset conn (tcVmId ctx)
-      threadDelay 2000000
-      _ <- withDaemonConnection daemon $ \conn -> vmDelete conn (tcVmId ctx)
-      pure ()
-    _ -> pure ()
-
-  -- Delete SSH key
-  _ <- withDaemonConnection daemon $ \conn ->
-    sshKeyDelete conn (tcSshKeyId ctx)
-
-  -- Delete overlay via RPC (also deletes the file)
-  _ <- withDaemonConnection daemon $ \conn ->
-    diskDelete conn (tcDiskId ctx)
-  pure ()

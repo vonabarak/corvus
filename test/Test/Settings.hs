@@ -75,12 +75,19 @@ imageConfigs =
           icImageName = "AlmaLinux-10-GenericCloud-10.1-20251125.0.x86_64_v2.qcow2"
         }
     ),
-    ( "alpine-3.20",
+    ( "alpine-3.20-uefi",
       ImageConfig
         { icImageUrl = "https://dev.alpinelinux.org/~tomalok/alpine-cloud-images/v3.20/nocloud/x86_64/nocloud_alpine-3.20.9-x86_64-uefi-cloudinit-r0.qcow2",
           icImageName = "nocloud_alpine-3.20.9-x86_64-uefi-cloudinit-r0.qcow2"
         }
+    ),
+    ( "alpine-3.20-bios",
+      ImageConfig
+        { icImageUrl = "https://dev.alpinelinux.org/~tomalok/alpine-cloud-images/v3.20/nocloud/x86_64/nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2",
+          icImageName = "nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2"
+        }
     )
+
   ]
 
 -- | Get image configuration by OS name
