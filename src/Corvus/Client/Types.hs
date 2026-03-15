@@ -51,8 +51,8 @@ data Command
     DiskList
   | -- | Show disk image details
     DiskShow !Int64
-  | -- | Attach disk to VM (vmId, diskId, interface, media, readOnly)
-    DiskAttach !Int64 !Int64 !Text !(Maybe Text) !Bool
+  | -- | Attach disk to VM (vmId, diskId, interface, media, readOnly, discard, cache)
+    DiskAttach !Int64 !Int64 !Text !(Maybe Text) !Bool !Bool !Text
   | -- | Detach disk from VM (vmId, driveId)
     DiskDetach !Int64 !Int64
   | -- Snapshot commands

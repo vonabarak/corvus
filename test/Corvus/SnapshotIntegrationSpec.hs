@@ -11,14 +11,14 @@
 --   - PostgreSQL for test database
 --   - Debian cloud image (downloaded automatically on first run)
 --
--- Run with: cabal test --test-arguments="--match SnapshotIntegration"
+-- Run with: stack test --test-arguments="--match SnapshotIntegration"
 module Corvus.SnapshotIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
 import Control.Monad (when)
 import Corvus.Client
-import Corvus.Model (DriveFormat (..), DriveInterface (..), NetInterfaceType (NetUser))
+import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), NetInterfaceType (NetUser))
 import Corvus.Protocol (SnapshotInfo (..))
 import Data.Int (Int64)
 import Data.List (sort)
@@ -34,7 +34,8 @@ import Test.DSL.Daemon (findFreePort, generateMacAddress)
 import Test.Daemon (TestDaemon (..), startTestDaemon, stopTestDaemon, withDaemonConnection)
 import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
-import Test.VM.Image (createOverlay, defaultImageConfig, ensureBaseImage, removeOverlay)
+import Test.Settings (getImageConfig)
+import Test.VM.Image (ensureBaseImage)
 
 spec :: Spec
 spec = withTestDb $ do
@@ -338,7 +339,6 @@ data TestContext = TestContext
   { tcDiskId :: !Int64,
     tcVmId :: !Int64,
     tcSshPort :: !Int,
-    tcOverlayPath :: !FilePath,
     tcSshKeyId :: !Int64,
     tcPrivateKeyPath :: !FilePath
   }
@@ -347,24 +347,29 @@ data TestContext = TestContext
 -- The caller must call cleanupTestContext when done
 setupTestVm :: TestDaemon -> FilePath -> IO TestContext
 setupTestVm daemon tmpDir = do
-  -- Ensure base image exists
-  imageResult <- ensureBaseImage defaultImageConfig
-  basePath <- case imageResult of
+  -- Ensure base image exists (locally)
+  imageResult <- ensureBaseImage "almalinux-10"
+  localBasePath <- case imageResult of
     Left err -> fail $ "Failed to get base image: " <> T.unpack err
     Right path -> pure path
 
-  -- Create unique overlay for this test
-  uuid <- nextRandom
-  sysTmp <- getCanonicalTemporaryDirectory
-  let overlayPath = sysTmp </> ("snapshot-test-" <> T.unpack (T.take 8 (toText uuid)) <> ".qcow2")
+  -- Register base image with daemon
+  resBase <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn "base-image" (T.pack localBasePath) FormatQcow2 Nothing
+  baseDiskId <- case resBase of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to register base disk: " <> show err
+    Right (Right other) -> fail $ "Unexpected response registering base disk: " <> show other
+    Left err -> fail $ "Connection error registering base disk: " <> show err
 
-  overlayResult <- createOverlay basePath overlayPath
-  case overlayResult of
-    Left err -> fail $ "Failed to create overlay: " <> T.unpack err
-    Right _ -> pure ()
-
-  -- Register the overlay as a disk
-  diskId <- registerDisk daemon overlayPath
+  -- Create overlay via daemon
+  resOverlay <- withDaemonConnection daemon $ \conn ->
+    diskCreateOverlay conn "snapshot-test-overlay" baseDiskId
+  diskId <- case resOverlay of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to create overlay: " <> show err
+    Right (Right other) -> fail $ "Unexpected response creating overlay: " <> show other
+    Left err -> fail $ "Connection error creating overlay: " <> show err
 
   vmId <- createVm daemon
 
@@ -383,7 +388,6 @@ setupTestVm daemon tmpDir = do
       { tcDiskId = diskId,
         tcVmId = vmId,
         tcSshPort = sshPort,
-        tcOverlayPath = overlayPath,
         tcSshKeyId = sshKeyId,
         tcPrivateKeyPath = privateKeyPath
       }
@@ -467,7 +471,7 @@ createVm daemon = do
 attachDisk :: TestDaemon -> Int64 -> Int64 -> IO ()
 attachDisk daemon vmId diskId = do
   result <- withDaemonConnection daemon $ \conn ->
-    diskAttach conn vmId diskId InterfaceVirtio Nothing False
+    diskAttach conn vmId diskId InterfaceVirtio Nothing False False CacheWriteback
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
@@ -649,5 +653,7 @@ cleanupTestContext daemon ctx = do
   _ <- withDaemonConnection daemon $ \conn ->
     sshKeyDelete conn (tcSshKeyId ctx)
 
-  -- Remove overlay file
-  removeOverlay (tcOverlayPath ctx)
+  -- Delete overlay via RPC (also deletes the file)
+  _ <- withDaemonConnection daemon $ \conn ->
+    diskDelete conn (tcDiskId ctx)
+  pure ()

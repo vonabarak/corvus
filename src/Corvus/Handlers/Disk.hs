@@ -31,7 +31,7 @@ import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, runStdoutLoggingT)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
-import Corvus.Qemu.Config (defaultQemuConfig, getEffectiveBasePath)
+import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Corvus.Qemu.Image
 import Corvus.Qemu.Qmp
 import Corvus.Types
@@ -62,9 +62,9 @@ sanitizeDiskName name
 
 -- | Resolve a disk image file path, handling relative paths.
 -- Relative paths (not starting with /) are resolved against the base path.
-resolveDiskPath :: DiskImage -> IO FilePath
-resolveDiskPath disk = do
-  basePath <- getEffectiveBasePath defaultQemuConfig
+resolveDiskPath :: QemuConfig -> DiskImage -> IO FilePath
+resolveDiskPath config disk = do
+  basePath <- getEffectiveBasePath config
   let rawPath = T.unpack $ diskImageFilePath disk
   pure $
     if "/" `T.isPrefixOf` diskImageFilePath disk
@@ -87,7 +87,7 @@ handleDiskCreate state name format sizeMb = runStdoutLoggingT $ do
       pure $ RespError err
     Right safeName -> do
       -- Generate file path using sanitized name
-      basePath <- liftIO $ getEffectiveBasePath defaultQemuConfig
+      basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
       let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
           filePath = basePath </> fileName
 
@@ -132,22 +132,34 @@ handleDiskRegister state name filePath format mSizeMb = runStdoutLoggingT $ do
 
   -- Store in database
   now <- liftIO getCurrentTime
-  diskId <-
+  mExisting <-
     liftIO $
       runSqlPool
-        ( insert
-            DiskImage
-              { diskImageName = name,
-                diskImageFilePath = filePath,
-                diskImageFormat = format,
-                diskImageSizeMb = fmap fromIntegral mSizeMb,
-                diskImageCreatedAt = now,
-                diskImageBackingImageId = Nothing
-              }
+        ( getBy (UniqueImagePath filePath)
         )
         (ssDbPool state)
-  logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
-  pure $ RespDiskCreated $ fromSqlKey diskId
+
+  case mExisting of
+    Just (Entity diskId _) -> do
+      logInfoN $ "Disk image already registered with ID: " <> T.pack (show $ fromSqlKey diskId)
+      pure $ RespDiskCreated $ fromSqlKey diskId
+    Nothing -> do
+      diskId <-
+        liftIO $
+          runSqlPool
+            ( insert
+                DiskImage
+                  { diskImageName = name,
+                    diskImageFilePath = filePath,
+                    diskImageFormat = format,
+                    diskImageSizeMb = fmap fromIntegral mSizeMb,
+                    diskImageCreatedAt = now,
+                    diskImageBackingImageId = Nothing
+                  }
+            )
+            (ssDbPool state)
+      logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
+      pure $ RespDiskCreated $ fromSqlKey diskId
 
 -- | Create a qcow2 overlay backed by an existing disk image
 handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> IO Response
@@ -179,10 +191,10 @@ handleDiskCreateOverlay state name baseDiskId = runStdoutLoggingT $ do
               logWarnN $ "Base image is attached read-write to VMs: " <> T.pack (show vmIds)
               pure $ RespError "Cannot use as base: image is attached read-write to VM(s)"
             else do
-              basePath <- liftIO $ getEffectiveBasePath defaultQemuConfig
+              basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
               let overlayFileName = T.unpack safeName <> ".qcow2"
                   overlayFilePath = basePath </> overlayFileName
-              baseFilePath <- liftIO $ resolveDiskPath baseDisk
+              baseFilePath <- liftIO $ resolveDiskPath (ssQemuConfig state) baseDisk
               result <- liftIO $ createOverlay overlayFilePath baseFilePath (diskImageFormat baseDisk)
               case result of
                 ImageError err -> do
@@ -227,7 +239,7 @@ handleDiskDelete state diskId = runStdoutLoggingT $ do
             then pure $ RespDiskHasOverlays overlayIds
             else do
               -- Delete the file (resolve relative path against base path)
-              filePath <- liftIO $ resolveDiskPath disk
+              filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
               result <- liftIO $ deleteImage filePath
               case result of
                 ImageError err -> do
@@ -262,7 +274,7 @@ handleDiskResize state diskId newSizeMb = runStdoutLoggingT $ do
           if not (null overlayIds)
             then pure $ RespDiskHasOverlays overlayIds
             else do
-              filePath <- liftIO $ resolveDiskPath disk
+              filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
               result <- liftIO $ resizeImage filePath newSizeMb
               case result of
                 ImageSuccess -> do
@@ -317,7 +329,7 @@ handleSnapshotCreate state diskId snapshotName = runStdoutLoggingT $ do
           if not (null runningVms)
             then pure RespVmMustBeStopped
             else do
-              filePath <- liftIO $ resolveDiskPath disk
+              filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
               result <- liftIO $ createSnapshot filePath snapshotName
               case result of
                 ImageSuccess -> do
@@ -368,7 +380,7 @@ handleSnapshotDelete state diskId snapshotId = runStdoutLoggingT $ do
                   if snapshotDiskImageId snapshot /= toSqlKey diskId
                     then pure RespSnapshotNotFound
                     else do
-                      filePath <- liftIO $ resolveDiskPath disk
+                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
                       result <- liftIO $ deleteSnapshot filePath (snapshotName snapshot)
                       case result of
                         ImageSuccess -> do
@@ -407,7 +419,7 @@ handleSnapshotRollback state diskId snapshotId = runStdoutLoggingT $ do
                   if snapshotDiskImageId snapshot /= toSqlKey diskId
                     then pure RespSnapshotNotFound
                     else do
-                      filePath <- liftIO $ resolveDiskPath disk
+                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
                       result <- liftIO $ rollbackSnapshot filePath (snapshotName snapshot)
                       case result of
                         ImageSuccess -> do
@@ -445,7 +457,7 @@ handleSnapshotMerge state diskId snapshotId = runStdoutLoggingT $ do
                   if snapshotDiskImageId snapshot /= toSqlKey diskId
                     then pure RespSnapshotNotFound
                     else do
-                      filePath <- liftIO $ resolveDiskPath disk
+                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
                       result <- liftIO $ mergeSnapshot filePath (snapshotName snapshot)
                       case result of
                         ImageSuccess -> do
@@ -479,8 +491,10 @@ handleDiskAttach ::
   DriveInterface ->
   Maybe DriveMedia ->
   Bool ->
+  Bool ->
+  CacheType ->
   IO Response
-handleDiskAttach state vmId diskId interface media readOnly = runStdoutLoggingT $ do
+handleDiskAttach state vmId diskId interface media readOnly discard cache = runStdoutLoggingT $ do
   logInfoN $
     "Attaching disk "
       <> T.pack (show diskId)
@@ -515,8 +529,8 @@ handleDiskAttach state vmId diskId interface media readOnly = runStdoutLoggingT 
                             driveInterface = interface,
                             driveMedia = media,
                             driveReadOnly = readOnly,
-                            driveCacheType = if readOnly then CacheNone else CacheWriteback,
-                            driveDiscard = not readOnly
+                            driveCacheType = cache,
+                            driveDiscard = discard
                           }
                     )
                     (ssDbPool state)
@@ -528,7 +542,7 @@ handleDiskAttach state vmId diskId interface media readOnly = runStdoutLoggingT 
                   let nodeName = "drive-" <> T.pack (show $ fromSqlKey driveId)
                       deviceId = "device-" <> T.pack (show $ fromSqlKey driveId)
                       format = diskImageFormat disk
-                  filePath <- liftIO $ resolveDiskPath disk
+                  filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
 
                   -- Add block device
                   blockResult <- liftIO $ qmpBlockdevAdd vmId nodeName filePath format readOnly

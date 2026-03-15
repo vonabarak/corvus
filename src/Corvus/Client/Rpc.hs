@@ -68,7 +68,7 @@ module Corvus.Client.Rpc
 where
 
 import Corvus.Client.Connection
-import Corvus.Model (DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, VmStatus)
+import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, VmStatus)
 import Corvus.Protocol
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -299,9 +299,11 @@ diskAttach ::
   DriveInterface ->
   Maybe DriveMedia ->
   Bool ->
+  Bool ->
+  CacheType ->
   IO (Either ConnectionError DiskResult)
-diskAttach conn vmId diskId interface media readOnly =
-  handleDiskResponse <$> sendRequest conn (ReqDiskAttach vmId diskId interface media readOnly)
+diskAttach conn vmId diskId interface media readOnly discard cache =
+  handleDiskResponse <$> sendRequest conn (ReqDiskAttach vmId diskId interface media readOnly discard cache)
 
 -- | Detach a disk from a VM
 diskDetach :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError DiskResult)

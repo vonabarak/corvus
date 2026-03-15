@@ -242,6 +242,16 @@ diskAttachCommand =
       ( long "read-only"
           <> help "Attach the disk in read-only mode (required for base images with overlays)"
       )
+    <*> switch
+      ( long "discard"
+          <> help "Enable discard support (UNMAP/TRIM) (default: off)"
+      )
+    <*> strOption
+      ( long "cache"
+          <> metavar "CACHE_TYPE"
+          <> value "writeback"
+          <> help "Disk cache type: writeback, none, writethrough, directsync, unsafe (default: writeback)"
+      )
 
 -- | Parser for disk detach
 diskDetachCommand :: Parser Command

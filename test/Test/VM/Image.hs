@@ -6,12 +6,10 @@
 module Test.VM.Image
   ( -- * Configuration
     ImageConfig (..),
-    defaultImageConfig,
+    getImageConfig,
 
     -- * Image operations
     ensureBaseImage,
-    createOverlay,
-    removeOverlay,
 
     -- * Utilities
     getCacheDir,
@@ -25,52 +23,35 @@ import qualified Data.Text as T
 import System.Directory
   ( createDirectoryIfMissing,
     doesFileExist,
-    getHomeDirectory,
+    getCurrentDirectory,
     removeFile,
   )
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
-
--- | Configuration for VM images
-data ImageConfig = ImageConfig
-  { -- | URL to download the base image from
-    icImageUrl :: !Text,
-    -- | Filename for the cached image
-    icImageName :: !Text,
-    -- | Cache directory (relative to home)
-    icCacheDir :: !FilePath
-  }
-  deriving (Show, Eq)
-
--- | Default configuration using AlmaLinux 10 cloud image
-defaultImageConfig :: ImageConfig
-defaultImageConfig =
-  ImageConfig
-    { icImageUrl = "https://repo.almalinux.org/almalinux/10/cloud/x86_64_v2/images/AlmaLinux-10-GenericCloud-10.1-20251125.0.x86_64_v2.qcow2",
-      icImageName = "AlmaLinux-10-GenericCloud-10.1-20251125.0.x86_64_v2.qcow2",
-      icCacheDir = ".cache/corvus-test"
-    }
+import Test.Settings
 
 -- | Get the cache directory path
 getCacheDir :: ImageConfig -> IO FilePath
 getCacheDir config = do
-  home <- getHomeDirectory
-  let cacheDir = home </> icCacheDir config
+  projectRoot <- getCurrentDirectory
+  let cacheDir = projectRoot </> ".test-images"
   createDirectoryIfMissing True cacheDir
   pure cacheDir
 
 -- | Ensure the base image is downloaded and cached.
 -- Returns the path to the cached image.
-ensureBaseImage :: ImageConfig -> IO (Either Text FilePath)
-ensureBaseImage config = do
-  cacheDir <- getCacheDir config
-  let imagePath = cacheDir </> T.unpack (icImageName config)
+ensureBaseImage :: Text -> IO (Either Text FilePath)
+ensureBaseImage osName = case getImageConfig osName of
+  Nothing -> pure $ Left $ "Unsupported OS: " <> osName
+  Just config -> do
+    cacheDir <- getCacheDir config
+    let imagePath = cacheDir </> T.unpack (icImageName config)
 
-  exists <- doesFileExist imagePath
-  if exists
-    then pure $ Right imagePath
-    else downloadImage config imagePath
+    exists <- doesFileExist imagePath
+    if exists
+      then pure $ Right imagePath
+      else downloadImage config imagePath
 
 -- | Download the base image to the specified path
 downloadImage :: ImageConfig -> FilePath -> IO (Either Text FilePath)
@@ -101,44 +82,3 @@ downloadImage config destPath = do
     handleDownloadResult (ExitFailure n) stderr _ =
       pure $ Left $ "Download failed with exit code " <> T.pack (show n) <> ": " <> T.pack stderr
 
--- | Create a copy-on-write overlay image backed by the base image.
--- Each test should use its own overlay to ensure isolation.
-createOverlay :: FilePath -> FilePath -> IO (Either Text FilePath)
-createOverlay baseImage overlayPath = do
-  -- Check base image exists
-  baseExists <- doesFileExist baseImage
-  unless baseExists $
-    error $
-      "Base image does not exist: " ++ baseImage
-
-  -- Remove existing overlay if present
-  overlayExists <- doesFileExist overlayPath
-  when overlayExists $ removeFile overlayPath
-
-  -- Create overlay using qemu-img
-  (code, _, stderr) <-
-    readProcessWithExitCode
-      "qemu-img"
-      [ "create",
-        "-f",
-        "qcow2",
-        "-F",
-        "qcow2",
-        "-b",
-        baseImage,
-        overlayPath
-      ]
-      ""
-
-  case code of
-    ExitSuccess -> pure $ Right overlayPath
-    ExitFailure n ->
-      pure $
-        Left $
-          "Failed to create overlay (exit " <> T.pack (show n) <> "): " <> T.pack stderr
-
--- | Remove an overlay image
-removeOverlay :: FilePath -> IO ()
-removeOverlay overlayPath = do
-  exists <- doesFileExist overlayPath
-  when exists $ removeFile overlayPath

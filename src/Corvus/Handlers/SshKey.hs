@@ -23,7 +23,7 @@ import Corvus.CloudInit
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
-import Corvus.Qemu.Config (defaultQemuConfig)
+import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Maybe (catMaybes)
@@ -165,7 +165,7 @@ handleSshKeyAttach state vmId keyId = runStdoutLoggingT $ do
               logInfoN "SSH key attached"
 
               -- Regenerate cloud-init ISO
-              result <- liftIO $ regenerateCloudInitIso state vmId (vmName vm)
+              result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm)
               case result of
                 Left err -> do
                   logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -203,7 +203,7 @@ handleSshKeyDetach state vmId keyId = runStdoutLoggingT $ do
           logInfoN "SSH key detached"
 
           -- Regenerate or remove cloud-init ISO
-          result <- liftIO $ regenerateCloudInitIso state vmId (vmName vm)
+          result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm)
           case result of
             Left err -> do
               logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -255,9 +255,8 @@ handleSshKeyListForVm state vmId = runStdoutLoggingT $ do
 -- | Regenerate cloud-init ISO for a VM
 -- If no SSH keys are attached, removes the existing ISO and disk registration
 -- Otherwise, generates a new ISO and ensures it's registered as a disk
-regenerateCloudInitIso :: ServerState -> Int64 -> Text -> IO (Either Text ())
-regenerateCloudInitIso state vmId vmName = do
-  let pool = ssDbPool state
+regenerateCloudInitIso :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> IO (Either Text ())
+regenerateCloudInitIso qemuConfig pool vmId vmName = do
   let vmKey = toSqlKey vmId :: VmId
 
   -- Get all SSH keys attached to this VM
@@ -271,11 +270,11 @@ regenerateCloudInitIso state vmId vmName = do
   if null publicKeys
     then do
       -- No keys, remove ISO if it exists
-      removeCloudInitIsoForVm vmName
+      removeCloudInitIsoForVm qemuConfig vmName
       pure $ Right ()
     else do
       -- Generate new ISO
-      vmDir <- getCloudInitDir defaultQemuConfig vmName
+      vmDir <- getCloudInitDir qemuConfig vmName
       let config =
             defaultCloudInitConfig
               { ciHostname = vmName,
@@ -286,20 +285,19 @@ regenerateCloudInitIso state vmId vmName = do
         Left err -> pure $ Left err
         Right isoPath -> do
           -- Ensure disk is registered
-          ensureCloudInitDiskRegistered state vmId vmName (T.pack isoPath)
+          ensureCloudInitDiskRegistered pool vmId vmName (T.pack isoPath)
           pure $ Right ()
 
 -- | Remove cloud-init ISO for a VM
-removeCloudInitIsoForVm :: Text -> IO ()
-removeCloudInitIsoForVm vmName = do
-  isoPath <- getCloudInitIsoPath defaultQemuConfig vmName
+removeCloudInitIsoForVm :: QemuConfig -> Text -> IO ()
+removeCloudInitIsoForVm qemuConfig vmName = do
+  isoPath <- getCloudInitIsoPath qemuConfig vmName
   exists <- doesFileExist isoPath
   when exists $ removeFile isoPath
 
 -- | Ensure cloud-init disk is registered and attached to VM
-ensureCloudInitDiskRegistered :: ServerState -> Int64 -> Text -> Text -> IO ()
-ensureCloudInitDiskRegistered state vmId vmName isoPath = runStdoutLoggingT $ do
-  let pool = ssDbPool state
+ensureCloudInitDiskRegistered :: Pool SqlBackend -> Int64 -> Text -> Text -> IO ()
+ensureCloudInitDiskRegistered pool vmId vmName isoPath = runStdoutLoggingT $ do
   let vmKey = toSqlKey vmId :: VmId
   let diskName = vmName <> "-cloud-init"
 

@@ -229,7 +229,8 @@ test-suite corvus-test
       Test.DSL.Then
       Test.DSL.When
       Test.Prelude
-      Test.VM.CloudInit
+      Test.Settings
+      Test.VM.Common
       Test.VM.Image
       Test.VM.Ssh
       Paths_corvus

@@ -17,7 +17,6 @@ module Test.Database
 
     -- * Configuration
     TestDbConfig (..),
-    defaultTestDbConfig,
     getTestDbConfig,
   )
 where
@@ -33,56 +32,9 @@ import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import Database.Persist.Postgresql (SqlBackend, createPostgresqlPool, runMigration, runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
-import System.Environment (lookupEnv)
 import System.Process (callCommand)
 import Test.Hspec (Spec, SpecWith, afterAll, beforeAll)
-
---------------------------------------------------------------------------------
--- Configuration
---------------------------------------------------------------------------------
-
--- | Configuration for test database connections
-data TestDbConfig = TestDbConfig
-  { -- | PostgreSQL host
-    tdcHost :: !Text,
-    -- | PostgreSQL port
-    tdcPort :: !Int,
-    -- | PostgreSQL user
-    tdcUser :: !Text,
-    -- | PostgreSQL password
-    tdcPassword :: !Text,
-    -- | Admin database (used to create/drop test databases)
-    tdcAdminDb :: !Text
-  }
-  deriving (Show)
-
--- | Default test database configuration
-defaultTestDbConfig :: TestDbConfig
-defaultTestDbConfig =
-  TestDbConfig
-    { tdcHost = "localhost",
-      tdcPort = 5432,
-      tdcUser = "corvus",
-      tdcPassword = "corvus",
-      tdcAdminDb = "postgres"
-    }
-
--- | Get test database configuration from environment variables
-getTestDbConfig :: IO TestDbConfig
-getTestDbConfig = do
-  host <- maybe "localhost" T.pack <$> lookupEnv "TEST_DB_HOST"
-  port <- maybe 5432 read <$> lookupEnv "TEST_DB_PORT"
-  user <- maybe "corvus" T.pack <$> lookupEnv "TEST_DB_USER"
-  password <- maybe "corvus" T.pack <$> lookupEnv "TEST_DB_PASSWORD"
-  adminDb <- maybe "postgres" T.pack <$> lookupEnv "TEST_DB_ADMIN"
-  pure
-    TestDbConfig
-      { tdcHost = host,
-        tdcPort = port,
-        tdcUser = user,
-        tdcPassword = password,
-        tdcAdminDb = adminDb
-      }
+import Test.Settings
 
 --------------------------------------------------------------------------------
 -- Test Environment

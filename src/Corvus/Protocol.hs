@@ -79,8 +79,8 @@ data Request
   | -- | List snapshots (diskImageId)
     ReqSnapshotList !Int64
   | -- | Attach/detach operations
-    -- | Attach disk to VM (vmId, diskImageId, interface, media, readOnly)
-    ReqDiskAttach !Int64 !Int64 !DriveInterface !(Maybe DriveMedia) !Bool
+    -- | Attach disk to VM (vmId, diskImageId, interface, media, readOnly, discard, cache)
+    ReqDiskAttach !Int64 !Int64 !DriveInterface !(Maybe DriveMedia) !Bool !Bool !CacheType
   | -- | Detach disk from VM (vmId, driveId)
     ReqDiskDetach !Int64 !Int64
   | -- | Shared directory operations

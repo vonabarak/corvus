@@ -23,7 +23,7 @@ import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
 import Corvus.Client.Rpc
 import Corvus.Client.Types
-import Corvus.Model (DriveFormat (..), DriveInterface (..), DriveMedia (..), EnumText (..), VmStatus (..), enumFromText)
+import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), EnumText (..), VmStatus (..), enumFromText)
 import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SnapshotInfo (..), SshKeyInfo (..), StatusInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import qualified Data.ByteString as BS
@@ -180,19 +180,24 @@ runCommand opts = do
       DiskResize diskId newSizeMb -> handleDiskResize conn diskId newSizeMb
       DiskList -> handleDiskList conn
       DiskShow diskId -> handleDiskShow conn diskId
-      DiskAttach vmId diskId ifaceStr media readOnly -> do
+      DiskAttach vmId diskId ifaceStr media readOnly discard cacheStr -> do
         case parseInterface ifaceStr of
           Left err -> do
             putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right iface -> do
-            case media of
-              Nothing -> handleDiskAttach conn vmId diskId iface Nothing readOnly
-              Just m -> case parseMedia m of
-                Left err -> do
-                  putStrLn $ "Error: " ++ T.unpack err
-                  pure False
-                Right parsedMedia -> handleDiskAttach conn vmId diskId iface (Just parsedMedia) readOnly
+            case parseCacheType cacheStr of
+              Left err -> do
+                putStrLn $ "Error: " ++ T.unpack err
+                pure False
+              Right cache -> do
+                case media of
+                  Nothing -> handleDiskAttach conn vmId diskId iface Nothing readOnly discard cache
+                  Just m -> case parseMedia m of
+                    Left err -> do
+                      putStrLn $ "Error: " ++ T.unpack err
+                      pure False
+                    Right parsedMedia -> handleDiskAttach conn vmId diskId iface (Just parsedMedia) readOnly discard cache
       DiskDetach vmId driveId -> handleDiskDetach conn vmId driveId
       -- Snapshot commands
       SnapshotCreate diskId name -> handleSnapshotCreate conn diskId name
@@ -393,6 +398,10 @@ parseFormat = enumFromText
 parseInterface :: Text -> Either Text DriveInterface
 parseInterface = enumFromText
 
+-- | Parse cache type string to CacheType
+parseCacheType :: Text -> Either Text CacheType
+parseCacheType = enumFromText
+
 -- | Parse media string to DriveMedia
 parseMedia :: Text -> Either Text DriveMedia
 parseMedia = enumFromText
@@ -590,9 +599,18 @@ handleDiskShow conn diskId = do
       pure False
 
 -- | Handle disk attach command
-handleDiskAttach :: Connection -> Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> Bool -> IO Bool
-handleDiskAttach conn vmId diskId iface media readOnly = do
-  resp <- diskAttach conn vmId diskId iface media readOnly
+handleDiskAttach ::
+  Connection ->
+  Int64 ->
+  Int64 ->
+  DriveInterface ->
+  Maybe DriveMedia ->
+  Bool ->
+  Bool ->
+  CacheType ->
+  IO Bool
+handleDiskAttach conn vmId diskId iface media readOnly discard cache = do
+  resp <- diskAttach conn vmId diskId iface media readOnly discard cache
   case resp of
     Left err -> do
       putStrLn $ "Error: " ++ show err

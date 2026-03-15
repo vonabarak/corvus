@@ -23,6 +23,7 @@ import Control.Exception (bracket, catch)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Client.Connection (Connection, ConnectionError, withConnection)
+import Corvus.Qemu.Config (defaultQemuConfig, qcBasePath)
 import Corvus.Server (runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), newServerState)
 import Data.Pool (Pool)
@@ -68,9 +69,14 @@ startTestDaemon env = do
 
   let socketPath = tempDir </> "daemon.sock"
       listenAddr = UnixAddress socketPath
+      qemuBasePath = tempDir </> "VMs"
+
+  -- Create QEMU config with test-specific base path
+  let qemuConfig = defaultQemuConfig {qcBasePath = Just qemuBasePath}
+  createDirectoryIfMissing True qemuBasePath
 
   -- Create server state with the test database pool
-  state <- newServerState (tePool env)
+  state <- newServerState (tePool env) qemuConfig
 
   -- Start the server in a background thread
   serverThread <- async $ runServer state listenAddr

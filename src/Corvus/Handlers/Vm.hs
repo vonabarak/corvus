@@ -129,14 +129,14 @@ handleVmStart state vmId = runStdoutLoggingT $ do
           case currentStatus of
             VmStopped -> do
               -- Start virtiofsd processes for shared directories
-              virtiofsdResult <- startVirtiofsdProcesses (ssDbPool state) defaultQemuConfig vmId
+              virtiofsdResult <- startVirtiofsdProcesses (ssDbPool state) (ssQemuConfig state) vmId
               case virtiofsdResult of
                 VirtiofsdSomeFailed -> do
                   logWarnN $ "Some virtiofsd processes failed to start for VM " <> T.pack (show vmId)
                 _ -> pure ()
 
               -- Start the VM using QEMU
-              result <- startVm (ssDbPool state) defaultQemuConfig vmId
+              result <- startVm (ssDbPool state) (ssQemuConfig state) vmId
               case result of
                 VmStarted pid ph -> do
                   logInfoN $ "VM " <> T.pack (show vmId) <> " started with PID " <> T.pack (show pid)

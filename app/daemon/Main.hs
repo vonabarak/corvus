@@ -9,6 +9,7 @@ import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger
 import Corvus.Model (migrateAll)
+import Corvus.Qemu.Config (defaultQemuConfig)
 import Corvus.Server (runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath, newServerState)
 import Data.ByteString.Char8 (pack)
@@ -92,7 +93,7 @@ main = runStdoutLoggingT $ do
   logInfoN "Migrations complete."
 
   -- Initialize server state with database pool
-  state <- liftIO $ newServerState pool
+  state <- liftIO $ newServerState pool defaultQemuConfig
 
   -- Install signal handlers for graceful shutdown
   let shutdownHandler = atomically $ writeTVar (ssShutdownFlag state) True

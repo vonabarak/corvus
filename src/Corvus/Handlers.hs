@@ -58,7 +58,7 @@ handleRequest state req = case req of
   ReqSnapshotMerge diskId snapshotId -> handleSnapshotMerge state diskId snapshotId
   ReqSnapshotList diskId -> handleSnapshotList state diskId
   -- Attach/detach handlers
-  ReqDiskAttach vmId diskId interface media readOnly -> handleDiskAttach state vmId diskId interface media readOnly
+  ReqDiskAttach vmId diskId interface media readOnly discard cache -> handleDiskAttach state vmId diskId interface media readOnly discard cache
   ReqDiskDetach vmId driveId -> handleDiskDetach state vmId driveId
   -- Shared directory handlers
   ReqSharedDirAdd vmId path tag cache readOnly -> handleSharedDirAdd state vmId path tag cache readOnly

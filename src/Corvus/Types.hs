@@ -17,6 +17,7 @@ module Corvus.Types
 where
 
 import Control.Concurrent.STM (TVar, newTVarIO)
+import Corvus.Qemu.Config (QemuConfig)
 import Data.Maybe (fromMaybe)
 import Data.Pool (Pool)
 import Data.Text (Text)
@@ -34,12 +35,14 @@ data ServerState = ServerState
     -- | Signal to shutdown
     ssShutdownFlag :: TVar Bool,
     -- | Database connection pool
-    ssDbPool :: Pool SqlBackend
+    ssDbPool :: Pool SqlBackend,
+    -- | QEMU configuration
+    ssQemuConfig :: !QemuConfig
   }
 
 -- | Create a new server state
-newServerState :: Pool SqlBackend -> IO ServerState
-newServerState pool = do
+newServerState :: Pool SqlBackend -> QemuConfig -> IO ServerState
+newServerState pool qemuConfig = do
   startTime <- getCurrentTime
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
@@ -48,7 +51,8 @@ newServerState pool = do
       { ssStartTime = startTime,
         ssConnectionCount = connCount,
         ssShutdownFlag = shutdownFlag,
-        ssDbPool = pool
+        ssDbPool = pool,
+        ssQemuConfig = qemuConfig
       }
 
 -- | Server configuration

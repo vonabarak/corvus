@@ -14,7 +14,7 @@ where
 import Control.Monad.Logger (logDebugN, logInfoN, runStdoutLoggingT)
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Qemu.Config (defaultQemuConfig)
+import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Virtiofsd (startVirtiofsdProcesses)
 import Corvus.Types
 import Data.Int (Int64)
@@ -74,7 +74,7 @@ handleSharedDirAdd state vmId path tag cache readOnly = do
               runStdoutLoggingT $ logInfoN "VM is running, starting virtiofsd..."
               _ <-
                 runStdoutLoggingT $
-                  startVirtiofsdProcesses pool defaultQemuConfig vmId
+                  startVirtiofsdProcesses pool (ssQemuConfig state) vmId
               pure () -- Log result but continue
             _ -> pure ()
 

@@ -41,8 +41,9 @@ where
 import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Handlers (handleRequest)
-import Corvus.Model (DriveFormat, DriveInterface, DriveMedia, SharedDirCache)
+import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, SharedDirCache)
 import Corvus.Protocol
+import Corvus.Qemu.Config (defaultQemuConfig)
 import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
 import Data.Pool (Pool)
@@ -66,7 +67,8 @@ createTestServerState pool = do
       { ssStartTime = startTime,
         ssConnectionCount = connCount,
         ssShutdownFlag = shutdownFlag,
-        ssDbPool = pool
+        ssDbPool = pool,
+        ssQemuConfig = defaultQemuConfig
       }
 
 --------------------------------------------------------------------------------
@@ -144,12 +146,12 @@ diskShow diskId = executeRequest (ReqDiskShow diskId)
 -- | Attach a disk to a VM
 diskAttach :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM Response
 diskAttach vmId diskId interface media =
-  executeRequest (ReqDiskAttach vmId diskId interface media False)
+  executeRequest (ReqDiskAttach vmId diskId interface media False False CacheWriteback)
 
 -- | Attach a disk to a VM in read-only mode
 diskAttachReadOnly :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM Response
 diskAttachReadOnly vmId diskId interface media =
-  executeRequest (ReqDiskAttach vmId diskId interface media True)
+  executeRequest (ReqDiskAttach vmId diskId interface media True False CacheNone)
 
 -- | Detach a drive from a VM
 diskDetach :: Int64 -> Int64 -> TestM Response

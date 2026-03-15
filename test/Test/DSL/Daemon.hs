@@ -5,9 +5,14 @@
 -- This module provides functions to create, configure, and manage VMs
 -- via RPC calls to a running daemon, with SSH access for command execution.
 module Test.DSL.Daemon
-  ( -- * Daemon VM lifecycle
+  ( -- * VM Configuration
+    VmConfig (..),
+    DefaultVmConfig (..),
+
+    -- * Daemon VM lifecycle
     DaemonVm (..),
     withDaemonVm,
+    withDaemonVmWithConfig,
     createDaemonVm,
     startDaemonVm,
     stopDaemonVm,
@@ -41,7 +46,8 @@ import Control.Monad (unless, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Corvus.Client
 import Corvus.Model
-  ( DriveFormat (..),
+  ( CacheType (..),
+    DriveFormat (..),
     DriveInterface (..),
     NetInterfaceType (..),
     SharedDirCache (..),
@@ -70,6 +76,44 @@ import Test.Daemon (TestDaemon (..), withDaemonConnection)
 -- Types
 --------------------------------------------------------------------------------
 
+-- | Configuration for a test VM.
+data VmConfig = VmConfig
+  { vmcCpuCount :: Int,
+    vmcRamMb :: Int,
+    vmcOsName :: Text,
+    vmcSharedDir :: Maybe FilePath,
+    vmcDescription :: Maybe Text,
+    vmcDiskInterface :: DriveInterface,
+    vmcNetworkType :: NetInterfaceType,
+    vmcWaitSshTimeout :: Int,
+    vmcDiskCache :: CacheType,
+    vmcDiskDiscard :: Bool,
+    vmcSharedDirCache :: SharedDirCache,
+    vmcSshUser :: Text
+  }
+  deriving (Show, Eq)
+
+-- | Type class for default VM configuration.
+class DefaultVmConfig a where
+  defaultVmConfig :: a
+
+instance DefaultVmConfig VmConfig where
+  defaultVmConfig =
+    VmConfig
+      { vmcCpuCount = 2,
+        vmcRamMb = 2048,
+        vmcOsName = "almalinux-10",
+        vmcSharedDir = Nothing,
+        vmcDescription = Nothing,
+        vmcDiskInterface = InterfaceVirtio,
+        vmcNetworkType = NetUser,
+        vmcWaitSshTimeout = 120,
+        vmcDiskCache = CacheWriteback,
+        vmcDiskDiscard = True,
+        vmcSharedDirCache = CacheAuto,
+        vmcSshUser = "corvus"
+      }
+
 -- | A VM running through the daemon with SSH access
 data DaemonVm = DaemonVm
   { -- | VM ID in the database
@@ -83,25 +127,27 @@ data DaemonVm = DaemonVm
     -- | Path to private key file for SSH access
     dvmSshPrivateKey :: !FilePath,
     -- | SSH key ID in the daemon
-    dvmSshKeyId :: !Int64
+    dvmSshKeyId :: !Int64,
+    -- | SSH user name
+    dvmSshUser :: !Text
   }
 
 --------------------------------------------------------------------------------
 -- VM Lifecycle
 --------------------------------------------------------------------------------
 
--- | Run an action with a daemon-managed VM.
+-- | Run an action with a daemon-managed VM using a config.
 -- Creates the VM with necessary configuration, sets up SSH keys,
 -- starts it, runs the action, then stops and deletes the VM.
-withDaemonVm ::
+withDaemonVmWithConfig ::
   TestDaemon ->
   -- | Disk image ID to use for the boot disk
   Int64 ->
-  -- | Shared directory path (optional)
-  Maybe FilePath ->
+  -- | VM configuration
+  VmConfig ->
   (DaemonVm -> IO a) ->
   IO a
-withDaemonVm daemon diskImageId mSharedDir action = do
+withDaemonVmWithConfig daemon diskImageId config action = do
   withSystemTempDirectory "corvus-test-ssh" $ \tmpDir -> do
     -- Find a free port for SSH forwarding
     sshPort <- findFreePort
@@ -109,20 +155,20 @@ withDaemonVm daemon diskImageId mSharedDir action = do
     -- Create the VM with a unique name
     vmUuid <- nextRandom
     let vmName = "test-vm-" <> T.take 8 (toText vmUuid)
-    vmId <- createDaemonVm daemon vmName 2 2048
+    vmId <- createDaemonVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config)
 
     -- Add boot disk
-    addVmDisk daemon vmId diskImageId
+    addVmDisk daemon vmId diskImageId (vmcDiskInterface config) (vmcDiskCache config) (vmcDiskDiscard config)
 
-    -- Add user-mode network interface with SSH port forwarding
+    -- Add network interface with SSH port forwarding
     mac <- generateMacAddress
     let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
-    addVmNetIf daemon vmId NetUser hostFwd mac
+    addVmNetIf daemon vmId (vmcNetworkType config) hostFwd mac
 
     -- Add shared directory if requested
-    case mSharedDir of
+    case vmcSharedDir config of
       Nothing -> pure ()
-      Just path -> addVmSharedDir daemon vmId (T.pack path) "share"
+      Just path -> addVmSharedDir daemon vmId (T.pack path) "share" (vmcSharedDirCache config)
 
     -- Set up SSH key for access (creates cloud-init ISO automatically)
     (sshKeyId, privateKey, _publicKey) <- setupVmSshKey daemon vmId tmpDir
@@ -136,7 +182,7 @@ withDaemonVm daemon diskImageId mSharedDir action = do
     let sshHost = "localhost"
 
     -- Wait for SSH to be available (with the configured key)
-    waitForDaemonVmSshWithKey sshHost sshPort privateKey 80
+    waitForDaemonVmSshWithKey sshHost sshPort privateKey (vmcSshUser config) (vmcWaitSshTimeout config)
     putStrLn "[test] SSH is ready"
 
     let vm =
@@ -146,7 +192,8 @@ withDaemonVm daemon diskImageId mSharedDir action = do
               dvmSshHost = sshHost,
               dvmDaemon = daemon,
               dvmSshPrivateKey = privateKey,
-              dvmSshKeyId = sshKeyId
+              dvmSshKeyId = sshKeyId,
+              dvmSshUser = vmcSshUser config
             }
 
     -- Run the action and clean up
@@ -161,11 +208,24 @@ withDaemonVm daemon diskImageId mSharedDir action = do
 
     pure result
 
+-- | Legacy wrapper for backward compatibility.
+withDaemonVm ::
+  TestDaemon ->
+  -- | Disk image ID to use for the boot disk
+  Int64 ->
+  -- | Shared directory path (optional)
+  Maybe FilePath ->
+  (DaemonVm -> IO a) ->
+  IO a
+withDaemonVm daemon diskImageId mSharedDir =
+  let config = defaultVmConfig {vmcSharedDir = mSharedDir}
+   in withDaemonVmWithConfig daemon diskImageId config
+
 -- | Create a VM via daemon RPC
-createDaemonVm :: TestDaemon -> Text -> Int -> Int -> IO Int64
-createDaemonVm daemon name cpus ram = do
+createDaemonVm :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> IO Int64
+createDaemonVm daemon name cpus ram mDesc = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmCreate conn name cpus ram Nothing
+    vmCreate conn name cpus ram mDesc
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error creating VM: " <> show err
@@ -212,10 +272,10 @@ deleteDaemonVm daemon vmId = do
 --------------------------------------------------------------------------------
 
 -- | Add a disk to a VM
-addVmDisk :: TestDaemon -> Int64 -> Int64 -> IO ()
-addVmDisk daemon vmId diskImageId = do
+addVmDisk :: TestDaemon -> Int64 -> Int64 -> DriveInterface -> CacheType -> Bool -> IO ()
+addVmDisk daemon vmId diskImageId iface cache discard = do
   result <- withDaemonConnection daemon $ \conn ->
-    diskAttach conn vmId diskImageId InterfaceVirtio Nothing False
+    diskAttach conn vmId diskImageId iface Nothing False discard cache
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error attaching disk: " <> show err
@@ -234,10 +294,10 @@ addVmNetIf daemon vmId ifaceType hostDevice mac = do
     Right (Right other) -> fail $ "Failed to add network interface: " <> show other
 
 -- | Add a shared directory to a VM
-addVmSharedDir :: TestDaemon -> Int64 -> Text -> Text -> IO ()
-addVmSharedDir daemon vmId path tag = do
+addVmSharedDir :: TestDaemon -> Int64 -> Text -> Text -> SharedDirCache -> IO ()
+addVmSharedDir daemon vmId path tag cache = do
   result <- withDaemonConnection daemon $ \conn ->
-    sharedDirAdd conn vmId path tag CacheAuto False
+    sharedDirAdd conn vmId path tag cache False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error adding shared directory: " <> show err
@@ -370,7 +430,7 @@ runInDaemonVm vm cmd = do
           dvmSshPrivateKey vm,
           "-p",
           show (dvmSshPort vm),
-          "corvus@" ++ dvmSshHost vm,
+          T.unpack (dvmSshUser vm) ++ "@" ++ dvmSshHost vm,
           T.unpack cmd
         ]
   putStrLn $ "[ssh-run] Executing: " <> T.unpack cmd
@@ -410,13 +470,13 @@ data SshProbeResult
 
 -- | Wait for SSH to be available on the VM (legacy, without key)
 waitForDaemonVmSsh :: String -> Int -> Int -> IO ()
-waitForDaemonVmSsh host port = waitForDaemonVmSshWithKey host port ""
+waitForDaemonVmSsh host port = waitForDaemonVmSshWithKey host port "" "almalinux"
 
 -- | Wait for SSH to be available on the VM using a specific key.
 -- Fails fast if SSH is up but key authentication is rejected (after a
 -- grace period for cloud-init to finish deploying keys).
-waitForDaemonVmSshWithKey :: String -> Int -> FilePath -> Int -> IO ()
-waitForDaemonVmSshWithKey host port privateKey timeoutSec = go timeoutSec Nothing
+waitForDaemonVmSshWithKey :: String -> Int -> FilePath -> Text -> Int -> IO ()
+waitForDaemonVmSshWithKey host port privateKey user timeoutSec = go timeoutSec Nothing
   where
     authGracePeriod :: Int
     authGracePeriod = 30
@@ -456,7 +516,6 @@ waitForDaemonVmSshWithKey host port privateKey timeoutSec = go timeoutSec Nothin
     trySshConnection :: String -> Int -> FilePath -> IO SshProbeResult
     trySshConnection sshHost sshPort keyFile = do
       let keyArgs = if null keyFile then [] else ["-i", keyFile]
-          user = if null keyFile then "almalinux" else "corvus"
           args =
             [ "-o",
               "StrictHostKeyChecking=no",
@@ -470,7 +529,7 @@ waitForDaemonVmSshWithKey host port privateKey timeoutSec = go timeoutSec Nothin
               show sshPort
             ]
               ++ keyArgs
-              ++ [user ++ "@" ++ sshHost, "true"]
+              ++ [T.unpack user ++ "@" ++ sshHost, "true"]
       result <- try $ readProcessWithExitCode "ssh" args ""
       case result of
         Left (_ :: SomeException) -> pure SshNotReady

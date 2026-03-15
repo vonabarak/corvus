@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install cleanup unit-tests integration-tests all-tests lint format
+.PHONY: all build install cleanup unit-tests integration-tests all-tests test lint format
 
 # Add ~/.local/bin to PATH for tools like hlint and ormolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -21,9 +21,10 @@ install:
 	systemctl --user enable corvus.service
 	systemctl --user restart corvus.service
 
-# Cleanup the project build artifacts
+# Cleanup the project build artifacts and test cache
 cleanup:
 	stack clean
+	rm -rf .test-cache
 
 # Run only unit tests (excluding those with "Integration" in their name)
 unit-tests:
@@ -36,6 +37,10 @@ integration-tests:
 # Run all tests
 all-tests:
 	stack test
+
+# Run specific tests (e.g., make test MATCH="test name")
+test:
+	stack test --test-arguments "--match \"$(MATCH)\""
 
 # Run linter on src, app and test directories
 lint:
