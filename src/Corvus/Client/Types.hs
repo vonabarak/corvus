@@ -27,6 +27,10 @@ data Command
   | -- VM commands
     VmList
   | VmShow !Int64
+  | -- | Create a new VM (name, cpuCount, ramMb, description)
+    VmCreate !Text !Int !Int !(Maybe Text)
+  | -- | Delete a VM
+    VmDelete !Int64
   | VmStart !Int64
   | VmStop !Int64
   | VmPause !Int64
@@ -55,6 +59,22 @@ data Command
     DiskAttach !Int64 !Int64 !Text !(Maybe Text) !Bool !Bool !Text
   | -- | Detach disk from VM (vmId, driveId)
     DiskDetach !Int64 !Int64
+  | -- Shared directory commands
+
+    -- | Add shared directory to VM (vmId, path, tag, cache, readOnly)
+    SharedDirAdd !Int64 !Text !Text !Text !Bool
+  | -- | Remove shared directory from VM (vmId, sharedDirId)
+    SharedDirRemove !Int64 !Int64
+  | -- | List shared directories for VM
+    SharedDirList !Int64
+  | -- Network interface commands
+
+    -- | Add network interface to VM (vmId, type, hostDevice, mac)
+    NetIfAdd !Int64 !Text !Text !Text
+  | -- | Remove network interface from VM (vmId, netIfId)
+    NetIfRemove !Int64 !Int64
+  | -- | List network interfaces for VM
+    NetIfList !Int64
   | -- Snapshot commands
 
     -- | Create snapshot (diskId, name)

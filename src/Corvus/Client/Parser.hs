@@ -30,6 +30,52 @@ shutdownCommand = pure Shutdown
 vmListCommand :: Parser Command
 vmListCommand = pure VmList
 
+-- | Parser for vm create
+vmCreateCommand :: Parser Command
+vmCreateCommand =
+  VmCreate
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the new VM"
+      )
+    <*> option
+      auto
+      ( long "cpus"
+          <> short 'c'
+          <> metavar "COUNT"
+          <> value 1
+          <> showDefault
+          <> help "Number of CPU cores"
+      )
+    <*> option
+      auto
+      ( long "ram"
+          <> short 'm'
+          <> metavar "MB"
+          <> value 1024
+          <> showDefault
+          <> help "Amount of RAM in MB"
+      )
+    <*> optional
+      ( strOption
+          ( long "description"
+              <> short 'd'
+              <> metavar "TEXT"
+              <> help "Optional VM description"
+          )
+      )
+
+-- | Parser for vm delete
+vmDeleteCommand :: Parser Command
+vmDeleteCommand =
+  VmDelete
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM to delete"
+      )
+
 -- | Parser for vm show
 vmShowCommand :: Parser Command
 vmShowCommand =
@@ -107,6 +153,12 @@ vmCommandParser =
     ( command
         "list"
         (info vmListCommand (progDesc "List all VMs"))
+        <> command
+          "create"
+          (info vmCreateCommand (progDesc "Create a new VM"))
+        <> command
+          "delete"
+          (info vmDeleteCommand (progDesc "Delete a VM"))
         <> command
           "show"
           (info vmShowCommand (progDesc "Show VM details"))
@@ -532,6 +584,156 @@ sshKeyCommandParser =
     )
 
 --------------------------------------------------------------------------------
+-- Shared Directory Command Parsers
+--------------------------------------------------------------------------------
+
+-- | Parser for shared-dir add
+sharedDirAddCommand :: Parser Command
+sharedDirAddCommand =
+  SharedDirAdd
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "PATH"
+          <> help "Host path to the directory to share"
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "TAG"
+          <> help "Unique tag for the shared directory (used as mount tag in VM)"
+      )
+    <*> strOption
+      ( long "cache"
+          <> metavar "CACHE_TYPE"
+          <> value "auto"
+          <> showDefault
+          <> help "Cache type: always, auto, never"
+      )
+    <*> switch
+      ( long "read-only"
+          <> help "Mount the shared directory as read-only"
+      )
+
+-- | Parser for shared-dir remove
+sharedDirRemoveCommand :: Parser Command
+sharedDirRemoveCommand =
+  SharedDirRemove
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+    <*> argument
+      auto
+      ( metavar "SHARED_DIR_ID"
+          <> help "ID of the shared directory to remove"
+      )
+
+-- | Parser for shared-dir list
+sharedDirListCommand :: Parser Command
+sharedDirListCommand =
+  SharedDirList
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+
+-- | Parser for all shared-dir subcommands
+sharedDirCommandParser :: Parser Command
+sharedDirCommandParser =
+  subparser
+    ( command
+        "add"
+        (info sharedDirAddCommand (progDesc "Add a shared directory to a VM"))
+        <> command
+          "remove"
+          (info sharedDirRemoveCommand (progDesc "Remove a shared directory from a VM"))
+        <> command
+          "list"
+          (info sharedDirListCommand (progDesc "List shared directories for a VM"))
+    )
+
+--------------------------------------------------------------------------------
+-- Network Interface Command Parsers
+--------------------------------------------------------------------------------
+
+-- | Parser for net-if add
+netIfAddCommand :: Parser Command
+netIfAddCommand =
+  NetIfAdd
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+    <*> strOption
+      ( long "type"
+          <> short 't'
+          <> metavar "TYPE"
+          <> value "user"
+          <> showDefault
+          <> help "Interface type: user, tap, bridge, macvtap, vde"
+      )
+    <*> strOption
+      ( long "host-device"
+          <> short 'd'
+          <> metavar "DEVICE"
+          <> value ""
+          <> help "Host device name (for tap/bridge/macvtap)"
+      )
+    <*> strOption
+      ( long "mac"
+          <> metavar "MAC"
+          <> value ""
+          <> help "Optional MAC address (auto-generated if empty)"
+      )
+
+-- | Parser for net-if remove
+netIfRemoveCommand :: Parser Command
+netIfRemoveCommand =
+  NetIfRemove
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+    <*> argument
+      auto
+      ( metavar "NETIF_ID"
+          <> help "ID of the network interface to remove"
+      )
+
+-- | Parser for net-if list
+netIfListCommand :: Parser Command
+netIfListCommand =
+  NetIfList
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
+
+-- | Parser for all net-if subcommands
+netIfCommandParser :: Parser Command
+netIfCommandParser =
+  subparser
+    ( command
+        "add"
+        (info netIfAddCommand (progDesc "Add a network interface to a VM"))
+        <> command
+          "remove"
+          (info netIfRemoveCommand (progDesc "Remove a network interface from a VM"))
+        <> command
+          "list"
+          (info netIfListCommand (progDesc "List network interfaces for a VM"))
+    )
+
+--------------------------------------------------------------------------------
 -- Main Command Parser
 --------------------------------------------------------------------------------
 
@@ -560,6 +762,12 @@ commandParser =
         <> command
           "ssh-key"
           (info sshKeyCommandParser (progDesc "SSH key management commands"))
+        <> command
+          "net-if"
+          (info netIfCommandParser (progDesc "Network interface management commands"))
+        <> command
+          "shared-dir"
+          (info sharedDirCommandParser (progDesc "Shared directory management commands"))
     )
 
 -- | Parser for global options

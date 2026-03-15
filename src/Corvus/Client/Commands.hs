@@ -23,8 +23,8 @@ import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
 import Corvus.Client.Rpc
 import Corvus.Client.Types
-import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), EnumText (..), VmStatus (..), enumFromText)
-import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SnapshotInfo (..), SshKeyInfo (..), StatusInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), EnumText (..), NetInterfaceType (..), SharedDirCache (..), VmStatus (..), enumFromText, enumToText)
+import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SharedDirInfo (..), SnapshotInfo (..), SshKeyInfo (..), StatusInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import qualified Data.ByteString as BS
 import Data.Char (ord)
@@ -123,6 +123,8 @@ runCommand opts = do
           Right (Just details) -> do
             printVmDetails details
             pure True
+      VmCreate name cpuCount ramMb mDesc -> handleVmCreate conn name cpuCount ramMb mDesc
+      VmDelete vmId -> handleVmDelete conn vmId
       VmStart vmId -> handleVmAction "start" vmId (vmStart conn vmId)
       VmStop vmId -> handleVmAction "stop" vmId (vmStop conn vmId)
       VmPause vmId -> handleVmAction "pause" vmId (vmPause conn vmId)
@@ -199,6 +201,24 @@ runCommand opts = do
                       pure False
                     Right parsedMedia -> handleDiskAttach conn vmId diskId iface (Just parsedMedia) readOnly discard cache
       DiskDetach vmId driveId -> handleDiskDetach conn vmId driveId
+      -- Shared directory commands
+      SharedDirAdd vmId path tag cacheStr readOnly -> do
+        case parseSharedDirCache cacheStr of
+          Left err -> do
+            putStrLn $ "Error: " ++ T.unpack err
+            pure False
+          Right cache -> handleSharedDirAdd conn vmId path tag cache readOnly
+      SharedDirRemove vmId sharedDirId -> handleSharedDirRemove conn vmId sharedDirId
+      SharedDirList vmId -> handleSharedDirList conn vmId
+      -- Network interface commands
+      NetIfAdd vmId ifaceTypeStr hostDevice macAddress -> do
+        case parseNetInterfaceType ifaceTypeStr of
+          Left err -> do
+            putStrLn $ "Error: " ++ T.unpack err
+            pure False
+          Right ifaceType -> handleNetIfAdd conn vmId ifaceType hostDevice macAddress
+      NetIfRemove vmId netIfId -> handleNetIfRemove conn vmId netIfId
+      NetIfList vmId -> handleNetIfList conn vmId
       -- Snapshot commands
       SnapshotCreate diskId name -> handleSnapshotCreate conn diskId name
       SnapshotDelete diskId snapshotId -> handleSnapshotDelete conn diskId snapshotId
@@ -303,6 +323,42 @@ runMonitorSession sockPath = do
       hSetBuffering stdin LineBuffering
       hSetEcho stdin True
 
+-- | Handle VM creation
+handleVmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> IO Bool
+handleVmCreate conn name cpuCount ramMb mDesc = do
+  resp <- vmCreate conn name cpuCount ramMb mDesc
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (VmCreated vmId) -> do
+      putStrLn $ "VM '" ++ T.unpack name ++ "' created with ID: " ++ show vmId
+      pure True
+    Right (VmCreateError msg) -> do
+      putStrLn $ "Failed to create VM: " ++ T.unpack msg
+      pure False
+
+-- | Handle VM deletion
+handleVmDelete :: Connection -> Int64 -> IO Bool
+handleVmDelete conn vmId = do
+  resp <- vmDelete conn vmId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right VmDeleted -> do
+      putStrLn $ "VM " ++ show vmId ++ " deleted."
+      pure True
+    Right VmDeleteNotFound -> do
+      putStrLn $ "Error: VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right VmDeleteRunning -> do
+      putStrLn $ "Error: VM " ++ show vmId ++ " is running. Stop it before deleting."
+      pure False
+    Right (VmDeleteError msg) -> do
+      putStrLn $ "Failed to delete VM: " ++ T.unpack msg
+      pure False
+
 -- | Handle VM action result
 handleVmAction :: String -> Int64 -> IO (Either ConnectionError VmActionResult) -> IO Bool
 handleVmAction actionName vmId action = do
@@ -405,6 +461,14 @@ parseCacheType = enumFromText
 -- | Parse media string to DriveMedia
 parseMedia :: Text -> Either Text DriveMedia
 parseMedia = enumFromText
+
+-- | Parse network interface type string to NetInterfaceType
+parseNetInterfaceType :: Text -> Either Text NetInterfaceType
+parseNetInterfaceType = enumFromText
+
+-- | Parse shared directory cache string to SharedDirCache
+parseSharedDirCache :: Text -> Either Text SharedDirCache
+parseSharedDirCache = enumFromText
 
 -- | Handle disk create command
 handleDiskCreate :: Connection -> Text -> DriveFormat -> Int64 -> IO Bool
@@ -658,6 +722,183 @@ handleDiskDetach conn vmId driveId = do
     Right other -> do
       putStrLn $ "Unexpected response: " ++ show other
       pure False
+
+--------------------------------------------------------------------------------
+-- Shared Directory Command Handlers
+--------------------------------------------------------------------------------
+
+-- | Handle shared directory add command
+handleSharedDirAdd :: Connection -> Int64 -> Text -> Text -> SharedDirCache -> Bool -> IO Bool
+handleSharedDirAdd conn vmId path tag cache readOnly = do
+  resp <- sharedDirAdd conn vmId path tag cache readOnly
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (SharedDirAdded dirId) -> do
+      putStrLn $ "Shared directory added with ID: " ++ show dirId
+      pure True
+    Right SharedDirVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right (SharedDirError msg) -> do
+      putStrLn $ "Failed to add shared directory: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle shared directory remove command
+handleSharedDirRemove :: Connection -> Int64 -> Int64 -> IO Bool
+handleSharedDirRemove conn vmId sharedDirId = do
+  resp <- sharedDirRemove conn vmId sharedDirId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right SharedDirOk -> do
+      putStrLn "Shared directory removed."
+      pure True
+    Right SharedDirNotFound -> do
+      putStrLn $ "Shared directory with ID " ++ show sharedDirId ++ " not found."
+      pure False
+    Right SharedDirVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right SharedDirVmMustBeStopped -> do
+      putStrLn "Cannot remove shared directory while VM is running. Stop the VM first."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle shared directory list command
+handleSharedDirList :: Connection -> Int64 -> IO Bool
+handleSharedDirList conn vmId = do
+  resp <- sharedDirList conn vmId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (SharedDirListResult dirs) -> do
+      if null dirs
+        then putStrLn "No shared directories found for this VM."
+        else do
+          putStrLn $
+            printf
+              "%-5s %-40s %-15s %-10s %-10s %-10s"
+              ("ID" :: String)
+              ("PATH" :: String)
+              ("TAG" :: String)
+              ("CACHE" :: String)
+              ("READ_ONLY" :: String)
+              ("PID" :: String)
+          putStrLn $ replicate 100 '-'
+          mapM_ printSharedDirInfo dirs
+      pure True
+    Right SharedDirVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Print shared directory info
+printSharedDirInfo :: SharedDirInfo -> IO ()
+printSharedDirInfo info =
+  printf
+    "%-5d %-40s %-15s %-10s %-10s %-10s\n"
+    (sdiId info)
+    (T.unpack $ sdiPath info)
+    (T.unpack $ sdiTag info)
+    (T.unpack $ enumToText $ sdiCache info)
+    (show $ sdiReadOnly info)
+    (maybe "-" show $ sdiPid info)
+
+--------------------------------------------------------------------------------
+-- Network Interface Command Handlers
+--------------------------------------------------------------------------------
+
+-- | Handle network interface add command
+handleNetIfAdd :: Connection -> Int64 -> NetInterfaceType -> Text -> Text -> IO Bool
+handleNetIfAdd conn vmId ifaceType hostDevice macAddress = do
+  resp <- netIfAdd conn vmId ifaceType hostDevice macAddress
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (NetIfAdded netIfId) -> do
+      putStrLn $ "Network interface added with ID: " ++ show netIfId
+      pure True
+    Right NetIfVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right (NetIfError msg) -> do
+      putStrLn $ "Failed to add network interface: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle network interface remove command
+handleNetIfRemove :: Connection -> Int64 -> Int64 -> IO Bool
+handleNetIfRemove conn vmId netIfId = do
+  resp <- netIfRemove conn vmId netIfId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right NetIfOk -> do
+      putStrLn "Network interface removed."
+      pure True
+    Right NetIfNotFound -> do
+      putStrLn $ "Network interface with ID " ++ show netIfId ++ " not found."
+      pure False
+    Right NetIfVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle network interface list command
+handleNetIfList :: Connection -> Int64 -> IO Bool
+handleNetIfList conn vmId = do
+  resp <- netIfList conn vmId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (NetIfListResult netIfs) -> do
+      if null netIfs
+        then putStrLn "No network interfaces found for this VM."
+        else do
+          putStrLn $
+            printf
+              "%-5s %-15s %-20s %-20s"
+              ("ID" :: String)
+              ("TYPE" :: String)
+              ("DEVICE" :: String)
+              ("MAC" :: String)
+          putStrLn $ replicate 65 '-'
+          mapM_ printNetIfInfo netIfs
+      pure True
+    Right NetIfVmNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right other -> do
+      putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Print network interface info
+printNetIfInfo :: NetIfInfo -> IO ()
+printNetIfInfo info =
+  printf
+    "%-5d %-15s %-20s %-20s\n"
+    (niId info)
+    (T.unpack $ enumToText $ niType info)
+    (T.unpack $ niHostDevice info)
+    (T.unpack $ niMacAddress info)
 
 --------------------------------------------------------------------------------
 -- Snapshot Command Handlers

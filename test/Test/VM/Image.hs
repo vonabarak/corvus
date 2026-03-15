@@ -81,4 +81,3 @@ downloadImage config destPath = do
       pure $ Right path
     handleDownloadResult (ExitFailure n) stderr _ =
       pure $ Left $ "Download failed with exit code " <> T.pack (show n) <> ": " <> T.pack stderr
-
