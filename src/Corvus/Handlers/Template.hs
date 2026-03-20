@@ -17,6 +17,7 @@ import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN, runStdoutLoggingT)
 import Corvus.Handlers.Disk (sanitizeDiskName, resolveDiskPath, getRunningAttachedVms)
+import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
@@ -133,16 +134,16 @@ handleTemplateCreate state yamlContent = runStdoutLoggingT $ do
 
 handleTemplateList :: ServerState -> IO Response
 handleTemplateList state = do
-  templates <- runSqlPool (selectList [] [Asc TemplateVMName]) (ssDbPool state)
+  templates <- runSqlPool (selectList [] [Asc TemplateVmName]) (ssDbPool state)
   let infoList = map toTemplateInfo templates
   pure $ RespTemplateList infoList
   where
-    toTemplateInfo (Entity tid t) = TemplateVMInfo
+    toTemplateInfo (Entity tid t) = TemplateVmInfo
       { tviId = fromSqlKey tid,
-        tviName = templateVMName t,
-        tviCpuCount = templateVMCpuCount t,
-        tviRamMb = templateVMRamMb t,
-        tviDescription = templateVMDescription t
+        tviName = templateVmName t,
+        tviCpuCount = templateVmCpuCount t,
+        tviRamMb = templateVmRamMb t,
+        tviDescription = templateVmDescription t
       }
 
 handleTemplateShow :: ServerState -> Int64 -> IO Response
@@ -193,7 +194,7 @@ handleTemplateInstantiate state tidLong newVmName = runStdoutLoggingT $ do
 -- Internal Functions (SQL)
 --------------------------------------------------------------------------------
 
-createTemplate :: TemplateYaml -> UTCTime -> SqlPersistT IO (Either Text TemplateVMId)
+createTemplate :: TemplateYaml -> UTCTime -> SqlPersistT IO (Either Text TemplateVmId)
 createTemplate ty now = do
   -- Resolve disk images
   mDiskIds <- forM (tyDrives ty) $ \tdy -> do
@@ -201,7 +202,7 @@ createTemplate ty now = do
     case mDisk of
       Nothing -> pure $ Left $ "Disk image not found: " <> tdyDiskImageName tdy
       Just (Entity tid _) -> pure $ Right tid
-  
+
   -- Resolve SSH keys
   mKeyIds <- forM (tySshKeys ty) $ \tky -> do
     mKey <- getBy (UniqueSshKeyName (tkyName tky))
@@ -211,7 +212,7 @@ createTemplate ty now = do
 
   case (sequence mDiskIds, sequence mKeyIds) of
     (Right diskIds, Right keyIds) -> do
-      tid <- insert $ TemplateVM (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) now
+      tid <- insert $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) now
       
       forM_ (zip diskIds (tyDrives ty)) $ \(diskId, tdy) -> do
         insert_ $ TemplateDrive
@@ -235,7 +236,7 @@ createTemplate ty now = do
     (Left err, _) -> pure $ Left err
     (_, Left err) -> pure $ Left err
 
-getTemplateDetails :: TemplateVMId -> SqlPersistT IO (Maybe TemplateDetails)
+getTemplateDetails :: TemplateVmId -> SqlPersistT IO (Maybe TemplateDetails)
 getTemplateDetails tid = do
   mTemplate <- get tid
   case mTemplate of
@@ -256,29 +257,29 @@ getTemplateDetails tid = do
             tvdiCloneStrategy = templateDriveCloneStrategy td,
             tvdiNewSizeMb = templateDriveNewSizeMb td
           }
-      
+
       netIfs <- selectList [TemplateNetworkInterfaceTemplateId ==. tid] []
       let netIfInfos = map (\(Entity _ tni) -> TemplateNetIfInfo (templateNetworkInterfaceInterfaceType tni) (templateNetworkInterfaceHostDevice tni)) netIfs
-      
+
       sshKeys <- selectList [TemplateSshKeyTemplateId ==. tid] []
       sshKeyInfos <- forM sshKeys $ \(Entity _ tsk) -> do
         mKey <- get (templateSshKeySshKeyId tsk)
         let keyName = maybe "unknown" sshKeyName mKey
         pure $ TemplateSshKeyInfo (fromSqlKey $ templateSshKeySshKeyId tsk) keyName
-      
+
       pure $ Just TemplateDetails
         { tvdId = fromSqlKey tid,
-          tvdName = templateVMName t,
-          tvdCpuCount = templateVMCpuCount t,
-          tvdRamMb = templateVMRamMb t,
-          tvdDescription = templateVMDescription t,
-          tvdCreatedAt = templateVMCreatedAt t,
+          tvdName = templateVmName t,
+          tvdCpuCount = templateVmCpuCount t,
+          tvdRamMb = templateVmRamMb t,
+          tvdDescription = templateVmDescription t,
+          tvdCreatedAt = templateVmCreatedAt t,
           tvdDrives = driveInfos,
           tvdNetIfs = netIfInfos,
           tvdSshKeys = sshKeyInfos
         }
 
-deleteTemplate :: TemplateVMId -> SqlPersistT IO ()
+deleteTemplate :: TemplateVmId -> SqlPersistT IO ()
 deleteTemplate tid = do
   deleteWhere [TemplateDriveTemplateId ==. tid]
   deleteWhere [TemplateNetworkInterfaceTemplateId ==. tid]
@@ -286,15 +287,26 @@ deleteTemplate tid = do
   delete tid
 
 finishInstantiation :: ServerState -> VmId -> TemplateDetails -> IO ()
-finishInstantiation state vmId details = do
+finishInstantiation state vmId details = runStdoutLoggingT $ do
   -- Network
   forM_ (tvdNetIfs details) $ \tni -> do
-    mac <- generateMacAddress
-    runSqlPool (insert_ $ NetworkInterface vmId (tvniType tni) (maybe "" id (tvniHostDevice tni)) mac) (ssDbPool state)
-  
+    mac <- liftIO generateMacAddress
+    liftIO $ runSqlPool (insert_ $ NetworkInterface vmId (tvniType tni) (maybe "" id (tvniHostDevice tni)) mac) (ssDbPool state)
+
   -- SSH Keys
   forM_ (tvdSshKeys details) $ \tsk -> do
-    runSqlPool (insert_ $ VmSshKey vmId (toSqlKey $ tvskiId tsk)) (ssDbPool state)
+    liftIO $ runSqlPool (insert_ $ VmSshKey vmId (toSqlKey $ tvskiId tsk)) (ssDbPool state)
+
+  -- Generate cloud-init ISO if SSH keys are present
+  if not (null (tvdSshKeys details))
+    then do
+      logInfoN $ "Generating cloud-init ISO for instantiated VM with " <> T.pack (show (length (tvdSshKeys details))) <> " SSH key(s)"
+      result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details)
+      case result of
+        Left err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
+        Right _ -> logInfoN "Cloud-init ISO generated and attached"
+    else
+      logInfoN "No SSH keys attached, skipping cloud-init ISO generation"
 
 generateMacAddress :: IO Text
 generateMacAddress = do

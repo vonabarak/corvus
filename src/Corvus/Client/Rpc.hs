@@ -571,7 +571,7 @@ data TemplateResult
   = -- | Template created with new ID
     TemplateCreated !Int64
   | -- | List of templates
-    TemplateListResult ![TemplateVMInfo]
+    TemplateListResult ![TemplateVmInfo]
   | -- | Single template details
     TemplateDetailsResult !TemplateDetails
   | -- | Template deleted

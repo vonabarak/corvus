@@ -47,8 +47,8 @@ module Corvus.Model
     VmSshKeyId,
 
     -- * Template entities
-    TemplateVM (..),
-    TemplateVMId,
+    TemplateVm (..),
+    TemplateVmId,
     TemplateDrive (..),
     TemplateDriveId,
     TemplateNetworkInterface (..),
@@ -491,17 +491,17 @@ VmSshKey
     UniqueVmSshKey vmId sshKeyId
     deriving Show Eq Generic
 
-TemplateVM
+TemplateVm
     name Text
     cpuCount Int
     ramMb Int
     description Text Maybe
     createdAt UTCTime
-    UniqueTemplateVMName name
+    UniqueTemplateVmName name
     deriving Show Eq Generic
 
 TemplateDrive
-    templateId TemplateVMId
+    templateId TemplateVmId
     diskImageId DiskImageId
     interface DriveInterface
     media DriveMedia Maybe
@@ -513,13 +513,13 @@ TemplateDrive
     deriving Show Eq Generic
 
 TemplateNetworkInterface
-    templateId TemplateVMId
+    templateId TemplateVmId
     interfaceType NetInterfaceType
     hostDevice Text Maybe
     deriving Show Eq Generic
 
 TemplateSshKey
-    templateId TemplateVMId
+    templateId TemplateVmId
     sshKeyId SshKeyId
     UniqueTemplateSshKey templateId sshKeyId
     deriving Show Eq Generic
@@ -542,7 +542,7 @@ instance Binary SshKey
 
 instance Binary VmSshKey
 
-instance Binary TemplateVM
+instance Binary TemplateVm
 
 instance Binary TemplateDrive
 
@@ -583,7 +583,7 @@ instance Binary (Key VmSshKey) where
   put = Bin.put . fromSqlKey
   get = toSqlKey <$> Bin.get
 
-instance Binary (Key TemplateVM) where
+instance Binary (Key TemplateVm) where
   put = Bin.put . fromSqlKey
   get = toSqlKey <$> Bin.get
 

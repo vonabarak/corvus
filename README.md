@@ -12,6 +12,7 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 - **Snapshot Support**: Create, rollback, merge, and delete qcow2 snapshots
 - **Cloud-Init Integration**: SSH key injection via NoCloud datasource
 - **SPICE Display**: Remote desktop access via SPICE protocol
+- **VM Templates**: Define VM blueprints in YAML and instantiate them easily
 - **QMP Integration**: Graceful shutdown and pause via QEMU Machine Protocol
 - **Shared Directories**: virtiofs support for sharing host directories with guests
 - **Multiple Storage Types**: IDE, SATA, VirtIO, NVMe, and pflash drives
@@ -144,6 +145,39 @@ crv ssh-key detach <vm_id> <key_id>       # Detach key from VM
 crv ssh-key list-vm <vm_id>               # List keys attached to a VM
 ```
 
+#### Template Commands
+
+VM templates allow you to define a complete VM configuration (CPU, RAM, disks, network, SSH keys) in a YAML file and instantiate it as many times as needed.
+
+```bash
+# Manage templates
+crv template create <file.yaml>           # Create a template from YAML
+crv template list                        # List all templates
+crv template show <template_id>          # Show template details
+crv template delete <template_id>        # Delete a template
+
+# Instantiate a VM from a template
+crv template instantiate <template_id> <new_name>
+```
+
+##### Template YAML Example
+
+```yaml
+name: "ubuntu-22.04-webserver"
+description: "Standard web server template with 20GB root disk"
+cpuCount: 2
+ramMb: 2048
+drives:
+  - diskImageName: "ubuntu-22.04-base"
+    interface: "virtio"
+    strategy: "overlay"  # options: clone, overlay, direct
+    newSizeMb: 20480     # resize disk after instantiation
+networkInterfaces:
+  - type: "user"         # options: user, bridge, tap, vde
+sshKeys:
+  - name: "admin-key"
+```
+
 ### Connection Options
 
 ```bash
@@ -197,6 +231,7 @@ corvus/
 │   │   ├── Core.hs         # Ping, status, shutdown handlers
 │   │   ├── Vm.hs           # VM lifecycle handlers
 │   │   ├── Disk.hs         # Disk image handlers
+│   │   ├── Template.hs     # VM template handlers
 │   │   ├── SharedDir.hs    # Shared directory handlers
 │   │   ├── NetIf.hs        # Network interface handlers
 │   │   └── SshKey.hs       # SSH key handlers
@@ -308,6 +343,10 @@ network_interface (id, vm_id, interface_type, host_device, mac_address)
 shared_dir (id, vm_id, path, tag, cache, read_only, pid)
 ssh_key (id, name, public_key, created_at)
 vm_ssh_key (id, vm_id, ssh_key_id)  -- Junction table for VM-SSH key associations
+template_vm (id, name, cpu_count, ram_mb, description, created_at)
+template_drive (id, template_id, disk_image_id, interface, media, read_only, cache_type, discard, clone_strategy, new_size_mb)
+template_network_interface (id, template_id, interface_type, host_device)
+template_ssh_key (id, template_id, ssh_key_id)
 ```
 
 ## Limitations

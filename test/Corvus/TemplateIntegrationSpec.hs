@@ -4,10 +4,12 @@ module Corvus.TemplateIntegrationSpec (spec) where
 
 import Control.Monad (void)
 import Corvus.Client
+import Corvus.Model (NetInterfaceType(..))
 import Corvus.Protocol
 import Data.List (find)
 import Data.Maybe (isJust)
 import qualified Data.Text as T
+import System.Exit (ExitCode(..))
 import Test.DSL.Daemon
 import Test.Daemon (withDaemonConnection)
 import Test.Database (withTestDb)
@@ -21,14 +23,21 @@ spec = withTestDb $ do
       withTestVm env defaultVmConfig $ \vm -> do
         let daemon = dvmDaemon vm
             sshKeyName = "template-key"
-        
+            privateKey = dvmSshPrivateKey vm
+
+        -- Read the public key content from the existing VM's setup
+        pubKeyContent <- T.pack <$> readFile (privateKey ++ ".pub")
+
         -- Create an SSH key to refer to in the template
-        void $ withDaemonConnection daemon $ \conn -> sshKeyCreate conn sshKeyName "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC..."
-        
+        keyId <- withDaemonConnection daemon $ \conn -> sshKeyCreate conn sshKeyName pubKeyContent
+        case keyId of
+          Right (Right (SshKeyCreated _)) -> pure ()
+          other -> fail $ "SSH key creation failed: " ++ show other
+
         -- Stop the VM so we can use its disk for cloning/overlay strategy
         -- withTestVm registers base image as "base-image"
         stopDaemonVmAndWait daemon (dvmId vm) 10
-        
+
         let templateYaml = T.unlines
               [ "name: \"test-template\""
               , "cpuCount: 2"
@@ -44,13 +53,13 @@ spec = withTestDb $ do
               , "sshKeys:"
               , "  - name: \"" <> sshKeyName <> "\""
               ]
-        
+
         -- 1. Create template
         resCreate <- withDaemonConnection daemon $ \conn -> templateCreate conn templateYaml
         templateId <- case resCreate of
           Right (Right (TemplateCreated tid)) -> pure tid
           other -> fail $ "Template creation failed: " ++ show other
-        
+
         -- 2. List templates
         resList <- withDaemonConnection daemon $ \conn -> templateList conn
         case resList of
@@ -58,7 +67,7 @@ spec = withTestDb $ do
             let mTemplate = find (\t -> tviId t == templateId) templates
             mTemplate `shouldSatisfy` isJust
           other -> fail $ "Template list failed: " ++ show other
-        
+
         -- 3. Show template
         resShow <- withDaemonConnection daemon $ \conn -> templateShow conn templateId
         case resShow of
@@ -66,14 +75,15 @@ spec = withTestDb $ do
             tvdName details `shouldBe` "test-template"
             length (tvdDrives details) `shouldBe` 1
             tvdiDiskImageName (head (tvdDrives details)) `shouldBe` "base-image"
+            length (tvdSshKeys details) `shouldBe` 1
           other -> fail $ "Template show failed: " ++ show other
-        
+
         -- 4. Instantiate template
         resInst <- withDaemonConnection daemon $ \conn -> templateInstantiate conn templateId "instantiated-vm"
         newVmId <- case resInst of
           Right (Right (TemplateInstantiated vmId)) -> pure vmId
           other -> fail $ "Template instantiation failed: " ++ show other
-        
+
         -- 5. Verify instantiated VM
         resVm <- withDaemonConnection daemon $ \conn -> showVm conn newVmId
         case resVm of
@@ -81,9 +91,54 @@ spec = withTestDb $ do
             vdName details `shouldBe` "instantiated-vm"
             vdCpuCount details `shouldBe` 2
             vdRamMb details `shouldBe` 512
-            length (vdDrives details) `shouldBe` 1
             vdDescription details `shouldBe` Just "A test template"
+            -- Verify we have 2 drives: the overlay and the cloud-init ISO
+            length (vdDrives details) `shouldBe` 2
           other -> fail $ "VM show failed: " ++ show other
+
+        -- Verify SSH keys are attached
+        resSshKeys <- withDaemonConnection daemon $ \conn -> sshKeyListForVm conn newVmId
+        case resSshKeys of
+          Right (Right (SshKeyListResult keys)) -> do
+            length keys `shouldBe` 1
+          other -> fail $ "SSH key list failed: " ++ show other
+
+        -- 6. Start the VM and verify SSH access with the key
+        sshPort <- findFreePort
+        let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
+        addVmNetIf daemon newVmId NetUser hostFwd (T.pack "52:54:00:12:34:57")
+        resStart <- withDaemonConnection daemon $ \conn -> vmStart conn newVmId
+        case resStart of
+          Right (Right (VmActionSuccess _)) -> pure ()
+          other -> fail $ "VM start failed: " ++ show other
+
+        -- Wait for SSH to be available and authenticate with the key
+        putStrLn $ "[test] Waiting for SSH on port " ++ show sshPort ++ " with key authentication"
+        waitForDaemonVmSshWithKey "127.0.0.1" sshPort privateKey "almalinux" 120
+
+        -- Verify we can run commands via SSH
+        let testVm = DaemonVm
+              { dvmId = newVmId
+              , dvmDiskId = 0  -- Not needed for SSH operations
+              , dvmSshHost = "127.0.0.1"
+              , dvmSshPort = sshPort
+              , dvmDaemon = daemon
+              , dvmSshPrivateKey = privateKey
+              , dvmSshKeyId = 0  -- Not needed for SSH operations
+              , dvmSshUser = "almalinux"
+              }
+
+        (exitCode, stdout, _) <- runInDaemonVm testVm "whoami"
+        exitCode `shouldBe` ExitSuccess
+        T.strip stdout `shouldBe` "almalinux"
+
+        -- Verify the SSH key is actually installed in authorized_keys
+        (exitCode2, stdout2, _) <- runInDaemonVm testVm "grep -c 'ssh-' ~/.ssh/authorized_keys"
+        exitCode2 `shouldBe` ExitSuccess
+        read (T.unpack $ T.strip stdout2) `shouldSatisfy` (> (0 :: Int))
+
+        -- Stop the instantiated VM
+        stopDaemonVmAndWait daemon newVmId 10
 
         -- Cleanup: delete template
         void $ withDaemonConnection daemon $ \conn -> templateDelete conn templateId

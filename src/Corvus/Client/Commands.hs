@@ -13,7 +13,7 @@ module Corvus.Client.Commands
     printDiskInfo,
     printSnapshotInfo,
     printSshKeyInfo,
-    printTemplateVMInfo,
+    printTemplateVmInfo,
     printTemplateDetails,
   )
 where
@@ -27,7 +27,7 @@ import Corvus.Client.Connection
 import Corvus.Client.Rpc
 import Corvus.Client.Types
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), EnumText (..), NetInterfaceType (..), SharedDirCache (..), VmStatus (..), enumFromText, enumToText)
-import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SharedDirInfo (..), SnapshotInfo (..), SshKeyInfo (..), StatusInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateVMInfo (..), TemplateNetIfInfo (..), TemplateSshKeyInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), NetIfInfo (..), SharedDirInfo (..), SnapshotInfo (..), SshKeyInfo (..), StatusInfo (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateVmInfo (..), TemplateNetIfInfo (..), TemplateSshKeyInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import qualified Data.ByteString as BS
 import Data.Char (ord)
@@ -1354,7 +1354,7 @@ handleTemplateList conn = do
               ("CPUS" :: String)
               ("RAM_MB" :: String)
           putStrLn $ replicate 55 '-'
-          mapM_ printTemplateVMInfo templates
+          mapM_ printTemplateVmInfo templates
       pure True
     Right other -> do
       putStrLn $ "Unexpected response: " ++ show other
@@ -1407,8 +1407,8 @@ handleTemplateInstantiate conn tid name = do
 --------------------------------------------------------------------------------
 
 -- | Print template VM info in list view
-printTemplateVMInfo :: TemplateVMInfo -> IO ()
-printTemplateVMInfo t =
+printTemplateVmInfo :: TemplateVmInfo -> IO ()
+printTemplateVmInfo t =
   putStrLn $
     printf
       "%-6d %-30s %-6d %-8d"

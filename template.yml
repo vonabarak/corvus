@@ -1,0 +1,13 @@
+name: "slmslinux-10"
+description: "Standard web server template with 20GB root disk"
+cpuCount: 2
+ramMb: 2048
+drives:
+  - diskImageName: "Almalinux-10"
+    interface: "virtio"
+    strategy: "overlay"  # options: clone, overlay, direct
+    newSizeMb: 20480     # resize disk after instantiation
+networkInterfaces:
+  - type: "vde"         # options: user, bridge, tap, vde
+sshKeys:
+  - name: "corvus"

@@ -13,6 +13,9 @@ module Corvus.Handlers.SshKey
     handleSshKeyAttach,
     handleSshKeyDetach,
     handleSshKeyListForVm,
+
+    -- * Cloud-init ISO management
+    regenerateCloudInitIso,
   )
 where
 

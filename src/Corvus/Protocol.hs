@@ -20,7 +20,7 @@ module Corvus.Protocol
     SnapshotInfo (..),
     SharedDirInfo (..),
     SshKeyInfo (..),
-    TemplateVMInfo (..),
+    TemplateVmInfo (..),
     TemplateDetails (..),
     TemplateDriveInfo (..),
     TemplateNetIfInfo (..),
@@ -242,7 +242,7 @@ data SshKeyInfo = SshKeyInfo
   deriving (Eq, Show, Generic, Binary)
 
 -- | Template VM summary for list view
-data TemplateVMInfo = TemplateVMInfo
+data TemplateVmInfo = TemplateVmInfo
   { tviId :: !Int64,
     tviName :: !Text,
     tviCpuCount :: !Int,
@@ -375,7 +375,7 @@ data Response
     RespSshKeyInUse ![Int64]
   | -- | Template responses
     -- | List of templates
-    RespTemplateList ![TemplateVMInfo]
+    RespTemplateList ![TemplateVmInfo]
   | -- | Single template info
     RespTemplateInfo !TemplateDetails
   | -- | Template created successfully (new template ID)
