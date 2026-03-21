@@ -49,13 +49,13 @@ spec = withTestDb $ do
         (\_ -> removeDirectoryRecursive testDir)
         $ \_ -> withTestVm env (defaultVmConfig {vmcSharedDir = Just testDir}) $ \vm -> do
           -- Mount the shared directory
-          (code2, _, _) <- runInDaemonVm vm "sudo mkdir -p /mnt/share"
+          (code2, _, _) <- runInDaemonVm vm "doas mkdir -p /mnt/share"
           code2 `shouldBe` ExitSuccess
 
           (code3, _, _) <-
             runInDaemonVm
               vm
-              "sudo mount -t virtiofs share /mnt/share"
+              "doas mount -t virtiofs share /mnt/share"
           code3 `shouldBe` ExitSuccess
 
           -- Read the test file

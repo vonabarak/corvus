@@ -16,6 +16,13 @@ import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (withTestVm)
 
+-- | Find a disk name matching a prefix from a list of disk images
+findDiskName :: T.Text -> [DiskImageInfo] -> T.Text
+findDiskName prefix disks =
+  case find (\d -> T.isPrefixOf prefix (diiName d)) disks of
+    Just d -> diiName d
+    Nothing -> error $ "No disk found with prefix: " <> T.unpack prefix
+
 spec :: Spec
 spec = withTestDb $ do
   describe "VM Template integration" $ do
@@ -35,8 +42,16 @@ spec = withTestDb $ do
           other -> fail $ "SSH key creation failed: " ++ show other
 
         -- Stop the VM so we can use its disk for cloning/overlay strategy
-        -- withTestVm registers base image as "base-image"
         stopDaemonVmAndWait daemon (dvmId vm) 10
+
+        -- Discover actual disk names (they have unique suffixes)
+        diskListRes <- withDaemonConnection daemon $ \conn -> diskList conn
+        disks <- case diskListRes of
+          Right (Right (DiskListResult ds)) -> pure ds
+          other -> fail $ "Failed to list disks: " ++ show other
+        let baseDiskName = findDiskName "base-image" disks
+            ovmfCodeName = findDiskName "ovmf-code" disks
+            ovmfVarsTemplateName = findDiskName "ovmf-vars-template" disks
 
         let templateYaml = T.unlines
               [ "name: \"test-template\""
@@ -44,15 +59,15 @@ spec = withTestDb $ do
               , "ramMb: 2048"
               , "description: \"A test template\""
               , "drives:"
-              , "  - diskImageName: \"base-image\""
+              , "  - diskImageName: \"" <> baseDiskName <> "\""
               , "    interface: \"virtio\""
               , "    strategy: \"overlay\""
               , "    newSizeMb: 1024"
-              , "  - diskImageName: \"ovmf-code\""
+              , "  - diskImageName: \"" <> ovmfCodeName <> "\""
               , "    interface: \"pflash\""
               , "    strategy: \"direct\""
               , "    readOnly: true"
-              , "  - diskImageName: \"ovmf-vars-template\""
+              , "  - diskImageName: \"" <> ovmfVarsTemplateName <> "\""
               , "    interface: \"pflash\""
               , "    strategy: \"clone\""
               , "sshKeys:"
@@ -79,7 +94,7 @@ spec = withTestDb $ do
           Right (Right (TemplateDetailsResult details)) -> do
             tvdName details `shouldBe` "test-template"
             length (tvdDrives details) `shouldBe` 3
-            tvdiDiskImageName (head (tvdDrives details)) `shouldBe` "base-image"
+            tvdiDiskImageName (head (tvdDrives details)) `shouldBe` baseDiskName
             length (tvdSshKeys details) `shouldBe` 1
           other -> fail $ "Template show failed: " ++ show other
 

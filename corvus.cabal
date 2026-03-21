@@ -234,6 +234,7 @@ test-suite corvus-test
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec
+      Corvus.SshKeySetupSpec
       Corvus.SshKeySpec
       Corvus.TemplateIntegrationSpec
       Corvus.VirtiofsIntegrationSpec

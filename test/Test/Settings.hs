@@ -86,8 +86,19 @@ imageConfigs =
         { icImageUrl = "https://dev.alpinelinux.org/~tomalok/alpine-cloud-images/v3.20/nocloud/x86_64/nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2",
           icImageName = "nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2"
         }
+    ),
+    ( "ubuntu-24.04",
+      ImageConfig
+        { icImageUrl = "https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img",
+          icImageName = "ubuntu-24.04-server-cloudimg-amd64.img"
+        }
+    ),
+    ( "debian-12",
+      ImageConfig
+        { icImageUrl = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2",
+          icImageName = "debian-12-generic-amd64.qcow2"
+        }
     )
-
   ]
 
 -- | Get image configuration by OS name

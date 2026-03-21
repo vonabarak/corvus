@@ -70,8 +70,19 @@ getCloudInitIsoPath config vmName = do
 
 -- | Generate user-data YAML for cloud-init with multiple SSH keys
 generateUserData :: CloudInitConfig -> [Text] -> Text
-generateUserData config sshPubKeys =
-  "#cloud-config\n"
+generateUserData config sshPubKeys' =
+  let sshPubKeys = map T.strip sshPubKeys'
+      user = ciUser config
+      home = "/home/" <> user
+      runcmds =
+        [ "chmod 700 " <> home
+        , "chmod 700 " <> home <> "/.ssh"
+        , "chmod 600 " <> home <> "/.ssh/authorized_keys"
+        , "chown -R " <> user <> ":" <> user <> " " <> home <> "/.ssh"
+        , "echo 'permit nopass " <> user <> "' > /etc/doas.d/" <> user <> ".conf 2>/dev/null || true"
+        , "rc-service sshd restart || systemctl restart ssh || systemctl restart sshd || true"
+        ]
+   in "#cloud-config\n"
     <> T.decodeUtf8
       ( Yaml.encode
           [yamlQQ|
@@ -81,18 +92,20 @@ generateUserData config sshPubKeys =
             bootcmd:
               - test -f /etc/ssh/ssh_host_rsa_key || ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N ''
               - test -f /etc/ssh/ssh_host_ed25519_key || ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N ''
+            chpasswd:
+              expire: false
             users:
-              - name: #{ciUser config}
+              - name: #{user}
                 sudo: ALL=(ALL) NOPASSWD:ALL
-                shell: /bin/bash
-                lock_passwd: true
+                shell: /bin/sh
+                lock_passwd: false
+                plain_text_passwd: corvus
                 ssh_authorized_keys: #{sshPubKeys}
-            ssh_pwauth: false
+            ssh_pwauth: true
             disable_root: true
             package_update: false
             package_upgrade: false
-            runcmd:
-              - systemctl restart ssh || systemctl restart sshd || true
+            runcmd: #{runcmds}
           |]
       )
 

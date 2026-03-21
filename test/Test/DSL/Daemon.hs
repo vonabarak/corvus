@@ -101,12 +101,12 @@ instance DefaultVmConfig VmConfig where
     VmConfig
       { vmcCpuCount = 2,
         vmcRamMb = 2048,
-        vmcOsName = "almalinux-10",
+        vmcOsName = "alpine-3.20-uefi",
         vmcSharedDir = Nothing,
         vmcDescription = Nothing,
         vmcDiskInterface = InterfaceVirtio,
         vmcNetworkType = NetUser,
-        vmcWaitSshTimeout = 90,
+        vmcWaitSshTimeout = 120,
         vmcDiskCache = CacheWriteback,
         vmcDiskDiscard = True,
         vmcSharedDirCache = CacheAuto,
@@ -447,7 +447,7 @@ data SshProbeResult
 
 -- | Wait for SSH to be available on the VM (legacy, without key)
 waitForDaemonVmSsh :: String -> Int -> Int -> IO ()
-waitForDaemonVmSsh host port = waitForDaemonVmSshWithKey host port "" "almalinux"
+waitForDaemonVmSsh host port = waitForDaemonVmSshWithKey host port "" "corvus"
 
 -- | Wait for SSH to be available on the VM using a specific key.
 -- Uses wall-clock time for accurate timeout tracking.

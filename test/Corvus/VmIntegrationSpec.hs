@@ -7,7 +7,7 @@
 --   - genisoimage or mkisofs
 --   - SSH client
 --   - PostgreSQL for test database
---   - Network access to download AlmaLinux cloud image (first run only)
+--   - Network access to download Alpine cloud image (first run only)
 --
 -- Run with: stack test --test-arguments="--match VmIntegration"
 module Corvus.VmIntegrationSpec (spec) where
@@ -33,9 +33,9 @@ spec = withTestDb $ do
 
     it "can check OS release" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        (code, stdout, _stderr) <- runInDaemonVm vm "cat /etc/os-release | grep -i alma"
+        (code, stdout, _stderr) <- runInDaemonVm vm "cat /etc/os-release | grep -i alpine"
         code `shouldBe` ExitSuccess
-        T.isInfixOf "AlmaLinux" stdout `shouldBe` True
+        T.isInfixOf "Alpine" stdout `shouldBe` True
 
     it "can run multiple commands" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
@@ -62,8 +62,8 @@ spec = withTestDb $ do
         (code3, _, _) <- runInDaemonVm vm "df -h"
         code3 `shouldBe` ExitSuccess
 
-    it "can use sudo without password" $ \env -> do
+    it "can use doas without password" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        (code, stdout, _) <- runInDaemonVm vm "sudo whoami"
+        (code, stdout, _) <- runInDaemonVm vm "doas whoami"
         code `shouldBe` ExitSuccess
         T.strip stdout `shouldBe` "root"
