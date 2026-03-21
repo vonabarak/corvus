@@ -32,6 +32,28 @@ module Test.DSL.When
     whenSharedDirRemove,
     whenSharedDirList,
 
+    -- * Network interface commands
+    whenNetIfAdd,
+    whenNetIfRemove,
+    whenNetIfList,
+
+    -- * SSH key commands
+    whenSshKeyCreate,
+    whenSshKeyDelete,
+    whenSshKeyList,
+    whenSshKeyAttach,
+    whenSshKeyDetach,
+    whenSshKeyListForVm,
+
+    -- * VM create/delete
+    whenVmCreate,
+    whenVmDelete,
+
+    -- * Core commands
+    whenPing,
+    whenStatus,
+    whenShutdown,
+
     -- * Low-level
     executeRequest,
     createTestServerState,
@@ -42,10 +64,10 @@ import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import Corvus.Client.Connection (Connection (..), ConnectionError)
-import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..))
+import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..))
 import qualified Corvus.Client.Rpc as Rpc
 import Corvus.Handlers (handleRequest)
-import Corvus.Model (CacheType (..), DiskImage, DriveFormat, DriveInterface, DriveMedia, SharedDir, SharedDirCache, Snapshot, VmStatus)
+import Corvus.Model (CacheType (..), DiskImage, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDir, SharedDirCache, Snapshot, VmStatus)
 import Corvus.Protocol (Request (..), Response (..), StatusInfo, VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Config (defaultQemuConfig)
 import Corvus.Types (ServerState (..))
@@ -237,3 +259,81 @@ whenSharedDirRemove vmId sharedDirId =
 -- | List shared directories for a VM
 whenSharedDirList :: Int64 -> TestM SharedDirResult
 whenSharedDirList vmId = executeRpc (\conn -> Rpc.sharedDirList conn vmId)
+
+--------------------------------------------------------------------------------
+-- Network Interface Commands
+--------------------------------------------------------------------------------
+
+-- | Add a network interface to a VM
+whenNetIfAdd :: Int64 -> NetInterfaceType -> Text -> Text -> TestM NetIfResult
+whenNetIfAdd vmId ifaceType hostDevice mac =
+  executeRpc (\conn -> Rpc.netIfAdd conn vmId ifaceType hostDevice mac)
+
+-- | Remove a network interface from a VM
+whenNetIfRemove :: Int64 -> Int64 -> TestM NetIfResult
+whenNetIfRemove vmId netIfId =
+  executeRpc (\conn -> Rpc.netIfRemove conn vmId netIfId)
+
+-- | List network interfaces for a VM
+whenNetIfList :: Int64 -> TestM NetIfResult
+whenNetIfList vmId = executeRpc (\conn -> Rpc.netIfList conn vmId)
+
+--------------------------------------------------------------------------------
+-- SSH Key Commands
+--------------------------------------------------------------------------------
+
+-- | Create a new SSH key
+whenSshKeyCreate :: Text -> Text -> TestM SshKeyResult
+whenSshKeyCreate name publicKey =
+  executeRpc (\conn -> Rpc.sshKeyCreate conn name publicKey)
+
+-- | Delete an SSH key
+whenSshKeyDelete :: Int64 -> TestM SshKeyResult
+whenSshKeyDelete keyId = executeRpc (\conn -> Rpc.sshKeyDelete conn keyId)
+
+-- | List all SSH keys
+whenSshKeyList :: TestM SshKeyResult
+whenSshKeyList = executeRpc Rpc.sshKeyList
+
+-- | Attach an SSH key to a VM
+whenSshKeyAttach :: Int64 -> Int64 -> TestM SshKeyResult
+whenSshKeyAttach vmId keyId =
+  executeRpc (\conn -> Rpc.sshKeyAttach conn vmId keyId)
+
+-- | Detach an SSH key from a VM
+whenSshKeyDetach :: Int64 -> Int64 -> TestM SshKeyResult
+whenSshKeyDetach vmId keyId =
+  executeRpc (\conn -> Rpc.sshKeyDetach conn vmId keyId)
+
+-- | List SSH keys for a VM
+whenSshKeyListForVm :: Int64 -> TestM SshKeyResult
+whenSshKeyListForVm vmId = executeRpc (\conn -> Rpc.sshKeyListForVm conn vmId)
+
+--------------------------------------------------------------------------------
+-- VM Create/Delete Commands
+--------------------------------------------------------------------------------
+
+-- | Create a new VM
+whenVmCreate :: Text -> Int -> Int -> Maybe Text -> TestM VmCreateResult
+whenVmCreate name cpuCount ramMb description =
+  executeRpc (\conn -> Rpc.vmCreate conn name cpuCount ramMb description)
+
+-- | Delete a VM
+whenVmDelete :: Int64 -> TestM VmDeleteResult
+whenVmDelete vmId = executeRpc (\conn -> Rpc.vmDelete conn vmId)
+
+--------------------------------------------------------------------------------
+-- Core Commands
+--------------------------------------------------------------------------------
+
+-- | Send a ping request
+whenPing :: TestM Response
+whenPing = executeRequest ReqPing
+
+-- | Get daemon status
+whenStatus :: TestM Response
+whenStatus = executeRequest ReqStatus
+
+-- | Request daemon shutdown
+whenShutdown :: TestM Response
+whenShutdown = executeRequest ReqShutdown

@@ -26,6 +26,32 @@ module Test.DSL.Then
     thenSharedDirError,
     thenVmNotFound,
 
+    -- * Network interface response assertions
+    thenNetIfAdded,
+    thenNetIfOk,
+    thenNetIfNotFound,
+    thenNetIfVmNotFound,
+    thenNetIfListHasCount,
+    thenNetIfListIsEmpty,
+    thenNetIfError,
+
+    -- * SSH key response assertions
+    thenSshKeyCreated,
+    thenSshKeyOk,
+    thenSshKeyNotFound,
+    thenSshKeyVmNotFound,
+    thenSshKeyInUse,
+    thenSshKeyListHasCount,
+    thenSshKeyListIsEmpty,
+    thenSshKeyError,
+
+    -- * VM create/delete response assertions
+    thenVmCreated,
+    thenVmCreateError,
+    thenVmDeleted,
+    thenVmDeleteNotFound,
+    thenVmDeleteRunning,
+
     -- * Database state assertions
     vmExists,
     vmNotExists,
@@ -52,7 +78,7 @@ where
 
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-import Corvus.Client.Rpc (DiskResult (..), SharedDirResult (..), SnapshotResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..))
+import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..))
 import Corvus.Model
 import Corvus.Protocol
 import Data.Int (Int64)
@@ -337,3 +363,137 @@ thenVmNotFound :: (Show a) => a -> TestM ()
 thenVmNotFound result = case show result of
   s | "VmNotFound" `T.isInfixOf` T.pack s -> pure ()
   _ -> liftIO $ fail $ "Expected VM not found, got: " <> show result
+
+--------------------------------------------------------------------------------
+-- Network Interface Response Assertions
+--------------------------------------------------------------------------------
+
+-- | Assert network interface was added
+thenNetIfAdded :: NetIfResult -> TestM ()
+thenNetIfAdded (NetIfAdded _) = pure ()
+thenNetIfAdded other =
+  liftIO $ fail $ "Expected net-if added, got: " <> show other
+
+-- | Assert network interface operation was successful
+thenNetIfOk :: NetIfResult -> TestM ()
+thenNetIfOk NetIfOk = pure ()
+thenNetIfOk other =
+  liftIO $ fail $ "Expected net-if ok, got: " <> show other
+
+-- | Assert network interface not found
+thenNetIfNotFound :: NetIfResult -> TestM ()
+thenNetIfNotFound NetIfNotFound = pure ()
+thenNetIfNotFound other =
+  liftIO $ fail $ "Expected net-if not found, got: " <> show other
+
+-- | Assert VM not found for network interface operation
+thenNetIfVmNotFound :: NetIfResult -> TestM ()
+thenNetIfVmNotFound NetIfVmNotFound = pure ()
+thenNetIfVmNotFound other =
+  liftIO $ fail $ "Expected net-if VM not found, got: " <> show other
+
+-- | Assert network interface list has expected count
+thenNetIfListHasCount :: NetIfResult -> Int -> TestM ()
+thenNetIfListHasCount (NetIfListResult netIfs) expected =
+  liftIO $ length netIfs `shouldBe` expected
+thenNetIfListHasCount other _ =
+  liftIO $ fail $ "Expected net-if list, got: " <> show other
+
+-- | Assert network interface list is empty
+thenNetIfListIsEmpty :: NetIfResult -> TestM ()
+thenNetIfListIsEmpty (NetIfListResult []) = pure ()
+thenNetIfListIsEmpty other = liftIO $ fail $ "Expected empty net-if list, got: " <> show other
+
+-- | Assert network interface error with message
+thenNetIfError :: NetIfResult -> Text -> TestM ()
+thenNetIfError (NetIfError msg) expected =
+  liftIO $ msg `shouldSatisfy` T.isInfixOf expected
+thenNetIfError other _ =
+  liftIO $ fail $ "Expected net-if error, got: " <> show other
+
+--------------------------------------------------------------------------------
+-- SSH Key Response Assertions
+--------------------------------------------------------------------------------
+
+-- | Assert SSH key was created
+thenSshKeyCreated :: SshKeyResult -> TestM ()
+thenSshKeyCreated (SshKeyCreated _) = pure ()
+thenSshKeyCreated other =
+  liftIO $ fail $ "Expected ssh-key created, got: " <> show other
+
+-- | Assert SSH key operation was successful
+thenSshKeyOk :: SshKeyResult -> TestM ()
+thenSshKeyOk SshKeyOk = pure ()
+thenSshKeyOk other =
+  liftIO $ fail $ "Expected ssh-key ok, got: " <> show other
+
+-- | Assert SSH key not found
+thenSshKeyNotFound :: SshKeyResult -> TestM ()
+thenSshKeyNotFound SshKeyNotFound = pure ()
+thenSshKeyNotFound other =
+  liftIO $ fail $ "Expected ssh-key not found, got: " <> show other
+
+-- | Assert VM not found for SSH key operation
+thenSshKeyVmNotFound :: SshKeyResult -> TestM ()
+thenSshKeyVmNotFound SshKeyVmNotFound = pure ()
+thenSshKeyVmNotFound other =
+  liftIO $ fail $ "Expected ssh-key VM not found, got: " <> show other
+
+-- | Assert SSH key is in use
+thenSshKeyInUse :: SshKeyResult -> TestM ()
+thenSshKeyInUse (SshKeyInUse _) = pure ()
+thenSshKeyInUse other =
+  liftIO $ fail $ "Expected ssh-key in use, got: " <> show other
+
+-- | Assert SSH key list has expected count
+thenSshKeyListHasCount :: SshKeyResult -> Int -> TestM ()
+thenSshKeyListHasCount (SshKeyListResult keys) expected =
+  liftIO $ length keys `shouldBe` expected
+thenSshKeyListHasCount other _ =
+  liftIO $ fail $ "Expected ssh-key list, got: " <> show other
+
+-- | Assert SSH key list is empty
+thenSshKeyListIsEmpty :: SshKeyResult -> TestM ()
+thenSshKeyListIsEmpty (SshKeyListResult []) = pure ()
+thenSshKeyListIsEmpty other = liftIO $ fail $ "Expected empty ssh-key list, got: " <> show other
+
+-- | Assert SSH key error with message
+thenSshKeyError :: SshKeyResult -> Text -> TestM ()
+thenSshKeyError (SshKeyError msg) expected =
+  liftIO $ msg `shouldSatisfy` T.isInfixOf expected
+thenSshKeyError other _ =
+  liftIO $ fail $ "Expected ssh-key error, got: " <> show other
+
+--------------------------------------------------------------------------------
+-- VM Create/Delete Response Assertions
+--------------------------------------------------------------------------------
+
+-- | Assert VM was created
+thenVmCreated :: VmCreateResult -> TestM ()
+thenVmCreated (VmCreated _) = pure ()
+thenVmCreated other =
+  liftIO $ fail $ "Expected VM created, got: " <> show other
+
+-- | Assert VM create error
+thenVmCreateError :: VmCreateResult -> TestM ()
+thenVmCreateError (VmCreateError _) = pure ()
+thenVmCreateError other =
+  liftIO $ fail $ "Expected VM create error, got: " <> show other
+
+-- | Assert VM was deleted
+thenVmDeleted :: VmDeleteResult -> TestM ()
+thenVmDeleted VmDeleted = pure ()
+thenVmDeleted other =
+  liftIO $ fail $ "Expected VM deleted, got: " <> show other
+
+-- | Assert VM delete not found
+thenVmDeleteNotFound :: VmDeleteResult -> TestM ()
+thenVmDeleteNotFound VmDeleteNotFound = pure ()
+thenVmDeleteNotFound other =
+  liftIO $ fail $ "Expected VM delete not found, got: " <> show other
+
+-- | Assert VM delete running
+thenVmDeleteRunning :: VmDeleteResult -> TestM ()
+thenVmDeleteRunning VmDeleteRunning = pure ()
+thenVmDeleteRunning other =
+  liftIO $ fail $ "Expected VM delete running, got: " <> show other

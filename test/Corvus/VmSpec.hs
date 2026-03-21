@@ -3,6 +3,8 @@
 
 module Corvus.VmSpec (spec) where
 
+import Corvus.Protocol (Request (..), StatusInfo (..))
+import Test.DSL.When (executeRequest)
 import Test.Prelude
 
 spec :: Spec
@@ -37,6 +39,42 @@ spec = withTestDb $ do
     testCase "returns not found for non-existent VM" $ do
       when_ $ vmShow 999
       then_ responseIsVmNotFound
+
+  describe "vm create" $ do
+    testCase "creates a new VM" $ do
+      resp <- executeRequest (ReqVmCreate "new-vm" 2 1024 (Just "test"))
+      liftIO $ case resp of
+        RespVmCreated vmId -> vmId `shouldSatisfy` (> 0)
+        _ -> fail $ "Expected RespVmCreated, got: " ++ show resp
+      then_ $ do
+        vmCount 1
+        vmHasStatus 1 VmStopped
+
+    testCase "creates VM with description" $ do
+      resp <- executeRequest (ReqVmCreate "desc-vm" 1 512 (Just "A test VM"))
+      liftIO $ case resp of
+        RespVmCreated vmId -> vmId `shouldSatisfy` (> 0)
+        _ -> fail $ "Expected RespVmCreated, got: " ++ show resp
+
+  describe "vm delete" $ do
+    testCase "deletes a stopped VM" $ do
+      given $ do
+        _ <- insertVm "delete-me" VmStopped
+        pure ()
+      resp <- executeRequest (ReqVmDelete 1)
+      liftIO $ resp `shouldBe` RespVmDeleted
+      then_ $ vmNotExists 1
+
+    testCase "fails for running VM" $ do
+      given $ do
+        _ <- insertVm "running-vm" VmRunning
+        pure ()
+      resp <- executeRequest (ReqVmDelete 1)
+      liftIO $ resp `shouldBe` RespVmRunning
+
+    testCase "fails for non-existent VM" $ do
+      resp <- executeRequest (ReqVmDelete 999)
+      liftIO $ resp `shouldBe` RespVmNotFound
 
   describe "vm start" $ do
     testCase "fails for non-existent VM" $ do
@@ -89,6 +127,30 @@ spec = withTestDb $ do
     testCase "resets VM in error state to stopped" $ do
       given $ do
         _ <- insertVm "error-vm" VmError
+        pure ()
+      when_ $ vmReset 1
+      then_ $ do
+        responseIsVmStateChanged
+        vmHasStatus 1 VmStopped
+
+  describe "vm state machine" $ do
+    testCase "stop fails for paused VM" $ do
+      given $ do
+        _ <- insertVm "paused-vm" VmPaused
+        pure ()
+      when_ $ vmStop 1
+      then_ responseIsInvalidTransition
+
+    testCase "pause fails for error VM" $ do
+      given $ do
+        _ <- insertVm "error-vm" VmError
+        pure ()
+      when_ $ vmPause 1
+      then_ responseIsInvalidTransition
+
+    testCase "reset on stopped VM keeps it stopped" $ do
+      given $ do
+        _ <- insertVm "stopped-vm" VmStopped
         pure ()
       when_ $ vmReset 1
       then_ $ do

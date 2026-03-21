@@ -30,6 +30,11 @@ module Test.DSL.Given
     insertSharedDir,
     givenSharedDirExists,
 
+    -- * SSH key setup
+    insertSshKey,
+    givenSshKeyExists,
+    attachSshKeyToVm,
+
     -- * Utilities
     defaultVm,
     defaultDiskImage,
@@ -339,3 +344,37 @@ givenSnapshotExists = insertSnapshot
 -- | Create a shared directory for a VM with default settings
 givenSharedDirExists :: Int64 -> Text -> Text -> TestM Int64
 givenSharedDirExists vmId path tag = insertSharedDir vmId path tag CacheAuto False
+
+--------------------------------------------------------------------------------
+-- SSH Key Setup
+--------------------------------------------------------------------------------
+
+-- | Insert an SSH key with name and public key
+insertSshKey :: Text -> Text -> TestM Int64
+insertSshKey name publicKey = do
+  now <- liftIO getCurrentTime
+  key <-
+    runDb $
+      insert
+        SshKey
+          { sshKeyName = name,
+            sshKeyPublicKey = publicKey,
+            sshKeyCreatedAt = now
+          }
+  pure $ fromSqlKey key
+
+-- | Create an SSH key with default public key
+givenSshKeyExists :: Text -> TestM Int64
+givenSshKeyExists name = insertSshKey name ("ssh-ed25519 AAAA... " <> name)
+
+-- | Attach an SSH key to a VM
+attachSshKeyToVm :: Int64 -> Int64 -> TestM Int64
+attachSshKeyToVm vmId keyId = do
+  key <-
+    runDb $
+      insert
+        VmSshKey
+          { vmSshKeyVmId = toSqlKey vmId,
+            vmSshKeySshKeyId = toSqlKey keyId
+          }
+  pure $ fromSqlKey key

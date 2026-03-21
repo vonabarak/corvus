@@ -46,7 +46,6 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try, bracket)
-import Control.Monad (when)
 import Data.List (isInfixOf)
 import Corvus.Client
 import Corvus.Model
@@ -65,12 +64,11 @@ import Network.Socket
     socket,
   )
 import qualified Network.Socket as NS
-import System.Directory (doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
-import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (readProcessWithExitCode)
 import Test.Daemon (TestDaemon (..), withDaemonConnection)
+import Test.VM.Ssh (SshKeyPair (..), generateSshKeyPair)
 
 --------------------------------------------------------------------------------
 -- Types
@@ -388,52 +386,6 @@ cleanupSshKey daemon keyId = do
     Left _ -> pure () -- Ignore errors during cleanup
     Right _ -> pure ()
 
--- | Generate SSH key pair (local helper)
-generateSshKeyPair :: FilePath -> IO (Either Text SshKeyPair)
-generateSshKeyPair tmpDir = do
-  let privateKey = tmpDir </> "test_vm_key"
-      publicKey = privateKey ++ ".pub"
-
-  -- Remove existing keys if present
-  privExists <- doesFileExist privateKey
-  when privExists $ removeFile privateKey
-  pubExists <- doesFileExist publicKey
-  when pubExists $ removeFile publicKey
-
-  -- Generate new key pair
-  (code, _, stderr) <-
-    readProcessWithExitCode
-      "ssh-keygen"
-      [ "-t",
-        "ed25519",
-        "-f",
-        privateKey,
-        "-N",
-        "",
-        "-C",
-        "corvus-test@localhost"
-      ]
-      ""
-
-  case code of
-    ExitSuccess ->
-      pure $
-        Right
-          SshKeyPair
-            { skpPrivateKey = privateKey,
-              skpPublicKey = publicKey
-            }
-    ExitFailure n ->
-      pure $
-        Left $
-          "Failed to generate SSH key (exit " <> T.pack (show n) <> "): " <> T.pack stderr
-
--- | SSH key pair data
-data SshKeyPair = SshKeyPair
-  { skpPrivateKey :: !FilePath,
-    skpPublicKey :: !FilePath
-  }
-  deriving (Show, Eq)
 
 --------------------------------------------------------------------------------
 -- Command Execution

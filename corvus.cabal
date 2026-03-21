@@ -223,13 +223,18 @@ test-suite corvus-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Corvus.ClientOutputSpec
+      Corvus.CoreSpec
       Corvus.DiskCloneIntegrationSpec
       Corvus.DiskOverlayIntegrationSpec
       Corvus.DiskSpec
+      Corvus.NetIfSpec
       Corvus.OverlayExtraSpec
+      Corvus.ProtocolSpec
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec
+      Corvus.SshKeySpec
       Corvus.TemplateIntegrationSpec
       Corvus.VirtiofsIntegrationSpec
       Corvus.VmIntegrationSpec

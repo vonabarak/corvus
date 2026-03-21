@@ -1,0 +1,26 @@
+module Corvus.CoreSpec (spec) where
+
+import Corvus.Protocol (Request (..), Response (..), StatusInfo (..))
+import Test.DSL.When (executeRequest)
+import Test.Prelude
+
+spec :: Spec
+spec = withTestDb $ do
+  describe "ping" $ do
+    testCase "responds with pong" $ do
+      resp <- executeRequest ReqPing
+      liftIO $ resp `shouldBe` RespPong
+
+  describe "status" $ do
+    testCase "returns status info" $ do
+      resp <- executeRequest ReqStatus
+      liftIO $ case resp of
+        RespStatus info -> do
+          siUptime info `shouldSatisfy` (>= 0)
+          siConnections info `shouldSatisfy` (>= 0)
+        _ -> fail $ "Expected RespStatus, got: " ++ show resp
+
+  describe "shutdown" $ do
+    testCase "acknowledges shutdown" $ do
+      resp <- executeRequest ReqShutdown
+      liftIO $ resp `shouldBe` RespShutdownAck True
