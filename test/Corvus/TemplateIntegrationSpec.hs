@@ -41,15 +41,20 @@ spec = withTestDb $ do
         let templateYaml = T.unlines
               [ "name: \"test-template\""
               , "cpuCount: 2"
-              , "ramMb: 512"
+              , "ramMb: 2048"
               , "description: \"A test template\""
               , "drives:"
               , "  - diskImageName: \"base-image\""
               , "    interface: \"virtio\""
               , "    strategy: \"overlay\""
               , "    newSizeMb: 1024"
-              , "networkInterfaces:"
-              , "  - type: \"user\""
+              , "  - diskImageName: \"ovmf-code\""
+              , "    interface: \"pflash\""
+              , "    strategy: \"direct\""
+              , "    readOnly: true"
+              , "  - diskImageName: \"ovmf-vars-template\""
+              , "    interface: \"pflash\""
+              , "    strategy: \"clone\""
               , "sshKeys:"
               , "  - name: \"" <> sshKeyName <> "\""
               ]
@@ -73,7 +78,7 @@ spec = withTestDb $ do
         case resShow of
           Right (Right (TemplateDetailsResult details)) -> do
             tvdName details `shouldBe` "test-template"
-            length (tvdDrives details) `shouldBe` 1
+            length (tvdDrives details) `shouldBe` 3
             tvdiDiskImageName (head (tvdDrives details)) `shouldBe` "base-image"
             length (tvdSshKeys details) `shouldBe` 1
           other -> fail $ "Template show failed: " ++ show other
@@ -90,10 +95,10 @@ spec = withTestDb $ do
           Right (Right (Just details)) -> do
             vdName details `shouldBe` "instantiated-vm"
             vdCpuCount details `shouldBe` 2
-            vdRamMb details `shouldBe` 512
+            vdRamMb details `shouldBe` 2048
             vdDescription details `shouldBe` Just "A test template"
-            -- Verify we have 2 drives: the overlay and the cloud-init ISO
-            length (vdDrives details) `shouldBe` 2
+            -- Verify we have 4 drives: the overlay, OVMF CODE, OVMF VARS clone, and the cloud-init ISO
+            length (vdDrives details) `shouldBe` 4
           other -> fail $ "VM show failed: " ++ show other
 
         -- Verify SSH keys are attached
@@ -114,7 +119,7 @@ spec = withTestDb $ do
 
         -- Wait for SSH to be available and authenticate with the key
         putStrLn $ "[test] Waiting for SSH on port " ++ show sshPort ++ " with key authentication"
-        waitForDaemonVmSshWithKey "127.0.0.1" sshPort privateKey "almalinux" 120
+        waitForDaemonVmSshWithKey "127.0.0.1" sshPort privateKey "corvus" 90
 
         -- Verify we can run commands via SSH
         let testVm = DaemonVm
@@ -125,12 +130,12 @@ spec = withTestDb $ do
               , dvmDaemon = daemon
               , dvmSshPrivateKey = privateKey
               , dvmSshKeyId = 0  -- Not needed for SSH operations
-              , dvmSshUser = "almalinux"
+              , dvmSshUser = "corvus"
               }
 
         (exitCode, stdout, _) <- runInDaemonVm testVm "whoami"
         exitCode `shouldBe` ExitSuccess
-        T.strip stdout `shouldBe` "almalinux"
+        T.strip stdout `shouldBe` "corvus"
 
         -- Verify the SSH key is actually installed in authorized_keys
         (exitCode2, stdout2, _) <- runInDaemonVm testVm "grep -c 'ssh-' ~/.ssh/authorized_keys"

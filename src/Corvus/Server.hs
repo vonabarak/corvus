@@ -25,6 +25,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word (Word8)
 import Network.Simple.TCP (HostPreference (..), serve)
 import Network.Socket
   ( Family (AF_UNIX),
@@ -127,22 +128,34 @@ handleClient state sock = loop
 -- Returns Nothing if connection closed, Left on error, Right on success
 receiveRequest :: Socket -> LoggingT IO (Maybe (Either Text Request))
 receiveRequest sock = do
-  -- Read length prefix (8 bytes for Int64)
-  lenBs <- liftIO $ recvExact sock 8
-  case lenBs of
+  -- Read version byte (1 byte)
+  verBs <- liftIO $ recvExact sock 1
+  case verBs of
     Nothing -> pure Nothing
-    Just lenBytes -> do
-      case decodeOrFail (BL.fromStrict lenBytes) of
-        Left _ -> pure $ Just $ Left "Invalid message length"
-        Right (_, _, len) -> do
-          -- Read payload
-          payloadBs <- liftIO $ recvExact sock (fromIntegral (len :: Int64))
-          case payloadBs of
-            Nothing -> pure Nothing
-            Just payload -> do
-              case decodeOrFail (BL.fromStrict payload) of
-                Left (_, _, err) -> pure $ Just $ Left $ "Decode error: " <> T.pack err
-                Right (_, _, req) -> pure $ Just $ Right req
+    Just verBytes -> do
+      case decodeOrFail (BL.fromStrict verBytes) of
+        Left _ -> pure $ Just $ Left "Invalid version byte"
+        Right (_, _, ver)
+          | (ver :: Word8) /= protocolVersion ->
+              pure $ Just $ Left $ "Protocol version mismatch: expected "
+                <> T.pack (show protocolVersion) <> ", got " <> T.pack (show ver)
+          | otherwise -> do
+              -- Read length prefix (8 bytes for Int64)
+              lenBs <- liftIO $ recvExact sock 8
+              case lenBs of
+                Nothing -> pure Nothing
+                Just lenBytes -> do
+                  case decodeOrFail (BL.fromStrict lenBytes) of
+                    Left _ -> pure $ Just $ Left "Invalid message length"
+                    Right (_, _, len) -> do
+                      -- Read payload
+                      payloadBs <- liftIO $ recvExact sock (fromIntegral (len :: Int64))
+                      case payloadBs of
+                        Nothing -> pure Nothing
+                        Just payload -> do
+                          case decodeOrFail (BL.fromStrict payload) of
+                            Left (_, _, err) -> pure $ Just $ Left $ "Decode error: " <> T.pack err
+                            Right (_, _, req) -> pure $ Just $ Right req
 
 -- | Receive exactly n bytes from socket
 recvExact :: Socket -> Int -> IO (Maybe BS.ByteString)
@@ -160,8 +173,9 @@ sendResponse :: Socket -> Response -> IO ()
 sendResponse sock resp = do
   let payload = BL.toStrict $ encode resp
       len = fromIntegral (BS.length payload) :: Int64
+      verBytes = BL.toStrict $ encode protocolVersion
       lenBytes = BL.toStrict $ encode len
-  sendAll sock (lenBytes <> payload)
+  sendAll sock (verBytes <> lenBytes <> payload)
 
 --------------------------------------------------------------------------------
 -- Logging Helpers

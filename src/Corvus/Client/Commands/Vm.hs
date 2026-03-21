@@ -1,0 +1,243 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+-- | VM command handlers for the Corvus client.
+module Corvus.Client.Commands.Vm
+  ( -- * VM command handlers
+    handleVmCreate,
+    handleVmDelete,
+    handleVmAction,
+
+    -- * VM display/interaction
+    runRemoteViewer,
+    runMonitorSession,
+
+    -- * Formatters
+    printVmInfo,
+    printVmDetails,
+    formatUptime,
+  )
+where
+
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (SomeException, bracket, try)
+import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
+import Corvus.Client.Connection
+import Corvus.Client.Rpc
+import Corvus.Model (EnumText (..), VmStatus (..))
+import Corvus.Protocol (DriveInfo (..), NetIfInfo (..), VmDetails (..), VmInfo (..))
+import qualified Data.ByteString as BS
+import Data.Char (ord)
+import Data.Int (Int64)
+import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Time (defaultTimeLocale, formatTime)
+import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, defaultProtocol, socket)
+import qualified Network.Socket as NS
+import Network.Socket.ByteString (recv, sendAll)
+import System.IO (BufferMode (..), hFlush, hSetBuffering, hSetEcho, stdin, stdout)
+import System.Process (callProcess)
+import Text.Printf (printf)
+
+-- | Handle VM creation
+handleVmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> IO Bool
+handleVmCreate conn name cpuCount ramMb mDesc = do
+  resp <- vmCreate conn name cpuCount ramMb mDesc
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right (VmCreated vmId) -> do
+      putStrLn $ "VM '" ++ T.unpack name ++ "' created with ID: " ++ show vmId
+      pure True
+    Right (VmCreateError msg) -> do
+      putStrLn $ "Failed to create VM: " ++ T.unpack msg
+      pure False
+
+-- | Handle VM deletion
+handleVmDelete :: Connection -> Int64 -> IO Bool
+handleVmDelete conn vmId = do
+  resp <- vmDelete conn vmId
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right VmDeleted -> do
+      putStrLn $ "VM " ++ show vmId ++ " deleted."
+      pure True
+    Right VmDeleteNotFound -> do
+      putStrLn $ "Error: VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right VmDeleteRunning -> do
+      putStrLn $ "Error: VM " ++ show vmId ++ " is running. Stop it before deleting."
+      pure False
+    Right (VmDeleteError msg) -> do
+      putStrLn $ "Failed to delete VM: " ++ T.unpack msg
+      pure False
+
+-- | Handle VM action result
+handleVmAction :: String -> Int64 -> IO (Either ConnectionError VmActionResult) -> IO Bool
+handleVmAction actionName vmId action = do
+  resp <- action
+  case resp of
+    Left err -> do
+      putStrLn $ "Error: " ++ show err
+      pure False
+    Right VmActionNotFound -> do
+      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right (VmActionInvalid currentStatus errMsg) -> do
+      putStrLn $ "Cannot " ++ actionName ++ " VM " ++ show vmId ++ ": " ++ T.unpack errMsg
+      putStrLn $ "Current status: " ++ T.unpack (enumToText currentStatus)
+      pure False
+    Right (VmActionSuccess newStatus) -> do
+      putStrLn $ "VM " ++ show vmId ++ " " ++ actionName ++ ": OK"
+      putStrLn $ "New status: " ++ T.unpack (enumToText newStatus)
+      pure True
+
+-- | Print VM info in table format
+printVmInfo :: VmInfo -> IO ()
+printVmInfo vm =
+  putStrLn $
+    printf
+      "%-6d %-20s %-12s %5d %8d"
+      (viId vm)
+      (T.unpack $ viName vm)
+      (T.unpack $ enumToText $ viStatus vm)
+      (viCpuCount vm)
+      (viRamMb vm)
+
+-- | Print full VM details
+printVmDetails :: VmDetails -> IO ()
+printVmDetails vm = do
+  putStrLn $ "VM ID:          " ++ show (vdId vm)
+  putStrLn $ "Name:           " ++ T.unpack (vdName vm)
+  putStrLn $ "Created:        " ++ formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (vdCreatedAt vm)
+  putStrLn $ "Status:         " ++ T.unpack (enumToText $ vdStatus vm)
+  putStrLn $ "CPUs:           " ++ show (vdCpuCount vm)
+  putStrLn $ "RAM (MB):       " ++ show (vdRamMb vm)
+  putStrLn $ "Description:    " ++ maybe "(none)" T.unpack (vdDescription vm)
+  putStrLn $ "Monitor Socket: " ++ T.unpack (vdMonitorSocket vm)
+  putStrLn $ "SPICE Socket:   " ++ T.unpack (vdSpiceSocket vm)
+
+  putStrLn ""
+  putStrLn "Drives:"
+  if null (vdDrives vm)
+    then putStrLn "  (none)"
+    else mapM_ printDrive (vdDrives vm)
+
+  putStrLn ""
+  putStrLn "Network Interfaces:"
+  if null (vdNetIfs vm)
+    then putStrLn "  (none)"
+    else mapM_ printNetIf (vdNetIfs vm)
+  where
+    printDrive d = do
+      putStrLn $ "  - ID: " ++ show (diId d)
+      putStrLn $ "    Interface: " ++ T.unpack (enumToText $ diInterface d)
+      putStrLn $ "    Path: " ++ T.unpack (diFilePath d)
+      putStrLn $ "    Format: " ++ T.unpack (enumToText $ diFormat d)
+      putStrLn $ "    Read-only: " ++ show (diReadOnly d)
+      putStrLn $ "    Cache: " ++ T.unpack (enumToText $ diCacheType d)
+      putStrLn $ "    Discard: " ++ show (diDiscard d)
+
+    printNetIf n = do
+      putStrLn $ "  - ID: " ++ show (niId n)
+      putStrLn $ "    Type: " ++ T.unpack (enumToText $ niType n)
+      putStrLn $ "    Host Device: " ++ T.unpack (niHostDevice n)
+      putStrLn $ "    MAC: " ++ T.unpack (niMacAddress n)
+
+-- | Format uptime in human-readable format
+formatUptime :: Int -> String
+formatUptime secs
+  | secs < 60 = show secs ++ "s"
+  | secs < 3600 = show (secs `div` 60) ++ "m " ++ show (secs `mod` 60) ++ "s"
+  | otherwise =
+      show (secs `div` 3600)
+        ++ "h "
+        ++ show ((secs `mod` 3600) `div` 60)
+        ++ "m"
+
+-- | Run remote-viewer to connect to SPICE
+runRemoteViewer :: ClientConfig -> FilePath -> IO Bool
+runRemoteViewer config spiceSock = do
+  let viewer = ccRemoteViewer config
+      uri = "spice+unix://" ++ spiceSock
+  result <- try $ callProcess viewer [uri]
+  case result of
+    Left (e :: SomeException) -> do
+      putStrLn $ "Failed to run remote-viewer: " ++ show e
+      pure False
+    Right () -> pure True
+
+-- | Run interactive HMP monitor session
+-- Connects to Unix socket and relays stdin/stdout
+-- Exits on Ctrl+] (ASCII 29)
+runMonitorSession :: FilePath -> IO Bool
+runMonitorSession sockPath = do
+  result <-
+    try $
+      bracket
+        ( do
+            sock <- socket AF_UNIX Stream defaultProtocol
+            NS.connect sock (SockAddrUnix sockPath)
+            pure sock
+        )
+        close
+        runSession
+  case result of
+    Left (e :: SomeException) -> do
+      putStrLn $ "\nFailed to connect to monitor: " ++ show e
+      pure False
+    Right () -> do
+      putStrLn "\nDisconnected from monitor."
+      pure True
+  where
+    runSession :: Socket -> IO ()
+    runSession sock = do
+      -- Set terminal to raw mode
+      hSetBuffering stdin NoBuffering
+      hSetBuffering stdout NoBuffering
+      hSetEcho stdin False
+
+      -- MVar to signal exit
+      exitVar <- newEmptyMVar
+
+      -- Thread to read from socket and print to stdout
+      _ <- forkIO $ do
+        let loop = do
+              chunk <- recv sock 4096
+              if BS.null chunk
+                then putMVar exitVar ()
+                else do
+                  BS.putStr chunk
+                  hFlush stdout
+                  loop
+        result' <- try loop
+        case result' of
+          Left (_ :: SomeException) -> putMVar exitVar ()
+          Right () -> pure ()
+
+      -- Read from stdin and send to socket
+      let inputLoop = do
+            c <- getChar
+            if ord c == 29 -- Ctrl+]
+              then putMVar exitVar ()
+              else do
+                sendAll sock (BS.singleton (fromIntegral $ ord c))
+                inputLoop
+
+      -- Run input loop, catching exceptions
+      _ <- forkIO $ do
+        result' <- try inputLoop
+        case result' of
+          Left (_ :: SomeException) -> putMVar exitVar ()
+          Right () -> pure ()
+
+      -- Wait for exit signal
+      takeMVar exitVar
+
+      -- Restore terminal settings
+      hSetBuffering stdin LineBuffering
+      hSetEcho stdin True

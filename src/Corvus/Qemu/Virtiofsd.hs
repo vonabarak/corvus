@@ -31,6 +31,7 @@ import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend, SqlPersistT, toSqlKey)
+import System.Directory (doesFileExist)
 import System.FilePath ((</>))
 import System.Posix.Signals (sigKILL, signalProcess)
 import System.Posix.Types (ProcessID)
@@ -125,7 +126,8 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
           args =
             [ "--socket-path=" ++ socketPath,
               "--shared-dir=" ++ T.unpack (sharedDirPath dir),
-              "--cache=" ++ cacheArg
+              "--cache=" ++ cacheArg,
+              "--sandbox=none"
             ]
 
       logDebugN $
@@ -159,9 +161,21 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
                 runSqlPool (clearDirPid dirKey) pool
               Nothing -> pure ()
 
-      -- Small delay to let process start
-      liftIO $ threadDelay 100000 -- 100ms
+      -- Wait for virtiofsd to create its socket (up to 5 seconds)
+      liftIO $ waitForSocket socketPath 50
       pure True
+
+-- | Wait for a socket file to appear on disk, polling every 100ms.
+-- Gives up after the specified number of attempts.
+waitForSocket :: FilePath -> Int -> IO ()
+waitForSocket _ 0 = pure ()
+waitForSocket path n = do
+  exists <- doesFileExist path
+  if exists
+    then pure ()
+    else do
+      threadDelay 100000 -- 100ms
+      waitForSocket path (n - 1)
 
 -- | Save virtiofsd PID to database
 saveDirPid :: Key SharedDir -> Int -> SqlPersistT IO ()

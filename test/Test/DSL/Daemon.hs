@@ -46,14 +46,15 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try, bracket)
-import Control.Monad (unless, when)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad (when)
+import Data.List (isInfixOf)
 import Corvus.Client
 import Corvus.Model
 import Corvus.Protocol (VmDetails (..))
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import Network.Socket
@@ -107,7 +108,7 @@ instance DefaultVmConfig VmConfig where
         vmcDescription = Nothing,
         vmcDiskInterface = InterfaceVirtio,
         vmcNetworkType = NetUser,
-        vmcWaitSshTimeout = 120,
+        vmcWaitSshTimeout = 90,
         vmcDiskCache = CacheWriteback,
         vmcDiskDiscard = True,
         vmcSharedDirCache = CacheAuto,
@@ -497,45 +498,58 @@ waitForDaemonVmSsh :: String -> Int -> Int -> IO ()
 waitForDaemonVmSsh host port = waitForDaemonVmSshWithKey host port "" "almalinux"
 
 -- | Wait for SSH to be available on the VM using a specific key.
+-- Uses wall-clock time for accurate timeout tracking.
 -- Fails fast if SSH is up but key authentication is rejected (after a
 -- grace period for cloud-init to finish deploying keys).
 waitForDaemonVmSshWithKey :: String -> Int -> FilePath -> Text -> Int -> IO ()
-waitForDaemonVmSshWithKey host port privateKey user timeoutSec = go timeoutSec Nothing
+waitForDaemonVmSshWithKey host port privateKey user timeoutSec = do
+  startTime <- getCurrentTime
+  go startTime Nothing
   where
     authGracePeriod :: Int
-    authGracePeriod = 30
+    authGracePeriod = 60
 
-    go 0 _ = fail $ "Timeout waiting for SSH on " <> host <> ":" <> show port
-    go n mAuthCountdown = do
-      result <- trySshConnection host port privateKey
-      case result of
-        SshOk -> pure ()
-        SshAuthRejected stderr -> do
-          let countdown = case mAuthCountdown of
-                Just c -> c - 1
-                Nothing -> authGracePeriod
-          putStrLn $ "[ssh] Auth rejected, grace period: " <> show countdown <> "s remaining"
-          if countdown <= 0
-            then
-              fail $
-                "SSH key authentication failed on "
-                  <> host
-                  <> ":"
-                  <> show port
-                  <> " (server is up but key was rejected after "
-                  <> show authGracePeriod
-                  <> "s grace period).\n"
-                  <> "This likely means cloud-init did not deploy the SSH key.\n"
-                  <> "SSH stderr: "
-                  <> stderr
-            else do
-              threadDelay 1000000
-              go (n - 1) (Just countdown)
-        SshNotReady -> do
-          let elapsed = timeoutSec - n
-          putStrLn $ "[ssh] Not ready, waiting... (" <> show elapsed <> "s elapsed)"
-          threadDelay 1000000
-          go (n - 1) Nothing
+    elapsedSec :: UTCTime -> IO Int
+    elapsedSec start = do
+      now <- getCurrentTime
+      pure $ round (diffUTCTime now start)
+
+    go startTime mAuthStart = do
+      elapsed <- elapsedSec startTime
+      if elapsed >= timeoutSec
+        then fail $ "Timeout waiting for SSH on " <> host <> ":" <> show port
+              <> " (after " <> show elapsed <> "s)"
+        else do
+          result <- trySshConnection host port privateKey
+          case result of
+            SshOk -> pure ()
+            SshAuthRejected stderr -> do
+              now <- getCurrentTime
+              let authStart = maybe now id mAuthStart
+                  authElapsed = round (diffUTCTime now authStart) :: Int
+              putStrLn $ "[ssh] Auth rejected, grace period: "
+                <> show (authGracePeriod - authElapsed) <> "s remaining"
+                <> " (total elapsed: " <> show elapsed <> "s)"
+              if authElapsed >= authGracePeriod
+                then
+                  fail $
+                    "SSH key authentication failed on "
+                      <> host
+                      <> ":"
+                      <> show port
+                      <> " (server is up but key was rejected after "
+                      <> show authGracePeriod
+                      <> "s grace period).\n"
+                      <> "This likely means cloud-init did not deploy the SSH key.\n"
+                      <> "SSH stderr: "
+                      <> stderr
+                else do
+                  threadDelay 2000000
+                  go startTime (Just authStart)
+            SshNotReady -> do
+              putStrLn $ "[ssh] Not ready, waiting... (" <> show elapsed <> "s elapsed)"
+              threadDelay 2000000
+              go startTime Nothing
 
     trySshConnection :: String -> Int -> FilePath -> IO SshProbeResult
     trySshConnection sshHost sshPort keyFile = do
@@ -548,7 +562,7 @@ waitForDaemonVmSshWithKey host port privateKey user timeoutSec = go timeoutSec N
               "-o",
               "BatchMode=yes",
               "-o",
-              "ConnectTimeout=5",
+              "ConnectTimeout=3",
               "-p",
               show sshPort
             ]
@@ -561,18 +575,6 @@ waitForDaemonVmSshWithKey host port privateKey user timeoutSec = go timeoutSec N
         Right (ExitFailure _, _, stderr)
           | "Permission denied" `isInfixOf` stderr -> pure $ SshAuthRejected stderr
           | otherwise -> pure SshNotReady
-
-    isInfixOf :: String -> String -> Bool
-    isInfixOf needle haystack = any (isPrefixOf needle) (tails haystack)
-
-    isPrefixOf :: String -> String -> Bool
-    isPrefixOf [] _ = True
-    isPrefixOf _ [] = False
-    isPrefixOf (x : xs) (y : ys) = x == y && isPrefixOf xs ys
-
-    tails :: String -> [String]
-    tails [] = [[]]
-    tails s@(_ : xs) = s : tails xs
 
 -- | Wait for VM to fully stop (dummy for now, just delays)
 waitForVmStopped :: Int -> IO ()

@@ -6,6 +6,9 @@ module Corvus.Protocol
     Request (..),
     Response (..),
 
+    -- * Protocol version
+    protocolVersion,
+
     -- * Message encoding/decoding
     encodeMessage,
     decodeMessage,
@@ -35,7 +38,12 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time (UTCTime)
+import Data.Word (Word8)
 import GHC.Generics (Generic)
+
+-- | Current protocol version. Increment when the wire format changes.
+protocolVersion :: Word8
+protocolVersion = 1
 
 -- | Client requests
 data Request
@@ -388,20 +396,27 @@ data Response
     RespTemplateInstantiated !Int64
   deriving (Eq, Show, Generic, Binary)
 
--- | Encode a message with a length prefix (8 bytes, big-endian)
+-- | Encode a message with protocol version and length prefix.
+-- Wire format: [1 byte version][8 bytes length (big-endian)][payload]
 encodeMessage :: (Binary a) => a -> ByteString
 encodeMessage msg =
   let payload = encode msg
       len = fromIntegral (BL.length payload) :: Int64
-   in encode len <> payload
+   in encode protocolVersion <> encode len <> payload
 
--- | Decode a length-prefixed message
+-- | Decode a versioned, length-prefixed message.
+-- Returns Left on version mismatch or decoding failure.
 decodeMessage :: (Binary a) => ByteString -> Either String a
 decodeMessage bs =
   case decodeOrFail bs of
-    Left (_, _, err) -> Left err
-    Right (rest, _, len) ->
-      let payload = BL.take (fromIntegral (len :: Int64)) rest
-       in case decodeOrFail payload of
-            Left (_, _, err) -> Left err
-            Right (_, _, msg) -> Right msg
+    Left (_, _, err) -> Left $ "version decode error: " <> err
+    Right (rest1, _, ver) ->
+      if (ver :: Word8) /= protocolVersion
+        then Left $ "protocol version mismatch: expected " <> show protocolVersion <> ", got " <> show ver
+        else case decodeOrFail rest1 of
+          Left (_, _, err) -> Left $ "length decode error: " <> err
+          Right (rest2, _, len) ->
+            let payload = BL.take (fromIntegral (len :: Int64)) rest2
+             in case decodeOrFail payload of
+                  Left (_, _, err) -> Left err
+                  Right (_, _, msg) -> Right msg

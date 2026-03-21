@@ -75,6 +75,7 @@ import qualified Data.Binary as Bin
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (..))
 import qualified Data.Aeson.Types as AT
 import Data.List (find)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime)
@@ -104,9 +105,7 @@ class (Eq a) => EnumText a where
   -- | Convert enum to text (derived from mapping)
   enumToText :: a -> Text
   enumToText val =
-    case lookup val enumMapping of
-      Just t -> t
-      Nothing -> error $ "enumToText: incomplete mapping for " <> T.unpack (enumTypeName @a)
+    fromMaybe ("<unknown " <> enumTypeName @a <> ">") (lookup val enumMapping)
 
   -- | Convert text to enum (derived from mapping)
   enumFromText :: Text -> Either Text a

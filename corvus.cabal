@@ -33,6 +33,12 @@ library
       Corvus.Client.Types
       Corvus.Client.Parser
       Corvus.Client.Commands
+      Corvus.Client.Commands.Vm
+      Corvus.Client.Commands.Disk
+      Corvus.Client.Commands.SharedDir
+      Corvus.Client.Commands.NetIf
+      Corvus.Client.Commands.SshKey
+      Corvus.Client.Commands.Template
       Corvus.Model
       Corvus.Qemu
       Corvus.Qemu.Config

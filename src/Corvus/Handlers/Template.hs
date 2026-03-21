@@ -28,7 +28,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time (getCurrentTime, UTCTime)
-import Data.Yaml (FromJSON (..), decodeEither', withObject, (.:), (.:?))
+import Data.Yaml (FromJSON (..), decodeEither', withObject, (.:), (.:?), (.!=))
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
@@ -60,8 +60,8 @@ instance FromJSON TemplateYaml where
       <*> o .: "ramMb"
       <*> o .:? "description"
       <*> o .: "drives"
-      <*> o .: "networkInterfaces"
-      <*> o .: "sshKeys"
+      <*> o .:? "networkInterfaces" .!= []
+      <*> o .:? "sshKeys" .!= []
 
 data TemplateDriveYaml = TemplateDriveYaml
   { tdyDiskImageName :: Text,
@@ -310,9 +310,9 @@ finishInstantiation state vmId details = runStdoutLoggingT $ do
 
 generateMacAddress :: IO Text
 generateMacAddress = do
-  bytes <- forM [1..3] $ \_ -> randomRIO (0, 255 :: Int)
+  [b1, b2, b3] <- forM [1..3] $ \_ -> randomRIO (0, 255 :: Int)
   -- QEMU OUI is 52:54:00
-  let mac = T.pack $ printf "52:54:00:%02x:%02x:%02x" (bytes !! 0) (bytes !! 1) (bytes !! 2)
+  let mac = T.pack $ printf "52:54:00:%02x:%02x:%02x" b1 b2 b3
   pure mac
 
 --------------------------------------------------------------------------------

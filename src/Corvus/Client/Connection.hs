@@ -18,7 +18,7 @@ module Corvus.Client.Connection
 where
 
 import Control.Exception (Exception, SomeException, bracket, try)
-import Corvus.Protocol (Request, Response)
+import Corvus.Protocol (Request, Response, protocolVersion)
 import Corvus.Types (ListenAddress (..))
 import Data.Binary (decodeOrFail, encode)
 import qualified Data.ByteString as BS
@@ -26,6 +26,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word (Word8)
 import Network.Simple.TCP (connect)
 import Network.Socket
   ( Family (AF_UNIX),
@@ -93,12 +94,13 @@ sendRequest = connSendRequest
 -- | Real implementation of sendRequest for a socket
 realSendRequest :: Socket -> Request -> IO (Either ConnectionError Response)
 realSendRequest sock req = do
-  -- Encode and send request
+  -- Encode and send request with version prefix
   let payload = BL.toStrict $ encode req
       len = fromIntegral (BS.length payload) :: Int64
+      verBytes = BL.toStrict $ encode protocolVersion
       lenBytes = BL.toStrict $ encode len
 
-  sendResult <- try $ sendAll sock (lenBytes <> payload)
+  sendResult <- try $ sendAll sock (verBytes <> lenBytes <> payload)
   case sendResult of
     Left (e :: SomeException) -> pure $ Left $ SendFailed $ T.pack $ show e
     Right () -> do
@@ -111,22 +113,34 @@ realSendRequest sock req = do
 -- | Receive a response from the socket
 recvResponse :: Socket -> IO (Either ConnectionError Response)
 recvResponse sock = do
-  -- Read length prefix (8 bytes for Int64)
-  lenBs <- recvExact sock 8
-  case lenBs of
+  -- Read version byte (1 byte)
+  verBs <- recvExact sock 1
+  case verBs of
     Nothing -> pure $ Left $ RecvFailed "Connection closed"
-    Just lenBytes -> do
-      case decodeOrFail (BL.fromStrict lenBytes) of
-        Left (_, _, err) -> pure $ Left $ DecodeFailed $ T.pack err
-        Right (_, _, len) -> do
-          -- Read payload
-          payloadBs <- recvExact sock (fromIntegral (len :: Int64))
-          case payloadBs of
-            Nothing -> pure $ Left $ RecvFailed "Connection closed during payload"
-            Just payload -> do
-              case decodeOrFail (BL.fromStrict payload) of
-                Left (_, _, err) -> pure $ Left $ DecodeFailed $ T.pack err
-                Right (_, _, resp) -> pure $ Right resp
+    Just verBytes -> do
+      case decodeOrFail (BL.fromStrict verBytes) of
+        Left (_, _, err) -> pure $ Left $ DecodeFailed $ "version: " <> T.pack err
+        Right (_, _, ver)
+          | (ver :: Word8) /= protocolVersion ->
+              pure $ Left $ DecodeFailed $ "protocol version mismatch: expected "
+                <> T.pack (show protocolVersion) <> ", got " <> T.pack (show ver)
+          | otherwise -> do
+              -- Read length prefix (8 bytes for Int64)
+              lenBs <- recvExact sock 8
+              case lenBs of
+                Nothing -> pure $ Left $ RecvFailed "Connection closed"
+                Just lenBytes -> do
+                  case decodeOrFail (BL.fromStrict lenBytes) of
+                    Left (_, _, err) -> pure $ Left $ DecodeFailed $ T.pack err
+                    Right (_, _, len) -> do
+                      -- Read payload
+                      payloadBs <- recvExact sock (fromIntegral (len :: Int64))
+                      case payloadBs of
+                        Nothing -> pure $ Left $ RecvFailed "Connection closed during payload"
+                        Just payload -> do
+                          case decodeOrFail (BL.fromStrict payload) of
+                            Left (_, _, err) -> pure $ Left $ DecodeFailed $ T.pack err
+                            Right (_, _, resp) -> pure $ Right resp
 
 -- | Receive exactly n bytes
 recvExact :: Socket -> Int -> IO (Maybe BS.ByteString)
