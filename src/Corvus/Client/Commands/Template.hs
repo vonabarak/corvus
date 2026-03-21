@@ -17,9 +17,12 @@ where
 
 import Control.Monad (forM_)
 import Corvus.Client.Connection
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult)
 import Corvus.Client.Rpc
+import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..))
 import Corvus.Protocol (TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
+import Data.Aeson (toJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -29,117 +32,164 @@ import System.Directory (doesFileExist)
 import Text.Printf (printf)
 
 -- | Handle template create command
-handleTemplateCreate :: Connection -> FilePath -> IO Bool
-handleTemplateCreate conn path = do
+handleTemplateCreate :: OutputFormat -> Connection -> FilePath -> IO Bool
+handleTemplateCreate fmt conn path = do
   exists <- doesFileExist path
   if not exists
     then do
-      putStrLn $ "Error: YAML file not found: " ++ path
+      if isStructured fmt
+        then outputError fmt "file_not_found" (T.pack $ "YAML file not found: " ++ path)
+        else putStrLn $ "Error: YAML file not found: " ++ path
       pure False
     else do
       content <- T.IO.readFile path
       resp <- templateCreate conn content
       case resp of
         Left err -> do
-          putStrLn $ "Error: " ++ show err
+          if isStructured fmt
+            then outputError fmt "rpc_error" (T.pack $ show err)
+            else putStrLn $ "Error: " ++ show err
           pure False
         Right (TemplateCreated tid) -> do
-          putStrLn $ "Template created with ID: " ++ show tid
+          if isStructured fmt
+            then outputOkWith fmt [("id", toJSON tid)]
+            else putStrLn $ "Template created with ID: " ++ show tid
           pure True
         Right (TemplateError msg) -> do
-          putStrLn $ "Error: " ++ T.unpack msg
+          if isStructured fmt
+            then outputError fmt "error" msg
+            else putStrLn $ "Error: " ++ T.unpack msg
           pure False
         Right other -> do
-          putStrLn $ "Unexpected response: " ++ show other
+          if isStructured fmt
+            then outputError fmt "unexpected" (T.pack $ show other)
+            else putStrLn $ "Unexpected response: " ++ show other
           pure False
 
 -- | Handle template delete command
-handleTemplateDelete :: Connection -> Int64 -> IO Bool
-handleTemplateDelete conn tid = do
+handleTemplateDelete :: OutputFormat -> Connection -> Int64 -> IO Bool
+handleTemplateDelete fmt conn tid = do
   resp <- templateDelete conn tid
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right TemplateDeleted -> do
-      putStrLn "Template deleted."
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn "Template deleted."
       pure True
     Right TemplateNotFound -> do
-      putStrLn "Template not found."
+      if isStructured fmt
+        then outputError fmt "not_found" "Template not found"
+        else putStrLn "Template not found."
       pure False
     Right (TemplateError msg) -> do
-      putStrLn $ "Error: " ++ T.unpack msg
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 -- | Handle template list command
-handleTemplateList :: Connection -> IO Bool
-handleTemplateList conn = do
+handleTemplateList :: OutputFormat -> Connection -> IO Bool
+handleTemplateList fmt conn = do
   resp <- templateList conn
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right (TemplateListResult templates) -> do
-      if null templates
-        then putStrLn "No templates found."
+      if isStructured fmt
+        then outputResult fmt templates
         else do
-          putStrLn $
-            printf
-              "%-6s %-30s %-6s %-8s"
-              ("ID" :: String)
-              ("NAME" :: String)
-              ("CPUS" :: String)
-              ("RAM_MB" :: String)
-          putStrLn $ replicate 55 '-'
-          mapM_ printTemplateVmInfo templates
+          if null templates
+            then putStrLn "No templates found."
+            else do
+              putStrLn $
+                printf
+                  "%-6s %-30s %-6s %-8s"
+                  ("ID" :: String)
+                  ("NAME" :: String)
+                  ("CPUS" :: String)
+                  ("RAM_MB" :: String)
+              putStrLn $ replicate 55 '-'
+              mapM_ printTemplateVmInfo templates
       pure True
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 -- | Handle template show command
-handleTemplateShow :: Connection -> Int64 -> IO Bool
-handleTemplateShow conn tid = do
+handleTemplateShow :: OutputFormat -> Connection -> Int64 -> IO Bool
+handleTemplateShow fmt conn tid = do
   resp <- templateShow conn tid
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right (TemplateDetailsResult details) -> do
-      printTemplateDetails details
+      if isStructured fmt
+        then outputResult fmt details
+        else printTemplateDetails details
       pure True
     Right TemplateNotFound -> do
-      putStrLn "Template not found."
+      if isStructured fmt
+        then outputError fmt "not_found" "Template not found"
+        else putStrLn "Template not found."
       pure False
     Right (TemplateError msg) -> do
-      putStrLn $ "Error: " ++ T.unpack msg
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 -- | Handle template instantiate command
-handleTemplateInstantiate :: Connection -> Int64 -> Text -> IO Bool
-handleTemplateInstantiate conn tid name = do
+handleTemplateInstantiate :: OutputFormat -> Connection -> Int64 -> Text -> IO Bool
+handleTemplateInstantiate fmt conn tid name = do
   resp <- templateInstantiate conn tid name
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right (TemplateInstantiated vmId) -> do
-      putStrLn $ "VM instantiated with ID: " ++ show vmId
+      if isStructured fmt
+        then outputOkWith fmt [("id", toJSON vmId)]
+        else putStrLn $ "VM instantiated with ID: " ++ show vmId
       pure True
     Right TemplateNotFound -> do
-      putStrLn "Template not found."
+      if isStructured fmt
+        then outputError fmt "not_found" "Template not found"
+        else putStrLn "Template not found."
       pure False
     Right (TemplateError msg) -> do
-      putStrLn $ "Error: " ++ T.unpack msg
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 --------------------------------------------------------------------------------

@@ -32,6 +32,7 @@ module Corvus.Protocol
 where
 
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TemplateCloneStrategy, VmStatus)
+import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Binary (Binary, decodeOrFail, encode)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as BL
@@ -300,6 +301,149 @@ data TemplateDetails = TemplateDetails
     tvdSshKeys :: ![TemplateSshKeyInfo]
   }
   deriving (Eq, Show, Generic, Binary)
+
+--------------------------------------------------------------------------------
+-- ToJSON instances for machine-readable output
+--------------------------------------------------------------------------------
+
+instance ToJSON StatusInfo where
+  toJSON s = object
+    [ "uptime" .= siUptime s
+    , "connections" .= siConnections s
+    , "version" .= siVersion s
+    ]
+
+instance ToJSON VmInfo where
+  toJSON v = object
+    [ "id" .= viId v
+    , "name" .= viName v
+    , "status" .= viStatus v
+    , "cpuCount" .= viCpuCount v
+    , "ramMb" .= viRamMb v
+    ]
+
+instance ToJSON DriveInfo where
+  toJSON d = object
+    [ "id" .= diId d
+    , "diskImageId" .= diDiskImageId d
+    , "interface" .= diInterface d
+    , "filePath" .= diFilePath d
+    , "format" .= diFormat d
+    , "media" .= diMedia d
+    , "readOnly" .= diReadOnly d
+    , "cacheType" .= diCacheType d
+    , "discard" .= diDiscard d
+    ]
+
+instance ToJSON NetIfInfo where
+  toJSON n = object
+    [ "id" .= niId n
+    , "type" .= niType n
+    , "hostDevice" .= niHostDevice n
+    , "macAddress" .= niMacAddress n
+    ]
+
+instance ToJSON VmDetails where
+  toJSON v = object
+    [ "id" .= vdId v
+    , "name" .= vdName v
+    , "createdAt" .= vdCreatedAt v
+    , "status" .= vdStatus v
+    , "cpuCount" .= vdCpuCount v
+    , "ramMb" .= vdRamMb v
+    , "description" .= vdDescription v
+    , "drives" .= vdDrives v
+    , "networkInterfaces" .= vdNetIfs v
+    , "monitorSocket" .= vdMonitorSocket v
+    , "spiceSocket" .= vdSpiceSocket v
+    ]
+
+instance ToJSON DiskImageInfo where
+  toJSON d = object
+    [ "id" .= diiId d
+    , "name" .= diiName d
+    , "filePath" .= diiFilePath d
+    , "format" .= diiFormat d
+    , "sizeMb" .= diiSizeMb d
+    , "createdAt" .= diiCreatedAt d
+    , "attachedTo" .= diiAttachedTo d
+    , "backingImageId" .= diiBackingImageId d
+    , "backingImageName" .= diiBackingImageName d
+    ]
+
+instance ToJSON SnapshotInfo where
+  toJSON s = object
+    [ "id" .= sniId s
+    , "name" .= sniName s
+    , "createdAt" .= sniCreatedAt s
+    , "sizeMb" .= sniSizeMb s
+    ]
+
+instance ToJSON SharedDirInfo where
+  toJSON s = object
+    [ "id" .= sdiId s
+    , "path" .= sdiPath s
+    , "tag" .= sdiTag s
+    , "cache" .= sdiCache s
+    , "readOnly" .= sdiReadOnly s
+    , "pid" .= sdiPid s
+    ]
+
+instance ToJSON SshKeyInfo where
+  toJSON k = object
+    [ "id" .= skiId k
+    , "name" .= skiName k
+    , "publicKey" .= skiPublicKey k
+    , "createdAt" .= skiCreatedAt k
+    , "attachedVms" .= skiAttachedVms k
+    ]
+
+instance ToJSON TemplateVmInfo where
+  toJSON t = object
+    [ "id" .= tviId t
+    , "name" .= tviName t
+    , "cpuCount" .= tviCpuCount t
+    , "ramMb" .= tviRamMb t
+    , "description" .= tviDescription t
+    ]
+
+instance ToJSON TemplateDriveInfo where
+  toJSON d = object
+    [ "diskImageId" .= tvdiDiskImageId d
+    , "diskImageName" .= tvdiDiskImageName d
+    , "interface" .= tvdiInterface d
+    , "media" .= tvdiMedia d
+    , "readOnly" .= tvdiReadOnly d
+    , "cacheType" .= tvdiCacheType d
+    , "discard" .= tvdiDiscard d
+    , "cloneStrategy" .= tvdiCloneStrategy d
+    , "newSizeMb" .= tvdiNewSizeMb d
+    ]
+
+instance ToJSON TemplateNetIfInfo where
+  toJSON n = object
+    [ "type" .= tvniType n
+    , "hostDevice" .= tvniHostDevice n
+    ]
+
+instance ToJSON TemplateSshKeyInfo where
+  toJSON k = object
+    [ "id" .= tvskiId k
+    , "name" .= tvskiName k
+    ]
+
+instance ToJSON TemplateDetails where
+  toJSON t = object
+    [ "id" .= tvdId t
+    , "name" .= tvdName t
+    , "cpuCount" .= tvdCpuCount t
+    , "ramMb" .= tvdRamMb t
+    , "description" .= tvdDescription t
+    , "createdAt" .= tvdCreatedAt t
+    , "drives" .= tvdDrives t
+    , "networkInterfaces" .= tvdNetIfs t
+    , "sshKeys" .= tvdSshKeys t
+    ]
 
 -- | Server responses
 data Response

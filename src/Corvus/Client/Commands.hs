@@ -27,11 +27,14 @@ import Corvus.Client.Commands.Template
 import Corvus.Client.Commands.Vm
 import Corvus.Client.Config (defaultClientConfig)
 import Corvus.Client.Connection
+import Corvus.Client.Output
 import Corvus.Client.Rpc
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (StatusInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
+import Data.Aeson (object, toJSON, (.=))
+import Data.Text (Text)
 import qualified Data.Text as T
 import System.Exit (exitFailure, exitSuccess)
 import Text.Printf (printf)
@@ -47,6 +50,7 @@ getListenAddress opts
 -- | Execute the selected command
 runCommand :: Options -> IO ()
 runCommand opts = do
+  let fmt = optOutput opts
   addr <- getListenAddress opts
   connResult <- withConnection addr $ \conn ->
     case optCommand opts of
@@ -54,186 +58,250 @@ runCommand opts = do
         resp <- sendPing conn
         case resp of
           Left err -> do
-            putStrLn $ "Error: " ++ show err
+            if isStructured fmt
+              then outputError fmt "rpc_error" (T.pack $ show err)
+              else putStrLn $ "Error: " ++ show err
             pure False
           Right () -> do
-            putStrLn "pong"
+            if isStructured fmt
+              then outputOk fmt
+              else putStrLn "pong"
             pure True
       Status -> do
         resp <- getStatus conn
         case resp of
           Left err -> do
-            putStrLn $ "Error: " ++ show err
+            if isStructured fmt
+              then outputError fmt "rpc_error" (T.pack $ show err)
+              else putStrLn $ "Error: " ++ show err
             pure False
           Right st -> do
-            putStrLn $ "Uptime:      " ++ formatUptime (siUptime st)
-            putStrLn $ "Connections: " ++ show (siConnections st)
-            putStrLn $ "Version:     " ++ T.unpack (siVersion st)
+            if isStructured fmt
+              then outputResult fmt st
+              else do
+                putStrLn $ "Uptime:      " ++ formatUptime (siUptime st)
+                putStrLn $ "Connections: " ++ show (siConnections st)
+                putStrLn $ "Version:     " ++ T.unpack (siVersion st)
             pure True
       Shutdown -> do
         resp <- requestShutdown conn
         case resp of
           Left err -> do
-            putStrLn $ "Error: " ++ show err
+            if isStructured fmt
+              then outputError fmt "rpc_error" (T.pack $ show err)
+              else putStrLn $ "Error: " ++ show err
             pure False
           Right True -> do
-            putStrLn "Shutdown acknowledged"
+            if isStructured fmt
+              then outputOk fmt
+              else putStrLn "Shutdown acknowledged"
             pure True
           Right False -> do
-            putStrLn "Shutdown not acknowledged"
+            if isStructured fmt
+              then outputError fmt "shutdown_rejected" "Shutdown not acknowledged"
+              else putStrLn "Shutdown not acknowledged"
             pure False
       VmList -> do
         resp <- listVms conn
         case resp of
           Left err -> do
-            putStrLn $ "Error: " ++ show err
+            if isStructured fmt
+              then outputError fmt "rpc_error" (T.pack $ show err)
+              else putStrLn $ "Error: " ++ show err
             pure False
           Right vms -> do
-            if null vms
-              then putStrLn "No VMs found."
+            if isStructured fmt
+              then outputResult fmt vms
               else do
-                putStrLn $
-                  printf
-                    "%-6s %-20s %-12s %5s %8s"
-                    ("ID" :: String)
-                    ("NAME" :: String)
-                    ("STATUS" :: String)
-                    ("CPUS" :: String)
-                    ("RAM_MB" :: String)
-                putStrLn $ replicate 55 '-'
-                mapM_ printVmInfo vms
+                if null vms
+                  then putStrLn "No VMs found."
+                  else do
+                    putStrLn $
+                      printf
+                        "%-6s %-20s %-12s %5s %8s"
+                        ("ID" :: String)
+                        ("NAME" :: String)
+                        ("STATUS" :: String)
+                        ("CPUS" :: String)
+                        ("RAM_MB" :: String)
+                    putStrLn $ replicate 55 '-'
+                    mapM_ printVmInfo vms
             pure True
       VmShow vmId -> do
         resp <- showVm conn vmId
         case resp of
           Left err -> do
-            putStrLn $ "Error: " ++ show err
+            if isStructured fmt
+              then outputError fmt "rpc_error" (T.pack $ show err)
+              else putStrLn $ "Error: " ++ show err
             pure False
           Right Nothing -> do
-            putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+            if isStructured fmt
+              then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
+              else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
             pure False
           Right (Just details) -> do
-            printVmDetails details
+            if isStructured fmt
+              then outputResult fmt details
+              else printVmDetails details
             pure True
-      VmCreate name cpuCount ramMb mDesc -> handleVmCreate conn name cpuCount ramMb mDesc
-      VmDelete vmId -> handleVmDelete conn vmId
-      VmStart vmId -> handleVmAction "start" vmId (vmStart conn vmId)
-      VmStop vmId -> handleVmAction "stop" vmId (vmStop conn vmId)
-      VmPause vmId -> handleVmAction "pause" vmId (vmPause conn vmId)
-      VmReset vmId -> handleVmAction "reset" vmId (vmReset conn vmId)
+      VmCreate name cpuCount ramMb mDesc -> handleVmCreate fmt conn name cpuCount ramMb mDesc
+      VmDelete vmId -> handleVmDelete fmt conn vmId
+      VmStart vmId -> handleVmAction fmt "start" vmId (vmStart conn vmId)
+      VmStop vmId -> handleVmAction fmt "stop" vmId (vmStop conn vmId)
+      VmPause vmId -> handleVmAction fmt "pause" vmId (vmPause conn vmId)
+      VmReset vmId -> handleVmAction fmt "reset" vmId (vmReset conn vmId)
       VmView vmId -> do
         resp <- showVm conn vmId
         case resp of
           Left err -> do
-            putStrLn $ "Error: " ++ show err
+            if isStructured fmt
+              then outputError fmt "rpc_error" (T.pack $ show err)
+              else putStrLn $ "Error: " ++ show err
             pure False
           Right Nothing -> do
-            putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+            if isStructured fmt
+              then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
+              else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
             pure False
           Right (Just details) -> do
             if vdStatus details /= VmRunning
               then do
-                putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
-                putStrLn $ "Current status: " ++ T.unpack (enumToText $ vdStatus details)
+                if isStructured fmt
+                  then outputError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running")
+                  else do
+                    putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
+                    putStrLn $ "Current status: " ++ T.unpack (enumToText $ vdStatus details)
                 pure False
               else do
                 let spiceSock = T.unpack (vdSpiceSocket details)
-                putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' via SPICE..."
-                runRemoteViewer defaultClientConfig spiceSock
+                if isStructured fmt
+                  then outputValue fmt (object ["spiceSocket" .= vdSpiceSocket details])
+                  else do
+                    putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' via SPICE..."
+                    runRemoteViewer defaultClientConfig spiceSock
+                    pure ()
+                pure True
       VmMonitor vmId -> do
         resp <- showVm conn vmId
         case resp of
           Left err -> do
-            putStrLn $ "Error: " ++ show err
+            if isStructured fmt
+              then outputError fmt "rpc_error" (T.pack $ show err)
+              else putStrLn $ "Error: " ++ show err
             pure False
           Right Nothing -> do
-            putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+            if isStructured fmt
+              then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
+              else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
             pure False
           Right (Just details) -> do
             if vdStatus details /= VmRunning
               then do
-                putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
-                putStrLn $ "Current status: " ++ T.unpack (enumToText $ vdStatus details)
+                if isStructured fmt
+                  then outputError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running")
+                  else do
+                    putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
+                    putStrLn $ "Current status: " ++ T.unpack (enumToText $ vdStatus details)
                 pure False
               else do
                 let monitorSock = T.unpack (vdMonitorSocket details)
-                putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' HMP monitor..."
-                putStrLn "Press Ctrl+] to exit."
-                putStrLn ""
-                runMonitorSession monitorSock
+                if isStructured fmt
+                  then outputValue fmt (object ["monitorSocket" .= vdMonitorSocket details])
+                  else do
+                    putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' HMP monitor..."
+                    putStrLn "Press Ctrl+] to exit."
+                    putStrLn ""
+                    runMonitorSession monitorSock
+                    pure ()
+                pure True
       -- Disk commands
       DiskCreate name formatStr sizeMb -> do
         case parseFormat formatStr of
           Left err -> do
-            putStrLn $ "Error: " ++ T.unpack err
+            if isStructured fmt
+              then outputError fmt "invalid_format" err
+              else putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right format -> handleDiskCreate conn name format sizeMb
-      DiskCreateOverlay name baseDiskId -> handleDiskCreateOverlay conn name baseDiskId
-      DiskImport name path mFormatStr -> handleDiskImport conn name path mFormatStr
-      DiskDelete diskId -> handleDiskDelete conn diskId
-      DiskResize diskId newSizeMb -> handleDiskResize conn diskId newSizeMb
-      DiskList -> handleDiskList conn
-      DiskShow diskId -> handleDiskShow conn diskId
-      DiskClone name baseDiskId optionalPath -> handleDiskClone conn name baseDiskId optionalPath
+          Right format -> handleDiskCreate fmt conn name format sizeMb
+      DiskCreateOverlay name baseDiskId -> handleDiskCreateOverlay fmt conn name baseDiskId
+      DiskImport name path mFormatStr -> handleDiskImport fmt conn name path mFormatStr
+      DiskDelete diskId -> handleDiskDelete fmt conn diskId
+      DiskResize diskId newSizeMb -> handleDiskResize fmt conn diskId newSizeMb
+      DiskList -> handleDiskList fmt conn
+      DiskShow diskId -> handleDiskShow fmt conn diskId
+      DiskClone name baseDiskId optionalPath -> handleDiskClone fmt conn name baseDiskId optionalPath
       DiskAttach vmId diskId ifaceStr media readOnly discard cacheStr -> do
         case parseInterface ifaceStr of
           Left err -> do
-            putStrLn $ "Error: " ++ T.unpack err
+            if isStructured fmt
+              then outputError fmt "invalid_interface" err
+              else putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right iface -> do
             case parseCacheType cacheStr of
               Left err -> do
-                putStrLn $ "Error: " ++ T.unpack err
+                if isStructured fmt
+                  then outputError fmt "invalid_cache_type" err
+                  else putStrLn $ "Error: " ++ T.unpack err
                 pure False
               Right cache -> do
                 case media of
-                  Nothing -> handleDiskAttach conn vmId diskId iface Nothing readOnly discard cache
+                  Nothing -> handleDiskAttach fmt conn vmId diskId iface Nothing readOnly discard cache
                   Just m -> case parseMedia m of
                     Left err -> do
-                      putStrLn $ "Error: " ++ T.unpack err
+                      if isStructured fmt
+                        then outputError fmt "invalid_media" err
+                        else putStrLn $ "Error: " ++ T.unpack err
                       pure False
-                    Right parsedMedia -> handleDiskAttach conn vmId diskId iface (Just parsedMedia) readOnly discard cache
-      DiskDetach vmId driveId -> handleDiskDetach conn vmId driveId
+                    Right parsedMedia -> handleDiskAttach fmt conn vmId diskId iface (Just parsedMedia) readOnly discard cache
+      DiskDetach vmId driveId -> handleDiskDetach fmt conn vmId driveId
       -- Shared directory commands
       SharedDirAdd vmId path tag cacheStr readOnly -> do
         case parseSharedDirCache cacheStr of
           Left err -> do
-            putStrLn $ "Error: " ++ T.unpack err
+            if isStructured fmt
+              then outputError fmt "invalid_cache" err
+              else putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right cache -> handleSharedDirAdd conn vmId path tag cache readOnly
-      SharedDirRemove vmId sharedDirId -> handleSharedDirRemove conn vmId sharedDirId
-      SharedDirList vmId -> handleSharedDirList conn vmId
+          Right cache -> handleSharedDirAdd fmt conn vmId path tag cache readOnly
+      SharedDirRemove vmId sharedDirId -> handleSharedDirRemove fmt conn vmId sharedDirId
+      SharedDirList vmId -> handleSharedDirList fmt conn vmId
       -- Network interface commands
       NetIfAdd vmId ifaceTypeStr hostDevice macAddress -> do
         case parseNetInterfaceType ifaceTypeStr of
           Left err -> do
-            putStrLn $ "Error: " ++ T.unpack err
+            if isStructured fmt
+              then outputError fmt "invalid_interface_type" err
+              else putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right ifaceType -> handleNetIfAdd conn vmId ifaceType hostDevice macAddress
-      NetIfRemove vmId netIfId -> handleNetIfRemove conn vmId netIfId
-      NetIfList vmId -> handleNetIfList conn vmId
+          Right ifaceType -> handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress
+      NetIfRemove vmId netIfId -> handleNetIfRemove fmt conn vmId netIfId
+      NetIfList vmId -> handleNetIfList fmt conn vmId
       -- Snapshot commands
-      SnapshotCreate diskId name -> handleSnapshotCreate conn diskId name
-      SnapshotDelete diskId snapshotId -> handleSnapshotDelete conn diskId snapshotId
-      SnapshotRollback diskId snapshotId -> handleSnapshotRollback conn diskId snapshotId
-      SnapshotMerge diskId snapshotId -> handleSnapshotMerge conn diskId snapshotId
-      SnapshotList diskId -> handleSnapshotList conn diskId
+      SnapshotCreate diskId name -> handleSnapshotCreate fmt conn diskId name
+      SnapshotDelete diskId snapshotId -> handleSnapshotDelete fmt conn diskId snapshotId
+      SnapshotRollback diskId snapshotId -> handleSnapshotRollback fmt conn diskId snapshotId
+      SnapshotMerge diskId snapshotId -> handleSnapshotMerge fmt conn diskId snapshotId
+      SnapshotList diskId -> handleSnapshotList fmt conn diskId
       -- SSH key commands
-      SshKeyCreate name publicKey -> handleSshKeyCreate conn name publicKey
-      SshKeyDelete keyId -> handleSshKeyDelete conn keyId
-      SshKeyList -> handleSshKeyList conn
-      SshKeyAttach vmId keyId -> handleSshKeyAttach conn vmId keyId
-      SshKeyDetach vmId keyId -> handleSshKeyDetach conn vmId keyId
-      SshKeyListForVm vmId -> handleSshKeyListForVm conn vmId
-      TemplateCreate path -> handleTemplateCreate conn path
-      TemplateDelete tid -> handleTemplateDelete conn tid
-      TemplateList -> handleTemplateList conn
-      TemplateShow tid -> handleTemplateShow conn tid
-      TemplateInstantiate tid name -> handleTemplateInstantiate conn tid name
+      SshKeyCreate name publicKey -> handleSshKeyCreate fmt conn name publicKey
+      SshKeyDelete keyId -> handleSshKeyDelete fmt conn keyId
+      SshKeyList -> handleSshKeyList fmt conn
+      SshKeyAttach vmId keyId -> handleSshKeyAttach fmt conn vmId keyId
+      SshKeyDetach vmId keyId -> handleSshKeyDetach fmt conn vmId keyId
+      SshKeyListForVm vmId -> handleSshKeyListForVm fmt conn vmId
+      TemplateCreate path -> handleTemplateCreate fmt conn path
+      TemplateDelete tid -> handleTemplateDelete fmt conn tid
+      TemplateList -> handleTemplateList fmt conn
+      TemplateShow tid -> handleTemplateShow fmt conn tid
+      TemplateInstantiate tid name -> handleTemplateInstantiate fmt conn tid name
 
   case connResult of
     Left err -> do
-      putStrLn $ "Connection error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "connection_error" (T.pack $ show err)
+        else putStrLn $ "Connection error: " ++ show err
       exitFailure
     Right True -> exitSuccess
     Right False -> exitFailure

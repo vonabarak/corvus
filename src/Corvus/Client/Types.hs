@@ -3,11 +3,18 @@ module Corvus.Client.Types
   ( -- * Command line options
     Options (..),
     Command (..),
+
+    -- * Output format
+    OutputFormat (..),
   )
 where
 
 import Data.Int (Int64)
 import Data.Text (Text)
+
+-- | Output format for CLI commands
+data OutputFormat = TextOutput | JsonOutput | YamlOutput
+  deriving (Show, Eq)
 
 -- | Command line options
 data Options = Options
@@ -15,6 +22,7 @@ data Options = Options
     optTcp :: Bool,
     optHost :: String,
     optPort :: Int,
+    optOutput :: OutputFormat,
     optCommand :: Command
   }
   deriving (Show)

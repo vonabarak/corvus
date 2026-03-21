@@ -16,153 +16,215 @@ module Corvus.Client.Commands.SshKey
 where
 
 import Corvus.Client.Connection
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult)
 import Corvus.Client.Rpc
+import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Protocol (SshKeyInfo (..))
+import Data.Aeson (toJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Printf (printf)
 
 -- | Handle ssh-key create command
-handleSshKeyCreate :: Connection -> Text -> Text -> IO Bool
-handleSshKeyCreate conn name publicKey = do
+handleSshKeyCreate :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSshKeyCreate fmt conn name publicKey = do
   resp <- sshKeyCreate conn name publicKey
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right (SshKeyCreated keyId) -> do
-      putStrLn $ "SSH key created with ID: " ++ show keyId
+      if isStructured fmt
+        then outputOkWith fmt [("id", toJSON keyId)]
+        else putStrLn $ "SSH key created with ID: " ++ show keyId
       pure True
     Right (SshKeyError msg) -> do
-      putStrLn $ "Error creating SSH key: " ++ T.unpack msg
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error creating SSH key: " ++ T.unpack msg
       pure False
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 -- | Handle ssh-key delete command
-handleSshKeyDelete :: Connection -> Int64 -> IO Bool
-handleSshKeyDelete conn keyId = do
+handleSshKeyDelete :: OutputFormat -> Connection -> Int64 -> IO Bool
+handleSshKeyDelete fmt conn keyId = do
   resp <- sshKeyDelete conn keyId
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right SshKeyOk -> do
-      putStrLn "SSH key deleted."
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn "SSH key deleted."
       pure True
     Right SshKeyNotFound -> do
-      putStrLn $ "SSH key with ID " ++ show keyId ++ " not found."
+      if isStructured fmt
+        then outputError fmt "not_found" "SSH key not found"
+        else putStrLn $ "SSH key with ID " ++ show keyId ++ " not found."
       pure False
     Right (SshKeyInUse vmIds) -> do
-      putStrLn $ "SSH key is attached to VMs: " ++ show vmIds
-      putStrLn "Detach the key from all VMs first."
+      if isStructured fmt
+        then outputError fmt "in_use" ("SSH key is attached to VMs: " <> T.pack (show vmIds))
+        else do
+          putStrLn $ "SSH key is attached to VMs: " ++ show vmIds
+          putStrLn "Detach the key from all VMs first."
       pure False
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 -- | Handle ssh-key list command
-handleSshKeyList :: Connection -> IO Bool
-handleSshKeyList conn = do
+handleSshKeyList :: OutputFormat -> Connection -> IO Bool
+handleSshKeyList fmt conn = do
   resp <- sshKeyList conn
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right (SshKeyListResult keys) -> do
-      if null keys
-        then putStrLn "No SSH keys found."
+      if isStructured fmt
+        then outputResult fmt keys
         else do
-          putStrLn $
-            printf
-              "%-6s %-20s %-50s %-15s"
-              ("ID" :: String)
-              ("NAME" :: String)
-              ("PUBLIC_KEY" :: String)
-              ("ATTACHED_VMS" :: String)
-          putStrLn $ replicate 95 '-'
-          mapM_ printSshKeyInfo keys
+          if null keys
+            then putStrLn "No SSH keys found."
+            else do
+              putStrLn $
+                printf
+                  "%-6s %-20s %-50s %-15s"
+                  ("ID" :: String)
+                  ("NAME" :: String)
+                  ("PUBLIC_KEY" :: String)
+                  ("ATTACHED_VMS" :: String)
+              putStrLn $ replicate 95 '-'
+              mapM_ printSshKeyInfo keys
       pure True
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 -- | Handle ssh-key attach command
-handleSshKeyAttach :: Connection -> Int64 -> Int64 -> IO Bool
-handleSshKeyAttach conn vmId keyId = do
+handleSshKeyAttach :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
+handleSshKeyAttach fmt conn vmId keyId = do
   resp <- sshKeyAttach conn vmId keyId
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right SshKeyOk -> do
-      putStrLn "SSH key attached to VM."
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn "SSH key attached to VM."
       pure True
     Right SshKeyNotFound -> do
-      putStrLn $ "SSH key with ID " ++ show keyId ++ " not found."
+      if isStructured fmt
+        then outputError fmt "not_found" "SSH key not found"
+        else putStrLn $ "SSH key with ID " ++ show keyId ++ " not found."
       pure False
     Right SshKeyVmNotFound -> do
-      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      if isStructured fmt
+        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
+        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
       pure False
     Right (SshKeyError msg) -> do
-      putStrLn $ "Error attaching SSH key: " ++ T.unpack msg
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error attaching SSH key: " ++ T.unpack msg
       pure False
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 -- | Handle ssh-key detach command
-handleSshKeyDetach :: Connection -> Int64 -> Int64 -> IO Bool
-handleSshKeyDetach conn vmId keyId = do
+handleSshKeyDetach :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
+handleSshKeyDetach fmt conn vmId keyId = do
   resp <- sshKeyDetach conn vmId keyId
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right SshKeyOk -> do
-      putStrLn "SSH key detached from VM."
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn "SSH key detached from VM."
       pure True
     Right SshKeyNotFound -> do
-      putStrLn $ "SSH key with ID " ++ show keyId ++ " not found or not attached to VM."
+      if isStructured fmt
+        then outputError fmt "not_found" "SSH key not found"
+        else putStrLn $ "SSH key with ID " ++ show keyId ++ " not found or not attached to VM."
       pure False
     Right SshKeyVmNotFound -> do
-      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      if isStructured fmt
+        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
+        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
       pure False
     Right (SshKeyError msg) -> do
-      putStrLn $ "Error detaching SSH key: " ++ T.unpack msg
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error detaching SSH key: " ++ T.unpack msg
       pure False
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 -- | Handle ssh-key list-vm command
-handleSshKeyListForVm :: Connection -> Int64 -> IO Bool
-handleSshKeyListForVm conn vmId = do
+handleSshKeyListForVm :: OutputFormat -> Connection -> Int64 -> IO Bool
+handleSshKeyListForVm fmt conn vmId = do
   resp <- sshKeyListForVm conn vmId
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right (SshKeyListResult keys) -> do
-      if null keys
-        then putStrLn "No SSH keys attached to this VM."
+      if isStructured fmt
+        then outputResult fmt keys
         else do
-          putStrLn $
-            printf
-              "%-6s %-20s %-50s"
-              ("ID" :: String)
-              ("NAME" :: String)
-              ("PUBLIC_KEY" :: String)
-          putStrLn $ replicate 80 '-'
-          mapM_ printSshKeyInfoShort keys
+          if null keys
+            then putStrLn "No SSH keys attached to this VM."
+            else do
+              putStrLn $
+                printf
+                  "%-6s %-20s %-50s"
+                  ("ID" :: String)
+                  ("NAME" :: String)
+                  ("PUBLIC_KEY" :: String)
+              putStrLn $ replicate 80 '-'
+              mapM_ printSshKeyInfoShort keys
       pure True
     Right SshKeyVmNotFound -> do
-      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      if isStructured fmt
+        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
+        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
       pure False
     Right other -> do
-      putStrLn $ "Unexpected response: " ++ show other
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
 --------------------------------------------------------------------------------

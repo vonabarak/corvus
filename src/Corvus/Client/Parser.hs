@@ -9,6 +9,7 @@ module Corvus.Client.Parser
 where
 
 import Corvus.Client.Types
+import Data.Char (toLower)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -900,7 +901,28 @@ optionsParser =
           <> value 9876
           <> help "Port to connect to when using --tcp (default: 9876)"
       )
+    <*> outputFormatParser
     <*> commandParser
+
+-- | Parser for output format
+outputFormatParser :: Parser OutputFormat
+outputFormatParser =
+  option
+    readOutputFormat
+    ( long "output"
+        <> short 'o'
+        <> metavar "FORMAT"
+        <> value TextOutput
+        <> help "Output format: text, json, yaml (default: text)"
+    )
+
+-- | Reader for output format values
+readOutputFormat :: ReadM OutputFormat
+readOutputFormat = eitherReader $ \s -> case map toLower s of
+  "text" -> Right TextOutput
+  "json" -> Right JsonOutput
+  "yaml" -> Right YamlOutput
+  _ -> Left $ "Unknown output format: " ++ s ++ " (use text, json, or yaml)"
 
 -- | Full parser with info
 optsInfo :: ParserInfo Options

@@ -24,9 +24,12 @@ import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, bracket, try)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith)
 import Corvus.Client.Rpc
+import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (DriveInfo (..), NetIfInfo (..), VmDetails (..), VmInfo (..))
+import Data.Aeson (toJSON, (.=))
 import qualified Data.ByteString as BS
 import Data.Char (ord)
 import Data.Int (Int64)
@@ -41,59 +44,85 @@ import System.Process (callProcess)
 import Text.Printf (printf)
 
 -- | Handle VM creation
-handleVmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> IO Bool
-handleVmCreate conn name cpuCount ramMb mDesc = do
+handleVmCreate :: OutputFormat -> Connection -> Text -> Int -> Int -> Maybe Text -> IO Bool
+handleVmCreate fmt conn name cpuCount ramMb mDesc = do
   resp <- vmCreate conn name cpuCount ramMb mDesc
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right (VmCreated vmId) -> do
-      putStrLn $ "VM '" ++ T.unpack name ++ "' created with ID: " ++ show vmId
+      if isStructured fmt
+        then outputOkWith fmt [("id", toJSON vmId)]
+        else putStrLn $ "VM '" ++ T.unpack name ++ "' created with ID: " ++ show vmId
       pure True
     Right (VmCreateError msg) -> do
-      putStrLn $ "Failed to create VM: " ++ T.unpack msg
+      if isStructured fmt
+        then outputError fmt "create_failed" msg
+        else putStrLn $ "Failed to create VM: " ++ T.unpack msg
       pure False
 
 -- | Handle VM deletion
-handleVmDelete :: Connection -> Int64 -> IO Bool
-handleVmDelete conn vmId = do
+handleVmDelete :: OutputFormat -> Connection -> Int64 -> IO Bool
+handleVmDelete fmt conn vmId = do
   resp <- vmDelete conn vmId
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right VmDeleted -> do
-      putStrLn $ "VM " ++ show vmId ++ " deleted."
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn $ "VM " ++ show vmId ++ " deleted."
       pure True
     Right VmDeleteNotFound -> do
-      putStrLn $ "Error: VM with ID " ++ show vmId ++ " not found."
+      if isStructured fmt
+        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
+        else putStrLn $ "Error: VM with ID " ++ show vmId ++ " not found."
       pure False
     Right VmDeleteRunning -> do
-      putStrLn $ "Error: VM " ++ show vmId ++ " is running. Stop it before deleting."
+      if isStructured fmt
+        then outputError fmt "vm_running" ("VM " <> T.pack (show vmId) <> " is running")
+        else putStrLn $ "Error: VM " ++ show vmId ++ " is running. Stop it before deleting."
       pure False
     Right (VmDeleteError msg) -> do
-      putStrLn $ "Failed to delete VM: " ++ T.unpack msg
+      if isStructured fmt
+        then outputError fmt "delete_failed" msg
+        else putStrLn $ "Failed to delete VM: " ++ T.unpack msg
       pure False
 
 -- | Handle VM action result
-handleVmAction :: String -> Int64 -> IO (Either ConnectionError VmActionResult) -> IO Bool
-handleVmAction actionName vmId action = do
+handleVmAction :: OutputFormat -> String -> Int64 -> IO (Either ConnectionError VmActionResult) -> IO Bool
+handleVmAction fmt actionName vmId action = do
   resp <- action
   case resp of
     Left err -> do
-      putStrLn $ "Error: " ++ show err
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
       pure False
     Right VmActionNotFound -> do
-      putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+      if isStructured fmt
+        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
+        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
       pure False
     Right (VmActionInvalid currentStatus errMsg) -> do
-      putStrLn $ "Cannot " ++ actionName ++ " VM " ++ show vmId ++ ": " ++ T.unpack errMsg
-      putStrLn $ "Current status: " ++ T.unpack (enumToText currentStatus)
+      if isStructured fmt
+        then outputError fmt "invalid_transition" errMsg
+        else do
+          putStrLn $ "Cannot " ++ actionName ++ " VM " ++ show vmId ++ ": " ++ T.unpack errMsg
+          putStrLn $ "Current status: " ++ T.unpack (enumToText currentStatus)
       pure False
     Right (VmActionSuccess newStatus) -> do
-      putStrLn $ "VM " ++ show vmId ++ " " ++ actionName ++ ": OK"
-      putStrLn $ "New status: " ++ T.unpack (enumToText newStatus)
+      if isStructured fmt
+        then outputOkWith fmt [("newState", toJSON newStatus)]
+        else do
+          putStrLn $ "VM " ++ show vmId ++ " " ++ actionName ++ ": OK"
+          putStrLn $ "New status: " ++ T.unpack (enumToText newStatus)
       pure True
 
 -- | Print VM info in table format

@@ -28,6 +28,7 @@ library
       Corvus.CloudInit
       Corvus.Client
       Corvus.Client.Config
+      Corvus.Client.Output
       Corvus.Client.Connection
       Corvus.Client.Rpc
       Corvus.Client.Types
