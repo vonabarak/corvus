@@ -101,7 +101,7 @@ instance DefaultVmConfig VmConfig where
     VmConfig
       { vmcCpuCount = 2,
         vmcRamMb = 2048,
-        vmcOsName = "alpine-3.20-uefi",
+        vmcOsName = "almalinux-10",
         vmcSharedDir = Nothing,
         vmcDescription = Nothing,
         vmcDiskInterface = InterfaceVirtio,
@@ -203,8 +203,11 @@ withDaemonVmWithConfig daemon diskImageId config action = do
 
               -- Start the VM and wait for SSH
               putStrLn "[test] Starting VM and waiting for SSH..."
+              vmStartTime <- getCurrentTime
               startDaemonVmAndWait vm (vmcWaitSshTimeout config)
-              putStrLn "[test] SSH is ready"
+              vmReadyTime <- getCurrentTime
+              let bootSec = round (diffUTCTime vmReadyTime vmStartTime) :: Int
+              putStrLn $ "[test] SSH is ready (boot to SSH: " <> show bootSec <> "s)"
 
               -- Run the action
               action vm

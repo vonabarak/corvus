@@ -29,7 +29,7 @@ import Test.VM.Common (withTestVm)
 
 spec :: Spec
 spec = withTestDb $ do
-  describe "Virtiofs integration through daemon (requires cloud-init support)" $ do
+  describe "Virtiofs integration" $ do
     -- This test requires a fully functioning cloud-init setup.
     -- It has been verified to work manually but is flaky in CI due to
     -- timing issues with cloud-init user creation.
@@ -49,13 +49,13 @@ spec = withTestDb $ do
         (\_ -> removeDirectoryRecursive testDir)
         $ \_ -> withTestVm env (defaultVmConfig {vmcSharedDir = Just testDir}) $ \vm -> do
           -- Mount the shared directory
-          (code2, _, _) <- runInDaemonVm vm "doas mkdir -p /mnt/share"
+          (code2, _, _) <- runInDaemonVm vm "sudo mkdir -p /mnt/share"
           code2 `shouldBe` ExitSuccess
 
           (code3, _, _) <-
             runInDaemonVm
               vm
-              "doas mount -t virtiofs share /mnt/share"
+              "sudo mount -t virtiofs share /mnt/share"
           code3 `shouldBe` ExitSuccess
 
           -- Read the test file

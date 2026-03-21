@@ -228,13 +228,13 @@ test-suite corvus-test
       Corvus.DiskCloneIntegrationSpec
       Corvus.DiskOverlayIntegrationSpec
       Corvus.DiskSpec
+      Corvus.MultiOsIntegrationSpec
       Corvus.NetIfSpec
       Corvus.OverlayExtraSpec
       Corvus.ProtocolSpec
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec
-      Corvus.SshKeySetupSpec
       Corvus.SshKeySpec
       Corvus.TemplateIntegrationSpec
       Corvus.VirtiofsIntegrationSpec
