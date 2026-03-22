@@ -80,7 +80,7 @@ data Command
   | -- Network interface commands
 
     -- | Add network interface to VM (vmId, type, hostDevice, mac)
-    NetIfAdd !Int64 !Text !Text !Text
+    NetIfAdd !Int64 !Text !Text !(Maybe Text)
   | -- | Remove network interface from VM (vmId, netIfId)
     NetIfRemove !Int64 !Int64
   | -- | List network interfaces for VM

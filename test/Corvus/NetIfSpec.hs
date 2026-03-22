@@ -31,13 +31,18 @@ spec = withTestDb $ do
       thenNetIfVmNotFound result
 
   describe "net-if add" $ do
-    testCase "adds network interface to stopped VM" $ do
+    testCase "adds network interface with explicit MAC" $ do
       vmId <- givenVmExists "test-vm"
-      result <- whenNetIfAdd vmId NetBridge "br0" "52:54:00:00:00:01"
+      result <- whenNetIfAdd vmId NetBridge "br0" (Just "52:54:00:00:00:01")
+      thenNetIfAdded result
+
+    testCase "adds network interface with auto-generated MAC" $ do
+      vmId <- givenVmExists "test-vm"
+      result <- whenNetIfAdd vmId NetUser "" Nothing
       thenNetIfAdded result
 
     testCase "fails for non-existent VM" $ do
-      result <- whenNetIfAdd 999 NetBridge "br0" "52:54:00:00:00:01"
+      result <- whenNetIfAdd 999 NetBridge "br0" Nothing
       thenNetIfVmNotFound result
 
   describe "net-if remove" $ do

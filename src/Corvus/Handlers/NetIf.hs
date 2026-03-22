@@ -13,27 +13,42 @@ import Corvus.Protocol
 import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
+import System.Random (randomRIO)
+import Text.Printf (printf)
 
 --------------------------------------------------------------------------------
 -- Network Interface Handlers
 --------------------------------------------------------------------------------
 
--- | Add a network interface to a VM
+-- | Add a network interface to a VM.
+-- If no MAC address is provided, a random one is generated with the QEMU OUI prefix.
 handleNetIfAdd ::
   ServerState ->
   Int64 ->
   NetInterfaceType ->
   Text ->
-  Text ->
+  Maybe Text ->
   IO Response
-handleNetIfAdd state vmId ifaceType hostDevice macAddress = do
-  result <- runSqlPool (addNetIf vmId ifaceType hostDevice macAddress) (ssDbPool state)
+handleNetIfAdd state vmId ifaceType hostDevice mMacAddress = do
+  mac <- case mMacAddress of
+    Just m | not (T.null m) -> pure m
+    _ -> generateMacAddress
+  result <- runSqlPool (addNetIf vmId ifaceType hostDevice mac) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
     Just netIfId -> pure $ RespNetIfAdded netIfId
+
+-- | Generate a random MAC address with the QEMU OUI prefix (52:54:00).
+generateMacAddress :: IO Text
+generateMacAddress = do
+  b1 <- randomRIO (0, 255 :: Int)
+  b2 <- randomRIO (0, 255 :: Int)
+  b3 <- randomRIO (0, 255 :: Int)
+  pure $ T.pack $ printf "52:54:00:%02x:%02x:%02x" b1 b2 b3
 
 -- | Remove a network interface from a VM
 handleNetIfRemove :: ServerState -> Int64 -> Int64 -> IO Response

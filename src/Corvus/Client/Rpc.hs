@@ -482,7 +482,7 @@ netIfAdd ::
   Int64 ->
   NetInterfaceType ->
   Text ->
-  Text ->
+  Maybe Text ->
   IO (Either ConnectionError NetIfResult)
 netIfAdd conn vmId ifaceType hostDevice macAddress =
   handleNetIfResponse <$> sendRequest conn (ReqNetIfAdd vmId ifaceType hostDevice macAddress)

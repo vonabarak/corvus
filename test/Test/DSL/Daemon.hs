@@ -172,10 +172,9 @@ withDaemonVmWithConfig daemon diskImageId config action = do
       -- Find a free port for SSH forwarding
       sshPort <- findFreePort
 
-      -- Add network interface with SSH port forwarding
-      mac <- generateMacAddress
+      -- Add network interface with SSH port forwarding (server generates MAC)
       let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
-      addVmNetIf daemon vmId (vmcNetworkType config) hostFwd mac
+      addVmNetIf daemon vmId (vmcNetworkType config) hostFwd Nothing
 
       -- Add shared directory if requested
       case vmcSharedDir config of
@@ -309,7 +308,7 @@ addVmDisk daemon vmId diskImageId iface cache discard ro = do
     Right (Right other) -> fail $ "Failed to attach disk: " <> show other
 
 -- | Add a network interface to a VM
-addVmNetIf :: TestDaemon -> Int64 -> NetInterfaceType -> Text -> Text -> IO ()
+addVmNetIf :: TestDaemon -> Int64 -> NetInterfaceType -> Text -> Maybe Text -> IO ()
 addVmNetIf daemon vmId ifaceType hostDevice mac = do
   result <- withDaemonConnection daemon $ \conn ->
     netIfAdd conn vmId ifaceType hostDevice mac

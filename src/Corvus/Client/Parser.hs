@@ -713,11 +713,12 @@ netIfAddCommand =
           <> value ""
           <> help "Host device name (for tap/bridge/macvtap)"
       )
-    <*> strOption
-      ( long "mac"
-          <> metavar "MAC"
-          <> value ""
-          <> help "Optional MAC address (auto-generated if empty)"
+    <*> optional
+      ( strOption
+          ( long "mac"
+              <> metavar "MAC"
+              <> help "MAC address (auto-generated if not specified)"
+          )
       )
 
 -- | Parser for net-if remove

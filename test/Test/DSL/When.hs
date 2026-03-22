@@ -265,7 +265,7 @@ whenSharedDirList vmId = executeRpc (\conn -> Rpc.sharedDirList conn vmId)
 --------------------------------------------------------------------------------
 
 -- | Add a network interface to a VM
-whenNetIfAdd :: Int64 -> NetInterfaceType -> Text -> Text -> TestM NetIfResult
+whenNetIfAdd :: Int64 -> NetInterfaceType -> Text -> Maybe Text -> TestM NetIfResult
 whenNetIfAdd vmId ifaceType hostDevice mac =
   executeRpc (\conn -> Rpc.netIfAdd conn vmId ifaceType hostDevice mac)
 

@@ -126,7 +126,7 @@ spec = withTestDb $ do
         -- 6. Start the VM and verify SSH access with the key
         sshPort <- findFreePort
         let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
-        addVmNetIf daemon newVmId NetUser hostFwd (T.pack "52:54:00:12:34:57")
+        addVmNetIf daemon newVmId NetUser hostFwd Nothing
         resStart <- withDaemonConnection daemon $ \conn -> vmStart conn newVmId
         case resStart of
           Right (Right (VmActionSuccess _)) -> pure ()

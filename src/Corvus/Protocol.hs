@@ -108,7 +108,7 @@ data Request
     ReqSharedDirList !Int64
   | -- | Network interface operations
     -- | Add network interface to VM (vmId, interfaceType, hostDevice, macAddress)
-    ReqNetIfAdd !Int64 !NetInterfaceType !Text !Text
+    ReqNetIfAdd !Int64 !NetInterfaceType !Text !(Maybe Text)
   | -- | Remove network interface from VM (vmId, netIfId)
     ReqNetIfRemove !Int64 !Int64
   | -- | List network interfaces for VM (vmId)

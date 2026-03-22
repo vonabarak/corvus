@@ -29,7 +29,7 @@ parseNetInterfaceType :: Text -> Either Text NetInterfaceType
 parseNetInterfaceType = enumFromText
 
 -- | Handle network interface add command
-handleNetIfAdd :: OutputFormat -> Connection -> Int64 -> NetInterfaceType -> Text -> Text -> IO Bool
+handleNetIfAdd :: OutputFormat -> Connection -> Int64 -> NetInterfaceType -> Text -> Maybe Text -> IO Bool
 handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress = do
   resp <- netIfAdd conn vmId ifaceType hostDevice macAddress
   case resp of
