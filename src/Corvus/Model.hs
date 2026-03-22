@@ -430,6 +430,7 @@ Vm
     ramMb Int
     description Text Maybe
     pid Int Maybe
+    headless Bool default=false
     UniqueName name
     deriving Show Eq Generic
 
@@ -495,6 +496,7 @@ TemplateVm
     cpuCount Int
     ramMb Int
     description Text Maybe
+    headless Bool default=false
     createdAt UTCTime
     UniqueTemplateVmName name
     deriving Show Eq Generic

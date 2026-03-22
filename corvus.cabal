@@ -253,6 +253,7 @@ test-suite corvus-test
       Test.Prelude
       Test.Settings
       Test.VM.Common
+      Test.VM.Console
       Test.VM.Image
       Test.VM.Ssh
       Paths_corvus

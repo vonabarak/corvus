@@ -96,9 +96,9 @@ handleVmShow state vmId = do
     Just details -> pure $ RespVmDetails details
 
 -- | Handle VM create command
-handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> IO Response
-handleVmCreate state name cpuCount ramMb description = do
-  vmId <- runSqlPool (createVm name cpuCount ramMb description) (ssDbPool state)
+handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Response
+handleVmCreate state name cpuCount ramMb description headless = do
+  vmId <- runSqlPool (createVm name cpuCount ramMb description headless) (ssDbPool state)
   pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
@@ -300,8 +300,8 @@ setVmStatus vmId status = do
   update key [M.VmStatus =. status]
 
 -- | Create a new VM
-createVm :: Text -> Int -> Int -> Maybe Text -> SqlPersistT IO Int64
-createVm name cpuCount ramMb description = do
+createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> SqlPersistT IO Int64
+createVm name cpuCount ramMb description headless = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -312,6 +312,7 @@ createVm name cpuCount ramMb description = do
           , vmRamMb = ramMb
           , vmDescription = description
           , vmPid = Nothing
+          , vmHeadless = headless
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -344,6 +345,7 @@ listVms = do
         , viStatus = vmStatus vm
         , viCpuCount = vmCpuCount vm
         , viRamMb = vmRamMb vm
+        , viHeadless = vmHeadless vm
         }
 
 -- | Get full VM details
@@ -359,6 +361,7 @@ getVmDetails vmId = do
       -- Get socket paths
       monitorSock <- liftIO $ getMonitorSocket vmId
       spiceSock <- liftIO $ getSpiceSocket vmId
+      serialSock <- liftIO $ getSerialSocket vmId
       -- Build drive info by fetching disk images
       driveInfos <- mapM toDriveInfo drives
       pure $
@@ -373,8 +376,10 @@ getVmDetails vmId = do
             , vdDescription = vmDescription vm
             , vdDrives = driveInfos
             , vdNetIfs = map toNetIfInfo netIfs
+            , vdHeadless = vmHeadless vm
             , vdMonitorSocket = T.pack monitorSock
             , vdSpiceSocket = T.pack spiceSock
+            , vdSerialSocket = T.pack serialSock
             }
   where
     toDriveInfo (Entity driveKey drive) = do

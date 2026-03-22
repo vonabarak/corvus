@@ -42,7 +42,7 @@ spec = withTestDb $ do
 
   describe "vm create" $ do
     testCase "creates a new VM" $ do
-      resp <- executeRequest (ReqVmCreate "new-vm" 2 1024 (Just "test"))
+      resp <- executeRequest (ReqVmCreate "new-vm" 2 1024 (Just "test") False)
       liftIO $ case resp of
         RespVmCreated vmId -> vmId `shouldSatisfy` (> 0)
         _ -> fail $ "Expected RespVmCreated, got: " ++ show resp
@@ -51,7 +51,7 @@ spec = withTestDb $ do
         vmHasStatus 1 VmStopped
 
     testCase "creates VM with description" $ do
-      resp <- executeRequest (ReqVmCreate "desc-vm" 1 512 (Just "A test VM"))
+      resp <- executeRequest (ReqVmCreate "desc-vm" 1 512 (Just "A test VM") False)
       liftIO $ case resp of
         RespVmCreated vmId -> vmId `shouldSatisfy` (> 0)
         _ -> fail $ "Expected RespVmCreated, got: " ++ show resp

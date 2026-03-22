@@ -218,6 +218,7 @@ printTemplateDetails t = do
   case tvdDescription t of
     Just desc -> putStrLn $ "Description:  " ++ T.unpack desc
     Nothing -> pure ()
+  putStrLn $ "Console:      " ++ if tvdHeadless t then "serial (headless)" else "SPICE (graphics)"
 
   putStrLn "\nDrives:"
   if null (tvdDrives t)

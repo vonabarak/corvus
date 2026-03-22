@@ -162,9 +162,9 @@ data VmDeleteResult
   deriving (Eq, Show)
 
 -- | Create a new VM
-vmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> IO (Either ConnectionError VmCreateResult)
-vmCreate conn name cpuCount ramMb description = do
-  result <- sendRequest conn (ReqVmCreate name cpuCount ramMb description)
+vmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> IO (Either ConnectionError VmCreateResult)
+vmCreate conn name cpuCount ramMb description headless = do
+  result <- sendRequest conn (ReqVmCreate name cpuCount ramMb description headless)
   case result of
     Left err -> pure $ Left err
     Right (RespVmCreated vmId) -> pure $ Right $ VmCreated vmId

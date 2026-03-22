@@ -316,7 +316,7 @@ whenSshKeyListForVm vmId = executeRpc (`Rpc.sshKeyListForVm` vmId)
 -- | Create a new VM
 whenVmCreate :: Text -> Int -> Int -> Maybe Text -> TestM VmCreateResult
 whenVmCreate name cpuCount ramMb description =
-  executeRpc (\conn -> Rpc.vmCreate conn name cpuCount ramMb description)
+  executeRpc (\conn -> Rpc.vmCreate conn name cpuCount ramMb description False)
 
 -- | Delete a VM
 whenVmDelete :: Int64 -> TestM VmDeleteResult

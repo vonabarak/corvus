@@ -5,9 +5,9 @@
 TRUNCATE network_interface, drive, snapshot, disk_image, shared_dir, vm_ssh_key, ssh_key, vm RESTART IDENTITY CASCADE;
 
 -- Insert VMs
-INSERT INTO vm (id, name, created_at, status, cpu_count, ram_mb, description, pid) VALUES
-  (1, 'a10', now(), 'stopped', 4, 8192, 'AlmaLinux 10', NULL),
-  (2, 'ws25', now(), 'stopped', 8, 8192, 'Windows Server 2025', NULL);
+INSERT INTO vm (id, name, created_at, status, cpu_count, ram_mb, description, pid, headless) VALUES
+  (1, 'a10', now(), 'stopped', 4, 8192, 'AlmaLinux 10', NULL, false),
+  (2, 'ws25', now(), 'stopped', 8, 8192, 'Windows Server 2025', NULL, false);
 SELECT setval('vm_id_seq', (SELECT MAX(id) FROM vm));
 
 -- Insert Disk Images

@@ -33,7 +33,7 @@ spec = do
 
     describe "VmInfo" $ do
       it "serializes with correct field names and enum values" $ do
-        let vm = VmInfo 1 "my-vm" VmRunning 4 2048
+        let vm = VmInfo 1 "my-vm" VmRunning 4 2048 False
             val = toJSON vm
         val
           `shouldBe` object
@@ -42,10 +42,11 @@ spec = do
             , "status" .= ("running" :: String)
             , "cpuCount" .= (4 :: Int)
             , "ramMb" .= (2048 :: Int)
+            , "headless" .= False
             ]
 
       it "serializes stopped status correctly" $ do
-        let vm = VmInfo 2 "test" VmStopped 1 512
+        let vm = VmInfo 2 "test" VmStopped 1 512 False
             json = encode vm
         BL.unpack json `shouldSatisfy` isInfixOf "\"stopped\""
 
@@ -115,7 +116,7 @@ spec = do
 
     describe "TemplateVmInfo" $ do
       it "serializes with optional description" $ do
-        let t = TemplateVmInfo 1 "my-template" 2 1024 (Just "A test template")
+        let t = TemplateVmInfo 1 "my-template" 2 1024 (Just "A test template") False
             val = toJSON t
         case val of
           Object obj -> do
@@ -124,7 +125,7 @@ spec = do
           _ -> fail "Expected JSON object"
 
       it "serializes null description" $ do
-        let t = TemplateVmInfo 1 "minimal" 1 512 Nothing
+        let t = TemplateVmInfo 1 "minimal" 1 512 Nothing False
             val = toJSON t
         case val of
           Object obj -> do
@@ -136,7 +137,7 @@ spec = do
         encode ([] :: [VmInfo]) `shouldBe` "[]"
 
       it "VM list serializes as JSON array" $ do
-        let vms = [VmInfo 1 "a" VmRunning 1 512, VmInfo 2 "b" VmStopped 2 1024]
+        let vms = [VmInfo 1 "a" VmRunning 1 512 False, VmInfo 2 "b" VmStopped 2 1024 False]
             val = toJSON vms
         case val of
           Array arr -> length arr `shouldBe` 2

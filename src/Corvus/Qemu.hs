@@ -20,6 +20,7 @@ module Corvus.Qemu
   , getVmRuntimeDir
   , getMonitorSocket
   , getSpiceSocket
+  , getSerialSocket
   , getQmpSocket
 
     -- * VM execution

@@ -44,9 +44,9 @@ import System.Process (callProcess)
 import Text.Printf (printf)
 
 -- | Handle VM creation
-handleVmCreate :: OutputFormat -> Connection -> Text -> Int -> Int -> Maybe Text -> IO Bool
-handleVmCreate fmt conn name cpuCount ramMb mDesc = do
-  resp <- vmCreate conn name cpuCount ramMb mDesc
+handleVmCreate :: OutputFormat -> Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Bool
+handleVmCreate fmt conn name cpuCount ramMb mDesc headless = do
+  resp <- vmCreate conn name cpuCount ramMb mDesc headless
   case resp of
     Left err -> do
       if isStructured fmt
@@ -147,8 +147,11 @@ printVmDetails vm = do
   putStrLn $ "CPUs:           " ++ show (vdCpuCount vm)
   putStrLn $ "RAM (MB):       " ++ show (vdRamMb vm)
   putStrLn $ "Description:    " ++ maybe "(none)" T.unpack (vdDescription vm)
+  putStrLn $ "Console:        " ++ if vdHeadless vm then "serial (headless)" else "SPICE (graphics)"
   putStrLn $ "Monitor Socket: " ++ T.unpack (vdMonitorSocket vm)
-  putStrLn $ "SPICE Socket:   " ++ T.unpack (vdSpiceSocket vm)
+  if vdHeadless vm
+    then putStrLn $ "Serial Socket:  " ++ T.unpack (vdSerialSocket vm)
+    else putStrLn $ "SPICE Socket:   " ++ T.unpack (vdSpiceSocket vm)
 
   putStrLn ""
   putStrLn "Drives:"

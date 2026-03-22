@@ -35,8 +35,8 @@ data Command
   | -- VM commands
     VmList
   | VmShow !Int64
-  | -- | Create a new VM (name, cpuCount, ramMb, description)
-    VmCreate !Text !Int !Int !(Maybe Text)
+  | -- | Create a new VM (name, cpuCount, ramMb, description, headless)
+    VmCreate !Text !Int !Int !(Maybe Text) !Bool
   | -- | Delete a VM
     VmDelete !Int64
   | VmStart !Int64

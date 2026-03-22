@@ -20,7 +20,8 @@ import System.Exit (ExitCode (..))
 import Test.DSL.Daemon
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (withTestVm, withTestVmBios)
+import Test.VM.Common (withTestVm, withTestVmBios, withTestVmConsole)
+import Test.VM.Console (consoleDrain, consoleExpect, consoleSend)
 
 -- | VM config with extended SSH timeout for multi-OS test suite
 multiOsConfig :: VmConfig
@@ -93,3 +94,17 @@ spec = withTestDb $ do
 
       it "SSH key setup works with BIOS boot" $ \env -> do
         withTestVmBios env (multiOsConfig {vmcOsName = "freebsd-14"}) verifyVm
+
+      it "serial console login works" $ \env -> do
+        withTestVmConsole env (multiOsConfig {vmcOsName = "freebsd-14"}) $ \console -> do
+          -- Wait for the login prompt (console is connected from boot)
+          _ <- consoleExpect console "login:" 60
+          _ <- consoleDrain console
+          -- Log in as root (no password on FreeBSD console by default)
+          consoleSend console "root"
+          _ <- consoleExpect console "#" 30
+          _ <- consoleDrain console
+          -- Run whoami and verify
+          consoleSend console "whoami"
+          output <- consoleExpect console "root" 10
+          T.isInfixOf "root" output `shouldBe` True

@@ -39,7 +39,7 @@ handleRequest state req = case req of
   -- VM handlers
   ReqListVms -> handleVmList state
   ReqShowVm vmId -> handleVmShow state vmId
-  ReqVmCreate name cpus ram desc -> handleVmCreate state name cpus ram desc
+  ReqVmCreate name cpus ram desc headless -> handleVmCreate state name cpus ram desc headless
   ReqVmDelete vmId -> handleVmDelete state vmId
   ReqVmStart vmId -> handleVmStart state vmId
   ReqVmStop vmId -> handleVmStop state vmId

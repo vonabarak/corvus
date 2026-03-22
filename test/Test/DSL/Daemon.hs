@@ -13,6 +13,7 @@ module Test.DSL.Daemon
   , DaemonVm (..)
   , withDaemonVm
   , withDaemonVmWithConfig
+  , withDaemonVmConsole
   , createDaemonVm
   , startDaemonVm
   , startDaemonVmAndWait
@@ -69,6 +70,7 @@ import System.Exit (ExitCode (..))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (readProcessWithExitCode)
 import Test.Daemon (TestDaemon (..), withDaemonConnection)
+import Test.VM.Console (SerialConsole, connectSerialConsole)
 import Test.VM.Ssh (SshKeyPair (..), generateSshKeyPair)
 
 --------------------------------------------------------------------------------
@@ -90,6 +92,7 @@ data VmConfig = VmConfig
   , vmcSharedDirCache :: SharedDirCache
   , vmcSshUser :: Text
   , vmcAdditionalDisks :: [(Int64, DriveInterface, Bool)]
+  , vmcHeadless :: Bool
   }
   deriving (Show, Eq)
 
@@ -113,6 +116,7 @@ instance DefaultVmConfig VmConfig where
       , vmcSharedDirCache = CacheAuto
       , vmcSshUser = "corvus"
       , vmcAdditionalDisks = []
+      , vmcHeadless = True
       }
 
 -- | A VM running through the daemon with SSH access
@@ -157,7 +161,7 @@ withDaemonVmWithConfig daemon diskImageId config action = do
 
   -- Use bracket for robust VM lifecycle management
   bracket
-    (createDaemonVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config))
+    (createDaemonVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config) (vmcHeadless config))
     ( \vmId -> do
         -- Cleanup: stop and delete the VM
         stopDaemonVmAndWait daemon vmId 30
@@ -208,6 +212,7 @@ withDaemonVmWithConfig daemon diskImageId config action = do
             vmReadyTime <- getCurrentTime
             let bootSec = round (diffUTCTime vmReadyTime vmStartTime) :: Int
             putStrLn $ "[test] SSH is ready (boot to SSH: " <> show bootSec <> "s)"
+            putStrLn $ "[test] ssh " <> T.unpack (dvmSshUser vm) <> "@" <> dvmSshHost vm <> " -p " <> show (dvmSshPort vm) <> " -i " <> dvmSshPrivateKey vm
 
             -- Run the action
             action vm
@@ -225,11 +230,53 @@ withDaemonVm daemon diskImageId mSharedDir =
   let config = defaultVmConfig {vmcSharedDir = mSharedDir}
    in withDaemonVmWithConfig daemon diskImageId config
 
+-- | Run an action with a daemon-managed VM connected via serial console.
+-- Creates the VM, adds disks and network, starts it, connects to the
+-- serial console immediately (no SSH setup, no waiting for SSH).
+-- Use this for headless VMs that may not have SSH.
+withDaemonVmConsole
+  :: TestDaemon
+  -> Int64
+  -- ^ Disk image ID to use for the boot disk
+  -> VmConfig
+  -- ^ VM configuration (vmcHeadless should be True)
+  -> (SerialConsole -> IO a)
+  -> IO a
+withDaemonVmConsole daemon diskImageId config action = do
+  -- Use a unique name for the VM
+  vmUuid <- nextRandom
+  let vmName = "test-vm-" <> T.take 8 (toText vmUuid)
+
+  -- Use bracket for robust VM lifecycle management
+  bracket
+    (createDaemonVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config) (vmcHeadless config))
+    ( \vmId -> do
+        -- Cleanup: stop and delete the VM
+        stopDaemonVmAndWait daemon vmId 30
+        deleteDaemonVm daemon vmId
+    )
+    $ \vmId -> do
+      -- Add boot disk
+      addVmDisk daemon vmId diskImageId (vmcDiskInterface config) (vmcDiskCache config) (vmcDiskDiscard config) False
+
+      -- Add additional disks
+      mapM_ (\(dId, iface, ro) -> addVmDisk daemon vmId dId iface (vmcDiskCache config) (vmcDiskDiscard config) ro) (vmcAdditionalDisks config)
+
+      -- Add network interface (no SSH port forwarding needed, but network may still be useful)
+      addVmNetIf daemon vmId (vmcNetworkType config) "" Nothing
+
+      -- Start the VM
+      putStrLn "[test] Starting VM for serial console access..."
+      startDaemonVm daemon vmId
+
+      -- Connect to serial console immediately
+      connectSerialConsole vmId action
+
 -- | Create a VM via daemon RPC
-createDaemonVm :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> IO Int64
-createDaemonVm daemon name cpus ram mDesc = do
+createDaemonVm :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Int64
+createDaemonVm daemon name cpus ram mDesc headless = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmCreate conn name cpus ram mDesc
+    vmCreate conn name cpus ram mDesc headless
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error creating VM: " <> show err
@@ -344,6 +391,7 @@ setupVmSshKey daemon vmId tmpDir = do
   (privateKey, publicKey) <- case keyPairResult of
     Left err -> fail $ "Failed to generate SSH key pair: " <> T.unpack err
     Right keyPair -> pure (skpPrivateKey keyPair, skpPublicKey keyPair)
+  putStrLn $ "[test] SSH private key: " <> privateKey
 
   -- Read the public key content
   pubKeyContent <- T.pack <$> readFile publicKey

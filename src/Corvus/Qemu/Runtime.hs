@@ -12,6 +12,7 @@ module Corvus.Qemu.Runtime
   , getMonitorSocket
   , getQmpSocket
   , getSpiceSocket
+  , getSerialSocket
   , getPidFile
   )
 where
@@ -73,6 +74,12 @@ getSpiceSocket :: Int64 -> IO FilePath
 getSpiceSocket vmId = do
   vmDir <- getVmRuntimeDir vmId
   pure $ vmDir </> "spice.sock"
+
+-- | Get path to serial console socket for a VM
+getSerialSocket :: Int64 -> IO FilePath
+getSerialSocket vmId = do
+  vmDir <- getVmRuntimeDir vmId
+  pure $ vmDir </> "serial.sock"
 
 -- | Get path to PID file for a VM
 getPidFile :: Int64 -> IO FilePath

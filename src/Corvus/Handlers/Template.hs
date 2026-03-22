@@ -46,6 +46,7 @@ data TemplateYaml = TemplateYaml
   , tyCpuCount :: Int
   , tyRamMb :: Int
   , tyDescription :: Maybe Text
+  , tyHeadless :: Bool
   , tyDrives :: [TemplateDriveYaml]
   , tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml]
   , tySshKeys :: [TemplateSshKeyYaml]
@@ -59,6 +60,7 @@ instance FromJSON TemplateYaml where
       <*> o .: "cpuCount"
       <*> o .: "ramMb"
       <*> o .:? "description"
+      <*> o .:? "headless" .!= False
       <*> o .: "drives"
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sshKeys" .!= []
@@ -145,6 +147,7 @@ handleTemplateList state = do
         , tviCpuCount = templateVmCpuCount t
         , tviRamMb = templateVmRamMb t
         , tviDescription = templateVmDescription t
+        , tviHeadless = templateVmHeadless t
         }
 
 handleTemplateShow :: ServerState -> Int64 -> IO Response
@@ -172,7 +175,7 @@ handleTemplateInstantiate state tidLong newVmName = runStdoutLoggingT $ do
     Just details -> do
       -- 2. Create VM record
       now <- liftIO getCurrentTime
-      vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing) (ssDbPool state)
+      vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details)) (ssDbPool state)
 
       -- 3. Instantiate drives
       driveResults <- forM (tvdDrives details) $ \td -> do
@@ -213,7 +216,7 @@ createTemplate ty now = do
 
   case (sequence mDiskIds, sequence mKeyIds) of
     (Right diskIds, Right keyIds) -> do
-      tid <- insert $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) now
+      tid <- insert $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) now
 
       forM_ (zip diskIds (tyDrives ty)) $ \(diskId, tdy) -> do
         insert_ $
@@ -278,6 +281,7 @@ getTemplateDetails tid = do
             , tvdCpuCount = templateVmCpuCount t
             , tvdRamMb = templateVmRamMb t
             , tvdDescription = templateVmDescription t
+            , tvdHeadless = templateVmHeadless t
             , tvdCreatedAt = templateVmCreatedAt t
             , tvdDrives = driveInfos
             , tvdNetIfs = netIfInfos

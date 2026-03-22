@@ -4,6 +4,8 @@
 module Test.VM.Common
   ( withTestVm
   , withTestVmBios
+  , withTestVmConsole
+  , withTestVmBiosConsole
   )
 where
 
@@ -20,6 +22,7 @@ import Test.DSL.Daemon
 import Test.Daemon (startTestDaemon, stopTestDaemon, withDaemonConnection)
 import Test.Database (TestEnv)
 import Test.Settings (getImageConfig)
+import Test.VM.Console (SerialConsole)
 import Test.VM.Image (ensureBaseImage)
 
 -- | Generate unique disk names for test isolation
@@ -155,4 +158,117 @@ withTestVmBios env config action = do
     )
     ( \_ -> do
         withDaemonVmWithConfig daemon overlayDiskId config action
+    )
+
+-- | Run a test with a UEFI daemon-managed VM connected via serial console.
+-- Same disk/OVMF setup as 'withTestVm', but starts the VM and connects
+-- to the serial console immediately instead of waiting for SSH.
+-- Use this for headless VMs that may not have SSH.
+withTestVmConsole :: TestEnv -> VmConfig -> (SerialConsole -> IO a) -> IO a
+withTestVmConsole env config action = do
+  daemon <- startTestDaemon env
+  (baseName, overlayName, ovmfCodeName, ovmfVarsTemplateName, ovmfVarsName) <- uniqueDiskNames
+
+  imageResult <- ensureBaseImage (vmcOsName config)
+  localBasePath <- case imageResult of
+    Left err -> do
+      stopTestDaemon daemon
+      fail $ "Failed to get base image: " <> T.unpack err
+    Right path -> pure path
+
+  resBase <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn baseName (T.pack localBasePath) FormatQcow2 Nothing
+  baseDiskId <- case resBase of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to register base disk: " <> show err
+    Right (Right other) -> fail $ "Unexpected response registering base disk: " <> show other
+    Left err -> fail $ "Connection error registering base disk: " <> show err
+
+  resOverlay <- withDaemonConnection daemon $ \conn ->
+    diskCreateOverlay conn overlayName baseDiskId
+  overlayDiskId <- case resOverlay of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to create overlay: " <> show err
+    Right (Right other) -> fail $ "Unexpected response creating overlay: " <> show other
+    Left err -> fail $ "Connection error creating overlay: " <> show err
+
+  resOvmfCode <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn ovmfCodeName "/usr/share/edk2/OvmfX64/OVMF_CODE.fd" FormatRaw Nothing
+  ovmfCodeId <- case resOvmfCode of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to register OVMF_CODE disk: " <> show err
+    _ -> fail "Unexpected response registering OVMF_CODE"
+
+  resOvmfVarsTemplate <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn ovmfVarsTemplateName "/usr/share/edk2/OvmfX64/OVMF_VARS.fd" FormatRaw Nothing
+  ovmfVarsTemplateId <- case resOvmfVarsTemplate of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to register OVMF_VARS template disk: " <> show err
+    _ -> fail "Unexpected response registering OVMF_VARS template"
+
+  resOvmfVars <- withDaemonConnection daemon $ \conn ->
+    diskClone conn ovmfVarsName ovmfVarsTemplateId Nothing
+  ovmfVarsId <- case resOvmfVars of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to clone OVMF_VARS: " <> show err
+    _ -> fail "Unexpected response cloning OVMF_VARS"
+
+  let configWithOvmf =
+        config
+          { vmcAdditionalDisks =
+              [ (ovmfCodeId, InterfacePflash, True)
+              , (ovmfVarsId, InterfacePflash, False)
+              ]
+          }
+
+  bracket
+    (pure ())
+    ( \_ -> do
+        _ <- withDaemonConnection daemon $ \conn -> diskDelete conn overlayDiskId
+        _ <- withDaemonConnection daemon $ \conn -> diskDelete conn ovmfVarsId
+        stopTestDaemon daemon
+    )
+    ( \_ -> do
+        withDaemonVmConsole daemon overlayDiskId configWithOvmf action
+    )
+
+-- | Run a test with a BIOS-booted daemon-managed VM connected via serial console.
+-- Same disk setup as 'withTestVmBios', but starts the VM and connects
+-- to the serial console immediately instead of waiting for SSH.
+withTestVmBiosConsole :: TestEnv -> VmConfig -> (SerialConsole -> IO a) -> IO a
+withTestVmBiosConsole env config action = do
+  daemon <- startTestDaemon env
+  (baseName, overlayName, _, _, _) <- uniqueDiskNames
+
+  imageResult <- ensureBaseImage (vmcOsName config)
+  localBasePath <- case imageResult of
+    Left err -> do
+      stopTestDaemon daemon
+      fail $ "Failed to get base image: " <> T.unpack err
+    Right path -> pure path
+
+  resBase <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn baseName (T.pack localBasePath) FormatQcow2 Nothing
+  baseDiskId <- case resBase of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to register base disk: " <> show err
+    Right (Right other) -> fail $ "Unexpected response registering base disk: " <> show other
+    Left err -> fail $ "Connection error registering base disk: " <> show err
+
+  resOverlay <- withDaemonConnection daemon $ \conn ->
+    diskCreateOverlay conn overlayName baseDiskId
+  overlayDiskId <- case resOverlay of
+    Right (Right (DiskCreated dId)) -> pure dId
+    Right (Left err) -> fail $ "Failed to create overlay: " <> show err
+    Right (Right other) -> fail $ "Unexpected response creating overlay: " <> show other
+    Left err -> fail $ "Connection error creating overlay: " <> show err
+
+  bracket
+    (pure ())
+    ( \_ -> do
+        _ <- withDaemonConnection daemon $ \conn -> diskDelete conn overlayDiskId
+        stopTestDaemon daemon
+    )
+    ( \_ -> do
+        withDaemonVmConsole daemon overlayDiskId config action
     )

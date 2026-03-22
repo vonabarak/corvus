@@ -71,6 +71,7 @@ insertVm name status = do
           , vmRamMb = 4096
           , vmDescription = Nothing
           , vmPid = Nothing
+          , vmHeadless = False
           }
   pure $ fromSqlKey key
 
@@ -96,6 +97,7 @@ insertVmFull name status cpus ramMb desc pid = do
           , vmRamMb = ramMb
           , vmDescription = desc
           , vmPid = pid
+          , vmHeadless = False
           }
   pure $ fromSqlKey key
 
@@ -112,6 +114,7 @@ defaultVm = do
       , vmRamMb = 4096
       , vmDescription = Nothing
       , vmPid = Nothing
+      , vmHeadless = False
       }
 
 --------------------------------------------------------------------------------

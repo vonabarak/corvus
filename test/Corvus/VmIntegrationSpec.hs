@@ -17,11 +17,11 @@ import System.Exit (ExitCode (..))
 import Test.DSL.Daemon
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (withTestVm)
+import Test.VM.Common (withTestVm, withTestVmBios)
 
 spec :: Spec
 spec = withTestDb $ do
-  describe "VM integration through daemon (requires cloud-init support)" $ do
+  describe "VM integration" $ do
     -- These tests require a fully functioning cloud-init setup.
     -- They have been verified to work manually but are flaky in CI due to
     -- timing issues with cloud-init user creation.
@@ -67,3 +67,24 @@ spec = withTestDb $ do
         (code, stdout, _) <- runInDaemonVm vm "sudo whoami"
         code `shouldBe` ExitSuccess
         T.strip stdout `shouldBe` "root"
+
+    it "detects virtio-vga graphics adapter in non-headless VM" $ \env -> do
+      let config = defaultVmConfig {vmcHeadless = False}
+      withTestVm env config $ \vm -> do
+        -- Check that the virtio-vga device is visible via lshw
+        (code, stdout, _) <- runInDaemonVm vm "sudo lshw -class display"
+        code `shouldBe` ExitSuccess
+        T.isInfixOf "VGA compatible controller" stdout `shouldBe` True
+        T.isInfixOf "Virtio 1.0 GPU" stdout `shouldBe` True
+
+    it "UEFI VM has EFI boot entries" $ \env -> do
+      withTestVm env defaultVmConfig $ \vm -> do
+        (code, stdout, _) <- runInDaemonVm vm "sudo efibootmgr"
+        code `shouldBe` ExitSuccess
+        T.isInfixOf "BootOrder" stdout `shouldBe` True
+
+    it "BIOS VM does not have EFI support" $ \env -> do
+      withTestVmBios env defaultVmConfig $ \vm -> do
+        (code, _, stderr) <- runInDaemonVm vm "sudo efibootmgr"
+        code `shouldNotBe` ExitSuccess
+        T.isInfixOf "EFI variables are not supported" stderr `shouldBe` True

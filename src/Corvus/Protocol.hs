@@ -44,7 +44,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 1
+protocolVersion = 2
 
 -- | Client requests
 data Request
@@ -54,8 +54,8 @@ data Request
   | ReqListVms
   | -- | VM ID
     ReqShowVm !Int64
-  | -- | Create VM (name, cpuCount, ramMb, description)
-    ReqVmCreate !Text !Int !Int !(Maybe Text)
+  | -- | Create VM (name, cpuCount, ramMb, description, headless)
+    ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool
   | -- | Delete VM (vmId)
     ReqVmDelete !Int64
   | -- | Start VM (stopped/paused -> running)
@@ -157,6 +157,7 @@ data VmInfo = VmInfo
   , viStatus :: !VmStatus
   , viCpuCount :: !Int
   , viRamMb :: !Int
+  , viHeadless :: !Bool
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -194,10 +195,13 @@ data VmDetails = VmDetails
   , vdDescription :: !(Maybe Text)
   , vdDrives :: ![DriveInfo]
   , vdNetIfs :: ![NetIfInfo]
+  , vdHeadless :: !Bool
   , vdMonitorSocket :: !Text
   -- ^ Path to HMP monitor socket
   , vdSpiceSocket :: !Text
   -- ^ Path to SPICE socket
+  , vdSerialSocket :: !Text
+  -- ^ Path to serial console socket
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -257,6 +261,7 @@ data TemplateVmInfo = TemplateVmInfo
   , tviCpuCount :: !Int
   , tviRamMb :: !Int
   , tviDescription :: !(Maybe Text)
+  , tviHeadless :: !Bool
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -295,6 +300,7 @@ data TemplateDetails = TemplateDetails
   , tvdCpuCount :: !Int
   , tvdRamMb :: !Int
   , tvdDescription :: !(Maybe Text)
+  , tvdHeadless :: !Bool
   , tvdCreatedAt :: !UTCTime
   , tvdDrives :: ![TemplateDriveInfo]
   , tvdNetIfs :: ![TemplateNetIfInfo]
@@ -322,6 +328,7 @@ instance ToJSON VmInfo where
       , "status" .= viStatus v
       , "cpuCount" .= viCpuCount v
       , "ramMb" .= viRamMb v
+      , "headless" .= viHeadless v
       ]
 
 instance ToJSON DriveInfo where
@@ -359,8 +366,10 @@ instance ToJSON VmDetails where
       , "description" .= vdDescription v
       , "drives" .= vdDrives v
       , "networkInterfaces" .= vdNetIfs v
+      , "headless" .= vdHeadless v
       , "monitorSocket" .= vdMonitorSocket v
       , "spiceSocket" .= vdSpiceSocket v
+      , "serialSocket" .= vdSerialSocket v
       ]
 
 instance ToJSON DiskImageInfo where
@@ -415,6 +424,7 @@ instance ToJSON TemplateVmInfo where
       , "cpuCount" .= tviCpuCount t
       , "ramMb" .= tviRamMb t
       , "description" .= tviDescription t
+      , "headless" .= tviHeadless t
       ]
 
 instance ToJSON TemplateDriveInfo where
@@ -453,6 +463,7 @@ instance ToJSON TemplateDetails where
       , "cpuCount" .= tvdCpuCount t
       , "ramMb" .= tvdRamMb t
       , "description" .= tvdDescription t
+      , "headless" .= tvdHeadless t
       , "createdAt" .= tvdCreatedAt t
       , "drives" .= tvdDrives t
       , "networkInterfaces" .= tvdNetIfs t

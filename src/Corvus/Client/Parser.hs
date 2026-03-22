@@ -66,6 +66,10 @@ vmCreateCommand =
               <> help "Optional VM description"
           )
       )
+    <*> switch
+      ( long "headless"
+          <> help "Create VM without graphics (serial console only)"
+      )
 
 -- | Parser for vm delete
 vmDeleteCommand :: Parser Command

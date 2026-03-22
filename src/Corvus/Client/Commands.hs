@@ -145,7 +145,7 @@ runCommand opts = do
               then outputResult fmt details
               else printVmDetails details
             pure True
-      VmCreate name cpuCount ramMb mDesc -> handleVmCreate fmt conn name cpuCount ramMb mDesc
+      VmCreate name cpuCount ramMb mDesc headless -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless
       VmDelete vmId -> handleVmDelete fmt conn vmId
       VmStart vmId -> handleVmAction fmt "start" vmId (vmStart conn vmId)
       VmStop vmId -> handleVmAction fmt "stop" vmId (vmStop conn vmId)
@@ -174,13 +174,25 @@ runCommand opts = do
                     putStrLn $ "Current status: " ++ T.unpack (enumToText $ vdStatus details)
                 pure False
               else do
-                let spiceSock = T.unpack (vdSpiceSocket details)
-                if isStructured fmt
-                  then outputValue fmt (object ["spiceSocket" .= vdSpiceSocket details])
+                if vdHeadless details
+                  then do
+                    let serialSock = T.unpack (vdSerialSocket details)
+                    if isStructured fmt
+                      then outputValue fmt (object ["serialSocket" .= vdSerialSocket details])
+                      else do
+                        putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' serial console..."
+                        putStrLn "Press Ctrl+] to exit."
+                        putStrLn ""
+                        _ <- runMonitorSession serialSock
+                        pure ()
                   else do
-                    putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' via SPICE..."
-                    runRemoteViewer defaultClientConfig spiceSock
-                    pure ()
+                    let spiceSock = T.unpack (vdSpiceSocket details)
+                    if isStructured fmt
+                      then outputValue fmt (object ["spiceSocket" .= vdSpiceSocket details])
+                      else do
+                        putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' via SPICE..."
+                        _ <- runRemoteViewer defaultClientConfig spiceSock
+                        pure ()
                 pure True
       VmMonitor vmId -> do
         resp <- showVm conn vmId

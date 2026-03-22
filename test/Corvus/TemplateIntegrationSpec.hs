@@ -95,7 +95,9 @@ spec = withTestDb $ do
           Right (Right (TemplateDetailsResult details)) -> do
             tvdName details `shouldBe` "test-template"
             length (tvdDrives details) `shouldBe` 3
-            tvdiDiskImageName (head (tvdDrives details)) `shouldBe` baseDiskName
+            case tvdDrives details of
+              (d : _) -> tvdiDiskImageName d `shouldBe` baseDiskName
+              [] -> fail "Expected at least one drive in template"
             length (tvdSshKeys details) `shouldBe` 1
           other -> fail $ "Template show failed: " ++ show other
 

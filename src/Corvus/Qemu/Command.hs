@@ -26,6 +26,7 @@ import Corvus.Qemu.Config
 import Corvus.Qemu.Runtime
   ( getMonitorSocket
   , getQmpSocket
+  , getSerialSocket
   , getSpiceSocket
   , getVmRuntimeDir
   )
@@ -51,8 +52,9 @@ generateQemuCommandIO pool config vmId = do
   monitorSock <- getMonitorSocket vmId
   qmpSock <- getQmpSocket vmId
   spiceSock <- getSpiceSocket vmId
+  serialSock <- getSerialSocket vmId
   vmRuntimeDir <- getVmRuntimeDir vmId
-  result <- runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock vmRuntimeDir) pool
+  result <- runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock vmRuntimeDir) pool
   pure $ case result of
     Nothing -> Nothing
     Just (binary, args) -> Just $ unwords (binary : args)
@@ -75,6 +77,7 @@ generateQemuCommand config vmId = do
       monitorSock <- liftIO $ getMonitorSocket vmId
       qmpSock <- liftIO $ getQmpSocket vmId
       spiceSock <- liftIO $ getSpiceSocket vmId
+      serialSock <- liftIO $ getSerialSocket vmId
       vmRuntimeDir <- liftIO $ getVmRuntimeDir vmId
       let (binary, args) =
             buildCommandWithSockets
@@ -85,6 +88,7 @@ generateQemuCommand config vmId = do
               monitorSock
               qmpSock
               spiceSock
+              serialSock
               vmRuntimeDir
               driveWithImages
               (map entityVal netIfs)
@@ -107,8 +111,9 @@ generateQemuCommandWithSockets
   -> FilePath
   -> FilePath
   -> FilePath
+  -> FilePath
   -> SqlPersistT IO (Maybe (FilePath, [String]))
-generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock vmRuntimeDir = do
+generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock vmRuntimeDir = do
   let key = toSqlKey vmId :: VmId
   mVm <- get key
   case mVm of
@@ -128,6 +133,7 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSoc
             monitorSock
             qmpSock
             spiceSock
+            serialSock
             vmRuntimeDir
             driveWithImages
             (map entityVal netIfs)
@@ -147,11 +153,12 @@ buildCommandWithSockets
   -> FilePath
   -> FilePath
   -> FilePath
+  -> FilePath
   -> [(Drive, Maybe DiskImage)]
   -> [NetworkInterface]
   -> [SharedDir]
   -> (FilePath, [String])
-buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spiceSock vmRuntimeDir drives netIfs sharedDirs =
+buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spiceSock serialSock vmRuntimeDir drives netIfs sharedDirs =
   ( qcQemuBinary
   , concatMap
       (filter (not . null))
@@ -161,8 +168,7 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
       , ["-enable-kvm"]
       , memoryArgs
       , ["-smp", show (vmCpuCount vm)]
-      , spiceArgs
-      , usbRedirArgs
+      , displayArgs
       , monitorArgs
       , concatMap (driveArgs basePath) (zip [0 ..] drives)
       , concatMap netArgs (zip [0 ..] netIfs)
@@ -182,6 +188,19 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
           , "-numa"
           , "node,memdev=mem"
           ]
+
+    displayArgs
+      | vmHeadless vm = serialConsoleArgs
+      | otherwise = spiceArgs ++ usbRedirArgs
+
+    serialConsoleArgs =
+      [ "-chardev"
+      , "socket,id=serial0,path=" ++ serialSock ++ ",server=on,wait=off"
+      , "-serial"
+      , "chardev:serial0"
+      , "-display"
+      , "none"
+      ]
 
     spiceArgs =
       [ "-spice"
