@@ -5,14 +5,14 @@
 -- Handles starting and killing virtiofsd processes for shared directories.
 module Corvus.Qemu.Virtiofsd
   ( -- * Starting virtiofsd
-    startVirtiofsdProcesses,
-    VirtiofsdResult (..),
+    startVirtiofsdProcesses
+  , VirtiofsdResult (..)
 
     -- * Socket paths
-    getVirtiofsdSocket,
+  , getVirtiofsdSocket
 
     -- * Killing virtiofsd
-    killVirtiofsdProcesses,
+  , killVirtiofsdProcesses
   )
 where
 
@@ -67,12 +67,12 @@ getVirtiofsdSocket vmId tag = do
 
 -- | Start virtiofsd processes for all shared directories of a VM
 -- Only starts processes that don't already have a PID in the database
-startVirtiofsdProcesses ::
-  (MonadIO m, MonadLogger m) =>
-  Pool SqlBackend ->
-  QemuConfig ->
-  Int64 ->
-  m VirtiofsdResult
+startVirtiofsdProcesses
+  :: (MonadIO m, MonadLogger m)
+  => Pool SqlBackend
+  -> QemuConfig
+  -> Int64
+  -> m VirtiofsdResult
 startVirtiofsdProcesses pool config vmId = do
   -- Ensure runtime directory exists
   _ <- liftIO $ createVmRuntimeDir vmId
@@ -99,13 +99,13 @@ startVirtiofsdProcesses pool config vmId = do
         else pure VirtiofsdSomeFailed
 
 -- | Start virtiofsd for a single shared directory
-startVirtiofsdForDir ::
-  (MonadIO m, MonadLogger m) =>
-  Pool SqlBackend ->
-  QemuConfig ->
-  Int64 ->
-  Entity SharedDir ->
-  m Bool
+startVirtiofsdForDir
+  :: (MonadIO m, MonadLogger m)
+  => Pool SqlBackend
+  -> QemuConfig
+  -> Int64
+  -> Entity SharedDir
+  -> m Bool
 startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
   -- Check if already running
   case sharedDirPid dir of
@@ -124,10 +124,10 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
       let binary = qcVirtiofsdBinary config
           cacheArg = T.unpack $ enumToText (sharedDirCache dir)
           args =
-            [ "--socket-path=" ++ socketPath,
-              "--shared-dir=" ++ T.unpack (sharedDirPath dir),
-              "--cache=" ++ cacheArg,
-              "--sandbox=none"
+            [ "--socket-path=" ++ socketPath
+            , "--shared-dir=" ++ T.unpack (sharedDirPath dir)
+            , "--cache=" ++ cacheArg
+            , "--sandbox=none"
             ]
 
       logDebugN $
@@ -142,8 +142,8 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
           try $
             createProcess
               (proc binary args)
-                { std_out = CreatePipe,
-                  std_err = CreatePipe
+                { std_out = CreatePipe
+                , std_err = CreatePipe
                 }
         case result of
           Left (e :: SomeException) -> do
@@ -196,11 +196,11 @@ getSharedDirsForVm vmId = do
 --------------------------------------------------------------------------------
 
 -- | Kill all virtiofsd processes for a VM
-killVirtiofsdProcesses ::
-  (MonadIO m, MonadLogger m) =>
-  Pool SqlBackend ->
-  Int64 ->
-  m ()
+killVirtiofsdProcesses
+  :: (MonadIO m, MonadLogger m)
+  => Pool SqlBackend
+  -> Int64
+  -> m ()
 killVirtiofsdProcesses pool vmId = do
   sharedDirs <- liftIO $ runSqlPool (getSharedDirsForVm vmId) pool
 

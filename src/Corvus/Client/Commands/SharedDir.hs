@@ -3,12 +3,12 @@
 -- | Shared directory command handlers for the Corvus client.
 module Corvus.Client.Commands.SharedDir
   ( -- * Command handlers
-    handleSharedDirAdd,
-    handleSharedDirRemove,
-    handleSharedDirList,
+    handleSharedDirAdd
+  , handleSharedDirRemove
+  , handleSharedDirList
 
     -- * Parsers
-    parseSharedDirCache,
+  , parseSharedDirCache
   )
 where
 

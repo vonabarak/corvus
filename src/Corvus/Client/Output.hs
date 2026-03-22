@@ -2,12 +2,12 @@
 
 -- | Machine-readable output helpers for the Corvus client.
 module Corvus.Client.Output
-  ( outputValue,
-    outputResult,
-    outputOk,
-    outputOkWith,
-    outputError,
-    isStructured,
+  ( outputValue
+  , outputResult
+  , outputOk
+  , outputOkWith
+  , outputError
+  , isStructured
   )
 where
 
@@ -47,7 +47,7 @@ outputError :: OutputFormat -> Text -> Text -> IO ()
 outputError fmt code msg =
   outputValue fmt $
     object
-      [ "status" .= ("error" :: Text),
-        "error" .= code,
-        "message" .= msg
+      [ "status" .= ("error" :: Text)
+      , "error" .= code
+      , "message" .= msg
       ]

@@ -4,10 +4,10 @@ module Corvus.ClientOutputSpec (spec) where
 
 import Corvus.Model
 import Corvus.Protocol
-import Data.Aeson (Value (..), ToJSON (..), encode, object, (.=))
+import Data.Aeson (ToJSON (..), Value (..), encode, object, (.=))
 import qualified Data.Aeson.KeyMap as KM
-import Data.List (isInfixOf)
 import qualified Data.ByteString.Lazy.Char8 as BL
+import Data.List (isInfixOf)
 import Data.Maybe (isJust)
 import Data.Time.Clock (UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
@@ -24,23 +24,25 @@ spec = do
       it "serializes with correct field names" $ do
         let info = StatusInfo 3600 5 "1.0.0"
             val = toJSON info
-        val `shouldBe` object
-          [ "uptime" .= (3600 :: Int)
-          , "connections" .= (5 :: Int)
-          , "version" .= ("1.0.0" :: String)
-          ]
+        val
+          `shouldBe` object
+            [ "uptime" .= (3600 :: Int)
+            , "connections" .= (5 :: Int)
+            , "version" .= ("1.0.0" :: String)
+            ]
 
     describe "VmInfo" $ do
       it "serializes with correct field names and enum values" $ do
         let vm = VmInfo 1 "my-vm" VmRunning 4 2048
             val = toJSON vm
-        val `shouldBe` object
-          [ "id" .= (1 :: Int)
-          , "name" .= ("my-vm" :: String)
-          , "status" .= ("running" :: String)
-          , "cpuCount" .= (4 :: Int)
-          , "ramMb" .= (2048 :: Int)
-          ]
+        val
+          `shouldBe` object
+            [ "id" .= (1 :: Int)
+            , "name" .= ("my-vm" :: String)
+            , "status" .= ("running" :: String)
+            , "cpuCount" .= (4 :: Int)
+            , "ramMb" .= (2048 :: Int)
+            ]
 
       it "serializes stopped status correctly" $ do
         let vm = VmInfo 2 "test" VmStopped 1 512

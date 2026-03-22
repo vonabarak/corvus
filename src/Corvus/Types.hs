@@ -3,16 +3,16 @@
 
 module Corvus.Types
   ( -- * Server State
-    ServerState (..),
-    newServerState,
+    ServerState (..)
+  , newServerState
 
     -- * Configuration
-    ServerConfig (..),
-    defaultServerConfig,
+  , ServerConfig (..)
+  , defaultServerConfig
 
     -- * Listen Address
-    ListenAddress (..),
-    getDefaultSocketPath,
+  , ListenAddress (..)
+  , getDefaultSocketPath
   )
 where
 
@@ -28,16 +28,16 @@ import System.FilePath ((</>))
 
 -- | Shared server state
 data ServerState = ServerState
-  { -- | When the server started
-    ssStartTime :: !UTCTime,
-    -- | Current connection count
-    ssConnectionCount :: TVar Int,
-    -- | Signal to shutdown
-    ssShutdownFlag :: TVar Bool,
-    -- | Database connection pool
-    ssDbPool :: Pool SqlBackend,
-    -- | QEMU configuration
-    ssQemuConfig :: !QemuConfig
+  { ssStartTime :: !UTCTime
+  -- ^ When the server started
+  , ssConnectionCount :: TVar Int
+  -- ^ Current connection count
+  , ssShutdownFlag :: TVar Bool
+  -- ^ Signal to shutdown
+  , ssDbPool :: Pool SqlBackend
+  -- ^ Database connection pool
+  , ssQemuConfig :: !QemuConfig
+  -- ^ QEMU configuration
   }
 
 -- | Create a new server state
@@ -48,23 +48,23 @@ newServerState pool qemuConfig = do
   shutdownFlag <- newTVarIO False
   pure
     ServerState
-      { ssStartTime = startTime,
-        ssConnectionCount = connCount,
-        ssShutdownFlag = shutdownFlag,
-        ssDbPool = pool,
-        ssQemuConfig = qemuConfig
+      { ssStartTime = startTime
+      , ssConnectionCount = connCount
+      , ssShutdownFlag = shutdownFlag
+      , ssDbPool = pool
+      , ssQemuConfig = qemuConfig
       }
 
 -- | Server configuration
 data ServerConfig = ServerConfig
-  { -- | Host to bind to
-    scHost :: !Text,
-    -- | Port to listen on
-    scPort :: !Int,
-    -- | Optional Unix socket path
-    scUnixSocket :: Maybe FilePath,
-    -- | PostgreSQL connection URI
-    scDbUri :: !Text
+  { scHost :: !Text
+  -- ^ Host to bind to
+  , scPort :: !Int
+  -- ^ Port to listen on
+  , scUnixSocket :: Maybe FilePath
+  -- ^ Optional Unix socket path
+  , scDbUri :: !Text
+  -- ^ PostgreSQL connection URI
   }
   deriving (Eq, Show)
 
@@ -72,10 +72,10 @@ data ServerConfig = ServerConfig
 defaultServerConfig :: ServerConfig
 defaultServerConfig =
   ServerConfig
-    { scHost = "127.0.0.1",
-      scPort = 9876,
-      scUnixSocket = Nothing,
-      scDbUri = "postgresql://localhost/corvus"
+    { scHost = "127.0.0.1"
+    , scPort = 9876
+    , scUnixSocket = Nothing
+    , scDbUri = "postgresql://localhost/corvus"
     }
 
 -- | Address to listen on or connect to

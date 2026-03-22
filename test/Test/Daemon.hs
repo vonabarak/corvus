@@ -6,13 +6,13 @@
 -- and connect to it via RPC for integration testing.
 module Test.Daemon
   ( -- * Daemon lifecycle
-    TestDaemon (..),
-    startTestDaemon,
-    stopTestDaemon,
-    withTestDaemon,
+    TestDaemon (..)
+  , startTestDaemon
+  , stopTestDaemon
+  , withTestDaemon
 
     -- * RPC client helpers
-    withDaemonConnection,
+  , withDaemonConnection
   )
 where
 
@@ -43,14 +43,14 @@ import Test.Database (TestEnv (..), createTestTempDir)
 
 -- | A running test daemon instance
 data TestDaemon = TestDaemon
-  { -- | Server state (for direct access if needed)
-    tdState :: !ServerState,
-    -- | Server thread
-    tdThread :: !(Async ()),
-    -- | Socket path for client connections
-    tdSocketPath :: !FilePath,
-    -- | Temporary directory (for cleanup)
-    tdTempDir :: !FilePath
+  { tdState :: !ServerState
+  -- ^ Server state (for direct access if needed)
+  , tdThread :: !(Async ())
+  -- ^ Server thread
+  , tdSocketPath :: !FilePath
+  -- ^ Socket path for client connections
+  , tdTempDir :: !FilePath
+  -- ^ Temporary directory (for cleanup)
   }
 
 --------------------------------------------------------------------------------
@@ -82,10 +82,10 @@ startTestDaemon env = do
 
   pure
     TestDaemon
-      { tdState = state,
-        tdThread = serverThread,
-        tdSocketPath = socketPath,
-        tdTempDir = tempDir
+      { tdState = state
+      , tdThread = serverThread
+      , tdSocketPath = socketPath
+      , tdTempDir = tempDir
       }
 
 -- | Stop a test daemon
@@ -109,10 +109,10 @@ withTestDaemon env = bracket (startTestDaemon env) stopTestDaemon
 --------------------------------------------------------------------------------
 
 -- | Run an action with a connection to the test daemon
-withDaemonConnection ::
-  TestDaemon ->
-  (Connection -> IO a) ->
-  IO (Either ConnectionError a)
+withDaemonConnection
+  :: TestDaemon
+  -> (Connection -> IO a)
+  -> IO (Either ConnectionError a)
 withDaemonConnection daemon =
   withConnection (UnixAddress (tdSocketPath daemon))
 

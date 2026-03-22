@@ -3,76 +3,76 @@
 -- | RPC call functions for the Corvus client.
 module Corvus.Client.Rpc
   ( -- * Basic commands
-    sendPing,
-    getStatus,
-    requestShutdown,
+    sendPing
+  , getStatus
+  , requestShutdown
 
     -- * VM listing
-    listVms,
-    showVm,
+  , listVms
+  , showVm
 
     -- * VM lifecycle
-    VmCreateResult (..),
-    VmDeleteResult (..),
-    vmCreate,
-    vmDelete,
+  , VmCreateResult (..)
+  , VmDeleteResult (..)
+  , vmCreate
+  , vmDelete
 
     -- * VM actions
-    VmActionResult (..),
-    vmStart,
-    vmStop,
-    vmPause,
-    vmReset,
+  , VmActionResult (..)
+  , vmStart
+  , vmStop
+  , vmPause
+  , vmReset
 
     -- * Disk operations
-    DiskResult (..),
-    diskCreate,
-    diskCreateOverlay,
-    diskRegister,
-    diskDelete,
-    diskResize,
-    diskClone,
-    diskList,
-    diskShow,
-    diskAttach,
-    diskDetach,
+  , DiskResult (..)
+  , diskCreate
+  , diskCreateOverlay
+  , diskRegister
+  , diskDelete
+  , diskResize
+  , diskClone
+  , diskList
+  , diskShow
+  , diskAttach
+  , diskDetach
 
     -- * Snapshot operations
-    SnapshotResult (..),
-    snapshotCreate,
-    snapshotDelete,
-    snapshotRollback,
-    snapshotMerge,
-    snapshotList,
+  , SnapshotResult (..)
+  , snapshotCreate
+  , snapshotDelete
+  , snapshotRollback
+  , snapshotMerge
+  , snapshotList
 
     -- * Shared directory operations
-    SharedDirResult (..),
-    sharedDirAdd,
-    sharedDirRemove,
-    sharedDirList,
+  , SharedDirResult (..)
+  , sharedDirAdd
+  , sharedDirRemove
+  , sharedDirList
 
     -- * Network interface operations
-    NetIfResult (..),
-    netIfAdd,
-    netIfRemove,
-    netIfList,
+  , NetIfResult (..)
+  , netIfAdd
+  , netIfRemove
+  , netIfList
 
     -- * SSH key operations
-    SshKeyResult (..),
-    sshKeyCreate,
-    sshKeyDelete,
-    sshKeyList,
-    sshKeyAttach,
-    sshKeyDetach,
-    sshKeyListForVm,
+  , SshKeyResult (..)
+  , sshKeyCreate
+  , sshKeyDelete
+  , sshKeyList
+  , sshKeyAttach
+  , sshKeyDetach
+  , sshKeyListForVm
 
     -- * Template operations
-    TemplateResult (..),
-    templateCreate,
-    templateDelete,
-    templateList,
-    templateShow,
-    templateInstantiate,
+  , TemplateResult (..)
+  , templateCreate
+  , templateDelete
+  , templateList
+  , templateShow
+  , templateInstantiate
   )
 where
 
@@ -273,13 +273,13 @@ diskCreateOverlay conn name baseDiskId =
   handleDiskResponse <$> sendRequest conn (ReqDiskCreateOverlay name baseDiskId)
 
 -- | Register an existing disk image file
-diskRegister ::
-  Connection ->
-  Text ->
-  Text ->
-  DriveFormat ->
-  Maybe Int64 ->
-  IO (Either ConnectionError DiskResult)
+diskRegister
+  :: Connection
+  -> Text
+  -> Text
+  -> DriveFormat
+  -> Maybe Int64
+  -> IO (Either ConnectionError DiskResult)
 diskRegister conn name filePath format sizeMb =
   handleDiskResponse <$> sendRequest conn (ReqDiskRegister name filePath format sizeMb)
 
@@ -306,16 +306,16 @@ diskClone conn name baseDiskId optionalPath =
   handleDiskResponse <$> sendRequest conn (ReqDiskClone name baseDiskId optionalPath)
 
 -- | Attach a disk to a VM
-diskAttach ::
-  Connection ->
-  Int64 ->
-  Int64 ->
-  DriveInterface ->
-  Maybe DriveMedia ->
-  Bool ->
-  Bool ->
-  CacheType ->
-  IO (Either ConnectionError DiskResult)
+diskAttach
+  :: Connection
+  -> Int64
+  -> Int64
+  -> DriveInterface
+  -> Maybe DriveMedia
+  -> Bool
+  -> Bool
+  -> CacheType
+  -> IO (Either ConnectionError DiskResult)
 diskAttach conn vmId diskId interface media readOnly discard cache =
   handleDiskResponse <$> sendRequest conn (ReqDiskAttach vmId diskId interface media readOnly discard cache)
 
@@ -423,14 +423,14 @@ handleSharedDirResponse result = case result of
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Add a shared directory to a VM
-sharedDirAdd ::
-  Connection ->
-  Int64 ->
-  Text ->
-  Text ->
-  SharedDirCache ->
-  Bool ->
-  IO (Either ConnectionError SharedDirResult)
+sharedDirAdd
+  :: Connection
+  -> Int64
+  -> Text
+  -> Text
+  -> SharedDirCache
+  -> Bool
+  -> IO (Either ConnectionError SharedDirResult)
 sharedDirAdd conn vmId path tag cache readOnly =
   handleSharedDirResponse <$> sendRequest conn (ReqSharedDirAdd vmId path tag cache readOnly)
 
@@ -477,13 +477,13 @@ handleNetIfResponse result = case result of
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Add a network interface to a VM
-netIfAdd ::
-  Connection ->
-  Int64 ->
-  NetInterfaceType ->
-  Text ->
-  Maybe Text ->
-  IO (Either ConnectionError NetIfResult)
+netIfAdd
+  :: Connection
+  -> Int64
+  -> NetInterfaceType
+  -> Text
+  -> Maybe Text
+  -> IO (Either ConnectionError NetIfResult)
 netIfAdd conn vmId ifaceType hostDevice macAddress =
   handleNetIfResponse <$> sendRequest conn (ReqNetIfAdd vmId ifaceType hostDevice macAddress)
 

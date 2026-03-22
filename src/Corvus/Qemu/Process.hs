@@ -5,12 +5,12 @@
 -- Handles starting and killing QEMU processes.
 module Corvus.Qemu.Process
   ( -- * Starting VMs
-    StartVmResult (..),
-    startVm,
+    StartVmResult (..)
+  , startVm
 
     -- * Killing VMs
-    KillResult (..),
-    killVmProcess,
+  , KillResult (..)
+  , killVmProcess
   )
 where
 
@@ -90,8 +90,8 @@ startVm pool config vmId = do
           try $
             createProcess
               (proc binary args)
-                { std_out = CreatePipe,
-                  std_err = CreatePipe
+                { std_out = CreatePipe
+                , std_err = CreatePipe
                 }
       case result of
         Left (e :: SomeException) -> do

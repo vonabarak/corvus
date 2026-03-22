@@ -4,15 +4,15 @@
 -- Handles creation of runtime directories and socket paths.
 module Corvus.Qemu.Runtime
   ( -- * Runtime directories
-    getCorvusRuntimeDir,
-    getVmRuntimeDir,
-    createVmRuntimeDir,
+    getCorvusRuntimeDir
+  , getVmRuntimeDir
+  , createVmRuntimeDir
 
     -- * Socket paths
-    getMonitorSocket,
-    getQmpSocket,
-    getSpiceSocket,
-    getPidFile,
+  , getMonitorSocket
+  , getQmpSocket
+  , getSpiceSocket
+  , getPidFile
   )
 where
 

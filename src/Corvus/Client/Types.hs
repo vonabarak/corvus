@@ -1,11 +1,11 @@
 -- | Types for the Corvus client CLI.
 module Corvus.Client.Types
   ( -- * Command line options
-    Options (..),
-    Command (..),
+    Options (..)
+  , Command (..)
 
     -- * Output format
-    OutputFormat (..),
+  , OutputFormat (..)
   )
 where
 
@@ -18,12 +18,12 @@ data OutputFormat = TextOutput | JsonOutput | YamlOutput
 
 -- | Command line options
 data Options = Options
-  { optSocket :: Maybe FilePath,
-    optTcp :: Bool,
-    optHost :: String,
-    optPort :: Int,
-    optOutput :: OutputFormat,
-    optCommand :: Command
+  { optSocket :: Maybe FilePath
+  , optTcp :: Bool
+  , optHost :: String
+  , optPort :: Int
+  , optOutput :: OutputFormat
+  , optCommand :: Command
   }
   deriving (Show)
 
@@ -112,6 +112,7 @@ data Command
   | -- | List SSH keys for VM (vmId)
     SshKeyListForVm !Int64
   | -- Template commands
+
     -- | Create template from YAML file (file path)
     TemplateCreate !FilePath
   | -- | Delete template (template id)

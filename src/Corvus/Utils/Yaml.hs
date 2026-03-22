@@ -4,7 +4,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 module Corvus.Utils.Yaml
-  ( yamlQQ,
+  ( yamlQQ
   )
 where
 
@@ -28,10 +28,10 @@ import Language.Haskell.TH.Syntax (Lift (..))
 yamlQQ :: QuasiQuoter
 yamlQQ =
   QuasiQuoter
-    { quoteExp = parseInterpolatedYaml,
-      quotePat = const $ fail "yamlQQ: patterns not supported",
-      quoteType = const $ fail "yamlQQ: types not supported",
-      quoteDec = const $ fail "yamlQQ: declarations not supported"
+    { quoteExp = parseInterpolatedYaml
+    , quotePat = const $ fail "yamlQQ: patterns not supported"
+    , quoteType = const $ fail "yamlQQ: types not supported"
+    , quoteDec = const $ fail "yamlQQ: declarations not supported"
     }
 
 parseInterpolatedYaml :: String -> ExpQ

@@ -2,15 +2,15 @@
 
 -- | Client configuration.
 module Corvus.Client.Config
-  ( ClientConfig (..),
-    defaultClientConfig,
+  ( ClientConfig (..)
+  , defaultClientConfig
   )
 where
 
 -- | Client configuration
 newtype ClientConfig = ClientConfig
-  { -- | Path to remote-viewer executable
-    ccRemoteViewer :: FilePath
+  { ccRemoteViewer :: FilePath
+  -- ^ Path to remote-viewer executable
   }
   deriving (Eq, Show)
 

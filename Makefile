@@ -2,7 +2,7 @@
 
 .PHONY: all build install cleanup unit-tests integration-tests all-tests test lint format
 
-# Add ~/.local/bin to PATH for tools like hlint and ormolu
+# Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
 
 # Default target: build
@@ -46,6 +46,6 @@ test:
 lint:
 	hlint src app test
 
-# Format the code using ormolu
+# Format the code using fourmolu
 format:
-	ormolu --mode inplace $(shell find src app test -name '*.hs')
+	fourmolu --mode inplace $(shell find src app test -name '*.hs')

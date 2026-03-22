@@ -4,33 +4,33 @@
 -- | Disk and snapshot command handlers for the Corvus client.
 module Corvus.Client.Commands.Disk
   ( -- * Disk command handlers
-    handleDiskCreate,
-    handleDiskCreateOverlay,
-    handleDiskImport,
-    handleDiskDelete,
-    handleDiskResize,
-    handleDiskList,
-    handleDiskShow,
-    handleDiskClone,
-    handleDiskAttach,
-    handleDiskDetach,
+    handleDiskCreate
+  , handleDiskCreateOverlay
+  , handleDiskImport
+  , handleDiskDelete
+  , handleDiskResize
+  , handleDiskList
+  , handleDiskShow
+  , handleDiskClone
+  , handleDiskAttach
+  , handleDiskDetach
 
     -- * Snapshot command handlers
-    handleSnapshotCreate,
-    handleSnapshotDelete,
-    handleSnapshotRollback,
-    handleSnapshotMerge,
-    handleSnapshotList,
+  , handleSnapshotCreate
+  , handleSnapshotDelete
+  , handleSnapshotRollback
+  , handleSnapshotMerge
+  , handleSnapshotList
 
     -- * Parsers
-    parseFormat,
-    parseInterface,
-    parseCacheType,
-    parseMedia,
+  , parseFormat
+  , parseInterface
+  , parseCacheType
+  , parseMedia
 
     -- * Formatters
-    printDiskInfo,
-    printSnapshotInfo,
+  , printDiskInfo
+  , printSnapshotInfo
   )
 where
 
@@ -374,17 +374,17 @@ handleDiskClone fmt conn name baseDiskId optionalPath = do
       pure False
 
 -- | Handle disk attach command
-handleDiskAttach ::
-  OutputFormat ->
-  Connection ->
-  Int64 ->
-  Int64 ->
-  DriveInterface ->
-  Maybe DriveMedia ->
-  Bool ->
-  Bool ->
-  CacheType ->
-  IO Bool
+handleDiskAttach
+  :: OutputFormat
+  -> Connection
+  -> Int64
+  -> Int64
+  -> DriveInterface
+  -> Maybe DriveMedia
+  -> Bool
+  -> Bool
+  -> CacheType
+  -> IO Bool
 handleDiskAttach fmt conn vmId diskId iface media readOnly discard cache = do
   resp <- diskAttach conn vmId diskId iface media readOnly discard cache
   case resp of

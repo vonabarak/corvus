@@ -285,8 +285,6 @@ testConcurrentSnapshotOperations env = do
 -- Test Helpers
 --------------------------------------------------------------------------------
 
-
-
 -- | Create a snapshot
 createSnapshot :: TestDaemon -> Int64 -> T.Text -> IO Int64
 createSnapshot daemon diskId name = do
@@ -372,4 +370,3 @@ tryMergeSnapshot daemon diskId snapshotId = do
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
     Right (Right res) -> pure res
-

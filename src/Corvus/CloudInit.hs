@@ -5,16 +5,16 @@
 -- Creates NoCloud datasource ISOs for injecting SSH keys and configuration.
 module Corvus.CloudInit
   ( -- * Configuration
-    CloudInitConfig (..),
-    defaultCloudInitConfig,
+    CloudInitConfig (..)
+  , defaultCloudInitConfig
 
     -- * ISO paths
-    getCloudInitIsoPath,
-    getCloudInitDir,
+  , getCloudInitIsoPath
+  , getCloudInitDir
 
     -- * ISO generation
-    generateCloudInitIso,
-    removeCloudInitIso,
+  , generateCloudInitIso
+  , removeCloudInitIso
   )
 where
 
@@ -34,12 +34,12 @@ import System.Process (readProcessWithExitCode)
 
 -- | Cloud-init configuration
 data CloudInitConfig = CloudInitConfig
-  { -- | Username to create
-    ciUser :: !Text,
-    -- | Hostname for the VM
-    ciHostname :: !Text,
-    -- | Instance ID (should be unique per VM)
-    ciInstanceId :: !Text
+  { ciUser :: !Text
+  -- ^ Username to create
+  , ciHostname :: !Text
+  -- ^ Hostname for the VM
+  , ciInstanceId :: !Text
+  -- ^ Instance ID (should be unique per VM)
   }
   deriving (Show, Eq)
 
@@ -47,9 +47,9 @@ data CloudInitConfig = CloudInitConfig
 defaultCloudInitConfig :: CloudInitConfig
 defaultCloudInitConfig =
   CloudInitConfig
-    { ciUser = "corvus",
-      ciHostname = "corvus-vm",
-      ciInstanceId = "corvus-001"
+    { ciUser = "corvus"
+    , ciHostname = "corvus-vm"
+    , ciInstanceId = "corvus-001"
     }
 
 -- | Get the directory for storing cloud-init files for a VM
@@ -83,9 +83,9 @@ generateUserData config sshPubKeys' =
         , "rc-service sshd restart || systemctl restart ssh || systemctl restart sshd || true"
         ]
    in "#cloud-config\n"
-    <> T.decodeUtf8
-      ( Yaml.encode
-          [yamlQQ|
+        <> T.decodeUtf8
+          ( Yaml.encode
+              [yamlQQ|
             ssh_genkeytypes:
               - rsa
               - ed25519
@@ -107,7 +107,7 @@ generateUserData config sshPubKeys' =
             package_upgrade: false
             runcmd: #{runcmds}
           |]
-      )
+          )
 
 -- | Generate meta-data for cloud-init
 generateMetaData :: CloudInitConfig -> Text
@@ -160,14 +160,14 @@ tryGenIsoImage userDataPath metaDataPath isoPath = do
     try $
       readProcessWithExitCode
         "genisoimage"
-        [ "-output",
-          isoPath,
-          "-volid",
-          "cidata",
-          "-joliet",
-          "-rock",
-          userDataPath,
-          metaDataPath
+        [ "-output"
+        , isoPath
+        , "-volid"
+        , "cidata"
+        , "-joliet"
+        , "-rock"
+        , userDataPath
+        , metaDataPath
         ]
         ""
   case result of
@@ -185,14 +185,14 @@ tryMkIsofs userDataPath metaDataPath isoPath = do
     try $
       readProcessWithExitCode
         "mkisofs"
-        [ "-output",
-          isoPath,
-          "-volid",
-          "cidata",
-          "-joliet",
-          "-rock",
-          userDataPath,
-          metaDataPath
+        [ "-output"
+        , isoPath
+        , "-volid"
+        , "cidata"
+        , "-joliet"
+        , "-rock"
+        , userDataPath
+        , metaDataPath
         ]
         ""
   case result of

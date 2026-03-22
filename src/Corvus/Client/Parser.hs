@@ -3,8 +3,8 @@
 -- | Command-line argument parsing for the Corvus client.
 module Corvus.Client.Parser
   ( -- * Parsers
-    optionsParser,
-    optsInfo,
+    optionsParser
+  , optsInfo
   )
 where
 

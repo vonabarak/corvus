@@ -6,25 +6,25 @@
 -- Provides functions to control running VMs via QMP.
 module Corvus.Qemu.Qmp
   ( -- * Types
-    QmpResult (..),
+    QmpResult (..)
 
     -- * Commands
-    qmpShutdown,
-    qmpContinue,
-    qmpStop,
+  , qmpShutdown
+  , qmpContinue
+  , qmpStop
 
     -- * Hot-plug commands
-    qmpBlockdevAdd,
-    qmpDeviceAddDrive,
-    qmpDeviceDel,
-    qmpBlockdevDel,
+  , qmpBlockdevAdd
+  , qmpDeviceAddDrive
+  , qmpDeviceDel
+  , qmpBlockdevDel
 
     -- * Low-level
-    sendQmpCommand,
-    withUnixSocket,
+  , sendQmpCommand
+  , withUnixSocket
 
     -- * Re-export quasi-quoter
-    qmpQQ,
+  , qmpQQ
   )
 where
 
@@ -74,18 +74,18 @@ qmpStop vmId =
 --------------------------------------------------------------------------------
 
 -- | Add a block device (for hot-plug)
-qmpBlockdevAdd ::
-  -- | VM ID
-  Int64 ->
-  -- | Node name (unique identifier for this block device)
-  Text ->
-  -- | File path to disk image
-  FilePath ->
-  -- | Disk format
-  DriveFormat ->
-  -- | Read-only mode
-  Bool ->
-  IO QmpResult
+qmpBlockdevAdd
+  :: Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ Node name (unique identifier for this block device)
+  -> FilePath
+  -- ^ File path to disk image
+  -> DriveFormat
+  -- ^ Disk format
+  -> Bool
+  -- ^ Read-only mode
+  -> IO QmpResult
 qmpBlockdevAdd vmId nodeName filePath format readOnly = do
   let formatStr = enumToText format
       filePathText = T.pack filePath
@@ -109,16 +109,16 @@ qmpBlockdevAdd vmId nodeName filePath format readOnly = do
   sendQmpCommand vmId cmd
 
 -- | Add a device using a block device (for hot-plug)
-qmpDeviceAddDrive ::
-  -- | VM ID
-  Int64 ->
-  -- | Device ID (unique identifier for this device)
-  Text ->
-  -- | Block device node name (from qmpBlockdevAdd)
-  Text ->
-  -- | Drive interface type
-  DriveInterface ->
-  IO QmpResult
+qmpDeviceAddDrive
+  :: Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ Device ID (unique identifier for this device)
+  -> Text
+  -- ^ Block device node name (from qmpBlockdevAdd)
+  -> DriveInterface
+  -- ^ Drive interface type
+  -> IO QmpResult
 qmpDeviceAddDrive vmId deviceId nodeName iface = do
   let driver = T.pack $ interfaceToDriver iface
       cmd =
@@ -144,12 +144,12 @@ interfaceToDriver InterfaceNvme = "nvme"
 interfaceToDriver InterfacePflash = "pflash"
 
 -- | Remove a device (for hot-unplug)
-qmpDeviceDel ::
-  -- | VM ID
-  Int64 ->
-  -- | Device ID (same as used in qmpDeviceAddDrive)
-  Text ->
-  IO QmpResult
+qmpDeviceDel
+  :: Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ Device ID (same as used in qmpDeviceAddDrive)
+  -> IO QmpResult
 qmpDeviceDel vmId deviceId =
   sendQmpCommand
     vmId
@@ -163,12 +163,12 @@ qmpDeviceDel vmId deviceId =
     |]
 
 -- | Remove a block device (for hot-unplug, after device is removed)
-qmpBlockdevDel ::
-  -- | VM ID
-  Int64 ->
-  -- | Node name (same as used in qmpBlockdevAdd)
-  Text ->
-  IO QmpResult
+qmpBlockdevDel
+  :: Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ Node name (same as used in qmpBlockdevAdd)
+  -> IO QmpResult
 qmpBlockdevDel vmId nodeName =
   sendQmpCommand
     vmId

@@ -4,12 +4,12 @@ module Corvus.TemplateIntegrationSpec (spec) where
 
 import Control.Monad (void)
 import Corvus.Client
-import Corvus.Model (NetInterfaceType(..))
+import Corvus.Model (NetInterfaceType (..))
 import Corvus.Protocol
 import Data.List (find)
 import Data.Maybe (isJust)
 import qualified Data.Text as T
-import System.Exit (ExitCode(..))
+import System.Exit (ExitCode (..))
 import Test.DSL.Daemon
 import Test.Daemon (withDaemonConnection)
 import Test.Database (withTestDb)
@@ -19,7 +19,7 @@ import Test.VM.Common (withTestVm)
 -- | Find a disk name matching a prefix from a list of disk images
 findDiskName :: T.Text -> [DiskImageInfo] -> T.Text
 findDiskName prefix disks =
-  case find (\d -> T.isPrefixOf prefix (diiName d)) disks of
+  case find (T.isPrefixOf prefix . diiName) disks of
     Just d -> diiName d
     Nothing -> error $ "No disk found with prefix: " <> T.unpack prefix
 
@@ -53,26 +53,27 @@ spec = withTestDb $ do
             ovmfCodeName = findDiskName "ovmf-code" disks
             ovmfVarsTemplateName = findDiskName "ovmf-vars-template" disks
 
-        let templateYaml = T.unlines
-              [ "name: \"test-template\""
-              , "cpuCount: 2"
-              , "ramMb: 2048"
-              , "description: \"A test template\""
-              , "drives:"
-              , "  - diskImageName: \"" <> baseDiskName <> "\""
-              , "    interface: \"virtio\""
-              , "    strategy: \"overlay\""
-              , "    newSizeMb: 1024"
-              , "  - diskImageName: \"" <> ovmfCodeName <> "\""
-              , "    interface: \"pflash\""
-              , "    strategy: \"direct\""
-              , "    readOnly: true"
-              , "  - diskImageName: \"" <> ovmfVarsTemplateName <> "\""
-              , "    interface: \"pflash\""
-              , "    strategy: \"clone\""
-              , "sshKeys:"
-              , "  - name: \"" <> sshKeyName <> "\""
-              ]
+        let templateYaml =
+              T.unlines
+                [ "name: \"test-template\""
+                , "cpuCount: 2"
+                , "ramMb: 2048"
+                , "description: \"A test template\""
+                , "drives:"
+                , "  - diskImageName: \"" <> baseDiskName <> "\""
+                , "    interface: \"virtio\""
+                , "    strategy: \"overlay\""
+                , "    newSizeMb: 1024"
+                , "  - diskImageName: \"" <> ovmfCodeName <> "\""
+                , "    interface: \"pflash\""
+                , "    strategy: \"direct\""
+                , "    readOnly: true"
+                , "  - diskImageName: \"" <> ovmfVarsTemplateName <> "\""
+                , "    interface: \"pflash\""
+                , "    strategy: \"clone\""
+                , "sshKeys:"
+                , "  - name: \"" <> sshKeyName <> "\""
+                ]
 
         -- 1. Create template
         resCreate <- withDaemonConnection daemon $ \conn -> templateCreate conn templateYaml
@@ -137,16 +138,17 @@ spec = withTestDb $ do
         waitForDaemonVmSshWithKey "127.0.0.1" sshPort privateKey "corvus" 90
 
         -- Verify we can run commands via SSH
-        let testVm = DaemonVm
-              { dvmId = newVmId
-              , dvmDiskId = 0  -- Not needed for SSH operations
-              , dvmSshHost = "127.0.0.1"
-              , dvmSshPort = sshPort
-              , dvmDaemon = daemon
-              , dvmSshPrivateKey = privateKey
-              , dvmSshKeyId = 0  -- Not needed for SSH operations
-              , dvmSshUser = "corvus"
-              }
+        let testVm =
+              DaemonVm
+                { dvmId = newVmId
+                , dvmDiskId = 0 -- Not needed for SSH operations
+                , dvmSshHost = "127.0.0.1"
+                , dvmSshPort = sshPort
+                , dvmDaemon = daemon
+                , dvmSshPrivateKey = privateKey
+                , dvmSshKeyId = 0 -- Not needed for SSH operations
+                , dvmSshUser = "corvus"
+                }
 
         (exitCode, stdout, _) <- runInDaemonVm testVm "whoami"
         exitCode `shouldBe` ExitSuccess

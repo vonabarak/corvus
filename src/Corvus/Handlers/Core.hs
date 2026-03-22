@@ -5,12 +5,12 @@
 -- ping, status, shutdown.
 module Corvus.Handlers.Core
   ( -- * Handlers
-    handlePing,
-    handleStatus,
-    handleShutdown,
+    handlePing
+  , handleStatus
+  , handleShutdown
 
     -- * Version
-    version,
+  , version
   )
 where
 
@@ -41,9 +41,9 @@ handleStatus state = do
   pure $
     RespStatus
       StatusInfo
-        { siUptime = uptimeSecs,
-          siConnections = connCount,
-          siVersion = version
+        { siUptime = uptimeSecs
+        , siConnections = connCount
+        , siVersion = version
         }
 
 -- | Handle shutdown request

@@ -3,31 +3,31 @@
 
 module Corvus.Protocol
   ( -- * Message wrapper
-    Request (..),
-    Response (..),
+    Request (..)
+  , Response (..)
 
     -- * Protocol version
-    protocolVersion,
+  , protocolVersion
 
     -- * Message encoding/decoding
-    encodeMessage,
-    decodeMessage,
+  , encodeMessage
+  , decodeMessage
 
     -- * Response data
-    StatusInfo (..),
-    VmInfo (..),
-    VmDetails (..),
-    DriveInfo (..),
-    NetIfInfo (..),
-    DiskImageInfo (..),
-    SnapshotInfo (..),
-    SharedDirInfo (..),
-    SshKeyInfo (..),
-    TemplateVmInfo (..),
-    TemplateDetails (..),
-    TemplateDriveInfo (..),
-    TemplateNetIfInfo (..),
-    TemplateSshKeyInfo (..),
+  , StatusInfo (..)
+  , VmInfo (..)
+  , VmDetails (..)
+  , DriveInfo (..)
+  , NetIfInfo (..)
+  , DiskImageInfo (..)
+  , SnapshotInfo (..)
+  , SharedDirInfo (..)
+  , SshKeyInfo (..)
+  , TemplateVmInfo (..)
+  , TemplateDetails (..)
+  , TemplateDriveInfo (..)
+  , TemplateNetIfInfo (..)
+  , TemplateSshKeyInfo (..)
   )
 where
 
@@ -141,164 +141,164 @@ data Request
 
 -- | Status information returned by the server
 data StatusInfo = StatusInfo
-  { -- | Uptime in seconds
-    siUptime :: !Int,
-    -- | Number of active connections
-    siConnections :: !Int,
-    -- | Daemon version
-    siVersion :: !Text
+  { siUptime :: !Int
+  -- ^ Uptime in seconds
+  , siConnections :: !Int
+  -- ^ Number of active connections
+  , siVersion :: !Text
+  -- ^ Daemon version
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | VM summary for list view
 data VmInfo = VmInfo
-  { viId :: !Int64,
-    viName :: !Text,
-    viStatus :: !VmStatus,
-    viCpuCount :: !Int,
-    viRamMb :: !Int
+  { viId :: !Int64
+  , viName :: !Text
+  , viStatus :: !VmStatus
+  , viCpuCount :: !Int
+  , viRamMb :: !Int
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Drive info for details view
 data DriveInfo = DriveInfo
-  { diId :: !Int64,
-    diDiskImageId :: !Int64,
-    diInterface :: !DriveInterface,
-    diFilePath :: !Text,
-    diFormat :: !DriveFormat,
-    diMedia :: !(Maybe DriveMedia),
-    diReadOnly :: !Bool,
-    diCacheType :: !CacheType,
-    diDiscard :: !Bool
+  { diId :: !Int64
+  , diDiskImageId :: !Int64
+  , diInterface :: !DriveInterface
+  , diFilePath :: !Text
+  , diFormat :: !DriveFormat
+  , diMedia :: !(Maybe DriveMedia)
+  , diReadOnly :: !Bool
+  , diCacheType :: !CacheType
+  , diDiscard :: !Bool
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Network interface info for details view
 data NetIfInfo = NetIfInfo
-  { niId :: !Int64,
-    niType :: !NetInterfaceType,
-    niHostDevice :: !Text,
-    niMacAddress :: !Text
+  { niId :: !Int64
+  , niType :: !NetInterfaceType
+  , niHostDevice :: !Text
+  , niMacAddress :: !Text
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Full VM details
 data VmDetails = VmDetails
-  { vdId :: !Int64,
-    vdName :: !Text,
-    vdCreatedAt :: !UTCTime,
-    vdStatus :: !VmStatus,
-    vdCpuCount :: !Int,
-    vdRamMb :: !Int,
-    vdDescription :: !(Maybe Text),
-    vdDrives :: ![DriveInfo],
-    vdNetIfs :: ![NetIfInfo],
-    -- | Path to HMP monitor socket
-    vdMonitorSocket :: !Text,
-    -- | Path to SPICE socket
-    vdSpiceSocket :: !Text
+  { vdId :: !Int64
+  , vdName :: !Text
+  , vdCreatedAt :: !UTCTime
+  , vdStatus :: !VmStatus
+  , vdCpuCount :: !Int
+  , vdRamMb :: !Int
+  , vdDescription :: !(Maybe Text)
+  , vdDrives :: ![DriveInfo]
+  , vdNetIfs :: ![NetIfInfo]
+  , vdMonitorSocket :: !Text
+  -- ^ Path to HMP monitor socket
+  , vdSpiceSocket :: !Text
+  -- ^ Path to SPICE socket
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Disk image info for list/show view
 data DiskImageInfo = DiskImageInfo
-  { diiId :: !Int64,
-    diiName :: !Text,
-    diiFilePath :: !Text,
-    diiFormat :: !DriveFormat,
-    diiSizeMb :: !(Maybe Int),
-    diiCreatedAt :: !UTCTime,
-    -- | VM IDs this disk is attached to
-    diiAttachedTo :: ![Int64],
-    -- | Backing image ID (if this is an overlay)
-    diiBackingImageId :: !(Maybe Int64),
-    -- | Backing image name (if this is an overlay)
-    diiBackingImageName :: !(Maybe Text)
+  { diiId :: !Int64
+  , diiName :: !Text
+  , diiFilePath :: !Text
+  , diiFormat :: !DriveFormat
+  , diiSizeMb :: !(Maybe Int)
+  , diiCreatedAt :: !UTCTime
+  , diiAttachedTo :: ![Int64]
+  -- ^ VM IDs this disk is attached to
+  , diiBackingImageId :: !(Maybe Int64)
+  -- ^ Backing image ID (if this is an overlay)
+  , diiBackingImageName :: !(Maybe Text)
+  -- ^ Backing image name (if this is an overlay)
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Snapshot info
 data SnapshotInfo = SnapshotInfo
-  { sniId :: !Int64,
-    sniName :: !Text,
-    sniCreatedAt :: !UTCTime,
-    sniSizeMb :: !(Maybe Int)
+  { sniId :: !Int64
+  , sniName :: !Text
+  , sniCreatedAt :: !UTCTime
+  , sniSizeMb :: !(Maybe Int)
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Shared directory info
 data SharedDirInfo = SharedDirInfo
-  { sdiId :: !Int64,
-    sdiPath :: !Text,
-    sdiTag :: !Text,
-    sdiCache :: !SharedDirCache,
-    sdiReadOnly :: !Bool,
-    -- | virtiofsd PID if running
-    sdiPid :: !(Maybe Int)
+  { sdiId :: !Int64
+  , sdiPath :: !Text
+  , sdiTag :: !Text
+  , sdiCache :: !SharedDirCache
+  , sdiReadOnly :: !Bool
+  , sdiPid :: !(Maybe Int)
+  -- ^ virtiofsd PID if running
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | SSH key info
 data SshKeyInfo = SshKeyInfo
-  { skiId :: !Int64,
-    skiName :: !Text,
-    skiPublicKey :: !Text,
-    skiCreatedAt :: !UTCTime,
-    -- | VMs this key is attached to
-    skiAttachedVms :: ![Int64]
+  { skiId :: !Int64
+  , skiName :: !Text
+  , skiPublicKey :: !Text
+  , skiCreatedAt :: !UTCTime
+  , skiAttachedVms :: ![Int64]
+  -- ^ VMs this key is attached to
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Template VM summary for list view
 data TemplateVmInfo = TemplateVmInfo
-  { tviId :: !Int64,
-    tviName :: !Text,
-    tviCpuCount :: !Int,
-    tviRamMb :: !Int,
-    tviDescription :: !(Maybe Text)
+  { tviId :: !Int64
+  , tviName :: !Text
+  , tviCpuCount :: !Int
+  , tviRamMb :: !Int
+  , tviDescription :: !(Maybe Text)
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Template drive info for details view
 data TemplateDriveInfo = TemplateDriveInfo
-  { tvdiDiskImageId :: !Int64,
-    tvdiDiskImageName :: !Text,
-    tvdiInterface :: !DriveInterface,
-    tvdiMedia :: !(Maybe DriveMedia),
-    tvdiReadOnly :: !Bool,
-    tvdiCacheType :: !CacheType,
-    tvdiDiscard :: !Bool,
-    tvdiCloneStrategy :: !TemplateCloneStrategy,
-    tvdiNewSizeMb :: !(Maybe Int)
+  { tvdiDiskImageId :: !Int64
+  , tvdiDiskImageName :: !Text
+  , tvdiInterface :: !DriveInterface
+  , tvdiMedia :: !(Maybe DriveMedia)
+  , tvdiReadOnly :: !Bool
+  , tvdiCacheType :: !CacheType
+  , tvdiDiscard :: !Bool
+  , tvdiCloneStrategy :: !TemplateCloneStrategy
+  , tvdiNewSizeMb :: !(Maybe Int)
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Template network interface info
 data TemplateNetIfInfo = TemplateNetIfInfo
-  { tvniType :: !NetInterfaceType,
-    tvniHostDevice :: !(Maybe Text)
+  { tvniType :: !NetInterfaceType
+  , tvniHostDevice :: !(Maybe Text)
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Template SSH key info
 data TemplateSshKeyInfo = TemplateSshKeyInfo
-  { tvskiId :: !Int64,
-    tvskiName :: !Text
+  { tvskiId :: !Int64
+  , tvskiName :: !Text
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Template VM full details
 data TemplateDetails = TemplateDetails
-  { tvdId :: !Int64,
-    tvdName :: !Text,
-    tvdCpuCount :: !Int,
-    tvdRamMb :: !Int,
-    tvdDescription :: !(Maybe Text),
-    tvdCreatedAt :: !UTCTime,
-    tvdDrives :: ![TemplateDriveInfo],
-    tvdNetIfs :: ![TemplateNetIfInfo],
-    tvdSshKeys :: ![TemplateSshKeyInfo]
+  { tvdId :: !Int64
+  , tvdName :: !Text
+  , tvdCpuCount :: !Int
+  , tvdRamMb :: !Int
+  , tvdDescription :: !(Maybe Text)
+  , tvdCreatedAt :: !UTCTime
+  , tvdDrives :: ![TemplateDriveInfo]
+  , tvdNetIfs :: ![TemplateNetIfInfo]
+  , tvdSshKeys :: ![TemplateSshKeyInfo]
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -307,143 +307,157 @@ data TemplateDetails = TemplateDetails
 --------------------------------------------------------------------------------
 
 instance ToJSON StatusInfo where
-  toJSON s = object
-    [ "uptime" .= siUptime s
-    , "connections" .= siConnections s
-    , "version" .= siVersion s
-    ]
+  toJSON s =
+    object
+      [ "uptime" .= siUptime s
+      , "connections" .= siConnections s
+      , "version" .= siVersion s
+      ]
 
 instance ToJSON VmInfo where
-  toJSON v = object
-    [ "id" .= viId v
-    , "name" .= viName v
-    , "status" .= viStatus v
-    , "cpuCount" .= viCpuCount v
-    , "ramMb" .= viRamMb v
-    ]
+  toJSON v =
+    object
+      [ "id" .= viId v
+      , "name" .= viName v
+      , "status" .= viStatus v
+      , "cpuCount" .= viCpuCount v
+      , "ramMb" .= viRamMb v
+      ]
 
 instance ToJSON DriveInfo where
-  toJSON d = object
-    [ "id" .= diId d
-    , "diskImageId" .= diDiskImageId d
-    , "interface" .= diInterface d
-    , "filePath" .= diFilePath d
-    , "format" .= diFormat d
-    , "media" .= diMedia d
-    , "readOnly" .= diReadOnly d
-    , "cacheType" .= diCacheType d
-    , "discard" .= diDiscard d
-    ]
+  toJSON d =
+    object
+      [ "id" .= diId d
+      , "diskImageId" .= diDiskImageId d
+      , "interface" .= diInterface d
+      , "filePath" .= diFilePath d
+      , "format" .= diFormat d
+      , "media" .= diMedia d
+      , "readOnly" .= diReadOnly d
+      , "cacheType" .= diCacheType d
+      , "discard" .= diDiscard d
+      ]
 
 instance ToJSON NetIfInfo where
-  toJSON n = object
-    [ "id" .= niId n
-    , "type" .= niType n
-    , "hostDevice" .= niHostDevice n
-    , "macAddress" .= niMacAddress n
-    ]
+  toJSON n =
+    object
+      [ "id" .= niId n
+      , "type" .= niType n
+      , "hostDevice" .= niHostDevice n
+      , "macAddress" .= niMacAddress n
+      ]
 
 instance ToJSON VmDetails where
-  toJSON v = object
-    [ "id" .= vdId v
-    , "name" .= vdName v
-    , "createdAt" .= vdCreatedAt v
-    , "status" .= vdStatus v
-    , "cpuCount" .= vdCpuCount v
-    , "ramMb" .= vdRamMb v
-    , "description" .= vdDescription v
-    , "drives" .= vdDrives v
-    , "networkInterfaces" .= vdNetIfs v
-    , "monitorSocket" .= vdMonitorSocket v
-    , "spiceSocket" .= vdSpiceSocket v
-    ]
+  toJSON v =
+    object
+      [ "id" .= vdId v
+      , "name" .= vdName v
+      , "createdAt" .= vdCreatedAt v
+      , "status" .= vdStatus v
+      , "cpuCount" .= vdCpuCount v
+      , "ramMb" .= vdRamMb v
+      , "description" .= vdDescription v
+      , "drives" .= vdDrives v
+      , "networkInterfaces" .= vdNetIfs v
+      , "monitorSocket" .= vdMonitorSocket v
+      , "spiceSocket" .= vdSpiceSocket v
+      ]
 
 instance ToJSON DiskImageInfo where
-  toJSON d = object
-    [ "id" .= diiId d
-    , "name" .= diiName d
-    , "filePath" .= diiFilePath d
-    , "format" .= diiFormat d
-    , "sizeMb" .= diiSizeMb d
-    , "createdAt" .= diiCreatedAt d
-    , "attachedTo" .= diiAttachedTo d
-    , "backingImageId" .= diiBackingImageId d
-    , "backingImageName" .= diiBackingImageName d
-    ]
+  toJSON d =
+    object
+      [ "id" .= diiId d
+      , "name" .= diiName d
+      , "filePath" .= diiFilePath d
+      , "format" .= diiFormat d
+      , "sizeMb" .= diiSizeMb d
+      , "createdAt" .= diiCreatedAt d
+      , "attachedTo" .= diiAttachedTo d
+      , "backingImageId" .= diiBackingImageId d
+      , "backingImageName" .= diiBackingImageName d
+      ]
 
 instance ToJSON SnapshotInfo where
-  toJSON s = object
-    [ "id" .= sniId s
-    , "name" .= sniName s
-    , "createdAt" .= sniCreatedAt s
-    , "sizeMb" .= sniSizeMb s
-    ]
+  toJSON s =
+    object
+      [ "id" .= sniId s
+      , "name" .= sniName s
+      , "createdAt" .= sniCreatedAt s
+      , "sizeMb" .= sniSizeMb s
+      ]
 
 instance ToJSON SharedDirInfo where
-  toJSON s = object
-    [ "id" .= sdiId s
-    , "path" .= sdiPath s
-    , "tag" .= sdiTag s
-    , "cache" .= sdiCache s
-    , "readOnly" .= sdiReadOnly s
-    , "pid" .= sdiPid s
-    ]
+  toJSON s =
+    object
+      [ "id" .= sdiId s
+      , "path" .= sdiPath s
+      , "tag" .= sdiTag s
+      , "cache" .= sdiCache s
+      , "readOnly" .= sdiReadOnly s
+      , "pid" .= sdiPid s
+      ]
 
 instance ToJSON SshKeyInfo where
-  toJSON k = object
-    [ "id" .= skiId k
-    , "name" .= skiName k
-    , "publicKey" .= skiPublicKey k
-    , "createdAt" .= skiCreatedAt k
-    , "attachedVms" .= skiAttachedVms k
-    ]
+  toJSON k =
+    object
+      [ "id" .= skiId k
+      , "name" .= skiName k
+      , "publicKey" .= skiPublicKey k
+      , "createdAt" .= skiCreatedAt k
+      , "attachedVms" .= skiAttachedVms k
+      ]
 
 instance ToJSON TemplateVmInfo where
-  toJSON t = object
-    [ "id" .= tviId t
-    , "name" .= tviName t
-    , "cpuCount" .= tviCpuCount t
-    , "ramMb" .= tviRamMb t
-    , "description" .= tviDescription t
-    ]
+  toJSON t =
+    object
+      [ "id" .= tviId t
+      , "name" .= tviName t
+      , "cpuCount" .= tviCpuCount t
+      , "ramMb" .= tviRamMb t
+      , "description" .= tviDescription t
+      ]
 
 instance ToJSON TemplateDriveInfo where
-  toJSON d = object
-    [ "diskImageId" .= tvdiDiskImageId d
-    , "diskImageName" .= tvdiDiskImageName d
-    , "interface" .= tvdiInterface d
-    , "media" .= tvdiMedia d
-    , "readOnly" .= tvdiReadOnly d
-    , "cacheType" .= tvdiCacheType d
-    , "discard" .= tvdiDiscard d
-    , "cloneStrategy" .= tvdiCloneStrategy d
-    , "newSizeMb" .= tvdiNewSizeMb d
-    ]
+  toJSON d =
+    object
+      [ "diskImageId" .= tvdiDiskImageId d
+      , "diskImageName" .= tvdiDiskImageName d
+      , "interface" .= tvdiInterface d
+      , "media" .= tvdiMedia d
+      , "readOnly" .= tvdiReadOnly d
+      , "cacheType" .= tvdiCacheType d
+      , "discard" .= tvdiDiscard d
+      , "cloneStrategy" .= tvdiCloneStrategy d
+      , "newSizeMb" .= tvdiNewSizeMb d
+      ]
 
 instance ToJSON TemplateNetIfInfo where
-  toJSON n = object
-    [ "type" .= tvniType n
-    , "hostDevice" .= tvniHostDevice n
-    ]
+  toJSON n =
+    object
+      [ "type" .= tvniType n
+      , "hostDevice" .= tvniHostDevice n
+      ]
 
 instance ToJSON TemplateSshKeyInfo where
-  toJSON k = object
-    [ "id" .= tvskiId k
-    , "name" .= tvskiName k
-    ]
+  toJSON k =
+    object
+      [ "id" .= tvskiId k
+      , "name" .= tvskiName k
+      ]
 
 instance ToJSON TemplateDetails where
-  toJSON t = object
-    [ "id" .= tvdId t
-    , "name" .= tvdName t
-    , "cpuCount" .= tvdCpuCount t
-    , "ramMb" .= tvdRamMb t
-    , "description" .= tvdDescription t
-    , "createdAt" .= tvdCreatedAt t
-    , "drives" .= tvdDrives t
-    , "networkInterfaces" .= tvdNetIfs t
-    , "sshKeys" .= tvdSshKeys t
-    ]
+  toJSON t =
+    object
+      [ "id" .= tvdId t
+      , "name" .= tvdName t
+      , "cpuCount" .= tvdCpuCount t
+      , "ramMb" .= tvdRamMb t
+      , "description" .= tvdDescription t
+      , "createdAt" .= tvdCreatedAt t
+      , "drives" .= tvdDrives t
+      , "networkInterfaces" .= tvdNetIfs t
+      , "sshKeys" .= tvdSshKeys t
+      ]
 
 -- | Server responses
 data Response

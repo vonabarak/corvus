@@ -2,16 +2,16 @@
 -- Re-exports handlers from submodules and provides the main dispatch function.
 module Corvus.Handlers
   ( -- * Request handling
-    handleRequest,
+    handleRequest
 
     -- * Re-exports from submodules
-    module Corvus.Handlers.Core,
-    module Corvus.Handlers.Vm,
-    module Corvus.Handlers.Disk,
-    module Corvus.Handlers.SharedDir,
-    module Corvus.Handlers.NetIf,
-    module Corvus.Handlers.SshKey,
-    module Corvus.Handlers.Template,
+  , module Corvus.Handlers.Core
+  , module Corvus.Handlers.Vm
+  , module Corvus.Handlers.Disk
+  , module Corvus.Handlers.SharedDir
+  , module Corvus.Handlers.NetIf
+  , module Corvus.Handlers.SshKey
+  , module Corvus.Handlers.Template
   )
 where
 

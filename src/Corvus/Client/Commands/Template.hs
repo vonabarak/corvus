@@ -3,15 +3,15 @@
 -- | Template command handlers for the Corvus client.
 module Corvus.Client.Commands.Template
   ( -- * Command handlers
-    handleTemplateCreate,
-    handleTemplateDelete,
-    handleTemplateList,
-    handleTemplateShow,
-    handleTemplateInstantiate,
+    handleTemplateCreate
+  , handleTemplateDelete
+  , handleTemplateList
+  , handleTemplateShow
+  , handleTemplateInstantiate
 
     -- * Formatters
-    printTemplateVmInfo,
-    printTemplateDetails,
+  , printTemplateVmInfo
+  , printTemplateDetails
   )
 where
 

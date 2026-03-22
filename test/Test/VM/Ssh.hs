@@ -4,18 +4,18 @@
 -- | SSH key management and command execution for VM integration tests.
 module Test.VM.Ssh
   ( -- * Types
-    SshKeyPair (..),
-    SshConfig (..),
+    SshKeyPair (..)
+  , SshConfig (..)
 
     -- * Key generation
-    generateSshKeyPair,
-    cleanupSshKeyPair,
+  , generateSshKeyPair
+  , cleanupSshKeyPair
 
     -- * SSH operations
-    runSshCommand,
-    waitForSsh,
-    scpToVm,
-    scpFromVm,
+  , runSshCommand
+  , waitForSsh
+  , scpToVm
+  , scpFromVm
   )
 where
 
@@ -31,23 +31,23 @@ import System.Process (readProcessWithExitCode)
 
 -- | SSH key pair paths
 data SshKeyPair = SshKeyPair
-  { -- | Path to private key
-    skpPrivateKey :: !FilePath,
-    -- | Path to public key
-    skpPublicKey :: !FilePath
+  { skpPrivateKey :: !FilePath
+  -- ^ Path to private key
+  , skpPublicKey :: !FilePath
+  -- ^ Path to public key
   }
   deriving (Show, Eq)
 
 -- | SSH connection configuration
 data SshConfig = SshConfig
-  { -- | Host to connect to (usually localhost for port-forwarded VMs)
-    sshHost :: !Text,
-    -- | SSH port on host
-    sshPort :: !Int,
-    -- | Username to connect as
-    sshUser :: !Text,
-    -- | Path to private key file
-    sshKeyFile :: !FilePath
+  { sshHost :: !Text
+  -- ^ Host to connect to (usually localhost for port-forwarded VMs)
+  , sshPort :: !Int
+  -- ^ SSH port on host
+  , sshUser :: !Text
+  -- ^ Username to connect as
+  , sshKeyFile :: !FilePath
+  -- ^ Path to private key file
   }
   deriving (Show, Eq)
 
@@ -68,14 +68,14 @@ generateSshKeyPair tmpDir = do
   (code, _, stderr) <-
     readProcessWithExitCode
       "ssh-keygen"
-      [ "-t",
-        "ed25519",
-        "-f",
-        privateKey,
-        "-N",
-        "", -- Empty passphrase
-        "-C",
-        "corvus-test@localhost"
+      [ "-t"
+      , "ed25519"
+      , "-f"
+      , privateKey
+      , "-N"
+      , "" -- Empty passphrase
+      , "-C"
+      , "corvus-test@localhost"
       ]
       ""
 
@@ -84,8 +84,8 @@ generateSshKeyPair tmpDir = do
       pure $
         Right
           SshKeyPair
-            { skpPrivateKey = privateKey,
-              skpPublicKey = publicKey
+            { skpPrivateKey = privateKey
+            , skpPublicKey = publicKey
             }
     ExitFailure n ->
       pure $
@@ -105,22 +105,22 @@ cleanupSshKeyPair keyPair = do
 runSshCommand :: SshConfig -> String -> IO (ExitCode, Text, Text)
 runSshCommand config cmd = do
   let args =
-        [ "-o",
-          "StrictHostKeyChecking=no",
-          "-o",
-          "UserKnownHostsFile=/dev/null",
-          "-o",
-          "LogLevel=ERROR",
-          "-o",
-          "ConnectTimeout=10",
-          "-o",
-          "BatchMode=yes",
-          "-i",
-          sshKeyFile config,
-          "-p",
-          show (sshPort config),
-          T.unpack (sshUser config) ++ "@" ++ T.unpack (sshHost config),
-          cmd
+        [ "-o"
+        , "StrictHostKeyChecking=no"
+        , "-o"
+        , "UserKnownHostsFile=/dev/null"
+        , "-o"
+        , "LogLevel=ERROR"
+        , "-o"
+        , "ConnectTimeout=10"
+        , "-o"
+        , "BatchMode=yes"
+        , "-i"
+        , sshKeyFile config
+        , "-p"
+        , show (sshPort config)
+        , T.unpack (sshUser config) ++ "@" ++ T.unpack (sshHost config)
+        , cmd
         ]
 
   (code, stdout, stderr) <- readProcessWithExitCode "ssh" args ""
@@ -154,18 +154,18 @@ scpToVm config localPath remotePath = do
           ++ ":"
           ++ remotePath
       args =
-        [ "-o",
-          "StrictHostKeyChecking=no",
-          "-o",
-          "UserKnownHostsFile=/dev/null",
-          "-o",
-          "LogLevel=ERROR",
-          "-i",
-          sshKeyFile config,
-          "-P",
-          show (sshPort config),
-          localPath,
-          dest
+        [ "-o"
+        , "StrictHostKeyChecking=no"
+        , "-o"
+        , "UserKnownHostsFile=/dev/null"
+        , "-o"
+        , "LogLevel=ERROR"
+        , "-i"
+        , sshKeyFile config
+        , "-P"
+        , show (sshPort config)
+        , localPath
+        , dest
         ]
 
   (code, _, stderr) <- readProcessWithExitCode "scp" args ""
@@ -186,18 +186,18 @@ scpFromVm config remotePath localPath = do
           ++ ":"
           ++ remotePath
       args =
-        [ "-o",
-          "StrictHostKeyChecking=no",
-          "-o",
-          "UserKnownHostsFile=/dev/null",
-          "-o",
-          "LogLevel=ERROR",
-          "-i",
-          sshKeyFile config,
-          "-P",
-          show (sshPort config),
-          src,
-          localPath
+        [ "-o"
+        , "StrictHostKeyChecking=no"
+        , "-o"
+        , "UserKnownHostsFile=/dev/null"
+        , "-o"
+        , "LogLevel=ERROR"
+        , "-i"
+        , sshKeyFile config
+        , "-P"
+        , show (sshPort config)
+        , src
+        , localPath
         ]
 
   (code, _, stderr) <- readProcessWithExitCode "scp" args ""

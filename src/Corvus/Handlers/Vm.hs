@@ -5,18 +5,18 @@
 -- list, show, start, stop, pause, reset.
 module Corvus.Handlers.Vm
   ( -- * Handlers
-    handleVmList,
-    handleVmShow,
-    handleVmCreate,
-    handleVmDelete,
-    handleVmStart,
-    handleVmStop,
-    handleVmPause,
-    handleVmReset,
+    handleVmList
+  , handleVmShow
+  , handleVmCreate
+  , handleVmDelete
+  , handleVmStart
+  , handleVmStop
+  , handleVmPause
+  , handleVmReset
 
     -- * State machine
-    VmAction (..),
-    validateTransition,
+  , VmAction (..)
+  , validateTransition
   )
 where
 
@@ -305,13 +305,13 @@ createVm name cpuCount ramMb description = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
-          { vmName = name,
-            vmCreatedAt = now,
-            vmStatus = VmStopped,
-            vmCpuCount = cpuCount,
-            vmRamMb = ramMb,
-            vmDescription = description,
-            vmPid = Nothing
+          { vmName = name
+          , vmCreatedAt = now
+          , vmStatus = VmStopped
+          , vmCpuCount = cpuCount
+          , vmRamMb = ramMb
+          , vmDescription = description
+          , vmPid = Nothing
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -339,11 +339,11 @@ listVms = do
   where
     toVmInfo (Entity key vm) =
       VmInfo
-        { viId = fromSqlKey key,
-          viName = vmName vm,
-          viStatus = vmStatus vm,
-          viCpuCount = vmCpuCount vm,
-          viRamMb = vmRamMb vm
+        { viId = fromSqlKey key
+        , viName = vmName vm
+        , viStatus = vmStatus vm
+        , viCpuCount = vmCpuCount vm
+        , viRamMb = vmRamMb vm
         }
 
 -- | Get full VM details
@@ -364,17 +364,17 @@ getVmDetails vmId = do
       pure $
         Just
           VmDetails
-            { vdId = vmId,
-              vdName = vmName vm,
-              vdCreatedAt = vmCreatedAt vm,
-              vdStatus = vmStatus vm,
-              vdCpuCount = vmCpuCount vm,
-              vdRamMb = vmRamMb vm,
-              vdDescription = vmDescription vm,
-              vdDrives = driveInfos,
-              vdNetIfs = map toNetIfInfo netIfs,
-              vdMonitorSocket = T.pack monitorSock,
-              vdSpiceSocket = T.pack spiceSock
+            { vdId = vmId
+            , vdName = vmName vm
+            , vdCreatedAt = vmCreatedAt vm
+            , vdStatus = vmStatus vm
+            , vdCpuCount = vmCpuCount vm
+            , vdRamMb = vmRamMb vm
+            , vdDescription = vmDescription vm
+            , vdDrives = driveInfos
+            , vdNetIfs = map toNetIfInfo netIfs
+            , vdMonitorSocket = T.pack monitorSock
+            , vdSpiceSocket = T.pack spiceSock
             }
   where
     toDriveInfo (Entity driveKey drive) = do
@@ -384,33 +384,33 @@ getVmDetails vmId = do
         Nothing ->
           pure
             DriveInfo
-              { diId = fromSqlKey driveKey,
-                diDiskImageId = fromSqlKey diskImageKey,
-                diInterface = driveInterface drive,
-                diFilePath = "(deleted)",
-                diFormat = FormatRaw,
-                diMedia = driveMedia drive,
-                diReadOnly = driveReadOnly drive,
-                diCacheType = driveCacheType drive,
-                diDiscard = driveDiscard drive
+              { diId = fromSqlKey driveKey
+              , diDiskImageId = fromSqlKey diskImageKey
+              , diInterface = driveInterface drive
+              , diFilePath = "(deleted)"
+              , diFormat = FormatRaw
+              , diMedia = driveMedia drive
+              , diReadOnly = driveReadOnly drive
+              , diCacheType = driveCacheType drive
+              , diDiscard = driveDiscard drive
               }
         Just diskImage ->
           pure
             DriveInfo
-              { diId = fromSqlKey driveKey,
-                diDiskImageId = fromSqlKey diskImageKey,
-                diInterface = driveInterface drive,
-                diFilePath = diskImageFilePath diskImage,
-                diFormat = diskImageFormat diskImage,
-                diMedia = driveMedia drive,
-                diReadOnly = driveReadOnly drive,
-                diCacheType = driveCacheType drive,
-                diDiscard = driveDiscard drive
+              { diId = fromSqlKey driveKey
+              , diDiskImageId = fromSqlKey diskImageKey
+              , diInterface = driveInterface drive
+              , diFilePath = diskImageFilePath diskImage
+              , diFormat = diskImageFormat diskImage
+              , diMedia = driveMedia drive
+              , diReadOnly = driveReadOnly drive
+              , diCacheType = driveCacheType drive
+              , diDiscard = driveDiscard drive
               }
     toNetIfInfo (Entity netIfKey netIf) =
       NetIfInfo
-        { niId = fromSqlKey netIfKey,
-          niType = networkInterfaceInterfaceType netIf,
-          niHostDevice = networkInterfaceHostDevice netIf,
-          niMacAddress = networkInterfaceMacAddress netIf
+        { niId = fromSqlKey netIfKey
+        , niType = networkInterfaceInterfaceType netIf
+        , niHostDevice = networkInterfaceHostDevice netIf
+        , niMacAddress = networkInterfaceMacAddress netIf
         }

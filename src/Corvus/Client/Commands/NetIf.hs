@@ -3,12 +3,12 @@
 -- | Network interface command handlers for the Corvus client.
 module Corvus.Client.Commands.NetIf
   ( -- * Command handlers
-    handleNetIfAdd,
-    handleNetIfRemove,
-    handleNetIfList,
+    handleNetIfAdd
+  , handleNetIfRemove
+  , handleNetIfList
 
     -- * Parsers
-    parseNetInterfaceType,
+  , parseNetInterfaceType
   )
 where
 

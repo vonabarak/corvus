@@ -10,94 +10,94 @@
 -- * "Corvus.Client.Commands" - Command execution
 module Corvus.Client
   ( -- * Configuration
-    ClientConfig (..),
-    defaultClientConfig,
+    ClientConfig (..)
+  , defaultClientConfig
 
     -- * Connection
-    Connection,
-    withConnection,
-    ConnectionError (..),
+  , Connection
+  , withConnection
+  , ConnectionError (..)
 
     -- * RPC Calls
-    sendPing,
-    getStatus,
-    requestShutdown,
-    listVms,
-    showVm,
+  , sendPing
+  , getStatus
+  , requestShutdown
+  , listVms
+  , showVm
 
     -- * VM lifecycle
-    VmCreateResult (..),
-    VmDeleteResult (..),
-    vmCreate,
-    vmDelete,
+  , VmCreateResult (..)
+  , VmDeleteResult (..)
+  , vmCreate
+  , vmDelete
 
     -- * VM actions
-    VmActionResult (..),
-    vmStart,
-    vmStop,
-    vmPause,
-    vmReset,
+  , VmActionResult (..)
+  , vmStart
+  , vmStop
+  , vmPause
+  , vmReset
 
     -- * Disk operations
-    DiskResult (..),
-    diskCreate,
-    diskCreateOverlay,
-    diskRegister,
-    diskDelete,
-    diskResize,
-    diskClone,
-    diskList,
-    diskShow,
-    diskAttach,
-    diskDetach,
+  , DiskResult (..)
+  , diskCreate
+  , diskCreateOverlay
+  , diskRegister
+  , diskDelete
+  , diskResize
+  , diskClone
+  , diskList
+  , diskShow
+  , diskAttach
+  , diskDetach
 
     -- * Snapshot operations
-    SnapshotResult (..),
-    snapshotCreate,
-    snapshotDelete,
-    snapshotRollback,
-    snapshotMerge,
-    snapshotList,
+  , SnapshotResult (..)
+  , snapshotCreate
+  , snapshotDelete
+  , snapshotRollback
+  , snapshotMerge
+  , snapshotList
 
     -- * Shared directory operations
-    SharedDirResult (..),
-    sharedDirAdd,
-    sharedDirRemove,
-    sharedDirList,
+  , SharedDirResult (..)
+  , sharedDirAdd
+  , sharedDirRemove
+  , sharedDirList
 
     -- * Network interface operations
-    NetIfResult (..),
-    netIfAdd,
-    netIfRemove,
-    netIfList,
+  , NetIfResult (..)
+  , netIfAdd
+  , netIfRemove
+  , netIfList
 
     -- * SSH key operations
-    SshKeyResult (..),
-    sshKeyCreate,
-    sshKeyDelete,
-    sshKeyList,
-    sshKeyAttach,
-    sshKeyDetach,
-    sshKeyListForVm,
+  , SshKeyResult (..)
+  , sshKeyCreate
+  , sshKeyDelete
+  , sshKeyList
+  , sshKeyAttach
+  , sshKeyDetach
+  , sshKeyListForVm
 
     -- * Template operations
-    TemplateResult (..),
-    templateCreate,
-    templateDelete,
-    templateList,
-    templateShow,
-    templateInstantiate,
+  , TemplateResult (..)
+  , templateCreate
+  , templateDelete
+  , templateList
+  , templateShow
+  , templateInstantiate
 
     -- * CLI types
-    Options (..),
-    Command (..),
+  , Options (..)
+  , Command (..)
 
     -- * Argument parsing
-    optionsParser,
-    optsInfo,
+  , optionsParser
+  , optsInfo
 
     -- * Command execution
-    runCommand,
+  , runCommand
   )
 where
 

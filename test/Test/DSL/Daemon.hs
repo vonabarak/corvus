@@ -6,62 +6,63 @@
 -- via RPC calls to a running daemon, with SSH access for command execution.
 module Test.DSL.Daemon
   ( -- * VM Configuration
-    VmConfig (..),
-    DefaultVmConfig (..),
+    VmConfig (..)
+  , DefaultVmConfig (..)
 
     -- * Daemon VM lifecycle
-    DaemonVm (..),
-    withDaemonVm,
-    withDaemonVmWithConfig,
-    createDaemonVm,
-    startDaemonVm,
-    startDaemonVmAndWait,
-    stopDaemonVm,
-    stopDaemonVmAndWait,
-    deleteDaemonVm,
+  , DaemonVm (..)
+  , withDaemonVm
+  , withDaemonVmWithConfig
+  , createDaemonVm
+  , startDaemonVm
+  , startDaemonVmAndWait
+  , stopDaemonVm
+  , stopDaemonVmAndWait
+  , deleteDaemonVm
 
     -- * VM configuration
-    addVmDisk,
-    addVmNetIf,
-    addVmSharedDir,
+  , addVmDisk
+  , addVmNetIf
+  , addVmSharedDir
 
     -- * SSH key management
-    setupVmSshKey,
-    createSshKey,
-    attachSshKey,
-    cleanupSshKey,
+  , setupVmSshKey
+  , createSshKey
+  , attachSshKey
+  , cleanupSshKey
 
     -- * Command execution in daemon VMs
-    runInDaemonVm,
-    runInDaemonVm_,
+  , runInDaemonVm
+  , runInDaemonVm_
 
     -- * Utilities
-    waitForDaemonVmSsh,
-    waitForDaemonVmSshWithKey,
-    generateMacAddress,
-    findFreePort,
-    waitForVmStopped,
+  , waitForDaemonVmSsh
+  , waitForDaemonVmSshWithKey
+  , generateMacAddress
+  , findFreePort
+  , waitForVmStopped
   )
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, try, bracket)
-import Data.List (isInfixOf)
+import Control.Exception (SomeException, bracket, try)
 import Corvus.Client
 import Corvus.Model
 import Corvus.Protocol (VmDetails (..))
 import Data.Int (Int64)
+import Data.List (isInfixOf)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import Network.Socket
-  ( Family (..),
-    SocketType (..),
-    close,
-    defaultProtocol,
-    socket,
+  ( Family (..)
+  , SocketType (..)
+  , close
+  , defaultProtocol
+  , socket
   )
 import qualified Network.Socket as NS
 import System.Exit (ExitCode (..))
@@ -76,19 +77,19 @@ import Test.VM.Ssh (SshKeyPair (..), generateSshKeyPair)
 
 -- | Configuration for a test VM.
 data VmConfig = VmConfig
-  { vmcCpuCount :: Int,
-    vmcRamMb :: Int,
-    vmcOsName :: Text,
-    vmcSharedDir :: Maybe FilePath,
-    vmcDescription :: Maybe Text,
-    vmcDiskInterface :: DriveInterface,
-    vmcNetworkType :: NetInterfaceType,
-    vmcWaitSshTimeout :: Int,
-    vmcDiskCache :: CacheType,
-    vmcDiskDiscard :: Bool,
-    vmcSharedDirCache :: SharedDirCache,
-    vmcSshUser :: Text,
-    vmcAdditionalDisks :: [(Int64, DriveInterface, Bool)]
+  { vmcCpuCount :: Int
+  , vmcRamMb :: Int
+  , vmcOsName :: Text
+  , vmcSharedDir :: Maybe FilePath
+  , vmcDescription :: Maybe Text
+  , vmcDiskInterface :: DriveInterface
+  , vmcNetworkType :: NetInterfaceType
+  , vmcWaitSshTimeout :: Int
+  , vmcDiskCache :: CacheType
+  , vmcDiskDiscard :: Bool
+  , vmcSharedDirCache :: SharedDirCache
+  , vmcSshUser :: Text
+  , vmcAdditionalDisks :: [(Int64, DriveInterface, Bool)]
   }
   deriving (Show, Eq)
 
@@ -99,39 +100,39 @@ class DefaultVmConfig a where
 instance DefaultVmConfig VmConfig where
   defaultVmConfig =
     VmConfig
-      { vmcCpuCount = 2,
-        vmcRamMb = 2048,
-        vmcOsName = "almalinux-10",
-        vmcSharedDir = Nothing,
-        vmcDescription = Nothing,
-        vmcDiskInterface = InterfaceVirtio,
-        vmcNetworkType = NetUser,
-        vmcWaitSshTimeout = 120,
-        vmcDiskCache = CacheWriteback,
-        vmcDiskDiscard = True,
-        vmcSharedDirCache = CacheAuto,
-        vmcSshUser = "corvus",
-        vmcAdditionalDisks = []
+      { vmcCpuCount = 2
+      , vmcRamMb = 2048
+      , vmcOsName = "almalinux-10"
+      , vmcSharedDir = Nothing
+      , vmcDescription = Nothing
+      , vmcDiskInterface = InterfaceVirtio
+      , vmcNetworkType = NetUser
+      , vmcWaitSshTimeout = 120
+      , vmcDiskCache = CacheWriteback
+      , vmcDiskDiscard = True
+      , vmcSharedDirCache = CacheAuto
+      , vmcSshUser = "corvus"
+      , vmcAdditionalDisks = []
       }
 
 -- | A VM running through the daemon with SSH access
 data DaemonVm = DaemonVm
-  { -- | VM ID in the database
-    dvmId :: !Int64,
-    -- | ID of the boot disk
-    dvmDiskId :: !Int64,
-    -- | SSH port
-    dvmSshPort :: !Int,
-    -- | SSH host (IP address of the VM)
-    dvmSshHost :: !String,
-    -- | Test daemon reference
-    dvmDaemon :: !TestDaemon,
-    -- | Path to private key file for SSH access
-    dvmSshPrivateKey :: !FilePath,
-    -- | SSH key ID in the daemon
-    dvmSshKeyId :: !Int64,
-    -- | SSH user name
-    dvmSshUser :: !Text
+  { dvmId :: !Int64
+  -- ^ VM ID in the database
+  , dvmDiskId :: !Int64
+  -- ^ ID of the boot disk
+  , dvmSshPort :: !Int
+  -- ^ SSH port
+  , dvmSshHost :: !String
+  -- ^ SSH host (IP address of the VM)
+  , dvmDaemon :: !TestDaemon
+  -- ^ Test daemon reference
+  , dvmSshPrivateKey :: !FilePath
+  -- ^ Path to private key file for SSH access
+  , dvmSshKeyId :: !Int64
+  -- ^ SSH key ID in the daemon
+  , dvmSshUser :: !Text
+  -- ^ SSH user name
   }
 
 --------------------------------------------------------------------------------
@@ -141,14 +142,14 @@ data DaemonVm = DaemonVm
 -- | Run an action with a daemon-managed VM using a config.
 -- Creates the VM with necessary configuration, sets up SSH keys,
 -- starts it, runs the action, then stops and deletes the VM.
-withDaemonVmWithConfig ::
-  TestDaemon ->
-  -- | Disk image ID to use for the boot disk
-  Int64 ->
-  -- | VM configuration
-  VmConfig ->
-  (DaemonVm -> IO a) ->
-  IO a
+withDaemonVmWithConfig
+  :: TestDaemon
+  -> Int64
+  -- ^ Disk image ID to use for the boot disk
+  -> VmConfig
+  -- ^ VM configuration
+  -> (DaemonVm -> IO a)
+  -> IO a
 withDaemonVmWithConfig daemon diskImageId config action = do
   -- Use a unique name for the VM
   vmUuid <- nextRandom
@@ -157,7 +158,7 @@ withDaemonVmWithConfig daemon diskImageId config action = do
   -- Use bracket for robust VM lifecycle management
   bracket
     (createDaemonVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config))
-    (\vmId -> do
+    ( \vmId -> do
         -- Cleanup: stop and delete the VM
         stopDaemonVmAndWait daemon vmId 30
         deleteDaemonVm daemon vmId
@@ -188,38 +189,38 @@ withDaemonVmWithConfig daemon diskImageId config action = do
           (setupVmSshKey daemon vmId tmpDir)
           (\(sshKeyId, _, _) -> cleanupSshKey daemon sshKeyId)
           $ \(sshKeyId, privateKey, _publicKey) -> do
-              let vm =
-                    DaemonVm
-                      { dvmId = vmId,
-                        dvmDiskId = diskImageId,
-                        dvmSshPort = sshPort,
-                        dvmSshHost = "localhost",
-                        dvmDaemon = daemon,
-                        dvmSshPrivateKey = privateKey,
-                        dvmSshKeyId = sshKeyId,
-                        dvmSshUser = vmcSshUser config
-                      }
+            let vm =
+                  DaemonVm
+                    { dvmId = vmId
+                    , dvmDiskId = diskImageId
+                    , dvmSshPort = sshPort
+                    , dvmSshHost = "localhost"
+                    , dvmDaemon = daemon
+                    , dvmSshPrivateKey = privateKey
+                    , dvmSshKeyId = sshKeyId
+                    , dvmSshUser = vmcSshUser config
+                    }
 
-              -- Start the VM and wait for SSH
-              putStrLn "[test] Starting VM and waiting for SSH..."
-              vmStartTime <- getCurrentTime
-              startDaemonVmAndWait vm (vmcWaitSshTimeout config)
-              vmReadyTime <- getCurrentTime
-              let bootSec = round (diffUTCTime vmReadyTime vmStartTime) :: Int
-              putStrLn $ "[test] SSH is ready (boot to SSH: " <> show bootSec <> "s)"
+            -- Start the VM and wait for SSH
+            putStrLn "[test] Starting VM and waiting for SSH..."
+            vmStartTime <- getCurrentTime
+            startDaemonVmAndWait vm (vmcWaitSshTimeout config)
+            vmReadyTime <- getCurrentTime
+            let bootSec = round (diffUTCTime vmReadyTime vmStartTime) :: Int
+            putStrLn $ "[test] SSH is ready (boot to SSH: " <> show bootSec <> "s)"
 
-              -- Run the action
-              action vm
+            -- Run the action
+            action vm
 
 -- | Legacy wrapper for backward compatibility.
-withDaemonVm ::
-  TestDaemon ->
-  -- | Disk image ID to use for the boot disk
-  Int64 ->
-  -- | Shared directory path (optional)
-  Maybe FilePath ->
-  (DaemonVm -> IO a) ->
-  IO a
+withDaemonVm
+  :: TestDaemon
+  -> Int64
+  -- ^ Disk image ID to use for the boot disk
+  -> Maybe FilePath
+  -- ^ Shared directory path (optional)
+  -> (DaemonVm -> IO a)
+  -> IO a
 withDaemonVm daemon diskImageId mSharedDir =
   let config = defaultVmConfig {vmcSharedDir = mSharedDir}
    in withDaemonVmWithConfig daemon diskImageId config
@@ -388,7 +389,6 @@ cleanupSshKey daemon keyId = do
     Left _ -> pure () -- Ignore errors during cleanup
     Right _ -> pure ()
 
-
 --------------------------------------------------------------------------------
 -- Command Execution
 --------------------------------------------------------------------------------
@@ -397,20 +397,20 @@ cleanupSshKey daemon keyId = do
 runInDaemonVm :: DaemonVm -> Text -> IO (ExitCode, Text, Text)
 runInDaemonVm vm cmd = do
   let args =
-        [ "-o",
-          "StrictHostKeyChecking=no",
-          "-o",
-          "UserKnownHostsFile=/dev/null",
-          "-o",
-          "BatchMode=yes",
-          "-o",
-          "ConnectTimeout=10",
-          "-i",
-          dvmSshPrivateKey vm,
-          "-p",
-          show (dvmSshPort vm),
-          T.unpack (dvmSshUser vm) ++ "@" ++ dvmSshHost vm,
-          T.unpack cmd
+        [ "-o"
+        , "StrictHostKeyChecking=no"
+        , "-o"
+        , "UserKnownHostsFile=/dev/null"
+        , "-o"
+        , "BatchMode=yes"
+        , "-o"
+        , "ConnectTimeout=10"
+        , "-i"
+        , dvmSshPrivateKey vm
+        , "-p"
+        , show (dvmSshPort vm)
+        , T.unpack (dvmSshUser vm) ++ "@" ++ dvmSshHost vm
+        , T.unpack cmd
         ]
   putStrLn $ "[ssh-run] Executing: " <> T.unpack cmd
   (code, stdout, stderr) <- readProcessWithExitCode "ssh" args ""
@@ -471,19 +471,30 @@ waitForDaemonVmSshWithKey host port privateKey user timeoutSec = do
     go startTime mAuthStart = do
       elapsed <- elapsedSec startTime
       if elapsed >= timeoutSec
-        then fail $ "Timeout waiting for SSH on " <> host <> ":" <> show port
-              <> " (after " <> show elapsed <> "s)"
+        then
+          fail $
+            "Timeout waiting for SSH on "
+              <> host
+              <> ":"
+              <> show port
+              <> " (after "
+              <> show elapsed
+              <> "s)"
         else do
           result <- trySshConnection host port privateKey
           case result of
             SshOk -> pure ()
             SshAuthRejected stderr -> do
               now <- getCurrentTime
-              let authStart = maybe now id mAuthStart
+              let authStart = fromMaybe now mAuthStart
                   authElapsed = round (diffUTCTime now authStart) :: Int
-              putStrLn $ "[ssh] Auth rejected, grace period: "
-                <> show (authGracePeriod - authElapsed) <> "s remaining"
-                <> " (total elapsed: " <> show elapsed <> "s)"
+              putStrLn $
+                "[ssh] Auth rejected, grace period: "
+                  <> show (authGracePeriod - authElapsed)
+                  <> "s remaining"
+                  <> " (total elapsed: "
+                  <> show elapsed
+                  <> "s)"
               if authElapsed >= authGracePeriod
                 then
                   fail $
@@ -509,16 +520,16 @@ waitForDaemonVmSshWithKey host port privateKey user timeoutSec = do
     trySshConnection sshHost sshPort keyFile = do
       let keyArgs = if null keyFile then [] else ["-i", keyFile]
           args =
-            [ "-o",
-              "StrictHostKeyChecking=no",
-              "-o",
-              "UserKnownHostsFile=/dev/null",
-              "-o",
-              "BatchMode=yes",
-              "-o",
-              "ConnectTimeout=3",
-              "-p",
-              show sshPort
+            [ "-o"
+            , "StrictHostKeyChecking=no"
+            , "-o"
+            , "UserKnownHostsFile=/dev/null"
+            , "-o"
+            , "BatchMode=yes"
+            , "-o"
+            , "ConnectTimeout=3"
+            , "-p"
+            , show sshPort
             ]
               ++ keyArgs
               ++ [T.unpack user ++ "@" ++ sshHost, "true"]

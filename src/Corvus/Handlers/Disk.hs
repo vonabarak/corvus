@@ -4,30 +4,30 @@
 -- Handles disk image CRUD operations, snapshots, and attach/detach.
 module Corvus.Handlers.Disk
   ( -- * Disk image handlers
-    handleDiskCreate,
-    handleDiskCreateOverlay,
-    handleDiskRegister,
-    handleDiskDelete,
-    handleDiskResize,
-    handleDiskList,
-    handleDiskShow,
-    handleDiskClone,
+    handleDiskCreate
+  , handleDiskCreateOverlay
+  , handleDiskRegister
+  , handleDiskDelete
+  , handleDiskResize
+  , handleDiskList
+  , handleDiskShow
+  , handleDiskClone
 
     -- * Snapshot handlers
-    handleSnapshotCreate,
-    handleSnapshotDelete,
-    handleSnapshotRollback,
-    handleSnapshotMerge,
-    handleSnapshotList,
+  , handleSnapshotCreate
+  , handleSnapshotDelete
+  , handleSnapshotRollback
+  , handleSnapshotMerge
+  , handleSnapshotList
 
     -- * Attach/detach handlers
-    handleDiskAttach,
-    handleDiskDetach,
+  , handleDiskAttach
+  , handleDiskDetach
 
     -- * Helpers
-    sanitizeDiskName,
-    resolveDiskPath,
-    getRunningAttachedVms,
+  , sanitizeDiskName
+  , resolveDiskPath
+  , getRunningAttachedVms
   )
 where
 
@@ -113,12 +113,12 @@ handleDiskCreate state name format sizeMb = runStdoutLoggingT $ do
               runSqlPool
                 ( insert
                     DiskImage
-                      { diskImageName = safeName,
-                        diskImageFilePath = T.pack filePath,
-                        diskImageFormat = format,
-                        diskImageSizeMb = Just (fromIntegral sizeMb),
-                        diskImageCreatedAt = now,
-                        diskImageBackingImageId = Nothing
+                      { diskImageName = safeName
+                      , diskImageFilePath = T.pack filePath
+                      , diskImageFormat = format
+                      , diskImageSizeMb = Just (fromIntegral sizeMb)
+                      , diskImageCreatedAt = now
+                      , diskImageBackingImageId = Nothing
                       }
                 )
                 (ssDbPool state)
@@ -126,13 +126,13 @@ handleDiskCreate state name format sizeMb = runStdoutLoggingT $ do
           pure $ RespDiskCreated $ fromSqlKey diskId
 
 -- | Register an existing disk image file
-handleDiskRegister ::
-  ServerState ->
-  Text ->
-  Text ->
-  DriveFormat ->
-  Maybe Int64 ->
-  IO Response
+handleDiskRegister
+  :: ServerState
+  -> Text
+  -> Text
+  -> DriveFormat
+  -> Maybe Int64
+  -> IO Response
 handleDiskRegister state name filePath format mSizeMb = runStdoutLoggingT $ do
   logInfoN $ "Registering disk image: " <> name <> " at " <> filePath
 
@@ -155,12 +155,12 @@ handleDiskRegister state name filePath format mSizeMb = runStdoutLoggingT $ do
           runSqlPool
             ( insert
                 DiskImage
-                  { diskImageName = name,
-                    diskImageFilePath = filePath,
-                    diskImageFormat = format,
-                    diskImageSizeMb = fmap fromIntegral mSizeMb,
-                    diskImageCreatedAt = now,
-                    diskImageBackingImageId = Nothing
+                  { diskImageName = name
+                  , diskImageFilePath = filePath
+                  , diskImageFormat = format
+                  , diskImageSizeMb = fmap fromIntegral mSizeMb
+                  , diskImageCreatedAt = now
+                  , diskImageBackingImageId = Nothing
                   }
             )
             (ssDbPool state)
@@ -185,8 +185,8 @@ handleDiskCreateOverlay state name baseDiskId = runStdoutLoggingT $ do
             liftIO $
               runSqlPool
                 ( selectList
-                    [ M.DriveDiskImageId ==. toSqlKey baseDiskId,
-                      M.DriveReadOnly ==. False
+                    [ M.DriveDiskImageId ==. toSqlKey baseDiskId
+                    , M.DriveReadOnly ==. False
                     ]
                     []
                 )
@@ -213,12 +213,12 @@ handleDiskCreateOverlay state name baseDiskId = runStdoutLoggingT $ do
                       runSqlPool
                         ( insert
                             DiskImage
-                              { diskImageName = safeName,
-                                diskImageFilePath = T.pack overlayFilePath,
-                                diskImageFormat = FormatQcow2,
-                                diskImageSizeMb = diskImageSizeMb baseDisk,
-                                diskImageCreatedAt = now,
-                                diskImageBackingImageId = Just (toSqlKey baseDiskId)
+                              { diskImageName = safeName
+                              , diskImageFilePath = T.pack overlayFilePath
+                              , diskImageFormat = FormatQcow2
+                              , diskImageSizeMb = diskImageSizeMb baseDisk
+                              , diskImageCreatedAt = now
+                              , diskImageBackingImageId = Just (toSqlKey baseDiskId)
                               }
                         )
                         (ssDbPool state)
@@ -266,12 +266,12 @@ handleDiskClone state name baseDiskId optionalPath = runStdoutLoggingT $ do
                             dId <-
                               insert
                                 DiskImage
-                                  { diskImageName = safeName,
-                                    diskImageFilePath = T.pack destPath,
-                                    diskImageFormat = diskImageFormat baseDisk,
-                                    diskImageSizeMb = diskImageSizeMb baseDisk,
-                                    diskImageCreatedAt = now,
-                                    diskImageBackingImageId = diskImageBackingImageId baseDisk
+                                  { diskImageName = safeName
+                                  , diskImageFilePath = T.pack destPath
+                                  , diskImageFormat = diskImageFormat baseDisk
+                                  , diskImageSizeMb = diskImageSizeMb baseDisk
+                                  , diskImageCreatedAt = now
+                                  , diskImageBackingImageId = diskImageBackingImageId baseDisk
                                   }
                             -- Clone snapshots as well
                             baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey baseDiskId] []
@@ -404,10 +404,10 @@ handleSnapshotCreate state diskId snapshotName = runStdoutLoggingT $ do
                       runSqlPool
                         ( insert
                             Snapshot
-                              { snapshotDiskImageId = toSqlKey diskId,
-                                snapshotName = snapshotName,
-                                snapshotCreatedAt = now,
-                                snapshotSizeMb = Nothing
+                              { snapshotDiskImageId = toSqlKey diskId
+                              , snapshotName = snapshotName
+                              , snapshotCreatedAt = now
+                              , snapshotSizeMb = Nothing
                               }
                         )
                         (ssDbPool state)
@@ -549,16 +549,16 @@ handleSnapshotList state diskId = do
 --------------------------------------------------------------------------------
 
 -- | Attach a disk to a VM
-handleDiskAttach ::
-  ServerState ->
-  Int64 ->
-  Int64 ->
-  DriveInterface ->
-  Maybe DriveMedia ->
-  Bool ->
-  Bool ->
-  CacheType ->
-  IO Response
+handleDiskAttach
+  :: ServerState
+  -> Int64
+  -> Int64
+  -> DriveInterface
+  -> Maybe DriveMedia
+  -> Bool
+  -> Bool
+  -> CacheType
+  -> IO Response
 handleDiskAttach state vmId diskId interface media readOnly discard cache = runStdoutLoggingT $ do
   logInfoN $
     "Attaching disk "
@@ -589,13 +589,13 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                   runSqlPool
                     ( insert
                         Drive
-                          { driveVmId = toSqlKey vmId,
-                            driveDiskImageId = toSqlKey diskId,
-                            driveInterface = interface,
-                            driveMedia = media,
-                            driveReadOnly = readOnly,
-                            driveCacheType = cache,
-                            driveDiscard = discard
+                          { driveVmId = toSqlKey vmId
+                          , driveDiskImageId = toSqlKey diskId
+                          , driveInterface = interface
+                          , driveMedia = media
+                          , driveReadOnly = readOnly
+                          , driveCacheType = cache
+                          , driveDiscard = discard
                           }
                     )
                     (ssDbPool state)
@@ -747,15 +747,15 @@ listDiskImages = do
     backingName <- getBackingImageName (diskImageBackingImageId disk)
     pure $
       DiskImageInfo
-        { diiId = fromSqlKey key,
-          diiName = diskImageName disk,
-          diiFilePath = diskImageFilePath disk,
-          diiFormat = diskImageFormat disk,
-          diiSizeMb = diskImageSizeMb disk,
-          diiCreatedAt = diskImageCreatedAt disk,
-          diiAttachedTo = attachedVms,
-          diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk),
-          diiBackingImageName = backingName
+        { diiId = fromSqlKey key
+        , diiName = diskImageName disk
+        , diiFilePath = diskImageFilePath disk
+        , diiFormat = diskImageFormat disk
+        , diiSizeMb = diskImageSizeMb disk
+        , diiCreatedAt = diskImageCreatedAt disk
+        , diiAttachedTo = attachedVms
+        , diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk)
+        , diiBackingImageName = backingName
         }
 
 -- | Get disk image info
@@ -770,15 +770,15 @@ getDiskImageInfo diskId = do
       pure $
         Just
           DiskImageInfo
-            { diiId = diskId,
-              diiName = diskImageName disk,
-              diiFilePath = diskImageFilePath disk,
-              diiFormat = diskImageFormat disk,
-              diiSizeMb = diskImageSizeMb disk,
-              diiCreatedAt = diskImageCreatedAt disk,
-              diiAttachedTo = attachedVms,
-              diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk),
-              diiBackingImageName = backingName
+            { diiId = diskId
+            , diiName = diskImageName disk
+            , diiFilePath = diskImageFilePath disk
+            , diiFormat = diskImageFormat disk
+            , diiSizeMb = diskImageSizeMb disk
+            , diiCreatedAt = diskImageCreatedAt disk
+            , diiAttachedTo = attachedVms
+            , diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk)
+            , diiBackingImageName = backingName
             }
 
 -- | Get snapshots for a disk
@@ -789,10 +789,10 @@ getSnapshots diskId = do
     map
       ( \(Entity key snap) ->
           SnapshotInfo
-            { sniId = fromSqlKey key,
-              sniName = snapshotName snap,
-              sniCreatedAt = snapshotCreatedAt snap,
-              sniSizeMb = snapshotSizeMb snap
+            { sniId = fromSqlKey key
+            , sniName = snapshotName snap
+            , sniCreatedAt = snapshotCreatedAt snap
+            , sniSizeMb = snapshotSizeMb snap
             }
       )
       snapshots

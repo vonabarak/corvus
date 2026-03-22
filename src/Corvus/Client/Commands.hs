@@ -5,17 +5,17 @@
 -- This module dispatches CLI commands to domain-specific handler modules.
 module Corvus.Client.Commands
   ( -- * Command execution
-    runCommand,
+    runCommand
 
     -- * Re-exported formatters
-    formatUptime,
-    printVmInfo,
-    printVmDetails,
-    printDiskInfo,
-    printSnapshotInfo,
-    printSshKeyInfo,
-    printTemplateVmInfo,
-    printTemplateDetails,
+  , formatUptime
+  , printVmInfo
+  , printVmDetails
+  , printDiskInfo
+  , printSnapshotInfo
+  , printSshKeyInfo
+  , printTemplateVmInfo
+  , printTemplateDetails
   )
 where
 

@@ -1,54 +1,54 @@
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Corvus.Handlers.Template
-  ( handleTemplateCreate,
-    handleTemplateList,
-    handleTemplateShow,
-    handleTemplateDelete,
-    handleTemplateInstantiate,
+  ( handleTemplateCreate
+  , handleTemplateList
+  , handleTemplateShow
+  , handleTemplateDelete
+  , handleTemplateInstantiate
   )
 where
 
-import Control.Monad (forM, forM_)
+import Control.Monad (forM, forM_, replicateM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN, runStdoutLoggingT)
-import Corvus.Handlers.Disk (sanitizeDiskName, resolveDiskPath, getRunningAttachedVms)
+import Corvus.Handlers.Disk (getRunningAttachedVms, resolveDiskPath, sanitizeDiskName)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
-import Corvus.Qemu.Image (cloneImage, createOverlay, resizeImage, ImageResult (..))
+import Corvus.Qemu.Image (ImageResult (..), cloneImage, createOverlay, resizeImage)
 import Corvus.Types
+import Data.Either (lefts)
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Data.Time (getCurrentTime, UTCTime)
-import Data.Yaml (FromJSON (..), decodeEither', withObject, (.:), (.:?), (.!=))
+import Data.Time (UTCTime, getCurrentTime)
+import Data.Yaml (FromJSON (..), decodeEither', withObject, (.!=), (.:), (.:?))
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
 import GHC.Generics (Generic)
 import System.FilePath ((</>))
-import Text.Printf (printf)
 import System.Random (randomRIO)
+import Text.Printf (printf)
 
 --------------------------------------------------------------------------------
 -- YAML Types
 --------------------------------------------------------------------------------
 
 data TemplateYaml = TemplateYaml
-  { tyName :: Text,
-    tyCpuCount :: Int,
-    tyRamMb :: Int,
-    tyDescription :: Maybe Text,
-    tyDrives :: [TemplateDriveYaml],
-    tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml],
-    tySshKeys :: [TemplateSshKeyYaml]
+  { tyName :: Text
+  , tyCpuCount :: Int
+  , tyRamMb :: Int
+  , tyDescription :: Maybe Text
+  , tyDrives :: [TemplateDriveYaml]
+  , tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml]
+  , tySshKeys :: [TemplateSshKeyYaml]
   }
   deriving (Show, Generic)
 
@@ -64,14 +64,14 @@ instance FromJSON TemplateYaml where
       <*> o .:? "sshKeys" .!= []
 
 data TemplateDriveYaml = TemplateDriveYaml
-  { tdyDiskImageName :: Text,
-    tdyInterface :: DriveInterface,
-    tdyMedia :: Maybe DriveMedia,
-    tdyReadOnly :: Maybe Bool,
-    tdyCacheType :: Maybe CacheType,
-    tdyDiscard :: Maybe Bool,
-    tdyStrategy :: TemplateCloneStrategy,
-    tdyNewSizeMb :: Maybe Int
+  { tdyDiskImageName :: Text
+  , tdyInterface :: DriveInterface
+  , tdyMedia :: Maybe DriveMedia
+  , tdyReadOnly :: Maybe Bool
+  , tdyCacheType :: Maybe CacheType
+  , tdyDiscard :: Maybe Bool
+  , tdyStrategy :: TemplateCloneStrategy
+  , tdyNewSizeMb :: Maybe Int
   }
   deriving (Show, Generic)
 
@@ -88,8 +88,8 @@ instance FromJSON TemplateDriveYaml where
       <*> o .:? "newSizeMb"
 
 data TemplateNetworkInterfaceYaml = TemplateNetworkInterfaceYaml
-  { tnyType :: NetInterfaceType,
-    tnyHostDevice :: Maybe Text
+  { tnyType :: NetInterfaceType
+  , tnyHostDevice :: Maybe Text
   }
   deriving (Show, Generic)
 
@@ -99,7 +99,7 @@ instance FromJSON TemplateNetworkInterfaceYaml where
       <$> o .: "type"
       <*> o .:? "hostDevice"
 
-data TemplateSshKeyYaml = TemplateSshKeyYaml
+newtype TemplateSshKeyYaml = TemplateSshKeyYaml
   { tkyName :: Text
   }
   deriving (Show, Generic)
@@ -138,13 +138,14 @@ handleTemplateList state = do
   let infoList = map toTemplateInfo templates
   pure $ RespTemplateList infoList
   where
-    toTemplateInfo (Entity tid t) = TemplateVmInfo
-      { tviId = fromSqlKey tid,
-        tviName = templateVmName t,
-        tviCpuCount = templateVmCpuCount t,
-        tviRamMb = templateVmRamMb t,
-        tviDescription = templateVmDescription t
-      }
+    toTemplateInfo (Entity tid t) =
+      TemplateVmInfo
+        { tviId = fromSqlKey tid
+        , tviName = templateVmName t
+        , tviCpuCount = templateVmCpuCount t
+        , tviRamMb = templateVmRamMb t
+        , tviDescription = templateVmDescription t
+        }
 
 handleTemplateShow :: ServerState -> Int64 -> IO Response
 handleTemplateShow state tidLong = do
@@ -163,7 +164,7 @@ handleTemplateDelete state tidLong = runStdoutLoggingT $ do
 handleTemplateInstantiate :: ServerState -> Int64 -> Text -> IO Response
 handleTemplateInstantiate state tidLong newVmName = runStdoutLoggingT $ do
   logInfoN $ "Instantiating template " <> T.pack (show tidLong) <> " as '" <> newVmName <> "'"
-  
+
   -- 1. Get template details
   mDetails <- liftIO $ runSqlPool (getTemplateDetails (toSqlKey tidLong)) (ssDbPool state)
   case mDetails of
@@ -172,13 +173,13 @@ handleTemplateInstantiate state tidLong newVmName = runStdoutLoggingT $ do
       -- 2. Create VM record
       now <- liftIO getCurrentTime
       vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing) (ssDbPool state)
-      
+
       -- 3. Instantiate drives
       driveResults <- forM (tvdDrives details) $ \td -> do
         liftIO $ instantiateDriveIO state vmId newVmName td
-      
+
       -- Check for errors
-      let errors = [err | Left err <- driveResults]
+      let errors = lefts driveResults
       if not (null errors)
         then do
           let msg = T.intercalate "; " errors
@@ -213,25 +214,26 @@ createTemplate ty now = do
   case (sequence mDiskIds, sequence mKeyIds) of
     (Right diskIds, Right keyIds) -> do
       tid <- insert $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) now
-      
+
       forM_ (zip diskIds (tyDrives ty)) $ \(diskId, tdy) -> do
-        insert_ $ TemplateDrive
-          tid
-          diskId
-          (tdyInterface tdy)
-          (tdyMedia tdy)
-          (maybe False id (tdyReadOnly tdy))
-          (maybe CacheNone id (tdyCacheType tdy))
-          (maybe False id (tdyDiscard tdy))
-          (tdyStrategy tdy)
-          (tdyNewSizeMb tdy)
-      
+        insert_ $
+          TemplateDrive
+            tid
+            diskId
+            (tdyInterface tdy)
+            (tdyMedia tdy)
+            (fromMaybe False (tdyReadOnly tdy))
+            (fromMaybe CacheNone (tdyCacheType tdy))
+            (fromMaybe False (tdyDiscard tdy))
+            (tdyStrategy tdy)
+            (tdyNewSizeMb tdy)
+
       forM_ (tyNetworkInterfaces ty) $ \tny -> do
         insert_ $ TemplateNetworkInterface tid (tnyType tny) (tnyHostDevice tny)
-      
+
       forM_ keyIds $ \keyId -> do
         insert_ $ TemplateSshKey tid keyId
-      
+
       pure $ Right tid
     (Left err, _) -> pure $ Left err
     (_, Left err) -> pure $ Left err
@@ -246,17 +248,18 @@ getTemplateDetails tid = do
       driveInfos <- forM drives $ \(Entity _ td) -> do
         mDisk <- get (templateDriveDiskImageId td)
         let diskName = maybe "unknown" diskImageName mDisk
-        pure $ TemplateDriveInfo
-          { tvdiDiskImageId = fromSqlKey (templateDriveDiskImageId td),
-            tvdiDiskImageName = diskName,
-            tvdiInterface = templateDriveInterface td,
-            tvdiMedia = templateDriveMedia td,
-            tvdiReadOnly = templateDriveReadOnly td,
-            tvdiCacheType = templateDriveCacheType td,
-            tvdiDiscard = templateDriveDiscard td,
-            tvdiCloneStrategy = templateDriveCloneStrategy td,
-            tvdiNewSizeMb = templateDriveNewSizeMb td
-          }
+        pure $
+          TemplateDriveInfo
+            { tvdiDiskImageId = fromSqlKey (templateDriveDiskImageId td)
+            , tvdiDiskImageName = diskName
+            , tvdiInterface = templateDriveInterface td
+            , tvdiMedia = templateDriveMedia td
+            , tvdiReadOnly = templateDriveReadOnly td
+            , tvdiCacheType = templateDriveCacheType td
+            , tvdiDiscard = templateDriveDiscard td
+            , tvdiCloneStrategy = templateDriveCloneStrategy td
+            , tvdiNewSizeMb = templateDriveNewSizeMb td
+            }
 
       netIfs <- selectList [TemplateNetworkInterfaceTemplateId ==. tid] []
       let netIfInfos = map (\(Entity _ tni) -> TemplateNetIfInfo (templateNetworkInterfaceInterfaceType tni) (templateNetworkInterfaceHostDevice tni)) netIfs
@@ -267,17 +270,19 @@ getTemplateDetails tid = do
         let keyName = maybe "unknown" sshKeyName mKey
         pure $ TemplateSshKeyInfo (fromSqlKey $ templateSshKeySshKeyId tsk) keyName
 
-      pure $ Just TemplateDetails
-        { tvdId = fromSqlKey tid,
-          tvdName = templateVmName t,
-          tvdCpuCount = templateVmCpuCount t,
-          tvdRamMb = templateVmRamMb t,
-          tvdDescription = templateVmDescription t,
-          tvdCreatedAt = templateVmCreatedAt t,
-          tvdDrives = driveInfos,
-          tvdNetIfs = netIfInfos,
-          tvdSshKeys = sshKeyInfos
-        }
+      pure $
+        Just
+          TemplateDetails
+            { tvdId = fromSqlKey tid
+            , tvdName = templateVmName t
+            , tvdCpuCount = templateVmCpuCount t
+            , tvdRamMb = templateVmRamMb t
+            , tvdDescription = templateVmDescription t
+            , tvdCreatedAt = templateVmCreatedAt t
+            , tvdDrives = driveInfos
+            , tvdNetIfs = netIfInfos
+            , tvdSshKeys = sshKeyInfos
+            }
 
 deleteTemplate :: TemplateVmId -> SqlPersistT IO ()
 deleteTemplate tid = do
@@ -291,11 +296,11 @@ finishInstantiation state vmId details = runStdoutLoggingT $ do
   -- Network
   forM_ (tvdNetIfs details) $ \tni -> do
     mac <- liftIO generateMacAddress
-    liftIO $ runSqlPool (insert_ $ NetworkInterface vmId (tvniType tni) (maybe "" id (tvniHostDevice tni)) mac) (ssDbPool state)
+    liftIO $ runSqlPool (insert_ $ NetworkInterface vmId (tvniType tni) (fromMaybe "" (tvniHostDevice tni)) mac) (ssDbPool state)
 
   -- SSH Keys
   forM_ (tvdSshKeys details) $ \tsk -> do
-    liftIO $ runSqlPool (insert_ $ VmSshKey vmId (toSqlKey $ tvskiId tsk)) (ssDbPool state)
+    liftIO $ runSqlPool (insert_ $ VmSshKey vmId (toSqlKey (tvskiId tsk))) (ssDbPool state)
 
   -- Generate cloud-init ISO if SSH keys are present
   if not (null (tvdSshKeys details))
@@ -310,7 +315,7 @@ finishInstantiation state vmId details = runStdoutLoggingT $ do
 
 generateMacAddress :: IO Text
 generateMacAddress = do
-  [b1, b2, b3] <- forM [1..3] $ \_ -> randomRIO (0, 255 :: Int)
+  [b1, b2, b3] <- replicateM 3 (randomRIO (0, 255 :: Int))
   -- QEMU OUI is 52:54:00
   let mac = T.pack $ printf "52:54:00:%02x:%02x:%02x" b1 b2 b3
   pure mac
@@ -321,15 +326,14 @@ generateMacAddress = do
 
 instantiateDriveIO :: ServerState -> VmId -> Text -> TemplateDriveInfo -> IO (Either Text ())
 instantiateDriveIO state vmId vmName td = runStdoutLoggingT $ do
-  mDisk <- liftIO $ runSqlPool (get (toSqlKey $ tvdiDiskImageId td :: DiskImageId)) (ssDbPool state)
+  mDisk <- liftIO $ runSqlPool (get (toSqlKey (tvdiDiskImageId td) :: DiskImageId)) (ssDbPool state)
   case mDisk of
     Nothing -> pure $ Left "Master disk image not found"
     Just masterDisk -> do
       case tvdiCloneStrategy td of
         StrategyDirect -> do
-          liftIO $ runSqlPool (insert_ $ Drive vmId (toSqlKey $ tvdiDiskImageId td) (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiCacheType td) (tvdiDiscard td)) (ssDbPool state)
+          liftIO $ runSqlPool (insert_ $ Drive vmId (toSqlKey (tvdiDiskImageId td)) (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiCacheType td) (tvdiDiscard td)) (ssDbPool state)
           pure $ Right ()
-        
         StrategyClone -> do
           let newName = vmName <> "-" <> tvdiDiskImageName td
           case sanitizeDiskName newName of
@@ -338,9 +342,9 @@ instantiateDriveIO state vmId vmName td = runStdoutLoggingT $ do
               basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
               let fileName = T.unpack safeName <> "." <> T.unpack (enumToText (diskImageFormat masterDisk))
                   destPath = basePath </> fileName
-              
+
               srcPath <- liftIO $ resolveDiskPath (ssQemuConfig state) masterDisk
-              
+
               -- Check if master is in use (should be stopped for cloning if we want consistency)
               runningVms <- liftIO $ runSqlPool (getRunningAttachedVms (tvdiDiskImageId td)) (ssDbPool state)
               if not (null runningVms)
@@ -352,38 +356,43 @@ instantiateDriveIO state vmId vmName td = runStdoutLoggingT $ do
                     ImageNotFound -> pure $ Left "Master image file not found"
                     _ -> do
                       now <- liftIO getCurrentTime
-                      newDiskId <- liftIO $ runSqlPool (do
-                        dId <- insert DiskImage
-                          { diskImageName = safeName,
-                            diskImageFilePath = T.pack destPath,
-                            diskImageFormat = diskImageFormat masterDisk,
-                            diskImageSizeMb = diskImageSizeMb masterDisk,
-                            diskImageCreatedAt = now,
-                            diskImageBackingImageId = diskImageBackingImageId masterDisk
-                          }
-                        -- Clone snapshots
-                        baseSnapshots <- selectList [SnapshotDiskImageId ==. (toSqlKey $ tvdiDiskImageId td)] []
-                        forM_ baseSnapshots $ \snapEntity -> do
-                          let snap = entityVal snapEntity
-                          insert_ snap {snapshotDiskImageId = dId}
-                        pure dId
-                        ) (ssDbPool state)
-                      
+                      newDiskId <-
+                        liftIO $
+                          runSqlPool
+                            ( do
+                                dId <-
+                                  insert
+                                    DiskImage
+                                      { diskImageName = safeName
+                                      , diskImageFilePath = T.pack destPath
+                                      , diskImageFormat = diskImageFormat masterDisk
+                                      , diskImageSizeMb = diskImageSizeMb masterDisk
+                                      , diskImageCreatedAt = now
+                                      , diskImageBackingImageId = diskImageBackingImageId masterDisk
+                                      }
+                                -- Clone snapshots
+                                baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey (tvdiDiskImageId td)] []
+                                forM_ baseSnapshots $ \snapEntity -> do
+                                  let snap = entityVal snapEntity
+                                  insert_ snap {snapshotDiskImageId = dId}
+                                pure dId
+                            )
+                            (ssDbPool state)
+
                       -- Resize if requested
                       case tvdiNewSizeMb td of
                         Just newSize -> do
                           res <- liftIO $ resizeImage destPath (fromIntegral newSize)
                           case res of
                             ImageSuccess -> do
-                               liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
-                               pure ()
+                              liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
+                              pure ()
                             _ -> pure () -- Log warning?
                         Nothing -> pure ()
-                      
+
                       -- Attach to VM
                       liftIO $ runSqlPool (insert_ $ Drive vmId newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiCacheType td) (tvdiDiscard td)) (ssDbPool state)
                       pure $ Right ()
-
         StrategyOverlay -> do
           let newName = vmName <> "-" <> tvdiDiskImageName td <> "-overlay"
           case sanitizeDiskName newName of
@@ -392,9 +401,9 @@ instantiateDriveIO state vmId vmName td = runStdoutLoggingT $ do
               basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
               let fileName = T.unpack safeName <> ".qcow2"
                   destPath = basePath </> fileName
-              
+
               srcPath <- liftIO $ resolveDiskPath (ssQemuConfig state) masterDisk
-              
+
               result <- liftIO $ createOverlay destPath srcPath (diskImageFormat masterDisk)
               case result of
                 ImageError err -> pure $ Left err
@@ -402,23 +411,29 @@ instantiateDriveIO state vmId vmName td = runStdoutLoggingT $ do
                 ImageNotFound -> pure $ Left "Master image file not found"
                 ImageSuccess -> do
                   now <- liftIO getCurrentTime
-                  newDiskId <- liftIO $ runSqlPool (insert DiskImage
-                    { diskImageName = safeName,
-                      diskImageFilePath = T.pack destPath,
-                      diskImageFormat = FormatQcow2,
-                      diskImageSizeMb = diskImageSizeMb masterDisk,
-                      diskImageCreatedAt = now,
-                      diskImageBackingImageId = Just (toSqlKey $ tvdiDiskImageId td)
-                    }) (ssDbPool state)
-                  
-                   -- Resize if requested
+                  newDiskId <-
+                    liftIO $
+                      runSqlPool
+                        ( insert
+                            DiskImage
+                              { diskImageName = safeName
+                              , diskImageFilePath = T.pack destPath
+                              , diskImageFormat = FormatQcow2
+                              , diskImageSizeMb = diskImageSizeMb masterDisk
+                              , diskImageCreatedAt = now
+                              , diskImageBackingImageId = Just (toSqlKey (tvdiDiskImageId td))
+                              }
+                        )
+                        (ssDbPool state)
+
+                  -- Resize if requested
                   case tvdiNewSizeMb td of
                     Just newSize -> do
                       res <- liftIO $ resizeImage destPath (fromIntegral newSize)
                       case res of
                         ImageSuccess -> do
-                           liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
-                           pure ()
+                          liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
+                          pure ()
                         _ -> pure ()
                     Nothing -> pure ()
 

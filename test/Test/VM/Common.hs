@@ -2,8 +2,8 @@
 
 -- | Common helpers for VM-based integration tests.
 module Test.VM.Common
-  ( withTestVm,
-    withTestVmBios,
+  ( withTestVm
+  , withTestVmBios
   )
 where
 
@@ -94,8 +94,8 @@ withTestVm env config action = do
   let configWithOvmf =
         config
           { vmcAdditionalDisks =
-              [ (ovmfCodeId, InterfacePflash, True), -- Read-only
-                (ovmfVarsId, InterfacePflash, False) -- Read-write
+              [ (ovmfCodeId, InterfacePflash, True) -- Read-only
+              , (ovmfVarsId, InterfacePflash, False) -- Read-write
               ]
           }
 

@@ -4,24 +4,24 @@
 -- | QEMU disk image management using qemu-img.
 module Corvus.Qemu.Image
   ( -- * Image operations
-    createImage,
-    createOverlay,
-    deleteImage,
-    resizeImage,
-    getImageInfo,
+    createImage
+  , createOverlay
+  , deleteImage
+  , resizeImage
+  , getImageInfo
 
     -- * Snapshot operations
-    createSnapshot,
-    deleteSnapshot,
-    rollbackSnapshot,
-    mergeSnapshot,
-    listSnapshots,
-    cloneImage,
+  , createSnapshot
+  , deleteSnapshot
+  , rollbackSnapshot
+  , mergeSnapshot
+  , listSnapshots
+  , cloneImage
 
     -- * Types
-    ImageInfo (..),
-    SnapshotData (..),
-    ImageResult (..),
+  , ImageInfo (..)
+  , SnapshotData (..)
+  , ImageResult (..)
   )
 where
 
@@ -52,18 +52,18 @@ data ImageResult
 
 -- | Information about a disk image
 data ImageInfo = ImageInfo
-  { iiFormat :: !DriveFormat,
-    iiVirtualSizeMb :: !Int64,
-    iiActualSizeMb :: !(Maybe Int64),
-    iiSnapshots :: ![SnapshotData]
+  { iiFormat :: !DriveFormat
+  , iiVirtualSizeMb :: !Int64
+  , iiActualSizeMb :: !(Maybe Int64)
+  , iiSnapshots :: ![SnapshotData]
   }
   deriving (Eq, Show)
 
 -- | Snapshot data from qemu-img info
 data SnapshotData = SnapshotData
-  { sdId :: !Text,
-    sdName :: !Text,
-    sdSizeMb :: !(Maybe Int)
+  { sdId :: !Text
+  , sdName :: !Text
+  , sdSizeMb :: !(Maybe Int)
   }
   deriving (Eq, Show)
 
@@ -80,14 +80,14 @@ qemuImgBinary = "qemu-img"
 --------------------------------------------------------------------------------
 
 -- | Create a new disk image
-createImage ::
-  -- | File path
-  FilePath ->
-  -- | Format
-  DriveFormat ->
-  -- | Size in MB
-  Int64 ->
-  IO ImageResult
+createImage
+  :: FilePath
+  -- ^ File path
+  -> DriveFormat
+  -- ^ Format
+  -> Int64
+  -- ^ Size in MB
+  -> IO ImageResult
 createImage path format sizeMb = do
   exists <- doesFileExist path
   if exists
@@ -102,14 +102,14 @@ createImage path format sizeMb = do
         ExitFailure _ -> pure $ ImageError $ T.pack stderr
 
 -- | Create a qcow2 overlay backed by an existing image
-createOverlay ::
-  -- | Overlay file path
-  FilePath ->
-  -- | Backing file path
-  FilePath ->
-  -- | Backing file format
-  DriveFormat ->
-  IO ImageResult
+createOverlay
+  :: FilePath
+  -- ^ Overlay file path
+  -> FilePath
+  -- ^ Backing file path
+  -> DriveFormat
+  -- ^ Backing file format
+  -> IO ImageResult
 createOverlay overlayPath backingPath backingFormat = do
   exists <- doesFileExist overlayPath
   if exists
@@ -127,10 +127,10 @@ createOverlay overlayPath backingPath backingFormat = do
             ExitFailure _ -> pure $ ImageError $ T.pack stderr
 
 -- | Delete a disk image
-deleteImage ::
-  -- | File path
-  FilePath ->
-  IO ImageResult
+deleteImage
+  :: FilePath
+  -- ^ File path
+  -> IO ImageResult
 deleteImage path = do
   exists <- doesFileExist path
   if not exists
@@ -142,12 +142,12 @@ deleteImage path = do
         Right () -> pure ImageSuccess
 
 -- | Resize a disk image (only works when VM is stopped)
-resizeImage ::
-  -- | File path
-  FilePath ->
-  -- | New size in MB
-  Int64 ->
-  IO ImageResult
+resizeImage
+  :: FilePath
+  -- ^ File path
+  -> Int64
+  -- ^ New size in MB
+  -> IO ImageResult
 resizeImage path newSizeMb = do
   exists <- doesFileExist path
   if not exists
@@ -161,10 +161,10 @@ resizeImage path newSizeMb = do
         ExitFailure _ -> pure $ ImageError $ T.pack stderr
 
 -- | Get information about a disk image
-getImageInfo ::
-  -- | File path
-  FilePath ->
-  IO (Either Text ImageInfo)
+getImageInfo
+  :: FilePath
+  -- ^ File path
+  -> IO (Either Text ImageInfo)
 getImageInfo path = do
   exists <- doesFileExist path
   if not exists
@@ -186,10 +186,10 @@ parseImageInfo output = do
       snapshots = parseSnapshots ls
   Right $
     ImageInfo
-      { iiFormat = format,
-        iiVirtualSizeMb = virtualSize,
-        iiActualSizeMb = actualSize,
-        iiSnapshots = snapshots
+      { iiFormat = format
+      , iiVirtualSizeMb = virtualSize
+      , iiActualSizeMb = actualSize
+      , iiSnapshots = snapshots
       }
   where
     parseFormat ls =
@@ -238,9 +238,9 @@ parseImageInfo output = do
             (snapId : name : _) ->
               Just $
                 SnapshotData
-                  { sdId = snapId,
-                    sdName = name,
-                    sdSizeMb = Nothing
+                  { sdId = snapId
+                  , sdName = name
+                  , sdSizeMb = Nothing
                   }
             _ -> Nothing
 
@@ -249,12 +249,12 @@ parseImageInfo output = do
 --------------------------------------------------------------------------------
 
 -- | Create a snapshot (qcow2 only)
-createSnapshot ::
-  -- | File path
-  FilePath ->
-  -- | Snapshot name
-  Text ->
-  IO ImageResult
+createSnapshot
+  :: FilePath
+  -- ^ File path
+  -> Text
+  -- ^ Snapshot name
+  -> IO ImageResult
 createSnapshot path name = do
   exists <- doesFileExist path
   if not exists
@@ -270,12 +270,12 @@ createSnapshot path name = do
             else pure $ ImageError $ T.pack stderr
 
 -- | Delete a snapshot (qcow2 only)
-deleteSnapshot ::
-  -- | File path
-  FilePath ->
-  -- | Snapshot name
-  Text ->
-  IO ImageResult
+deleteSnapshot
+  :: FilePath
+  -- ^ File path
+  -> Text
+  -- ^ Snapshot name
+  -> IO ImageResult
 deleteSnapshot path name = do
   exists <- doesFileExist path
   if not exists
@@ -291,12 +291,12 @@ deleteSnapshot path name = do
             else pure $ ImageError $ T.pack stderr
 
 -- | Rollback to a snapshot (qcow2 only, VM must be stopped)
-rollbackSnapshot ::
-  -- | File path
-  FilePath ->
-  -- | Snapshot name
-  Text ->
-  IO ImageResult
+rollbackSnapshot
+  :: FilePath
+  -- ^ File path
+  -> Text
+  -- ^ Snapshot name
+  -> IO ImageResult
 rollbackSnapshot path name = do
   exists <- doesFileExist path
   if not exists
@@ -314,12 +314,12 @@ rollbackSnapshot path name = do
 -- | Merge a snapshot (deletes snapshot metadata, preserving current disk state)
 -- For internal qcow2 snapshots, merging simply removes the snapshot record
 -- while keeping all current data intact. This is the opposite of rollback.
-mergeSnapshot ::
-  -- | File path
-  FilePath ->
-  -- | Snapshot name to merge (delete)
-  Text ->
-  IO ImageResult
+mergeSnapshot
+  :: FilePath
+  -- ^ File path
+  -> Text
+  -- ^ Snapshot name to merge (delete)
+  -> IO ImageResult
 mergeSnapshot path name = do
   exists <- doesFileExist path
   if not exists
@@ -327,10 +327,10 @@ mergeSnapshot path name = do
     else deleteSnapshot path name
 
 -- | List snapshots in an image (qcow2 only)
-listSnapshots ::
-  -- | File path
-  FilePath ->
-  IO (Either Text [SnapshotData])
+listSnapshots
+  :: FilePath
+  -- ^ File path
+  -> IO (Either Text [SnapshotData])
 listSnapshots path = do
   exists <- doesFileExist path
   if not exists

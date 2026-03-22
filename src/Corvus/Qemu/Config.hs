@@ -2,9 +2,9 @@
 
 -- | QEMU configuration options.
 module Corvus.Qemu.Config
-  ( QemuConfig (..),
-    defaultQemuConfig,
-    getEffectiveBasePath,
+  ( QemuConfig (..)
+  , defaultQemuConfig
+  , getEffectiveBasePath
   )
 where
 
@@ -18,14 +18,14 @@ import System.FilePath ((</>))
 
 -- | QEMU configuration options
 data QemuConfig = QemuConfig
-  { -- | Path to qemu binary
-    qcQemuBinary :: FilePath,
-    -- | Base path for relative image paths (Nothing = $HOME/VMs)
-    qcBasePath :: Maybe FilePath,
-    -- | Path to virtiofsd binary
-    qcVirtiofsdBinary :: FilePath,
-    -- | Shared memory size for virtiofs (e.g. "4G"), Nothing uses VM RAM
-    qcSharedMemSize :: Maybe String
+  { qcQemuBinary :: FilePath
+  -- ^ Path to qemu binary
+  , qcBasePath :: Maybe FilePath
+  -- ^ Base path for relative image paths (Nothing = $HOME/VMs)
+  , qcVirtiofsdBinary :: FilePath
+  -- ^ Path to virtiofsd binary
+  , qcSharedMemSize :: Maybe String
+  -- ^ Shared memory size for virtiofs (e.g. "4G"), Nothing uses VM RAM
   }
   deriving (Eq, Show)
 
@@ -33,10 +33,10 @@ data QemuConfig = QemuConfig
 defaultQemuConfig :: QemuConfig
 defaultQemuConfig =
   QemuConfig
-    { qcQemuBinary = "qemu-system-x86_64",
-      qcBasePath = Nothing, -- Will use $HOME/VMs at runtime
-      qcVirtiofsdBinary = "/usr/libexec/virtiofsd",
-      qcSharedMemSize = Nothing -- Will use VM RAM size
+    { qcQemuBinary = "qemu-system-x86_64"
+    , qcBasePath = Nothing -- Will use $HOME/VMs at runtime
+    , qcVirtiofsdBinary = "/usr/libexec/virtiofsd"
+    , qcSharedMemSize = Nothing -- Will use VM RAM size
     }
 
 -- | Get the effective base path for VM images

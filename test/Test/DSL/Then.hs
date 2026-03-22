@@ -4,75 +4,75 @@
 -- Provides functions to verify database state and responses.
 module Test.DSL.Then
   ( -- * Response assertions
-    responseIs,
-    responseMatches,
-    responseIsSuccess,
-    responseIsVmNotFound,
-    responseIsVmStateChanged,
-    responseIsInvalidTransition,
-    responseIsDiskCreated,
-    responseIsDiskNotFound,
-    responseIsDiskInUse,
-    responseIsDiskHasOverlays,
-    responseIsSnapshotCreated,
-    responseIsSnapshotNotFound,
+    responseIs
+  , responseMatches
+  , responseIsSuccess
+  , responseIsVmNotFound
+  , responseIsVmStateChanged
+  , responseIsInvalidTransition
+  , responseIsDiskCreated
+  , responseIsDiskNotFound
+  , responseIsDiskInUse
+  , responseIsDiskHasOverlays
+  , responseIsSnapshotCreated
+  , responseIsSnapshotNotFound
 
     -- * Shared directory response assertions
-    thenSharedDirListIsEmpty,
-    thenSharedDirListHasCount,
-    thenSharedDirAdded,
-    thenSharedDirOk,
-    thenSharedDirNotFound,
-    thenSharedDirError,
-    thenVmNotFound,
+  , thenSharedDirListIsEmpty
+  , thenSharedDirListHasCount
+  , thenSharedDirAdded
+  , thenSharedDirOk
+  , thenSharedDirNotFound
+  , thenSharedDirError
+  , thenVmNotFound
 
     -- * Network interface response assertions
-    thenNetIfAdded,
-    thenNetIfOk,
-    thenNetIfNotFound,
-    thenNetIfVmNotFound,
-    thenNetIfListHasCount,
-    thenNetIfListIsEmpty,
-    thenNetIfError,
+  , thenNetIfAdded
+  , thenNetIfOk
+  , thenNetIfNotFound
+  , thenNetIfVmNotFound
+  , thenNetIfListHasCount
+  , thenNetIfListIsEmpty
+  , thenNetIfError
 
     -- * SSH key response assertions
-    thenSshKeyCreated,
-    thenSshKeyOk,
-    thenSshKeyNotFound,
-    thenSshKeyVmNotFound,
-    thenSshKeyInUse,
-    thenSshKeyListHasCount,
-    thenSshKeyListIsEmpty,
-    thenSshKeyError,
+  , thenSshKeyCreated
+  , thenSshKeyOk
+  , thenSshKeyNotFound
+  , thenSshKeyVmNotFound
+  , thenSshKeyInUse
+  , thenSshKeyListHasCount
+  , thenSshKeyListIsEmpty
+  , thenSshKeyError
 
     -- * VM create/delete response assertions
-    thenVmCreated,
-    thenVmCreateError,
-    thenVmDeleted,
-    thenVmDeleteNotFound,
-    thenVmDeleteRunning,
+  , thenVmCreated
+  , thenVmCreateError
+  , thenVmDeleted
+  , thenVmDeleteNotFound
+  , thenVmDeleteRunning
 
     -- * Database state assertions
-    vmExists,
-    vmNotExists,
-    vmHasStatus,
-    vmHasPid,
-    vmCount,
-    diskImageExists,
-    diskImageNotExists,
-    diskImageCount,
-    driveExists,
-    driveNotExists,
-    driveExistsForVm,
-    driveCountForVm,
-    snapshotExists,
-    snapshotNotExists,
-    snapshotCountForDisk,
+  , vmExists
+  , vmNotExists
+  , vmHasStatus
+  , vmHasPid
+  , vmCount
+  , diskImageExists
+  , diskImageNotExists
+  , diskImageCount
+  , driveExists
+  , driveNotExists
+  , driveExistsForVm
+  , driveCountForVm
+  , snapshotExists
+  , snapshotNotExists
+  , snapshotCountForDisk
 
     -- * General assertions
-    shouldBeTrue,
-    shouldBeFalse,
-    shouldEqual,
+  , shouldBeTrue
+  , shouldBeFalse
+  , shouldEqual
   )
 where
 
@@ -265,8 +265,8 @@ driveExistsForVm vmId diskImageId = do
   drives <-
     runDb $
       selectList
-        [ DriveVmId ==. toSqlKey vmId,
-          DriveDiskImageId ==. toSqlKey diskImageId
+        [ DriveVmId ==. toSqlKey vmId
+        , DriveDiskImageId ==. toSqlKey diskImageId
         ]
         []
   liftIO $ drives `shouldSatisfy` (not . null)

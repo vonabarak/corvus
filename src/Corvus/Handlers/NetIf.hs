@@ -1,8 +1,8 @@
 -- | Network interface management handlers.
 module Corvus.Handlers.NetIf
-  ( handleNetIfAdd,
-    handleNetIfRemove,
-    handleNetIfList,
+  ( handleNetIfAdd
+  , handleNetIfRemove
+  , handleNetIfList
   )
 where
 
@@ -26,13 +26,13 @@ import Text.Printf (printf)
 
 -- | Add a network interface to a VM.
 -- If no MAC address is provided, a random one is generated with the QEMU OUI prefix.
-handleNetIfAdd ::
-  ServerState ->
-  Int64 ->
-  NetInterfaceType ->
-  Text ->
-  Maybe Text ->
-  IO Response
+handleNetIfAdd
+  :: ServerState
+  -> Int64
+  -> NetInterfaceType
+  -> Text
+  -> Maybe Text
+  -> IO Response
 handleNetIfAdd state vmId ifaceType hostDevice mMacAddress = do
   mac <- case mMacAddress of
     Just m | not (T.null m) -> pure m
@@ -72,12 +72,12 @@ handleNetIfList state vmId = do
 --------------------------------------------------------------------------------
 
 -- | Add a network interface to a VM
-addNetIf ::
-  Int64 ->
-  NetInterfaceType ->
-  Text ->
-  Text ->
-  SqlPersistT IO (Maybe Int64)
+addNetIf
+  :: Int64
+  -> NetInterfaceType
+  -> Text
+  -> Text
+  -> SqlPersistT IO (Maybe Int64)
 addNetIf vmId ifaceType hostDevice macAddress = do
   let vmKey = toSqlKey vmId :: VmId
   mVm <- get vmKey
@@ -86,10 +86,10 @@ addNetIf vmId ifaceType hostDevice macAddress = do
     Just _ -> do
       let netIf =
             NetworkInterface
-              { networkInterfaceVmId = vmKey,
-                networkInterfaceInterfaceType = ifaceType,
-                networkInterfaceHostDevice = hostDevice,
-                networkInterfaceMacAddress = macAddress
+              { networkInterfaceVmId = vmKey
+              , networkInterfaceInterfaceType = ifaceType
+              , networkInterfaceHostDevice = hostDevice
+              , networkInterfaceMacAddress = macAddress
               }
       netIfKey <- insert netIf
       pure $ Just $ fromSqlKey netIfKey
@@ -126,8 +126,8 @@ listNetIfs vmId = do
   where
     toNetIfInfo (Entity key netIf) =
       NetIfInfo
-        { niId = fromSqlKey key,
-          niType = networkInterfaceInterfaceType netIf,
-          niHostDevice = networkInterfaceHostDevice netIf,
-          niMacAddress = networkInterfaceMacAddress netIf
+        { niId = fromSqlKey key
+        , niType = networkInterfaceInterfaceType netIf
+        , niHostDevice = networkInterfaceHostDevice netIf
+        , niMacAddress = networkInterfaceMacAddress netIf
         }

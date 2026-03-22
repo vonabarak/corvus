@@ -6,8 +6,8 @@ module Corvus.ProtocolSpec (spec) where
 import Corvus.Model
 import Corvus.Protocol
 import Data.Aeson (encode)
-import Data.List (isInfixOf)
 import qualified Data.ByteString.Lazy.Char8 as BL
+import Data.List (isInfixOf)
 import Test.Hspec
 import Test.QuickCheck
 
@@ -45,27 +45,28 @@ instance Arbitrary VmInfo where
 
 -- Arbitrary for Request (subset - the most common ones)
 instance Arbitrary Request where
-  arbitrary = oneof
-    [ pure ReqPing
-    , pure ReqStatus
-    , pure ReqShutdown
-    , pure ReqListVms
-    , ReqShowVm <$> arbitrary
-    , ReqVmCreate <$> pure "test" <*> arbitrary <*> arbitrary <*> pure Nothing
-    , ReqVmDelete <$> arbitrary
-    , ReqVmStart <$> arbitrary
-    , ReqVmStop <$> arbitrary
-    , ReqVmPause <$> arbitrary
-    , ReqVmReset <$> arbitrary
-    , ReqDiskCreate <$> pure "disk" <*> arbitrary <*> arbitrary
-    , ReqDiskDelete <$> arbitrary
-    , pure ReqDiskList
-    , ReqDiskShow <$> arbitrary
-    , ReqSnapshotCreate <$> arbitrary <*> pure "snap"
-    , ReqSnapshotList <$> arbitrary
-    , pure ReqSshKeyList
-    , pure ReqTemplateList
-    ]
+  arbitrary =
+    oneof
+      [ pure ReqPing
+      , pure ReqStatus
+      , pure ReqShutdown
+      , pure ReqListVms
+      , ReqShowVm <$> arbitrary
+      , ReqVmCreate "test" <$> arbitrary <*> arbitrary <*> pure Nothing
+      , ReqVmDelete <$> arbitrary
+      , ReqVmStart <$> arbitrary
+      , ReqVmStop <$> arbitrary
+      , ReqVmPause <$> arbitrary
+      , ReqVmReset <$> arbitrary
+      , ReqDiskCreate "disk" <$> arbitrary <*> arbitrary
+      , ReqDiskDelete <$> arbitrary
+      , pure ReqDiskList
+      , ReqDiskShow <$> arbitrary
+      , ReqSnapshotCreate <$> arbitrary <*> pure "snap"
+      , ReqSnapshotList <$> arbitrary
+      , pure ReqSshKeyList
+      , pure ReqTemplateList
+      ]
 
 spec :: Spec
 spec = do

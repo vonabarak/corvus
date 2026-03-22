@@ -7,73 +7,73 @@
 
 module Corvus.Model
   ( -- * Database schema
-    migrateAll,
+    migrateAll
 
     -- * Entities
-    Vm (..),
-    Drive (..),
-    NetworkInterface (..),
-    DiskImage (..),
-    Snapshot (..),
+  , Vm (..)
+  , Drive (..)
+  , NetworkInterface (..)
+  , DiskImage (..)
+  , Snapshot (..)
 
     -- * Entity IDs
-    VmId,
-    DriveId,
-    NetworkInterfaceId,
-    DiskImageId,
-    SnapshotId,
+  , VmId
+  , DriveId
+  , NetworkInterfaceId
+  , DiskImageId
+  , SnapshotId
 
     -- * Entity Fields (for queries)
-    EntityField (..),
+  , EntityField (..)
 
     -- * Enums
-    VmStatus (..),
-    DriveInterface (..),
-    DriveFormat (..),
-    DriveMedia (..),
-    CacheType (..),
-    NetInterfaceType (..),
-    SharedDirCache (..),
-    TemplateCloneStrategy (..),
+  , VmStatus (..)
+  , DriveInterface (..)
+  , DriveFormat (..)
+  , DriveMedia (..)
+  , CacheType (..)
+  , NetInterfaceType (..)
+  , SharedDirCache (..)
+  , TemplateCloneStrategy (..)
 
     -- * Shared directory entity
-    SharedDir (..),
-    SharedDirId,
+  , SharedDir (..)
+  , SharedDirId
 
     -- * SSH key entities
-    SshKey (..),
-    SshKeyId,
-    VmSshKey (..),
-    VmSshKeyId,
+  , SshKey (..)
+  , SshKeyId
+  , VmSshKey (..)
+  , VmSshKeyId
 
     -- * Template entities
-    TemplateVm (..),
-    TemplateVmId,
-    TemplateDrive (..),
-    TemplateDriveId,
-    TemplateNetworkInterface (..),
-    TemplateNetworkInterfaceId,
-    TemplateSshKey (..),
-    TemplateSshKeyId,
+  , TemplateVm (..)
+  , TemplateVmId
+  , TemplateDrive (..)
+  , TemplateDriveId
+  , TemplateNetworkInterface (..)
+  , TemplateNetworkInterfaceId
+  , TemplateSshKey (..)
+  , TemplateSshKeyId
 
     -- * Unique constraints
-    Unique (..),
+  , Unique (..)
 
     -- * Enum conversion type class
-    EnumText (..),
+  , EnumText (..)
 
     -- * Re-exports for convenience
-    Entity (..),
-    Key,
-    toSqlKey,
-    fromSqlKey,
+  , Entity (..)
+  , Key
+  , toSqlKey
+  , fromSqlKey
   )
 where
 
-import Data.Binary (Binary)
-import qualified Data.Binary as Bin
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (..))
 import qualified Data.Aeson.Types as AT
+import Data.Binary (Binary)
+import qualified Data.Binary as Bin
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -151,10 +151,10 @@ instance Binary VmStatus
 instance EnumText VmStatus where
   enumTypeName = "VmStatus"
   enumMapping =
-    [ (VmStopped, "stopped"),
-      (VmRunning, "running"),
-      (VmPaused, "paused"),
-      (VmError, "error")
+    [ (VmStopped, "stopped")
+    , (VmRunning, "running")
+    , (VmPaused, "paused")
+    , (VmError, "error")
     ]
 
 instance FromJSON VmStatus where
@@ -188,12 +188,12 @@ instance Binary DriveInterface
 instance EnumText DriveInterface where
   enumTypeName = "DriveInterface"
   enumMapping =
-    [ (InterfaceVirtio, "virtio"),
-      (InterfaceIde, "ide"),
-      (InterfaceScsi, "scsi"),
-      (InterfaceSata, "sata"),
-      (InterfaceNvme, "nvme"),
-      (InterfacePflash, "pflash")
+    [ (InterfaceVirtio, "virtio")
+    , (InterfaceIde, "ide")
+    , (InterfaceScsi, "scsi")
+    , (InterfaceSata, "sata")
+    , (InterfaceNvme, "nvme")
+    , (InterfacePflash, "pflash")
     ]
 
 instance FromJSON DriveInterface where
@@ -225,10 +225,10 @@ instance Binary DriveFormat
 instance EnumText DriveFormat where
   enumTypeName = "DriveFormat"
   enumMapping =
-    [ (FormatQcow2, "qcow2"),
-      (FormatRaw, "raw"),
-      (FormatVmdk, "vmdk"),
-      (FormatVdi, "vdi")
+    [ (FormatQcow2, "qcow2")
+    , (FormatRaw, "raw")
+    , (FormatVmdk, "vmdk")
+    , (FormatVdi, "vdi")
     ]
 
 instance FromJSON DriveFormat where
@@ -261,11 +261,11 @@ instance Binary CacheType
 instance EnumText CacheType where
   enumTypeName = "CacheType"
   enumMapping =
-    [ (CacheNone, "none"),
-      (CacheWriteback, "writeback"),
-      (CacheWritethrough, "writethrough"),
-      (CacheDirectsync, "directsync"),
-      (CacheUnsafe, "unsafe")
+    [ (CacheNone, "none")
+    , (CacheWriteback, "writeback")
+    , (CacheWritethrough, "writethrough")
+    , (CacheDirectsync, "directsync")
+    , (CacheUnsafe, "unsafe")
     ]
 
 instance FromJSON CacheType where
@@ -295,8 +295,8 @@ instance Binary DriveMedia
 instance EnumText DriveMedia where
   enumTypeName = "DriveMedia"
   enumMapping =
-    [ (MediaDisk, "disk"),
-      (MediaCdrom, "cdrom")
+    [ (MediaDisk, "disk")
+    , (MediaCdrom, "cdrom")
     ]
 
 instance FromJSON DriveMedia where
@@ -329,11 +329,11 @@ instance Binary NetInterfaceType
 instance EnumText NetInterfaceType where
   enumTypeName = "NetInterfaceType"
   enumMapping =
-    [ (NetUser, "user"),
-      (NetTap, "tap"),
-      (NetBridge, "bridge"),
-      (NetMacvtap, "macvtap"),
-      (NetVde, "vde")
+    [ (NetUser, "user")
+    , (NetTap, "tap")
+    , (NetBridge, "bridge")
+    , (NetMacvtap, "macvtap")
+    , (NetVde, "vde")
     ]
 
 instance FromJSON NetInterfaceType where
@@ -364,9 +364,9 @@ instance Binary SharedDirCache
 instance EnumText SharedDirCache where
   enumTypeName = "SharedDirCache"
   enumMapping =
-    [ (CacheAlways, "always"),
-      (CacheAuto, "auto"),
-      (CacheNever, "never")
+    [ (CacheAlways, "always")
+    , (CacheAuto, "auto")
+    , (CacheNever, "never")
     ]
 
 instance FromJSON SharedDirCache where
@@ -397,9 +397,9 @@ instance Binary TemplateCloneStrategy
 instance EnumText TemplateCloneStrategy where
   enumTypeName = "TemplateCloneStrategy"
   enumMapping =
-    [ (StrategyClone, "clone"),
-      (StrategyOverlay, "overlay"),
-      (StrategyDirect, "direct")
+    [ (StrategyClone, "clone")
+    , (StrategyOverlay, "overlay")
+    , (StrategyDirect, "direct")
     ]
 
 instance FromJSON TemplateCloneStrategy where

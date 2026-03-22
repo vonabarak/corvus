@@ -5,17 +5,17 @@
 -- Handles SSH key CRUD operations, VM associations, and cloud-init ISO generation.
 module Corvus.Handlers.SshKey
   ( -- * SSH key handlers
-    handleSshKeyCreate,
-    handleSshKeyDelete,
-    handleSshKeyList,
+    handleSshKeyCreate
+  , handleSshKeyDelete
+  , handleSshKeyList
 
     -- * VM association handlers
-    handleSshKeyAttach,
-    handleSshKeyDetach,
-    handleSshKeyListForVm,
+  , handleSshKeyAttach
+  , handleSshKeyDetach
+  , handleSshKeyListForVm
 
     -- * Cloud-init ISO management
-    regenerateCloudInitIso,
+  , regenerateCloudInitIso
   )
 where
 
@@ -63,9 +63,9 @@ handleSshKeyCreate state name publicKey = runStdoutLoggingT $ do
           runSqlPool
             ( insert
                 SshKey
-                  { sshKeyName = name,
-                    sshKeyPublicKey = publicKey,
-                    sshKeyCreatedAt = now
+                  { sshKeyName = name
+                  , sshKeyPublicKey = publicKey
+                  , sshKeyCreatedAt = now
                   }
             )
             pool
@@ -112,11 +112,11 @@ handleSshKeyList state = runStdoutLoggingT $ do
     let vmIds = map (fromSqlKey . vmSshKeyVmId . entityVal) attachments
     pure
       SshKeyInfo
-        { skiId = fromSqlKey keyId,
-          skiName = sshKeyName key,
-          skiPublicKey = sshKeyPublicKey key,
-          skiCreatedAt = sshKeyCreatedAt key,
-          skiAttachedVms = vmIds
+        { skiId = fromSqlKey keyId
+        , skiName = sshKeyName key
+        , skiPublicKey = sshKeyPublicKey key
+        , skiCreatedAt = sshKeyCreatedAt key
+        , skiAttachedVms = vmIds
         }
   pure $ RespSshKeyList infos
 
@@ -160,8 +160,8 @@ handleSshKeyAttach state vmId keyId = runStdoutLoggingT $ do
                 runSqlPool
                   ( insert_
                       VmSshKey
-                        { vmSshKeyVmId = vmKey,
-                          vmSshKeySshKeyId = sshKeyKey
+                        { vmSshKeyVmId = vmKey
+                        , vmSshKeySshKeyId = sshKeyKey
                         }
                   )
                   pool
@@ -243,11 +243,11 @@ handleSshKeyListForVm state vmId = runStdoutLoggingT $ do
             pure $
               Just
                 SshKeyInfo
-                  { skiId = fromSqlKey sshKeyKey,
-                    skiName = sshKeyName key,
-                    skiPublicKey = sshKeyPublicKey key,
-                    skiCreatedAt = sshKeyCreatedAt key,
-                    skiAttachedVms = allVmIds
+                  { skiId = fromSqlKey sshKeyKey
+                  , skiName = sshKeyName key
+                  , skiPublicKey = sshKeyPublicKey key
+                  , skiCreatedAt = sshKeyCreatedAt key
+                  , skiAttachedVms = allVmIds
                   }
       pure $ RespSshKeyList $ map (\(Just x) -> x) $ filter (/= Nothing) infos
 
@@ -280,8 +280,8 @@ regenerateCloudInitIso qemuConfig pool vmId vmName = do
       vmDir <- getCloudInitDir qemuConfig vmName
       let config =
             defaultCloudInitConfig
-              { ciHostname = vmName,
-                ciInstanceId = "corvus-" <> T.pack (show vmId)
+              { ciHostname = vmName
+              , ciInstanceId = "corvus-" <> T.pack (show vmId)
               }
       result <- generateCloudInitIso vmDir config publicKeys
       case result of
@@ -319,12 +319,12 @@ ensureCloudInitDiskRegistered pool vmId vmName isoPath = runStdoutLoggingT $ do
           runSqlPool
             ( insert
                 DiskImage
-                  { diskImageName = diskName,
-                    diskImageFilePath = isoPath,
-                    diskImageFormat = FormatRaw,
-                    diskImageSizeMb = Nothing,
-                    diskImageCreatedAt = now,
-                    diskImageBackingImageId = Nothing
+                  { diskImageName = diskName
+                  , diskImageFilePath = isoPath
+                  , diskImageFormat = FormatRaw
+                  , diskImageSizeMb = Nothing
+                  , diskImageCreatedAt = now
+                  , diskImageBackingImageId = Nothing
                   }
             )
             pool
@@ -332,11 +332,11 @@ ensureCloudInitDiskRegistered pool vmId vmName isoPath = runStdoutLoggingT $ do
       ensureDiskAttached pool vmKey diskId
 
 -- | Ensure a disk is attached to a VM as CDROM
-ensureDiskAttached ::
-  Pool SqlBackend ->
-  VmId ->
-  DiskImageId ->
-  LoggingT IO ()
+ensureDiskAttached
+  :: Pool SqlBackend
+  -> VmId
+  -> DiskImageId
+  -> LoggingT IO ()
 ensureDiskAttached pool vmKey diskId = do
   -- Check if already attached
   existing <-
@@ -353,13 +353,13 @@ ensureDiskAttached pool vmKey diskId = do
           runSqlPool
             ( insert
                 Drive
-                  { driveVmId = vmKey,
-                    driveDiskImageId = diskId,
-                    driveInterface = InterfaceIde,
-                    driveMedia = Just MediaCdrom,
-                    driveReadOnly = True,
-                    driveCacheType = CacheNone,
-                    driveDiscard = False
+                  { driveVmId = vmKey
+                  , driveDiskImageId = diskId
+                  , driveInterface = InterfaceIde
+                  , driveMedia = Just MediaCdrom
+                  , driveReadOnly = True
+                  , driveCacheType = CacheNone
+                  , driveDiscard = False
                   }
             )
             pool

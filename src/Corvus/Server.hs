@@ -5,7 +5,7 @@
 -- This module handles network communication, message framing,
 -- and connection lifecycle. Business logic is delegated to Corvus.Handlers.
 module Corvus.Server
-  ( runServer,
+  ( runServer
   )
 where
 
@@ -28,16 +28,16 @@ import qualified Data.Text as T
 import Data.Word (Word8)
 import Network.Simple.TCP (HostPreference (..), serve)
 import Network.Socket
-  ( Family (AF_UNIX),
-    SockAddr (..),
-    Socket,
-    SocketType (Stream),
-    accept,
-    bind,
-    close,
-    listen,
-    maxListenQueue,
-    socket,
+  ( Family (AF_UNIX)
+  , SockAddr (..)
+  , Socket
+  , SocketType (Stream)
+  , accept
+  , bind
+  , close
+  , listen
+  , maxListenQueue
+  , socket
   )
 import Network.Socket.ByteString (recv, sendAll)
 import System.Directory (removeFile)
@@ -137,8 +137,13 @@ receiveRequest sock = do
         Left _ -> pure $ Just $ Left "Invalid version byte"
         Right (_, _, ver)
           | (ver :: Word8) /= protocolVersion ->
-              pure $ Just $ Left $ "Protocol version mismatch: expected "
-                <> T.pack (show protocolVersion) <> ", got " <> T.pack (show ver)
+              pure $
+                Just $
+                  Left $
+                    "Protocol version mismatch: expected "
+                      <> T.pack (show protocolVersion)
+                      <> ", got "
+                      <> T.pack (show ver)
           | otherwise -> do
               -- Read length prefix (8 bytes for Int64)
               lenBs <- liftIO $ recvExact sock 8

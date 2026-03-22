@@ -5,29 +5,29 @@
 -- Builds complete QEMU command lines from VM configuration.
 module Corvus.Qemu.Command
   ( -- * Command generation
-    generateQemuCommand,
-    generateQemuCommandIO,
-    generateQemuCommandWithSockets,
+    generateQemuCommand
+  , generateQemuCommandIO
+  , generateQemuCommandWithSockets
 
     -- * Command building
-    buildCommandWithSockets,
-    driveArgs,
-    netArgs,
-    sharedDirArgs,
+  , buildCommandWithSockets
+  , driveArgs
+  , netArgs
+  , sharedDirArgs
   )
 where
 
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Model
 import Corvus.Qemu.Config
-  ( QemuConfig (..),
-    getEffectiveBasePath,
+  ( QemuConfig (..)
+  , getEffectiveBasePath
   )
 import Corvus.Qemu.Runtime
-  ( getMonitorSocket,
-    getQmpSocket,
-    getSpiceSocket,
-    getVmRuntimeDir,
+  ( getMonitorSocket
+  , getQmpSocket
+  , getSpiceSocket
+  , getVmRuntimeDir
   )
 import Data.Int (Int64)
 import Data.List (intercalate)
@@ -99,15 +99,15 @@ fetchDriveWithImage (Entity _ drive) = do
   pure (drive, mDiskImage)
 
 -- | Generate QEMU command with socket paths (returns binary and args separately)
-generateQemuCommandWithSockets ::
-  QemuConfig ->
-  Int64 ->
-  FilePath ->
-  FilePath ->
-  FilePath ->
-  FilePath ->
-  FilePath ->
-  SqlPersistT IO (Maybe (FilePath, [String]))
+generateQemuCommandWithSockets
+  :: QemuConfig
+  -> Int64
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> SqlPersistT IO (Maybe (FilePath, [String]))
 generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock vmRuntimeDir = do
   let key = toSqlKey vmId :: VmId
   mVm <- get key
@@ -138,35 +138,35 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSoc
 --------------------------------------------------------------------------------
 
 -- | Build the complete QEMU command with socket paths
-buildCommandWithSockets ::
-  QemuConfig ->
-  Int64 ->
-  Vm ->
-  FilePath ->
-  FilePath ->
-  FilePath ->
-  FilePath ->
-  FilePath ->
-  [(Drive, Maybe DiskImage)] ->
-  [NetworkInterface] ->
-  [SharedDir] ->
-  (FilePath, [String])
+buildCommandWithSockets
+  :: QemuConfig
+  -> Int64
+  -> Vm
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> FilePath
+  -> [(Drive, Maybe DiskImage)]
+  -> [NetworkInterface]
+  -> [SharedDir]
+  -> (FilePath, [String])
 buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spiceSock vmRuntimeDir drives netIfs sharedDirs =
-  ( qcQemuBinary,
-    concatMap
+  ( qcQemuBinary
+  , concatMap
       (filter (not . null))
-      [ ["-name", T.unpack (vmName vm) ++ ",process=corvus-vm-" ++ show vmId],
-        ["-machine", "type=q35,accel=kvm"],
-        ["-cpu", "host"],
-        ["-enable-kvm"],
-        memoryArgs,
-        ["-smp", show (vmCpuCount vm)],
-        spiceArgs,
-        usbRedirArgs,
-        monitorArgs,
-        concatMap (driveArgs basePath) (zip [0 ..] drives),
-        concatMap netArgs (zip [0 ..] netIfs),
-        concatMap (sharedDirArgs vmRuntimeDir) (zip [0 ..] sharedDirs)
+      [ ["-name", T.unpack (vmName vm) ++ ",process=corvus-vm-" ++ show vmId]
+      , ["-machine", "type=q35,accel=kvm"]
+      , ["-cpu", "host"]
+      , ["-enable-kvm"]
+      , memoryArgs
+      , ["-smp", show (vmCpuCount vm)]
+      , spiceArgs
+      , usbRedirArgs
+      , monitorArgs
+      , concatMap (driveArgs basePath) (zip [0 ..] drives)
+      , concatMap netArgs (zip [0 ..] netIfs)
+      , concatMap (sharedDirArgs vmRuntimeDir) (zip [0 ..] sharedDirs)
       ]
   )
   where
@@ -175,51 +175,51 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
     memoryArgs
       | null sharedDirs = ["-m", show (vmRamMb vm)]
       | otherwise =
-          [ "-m",
-            show (vmRamMb vm),
-            "-object",
-            "memory-backend-memfd,id=mem,size=" ++ memSize ++ ",share=on",
-            "-numa",
-            "node,memdev=mem"
+          [ "-m"
+          , show (vmRamMb vm)
+          , "-object"
+          , "memory-backend-memfd,id=mem,size=" ++ memSize ++ ",share=on"
+          , "-numa"
+          , "node,memdev=mem"
           ]
 
     spiceArgs =
-      [ "-spice",
-        "unix=on,addr=" ++ spiceSock ++ ",disable-ticketing=on",
-        "-chardev",
-        "spicevmc,id=vdagent,name=vdagent",
-        "-device",
-        "virtio-vga",
-        "-device",
-        "virtio-serial",
-        "-device",
-        "virtserialport,chardev=vdagent,name=com.redhat.spice.0"
+      [ "-spice"
+      , "unix=on,addr=" ++ spiceSock ++ ",disable-ticketing=on"
+      , "-chardev"
+      , "spicevmc,id=vdagent,name=vdagent"
+      , "-device"
+      , "virtio-vga"
+      , "-device"
+      , "virtio-serial"
+      , "-device"
+      , "virtserialport,chardev=vdagent,name=com.redhat.spice.0"
       ]
 
     -- USB redirection over SPICE (3 USB devices)
     usbRedirArgs =
-      [ "-device",
-        "nec-usb-xhci,id=xhci",
-        "-chardev",
-        "spicevmc,id=usbredirchardev1,name=usbredir",
-        "-device",
-        "usb-redir,chardev=usbredirchardev1,id=usbredirdev1",
-        "-chardev",
-        "spicevmc,id=usbredirchardev2,name=usbredir",
-        "-device",
-        "usb-redir,chardev=usbredirchardev2,id=usbredirdev2",
-        "-chardev",
-        "spicevmc,id=usbredirchardev3,name=usbredir",
-        "-device",
-        "usb-redir,chardev=usbredirchardev3,id=usbredirdev3"
+      [ "-device"
+      , "nec-usb-xhci,id=xhci"
+      , "-chardev"
+      , "spicevmc,id=usbredirchardev1,name=usbredir"
+      , "-device"
+      , "usb-redir,chardev=usbredirchardev1,id=usbredirdev1"
+      , "-chardev"
+      , "spicevmc,id=usbredirchardev2,name=usbredir"
+      , "-device"
+      , "usb-redir,chardev=usbredirchardev2,id=usbredirdev2"
+      , "-chardev"
+      , "spicevmc,id=usbredirchardev3,name=usbredir"
+      , "-device"
+      , "usb-redir,chardev=usbredirchardev3,id=usbredirdev3"
       ]
 
     -- monitor for human interaction
     monitorArgs =
-      [ "-monitor",
-        "unix:" ++ monitorSock ++ ",server,nowait",
-        "-qmp",
-        "unix:" ++ qmpSock ++ ",server,nowait"
+      [ "-monitor"
+      , "unix:" ++ monitorSock ++ ",server,nowait"
+      , "-qmp"
+      , "unix:" ++ qmpSock ++ ",server,nowait"
       ]
 
 --------------------------------------------------------------------------------
@@ -234,27 +234,27 @@ driveArgs basePath (idx, (drive, mDiskImage)) = case mDiskImage of
   Just diskImage -> case driveInterface drive of
     -- Pflash uses simpler format (for UEFI firmware)
     InterfacePflash ->
-      [ "-drive",
-        intercalate "," $
+      [ "-drive"
+      , intercalate "," $
           catMaybes
-            [ Just $ "file=" ++ filePath diskImage,
-              Just $ "format=" ++ T.unpack (enumToText $ diskImageFormat diskImage),
-              Just "if=pflash",
-              if driveReadOnly drive then Just "readonly=on" else Nothing
+            [ Just $ "file=" ++ filePath diskImage
+            , Just $ "format=" ++ T.unpack (enumToText $ diskImageFormat diskImage)
+            , Just "if=pflash"
+            , if driveReadOnly drive then Just "readonly=on" else Nothing
             ]
       ]
     -- Regular drives
     _ ->
-      [ "-drive",
-        intercalate "," $
+      [ "-drive"
+      , intercalate "," $
           catMaybes
-            [ Just $ "file=" ++ filePath diskImage,
-              Just $ "format=" ++ T.unpack (enumToText $ diskImageFormat diskImage),
-              Just $ "if=" ++ interfaceForQemu (driveInterface drive),
-              fmap (\m -> "media=" ++ T.unpack (enumToText m)) (driveMedia drive),
-              Just $ "cache=" ++ T.unpack (enumToText $ driveCacheType drive),
-              if driveDiscard drive then Just "discard=on" else Just "discard=off",
-              if driveReadOnly drive then Just "readonly=on" else Nothing
+            [ Just $ "file=" ++ filePath diskImage
+            , Just $ "format=" ++ T.unpack (enumToText $ diskImageFormat diskImage)
+            , Just $ "if=" ++ interfaceForQemu (driveInterface drive)
+            , fmap (\m -> "media=" ++ T.unpack (enumToText m)) (driveMedia drive)
+            , Just $ "cache=" ++ T.unpack (enumToText $ driveCacheType drive)
+            , if driveDiscard drive then Just "discard=on" else Just "discard=off"
+            , if driveReadOnly drive then Just "readonly=on" else Nothing
             ]
       ]
   where

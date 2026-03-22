@@ -2,6 +2,7 @@
 
 module Corvus.DiskCloneIntegrationSpec (spec) where
 
+import Control.Exception (catch)
 import Control.Monad (void)
 import Corvus.Client
 import Corvus.Protocol (DiskImageInfo (..), SnapshotInfo (..))
@@ -9,13 +10,12 @@ import Data.List (find)
 import qualified Data.Text as T
 import System.Directory (doesFileExist, removeFile)
 import System.FilePath ((</>))
+import System.IO.Error (isDoesNotExistError)
 import Test.DSL.Daemon
 import Test.Daemon (withDaemonConnection)
 import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
 import Test.VM.Common (withTestVm)
-import System.IO.Error (isDoesNotExistError)
-import Control.Exception (catch)
 
 spec :: Spec
 spec = withTestDb $ do
@@ -91,7 +91,7 @@ spec = withTestDb $ do
 
         exists <- doesFileExist customPath
         exists `shouldBe` True
-        
+
         -- Cleanup
         removeFile customPath
 

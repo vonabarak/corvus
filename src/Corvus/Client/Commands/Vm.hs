@@ -4,18 +4,18 @@
 -- | VM command handlers for the Corvus client.
 module Corvus.Client.Commands.Vm
   ( -- * VM command handlers
-    handleVmCreate,
-    handleVmDelete,
-    handleVmAction,
+    handleVmCreate
+  , handleVmDelete
+  , handleVmAction
 
     -- * VM display/interaction
-    runRemoteViewer,
-    runMonitorSession,
+  , runRemoteViewer
+  , runMonitorSession
 
     -- * Formatters
-    printVmInfo,
-    printVmDetails,
-    formatUptime,
+  , printVmInfo
+  , printVmDetails
+  , formatUptime
   )
 where
 

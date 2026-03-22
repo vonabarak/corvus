@@ -7,25 +7,25 @@
 -- Provides the TestM monad and basic DSL combinators.
 module Test.DSL.Core
   ( -- * Test monad
-    TestM,
-    DB.TestEnv (..),
-    runTestM,
+    TestM
+  , DB.TestEnv (..)
+  , runTestM
 
     -- * DSL primitives
-    given,
-    when_,
-    then_,
+  , given
+  , when_
+  , then_
 
     -- * Environment access
-    getDbPool,
-    runDb,
-    getLastResponse,
-    setLastResponse,
-    getTempDir,
+  , getDbPool
+  , runDb
+  , getLastResponse
+  , setLastResponse
+  , getTempDir
 
     -- * HSpec integration
-    testCase,
-    withFreshDb,
+  , testCase
+  , withFreshDb
   )
 where
 
@@ -37,7 +37,7 @@ import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Pool (Pool)
 import qualified Data.Text as T
 import Database.Persist.Postgresql (SqlBackend, runSqlPool)
-import Database.Persist.Sql (SqlPersistT, Single (..), rawExecute, rawSql)
+import Database.Persist.Sql (Single (..), SqlPersistT, rawExecute, rawSql)
 import qualified Test.Database as DB
 import Test.Hspec (SpecWith, it)
 
@@ -54,11 +54,11 @@ import Test.Hspec (SpecWith, it)
 -- | Test monad with access to test environment
 newtype TestM a = TestM {unTestM :: ReaderT DB.TestEnv IO a}
   deriving newtype
-    ( Functor,
-      Applicative,
-      Monad,
-      MonadIO,
-      MonadReader DB.TestEnv
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , MonadReader DB.TestEnv
     )
 
 -- | Run a TestM action

@@ -4,28 +4,28 @@
 -- Provides functions to create and destroy isolated test databases.
 module Test.Database
   ( -- * Test database lifecycle
-    withTestDb,
-    setupTestDb,
-    teardownTestDb,
-    createTestTempDir,
+    withTestDb
+  , setupTestDb
+  , teardownTestDb
+  , createTestTempDir
 
     -- * Test environment
-    TestEnv (..),
+  , TestEnv (..)
 
     -- * Database operations
-    runDb,
-    getPool,
+  , runDb
+  , getPool
 
     -- * Configuration
-    TestDbConfig (..),
-    getTestDbConfig,
+  , TestDbConfig (..)
+  , getTestDbConfig
   )
 where
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (runNoLoggingT)
-import Corvus.Protocol (Response)
 import Corvus.Model (migrateAll)
+import Corvus.Protocol (Response)
 import Data.ByteString.Char8 (pack)
 import Data.IORef (IORef, newIORef)
 import Data.Pool (Pool, destroyAllResources)
@@ -48,16 +48,16 @@ import Test.Settings
 
 -- | Test environment containing database connection
 data TestEnv = TestEnv
-  { -- | Database connection pool
-    tePool :: !(Pool SqlBackend),
-    -- | Test database name (for cleanup)
-    teDbName :: !Text,
-    -- | Configuration used
-    teConfig :: !TestDbConfig,
-    -- | Last response from handler/RPC
-    teLastResponse :: !(IORef (Maybe Response)),
-    -- | Temporary directory for test files
-    teTempDir :: !FilePath
+  { tePool :: !(Pool SqlBackend)
+  -- ^ Database connection pool
+  , teDbName :: !Text
+  -- ^ Test database name (for cleanup)
+  , teConfig :: !TestDbConfig
+  -- ^ Configuration used
+  , teLastResponse :: !(IORef (Maybe Response))
+  -- ^ Last response from handler/RPC
+  , teTempDir :: !FilePath
+  -- ^ Temporary directory for test files
   }
 
 -- | Get the database pool from the test environment
@@ -96,11 +96,11 @@ setupTestDb = do
 
   pure
     TestEnv
-      { tePool = pool,
-        teDbName = dbName,
-        teConfig = config,
-        teLastResponse = respRef,
-        teTempDir = tempDir
+      { tePool = pool
+      , teDbName = dbName
+      , teConfig = config
+      , teLastResponse = respRef
+      , teTempDir = tempDir
       }
 
 -- | Destroy the test database

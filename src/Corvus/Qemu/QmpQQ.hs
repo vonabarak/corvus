@@ -3,8 +3,8 @@
 -- | QMP quasi-quoter for building QMP commands as ByteStrings.
 -- Separated from Qmp.hs due to Template Haskell stage restriction.
 module Corvus.Qemu.QmpQQ
-  ( qmpQQ,
-    jsonToCmd,
+  ( qmpQQ
+  , jsonToCmd
   )
 where
 
@@ -20,10 +20,10 @@ import Language.Haskell.TH.Quote (QuasiQuoter (..))
 qmpQQ :: QuasiQuoter
 qmpQQ =
   QuasiQuoter
-    { quoteExp = \s -> [|jsonToCmd $(quoteExp aesonQQ s)|],
-      quotePat = const $ fail "qmpQQ: patterns not supported",
-      quoteType = const $ fail "qmpQQ: types not supported",
-      quoteDec = const $ fail "qmpQQ: declarations not supported"
+    { quoteExp = \s -> [|jsonToCmd $(quoteExp aesonQQ s)|]
+    , quotePat = const $ fail "qmpQQ: patterns not supported"
+    , quoteType = const $ fail "qmpQQ: types not supported"
+    , quoteDec = const $ fail "qmpQQ: declarations not supported"
     }
 
 -- | Convert a JSON Value to a ByteString command (with newline)

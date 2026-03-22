@@ -4,16 +4,16 @@
 -- | Connection handling for the Corvus client.
 module Corvus.Client.Connection
   ( -- * Connection type
-    Connection (..),
-    ConnectionError (..),
+    Connection (..)
+  , ConnectionError (..)
 
     -- * Connecting
-    withConnection,
-    withTcpConnection,
-    withUnixConnection,
+  , withConnection
+  , withTcpConnection
+  , withUnixConnection
 
     -- * Low-level communication
-    sendRequest,
+  , sendRequest
   )
 where
 
@@ -29,19 +29,19 @@ import qualified Data.Text as T
 import Data.Word (Word8)
 import Network.Simple.TCP (connect)
 import Network.Socket
-  ( Family (AF_UNIX),
-    Socket,
-    SocketType (Stream),
-    close,
-    socket,
+  ( Family (AF_UNIX)
+  , Socket
+  , SocketType (Stream)
+  , close
+  , socket
   )
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
 
 -- | Connection handle
 data Connection = Connection
-  { connSendRequest :: Request -> IO (Either ConnectionError Response),
-    connClose :: IO ()
+  { connSendRequest :: Request -> IO (Either ConnectionError Response)
+  , connClose :: IO ()
   }
 
 -- | Connection errors
@@ -82,10 +82,11 @@ withUnixConnection path action = do
 
 -- | Create a Connection from a Socket
 socketConnection :: Socket -> Connection
-socketConnection sock = Connection
-  { connSendRequest = realSendRequest sock,
-    connClose = close sock
-  }
+socketConnection sock =
+  Connection
+    { connSendRequest = realSendRequest sock
+    , connClose = close sock
+    }
 
 -- | Send a request and receive a response
 sendRequest :: Connection -> Request -> IO (Either ConnectionError Response)
@@ -122,8 +123,13 @@ recvResponse sock = do
         Left (_, _, err) -> pure $ Left $ DecodeFailed $ "version: " <> T.pack err
         Right (_, _, ver)
           | (ver :: Word8) /= protocolVersion ->
-              pure $ Left $ DecodeFailed $ "protocol version mismatch: expected "
-                <> T.pack (show protocolVersion) <> ", got " <> T.pack (show ver)
+              pure $
+                Left $
+                  DecodeFailed $
+                    "protocol version mismatch: expected "
+                      <> T.pack (show protocolVersion)
+                      <> ", got "
+                      <> T.pack (show ver)
           | otherwise -> do
               -- Read length prefix (8 bytes for Int64)
               lenBs <- recvExact sock 8

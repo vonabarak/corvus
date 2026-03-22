@@ -3,15 +3,15 @@
 -- | SSH key command handlers for the Corvus client.
 module Corvus.Client.Commands.SshKey
   ( -- * Command handlers
-    handleSshKeyCreate,
-    handleSshKeyDelete,
-    handleSshKeyList,
-    handleSshKeyAttach,
-    handleSshKeyDetach,
-    handleSshKeyListForVm,
+    handleSshKeyCreate
+  , handleSshKeyDelete
+  , handleSshKeyList
+  , handleSshKeyAttach
+  , handleSshKeyDetach
+  , handleSshKeyListForVm
 
     -- * Formatters
-    printSshKeyInfo,
+  , printSshKeyInfo
   )
 where
 

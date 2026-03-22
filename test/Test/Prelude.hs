@@ -1,58 +1,58 @@
 -- | Test prelude - convenient re-exports for writing tests.
 module Test.Prelude
   ( -- * HSpec
-    module Test.Hspec,
+    module Test.Hspec
 
     -- * Database setup
-    withTestDb,
+  , withTestDb
 
     -- * DSL Core
-    TestM,
-    testCase,
-    given,
-    when_,
-    then_,
-    liftIO,
+  , TestM
+  , testCase
+  , given
+  , when_
+  , then_
+  , liftIO
 
     -- * DSL Given (setup)
-    module Test.DSL.Given,
+  , module Test.DSL.Given
 
     -- * DSL When (commands)
-    module Test.DSL.When,
+  , module Test.DSL.When
 
     -- * DSL Then (assertions)
-    module Test.DSL.Then,
+  , module Test.DSL.Then
 
     -- * Model types
-    VmStatus (..),
-    DriveFormat (..),
-    DriveInterface (..),
-    DriveMedia (..),
-    CacheType (..),
-    NetInterfaceType (..),
-    SharedDirCache (..),
+  , VmStatus (..)
+  , DriveFormat (..)
+  , DriveInterface (..)
+  , DriveMedia (..)
+  , CacheType (..)
+  , NetInterfaceType (..)
+  , SharedDirCache (..)
 
     -- * Protocol types
-    Response (..),
+  , Response (..)
 
     -- * Common types
-    Int64,
-    Text,
+  , Int64
+  , Text
   )
 where
 
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Model
-  ( CacheType (..),
-    DriveFormat (..),
-    DriveInterface (..),
-    DriveMedia (..),
-    NetInterfaceType (..),
-    SharedDirCache (..),
-    VmStatus (..),
+  ( CacheType (..)
+  , DriveFormat (..)
+  , DriveInterface (..)
+  , DriveMedia (..)
+  , NetInterfaceType (..)
+  , SharedDirCache (..)
+  , VmStatus (..)
   )
 import Corvus.Protocol
-  ( Response (..),
+  ( Response (..)
   )
 import Data.Int (Int64)
 import Data.Text (Text)

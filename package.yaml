@@ -36,6 +36,7 @@ dependencies:
   - template-haskell
   - haskell-src-meta
   - random
+  - fourmolu
 
 default-extensions:
   - OverloadedStrings

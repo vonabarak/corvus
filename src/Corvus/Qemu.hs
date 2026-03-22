@@ -11,58 +11,58 @@
 -- * "Corvus.Qemu.Image" - Disk image management using qemu-img
 module Corvus.Qemu
   ( -- * Configuration
-    QemuConfig (..),
-    defaultQemuConfig,
-    getEffectiveBasePath,
+    QemuConfig (..)
+  , defaultQemuConfig
+  , getEffectiveBasePath
 
     -- * Runtime directories
-    createVmRuntimeDir,
-    getVmRuntimeDir,
-    getMonitorSocket,
-    getSpiceSocket,
-    getQmpSocket,
+  , createVmRuntimeDir
+  , getVmRuntimeDir
+  , getMonitorSocket
+  , getSpiceSocket
+  , getQmpSocket
 
     -- * VM execution
-    startVm,
-    StartVmResult (..),
+  , startVm
+  , StartVmResult (..)
 
     -- * QMP interaction
-    QmpResult (..),
-    qmpShutdown,
-    qmpContinue,
-    qmpStop,
-    qmpBlockdevAdd,
-    qmpDeviceAddDrive,
-    qmpDeviceDel,
-    qmpBlockdevDel,
-    qmpQQ,
+  , QmpResult (..)
+  , qmpShutdown
+  , qmpContinue
+  , qmpStop
+  , qmpBlockdevAdd
+  , qmpDeviceAddDrive
+  , qmpDeviceDel
+  , qmpBlockdevDel
+  , qmpQQ
 
     -- * Process management
-    killVmProcess,
-    KillResult (..),
+  , killVmProcess
+  , KillResult (..)
 
     -- * Virtiofsd (shared directories)
-    startVirtiofsdProcesses,
-    killVirtiofsdProcesses,
-    VirtiofsdResult (..),
+  , startVirtiofsdProcesses
+  , killVirtiofsdProcesses
+  , VirtiofsdResult (..)
 
     -- * Command generation
-    generateQemuCommand,
-    generateQemuCommandIO,
+  , generateQemuCommand
+  , generateQemuCommandIO
 
     -- * Disk image management
-    createImage,
-    deleteImage,
-    resizeImage,
-    getImageInfo,
-    createSnapshot,
-    deleteSnapshot,
-    rollbackSnapshot,
-    mergeSnapshot,
-    listSnapshots,
-    ImageInfo (..),
-    SnapshotData (..),
-    ImageResult (..),
+  , createImage
+  , deleteImage
+  , resizeImage
+  , getImageInfo
+  , createSnapshot
+  , deleteSnapshot
+  , rollbackSnapshot
+  , mergeSnapshot
+  , listSnapshots
+  , ImageInfo (..)
+  , SnapshotData (..)
+  , ImageResult (..)
   )
 where
 

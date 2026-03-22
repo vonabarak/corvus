@@ -57,35 +57,39 @@ spec = withTestDb $ do
   describe "Multi-OS cloud-init integration" $ do
     describe "Alpine Linux" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "alpine-3.20-uefi"}) $ verifyVm
+        withTestVm env (multiOsConfig {vmcOsName = "alpine-3.20-uefi"}) verifyVm
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "alpine-3.20-bios"}) $ verifyVm
+        withTestVmBios env (multiOsConfig {vmcOsName = "alpine-3.20-bios"}) verifyVm
 
     describe "AlmaLinux" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "almalinux-10"}) $ verifyVm
+        withTestVm env (multiOsConfig {vmcOsName = "almalinux-10"}) verifyVm
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "almalinux-10"}) $ verifyVm
+        withTestVmBios env (multiOsConfig {vmcOsName = "almalinux-10"}) verifyVm
 
     describe "Ubuntu" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "ubuntu-24.04"}) $ verifyVm
+        withTestVm env (multiOsConfig {vmcOsName = "ubuntu-24.04"}) verifyVm
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "ubuntu-24.04"}) $ verifyVm
+        withTestVmBios env (multiOsConfig {vmcOsName = "ubuntu-24.04"}) verifyVm
 
     describe "Debian" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "debian-12"}) $ verifyVm
+        withTestVm env (multiOsConfig {vmcOsName = "debian-12"}) verifyVm
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "debian-12"}) $ verifyVm
+        withTestVmBios env (multiOsConfig {vmcOsName = "debian-12"}) verifyVm
+
+    describe "Gentoo" $ do
+      it "SSH key setup works with UEFI boot" $ \env -> do
+        withTestVm env (multiOsConfig {vmcOsName = "gentoo"}) verifyVm
 
     describe "FreeBSD" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "freebsd-14"}) $ verifyVm
+        withTestVm env (multiOsConfig {vmcOsName = "freebsd-14"}) verifyVm
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "freebsd-14"}) $ verifyVm
+        withTestVmBios env (multiOsConfig {vmcOsName = "freebsd-14"}) verifyVm

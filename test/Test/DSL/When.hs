@@ -2,61 +2,61 @@
 -- Provides functions to invoke handlers and capture responses.
 module Test.DSL.When
   ( -- * VM commands
-    vmList,
-    vmShow,
-    vmStart,
-    vmStop,
-    vmPause,
-    vmReset,
+    vmList
+  , vmShow
+  , vmStart
+  , vmStop
+  , vmPause
+  , vmReset
 
     -- * Disk commands
-    diskCreate,
-    diskCreateOverlay,
-    diskDelete,
-    diskResize,
-    diskList,
-    diskShow,
-    diskAttach,
-    diskAttachReadOnly,
-    diskDetach,
+  , diskCreate
+  , diskCreateOverlay
+  , diskDelete
+  , diskResize
+  , diskList
+  , diskShow
+  , diskAttach
+  , diskAttachReadOnly
+  , diskDetach
 
     -- * Snapshot commands
-    snapshotCreate,
-    snapshotDelete,
-    snapshotRollback,
-    snapshotMerge,
-    snapshotList,
+  , snapshotCreate
+  , snapshotDelete
+  , snapshotRollback
+  , snapshotMerge
+  , snapshotList
 
     -- * Shared directory commands
-    whenSharedDirAdd,
-    whenSharedDirRemove,
-    whenSharedDirList,
+  , whenSharedDirAdd
+  , whenSharedDirRemove
+  , whenSharedDirList
 
     -- * Network interface commands
-    whenNetIfAdd,
-    whenNetIfRemove,
-    whenNetIfList,
+  , whenNetIfAdd
+  , whenNetIfRemove
+  , whenNetIfList
 
     -- * SSH key commands
-    whenSshKeyCreate,
-    whenSshKeyDelete,
-    whenSshKeyList,
-    whenSshKeyAttach,
-    whenSshKeyDetach,
-    whenSshKeyListForVm,
+  , whenSshKeyCreate
+  , whenSshKeyDelete
+  , whenSshKeyList
+  , whenSshKeyAttach
+  , whenSshKeyDetach
+  , whenSshKeyListForVm
 
     -- * VM create/delete
-    whenVmCreate,
-    whenVmDelete,
+  , whenVmCreate
+  , whenVmDelete
 
     -- * Core commands
-    whenPing,
-    whenStatus,
-    whenShutdown,
+  , whenPing
+  , whenStatus
+  , whenShutdown
 
     -- * Low-level
-    executeRequest,
-    createTestServerState,
+  , executeRequest
+  , createTestServerState
   )
 where
 
@@ -91,8 +91,8 @@ directConnection state env =
     { connSendRequest = \req -> do
         resp <- handleRequest state req
         writeIORef (DB.teLastResponse env) (Just resp)
-        pure (Right resp),
-      connClose = pure ()
+        pure (Right resp)
+    , connClose = pure ()
     }
 
 --------------------------------------------------------------------------------
@@ -107,11 +107,11 @@ createTestServerState pool = do
   shutdownFlag <- newTVarIO False
   pure
     ServerState
-      { ssStartTime = startTime,
-        ssConnectionCount = connCount,
-        ssShutdownFlag = shutdownFlag,
-        ssDbPool = pool,
-        ssQemuConfig = defaultQemuConfig
+      { ssStartTime = startTime
+      , ssConnectionCount = connCount
+      , ssShutdownFlag = shutdownFlag
+      , ssDbPool = pool
+      , ssQemuConfig = defaultQemuConfig
       }
 
 --------------------------------------------------------------------------------
@@ -151,23 +151,23 @@ vmList = executeRpc Rpc.listVms
 
 -- | Show VM details
 vmShow :: Int64 -> TestM (Maybe VmDetails)
-vmShow vmId = executeRpc (\conn -> Rpc.showVm conn vmId)
+vmShow vmId = executeRpc (`Rpc.showVm` vmId)
 
 -- | Start a VM
 vmStart :: Int64 -> TestM VmActionResult
-vmStart vmId = executeRpc (\conn -> Rpc.vmStart conn vmId)
+vmStart vmId = executeRpc (`Rpc.vmStart` vmId)
 
 -- | Stop a VM
 vmStop :: Int64 -> TestM VmActionResult
-vmStop vmId = executeRpc (\conn -> Rpc.vmStop conn vmId)
+vmStop vmId = executeRpc (`Rpc.vmStop` vmId)
 
 -- | Pause a VM
 vmPause :: Int64 -> TestM VmActionResult
-vmPause vmId = executeRpc (\conn -> Rpc.vmPause conn vmId)
+vmPause vmId = executeRpc (`Rpc.vmPause` vmId)
 
 -- | Reset a VM
 vmReset :: Int64 -> TestM VmActionResult
-vmReset vmId = executeRpc (\conn -> Rpc.vmReset conn vmId)
+vmReset vmId = executeRpc (`Rpc.vmReset` vmId)
 
 --------------------------------------------------------------------------------
 -- Disk Commands
@@ -185,7 +185,7 @@ diskCreateOverlay name baseDiskId =
 
 -- | Delete a disk image
 diskDelete :: Int64 -> TestM DiskResult
-diskDelete diskId = executeRpc (\conn -> Rpc.diskDelete conn diskId)
+diskDelete diskId = executeRpc (`Rpc.diskDelete` diskId)
 
 -- | Resize a disk image
 diskResize :: Int64 -> Int64 -> TestM DiskResult
@@ -198,7 +198,7 @@ diskList = executeRpc Rpc.diskList
 
 -- | Show disk image details
 diskShow :: Int64 -> TestM DiskResult
-diskShow diskId = executeRpc (\conn -> Rpc.diskShow conn diskId)
+diskShow diskId = executeRpc (`Rpc.diskShow` diskId)
 
 -- | Attach a disk to a VM
 diskAttach :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM DiskResult
@@ -240,7 +240,7 @@ snapshotMerge diskId snapshotId =
 
 -- | List snapshots for a disk
 snapshotList :: Int64 -> TestM SnapshotResult
-snapshotList diskId = executeRpc (\conn -> Rpc.snapshotList conn diskId)
+snapshotList diskId = executeRpc (`Rpc.snapshotList` diskId)
 
 --------------------------------------------------------------------------------
 -- Shared Directory Commands
@@ -258,7 +258,7 @@ whenSharedDirRemove vmId sharedDirId =
 
 -- | List shared directories for a VM
 whenSharedDirList :: Int64 -> TestM SharedDirResult
-whenSharedDirList vmId = executeRpc (\conn -> Rpc.sharedDirList conn vmId)
+whenSharedDirList vmId = executeRpc (`Rpc.sharedDirList` vmId)
 
 --------------------------------------------------------------------------------
 -- Network Interface Commands
@@ -276,7 +276,7 @@ whenNetIfRemove vmId netIfId =
 
 -- | List network interfaces for a VM
 whenNetIfList :: Int64 -> TestM NetIfResult
-whenNetIfList vmId = executeRpc (\conn -> Rpc.netIfList conn vmId)
+whenNetIfList vmId = executeRpc (`Rpc.netIfList` vmId)
 
 --------------------------------------------------------------------------------
 -- SSH Key Commands
@@ -289,7 +289,7 @@ whenSshKeyCreate name publicKey =
 
 -- | Delete an SSH key
 whenSshKeyDelete :: Int64 -> TestM SshKeyResult
-whenSshKeyDelete keyId = executeRpc (\conn -> Rpc.sshKeyDelete conn keyId)
+whenSshKeyDelete keyId = executeRpc (`Rpc.sshKeyDelete` keyId)
 
 -- | List all SSH keys
 whenSshKeyList :: TestM SshKeyResult
@@ -307,7 +307,7 @@ whenSshKeyDetach vmId keyId =
 
 -- | List SSH keys for a VM
 whenSshKeyListForVm :: Int64 -> TestM SshKeyResult
-whenSshKeyListForVm vmId = executeRpc (\conn -> Rpc.sshKeyListForVm conn vmId)
+whenSshKeyListForVm vmId = executeRpc (`Rpc.sshKeyListForVm` vmId)
 
 --------------------------------------------------------------------------------
 -- VM Create/Delete Commands
@@ -320,7 +320,7 @@ whenVmCreate name cpuCount ramMb description =
 
 -- | Delete a VM
 whenVmDelete :: Int64 -> TestM VmDeleteResult
-whenVmDelete vmId = executeRpc (\conn -> Rpc.vmDelete conn vmId)
+whenVmDelete vmId = executeRpc (`Rpc.vmDelete` vmId)
 
 --------------------------------------------------------------------------------
 -- Core Commands

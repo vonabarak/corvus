@@ -5,7 +5,7 @@
 -- Downloads and caches cloud images, creates overlays for test isolation.
 module Test.VM.Image
   ( -- * Image operations
-    ensureBaseImage,
+    ensureBaseImage
   )
 where
 
@@ -14,10 +14,10 @@ import Control.Monad (unless, when)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory
-  ( createDirectoryIfMissing,
-    doesFileExist,
-    getCurrentDirectory,
-    removeFile,
+  ( createDirectoryIfMissing
+  , doesFileExist
+  , getCurrentDirectory
+  , removeFile
   )
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))

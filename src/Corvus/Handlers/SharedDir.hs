@@ -5,9 +5,9 @@
 -- Handles adding, removing, and listing shared directories for VMs.
 module Corvus.Handlers.SharedDir
   ( -- * Handlers
-    handleSharedDirAdd,
-    handleSharedDirRemove,
-    handleSharedDirList,
+    handleSharedDirAdd
+  , handleSharedDirRemove
+  , handleSharedDirList
   )
 where
 
@@ -29,14 +29,14 @@ import Database.Persist.Sql (fromSqlKey, toSqlKey)
 --------------------------------------------------------------------------------
 
 -- | Add a shared directory to a VM
-handleSharedDirAdd ::
-  ServerState ->
-  Int64 ->
-  Text ->
-  Text ->
-  SharedDirCache ->
-  Bool ->
-  IO Response
+handleSharedDirAdd
+  :: ServerState
+  -> Int64
+  -> Text
+  -> Text
+  -> SharedDirCache
+  -> Bool
+  -> IO Response
 handleSharedDirAdd state vmId path tag cache readOnly = do
   runStdoutLoggingT $ logInfoN $ "Adding shared directory to VM " <> T.pack (show vmId) <> ": " <> path
 
@@ -56,12 +56,12 @@ handleSharedDirAdd state vmId path tag cache readOnly = do
           -- Insert shared directory
           let sharedDir =
                 SharedDir
-                  { sharedDirVmId = vmKey,
-                    sharedDirPath = path,
-                    sharedDirTag = tag,
-                    sharedDirCache = cache,
-                    sharedDirReadOnly = readOnly,
-                    sharedDirPid = Nothing
+                  { sharedDirVmId = vmKey
+                  , sharedDirPath = path
+                  , sharedDirTag = tag
+                  , sharedDirCache = cache
+                  , sharedDirReadOnly = readOnly
+                  , sharedDirPid = Nothing
                   }
           dirId <- runSqlPool (insert sharedDir) pool
           let dirIdInt = fromSqlKey dirId
@@ -134,10 +134,10 @@ handleSharedDirList state vmId = do
 toSharedDirInfo :: Entity SharedDir -> SharedDirInfo
 toSharedDirInfo (Entity key dir) =
   SharedDirInfo
-    { sdiId = fromSqlKey key,
-      sdiPath = sharedDirPath dir,
-      sdiTag = sharedDirTag dir,
-      sdiCache = sharedDirCache dir,
-      sdiReadOnly = sharedDirReadOnly dir,
-      sdiPid = sharedDirPid dir
+    { sdiId = fromSqlKey key
+    , sdiPath = sharedDirPath dir
+    , sdiTag = sharedDirTag dir
+    , sdiCache = sharedDirCache dir
+    , sdiReadOnly = sharedDirReadOnly dir
+    , sdiPid = sharedDirPid dir
     }

@@ -23,11 +23,11 @@ import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
 
 -- | Command line options for the daemon
 data Options = Options
-  { optSocket :: Maybe FilePath,
-    optTcp :: Bool,
-    optHost :: String,
-    optPort :: Int,
-    optDbUri :: String
+  { optSocket :: Maybe FilePath
+  , optTcp :: Bool
+  , optHost :: String
+  , optPort :: Int
+  , optDbUri :: String
   }
   deriving (Show)
 
