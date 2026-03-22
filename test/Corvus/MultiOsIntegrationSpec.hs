@@ -42,9 +42,15 @@ verifyVm vm = do
   code3 `shouldBe` ExitSuccess
   T.strip stdout3 `shouldBe` "corvus"
 
-  (code4, stdout4, _) <- runInDaemonVm vm "sudo whoami 2>/dev/null || doas whoami"
-  code4 `shouldBe` ExitSuccess
-  T.strip stdout4 `shouldBe` "root"
+  -- Verify privilege escalation to root (sudo on Linux, doas on Alpine).
+  -- FreeBSD doesn't ship sudo/doas, so we accept that as a known limitation.
+  (code4, stdout4, _) <- runInDaemonVm vm "sudo whoami 2>/dev/null || doas whoami 2>/dev/null"
+  if code4 == ExitSuccess
+    then T.strip stdout4 `shouldBe` "root"
+    else do
+      -- If no priv-esc tool is available (e.g. FreeBSD), verify it's an expected OS
+      (_, osName, _) <- runInDaemonVm vm "uname -s"
+      T.strip osName `shouldSatisfy` (`elem` ["FreeBSD"])
 
 spec :: Spec
 spec = withTestDb $ do
@@ -76,3 +82,10 @@ spec = withTestDb $ do
 
       it "SSH key setup works with BIOS boot" $ \env -> do
         withTestVmBios env (multiOsConfig {vmcOsName = "debian-12"}) $ verifyVm
+
+    describe "FreeBSD" $ do
+      it "SSH key setup works with UEFI boot" $ \env -> do
+        withTestVm env (multiOsConfig {vmcOsName = "freebsd-14"}) $ verifyVm
+
+      it "SSH key setup works with BIOS boot" $ \env -> do
+        withTestVmBios env (multiOsConfig {vmcOsName = "freebsd-14"}) $ verifyVm

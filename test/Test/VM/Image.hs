@@ -34,17 +34,68 @@ getCacheDir config = do
 
 -- | Ensure the base image is downloaded and cached.
 -- Returns the path to the cached image.
+-- Handles .xz compressed images by decompressing after download.
 ensureBaseImage :: Text -> IO (Either Text FilePath)
 ensureBaseImage osName = case getImageConfig osName of
   Nothing -> pure $ Left $ "Unsupported OS: " <> osName
   Just config -> do
     cacheDir <- getCacheDir config
-    let imagePath = cacheDir </> T.unpack (icImageName config)
+    let imageName = T.unpack (icImageName config)
+        isXz = ".xz" `isSuffixOf` imageName
+        finalPath = if isXz then cacheDir </> dropXzExt imageName else cacheDir </> imageName
+        downloadPath = cacheDir </> imageName
 
-    exists <- doesFileExist imagePath
+    exists <- doesFileExist finalPath
     if exists
-      then pure $ Right imagePath
-      else downloadImage config imagePath
+      then pure $ Right finalPath
+      else do
+        result <- downloadImage config downloadPath
+        case result of
+          Left err -> pure $ Left err
+          Right path
+            | isXz -> decompressXz path finalPath
+            | otherwise -> pure $ Right path
+
+-- | Drop .xz extension from a filename
+dropXzExt :: String -> String
+dropXzExt name
+  | ".xz" `isSuffixOf` name = take (length name - 3) name
+  | otherwise = name
+
+-- | Check if a string ends with a suffix
+isSuffixOf :: String -> String -> Bool
+isSuffixOf suffix str = drop (length str - length suffix) str == suffix
+
+-- | Decompress an .xz file and remove the compressed original
+decompressXz :: FilePath -> FilePath -> IO (Either Text FilePath)
+decompressXz xzPath finalPath = do
+  putStrLn $ "Decompressing " ++ xzPath ++ "..."
+  result <- try $ readProcessWithExitCode "xz" ["-d", "-k", xzPath] ""
+  case result of
+    Left (_ :: IOError) ->
+      pure $ Left "xz command not found for decompressing image"
+    Right (ExitSuccess, _, _) -> do
+      -- xz -d -k decompresses in place (removes .xz, keeps original with -k)
+      -- The output file is the input without .xz extension
+      let decompressedPath = dropXzExt xzPath
+      if decompressedPath /= finalPath
+        then do
+          -- Rename to expected path if different
+          renameResult <- try $ readProcessWithExitCode "mv" [decompressedPath, finalPath] ""
+          case renameResult of
+            Left (_ :: IOError) -> pure $ Left "Failed to move decompressed image"
+            Right (ExitSuccess, _, _) -> do
+              removeFile xzPath
+              putStrLn "Decompression complete."
+              pure $ Right finalPath
+            Right (ExitFailure n, _, stderr) ->
+              pure $ Left $ "mv failed: " <> T.pack (show n) <> " " <> T.pack stderr
+        else do
+          removeFile xzPath
+          putStrLn "Decompression complete."
+          pure $ Right finalPath
+    Right (ExitFailure n, _, stderr) ->
+      pure $ Left $ "xz decompression failed: " <> T.pack (show n) <> " " <> T.pack stderr
 
 -- | Download the base image to the specified path
 downloadImage :: ImageConfig -> FilePath -> IO (Either Text FilePath)

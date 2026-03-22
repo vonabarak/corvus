@@ -98,6 +98,12 @@ imageConfigs =
         { icImageUrl = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2",
           icImageName = "debian-12-generic-amd64.qcow2"
         }
+    ),
+    ( "freebsd-14",
+      ImageConfig
+        { icImageUrl = "https://download.freebsd.org/releases/VM-IMAGES/14.4-RELEASE/amd64/Latest/FreeBSD-14.4-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz",
+          icImageName = "FreeBSD-14.4-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz"
+        }
     )
   ]
 
