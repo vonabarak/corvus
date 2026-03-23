@@ -51,8 +51,11 @@ library
       Corvus.Qemu.Virtiofsd
       Corvus.Qemu.Image
   other-modules:
+      Corvus.Client.Commands.Network
+      Corvus.Handlers.Network
       Corvus.Handlers.Template
       Corvus.Qemu.QmpQQ
+      Corvus.Qemu.Vde
       Paths_corvus
   autogen-modules:
       Paths_corvus

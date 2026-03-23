@@ -28,6 +28,9 @@ module Corvus.Protocol
   , TemplateDriveInfo (..)
   , TemplateNetIfInfo (..)
   , TemplateSshKeyInfo (..)
+
+    -- * Network info
+  , NetworkInfo (..)
   )
 where
 
@@ -44,7 +47,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 3
+protocolVersion = 4
 
 -- | Client requests
 data Request
@@ -107,8 +110,8 @@ data Request
   | -- | List shared directories for VM (vmId)
     ReqSharedDirList !Int64
   | -- | Network interface operations
-    -- | Add network interface to VM (vmId, interfaceType, hostDevice, macAddress)
-    ReqNetIfAdd !Int64 !NetInterfaceType !Text !(Maybe Text)
+    -- | Add network interface to VM (vmId, interfaceType, hostDevice, macAddress, networkId)
+    ReqNetIfAdd !Int64 !NetInterfaceType !Text !(Maybe Text) !(Maybe Int64)
   | -- | Remove network interface from VM (vmId, netIfId)
     ReqNetIfRemove !Int64 !Int64
   | -- | List network interfaces for VM (vmId)
@@ -140,6 +143,19 @@ data Request
   | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless)
     -- Each Maybe field is updated only if Just.
     ReqVmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool)
+  | -- | Virtual network operations
+    -- | Create network (name)
+    ReqNetworkCreate !Text
+  | -- | Delete network (networkId)
+    ReqNetworkDelete !Int64
+  | -- | Start network (networkId)
+    ReqNetworkStart !Int64
+  | -- | Stop network (networkId, force)
+    ReqNetworkStop !Int64 !Bool
+  | -- | List all networks
+    ReqNetworkList
+  | -- | Show network details (networkId)
+    ReqNetworkShow !Int64
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -184,6 +200,8 @@ data NetIfInfo = NetIfInfo
   , niType :: !NetInterfaceType
   , niHostDevice :: !Text
   , niMacAddress :: !Text
+  , niNetworkId :: !(Maybe Int64)
+  , niNetworkName :: !(Maybe Text)
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -311,6 +329,16 @@ data TemplateDetails = TemplateDetails
   }
   deriving (Eq, Show, Generic, Binary)
 
+-- | Virtual network info
+data NetworkInfo = NetworkInfo
+  { nwiId :: !Int64
+  , nwiName :: !Text
+  , nwiRunning :: !Bool
+  , nwiPid :: !(Maybe Int)
+  , nwiCreatedAt :: !UTCTime
+  }
+  deriving (Eq, Show, Generic, Binary)
+
 --------------------------------------------------------------------------------
 -- ToJSON instances for machine-readable output
 --------------------------------------------------------------------------------
@@ -355,6 +383,8 @@ instance ToJSON NetIfInfo where
       , "type" .= niType n
       , "hostDevice" .= niHostDevice n
       , "macAddress" .= niMacAddress n
+      , "networkId" .= niNetworkId n
+      , "networkName" .= niNetworkName n
       ]
 
 instance ToJSON VmDetails where
@@ -456,6 +486,16 @@ instance ToJSON TemplateSshKeyInfo where
     object
       [ "id" .= tvskiId k
       , "name" .= tvskiName k
+      ]
+
+instance ToJSON NetworkInfo where
+  toJSON n =
+    object
+      [ "id" .= nwiId n
+      , "name" .= nwiName n
+      , "running" .= nwiRunning n
+      , "pid" .= nwiPid n
+      , "createdAt" .= nwiCreatedAt n
       ]
 
 instance ToJSON TemplateDetails where
@@ -568,6 +608,29 @@ data Response
     RespTemplateInstantiated !Int64
   | -- | VM edited successfully
     RespVmEdited
+  | -- | Virtual network responses
+    -- | Network created successfully (new network ID)
+    RespNetworkCreated !Int64
+  | -- | Network deleted successfully
+    RespNetworkDeleted
+  | -- | Network started successfully
+    RespNetworkStarted
+  | -- | Network stopped successfully
+    RespNetworkStopped
+  | -- | List of networks
+    RespNetworkList ![NetworkInfo]
+  | -- | Single network info
+    RespNetworkDetails !NetworkInfo
+  | -- | Network not found
+    RespNetworkNotFound
+  | -- | Network is already running
+    RespNetworkAlreadyRunning
+  | -- | Network is not running
+    RespNetworkNotRunning
+  | -- | Network is in use (referenced by interfaces or running VMs)
+    RespNetworkInUse
+  | -- | Network error
+    RespNetworkError !Text
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

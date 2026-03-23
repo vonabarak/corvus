@@ -12,12 +12,14 @@ module Corvus.Handlers
   , module Corvus.Handlers.NetIf
   , module Corvus.Handlers.SshKey
   , module Corvus.Handlers.Template
+  , module Corvus.Handlers.Network
   )
 where
 
 import Corvus.Handlers.Core
 import Corvus.Handlers.Disk
 import Corvus.Handlers.NetIf
+import Corvus.Handlers.Network
 import Corvus.Handlers.SharedDir
 import Corvus.Handlers.SshKey
 import Corvus.Handlers.Template
@@ -69,7 +71,7 @@ handleRequest state req = case req of
   ReqSharedDirRemove vmId sharedDirId -> handleSharedDirRemove state vmId sharedDirId
   ReqSharedDirList vmId -> handleSharedDirList state vmId
   -- Network interface handlers
-  ReqNetIfAdd vmId ifaceType hostDev mac -> handleNetIfAdd state vmId ifaceType hostDev mac
+  ReqNetIfAdd vmId ifaceType hostDev mac nwId -> handleNetIfAdd state vmId ifaceType hostDev mac nwId
   ReqNetIfRemove vmId netIfId -> handleNetIfRemove state vmId netIfId
   ReqNetIfList vmId -> handleNetIfList state vmId
   -- SSH key handlers
@@ -85,3 +87,10 @@ handleRequest state req = case req of
   ReqTemplateList -> handleTemplateList state
   ReqTemplateShow tid -> handleTemplateShow state tid
   ReqTemplateInstantiate tid name -> handleTemplateInstantiate state tid name
+  -- Network handlers
+  ReqNetworkCreate name -> handleNetworkCreate state name
+  ReqNetworkDelete nwId -> handleNetworkDelete state nwId
+  ReqNetworkStart nwId -> handleNetworkStart state nwId
+  ReqNetworkStop nwId force -> handleNetworkStop state nwId force
+  ReqNetworkList -> handleNetworkList state
+  ReqNetworkShow nwId -> handleNetworkShow state nwId

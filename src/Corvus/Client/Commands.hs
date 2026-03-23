@@ -21,6 +21,7 @@ where
 
 import Corvus.Client.Commands.Disk
 import Corvus.Client.Commands.NetIf
+import Corvus.Client.Commands.Network
 import Corvus.Client.Commands.SharedDir
 import Corvus.Client.Commands.SshKey
 import Corvus.Client.Commands.Template
@@ -281,14 +282,14 @@ runCommand opts = do
       SharedDirRemove vmId sharedDirId -> handleSharedDirRemove fmt conn vmId sharedDirId
       SharedDirList vmId -> handleSharedDirList fmt conn vmId
       -- Network interface commands
-      NetIfAdd vmId ifaceTypeStr hostDevice macAddress -> do
+      NetIfAdd vmId ifaceTypeStr hostDevice macAddress mNetworkId -> do
         case parseNetInterfaceType ifaceTypeStr of
           Left err -> do
             if isStructured fmt
               then outputError fmt "invalid_interface_type" err
               else putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right ifaceType -> handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress
+          Right ifaceType -> handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress mNetworkId
       NetIfRemove vmId netIfId -> handleNetIfRemove fmt conn vmId netIfId
       NetIfList vmId -> handleNetIfList fmt conn vmId
       -- Snapshot commands
@@ -309,6 +310,13 @@ runCommand opts = do
       TemplateList -> handleTemplateList fmt conn
       TemplateShow tid -> handleTemplateShow fmt conn tid
       TemplateInstantiate tid name -> handleTemplateInstantiate fmt conn tid name
+      -- Network commands
+      NetworkCreate name -> handleNetworkCreate fmt conn name
+      NetworkDelete nwId -> handleNetworkDelete fmt conn nwId
+      NetworkStart nwId -> handleNetworkStart fmt conn nwId
+      NetworkStop nwId force -> handleNetworkStop fmt conn nwId force
+      NetworkList -> handleNetworkList fmt conn
+      NetworkShow nwId -> handleNetworkShow fmt conn nwId
 
   case connResult of
     Left err -> do

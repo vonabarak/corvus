@@ -77,6 +77,15 @@ module Corvus.Client.Rpc
   , templateList
   , templateShow
   , templateInstantiate
+
+    -- * Virtual network operations
+  , NetworkResult (..)
+  , networkCreate
+  , networkDelete
+  , networkStart
+  , networkStop
+  , networkList
+  , networkShow
   )
 where
 
@@ -518,9 +527,10 @@ netIfAdd
   -> NetInterfaceType
   -> Text
   -> Maybe Text
+  -> Maybe Int64
   -> IO (Either ConnectionError NetIfResult)
-netIfAdd conn vmId ifaceType hostDevice macAddress =
-  handleNetIfResponse <$> sendRequest conn (ReqNetIfAdd vmId ifaceType hostDevice macAddress)
+netIfAdd conn vmId ifaceType hostDevice macAddress mNetworkId =
+  handleNetIfResponse <$> sendRequest conn (ReqNetIfAdd vmId ifaceType hostDevice macAddress mNetworkId)
 
 -- | Remove a network interface from a VM
 netIfRemove :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError NetIfResult)
@@ -656,3 +666,81 @@ templateShow conn tid =
 templateInstantiate :: Connection -> Int64 -> Text -> IO (Either ConnectionError TemplateResult)
 templateInstantiate conn tid newVmName =
   handleTemplateResponse <$> sendRequest conn (ReqTemplateInstantiate tid newVmName)
+
+--------------------------------------------------------------------------------
+-- Virtual Network Operations
+--------------------------------------------------------------------------------
+
+-- | Result of a virtual network operation
+data NetworkResult
+  = -- | Network created with new ID
+    NetworkCreated !Int64
+  | -- | Network deleted
+    NetworkDeleted
+  | -- | Network started
+    NetworkStarted
+  | -- | Network stopped
+    NetworkStopped
+  | -- | List of networks
+    NetworkListResult ![NetworkInfo]
+  | -- | Single network details
+    NetworkDetails !NetworkInfo
+  | -- | Network not found
+    NetworkNotFound
+  | -- | Network is already running
+    NetworkAlreadyRunning
+  | -- | Network is not running
+    NetworkNotRunning
+  | -- | Network is in use
+    NetworkInUse
+  | -- | Error with message
+    NetworkError !Text
+  deriving (Eq, Show)
+
+-- | Helper for network operation responses
+handleNetworkResponse :: Either ConnectionError Response -> Either ConnectionError NetworkResult
+handleNetworkResponse result = case result of
+  Left err -> Left err
+  Right (RespNetworkCreated nwId) -> Right $ NetworkCreated nwId
+  Right RespNetworkDeleted -> Right NetworkDeleted
+  Right RespNetworkStarted -> Right NetworkStarted
+  Right RespNetworkStopped -> Right NetworkStopped
+  Right (RespNetworkList networks) -> Right $ NetworkListResult networks
+  Right (RespNetworkDetails info) -> Right $ NetworkDetails info
+  Right RespNetworkNotFound -> Right NetworkNotFound
+  Right RespNetworkAlreadyRunning -> Right NetworkAlreadyRunning
+  Right RespNetworkNotRunning -> Right NetworkNotRunning
+  Right RespNetworkInUse -> Right NetworkInUse
+  Right (RespNetworkError msg) -> Right $ NetworkError msg
+  Right (RespError msg) -> Right $ NetworkError msg
+  Right _ -> Left $ DecodeFailed "Unexpected response"
+
+-- | Create a virtual network
+networkCreate :: Connection -> Text -> IO (Either ConnectionError NetworkResult)
+networkCreate conn name =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkCreate name)
+
+-- | Delete a virtual network
+networkDelete :: Connection -> Int64 -> IO (Either ConnectionError NetworkResult)
+networkDelete conn nwId =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkDelete nwId)
+
+-- | Start a virtual network
+networkStart :: Connection -> Int64 -> IO (Either ConnectionError NetworkResult)
+networkStart conn nwId =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkStart nwId)
+
+-- | Stop a virtual network
+networkStop :: Connection -> Int64 -> Bool -> IO (Either ConnectionError NetworkResult)
+networkStop conn nwId force =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkStop nwId force)
+
+-- | List all virtual networks
+networkList :: Connection -> IO (Either ConnectionError NetworkResult)
+networkList conn =
+  handleNetworkResponse <$> sendRequest conn ReqNetworkList
+
+-- | Show virtual network details
+networkShow :: Connection -> Int64 -> IO (Either ConnectionError NetworkResult)
+networkShow conn nwId =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkShow nwId)

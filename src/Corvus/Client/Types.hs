@@ -81,8 +81,8 @@ data Command
     SharedDirList !Int64
   | -- Network interface commands
 
-    -- | Add network interface to VM (vmId, type, hostDevice, mac)
-    NetIfAdd !Int64 !Text !Text !(Maybe Text)
+    -- | Add network interface to VM (vmId, type, hostDevice, mac, networkId)
+    NetIfAdd !Int64 !Text !Text !(Maybe Text) !(Maybe Int64)
   | -- | Remove network interface from VM (vmId, netIfId)
     NetIfRemove !Int64 !Int64
   | -- | List network interfaces for VM
@@ -125,4 +125,18 @@ data Command
     TemplateShow !Int64
   | -- | Instantiate a template (template id, new vm name)
     TemplateInstantiate !Int64 !Text
+  | -- Virtual network commands
+
+    -- | Create a virtual network (name)
+    NetworkCreate !Text
+  | -- | Delete a virtual network (networkId)
+    NetworkDelete !Int64
+  | -- | Start a virtual network (networkId)
+    NetworkStart !Int64
+  | -- | Stop a virtual network (networkId, force)
+    NetworkStop !Int64 !Bool
+  | -- | List all virtual networks
+    NetworkList
+  | -- | Show virtual network details (networkId)
+    NetworkShow !Int64
   deriving (Show)

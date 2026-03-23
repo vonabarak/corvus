@@ -26,6 +26,8 @@ data QemuConfig = QemuConfig
   -- ^ Path to virtiofsd binary
   , qcSharedMemSize :: Maybe String
   -- ^ Shared memory size for virtiofs (e.g. "4G"), Nothing uses VM RAM
+  , qcVdeSwitchBinary :: FilePath
+  -- ^ Path to vde_switch binary
   }
   deriving (Eq, Show)
 
@@ -37,6 +39,7 @@ defaultQemuConfig =
     , qcBasePath = Nothing -- Will use $HOME/VMs at runtime
     , qcVirtiofsdBinary = "/usr/libexec/virtiofsd"
     , qcSharedMemSize = Nothing -- Will use VM RAM size
+    , qcVdeSwitchBinary = "vde_switch"
     }
 
 -- | Get the effective base path for VM images

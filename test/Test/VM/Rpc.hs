@@ -134,7 +134,7 @@ addVmDisk daemon vmId diskImageId iface cache discard ro = do
 addVmNetIf :: TestDaemon -> Int64 -> NetInterfaceType -> Text -> Maybe Text -> IO ()
 addVmNetIf daemon vmId ifaceType hostDevice mac = do
   result <- withDaemonConnection daemon $ \conn ->
-    netIfAdd conn vmId ifaceType hostDevice mac
+    netIfAdd conn vmId ifaceType hostDevice mac Nothing
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error adding network interface: " <> show err

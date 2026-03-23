@@ -8,6 +8,11 @@ module Corvus.Qemu.Runtime
   , getVmRuntimeDir
   , createVmRuntimeDir
 
+    -- * Network runtime directories
+  , getNetworkRuntimeDir
+  , createNetworkRuntimeDir
+  , getVdeSwitchSocket
+
     -- * Socket paths
   , getMonitorSocket
   , getQmpSocket
@@ -52,6 +57,29 @@ createVmRuntimeDir vmId = do
   vmDir <- getVmRuntimeDir vmId
   createDirectoryIfMissing True vmDir
   pure vmDir
+
+--------------------------------------------------------------------------------
+-- Network Runtime Directories
+--------------------------------------------------------------------------------
+
+-- | Get the runtime directory for a specific network
+getNetworkRuntimeDir :: Int64 -> IO FilePath
+getNetworkRuntimeDir networkId = do
+  baseDir <- getCorvusRuntimeDir
+  pure $ baseDir </> "networks" </> show networkId
+
+-- | Create runtime directory for a network
+createNetworkRuntimeDir :: Int64 -> IO FilePath
+createNetworkRuntimeDir networkId = do
+  netDir <- getNetworkRuntimeDir networkId
+  createDirectoryIfMissing True netDir
+  pure netDir
+
+-- | Get path to vde_switch socket for a network
+getVdeSwitchSocket :: Int64 -> IO FilePath
+getVdeSwitchSocket networkId = do
+  netDir <- getNetworkRuntimeDir networkId
+  pure $ netDir </> "switch.ctl"
 
 --------------------------------------------------------------------------------
 -- Socket Paths

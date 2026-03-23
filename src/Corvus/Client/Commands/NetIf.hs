@@ -29,9 +29,9 @@ parseNetInterfaceType :: Text -> Either Text NetInterfaceType
 parseNetInterfaceType = enumFromText
 
 -- | Handle network interface add command
-handleNetIfAdd :: OutputFormat -> Connection -> Int64 -> NetInterfaceType -> Text -> Maybe Text -> IO Bool
-handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress = do
-  resp <- netIfAdd conn vmId ifaceType hostDevice macAddress
+handleNetIfAdd :: OutputFormat -> Connection -> Int64 -> NetInterfaceType -> Text -> Maybe Text -> Maybe Int64 -> IO Bool
+handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress mNetworkId = do
+  resp <- netIfAdd conn vmId ifaceType hostDevice macAddress mNetworkId
   case resp of
     Left err -> do
       if isStructured fmt

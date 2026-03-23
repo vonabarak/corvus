@@ -129,37 +129,44 @@ handleVmStart state vmId = runStdoutLoggingT $ do
         Right _ ->
           case currentStatus of
             VmStopped -> do
-              -- Start virtiofsd processes for shared directories
-              virtiofsdResult <- startVirtiofsdProcesses (ssDbPool state) (ssQemuConfig state) vmId
-              case virtiofsdResult of
-                VirtiofsdSomeFailed -> do
-                  logWarnN $ "Some virtiofsd processes failed to start for VM " <> T.pack (show vmId)
-                _ -> pure ()
+              -- Verify all referenced networks are running
+              networkCheck <- liftIO $ runSqlPool (checkNetworksRunning vmId) (ssDbPool state)
+              case networkCheck of
+                Just networkName -> do
+                  logWarnN $ "VM " <> T.pack (show vmId) <> " references stopped network: " <> networkName
+                  pure $ RespInvalidTransition VmStopped $ "Network '" <> networkName <> "' is not running"
+                Nothing -> do
+                  -- Start virtiofsd processes for shared directories
+                  virtiofsdResult <- startVirtiofsdProcesses (ssDbPool state) (ssQemuConfig state) vmId
+                  case virtiofsdResult of
+                    VirtiofsdSomeFailed -> do
+                      logWarnN $ "Some virtiofsd processes failed to start for VM " <> T.pack (show vmId)
+                    _ -> pure ()
 
-              -- Start the VM using QEMU
-              result <- startVm (ssDbPool state) (ssQemuConfig state) vmId
-              case result of
-                VmStarted pid ph -> do
-                  logInfoN $ "VM " <> T.pack (show vmId) <> " started with PID " <> T.pack (show pid)
-                  -- Set status to running and save PID first
-                  liftIO $ runSqlPool (setVmRunning vmId pid) (ssDbPool state)
-                  -- Fork a thread to wait for process exit
-                  _ <- liftIO $ forkIO $ runStdoutLoggingT $ do
-                    logDebugN $ "Waiting for VM " <> T.pack (show vmId) <> " process to exit"
-                    exitCode <- liftIO $ waitForProcess ph
-                    case exitCode of
-                      ExitSuccess -> do
-                        logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
-                        liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-                      ExitFailure code -> do
-                        logWarnN $ "VM " <> T.pack (show vmId) <> " exited with error code " <> T.pack (show code)
-                        liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
-                  pure $ RespVmStateChanged VmRunning
-                VmNotFound -> pure RespVmNotFound
-                VmStartError err -> do
-                  logWarnN $ "Failed to start VM " <> T.pack (show vmId) <> ": " <> err
-                  liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
-                  pure $ RespInvalidTransition VmError $ "Failed to start: " <> err
+                  -- Start the VM using QEMU
+                  result <- startVm (ssDbPool state) (ssQemuConfig state) vmId
+                  case result of
+                    VmStarted pid ph -> do
+                      logInfoN $ "VM " <> T.pack (show vmId) <> " started with PID " <> T.pack (show pid)
+                      -- Set status to running and save PID first
+                      liftIO $ runSqlPool (setVmRunning vmId pid) (ssDbPool state)
+                      -- Fork a thread to wait for process exit
+                      _ <- liftIO $ forkIO $ runStdoutLoggingT $ do
+                        logDebugN $ "Waiting for VM " <> T.pack (show vmId) <> " process to exit"
+                        exitCode <- liftIO $ waitForProcess ph
+                        case exitCode of
+                          ExitSuccess -> do
+                            logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
+                            liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+                          ExitFailure code -> do
+                            logWarnN $ "VM " <> T.pack (show vmId) <> " exited with error code " <> T.pack (show code)
+                            liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
+                      pure $ RespVmStateChanged VmRunning
+                    VmNotFound -> pure RespVmNotFound
+                    VmStartError err -> do
+                      logWarnN $ "Failed to start VM " <> T.pack (show vmId) <> ": " <> err
+                      liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
+                      pure $ RespInvalidTransition VmError $ "Failed to start: " <> err
             VmPaused -> do
               -- Resume using QMP
               qmpResult <- liftIO $ qmpContinue vmId
@@ -433,6 +440,8 @@ getVmDetails vmId = do
         , niType = networkInterfaceInterfaceType netIf
         , niHostDevice = networkInterfaceHostDevice netIf
         , niMacAddress = networkInterfaceMacAddress netIf
+        , niNetworkId = fromSqlKey <$> networkInterfaceNetworkId netIf
+        , niNetworkName = Nothing -- Not resolved in VM details view
         }
 
 -- | Edit VM properties. Only updates fields that are Just.
@@ -447,3 +456,22 @@ editVm vmId mCpus mRam mDesc mHeadless = do
   case updates of
     [] -> pure ()
     us -> update key us
+
+-- | Check if all networks referenced by a VM's network interfaces are running.
+-- Returns Just networkName if a stopped network is found, Nothing if all are running.
+checkNetworksRunning :: Int64 -> SqlPersistT IO (Maybe Text)
+checkNetworksRunning vmId = do
+  let vmKey = toSqlKey vmId :: VmId
+  netIfs <- selectList [M.NetworkInterfaceVmId ==. vmKey] []
+  let networkKeys = [nwKey | Entity _ ni <- netIfs, Just nwKey <- [networkInterfaceNetworkId ni]]
+  go networkKeys
+  where
+    go [] = pure Nothing
+    go (nwKey : rest) = do
+      mNetwork <- get nwKey
+      case mNetwork of
+        Nothing -> pure $ Just "unknown (deleted)"
+        Just network ->
+          case networkPid network of
+            Just _ -> go rest
+            Nothing -> pure $ Just $ networkName network

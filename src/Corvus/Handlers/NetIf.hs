@@ -7,7 +7,7 @@ module Corvus.Handlers.NetIf
 where
 
 import Control.Monad.IO.Class (liftIO)
-import Corvus.Model (NetInterfaceType, NetworkInterface (..), Vm, VmId, VmStatus (..))
+import Corvus.Model (NetInterfaceType (..), Network (..), NetworkInterface (..), Vm, VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types (ServerState (..))
@@ -32,15 +32,22 @@ handleNetIfAdd
   -> NetInterfaceType
   -> Text
   -> Maybe Text
+  -> Maybe Int64
   -> IO Response
-handleNetIfAdd state vmId ifaceType hostDevice mMacAddress = do
+handleNetIfAdd state vmId ifaceType hostDevice mMacAddress mNetworkId = do
   mac <- case mMacAddress of
     Just m | not (T.null m) -> pure m
     _ -> generateMacAddress
-  result <- runSqlPool (addNetIf vmId ifaceType hostDevice mac) (ssDbPool state)
+  let networkKey = toSqlKey <$> mNetworkId :: Maybe M.NetworkId
+      -- When a network is specified, force VDE type
+      actualType = case mNetworkId of
+        Just _ -> NetVde
+        Nothing -> ifaceType
+  result <- runSqlPool (addNetIf vmId actualType hostDevice mac networkKey) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
-    Just netIfId -> pure $ RespNetIfAdded netIfId
+    Just (Left err) -> pure $ RespError err
+    Just (Right netIfId) -> pure $ RespNetIfAdded netIfId
 
 -- | Generate a random MAC address with the QEMU OUI prefix (52:54:00).
 generateMacAddress :: IO Text
@@ -77,22 +84,34 @@ addNetIf
   -> NetInterfaceType
   -> Text
   -> Text
-  -> SqlPersistT IO (Maybe Int64)
-addNetIf vmId ifaceType hostDevice macAddress = do
+  -> Maybe M.NetworkId
+  -> SqlPersistT IO (Maybe (Either Text Int64))
+addNetIf vmId ifaceType hostDevice macAddress mNetworkKey = do
   let vmKey = toSqlKey vmId :: VmId
   mVm <- get vmKey
   case mVm of
     Nothing -> pure Nothing
     Just _ -> do
+      -- Validate network exists if specified
+      case mNetworkKey of
+        Just nwKey -> do
+          mNetwork <- get nwKey
+          case mNetwork of
+            Nothing -> pure $ Just $ Left "Network not found"
+            Just _ -> doInsert vmKey mNetworkKey
+        Nothing -> doInsert vmKey Nothing
+  where
+    doInsert vmKey nwKey = do
       let netIf =
             NetworkInterface
               { networkInterfaceVmId = vmKey
               , networkInterfaceInterfaceType = ifaceType
               , networkInterfaceHostDevice = hostDevice
               , networkInterfaceMacAddress = macAddress
+              , networkInterfaceNetworkId = nwKey
               }
       netIfKey <- insert netIf
-      pure $ Just $ fromSqlKey netIfKey
+      pure $ Just $ Right $ fromSqlKey netIfKey
 
 -- | Remove a network interface from a VM
 removeNetIf :: Int64 -> Int64 -> SqlPersistT IO (Maybe Bool)
@@ -122,12 +141,21 @@ listNetIfs vmId = do
     Nothing -> pure Nothing
     Just _ -> do
       netIfs <- selectList [M.NetworkInterfaceVmId ==. vmKey] []
-      pure $ Just $ map toNetIfInfo netIfs
+      infos <- mapM toNetIfInfo netIfs
+      pure $ Just infos
   where
-    toNetIfInfo (Entity key netIf) =
-      NetIfInfo
-        { niId = fromSqlKey key
-        , niType = networkInterfaceInterfaceType netIf
-        , niHostDevice = networkInterfaceHostDevice netIf
-        , niMacAddress = networkInterfaceMacAddress netIf
-        }
+    toNetIfInfo (Entity key netIf) = do
+      mNetworkName <- case networkInterfaceNetworkId netIf of
+        Nothing -> pure Nothing
+        Just nwKey -> do
+          mNetwork <- get nwKey
+          pure $ networkName <$> mNetwork
+      pure
+        NetIfInfo
+          { niId = fromSqlKey key
+          , niType = networkInterfaceInterfaceType netIf
+          , niHostDevice = networkInterfaceHostDevice netIf
+          , niMacAddress = networkInterfaceMacAddress netIf
+          , niNetworkId = fromSqlKey <$> networkInterfaceNetworkId netIf
+          , niNetworkName = mNetworkName
+          }

@@ -270,7 +270,7 @@ whenSharedDirList vmId = executeRpc (`Rpc.sharedDirList` vmId)
 -- | Add a network interface to a VM
 whenNetIfAdd :: Int64 -> NetInterfaceType -> Text -> Maybe Text -> TestM NetIfResult
 whenNetIfAdd vmId ifaceType hostDevice mac =
-  executeRpc (\conn -> Rpc.netIfAdd conn vmId ifaceType hostDevice mac)
+  executeRpc (\conn -> Rpc.netIfAdd conn vmId ifaceType hostDevice mac Nothing)
 
 -- | Remove a network interface from a VM
 whenNetIfRemove :: Int64 -> Int64 -> TestM NetIfResult

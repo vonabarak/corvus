@@ -782,6 +782,15 @@ netIfAddCommand =
               <> help "MAC address (auto-generated if not specified)"
           )
       )
+    <*> optional
+      ( option
+          auto
+          ( long "network"
+              <> short 'n'
+              <> metavar "NETWORK_ID"
+              <> help "Virtual network ID (overrides --type and --host-device)"
+          )
+      )
 
 -- | Parser for net-if remove
 netIfRemoveCommand :: Parser Command
@@ -894,6 +903,93 @@ templateCommandParser =
     )
 
 --------------------------------------------------------------------------------
+-- Virtual Network Command Parsers
+--------------------------------------------------------------------------------
+
+-- | Parser for network create
+networkCreateCommand :: Parser Command
+networkCreateCommand =
+  NetworkCreate
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the virtual network"
+      )
+
+-- | Parser for network delete
+networkDeleteCommand :: Parser Command
+networkDeleteCommand =
+  NetworkDelete
+    <$> argument
+      auto
+      ( metavar "NETWORK_ID"
+          <> help "ID of the network to delete"
+      )
+
+-- | Parser for network start
+networkStartCommand :: Parser Command
+networkStartCommand =
+  NetworkStart
+    <$> argument
+      auto
+      ( metavar "NETWORK_ID"
+          <> help "ID of the network to start"
+      )
+
+-- | Parser for network stop
+networkStopCommand :: Parser Command
+networkStopCommand =
+  NetworkStop
+    <$> argument
+      auto
+      ( metavar "NETWORK_ID"
+          <> help "ID of the network to stop"
+      )
+    <*> switch
+      ( long "force"
+          <> short 'f'
+          <> help "Force stop even if running VMs are connected"
+      )
+
+-- | Parser for network list
+networkListCommand :: Parser Command
+networkListCommand = pure NetworkList
+
+-- | Parser for network show
+networkShowCommand :: Parser Command
+networkShowCommand =
+  NetworkShow
+    <$> argument
+      auto
+      ( metavar "NETWORK_ID"
+          <> help "ID of the network to show"
+      )
+
+-- | Parser for all network subcommands
+networkCommandParser :: Parser Command
+networkCommandParser =
+  subparser
+    ( command
+        "create"
+        (info networkCreateCommand (progDesc "Create a virtual network"))
+        <> command
+          "delete"
+          (info networkDeleteCommand (progDesc "Delete a virtual network"))
+        <> command
+          "start"
+          (info networkStartCommand (progDesc "Start a virtual network (launch vde_switch)"))
+        <> command
+          "stop"
+          (info networkStopCommand (progDesc "Stop a virtual network"))
+        <> command
+          "list"
+          (info networkListCommand (progDesc "List all virtual networks"))
+        <> command
+          "show"
+          (info networkShowCommand (progDesc "Show virtual network details"))
+    )
+
+--------------------------------------------------------------------------------
 -- Main Command Parser
 --------------------------------------------------------------------------------
 
@@ -931,6 +1027,9 @@ commandParser =
         <> command
           "template"
           (info templateCommandParser (progDesc "Template management commands"))
+        <> command
+          "network"
+          (info networkCommandParser (progDesc "Virtual network management commands"))
     )
 
 -- | Parser for global options

@@ -36,6 +36,10 @@ module Corvus.Model
   , SharedDirCache (..)
   , TemplateCloneStrategy (..)
 
+    -- * Network entity
+  , Network (..)
+  , NetworkId
+
     -- * Shared directory entity
   , SharedDir (..)
   , SharedDirId
@@ -462,11 +466,19 @@ Drive
     discard Bool default=false
     deriving Show Eq Generic
 
+Network
+    name Text
+    pid Int Maybe
+    createdAt UTCTime
+    UniqueNetworkName name
+    deriving Show Eq Generic
+
 NetworkInterface
     vmId VmId
     interfaceType NetInterfaceType
     hostDevice Text
     macAddress Text
+    networkId NetworkId Maybe
     deriving Show Eq Generic
 
 SharedDir
@@ -535,6 +547,8 @@ instance Binary Snapshot
 
 instance Binary Drive
 
+instance Binary Network
+
 instance Binary NetworkInterface
 
 instance Binary SharedDir
@@ -565,6 +579,10 @@ instance Binary (Key Snapshot) where
   get = toSqlKey <$> Bin.get
 
 instance Binary (Key Drive) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key Network) where
   put = Bin.put . fromSqlKey
   get = toSqlKey <$> Bin.get
 

@@ -295,6 +295,7 @@ insertNetworkInterface vmId ifaceType hostDevice macAddress = do
           , networkInterfaceInterfaceType = ifaceType
           , networkInterfaceHostDevice = hostDevice
           , networkInterfaceMacAddress = macAddress
+          , networkInterfaceNetworkId = Nothing
           }
   pure $ fromSqlKey key
 

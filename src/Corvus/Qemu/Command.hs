@@ -28,6 +28,7 @@ import Corvus.Qemu.Runtime
   , getQmpSocket
   , getSerialSocket
   , getSpiceSocket
+  , getVdeSwitchSocket
   , getVmRuntimeDir
   )
 import Data.Int (Int64)
@@ -79,6 +80,8 @@ generateQemuCommand config vmId = do
       spiceSock <- liftIO $ getSpiceSocket vmId
       serialSock <- liftIO $ getSerialSocket vmId
       vmRuntimeDir <- liftIO $ getVmRuntimeDir vmId
+      -- Resolve network socket paths for VDE interfaces with networkId
+      resolvedNetIfs <- liftIO $ mapM (resolveNetIfSocket . entityVal) netIfs
       let (binary, args) =
             buildCommandWithSockets
               config
@@ -91,7 +94,7 @@ generateQemuCommand config vmId = do
               serialSock
               vmRuntimeDir
               driveWithImages
-              (map entityVal netIfs)
+              resolvedNetIfs
               (map entityVal sharedDirs)
       pure $ Just $ unwords (binary : args)
 
@@ -123,6 +126,8 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSoc
       driveWithImages <- mapM fetchDriveWithImage drives
       netIfs <- selectList [NetworkInterfaceVmId ==. key] []
       sharedDirs <- selectList [SharedDirVmId ==. key] []
+      -- Resolve network socket paths for VDE interfaces with networkId
+      resolvedNetIfs <- liftIO $ mapM (resolveNetIfSocket . entityVal) netIfs
       pure $
         Just $
           buildCommandWithSockets
@@ -136,7 +141,7 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSoc
             serialSock
             vmRuntimeDir
             driveWithImages
-            (map entityVal netIfs)
+            resolvedNetIfs
             (map entityVal sharedDirs)
 
 --------------------------------------------------------------------------------
@@ -342,3 +347,16 @@ sharedDirArgs vmRuntimeDir (idx, dir) =
 
     deviceArgs =
       ["-device", "vhost-user-fs-pci,chardev=" ++ charId ++ ",tag=" ++ tag]
+
+--------------------------------------------------------------------------------
+-- Network Socket Resolution
+--------------------------------------------------------------------------------
+
+-- | Resolve VDE socket path for network interfaces with a networkId.
+-- Substitutes the socket path into hostDevice so that netArgs stays pure.
+resolveNetIfSocket :: NetworkInterface -> IO NetworkInterface
+resolveNetIfSocket netIf = case networkInterfaceNetworkId netIf of
+  Just nwKey -> do
+    socketPath <- getVdeSwitchSocket (fromSqlKey nwKey)
+    pure $ netIf {networkInterfaceHostDevice = T.pack socketPath}
+  Nothing -> pure netIf
