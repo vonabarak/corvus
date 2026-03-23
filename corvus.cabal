@@ -232,6 +232,7 @@ test-suite corvus-test
       Corvus.DiskOverlayIntegrationSpec
       Corvus.DiskSpec
       Corvus.MultiOsIntegrationSpec
+      Corvus.MultiVmIntegrationSpec
       Corvus.NetIfSpec
       Corvus.OverlayExtraSpec
       Corvus.ProtocolSpec
