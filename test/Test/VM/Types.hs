@@ -32,6 +32,7 @@ data VmConfig = VmConfig
   , vmcSshUser :: Text
   , vmcAdditionalDisks :: [(Int64, DriveInterface, Bool)]
   , vmcHeadless :: Bool
+  , vmcNetworkId :: Maybe Int64
   }
   deriving (Show, Eq)
 
@@ -56,6 +57,7 @@ instance DefaultVmConfig VmConfig where
       , vmcSshUser = "corvus"
       , vmcAdditionalDisks = []
       , vmcHeadless = True
+      , vmcNetworkId = Nothing
       }
 
 -- | A VM running through the test daemon with SSH access

@@ -24,11 +24,19 @@ module Test.VM.Rpc
   , createSshKey
   , attachSshKey
   , cleanupSshKey
+
+    -- * Virtual network management
+  , createNetwork
+  , deleteNetwork
+  , startNetwork
+  , stopNetwork
+  , addVmNetIfWithNetwork
   )
 where
 
 import Control.Concurrent (threadDelay)
 import Corvus.Client
+import Corvus.Client.Rpc (NetworkResult (..), networkCreate, networkDelete, networkStart, networkStop)
 import Corvus.Model
 import Corvus.Protocol (VmDetails (..))
 import Data.Int (Int64)
@@ -211,3 +219,61 @@ cleanupSshKey daemon keyId = do
   case result of
     Left _ -> pure () -- Ignore errors during cleanup
     Right _ -> pure ()
+
+--------------------------------------------------------------------------------
+-- Virtual Network Management
+--------------------------------------------------------------------------------
+
+-- | Create a virtual network via daemon RPC
+createNetwork :: TestDaemon -> Text -> IO Int64
+createNetwork daemon name = do
+  result <- withDaemonConnection daemon $ \conn ->
+    networkCreate conn name
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "Connection error creating network: " <> show err
+    Right (Right (NetworkCreated nwId)) -> pure nwId
+    Right (Right (NetworkError msg)) -> fail $ "Failed to create network: " <> T.unpack msg
+    Right (Right other) -> fail $ "Unexpected response creating network: " <> show other
+
+-- | Delete a virtual network via daemon RPC
+deleteNetwork :: TestDaemon -> Int64 -> IO ()
+deleteNetwork daemon nwId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    networkDelete conn nwId
+  case result of
+    Right (Right NetworkDeleted) -> pure ()
+    _ -> pure () -- Best-effort cleanup
+
+-- | Start a virtual network via daemon RPC
+startNetwork :: TestDaemon -> Int64 -> IO ()
+startNetwork daemon nwId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    networkStart conn nwId
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "Connection error starting network: " <> show err
+    Right (Right NetworkStarted) -> pure ()
+    Right (Right NetworkAlreadyRunning) -> pure ()
+    Right (Right (NetworkError msg)) -> fail $ "Failed to start network: " <> T.unpack msg
+    Right (Right other) -> fail $ "Unexpected response starting network: " <> show other
+
+-- | Stop a virtual network via daemon RPC
+stopNetwork :: TestDaemon -> Int64 -> IO ()
+stopNetwork daemon nwId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    networkStop conn nwId True -- force stop
+  case result of
+    Right (Right NetworkStopped) -> pure ()
+    _ -> pure () -- Best-effort cleanup
+
+-- | Add a network interface to a VM connected to a virtual network
+addVmNetIfWithNetwork :: TestDaemon -> Int64 -> Int64 -> IO ()
+addVmNetIfWithNetwork daemon vmId nwId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    netIfAdd conn vmId NetVde "" Nothing (Just nwId)
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "RPC error adding network interface: " <> show err
+    Right (Right (NetIfAdded _)) -> pure ()
+    Right (Right other) -> fail $ "Failed to add network interface: " <> show other

@@ -11,6 +11,7 @@ where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Exception (SomeException, try)
+import Control.Monad (forM_)
 import Corvus.Model (Network (..))
 import qualified Corvus.Model as M
 import Corvus.Qemu.Config (QemuConfig (..))
@@ -22,7 +23,8 @@ import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend, toSqlKey)
-import System.Directory (doesFileExist, removeDirectoryRecursive)
+import System.Directory (doesDirectoryExist, removeDirectoryRecursive)
+import System.IO (hClose)
 import System.Posix.Signals (sigTERM, signalProcess)
 import System.Process (CreateProcess (..), ProcessHandle, StdStream (..), createProcess, getPid, proc, waitForProcess)
 
@@ -41,7 +43,8 @@ startVdeSwitch config pool networkId = do
       args = ["--sock", socketPath]
       cp =
         (proc binary args)
-          { std_out = CreatePipe
+          { std_in = CreatePipe -- Keep stdin open so vde_switch doesn't exit on EOF
+          , std_out = CreatePipe
           , std_err = CreatePipe
           , create_group = True
           }
@@ -50,7 +53,7 @@ startVdeSwitch config pool networkId = do
   case result of
     Left (err :: SomeException) ->
       pure $ Left $ "Failed to start vde_switch: " <> T.pack (show err)
-    Right (_, _, _, ph) -> do
+    Right (mStdin, _, _, ph) -> do
       mPid <- getPid ph
       case mPid of
         Nothing -> pure $ Left "Failed to get PID of vde_switch process"
@@ -58,9 +61,14 @@ startVdeSwitch config pool networkId = do
           -- Store PID in database
           runSqlPool (update key [M.NetworkPid =. Just (fromIntegral pid)]) pool
 
-          -- Fork background thread to monitor process exit
+          -- Fork background thread to monitor process exit.
+          -- This thread also holds a reference to the stdin handle,
+          -- preventing it from being GC'd and closed (which would cause
+          -- vde_switch to exit with "EOF on stdin").
           _ <- forkIO $ do
             _ <- waitForProcess ph
+            -- Close stdin handle now that the process has exited
+            forM_ mStdin hClose
             -- Clear PID when process exits
             runSqlPool (update key [M.NetworkPid =. Nothing]) pool
 
@@ -98,14 +106,15 @@ stopVdeSwitch pool networkId = do
 -- Internal Helpers
 --------------------------------------------------------------------------------
 
--- | Wait for a socket file to appear (up to 5 seconds)
+-- | Wait for the vde_switch control directory to appear (up to 5 seconds).
+-- vde_switch creates a directory at the socket path containing ctl and data sockets.
 waitForSocket :: FilePath -> IO ()
 waitForSocket path = go 50
   where
     go :: Int -> IO ()
     go 0 = pure () -- Give up silently
     go n = do
-      exists <- doesFileExist path
+      exists <- doesDirectoryExist path
       if exists
         then pure ()
         else do

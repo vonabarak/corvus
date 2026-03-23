@@ -37,6 +37,7 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
+import Control.Monad (forM_)
 import Corvus.Client (DiskResult (..), diskClone, diskCreateOverlay, diskDelete, diskRegister)
 import Corvus.Model (DriveFormat (..), DriveInterface (..))
 import Data.Int (Int64)
@@ -210,6 +211,9 @@ withTestVmSshWithDisk daemon diskImageId config action = do
       -- Add network interface with SSH port forwarding (server generates MAC)
       let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
       addVmNetIf daemon vmId (vmcNetworkType config) hostFwd Nothing
+
+      -- Add VDE network interface for virtual network if requested
+      forM_ (vmcNetworkId config) (addVmNetIfWithNetwork daemon vmId)
 
       -- Add shared directory if requested
       case vmcSharedDir config of
