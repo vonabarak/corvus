@@ -47,6 +47,8 @@ data Command
     VmView !Int64
   | -- | Connect to VM's HMP monitor
     VmMonitor !Int64
+  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless)
+    VmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool)
   | -- Disk image commands
 
     -- | Create disk image (name, format, sizeMb)

@@ -45,6 +45,7 @@ handleRequest state req = case req of
   ReqVmStop vmId -> handleVmStop state vmId
   ReqVmPause vmId -> handleVmPause state vmId
   ReqVmReset vmId -> handleVmReset state vmId
+  ReqVmEdit vmId mCpus mRam mDesc mHeadless -> handleVmEdit state vmId mCpus mRam mDesc mHeadless
   -- Disk image handlers
   ReqDiskCreate name format sizeMb -> handleDiskCreate state name format sizeMb
   ReqDiskCreateOverlay name baseDiskId -> handleDiskCreateOverlay state name baseDiskId

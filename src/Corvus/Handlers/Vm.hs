@@ -13,6 +13,7 @@ module Corvus.Handlers.Vm
   , handleVmStop
   , handleVmPause
   , handleVmReset
+  , handleVmEdit
 
     -- * State machine
   , VmAction (..)
@@ -253,6 +254,20 @@ handleVmReset state vmId = runStdoutLoggingT $ do
       liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
       pure $ RespVmStateChanged VmStopped
 
+-- | Handle VM edit command
+-- Only allowed when VM is stopped. Updates only the provided fields.
+handleVmEdit :: ServerState -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO Response
+handleVmEdit state vmId mCpus mRam mDesc mHeadless = do
+  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+  case result of
+    Nothing -> pure RespVmNotFound
+    Just (_, status) ->
+      if status /= VmStopped
+        then pure RespVmMustBeStopped
+        else do
+          runSqlPool (editVm vmId mCpus mRam mDesc mHeadless) (ssDbPool state)
+          pure RespVmEdited
+
 --------------------------------------------------------------------------------
 -- Database Operations
 --------------------------------------------------------------------------------
@@ -419,3 +434,16 @@ getVmDetails vmId = do
         , niHostDevice = networkInterfaceHostDevice netIf
         , niMacAddress = networkInterfaceMacAddress netIf
         }
+
+-- | Edit VM properties. Only updates fields that are Just.
+editVm :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> SqlPersistT IO ()
+editVm vmId mCpus mRam mDesc mHeadless = do
+  let key = toSqlKey vmId :: VmId
+      updates =
+        maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
+          ++ maybe [] (\ram -> [M.VmRamMb =. ram]) mRam
+          ++ maybe [] (\desc -> [M.VmDescription =. Just desc]) mDesc
+          ++ maybe [] (\h -> [M.VmHeadless =. h]) mHeadless
+  case updates of
+    [] -> pure ()
+    us -> update key us

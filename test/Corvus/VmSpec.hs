@@ -133,6 +133,34 @@ spec = withTestDb $ do
         responseIsVmStateChanged
         vmHasStatus 1 VmStopped
 
+  describe "vm edit" $ do
+    testCase "edits a stopped VM" $ do
+      given $ do
+        _ <- insertVm "edit-vm" VmStopped
+        pure ()
+      result <- whenVmEdit 1 (Just 4) (Just 2048) (Just "updated desc") (Just True)
+      then_ $ do
+        thenVmEdited result
+        vmHasStatus 1 VmStopped
+
+    testCase "fails for running VM" $ do
+      given $ do
+        _ <- insertVm "running-vm" VmRunning
+        pure ()
+      result <- whenVmEdit 1 (Just 2) Nothing Nothing Nothing
+      then_ $ thenVmEditMustBeStopped result
+
+    testCase "fails for paused VM" $ do
+      given $ do
+        _ <- insertVm "paused-vm" VmPaused
+        pure ()
+      result <- whenVmEdit 1 Nothing (Just 4096) Nothing Nothing
+      then_ $ thenVmEditMustBeStopped result
+
+    testCase "fails for non-existent VM" $ do
+      result <- whenVmEdit 999 (Just 2) Nothing Nothing Nothing
+      then_ $ thenVmEditNotFound result
+
   describe "vm state machine" $ do
     testCase "stop fails for paused VM" $ do
       given $ do

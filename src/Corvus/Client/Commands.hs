@@ -151,6 +151,7 @@ runCommand opts = do
       VmStop vmId -> handleVmAction fmt "stop" vmId (vmStop conn vmId)
       VmPause vmId -> handleVmAction fmt "pause" vmId (vmPause conn vmId)
       VmReset vmId -> handleVmAction fmt "reset" vmId (vmReset conn vmId)
+      VmEdit vmId mCpus mRam mDesc mHeadless -> handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless
       VmView vmId -> do
         resp <- showVm conn vmId
         case resp of

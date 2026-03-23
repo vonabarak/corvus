@@ -38,6 +38,10 @@ module Corvus.Client
   , vmPause
   , vmReset
 
+    -- * VM edit
+  , VmEditResult (..)
+  , vmEdit
+
     -- * Disk operations
   , DiskResult (..)
   , diskCreate

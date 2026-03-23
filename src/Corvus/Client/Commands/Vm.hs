@@ -7,6 +7,7 @@ module Corvus.Client.Commands.Vm
     handleVmCreate
   , handleVmDelete
   , handleVmAction
+  , handleVmEdit
 
     -- * VM display/interaction
   , runRemoteViewer
@@ -124,6 +125,37 @@ handleVmAction fmt actionName vmId action = do
           putStrLn $ "VM " ++ show vmId ++ " " ++ actionName ++ ": OK"
           putStrLn $ "New status: " ++ T.unpack (enumToText newStatus)
       pure True
+
+-- | Handle VM edit
+handleVmEdit :: OutputFormat -> Connection -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO Bool
+handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless = do
+  resp <- vmEdit conn vmId mCpus mRam mDesc mHeadless
+  case resp of
+    Left err -> do
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
+      pure False
+    Right VmEdited -> do
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn $ "VM " ++ show vmId ++ " updated."
+      pure True
+    Right VmEditNotFound -> do
+      if isStructured fmt
+        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
+        else putStrLn $ "Error: VM with ID " ++ show vmId ++ " not found."
+      pure False
+    Right VmEditMustBeStopped -> do
+      if isStructured fmt
+        then outputError fmt "vm_must_be_stopped" ("VM " <> T.pack (show vmId) <> " must be stopped to edit")
+        else putStrLn $ "Error: VM " ++ show vmId ++ " must be stopped to edit properties."
+      pure False
+    Right (VmEditError msg) -> do
+      if isStructured fmt
+        then outputError fmt "edit_failed" msg
+        else putStrLn $ "Failed to edit VM: " ++ T.unpack msg
+      pure False
 
 -- | Print VM info in table format
 printVmInfo :: VmInfo -> IO ()

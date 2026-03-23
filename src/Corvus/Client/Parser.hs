@@ -131,6 +131,61 @@ vmResetCommand =
           <> help "ID of the VM to reset"
       )
 
+-- | Parser for vm edit
+vmEditCommand :: Parser Command
+vmEditCommand =
+  VmEdit
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM to edit"
+      )
+    <*> optional
+      ( option
+          auto
+          ( long "cpus"
+              <> short 'c'
+              <> metavar "COUNT"
+              <> help "New number of CPU cores"
+          )
+      )
+    <*> optional
+      ( option
+          auto
+          ( long "ram"
+              <> short 'm'
+              <> metavar "MB"
+              <> help "New amount of RAM in MB"
+          )
+      )
+    <*> optional
+      ( strOption
+          ( long "description"
+              <> short 'd'
+              <> metavar "TEXT"
+              <> help "New VM description"
+          )
+      )
+    <*> optional
+      ( option
+          readBool
+          ( long "headless"
+              <> metavar "BOOL"
+              <> help "Set headless mode (true/false)"
+          )
+      )
+
+-- | Reader for boolean values
+readBool :: ReadM Bool
+readBool = eitherReader $ \s -> case map toLower s of
+  "true" -> Right True
+  "false" -> Right False
+  "yes" -> Right True
+  "no" -> Right False
+  "1" -> Right True
+  "0" -> Right False
+  _ -> Left $ "Invalid boolean: " ++ s ++ " (use true/false)"
+
 -- | Parser for vm view
 vmViewCommand :: Parser Command
 vmViewCommand =
@@ -179,6 +234,9 @@ vmCommandParser =
         <> command
           "reset"
           (info vmResetCommand (progDesc "Reset a VM to stopped state (any -> stopped)"))
+        <> command
+          "edit"
+          (info vmEditCommand (progDesc "Edit VM properties (VM must be stopped)"))
         <> command
           "view"
           (info vmViewCommand (progDesc "View VM via SPICE (runs remote-viewer)"))

@@ -44,7 +44,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 2
+protocolVersion = 3
 
 -- | Client requests
 data Request
@@ -137,6 +137,9 @@ data Request
     ReqTemplateShow !Int64
   | -- | Instantiate template (templateId, newVmName)
     ReqTemplateInstantiate !Int64 !Text
+  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless)
+    -- Each Maybe field is updated only if Just.
+    ReqVmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool)
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -563,6 +566,8 @@ data Response
     RespTemplateDeleted
   | -- | Template instantiated successfully (new VM ID)
     RespTemplateInstantiated !Int64
+  | -- | VM edited successfully
+    RespVmEdited
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

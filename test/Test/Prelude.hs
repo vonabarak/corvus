@@ -34,6 +34,7 @@ module Test.Prelude
 
     -- * Protocol types
   , Response (..)
+  , VmEditResult (..)
 
     -- * Common types
   , Int64
@@ -42,6 +43,7 @@ module Test.Prelude
 where
 
 import Control.Monad.IO.Class (liftIO)
+import Corvus.Client.Rpc (VmEditResult (..))
 import Corvus.Model
   ( CacheType (..)
   , DriveFormat (..)

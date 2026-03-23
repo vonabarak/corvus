@@ -200,6 +200,8 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
       , "chardev:serial0"
       , "-display"
       , "none"
+      , "-vga"
+      , "none"
       ]
 
     spiceArgs =

@@ -24,6 +24,10 @@ module Corvus.Client.Rpc
   , vmPause
   , vmReset
 
+    -- * VM edit
+  , VmEditResult (..)
+  , vmEdit
+
     -- * Disk operations
   , DiskResult (..)
   , diskCreate
@@ -208,6 +212,37 @@ vmPause conn vmId = handleVmActionResponse <$> sendRequest conn (ReqVmPause vmId
 -- | Reset a VM (any -> stopped)
 vmReset :: Connection -> Int64 -> IO (Either ConnectionError VmActionResult)
 vmReset conn vmId = handleVmActionResponse <$> sendRequest conn (ReqVmReset vmId)
+
+--------------------------------------------------------------------------------
+-- VM Edit
+--------------------------------------------------------------------------------
+
+-- | Result of VM edit
+data VmEditResult
+  = VmEdited
+  | VmEditNotFound
+  | VmEditMustBeStopped
+  | VmEditError !Text
+  deriving (Eq, Show)
+
+-- | Edit VM properties. Only provided (Just) fields are updated.
+vmEdit
+  :: Connection
+  -> Int64
+  -> Maybe Int
+  -> Maybe Int
+  -> Maybe Text
+  -> Maybe Bool
+  -> IO (Either ConnectionError VmEditResult)
+vmEdit conn vmId mCpus mRam mDesc mHeadless = do
+  result <- sendRequest conn (ReqVmEdit vmId mCpus mRam mDesc mHeadless)
+  case result of
+    Left err -> pure $ Left err
+    Right RespVmEdited -> pure $ Right VmEdited
+    Right RespVmNotFound -> pure $ Right VmEditNotFound
+    Right RespVmMustBeStopped -> pure $ Right VmEditMustBeStopped
+    Right (RespError msg) -> pure $ Right $ VmEditError msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 --------------------------------------------------------------------------------
 -- Disk Operations

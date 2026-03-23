@@ -21,6 +21,9 @@ module Test.DSL.Daemon
   , stopDaemonVmAndWait
   , deleteDaemonVm
 
+    -- * VM edit
+  , editDaemonVm
+
     -- * VM configuration
   , addVmDisk
   , addVmNetIf
@@ -339,6 +342,17 @@ deleteDaemonVm daemon vmId = do
   case result of
     Right (Right VmDeleted) -> pure ()
     _ -> pure ()
+
+-- | Edit a VM's properties via daemon RPC
+editDaemonVm :: TestDaemon -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO ()
+editDaemonVm daemon vmId mCpus mRam mDesc mHeadless = do
+  result <- withDaemonConnection daemon $ \conn ->
+    vmEdit conn vmId mCpus mRam mDesc mHeadless
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "RPC error editing VM: " <> show err
+    Right (Right VmEdited) -> pure ()
+    Right (Right other) -> fail $ "Failed to edit VM: " <> show other
 
 --------------------------------------------------------------------------------
 -- VM Configuration

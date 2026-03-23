@@ -45,6 +45,11 @@ module Test.DSL.Then
   , thenSshKeyListIsEmpty
   , thenSshKeyError
 
+    -- * VM edit response assertions
+  , thenVmEdited
+  , thenVmEditNotFound
+  , thenVmEditMustBeStopped
+
     -- * VM create/delete response assertions
   , thenVmCreated
   , thenVmCreateError
@@ -78,7 +83,7 @@ where
 
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..))
+import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
 import Corvus.Model
 import Corvus.Protocol
 import Data.Int (Int64)
@@ -463,6 +468,28 @@ thenSshKeyError (SshKeyError msg) expected =
   liftIO $ msg `shouldSatisfy` T.isInfixOf expected
 thenSshKeyError other _ =
   liftIO $ fail $ "Expected ssh-key error, got: " <> show other
+
+--------------------------------------------------------------------------------
+-- VM Edit Response Assertions
+--------------------------------------------------------------------------------
+
+-- | Assert VM was edited
+thenVmEdited :: VmEditResult -> TestM ()
+thenVmEdited VmEdited = pure ()
+thenVmEdited other =
+  liftIO $ fail $ "Expected VM edited, got: " <> show other
+
+-- | Assert VM edit not found
+thenVmEditNotFound :: VmEditResult -> TestM ()
+thenVmEditNotFound VmEditNotFound = pure ()
+thenVmEditNotFound other =
+  liftIO $ fail $ "Expected VM edit not found, got: " <> show other
+
+-- | Assert VM edit must be stopped
+thenVmEditMustBeStopped :: VmEditResult -> TestM ()
+thenVmEditMustBeStopped VmEditMustBeStopped = pure ()
+thenVmEditMustBeStopped other =
+  liftIO $ fail $ "Expected VM edit must be stopped, got: " <> show other
 
 --------------------------------------------------------------------------------
 -- VM Create/Delete Response Assertions

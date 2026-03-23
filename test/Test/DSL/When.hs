@@ -45,6 +45,9 @@ module Test.DSL.When
   , whenSshKeyDetach
   , whenSshKeyListForVm
 
+    -- * VM edit
+  , whenVmEdit
+
     -- * VM create/delete
   , whenVmCreate
   , whenVmDelete
@@ -64,7 +67,7 @@ import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import Corvus.Client.Connection (Connection (..), ConnectionError)
-import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..))
+import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
 import qualified Corvus.Client.Rpc as Rpc
 import Corvus.Handlers (handleRequest)
 import Corvus.Model (CacheType (..), DiskImage, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDir, SharedDirCache, Snapshot, VmStatus)
@@ -308,6 +311,15 @@ whenSshKeyDetach vmId keyId =
 -- | List SSH keys for a VM
 whenSshKeyListForVm :: Int64 -> TestM SshKeyResult
 whenSshKeyListForVm vmId = executeRpc (`Rpc.sshKeyListForVm` vmId)
+
+--------------------------------------------------------------------------------
+-- VM Edit Commands
+--------------------------------------------------------------------------------
+
+-- | Edit VM properties
+whenVmEdit :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> TestM VmEditResult
+whenVmEdit vmId mCpus mRam mDesc mHeadless =
+  executeRpc (\conn -> Rpc.vmEdit conn vmId mCpus mRam mDesc mHeadless)
 
 --------------------------------------------------------------------------------
 -- VM Create/Delete Commands
