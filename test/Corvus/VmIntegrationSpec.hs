@@ -14,11 +14,11 @@ module Corvus.VmIntegrationSpec (spec) where
 
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
-import Test.DSL.Daemon (editTestVm, stopTestVmAndWait)
 import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, startTestVmAndWait, withTestVm, withTestVmBios)
 import Test.VM.Console (connectSerialConsole, consoleExpect, consoleSend)
+import Test.VM.Rpc (editTestVm, stopTestVmAndWait)
 import Test.VM.Ssh (runInTestVm, runInTestVm_)
 
 spec :: Spec

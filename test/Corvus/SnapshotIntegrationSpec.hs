@@ -23,11 +23,11 @@ import qualified Data.Text as T
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import System.Exit (ExitCode (..))
-import Test.DSL.Daemon (stopTestVmAndWait)
-import Test.Daemon (TestDaemon (..), withDaemonConnection)
 import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), defaultVmConfig, startTestVmAndWait, withTestVm)
+import Test.VM.Daemon (TestDaemon (..), withDaemonConnection)
+import Test.VM.Rpc (stopTestVmAndWait)
 import Test.VM.Ssh (runInTestVm)
 
 spec :: Spec

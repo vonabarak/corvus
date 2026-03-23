@@ -11,11 +11,11 @@ import qualified Data.Text as T
 import System.Directory (doesFileExist, removeFile)
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
-import Test.DSL.Daemon (stopTestVmAndWait)
-import Test.Daemon (withDaemonConnection)
 import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVm)
+import Test.VM.Daemon (withDaemonConnection)
+import Test.VM.Rpc (stopTestVmAndWait)
 
 spec :: Spec
 spec = withTestDb $ do

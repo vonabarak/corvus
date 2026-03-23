@@ -10,11 +10,11 @@ import Data.List (find)
 import Data.Maybe (isJust)
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
-import Test.DSL.Daemon (addVmNetIf, stopTestVmAndWait)
-import Test.Daemon (withDaemonConnection)
 import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), defaultVmConfig, findFreePort, withTestVm)
+import Test.VM.Daemon (withDaemonConnection)
+import Test.VM.Rpc (addVmNetIf, stopTestVmAndWait)
 import Test.VM.Ssh (runInTestVm, waitForTestVmSshWithKey)
 
 -- | Find a disk name matching a prefix from a list of disk images

@@ -3,7 +3,7 @@
 -- | RPC call wrappers for the Corvus daemon.
 -- This module provides functions to create, configure, and manage VMs
 -- via RPC calls to a running daemon.
-module Test.DSL.Daemon
+module Test.VM.Rpc
   ( -- * VM lifecycle
     createTestVm
   , startTestVm
@@ -36,7 +36,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
-import Test.Daemon (TestDaemon (..), withDaemonConnection)
+import Test.VM.Daemon (TestDaemon (..), withDaemonConnection)
 import Test.VM.Ssh (SshKeyPair (..), generateSshKeyPair)
 
 --------------------------------------------------------------------------------

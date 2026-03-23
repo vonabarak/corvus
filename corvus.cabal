@@ -244,10 +244,8 @@ test-suite corvus-test
       Corvus.VirtiofsIntegrationSpec
       Corvus.VmIntegrationSpec
       Corvus.VmSpec
-      Test.Daemon
       Test.Database
       Test.DSL.Core
-      Test.DSL.Daemon
       Test.DSL.Given
       Test.DSL.Then
       Test.DSL.When
@@ -255,7 +253,9 @@ test-suite corvus-test
       Test.Settings
       Test.VM.Common
       Test.VM.Console
+      Test.VM.Daemon
       Test.VM.Image
+      Test.VM.Rpc
       Test.VM.Ssh
       Test.VM.Types
       Paths_corvus

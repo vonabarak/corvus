@@ -14,7 +14,7 @@ where
 import Corvus.Model (CacheType (..), DriveInterface (..), NetInterfaceType (..), SharedDirCache (..))
 import Data.Int (Int64)
 import Data.Text (Text)
-import Test.Daemon (TestDaemon)
+import Test.VM.Daemon (TestDaemon)
 
 -- | Configuration for a test VM.
 data VmConfig = VmConfig

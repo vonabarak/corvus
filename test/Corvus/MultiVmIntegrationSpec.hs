@@ -8,10 +8,10 @@ module Corvus.MultiVmIntegrationSpec (spec) where
 
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
-import Test.Daemon (withTestDaemon)
 import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (defaultVmConfig, withTestVmOnDaemon)
+import Test.VM.Daemon (withTestDaemon)
 import Test.VM.Ssh (runInTestVm)
 
 spec :: Spec

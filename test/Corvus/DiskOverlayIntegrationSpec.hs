@@ -19,9 +19,9 @@ import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Process (readProcessWithExitCode)
-import Test.Daemon (TestDaemon, startTestDaemon, stopTestDaemon, withDaemonConnection)
 import Test.Database (withTestDb)
 import Test.Hspec
+import Test.VM.Daemon (TestDaemon, startTestDaemon, stopTestDaemon, withDaemonConnection)
 
 spec :: Spec
 spec = withTestDb $ do

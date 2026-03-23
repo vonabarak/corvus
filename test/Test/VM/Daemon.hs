@@ -4,7 +4,7 @@
 -- | Test infrastructure for running the Corvus daemon.
 -- Provides functions to start the daemon with a test database
 -- and connect to it via RPC for integration testing.
-module Test.Daemon
+module Test.VM.Daemon
   ( -- * Daemon lifecycle
     TestDaemon (..)
   , startTestDaemon

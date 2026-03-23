@@ -54,11 +54,11 @@ import Network.Socket
   )
 import qualified Network.Socket as NS
 import System.IO.Temp (withSystemTempDirectory)
-import Test.DSL.Daemon
-import Test.Daemon (TestDaemon, withDaemonConnection, withTestDaemon)
 import Test.Database (TestEnv)
 import Test.VM.Console (SerialConsole, connectSerialConsole)
+import Test.VM.Daemon (TestDaemon, withDaemonConnection, withTestDaemon)
 import Test.VM.Image (ensureBaseImage)
+import Test.VM.Rpc
 import Test.VM.Ssh (waitForTestVmSshWithKey)
 import Test.VM.Types
 
