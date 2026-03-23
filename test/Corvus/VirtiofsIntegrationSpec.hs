@@ -22,10 +22,10 @@ import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO.Temp (getCanonicalTemporaryDirectory)
-import Test.DSL.Daemon
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (withTestVm)
+import Test.VM.Common (VmConfig (..), defaultVmConfig, withTestVm)
+import Test.VM.Ssh (runInTestVm)
 
 spec :: Spec
 spec = withTestDb $ do
@@ -47,18 +47,19 @@ spec = withTestDb $ do
       bracket
         (pure ())
         (\_ -> removeDirectoryRecursive testDir)
-        $ \_ -> withTestVm env (defaultVmConfig {vmcSharedDir = Just testDir}) $ \vm -> do
-          -- Mount the shared directory
-          (code2, _, _) <- runInDaemonVm vm "sudo mkdir -p /mnt/share"
-          code2 `shouldBe` ExitSuccess
+        $ \_ ->
+          withTestVm env (defaultVmConfig {vmcSharedDir = Just testDir}) $ \vm -> do
+            -- Mount the shared directory
+            (code2, _, _) <- runInTestVm vm "sudo mkdir -p /mnt/share"
+            code2 `shouldBe` ExitSuccess
 
-          (code3, _, _) <-
-            runInDaemonVm
-              vm
-              "sudo mount -t virtiofs share /mnt/share"
-          code3 `shouldBe` ExitSuccess
+            (code3, _, _) <-
+              runInTestVm
+                vm
+                "sudo mount -t virtiofs share /mnt/share"
+            code3 `shouldBe` ExitSuccess
 
-          -- Read the test file
-          (code4, stdout4, _) <- runInDaemonVm vm "cat /mnt/share/testfile.txt"
-          code4 `shouldBe` ExitSuccess
-          T.strip stdout4 `shouldBe` T.pack testContent
+            -- Read the test file
+            (code4, stdout4, _) <- runInTestVm vm "cat /mnt/share/testfile.txt"
+            code4 `shouldBe` ExitSuccess
+            T.strip stdout4 `shouldBe` T.pack testContent

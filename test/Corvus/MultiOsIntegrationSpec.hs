@@ -17,11 +17,11 @@ module Corvus.MultiOsIntegrationSpec (spec) where
 
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
-import Test.DSL.Daemon
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (withTestVm, withTestVmBios, withTestVmConsole)
+import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, withTestVm, withTestVmBios, withTestVmConsole)
 import Test.VM.Console (consoleDrain, consoleExpect, consoleSend)
+import Test.VM.Ssh (runInTestVm)
 
 -- | VM config with extended SSH timeout for multi-OS test suite
 multiOsConfig :: VmConfig
@@ -29,28 +29,28 @@ multiOsConfig = defaultVmConfig {vmcWaitSshTimeout = 120}
 
 -- | Verify SSH key auth works, key is deployed, user was created,
 -- and privilege escalation to root works (sudo or doas).
-verifyVm :: DaemonVm -> IO ()
+verifyVm :: TestVm -> IO ()
 verifyVm vm = do
-  (code, stdout, _) <- runInDaemonVm vm "echo ssh-ok"
+  (code, stdout, _) <- runInTestVm vm "echo ssh-ok"
   code `shouldBe` ExitSuccess
   T.strip stdout `shouldBe` "ssh-ok"
 
-  (code2, stdout2, _) <- runInDaemonVm vm "cat ~/.ssh/authorized_keys"
+  (code2, stdout2, _) <- runInTestVm vm "cat ~/.ssh/authorized_keys"
   code2 `shouldBe` ExitSuccess
   T.isInfixOf "ssh-" stdout2 `shouldBe` True
 
-  (code3, stdout3, _) <- runInDaemonVm vm "whoami"
+  (code3, stdout3, _) <- runInTestVm vm "whoami"
   code3 `shouldBe` ExitSuccess
   T.strip stdout3 `shouldBe` "corvus"
 
   -- Verify privilege escalation to root (sudo on Linux, doas on Alpine).
   -- FreeBSD doesn't ship sudo/doas, so we accept that as a known limitation.
-  (code4, stdout4, _) <- runInDaemonVm vm "sudo whoami 2>/dev/null || doas whoami 2>/dev/null"
+  (code4, stdout4, _) <- runInTestVm vm "sudo whoami 2>/dev/null || doas whoami 2>/dev/null"
   if code4 == ExitSuccess
     then T.strip stdout4 `shouldBe` "root"
     else do
       -- If no priv-esc tool is available (e.g. FreeBSD), verify it's an expected OS
-      (_, osName, _) <- runInDaemonVm vm "uname -s"
+      (_, osName, _) <- runInTestVm vm "uname -s"
       T.strip osName `shouldSatisfy` (`elem` ["FreeBSD"])
 
 spec :: Spec

@@ -257,6 +257,7 @@ test-suite corvus-test
       Test.VM.Console
       Test.VM.Image
       Test.VM.Ssh
+      Test.VM.Types
       Paths_corvus
   autogen-modules:
       Paths_corvus

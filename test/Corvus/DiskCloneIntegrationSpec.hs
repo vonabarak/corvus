@@ -11,23 +11,23 @@ import qualified Data.Text as T
 import System.Directory (doesFileExist, removeFile)
 import System.FilePath ((</>))
 import System.IO.Error (isDoesNotExistError)
-import Test.DSL.Daemon
+import Test.DSL.Daemon (stopTestVmAndWait)
 import Test.Daemon (withDaemonConnection)
 import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
-import Test.VM.Common (withTestVm)
+import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVm)
 
 spec :: Spec
 spec = withTestDb $ do
   describe "Disk cloning integration" $ do
     it "can clone a disk and its content" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        let daemon = dvmDaemon vm
-            diskId = dvmDiskId vm
-            vmId = dvmId vm
+        let daemon = tvmDaemon vm
+            diskId = tvmDiskId vm
+            vmId = tvmId vm
 
         -- Must stop VM to clone
-        stopDaemonVmAndWait daemon vmId 10
+        stopTestVmAndWait daemon vmId 10
 
         -- Clone the disk
         res <- withDaemonConnection daemon $ \conn -> diskClone conn "cloned-disk" diskId Nothing
@@ -48,11 +48,11 @@ spec = withTestDb $ do
 
     it "clones snapshots in the database" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        let daemon = dvmDaemon vm
-            diskId = dvmDiskId vm
-            vmId = dvmId vm
+        let daemon = tvmDaemon vm
+            diskId = tvmDiskId vm
+            vmId = tvmId vm
 
-        stopDaemonVmAndWait daemon vmId 10
+        stopTestVmAndWait daemon vmId 10
 
         -- Create a snapshot
         void $ withDaemonConnection daemon $ \conn -> snapshotCreate conn diskId "snap1"
@@ -73,12 +73,12 @@ spec = withTestDb $ do
 
     it "can clone to a custom path" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        let daemon = dvmDaemon vm
-            diskId = dvmDiskId vm
-            vmId = dvmId vm
+        let daemon = tvmDaemon vm
+            diskId = tvmDiskId vm
+            vmId = tvmId vm
             customPath = "/tmp/custom-clone.qcow2"
 
-        stopDaemonVmAndWait daemon vmId 10
+        stopTestVmAndWait daemon vmId 10
 
         -- Remove if exists
         catch (removeFile customPath) $ \e ->
@@ -97,8 +97,8 @@ spec = withTestDb $ do
 
     it "rejects cloning if VM is running" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        let daemon = dvmDaemon vm
-            diskId = dvmDiskId vm
+        let daemon = tvmDaemon vm
+            diskId = tvmDiskId vm
 
         -- VM is running
         res <- withDaemonConnection daemon $ \conn -> diskClone conn "failed-clone" diskId Nothing

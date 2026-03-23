@@ -2,30 +2,65 @@
 
 -- | Common helpers for VM-based integration tests.
 module Test.VM.Common
-  ( -- * Single-VM convenience wrappers
-    withTestVm
+  ( -- * Types (re-exported from Test.VM.Types)
+    VmConfig (..)
+  , DefaultVmConfig (..)
+  , TestVm (..)
+
+    -- * All-in-one VM wrappers (TestEnv → daemon → disk → VM)
+  , withTestVm
   , withTestVmBios
   , withTestVmConsole
   , withTestVmBiosConsole
 
-    -- * Building blocks for multi-VM tests
+    -- * Daemon-level VM wrappers (disk setup + VM creation)
+  , withTestVmOnDaemon
+  , withTestVmBiosOnDaemon
+  , withTestVmConsoleOnDaemon
+  , withTestVmBiosConsoleOnDaemon
+
+    -- * Low-level VM wrappers (explicit disk ID)
+  , withTestVmSshWithDisk
+  , withTestVmConsoleWithDisk
+
+    -- * VM lifecycle helpers
+  , startTestVmAndWait
+
+    -- * Building blocks for multi-VM / custom disk tests
   , withTestDiskSetup
+
+    -- * Utilities
+  , findFreePort
+  , waitForVmStopped
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (bracket)
 import Corvus.Client (DiskResult (..), diskClone, diskCreateOverlay, diskDelete, diskRegister)
 import Corvus.Model (DriveFormat (..), DriveInterface (..))
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
+import Network.Socket
+  ( Family (..)
+  , SocketType (..)
+  , close
+  , defaultProtocol
+  , socket
+  )
+import qualified Network.Socket as NS
+import System.IO.Temp (withSystemTempDirectory)
 import Test.DSL.Daemon
 import Test.Daemon (TestDaemon, withDaemonConnection, withTestDaemon)
 import Test.Database (TestEnv)
-import Test.VM.Console (SerialConsole)
+import Test.VM.Console (SerialConsole, connectSerialConsole)
 import Test.VM.Image (ensureBaseImage)
+import Test.VM.Ssh (waitForTestVmSshWithKey)
+import Test.VM.Types
 
 -- | Generate unique disk names for test isolation
 uniqueDiskNames :: IO (Text, Text, Text, Text, Text)
@@ -135,35 +170,210 @@ withTestDiskSetup daemon config useUefi callback = do
         (\_ -> callback overlayDiskId config)
 
 --------------------------------------------------------------------------------
--- Single-VM convenience wrappers
+-- Low-level VM wrappers (explicit disk ID)
 --------------------------------------------------------------------------------
 
--- | Run a test with a UEFI daemon-managed VM with SSH access.
-withTestVm :: TestEnv -> VmConfig -> (DaemonVm -> IO a) -> IO a
+-- | Run an action with a test VM using a config and explicit disk ID.
+-- Creates the VM with necessary configuration, sets up SSH keys,
+-- starts it, runs the action, then stops and deletes the VM.
+withTestVmSshWithDisk
+  :: TestDaemon
+  -> Int64
+  -- ^ Disk image ID to use for the boot disk
+  -> VmConfig
+  -- ^ VM configuration
+  -> (TestVm -> IO a)
+  -> IO a
+withTestVmSshWithDisk daemon diskImageId config action = do
+  -- Use a unique name for the VM
+  vmUuid <- nextRandom
+  let vmName = "test-vm-" <> T.take 8 (toText vmUuid)
+
+  -- Use bracket for robust VM lifecycle management
+  bracket
+    (createTestVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config) (vmcHeadless config))
+    ( \vmId -> do
+        -- Cleanup: stop and delete the VM
+        stopTestVmAndWait daemon vmId 30
+        deleteTestVm daemon vmId
+    )
+    $ \vmId -> do
+      -- Add boot disk
+      addVmDisk daemon vmId diskImageId (vmcDiskInterface config) (vmcDiskCache config) (vmcDiskDiscard config) False
+
+      -- Add additional disks
+      mapM_ (\(dId, iface, ro) -> addVmDisk daemon vmId dId iface (vmcDiskCache config) (vmcDiskDiscard config) ro) (vmcAdditionalDisks config)
+
+      -- Find a free port for SSH forwarding
+      sshPort <- findFreePort
+
+      -- Add network interface with SSH port forwarding (server generates MAC)
+      let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
+      addVmNetIf daemon vmId (vmcNetworkType config) hostFwd Nothing
+
+      -- Add shared directory if requested
+      case vmcSharedDir config of
+        Nothing -> pure ()
+        Just path -> addVmSharedDir daemon vmId (T.pack path) "share" (vmcSharedDirCache config)
+
+      -- Use a temporary directory for the SSH key
+      withSystemTempDirectory "corvus-test-ssh" $ \tmpDir -> do
+        -- Set up SSH key for access (creates cloud-init ISO automatically)
+        bracket
+          (setupVmSshKey daemon vmId tmpDir)
+          (\(sshKeyId, _, _) -> cleanupSshKey daemon sshKeyId)
+          $ \(sshKeyId, privateKey, _publicKey) -> do
+            let vm =
+                  TestVm
+                    { tvmId = vmId
+                    , tvmDiskId = diskImageId
+                    , tvmSshPort = sshPort
+                    , tvmSshHost = "localhost"
+                    , tvmDaemon = daemon
+                    , tvmSshPrivateKey = privateKey
+                    , tvmSshKeyId = sshKeyId
+                    , tvmSshUser = vmcSshUser config
+                    }
+
+            -- Start the VM and wait for SSH
+            putStrLn "[test] Starting VM and waiting for SSH..."
+            vmStartTime <- getCurrentTime
+            startTestVmAndWait vm (vmcWaitSshTimeout config)
+            vmReadyTime <- getCurrentTime
+            let bootSec = round (diffUTCTime vmReadyTime vmStartTime) :: Int
+            putStrLn $ "[test] SSH is ready (boot to SSH: " <> show bootSec <> "s)"
+            putStrLn $ "[test] ssh " <> T.unpack (tvmSshUser vm) <> "@" <> tvmSshHost vm <> " -p " <> show (tvmSshPort vm) <> " -i " <> tvmSshPrivateKey vm
+
+            -- Run the action
+            action vm
+
+-- | Run an action with a test VM connected via serial console and explicit disk ID.
+-- Creates the VM, adds disks and network, starts it, connects to the
+-- serial console immediately (no SSH setup, no waiting for SSH).
+withTestVmConsoleWithDisk
+  :: TestDaemon
+  -> Int64
+  -- ^ Disk image ID to use for the boot disk
+  -> VmConfig
+  -- ^ VM configuration (vmcHeadless should be True)
+  -> (SerialConsole -> IO a)
+  -> IO a
+withTestVmConsoleWithDisk daemon diskImageId config action = do
+  -- Use a unique name for the VM
+  vmUuid <- nextRandom
+  let vmName = "test-vm-" <> T.take 8 (toText vmUuid)
+
+  -- Use bracket for robust VM lifecycle management
+  bracket
+    (createTestVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config) (vmcHeadless config))
+    ( \vmId -> do
+        -- Cleanup: stop and delete the VM
+        stopTestVmAndWait daemon vmId 30
+        deleteTestVm daemon vmId
+    )
+    $ \vmId -> do
+      -- Add boot disk
+      addVmDisk daemon vmId diskImageId (vmcDiskInterface config) (vmcDiskCache config) (vmcDiskDiscard config) False
+
+      -- Add additional disks
+      mapM_ (\(dId, iface, ro) -> addVmDisk daemon vmId dId iface (vmcDiskCache config) (vmcDiskDiscard config) ro) (vmcAdditionalDisks config)
+
+      -- Add network interface (no SSH port forwarding needed, but network may still be useful)
+      addVmNetIf daemon vmId (vmcNetworkType config) "" Nothing
+
+      -- Start the VM
+      putStrLn "[test] Starting VM for serial console access..."
+      startTestVm daemon vmId
+
+      -- Connect to serial console immediately
+      connectSerialConsole vmId action
+
+--------------------------------------------------------------------------------
+-- VM lifecycle helpers
+--------------------------------------------------------------------------------
+
+-- | Start a VM and wait for SSH connection to be established.
+-- Fails if SSH is not established within timeout.
+startTestVmAndWait :: TestVm -> Int -> IO ()
+startTestVmAndWait vm timeoutSec = do
+  startTestVm (tvmDaemon vm) (tvmId vm)
+  waitForTestVmSshWithKey (tvmSshHost vm) (tvmSshPort vm) (tvmSshPrivateKey vm) (tvmSshUser vm) timeoutSec
+
+--------------------------------------------------------------------------------
+-- Daemon-level VM convenience wrappers (disk setup + VM creation)
+--------------------------------------------------------------------------------
+
+-- | Run a test with a UEFI VM on an existing daemon.
+-- Handles disk setup internally.
+withTestVmOnDaemon :: TestDaemon -> VmConfig -> (TestVm -> IO a) -> IO a
+withTestVmOnDaemon daemon config action =
+  withTestDiskSetup daemon config True $ \diskId cfg ->
+    withTestVmSshWithDisk daemon diskId cfg action
+
+-- | Run a test with a BIOS-booted VM on an existing daemon.
+-- Handles disk setup internally.
+withTestVmBiosOnDaemon :: TestDaemon -> VmConfig -> (TestVm -> IO a) -> IO a
+withTestVmBiosOnDaemon daemon config action =
+  withTestDiskSetup daemon config False $ \diskId cfg ->
+    withTestVmSshWithDisk daemon diskId cfg action
+
+-- | Run a test with a UEFI VM connected via serial console on an existing daemon.
+-- Handles disk setup internally.
+withTestVmConsoleOnDaemon :: TestDaemon -> VmConfig -> (SerialConsole -> IO a) -> IO a
+withTestVmConsoleOnDaemon daemon config action =
+  withTestDiskSetup daemon config True $ \diskId cfg ->
+    withTestVmConsoleWithDisk daemon diskId cfg action
+
+-- | Run a test with a BIOS-booted VM connected via serial console on an existing daemon.
+-- Handles disk setup internally.
+withTestVmBiosConsoleOnDaemon :: TestDaemon -> VmConfig -> (SerialConsole -> IO a) -> IO a
+withTestVmBiosConsoleOnDaemon daemon config action =
+  withTestDiskSetup daemon config False $ \diskId cfg ->
+    withTestVmConsoleWithDisk daemon diskId cfg action
+
+--------------------------------------------------------------------------------
+-- All-in-one VM wrappers (TestEnv → daemon → disk → VM)
+--------------------------------------------------------------------------------
+
+-- | Run a test with a UEFI VM. Creates daemon and handles all setup.
+withTestVm :: TestEnv -> VmConfig -> (TestVm -> IO a) -> IO a
 withTestVm env config action =
   withTestDaemon env $ \daemon ->
-    withTestDiskSetup daemon config True $ \diskId cfg ->
-      withDaemonVmWithConfig daemon diskId cfg action
+    withTestVmOnDaemon daemon config action
 
--- | Run a test with a BIOS-booted daemon-managed VM with SSH access.
-withTestVmBios :: TestEnv -> VmConfig -> (DaemonVm -> IO a) -> IO a
+-- | Run a test with a BIOS-booted VM. Creates daemon and handles all setup.
+withTestVmBios :: TestEnv -> VmConfig -> (TestVm -> IO a) -> IO a
 withTestVmBios env config action =
   withTestDaemon env $ \daemon ->
-    withTestDiskSetup daemon config False $ \diskId cfg ->
-      withDaemonVmWithConfig daemon diskId cfg action
+    withTestVmBiosOnDaemon daemon config action
 
--- | Run a test with a UEFI daemon-managed VM connected via serial console.
--- Starts the VM and connects to the serial console immediately (no SSH).
+-- | Run a test with a UEFI VM connected via serial console. Creates daemon and handles all setup.
 withTestVmConsole :: TestEnv -> VmConfig -> (SerialConsole -> IO a) -> IO a
 withTestVmConsole env config action =
   withTestDaemon env $ \daemon ->
-    withTestDiskSetup daemon config True $ \diskId cfg ->
-      withDaemonVmConsole daemon diskId cfg action
+    withTestVmConsoleOnDaemon daemon config action
 
--- | Run a test with a BIOS-booted daemon-managed VM connected via serial console.
--- Starts the VM and connects to the serial console immediately (no SSH).
+-- | Run a test with a BIOS-booted VM connected via serial console. Creates daemon and handles all setup.
 withTestVmBiosConsole :: TestEnv -> VmConfig -> (SerialConsole -> IO a) -> IO a
 withTestVmBiosConsole env config action =
   withTestDaemon env $ \daemon ->
-    withTestDiskSetup daemon config False $ \diskId cfg ->
-      withDaemonVmConsole daemon diskId cfg action
+    withTestVmBiosConsoleOnDaemon daemon config action
+
+--------------------------------------------------------------------------------
+-- Utilities
+--------------------------------------------------------------------------------
+
+-- | Wait for VM to fully stop (dummy for now, just delays)
+waitForVmStopped :: Int -> IO ()
+waitForVmStopped seconds = threadDelay (seconds * 1000000)
+
+-- | Find a free TCP port
+findFreePort :: IO Int
+findFreePort = do
+  sock <- socket AF_INET NS.Stream defaultProtocol
+  NS.bind sock (NS.SockAddrInet 0 0)
+  addr <- NS.getSocketName sock
+  close sock
+  case addr of
+    NS.SockAddrInet port _ -> pure $ fromIntegral port
+    _ -> pure 2222 -- Fallback

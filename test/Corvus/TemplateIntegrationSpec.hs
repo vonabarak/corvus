@@ -10,11 +10,12 @@ import Data.List (find)
 import Data.Maybe (isJust)
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
-import Test.DSL.Daemon
+import Test.DSL.Daemon (addVmNetIf, stopTestVmAndWait)
 import Test.Daemon (withDaemonConnection)
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (withTestVm)
+import Test.VM.Common (TestVm (..), defaultVmConfig, findFreePort, withTestVm)
+import Test.VM.Ssh (runInTestVm, waitForTestVmSshWithKey)
 
 -- | Find a disk name matching a prefix from a list of disk images
 findDiskName :: T.Text -> [DiskImageInfo] -> T.Text
@@ -28,9 +29,9 @@ spec = withTestDb $ do
   describe "VM Template integration" $ do
     it "can create a template from YAML and instantiate it" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        let daemon = dvmDaemon vm
+        let daemon = tvmDaemon vm
             sshKeyName = "template-key"
-            privateKey = dvmSshPrivateKey vm
+            privateKey = tvmSshPrivateKey vm
 
         -- Read the public key content from the existing VM's setup
         pubKeyContent <- T.pack <$> readFile (privateKey ++ ".pub")
@@ -42,7 +43,7 @@ spec = withTestDb $ do
           other -> fail $ "SSH key creation failed: " ++ show other
 
         -- Stop the VM so we can use its disk for cloning/overlay strategy
-        stopDaemonVmAndWait daemon (dvmId vm) 10
+        stopTestVmAndWait daemon (tvmId vm) 10
 
         -- Discover actual disk names (they have unique suffixes)
         diskListRes <- withDaemonConnection daemon $ \conn -> diskList conn
@@ -137,32 +138,32 @@ spec = withTestDb $ do
 
         -- Wait for SSH to be available and authenticate with the key
         putStrLn $ "[test] Waiting for SSH on port " ++ show sshPort ++ " with key authentication"
-        waitForDaemonVmSshWithKey "127.0.0.1" sshPort privateKey "corvus" 90
+        waitForTestVmSshWithKey "127.0.0.1" sshPort privateKey "corvus" 90
 
         -- Verify we can run commands via SSH
         let testVm =
-              DaemonVm
-                { dvmId = newVmId
-                , dvmDiskId = 0 -- Not needed for SSH operations
-                , dvmSshHost = "127.0.0.1"
-                , dvmSshPort = sshPort
-                , dvmDaemon = daemon
-                , dvmSshPrivateKey = privateKey
-                , dvmSshKeyId = 0 -- Not needed for SSH operations
-                , dvmSshUser = "corvus"
+              TestVm
+                { tvmId = newVmId
+                , tvmDiskId = 0 -- Not needed for SSH operations
+                , tvmSshHost = "127.0.0.1"
+                , tvmSshPort = sshPort
+                , tvmDaemon = daemon
+                , tvmSshPrivateKey = privateKey
+                , tvmSshKeyId = 0 -- Not needed for SSH operations
+                , tvmSshUser = "corvus"
                 }
 
-        (exitCode, stdout, _) <- runInDaemonVm testVm "whoami"
+        (exitCode, stdout, _) <- runInTestVm testVm "whoami"
         exitCode `shouldBe` ExitSuccess
         T.strip stdout `shouldBe` "corvus"
 
         -- Verify the SSH key is actually installed in authorized_keys
-        (exitCode2, stdout2, _) <- runInDaemonVm testVm "grep -c 'ssh-' ~/.ssh/authorized_keys"
+        (exitCode2, stdout2, _) <- runInTestVm testVm "grep -c 'ssh-' ~/.ssh/authorized_keys"
         exitCode2 `shouldBe` ExitSuccess
         read (T.unpack $ T.strip stdout2) `shouldSatisfy` (> (0 :: Int))
 
         -- Stop the instantiated VM
-        stopDaemonVmAndWait daemon newVmId 10
+        stopTestVmAndWait daemon newVmId 10
 
         -- Cleanup: delete template
         void $ withDaemonConnection daemon $ \conn -> templateDelete conn templateId

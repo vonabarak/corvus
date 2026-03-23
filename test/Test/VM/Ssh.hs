@@ -16,18 +16,28 @@ module Test.VM.Ssh
   , waitForSsh
   , scpToVm
   , scpFromVm
+
+    -- * TestVm SSH operations
+  , runInTestVm
+  , runInTestVm_
+  , waitForTestVmSsh
+  , waitForTestVmSshWithKey
   )
 where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
+import Data.List (isInfixOf)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time.Clock (UTCTime, diffUTCTime, getCurrentTime)
 import System.Directory (doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
+import Test.VM.Types (TestVm (..))
 
 -- | SSH key pair paths
 data SshKeyPair = SshKeyPair
@@ -207,3 +217,148 @@ scpFromVm config remotePath localPath = do
       pure $
         Left $
           "scp from VM failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
+
+--------------------------------------------------------------------------------
+-- TestVm SSH operations
+--------------------------------------------------------------------------------
+
+-- | Run a command in the test VM via SSH using the configured key
+runInTestVm :: TestVm -> Text -> IO (ExitCode, Text, Text)
+runInTestVm vm cmd = do
+  let args =
+        [ "-o"
+        , "StrictHostKeyChecking=no"
+        , "-o"
+        , "UserKnownHostsFile=/dev/null"
+        , "-o"
+        , "BatchMode=yes"
+        , "-o"
+        , "ConnectTimeout=10"
+        , "-i"
+        , tvmSshPrivateKey vm
+        , "-p"
+        , show (tvmSshPort vm)
+        , T.unpack (tvmSshUser vm) ++ "@" ++ tvmSshHost vm
+        , T.unpack cmd
+        ]
+  putStrLn $ "[ssh-run] Executing: " <> T.unpack cmd
+  (code, stdout, stderr) <- readProcessWithExitCode "ssh" args ""
+  putStrLn $ "[ssh-run] Exit code: " <> show code
+  pure (code, T.pack stdout, T.pack stderr)
+
+-- | Run a command in the test VM, failing on non-zero exit
+runInTestVm_ :: TestVm -> Text -> IO ()
+runInTestVm_ vm cmd = do
+  (code, stdout, stderr) <- runInTestVm vm cmd
+  case code of
+    ExitSuccess -> pure ()
+    ExitFailure n ->
+      fail $
+        "Command failed with exit code "
+          <> show n
+          <> "\nCommand: "
+          <> T.unpack cmd
+          <> "\nStdout: "
+          <> T.unpack stdout
+          <> "\nStderr: "
+          <> T.unpack stderr
+
+-- | Wait for SSH to be available on the VM (without key)
+waitForTestVmSsh :: String -> Int -> Int -> IO ()
+waitForTestVmSsh host port = waitForTestVmSshWithKey host port "" "corvus"
+
+-- | Wait for SSH to be available on the VM using a specific key.
+-- Uses wall-clock time for accurate timeout tracking.
+-- Fails fast if SSH is up but key authentication is rejected (after a
+-- grace period for cloud-init to finish deploying keys).
+waitForTestVmSshWithKey :: String -> Int -> FilePath -> Text -> Int -> IO ()
+waitForTestVmSshWithKey host port privateKey user timeoutSec = do
+  startTime <- getCurrentTime
+  go startTime Nothing
+  where
+    authGracePeriod :: Int
+    authGracePeriod = 60
+
+    elapsedSec :: UTCTime -> IO Int
+    elapsedSec start = do
+      now <- getCurrentTime
+      pure $ round (diffUTCTime now start)
+
+    go startTime mAuthStart = do
+      elapsed <- elapsedSec startTime
+      if elapsed >= timeoutSec
+        then
+          fail $
+            "Timeout waiting for SSH on "
+              <> host
+              <> ":"
+              <> show port
+              <> " (after "
+              <> show elapsed
+              <> "s)"
+        else do
+          result <- trySshConnection host port privateKey
+          case result of
+            SshOk -> pure ()
+            SshAuthRejected stderr -> do
+              now <- getCurrentTime
+              let authStart = fromMaybe now mAuthStart
+                  authElapsed = round (diffUTCTime now authStart) :: Int
+              putStrLn $
+                "[ssh] Auth rejected, grace period: "
+                  <> show (authGracePeriod - authElapsed)
+                  <> "s remaining"
+                  <> " (total elapsed: "
+                  <> show elapsed
+                  <> "s)"
+              if authElapsed >= authGracePeriod
+                then
+                  fail $
+                    "SSH key authentication failed on "
+                      <> host
+                      <> ":"
+                      <> show port
+                      <> " (server is up but key was rejected after "
+                      <> show authGracePeriod
+                      <> "s grace period).\n"
+                      <> "This likely means cloud-init did not deploy the SSH key.\n"
+                      <> "SSH stderr: "
+                      <> stderr
+                else do
+                  threadDelay 2000000
+                  go startTime (Just authStart)
+            SshNotReady -> do
+              putStrLn $ "[ssh] Not ready, waiting... (" <> show elapsed <> "s elapsed)"
+              threadDelay 2000000
+              go startTime Nothing
+
+    trySshConnection :: String -> Int -> FilePath -> IO SshProbeResult
+    trySshConnection sshHost sshPort keyFile = do
+      let keyArgs = if null keyFile then [] else ["-i", keyFile]
+          args =
+            [ "-o"
+            , "StrictHostKeyChecking=no"
+            , "-o"
+            , "UserKnownHostsFile=/dev/null"
+            , "-o"
+            , "BatchMode=yes"
+            , "-o"
+            , "ConnectTimeout=3"
+            , "-p"
+            , show sshPort
+            ]
+              ++ keyArgs
+              ++ [T.unpack user ++ "@" ++ sshHost, "true"]
+      result <- try $ readProcessWithExitCode "ssh" args ""
+      case result of
+        Left (_ :: SomeException) -> pure SshNotReady
+        Right (ExitSuccess, _, _) -> pure SshOk
+        Right (ExitFailure _, _, stderr)
+          | "Permission denied" `isInfixOf` stderr -> pure $ SshAuthRejected stderr
+          | otherwise -> pure SshNotReady
+
+-- | SSH connection attempt result (internal)
+data SshProbeResult
+  = SshOk
+  | SshAuthRejected !String
+  | SshNotReady
