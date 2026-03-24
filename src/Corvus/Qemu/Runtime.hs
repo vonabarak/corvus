@@ -12,6 +12,9 @@ module Corvus.Qemu.Runtime
   , getNetworkRuntimeDir
   , createNetworkRuntimeDir
   , getVdeSwitchSocket
+  , getTapInterfaceName
+  , getDnsmasqPidFile
+  , getDnsmasqLeaseFile
 
     -- * Socket paths
   , getMonitorSocket
@@ -80,6 +83,22 @@ getVdeSwitchSocket :: Int64 -> IO FilePath
 getVdeSwitchSocket networkId = do
   netDir <- getNetworkRuntimeDir networkId
   pure $ netDir </> "switch.ctl"
+
+-- | Get the TAP interface name for a network (deterministic from ID)
+getTapInterfaceName :: Int64 -> String
+getTapInterfaceName networkId = "crv" ++ show networkId
+
+-- | Get path to dnsmasq PID file for a network
+getDnsmasqPidFile :: Int64 -> IO FilePath
+getDnsmasqPidFile networkId = do
+  netDir <- getNetworkRuntimeDir networkId
+  pure $ netDir </> "dnsmasq.pid"
+
+-- | Get path to dnsmasq lease file for a network
+getDnsmasqLeaseFile :: Int64 -> IO FilePath
+getDnsmasqLeaseFile networkId = do
+  netDir <- getNetworkRuntimeDir networkId
+  pure $ netDir </> "dnsmasq.leases"
 
 --------------------------------------------------------------------------------
 -- Socket Paths

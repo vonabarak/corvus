@@ -38,6 +38,7 @@ import Data.Aeson (object, toJSON, (.=))
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Exit (exitFailure, exitSuccess)
+import System.Posix.Signals (Handler (..), installHandler, sigINT)
 import Text.Printf (printf)
 
 -- | Get the listen address from options
@@ -191,7 +192,7 @@ runCommand opts = do
                     let spiceSock = T.unpack (vdSpiceSocket details)
                     if isStructured fmt
                       then outputValue fmt (object ["spiceSocket" .= vdSpiceSocket details])
-                      else do
+                      else withIgnoredSigINT $ do
                         putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' via SPICE..."
                         _ <- runRemoteViewer defaultClientConfig spiceSock
                         pure ()
@@ -311,7 +312,7 @@ runCommand opts = do
       TemplateShow tid -> handleTemplateShow fmt conn tid
       TemplateInstantiate tid name -> handleTemplateInstantiate fmt conn tid name
       -- Network commands
-      NetworkCreate name -> handleNetworkCreate fmt conn name
+      NetworkCreate name subnet -> handleNetworkCreate fmt conn name subnet
       NetworkDelete nwId -> handleNetworkDelete fmt conn nwId
       NetworkStart nwId -> handleNetworkStart fmt conn nwId
       NetworkStop nwId force -> handleNetworkStop fmt conn nwId force
@@ -326,3 +327,12 @@ runCommand opts = do
       exitFailure
     Right True -> exitSuccess
     Right False -> exitFailure
+
+-- | Run an action with SIGINT ignored, restoring the previous handler afterwards.
+-- This lets Ctrl+C pass through to the child process (VM) instead of killing the client.
+withIgnoredSigINT :: IO a -> IO a
+withIgnoredSigINT action = do
+  oldHandler <- installHandler sigINT Ignore Nothing
+  result <- action
+  _ <- installHandler sigINT oldHandler Nothing
+  pure result

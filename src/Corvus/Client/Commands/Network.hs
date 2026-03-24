@@ -11,6 +11,7 @@ module Corvus.Client.Commands.Network
   )
 where
 
+import Control.Monad (unless)
 import Corvus.Client.Connection (Connection)
 import Corvus.Client.Output
 import Corvus.Client.Rpc
@@ -23,9 +24,9 @@ import qualified Data.Text as T
 import Text.Printf (printf)
 
 -- | Handle network create command
-handleNetworkCreate :: OutputFormat -> Connection -> Text -> IO Bool
-handleNetworkCreate fmt conn name = do
-  resp <- networkCreate conn name
+handleNetworkCreate :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleNetworkCreate fmt conn name subnet = do
+  resp <- networkCreate conn name subnet
   case resp of
     Left err -> do
       if isStructured fmt
@@ -173,8 +174,8 @@ handleNetworkList fmt conn = do
           if null networks
             then putStrLn "No networks found."
             else do
-              printf "%-5s %-20s %-10s %-10s\n" ("ID" :: String) ("NAME" :: String) ("STATUS" :: String) ("PID" :: String)
-              printf "%-5s %-20s %-10s %-10s\n" ("---" :: String) ("----" :: String) ("------" :: String) ("---" :: String)
+              printf "%-5s %-20s %-18s %-10s %-10s\n" ("ID" :: String) ("NAME" :: String) ("SUBNET" :: String) ("STATUS" :: String) ("PID" :: String)
+              printf "%-5s %-20s %-18s %-10s %-10s\n" ("---" :: String) ("----" :: String) ("------" :: String) ("------" :: String) ("---" :: String)
               mapM_ printNetworkInfo networks
       pure True
     Right other -> do
@@ -199,9 +200,16 @@ handleNetworkShow fmt conn nwId = do
         else do
           putStrLn $ "ID:      " ++ show (nwiId info)
           putStrLn $ "Name:    " ++ T.unpack (nwiName info)
+          let sub = nwiSubnet info
+          unless (T.null sub) $
+            putStrLn $
+              "Subnet:  " ++ T.unpack sub
           putStrLn $ "Status:  " ++ if nwiRunning info then "running" else "stopped"
-          case nwiPid info of
-            Just pid -> putStrLn $ "PID:     " ++ show pid
+          case nwiVdeSwitchPid info of
+            Just pid -> putStrLn $ "VDE PID: " ++ show pid
+            Nothing -> pure ()
+          case nwiDnsmasqPid info of
+            Just pid -> putStrLn $ "DNS PID: " ++ show pid
             Nothing -> pure ()
       pure True
     Right NetworkNotFound -> do
@@ -219,8 +227,9 @@ handleNetworkShow fmt conn nwId = do
 printNetworkInfo :: NetworkInfo -> IO ()
 printNetworkInfo info =
   printf
-    "%-5d %-20s %-10s %-10s\n"
+    "%-5d %-20s %-18s %-10s %-10s\n"
     (nwiId info)
     (T.unpack $ nwiName info)
+    (let s = nwiSubnet info in if T.null s then "-" :: String else T.unpack s)
     (if nwiRunning info then "running" :: String else "stopped")
-    (maybe "-" show (nwiPid info))
+    (maybe "-" show (nwiVdeSwitchPid info))

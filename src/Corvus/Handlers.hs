@@ -88,7 +88,7 @@ handleRequest state req = case req of
   ReqTemplateShow tid -> handleTemplateShow state tid
   ReqTemplateInstantiate tid name -> handleTemplateInstantiate state tid name
   -- Network handlers
-  ReqNetworkCreate name -> handleNetworkCreate state name
+  ReqNetworkCreate name subnet -> handleNetworkCreate state name subnet
   ReqNetworkDelete nwId -> handleNetworkDelete state nwId
   ReqNetworkStart nwId -> handleNetworkStart state nwId
   ReqNetworkStop nwId force -> handleNetworkStop state nwId force

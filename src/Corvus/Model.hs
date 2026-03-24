@@ -468,7 +468,9 @@ Drive
 
 Network
     name Text
-    pid Int Maybe
+    subnet Text default=''
+    vdeSwitchPid Int Maybe
+    dnsmasqPid Int Maybe
     createdAt UTCTime
     UniqueNetworkName name
     deriving Show Eq Generic

@@ -19,6 +19,7 @@ import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Qemu.Vde (startVdeSwitch, stopVdeSwitch)
 import Corvus.Types (ServerState (..))
+import Corvus.Utils.Subnet (validateSubnet)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -32,19 +33,28 @@ import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 --------------------------------------------------------------------------------
 
 -- | Create a new virtual network
-handleNetworkCreate :: ServerState -> Text -> IO Response
-handleNetworkCreate state name = do
-  now <- getCurrentTime
-  let network =
-        Network
-          { networkName = name
-          , networkPid = Nothing
-          , networkCreatedAt = now
-          }
-  result <- runSqlPool (insertUnique network) (ssDbPool state)
-  case result of
-    Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
-    Just key -> pure $ RespNetworkCreated $ fromSqlKey key
+handleNetworkCreate :: ServerState -> Text -> Text -> IO Response
+handleNetworkCreate state name subnet = do
+  -- Validate subnet if provided
+  let validatedSubnet
+        | T.null subnet = Right ""
+        | otherwise = validateSubnet subnet
+  case validatedSubnet of
+    Left err -> pure $ RespNetworkError $ "Invalid subnet: " <> err
+    Right normalizedSubnet -> do
+      now <- getCurrentTime
+      let network =
+            Network
+              { networkName = name
+              , networkSubnet = normalizedSubnet
+              , networkVdeSwitchPid = Nothing
+              , networkDnsmasqPid = Nothing
+              , networkCreatedAt = now
+              }
+      result <- runSqlPool (insertUnique network) (ssDbPool state)
+      case result of
+        Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
+        Just key -> pure $ RespNetworkCreated $ fromSqlKey key
 
 -- | Delete a virtual network
 handleNetworkDelete :: ServerState -> Int64 -> IO Response
@@ -67,7 +77,7 @@ handleNetworkDelete state networkId = do
             then pure $ Just False
             else do
               -- Check network is not running
-              case networkPid network of
+              case networkVdeSwitchPid network of
                 Just _ -> pure $ Just False
                 Nothing -> do
                   delete key
@@ -80,11 +90,11 @@ handleNetworkStart state networkId = runStdoutLoggingT $ do
   mNetwork <- liftIO $ runSqlPool (get key) (ssDbPool state)
   case mNetwork of
     Nothing -> pure RespNetworkNotFound
-    Just network -> case networkPid network of
+    Just network -> case networkVdeSwitchPid network of
       Just _ -> pure RespNetworkAlreadyRunning
       Nothing -> do
         logInfoN $ "Starting network " <> T.pack (show networkId)
-        result <- liftIO $ startVdeSwitch (ssQemuConfig state) (ssDbPool state) networkId
+        result <- liftIO $ startVdeSwitch (ssQemuConfig state) (ssDbPool state) networkId (networkSubnet network)
         case result of
           Left err -> do
             logWarnN $ "Failed to start network " <> T.pack (show networkId) <> ": " <> err
@@ -100,7 +110,7 @@ handleNetworkStop state networkId force = runStdoutLoggingT $ do
   mNetwork <- liftIO $ runSqlPool (get key) (ssDbPool state)
   case mNetwork of
     Nothing -> pure RespNetworkNotFound
-    Just network -> case networkPid network of
+    Just network -> case networkVdeSwitchPid network of
       Nothing -> pure RespNetworkNotRunning
       Just _ -> do
         -- Check for running VMs unless force
@@ -166,9 +176,11 @@ toNetworkInfoWith nwId network =
   NetworkInfo
     { nwiId = nwId
     , nwiName = networkName network
-    , nwiRunning = case networkPid network of
+    , nwiSubnet = networkSubnet network
+    , nwiRunning = case networkVdeSwitchPid network of
         Just _ -> True
         Nothing -> False
-    , nwiPid = networkPid network
+    , nwiVdeSwitchPid = networkVdeSwitchPid network
+    , nwiDnsmasqPid = networkDnsmasqPid network
     , nwiCreatedAt = networkCreatedAt network
     }

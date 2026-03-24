@@ -27,6 +27,7 @@ module Test.VM.Rpc
 
     -- * Virtual network management
   , createNetwork
+  , createNetworkWithSubnet
   , deleteNetwork
   , startNetwork
   , stopNetwork
@@ -226,9 +227,13 @@ cleanupSshKey daemon keyId = do
 
 -- | Create a virtual network via daemon RPC
 createNetwork :: TestDaemon -> Text -> IO Int64
-createNetwork daemon name = do
+createNetwork daemon name = createNetworkWithSubnet daemon name ""
+
+-- | Create a virtual network with a subnet via daemon RPC
+createNetworkWithSubnet :: TestDaemon -> Text -> Text -> IO Int64
+createNetworkWithSubnet daemon name subnet = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name
+    networkCreate conn name subnet
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error creating network: " <> show err

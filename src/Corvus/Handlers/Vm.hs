@@ -472,6 +472,6 @@ checkNetworksRunning vmId = do
       case mNetwork of
         Nothing -> pure $ Just "unknown (deleted)"
         Just network ->
-          case networkPid network of
+          case networkVdeSwitchPid network of
             Just _ -> go rest
             Nothing -> pure $ Just $ networkName network

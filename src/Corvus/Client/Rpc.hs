@@ -716,9 +716,9 @@ handleNetworkResponse result = case result of
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Create a virtual network
-networkCreate :: Connection -> Text -> IO (Either ConnectionError NetworkResult)
-networkCreate conn name =
-  handleNetworkResponse <$> sendRequest conn (ReqNetworkCreate name)
+networkCreate :: Connection -> Text -> Text -> IO (Either ConnectionError NetworkResult)
+networkCreate conn name subnet =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkCreate name subnet)
 
 -- | Delete a virtual network
 networkDelete :: Connection -> Int64 -> IO (Either ConnectionError NetworkResult)

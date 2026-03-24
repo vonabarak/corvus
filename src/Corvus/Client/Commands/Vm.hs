@@ -41,6 +41,7 @@ import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), clos
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
 import System.IO (BufferMode (..), hFlush, hSetBuffering, hSetEcho, stdin, stdout)
+import System.Posix.Signals (Handler (..), installHandler, sigINT)
 import System.Process (callProcess)
 import Text.Printf (printf)
 
@@ -265,6 +266,10 @@ runMonitorSession sockPath = do
       hSetBuffering stdout NoBuffering
       hSetEcho stdin False
 
+      -- Install SIGINT handler that sends Ctrl+C (0x03) to the VM
+      -- instead of terminating the client
+      oldHandler <- installHandler sigINT (Catch (sendAll sock (BS.singleton 0x03))) Nothing
+
       -- MVar to signal exit
       exitVar <- newEmptyMVar
 
@@ -302,6 +307,7 @@ runMonitorSession sockPath = do
       -- Wait for exit signal
       takeMVar exitVar
 
-      -- Restore terminal settings
+      -- Restore SIGINT handler and terminal settings
+      _ <- installHandler sigINT oldHandler Nothing
       hSetBuffering stdin LineBuffering
       hSetEcho stdin True

@@ -915,6 +915,12 @@ networkCreateCommand =
       ( metavar "NAME"
           <> help "Name for the virtual network"
       )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "SUBNET"
+          <> help "IPv4 subnet in CIDR notation (e.g., 10.0.1.0/24)"
+          <> value ""
+      )
 
 -- | Parser for network delete
 networkDeleteCommand :: Parser Command

@@ -47,7 +47,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 4
+protocolVersion = 5
 
 -- | Client requests
 data Request
@@ -144,8 +144,8 @@ data Request
     -- Each Maybe field is updated only if Just.
     ReqVmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool)
   | -- | Virtual network operations
-    -- | Create network (name)
-    ReqNetworkCreate !Text
+    -- | Create network (name, subnet)
+    ReqNetworkCreate !Text !Text
   | -- | Delete network (networkId)
     ReqNetworkDelete !Int64
   | -- | Start network (networkId)
@@ -333,8 +333,10 @@ data TemplateDetails = TemplateDetails
 data NetworkInfo = NetworkInfo
   { nwiId :: !Int64
   , nwiName :: !Text
+  , nwiSubnet :: !Text
   , nwiRunning :: !Bool
-  , nwiPid :: !(Maybe Int)
+  , nwiVdeSwitchPid :: !(Maybe Int)
+  , nwiDnsmasqPid :: !(Maybe Int)
   , nwiCreatedAt :: !UTCTime
   }
   deriving (Eq, Show, Generic, Binary)
@@ -493,8 +495,10 @@ instance ToJSON NetworkInfo where
     object
       [ "id" .= nwiId n
       , "name" .= nwiName n
+      , "subnet" .= nwiSubnet n
       , "running" .= nwiRunning n
-      , "pid" .= nwiPid n
+      , "vdeSwitchPid" .= nwiVdeSwitchPid n
+      , "dnsmasqPid" .= nwiDnsmasqPid n
       , "createdAt" .= nwiCreatedAt n
       ]
 

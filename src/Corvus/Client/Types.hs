@@ -127,8 +127,8 @@ data Command
     TemplateInstantiate !Int64 !Text
   | -- Virtual network commands
 
-    -- | Create a virtual network (name)
-    NetworkCreate !Text
+    -- | Create a virtual network (name, subnet)
+    NetworkCreate !Text !Text
   | -- | Delete a virtual network (networkId)
     NetworkDelete !Int64
   | -- | Start a virtual network (networkId)
