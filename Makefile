@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install cleanup unit-tests integration-tests sandboxed-integration-tests privileged-integration-tests all-tests test lint format
+.PHONY: all build install cleanup unit-tests integration-tests sandboxed-integration-tests privileged-integration-tests all-tests test test-image lint format
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -53,6 +53,10 @@ test:
 # Run linter on src, app and test directories
 lint:
 	hlint src app test
+
+# Build the custom Alpine test image (requires root for qemu-nbd + mount)
+test-image:
+	doas scripts/build-test-image.sh
 
 # Format the code using fourmolu
 format:
