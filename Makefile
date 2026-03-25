@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install cleanup unit-tests integration-tests all-tests test lint format
+.PHONY: all build install cleanup unit-tests integration-tests sandboxed-integration-tests privileged-integration-tests all-tests test lint format
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -33,6 +33,14 @@ unit-tests:
 # Run only integration tests (those with "Integration" in their name)
 integration-tests:
 	stack test --test-arguments "--match Integration"
+
+# Run integration tests that can run in a sandbox (no doas required)
+sandboxed-integration-tests:
+	stack test --test-arguments "--match Integration --skip Privileged"
+
+# Run integration tests that require privilege escalation (doas)
+privileged-integration-tests:
+	stack test --test-arguments "--match Privileged"
 
 # Run all tests
 all-tests:

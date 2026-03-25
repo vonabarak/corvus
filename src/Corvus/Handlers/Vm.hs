@@ -24,6 +24,7 @@ where
 import Control.Concurrent (forkIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, runStdoutLoggingT)
+import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
@@ -100,6 +101,8 @@ handleVmShow state vmId = do
 handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Response
 handleVmCreate state name cpuCount ramMb description headless = do
   vmId <- runSqlPool (createVm name cpuCount ramMb description headless) (ssDbPool state)
+  -- Generate cloud-init ISO (installs qemu-guest-agent, creates user)
+  _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId name
   pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
@@ -384,6 +387,7 @@ getVmDetails vmId = do
       monitorSock <- liftIO $ getMonitorSocket vmId
       spiceSock <- liftIO $ getSpiceSocket vmId
       serialSock <- liftIO $ getSerialSocket vmId
+      guestAgentSock <- liftIO $ getGuestAgentSocket vmId
       -- Build drive info by fetching disk images
       driveInfos <- mapM toDriveInfo drives
       pure $
@@ -402,6 +406,7 @@ getVmDetails vmId = do
             , vdMonitorSocket = T.pack monitorSock
             , vdSpiceSocket = T.pack spiceSock
             , vdSerialSocket = T.pack serialSock
+            , vdGuestAgentSocket = T.pack guestAgentSock
             }
   where
     toDriveInfo (Entity driveKey drive) = do

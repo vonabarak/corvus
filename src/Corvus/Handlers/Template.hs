@@ -306,16 +306,12 @@ finishInstantiation state vmId details = runStdoutLoggingT $ do
   forM_ (tvdSshKeys details) $ \tsk -> do
     liftIO $ runSqlPool (insert_ $ VmSshKey vmId (toSqlKey (tvskiId tsk))) (ssDbPool state)
 
-  -- Generate cloud-init ISO if SSH keys are present
-  if not (null (tvdSshKeys details))
-    then do
-      logInfoN $ "Generating cloud-init ISO for instantiated VM with " <> T.pack (show (length (tvdSshKeys details))) <> " SSH key(s)"
-      result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details)
-      case result of
-        Left err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
-        Right _ -> logInfoN "Cloud-init ISO generated and attached"
-    else
-      logInfoN "No SSH keys attached, skipping cloud-init ISO generation"
+  -- Generate cloud-init ISO (installs qemu-guest-agent + SSH keys if any)
+  logInfoN "Generating cloud-init ISO for instantiated VM"
+  result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details)
+  case result of
+    Left err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
+    Right _ -> logInfoN "Cloud-init ISO generated and attached"
 
 generateMacAddress :: IO Text
 generateMacAddress = do

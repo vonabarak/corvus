@@ -256,8 +256,7 @@ handleSshKeyListForVm state vmId = runStdoutLoggingT $ do
 --------------------------------------------------------------------------------
 
 -- | Regenerate cloud-init ISO for a VM
--- If no SSH keys are attached, removes the existing ISO and disk registration
--- Otherwise, generates a new ISO and ensures it's registered as a disk
+-- Always generates the ISO (needed for guest agent installation even without SSH keys)
 regenerateCloudInitIso :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> IO (Either Text ())
 regenerateCloudInitIso qemuConfig pool vmId vmName = do
   let vmKey = toSqlKey vmId :: VmId
@@ -270,26 +269,20 @@ regenerateCloudInitIso qemuConfig pool vmId vmName = do
 
   let publicKeys = catMaybes sshKeys
 
-  if null publicKeys
-    then do
-      -- No keys, remove ISO if it exists
-      removeCloudInitIsoForVm qemuConfig vmName
+  -- Always generate ISO (guest agent installation + SSH keys if any)
+  vmDir <- getCloudInitDir qemuConfig vmName
+  let config =
+        defaultCloudInitConfig
+          { ciHostname = vmName
+          , ciInstanceId = "corvus-" <> T.pack (show vmId)
+          }
+  result <- generateCloudInitIso vmDir config publicKeys
+  case result of
+    Left err -> pure $ Left err
+    Right isoPath -> do
+      -- Ensure disk is registered
+      ensureCloudInitDiskRegistered pool vmId vmName (T.pack isoPath)
       pure $ Right ()
-    else do
-      -- Generate new ISO
-      vmDir <- getCloudInitDir qemuConfig vmName
-      let config =
-            defaultCloudInitConfig
-              { ciHostname = vmName
-              , ciInstanceId = "corvus-" <> T.pack (show vmId)
-              }
-      result <- generateCloudInitIso vmDir config publicKeys
-      case result of
-        Left err -> pure $ Left err
-        Right isoPath -> do
-          -- Ensure disk is registered
-          ensureCloudInitDiskRegistered pool vmId vmName (T.pack isoPath)
-          pure $ Right ()
 
 -- | Remove cloud-init ISO for a VM
 removeCloudInitIsoForVm :: QemuConfig -> Text -> IO ()

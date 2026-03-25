@@ -22,6 +22,7 @@ module Corvus.Qemu
   , getSpiceSocket
   , getSerialSocket
   , getQmpSocket
+  , getGuestAgentSocket
 
     -- * VM execution
   , startVm

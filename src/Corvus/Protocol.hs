@@ -47,7 +47,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 5
+protocolVersion = 6
 
 -- | Client requests
 data Request
@@ -223,6 +223,8 @@ data VmDetails = VmDetails
   -- ^ Path to SPICE socket
   , vdSerialSocket :: !Text
   -- ^ Path to serial console socket
+  , vdGuestAgentSocket :: !Text
+  -- ^ Path to QEMU Guest Agent socket
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -405,6 +407,7 @@ instance ToJSON VmDetails where
       , "monitorSocket" .= vdMonitorSocket v
       , "spiceSocket" .= vdSpiceSocket v
       , "serialSocket" .= vdSerialSocket v
+      , "guestAgentSocket" .= vdGuestAgentSocket v
       ]
 
 instance ToJSON DiskImageInfo where

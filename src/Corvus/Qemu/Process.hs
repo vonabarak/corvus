@@ -19,7 +19,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN)
 import Corvus.Qemu.Command (generateQemuCommandWithSockets)
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
-import Corvus.Qemu.Runtime (createVmRuntimeDir, getMonitorSocket, getQmpSocket, getSerialSocket, getSpiceSocket, getVmRuntimeDir)
+import Corvus.Qemu.Runtime (createVmRuntimeDir, getGuestAgentSocket, getMonitorSocket, getQmpSocket, getSerialSocket, getSpiceSocket, getVmRuntimeDir)
 import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)
@@ -75,10 +75,11 @@ startVm pool config vmId = do
   qmpSock <- liftIO $ getQmpSocket vmId
   spiceSock <- liftIO $ getSpiceSocket vmId
   serialSock <- liftIO $ getSerialSocket vmId
+  guestAgentSock <- liftIO $ getGuestAgentSocket vmId
   vmRuntimeDir <- liftIO $ getVmRuntimeDir vmId
 
   -- Generate command
-  mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock vmRuntimeDir) pool
+  mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir) pool
   case mCmd of
     Nothing -> pure VmNotFound
     Just (binary, args) -> do

@@ -37,64 +37,65 @@ spec = withTestDb $ do
             (_, id2, _) <- runInTestVm vm2 "cat /etc/machine-id"
             T.strip id1 `shouldNotBe` T.strip id2
 
-    it "two VMs can communicate over a virtual network" $ \env -> do
-      withTestDaemon env $ \daemon -> do
-        -- Create and start a virtual network
-        bracket
-          (do nwId <- createNetwork daemon "test-vde"; startNetwork daemon nwId; pure nwId)
-          (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
-          $ \nwId -> do
-            let config = defaultVmConfig {vmcNetworkId = Just nwId}
-            withTestVmOnDaemon daemon config $ \vm1 -> do
-              withTestVmOnDaemon daemon config $ \vm2 -> do
-                -- Configure static IP addresses on the VDE interfaces
-                -- The VDE interface is the second NIC (eth1 on AlmaLinux with virtio-net-pci)
-                runInTestVm_ vm1 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method manual ipv4.addresses 10.0.0.1/24"
-                runInTestVm_ vm1 "sudo nmcli con up vde0"
+    describe "Privileged: virtual networking" $ do
+      it "two VMs can communicate over a virtual network" $ \env -> do
+        withTestDaemon env $ \daemon -> do
+          -- Create and start a virtual network
+          bracket
+            (do nwId <- createNetwork daemon "test-vde"; startNetwork daemon nwId; pure nwId)
+            (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
+            $ \nwId -> do
+              let config = defaultVmConfig {vmcNetworkId = Just nwId}
+              withTestVmOnDaemon daemon config $ \vm1 -> do
+                withTestVmOnDaemon daemon config $ \vm2 -> do
+                  -- Configure static IP addresses on the VDE interfaces
+                  -- The VDE interface is the second NIC (eth1 on AlmaLinux with virtio-net-pci)
+                  runInTestVm_ vm1 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method manual ipv4.addresses 10.0.0.1/24"
+                  runInTestVm_ vm1 "sudo nmcli con up vde0"
 
-                runInTestVm_ vm2 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method manual ipv4.addresses 10.0.0.2/24"
-                runInTestVm_ vm2 "sudo nmcli con up vde0"
+                  runInTestVm_ vm2 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method manual ipv4.addresses 10.0.0.2/24"
+                  runInTestVm_ vm2 "sudo nmcli con up vde0"
 
-                -- Verify VM1 can ping VM2
-                (codePing1, _, _) <- runInTestVm vm1 "ping -c 3 -W 5 10.0.0.2"
-                codePing1 `shouldBe` ExitSuccess
+                  -- Verify VM1 can ping VM2
+                  (codePing1, _, _) <- runInTestVm vm1 "ping -c 3 -W 5 10.0.0.2"
+                  codePing1 `shouldBe` ExitSuccess
 
-                -- Verify VM2 can ping VM1
-                (codePing2, _, _) <- runInTestVm vm2 "ping -c 3 -W 5 10.0.0.1"
-                codePing2 `shouldBe` ExitSuccess
+                  -- Verify VM2 can ping VM1
+                  (codePing2, _, _) <- runInTestVm vm2 "ping -c 3 -W 5 10.0.0.1"
+                  codePing2 `shouldBe` ExitSuccess
 
-    it "two VMs get DHCP addresses and communicate over a virtual network" $ \env -> do
-      withTestDaemon env $ \daemon -> do
-        -- Create and start a virtual network with a subnet (enables DHCP via dnsmasq)
-        bracket
-          (do nwId <- createNetworkWithSubnet daemon "test-dhcp" "10.99.0.0/24"; startNetwork daemon nwId; pure nwId)
-          (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
-          $ \nwId -> do
-            let config = defaultVmConfig {vmcNetworkId = Just nwId}
-            withTestVmOnDaemon daemon config $ \vm1 -> do
-              withTestVmOnDaemon daemon config $ \vm2 -> do
-                -- Request DHCP on the VDE interface (eth1)
-                --runInTestVm_ vm1 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method auto"
-                --runInTestVm_ vm1 "sudo nmcli con up vde0"
-                --
-                --runInTestVm_ vm2 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method auto"
-                --runInTestVm_ vm2 "sudo nmcli con up vde0"
+      it "two VMs get DHCP addresses and communicate over a virtual network" $ \env -> do
+        withTestDaemon env $ \daemon -> do
+          -- Create and start a virtual network with a subnet (enables DHCP via dnsmasq)
+          bracket
+            (do nwId <- createNetworkWithSubnet daemon "test-dhcp" "10.99.0.0/24"; startNetwork daemon nwId; pure nwId)
+            (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
+            $ \nwId -> do
+              let config = defaultVmConfig {vmcNetworkId = Just nwId}
+              withTestVmOnDaemon daemon config $ \vm1 -> do
+                withTestVmOnDaemon daemon config $ \vm2 -> do
+                  -- Request DHCP on the VDE interface (eth1)
+                  -- runInTestVm_ vm1 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method auto"
+                  -- runInTestVm_ vm1 "sudo nmcli con up vde0"
+                  --
+                  -- runInTestVm_ vm2 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method auto"
+                  -- runInTestVm_ vm2 "sudo nmcli con up vde0"
 
-                -- Get the DHCP-assigned IP addresses from eth1
-                (_, ip1Raw, _) <- runInTestVm vm1 "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
-                (_, ip2Raw, _) <- runInTestVm vm2 "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
-                let ip1 = T.strip ip1Raw
-                    ip2 = T.strip ip2Raw
+                  -- Get the DHCP-assigned IP addresses from eth1
+                  (_, ip1Raw, _) <- runInTestVm vm1 "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
+                  (_, ip2Raw, _) <- runInTestVm vm2 "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
+                  let ip1 = T.strip ip1Raw
+                      ip2 = T.strip ip2Raw
 
-                -- Verify both VMs got addresses from the subnet
-                ip1 `shouldSatisfy` ("10.99.0." `T.isPrefixOf`)
-                ip2 `shouldSatisfy` ("10.99.0." `T.isPrefixOf`)
-                ip1 `shouldNotBe` ip2
+                  -- Verify both VMs got addresses from the subnet
+                  ip1 `shouldSatisfy` ("10.99.0." `T.isPrefixOf`)
+                  ip2 `shouldSatisfy` ("10.99.0." `T.isPrefixOf`)
+                  ip1 `shouldNotBe` ip2
 
-                -- Verify VM1 can ping VM2
-                (codePing1, _, _) <- runInTestVm vm1 ("ping -c 3 -W 5 " <> ip2)
-                codePing1 `shouldBe` ExitSuccess
+                  -- Verify VM1 can ping VM2
+                  (codePing1, _, _) <- runInTestVm vm1 ("ping -c 3 -W 5 " <> ip2)
+                  codePing1 `shouldBe` ExitSuccess
 
-                -- Verify VM2 can ping VM1
-                (codePing2, _, _) <- runInTestVm vm2 ("ping -c 3 -W 5 " <> ip1)
-                codePing2 `shouldBe` ExitSuccess
+                  -- Verify VM2 can ping VM1
+                  (codePing2, _, _) <- runInTestVm vm2 ("ping -c 3 -W 5 " <> ip1)
+                  codePing2 `shouldBe` ExitSuccess

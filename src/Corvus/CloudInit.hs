@@ -81,6 +81,8 @@ generateUserData config sshPubKeys' =
         , "chown -R " <> user <> ":" <> user <> " " <> home <> "/.ssh"
         , "echo 'permit nopass " <> user <> "' > /etc/doas.d/" <> user <> ".conf 2>/dev/null || true"
         , "rc-service sshd restart || systemctl restart ssh || systemctl restart sshd || true"
+        , "systemctl enable qemu-guest-agent || rc-update add qemu-guest-agent default || true"
+        , "systemctl start qemu-guest-agent || rc-service qemu-guest-agent start || true"
         ]
    in "#cloud-config\n"
         <> T.decodeUtf8
@@ -103,8 +105,10 @@ generateUserData config sshPubKeys' =
                 ssh_authorized_keys: #{sshPubKeys}
             ssh_pwauth: true
             disable_root: true
-            package_update: false
+            package_update: true
             package_upgrade: false
+            packages:
+              - qemu-guest-agent
             runcmd: #{runcmds}
           |]
           )

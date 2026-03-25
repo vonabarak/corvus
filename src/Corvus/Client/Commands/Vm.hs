@@ -185,6 +185,7 @@ printVmDetails vm = do
   if vdHeadless vm
     then putStrLn $ "Serial Socket:  " ++ T.unpack (vdSerialSocket vm)
     else putStrLn $ "SPICE Socket:   " ++ T.unpack (vdSpiceSocket vm)
+  putStrLn $ "Guest Agent:    " ++ T.unpack (vdGuestAgentSocket vm)
 
   putStrLn ""
   putStrLn "Drives:"

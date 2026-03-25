@@ -21,6 +21,7 @@ module Corvus.Qemu.Runtime
   , getQmpSocket
   , getSpiceSocket
   , getSerialSocket
+  , getGuestAgentSocket
   , getPidFile
   )
 where
@@ -127,6 +128,12 @@ getSerialSocket :: Int64 -> IO FilePath
 getSerialSocket vmId = do
   vmDir <- getVmRuntimeDir vmId
   pure $ vmDir </> "serial.sock"
+
+-- | Get path to QEMU Guest Agent socket for a VM
+getGuestAgentSocket :: Int64 -> IO FilePath
+getGuestAgentSocket vmId = do
+  vmDir <- getVmRuntimeDir vmId
+  pure $ vmDir </> "qga.sock"
 
 -- | Get path to PID file for a VM
 getPidFile :: Int64 -> IO FilePath
