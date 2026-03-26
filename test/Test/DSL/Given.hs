@@ -73,6 +73,7 @@ insertVm name status = do
           , vmPid = Nothing
           , vmHeadless = False
           , vmGuestAgent = False
+          , vmHealthcheck = Nothing
           }
   pure $ fromSqlKey key
 
@@ -100,6 +101,7 @@ insertVmFull name status cpus ramMb desc pid = do
           , vmPid = pid
           , vmHeadless = False
           , vmGuestAgent = False
+          , vmHealthcheck = Nothing
           }
   pure $ fromSqlKey key
 
@@ -118,6 +120,7 @@ defaultVm = do
       , vmPid = Nothing
       , vmHeadless = False
       , vmGuestAgent = False
+      , vmHealthcheck = Nothing
       }
 
 --------------------------------------------------------------------------------
@@ -299,6 +302,7 @@ insertNetworkInterface vmId ifaceType hostDevice macAddress = do
           , networkInterfaceHostDevice = hostDevice
           , networkInterfaceMacAddress = macAddress
           , networkInterfaceNetworkId = Nothing
+          , networkInterfaceGuestIpAddresses = Nothing
           }
   pure $ fromSqlKey key
 

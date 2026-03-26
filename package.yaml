@@ -96,6 +96,7 @@ library:
     - Corvus.Qemu.Image
     - Corvus.Qemu.GuestAgent
     - Corvus.Handlers.GuestExec
+    - Corvus.Handlers.GuestAgentPoller
     - Corvus.Client.Commands.GuestExec
 
 executables:

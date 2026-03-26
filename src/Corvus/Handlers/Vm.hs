@@ -22,8 +22,10 @@ module Corvus.Handlers.Vm
 where
 
 import Control.Concurrent (forkIO)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, runStdoutLoggingT)
+import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
@@ -126,7 +128,7 @@ handleVmStart state vmId = runStdoutLoggingT $ do
   mVm <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound
-    Just (_, currentStatus) ->
+    Just (vm, currentStatus) ->
       case validateTransition currentStatus ActionStart of
         Left errMsg -> pure $ RespInvalidTransition currentStatus errMsg
         Right _ ->
@@ -153,6 +155,10 @@ handleVmStart state vmId = runStdoutLoggingT $ do
                       logInfoN $ "VM " <> T.pack (show vmId) <> " started with PID " <> T.pack (show pid)
                       -- Set status to running and save PID first
                       liftIO $ runSqlPool (setVmRunning vmId pid) (ssDbPool state)
+                      -- Start guest agent poller if guest agent is enabled
+                      when (vmGuestAgent vm) $
+                        liftIO $
+                          startGuestAgentPoller (ssDbPool state) vmId
                       -- Fork a thread to wait for process exit
                       _ <- liftIO $ forkIO $ runStdoutLoggingT $ do
                         logDebugN $ "Waiting for VM " <> T.pack (show vmId) <> " process to exit"
@@ -348,17 +354,23 @@ clearVmPid vmId = do
   let key = toSqlKey vmId :: VmId
   update key [M.VmPid =. Nothing]
 
--- | Set VM status to stopped and clear PID
+-- | Set VM status to stopped and clear PID, healthcheck, and guest network data
 setVmStopped :: Int64 -> SqlPersistT IO ()
 setVmStopped vmId = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmStopped, M.VmPid =. Nothing]
+  update key [M.VmStatus =. VmStopped, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing]
+  updateWhere
+    [M.NetworkInterfaceVmId ==. key]
+    [M.NetworkInterfaceGuestIpAddresses =. Nothing]
 
--- | Set VM status to error
+-- | Set VM status to error and clear healthcheck and guest network data
 setVmError :: Int64 -> SqlPersistT IO ()
 setVmError vmId = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmError]
+  update key [M.VmStatus =. VmError, M.VmHealthcheck =. Nothing]
+  updateWhere
+    [M.NetworkInterfaceVmId ==. key]
+    [M.NetworkInterfaceGuestIpAddresses =. Nothing]
 
 -- | Set VM status (without changing PID)
 setVmStatus :: Int64 -> VmStatus -> SqlPersistT IO ()
@@ -381,6 +393,7 @@ createVm name cpuCount ramMb description headless guestAgent = do
           , vmPid = Nothing
           , vmHeadless = headless
           , vmGuestAgent = guestAgent
+          , vmHealthcheck = Nothing
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -415,6 +428,7 @@ listVms = do
         , viRamMb = vmRamMb vm
         , viHeadless = vmHeadless vm
         , viGuestAgent = vmGuestAgent vm
+        , viHealthcheck = vmHealthcheck vm
         }
 
 -- | Get full VM details
@@ -452,6 +466,7 @@ getVmDetails vmId = do
             , vdSerialSocket = T.pack serialSock
             , vdGuestAgentSocket = T.pack guestAgentSock
             , vdGuestAgent = vmGuestAgent vm
+            , vdHealthcheck = vmHealthcheck vm
             }
   where
     toDriveInfo (Entity driveKey drive) = do
@@ -492,6 +507,7 @@ getVmDetails vmId = do
         , niMacAddress = networkInterfaceMacAddress netIf
         , niNetworkId = fromSqlKey <$> networkInterfaceNetworkId netIf
         , niNetworkName = Nothing -- Not resolved in VM details view
+        , niGuestIpAddresses = networkInterfaceGuestIpAddresses netIf
         }
 
 -- | Edit VM properties. Only updates fields that are Just.

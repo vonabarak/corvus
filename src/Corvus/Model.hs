@@ -436,6 +436,7 @@ Vm
     pid Int Maybe
     headless Bool default=false
     guestAgent Bool default=false
+    healthcheck UTCTime Maybe default=NULL
     UniqueName name
     deriving Show Eq Generic
 
@@ -482,6 +483,7 @@ NetworkInterface
     hostDevice Text
     macAddress Text
     networkId NetworkId Maybe
+    guestIpAddresses Text Maybe default=NULL
     deriving Show Eq Generic
 
 SharedDir

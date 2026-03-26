@@ -38,6 +38,7 @@ import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import Data.Aeson (object, toJSON, (.=))
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time (getCurrentTime)
 import System.Exit (exitFailure, exitSuccess)
 import System.Posix.Signals (Handler (..), installHandler, sigINT)
 import Text.Printf (printf)
@@ -119,16 +120,18 @@ runCommand opts = do
                 if null vms
                   then putStrLn "No VMs found."
                   else do
+                    now <- getCurrentTime
                     putStrLn $
                       printf
-                        "%-6s %-20s %-12s %5s %8s"
+                        "%-6s %-20s %-12s %5s %8s  %-6s"
                         ("ID" :: String)
                         ("NAME" :: String)
                         ("STATUS" :: String)
                         ("CPUS" :: String)
                         ("RAM_MB" :: String)
-                    putStrLn $ replicate 55 '-'
-                    mapM_ printVmInfo vms
+                        ("HEALTH" :: String)
+                    putStrLn $ replicate 63 '-'
+                    mapM_ (printVmInfo now) vms
             pure True
       VmShow vmId -> do
         resp <- showVm conn vmId

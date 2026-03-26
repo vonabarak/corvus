@@ -41,7 +41,7 @@ instance Arbitrary StatusInfo where
   arbitrary = StatusInfo <$> arbitrary <*> arbitrary <*> pure "test"
 
 instance Arbitrary VmInfo where
-  arbitrary = VmInfo <$> arbitrary <*> pure "test-vm" <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
+  arbitrary = VmInfo <$> arbitrary <*> pure "test-vm" <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> pure Nothing
 
 -- Arbitrary for Request (subset - the most common ones)
 instance Arbitrary Request where
@@ -83,7 +83,7 @@ spec = do
       json `shouldSatisfy` ("version" `isInfixOf`)
 
     it "VmInfo produces valid JSON with expected fields" $ do
-      let vm = VmInfo 1 "test" VmRunning 2 1024 False False
+      let vm = VmInfo 1 "test" VmRunning 2 1024 False False Nothing
           json = BL.unpack (encode vm)
       json `shouldSatisfy` ("name" `isInfixOf`)
       json `shouldSatisfy` ("status" `isInfixOf`)

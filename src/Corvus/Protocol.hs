@@ -47,7 +47,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 7
+protocolVersion = 8
 
 -- | Client requests
 data Request
@@ -180,6 +180,7 @@ data VmInfo = VmInfo
   , viRamMb :: !Int
   , viHeadless :: !Bool
   , viGuestAgent :: !Bool
+  , viHealthcheck :: !(Maybe UTCTime)
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -205,6 +206,7 @@ data NetIfInfo = NetIfInfo
   , niMacAddress :: !Text
   , niNetworkId :: !(Maybe Int64)
   , niNetworkName :: !(Maybe Text)
+  , niGuestIpAddresses :: !(Maybe Text)
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -230,6 +232,8 @@ data VmDetails = VmDetails
   -- ^ Path to QEMU Guest Agent socket
   , vdGuestAgent :: !Bool
   -- ^ Whether guest agent is enabled for this VM
+  , vdHealthcheck :: !(Maybe UTCTime)
+  -- ^ Last successful guest agent ping time
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -370,6 +374,7 @@ instance ToJSON VmInfo where
       , "ramMb" .= viRamMb v
       , "headless" .= viHeadless v
       , "guestAgent" .= viGuestAgent v
+      , "healthcheck" .= viHealthcheck v
       ]
 
 instance ToJSON DriveInfo where
@@ -395,6 +400,7 @@ instance ToJSON NetIfInfo where
       , "macAddress" .= niMacAddress n
       , "networkId" .= niNetworkId n
       , "networkName" .= niNetworkName n
+      , "guestIpAddresses" .= niGuestIpAddresses n
       ]
 
 instance ToJSON VmDetails where
@@ -415,6 +421,7 @@ instance ToJSON VmDetails where
       , "serialSocket" .= vdSerialSocket v
       , "guestAgentSocket" .= vdGuestAgentSocket v
       , "guestAgent" .= vdGuestAgent v
+      , "healthcheck" .= vdHealthcheck v
       ]
 
 instance ToJSON DiskImageInfo where

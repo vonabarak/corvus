@@ -36,7 +36,7 @@ import Data.Char (ord)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (defaultTimeLocale, formatTime)
+import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
 import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, defaultProtocol, socket)
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
@@ -159,16 +159,17 @@ handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGuestAgent = do
       pure False
 
 -- | Print VM info in table format
-printVmInfo :: VmInfo -> IO ()
-printVmInfo vm =
+printVmInfo :: UTCTime -> VmInfo -> IO ()
+printVmInfo now vm =
   putStrLn $
     printf
-      "%-6d %-20s %-12s %5d %8d"
+      "%-6d %-20s %-12s %5d %8d  %-6s"
       (viId vm)
       (T.unpack $ viName vm)
       (T.unpack $ enumToText $ viStatus vm)
       (viCpuCount vm)
       (viRamMb vm)
+      (healthLabel now vm)
 
 -- | Print full VM details
 printVmDetails :: VmDetails -> IO ()
@@ -182,6 +183,7 @@ printVmDetails vm = do
   putStrLn $ "Description:    " ++ maybe "(none)" T.unpack (vdDescription vm)
   putStrLn $ "Console:        " ++ if vdHeadless vm then "serial (headless)" else "SPICE (graphics)"
   putStrLn $ "Guest Agent:    " ++ if vdGuestAgent vm then "enabled" else "disabled"
+  putStrLn $ "Healthcheck:    " ++ maybe "(no data)" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S") (vdHealthcheck vm)
   putStrLn $ "Monitor Socket: " ++ T.unpack (vdMonitorSocket vm)
   if vdHeadless vm
     then putStrLn $ "Serial Socket:  " ++ T.unpack (vdSerialSocket vm)
@@ -214,6 +216,18 @@ printVmDetails vm = do
       putStrLn $ "    Type: " ++ T.unpack (enumToText $ niType n)
       putStrLn $ "    Host Device: " ++ T.unpack (niHostDevice n)
       putStrLn $ "    MAC: " ++ T.unpack (niMacAddress n)
+      case niGuestIpAddresses n of
+        Nothing -> pure ()
+        Just ips -> putStrLn $ "    Guest IPs: " ++ T.unpack ips
+
+-- | Compute health label for VM list display
+healthLabel :: UTCTime -> VmInfo -> String
+healthLabel now vm
+  | not (viGuestAgent vm) = "--"
+  | viStatus vm /= VmRunning = "--"
+  | otherwise = case viHealthcheck vm of
+      Nothing -> "DOWN"
+      Just t -> if diffUTCTime now t < 30 then "OK" else "DOWN"
 
 -- | Format uptime in human-readable format
 formatUptime :: Int -> String

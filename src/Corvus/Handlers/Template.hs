@@ -175,7 +175,7 @@ handleTemplateInstantiate state tidLong newVmName = runStdoutLoggingT $ do
     Just details -> do
       -- 2. Create VM record
       now <- liftIO getCurrentTime
-      vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False) (ssDbPool state)
+      vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False Nothing) (ssDbPool state)
 
       -- 3. Instantiate drives
       driveResults <- forM (tvdDrives details) $ \td -> do
@@ -300,7 +300,7 @@ finishInstantiation state vmId details = runStdoutLoggingT $ do
   -- Network
   forM_ (tvdNetIfs details) $ \tni -> do
     mac <- liftIO generateMacAddress
-    liftIO $ runSqlPool (insert_ $ NetworkInterface vmId (tvniType tni) (fromMaybe "" (tvniHostDevice tni)) mac Nothing) (ssDbPool state)
+    liftIO $ runSqlPool (insert_ $ NetworkInterface vmId (tvniType tni) (fromMaybe "" (tvniHostDevice tni)) mac Nothing Nothing) (ssDbPool state)
 
   -- SSH Keys
   forM_ (tvdSshKeys details) $ \tsk -> do

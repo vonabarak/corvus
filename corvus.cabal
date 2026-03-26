@@ -53,6 +53,7 @@ library
       Corvus.Qemu.Image
       Corvus.Qemu.GuestAgent
       Corvus.Handlers.GuestExec
+      Corvus.Handlers.GuestAgentPoller
       Corvus.Client.Commands.GuestExec
   other-modules:
       Corvus.Client.Commands.Network
@@ -241,6 +242,7 @@ test-suite corvus-test
       Corvus.DiskCloneIntegrationSpec
       Corvus.DiskOverlayIntegrationSpec
       Corvus.DiskSpec
+      Corvus.GuestAgentPollerIntegrationSpec
       Corvus.MultiOsIntegrationSpec
       Corvus.MultiVmIntegrationSpec
       Corvus.NetIfSpec

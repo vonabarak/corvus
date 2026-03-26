@@ -109,12 +109,13 @@ handleNetIfList fmt conn vmId = do
             else do
               putStrLn $
                 printf
-                  "%-5s %-15s %-20s %-20s"
+                  "%-5s %-15s %-20s %-20s  %s"
                   ("ID" :: String)
                   ("TYPE" :: String)
                   ("DEVICE" :: String)
                   ("MAC" :: String)
-              putStrLn $ replicate 65 '-'
+                  ("GUEST_IPS" :: String)
+              putStrLn $ replicate 90 '-'
               mapM_ printNetIfInfo netIfs
       pure True
     Right NetIfVmNotFound -> do
@@ -132,8 +133,9 @@ handleNetIfList fmt conn vmId = do
 printNetIfInfo :: NetIfInfo -> IO ()
 printNetIfInfo info =
   printf
-    "%-5d %-15s %-20s %-20s\n"
+    "%-5d %-15s %-20s %-20s  %s\n"
     (niId info)
     (T.unpack $ enumToText $ niType info)
     (T.unpack $ niHostDevice info)
     (T.unpack $ niMacAddress info)
+    (maybe "" T.unpack (niGuestIpAddresses info))

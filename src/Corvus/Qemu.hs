@@ -54,9 +54,12 @@ module Corvus.Qemu
 
     -- * Guest Agent
   , GuestExecResult (..)
+  , GuestIpAddress (..)
+  , GuestNetIf (..)
   , guestExec
   , guestPing
   , guestShutdown
+  , guestNetworkGetInterfaces
 
     -- * Disk image management
   , createImage

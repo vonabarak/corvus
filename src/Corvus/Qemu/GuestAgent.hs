@@ -6,11 +6,14 @@
 module Corvus.Qemu.GuestAgent
   ( -- * Types
     GuestExecResult (..)
+  , GuestIpAddress (..)
+  , GuestNetIf (..)
 
     -- * Commands
   , guestExec
   , guestPing
   , guestShutdown
+  , guestNetworkGetInterfaces
   )
 where
 
@@ -41,6 +44,26 @@ data GuestExecResult
     GuestExecError !Text
   | -- | Could not connect to guest agent socket
     GuestExecConnectionFailed !Text
+  deriving (Eq, Show)
+
+-- | A single IP address reported by the guest agent
+data GuestIpAddress = GuestIpAddress
+  { giaType :: !Text
+  -- ^ "ipv4" or "ipv6"
+  , giaAddress :: !Text
+  -- ^ e.g. "10.0.0.5"
+  , giaPrefix :: !Int
+  -- ^ e.g. 24
+  }
+  deriving (Eq, Show)
+
+-- | A network interface reported by the guest agent
+data GuestNetIf = GuestNetIf
+  { gniHardwareAddress :: !Text
+  -- ^ MAC address, e.g. "52:54:00:xx:xx:xx"
+  , gniIpAddresses :: ![GuestIpAddress]
+  -- ^ All IP addresses on this interface
+  }
   deriving (Eq, Show)
 
 -- | Execute a command inside the guest via the QEMU Guest Agent.
@@ -116,6 +139,21 @@ guestShutdown vmId = do
     -- Timeout is expected: the guest agent shuts down before responding
     Nothing -> pure True
     Just (Left (_ :: SomeException)) -> pure True
+    Just (Right r) -> pure r
+
+-- | Query network interfaces from the guest via the QEMU Guest Agent.
+-- Returns Nothing on failure, Just [] if no interfaces reported.
+guestNetworkGetInterfaces :: Int64 -> IO (Maybe [GuestNetIf])
+guestNetworkGetInterfaces vmId = do
+  gaSock <- getGuestAgentSocket vmId
+  mResult <- timeout 3000000 $ try $ withUnixSocket gaSock $ \sock -> do
+    syncGuest sock
+    sendJson sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
+    resp <- recvJson sock
+    pure $ parseGuestInterfaces resp
+  case mResult of
+    Nothing -> pure Nothing
+    Just (Left (_ :: SomeException)) -> pure Nothing
     Just (Right r) -> pure r
 
 --------------------------------------------------------------------------------
@@ -194,6 +232,29 @@ parseExecStatus mVal = do
           errData <- ret .:? "err-data" AT..!= ""
           pure (True, exitcode, decodeBase64 outData, decodeBase64 errData)
         else pure (False, 0, "", "")
+
+-- | Parse the guest-network-get-interfaces response.
+-- Expected format: {"return": [{"name": "eth0", "hardware-address": "...", "ip-addresses": [...]}]}
+parseGuestInterfaces :: Maybe Value -> Maybe [GuestNetIf]
+parseGuestInterfaces mVal = do
+  val <- mVal
+  AT.parseMaybe interfacesParser val
+  where
+    interfacesParser = AT.withObject "response" $ \obj -> do
+      ret <- obj .: "return"
+      mapM parseIface ret
+
+    parseIface = AT.withObject "interface" $ \obj -> do
+      hwAddr <- obj .: "hardware-address"
+      ipAddrs <- obj .:? "ip-addresses" AT..!= []
+      parsedIps <- mapM parseIpAddr ipAddrs
+      pure GuestNetIf {gniHardwareAddress = hwAddr, gniIpAddresses = parsedIps}
+
+    parseIpAddr = AT.withObject "ip-address" $ \obj -> do
+      ipType <- obj .: "ip-address-type"
+      ipAddr <- obj .: "ip-address"
+      prefix <- obj .: "prefix"
+      pure GuestIpAddress {giaType = ipType, giaAddress = ipAddr, giaPrefix = prefix}
 
 -- | Decode a base64-encoded text field from QGA response
 decodeBase64 :: Text -> Text
