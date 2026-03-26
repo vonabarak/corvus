@@ -98,9 +98,9 @@ handleVmShow state vmId = do
     Just details -> pure $ RespVmDetails details
 
 -- | Handle VM create command
-handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Response
-handleVmCreate state name cpuCount ramMb description headless = do
-  vmId <- runSqlPool (createVm name cpuCount ramMb description headless) (ssDbPool state)
+handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> IO Response
+handleVmCreate state name cpuCount ramMb description headless guestAgent = do
+  vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent) (ssDbPool state)
   -- Generate cloud-init ISO (installs qemu-guest-agent, creates user)
   _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId name
   pure $ RespVmCreated vmId
@@ -266,8 +266,8 @@ handleVmReset state vmId = runStdoutLoggingT $ do
 
 -- | Handle VM edit command
 -- Only allowed when VM is stopped. Updates only the provided fields.
-handleVmEdit :: ServerState -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO Response
-handleVmEdit state vmId mCpus mRam mDesc mHeadless = do
+handleVmEdit :: ServerState -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> IO Response
+handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
@@ -275,7 +275,7 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless = do
       if status /= VmStopped
         then pure RespVmMustBeStopped
         else do
-          runSqlPool (editVm vmId mCpus mRam mDesc mHeadless) (ssDbPool state)
+          runSqlPool (editVm vmId mCpus mRam mDesc mHeadless mGuestAgent) (ssDbPool state)
           pure RespVmEdited
 
 --------------------------------------------------------------------------------
@@ -325,8 +325,8 @@ setVmStatus vmId status = do
   update key [M.VmStatus =. status]
 
 -- | Create a new VM
-createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> SqlPersistT IO Int64
-createVm name cpuCount ramMb description headless = do
+createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> SqlPersistT IO Int64
+createVm name cpuCount ramMb description headless guestAgent = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -338,6 +338,7 @@ createVm name cpuCount ramMb description headless = do
           , vmDescription = description
           , vmPid = Nothing
           , vmHeadless = headless
+          , vmGuestAgent = guestAgent
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -371,6 +372,7 @@ listVms = do
         , viCpuCount = vmCpuCount vm
         , viRamMb = vmRamMb vm
         , viHeadless = vmHeadless vm
+        , viGuestAgent = vmGuestAgent vm
         }
 
 -- | Get full VM details
@@ -407,6 +409,7 @@ getVmDetails vmId = do
             , vdSpiceSocket = T.pack spiceSock
             , vdSerialSocket = T.pack serialSock
             , vdGuestAgentSocket = T.pack guestAgentSock
+            , vdGuestAgent = vmGuestAgent vm
             }
   where
     toDriveInfo (Entity driveKey drive) = do
@@ -450,14 +453,15 @@ getVmDetails vmId = do
         }
 
 -- | Edit VM properties. Only updates fields that are Just.
-editVm :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> SqlPersistT IO ()
-editVm vmId mCpus mRam mDesc mHeadless = do
+editVm :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> SqlPersistT IO ()
+editVm vmId mCpus mRam mDesc mHeadless mGuestAgent = do
   let key = toSqlKey vmId :: VmId
       updates =
         maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
           ++ maybe [] (\ram -> [M.VmRamMb =. ram]) mRam
           ++ maybe [] (\desc -> [M.VmDescription =. Just desc]) mDesc
           ++ maybe [] (\h -> [M.VmHeadless =. h]) mHeadless
+          ++ maybe [] (\ga -> [M.VmGuestAgent =. ga]) mGuestAgent
   case updates of
     [] -> pure ()
     us -> update key us

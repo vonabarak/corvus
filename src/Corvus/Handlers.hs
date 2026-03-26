@@ -13,11 +13,13 @@ module Corvus.Handlers
   , module Corvus.Handlers.SshKey
   , module Corvus.Handlers.Template
   , module Corvus.Handlers.Network
+  , module Corvus.Handlers.GuestExec
   )
 where
 
 import Corvus.Handlers.Core
 import Corvus.Handlers.Disk
+import Corvus.Handlers.GuestExec
 import Corvus.Handlers.NetIf
 import Corvus.Handlers.Network
 import Corvus.Handlers.SharedDir
@@ -41,13 +43,13 @@ handleRequest state req = case req of
   -- VM handlers
   ReqListVms -> handleVmList state
   ReqShowVm vmId -> handleVmShow state vmId
-  ReqVmCreate name cpus ram desc headless -> handleVmCreate state name cpus ram desc headless
+  ReqVmCreate name cpus ram desc headless ga -> handleVmCreate state name cpus ram desc headless ga
   ReqVmDelete vmId -> handleVmDelete state vmId
   ReqVmStart vmId -> handleVmStart state vmId
   ReqVmStop vmId -> handleVmStop state vmId
   ReqVmPause vmId -> handleVmPause state vmId
   ReqVmReset vmId -> handleVmReset state vmId
-  ReqVmEdit vmId mCpus mRam mDesc mHeadless -> handleVmEdit state vmId mCpus mRam mDesc mHeadless
+  ReqVmEdit vmId mCpus mRam mDesc mHeadless mGa -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa
   -- Disk image handlers
   ReqDiskCreate name format sizeMb -> handleDiskCreate state name format sizeMb
   ReqDiskCreateOverlay name baseDiskId -> handleDiskCreateOverlay state name baseDiskId
@@ -94,3 +96,5 @@ handleRequest state req = case req of
   ReqNetworkStop nwId force -> handleNetworkStop state nwId force
   ReqNetworkList -> handleNetworkList state
   ReqNetworkShow nwId -> handleNetworkShow state nwId
+  -- Guest execution handlers
+  ReqGuestExec vmId cmd -> handleGuestExec state vmId cmd

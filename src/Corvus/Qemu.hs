@@ -52,6 +52,11 @@ module Corvus.Qemu
   , generateQemuCommand
   , generateQemuCommandIO
 
+    -- * Guest Agent
+  , GuestExecResult (..)
+  , guestExec
+  , guestPing
+
     -- * Disk image management
   , createImage
   , deleteImage
@@ -70,6 +75,7 @@ where
 
 import Corvus.Qemu.Command
 import Corvus.Qemu.Config
+import Corvus.Qemu.GuestAgent
 import Corvus.Qemu.Image
 import Corvus.Qemu.Process
 import Corvus.Qemu.Qmp

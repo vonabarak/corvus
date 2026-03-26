@@ -175,7 +175,7 @@ handleTemplateInstantiate state tidLong newVmName = runStdoutLoggingT $ do
     Just details -> do
       -- 2. Create VM record
       now <- liftIO getCurrentTime
-      vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details)) (ssDbPool state)
+      vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False) (ssDbPool state)
 
       -- 3. Instantiate drives
       driveResults <- forM (tvdDrives details) $ \td -> do

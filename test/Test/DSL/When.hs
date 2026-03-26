@@ -319,7 +319,7 @@ whenSshKeyListForVm vmId = executeRpc (`Rpc.sshKeyListForVm` vmId)
 -- | Edit VM properties
 whenVmEdit :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> TestM VmEditResult
 whenVmEdit vmId mCpus mRam mDesc mHeadless =
-  executeRpc (\conn -> Rpc.vmEdit conn vmId mCpus mRam mDesc mHeadless)
+  executeRpc (\conn -> Rpc.vmEdit conn vmId mCpus mRam mDesc mHeadless Nothing)
 
 --------------------------------------------------------------------------------
 -- VM Create/Delete Commands
@@ -328,7 +328,7 @@ whenVmEdit vmId mCpus mRam mDesc mHeadless =
 -- | Create a new VM
 whenVmCreate :: Text -> Int -> Int -> Maybe Text -> TestM VmCreateResult
 whenVmCreate name cpuCount ramMb description =
-  executeRpc (\conn -> Rpc.vmCreate conn name cpuCount ramMb description False)
+  executeRpc (\conn -> Rpc.vmCreate conn name cpuCount ramMb description False False)
 
 -- | Delete a VM
 whenVmDelete :: Int64 -> TestM VmDeleteResult

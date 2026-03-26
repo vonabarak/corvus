@@ -294,11 +294,11 @@ rc-update add sysctl boot
 rc-update add hostname boot
 rc-update add bootmisc boot
 rc-update add syslog boot
+rc-update add qemu-guest-agent boot
 
 rc-update add acpid default
 rc-update add networking default
 rc-update add sshd default
-rc-update add qemu-guest-agent default
 
 rc-update add mount-ro shutdown
 rc-update add killprocs shutdown

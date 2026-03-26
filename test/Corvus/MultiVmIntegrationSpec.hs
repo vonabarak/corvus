@@ -11,30 +11,29 @@ import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (VmConfig (..), defaultVmConfig, withTestVmOnDaemon)
+import Test.VM.Common (VmConfig (..), defaultVmConfig, withTestVmGuestExecOnDaemon)
 import Test.VM.Daemon (withTestDaemon)
-import Test.VM.Rpc (createNetwork, createNetworkWithSubnet, deleteNetwork, startNetwork, stopNetwork)
-import Test.VM.Ssh (runInTestVm, runInTestVm_)
+import Test.VM.Rpc (createNetwork, createNetworkWithSubnet, deleteNetwork, runInVm, runInVm_, startNetwork, stopNetwork)
 
 spec :: Spec
 spec = withTestDb $ do
   describe "Multi-VM integration" $ do
     it "two VMs are accessible via SSH simultaneously" $ \env -> do
       withTestDaemon env $ \daemon -> do
-        withTestVmOnDaemon daemon defaultVmConfig $ \vm1 -> do
-          withTestVmOnDaemon daemon defaultVmConfig $ \vm2 -> do
-            -- Verify both VMs are accessible via SSH
-            (code1, stdout1, _) <- runInTestVm vm1 "hostname"
+        withTestVmGuestExecOnDaemon daemon defaultVmConfig $ \vm1 -> do
+          withTestVmGuestExecOnDaemon daemon defaultVmConfig $ \vm2 -> do
+            -- Verify both VMs are accessible via guest agent
+            (code1, stdout1, _) <- runInVm vm1 "hostname"
             code1 `shouldBe` ExitSuccess
             T.strip stdout1 `shouldNotBe` ""
 
-            (code2, stdout2, _) <- runInTestVm vm2 "hostname"
+            (code2, stdout2, _) <- runInVm vm2 "hostname"
             code2 `shouldBe` ExitSuccess
             T.strip stdout2 `shouldNotBe` ""
 
             -- Verify they are different VMs (boot_id is unique per boot)
-            (_, id1, _) <- runInTestVm vm1 "cat /proc/sys/kernel/random/boot_id"
-            (_, id2, _) <- runInTestVm vm2 "cat /proc/sys/kernel/random/boot_id"
+            (_, id1, _) <- runInVm vm1 "cat /proc/sys/kernel/random/boot_id"
+            (_, id2, _) <- runInVm vm2 "cat /proc/sys/kernel/random/boot_id"
             T.strip id1 `shouldNotBe` T.strip id2
 
     describe "Privileged: virtual networking" $ do
@@ -46,19 +45,19 @@ spec = withTestDb $ do
             (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
             $ \nwId -> do
               let config = defaultVmConfig {vmcNetworkId = Just nwId}
-              withTestVmOnDaemon daemon config $ \vm1 -> do
-                withTestVmOnDaemon daemon config $ \vm2 -> do
+              withTestVmGuestExecOnDaemon daemon config $ \vm1 -> do
+                withTestVmGuestExecOnDaemon daemon config $ \vm2 -> do
                   -- Configure static IP addresses on the VDE interfaces
                   -- The VDE interface is the second NIC (eth1)
-                  runInTestVm_ vm1 "doas ip addr add 10.0.0.1/24 dev eth1 && doas ip link set eth1 up"
-                  runInTestVm_ vm2 "doas ip addr add 10.0.0.2/24 dev eth1 && doas ip link set eth1 up"
+                  runInVm_ vm1 "ip addr add 10.0.0.1/24 dev eth1 && ip link set eth1 up"
+                  runInVm_ vm2 "ip addr add 10.0.0.2/24 dev eth1 && ip link set eth1 up"
 
                   -- Verify VM1 can ping VM2
-                  (codePing1, _, _) <- runInTestVm vm1 "ping -c 3 -W 5 10.0.0.2"
+                  (codePing1, _, _) <- runInVm vm1 "ping -c 3 -W 5 10.0.0.2"
                   codePing1 `shouldBe` ExitSuccess
 
                   -- Verify VM2 can ping VM1
-                  (codePing2, _, _) <- runInTestVm vm2 "ping -c 3 -W 5 10.0.0.1"
+                  (codePing2, _, _) <- runInVm vm2 "ping -c 3 -W 5 10.0.0.1"
                   codePing2 `shouldBe` ExitSuccess
 
       it "two VMs get DHCP addresses and communicate over a virtual network" $ \env -> do
@@ -69,15 +68,15 @@ spec = withTestDb $ do
             (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
             $ \nwId -> do
               let config = defaultVmConfig {vmcNetworkId = Just nwId}
-              withTestVmOnDaemon daemon config $ \vm1 -> do
-                withTestVmOnDaemon daemon config $ \vm2 -> do
+              withTestVmGuestExecOnDaemon daemon config $ \vm1 -> do
+                withTestVmGuestExecOnDaemon daemon config $ \vm2 -> do
                   -- Request DHCP on the VDE interface (eth1)
-                  runInTestVm_ vm1 "doas ip link set eth1 up && doas udhcpc -i eth1 -n -q"
-                  runInTestVm_ vm2 "doas ip link set eth1 up && doas udhcpc -i eth1 -n -q"
+                  runInVm_ vm1 "ip link set eth1 up && udhcpc -i eth1 -n -q"
+                  runInVm_ vm2 "ip link set eth1 up && udhcpc -i eth1 -n -q"
 
                   -- Get the DHCP-assigned IP addresses from eth1
-                  (_, ip1Raw, _) <- runInTestVm vm1 "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
-                  (_, ip2Raw, _) <- runInTestVm vm2 "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
+                  (_, ip1Raw, _) <- runInVm vm1 "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
+                  (_, ip2Raw, _) <- runInVm vm2 "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
                   let ip1 = T.strip ip1Raw
                       ip2 = T.strip ip2Raw
 
@@ -87,9 +86,9 @@ spec = withTestDb $ do
                   ip1 `shouldNotBe` ip2
 
                   -- Verify VM1 can ping VM2
-                  (codePing1, _, _) <- runInTestVm vm1 ("ping -c 3 -W 5 " <> ip2)
+                  (codePing1, _, _) <- runInVm vm1 ("ping -c 3 -W 5 " <> ip2)
                   codePing1 `shouldBe` ExitSuccess
 
                   -- Verify VM2 can ping VM1
-                  (codePing2, _, _) <- runInTestVm vm2 ("ping -c 3 -W 5 " <> ip1)
+                  (codePing2, _, _) <- runInVm vm2 ("ping -c 3 -W 5 " <> ip1)
                   codePing2 `shouldBe` ExitSuccess

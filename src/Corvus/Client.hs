@@ -42,6 +42,10 @@ module Corvus.Client
   , VmEditResult (..)
   , vmEdit
 
+    -- * Guest execution
+  , GuestExecResult (..)
+  , vmExec
+
     -- * Disk operations
   , DiskResult (..)
   , diskCreate

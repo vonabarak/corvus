@@ -16,18 +16,28 @@ module Test.VM.Common
   , withTestVmConsole
   , withTestVmBiosConsole
 
+    -- * All-in-one guest-exec VM wrappers
+  , withTestVmGuestExec
+  , withTestVmBiosGuestExec
+
     -- * Daemon-level VM wrappers (disk setup + VM creation)
   , withTestVmOnDaemon
   , withTestVmBiosOnDaemon
   , withTestVmConsoleOnDaemon
   , withTestVmBiosConsoleOnDaemon
 
+    -- * Daemon-level guest-exec VM wrappers
+  , withTestVmGuestExecOnDaemon
+  , withTestVmBiosGuestExecOnDaemon
+
     -- * Low-level VM wrappers (explicit disk ID)
   , withTestVmSshWithDisk
+  , withTestVmGuestExecWithDisk
   , withTestVmConsoleWithDisk
 
     -- * VM lifecycle helpers
   , startTestVmAndWait
+  , startTestVmAndWaitGuestAgent
 
     -- * Building blocks for multi-VM / custom disk tests
   , withTestDiskSetup
@@ -261,6 +271,73 @@ withTestVmSshWithDisk daemon diskImageId config action = do
               $ \(sshKeyId, privateKey, _publicKey) ->
                 startAndRun privateKey sshKeyId
 
+-- | Run an action with a test VM using guest agent execution and explicit disk ID.
+-- Creates the VM with guest agent enabled, sets up disks and network,
+-- starts it, waits for the guest agent to become available, then runs the action.
+-- No SSH setup is needed.
+withTestVmGuestExecWithDisk
+  :: TestDaemon
+  -> Int64
+  -- ^ Disk image ID to use for the boot disk
+  -> VmConfig
+  -- ^ VM configuration
+  -> (TestVm -> IO a)
+  -> IO a
+withTestVmGuestExecWithDisk daemon diskImageId config action = do
+  -- Use a unique name for the VM
+  vmUuid <- nextRandom
+  let vmName = "test-vm-" <> T.take 8 (toText vmUuid)
+
+  -- Use bracket for robust VM lifecycle management
+  bracket
+    (createTestVmWithGuestAgent daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config) (vmcHeadless config))
+    ( \vmId -> do
+        -- Cleanup: stop and delete the VM
+        stopTestVmAndWait daemon vmId 30
+        deleteTestVm daemon vmId
+    )
+    $ \vmId -> do
+      -- Add boot disk
+      addVmDisk daemon vmId diskImageId (vmcDiskInterface config) (vmcDiskCache config) (vmcDiskDiscard config) False
+
+      -- Add additional disks
+      mapM_ (\(dId, iface, ro) -> addVmDisk daemon vmId dId iface (vmcDiskCache config) (vmcDiskDiscard config) ro) (vmcAdditionalDisks config)
+
+      -- Add network interface (no SSH port forwarding needed)
+      addVmNetIf daemon vmId (vmcNetworkType config) "" Nothing
+
+      -- Add VDE network interface for virtual network if requested
+      forM_ (vmcNetworkId config) (addVmNetIfWithNetwork daemon vmId)
+
+      -- Add shared directory if requested
+      case vmcSharedDir config of
+        Nothing -> pure ()
+        Just path -> addVmSharedDir daemon vmId (T.pack path) "share" (vmcSharedDirCache config)
+
+      let vm =
+            TestVm
+              { tvmId = vmId
+              , tvmDiskId = diskImageId
+              , tvmSshPort = 0
+              , tvmSshHost = ""
+              , tvmDaemon = daemon
+              , tvmSshPrivateKey = ""
+              , tvmSshKeyId = 0
+              , tvmSshUser = ""
+              }
+
+      -- Start the VM and wait for guest agent
+      putStrLn "[test] Starting VM and waiting for guest agent..."
+      vmStartTime <- getCurrentTime
+      startTestVm daemon vmId
+      waitForGuestAgent daemon vmId (vmcWaitSshTimeout config)
+      vmReadyTime <- getCurrentTime
+      let bootSec = round (diffUTCTime vmReadyTime vmStartTime) :: Int
+      putStrLn $ "[test] Guest agent is ready (boot to agent: " <> show bootSec <> "s)"
+
+      -- Run the action
+      action vm
+
 -- | Run an action with a test VM connected via serial console and explicit disk ID.
 -- Creates the VM, adds disks and network, starts it, connects to the
 -- serial console immediately (no SSH setup, no waiting for SSH).
@@ -313,6 +390,13 @@ startTestVmAndWait vm timeoutSec = do
   startTestVm (tvmDaemon vm) (tvmId vm)
   waitForTestVmSshWithKey (tvmSshHost vm) (tvmSshPort vm) (tvmSshPrivateKey vm) (tvmSshUser vm) timeoutSec
 
+-- | Start a VM and wait for the guest agent to become available.
+-- Fails if the guest agent is not ready within timeout.
+startTestVmAndWaitGuestAgent :: TestVm -> Int -> IO ()
+startTestVmAndWaitGuestAgent vm timeoutSec = do
+  startTestVm (tvmDaemon vm) (tvmId vm)
+  waitForGuestAgent (tvmDaemon vm) (tvmId vm) timeoutSec
+
 --------------------------------------------------------------------------------
 -- Daemon-level VM convenience wrappers (disk setup + VM creation)
 --------------------------------------------------------------------------------
@@ -345,6 +429,18 @@ withTestVmBiosConsoleOnDaemon daemon config action =
   withTestDiskSetup daemon config False $ \diskId cfg ->
     withTestVmConsoleWithDisk daemon diskId cfg action
 
+-- | Run a test with a UEFI VM using guest-exec on an existing daemon.
+withTestVmGuestExecOnDaemon :: TestDaemon -> VmConfig -> (TestVm -> IO a) -> IO a
+withTestVmGuestExecOnDaemon daemon config action =
+  withTestDiskSetup daemon config True $ \diskId cfg ->
+    withTestVmGuestExecWithDisk daemon diskId cfg action
+
+-- | Run a test with a BIOS-booted VM using guest-exec on an existing daemon.
+withTestVmBiosGuestExecOnDaemon :: TestDaemon -> VmConfig -> (TestVm -> IO a) -> IO a
+withTestVmBiosGuestExecOnDaemon daemon config action =
+  withTestDiskSetup daemon config False $ \diskId cfg ->
+    withTestVmGuestExecWithDisk daemon diskId cfg action
+
 --------------------------------------------------------------------------------
 -- All-in-one VM wrappers (TestEnv → daemon → disk → VM)
 --------------------------------------------------------------------------------
@@ -372,6 +468,18 @@ withTestVmBiosConsole :: TestEnv -> VmConfig -> (SerialConsole -> IO a) -> IO a
 withTestVmBiosConsole env config action =
   withTestDaemon env $ \daemon ->
     withTestVmBiosConsoleOnDaemon daemon config action
+
+-- | Run a test with a UEFI VM using guest-exec. Creates daemon and handles all setup.
+withTestVmGuestExec :: TestEnv -> VmConfig -> (TestVm -> IO a) -> IO a
+withTestVmGuestExec env config action =
+  withTestDaemon env $ \daemon ->
+    withTestVmGuestExecOnDaemon daemon config action
+
+-- | Run a test with a BIOS-booted VM using guest-exec. Creates daemon and handles all setup.
+withTestVmBiosGuestExec :: TestEnv -> VmConfig -> (TestVm -> IO a) -> IO a
+withTestVmBiosGuestExec env config action =
+  withTestDaemon env $ \daemon ->
+    withTestVmBiosGuestExecOnDaemon daemon config action
 
 --------------------------------------------------------------------------------
 -- Utilities

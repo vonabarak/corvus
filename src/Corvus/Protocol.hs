@@ -47,7 +47,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 6
+protocolVersion = 7
 
 -- | Client requests
 data Request
@@ -57,8 +57,8 @@ data Request
   | ReqListVms
   | -- | VM ID
     ReqShowVm !Int64
-  | -- | Create VM (name, cpuCount, ramMb, description, headless)
-    ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool
+  | -- | Create VM (name, cpuCount, ramMb, description, headless, guestAgent)
+    ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool
   | -- | Delete VM (vmId)
     ReqVmDelete !Int64
   | -- | Start VM (stopped/paused -> running)
@@ -140,9 +140,9 @@ data Request
     ReqTemplateShow !Int64
   | -- | Instantiate template (templateId, newVmName)
     ReqTemplateInstantiate !Int64 !Text
-  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless)
+  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless, guestAgent)
     -- Each Maybe field is updated only if Just.
-    ReqVmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool)
+    ReqVmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool)
   | -- | Virtual network operations
     -- | Create network (name, subnet)
     ReqNetworkCreate !Text !Text
@@ -156,6 +156,8 @@ data Request
     ReqNetworkList
   | -- | Show network details (networkId)
     ReqNetworkShow !Int64
+  | -- | Guest command execution (vmId, command)
+    ReqGuestExec !Int64 !Text
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -177,6 +179,7 @@ data VmInfo = VmInfo
   , viCpuCount :: !Int
   , viRamMb :: !Int
   , viHeadless :: !Bool
+  , viGuestAgent :: !Bool
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -225,6 +228,8 @@ data VmDetails = VmDetails
   -- ^ Path to serial console socket
   , vdGuestAgentSocket :: !Text
   -- ^ Path to QEMU Guest Agent socket
+  , vdGuestAgent :: !Bool
+  -- ^ Whether guest agent is enabled for this VM
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -364,6 +369,7 @@ instance ToJSON VmInfo where
       , "cpuCount" .= viCpuCount v
       , "ramMb" .= viRamMb v
       , "headless" .= viHeadless v
+      , "guestAgent" .= viGuestAgent v
       ]
 
 instance ToJSON DriveInfo where
@@ -408,6 +414,7 @@ instance ToJSON VmDetails where
       , "spiceSocket" .= vdSpiceSocket v
       , "serialSocket" .= vdSerialSocket v
       , "guestAgentSocket" .= vdGuestAgentSocket v
+      , "guestAgent" .= vdGuestAgent v
       ]
 
 instance ToJSON DiskImageInfo where
@@ -638,6 +645,12 @@ data Response
     RespNetworkInUse
   | -- | Network error
     RespNetworkError !Text
+  | -- | Guest command execution result (exitcode, stdout, stderr)
+    RespGuestExecResult !Int !Text !Text
+  | -- | Guest agent not enabled on this VM
+    RespGuestAgentNotEnabled
+  | -- | Guest agent communication error
+    RespGuestAgentError !Text
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

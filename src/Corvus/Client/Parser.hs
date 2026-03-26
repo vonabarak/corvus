@@ -70,6 +70,10 @@ vmCreateCommand =
       ( long "headless"
           <> help "Create VM without graphics (serial console only)"
       )
+    <*> switch
+      ( long "guest-agent"
+          <> help "Enable QEMU guest agent for this VM"
+      )
 
 -- | Parser for vm delete
 vmDeleteCommand :: Parser Command
@@ -174,6 +178,14 @@ vmEditCommand =
               <> help "Set headless mode (true/false)"
           )
       )
+    <*> optional
+      ( option
+          readBool
+          ( long "guest-agent"
+              <> metavar "BOOL"
+              <> help "Enable/disable QEMU guest agent (true/false)"
+          )
+      )
 
 -- | Reader for boolean values
 readBool :: ReadM Bool
@@ -204,6 +216,21 @@ vmMonitorCommand =
       auto
       ( metavar "VM_ID"
           <> help "ID of the VM to connect to HMP monitor"
+      )
+
+-- | Parser for vm exec
+vmExecCommand :: Parser Command
+vmExecCommand =
+  VmExec
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM to execute command in"
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "COMMAND"
+          <> help "Command to execute inside the VM"
       )
 
 -- | Parser for all VM subcommands
@@ -243,6 +270,9 @@ vmCommandParser =
         <> command
           "monitor"
           (info vmMonitorCommand (progDesc "Connect to VM's HMP monitor (Ctrl+] to exit)"))
+        <> command
+          "exec"
+          (info vmExecCommand (progDesc "Execute a command inside a VM via guest agent"))
     )
 
 --------------------------------------------------------------------------------

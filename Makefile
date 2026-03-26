@@ -56,7 +56,7 @@ lint:
 
 # Build the custom Alpine test image (requires root for qemu-nbd + mount)
 test-image:
-	doas scripts/build-test-image.sh
+	doas scripts/build-test-image.sh --force
 
 # Format the code using fourmolu
 format:

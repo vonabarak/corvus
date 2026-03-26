@@ -6,6 +6,7 @@
 module Test.VM.Rpc
   ( -- * VM lifecycle
     createTestVm
+  , createTestVmWithGuestAgent
   , startTestVm
   , stopTestVm
   , stopTestVmAndWait
@@ -27,6 +28,13 @@ module Test.VM.Rpc
   , attachSshKey
   , cleanupSshKey
 
+    -- * Guest execution
+  , runInVm
+  , runInVm_
+  , runViaGuestAgent
+  , runViaGuestAgent_
+  , waitForGuestAgent
+
     -- * Virtual network management
   , createNetwork
   , createNetworkWithSubnet
@@ -38,17 +46,22 @@ module Test.VM.Rpc
 where
 
 import Control.Concurrent (threadDelay)
+import Control.Monad (when)
 import Corvus.Client
-import Corvus.Client.Rpc (NetIfResult (..), NetworkResult (..), networkCreate, networkDelete, networkStart, networkStop)
+import Corvus.Client.Rpc (GuestExecResult (..), NetIfResult (..), NetworkResult (..), networkCreate, networkDelete, networkStart, networkStop, vmExec)
 import Corvus.Model
 import Corvus.Protocol (NetIfInfo (..), VmDetails (..))
+import Corvus.Qemu.Runtime (getQmpSocket)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
+import System.Directory (doesFileExist)
+import System.Exit (ExitCode (..))
 import Test.VM.Daemon (TestDaemon (..), withDaemonConnection)
 import Test.VM.Ssh (SshKeyPair (..), generateSshKeyPair)
+import Test.VM.Types (TestVm (..))
 
 --------------------------------------------------------------------------------
 -- VM Lifecycle
@@ -56,9 +69,19 @@ import Test.VM.Ssh (SshKeyPair (..), generateSshKeyPair)
 
 -- | Create a VM via daemon RPC
 createTestVm :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Int64
-createTestVm daemon name cpus ram mDesc headless = do
+createTestVm daemon name cpus ram mDesc headless =
+  createTestVmFull daemon name cpus ram mDesc headless False
+
+-- | Create a VM with guest agent via daemon RPC
+createTestVmWithGuestAgent :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Int64
+createTestVmWithGuestAgent daemon name cpus ram mDesc headless =
+  createTestVmFull daemon name cpus ram mDesc headless True
+
+-- | Create a VM via daemon RPC (full version with all fields)
+createTestVmFull :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> IO Int64
+createTestVmFull daemon name cpus ram mDesc headless guestAgent = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmCreate conn name cpus ram mDesc headless
+    vmCreate conn name cpus ram mDesc headless guestAgent
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error creating VM: " <> show err
@@ -87,6 +110,7 @@ stopTestVm daemon vmId = do
     Right (Right _) -> pure ()
 
 -- | Stop a VM and wait for it to reach VmStopped status via polling.
+-- Also waits for the QEMU process to fully exit so disk locks are released.
 -- Fails if VM does not stop within timeout.
 stopTestVmAndWait :: TestDaemon -> Int64 -> Int -> IO ()
 stopTestVmAndWait daemon vmId timeoutSec = do
@@ -105,6 +129,11 @@ stopTestVmAndWait daemon vmId timeoutSec = do
               else threadDelay 1000000 >> go (n - 1)
           _ -> threadDelay 1000000 >> go (n - 1)
   go timeoutSec
+  -- Wait for the QEMU process to fully exit and release file locks.
+  -- The daemon sets VmStopped after waitForProcess returns, but there's a
+  -- brief window where the process has exited but the OS hasn't released
+  -- all file locks yet. The QMP socket disappearing confirms full cleanup.
+  waitForQemuExit vmId
 
 -- | Delete a VM via daemon RPC (best-effort cleanup, ignores errors)
 deleteTestVm :: TestDaemon -> Int64 -> IO ()
@@ -119,7 +148,7 @@ deleteTestVm daemon vmId = do
 editTestVm :: TestDaemon -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO ()
 editTestVm daemon vmId mCpus mRam mDesc mHeadless = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmEdit conn vmId mCpus mRam mDesc mHeadless
+    vmEdit conn vmId mCpus mRam mDesc mHeadless Nothing
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error editing VM: " <> show err
@@ -305,3 +334,71 @@ addVmNetIfWithNetwork daemon vmId nwId = do
     Right (Left err) -> fail $ "RPC error adding network interface: " <> show err
     Right (Right (NetIfAdded _)) -> pure ()
     Right (Right other) -> fail $ "Failed to add network interface: " <> show other
+
+-- | Wait for the QEMU process to fully exit by checking the QMP socket.
+-- When QEMU exits, the socket file is removed by the OS.
+waitForQemuExit :: Int64 -> IO ()
+waitForQemuExit vmId = do
+  qmpSock <- getQmpSocket vmId
+  go qmpSock (20 :: Int) -- up to 2s
+  where
+    go _ 0 = pure ()
+    go sock n = do
+      alive <- doesFileExist sock
+      when alive $ do
+        threadDelay 100000 -- 100ms
+        go sock (n - 1)
+
+--------------------------------------------------------------------------------
+-- Guest Execution
+--------------------------------------------------------------------------------
+
+-- | Run a command inside a test VM via the QEMU guest agent.
+-- Convenience wrapper that takes a TestVm, matching the runInTestVm interface.
+runInVm :: TestVm -> Text -> IO (ExitCode, Text, Text)
+runInVm vm = runViaGuestAgent (tvmDaemon vm) (tvmId vm)
+
+-- | Run a command via guest agent, failing on non-zero exit code.
+-- Convenience wrapper that takes a TestVm, matching the runInTestVm_ interface.
+runInVm_ :: TestVm -> Text -> IO ()
+runInVm_ vm = runViaGuestAgent_ (tvmDaemon vm) (tvmId vm)
+
+-- | Run a command inside a test VM via the QEMU guest agent.
+-- Returns (ExitCode, stdout, stderr) similar to runInTestVm.
+runViaGuestAgent :: TestDaemon -> Int64 -> Text -> IO (ExitCode, Text, Text)
+runViaGuestAgent daemon vmId command = do
+  result <- withDaemonConnection daemon $ \conn ->
+    vmExec conn vmId command
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "Connection error executing guest command: " <> show err
+    Right (Right (GuestExecOk exitcode stdout stderr)) ->
+      pure (if exitcode == 0 then ExitSuccess else ExitFailure exitcode, stdout, stderr)
+    Right (Right GuestExecVmNotFound) -> fail "VM not found for guest-exec"
+    Right (Right GuestExecNotEnabled) -> fail "Guest agent not enabled on VM"
+    Right (Right (GuestExecInvalidState _ msg)) -> fail $ "Guest-exec invalid state: " <> T.unpack msg
+    Right (Right (GuestExecAgentError msg)) -> fail $ "Guest agent error: " <> T.unpack msg
+
+-- | Run a command inside a test VM via the QEMU guest agent, failing on non-zero exit code.
+runViaGuestAgent_ :: TestDaemon -> Int64 -> Text -> IO ()
+runViaGuestAgent_ daemon vmId command = do
+  (code, _, stderr) <- runViaGuestAgent daemon vmId command
+  case code of
+    ExitSuccess -> pure ()
+    ExitFailure c ->
+      fail $ "Guest command failed with exit code " <> show c <> ": " <> T.unpack stderr
+
+-- | Wait for the guest agent to become available by polling with guest-ping.
+-- Fails if the agent is not ready within the timeout.
+waitForGuestAgent :: TestDaemon -> Int64 -> Int -> IO ()
+waitForGuestAgent daemon vmId timeoutSec = go timeoutSec
+  where
+    go 0 = fail $ "Guest agent not ready after " <> show timeoutSec <> "s"
+    go n = do
+      result <- withDaemonConnection daemon $ \conn ->
+        vmExec conn vmId "echo ok"
+      case result of
+        Right (Right (GuestExecOk 0 _ _)) -> pure ()
+        _ -> do
+          threadDelay 1000000
+          go (n - 1)

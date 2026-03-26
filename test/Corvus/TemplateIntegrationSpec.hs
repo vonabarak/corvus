@@ -4,7 +4,6 @@ module Corvus.TemplateIntegrationSpec (spec) where
 
 import Control.Monad (void)
 import Corvus.Client
-import Corvus.Model (NetInterfaceType (..))
 import Corvus.Protocol
 import Data.List (find)
 import Data.Maybe (isJust)
@@ -12,10 +11,9 @@ import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), defaultVmConfig, findFreePort, withTestVm)
+import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVmGuestExec)
 import Test.VM.Daemon (withDaemonConnection)
-import Test.VM.Rpc (addVmNetIf, stopTestVmAndWait)
-import Test.VM.Ssh (runInTestVm, waitForTestVmSshWithKey)
+import Test.VM.Rpc (runInVm, runViaGuestAgent, stopTestVmAndWait, waitForGuestAgent)
 
 -- | Find a disk name matching a prefix from a list of disk images
 findDiskName :: T.Text -> [DiskImageInfo] -> T.Text
@@ -28,19 +26,8 @@ spec :: Spec
 spec = withTestDb $ do
   describe "VM Template integration" $ do
     it "can create a template from YAML and instantiate it" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
+      withTestVmGuestExec env defaultVmConfig $ \vm -> do
         let daemon = tvmDaemon vm
-            sshKeyName = "template-key"
-            privateKey = tvmSshPrivateKey vm
-
-        -- Read the public key content from the existing VM's setup
-        pubKeyContent <- T.pack <$> readFile (privateKey ++ ".pub")
-
-        -- Create an SSH key to refer to in the template
-        keyId <- withDaemonConnection daemon $ \conn -> sshKeyCreate conn sshKeyName pubKeyContent
-        case keyId of
-          Right (Right (SshKeyCreated _)) -> pure ()
-          other -> fail $ "SSH key creation failed: " ++ show other
 
         -- Stop the VM so we can use its disk for cloning/overlay strategy
         stopTestVmAndWait daemon (tvmId vm) 10
@@ -72,8 +59,6 @@ spec = withTestDb $ do
                 , "  - diskImageName: \"" <> ovmfVarsTemplateName <> "\""
                 , "    interface: \"pflash\""
                 , "    strategy: \"clone\""
-                , "sshKeys:"
-                , "  - name: \"" <> sshKeyName <> "\""
                 ]
 
         -- 1. Create template
@@ -99,7 +84,6 @@ spec = withTestDb $ do
             case tvdDrives details of
               (d : _) -> tvdiDiskImageName d `shouldBe` baseDiskName
               [] -> fail "Expected at least one drive in template"
-            length (tvdSshKeys details) `shouldBe` 1
           other -> fail $ "Template show failed: " ++ show other
 
         -- 4. Instantiate template
@@ -120,47 +104,25 @@ spec = withTestDb $ do
             length (vdDrives details) `shouldBe` 4
           other -> fail $ "VM show failed: " ++ show other
 
-        -- Verify SSH keys are attached
-        resSshKeys <- withDaemonConnection daemon $ \conn -> sshKeyListForVm conn newVmId
-        case resSshKeys of
-          Right (Right (SshKeyListResult keys)) -> do
-            length keys `shouldBe` 1
-          other -> fail $ "SSH key list failed: " ++ show other
+        -- 6. Enable guest agent and start the VM
+        resEdit <- withDaemonConnection daemon $ \conn -> vmEdit conn newVmId Nothing Nothing Nothing Nothing (Just True)
+        case resEdit of
+          Right (Right VmEdited) -> pure ()
+          other -> fail $ "VM edit failed: " ++ show other
 
-        -- 6. Start the VM and verify SSH access with the key
-        sshPort <- findFreePort
-        let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
-        addVmNetIf daemon newVmId NetUser hostFwd Nothing
         resStart <- withDaemonConnection daemon $ \conn -> vmStart conn newVmId
         case resStart of
           Right (Right (VmActionSuccess _)) -> pure ()
           other -> fail $ "VM start failed: " ++ show other
 
-        -- Wait for SSH to be available and authenticate with the key
-        putStrLn $ "[test] Waiting for SSH on port " ++ show sshPort ++ " with key authentication"
-        waitForTestVmSshWithKey "127.0.0.1" sshPort privateKey "corvus" 90
+        -- Wait for guest agent to be available
+        putStrLn "[test] Waiting for guest agent on instantiated VM"
+        waitForGuestAgent daemon newVmId 90
 
-        -- Verify we can run commands via SSH
-        let testVm =
-              TestVm
-                { tvmId = newVmId
-                , tvmDiskId = 0 -- Not needed for SSH operations
-                , tvmSshHost = "127.0.0.1"
-                , tvmSshPort = sshPort
-                , tvmDaemon = daemon
-                , tvmSshPrivateKey = privateKey
-                , tvmSshKeyId = 0 -- Not needed for SSH operations
-                , tvmSshUser = "corvus"
-                }
-
-        (exitCode, stdout, _) <- runInTestVm testVm "whoami"
+        -- Verify we can run commands via guest agent
+        (exitCode, stdout, _) <- runViaGuestAgent daemon newVmId "whoami"
         exitCode `shouldBe` ExitSuccess
-        T.strip stdout `shouldBe` "corvus"
-
-        -- Verify the SSH key is actually installed in authorized_keys
-        (exitCode2, stdout2, _) <- runInTestVm testVm "grep -c 'ssh-' ~/.ssh/authorized_keys"
-        exitCode2 `shouldBe` ExitSuccess
-        read (T.unpack $ T.strip stdout2) `shouldSatisfy` (> (0 :: Int))
+        T.strip stdout `shouldBe` "root"
 
         -- Stop the instantiated VM
         stopTestVmAndWait daemon newVmId 10

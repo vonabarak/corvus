@@ -37,6 +37,7 @@ dependencies:
   - haskell-src-meta
   - random
   - fourmolu
+  - base64-bytestring
 
 default-extensions:
   - OverloadedStrings
@@ -93,6 +94,9 @@ library:
     - Corvus.Qemu.Command
     - Corvus.Qemu.Virtiofsd
     - Corvus.Qemu.Image
+    - Corvus.Qemu.GuestAgent
+    - Corvus.Handlers.GuestExec
+    - Corvus.Client.Commands.GuestExec
 
 executables:
   corvus:

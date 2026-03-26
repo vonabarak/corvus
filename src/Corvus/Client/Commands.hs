@@ -20,6 +20,7 @@ module Corvus.Client.Commands
 where
 
 import Corvus.Client.Commands.Disk
+import Corvus.Client.Commands.GuestExec
 import Corvus.Client.Commands.NetIf
 import Corvus.Client.Commands.Network
 import Corvus.Client.Commands.SharedDir
@@ -147,13 +148,14 @@ runCommand opts = do
               then outputResult fmt details
               else printVmDetails details
             pure True
-      VmCreate name cpuCount ramMb mDesc headless -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless
+      VmCreate name cpuCount ramMb mDesc headless ga -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga
       VmDelete vmId -> handleVmDelete fmt conn vmId
       VmStart vmId -> handleVmAction fmt "start" vmId (vmStart conn vmId)
       VmStop vmId -> handleVmAction fmt "stop" vmId (vmStop conn vmId)
       VmPause vmId -> handleVmAction fmt "pause" vmId (vmPause conn vmId)
       VmReset vmId -> handleVmAction fmt "reset" vmId (vmReset conn vmId)
-      VmEdit vmId mCpus mRam mDesc mHeadless -> handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless
+      VmEdit vmId mCpus mRam mDesc mHeadless mGa -> handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGa
+      VmExec vmId cmd -> handleVmExec fmt conn vmId cmd
       VmView vmId -> do
         resp <- showVm conn vmId
         case resp of

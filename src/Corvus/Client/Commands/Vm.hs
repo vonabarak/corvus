@@ -46,9 +46,9 @@ import System.Process (callProcess)
 import Text.Printf (printf)
 
 -- | Handle VM creation
-handleVmCreate :: OutputFormat -> Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Bool
-handleVmCreate fmt conn name cpuCount ramMb mDesc headless = do
-  resp <- vmCreate conn name cpuCount ramMb mDesc headless
+handleVmCreate :: OutputFormat -> Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> IO Bool
+handleVmCreate fmt conn name cpuCount ramMb mDesc headless guestAgent = do
+  resp <- vmCreate conn name cpuCount ramMb mDesc headless guestAgent
   case resp of
     Left err -> do
       if isStructured fmt
@@ -128,9 +128,9 @@ handleVmAction fmt actionName vmId action = do
       pure True
 
 -- | Handle VM edit
-handleVmEdit :: OutputFormat -> Connection -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO Bool
-handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless = do
-  resp <- vmEdit conn vmId mCpus mRam mDesc mHeadless
+handleVmEdit :: OutputFormat -> Connection -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> IO Bool
+handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGuestAgent = do
+  resp <- vmEdit conn vmId mCpus mRam mDesc mHeadless mGuestAgent
   case resp of
     Left err -> do
       if isStructured fmt
@@ -181,6 +181,7 @@ printVmDetails vm = do
   putStrLn $ "RAM (MB):       " ++ show (vdRamMb vm)
   putStrLn $ "Description:    " ++ maybe "(none)" T.unpack (vdDescription vm)
   putStrLn $ "Console:        " ++ if vdHeadless vm then "serial (headless)" else "SPICE (graphics)"
+  putStrLn $ "Guest Agent:    " ++ if vdGuestAgent vm then "enabled" else "disabled"
   putStrLn $ "Monitor Socket: " ++ T.unpack (vdMonitorSocket vm)
   if vdHeadless vm
     then putStrLn $ "Serial Socket:  " ++ T.unpack (vdSerialSocket vm)

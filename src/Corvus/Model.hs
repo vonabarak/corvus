@@ -435,6 +435,7 @@ Vm
     description Text Maybe
     pid Int Maybe
     headless Bool default=false
+    guestAgent Bool default=false
     UniqueName name
     deriving Show Eq Generic
 

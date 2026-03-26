@@ -8,7 +8,6 @@
 -- Requirements:
 --   - QEMU with KVM support
 --   - virtiofsd binary
---   - Debian cloud image
 --   - PostgreSQL for test database
 --
 -- Run with: stack test --test-arguments="--match Virtiofs"
@@ -24,15 +23,12 @@ import System.FilePath ((</>))
 import System.IO.Temp (getCanonicalTemporaryDirectory)
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (VmConfig (..), defaultVmConfig, withTestVm)
-import Test.VM.Ssh (runInTestVm)
+import Test.VM.Common (VmConfig (..), defaultVmConfig, withTestVmGuestExec)
+import Test.VM.Rpc (runInVm)
 
 spec :: Spec
 spec = withTestDb $ do
   describe "Virtiofs integration" $ do
-    -- This test requires a fully functioning cloud-init setup.
-    -- It has been verified to work manually but is flaky in CI due to
-    -- timing issues with cloud-init user creation.
     it "can access shared directory from VM via virtiofs" $ \env -> do
       -- Create a temporary directory with a test file
       sysTmp <- getCanonicalTemporaryDirectory
@@ -48,18 +44,18 @@ spec = withTestDb $ do
         (pure ())
         (\_ -> removeDirectoryRecursive testDir)
         $ \_ ->
-          withTestVm env (defaultVmConfig {vmcSharedDir = Just testDir}) $ \vm -> do
+          withTestVmGuestExec env (defaultVmConfig {vmcSharedDir = Just testDir}) $ \vm -> do
             -- Mount the shared directory
-            (code2, _, _) <- runInTestVm vm "doas mkdir -p /mnt/share"
+            (code2, _, _) <- runInVm vm "mkdir -p /mnt/share"
             code2 `shouldBe` ExitSuccess
 
             (code3, _, _) <-
-              runInTestVm
+              runInVm
                 vm
-                "doas mount -t virtiofs share /mnt/share"
+                "mount -t virtiofs share /mnt/share"
             code3 `shouldBe` ExitSuccess
 
             -- Read the test file
-            (code4, stdout4, _) <- runInTestVm vm "cat /mnt/share/testfile.txt"
+            (code4, stdout4, _) <- runInVm vm "cat /mnt/share/testfile.txt"
             code4 `shouldBe` ExitSuccess
             T.strip stdout4 `shouldBe` T.pack testContent

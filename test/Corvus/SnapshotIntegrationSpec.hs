@@ -6,17 +6,15 @@
 --
 -- Requirements:
 --   - QEMU with KVM support
---   - genisoimage or mkisofs
---   - SSH client
 --   - PostgreSQL for test database
---   - Debian cloud image (downloaded automatically on first run)
 --
 -- Run with: stack test --test-arguments="--match SnapshotIntegration"
 module Corvus.SnapshotIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Corvus.Client
-import Corvus.Protocol (SnapshotInfo (..))
+import Corvus.Model (VmStatus (..))
+import Corvus.Protocol (SnapshotInfo (..), VmDetails (..))
 import Data.Int (Int64)
 import Data.List (sort)
 import qualified Data.Text as T
@@ -25,17 +23,13 @@ import Data.UUID.V4 (nextRandom)
 import System.Exit (ExitCode (..))
 import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), defaultVmConfig, startTestVmAndWait, withTestVm)
+import Test.VM.Common (TestVm (..), defaultVmConfig, startTestVmAndWaitGuestAgent, withTestVmGuestExec)
 import Test.VM.Daemon (TestDaemon (..), withDaemonConnection)
-import Test.VM.Rpc (stopTestVmAndWait)
-import Test.VM.Ssh (runInTestVm)
+import Test.VM.Rpc (runInVm, stopTestVmAndWait)
 
 spec :: Spec
 spec = withTestDb $ do
   describe "Snapshot integration through daemon" $ do
-    -- These tests require a fully functioning cloud-init setup.
-    -- They have been verified to work manually but are flaky in CI due to
-    -- timing issues with cloud-init user creation.
     it "can rollback to restore deleted file" $ \env -> do
       testSnapshotRollback env
 
@@ -60,7 +54,7 @@ spec = withTestDb $ do
 -- | Test that snapshot rollback restores a deleted file
 testSnapshotRollback :: TestEnv -> IO ()
 testSnapshotRollback env = do
-  withTestVm env defaultVmConfig $ \vm -> do
+  withTestVmGuestExec env defaultVmConfig $ \vm -> do
     let daemon = tvmDaemon vm
         diskId = tvmDiskId vm
         vmId = tvmId vm
@@ -69,70 +63,70 @@ testSnapshotRollback env = do
     let testContent = "SNAPSHOT-TEST:" <> T.unpack (toText uuid)
         testFile = "/home/corvus/testfile.txt"
 
-    (code1, _, _) <- runInTestVm vm $ "echo '" <> T.pack testContent <> "' > " <> T.pack testFile
+    (code1, _, _) <- runInVm vm $ "echo '" <> T.pack testContent <> "' > " <> T.pack testFile
     code1 `shouldBe` ExitSuccess
 
-    (code2, stdout2, _) <- runInTestVm vm $ "cat " <> T.pack testFile
+    (code2, stdout2, _) <- runInVm vm $ "cat " <> T.pack testFile
     code2 `shouldBe` ExitSuccess
     T.strip stdout2 `shouldBe` T.pack testContent
 
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
     snapshotId <- createSnapshot daemon diskId "before-delete"
 
-    startTestVmAndWait vm 120
+    startTestVmAndWaitGuestAgent vm 120
 
-    _ <- runInTestVm vm $ "rm -f " <> T.pack testFile
+    _ <- runInVm vm $ "rm -f " <> T.pack testFile
 
-    (code3, _, _) <- runInTestVm vm $ "test -f " <> T.pack testFile
+    (code3, _, _) <- runInVm vm $ "test -f " <> T.pack testFile
     code3 `shouldNotBe` ExitSuccess
 
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
     rollbackSnapshot daemon diskId snapshotId
 
-    startTestVmAndWait vm 120
+    startTestVmAndWaitGuestAgent vm 120
 
-    (code4, stdout4, _) <- runInTestVm vm $ "cat " <> T.pack testFile
+    (code4, stdout4, _) <- runInVm vm $ "cat " <> T.pack testFile
     code4 `shouldBe` ExitSuccess
     T.strip stdout4 `shouldBe` T.pack testContent
 
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
     deleteSnapshot daemon diskId snapshotId
 
 -- | Test creating multiple snapshots and rolling back to a specific one
 testMultipleSnapshots :: TestEnv -> IO ()
 testMultipleSnapshots env = do
-  withTestVm env defaultVmConfig $ \vm -> do
+  withTestVmGuestExec env defaultVmConfig $ \vm -> do
     let daemon = tvmDaemon vm
         diskId = tvmDiskId vm
         vmId = tvmId vm
         testFile = "/home/corvus/counter.txt"
 
-    _ <- runInTestVm vm "echo '1' > /home/corvus/counter.txt"
-    stopTestVmAndWait daemon vmId 10
+    _ <- runInVm vm "echo '1' > /home/corvus/counter.txt"
+    stopTestVmAndWait daemon vmId 30
 
     snap1 <- createSnapshot daemon diskId "state-1"
 
-    startTestVmAndWait vm 120
-    _ <- runInTestVm vm "echo '2' > /home/corvus/counter.txt"
-    stopTestVmAndWait daemon vmId 10
+    startTestVmAndWaitGuestAgent vm 120
+    _ <- runInVm vm "echo '2' > /home/corvus/counter.txt"
+    stopTestVmAndWait daemon vmId 30
 
     snap2 <- createSnapshot daemon diskId "state-2"
 
-    startTestVmAndWait vm 120
-    _ <- runInTestVm vm "echo '3' > /home/corvus/counter.txt"
-    (_, stdout3, _) <- runInTestVm vm $ "cat " <> T.pack testFile
+    startTestVmAndWaitGuestAgent vm 120
+    _ <- runInVm vm "echo '3' > /home/corvus/counter.txt"
+    (_, stdout3, _) <- runInVm vm $ "cat " <> T.pack testFile
     T.strip stdout3 `shouldBe` "3"
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
     rollbackSnapshot daemon diskId snap1
 
-    startTestVmAndWait vm 120
-    (_, stdout1, _) <- runInTestVm vm $ "cat " <> T.pack testFile
+    startTestVmAndWaitGuestAgent vm 120
+    (_, stdout1, _) <- runInVm vm $ "cat " <> T.pack testFile
     T.strip stdout1 `shouldBe` "1"
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
     deleteSnapshot daemon diskId snap2
     deleteSnapshot daemon diskId snap1
@@ -140,12 +134,12 @@ testMultipleSnapshots env = do
 -- | Test that snapshot list correctly shows created snapshots
 testSnapshotList :: TestEnv -> IO ()
 testSnapshotList env = do
-  withTestVm env defaultVmConfig $ \vm -> do
+  withTestVmGuestExec env defaultVmConfig $ \vm -> do
     let daemon = tvmDaemon vm
         diskId = tvmDiskId vm
         vmId = tvmId vm
 
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
     snap1 <- createSnapshot daemon diskId "snapshot-alpha"
     snap2 <- createSnapshot daemon diskId "snapshot-beta"
@@ -163,20 +157,20 @@ testSnapshotList env = do
 -- | Test that merging a snapshot consolidates changes and removes it
 testSnapshotMerge :: TestEnv -> IO ()
 testSnapshotMerge env = do
-  withTestVm env defaultVmConfig $ \vm -> do
+  withTestVmGuestExec env defaultVmConfig $ \vm -> do
     let daemon = tvmDaemon vm
         diskId = tvmDiskId vm
         vmId = tvmId vm
         testFile = "/home/corvus/merge-test.txt"
 
-    _ <- runInTestVm vm "echo 'initial' > /home/corvus/merge-test.txt"
-    stopTestVmAndWait daemon vmId 10
+    _ <- runInVm vm "echo 'initial' > /home/corvus/merge-test.txt"
+    stopTestVmAndWait daemon vmId 30
 
     snap1 <- createSnapshot daemon diskId "to-merge"
 
-    startTestVmAndWait vm 120
-    _ <- runInTestVm vm "echo 'modified' > /home/corvus/merge-test.txt"
-    stopTestVmAndWait daemon vmId 10
+    startTestVmAndWaitGuestAgent vm 120
+    _ <- runInVm vm "echo 'modified' > /home/corvus/merge-test.txt"
+    stopTestVmAndWait daemon vmId 30
 
     snapshotsBefore <- listSnapshots daemon diskId
     let countBefore = length snapshotsBefore
@@ -190,21 +184,21 @@ testSnapshotMerge env = do
     let snapIds = map sniId snapshotsAfter
     snapIds `shouldNotSatisfy` elem snap1
 
-    startTestVmAndWait vm 120
-    (code, stdout, _) <- runInTestVm vm $ "cat " <> T.pack testFile
+    startTestVmAndWaitGuestAgent vm 120
+    (code, stdout, _) <- runInVm vm $ "cat " <> T.pack testFile
     code `shouldBe` ExitSuccess
     T.strip stdout `shouldBe` "modified"
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
 -- | Test that snapshots with duplicate names are allowed (each gets unique ID)
 testSnapshotNameDuplicates :: TestEnv -> IO ()
 testSnapshotNameDuplicates env = do
-  withTestVm env defaultVmConfig $ \vm -> do
+  withTestVmGuestExec env defaultVmConfig $ \vm -> do
     let daemon = tvmDaemon vm
         diskId = tvmDiskId vm
         vmId = tvmId vm
 
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
     snap1 <- createSnapshot daemon diskId "same-name"
     snap2 <- createSnapshot daemon diskId "same-name"
@@ -228,16 +222,20 @@ testSnapshotNameDuplicates env = do
 -- | Test that snapshot operations on running VMs are rejected
 testSnapshotOnRunningVmRejected :: TestEnv -> IO ()
 testSnapshotOnRunningVmRejected env = do
-  withTestVm env defaultVmConfig $ \vm -> do
+  withTestVmGuestExec env defaultVmConfig $ \vm -> do
     let daemon = tvmDaemon vm
         diskId = tvmDiskId vm
         vmId = tvmId vm
 
     snap1 <- do
-      stopTestVmAndWait daemon vmId 10
+      stopTestVmAndWait daemon vmId 30
+      -- Reset in case the background process-exit handler set VmError
+      -- after vmReset already set VmStopped (race between SIGKILL exit
+      -- code -9 and the reset handler).
+      ensureVmStopped daemon vmId
       createSnapshot daemon diskId "test-snap"
 
-    startTestVmAndWait vm 120
+    startTestVmAndWaitGuestAgent vm 120
 
     createResult <- tryCreateSnapshot daemon diskId "should-fail"
     createResult `shouldBe` SnapshotVmMustBeStopped
@@ -248,7 +246,7 @@ testSnapshotOnRunningVmRejected env = do
     mergeResult <- tryMergeSnapshot daemon diskId snap1
     mergeResult `shouldBe` SnapshotVmMustBeStopped
 
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
     snap2 <- createSnapshot daemon diskId "after-stop"
     snap2 `shouldSatisfy` (> 0)
@@ -259,12 +257,12 @@ testSnapshotOnRunningVmRejected env = do
 -- | Test that multiple rapid snapshot operations are handled correctly
 testConcurrentSnapshotOperations :: TestEnv -> IO ()
 testConcurrentSnapshotOperations env = do
-  withTestVm env defaultVmConfig $ \vm -> do
+  withTestVmGuestExec env defaultVmConfig $ \vm -> do
     let daemon = tvmDaemon vm
         diskId = tvmDiskId vm
         vmId = tvmId vm
 
-    stopTestVmAndWait daemon vmId 10
+    stopTestVmAndWait daemon vmId 30
 
     snap1 <- createSnapshot daemon diskId "concurrent-1"
     snap2 <- createSnapshot daemon diskId "concurrent-2"
@@ -361,6 +359,22 @@ tryRollbackSnapshot daemon diskId snapshotId = do
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
     Right (Right res) -> pure res
+
+-- | Ensure VM is in VmStopped state, resetting if it ended up in VmError.
+-- This handles the race where vmReset sets VmStopped but the background
+-- waitForProcess thread later overwrites it with VmError.
+ensureVmStopped :: TestDaemon -> Int64 -> IO ()
+ensureVmStopped daemon vmId = do
+  -- Small delay to let the background thread finish
+  threadDelay 500000
+  res <- withDaemonConnection daemon $ \conn -> showVm conn vmId
+  case res of
+    Right (Right (Just details))
+      | vdStatus details == VmError -> do
+          _ <- withDaemonConnection daemon $ \conn -> vmReset conn vmId
+          threadDelay 200000
+      | otherwise -> pure ()
+    _ -> pure ()
 
 -- | Try to merge a snapshot, returning the result type for error checking
 tryMergeSnapshot :: TestDaemon -> Int64 -> Int64 -> IO SnapshotResult

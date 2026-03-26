@@ -28,6 +28,10 @@ module Corvus.Client.Rpc
   , VmEditResult (..)
   , vmEdit
 
+    -- * Guest execution
+  , GuestExecResult (..)
+  , vmExec
+
     -- * Disk operations
   , DiskResult (..)
   , diskCreate
@@ -175,9 +179,9 @@ data VmDeleteResult
   deriving (Eq, Show)
 
 -- | Create a new VM
-vmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> IO (Either ConnectionError VmCreateResult)
-vmCreate conn name cpuCount ramMb description headless = do
-  result <- sendRequest conn (ReqVmCreate name cpuCount ramMb description headless)
+vmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> IO (Either ConnectionError VmCreateResult)
+vmCreate conn name cpuCount ramMb description headless guestAgent = do
+  result <- sendRequest conn (ReqVmCreate name cpuCount ramMb description headless guestAgent)
   case result of
     Left err -> pure $ Left err
     Right (RespVmCreated vmId) -> pure $ Right $ VmCreated vmId
@@ -242,9 +246,10 @@ vmEdit
   -> Maybe Int
   -> Maybe Text
   -> Maybe Bool
+  -> Maybe Bool
   -> IO (Either ConnectionError VmEditResult)
-vmEdit conn vmId mCpus mRam mDesc mHeadless = do
-  result <- sendRequest conn (ReqVmEdit vmId mCpus mRam mDesc mHeadless)
+vmEdit conn vmId mCpus mRam mDesc mHeadless mGuestAgent = do
+  result <- sendRequest conn (ReqVmEdit vmId mCpus mRam mDesc mHeadless mGuestAgent)
   case result of
     Left err -> pure $ Left err
     Right RespVmEdited -> pure $ Right VmEdited
@@ -744,3 +749,35 @@ networkList conn =
 networkShow :: Connection -> Int64 -> IO (Either ConnectionError NetworkResult)
 networkShow conn nwId =
   handleNetworkResponse <$> sendRequest conn (ReqNetworkShow nwId)
+
+--------------------------------------------------------------------------------
+-- Guest Execution
+--------------------------------------------------------------------------------
+
+-- | Result of guest command execution
+data GuestExecResult
+  = -- | Command succeeded (exitcode, stdout, stderr)
+    GuestExecOk !Int !Text !Text
+  | -- | VM not found
+    GuestExecVmNotFound
+  | -- | Guest agent not enabled
+    GuestExecNotEnabled
+  | -- | VM is not running
+    GuestExecInvalidState !VmStatus !Text
+  | -- | Guest agent error
+    GuestExecAgentError !Text
+  deriving (Eq, Show)
+
+-- | Execute a command inside a VM via guest agent
+vmExec :: Connection -> Int64 -> Text -> IO (Either ConnectionError GuestExecResult)
+vmExec conn vmId command = do
+  result <- sendRequest conn (ReqGuestExec vmId command)
+  case result of
+    Left err -> pure $ Left err
+    Right (RespGuestExecResult exitcode stdout stderr) -> pure $ Right $ GuestExecOk exitcode stdout stderr
+    Right RespVmNotFound -> pure $ Right GuestExecVmNotFound
+    Right RespGuestAgentNotEnabled -> pure $ Right GuestExecNotEnabled
+    Right (RespInvalidTransition status msg) -> pure $ Right $ GuestExecInvalidState status msg
+    Right (RespGuestAgentError msg) -> pure $ Right $ GuestExecAgentError msg
+    Right (RespError msg) -> pure $ Left $ ServerError msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
