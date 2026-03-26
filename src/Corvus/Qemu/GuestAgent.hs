@@ -10,6 +10,7 @@ module Corvus.Qemu.GuestAgent
     -- * Commands
   , guestExec
   , guestPing
+  , guestShutdown
   )
 where
 
@@ -88,6 +89,33 @@ guestPing vmId = do
   case mResult of
     Nothing -> pure False
     Just (Left (_ :: SomeException)) -> pure False
+    Just (Right r) -> pure r
+
+-- | Request a graceful shutdown via the guest agent.
+-- This triggers a clean shutdown from inside the guest (like running "poweroff").
+-- Returns True if the command was accepted, False on error.
+guestShutdown :: Int64 -> IO Bool
+guestShutdown vmId = do
+  gaSock <- getGuestAgentSocket vmId
+  mResult <- timeout 5000000 $ try $ withUnixSocket gaSock $ \sock -> do
+    syncGuest sock
+    -- guest-shutdown with mode "powerdown" triggers a clean OS shutdown
+    sendJson sock $
+      Aeson.object
+        [ "execute" .= ("guest-shutdown" :: Text)
+        , "arguments" .= Aeson.object ["mode" .= ("powerdown" :: Text)]
+        ]
+    -- guest-shutdown doesn't return a response on success (the agent shuts down),
+    -- so a timeout here is expected and means success.
+    -- If it does respond, it's an error.
+    resp <- recvJson sock
+    case resp of
+      Just (Object obj) -> pure $ not $ KM.member "error" obj
+      _ -> pure True
+  case mResult of
+    -- Timeout is expected: the guest agent shuts down before responding
+    Nothing -> pure True
+    Just (Left (_ :: SomeException)) -> pure True
     Just (Right r) -> pure r
 
 --------------------------------------------------------------------------------

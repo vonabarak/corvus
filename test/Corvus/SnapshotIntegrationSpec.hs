@@ -11,10 +11,8 @@
 -- Run with: stack test --test-arguments="--match SnapshotIntegration"
 module Corvus.SnapshotIntegrationSpec (spec) where
 
-import Control.Concurrent (threadDelay)
 import Corvus.Client
-import Corvus.Model (VmStatus (..))
-import Corvus.Protocol (SnapshotInfo (..), VmDetails (..))
+import Corvus.Protocol (SnapshotInfo (..))
 import Data.Int (Int64)
 import Data.List (sort)
 import qualified Data.Text as T
@@ -229,10 +227,6 @@ testSnapshotOnRunningVmRejected env = do
 
     snap1 <- do
       stopTestVmAndWait daemon vmId 30
-      -- Reset in case the background process-exit handler set VmError
-      -- after vmReset already set VmStopped (race between SIGKILL exit
-      -- code -9 and the reset handler).
-      ensureVmStopped daemon vmId
       createSnapshot daemon diskId "test-snap"
 
     startTestVmAndWaitGuestAgent vm 120
@@ -359,22 +353,6 @@ tryRollbackSnapshot daemon diskId snapshotId = do
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
     Right (Right res) -> pure res
-
--- | Ensure VM is in VmStopped state, resetting if it ended up in VmError.
--- This handles the race where vmReset sets VmStopped but the background
--- waitForProcess thread later overwrites it with VmError.
-ensureVmStopped :: TestDaemon -> Int64 -> IO ()
-ensureVmStopped daemon vmId = do
-  -- Small delay to let the background thread finish
-  threadDelay 500000
-  res <- withDaemonConnection daemon $ \conn -> showVm conn vmId
-  case res of
-    Right (Right (Just details))
-      | vdStatus details == VmError -> do
-          _ <- withDaemonConnection daemon $ \conn -> vmReset conn vmId
-          threadDelay 200000
-      | otherwise -> pure ()
-    _ -> pure ()
 
 -- | Try to merge a snapshot, returning the result type for error checking
 tryMergeSnapshot :: TestDaemon -> Int64 -> Int64 -> IO SnapshotResult

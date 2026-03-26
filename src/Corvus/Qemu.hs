@@ -56,6 +56,7 @@ module Corvus.Qemu
   , GuestExecResult (..)
   , guestExec
   , guestPing
+  , guestShutdown
 
     -- * Disk image management
   , createImage
