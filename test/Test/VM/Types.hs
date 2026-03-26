@@ -5,6 +5,9 @@ module Test.VM.Types
   ( -- * VM Configuration
     VmConfig (..)
   , DefaultVmConfig (..)
+  , cloudVmConfig
+  , prebakedImageName
+  , prebakedSshKeyPath
 
     -- * Test VM handle
   , TestVm (..)
@@ -15,6 +18,14 @@ import Corvus.Model (CacheType (..), DriveInterface (..), NetInterfaceType (..),
 import Data.Int (Int64)
 import Data.Text (Text)
 import Test.VM.Daemon (TestDaemon)
+
+-- | Pre-baked image name (local, no download)
+prebakedImageName :: Text
+prebakedImageName = "corvus-test"
+
+-- | Path to pre-baked SSH private key (relative to project root)
+prebakedSshKeyPath :: FilePath
+prebakedSshKeyPath = ".test-images/corvus-test-key"
 
 -- | Configuration for a test VM.
 data VmConfig = VmConfig
@@ -33,6 +44,8 @@ data VmConfig = VmConfig
   , vmcAdditionalDisks :: [(Int64, DriveInterface, Bool)]
   , vmcHeadless :: Bool
   , vmcNetworkId :: Maybe Int64
+  , vmcPrebakedSshKey :: Maybe FilePath
+  -- ^ Pre-baked SSH private key path. When set, skip cloud-init key setup.
   }
   deriving (Show, Eq)
 
@@ -45,12 +58,12 @@ instance DefaultVmConfig VmConfig where
     VmConfig
       { vmcCpuCount = 2
       , vmcRamMb = 2048
-      , vmcOsName = "almalinux-10"
+      , vmcOsName = prebakedImageName
       , vmcSharedDir = Nothing
       , vmcDescription = Nothing
       , vmcDiskInterface = InterfaceVirtio
       , vmcNetworkType = NetUser
-      , vmcWaitSshTimeout = 120
+      , vmcWaitSshTimeout = 30
       , vmcDiskCache = CacheWriteback
       , vmcDiskDiscard = True
       , vmcSharedDirCache = CacheAuto
@@ -58,7 +71,17 @@ instance DefaultVmConfig VmConfig where
       , vmcAdditionalDisks = []
       , vmcHeadless = True
       , vmcNetworkId = Nothing
+      , vmcPrebakedSshKey = Just prebakedSshKeyPath
       }
+
+-- | VM config for cloud-image tests (uses cloud-init for SSH key deployment).
+cloudVmConfig :: VmConfig
+cloudVmConfig =
+  defaultVmConfig
+    { vmcOsName = "almalinux-10"
+    , vmcWaitSshTimeout = 120
+    , vmcPrebakedSshKey = Nothing
+    }
 
 -- | A VM running through the test daemon with SSH access
 data TestVm = TestVm

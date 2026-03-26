@@ -35,9 +35,9 @@ spec = withTestDb $ do
 
     it "can check OS release" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        (code, stdout, _stderr) <- runInTestVm vm "cat /etc/os-release | grep -i alma"
+        (code, stdout, _stderr) <- runInTestVm vm "cat /etc/os-release | grep -i alpine"
         code `shouldBe` ExitSuccess
-        T.isInfixOf "AlmaLinux" stdout `shouldBe` True
+        T.isInfixOf "Alpine" stdout `shouldBe` True
 
     it "can run multiple commands" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
@@ -58,20 +58,20 @@ spec = withTestDb $ do
         code1 `shouldBe` ExitSuccess
         T.strip stdout1 `shouldBe` "Linux"
 
-        (code2, _, _) <- runInTestVm vm "free -m"
+        (code2, _, _) <- runInTestVm vm "cat /proc/meminfo"
         code2 `shouldBe` ExitSuccess
 
-        (code3, _, _) <- runInTestVm vm "df -h"
+        (code3, _, _) <- runInTestVm vm "cat /proc/mounts"
         code3 `shouldBe` ExitSuccess
 
-    it "can use sudo without password" $ \env -> do
+    it "can use doas without password" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        (code, stdout, _) <- runInTestVm vm "sudo whoami"
+        (code, stdout, _) <- runInTestVm vm "doas whoami"
         code `shouldBe` ExitSuccess
         T.strip stdout `shouldBe` "root"
 
     it "can edit CPU and RAM of a stopped VM" $ \env -> do
-      let config = defaultVmConfig {vmcCpuCount = 2, vmcRamMb = 2048}
+      let config = defaultVmConfig {vmcCpuCount = 2, vmcRamMb = 2048, vmcWaitSshTimeout = 120}
       withTestVm env config $ \vm -> do
         -- Check initial CPU count
         (code1, stdout1, _) <- runInTestVm vm "nproc"
@@ -108,12 +108,14 @@ spec = withTestDb $ do
         ramMb2 `shouldSatisfy` (<= 4200)
 
     it "detects virtio-vga graphics adapter in non-headless VM" $ \env -> do
+      -- Use BIOS boot: UEFI NVRAM caches display settings, causing the
+      -- headless restart to hang when the VGA device is removed.
       let config = defaultVmConfig {vmcHeadless = False}
-      withTestVm env config $ \vm -> do
+      withTestVmBios env config $ \vm -> do
         let daemon = tvmDaemon vm
 
         -- Check that the virtio-vga device is visible via lshw
-        (code, stdout, _) <- runInTestVm vm "sudo lshw -class display"
+        (code, stdout, _) <- runInTestVm vm "doas lshw -class display"
         code `shouldBe` ExitSuccess
         T.isInfixOf "VGA compatible controller" stdout `shouldBe` True
         T.isInfixOf "Virtio 1.0 GPU" stdout `shouldBe` True
@@ -124,11 +126,11 @@ spec = withTestDb $ do
         -- Set headless mode
         editTestVm daemon (tvmId vm) Nothing Nothing Nothing (Just True)
 
-        -- Restart the VM and wait for SSH (network still works in headless mode)
+        -- Restart the VM and wait for SSH
         startTestVmAndWait vm (vmcWaitSshTimeout config)
 
         -- Check that VGA adapter is no longer present
-        (code2, stdout2, _) <- runInTestVm vm "sudo lshw -class display"
+        (code2, stdout2, _) <- runInTestVm vm "doas lshw -class display"
         -- In headless mode there should be no VGA controller
         T.isInfixOf "VGA compatible controller" stdout2 `shouldBe` False
 
@@ -142,12 +144,12 @@ spec = withTestDb $ do
 
     it "UEFI VM has EFI boot entries" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
-        (code, stdout, _) <- runInTestVm vm "sudo efibootmgr"
+        (code, stdout, _) <- runInTestVm vm "doas efibootmgr"
         code `shouldBe` ExitSuccess
         T.isInfixOf "BootOrder" stdout `shouldBe` True
 
     it "BIOS VM does not have EFI support" $ \env -> do
       withTestVmBios env defaultVmConfig $ \vm -> do
-        (code, _, stderr) <- runInTestVm vm "sudo efibootmgr"
+        (code, _, stderr) <- runInTestVm vm "doas efibootmgr"
         code `shouldNotBe` ExitSuccess
         T.isInfixOf "EFI variables are not supported" stderr `shouldBe` True

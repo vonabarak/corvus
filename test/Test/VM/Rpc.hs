@@ -17,6 +17,8 @@ module Test.VM.Rpc
     -- * VM configuration
   , addVmDisk
   , addVmNetIf
+  , removeVmNetIf
+  , listVmNetIfs
   , addVmSharedDir
 
     -- * SSH key management
@@ -37,9 +39,9 @@ where
 
 import Control.Concurrent (threadDelay)
 import Corvus.Client
-import Corvus.Client.Rpc (NetworkResult (..), networkCreate, networkDelete, networkStart, networkStop)
+import Corvus.Client.Rpc (NetIfResult (..), NetworkResult (..), networkCreate, networkDelete, networkStart, networkStop)
 import Corvus.Model
-import Corvus.Protocol (VmDetails (..))
+import Corvus.Protocol (NetIfInfo (..), VmDetails (..))
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -149,6 +151,27 @@ addVmNetIf daemon vmId ifaceType hostDevice mac = do
     Right (Left err) -> fail $ "RPC error adding network interface: " <> show err
     Right (Right (NetIfAdded _)) -> pure ()
     Right (Right other) -> fail $ "Failed to add network interface: " <> show other
+
+-- | Remove a network interface from a VM
+removeVmNetIf :: TestDaemon -> Int64 -> Int64 -> IO ()
+removeVmNetIf daemon vmId netIfId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    netIfRemove conn vmId netIfId
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "RPC error removing network interface: " <> show err
+    Right (Right _) -> pure ()
+
+-- | List network interfaces for a VM
+listVmNetIfs :: TestDaemon -> Int64 -> IO [NetIfInfo]
+listVmNetIfs daemon vmId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    netIfList conn vmId
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "RPC error listing network interfaces: " <> show err
+    Right (Right (NetIfListResult netIfs)) -> pure netIfs
+    Right (Right other) -> fail $ "Unexpected response listing network interfaces: " <> show other
 
 -- | Add a shared directory to a VM
 addVmSharedDir :: TestDaemon -> Int64 -> Text -> Text -> SharedDirCache -> IO ()

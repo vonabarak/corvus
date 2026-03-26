@@ -6,6 +6,9 @@ module Test.VM.Common
     VmConfig (..)
   , DefaultVmConfig (..)
   , TestVm (..)
+  , cloudVmConfig
+  , prebakedImageName
+  , prebakedSshKeyPath
 
     -- * All-in-one VM wrappers (TestEnv → daemon → disk → VM)
   , withTestVm
@@ -220,13 +223,7 @@ withTestVmSshWithDisk daemon diskImageId config action = do
         Nothing -> pure ()
         Just path -> addVmSharedDir daemon vmId (T.pack path) "share" (vmcSharedDirCache config)
 
-      -- Use a temporary directory for the SSH key
-      withSystemTempDirectory "corvus-test-ssh" $ \tmpDir -> do
-        -- Set up SSH key for access (creates cloud-init ISO automatically)
-        bracket
-          (setupVmSshKey daemon vmId tmpDir)
-          (\(sshKeyId, _, _) -> cleanupSshKey daemon sshKeyId)
-          $ \(sshKeyId, privateKey, _publicKey) -> do
+      let startAndRun privateKey sshKeyId = do
             let vm =
                   TestVm
                     { tvmId = vmId
@@ -250,6 +247,19 @@ withTestVmSshWithDisk daemon diskImageId config action = do
 
             -- Run the action
             action vm
+
+      case vmcPrebakedSshKey config of
+        Just keyPath ->
+          -- Pre-baked image: SSH key is already in the image, skip cloud-init
+          startAndRun keyPath 0
+        Nothing ->
+          -- Cloud image: generate SSH key and deploy via cloud-init
+          withSystemTempDirectory "corvus-test-ssh" $ \tmpDir -> do
+            bracket
+              (setupVmSshKey daemon vmId tmpDir)
+              (\(sshKeyId, _, _) -> cleanupSshKey daemon sshKeyId)
+              $ \(sshKeyId, privateKey, _publicKey) ->
+                startAndRun privateKey sshKeyId
 
 -- | Run an action with a test VM connected via serial console and explicit disk ID.
 -- Creates the VM, adds disks and network, starts it, connects to the

@@ -206,8 +206,11 @@ apk add --no-cache \
     efibootmgr \
     openssh \
     qemu-guest-agent \
+    acpid \
     doas \
     e2fsprogs \
+    pciutils \
+    lshw \
     blkid \
     mkinitfs
 
@@ -292,6 +295,7 @@ rc-update add hostname boot
 rc-update add bootmisc boot
 rc-update add syslog boot
 
+rc-update add acpid default
 rc-update add networking default
 rc-update add sshd default
 rc-update add qemu-guest-agent default

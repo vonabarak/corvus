@@ -20,13 +20,13 @@ import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, withTestVm, withTestVmBios, withTestVmConsole)
+import Test.VM.Common (TestVm (..), VmConfig (..), cloudVmConfig, withTestVm, withTestVmBios, withTestVmConsole)
 import Test.VM.Console (consoleDrain, consoleExpect, consoleSend)
 import Test.VM.Ssh (runInTestVm)
 
--- | VM config with extended SSH timeout for multi-OS test suite
+-- | VM config for multi-OS cloud-image tests (uses cloud-init for SSH key deployment)
 multiOsConfig :: VmConfig
-multiOsConfig = defaultVmConfig {vmcWaitSshTimeout = 120}
+multiOsConfig = cloudVmConfig {vmcWaitSshTimeout = 120}
 
 -- | Verify SSH key auth works, key is deployed, user was created,
 -- and optionally check privilege escalation and qemu-guest-agent.

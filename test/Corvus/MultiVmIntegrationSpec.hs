@@ -32,9 +32,9 @@ spec = withTestDb $ do
             code2 `shouldBe` ExitSuccess
             T.strip stdout2 `shouldNotBe` ""
 
-            -- Verify they are different VMs
-            (_, id1, _) <- runInTestVm vm1 "cat /etc/machine-id"
-            (_, id2, _) <- runInTestVm vm2 "cat /etc/machine-id"
+            -- Verify they are different VMs (boot_id is unique per boot)
+            (_, id1, _) <- runInTestVm vm1 "cat /proc/sys/kernel/random/boot_id"
+            (_, id2, _) <- runInTestVm vm2 "cat /proc/sys/kernel/random/boot_id"
             T.strip id1 `shouldNotBe` T.strip id2
 
     describe "Privileged: virtual networking" $ do
@@ -49,12 +49,9 @@ spec = withTestDb $ do
               withTestVmOnDaemon daemon config $ \vm1 -> do
                 withTestVmOnDaemon daemon config $ \vm2 -> do
                   -- Configure static IP addresses on the VDE interfaces
-                  -- The VDE interface is the second NIC (eth1 on AlmaLinux with virtio-net-pci)
-                  runInTestVm_ vm1 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method manual ipv4.addresses 10.0.0.1/24"
-                  runInTestVm_ vm1 "sudo nmcli con up vde0"
-
-                  runInTestVm_ vm2 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method manual ipv4.addresses 10.0.0.2/24"
-                  runInTestVm_ vm2 "sudo nmcli con up vde0"
+                  -- The VDE interface is the second NIC (eth1)
+                  runInTestVm_ vm1 "doas ip addr add 10.0.0.1/24 dev eth1 && doas ip link set eth1 up"
+                  runInTestVm_ vm2 "doas ip addr add 10.0.0.2/24 dev eth1 && doas ip link set eth1 up"
 
                   -- Verify VM1 can ping VM2
                   (codePing1, _, _) <- runInTestVm vm1 "ping -c 3 -W 5 10.0.0.2"
@@ -75,11 +72,8 @@ spec = withTestDb $ do
               withTestVmOnDaemon daemon config $ \vm1 -> do
                 withTestVmOnDaemon daemon config $ \vm2 -> do
                   -- Request DHCP on the VDE interface (eth1)
-                  -- runInTestVm_ vm1 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method auto"
-                  -- runInTestVm_ vm1 "sudo nmcli con up vde0"
-                  --
-                  -- runInTestVm_ vm2 "sudo nmcli con add type ethernet con-name vde0 ifname eth1 ipv4.method auto"
-                  -- runInTestVm_ vm2 "sudo nmcli con up vde0"
+                  runInTestVm_ vm1 "doas ip link set eth1 up && doas udhcpc -i eth1 -n -q"
+                  runInTestVm_ vm2 "doas ip link set eth1 up && doas udhcpc -i eth1 -n -q"
 
                   -- Get the DHCP-assigned IP addresses from eth1
                   (_, ip1Raw, _) <- runInTestVm vm1 "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"

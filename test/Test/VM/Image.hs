@@ -9,6 +9,8 @@ module Test.VM.Image
   )
 where
 
+import Test.VM.Types (prebakedImageName)
+
 import Control.Exception (try)
 import Control.Monad (unless, when)
 import Data.Text (Text)
@@ -35,26 +37,40 @@ getCacheDir config = do
 -- | Ensure the base image is downloaded and cached.
 -- Returns the path to the cached image.
 -- Handles .xz compressed images by decompressing after download.
+-- For "corvus-test", returns the local pre-baked image path (no download).
 ensureBaseImage :: Text -> IO (Either Text FilePath)
-ensureBaseImage osName = case getImageConfig osName of
-  Nothing -> pure $ Left $ "Unsupported OS: " <> osName
-  Just config -> do
-    cacheDir <- getCacheDir config
-    let imageName = T.unpack (icImageName config)
-        isXz = ".xz" `isSuffixOf` imageName
-        finalPath = if isXz then cacheDir </> dropXzExt imageName else cacheDir </> imageName
-        downloadPath = cacheDir </> imageName
+ensureBaseImage osName
+  | osName == prebakedImageName = do
+      projectRoot <- getCurrentDirectory
+      let imagePath = projectRoot </> ".test-images" </> "corvus-test.qcow2"
+      exists <- doesFileExist imagePath
+      if exists
+        then pure $ Right imagePath
+        else
+          pure $
+            Left $
+              "Pre-baked test image not found: "
+                <> T.pack imagePath
+                <> ". Run 'make test-image' to build it."
+  | otherwise = case getImageConfig osName of
+      Nothing -> pure $ Left $ "Unsupported OS: " <> osName
+      Just config -> do
+        cacheDir <- getCacheDir config
+        let imageName = T.unpack (icImageName config)
+            isXz = ".xz" `isSuffixOf` imageName
+            finalPath = if isXz then cacheDir </> dropXzExt imageName else cacheDir </> imageName
+            downloadPath = cacheDir </> imageName
 
-    exists <- doesFileExist finalPath
-    if exists
-      then pure $ Right finalPath
-      else do
-        result <- downloadImage config downloadPath
-        case result of
-          Left err -> pure $ Left err
-          Right path
-            | isXz -> decompressXz path finalPath
-            | otherwise -> pure $ Right path
+        exists <- doesFileExist finalPath
+        if exists
+          then pure $ Right finalPath
+          else do
+            result <- downloadImage config downloadPath
+            case result of
+              Left err -> pure $ Left err
+              Right path
+                | isXz -> decompressXz path finalPath
+                | otherwise -> pure $ Right path
 
 -- | Drop .xz extension from a filename
 dropXzExt :: String -> String
