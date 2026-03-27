@@ -11,10 +11,11 @@ where
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad (forM_, void, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger
+import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Qemu.GuestAgent (GuestIpAddress (..), GuestNetIf (..), guestNetworkGetInterfaces, guestPing)
+import Corvus.Types (runFilteredLogging)
 import Data.Int (Int64)
 import Data.List (find)
 import Data.Pool (Pool)
@@ -29,8 +30,8 @@ import Database.Persist.Sql (SqlBackend, SqlPersistT)
 -- Phase 1: waits 3s, then pings every 1s until first success.
 -- Phase 2: queries network interfaces and pings every the configured interval.
 -- Exits when the VM's PID is cleared from the database.
-startGuestAgentPoller :: Pool SqlBackend -> Int -> Int64 -> IO ()
-startGuestAgentPoller pool intervalSec vmId = void $ forkIO $ runStdoutLoggingT $ do
+startGuestAgentPoller :: Pool SqlBackend -> Int -> Int64 -> LogLevel -> IO ()
+startGuestAgentPoller pool intervalSec vmId logLevel = void $ forkIO $ runFilteredLogging logLevel $ do
   -- Initial delay: wait for VM to boot
   liftIO $ threadDelay 3000000
   logDebugN $ "Guest agent poller starting for VM " <> tshow vmId

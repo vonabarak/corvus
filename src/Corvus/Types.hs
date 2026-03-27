@@ -5,6 +5,8 @@ module Corvus.Types
   ( -- * Server State
     ServerState (..)
   , newServerState
+  , runServerLogging
+  , runFilteredLogging
 
     -- * Configuration
   , ServerConfig (..)
@@ -17,6 +19,7 @@ module Corvus.Types
 where
 
 import Control.Concurrent.STM (TVar, newTVarIO)
+import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Maybe (fromMaybe)
 import Data.Pool (Pool)
@@ -38,6 +41,8 @@ data ServerState = ServerState
   -- ^ Database connection pool
   , ssQemuConfig :: !QemuConfig
   -- ^ QEMU configuration
+  , ssLogLevel :: !LogLevel
+  -- ^ Minimum log level for handler logging
   }
 
 -- | Create a new server state
@@ -53,7 +58,17 @@ newServerState pool qemuConfig = do
       , ssShutdownFlag = shutdownFlag
       , ssDbPool = pool
       , ssQemuConfig = qemuConfig
+      , ssLogLevel = LevelInfo
       }
+
+-- | Run a LoggingT action filtered to the server's minimum log level
+runServerLogging :: ServerState -> LoggingT IO a -> IO a
+runServerLogging state = runFilteredLogging (ssLogLevel state)
+
+-- | Run a LoggingT action filtered to a minimum log level
+runFilteredLogging :: LogLevel -> LoggingT IO a -> IO a
+runFilteredLogging minLevel =
+  runStdoutLoggingT . filterLogger (\_ level -> level >= minLevel)
 
 -- | Server configuration
 data ServerConfig = ServerConfig

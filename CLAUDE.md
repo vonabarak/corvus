@@ -102,6 +102,12 @@ Stack + Hpack (`package.yaml` → `corvus.cabal`), LTS-23.28 resolver.
 | `make integration-tests` | Integration tests only (requires QEMU/KVM) |
 | `make all-tests` | Full test suite |
 
+### Integration Test Notes
+
+- Integration tests require QEMU/KVM access.
+- Tests marked **"Privileged:"** (e.g. virtual networking tests in `MultiVmIntegrationSpec`) require root escalation and cannot be run in a normal user session.
+- Log level during tests is controlled by `CORVUS_TEST_LOG_LEVEL` env var (default: `info`). Use `CORVUS_TEST_LOG_LEVEL=debug` for verbose output.
+
 ## Project Rules
 
 ### After any code changes

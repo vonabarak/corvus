@@ -57,8 +57,8 @@ data Command
     DiskCreate !Text !Text !Int64
   | -- | Import existing disk image (name, path, format)
     DiskImport !Text !FilePath !(Maybe Text)
-  | -- | Create overlay disk image (name, baseDiskId)
-    DiskCreateOverlay !Text !Int64
+  | -- | Create overlay disk image (name, baseDiskId, optionalDirPath)
+    DiskCreateOverlay !Text !Int64 !(Maybe Text)
   | -- | Delete disk image
     DiskDelete !Int64
   | -- | Resize disk image (diskId, newSizeMb)

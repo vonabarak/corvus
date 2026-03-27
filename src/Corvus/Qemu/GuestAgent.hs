@@ -71,48 +71,41 @@ data GuestNetIf = GuestNetIf
 guestExec :: Int64 -> Text -> IO GuestExecResult
 guestExec vmId command = do
   gaSock <- getGuestAgentSocket vmId
-  result <- try $ withUnixSocket gaSock $ \sock -> do
-    -- Sync with the guest agent; 3s timeout so polling doesn't block
-    mSync <- timeout 3000000 $ syncGuest sock
-    case mSync of
-      Nothing -> pure $ GuestExecConnectionFailed "Timed out waiting for guest-sync"
-      Just () -> do
-        -- Send guest-exec command
-        let execCmd =
-              Aeson.object
-                [ "execute" .= ("guest-exec" :: Text)
-                , "arguments"
-                    .= Aeson.object
-                      [ "path" .= ("/bin/sh" :: Text)
-                      , "arg" .= ["-c" :: Text, command]
-                      , "capture-output" .= True
-                      ]
-                ]
-        sendJson sock execCmd
-        execResp <- recvJson sock
+  mResult <- withSyncedSocket gaSock $ \sock -> do
+    -- Send guest-exec command
+    let execCmd =
+          Aeson.object
+            [ "execute" .= ("guest-exec" :: Text)
+            , "arguments"
+                .= Aeson.object
+                  [ "path" .= ("/bin/sh" :: Text)
+                  , "arg" .= ["-c" :: Text, command]
+                  , "capture-output" .= True
+                  ]
+            ]
+    sendJson sock execCmd
+    execResp <- recvJson sock
 
-        case parsePid execResp of
-          Nothing -> pure $ GuestExecError "Failed to parse guest-exec response"
-          Just pid -> pollStatus sock pid 0
-  case result of
-    Left (e :: SomeException) -> pure $ GuestExecConnectionFailed $ T.pack $ show e
+    case parsePid execResp of
+      Nothing -> pure $ GuestExecError "Failed to parse guest-exec response"
+      Just pid -> pollStatus sock pid 0
+  case mResult of
+    Left err -> pure $ GuestExecConnectionFailed err
     Right r -> pure r
 
 -- | Ping the guest agent to check if it's available.
 guestPing :: Int64 -> IO Bool
 guestPing vmId = do
   gaSock <- getGuestAgentSocket vmId
-  mResult <- timeout 3000000 $ try $ withUnixSocket gaSock $ \sock -> do
-    syncGuest sock
+  mResult <- withSyncedSocket gaSock $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]
     resp <- recvJson sock
     case resp of
       Just (Object obj) -> pure $ KM.member "return" obj
       _ -> pure False
   case mResult of
-    Nothing -> pure False
-    Just (Left (_ :: SomeException)) -> pure False
-    Just (Right r) -> pure r
+    Left _ -> pure False
+    Right r -> pure r
 
 -- | Request a graceful shutdown via the guest agent.
 -- This triggers a clean shutdown from inside the guest (like running "poweroff").
@@ -120,8 +113,7 @@ guestPing vmId = do
 guestShutdown :: Int64 -> IO Bool
 guestShutdown vmId = do
   gaSock <- getGuestAgentSocket vmId
-  mResult <- timeout 5000000 $ try $ withUnixSocket gaSock $ \sock -> do
-    syncGuest sock
+  mResult <- withSyncedSocket gaSock $ \sock -> do
     -- guest-shutdown with mode "powerdown" triggers a clean OS shutdown
     sendJson sock $
       Aeson.object
@@ -131,34 +123,51 @@ guestShutdown vmId = do
     -- guest-shutdown doesn't return a response on success (the agent shuts down),
     -- so a timeout here is expected and means success.
     -- If it does respond, it's an error.
-    resp <- recvJson sock
+    resp <- timeout 3000000 $ recvJson sock
     case resp of
-      Just (Object obj) -> pure $ not $ KM.member "error" obj
+      Just (Just (Object obj)) -> pure $ not $ KM.member "error" obj
       _ -> pure True
   case mResult of
-    -- Timeout is expected: the guest agent shuts down before responding
-    Nothing -> pure True
-    Just (Left (_ :: SomeException)) -> pure True
-    Just (Right r) -> pure r
+    Left _ -> pure True
+    Right r -> pure r
 
 -- | Query network interfaces from the guest via the QEMU Guest Agent.
 -- Returns Nothing on failure, Just [] if no interfaces reported.
 guestNetworkGetInterfaces :: Int64 -> IO (Maybe [GuestNetIf])
 guestNetworkGetInterfaces vmId = do
   gaSock <- getGuestAgentSocket vmId
-  mResult <- timeout 3000000 $ try $ withUnixSocket gaSock $ \sock -> do
-    syncGuest sock
+  mResult <- withSyncedSocket gaSock $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
     resp <- recvJson sock
     pure $ parseGuestInterfaces resp
   case mResult of
-    Nothing -> pure Nothing
-    Just (Left (_ :: SomeException)) -> pure Nothing
-    Just (Right r) -> pure r
+    Left _ -> pure Nothing
+    Right r -> pure r
 
 --------------------------------------------------------------------------------
 -- Internal helpers
 --------------------------------------------------------------------------------
+
+-- | Connect to the guest agent socket, perform guest-sync handshake, and run
+-- an action. Retries up to 3 times with 1-second backoff if connect or sync
+-- fails (handles transient unavailability, e.g. cloud-init restarting the agent).
+withSyncedSocket :: FilePath -> (Socket -> IO a) -> IO (Either Text a)
+withSyncedSocket path action = go 3
+  where
+    go 0 = pure $ Left "Guest agent unavailable after retries"
+    go n = do
+      mResult <- timeout 5000000 $ try $ withUnixSocket path $ \sock -> do
+        syncGuest sock
+        action sock
+      case mResult of
+        Just (Right a) -> pure $ Right a
+        _ | n > 1 -> do
+          threadDelay 1000000
+          go (n - 1)
+        Just (Left (e :: SomeException)) ->
+          pure $ Left $ "Connection failed: " <> T.pack (show e)
+        Nothing ->
+          pure $ Left "Timed out waiting for guest agent"
 
 -- | Synchronize with the guest agent.
 -- Each new connection requires a guest-sync handshake before commands will work.

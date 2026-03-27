@@ -317,9 +317,9 @@ diskCreate conn name format sizeMb =
   handleDiskResponse <$> sendRequest conn (ReqDiskCreate name format sizeMb)
 
 -- | Create an overlay disk image backed by an existing disk
-diskCreateOverlay :: Connection -> Text -> Int64 -> IO (Either ConnectionError DiskResult)
-diskCreateOverlay conn name baseDiskId =
-  handleDiskResponse <$> sendRequest conn (ReqDiskCreateOverlay name baseDiskId)
+diskCreateOverlay :: Connection -> Text -> Int64 -> Maybe Text -> IO (Either ConnectionError DiskResult)
+diskCreateOverlay conn name baseDiskId optDirPath =
+  handleDiskResponse <$> sendRequest conn (ReqDiskCreateOverlay name baseDiskId optDirPath)
 
 -- | Register an existing disk image file
 diskRegister

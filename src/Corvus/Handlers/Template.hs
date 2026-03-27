@@ -13,7 +13,7 @@ where
 
 import Control.Monad (forM, forM_, replicateM)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (logInfoN, logWarnN, runStdoutLoggingT)
+import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk (getRunningAttachedVms, resolveDiskPath, sanitizeDiskName)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model
@@ -116,7 +116,7 @@ instance FromJSON TemplateSshKeyYaml where
 --------------------------------------------------------------------------------
 
 handleTemplateCreate :: ServerState -> Text -> IO Response
-handleTemplateCreate state yamlContent = runStdoutLoggingT $ do
+handleTemplateCreate state yamlContent = runServerLogging state $ do
   case decodeEither' (T.encodeUtf8 yamlContent) of
     Left err -> do
       let msg = T.pack $ show err
@@ -159,13 +159,13 @@ handleTemplateShow state tidLong = do
     Just details -> pure $ RespTemplateInfo details
 
 handleTemplateDelete :: ServerState -> Int64 -> IO Response
-handleTemplateDelete state tidLong = runStdoutLoggingT $ do
+handleTemplateDelete state tidLong = runServerLogging state $ do
   let tid = toSqlKey tidLong
   liftIO $ runSqlPool (deleteTemplate tid) (ssDbPool state)
   pure RespTemplateDeleted
 
 handleTemplateInstantiate :: ServerState -> Int64 -> Text -> IO Response
-handleTemplateInstantiate state tidLong newVmName = runStdoutLoggingT $ do
+handleTemplateInstantiate state tidLong newVmName = runServerLogging state $ do
   logInfoN $ "Instantiating template " <> T.pack (show tidLong) <> " as '" <> newVmName <> "'"
 
   -- 1. Get template details
@@ -296,7 +296,7 @@ deleteTemplate tid = do
   delete tid
 
 finishInstantiation :: ServerState -> VmId -> TemplateDetails -> IO ()
-finishInstantiation state vmId details = runStdoutLoggingT $ do
+finishInstantiation state vmId details = runServerLogging state $ do
   -- Network
   forM_ (tvdNetIfs details) $ \tni -> do
     mac <- liftIO generateMacAddress
@@ -308,7 +308,7 @@ finishInstantiation state vmId details = runStdoutLoggingT $ do
 
   -- Generate cloud-init ISO (installs qemu-guest-agent + SSH keys if any)
   logInfoN "Generating cloud-init ISO for instantiated VM"
-  result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details)
+  result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details) (ssLogLevel state)
   case result of
     Left err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
     Right _ -> logInfoN "Cloud-init ISO generated and attached"
@@ -325,7 +325,7 @@ generateMacAddress = do
 --------------------------------------------------------------------------------
 
 instantiateDriveIO :: ServerState -> VmId -> Text -> TemplateDriveInfo -> IO (Either Text ())
-instantiateDriveIO state vmId vmName td = runStdoutLoggingT $ do
+instantiateDriveIO state vmId vmName td = runServerLogging state $ do
   mDisk <- liftIO $ runSqlPool (get (toSqlKey (tvdiDiskImageId td) :: DiskImageId)) (ssDbPool state)
   case mDisk of
     Nothing -> pure $ Left "Master disk image not found"

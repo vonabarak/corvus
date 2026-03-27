@@ -11,7 +11,7 @@ module Corvus.Handlers.SharedDir
   )
 where
 
-import Control.Monad.Logger (logDebugN, logInfoN, runStdoutLoggingT)
+import Control.Monad.Logger (logDebugN, logInfoN)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig)
@@ -38,7 +38,7 @@ handleSharedDirAdd
   -> Bool
   -> IO Response
 handleSharedDirAdd state vmId path tag cache readOnly = do
-  runStdoutLoggingT $ logInfoN $ "Adding shared directory to VM " <> T.pack (show vmId) <> ": " <> path
+  runServerLogging state $ logInfoN $ "Adding shared directory to VM " <> T.pack (show vmId) <> ": " <> path
 
   let pool = ssDbPool state
   let vmKey = toSqlKey vmId :: VmId
@@ -66,14 +66,14 @@ handleSharedDirAdd state vmId path tag cache readOnly = do
           dirId <- runSqlPool (insert sharedDir) pool
           let dirIdInt = fromSqlKey dirId
 
-          runStdoutLoggingT $ logInfoN $ "Shared directory added with ID: " <> T.pack (show dirIdInt)
+          runServerLogging state $ logInfoN $ "Shared directory added with ID: " <> T.pack (show dirIdInt)
 
           -- If VM is running, start virtiofsd for this directory
           case vmStatus vm of
             VmRunning -> do
-              runStdoutLoggingT $ logInfoN "VM is running, starting virtiofsd..."
+              runServerLogging state $ logInfoN "VM is running, starting virtiofsd..."
               _ <-
-                runStdoutLoggingT $
+                runServerLogging state $
                   startVirtiofsdProcesses pool (ssQemuConfig state) vmId
               pure () -- Log result but continue
             _ -> pure ()
@@ -83,7 +83,7 @@ handleSharedDirAdd state vmId path tag cache readOnly = do
 -- | Remove a shared directory from a VM
 handleSharedDirRemove :: ServerState -> Int64 -> Int64 -> IO Response
 handleSharedDirRemove state vmId sharedDirId = do
-  runStdoutLoggingT $ logInfoN $ "Removing shared directory " <> T.pack (show sharedDirId) <> " from VM " <> T.pack (show vmId)
+  runServerLogging state $ logInfoN $ "Removing shared directory " <> T.pack (show sharedDirId) <> " from VM " <> T.pack (show vmId)
 
   let pool = ssDbPool state
   let vmKey = toSqlKey vmId :: VmId
@@ -105,18 +105,18 @@ handleSharedDirRemove state vmId sharedDirId = do
               -- If VM is running, we need to kill the virtiofsd process
               case vmStatus vm of
                 VmRunning -> do
-                  runStdoutLoggingT $ logInfoN "VM is running, cannot remove shared directory"
+                  runServerLogging state $ logInfoN "VM is running, cannot remove shared directory"
                   pure RespVmMustBeStopped
                 _ -> do
                   -- Delete from database
                   runSqlPool (delete dirKey) pool
-                  runStdoutLoggingT $ logInfoN "Shared directory removed"
+                  runServerLogging state $ logInfoN "Shared directory removed"
                   pure RespSharedDirOk
 
 -- | List shared directories for a VM
 handleSharedDirList :: ServerState -> Int64 -> IO Response
 handleSharedDirList state vmId = do
-  runStdoutLoggingT $ logDebugN $ "Listing shared directories for VM " <> T.pack (show vmId)
+  runServerLogging state $ logDebugN $ "Listing shared directories for VM " <> T.pack (show vmId)
 
   let pool = ssDbPool state
   let vmKey = toSqlKey vmId :: VmId

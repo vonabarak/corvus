@@ -15,7 +15,7 @@ import Control.Exception (bracket)
 import Control.Monad (forever, void)
 import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger
+import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers (handleRequest)
 import Corvus.Protocol
 import Corvus.Types
@@ -49,12 +49,12 @@ import System.IO.Error (catchIOError)
 
 -- | Run the server with logging (TCP or Unix socket)
 runServer :: ServerState -> ListenAddress -> IO ()
-runServer state addr = runStdoutLoggingT $ case addr of
+runServer state addr = runServerLogging state $ case addr of
   TcpAddress host port -> do
     logInfoN $ "Server starting on " <> T.pack host <> ":" <> T.pack (show port)
     let hostPref = Host host
     liftIO $ serve hostPref (show port) $ \(sock, sockAddr) ->
-      runStdoutLoggingT $ handleConnection state sock sockAddr
+      runServerLogging state $ handleConnection state sock sockAddr
   UnixAddress path -> do
     logInfoN $ "Server starting on Unix socket: " <> T.pack path
     liftIO $ runUnixServer state path
@@ -77,7 +77,7 @@ runUnixServer state path = do
         (clientSock, clientAddr) <- accept sock
         void $
           forkFinally
-            ( runStdoutLoggingT $
+            ( runServerLogging state $
                 handleConnection state clientSock clientAddr
             )
             (\_ -> close clientSock)
@@ -89,12 +89,10 @@ runUnixServer state path = do
 -- | Handle a client connection with logging
 handleConnection :: ServerState -> Socket -> SockAddr -> LoggingT IO ()
 handleConnection state sock addr = do
-  logInfoN $ "Client connected: " <> T.pack (show addr)
   liftIO $ atomically $ modifyTVar' (ssConnectionCount state) (+ 1)
   handleClient state sock
     `finally` do
       liftIO $ atomically $ modifyTVar' (ssConnectionCount state) (subtract 1)
-      logInfoN $ "Client disconnected: " <> T.pack (show addr)
 
 -- | Handle a single client connection (request/response loop)
 handleClient :: ServerState -> Socket -> LoggingT IO ()

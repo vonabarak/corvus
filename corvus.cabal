@@ -246,7 +246,6 @@ test-suite corvus-test
       Corvus.MultiOsIntegrationSpec
       Corvus.MultiVmIntegrationSpec
       Corvus.NetIfSpec
-      Corvus.OverlayExtraSpec
       Corvus.ProtocolSpec
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec

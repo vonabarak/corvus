@@ -21,7 +21,7 @@ where
 
 import Control.Monad (forM, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN, runStdoutLoggingT)
+import Control.Monad.Logger (LogLevel (..), LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.CloudInit
 import Corvus.Model
 import qualified Corvus.Model as M
@@ -45,7 +45,7 @@ import System.Directory (doesFileExist, removeFile)
 
 -- | Create a new SSH key
 handleSshKeyCreate :: ServerState -> Text -> Text -> IO Response
-handleSshKeyCreate state name publicKey = runStdoutLoggingT $ do
+handleSshKeyCreate state name publicKey = runServerLogging state $ do
   logInfoN $ "Creating SSH key: " <> name
 
   let pool = ssDbPool state
@@ -74,7 +74,7 @@ handleSshKeyCreate state name publicKey = runStdoutLoggingT $ do
 
 -- | Delete an SSH key (fails if attached to any VMs)
 handleSshKeyDelete :: ServerState -> Int64 -> IO Response
-handleSshKeyDelete state keyId = runStdoutLoggingT $ do
+handleSshKeyDelete state keyId = runServerLogging state $ do
   logInfoN $ "Deleting SSH key: " <> T.pack (show keyId)
 
   let pool = ssDbPool state
@@ -101,7 +101,7 @@ handleSshKeyDelete state keyId = runStdoutLoggingT $ do
 
 -- | List all SSH keys
 handleSshKeyList :: ServerState -> IO Response
-handleSshKeyList state = runStdoutLoggingT $ do
+handleSshKeyList state = runServerLogging state $ do
   logDebugN "Listing all SSH keys"
 
   let pool = ssDbPool state
@@ -127,7 +127,7 @@ handleSshKeyList state = runStdoutLoggingT $ do
 -- | Attach an SSH key to a VM
 -- This also regenerates the cloud-init ISO and registers/attaches it as a disk
 handleSshKeyAttach :: ServerState -> Int64 -> Int64 -> IO Response
-handleSshKeyAttach state vmId keyId = runStdoutLoggingT $ do
+handleSshKeyAttach state vmId keyId = runServerLogging state $ do
   logInfoN $ "Attaching SSH key " <> T.pack (show keyId) <> " to VM " <> T.pack (show vmId)
 
   let pool = ssDbPool state
@@ -168,7 +168,7 @@ handleSshKeyAttach state vmId keyId = runStdoutLoggingT $ do
               logInfoN "SSH key attached"
 
               -- Regenerate cloud-init ISO
-              result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm)
+              result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state)
               case result of
                 Left err -> do
                   logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -180,7 +180,7 @@ handleSshKeyAttach state vmId keyId = runStdoutLoggingT $ do
 -- | Detach an SSH key from a VM
 -- This also regenerates/removes the cloud-init ISO
 handleSshKeyDetach :: ServerState -> Int64 -> Int64 -> IO Response
-handleSshKeyDetach state vmId keyId = runStdoutLoggingT $ do
+handleSshKeyDetach state vmId keyId = runServerLogging state $ do
   logInfoN $ "Detaching SSH key " <> T.pack (show keyId) <> " from VM " <> T.pack (show vmId)
 
   let pool = ssDbPool state
@@ -206,7 +206,7 @@ handleSshKeyDetach state vmId keyId = runStdoutLoggingT $ do
           logInfoN "SSH key detached"
 
           -- Regenerate or remove cloud-init ISO
-          result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm)
+          result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state)
           case result of
             Left err -> do
               logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -217,7 +217,7 @@ handleSshKeyDetach state vmId keyId = runStdoutLoggingT $ do
 
 -- | List SSH keys attached to a VM
 handleSshKeyListForVm :: ServerState -> Int64 -> IO Response
-handleSshKeyListForVm state vmId = runStdoutLoggingT $ do
+handleSshKeyListForVm state vmId = runServerLogging state $ do
   logDebugN $ "Listing SSH keys for VM " <> T.pack (show vmId)
 
   let pool = ssDbPool state
@@ -257,8 +257,8 @@ handleSshKeyListForVm state vmId = runStdoutLoggingT $ do
 
 -- | Regenerate cloud-init ISO for a VM
 -- Always generates the ISO (needed for guest agent installation even without SSH keys)
-regenerateCloudInitIso :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> IO (Either Text ())
-regenerateCloudInitIso qemuConfig pool vmId vmName = do
+regenerateCloudInitIso :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> LogLevel -> IO (Either Text ())
+regenerateCloudInitIso qemuConfig pool vmId vmName logLevel = do
   let vmKey = toSqlKey vmId :: VmId
 
   -- Get all SSH keys attached to this VM
@@ -281,7 +281,7 @@ regenerateCloudInitIso qemuConfig pool vmId vmName = do
     Left err -> pure $ Left err
     Right isoPath -> do
       -- Ensure disk is registered
-      ensureCloudInitDiskRegistered pool vmId vmName (T.pack isoPath)
+      ensureCloudInitDiskRegistered pool vmId vmName (T.pack isoPath) logLevel
       pure $ Right ()
 
 -- | Remove cloud-init ISO for a VM
@@ -292,8 +292,8 @@ removeCloudInitIsoForVm qemuConfig vmName = do
   when exists $ removeFile isoPath
 
 -- | Ensure cloud-init disk is registered and attached to VM
-ensureCloudInitDiskRegistered :: Pool SqlBackend -> Int64 -> Text -> Text -> IO ()
-ensureCloudInitDiskRegistered pool vmId vmName isoPath = runStdoutLoggingT $ do
+ensureCloudInitDiskRegistered :: Pool SqlBackend -> Int64 -> Text -> Text -> LogLevel -> IO ()
+ensureCloudInitDiskRegistered pool vmId vmName isoPath logLevel = runFilteredLogging logLevel $ do
   let vmKey = toSqlKey vmId :: VmId
   let diskName = vmName <> "-cloud-init"
 

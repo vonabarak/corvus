@@ -102,9 +102,9 @@ handleDiskCreate fmt conn name format sizeMb = do
       pure False
 
 -- | Handle disk overlay command
-handleDiskCreateOverlay :: OutputFormat -> Connection -> Text -> Int64 -> IO Bool
-handleDiskCreateOverlay fmt conn name baseDiskId = do
-  resp <- diskCreateOverlay conn name baseDiskId
+handleDiskCreateOverlay :: OutputFormat -> Connection -> Text -> Int64 -> Maybe Text -> IO Bool
+handleDiskCreateOverlay fmt conn name baseDiskId optDirPath = do
+  resp <- diskCreateOverlay conn name baseDiskId optDirPath
   case resp of
     Left err -> do
       if isStructured fmt

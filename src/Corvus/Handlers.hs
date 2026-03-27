@@ -52,7 +52,7 @@ handleRequest state req = case req of
   ReqVmEdit vmId mCpus mRam mDesc mHeadless mGa -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa
   -- Disk image handlers
   ReqDiskCreate name format sizeMb -> handleDiskCreate state name format sizeMb
-  ReqDiskCreateOverlay name baseDiskId -> handleDiskCreateOverlay state name baseDiskId
+  ReqDiskCreateOverlay name baseDiskId optPath -> handleDiskCreateOverlay state name baseDiskId optPath
   ReqDiskRegister name path format sizeMb -> handleDiskRegister state name path format sizeMb
   ReqDiskDelete diskId -> handleDiskDelete state diskId
   ReqDiskResize diskId newSizeMb -> handleDiskResize state diskId newSizeMb

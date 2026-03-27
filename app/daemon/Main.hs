@@ -7,11 +7,11 @@ import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger
+import Control.Monad.Logger (LogLevel (..), logInfoN, runStdoutLoggingT)
 import Corvus.Model (migrateAll)
 import Corvus.Qemu.Config (defaultQemuConfig)
 import Corvus.Server (runServer)
-import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath, newServerState)
+import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath, newServerState, runFilteredLogging)
 import Data.ByteString.Char8 (pack)
 import qualified Data.Text as T
 import Database.Persist.Postgresql (createPostgresqlPool, runMigration, runSqlPool)
@@ -28,6 +28,7 @@ data Options = Options
   , optHost :: String
   , optPort :: Int
   , optDbUri :: String
+  , optLogLevel :: LogLevel
   }
   deriving (Show)
 
@@ -68,6 +69,14 @@ optionsParser =
           <> metavar "URI"
           <> help "PostgreSQL connection URI (required). Example: postgresql://user:pass@localhost/corvus"
       )
+    <*> option
+      parseLogLevel
+      ( long "log-level"
+          <> short 'l'
+          <> metavar "LEVEL"
+          <> value LevelInfo
+          <> help "Minimum log level: debug, info, warn, error (default: info)"
+      )
 
 -- | Full parser with info
 optsInfo :: ParserInfo Options
@@ -80,46 +89,48 @@ optsInfo =
     )
 
 main :: IO ()
-main = runStdoutLoggingT $ do
-  opts <- liftIO $ execParser optsInfo
+main = do
+  opts <- execParser optsInfo
+  let logLevel = optLogLevel opts
+  runFilteredLogging logLevel $ do
+    logInfoN $ "Connecting to database: " <> T.pack (optDbUri opts)
 
-  logInfoN $ "Connecting to database: " <> T.pack (optDbUri opts)
+    -- Create database connection pool and run migrations
+    pool <- createPostgresqlPool (pack $ optDbUri opts) 10
 
-  -- Create database connection pool and run migrations
-  pool <- createPostgresqlPool (pack $ optDbUri opts) 10
+    logInfoN "Running database migrations..."
+    liftIO $ runSqlPool (runMigration migrateAll) pool
+    logInfoN "Migrations complete."
 
-  logInfoN "Running database migrations..."
-  liftIO $ runSqlPool (runMigration migrateAll) pool
-  logInfoN "Migrations complete."
+    -- Initialize server state with database pool
+    state <- liftIO $ newServerState pool defaultQemuConfig
+    let state' = state {ssLogLevel = logLevel}
 
-  -- Initialize server state with database pool
-  state <- liftIO $ newServerState pool defaultQemuConfig
+    -- Install signal handlers for graceful shutdown
+    let shutdownHandler = atomically $ writeTVar (ssShutdownFlag state') True
 
-  -- Install signal handlers for graceful shutdown
-  let shutdownHandler = atomically $ writeTVar (ssShutdownFlag state) True
+    liftIO $ installHandler sigTERM (Catch shutdownHandler) Nothing
+    liftIO $ installHandler sigINT (Catch shutdownHandler) Nothing
 
-  liftIO $ installHandler sigTERM (Catch shutdownHandler) Nothing
-  liftIO $ installHandler sigINT (Catch shutdownHandler) Nothing
+    -- Determine listen address
+    listenAddr <- liftIO $ getListenAddr opts
 
-  -- Determine listen address
-  listenAddr <- liftIO $ getListenAddr opts
+    -- Ensure socket directory exists for Unix sockets
+    case listenAddr of
+      UnixAddress path -> liftIO $ createDirectoryIfMissing True (takeDirectory path)
+      TcpAddress _ _ -> pure ()
 
-  -- Ensure socket directory exists for Unix sockets
-  case listenAddr of
-    UnixAddress path -> liftIO $ createDirectoryIfMissing True (takeDirectory path)
-    TcpAddress _ _ -> pure ()
+    logInfoN $ "Starting corvus daemon on " <> formatListenAddr listenAddr
 
-  logInfoN $ "Starting corvus daemon on " <> formatListenAddr listenAddr
+    -- Start the server in a separate thread
+    serverThread <- liftIO $ async $ runServer state' listenAddr
 
-  -- Start the server in a separate thread
-  serverThread <- liftIO $ async $ runServer state listenAddr
+    -- Wait for shutdown signal
+    liftIO $ waitForShutdown state'
 
-  -- Wait for shutdown signal
-  liftIO $ waitForShutdown state
-
-  logInfoN "Shutting down..."
-  liftIO $ cancel serverThread
-  liftIO exitSuccess
+    logInfoN "Shutting down..."
+    liftIO $ cancel serverThread
+    liftIO exitSuccess
 
 -- | Determine listen address from options
 getListenAddr :: Options -> IO ListenAddress
@@ -136,6 +147,15 @@ waitForShutdown state = do
   unless shouldShutdown $ do
     threadDelay 100000 -- 100ms
     waitForShutdown state
+
+-- | Parse a log level string
+parseLogLevel :: ReadM LogLevel
+parseLogLevel = eitherReader $ \s -> case s of
+  "debug" -> Right LevelDebug
+  "info" -> Right LevelInfo
+  "warn" -> Right LevelWarn
+  "error" -> Right LevelError
+  _ -> Left $ "Invalid log level: " ++ s ++ " (use debug, info, warn, error)"
 
 -- | Format listen address for logging
 formatListenAddr :: ListenAddress -> T.Text

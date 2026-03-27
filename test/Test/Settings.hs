@@ -10,9 +10,14 @@ module Test.Settings
     -- * Image settings
   , ImageConfig (..)
   , getImageConfig
+
+    -- * Logging settings
+  , getTestLogLevel
   )
 where
 
+import Control.Monad.Logger (LogLevel (..))
+import Data.Char (toLower)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Environment (lookupEnv)
@@ -123,3 +128,18 @@ imageConfigs =
 -- | Get image configuration by OS name
 getImageConfig :: Text -> Maybe ImageConfig
 getImageConfig name = lookup name imageConfigs
+
+--------------------------------------------------------------------------------
+-- Logging Configuration
+--------------------------------------------------------------------------------
+
+-- | Get test log level from CORVUS_TEST_LOG_LEVEL env var (default: info)
+getTestLogLevel :: IO LogLevel
+getTestLogLevel = do
+  mLevel <- lookupEnv "CORVUS_TEST_LOG_LEVEL"
+  pure $ case map toLower <$> mLevel of
+    Just "debug" -> LevelDebug
+    Just "info" -> LevelInfo
+    Just "warn" -> LevelWarn
+    Just "error" -> LevelError
+    _ -> LevelInfo

@@ -126,7 +126,7 @@ withTestDiskSetup daemon config useUefi callback = do
 
   -- Create overlay via daemon
   resOverlay <- withDaemonConnection daemon $ \conn ->
-    diskCreateOverlay conn overlayName baseDiskId
+    diskCreateOverlay conn overlayName baseDiskId Nothing
   overlayDiskId <- case resOverlay of
     Right (Right (DiskCreated dId)) -> pure dId
     Right (Left err) -> fail $ "Failed to create overlay: " <> show err

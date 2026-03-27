@@ -60,6 +60,7 @@ module Test.DSL.Then
     -- * Database state assertions
   , vmExists
   , vmNotExists
+  , diskImageHasPath
   , vmHasStatus
   , vmHasPid
   , vmCount
@@ -241,6 +242,14 @@ diskImageNotExists :: Int64 -> TestM ()
 diskImageNotExists diskId = do
   mDisk <- runDb $ get (toSqlKey diskId :: Key DiskImage)
   liftIO $ mDisk `shouldSatisfy` isNothing
+
+-- | Assert that a disk image has a specific file path
+diskImageHasPath :: Int64 -> Text -> TestM ()
+diskImageHasPath diskId expectedPath = do
+  mDisk <- runDb $ get (toSqlKey diskId :: Key DiskImage)
+  case mDisk of
+    Nothing -> liftIO $ fail $ "Disk image " ++ show diskId ++ " not found"
+    Just disk -> liftIO $ diskImageFilePath disk `shouldBe` expectedPath
 
 -- | Assert the total number of disk images
 diskImageCount :: Int -> TestM ()

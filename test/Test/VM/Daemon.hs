@@ -24,6 +24,7 @@ import Control.Concurrent.STM (atomically, writeTVar)
 import Control.Exception (bracket, catch)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Logger (LogLevel)
 import Corvus.Client.Connection (Connection, ConnectionError, withConnection)
 import Corvus.Qemu.Config (QemuConfig, defaultQemuConfig, qcBasePath)
 import Corvus.Server (runServer)
@@ -38,6 +39,7 @@ import qualified Network.Socket as NS
 import System.Directory (createDirectoryIfMissing, removePathForcibly)
 import System.FilePath ((</>))
 import Test.Database (TestEnv (..), createTestTempDir)
+import Test.Settings (getTestLogLevel)
 
 --------------------------------------------------------------------------------
 -- Test Daemon Types
@@ -74,17 +76,19 @@ startTestDaemon env = do
   createDirectoryIfMissing True qemuBasePath
 
   -- Create server state with the test database pool
+  logLevel <- getTestLogLevel
   state <- newServerState (tePool env) qemuConfig
+  let state' = state {ssLogLevel = logLevel}
 
   -- Start the server in a background thread
-  serverThread <- async $ runServer state listenAddr
+  serverThread <- async $ runServer state' listenAddr
 
   -- Wait for the socket to be available
   waitForSocket socketPath
 
   pure
     TestDaemon
-      { tdState = state
+      { tdState = state'
       , tdThread = serverThread
       , tdSocketPath = socketPath
       , tdTempDir = tempDir
@@ -102,15 +106,17 @@ startTestDaemonWithConfig env modifyConfig = do
   let qemuConfig = modifyConfig $ defaultQemuConfig {qcBasePath = Just qemuBasePath}
   createDirectoryIfMissing True qemuBasePath
 
+  logLevel <- getTestLogLevel
   state <- newServerState (tePool env) qemuConfig
+  let state' = state {ssLogLevel = logLevel}
 
-  serverThread <- async $ runServer state listenAddr
+  serverThread <- async $ runServer state' listenAddr
 
   waitForSocket socketPath
 
   pure
     TestDaemon
-      { tdState = state
+      { tdState = state'
       , tdThread = serverThread
       , tdSocketPath = socketPath
       , tdTempDir = tempDir

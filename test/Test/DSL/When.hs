@@ -12,6 +12,8 @@ module Test.DSL.When
     -- * Disk commands
   , diskCreate
   , diskCreateOverlay
+  , diskRegister
+  , diskClone
   , diskDelete
   , diskResize
   , diskList
@@ -65,6 +67,7 @@ where
 
 import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Logger (LogLevel)
 import Control.Monad.Reader (asks)
 import Corvus.Client.Connection (Connection (..), ConnectionError)
 import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
@@ -72,7 +75,7 @@ import qualified Corvus.Client.Rpc as Rpc
 import Corvus.Handlers (handleRequest)
 import Corvus.Model (CacheType (..), DiskImage, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDir, SharedDirCache, Snapshot, VmStatus)
 import Corvus.Protocol (Request (..), Response (..), StatusInfo, VmDetails (..), VmInfo (..))
-import Corvus.Qemu.Config (defaultQemuConfig)
+import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Types (ServerState (..))
 import Data.IORef (writeIORef)
 import Data.Int (Int64)
@@ -80,8 +83,9 @@ import Data.Pool (Pool)
 import Data.Text (Text)
 import Data.Time.Clock (getCurrentTime)
 import Database.Persist.Postgresql (SqlBackend)
-import Test.DSL.Core (TestM, getDbPool, setLastResponse)
+import Test.DSL.Core (TestM, getDbPool, getTempDir, setLastResponse)
 import qualified Test.Database as DB
+import Test.Settings (getTestLogLevel)
 
 --------------------------------------------------------------------------------
 -- Direct Connection
@@ -102,19 +106,21 @@ directConnection state env =
 -- Server State
 --------------------------------------------------------------------------------
 
--- | Create a ServerState for testing with the given database pool
-createTestServerState :: Pool SqlBackend -> IO ServerState
-createTestServerState pool = do
+-- | Create a ServerState for testing with the given database pool and base path
+createTestServerState :: Pool SqlBackend -> FilePath -> IO ServerState
+createTestServerState pool basePath = do
   startTime <- getCurrentTime
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
+  logLevel <- getTestLogLevel
   pure
     ServerState
       { ssStartTime = startTime
       , ssConnectionCount = connCount
       , ssShutdownFlag = shutdownFlag
       , ssDbPool = pool
-      , ssQemuConfig = defaultQemuConfig
+      , ssQemuConfig = defaultQemuConfig {qcBasePath = Just basePath}
+      , ssLogLevel = logLevel
       }
 
 --------------------------------------------------------------------------------
@@ -125,8 +131,9 @@ createTestServerState pool = do
 executeRequest :: Request -> TestM Response
 executeRequest req = do
   pool <- getDbPool
+  tempDir <- getTempDir
   env <- asks id
-  state <- liftIO $ createTestServerState pool
+  state <- liftIO $ createTestServerState pool tempDir
   let conn = directConnection state env
   resp <- liftIO $ handleRequest state req
   setLastResponse resp
@@ -136,8 +143,9 @@ executeRequest req = do
 executeRpc :: (Connection -> IO (Either ConnectionError a)) -> TestM a
 executeRpc rpcCall = do
   pool <- getDbPool
+  tempDir <- getTempDir
   env <- asks id
-  state <- liftIO $ createTestServerState pool
+  state <- liftIO $ createTestServerState pool tempDir
   let conn = directConnection state env
   result <- liftIO $ rpcCall conn
   case result of
@@ -182,9 +190,19 @@ diskCreate name format sizeMb =
   executeRpc (\conn -> Rpc.diskCreate conn name format sizeMb)
 
 -- | Create an overlay disk image backed by an existing disk
-diskCreateOverlay :: Text -> Int64 -> TestM DiskResult
-diskCreateOverlay name baseDiskId =
-  executeRpc (\conn -> Rpc.diskCreateOverlay conn name baseDiskId)
+diskCreateOverlay :: Text -> Int64 -> Maybe Text -> TestM DiskResult
+diskCreateOverlay name baseDiskId optDirPath =
+  executeRpc (\conn -> Rpc.diskCreateOverlay conn name baseDiskId optDirPath)
+
+-- | Register an existing disk image file
+diskRegister :: Text -> Text -> DriveFormat -> Maybe Int64 -> TestM DiskResult
+diskRegister name filePath format sizeMb =
+  executeRpc (\conn -> Rpc.diskRegister conn name filePath format sizeMb)
+
+-- | Clone a disk image
+diskClone :: Text -> Int64 -> Maybe Text -> TestM DiskResult
+diskClone name baseDiskId optionalPath =
+  executeRpc (\conn -> Rpc.diskClone conn name baseDiskId optionalPath)
 
 -- | Delete a disk image
 diskDelete :: Int64 -> TestM DiskResult

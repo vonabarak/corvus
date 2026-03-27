@@ -27,21 +27,23 @@ module Corvus.Handlers.Disk
     -- * Helpers
   , sanitizeDiskName
   , resolveDiskPath
+  , makeRelativeToBase
   , getRunningAttachedVms
   )
 where
 
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, runStdoutLoggingT)
+import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Corvus.Qemu.Image
 import Corvus.Qemu.Qmp
-import Corvus.Types
+import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
+import Data.List (isPrefixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
@@ -77,13 +79,20 @@ resolveDiskPath config disk = do
       then rawPath
       else basePath </> rawPath
 
+-- | Convert an absolute file path to a relative path if it falls within the base directory.
+-- Paths outside the base directory are returned as-is.
+makeRelativeToBase :: FilePath -> FilePath -> Text
+makeRelativeToBase basePath filePath
+  | (basePath ++ "/") `isPrefixOf` filePath = T.pack $ drop (length basePath + 1) filePath
+  | otherwise = T.pack filePath
+
 --------------------------------------------------------------------------------
 -- Disk Image Handlers
 --------------------------------------------------------------------------------
 
 -- | Create a new disk image
 handleDiskCreate :: ServerState -> Text -> DriveFormat -> Int64 -> IO Response
-handleDiskCreate state name format sizeMb = runStdoutLoggingT $ do
+handleDiskCreate state name format sizeMb = runServerLogging state $ do
   logInfoN $ "Creating disk image: " <> name <> " (" <> T.pack (show sizeMb) <> " MB)"
 
   -- Sanitize the name to prevent path traversal attacks
@@ -114,7 +123,7 @@ handleDiskCreate state name format sizeMb = runStdoutLoggingT $ do
                 ( insert
                     DiskImage
                       { diskImageName = safeName
-                      , diskImageFilePath = T.pack filePath
+                      , diskImageFilePath = makeRelativeToBase basePath filePath
                       , diskImageFormat = format
                       , diskImageSizeMb = Just (fromIntegral sizeMb)
                       , diskImageCreatedAt = now
@@ -133,15 +142,19 @@ handleDiskRegister
   -> DriveFormat
   -> Maybe Int64
   -> IO Response
-handleDiskRegister state name filePath format mSizeMb = runStdoutLoggingT $ do
+handleDiskRegister state name filePath format mSizeMb = runServerLogging state $ do
   logInfoN $ "Registering disk image: " <> name <> " at " <> filePath
+
+  -- Normalize path: strip base directory prefix if applicable
+  basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+  let storedPath = makeRelativeToBase basePath (T.unpack filePath)
 
   -- Store in database
   now <- liftIO getCurrentTime
   mExisting <-
     liftIO $
       runSqlPool
-        ( getBy (UniqueImagePath filePath)
+        ( getBy (UniqueImagePath storedPath)
         )
         (ssDbPool state)
 
@@ -156,7 +169,7 @@ handleDiskRegister state name filePath format mSizeMb = runStdoutLoggingT $ do
             ( insert
                 DiskImage
                   { diskImageName = name
-                  , diskImageFilePath = filePath
+                  , diskImageFilePath = storedPath
                   , diskImageFormat = format
                   , diskImageSizeMb = fmap fromIntegral mSizeMb
                   , diskImageCreatedAt = now
@@ -168,8 +181,8 @@ handleDiskRegister state name filePath format mSizeMb = runStdoutLoggingT $ do
       pure $ RespDiskCreated $ fromSqlKey diskId
 
 -- | Create a qcow2 overlay backed by an existing disk image
-handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> IO Response
-handleDiskCreateOverlay state name baseDiskId = runStdoutLoggingT $ do
+handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe T.Text -> IO Response
+handleDiskCreateOverlay state name baseDiskId optDirPath = runServerLogging state $ do
   logInfoN $ "Creating overlay '" <> name <> "' backed by disk " <> T.pack (show baseDiskId)
 
   case sanitizeDiskName name of
@@ -199,7 +212,8 @@ handleDiskCreateOverlay state name baseDiskId = runStdoutLoggingT $ do
             else do
               basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
               let overlayFileName = T.unpack safeName <> ".qcow2"
-                  overlayFilePath = basePath </> overlayFileName
+                  overlayDir = maybe basePath T.unpack optDirPath
+                  overlayFilePath = overlayDir </> overlayFileName
               baseFilePath <- liftIO $ resolveDiskPath (ssQemuConfig state) baseDisk
               result <- liftIO $ createOverlay overlayFilePath baseFilePath (diskImageFormat baseDisk)
               case result of
@@ -214,7 +228,7 @@ handleDiskCreateOverlay state name baseDiskId = runStdoutLoggingT $ do
                         ( insert
                             DiskImage
                               { diskImageName = safeName
-                              , diskImageFilePath = T.pack overlayFilePath
+                              , diskImageFilePath = makeRelativeToBase basePath overlayFilePath
                               , diskImageFormat = FormatQcow2
                               , diskImageSizeMb = diskImageSizeMb baseDisk
                               , diskImageCreatedAt = now
@@ -227,7 +241,7 @@ handleDiskCreateOverlay state name baseDiskId = runStdoutLoggingT $ do
 
 -- | Clone a disk image
 handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Text -> IO Response
-handleDiskClone state name baseDiskId optionalPath = runStdoutLoggingT $ do
+handleDiskClone state name baseDiskId optionalPath = runServerLogging state $ do
   logInfoN $ "Cloning disk image " <> T.pack (show baseDiskId) <> " to '" <> name <> "'"
 
   case sanitizeDiskName name of
@@ -267,7 +281,7 @@ handleDiskClone state name baseDiskId optionalPath = runStdoutLoggingT $ do
                               insert
                                 DiskImage
                                   { diskImageName = safeName
-                                  , diskImageFilePath = T.pack destPath
+                                  , diskImageFilePath = makeRelativeToBase basePath destPath
                                   , diskImageFormat = diskImageFormat baseDisk
                                   , diskImageSizeMb = diskImageSizeMb baseDisk
                                   , diskImageCreatedAt = now
@@ -286,7 +300,7 @@ handleDiskClone state name baseDiskId optionalPath = runStdoutLoggingT $ do
 
 -- | Delete a disk image
 handleDiskDelete :: ServerState -> Int64 -> IO Response
-handleDiskDelete state diskId = runStdoutLoggingT $ do
+handleDiskDelete state diskId = runServerLogging state $ do
   logInfoN $ "Deleting disk image: " <> T.pack (show diskId)
 
   mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
@@ -322,7 +336,7 @@ handleDiskDelete state diskId = runStdoutLoggingT $ do
 
 -- | Resize a disk image (VM must be stopped)
 handleDiskResize :: ServerState -> Int64 -> Int64 -> IO Response
-handleDiskResize state diskId newSizeMb = runStdoutLoggingT $ do
+handleDiskResize state diskId newSizeMb = runServerLogging state $ do
   logInfoN $ "Resizing disk image " <> T.pack (show diskId) <> " to " <> T.pack (show newSizeMb) <> " MB"
 
   mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
@@ -376,7 +390,7 @@ handleDiskShow state diskId = do
 
 -- | Create a snapshot
 handleSnapshotCreate :: ServerState -> Int64 -> Text -> IO Response
-handleSnapshotCreate state diskId snapshotName = runStdoutLoggingT $ do
+handleSnapshotCreate state diskId snapshotName = runServerLogging state $ do
   logInfoN $ "Creating snapshot '" <> snapshotName <> "' for disk " <> T.pack (show diskId)
 
   mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
@@ -419,7 +433,7 @@ handleSnapshotCreate state diskId snapshotName = runStdoutLoggingT $ do
 
 -- | Delete a snapshot
 handleSnapshotDelete :: ServerState -> Int64 -> Int64 -> IO Response
-handleSnapshotDelete state diskId snapshotId = runStdoutLoggingT $ do
+handleSnapshotDelete state diskId snapshotId = runServerLogging state $ do
   logInfoN $ "Deleting snapshot " <> T.pack (show snapshotId) <> " from disk " <> T.pack (show diskId)
 
   -- First check disk exists
@@ -458,7 +472,7 @@ handleSnapshotDelete state diskId snapshotId = runStdoutLoggingT $ do
 
 -- | Rollback to a snapshot (VM must be stopped)
 handleSnapshotRollback :: ServerState -> Int64 -> Int64 -> IO Response
-handleSnapshotRollback state diskId snapshotId = runStdoutLoggingT $ do
+handleSnapshotRollback state diskId snapshotId = runServerLogging state $ do
   logInfoN $ "Rolling back disk " <> T.pack (show diskId) <> " to snapshot " <> T.pack (show snapshotId)
 
   -- First check disk exists
@@ -496,7 +510,7 @@ handleSnapshotRollback state diskId snapshotId = runStdoutLoggingT $ do
 
 -- | Merge a snapshot (VM must be stopped)
 handleSnapshotMerge :: ServerState -> Int64 -> Int64 -> IO Response
-handleSnapshotMerge state diskId snapshotId = runStdoutLoggingT $ do
+handleSnapshotMerge state diskId snapshotId = runServerLogging state $ do
   logInfoN $ "Merging snapshot " <> T.pack (show snapshotId) <> " for disk " <> T.pack (show diskId)
 
   -- First check disk exists
@@ -559,7 +573,7 @@ handleDiskAttach
   -> Bool
   -> CacheType
   -> IO Response
-handleDiskAttach state vmId diskId interface media readOnly discard cache = runStdoutLoggingT $ do
+handleDiskAttach state vmId diskId interface media readOnly discard cache = runServerLogging state $ do
   logInfoN $
     "Attaching disk "
       <> T.pack (show diskId)
@@ -642,7 +656,7 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
 
 -- | Detach a disk from a VM
 handleDiskDetach :: ServerState -> Int64 -> Int64 -> IO Response
-handleDiskDetach state vmId driveId = runStdoutLoggingT $ do
+handleDiskDetach state vmId driveId = runServerLogging state $ do
   logInfoN $
     "Detaching drive "
       <> T.pack (show driveId)

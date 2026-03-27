@@ -84,8 +84,8 @@ startVm pool config vmId = do
     Nothing -> pure VmNotFound
     Just (binary, args) -> do
       -- Log the full command
-      logDebugN $ "Starting VM " <> T.pack (show vmId) <> " with command:"
-      logDebugN $ T.pack $ unwords (binary : args)
+      logInfoN $ "Starting VM " <> T.pack (show vmId) <> " with command:"
+      logInfoN $ T.pack $ unwords (binary : args)
 
       result <-
         liftIO $

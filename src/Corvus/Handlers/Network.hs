@@ -13,12 +13,12 @@ where
 
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (logInfoN, logWarnN, runStdoutLoggingT)
+import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Model (Network (..), NetworkInterface (..), Vm (..), VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Qemu.Vde (startVdeSwitch, stopVdeSwitch)
-import Corvus.Types (ServerState (..))
+import Corvus.Types (ServerState (..), runServerLogging)
 import Corvus.Utils.Subnet (validateSubnet)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -85,7 +85,7 @@ handleNetworkDelete state networkId = do
 
 -- | Start a virtual network (launch vde_switch)
 handleNetworkStart :: ServerState -> Int64 -> IO Response
-handleNetworkStart state networkId = runStdoutLoggingT $ do
+handleNetworkStart state networkId = runServerLogging state $ do
   let key = toSqlKey networkId :: M.NetworkId
   mNetwork <- liftIO $ runSqlPool (get key) (ssDbPool state)
   case mNetwork of
@@ -105,7 +105,7 @@ handleNetworkStart state networkId = runStdoutLoggingT $ do
 
 -- | Stop a virtual network
 handleNetworkStop :: ServerState -> Int64 -> Bool -> IO Response
-handleNetworkStop state networkId force = runStdoutLoggingT $ do
+handleNetworkStop state networkId force = runServerLogging state $ do
   let key = toSqlKey networkId :: M.NetworkId
   mNetwork <- liftIO $ runSqlPool (get key) (ssDbPool state)
   case mNetwork of

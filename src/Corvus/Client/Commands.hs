@@ -244,7 +244,7 @@ runCommand opts = do
               else putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right format -> handleDiskCreate fmt conn name format sizeMb
-      DiskCreateOverlay name baseDiskId -> handleDiskCreateOverlay fmt conn name baseDiskId
+      DiskCreateOverlay name baseDiskId optDirPath -> handleDiskCreateOverlay fmt conn name baseDiskId optDirPath
       DiskImport name path mFormatStr -> handleDiskImport fmt conn name path mFormatStr
       DiskDelete diskId -> handleDiskDelete fmt conn diskId
       DiskResize diskId newSizeMb -> handleDiskResize fmt conn diskId newSizeMb

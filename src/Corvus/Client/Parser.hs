@@ -450,6 +450,14 @@ diskOverlayCommand =
       ( metavar "BASE_DISK_ID"
           <> help "ID of the base disk image to overlay"
       )
+    <*> optional
+      ( strOption
+          ( long "path"
+              <> short 'p'
+              <> metavar "DIR"
+              <> help "Directory for the overlay file (default: base images path)"
+          )
+      )
 
 -- | Parser for disk clone
 diskCloneCommand :: Parser Command

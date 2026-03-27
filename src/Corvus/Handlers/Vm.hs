@@ -24,7 +24,7 @@ where
 import Control.Concurrent (forkIO)
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (logDebugN, logInfoN, logWarnN, runStdoutLoggingT)
+import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
@@ -104,7 +104,7 @@ handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> Boo
 handleVmCreate state name cpuCount ramMb description headless guestAgent = do
   vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent) (ssDbPool state)
   -- Generate cloud-init ISO (installs qemu-guest-agent, creates user)
-  _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId name
+  _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId name (ssLogLevel state)
   pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
@@ -124,7 +124,7 @@ handleVmDelete state vmId = do
 -- If stopped: set to running, start QEMU in background thread, monitor for exit
 -- If paused: send QMP continue, set to running
 handleVmStart :: ServerState -> Int64 -> IO Response
-handleVmStart state vmId = runStdoutLoggingT $ do
+handleVmStart state vmId = runServerLogging state $ do
   mVm <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound
@@ -158,9 +158,9 @@ handleVmStart state vmId = runStdoutLoggingT $ do
                       -- Start guest agent poller if guest agent is enabled
                       when (vmGuestAgent vm) $
                         liftIO $
-                          startGuestAgentPoller (ssDbPool state) (qcHealthcheckInterval $ ssQemuConfig state) vmId
+                          startGuestAgentPoller (ssDbPool state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
                       -- Fork a thread to wait for process exit
-                      _ <- liftIO $ forkIO $ runStdoutLoggingT $ do
+                      _ <- liftIO $ forkIO $ runServerLogging state $ do
                         logDebugN $ "Waiting for VM " <> T.pack (show vmId) <> " process to exit"
                         exitCode <- liftIO $ waitForProcess ph
                         -- Check if the VM was intentionally stopped/reset.
@@ -206,7 +206,7 @@ handleVmStart state vmId = runStdoutLoggingT $ do
 -- falls back to ACPI system_powerdown via QMP.
 -- Status will change when the QEMU process exits (background thread).
 handleVmStop :: ServerState -> Int64 -> IO Response
-handleVmStop state vmId = runStdoutLoggingT $ do
+handleVmStop state vmId = runServerLogging state $ do
   mVm <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound
@@ -245,7 +245,7 @@ handleVmStop state vmId = runStdoutLoggingT $ do
 -- | Handle VM pause command
 -- Send QMP stop command
 handleVmPause :: ServerState -> Int64 -> IO Response
-handleVmPause state vmId = runStdoutLoggingT $ do
+handleVmPause state vmId = runServerLogging state $ do
   mVm <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound
@@ -271,7 +271,7 @@ handleVmPause state vmId = runStdoutLoggingT $ do
 -- | Handle VM reset command
 -- Kill QEMU and virtiofsd processes, wait for exit, set status to stopped.
 handleVmReset :: ServerState -> Int64 -> IO Response
-handleVmReset state vmId = runStdoutLoggingT $ do
+handleVmReset state vmId = runServerLogging state $ do
   mVm <- liftIO $ runSqlPool (getVmWithPid vmId) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound

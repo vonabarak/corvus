@@ -47,7 +47,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 8
+protocolVersion = 9
 
 -- | Client requests
 data Request
@@ -74,8 +74,8 @@ data Request
     ReqDiskCreate !Text !DriveFormat !Int64
   | -- | Register existing disk image (name, filePath, format, sizeMb)
     ReqDiskRegister !Text !Text !DriveFormat !(Maybe Int64)
-  | -- | Create overlay disk image (overlayName, baseDiskImageId)
-    ReqDiskCreateOverlay !Text !Int64
+  | -- | Create overlay disk image (overlayName, baseDiskImageId, optionalDirPath)
+    ReqDiskCreateOverlay !Text !Int64 !(Maybe Text)
   | -- | Delete disk image (diskImageId)
     ReqDiskDelete !Int64
   | -- | Resize disk image (diskImageId, newSizeMb)
