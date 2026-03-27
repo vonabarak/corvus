@@ -158,7 +158,7 @@ handleVmStart state vmId = runStdoutLoggingT $ do
                       -- Start guest agent poller if guest agent is enabled
                       when (vmGuestAgent vm) $
                         liftIO $
-                          startGuestAgentPoller (ssDbPool state) vmId
+                          startGuestAgentPoller (ssDbPool state) (qcHealthcheckInterval $ ssQemuConfig state) vmId
                       -- Fork a thread to wait for process exit
                       _ <- liftIO $ forkIO $ runStdoutLoggingT $ do
                         logDebugN $ "Waiting for VM " <> T.pack (show vmId) <> " process to exit"

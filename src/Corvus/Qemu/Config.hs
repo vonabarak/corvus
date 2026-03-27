@@ -30,6 +30,8 @@ data QemuConfig = QemuConfig
   -- ^ Path to vde_switch binary
   , qcDnsmasqBinary :: FilePath
   -- ^ Path to dnsmasq binary
+  , qcHealthcheckInterval :: Int
+  -- ^ Healthcheck ping interval in seconds (default 10)
   }
   deriving (Eq, Show)
 
@@ -43,6 +45,7 @@ defaultQemuConfig =
     , qcSharedMemSize = Nothing -- Will use VM RAM size
     , qcVdeSwitchBinary = "vde_switch"
     , qcDnsmasqBinary = "dnsmasq"
+    , qcHealthcheckInterval = 10
     }
 
 -- | Get the effective base path for VM images

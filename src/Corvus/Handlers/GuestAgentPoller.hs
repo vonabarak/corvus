@@ -27,22 +27,22 @@ import Database.Persist.Sql (SqlBackend, SqlPersistT)
 
 -- | Start a background polling thread for a VM's guest agent.
 -- Phase 1: waits 3s, then pings every 1s until first success.
--- Phase 2: queries network interfaces and pings every 10s.
+-- Phase 2: queries network interfaces and pings every the configured interval.
 -- Exits when the VM's PID is cleared from the database.
-startGuestAgentPoller :: Pool SqlBackend -> Int64 -> IO ()
-startGuestAgentPoller pool vmId = void $ forkIO $ runStdoutLoggingT $ do
+startGuestAgentPoller :: Pool SqlBackend -> Int -> Int64 -> IO ()
+startGuestAgentPoller pool intervalSec vmId = void $ forkIO $ runStdoutLoggingT $ do
   -- Initial delay: wait for VM to boot
   liftIO $ threadDelay 3000000
   logDebugN $ "Guest agent poller starting for VM " <> tshow vmId
-  waitForAgent pool vmId
+  waitForAgent pool intervalSec vmId
 
 --------------------------------------------------------------------------------
 -- Phase 1: Wait for agent readiness
 --------------------------------------------------------------------------------
 
 -- | Ping every 1s until the guest agent responds.
-waitForAgent :: Pool SqlBackend -> Int64 -> LoggingT IO ()
-waitForAgent pool vmId = do
+waitForAgent :: Pool SqlBackend -> Int -> Int64 -> LoggingT IO ()
+waitForAgent pool intervalSec vmId = do
   alive <- isVmAlive pool vmId
   when alive $ do
     pingOk <- liftIO $ guestPing vmId
@@ -54,27 +54,30 @@ waitForAgent pool vmId = do
         -- Immediately query network interfaces on first success
         queryAndUpdateNetwork pool vmId
         -- Enter steady-state polling
-        steadyPoll pool vmId
+        steadyPoll pool intervalSec vmId
       else do
         liftIO $ threadDelay 1000000
-        waitForAgent pool vmId
+        waitForAgent pool intervalSec vmId
 
 --------------------------------------------------------------------------------
 -- Phase 2: Steady-state polling (every 10s)
 --------------------------------------------------------------------------------
 
-steadyPoll :: Pool SqlBackend -> Int64 -> LoggingT IO ()
-steadyPoll pool vmId = do
-  liftIO $ threadDelay 10000000
+steadyPoll :: Pool SqlBackend -> Int -> Int64 -> LoggingT IO ()
+steadyPoll pool intervalSec vmId = do
+  liftIO $ threadDelay (intervalSec * 1000000)
   alive <- isVmAlive pool vmId
   when alive $ do
     pingOk <- liftIO $ guestPing vmId
-    when pingOk $ do
-      now <- liftIO getCurrentTime
-      liftIO $ runSqlPool (updateHealthcheck vmId now) pool
-      logDebugN $ "Guest agent ping OK for VM " <> tshow vmId
-      queryAndUpdateNetwork pool vmId
-    steadyPoll pool vmId
+    if pingOk
+      then do
+        now <- liftIO getCurrentTime
+        liftIO $ runSqlPool (updateHealthcheck vmId now) pool
+        logDebugN $ "Guest agent ping OK for VM " <> tshow vmId
+        queryAndUpdateNetwork pool vmId
+      else
+        logDebugN $ "Guest agent ping failed for VM " <> tshow vmId
+    steadyPoll pool intervalSec vmId
 
 --------------------------------------------------------------------------------
 -- Helpers

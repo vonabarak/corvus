@@ -8,8 +8,10 @@ module Test.VM.Daemon
   ( -- * Daemon lifecycle
     TestDaemon (..)
   , startTestDaemon
+  , startTestDaemonWithConfig
   , stopTestDaemon
   , withTestDaemon
+  , withTestDaemonConfig
 
     -- * RPC client helpers
   , withDaemonConnection
@@ -23,7 +25,7 @@ import Control.Exception (bracket, catch)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Client.Connection (Connection, ConnectionError, withConnection)
-import Corvus.Qemu.Config (defaultQemuConfig, qcBasePath)
+import Corvus.Qemu.Config (QemuConfig, defaultQemuConfig, qcBasePath)
 import Corvus.Server (runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), newServerState)
 import Data.Pool (Pool)
@@ -88,6 +90,32 @@ startTestDaemon env = do
       , tdTempDir = tempDir
       }
 
+-- | Start a test daemon with a custom QemuConfig modifier
+startTestDaemonWithConfig :: TestEnv -> (QemuConfig -> QemuConfig) -> IO TestDaemon
+startTestDaemonWithConfig env modifyConfig = do
+  tempDir <- createTestTempDir
+
+  let socketPath = tempDir </> "daemon.sock"
+      listenAddr = UnixAddress socketPath
+      qemuBasePath = tempDir </> "VMs"
+
+  let qemuConfig = modifyConfig $ defaultQemuConfig {qcBasePath = Just qemuBasePath}
+  createDirectoryIfMissing True qemuBasePath
+
+  state <- newServerState (tePool env) qemuConfig
+
+  serverThread <- async $ runServer state listenAddr
+
+  waitForSocket socketPath
+
+  pure
+    TestDaemon
+      { tdState = state
+      , tdThread = serverThread
+      , tdSocketPath = socketPath
+      , tdTempDir = tempDir
+      }
+
 -- | Stop a test daemon
 stopTestDaemon :: TestDaemon -> IO ()
 stopTestDaemon daemon = do
@@ -103,6 +131,10 @@ stopTestDaemon daemon = do
 -- | Run an action with a test daemon
 withTestDaemon :: TestEnv -> (TestDaemon -> IO a) -> IO a
 withTestDaemon env = bracket (startTestDaemon env) stopTestDaemon
+
+-- | Run an action with a test daemon using a custom QemuConfig modifier
+withTestDaemonConfig :: TestEnv -> (QemuConfig -> QemuConfig) -> (TestDaemon -> IO a) -> IO a
+withTestDaemonConfig env modifyConfig = bracket (startTestDaemonWithConfig env modifyConfig) stopTestDaemon
 
 --------------------------------------------------------------------------------
 -- RPC Client Helpers
