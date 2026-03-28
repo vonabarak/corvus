@@ -118,6 +118,26 @@ vmStopCommand =
       ( metavar "VM_ID"
           <> help "ID of the VM to stop"
       )
+    <*> waitOptionsParser
+
+-- | Parser for --wait and --timeout options (reusable)
+waitOptionsParser :: Parser WaitOptions
+waitOptionsParser =
+  WaitOptions
+    <$> switch
+      ( long "wait"
+          <> short 'w'
+          <> help "Block until the operation completes"
+      )
+    <*> optional
+      ( option
+          auto
+          ( long "timeout"
+              <> short 't'
+              <> metavar "SECONDS"
+              <> help "Timeout in seconds when using --wait (default: 120)"
+          )
+      )
 
 -- | Parser for vm pause
 vmPauseCommand :: Parser Command
@@ -276,7 +296,7 @@ vmCommandParser =
           (info vmStartCommand (progDesc "Start a VM (stopped/paused -> running)"))
         <> command
           "stop"
-          (info vmStopCommand (progDesc "Stop a VM (running -> stopped)"))
+          (info vmStopCommand (progDesc "Stop a VM (running -> stopped). Use --wait to block until stopped."))
         <> command
           "pause"
           (info vmPauseCommand (progDesc "Pause a VM (running -> paused)"))

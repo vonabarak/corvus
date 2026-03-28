@@ -7,7 +7,11 @@ module Corvus.Client.Commands.Vm
     handleVmCreate
   , handleVmDelete
   , handleVmAction
+  , handleVmStop
   , handleVmEdit
+
+    -- * Polling
+  , waitForVmStatus
 
     -- * VM display/interaction
   , runRemoteViewer
@@ -20,27 +24,29 @@ module Corvus.Client.Commands.Vm
   )
 where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, bracket, try)
+import Control.Monad (unless)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
 import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, printField, tableFormat)
 import Corvus.Client.Rpc
-import Corvus.Client.Types (OutputFormat (..))
+import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (DriveInfo (..), NetIfInfo (..), VmDetails (..), VmInfo (..))
 import Data.Aeson (toJSON, (.=))
 import qualified Data.ByteString as BS
 import Data.Char (ord)
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime)
+import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
 import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, defaultProtocol, socket)
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
-import System.IO (BufferMode (..), hFlush, hSetBuffering, hSetEcho, stdin, stdout)
+import System.IO (BufferMode (..), hFlush, hPutStr, hSetBuffering, hSetEcho, stderr, stdin, stdout)
 import System.Posix.Signals (Handler (..), installHandler, sigINT)
 import System.Process (callProcess)
 import Text.Printf (printf)
@@ -126,6 +132,61 @@ handleVmAction fmt actionName vmId action = do
           putStrLn $ "VM " ++ show vmId ++ " " ++ actionName ++ ": OK"
           putStrLn $ "New status: " ++ T.unpack (enumToText newStatus)
       pure True
+
+-- | Handle VM stop with optional --wait polling
+handleVmStop :: OutputFormat -> Connection -> Int64 -> WaitOptions -> IO Bool
+handleVmStop fmt conn vmId waitOpts = do
+  success <- handleVmAction fmt "stop" vmId (vmStop conn vmId)
+  if success && woWait waitOpts
+    then do
+      let timeout = fromMaybe 120 (woTimeout waitOpts)
+      unless (isStructured fmt) $
+        putStrLn $
+          "Waiting for VM " ++ show vmId ++ " to stop..."
+      waited <- waitForVmStatus fmt conn vmId VmStopped timeout
+      if waited
+        then do
+          unless (isStructured fmt) $
+            putStrLn $
+              "VM " ++ show vmId ++ " is now stopped."
+          pure True
+        else pure False
+    else pure success
+
+-- | Poll the daemon until a VM reaches a target status.
+-- Returns True if the target status was reached, False on timeout or error.
+waitForVmStatus :: OutputFormat -> Connection -> Int64 -> VmStatus -> Int -> IO Bool
+waitForVmStatus fmt conn vmId targetStatus timeout = do
+  startTime <- getCurrentTime
+  go startTime
+  where
+    go startTime = do
+      threadDelay 1000000 -- 1 second
+      now <- getCurrentTime
+      let elapsed = round (diffUTCTime now startTime) :: Int
+      if elapsed >= timeout
+        then do
+          let msg = "VM " ++ show vmId ++ " did not reach " ++ T.unpack (enumToText targetStatus) ++ " within " ++ show timeout ++ " seconds."
+          if isStructured fmt
+            then outputError fmt "timeout" (T.pack msg)
+            else putStrLn $ "Timeout: " ++ msg
+          pure False
+        else do
+          resp <- showVm conn vmId
+          case resp of
+            Right (Just details)
+              | vdStatus details == targetStatus -> pure True
+              | vdStatus details == VmError -> do
+                  let msg = "VM " ++ show vmId ++ " entered error state."
+                  if isStructured fmt
+                    then outputError fmt "vm_error" (T.pack msg)
+                    else putStrLn msg
+                  pure False
+            _ -> do
+              unless (isStructured fmt) $ do
+                hPutStr stderr "."
+                hFlush stderr
+              go startTime
 
 -- | Handle VM edit
 handleVmEdit :: OutputFormat -> Connection -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool

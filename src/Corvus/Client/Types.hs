@@ -6,6 +6,10 @@ module Corvus.Client.Types
 
     -- * Output format
   , OutputFormat (..)
+
+    -- * Wait options
+  , WaitOptions (..)
+  , defaultWaitOptions
   )
 where
 
@@ -15,6 +19,18 @@ import Data.Text (Text)
 -- | Output format for CLI commands
 data OutputFormat = TextOutput | JsonOutput | YamlOutput
   deriving (Show, Eq)
+
+-- | Options for blocking until an async operation completes.
+data WaitOptions = WaitOptions
+  { woWait :: !Bool
+  , woTimeout :: !(Maybe Int)
+  -- ^ Timeout in seconds. Nothing = default 120s.
+  }
+  deriving (Show, Eq)
+
+-- | Default wait options (no waiting)
+defaultWaitOptions :: WaitOptions
+defaultWaitOptions = WaitOptions False Nothing
 
 -- | Command line options
 data Options = Options
@@ -40,7 +56,7 @@ data Command
   | -- | Delete a VM
     VmDelete !Int64
   | VmStart !Int64
-  | VmStop !Int64
+  | VmStop !Int64 !WaitOptions
   | VmPause !Int64
   | VmReset !Int64
   | -- | View VM via SPICE (runs remote-viewer)
