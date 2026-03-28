@@ -35,8 +35,8 @@ data Command
   | -- VM commands
     VmList
   | VmShow !Int64
-  | -- | Create a new VM (name, cpuCount, ramMb, description, headless, guestAgent)
-    VmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool
+  | -- | Create a new VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
+    VmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool
   | -- | Delete a VM
     VmDelete !Int64
   | VmStart !Int64
@@ -47,8 +47,10 @@ data Command
     VmView !Int64
   | -- | Connect to VM's HMP monitor
     VmMonitor !Int64
-  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless, guestAgent)
-    VmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool)
+  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
+    VmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
+  | -- | Generate/regenerate cloud-init ISO for a VM (vmId)
+    VmCloudInit !Int64
   | -- | Execute a command in a VM via guest agent (vmId, command)
     VmExec !Int64 !Text
   | -- Disk image commands

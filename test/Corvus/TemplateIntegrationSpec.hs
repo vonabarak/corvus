@@ -100,12 +100,13 @@ spec = withTestDb $ do
             vdCpuCount details `shouldBe` 2
             vdRamMb details `shouldBe` 2048
             vdDescription details `shouldBe` Just "A test template"
-            -- Verify we have 4 drives: the overlay, OVMF CODE, OVMF VARS clone, and the cloud-init ISO
-            length (vdDrives details) `shouldBe` 4
+            -- Verify we have 3 drives: the overlay, OVMF CODE, and OVMF VARS clone
+            -- (no cloud-init ISO since cloudInit defaults to false)
+            length (vdDrives details) `shouldBe` 3
           other -> fail $ "VM show failed: " ++ show other
 
         -- 6. Enable guest agent and start the VM
-        resEdit <- withDaemonConnection daemon $ \conn -> vmEdit conn newVmId Nothing Nothing Nothing Nothing (Just True)
+        resEdit <- withDaemonConnection daemon $ \conn -> vmEdit conn newVmId Nothing Nothing Nothing Nothing (Just True) Nothing
         case resEdit of
           Right (Right VmEdited) -> pure ()
           other -> fail $ "VM edit failed: " ++ show other

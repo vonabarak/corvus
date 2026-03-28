@@ -33,7 +33,7 @@ spec = do
 
     describe "VmInfo" $ do
       it "serializes with correct field names and enum values" $ do
-        let vm = VmInfo 1 "my-vm" VmRunning 4 2048 False False Nothing
+        let vm = VmInfo 1 "my-vm" VmRunning 4 2048 False False False Nothing
             val = toJSON vm
         val
           `shouldBe` object
@@ -44,11 +44,12 @@ spec = do
             , "ramMb" .= (2048 :: Int)
             , "headless" .= False
             , "guestAgent" .= False
+            , "cloudInit" .= False
             , "healthcheck" .= Null
             ]
 
       it "serializes stopped status correctly" $ do
-        let vm = VmInfo 2 "test" VmStopped 1 512 False False Nothing
+        let vm = VmInfo 2 "test" VmStopped 1 512 False False False Nothing
             json = encode vm
         BL.unpack json `shouldSatisfy` isInfixOf "\"stopped\""
 
@@ -139,7 +140,7 @@ spec = do
         encode ([] :: [VmInfo]) `shouldBe` "[]"
 
       it "VM list serializes as JSON array" $ do
-        let vms = [VmInfo 1 "a" VmRunning 1 512 False False Nothing, VmInfo 2 "b" VmStopped 2 1024 False False Nothing]
+        let vms = [VmInfo 1 "a" VmRunning 1 512 False False False Nothing, VmInfo 2 "b" VmStopped 2 1024 False False False Nothing]
             val = toJSON vms
         case val of
           Array arr -> length arr `shouldBe` 2

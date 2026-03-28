@@ -14,6 +14,7 @@ module Corvus.Handlers.Vm
   , handleVmPause
   , handleVmReset
   , handleVmEdit
+  , handleVmCloudInit
 
     -- * State machine
   , VmAction (..)
@@ -22,7 +23,7 @@ module Corvus.Handlers.Vm
 where
 
 import Control.Concurrent (forkIO)
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller)
@@ -100,11 +101,9 @@ handleVmShow state vmId = do
     Just details -> pure $ RespVmDetails details
 
 -- | Handle VM create command
-handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> IO Response
-handleVmCreate state name cpuCount ramMb description headless guestAgent = do
-  vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent) (ssDbPool state)
-  -- Generate cloud-init ISO (installs qemu-guest-agent, creates user)
-  _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId name (ssLogLevel state)
+handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO Response
+handleVmCreate state name cpuCount ramMb description headless guestAgent cloudInit = do
+  vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit) (ssDbPool state)
   pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
@@ -141,6 +140,14 @@ handleVmStart state vmId = runServerLogging state $ do
                   logWarnN $ "VM " <> T.pack (show vmId) <> " references stopped network: " <> networkName
                   pure $ RespInvalidTransition VmStopped $ "Network '" <> networkName <> "' is not running"
                 Nothing -> do
+                  -- Generate cloud-init ISO if enabled and not yet attached
+                  when (vmCloudInit vm) $ do
+                    hasCloudInitDisk <- liftIO $ runSqlPool (hasCloudInitIso vmId) (ssDbPool state)
+                    unless hasCloudInitDisk $ do
+                      logInfoN $ "Generating cloud-init ISO for VM " <> T.pack (show vmId)
+                      _ <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId (vmName vm) (ssLogLevel state)
+                      pure ()
+
                   -- Start virtiofsd processes for shared directories
                   virtiofsdResult <- startVirtiofsdProcesses (ssDbPool state) (ssQemuConfig state) vmId
                   case virtiofsdResult of
@@ -300,8 +307,8 @@ handleVmReset state vmId = runServerLogging state $ do
 
 -- | Handle VM edit command
 -- Only allowed when VM is stopped. Updates only the provided fields.
-handleVmEdit :: ServerState -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> IO Response
-handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent = do
+handleVmEdit :: ServerState -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Response
+handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
@@ -309,8 +316,23 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent = do
       if status /= VmStopped
         then pure RespVmMustBeStopped
         else do
-          runSqlPool (editVm vmId mCpus mRam mDesc mHeadless mGuestAgent) (ssDbPool state)
+          runSqlPool (editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit) (ssDbPool state)
           pure RespVmEdited
+
+-- | Handle cloud-init ISO generation/regeneration for a VM
+handleVmCloudInit :: ServerState -> Int64 -> IO Response
+handleVmCloudInit state vmId = do
+  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+  case result of
+    Nothing -> pure RespVmNotFound
+    Just (vm, _) ->
+      if not (vmCloudInit vm)
+        then pure $ RespError "Cloud-init is not enabled on this VM"
+        else do
+          ciResult <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId (vmName vm) (ssLogLevel state)
+          case ciResult of
+            Left err -> pure $ RespError $ "Cloud-init ISO generation failed: " <> err
+            Right _ -> pure RespVmEdited
 
 --------------------------------------------------------------------------------
 -- Database Operations
@@ -372,6 +394,21 @@ setVmError vmId = do
     [M.NetworkInterfaceVmId ==. key]
     [M.NetworkInterfaceGuestIpAddresses =. Nothing]
 
+-- | Check whether the VM has a cloud-init ISO disk attached
+hasCloudInitIso :: Int64 -> SqlPersistT IO Bool
+hasCloudInitIso vmId = do
+  let key = toSqlKey vmId :: VmId
+  drives <- selectList [M.DriveVmId ==. key, M.DriveMedia ==. Just MediaCdrom] []
+  -- Check if any CDROM drive's disk name ends with "-cloud-init"
+  results <- mapM checkDrive drives
+  pure $ or results
+  where
+    checkDrive (Entity _ drive) = do
+      mDisk <- get (driveDiskImageId drive)
+      pure $ case mDisk of
+        Just disk -> "-cloud-init" `T.isSuffixOf` diskImageName disk
+        Nothing -> False
+
 -- | Set VM status (without changing PID)
 setVmStatus :: Int64 -> VmStatus -> SqlPersistT IO ()
 setVmStatus vmId status = do
@@ -379,8 +416,8 @@ setVmStatus vmId status = do
   update key [M.VmStatus =. status]
 
 -- | Create a new VM
-createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> SqlPersistT IO Int64
-createVm name cpuCount ramMb description headless guestAgent = do
+createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> SqlPersistT IO Int64
+createVm name cpuCount ramMb description headless guestAgent cloudInit = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -393,6 +430,7 @@ createVm name cpuCount ramMb description headless guestAgent = do
           , vmPid = Nothing
           , vmHeadless = headless
           , vmGuestAgent = guestAgent
+          , vmCloudInit = cloudInit
           , vmHealthcheck = Nothing
           }
   key <- insert vm
@@ -428,6 +466,7 @@ listVms = do
         , viRamMb = vmRamMb vm
         , viHeadless = vmHeadless vm
         , viGuestAgent = vmGuestAgent vm
+        , viCloudInit = vmCloudInit vm
         , viHealthcheck = vmHealthcheck vm
         }
 
@@ -466,6 +505,7 @@ getVmDetails vmId = do
             , vdSerialSocket = T.pack serialSock
             , vdGuestAgentSocket = T.pack guestAgentSock
             , vdGuestAgent = vmGuestAgent vm
+            , vdCloudInit = vmCloudInit vm
             , vdHealthcheck = vmHealthcheck vm
             }
   where
@@ -511,8 +551,8 @@ getVmDetails vmId = do
         }
 
 -- | Edit VM properties. Only updates fields that are Just.
-editVm :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> SqlPersistT IO ()
-editVm vmId mCpus mRam mDesc mHeadless mGuestAgent = do
+editVm :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> SqlPersistT IO ()
+editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
   let key = toSqlKey vmId :: VmId
       updates =
         maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
@@ -520,6 +560,7 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent = do
           ++ maybe [] (\desc -> [M.VmDescription =. Just desc]) mDesc
           ++ maybe [] (\h -> [M.VmHeadless =. h]) mHeadless
           ++ maybe [] (\ga -> [M.VmGuestAgent =. ga]) mGuestAgent
+          ++ maybe [] (\ci -> [M.VmCloudInit =. ci]) mCloudInit
   case updates of
     [] -> pure ()
     us -> update key us

@@ -45,13 +45,14 @@ handleRequest state req = case req of
   -- VM handlers
   ReqListVms -> handleVmList state
   ReqShowVm vmId -> handleVmShow state vmId
-  ReqVmCreate name cpus ram desc headless ga -> handleVmCreate state name cpus ram desc headless ga
+  ReqVmCreate name cpus ram desc headless ga ci -> handleVmCreate state name cpus ram desc headless ga ci
   ReqVmDelete vmId -> handleVmDelete state vmId
   ReqVmStart vmId -> handleVmStart state vmId
   ReqVmStop vmId -> handleVmStop state vmId
   ReqVmPause vmId -> handleVmPause state vmId
   ReqVmReset vmId -> handleVmReset state vmId
-  ReqVmEdit vmId mCpus mRam mDesc mHeadless mGa -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa
+  ReqVmEdit vmId mCpus mRam mDesc mHeadless mGa mCi -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa mCi
+  ReqVmCloudInit vmId -> handleVmCloudInit state vmId
   -- Disk image handlers
   ReqDiskCreate name format sizeMb -> handleDiskCreate state name format sizeMb
   ReqDiskCreateOverlay name baseDiskId optPath -> handleDiskCreateOverlay state name baseDiskId optPath

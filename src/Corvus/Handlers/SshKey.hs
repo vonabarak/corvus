@@ -139,43 +139,49 @@ handleSshKeyAttach state vmId keyId = runServerLogging state $ do
   case mVm of
     Nothing -> pure RespVmNotFound
     Just vm -> do
-      -- Check key exists
-      mKey <- liftIO $ runSqlPool (get sshKeyKey) pool
-      case mKey of
-        Nothing -> pure RespSshKeyNotFound
-        Just _ -> do
-          -- Check if already attached
-          existing <-
-            liftIO $
-              runSqlPool
-                (getBy (UniqueVmSshKey vmKey sshKeyKey))
-                pool
-          case existing of
+      -- Check cloud-init is enabled
+      if not (vmCloudInit vm)
+        then do
+          logWarnN "Cannot attach SSH key: cloud-init is not enabled on this VM"
+          pure $ RespError "Cannot attach SSH key: cloud-init is not enabled on this VM"
+        else do
+          -- Check key exists
+          mKey <- liftIO $ runSqlPool (get sshKeyKey) pool
+          case mKey of
+            Nothing -> pure RespSshKeyNotFound
             Just _ -> do
-              logWarnN "SSH key is already attached to this VM"
-              pure $ RespError "SSH key is already attached to this VM"
-            Nothing -> do
-              -- Create attachment
-              liftIO $
-                runSqlPool
-                  ( insert_
-                      VmSshKey
-                        { vmSshKeyVmId = vmKey
-                        , vmSshKeySshKeyId = sshKeyKey
-                        }
-                  )
-                  pool
-              logInfoN "SSH key attached"
+              -- Check if already attached
+              existing <-
+                liftIO $
+                  runSqlPool
+                    (getBy (UniqueVmSshKey vmKey sshKeyKey))
+                    pool
+              case existing of
+                Just _ -> do
+                  logWarnN "SSH key is already attached to this VM"
+                  pure $ RespError "SSH key is already attached to this VM"
+                Nothing -> do
+                  -- Create attachment
+                  liftIO $
+                    runSqlPool
+                      ( insert_
+                          VmSshKey
+                            { vmSshKeyVmId = vmKey
+                            , vmSshKeySshKeyId = sshKeyKey
+                            }
+                      )
+                      pool
+                  logInfoN "SSH key attached"
 
-              -- Regenerate cloud-init ISO
-              result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state)
-              case result of
-                Left err -> do
-                  logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
-                  pure $ RespError $ "Key attached but ISO generation failed: " <> err
-                Right _ -> do
-                  logInfoN "Cloud-init ISO regenerated"
-                  pure RespSshKeyOk
+                  -- Regenerate cloud-init ISO
+                  result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state)
+                  case result of
+                    Left err -> do
+                      logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
+                      pure $ RespError $ "Key attached but ISO generation failed: " <> err
+                    Right _ -> do
+                      logInfoN "Cloud-init ISO regenerated"
+                      pure RespSshKeyOk
 
 -- | Detach an SSH key from a VM
 -- This also regenerates/removes the cloud-init ISO
@@ -205,15 +211,18 @@ handleSshKeyDetach state vmId keyId = runServerLogging state $ do
           liftIO $ runSqlPool (delete attachmentId) pool
           logInfoN "SSH key detached"
 
-          -- Regenerate or remove cloud-init ISO
-          result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state)
-          case result of
-            Left err -> do
-              logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
-              pure $ RespError $ "Key detached but ISO update failed: " <> err
-            Right _ -> do
-              logInfoN "Cloud-init ISO updated"
-              pure RespSshKeyOk
+          -- Regenerate cloud-init ISO if cloud-init is enabled
+          if vmCloudInit vm
+            then do
+              result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state)
+              case result of
+                Left err -> do
+                  logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
+                  pure $ RespError $ "Key detached but ISO update failed: " <> err
+                Right _ -> do
+                  logInfoN "Cloud-init ISO updated"
+                  pure RespSshKeyOk
+            else pure RespSshKeyOk
 
 -- | List SSH keys attached to a VM
 handleSshKeyListForVm :: ServerState -> Int64 -> IO Response

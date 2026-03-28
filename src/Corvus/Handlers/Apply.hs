@@ -9,7 +9,7 @@ module Corvus.Handlers.Apply
 where
 
 import Control.Applicative ((<|>))
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk
@@ -105,6 +105,7 @@ data ApplyVm = ApplyVm
   , avDescription :: Maybe Text
   , avHeadless :: Bool
   , avGuestAgent :: Bool
+  , avCloudInit :: Maybe Bool
   , avDrives :: [ApplyDrive]
   , avNetworkInterfaces :: [ApplyNetIf]
   , avSharedDirs :: [ApplySharedDir]
@@ -121,6 +122,7 @@ instance FromJSON ApplyVm where
       <*> o .:? "description"
       <*> o .:? "headless" .!= False
       <*> o .:? "guestAgent" .!= False
+      <*> o .:? "cloudInit"
       <*> o .:? "drives" .!= []
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sharedDirs" .!= []
@@ -214,6 +216,7 @@ validateConfig config = do
   checkDuplicates "network" $ map anName (acNetworks config)
   checkDuplicates "VM" $ map avName (acVms config)
   forM_ (acDisks config) validateDisk
+  forM_ (acVms config) validateVmCloudInit
   where
     checkDuplicates :: Text -> [Text] -> Either Text ()
     checkDuplicates kind names =
@@ -227,6 +230,13 @@ validateConfig config = do
       | x `elem` xs = Just x
       | otherwise = findDuplicate xs
 
+    validateVmCloudInit :: ApplyVm -> Either Text ()
+    validateVmCloudInit v =
+      let ci = effectiveCloudInit v
+       in if not (null (avSshKeys v)) && not ci
+            then Left $ "VM '" <> avName v <> "': has SSH keys but cloud-init is not enabled"
+            else Right ()
+
     validateDisk :: ApplyDisk -> Either Text ()
     validateDisk d =
       let hasImport = isJust (adImport d)
@@ -238,6 +248,13 @@ validateConfig config = do
               if not hasImport && not hasOverlay && not hasCreate
                 then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', or both 'format' and 'sizeMb'"
                 else Right ()
+
+-- | Resolve effective cloudInit value for a VM.
+-- If explicitly set, use that. Otherwise, auto-enable when sshKeys are present.
+effectiveCloudInit :: ApplyVm -> Bool
+effectiveCloudInit v = case avCloudInit v of
+  Just ci -> ci
+  Nothing -> not (null (avSshKeys v))
 
 --------------------------------------------------------------------------------
 -- Execution
@@ -381,6 +398,7 @@ createOneVm state keyMap diskMap nwMap v = do
             , vmPid = Nothing
             , vmHeadless = avHeadless v
             , vmGuestAgent = avGuestAgent v
+            , vmCloudInit = effectiveCloudInit v
             , vmHealthcheck = Nothing
             }
       )
@@ -416,7 +434,10 @@ createOneVm state keyMap diskMap nwMap v = do
           case keyResult of
             Left err -> pure $ Left err
             Right () -> do
-              _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (avName v) (ssLogLevel state)
+              -- Generate cloud-init ISO only if cloud-init enabled and SSH keys present
+              when (effectiveCloudInit v && not (null (avSshKeys v))) $ do
+                _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (avName v) (ssLogLevel state)
+                pure ()
               pure $ Right $ fromSqlKey vmId
 
 attachDrives :: ServerState -> Map.Map Text Int64 -> VmId -> [ApplyDrive] -> Text -> IO (Either Text ())

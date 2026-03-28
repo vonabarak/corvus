@@ -122,7 +122,7 @@ runCommand opts = do
                   then putStrLn "No VMs found."
                   else do
                     now <- getCurrentTime
-                    let vmCols = [("ID", -6), ("NAME", -20), ("STATUS", -12), ("CPUS", 5), ("RAM_MB", 8), ("HEALTH", -6)]
+                    let vmCols = [("ID", -6), ("NAME", -20), ("STATUS", -12), ("CPUS", 5), ("RAM_MB", 8), ("HEALTH", -6), ("CI", -2)]
                     printTableHeader vmCols
                     mapM_ (printVmInfo now) vms
             pure True
@@ -144,13 +144,31 @@ runCommand opts = do
               then outputResult fmt details
               else printVmDetails details
             pure True
-      VmCreate name cpuCount ramMb mDesc headless ga -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga
+      VmCreate name cpuCount ramMb mDesc headless ga ci -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga ci
       VmDelete vmId -> handleVmDelete fmt conn vmId
       VmStart vmId -> handleVmAction fmt "start" vmId (vmStart conn vmId)
       VmStop vmId -> handleVmAction fmt "stop" vmId (vmStop conn vmId)
       VmPause vmId -> handleVmAction fmt "pause" vmId (vmPause conn vmId)
       VmReset vmId -> handleVmAction fmt "reset" vmId (vmReset conn vmId)
-      VmEdit vmId mCpus mRam mDesc mHeadless mGa -> handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGa
+      VmEdit vmId mCpus mRam mDesc mHeadless mGa mCi -> handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGa mCi
+      VmCloudInit vmId -> do
+        resp <- vmCloudInit conn vmId
+        case resp of
+          Left err -> do
+            if isStructured fmt then outputError fmt "rpc_error" (T.pack $ show err) else putStrLn $ "Error: " ++ show err
+            pure False
+          Right VmEdited -> do
+            if isStructured fmt then outputOk fmt else putStrLn "Cloud-init ISO generated"
+            pure True
+          Right (VmEditError msg) -> do
+            if isStructured fmt then outputError fmt "error" msg else putStrLn $ "Error: " ++ T.unpack msg
+            pure False
+          Right VmEditNotFound -> do
+            if isStructured fmt then outputError fmt "not_found" "VM not found" else putStrLn "VM not found"
+            pure False
+          Right VmEditMustBeStopped -> do
+            if isStructured fmt then outputError fmt "vm_running" "VM must be stopped" else putStrLn "VM must be stopped"
+            pure False
       VmExec vmId cmd -> handleVmExec fmt conn vmId cmd
       VmView vmId -> do
         resp <- showVm conn vmId

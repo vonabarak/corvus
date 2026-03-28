@@ -54,6 +54,7 @@ import Control.Monad (forM_)
 import Corvus.Client (DiskResult (..), diskClone, diskCreateOverlay, diskDelete, diskRegister)
 import Corvus.Model (DriveFormat (..), DriveInterface (..))
 import Data.Int (Int64)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
@@ -202,10 +203,12 @@ withTestVmSshWithDisk daemon diskImageId config action = do
   -- Use a unique name for the VM
   vmUuid <- nextRandom
   let vmName = "test-vm-" <> T.take 8 (toText vmUuid)
+      -- Enable cloud-init for cloud images that need SSH key injection
+      needsCloudInit = isNothing (vmcPrebakedSshKey config)
 
   -- Use bracket for robust VM lifecycle management
   bracket
-    (createTestVm daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config) (vmcHeadless config))
+    (createTestVmWithOptions daemon vmName (vmcCpuCount config) (vmcRamMb config) (vmcDescription config) (vmcHeadless config) False needsCloudInit)
     ( \vmId -> do
         -- Cleanup: stop and delete the VM
         stopTestVmAndWait daemon vmId 30

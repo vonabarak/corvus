@@ -27,6 +27,7 @@ module Corvus.Client.Rpc
     -- * VM edit
   , VmEditResult (..)
   , vmEdit
+  , vmCloudInit
 
     -- * Guest execution
   , GuestExecResult (..)
@@ -184,9 +185,9 @@ data VmDeleteResult
   deriving (Eq, Show)
 
 -- | Create a new VM
-vmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> IO (Either ConnectionError VmCreateResult)
-vmCreate conn name cpuCount ramMb description headless guestAgent = do
-  result <- sendRequest conn (ReqVmCreate name cpuCount ramMb description headless guestAgent)
+vmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO (Either ConnectionError VmCreateResult)
+vmCreate conn name cpuCount ramMb description headless guestAgent cloudInit = do
+  result <- sendRequest conn (ReqVmCreate name cpuCount ramMb description headless guestAgent cloudInit)
   case result of
     Left err -> pure $ Left err
     Right (RespVmCreated vmId) -> pure $ Right $ VmCreated vmId
@@ -252,14 +253,26 @@ vmEdit
   -> Maybe Text
   -> Maybe Bool
   -> Maybe Bool
+  -> Maybe Bool
   -> IO (Either ConnectionError VmEditResult)
-vmEdit conn vmId mCpus mRam mDesc mHeadless mGuestAgent = do
-  result <- sendRequest conn (ReqVmEdit vmId mCpus mRam mDesc mHeadless mGuestAgent)
+vmEdit conn vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
+  result <- sendRequest conn (ReqVmEdit vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit)
   case result of
     Left err -> pure $ Left err
     Right RespVmEdited -> pure $ Right VmEdited
     Right RespVmNotFound -> pure $ Right VmEditNotFound
     Right RespVmMustBeStopped -> pure $ Right VmEditMustBeStopped
+    Right (RespError msg) -> pure $ Right $ VmEditError msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+-- | Generate/regenerate cloud-init ISO for a VM
+vmCloudInit :: Connection -> Int64 -> IO (Either ConnectionError VmEditResult)
+vmCloudInit conn vmId = do
+  result <- sendRequest conn (ReqVmCloudInit vmId)
+  case result of
+    Left err -> pure $ Left err
+    Right RespVmEdited -> pure $ Right VmEdited
+    Right RespVmNotFound -> pure $ Right VmEditNotFound
     Right (RespError msg) -> pure $ Right $ VmEditError msg
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 

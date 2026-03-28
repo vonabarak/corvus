@@ -8,15 +8,18 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 
 - **VM Lifecycle Management**: Start, stop, pause, and reset virtual machines
 - **State Machine**: Enforces valid state transitions (stopped → running → paused, etc.)
-- **Disk Image Management**: Create, resize, and attach qcow2/raw/vmdk/vdi disk images
+- **Disk Image Management**: Create, resize, and attach qcow2/raw/vmdk/vdi disk images; import from local path or HTTP URL
 - **Snapshot Support**: Create, rollback, merge, and delete qcow2 snapshots
-- **Cloud-Init Integration**: SSH key injection via NoCloud datasource
+- **Cloud-Init Integration**: Optional per-VM cloud-init with SSH key injection via NoCloud datasource; lazy ISO generation on first SSH key attach or VM start
+- **QEMU Guest Agent**: Execute commands in guests, periodic health checks and network address discovery via QGA protocol
 - **SPICE Display**: Remote desktop access via SPICE protocol
 - **VM Templates**: Define VM blueprints in YAML and instantiate them easily
+- **Declarative Apply**: Define entire environments (VMs, disks, networks, SSH keys) in a single YAML file with `crv apply`
+- **Virtual Networks**: VDE-based virtual networks with automatic subnet allocation and dnsmasq DHCP/DNS
 - **QMP Integration**: Graceful shutdown and pause via QEMU Machine Protocol
 - **Shared Directories**: virtiofs support for sharing host directories with guests
 - **Multiple Storage Types**: IDE, SATA, VirtIO, NVMe, and pflash drives
-- **Networking**: VirtIO-net with bridge, TAP, and VDE support
+- **Networking**: VirtIO-net with user, bridge, TAP, and VDE support
 
 ## Installation
 
@@ -28,6 +31,8 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 - `qemu-img` (for disk image operations)
 - `virtiofsd` (for shared directories)
 - `genisoimage` or `mkisofs` (for cloud-init ISO generation)
+- `vde_switch` and `dnsmasq` (optional, for virtual networking)
+- `curl` or `wget` (optional, for HTTP disk image import)
 - `remote-viewer` (optional, for `vm view` command)
 
 ### Building
@@ -75,14 +80,17 @@ crv shutdown         # Request daemon shutdown
 #### VM Commands
 
 ```bash
-crv vm list          # List all VMs
-crv vm show <id>     # Show VM details (drives, network, sockets)
-crv vm start <id>    # Start a stopped/paused VM
-crv vm stop <id>     # Graceful shutdown (via QMP)
-crv vm pause <id>    # Pause execution
-crv vm reset <id>    # Force stop (SIGKILL)
-crv vm view <id>     # Open SPICE viewer (remote-viewer)
-crv vm monitor <id>  # Connect to HMP monitor (Ctrl+] to exit)
+crv vm list                       # List all VMs (includes CI column)
+crv vm show <id>                  # Show VM details (drives, network, sockets)
+crv vm create <name> <cpus> <ram> # Create a VM (--cloud-init, --guest-agent, --headless)
+crv vm edit <id>                  # Edit VM settings (--cloud-init, --guest-agent, etc.)
+crv vm start <id>                 # Start a stopped/paused VM
+crv vm stop <id>                  # Graceful shutdown (via QMP or guest agent)
+crv vm pause <id>                 # Pause execution
+crv vm reset <id>                 # Force stop (SIGKILL)
+crv vm cloud-init <id>            # Generate/regenerate cloud-init ISO
+crv vm view <id>                  # Open SPICE viewer (remote-viewer)
+crv vm monitor <id>               # Connect to HMP monitor (Ctrl+] to exit)
 ```
 
 #### Disk Commands
@@ -93,10 +101,11 @@ crv disk create <name> --size <size> [--format <format>]
 crv disk create myvm-boot --size 20G --format qcow2
 crv disk create data-disk --size 100G -f raw
 
-# Import an existing disk image
-crv disk import <name> <path> [--format <format>]
+# Import an existing disk image (local path or HTTP URL)
+crv disk import <name> <path-or-url> [--format <format>]
 crv disk import debian-base ~/VMs/debian.qcow2
 crv disk import windows-iso /data/isos/windows.iso -f raw
+crv disk import alpine-cloud https://example.com/alpine-virt.qcow2
 
 # Manage disk images
 crv disk list                    # List all disk images
@@ -131,7 +140,7 @@ crv snapshot delete <disk_id> <snap_id>   # Delete a snapshot
 
 #### SSH Key Commands
 
-SSH keys can be attached to VMs for cloud-init configuration. When SSH keys are attached, a cloud-init ISO is automatically generated and attached to the VM.
+SSH keys can be attached to VMs that have cloud-init enabled. The cloud-init ISO is generated lazily when the first key is attached or when the VM starts.
 
 ```bash
 # Manage SSH keys
@@ -139,10 +148,31 @@ crv ssh-key create <name> "<public_key>"  # Create a new SSH key
 crv ssh-key list                          # List all SSH keys
 crv ssh-key delete <key_id>               # Delete an SSH key
 
-# Attach/detach keys to VMs
-crv ssh-key attach <vm_id> <key_id>       # Attach key to VM (regenerates cloud-init ISO)
+# Attach/detach keys to VMs (requires cloud-init enabled on the VM)
+crv ssh-key attach <vm_id> <key_id>       # Attach key to VM (generates cloud-init ISO)
 crv ssh-key detach <vm_id> <key_id>       # Detach key from VM
 crv ssh-key list-vm <vm_id>               # List keys attached to a VM
+```
+
+#### Guest Agent Commands
+
+Execute commands inside running VMs via the QEMU Guest Agent (requires `guest-agent` enabled on the VM and qemu-ga running in the guest).
+
+```bash
+crv guest-exec <vm_id> <command> [args...]   # Run command in VM
+crv guest-exec 1 whoami                      # Example: check user
+crv guest-exec 1 cat /etc/hostname           # Example: read file
+```
+
+#### Network Commands
+
+Manage virtual networks (VDE-based with dnsmasq for DHCP/DNS).
+
+```bash
+crv network create <name>         # Create a virtual network
+crv network list                  # List all networks
+crv network show <id>             # Show network details
+crv network delete <id>           # Delete a network
 ```
 
 #### Template Commands
@@ -167,16 +197,28 @@ name: "ubuntu-22.04-webserver"
 description: "Standard web server template with 20GB root disk"
 cpuCount: 2
 ramMb: 2048
+cloudInit: true            # Enable cloud-init (required for sshKeys)
 drives:
   - diskImageName: "ubuntu-22.04-base"
     interface: "virtio"
-    strategy: "overlay"  # options: clone, overlay, direct
-    newSizeMb: 20480     # resize disk after instantiation
+    strategy: "overlay"    # options: clone, overlay, direct
+    newSizeMb: 20480       # resize disk after instantiation
 networkInterfaces:
-  - type: "user"         # options: user, bridge, tap, vde
+  - type: "user"           # options: user, bridge, tap, vde
 sshKeys:
   - name: "admin-key"
 ```
+
+#### Apply Command
+
+Define entire environments declaratively in YAML and create them with a single command. Supports SSH keys, disk images (local or HTTP), virtual networks, and VMs with drives, network interfaces, and shared directories.
+
+```bash
+crv apply <file.yaml>              # Create all resources from YAML
+crv apply my-environment.yml       # Example
+```
+
+Cloud-init is auto-enabled on VMs that reference SSH keys. See `example-apply.yml` in the project root for a complete example.
 
 ### Connection Options
 
@@ -219,41 +261,55 @@ source <(crv --zsh-completion-script $(which crv))
 ```
 corvus/
 ├── app/
-│   ├── client/Main.hs      # CLI client entry point
-│   └── daemon/Main.hs      # Daemon entry point
+│   ├── client/Main.hs        # CLI client entry point
+│   └── daemon/Main.hs        # Daemon entry point
 ├── src/Corvus/
-│   ├── Model.hs            # Database schema (Persistent)
-│   ├── Protocol.hs         # RPC message types (Binary)
-│   ├── Types.hs            # Shared daemon types
-│   ├── Server.hs           # Network communication
-│   ├── CloudInit.hs        # Cloud-init ISO generation
+│   ├── Model.hs              # Database schema (Persistent)
+│   ├── Protocol.hs           # RPC message types (Binary)
+│   ├── Types.hs              # Shared daemon types
+│   ├── Server.hs             # Network communication
+│   ├── CloudInit.hs          # Cloud-init ISO generation
+│   ├── Handlers.hs           # Central request dispatcher
 │   ├── Handlers/
-│   │   ├── Core.hs         # Ping, status, shutdown handlers
-│   │   ├── Vm.hs           # VM lifecycle handlers
-│   │   ├── Disk.hs         # Disk image handlers
-│   │   ├── Template.hs     # VM template handlers
-│   │   ├── SharedDir.hs    # Shared directory handlers
-│   │   ├── NetIf.hs        # Network interface handlers
-│   │   └── SshKey.hs       # SSH key handlers
+│   │   ├── Core.hs           # Ping, status, shutdown handlers
+│   │   ├── Vm.hs             # VM lifecycle handlers
+│   │   ├── Disk.hs           # Disk image handlers (incl. HTTP import)
+│   │   ├── Template.hs       # VM template handlers
+│   │   ├── Apply.hs          # Declarative apply handler
+│   │   ├── Network.hs        # Virtual network handlers (VDE)
+│   │   ├── NetIf.hs          # Network interface handlers
+│   │   ├── SharedDir.hs      # Shared directory handlers
+│   │   ├── SshKey.hs         # SSH key handlers
+│   │   ├── GuestExec.hs      # Guest agent command execution
+│   │   └── GuestAgentPoller.hs  # Guest agent health/network polling
 │   ├── Client/
-│   │   ├── Commands.hs     # Command execution
-│   │   ├── Connection.hs   # Socket handling
-│   │   ├── Parser.hs       # CLI argument parsing
-│   │   ├── Rpc.hs          # RPC call wrappers
-│   │   └── Types.hs        # CLI types
-│   └── Qemu/
-│       ├── Command.hs      # QEMU command-line builder
-│       ├── Config.hs       # QEMU configuration
-│       ├── Process.hs      # Process spawning
-│       ├── Qmp.hs          # QMP protocol client
-│       ├── QmpQQ.hs        # QMP quasi-quoter
-│       ├── Runtime.hs      # Runtime directories/sockets
-│       ├── Image.hs        # qemu-img operations
-│       └── Virtiofsd.hs    # virtiofsd management
-├── test/                   # Integration and unit tests
+│   │   ├── Commands.hs       # Command execution dispatcher
+│   │   ├── Commands/         # Domain-specific command handlers
+│   │   ├── Connection.hs     # Socket handling
+│   │   ├── Output.hs         # Unified table/detail formatting
+│   │   ├── Parser.hs         # CLI argument parsing
+│   │   ├── Rpc.hs            # RPC call wrappers
+│   │   ├── Config.hs         # Client configuration
+│   │   └── Types.hs          # CLI types
+│   ├── Qemu/
+│   │   ├── Command.hs        # QEMU command-line builder
+│   │   ├── Config.hs         # QEMU configuration
+│   │   ├── Process.hs        # Process spawning
+│   │   ├── Qmp.hs            # QMP protocol client
+│   │   ├── QmpQQ.hs          # QMP quasi-quoter
+│   │   ├── Runtime.hs        # Runtime directories/sockets
+│   │   ├── Image.hs          # qemu-img + HTTP download operations
+│   │   ├── GuestAgent.hs     # QGA protocol client
+│   │   ├── Vde.hs            # VDE virtual switch management
+│   │   └── Virtiofsd.hs      # virtiofsd management
+│   └── Utils/
+│       ├── Yaml.hs           # YAML parsing with quasi-quoters
+│       └── Subnet.hs         # Subnet utilities
+├── test/                     # Integration and unit tests
+├── example-apply.yml         # Example YAML for crv apply
 ├── package.yaml
 ├── stack.yaml
-└── corvus.service          # Systemd user service
+└── corvus.service            # Systemd user service
 ```
 
 ### Building and Testing
@@ -330,20 +386,22 @@ Sockets and runtime files are stored in `$XDG_RUNTIME_DIR/corvus/<vm_id>/`:
 - `monitor.sock` - HMP monitor socket
 - `qmp.sock` - QMP control socket
 - `spice.sock` - SPICE display socket
+- `qga.sock` - QEMU Guest Agent socket
 - `virtiofsd-<tag>.sock` - virtiofsd sockets
 
 ### Database Schema
 
 ```sql
-vm (id, name, created_at, status, cpu_count, ram_mb, description, pid)
-disk_image (id, name, file_path, format, size_mb, created_at)
+vm (id, name, created_at, status, cpu_count, ram_mb, description, pid, headless, guest_agent, cloud_init, healthcheck)
+disk_image (id, name, file_path, format, size_mb, created_at, backing_image_id)
 snapshot (id, disk_image_id, name, created_at, size_mb)
 drive (id, vm_id, disk_image_id, interface, media, read_only, cache_type, discard)
-network_interface (id, vm_id, interface_type, host_device, mac_address)
+network (id, name, subnet, vde_switch_pid, dnsmasq_pid, created_at)
+network_interface (id, vm_id, interface_type, host_device, mac_address, network_id, guest_ip_addresses)
 shared_dir (id, vm_id, path, tag, cache, read_only, pid)
 ssh_key (id, name, public_key, created_at)
-vm_ssh_key (id, vm_id, ssh_key_id)  -- Junction table for VM-SSH key associations
-template_vm (id, name, cpu_count, ram_mb, description, created_at)
+vm_ssh_key (id, vm_id, ssh_key_id)
+template_vm (id, name, cpu_count, ram_mb, description, headless, cloud_init, created_at)
 template_drive (id, template_id, disk_image_id, interface, media, read_only, cache_type, discard, clone_strategy, new_size_mb)
 template_network_interface (id, template_id, interface_type, host_device)
 template_ssh_key (id, template_id, ssh_key_id)
@@ -356,7 +414,6 @@ template_ssh_key (id, template_id, ssh_key_id)
 - **No Live Snapshots**: Snapshots require VM to be stopped (qcow2 internal snapshots supported)
 - **No Resource Limits**: No CPU/memory cgroup controls
 - **No VNC**: Only SPICE display is supported
-- **No Network Management**: Host bridges/TAP devices must be configured manually
 - **No Authentication**: Client-daemon communication is unauthenticated
 - **No TLS**: TCP communication is unencrypted (use Unix socket or SSH tunnel)
 - **Linux Only**: Relies on KVM, Unix sockets, and POSIX signals

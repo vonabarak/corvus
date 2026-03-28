@@ -74,6 +74,10 @@ vmCreateCommand =
       ( long "guest-agent"
           <> help "Enable QEMU guest agent for this VM"
       )
+    <*> switch
+      ( long "cloud-init"
+          <> help "Enable cloud-init for this VM (required for SSH key injection)"
+      )
 
 -- | Parser for vm delete
 vmDeleteCommand :: Parser Command
@@ -186,6 +190,24 @@ vmEditCommand =
               <> help "Enable/disable QEMU guest agent (true/false)"
           )
       )
+    <*> optional
+      ( option
+          readBool
+          ( long "cloud-init"
+              <> metavar "BOOL"
+              <> help "Enable/disable cloud-init (true/false)"
+          )
+      )
+
+-- | Parser for vm cloud-init
+vmCloudInitCommand :: Parser Command
+vmCloudInitCommand =
+  VmCloudInit
+    <$> argument
+      auto
+      ( metavar "VM_ID"
+          <> help "ID of the VM"
+      )
 
 -- | Reader for boolean values
 readBool :: ReadM Bool
@@ -273,6 +295,9 @@ vmCommandParser =
         <> command
           "exec"
           (info vmExecCommand (progDesc "Execute a command inside a VM via guest agent"))
+        <> command
+          "cloud-init"
+          (info vmCloudInitCommand (progDesc "Generate/regenerate cloud-init ISO for a VM"))
     )
 
 --------------------------------------------------------------------------------

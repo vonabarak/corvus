@@ -51,7 +51,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 10
+protocolVersion = 11
 
 -- | Client requests
 data Request
@@ -61,8 +61,8 @@ data Request
   | ReqListVms
   | -- | VM ID
     ReqShowVm !Int64
-  | -- | Create VM (name, cpuCount, ramMb, description, headless, guestAgent)
-    ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool
+  | -- | Create VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
+    ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool
   | -- | Delete VM (vmId)
     ReqVmDelete !Int64
   | -- | Start VM (stopped/paused -> running)
@@ -144,9 +144,11 @@ data Request
     ReqTemplateShow !Int64
   | -- | Instantiate template (templateId, newVmName)
     ReqTemplateInstantiate !Int64 !Text
-  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless, guestAgent)
+  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
     -- Each Maybe field is updated only if Just.
-    ReqVmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool)
+    ReqVmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
+  | -- | Generate/regenerate cloud-init ISO for a VM (vmId)
+    ReqVmCloudInit !Int64
   | -- | Virtual network operations
     -- | Create network (name, subnet)
     ReqNetworkCreate !Text !Text
@@ -188,6 +190,7 @@ data VmInfo = VmInfo
   , viRamMb :: !Int
   , viHeadless :: !Bool
   , viGuestAgent :: !Bool
+  , viCloudInit :: !Bool
   , viHealthcheck :: !(Maybe UTCTime)
   }
   deriving (Eq, Show, Generic, Binary)
@@ -240,6 +243,8 @@ data VmDetails = VmDetails
   -- ^ Path to QEMU Guest Agent socket
   , vdGuestAgent :: !Bool
   -- ^ Whether guest agent is enabled for this VM
+  , vdCloudInit :: !Bool
+  -- ^ Whether cloud-init is enabled for this VM
   , vdHealthcheck :: !(Maybe UTCTime)
   -- ^ Last successful guest agent ping time
   }
@@ -341,6 +346,7 @@ data TemplateDetails = TemplateDetails
   , tvdRamMb :: !Int
   , tvdDescription :: !(Maybe Text)
   , tvdHeadless :: !Bool
+  , tvdCloudInit :: !Bool
   , tvdCreatedAt :: !UTCTime
   , tvdDrives :: ![TemplateDriveInfo]
   , tvdNetIfs :: ![TemplateNetIfInfo]
@@ -398,6 +404,7 @@ instance ToJSON VmInfo where
       , "ramMb" .= viRamMb v
       , "headless" .= viHeadless v
       , "guestAgent" .= viGuestAgent v
+      , "cloudInit" .= viCloudInit v
       , "healthcheck" .= viHealthcheck v
       ]
 
@@ -445,6 +452,7 @@ instance ToJSON VmDetails where
       , "serialSocket" .= vdSerialSocket v
       , "guestAgentSocket" .= vdGuestAgentSocket v
       , "guestAgent" .= vdGuestAgent v
+      , "cloudInit" .= vdCloudInit v
       , "healthcheck" .= vdHealthcheck v
       ]
 
@@ -552,6 +560,7 @@ instance ToJSON TemplateDetails where
       , "ramMb" .= tvdRamMb t
       , "description" .= tvdDescription t
       , "headless" .= tvdHeadless t
+      , "cloudInit" .= tvdCloudInit t
       , "createdAt" .= tvdCreatedAt t
       , "drives" .= tvdDrives t
       , "networkInterfaces" .= tvdNetIfs t

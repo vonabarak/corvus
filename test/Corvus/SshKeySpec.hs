@@ -51,11 +51,17 @@ spec = withTestDb $ do
       thenSshKeyListHasCount result 2
 
   describe "ssh-key attach" $ do
-    testCase "attaches SSH key to VM" $ do
-      vmId <- givenVmExists "test-vm"
+    testCase "attaches SSH key to VM with cloud-init" $ do
+      vmId <- givenCloudInitVmExists "test-vm"
       keyId <- givenSshKeyExists "my-key"
       result <- whenSshKeyAttach vmId keyId
       thenSshKeyOk result
+
+    testCase "fails for VM without cloud-init" $ do
+      vmId <- givenVmExists "test-vm"
+      keyId <- givenSshKeyExists "my-key"
+      result <- whenSshKeyAttach vmId keyId
+      thenSshKeyError result "cloud-init is not enabled"
 
     testCase "fails for non-existent VM" $ do
       keyId <- givenSshKeyExists "my-key"
@@ -63,13 +69,13 @@ spec = withTestDb $ do
       thenSshKeyVmNotFound result
 
     testCase "fails for non-existent SSH key" $ do
-      vmId <- givenVmExists "test-vm"
+      vmId <- givenCloudInitVmExists "test-vm"
       result <- whenSshKeyAttach vmId 999
       thenSshKeyNotFound result
 
   describe "ssh-key detach" $ do
     testCase "detaches SSH key from VM" $ do
-      vmId <- givenVmExists "test-vm"
+      vmId <- givenCloudInitVmExists "test-vm"
       keyId <- givenSshKeyExists "my-key"
       _ <- attachSshKeyToVm vmId keyId
       result <- whenSshKeyDetach vmId keyId
@@ -93,7 +99,7 @@ spec = withTestDb $ do
       thenSshKeyListIsEmpty result
 
     testCase "returns all SSH keys for VM" $ do
-      vmId <- givenVmExists "test-vm"
+      vmId <- givenCloudInitVmExists "test-vm"
       keyId1 <- givenSshKeyExists "key1"
       keyId2 <- givenSshKeyExists "key2"
       _ <- attachSshKeyToVm vmId keyId1

@@ -436,6 +436,7 @@ Vm
     pid Int Maybe
     headless Bool default=false
     guestAgent Bool default=false
+    cloudInit Bool default=false
     healthcheck UTCTime Maybe default=NULL
     UniqueName name
     deriving Show Eq Generic
@@ -514,6 +515,7 @@ TemplateVm
     ramMb Int
     description Text Maybe
     headless Bool default=false
+    cloudInit Bool default=false
     createdAt UTCTime
     UniqueTemplateVmName name
     deriving Show Eq Generic

@@ -245,12 +245,12 @@ test-suite corvus-test
       Corvus.ApplyIntegrationSpec
       Corvus.ApplySpec
       Corvus.ClientOutputSpec
+      Corvus.CloudInitIntegrationSpec
       Corvus.CoreSpec
       Corvus.DiskCloneIntegrationSpec
       Corvus.DiskOverlayIntegrationSpec
       Corvus.DiskSpec
       Corvus.GuestAgentPollerIntegrationSpec
-      Corvus.MultiOsIntegrationSpec
       Corvus.MultiVmIntegrationSpec
       Corvus.NetIfSpec
       Corvus.ProtocolSpec

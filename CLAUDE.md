@@ -26,30 +26,47 @@ src/Corvus/
 ├── Handlers/
 │   ├── Core.hs          # Ping, status, shutdown
 │   ├── Vm.hs            # VM lifecycle + state machine validation
-│   ├── Disk.hs          # Disk image CRUD, snapshots, attach/detach
+│   ├── Disk.hs          # Disk image CRUD, snapshots, attach/detach, HTTP import
 │   ├── Template.hs      # YAML template parsing and instantiation
-│   ├── SshKey.hs        # SSH key management
-│   ├── NetIf.hs         # Network interface configuration
-│   └── SharedDir.hs     # Virtiofs shared directories
+│   ├── Apply.hs         # Declarative environment (crv apply) YAML handler
+│   ├── SshKey.hs        # SSH key management (cloud-init gated)
+│   ├── NetIf.hs         # Network interface configuration, MAC generation
+│   ├── Network.hs       # Virtual network management (VDE)
+│   ├── SharedDir.hs     # Virtiofs shared directories
+│   ├── GuestExec.hs     # QEMU guest agent command execution
+│   └── GuestAgentPoller.hs  # Periodic guest agent health/network polling
 ├── Qemu/
 │   ├── Config.hs        # QEMU binary paths, base directory
-│   ├── Runtime.hs       # XDG runtime dir for sockets (HMP, QMP, SPICE)
+│   ├── Runtime.hs       # XDG runtime dir for sockets (HMP, QMP, SPICE, QGA)
 │   ├── Process.hs       # QEMU process spawning and PID management
 │   ├── Qmp.hs           # QMP protocol client (shutdown, pause)
 │   ├── QmpQQ.hs         # Quasi-quoter for QMP JSON commands
 │   ├── Command.hs       # QEMU command-line builder
-│   ├── Image.hs         # qemu-img wrapper (create, resize, snapshot, clone)
+│   ├── Image.hs         # qemu-img wrapper (create, resize, snapshot, clone, download)
+│   ├── GuestAgent.hs    # QGA protocol client (exec, ping, network-get-interfaces)
+│   ├── Vde.hs           # VDE virtual switch management
 │   └── Virtiofsd.hs     # virtiofsd process management
 ├── Client/
 │   ├── Connection.hs    # Socket management, binary protocol
 │   ├── Rpc.hs           # High-level RPC call wrappers
 │   ├── Parser.hs        # optparse-applicative CLI parsing
 │   ├── Commands.hs      # Command execution dispatcher
-│   ├── Commands/*.hs    # Domain-specific command handlers
-│   ├── Output.hs        # Text/JSON output formatting
+│   ├── Commands/
+│   │   ├── Vm.hs        # VM command handlers and display
+│   │   ├── Disk.hs      # Disk command handlers (incl. HTTP import)
+│   │   ├── Template.hs  # Template command handlers
+│   │   ├── Apply.hs     # Apply command handler
+│   │   ├── Network.hs   # Network command handlers
+│   │   ├── NetIf.hs     # Network interface command handlers
+│   │   ├── SshKey.hs    # SSH key command handlers
+│   │   ├── SharedDir.hs # Shared directory command handlers
+│   │   └── GuestExec.hs # Guest exec command handlers
+│   ├── Output.hs        # Unified table/detail output formatting (printTableHeader, printField)
+│   ├── Types.hs         # CLI command types
 │   └── Config.hs        # Client configuration
 └── Utils/
-    └── Yaml.hs          # YAML parsing with quasi-quoters
+    ├── Yaml.hs          # YAML parsing with quasi-quoters (yamlQQ, yaml)
+    └── Subnet.hs        # Subnet utilities for virtual networks
 ```
 
 ### Key Patterns
@@ -61,7 +78,7 @@ src/Corvus/
 
 ### Database Entities
 
-`Vm`, `DiskImage`, `Drive`, `NetworkInterface`, `SharedDir`, `Snapshot`, `SshKey`, `VmSshKey`, `TemplateVm`, `TemplateDrive`, `TemplateNetworkInterface`, `TemplateSshKey` — all defined in `Model.hs`.
+`Vm`, `DiskImage`, `Drive`, `Network`, `NetworkInterface`, `SharedDir`, `Snapshot`, `SshKey`, `VmSshKey`, `TemplateVm`, `TemplateDrive`, `TemplateNetworkInterface`, `TemplateSshKey` — all defined in `Model.hs`.
 
 ### Key Enums (text-serializable via `EnumText` typeclass)
 
@@ -76,9 +93,19 @@ test/
 │   ├── Prelude.hs       # Re-exports, test utilities
 │   ├── Database.hs      # Test database setup/teardown
 │   ├── Settings.hs      # Test configuration
-│   ├── Daemon.hs        # Daemon process helpers
-│   ├── DSL/             # BDD-style DSL (testCase/given/when_/then_)
-│   └── VM/              # VM test helpers (SSH, console, images)
+│   ├── DSL/
+│   │   ├── Core.hs      # TestM monad, testCase, runDb
+│   │   ├── Given.hs     # Setup primitives (insert VMs, disks, keys, etc.)
+│   │   ├── When.hs      # Action primitives (RPC calls via daemon)
+│   │   └── Then.hs      # Assertion primitives
+│   └── VM/
+│       ├── Common.hs    # withTestVm* helpers (SSH, console, guest exec)
+│       ├── Daemon.hs    # Daemon process lifecycle for integration tests
+│       ├── Rpc.hs       # Test RPC helpers (create/start/stop VMs, guest agent)
+│       ├── Image.hs     # Test image download/management
+│       ├── Ssh.hs       # SSH connection helpers
+│       ├── Console.hs   # Serial console helpers
+│       └── Types.hs     # Test VM configuration types
 └── Corvus/
     ├── *Spec.hs              # Unit tests
     └── *IntegrationSpec.hs   # Integration tests (require QEMU/KVM)

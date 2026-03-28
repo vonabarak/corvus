@@ -13,7 +13,7 @@
 --   - Network access to download cloud images (first run only)
 --
 -- Run with: stack test --test-arguments="--match MultiOsIntegration"
-module Corvus.MultiOsIntegrationSpec (spec) where
+module Corvus.CloudInitIntegrationSpec (spec) where
 
 import Control.Monad (when)
 import qualified Data.Text as T

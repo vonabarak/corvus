@@ -7,6 +7,7 @@ module Test.DSL.Given
     insertVm
   , insertVmFull
   , givenVmExists
+  , givenCloudInitVmExists
   , givenRunningVmExists
 
     -- * Disk image setup
@@ -73,6 +74,7 @@ insertVm name status = do
           , vmPid = Nothing
           , vmHeadless = False
           , vmGuestAgent = False
+          , vmCloudInit = False
           , vmHealthcheck = Nothing
           }
   pure $ fromSqlKey key
@@ -101,6 +103,7 @@ insertVmFull name status cpus ramMb desc pid = do
           , vmPid = pid
           , vmHeadless = False
           , vmGuestAgent = False
+          , vmCloudInit = False
           , vmHealthcheck = Nothing
           }
   pure $ fromSqlKey key
@@ -120,6 +123,7 @@ defaultVm = do
       , vmPid = Nothing
       , vmHeadless = False
       , vmGuestAgent = False
+      , vmCloudInit = False
       , vmHealthcheck = Nothing
       }
 
@@ -339,6 +343,28 @@ insertSharedDir vmId path tag cache readOnly = do
 -- | Create a stopped VM with the given name
 givenVmExists :: Text -> TestM Int64
 givenVmExists name = insertVm name VmStopped
+
+-- | Create a stopped VM with cloud-init enabled
+givenCloudInitVmExists :: Text -> TestM Int64
+givenCloudInitVmExists name = do
+  now <- liftIO getCurrentTime
+  key <-
+    runDb $
+      insert
+        Vm
+          { vmName = name
+          , vmCreatedAt = now
+          , vmStatus = VmStopped
+          , vmCpuCount = 2
+          , vmRamMb = 4096
+          , vmDescription = Nothing
+          , vmPid = Nothing
+          , vmHeadless = False
+          , vmGuestAgent = False
+          , vmCloudInit = True
+          , vmHealthcheck = Nothing
+          }
+  pure $ fromSqlKey key
 
 -- | Create a running VM with the given name
 givenRunningVmExists :: Text -> TestM Int64

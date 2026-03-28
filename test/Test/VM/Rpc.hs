@@ -7,6 +7,7 @@ module Test.VM.Rpc
   ( -- * VM lifecycle
     createTestVm
   , createTestVmWithGuestAgent
+  , createTestVmWithOptions
   , startTestVm
   , stopTestVm
   , stopTestVmAndWait
@@ -79,9 +80,14 @@ createTestVmWithGuestAgent daemon name cpus ram mDesc headless =
 
 -- | Create a VM via daemon RPC (full version with all fields)
 createTestVmFull :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> IO Int64
-createTestVmFull daemon name cpus ram mDesc headless guestAgent = do
+createTestVmFull daemon name cpus ram mDesc headless guestAgent =
+  createTestVmWithOptions daemon name cpus ram mDesc headless guestAgent False
+
+-- | Create a VM via daemon RPC with all options including cloud-init
+createTestVmWithOptions :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO Int64
+createTestVmWithOptions daemon name cpus ram mDesc headless guestAgent cloudInit = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmCreate conn name cpus ram mDesc headless guestAgent
+    vmCreate conn name cpus ram mDesc headless guestAgent cloudInit
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error creating VM: " <> show err
@@ -148,7 +154,7 @@ deleteTestVm daemon vmId = do
 editTestVm :: TestDaemon -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO ()
 editTestVm daemon vmId mCpus mRam mDesc mHeadless = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmEdit conn vmId mCpus mRam mDesc mHeadless Nothing
+    vmEdit conn vmId mCpus mRam mDesc mHeadless Nothing Nothing
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error editing VM: " <> show err

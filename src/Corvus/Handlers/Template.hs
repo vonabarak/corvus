@@ -11,7 +11,7 @@ module Corvus.Handlers.Template
   )
 where
 
-import Control.Monad (forM, forM_)
+import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk (getRunningAttachedVms, resolveDiskPath, sanitizeDiskName)
@@ -46,6 +46,7 @@ data TemplateYaml = TemplateYaml
   , tyRamMb :: Int
   , tyDescription :: Maybe Text
   , tyHeadless :: Bool
+  , tyCloudInit :: Bool
   , tyDrives :: [TemplateDriveYaml]
   , tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml]
   , tySshKeys :: [TemplateSshKeyYaml]
@@ -60,6 +61,7 @@ instance FromJSON TemplateYaml where
       <*> o .: "ramMb"
       <*> o .:? "description"
       <*> o .:? "headless" .!= False
+      <*> o .:? "cloudInit" .!= False
       <*> o .: "drives"
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sshKeys" .!= []
@@ -174,7 +176,7 @@ handleTemplateInstantiate state tidLong newVmName = runServerLogging state $ do
     Just details -> do
       -- 2. Create VM record
       now <- liftIO getCurrentTime
-      vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False Nothing) (ssDbPool state)
+      vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False (tvdCloudInit details) Nothing) (ssDbPool state)
 
       -- 3. Instantiate drives
       driveResults <- forM (tvdDrives details) $ \td -> do
@@ -213,32 +215,36 @@ createTemplate ty now = do
       Nothing -> pure $ Left $ "SSH key not found: " <> tkyName tky
       Just (Entity kid _) -> pure $ Right kid
 
-  case (sequence mDiskIds, sequence mKeyIds) of
-    (Right diskIds, Right keyIds) -> do
-      tid <- insert $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) now
+  -- Validate: SSH keys require cloud-init
+  let hasKeys = not (null (tySshKeys ty))
+  if hasKeys && not (tyCloudInit ty)
+    then pure $ Left "Template has SSH keys but cloud-init is not enabled"
+    else case (sequence mDiskIds, sequence mKeyIds) of
+      (Right diskIds, Right keyIds) -> do
+        tid <- insert $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) now
 
-      forM_ (zip diskIds (tyDrives ty)) $ \(diskId, tdy) -> do
-        insert_ $
-          TemplateDrive
-            tid
-            diskId
-            (tdyInterface tdy)
-            (tdyMedia tdy)
-            (fromMaybe False (tdyReadOnly tdy))
-            (fromMaybe CacheNone (tdyCacheType tdy))
-            (fromMaybe False (tdyDiscard tdy))
-            (tdyStrategy tdy)
-            (tdyNewSizeMb tdy)
+        forM_ (zip diskIds (tyDrives ty)) $ \(diskId, tdy) -> do
+          insert_ $
+            TemplateDrive
+              tid
+              diskId
+              (tdyInterface tdy)
+              (tdyMedia tdy)
+              (fromMaybe False (tdyReadOnly tdy))
+              (fromMaybe CacheNone (tdyCacheType tdy))
+              (fromMaybe False (tdyDiscard tdy))
+              (tdyStrategy tdy)
+              (tdyNewSizeMb tdy)
 
-      forM_ (tyNetworkInterfaces ty) $ \tny -> do
-        insert_ $ TemplateNetworkInterface tid (tnyType tny) (tnyHostDevice tny)
+        forM_ (tyNetworkInterfaces ty) $ \tny -> do
+          insert_ $ TemplateNetworkInterface tid (tnyType tny) (tnyHostDevice tny)
 
-      forM_ keyIds $ \keyId -> do
-        insert_ $ TemplateSshKey tid keyId
+        forM_ keyIds $ \keyId -> do
+          insert_ $ TemplateSshKey tid keyId
 
-      pure $ Right tid
-    (Left err, _) -> pure $ Left err
-    (_, Left err) -> pure $ Left err
+        pure $ Right tid
+      (Left err, _) -> pure $ Left err
+      (_, Left err) -> pure $ Left err
 
 getTemplateDetails :: TemplateVmId -> SqlPersistT IO (Maybe TemplateDetails)
 getTemplateDetails tid = do
@@ -281,6 +287,7 @@ getTemplateDetails tid = do
             , tvdRamMb = templateVmRamMb t
             , tvdDescription = templateVmDescription t
             , tvdHeadless = templateVmHeadless t
+            , tvdCloudInit = templateVmCloudInit t
             , tvdCreatedAt = templateVmCreatedAt t
             , tvdDrives = driveInfos
             , tvdNetIfs = netIfInfos
@@ -305,12 +312,13 @@ finishInstantiation state vmId details = runServerLogging state $ do
   forM_ (tvdSshKeys details) $ \tsk -> do
     liftIO $ runSqlPool (insert_ $ VmSshKey vmId (toSqlKey (tvskiId tsk))) (ssDbPool state)
 
-  -- Generate cloud-init ISO (installs qemu-guest-agent + SSH keys if any)
-  logInfoN "Generating cloud-init ISO for instantiated VM"
-  result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details) (ssLogLevel state)
-  case result of
-    Left err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
-    Right _ -> logInfoN "Cloud-init ISO generated and attached"
+  -- Generate cloud-init ISO if cloud-init is enabled
+  when (tvdCloudInit details) $ do
+    logInfoN "Generating cloud-init ISO for instantiated VM"
+    result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details) (ssLogLevel state)
+    case result of
+      Left err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
+      Right _ -> logInfoN "Cloud-init ISO generated and attached"
 
 --------------------------------------------------------------------------------
 -- Internal Functions (IO & Orchestration)

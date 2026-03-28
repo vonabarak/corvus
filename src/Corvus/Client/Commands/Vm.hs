@@ -46,9 +46,9 @@ import System.Process (callProcess)
 import Text.Printf (printf)
 
 -- | Handle VM creation
-handleVmCreate :: OutputFormat -> Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> IO Bool
-handleVmCreate fmt conn name cpuCount ramMb mDesc headless guestAgent = do
-  resp <- vmCreate conn name cpuCount ramMb mDesc headless guestAgent
+handleVmCreate :: OutputFormat -> Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO Bool
+handleVmCreate fmt conn name cpuCount ramMb mDesc headless guestAgent cloudInit = do
+  resp <- vmCreate conn name cpuCount ramMb mDesc headless guestAgent cloudInit
   case resp of
     Left err -> do
       if isStructured fmt
@@ -128,9 +128,9 @@ handleVmAction fmt actionName vmId action = do
       pure True
 
 -- | Handle VM edit
-handleVmEdit :: OutputFormat -> Connection -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> IO Bool
-handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGuestAgent = do
-  resp <- vmEdit conn vmId mCpus mRam mDesc mHeadless mGuestAgent
+handleVmEdit :: OutputFormat -> Connection -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool
+handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
+  resp <- vmEdit conn vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit
   case resp of
     Left err -> do
       if isStructured fmt
@@ -163,13 +163,14 @@ printVmInfo :: UTCTime -> VmInfo -> IO ()
 printVmInfo now vm =
   putStrLn $
     printf
-      "%-6d %-20s %-12s %5d %8d  %-6s"
+      "%-6d %-20s %-12s %5d %8d  %-6s %-2s"
       (viId vm)
       (T.unpack $ viName vm)
       (T.unpack $ enumToText $ viStatus vm)
       (viCpuCount vm)
       (viRamMb vm)
       (healthLabel now vm)
+      (if viCloudInit vm then "+" else "-" :: String)
 
 -- | Print full VM details
 printVmDetails :: VmDetails -> IO ()
@@ -183,6 +184,7 @@ printVmDetails vm = do
   printField "Description" (maybe "(none)" T.unpack (vdDescription vm))
   printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")
   printField "Guest Agent" (if vdGuestAgent vm then "enabled" else "disabled")
+  printField "Cloud-init" (if vdCloudInit vm then "enabled" else "disabled")
   printField "Healthcheck" (maybe "(no data)" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S") (vdHealthcheck vm))
   printField "Monitor" (T.unpack (vdMonitorSocket vm))
   if vdHeadless vm
