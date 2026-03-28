@@ -17,7 +17,7 @@ where
 
 import Control.Monad (forM_)
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult)
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult, printField, printTableHeader, tableFormat)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..))
@@ -114,14 +114,7 @@ handleTemplateList fmt conn = do
           if null templates
             then putStrLn "No templates found."
             else do
-              putStrLn $
-                printf
-                  "%-6s %-30s %-6s %-8s"
-                  ("ID" :: String)
-                  ("NAME" :: String)
-                  ("CPUS" :: String)
-                  ("RAM_MB" :: String)
-              putStrLn $ replicate 55 '-'
+              printTableHeader [("ID", -6), ("NAME", -30), ("CPUS", -6), ("RAM_MB", -8)]
               mapM_ printTemplateVmInfo templates
       pure True
     Right other -> do
@@ -210,57 +203,47 @@ printTemplateVmInfo t =
 -- | Print full template details
 printTemplateDetails :: TemplateDetails -> IO ()
 printTemplateDetails t = do
-  putStrLn $ "Template ID:  " ++ show (tvdId t)
-  putStrLn $ "Name:         " ++ T.unpack (tvdName t)
-  putStrLn $ "CPUs:         " ++ show (tvdCpuCount t)
-  putStrLn $ "RAM:          " ++ show (tvdRamMb t) ++ " MB"
-  putStrLn $ "Created At:   " ++ formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (tvdCreatedAt t)
+  printField "Template ID" (show (tvdId t))
+  printField "Name" (T.unpack (tvdName t))
+  printField "CPUs" (show (tvdCpuCount t))
+  printField "RAM" (show (tvdRamMb t) ++ " MB")
+  printField "Created At" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (tvdCreatedAt t))
   case tvdDescription t of
-    Just desc -> putStrLn $ "Description:  " ++ T.unpack desc
+    Just desc -> printField "Description" (T.unpack desc)
     Nothing -> pure ()
-  putStrLn $ "Console:      " ++ if tvdHeadless t then "serial (headless)" else "SPICE (graphics)"
+  printField "Console" (if tvdHeadless t then "serial (headless)" else "SPICE (graphics)")
 
   putStrLn "\nDrives:"
   if null (tvdDrives t)
     then putStrLn "  No drives defined."
     else do
-      putStrLn $
-        printf
-          "  %-15s %-12s %-10s %-10s %-10s %-8s"
-          ("IMAGE" :: String)
-          ("INTERFACE" :: String)
-          ("STRATEGY" :: String)
-          ("READ_ONLY" :: String)
-          ("CACHE" :: String)
-          ("NEW_SIZE" :: String)
-      putStrLn $ "  " ++ replicate 75 '-'
+      let dCols = [("IMAGE", -15), ("INTERFACE", -12), ("STRATEGY", -10), ("READ_ONLY", -10), ("CACHE", -10), ("NEW_SIZE", -8)]
+          (dFmt, dSep) = tableFormat dCols
+      printf ("  " ++ dFmt) ("IMAGE" :: String) ("INTERFACE" :: String) ("STRATEGY" :: String) ("READ_ONLY" :: String) ("CACHE" :: String) ("NEW_SIZE" :: String)
+      putStrLn $ "  " ++ dSep
       forM_ (tvdDrives t) $ \d ->
-        putStrLn $
-          printf
-            "  %-15s %-12s %-10s %-10s %-10s %-8s"
-            (T.unpack $ tvdiDiskImageName d)
-            (T.unpack $ enumToText $ tvdiInterface d)
-            (T.unpack $ enumToText $ tvdiCloneStrategy d)
-            (show $ tvdiReadOnly d)
-            (T.unpack $ enumToText $ tvdiCacheType d)
-            (maybe "-" show (tvdiNewSizeMb d))
+        printf
+          ("  " ++ dFmt)
+          (T.unpack $ tvdiDiskImageName d)
+          (T.unpack $ enumToText $ tvdiInterface d)
+          (T.unpack $ enumToText $ tvdiCloneStrategy d)
+          (show $ tvdiReadOnly d)
+          (T.unpack $ enumToText $ tvdiCacheType d)
+          (maybe "-" show (tvdiNewSizeMb d))
 
   putStrLn "\nNetwork Interfaces:"
   if null (tvdNetIfs t)
     then putStrLn "  No network interfaces defined."
     else do
-      putStrLn $
-        printf
-          "  %-10s %-20s"
-          ("TYPE" :: String)
-          ("HOST_DEVICE" :: String)
-      putStrLn $ "  " ++ replicate 35 '-'
+      let nCols = [("TYPE", -10), ("HOST_DEVICE", -20)]
+          (niFmt, niSep) = tableFormat nCols
+      printf ("  " ++ niFmt) ("TYPE" :: String) ("HOST_DEVICE" :: String)
+      putStrLn $ "  " ++ niSep
       forM_ (tvdNetIfs t) $ \ni ->
-        putStrLn $
-          printf
-            "  %-10s %-20s"
-            (T.unpack $ enumToText $ tvniType ni)
-            (maybe "-" T.unpack $ tvniHostDevice ni)
+        printf
+          ("  " ++ niFmt)
+          (T.unpack $ enumToText $ tvniType ni)
+          (maybe "-" T.unpack $ tvniHostDevice ni)
 
   putStrLn "\nSSH Keys:"
   if null (tvdSshKeys t)

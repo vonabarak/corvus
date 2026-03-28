@@ -16,7 +16,7 @@ module Corvus.Client.Commands.SshKey
 where
 
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult)
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult, printTableHeader)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Protocol (SshKeyInfo (..))
@@ -102,14 +102,7 @@ handleSshKeyList fmt conn = do
           if null keys
             then putStrLn "No SSH keys found."
             else do
-              putStrLn $
-                printf
-                  "%-6s %-20s %-50s %-15s"
-                  ("ID" :: String)
-                  ("NAME" :: String)
-                  ("PUBLIC_KEY" :: String)
-                  ("ATTACHED_VMS" :: String)
-              putStrLn $ replicate 95 '-'
+              printTableHeader [("ID", -6), ("NAME", -20), ("PUBLIC_KEY", -50), ("ATTACHED_VMS", -15)]
               mapM_ printSshKeyInfo keys
       pure True
     Right other -> do
@@ -207,13 +200,7 @@ handleSshKeyListForVm fmt conn vmId = do
           if null keys
             then putStrLn "No SSH keys attached to this VM."
             else do
-              putStrLn $
-                printf
-                  "%-6s %-20s %-50s"
-                  ("ID" :: String)
-                  ("NAME" :: String)
-                  ("PUBLIC_KEY" :: String)
-              putStrLn $ replicate 80 '-'
+              printTableHeader [("ID", -6), ("NAME", -20), ("PUBLIC_KEY", -50)]
               mapM_ printSshKeyInfoShort keys
       pure True
     Right SshKeyVmNotFound -> do

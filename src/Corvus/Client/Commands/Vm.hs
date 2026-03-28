@@ -25,7 +25,7 @@ import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, bracket, try)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith)
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, printField, tableFormat)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
@@ -174,21 +174,21 @@ printVmInfo now vm =
 -- | Print full VM details
 printVmDetails :: VmDetails -> IO ()
 printVmDetails vm = do
-  putStrLn $ "VM ID:          " ++ show (vdId vm)
-  putStrLn $ "Name:           " ++ T.unpack (vdName vm)
-  putStrLn $ "Created:        " ++ formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (vdCreatedAt vm)
-  putStrLn $ "Status:         " ++ T.unpack (enumToText $ vdStatus vm)
-  putStrLn $ "CPUs:           " ++ show (vdCpuCount vm)
-  putStrLn $ "RAM (MB):       " ++ show (vdRamMb vm)
-  putStrLn $ "Description:    " ++ maybe "(none)" T.unpack (vdDescription vm)
-  putStrLn $ "Console:        " ++ if vdHeadless vm then "serial (headless)" else "SPICE (graphics)"
-  putStrLn $ "Guest Agent:    " ++ if vdGuestAgent vm then "enabled" else "disabled"
-  putStrLn $ "Healthcheck:    " ++ maybe "(no data)" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S") (vdHealthcheck vm)
-  putStrLn $ "Monitor Socket: " ++ T.unpack (vdMonitorSocket vm)
+  printField "VM ID" (show (vdId vm))
+  printField "Name" (T.unpack (vdName vm))
+  printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (vdCreatedAt vm))
+  printField "Status" (T.unpack (enumToText $ vdStatus vm))
+  printField "CPUs" (show (vdCpuCount vm))
+  printField "RAM (MB)" (show (vdRamMb vm))
+  printField "Description" (maybe "(none)" T.unpack (vdDescription vm))
+  printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")
+  printField "Guest Agent" (if vdGuestAgent vm then "enabled" else "disabled")
+  printField "Healthcheck" (maybe "(no data)" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S") (vdHealthcheck vm))
+  printField "Monitor" (T.unpack (vdMonitorSocket vm))
   if vdHeadless vm
-    then putStrLn $ "Serial Socket:  " ++ T.unpack (vdSerialSocket vm)
-    else putStrLn $ "SPICE Socket:   " ++ T.unpack (vdSpiceSocket vm)
-  putStrLn $ "Guest Agent:    " ++ T.unpack (vdGuestAgentSocket vm)
+    then printField "Serial" (T.unpack (vdSerialSocket vm))
+    else printField "SPICE" (T.unpack (vdSpiceSocket vm))
+  printField "Guest Agent" (T.unpack (vdGuestAgentSocket vm))
 
   putStrLn ""
   putStrLn "Drives:"

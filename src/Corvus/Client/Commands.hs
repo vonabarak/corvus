@@ -122,16 +122,8 @@ runCommand opts = do
                   then putStrLn "No VMs found."
                   else do
                     now <- getCurrentTime
-                    putStrLn $
-                      printf
-                        "%-6s %-20s %-12s %5s %8s  %-6s"
-                        ("ID" :: String)
-                        ("NAME" :: String)
-                        ("STATUS" :: String)
-                        ("CPUS" :: String)
-                        ("RAM_MB" :: String)
-                        ("HEALTH" :: String)
-                    putStrLn $ replicate 63 '-'
+                    let vmCols = [("ID", -6), ("NAME", -20), ("STATUS", -12), ("CPUS", 5), ("RAM_MB", 8), ("HEALTH", -6)]
+                    printTableHeader vmCols
                     mapM_ (printVmInfo now) vms
             pure True
       VmShow vmId -> do

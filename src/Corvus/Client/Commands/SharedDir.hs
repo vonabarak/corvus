@@ -13,7 +13,7 @@ module Corvus.Client.Commands.SharedDir
 where
 
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult)
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult, printTableHeader)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), SharedDirCache)
@@ -112,16 +112,7 @@ handleSharedDirList fmt conn vmId = do
           if null dirs
             then putStrLn "No shared directories found for this VM."
             else do
-              putStrLn $
-                printf
-                  "%-5s %-40s %-15s %-10s %-10s %-10s"
-                  ("ID" :: String)
-                  ("PATH" :: String)
-                  ("TAG" :: String)
-                  ("CACHE" :: String)
-                  ("READ_ONLY" :: String)
-                  ("PID" :: String)
-              putStrLn $ replicate 100 '-'
+              printTableHeader [("ID", -5), ("PATH", -40), ("TAG", -15), ("CACHE", -10), ("READ_ONLY", -10), ("PID", -10)]
               mapM_ printSharedDirInfo dirs
       pure True
     Right SharedDirVmNotFound -> do

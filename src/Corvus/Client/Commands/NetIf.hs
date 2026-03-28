@@ -13,7 +13,7 @@ module Corvus.Client.Commands.NetIf
 where
 
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult)
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult, printTableHeader)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), NetInterfaceType)
@@ -107,15 +107,7 @@ handleNetIfList fmt conn vmId = do
           if null netIfs
             then putStrLn "No network interfaces found for this VM."
             else do
-              putStrLn $
-                printf
-                  "%-5s %-15s %-20s %-20s  %s"
-                  ("ID" :: String)
-                  ("TYPE" :: String)
-                  ("DEVICE" :: String)
-                  ("MAC" :: String)
-                  ("GUEST_IPS" :: String)
-              putStrLn $ replicate 90 '-'
+              printTableHeader [("ID", -5), ("TYPE", -15), ("DEVICE", -20), ("MAC", -20), ("GUEST_IPS", -20)]
               mapM_ printNetIfInfo netIfs
       pure True
     Right NetIfVmNotFound -> do

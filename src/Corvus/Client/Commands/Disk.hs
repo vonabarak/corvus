@@ -35,7 +35,7 @@ module Corvus.Client.Commands.Disk
 where
 
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult)
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult, printField, printTableHeader)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (CacheType, DriveFormat (..), DriveInterface, DriveMedia, EnumText (..))
@@ -332,15 +332,7 @@ handleDiskList fmt conn = do
           if null disks
             then putStrLn "No disk images found."
             else do
-              putStrLn $
-                printf
-                  "%-6s %-20s %-8s %10s %-20s"
-                  ("ID" :: String)
-                  ("NAME" :: String)
-                  ("FORMAT" :: String)
-                  ("SIZE_MB" :: String)
-                  ("ATTACHED_TO" :: String)
-              putStrLn $ replicate 70 '-'
+              printTableHeader [("ID", -6), ("NAME", -20), ("FORMAT", -8), ("SIZE_MB", 10), ("ATTACHED_TO", -20)]
               mapM_ printDiskInfo disks
       pure True
     Right other -> do
@@ -665,14 +657,7 @@ handleSnapshotList fmt conn diskId = do
           if null snaps
             then putStrLn "No snapshots found."
             else do
-              putStrLn $
-                printf
-                  "%-6s %-30s %-20s %10s"
-                  ("ID" :: String)
-                  ("NAME" :: String)
-                  ("CREATED" :: String)
-                  ("SIZE_MB" :: String)
-              putStrLn $ replicate 70 '-'
+              printTableHeader [("ID", -6), ("NAME", -30), ("CREATED", -20), ("SIZE_MB", 10)]
               mapM_ printSnapshotInfo snaps
       pure True
     Right SnapshotDiskNotFound -> do
@@ -705,17 +690,17 @@ printDiskInfo d =
 -- | Print disk image details
 printDiskDetails :: DiskImageInfo -> IO ()
 printDiskDetails d = do
-  putStrLn $ "Disk ID:     " ++ show (diiId d)
-  putStrLn $ "Name:        " ++ T.unpack (diiName d)
-  putStrLn $ "File Path:   " ++ T.unpack (diiFilePath d)
-  putStrLn $ "Format:      " ++ T.unpack (enumToText $ diiFormat d)
-  putStrLn $ "Size (MB):   " ++ maybe "(unknown)" show (diiSizeMb d)
-  putStrLn $ "Created:     " ++ formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d)
-  putStrLn $ "Attached to: " ++ if null (diiAttachedTo d) then "(none)" else show (diiAttachedTo d)
+  printField "Disk ID" (show (diiId d))
+  printField "Name" (T.unpack (diiName d))
+  printField "File Path" (T.unpack (diiFilePath d))
+  printField "Format" (T.unpack (enumToText $ diiFormat d))
+  printField "Size (MB)" (maybe "(unknown)" show (diiSizeMb d))
+  printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d))
+  printField "Attached to" (if null (diiAttachedTo d) then "(none)" else show (diiAttachedTo d))
   case diiBackingImageName d of
     Nothing -> pure ()
     Just backingName ->
-      putStrLn $ "Backing:     " ++ T.unpack backingName ++ " (ID: " ++ maybe "?" show (diiBackingImageId d) ++ ")"
+      printField "Backing" (T.unpack backingName ++ " (ID: " ++ maybe "?" show (diiBackingImageId d) ++ ")")
 
 -- | Print snapshot info in table format
 printSnapshotInfo :: SnapshotInfo -> IO ()

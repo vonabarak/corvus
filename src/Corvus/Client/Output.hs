@@ -8,6 +8,11 @@ module Corvus.Client.Output
   , outputOkWith
   , outputError
   , isStructured
+
+    -- * Table formatting
+  , tableFormat
+  , printTableHeader
+  , printField
   )
 where
 
@@ -17,6 +22,7 @@ import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Text (Text)
 import qualified Data.Yaml as Yaml
+import Text.Printf (printf)
 
 -- | Whether the output format is structured (json/yaml) vs text
 isStructured :: OutputFormat -> Bool
@@ -51,3 +57,60 @@ outputError fmt code msg =
       , "error" .= code
       , "message" .= msg
       ]
+
+--------------------------------------------------------------------------------
+-- Table Formatting
+--------------------------------------------------------------------------------
+
+-- | Build a printf format string and separator line from column specs.
+-- Each spec is (headerLabel, width). Negative width = left-aligned.
+-- Returns (formatString, separatorLine).
+--
+-- @
+-- let (fmt, sep) = tableFormat [("ID", -6), ("NAME", -20)]
+-- printf fmt "ID" "NAME"
+-- putStrLn sep
+-- @
+tableFormat :: [(String, Int)] -> (String, String)
+tableFormat cols =
+  let fmtParts = [buildColFmt w | (_, w) <- cols]
+      fmt = unwords fmtParts ++ "\n"
+      totalWidth = sum [abs w | (_, w) <- cols] + length cols - 1
+      sep = replicate totalWidth '-'
+   in (fmt, sep)
+  where
+    buildColFmt :: Int -> String
+    buildColFmt w = "%" ++ show w ++ "s"
+
+-- | Print a table header row and separator line from column specs.
+-- Each spec is (headerLabel, width). Negative width = left-aligned.
+printTableHeader :: [(String, Int)] -> IO ()
+printTableHeader cols = do
+  let (fmt, sep) = tableFormat cols
+      row = buildRow fmt (map fst cols)
+  putStr row
+  putStrLn sep
+  where
+    buildRow :: String -> [String] -> String
+    buildRow fmt' vals = go fmt' vals ""
+      where
+        go [] _ acc = acc ++ "\n"
+        go ('%' : rest) (v : vs) acc =
+          let (spec, rest') = span (/= 's') rest
+           in case rest' of
+                ('s' : rest'') -> go rest'' vs (acc ++ padField (read spec) v)
+                _ -> acc ++ "%" ++ rest -- shouldn't happen
+        go (c : rest) vs acc = go rest vs (acc ++ [c])
+        go _ [] acc = acc ++ "\n"
+
+    padField :: Int -> String -> String
+    padField w s
+      | w < 0 = take (abs w) (s ++ repeat ' ')
+      | otherwise = replicate (w - length s) ' ' ++ take w s
+
+-- | Print a key-value detail line with consistent alignment.
+-- Key is printed left-aligned with a colon, value follows.
+--
+-- @printField "Name" "alma10"@  prints  @Name:           alma10@
+printField :: String -> String -> IO ()
+printField key = printf "%-16s%s\n" (key ++ ":")

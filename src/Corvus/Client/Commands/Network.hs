@@ -174,8 +174,7 @@ handleNetworkList fmt conn = do
           if null networks
             then putStrLn "No networks found."
             else do
-              printf "%-5s %-20s %-18s %-10s %-10s\n" ("ID" :: String) ("NAME" :: String) ("SUBNET" :: String) ("STATUS" :: String) ("PID" :: String)
-              printf "%-5s %-20s %-18s %-10s %-10s\n" ("---" :: String) ("----" :: String) ("------" :: String) ("------" :: String) ("---" :: String)
+              printTableHeader [("ID", -5), ("NAME", -20), ("SUBNET", -18), ("STATUS", -10), ("PID", -10)]
               mapM_ printNetworkInfo networks
       pure True
     Right other -> do
@@ -198,18 +197,17 @@ handleNetworkShow fmt conn nwId = do
       if isStructured fmt
         then outputValue fmt (toJSON info)
         else do
-          putStrLn $ "ID:      " ++ show (nwiId info)
-          putStrLn $ "Name:    " ++ T.unpack (nwiName info)
+          printField "ID" (show (nwiId info))
+          printField "Name" (T.unpack (nwiName info))
           let sub = nwiSubnet info
           unless (T.null sub) $
-            putStrLn $
-              "Subnet:  " ++ T.unpack sub
-          putStrLn $ "Status:  " ++ if nwiRunning info then "running" else "stopped"
+            printField "Subnet" (T.unpack sub)
+          printField "Status" (if nwiRunning info then "running" else "stopped")
           case nwiVdeSwitchPid info of
-            Just pid -> putStrLn $ "VDE PID: " ++ show pid
+            Just pid -> printField "VDE PID" (show pid)
             Nothing -> pure ()
           case nwiDnsmasqPid info of
-            Just pid -> putStrLn $ "DNS PID: " ++ show pid
+            Just pid -> printField "DNS PID" (show pid)
             Nothing -> pure ()
       pure True
     Right NetworkNotFound -> do
