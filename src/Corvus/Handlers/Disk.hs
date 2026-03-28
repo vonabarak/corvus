@@ -30,6 +30,13 @@ module Corvus.Handlers.Disk
   , resolveDiskPath
   , makeRelativeToBase
   , getRunningAttachedVms
+  , detectFormatFromPath
+
+    -- * Core operations (return Either Text Int64)
+  , createDiskIO
+  , registerDiskIO
+  , importDiskFromUrlIO
+  , createOverlayDiskIO
   )
 where
 
@@ -52,7 +59,7 @@ import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
-import System.FilePath ((</>))
+import System.FilePath (takeExtension, (</>))
 
 --------------------------------------------------------------------------------
 -- Path Utilities
@@ -188,73 +195,15 @@ handleDiskRegister state name filePath format mSizeMb = runServerLogging state $
 handleDiskImportUrl :: ServerState -> Text -> Text -> Maybe Text -> IO Response
 handleDiskImportUrl state name url mFormatStr = runServerLogging state $ do
   logInfoN $ "Importing disk image from URL: " <> name <> " <- " <> url
-
-  case sanitizeDiskName name of
+  let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
+  result <- liftIO $ importDiskFromUrlIO state name url mExplicitFmt
+  case result of
     Left err -> do
-      logWarnN $ "Invalid disk name: " <> err
+      logWarnN $ "URL import failed: " <> err
       pure $ RespError err
-    Right safeName -> do
-      -- Determine format
-      let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
-          mUrlFmt = detectFormatFromUrl url
-      case mExplicitFmt <|> mUrlFmt of
-        Nothing -> pure $ RespError "Cannot detect disk format from URL. Use --format to specify."
-        Just format -> do
-          basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
-
-          -- Determine download path (with .xz if URL has it)
-          let urlStr = T.unpack url
-              isXz = ".xz" `isSuffixOf` urlStr || ".xz?" `isInfixOf` urlStr
-              fmtExt = T.unpack (enumToText format)
-              downloadFileName =
-                T.unpack safeName <> "." <> fmtExt <> if isXz then ".xz" else ""
-              downloadPath = basePath </> downloadFileName
-              finalFileName = T.unpack safeName <> "." <> fmtExt
-              finalPath = basePath </> finalFileName
-
-          -- Download
-          logInfoN $ "Downloading to " <> T.pack downloadPath
-          dlResult <- liftIO $ downloadImage downloadPath url
-          case dlResult of
-            ImageError err -> do
-              logWarnN $ "Download failed: " <> err
-              pure $ RespError $ "Download failed: " <> err
-            _ -> do
-              -- Decompress if needed
-              actualPath <-
-                if isXz
-                  then do
-                    logInfoN "Decompressing .xz file..."
-                    xzResult <- liftIO $ decompressXz downloadPath
-                    case xzResult of
-                      Left err -> pure $ Left err
-                      Right path -> pure $ Right path
-                  else pure $ Right finalPath
-
-              case actualPath of
-                Left err -> pure $ RespError err
-                Right diskPath -> do
-                  -- Register in DB
-                  let storedPath = makeRelativeToBase basePath diskPath
-                  now <- liftIO getCurrentTime
-                  diskId <-
-                    liftIO $
-                      runSqlPool
-                        ( insert
-                            DiskImage
-                              { diskImageName = safeName
-                              , diskImageFilePath = storedPath
-                              , diskImageFormat = format
-                              , diskImageSizeMb = Nothing
-                              , diskImageCreatedAt = now
-                              , diskImageBackingImageId = Nothing
-                              }
-                        )
-                        (ssDbPool state)
-                  logInfoN $ "Imported disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
-                  pure $ RespDiskCreated $ fromSqlKey diskId
-  where
-    isInfixOf needle haystack = needle `T.isInfixOf` T.pack haystack
+    Right diskId -> do
+      logInfoN $ "Imported disk image with ID: " <> T.pack (show diskId)
+      pure $ RespDiskCreated diskId
 
 -- | Create a qcow2 overlay backed by an existing disk image
 handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe T.Text -> IO Response
@@ -886,3 +835,169 @@ getSnapshots diskId = do
             }
       )
       snapshots
+
+--------------------------------------------------------------------------------
+-- Path Utilities (additional)
+--------------------------------------------------------------------------------
+
+-- | Detect disk format from a local file path extension
+detectFormatFromPath :: Text -> Maybe DriveFormat
+detectFormatFromPath path =
+  case takeExtension (T.unpack path) of
+    ".qcow2" -> Just FormatQcow2
+    ".raw" -> Just FormatRaw
+    ".img" -> Just FormatRaw
+    ".vmdk" -> Just FormatVmdk
+    ".vdi" -> Just FormatVdi
+    _ -> Nothing
+
+--------------------------------------------------------------------------------
+-- Core Operations
+-- These return Either Text Int64 (error or disk ID) for reuse by Apply handler.
+--------------------------------------------------------------------------------
+
+-- | Create a new empty disk image and return its ID.
+createDiskIO :: ServerState -> Text -> DriveFormat -> Int -> IO (Either Text Int64)
+createDiskIO state name format sizeMb = do
+  case sanitizeDiskName name of
+    Left err -> pure $ Left err
+    Right safeName -> do
+      basePath <- getEffectiveBasePath (ssQemuConfig state)
+      let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
+          filePath = basePath </> fileName
+      result <- createImage filePath format (fromIntegral sizeMb)
+      case result of
+        ImageError err -> pure $ Left err
+        _ -> do
+          now <- getCurrentTime
+          diskId <-
+            runSqlPool
+              ( insert
+                  DiskImage
+                    { diskImageName = safeName
+                    , diskImageFilePath = makeRelativeToBase basePath filePath
+                    , diskImageFormat = format
+                    , diskImageSizeMb = Just sizeMb
+                    , diskImageCreatedAt = now
+                    , diskImageBackingImageId = Nothing
+                    }
+              )
+              (ssDbPool state)
+          pure $ Right $ fromSqlKey diskId
+
+-- | Register an existing disk image file and return its ID.
+-- If the file is already registered (by path), returns the existing ID.
+registerDiskIO :: ServerState -> Text -> Text -> DriveFormat -> Maybe Int -> IO (Either Text Int64)
+registerDiskIO state name filePath format mSizeMb = do
+  basePath <- getEffectiveBasePath (ssQemuConfig state)
+  let storedPath = makeRelativeToBase basePath (T.unpack filePath)
+  now <- getCurrentTime
+  mExisting <- runSqlPool (getBy (UniqueImagePath storedPath)) (ssDbPool state)
+  case mExisting of
+    Just (Entity diskId _) -> pure $ Right $ fromSqlKey diskId
+    Nothing -> do
+      diskId <-
+        runSqlPool
+          ( insert
+              DiskImage
+                { diskImageName = name
+                , diskImageFilePath = storedPath
+                , diskImageFormat = format
+                , diskImageSizeMb = mSizeMb
+                , diskImageCreatedAt = now
+                , diskImageBackingImageId = Nothing
+                }
+          )
+          (ssDbPool state)
+      pure $ Right $ fromSqlKey diskId
+
+-- | Import a disk image from an HTTP/HTTPS URL and return its ID.
+-- Downloads to the base images directory, decompresses .xz if needed.
+importDiskFromUrlIO :: ServerState -> Text -> Text -> Maybe DriveFormat -> IO (Either Text Int64)
+importDiskFromUrlIO state name url mFormat = do
+  case sanitizeDiskName name of
+    Left err -> pure $ Left err
+    Right safeName -> do
+      let mUrlFmt = detectFormatFromUrl url
+      case mFormat <|> mUrlFmt of
+        Nothing -> pure $ Left "Cannot detect disk format from URL. Use --format to specify."
+        Just format -> do
+          basePath <- getEffectiveBasePath (ssQemuConfig state)
+          let urlStr = T.unpack url
+              isXz = ".xz" `isSuffixOf` urlStr || ".xz?" `isInfixOf'` urlStr
+              fmtExt = T.unpack (enumToText format)
+              downloadFileName = T.unpack safeName <> "." <> fmtExt <> if isXz then ".xz" else ""
+              downloadPath = basePath </> downloadFileName
+              finalFileName = T.unpack safeName <> "." <> fmtExt
+              finalPath = basePath </> finalFileName
+          dlResult <- downloadImage downloadPath url
+          case dlResult of
+            ImageError err -> pure $ Left $ "Download failed: " <> err
+            _ -> do
+              actualPath <-
+                if isXz
+                  then decompressXz downloadPath
+                  else pure $ Right finalPath
+              case actualPath of
+                Left err -> pure $ Left err
+                Right diskPath -> do
+                  let storedPath = makeRelativeToBase basePath diskPath
+                  now <- getCurrentTime
+                  diskId <-
+                    runSqlPool
+                      ( insert
+                          DiskImage
+                            { diskImageName = safeName
+                            , diskImageFilePath = storedPath
+                            , diskImageFormat = format
+                            , diskImageSizeMb = Nothing
+                            , diskImageCreatedAt = now
+                            , diskImageBackingImageId = Nothing
+                            }
+                      )
+                      (ssDbPool state)
+                  pure $ Right $ fromSqlKey diskId
+  where
+    isInfixOf' needle haystack = needle `T.isInfixOf` T.pack haystack
+
+-- | Create a qcow2 overlay backed by an existing disk and return its ID.
+-- Optionally resizes the overlay after creation.
+createOverlayDiskIO :: ServerState -> Text -> Int64 -> Maybe Int -> IO (Either Text Int64)
+createOverlayDiskIO state name backingDiskId mResizeMb = do
+  case sanitizeDiskName name of
+    Left err -> pure $ Left err
+    Right safeName -> do
+      mBackingDisk <- runSqlPool (get (toSqlKey backingDiskId :: DiskImageId)) (ssDbPool state)
+      case mBackingDisk of
+        Nothing -> pure $ Left "Backing disk not found"
+        Just backingDisk -> do
+          basePath <- getEffectiveBasePath (ssQemuConfig state)
+          let fileName = T.unpack safeName <> ".qcow2"
+              overlayPath = basePath </> fileName
+          baseFilePath <- resolveDiskPath (ssQemuConfig state) backingDisk
+          result <- createOverlay overlayPath baseFilePath (diskImageFormat backingDisk)
+          case result of
+            ImageError err -> pure $ Left err
+            ImageFormatNotSupported msg -> pure $ Left msg
+            ImageNotFound -> pure $ Left "Backing image file not found"
+            ImageSuccess -> do
+              case mResizeMb of
+                Just newSize -> do
+                  _ <- resizeImage overlayPath (fromIntegral newSize)
+                  pure ()
+                Nothing -> pure ()
+              now <- getCurrentTime
+              diskId <-
+                runSqlPool
+                  ( insert
+                      DiskImage
+                        { diskImageName = safeName
+                        , diskImageFilePath = makeRelativeToBase basePath overlayPath
+                        , diskImageFormat = FormatQcow2
+                        , diskImageSizeMb = mResizeMb <|> diskImageSizeMb backingDisk
+                        , diskImageCreatedAt = now
+                        , diskImageBackingImageId = Just (toSqlKey backingDiskId)
+                        }
+                  )
+                  (ssDbPool state)
+              pure $ Right $ fromSqlKey diskId

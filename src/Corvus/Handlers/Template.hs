@@ -11,10 +11,11 @@ module Corvus.Handlers.Template
   )
 where
 
-import Control.Monad (forM, forM_, replicateM)
+import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk (getRunningAttachedVms, resolveDiskPath, sanitizeDiskName)
+import Corvus.Handlers.NetIf (generateMacAddress)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model
 import Corvus.Protocol
@@ -34,8 +35,6 @@ import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
 import GHC.Generics (Generic)
 import System.FilePath ((</>))
-import System.Random (randomRIO)
-import Text.Printf (printf)
 
 --------------------------------------------------------------------------------
 -- YAML Types
@@ -312,13 +311,6 @@ finishInstantiation state vmId details = runServerLogging state $ do
   case result of
     Left err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
     Right _ -> logInfoN "Cloud-init ISO generated and attached"
-
-generateMacAddress :: IO Text
-generateMacAddress = do
-  [b1, b2, b3] <- replicateM 3 (randomRIO (0, 255 :: Int))
-  -- QEMU OUI is 52:54:00
-  let mac = T.pack $ printf "52:54:00:%02x:%02x:%02x" b1 b2 b3
-  pure mac
 
 --------------------------------------------------------------------------------
 -- Internal Functions (IO & Orchestration)

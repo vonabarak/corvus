@@ -1,5 +1,5 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Handler for applying declarative environment configurations from YAML.
 -- Creates SSH keys, disks, networks, and VMs in dependency order.
@@ -9,39 +9,32 @@ module Corvus.Handlers.Apply
 where
 
 import Control.Applicative ((<|>))
-import Control.Monad (forM, forM_, replicateM)
+import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
-import Corvus.Handlers.Disk (makeRelativeToBase, sanitizeDiskName)
+import Corvus.Handlers.Disk
+  ( createDiskIO
+  , createOverlayDiskIO
+  , detectFormatFromPath
+  , importDiskFromUrlIO
+  , registerDiskIO
+  )
+import Corvus.Handlers.NetIf (generateMacAddress)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Qemu.Config (getEffectiveBasePath)
-import Corvus.Qemu.Image
-  ( ImageResult (..)
-  , createImage
-  , createOverlay
-  , decompressXz
-  , detectFormatFromUrl
-  , downloadImage
-  , isHttpUrl
-  , resizeImage
-  )
+import Corvus.Qemu.Image (isHttpUrl)
 import Corvus.Types
 import Data.Int (Int64)
-import Data.List (isSuffixOf)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Time (getCurrentTime)
 import Data.Yaml (FromJSON (..), decodeEither', withObject, (.!=), (.:), (.:?))
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import System.FilePath (takeExtension, (</>))
-import System.Random (randomRIO)
-import Text.Printf (printf)
+import Database.Persist.Postgresql (SqlBackend, runSqlPool)
 
 --------------------------------------------------------------------------------
 -- YAML Types
@@ -195,7 +188,6 @@ handleApply state yamlContent = runServerLogging state $ do
       logWarnN $ "Failed to parse apply config YAML: " <> msg
       pure $ RespError msg
     Right config -> do
-      -- Validate config
       case validateConfig config of
         Left err -> do
           logWarnN $ "Config validation failed: " <> err
@@ -217,13 +209,10 @@ handleApply state yamlContent = runServerLogging state $ do
 
 validateConfig :: ApplyConfig -> Either Text ()
 validateConfig config = do
-  -- Check for duplicate names within each section
   checkDuplicates "SSH key" $ map askName (acSshKeys config)
   checkDuplicates "disk" $ map adName (acDisks config)
   checkDuplicates "network" $ map anName (acNetworks config)
   checkDuplicates "VM" $ map avName (acVms config)
-
-  -- Validate disk definitions (mutually exclusive fields)
   forM_ (acDisks config) validateDisk
   where
     checkDuplicates :: Text -> [Text] -> Either Text ()
@@ -256,22 +245,18 @@ validateConfig config = do
 
 executeApply :: ServerState -> ApplyConfig -> IO (Either Text ApplyResult)
 executeApply state config = do
-  -- Phase 1: Create SSH keys
   keyResult <- createSshKeys state (acSshKeys config)
   case keyResult of
     Left err -> pure $ Left err
     Right (keyMap, keyCreated) -> do
-      -- Phase 2: Create disks
       diskResult <- createDisks state (acDisks config)
       case diskResult of
         Left err -> pure $ Left err
         Right (diskMap, diskCreated) -> do
-          -- Phase 3: Create networks
           nwResult <- createNetworks state (acNetworks config)
           case nwResult of
             Left err -> pure $ Left err
             Right (nwMap, nwCreated) -> do
-              -- Phase 4: Create VMs
               vmResult <- createVms state keyMap diskMap nwMap (acVms config)
               case vmResult of
                 Left err -> pure $ Left err
@@ -313,177 +298,27 @@ createDisks state disks = go disks Map.empty []
     go (d : ds) m acc = do
       result <- createOneDisk state m d
       case result of
-        Left err -> pure $ Left err
+        Left err -> pure $ Left $ "Disk '" <> adName d <> "': " <> err
         Right diskId ->
           go ds (Map.insert (adName d) diskId m) (ApplyCreated (adName d) diskId : acc)
 
 createOneDisk :: ServerState -> Map.Map Text Int64 -> ApplyDisk -> IO (Either Text Int64)
 createOneDisk state diskMap d = case (adImport d, adOverlay d) of
-  (Just importPath, _) -> createDiskImport state d importPath
-  (_, Just backingName) -> createDiskOverlay state diskMap d backingName
-  _ -> createDiskNew state d
-
--- | Import a disk (local path or URL)
-createDiskImport :: ServerState -> ApplyDisk -> Text -> IO (Either Text Int64)
-createDiskImport state d importPath = do
-  case sanitizeDiskName (adName d) of
-    Left err -> pure $ Left $ "Disk '" <> adName d <> "': " <> err
-    Right safeName -> do
-      basePath <- getEffectiveBasePath (ssQemuConfig state)
-      if isHttpUrl importPath
-        then do
-          -- Download from URL
-          let mFmt = adFormat d <|> detectFormatFromUrl importPath
-          case mFmt of
-            Nothing -> pure $ Left $ "Disk '" <> adName d <> "': cannot detect format from URL"
-            Just format -> do
-              let urlStr = T.unpack importPath
-                  isXz = ".xz" `isSuffixOf` urlStr
-                  fmtExt = T.unpack (enumToText format)
-                  downloadFileName = T.unpack safeName <> "." <> fmtExt <> if isXz then ".xz" else ""
-                  downloadPath = basePath </> downloadFileName
-                  finalFileName = T.unpack safeName <> "." <> fmtExt
-                  finalPath = basePath </> finalFileName
-              dlResult <- downloadImage downloadPath importPath
-              case dlResult of
-                ImageError err -> pure $ Left $ "Disk '" <> adName d <> "' download failed: " <> err
-                _ -> do
-                  actualPath <-
-                    if isXz
-                      then decompressXz downloadPath
-                      else pure $ Right finalPath
-                  case actualPath of
-                    Left err -> pure $ Left $ "Disk '" <> adName d <> "' decompression failed: " <> err
-                    Right diskPath -> do
-                      let storedPath = makeRelativeToBase basePath diskPath
-                      now <- getCurrentTime
-                      diskId <-
-                        runSqlPool
-                          ( insert
-                              DiskImage
-                                { diskImageName = safeName
-                                , diskImageFilePath = storedPath
-                                , diskImageFormat = format
-                                , diskImageSizeMb = Nothing
-                                , diskImageCreatedAt = now
-                                , diskImageBackingImageId = Nothing
-                                }
-                          )
-                          (ssDbPool state)
-                      pure $ Right $ fromSqlKey diskId
-        else do
-          -- Local path: register directly
-          let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath importPath)
-              storedPath = makeRelativeToBase basePath (T.unpack importPath)
-          now <- getCurrentTime
-          diskId <-
-            runSqlPool
-              ( insert
-                  DiskImage
-                    { diskImageName = safeName
-                    , diskImageFilePath = storedPath
-                    , diskImageFormat = format
-                    , diskImageSizeMb = fmap fromIntegral (adSizeMb d)
-                    , diskImageCreatedAt = now
-                    , diskImageBackingImageId = Nothing
-                    }
-              )
-              (ssDbPool state)
-          pure $ Right $ fromSqlKey diskId
-
--- | Create an overlay disk backed by another disk
-createDiskOverlay :: ServerState -> Map.Map Text Int64 -> ApplyDisk -> Text -> IO (Either Text Int64)
-createDiskOverlay state diskMap d backingName = do
-  -- Resolve backing disk: check in-config map first, then DB
-  mBackingId <- case Map.lookup backingName diskMap of
-    Just bid -> pure $ Just bid
-    Nothing -> do
-      mEntity <- runSqlPool (getBy (UniqueDiskImageName backingName)) (ssDbPool state)
-      pure $ fmap (fromSqlKey . entityKey) mEntity
-
-  case mBackingId of
-    Nothing -> pure $ Left $ "Disk '" <> adName d <> "': backing disk '" <> backingName <> "' not found"
-    Just backingId -> do
-      case sanitizeDiskName (adName d) of
-        Left err -> pure $ Left $ "Disk '" <> adName d <> "': " <> err
-        Right safeName -> do
-          mBackingDisk <- runSqlPool (get (toSqlKey backingId :: DiskImageId)) (ssDbPool state)
-          case mBackingDisk of
-            Nothing -> pure $ Left $ "Disk '" <> adName d <> "': backing disk disappeared"
-            Just backingDisk -> do
-              basePath <- getEffectiveBasePath (ssQemuConfig state)
-              let fileName = T.unpack safeName <> ".qcow2"
-                  overlayPath = basePath </> fileName
-
-              -- Resolve backing disk's actual file path
-              let backingFilePath = T.unpack $ diskImageFilePath backingDisk
-                  backingAbsPath =
-                    if "/" `isPrefixOf` backingFilePath
-                      then backingFilePath
-                      else basePath </> backingFilePath
-
-              result <- createOverlay overlayPath backingAbsPath (diskImageFormat backingDisk)
-              case result of
-                ImageError err -> pure $ Left $ "Disk '" <> adName d <> "' overlay failed: " <> err
-                ImageFormatNotSupported msg -> pure $ Left msg
-                ImageNotFound -> pure $ Left $ "Disk '" <> adName d <> "': backing image file not found"
-                ImageSuccess -> do
-                  -- Resize if requested
-                  case adSizeMb d of
-                    Just newSize -> do
-                      _ <- resizeImage overlayPath (fromIntegral newSize)
-                      pure ()
-                    Nothing -> pure ()
-
-                  now <- getCurrentTime
-                  let storedPath = makeRelativeToBase basePath overlayPath
-                  diskId <-
-                    runSqlPool
-                      ( insert
-                          DiskImage
-                            { diskImageName = safeName
-                            , diskImageFilePath = storedPath
-                            , diskImageFormat = FormatQcow2
-                            , diskImageSizeMb = adSizeMb d <|> diskImageSizeMb backingDisk
-                            , diskImageCreatedAt = now
-                            , diskImageBackingImageId = Just (toSqlKey backingId)
-                            }
-                      )
-                      (ssDbPool state)
-                  pure $ Right $ fromSqlKey diskId
-  where
-    isPrefixOf p s = T.pack p `T.isPrefixOf` T.pack s
-
--- | Create a new empty disk
-createDiskNew :: ServerState -> ApplyDisk -> IO (Either Text Int64)
-createDiskNew state d = do
-  case sanitizeDiskName (adName d) of
-    Left err -> pure $ Left $ "Disk '" <> adName d <> "': " <> err
-    Right safeName -> do
-      let format = fromMaybe FormatQcow2 (adFormat d)
-          sizeMb = fromMaybe 10240 (adSizeMb d)
-      basePath <- getEffectiveBasePath (ssQemuConfig state)
-      let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
-          filePath = basePath </> fileName
-      result <- createImage filePath format (fromIntegral sizeMb)
-      case result of
-        ImageError err -> pure $ Left $ "Disk '" <> adName d <> "' create failed: " <> err
-        _ -> do
-          now <- getCurrentTime
-          diskId <-
-            runSqlPool
-              ( insert
-                  DiskImage
-                    { diskImageName = safeName
-                    , diskImageFilePath = makeRelativeToBase basePath filePath
-                    , diskImageFormat = format
-                    , diskImageSizeMb = Just sizeMb
-                    , diskImageCreatedAt = now
-                    , diskImageBackingImageId = Nothing
-                    }
-              )
-              (ssDbPool state)
-          pure $ Right $ fromSqlKey diskId
+  (Just importPath, _)
+    | isHttpUrl importPath ->
+        importDiskFromUrlIO state (adName d) importPath (adFormat d)
+    | otherwise ->
+        let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath importPath)
+         in registerDiskIO state (adName d) importPath format (adSizeMb d)
+  (_, Just backingName) -> do
+    mBackingId <- resolveByName state UniqueDiskImageName diskMap backingName
+    case mBackingId of
+      Nothing -> pure $ Left $ "backing disk '" <> backingName <> "' not found"
+      Just backingId -> createOverlayDiskIO state (adName d) backingId (adSizeMb d)
+  _ ->
+    let format = fromMaybe FormatQcow2 (adFormat d)
+        sizeMb = fromMaybe 10240 (adSizeMb d)
+     in createDiskIO state (adName d) format sizeMb
 
 -- | Create networks, return map of name -> DB network ID
 createNetworks :: ServerState -> [ApplyNetwork] -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
@@ -533,8 +368,6 @@ createOneVm
   -> IO (Either Text Int64)
 createOneVm state keyMap diskMap nwMap v = do
   now <- getCurrentTime
-
-  -- Insert VM record
   vmId <-
     runSqlPool
       ( insert
@@ -583,7 +416,6 @@ createOneVm state keyMap diskMap nwMap v = do
           case keyResult of
             Left err -> pure $ Left err
             Right () -> do
-              -- Generate cloud-init ISO
               _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (avName v) (ssLogLevel state)
               pure $ Right $ fromSqlKey vmId
 
@@ -592,7 +424,7 @@ attachDrives state diskMap vmId drives vmName = go drives
   where
     go [] = pure $ Right ()
     go (d : ds) = do
-      mDiskId <- resolveDiskId state diskMap (adrDisk d)
+      mDiskId <- resolveByName state UniqueDiskImageName diskMap (adrDisk d)
       case mDiskId of
         Nothing -> pure $ Left $ "VM '" <> vmName <> "': disk '" <> adrDisk d <> "' not found"
         Just diskId -> do
@@ -616,11 +448,10 @@ createNetIfs state nwMap vmId netIfs vmName = go netIfs
   where
     go [] = pure $ Right ()
     go (ni : nis) = do
-      -- Resolve network if specified
       mNetworkId <- case aniNetwork ni of
         Nothing -> pure $ Right Nothing
         Just nwName -> do
-          mId <- resolveNetworkId state nwMap nwName
+          mId <- resolveByName state UniqueNetworkName nwMap nwName
           case mId of
             Nothing -> pure $ Left $ "VM '" <> vmName <> "': network '" <> nwName <> "' not found"
             Just nid -> pure $ Right $ Just nid
@@ -647,7 +478,7 @@ attachSshKeys state keyMap vmId keyNames vmName = go keyNames
   where
     go [] = pure $ Right ()
     go (kn : kns) = do
-      mKeyId <- resolveKeyId state keyMap kn
+      mKeyId <- resolveByName state UniqueSshKeyName keyMap kn
       case mKeyId of
         Nothing -> pure $ Left $ "VM '" <> vmName <> "': SSH key '" <> kn <> "' not found"
         Just keyId -> do
@@ -655,51 +486,19 @@ attachSshKeys state keyMap vmId keyNames vmName = go keyNames
           go kns
 
 --------------------------------------------------------------------------------
--- Name Resolution Helpers
+-- Name Resolution
 --------------------------------------------------------------------------------
 
--- | Resolve a disk name to a DB ID. Checks in-config map first, then DB.
-resolveDiskId :: ServerState -> Map.Map Text Int64 -> Text -> IO (Maybe Int64)
-resolveDiskId state diskMap name = case Map.lookup name diskMap of
-  Just did -> pure $ Just did
+-- | Resolve a name to a DB ID. Checks in-config map first, then DB by unique constraint.
+resolveByName
+  :: (PersistEntity record, PersistEntityBackend record ~ SqlBackend, ToBackendKey SqlBackend record)
+  => ServerState
+  -> (Text -> Unique record)
+  -> Map.Map Text Int64
+  -> Text
+  -> IO (Maybe Int64)
+resolveByName state mkUnique localMap name = case Map.lookup name localMap of
+  Just rid -> pure $ Just rid
   Nothing -> do
-    mEntity <- runSqlPool (getBy (UniqueDiskImageName name)) (ssDbPool state)
+    mEntity <- runSqlPool (getBy (mkUnique name)) (ssDbPool state)
     pure $ fmap (fromSqlKey . entityKey) mEntity
-
--- | Resolve a network name to a DB ID. Checks in-config map first, then DB.
-resolveNetworkId :: ServerState -> Map.Map Text Int64 -> Text -> IO (Maybe Int64)
-resolveNetworkId state nwMap name = case Map.lookup name nwMap of
-  Just nid -> pure $ Just nid
-  Nothing -> do
-    mEntity <- runSqlPool (getBy (UniqueNetworkName name)) (ssDbPool state)
-    pure $ fmap (fromSqlKey . entityKey) mEntity
-
--- | Resolve an SSH key name to a DB ID. Checks in-config map first, then DB.
-resolveKeyId :: ServerState -> Map.Map Text Int64 -> Text -> IO (Maybe Int64)
-resolveKeyId state keyMap name = case Map.lookup name keyMap of
-  Just kid -> pure $ Just kid
-  Nothing -> do
-    mEntity <- runSqlPool (getBy (UniqueSshKeyName name)) (ssDbPool state)
-    pure $ fmap (fromSqlKey . entityKey) mEntity
-
---------------------------------------------------------------------------------
--- Utilities
---------------------------------------------------------------------------------
-
--- | Generate a random MAC address with QEMU OUI (52:54:00)
-generateMacAddress :: IO Text
-generateMacAddress = do
-  [b1, b2, b3] <- replicateM 3 (randomRIO (0, 255 :: Int))
-  let mac = T.pack $ printf "52:54:00:%02x:%02x:%02x" b1 b2 b3
-  pure mac
-
--- | Detect disk format from a local file path extension
-detectFormatFromPath :: Text -> Maybe DriveFormat
-detectFormatFromPath path =
-  case takeExtension (T.unpack path) of
-    ".qcow2" -> Just FormatQcow2
-    ".raw" -> Just FormatRaw
-    ".img" -> Just FormatRaw
-    ".vmdk" -> Just FormatVmdk
-    ".vdi" -> Just FormatVdi
-    _ -> Nothing
