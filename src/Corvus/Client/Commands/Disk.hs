@@ -42,6 +42,7 @@ import Corvus.Model (CacheType, DriveFormat (..), DriveInterface, DriveMedia, En
 import Corvus.Protocol (DiskImageInfo (..), SnapshotInfo (..))
 import Data.Aeson (toJSON)
 import Data.Int (Int64)
+import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -132,9 +133,46 @@ handleDiskCreateOverlay fmt conn name baseDiskId optDirPath = do
         else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
--- | Handle disk import command
+-- | Handle disk import command (supports both local paths and HTTP/HTTPS URLs)
 handleDiskImport :: OutputFormat -> Connection -> Text -> FilePath -> Maybe Text -> IO Bool
-handleDiskImport fmt conn name path mFormatStr = do
+handleDiskImport fmt conn name path mFormatStr
+  | isUrl = handleDiskImportFromUrl fmt conn name (T.pack path) mFormatStr
+  | otherwise = handleDiskImportFromFile fmt conn name path mFormatStr
+  where
+    isUrl = "http://" `isPrefixOf` path || "https://" `isPrefixOf` path
+
+-- | Import a disk from an HTTP/HTTPS URL (daemon downloads)
+handleDiskImportFromUrl :: OutputFormat -> Connection -> Text -> Text -> Maybe Text -> IO Bool
+handleDiskImportFromUrl fmt conn name url mFormatStr = do
+  if isStructured fmt
+    then pure ()
+    else putStrLn $ "Downloading from URL: " ++ T.unpack url
+  resp <- diskImportUrl conn name url mFormatStr
+  case resp of
+    Left err -> do
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
+      pure False
+    Right (DiskCreated diskId) -> do
+      if isStructured fmt
+        then outputOkWith fmt [("id", toJSON diskId)]
+        else putStrLn $ "Disk image imported with ID: " ++ show diskId
+      pure True
+    Right (DiskError msg) -> do
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error importing disk: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Import a disk from a local file path
+handleDiskImportFromFile :: OutputFormat -> Connection -> Text -> FilePath -> Maybe Text -> IO Bool
+handleDiskImportFromFile fmt conn name path mFormatStr = do
   exists <- doesFileExist path
   if not exists
     then do

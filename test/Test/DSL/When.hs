@@ -59,6 +59,9 @@ module Test.DSL.When
   , whenStatus
   , whenShutdown
 
+    -- * Apply
+  , whenApply
+
     -- * Low-level
   , executeRequest
   , createTestServerState
@@ -367,3 +370,11 @@ whenStatus = executeRequest ReqStatus
 -- | Request daemon shutdown
 whenShutdown :: TestM Response
 whenShutdown = executeRequest ReqShutdown
+
+--------------------------------------------------------------------------------
+-- Apply Commands
+--------------------------------------------------------------------------------
+
+-- | Apply environment from YAML content
+whenApply :: Text -> TestM Response
+whenApply yaml = executeRequest (ReqApply yaml)

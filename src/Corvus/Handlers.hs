@@ -14,9 +14,11 @@ module Corvus.Handlers
   , module Corvus.Handlers.Template
   , module Corvus.Handlers.Network
   , module Corvus.Handlers.GuestExec
+  , module Corvus.Handlers.Apply
   )
 where
 
+import Corvus.Handlers.Apply
 import Corvus.Handlers.Core
 import Corvus.Handlers.Disk
 import Corvus.Handlers.GuestExec
@@ -98,3 +100,7 @@ handleRequest state req = case req of
   ReqNetworkShow nwId -> handleNetworkShow state nwId
   -- Guest execution handlers
   ReqGuestExec vmId cmd -> handleGuestExec state vmId cmd
+  -- Disk URL import
+  ReqDiskImportUrl name url mFmt -> handleDiskImportUrl state name url mFmt
+  -- Apply config
+  ReqApply yaml -> handleApply state yaml

@@ -7,6 +7,7 @@ import Corvus.Handlers.Disk (makeRelativeToBase, resolveDiskPath)
 import Corvus.Model (DiskImage (..), DriveFormat (..))
 import Corvus.Protocol (DiskImageInfo (..), Response (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
+import Corvus.Qemu.Image (detectFormatFromUrl, isHttpUrl)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Test.DSL.Core (getTempDir)
@@ -57,6 +58,32 @@ spec = do
 
     it "does not match partial directory names" $ do
       makeRelativeToBase "/base/path" "/base/pathmore/test.qcow2" `shouldBe` "/base/pathmore/test.qcow2"
+
+  describe "URL detection" $ do
+    it "detects HTTP URL" $ do
+      isHttpUrl "http://example.com/image.qcow2" `shouldBe` True
+
+    it "detects HTTPS URL" $ do
+      isHttpUrl "https://example.com/image.qcow2" `shouldBe` True
+
+    it "rejects local path" $ do
+      isHttpUrl "/local/path/image.qcow2" `shouldBe` False
+
+    it "rejects relative path" $ do
+      isHttpUrl "relative/path.qcow2" `shouldBe` False
+
+  describe "format detection from URL" $ do
+    it "detects qcow2 format" $ do
+      detectFormatFromUrl "https://example.com/image.qcow2" `shouldBe` Just FormatQcow2
+
+    it "detects raw format from .img extension" $ do
+      detectFormatFromUrl "https://example.com/image.img" `shouldBe` Just FormatRaw
+
+    it "strips .xz and detects inner format" $ do
+      detectFormatFromUrl "https://example.com/image.qcow2.xz" `shouldBe` Just FormatQcow2
+
+    it "returns Nothing for unknown extension" $ do
+      detectFormatFromUrl "https://example.com/image.iso" `shouldBe` Nothing
 
   withTestDb $ do
     describe "disk list" $ do

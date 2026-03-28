@@ -1034,6 +1034,19 @@ networkCommandParser =
     )
 
 --------------------------------------------------------------------------------
+-- Apply Command Parser
+--------------------------------------------------------------------------------
+
+-- | Apply environment from YAML config file
+applyCommand :: Parser Command
+applyCommand =
+  Apply
+    <$> strArgument
+      ( metavar "FILE"
+          <> help "Path to YAML configuration file"
+      )
+
+--------------------------------------------------------------------------------
 -- Main Command Parser
 --------------------------------------------------------------------------------
 
@@ -1074,6 +1087,9 @@ commandParser =
         <> command
           "network"
           (info networkCommandParser (progDesc "Virtual network management commands"))
+        <> command
+          "apply"
+          (info applyCommand (progDesc "Apply environment from YAML config file"))
     )
 
 -- | Parser for global options

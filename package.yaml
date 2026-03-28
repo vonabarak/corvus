@@ -38,6 +38,7 @@ dependencies:
   - random
   - fourmolu
   - base64-bytestring
+  - containers
 
 default-extensions:
   - OverloadedStrings
@@ -97,7 +98,9 @@ library:
     - Corvus.Qemu.GuestAgent
     - Corvus.Handlers.GuestExec
     - Corvus.Handlers.GuestAgentPoller
+    - Corvus.Handlers.Apply
     - Corvus.Client.Commands.GuestExec
+    - Corvus.Client.Commands.Apply
 
 executables:
   corvus:

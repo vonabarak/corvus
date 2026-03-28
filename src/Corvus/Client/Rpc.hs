@@ -37,6 +37,7 @@ module Corvus.Client.Rpc
   , diskCreate
   , diskCreateOverlay
   , diskRegister
+  , diskImportUrl
   , diskDelete
   , diskResize
   , diskClone
@@ -90,6 +91,10 @@ module Corvus.Client.Rpc
   , networkStop
   , networkList
   , networkShow
+
+    -- * Apply operations
+  , ApplyRpcResult (..)
+  , applyConfig
   )
 where
 
@@ -331,6 +336,11 @@ diskRegister
   -> IO (Either ConnectionError DiskResult)
 diskRegister conn name filePath format sizeMb =
   handleDiskResponse <$> sendRequest conn (ReqDiskRegister name filePath format sizeMb)
+
+-- | Import a disk image from an HTTP/HTTPS URL
+diskImportUrl :: Connection -> Text -> Text -> Maybe Text -> IO (Either ConnectionError DiskResult)
+diskImportUrl conn name url mFormat =
+  handleDiskResponse <$> sendRequest conn (ReqDiskImportUrl name url mFormat)
 
 -- | Delete a disk image
 diskDelete :: Connection -> Int64 -> IO (Either ConnectionError DiskResult)
@@ -780,4 +790,26 @@ vmExec conn vmId command = do
     Right (RespInvalidTransition status msg) -> pure $ Right $ GuestExecInvalidState status msg
     Right (RespGuestAgentError msg) -> pure $ Right $ GuestExecAgentError msg
     Right (RespError msg) -> pure $ Left $ ServerError msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+--------------------------------------------------------------------------------
+-- Apply Operations
+--------------------------------------------------------------------------------
+
+-- | Result of an apply operation
+data ApplyRpcResult
+  = -- | Apply succeeded with summary
+    ApplyOk !ApplyResult
+  | -- | Apply failed
+    ApplyFailed !Text
+  deriving (Eq, Show)
+
+-- | Apply an environment configuration from YAML
+applyConfig :: Connection -> Text -> IO (Either ConnectionError ApplyRpcResult)
+applyConfig conn yaml = do
+  result <- sendRequest conn (ReqApply yaml)
+  case result of
+    Left err -> pure $ Left err
+    Right (RespApplyResult ar) -> pure $ Right $ ApplyOk ar
+    Right (RespError msg) -> pure $ Right $ ApplyFailed msg
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"

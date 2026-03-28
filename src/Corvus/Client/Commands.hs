@@ -19,6 +19,7 @@ module Corvus.Client.Commands
   )
 where
 
+import Corvus.Client.Commands.Apply
 import Corvus.Client.Commands.Disk
 import Corvus.Client.Commands.GuestExec
 import Corvus.Client.Commands.NetIf
@@ -323,6 +324,8 @@ runCommand opts = do
       NetworkStop nwId force -> handleNetworkStop fmt conn nwId force
       NetworkList -> handleNetworkList fmt conn
       NetworkShow nwId -> handleNetworkShow fmt conn nwId
+      -- Apply
+      Apply path -> handleApply fmt conn path
 
   case connResult of
     Left err -> do

@@ -5,6 +5,7 @@
 
 module Corvus.Utils.Yaml
   ( yamlQQ
+  , yaml
   )
 where
 
@@ -20,6 +21,34 @@ import Language.Haskell.Meta.Parse (parseExp)
 import Language.Haskell.TH
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
 import Language.Haskell.TH.Syntax (Lift (..))
+
+-- | Quasi-quoter for raw YAML text.
+-- Returns the content as Text with common leading indentation removed (dedented).
+-- Suitable for sending YAML content to the daemon via RPC.
+-- Example: [yaml|
+--   sshKeys:
+--     - name: my-key
+--       publicKey: ssh-ed25519 AAAA
+-- |]
+yaml :: QuasiQuoter
+yaml =
+  QuasiQuoter
+    { quoteExp = lift . dedent . T.pack
+    , quotePat = const $ fail "yaml: patterns not supported"
+    , quoteType = const $ fail "yaml: types not supported"
+    , quoteDec = const $ fail "yaml: declarations not supported"
+    }
+
+-- | Remove common leading whitespace from all non-empty lines, then strip.
+dedent :: Text -> Text
+dedent t =
+  let ls = T.lines t
+      nonEmptyLines = filter (not . T.null . T.stripStart) ls
+   in case nonEmptyLines of
+        [] -> T.strip t
+        _ ->
+          let minIndent = minimum $ map (T.length . T.takeWhile (== ' ')) nonEmptyLines
+           in T.strip $ T.unlines $ map (T.drop minIndent) ls
 
 -- | Quasi-quoter for YAML with #{expression} interpolation.
 -- Example: [yamlQQ|foo: #{bar}|]

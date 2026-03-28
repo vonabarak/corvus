@@ -141,4 +141,8 @@ data Command
     NetworkList
   | -- | Show virtual network details (networkId)
     NetworkShow !Int64
+  | -- Apply commands
+
+    -- | Apply environment from YAML config file (file path)
+    Apply !FilePath
   deriving (Show)

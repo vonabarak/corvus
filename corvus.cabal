@@ -54,7 +54,9 @@ library
       Corvus.Qemu.GuestAgent
       Corvus.Handlers.GuestExec
       Corvus.Handlers.GuestAgentPoller
+      Corvus.Handlers.Apply
       Corvus.Client.Commands.GuestExec
+      Corvus.Client.Commands.Apply
   other-modules:
       Corvus.Client.Commands.Network
       Corvus.Handlers.Network
@@ -89,6 +91,7 @@ library
     , base64-bytestring
     , binary
     , bytestring
+    , containers
     , directory
     , esqueleto
     , exceptions
@@ -147,6 +150,7 @@ executable corvus
     , base64-bytestring
     , binary
     , bytestring
+    , containers
     , corvus
     , directory
     , esqueleto
@@ -206,6 +210,7 @@ executable crv
     , base64-bytestring
     , binary
     , bytestring
+    , containers
     , corvus
     , directory
     , esqueleto
@@ -237,6 +242,8 @@ test-suite corvus-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
+      Corvus.ApplyIntegrationSpec
+      Corvus.ApplySpec
       Corvus.ClientOutputSpec
       Corvus.CoreSpec
       Corvus.DiskCloneIntegrationSpec
@@ -299,6 +306,7 @@ test-suite corvus-test
     , base64-bytestring
     , binary
     , bytestring
+    , containers
     , corvus
     , directory
     , esqueleto

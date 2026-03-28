@@ -31,6 +31,10 @@ module Corvus.Protocol
 
     -- * Network info
   , NetworkInfo (..)
+
+    -- * Apply config
+  , ApplyCreated (..)
+  , ApplyResult (..)
   )
 where
 
@@ -47,7 +51,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 9
+protocolVersion = 10
 
 -- | Client requests
 data Request
@@ -158,6 +162,10 @@ data Request
     ReqNetworkShow !Int64
   | -- | Guest command execution (vmId, command)
     ReqGuestExec !Int64 !Text
+  | -- | Import disk image from URL (name, url, optionalFormat)
+    ReqDiskImportUrl !Text !Text !(Maybe Text)
+  | -- | Apply environment from YAML config (yamlContent)
+    ReqApply !Text
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -352,6 +360,22 @@ data NetworkInfo = NetworkInfo
   }
   deriving (Eq, Show, Generic, Binary)
 
+-- | A resource created during an apply operation
+data ApplyCreated = ApplyCreated
+  { acName :: !Text
+  , acId :: !Int64
+  }
+  deriving (Eq, Show, Generic, Binary)
+
+-- | Summary of resources created by an apply operation
+data ApplyResult = ApplyResult
+  { arSshKeys :: ![ApplyCreated]
+  , arDisks :: ![ApplyCreated]
+  , arNetworks :: ![ApplyCreated]
+  , arVms :: ![ApplyCreated]
+  }
+  deriving (Eq, Show, Generic, Binary)
+
 --------------------------------------------------------------------------------
 -- ToJSON instances for machine-readable output
 --------------------------------------------------------------------------------
@@ -534,6 +558,22 @@ instance ToJSON TemplateDetails where
       , "sshKeys" .= tvdSshKeys t
       ]
 
+instance ToJSON ApplyCreated where
+  toJSON a =
+    object
+      [ "name" .= acName a
+      , "id" .= acId a
+      ]
+
+instance ToJSON ApplyResult where
+  toJSON r =
+    object
+      [ "sshKeys" .= arSshKeys r
+      , "disks" .= arDisks r
+      , "networks" .= arNetworks r
+      , "vms" .= arVms r
+      ]
+
 -- | Server responses
 data Response
   = RespPong
@@ -658,6 +698,8 @@ data Response
     RespGuestAgentNotEnabled
   | -- | Guest agent communication error
     RespGuestAgentError !Text
+  | -- | Apply config result with summary of created resources
+    RespApplyResult !ApplyResult
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

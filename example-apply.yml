@@ -1,0 +1,59 @@
+# Example environment configuration for `crv apply`
+#
+# This file declares all resources needed for a complete VM environment.
+# The daemon creates them in dependency order: SSH keys -> disks -> networks -> VMs.
+#
+# Usage:
+#   crv apply example-apply.yml
+
+sshKeys:
+  - name: deploy-key
+    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@host"
+
+disks:
+  # Import a cloud image from a URL (daemon downloads it)
+  - name: alpine-base
+    import: "https://dev.alpinelinux.org/~tomalok/alpine-cloud-images/v3.20/nocloud/x86_64/nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2"
+
+  # Create an overlay backed by the imported image
+  - name: web-root
+    overlay: alpine-base
+    sizeMb: 10240
+
+  # Create a new empty data disk
+  - name: data-disk
+    format: qcow2
+    sizeMb: 20480
+
+  # Import from a local path on the daemon host
+  # - name: custom-image
+  #   import: /var/lib/corvus/images/custom.qcow2
+  #   format: qcow2
+
+networks:
+  - name: lab-net
+    subnet: "10.0.1.0/24"
+
+vms:
+  - name: web-server
+    cpuCount: 2
+    ramMb: 2048
+    description: "Web server with Alpine Linux"
+    headless: true
+    guestAgent: true
+    drives:
+      - disk: web-root
+        interface: virtio
+      - disk: data-disk
+        interface: virtio
+    networkInterfaces:
+      - type: vde
+        network: lab-net
+      - type: user
+    sharedDirs:
+      - path: /home/user/www
+        tag: www
+        cache: auto
+        readOnly: true
+    sshKeys:
+      - deploy-key

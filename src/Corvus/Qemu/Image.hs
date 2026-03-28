@@ -18,6 +18,14 @@ module Corvus.Qemu.Image
   , listSnapshots
   , cloneImage
 
+    -- * Download operations
+  , downloadImage
+  , decompressXz
+
+    -- * URL utilities
+  , isHttpUrl
+  , detectFormatFromUrl
+
     -- * Types
   , ImageInfo (..)
   , SnapshotData (..)
@@ -29,12 +37,14 @@ import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Corvus.Model (DriveFormat (..), EnumText (..))
 import Data.Int (Int64)
+import Data.List (isSuffixOf)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime)
 import System.Directory (copyFile, doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
+import System.FilePath (takeExtension)
 import System.Process (readProcessWithExitCode)
 import Text.Read (readMaybe)
 
@@ -356,3 +366,81 @@ cloneImage src dest = do
           case result of
             Left (e :: SomeException) -> pure $ ImageError $ T.pack $ show e
             Right () -> pure ImageSuccess
+
+--------------------------------------------------------------------------------
+-- Download Operations
+--------------------------------------------------------------------------------
+
+-- | Download a file from an HTTP/HTTPS URL to the given destination path.
+-- Tries curl first, falls back to wget.
+downloadImage
+  :: FilePath
+  -- ^ Destination file path
+  -> Text
+  -- ^ URL to download from
+  -> IO ImageResult
+downloadImage destPath url = do
+  exists <- doesFileExist destPath
+  if exists
+    then pure $ ImageError "Destination file already exists"
+    else do
+      let urlStr = T.unpack url
+      -- Try curl first
+      curlResult <- try $ readProcessWithExitCode "curl" ["-L", "-o", destPath, "-s", "-S", urlStr] ""
+      case curlResult of
+        Left (_ :: SomeException) -> do
+          -- curl not available, try wget
+          wgetResult <- try $ readProcessWithExitCode "wget" ["-O", destPath, "-q", urlStr] ""
+          case wgetResult of
+            Left (_ :: SomeException) ->
+              pure $ ImageError "Neither curl nor wget is available for downloading images"
+            Right (ExitSuccess, _, _) -> pure ImageSuccess
+            Right (ExitFailure n, _, stderr) ->
+              pure $ ImageError $ "wget failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
+        Right (ExitSuccess, _, _) -> pure ImageSuccess
+        Right (ExitFailure n, _, stderr) ->
+          pure $ ImageError $ "curl failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
+
+-- | Decompress an .xz file in place. Returns the path to the decompressed file.
+-- The .xz file is removed after successful decompression.
+decompressXz
+  :: FilePath
+  -- ^ Path to .xz file
+  -> IO (Either Text FilePath)
+decompressXz xzPath = do
+  let finalPath = take (length xzPath - 3) xzPath -- strip .xz
+  result <- try $ readProcessWithExitCode "xz" ["-d", xzPath] ""
+  case result of
+    Left (_ :: SomeException) ->
+      pure $ Left "xz command not found for decompressing image"
+    Right (ExitSuccess, _, _) ->
+      pure $ Right finalPath
+    Right (ExitFailure n, _, stderr) ->
+      pure $ Left $ "xz decompression failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
+
+--------------------------------------------------------------------------------
+-- URL Utilities
+--------------------------------------------------------------------------------
+
+-- | Check if a string looks like an HTTP/HTTPS URL
+isHttpUrl :: Text -> Bool
+isHttpUrl t = "http://" `T.isPrefixOf` t || "https://" `T.isPrefixOf` t
+
+-- | Detect disk format from a URL's file extension.
+-- Strips .xz suffix first if present, then checks the inner extension.
+detectFormatFromUrl :: Text -> Maybe DriveFormat
+detectFormatFromUrl url =
+  let -- Extract filename portion (after last /)
+      filename = T.unpack $ snd $ T.breakOnEnd "/" url
+      -- Strip query string
+      base = takeWhile (/= '?') filename
+      -- Strip .xz if present
+      inner = if ".xz" `isSuffixOf` base then take (length base - 3) base else base
+      ext = takeExtension inner
+   in case ext of
+        ".qcow2" -> Just FormatQcow2
+        ".raw" -> Just FormatRaw
+        ".img" -> Just FormatRaw
+        ".vmdk" -> Just FormatVmdk
+        ".vdi" -> Just FormatVdi
+        _ -> Nothing
