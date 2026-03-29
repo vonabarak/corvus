@@ -53,6 +53,7 @@ import Control.Exception (bracket)
 import Control.Monad (forM_)
 import Corvus.Client (DiskResult (..), diskClone, diskCreateOverlay, diskDelete, diskRegister)
 import Corvus.Model (DriveFormat (..), DriveInterface (..))
+import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
@@ -71,7 +72,7 @@ import qualified Network.Socket as NS
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Database (TestEnv)
 import Test.VM.Console (SerialConsole, connectSerialConsole)
-import Test.VM.Daemon (TestDaemon, withDaemonConnection, withTestDaemon)
+import Test.VM.Daemon (TestDaemon (..), withDaemonConnection, withTestDaemon)
 import Test.VM.Image (ensureBaseImage)
 import Test.VM.Rpc
 import Test.VM.Ssh (waitForTestVmSshWithKey)
@@ -380,7 +381,7 @@ withTestVmConsoleWithDisk daemon diskImageId config action = do
       startTestVm daemon vmId
 
       -- Connect to serial console immediately
-      connectSerialConsole vmId action
+      connectSerialConsole (ssQemuConfig (tdState daemon)) vmId action
 
 --------------------------------------------------------------------------------
 -- VM lifecycle helpers

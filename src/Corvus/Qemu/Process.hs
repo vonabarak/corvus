@@ -65,18 +65,18 @@ data KillResult
 startVm :: (MonadIO m, MonadLogger m) => Pool SqlBackend -> QemuConfig -> Int64 -> m StartVmResult
 startVm pool config vmId = do
   -- Create runtime directory
-  _ <- liftIO $ createVmRuntimeDir vmId
+  _ <- liftIO $ createVmRuntimeDir config vmId
 
   -- Get base path for images
   basePath <- liftIO $ getEffectiveBasePath config
 
   -- Get socket paths
-  monitorSock <- liftIO $ getMonitorSocket vmId
-  qmpSock <- liftIO $ getQmpSocket vmId
-  spiceSock <- liftIO $ getSpiceSocket vmId
-  serialSock <- liftIO $ getSerialSocket vmId
-  guestAgentSock <- liftIO $ getGuestAgentSocket vmId
-  vmRuntimeDir <- liftIO $ getVmRuntimeDir vmId
+  monitorSock <- liftIO $ getMonitorSocket config vmId
+  qmpSock <- liftIO $ getQmpSocket config vmId
+  spiceSock <- liftIO $ getSpiceSocket config vmId
+  serialSock <- liftIO $ getSerialSocket config vmId
+  guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
+  vmRuntimeDir <- liftIO $ getVmRuntimeDir config vmId
 
   -- Generate command
   mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir) pool

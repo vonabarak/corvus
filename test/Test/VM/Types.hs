@@ -63,7 +63,7 @@ instance DefaultVmConfig VmConfig where
       , vmcDescription = Nothing
       , vmcDiskInterface = InterfaceVirtio
       , vmcNetworkType = NetUser
-      , vmcWaitSshTimeout = 30
+      , vmcWaitSshTimeout = 120
       , vmcDiskCache = CacheWriteback
       , vmcDiskDiscard = True
       , vmcSharedDirCache = CacheAuto

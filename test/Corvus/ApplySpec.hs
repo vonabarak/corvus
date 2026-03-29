@@ -10,7 +10,7 @@ import qualified Data.Text as T
 import Test.Prelude
 
 spec :: Spec
-spec = do
+spec = sequential $ do
   describe "apply YAML parsing" $ do
     withTestDb $ do
       testCase "rejects invalid YAML" $ do

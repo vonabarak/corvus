@@ -14,7 +14,7 @@ import Test.DSL.Core (getTempDir)
 import Test.Prelude
 
 spec :: Spec
-spec = do
+spec = sequential $ do
   describe "disk path resolution" $ do
     it "resolves relative path against base" $ do
       now <- getCurrentTime

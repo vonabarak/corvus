@@ -28,16 +28,20 @@ module Corvus.Qemu.Qmp
   )
 where
 
-import Control.Exception (SomeException, bracket, try)
+import Control.Concurrent (threadDelay)
+import Control.Exception (IOException, SomeException, bracket, catch, try)
 import Corvus.Model (DriveFormat (..), DriveInterface (..), EnumText (..))
+import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.QmpQQ (qmpQQ)
 import Corvus.Qemu.Runtime (getQmpSocket)
 import qualified Data.ByteString.Char8 as BS
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import GHC.IO.Exception (IOErrorType (..))
 import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, connect, defaultProtocol, socket)
 import Network.Socket.ByteString (recv, sendAll)
+import System.IO.Error (ioeGetErrorType)
 
 --------------------------------------------------------------------------------
 -- Types
@@ -55,19 +59,19 @@ data QmpResult
 --------------------------------------------------------------------------------
 
 -- | Send graceful shutdown command via QMP
-qmpShutdown :: Int64 -> IO QmpResult
-qmpShutdown vmId =
-  sendQmpCommand vmId [qmpQQ| { "execute": "system_powerdown" } |]
+qmpShutdown :: QemuConfig -> Int64 -> IO QmpResult
+qmpShutdown config vmId =
+  sendQmpCommand config vmId [qmpQQ| { "execute": "system_powerdown" } |]
 
 -- | Send continue command via QMP (resume paused VM)
-qmpContinue :: Int64 -> IO QmpResult
-qmpContinue vmId =
-  sendQmpCommand vmId [qmpQQ| { "execute": "cont" } |]
+qmpContinue :: QemuConfig -> Int64 -> IO QmpResult
+qmpContinue config vmId =
+  sendQmpCommand config vmId [qmpQQ| { "execute": "cont" } |]
 
 -- | Send stop command via QMP (pause VM)
-qmpStop :: Int64 -> IO QmpResult
-qmpStop vmId =
-  sendQmpCommand vmId [qmpQQ| { "execute": "stop" } |]
+qmpStop :: QemuConfig -> Int64 -> IO QmpResult
+qmpStop config vmId =
+  sendQmpCommand config vmId [qmpQQ| { "execute": "stop" } |]
 
 --------------------------------------------------------------------------------
 -- Hot-plug Commands
@@ -75,7 +79,8 @@ qmpStop vmId =
 
 -- | Add a block device (for hot-plug)
 qmpBlockdevAdd
-  :: Int64
+  :: QemuConfig
+  -> Int64
   -- ^ VM ID
   -> Text
   -- ^ Node name (unique identifier for this block device)
@@ -86,7 +91,7 @@ qmpBlockdevAdd
   -> Bool
   -- ^ Read-only mode
   -> IO QmpResult
-qmpBlockdevAdd vmId nodeName filePath format readOnly = do
+qmpBlockdevAdd config vmId nodeName filePath format readOnly = do
   let formatStr = enumToText format
       filePathText = T.pack filePath
       readOnlyStr = if readOnly then "true" :: Text else "false" :: Text
@@ -106,11 +111,12 @@ qmpBlockdevAdd vmId nodeName filePath format readOnly = do
             }
           }
         |]
-  sendQmpCommand vmId cmd
+  sendQmpCommand config vmId cmd
 
 -- | Add a device using a block device (for hot-plug)
 qmpDeviceAddDrive
-  :: Int64
+  :: QemuConfig
+  -> Int64
   -- ^ VM ID
   -> Text
   -- ^ Device ID (unique identifier for this device)
@@ -119,7 +125,7 @@ qmpDeviceAddDrive
   -> DriveInterface
   -- ^ Drive interface type
   -> IO QmpResult
-qmpDeviceAddDrive vmId deviceId nodeName iface = do
+qmpDeviceAddDrive config vmId deviceId nodeName iface = do
   let driver = T.pack $ interfaceToDriver iface
       cmd =
         [qmpQQ|
@@ -132,7 +138,7 @@ qmpDeviceAddDrive vmId deviceId nodeName iface = do
             }
           }
         |]
-  sendQmpCommand vmId cmd
+  sendQmpCommand config vmId cmd
 
 -- | Map drive interface to QEMU device driver name
 interfaceToDriver :: DriveInterface -> String
@@ -145,13 +151,15 @@ interfaceToDriver InterfacePflash = "pflash"
 
 -- | Remove a device (for hot-unplug)
 qmpDeviceDel
-  :: Int64
+  :: QemuConfig
+  -> Int64
   -- ^ VM ID
   -> Text
   -- ^ Device ID (same as used in qmpDeviceAddDrive)
   -> IO QmpResult
-qmpDeviceDel vmId deviceId =
+qmpDeviceDel config vmId deviceId =
   sendQmpCommand
+    config
     vmId
     [qmpQQ|
       {
@@ -164,13 +172,15 @@ qmpDeviceDel vmId deviceId =
 
 -- | Remove a block device (for hot-unplug, after device is removed)
 qmpBlockdevDel
-  :: Int64
+  :: QemuConfig
+  -> Int64
   -- ^ VM ID
   -> Text
   -- ^ Node name (same as used in qmpBlockdevAdd)
   -> IO QmpResult
-qmpBlockdevDel vmId nodeName =
+qmpBlockdevDel config vmId nodeName =
   sendQmpCommand
+    config
     vmId
     [qmpQQ|
       {
@@ -186,9 +196,9 @@ qmpBlockdevDel vmId nodeName =
 --------------------------------------------------------------------------------
 
 -- | Send a QMP command to a VM
-sendQmpCommand :: Int64 -> BS.ByteString -> IO QmpResult
-sendQmpCommand vmId cmd = do
-  qmpSock <- getQmpSocket vmId
+sendQmpCommand :: QemuConfig -> Int64 -> BS.ByteString -> IO QmpResult
+sendQmpCommand config vmId cmd = do
+  qmpSock <- getQmpSocket config vmId
   result <- try $ withUnixSocket qmpSock $ \sock -> do
     -- Read QMP greeting
     _ <- recv sock 4096
@@ -205,13 +215,27 @@ sendQmpCommand vmId cmd = do
         then pure QmpSuccess
         else pure $ QmpError $ T.pack $ BS.unpack response
 
--- | Connect to a Unix socket and run an action
+-- | Connect to a Unix socket and run an action.
+-- Retries on EAGAIN (resource temporarily unavailable), which occurs when
+-- QEMU's chardev listen backlog (1) is full under heavy parallel load.
 withUnixSocket :: FilePath -> (Socket -> IO a) -> IO a
 withUnixSocket path =
-  bracket
-    ( do
-        sock <- socket AF_UNIX Stream defaultProtocol
-        connect sock (SockAddrUnix path)
-        pure sock
-    )
-    close
+  bracket (connectWithRetry 10) close
+  where
+    connectWithRetry :: Int -> IO Socket
+    connectWithRetry 0 = do
+      sock <- socket AF_UNIX Stream defaultProtocol
+      connect sock (SockAddrUnix path)
+      pure sock
+    connectWithRetry n = do
+      sock <- socket AF_UNIX Stream defaultProtocol
+      (connect sock (SockAddrUnix path) >> pure sock)
+        `catch` \(e :: IOException) ->
+          if ioeGetErrorType e == ResourceExhausted
+            then do
+              close sock
+              threadDelay 300000 -- 300ms
+              connectWithRetry (n - 1)
+            else do
+              close sock
+              ioError e

@@ -69,7 +69,7 @@ instance Arbitrary Request where
       ]
 
 spec :: Spec
-spec = do
+spec = sequential $ do
   describe "Protocol binary encoding" $ do
     it "Request round-trips through encode/decode" $ property $ \(req :: Request) ->
       decodeMessage (encodeMessage req) == Right req

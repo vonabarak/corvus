@@ -16,6 +16,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, readTVarIO, swapTVar, writeTVar)
 import Control.Exception (SomeException, bracket, try)
+import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Runtime (getSerialSocket)
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
@@ -36,9 +37,9 @@ data SerialConsole = SerialConsole
 -- The serial socket path is derived from the VM ID.
 -- A background reader thread continuously accumulates console output
 -- into a buffer so no data is lost between send/expect calls.
-connectSerialConsole :: Int64 -> (SerialConsole -> IO a) -> IO a
-connectSerialConsole vmId action = do
-  serialSock <- getSerialSocket vmId
+connectSerialConsole :: QemuConfig -> Int64 -> (SerialConsole -> IO a) -> IO a
+connectSerialConsole config vmId action = do
+  serialSock <- getSerialSocket config vmId
   putStrLn $ "[console] Connecting to serial socket: " <> serialSock
   bracket
     (waitForSocket serialSock 30)

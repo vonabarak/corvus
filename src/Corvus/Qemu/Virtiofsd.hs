@@ -56,9 +56,9 @@ data VirtiofsdResult
 --------------------------------------------------------------------------------
 
 -- | Get path to virtiofsd socket for a shared directory
-getVirtiofsdSocket :: Int64 -> Text -> IO FilePath
-getVirtiofsdSocket vmId tag = do
-  vmDir <- getVmRuntimeDir vmId
+getVirtiofsdSocket :: QemuConfig -> Int64 -> Text -> IO FilePath
+getVirtiofsdSocket config vmId tag = do
+  vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "virtiofsd-" ++ T.unpack tag ++ ".sock"
 
 --------------------------------------------------------------------------------
@@ -75,7 +75,7 @@ startVirtiofsdProcesses
   -> m VirtiofsdResult
 startVirtiofsdProcesses pool config vmId = do
   -- Ensure runtime directory exists
-  _ <- liftIO $ createVmRuntimeDir vmId
+  _ <- liftIO $ createVmRuntimeDir config vmId
 
   -- Get shared directories for this VM
   sharedDirs <- liftIO $ runSqlPool (getSharedDirsForVm vmId) pool
@@ -118,7 +118,7 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
       pure True
     Nothing -> do
       -- Get socket path
-      socketPath <- liftIO $ getVirtiofsdSocket vmId (sharedDirTag dir)
+      socketPath <- liftIO $ getVirtiofsdSocket config vmId (sharedDirTag dir)
 
       -- Build command
       let binary = qcVirtiofsdBinary config

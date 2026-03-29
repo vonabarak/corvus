@@ -12,7 +12,7 @@ import Test.Hspec
 import Test.Prelude
 
 spec :: Spec
-spec = withTestDb $ do
+spec = sequential $ withTestDb $ do
   describe "net-if list" $ do
     testCase "returns empty list for VM with no network interfaces" $ do
       vmId <- givenVmExists "test-vm"

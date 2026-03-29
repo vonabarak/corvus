@@ -8,7 +8,7 @@ import Test.DSL.When (executeRequest)
 import Test.Prelude
 
 spec :: Spec
-spec = withTestDb $ do
+spec = sequential $ withTestDb $ do
   describe "vm list" $ do
     testCase "returns empty list when no VMs exist" $ do
       when_ vmList

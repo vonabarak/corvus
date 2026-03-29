@@ -41,8 +41,8 @@ startVdeSwitch config pool networkId subnet = do
       tapName = getTapInterfaceName networkId
 
   -- Create runtime directory
-  _ <- createNetworkRuntimeDir networkId
-  socketPath <- getVdeSwitchSocket networkId
+  _ <- createNetworkRuntimeDir config networkId
+  socketPath <- getVdeSwitchSocket config networkId
 
   -- Spawn vde_switch (with -tap if subnet is configured)
   let vdeBinary = qcVdeSwitchBinary config
@@ -82,7 +82,7 @@ startVdeSwitch config pool networkId subnet = do
               logWarnN $
                 "vde_switch for network " <> T.pack (show networkId) <> " exited with " <> T.pack (show exitCode)
             -- Stop dnsmasq if it's still running and clear all PIDs
-            stopNetwork pool networkId
+            stopNetwork config pool networkId
 
           -- Wait for socket to become available
           waitForSocket socketPath
@@ -110,8 +110,8 @@ startVdeSwitch config pool networkId subnet = do
 
 -- | Stop a vde_switch process (and dnsmasq if running) for a network.
 -- Sends SIGTERM and clears PIDs from database.
-stopVdeSwitch :: Pool SqlBackend -> Int64 -> IO (Either Text ())
-stopVdeSwitch pool networkId = do
+stopVdeSwitch :: QemuConfig -> Pool SqlBackend -> Int64 -> IO (Either Text ())
+stopVdeSwitch config pool networkId = do
   let key = toSqlKey networkId :: M.NetworkId
   mNetwork <- runSqlPool (get key) pool
   case mNetwork of
@@ -135,7 +135,7 @@ stopVdeSwitch pool networkId = do
             -- Clear PID
             runSqlPool (update key [M.NetworkVdeSwitchPid =. Nothing]) pool
             -- Clean up runtime directory
-            cleanupNetworkRuntime networkId
+            cleanupNetworkRuntime config networkId
             pure $ Right ()
 
 --------------------------------------------------------------------------------
@@ -190,7 +190,7 @@ configureTapInterface subnet tapName = do
 startDnsmasq :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> String -> IO (Either Text ())
 startDnsmasq config pool networkId subnet tapName = do
   let key = toSqlKey networkId :: M.NetworkId
-  leaseFile <- getDnsmasqLeaseFile networkId
+  leaseFile <- getDnsmasqLeaseFile config networkId
 
   case (,,,) <$> gatewayAddress subnet <*> dhcpRangeStart subnet <*> dhcpRangeEnd subnet <*> subnetMask subnet of
     Left err -> pure $ Left $ "Subnet error: " <> err
@@ -246,7 +246,7 @@ startDnsmasq config pool networkId subnet tapName = do
                     logWarnN $
                       "dnsmasq stderr: " <> T.pack stderrOutput
                 -- Stop vde_switch if it's still running and clear all PIDs
-                stopNetwork pool networkId
+                stopNetwork config pool networkId
 
               pure $ Right ()
 
@@ -267,8 +267,8 @@ waitForSocket path = go 50
 
 -- | Stop all processes for a network and clear PIDs in the database.
 -- Used by monitor threads when a process exits unexpectedly.
-stopNetwork :: Pool SqlBackend -> Int64 -> IO ()
-stopNetwork pool networkId = do
+stopNetwork :: QemuConfig -> Pool SqlBackend -> Int64 -> IO ()
+stopNetwork config pool networkId = do
   let key = toSqlKey networkId :: M.NetworkId
   mNetwork <- runSqlPool (get key) pool
   forM_ mNetwork $ \network -> do
@@ -288,7 +288,7 @@ stopNetwork pool networkId = do
       )
       pool
     -- Clean up runtime directory
-    cleanupNetworkRuntime networkId
+    cleanupNetworkRuntime config networkId
 
 -- | Prepend doas to a command that requires root privileges
 doas :: String -> [String] -> (String, [String])
@@ -322,9 +322,9 @@ logCmd binary args = runStdoutLoggingT $ do
   logDebugN $ "[cmd] " <> cmd
 
 -- | Clean up network runtime directory
-cleanupNetworkRuntime :: Int64 -> IO ()
-cleanupNetworkRuntime networkId = do
-  socketPath <- getVdeSwitchSocket networkId
+cleanupNetworkRuntime :: QemuConfig -> Int64 -> IO ()
+cleanupNetworkRuntime config networkId = do
+  socketPath <- getVdeSwitchSocket config networkId
   -- vde_switch creates a directory at the socket path
   result <- try $ removeDirectoryRecursive socketPath
   case result of

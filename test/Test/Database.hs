@@ -87,7 +87,7 @@ setupTestDb = do
 
   -- Create connection pool and run migrations
   let connStr = pack $ T.unpack $ buildConnString config dbName
-  pool <- runNoLoggingT $ createPostgresqlPool connStr 1
+  pool <- runNoLoggingT $ createPostgresqlPool connStr 50
   runSqlPool (runMigration migrateAll) pool
 
   -- Initialize other fields

@@ -95,7 +95,7 @@ handleVmList state = do
 -- | Handle VM show command
 handleVmShow :: ServerState -> Int64 -> IO Response
 handleVmShow state vmId = do
-  result <- runSqlPool (getVmDetails vmId) (ssDbPool state)
+  result <- runSqlPool (getVmDetails (ssQemuConfig state) vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
     Just details -> pure $ RespVmDetails details
@@ -162,10 +162,11 @@ handleVmStart state vmId = runServerLogging state $ do
                       logInfoN $ "VM " <> T.pack (show vmId) <> " started with PID " <> T.pack (show pid)
                       -- Set status to running and save PID first
                       liftIO $ runSqlPool (setVmRunning vmId pid) (ssDbPool state)
-                      -- Start guest agent poller if guest agent is enabled
-                      when (vmGuestAgent vm) $
+                      -- Start guest agent poller if guest agent is enabled and interval > 0
+                      -- (interval=0 disables the poller, useful for tests to avoid QGA socket contention)
+                      when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
                         liftIO $
-                          startGuestAgentPoller (ssDbPool state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
+                          startGuestAgentPoller (ssDbPool state) (ssQemuConfig state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
                       -- Fork a thread to wait for process exit
                       _ <- liftIO $ forkIO $ runServerLogging state $ do
                         logDebugN $ "Waiting for VM " <> T.pack (show vmId) <> " process to exit"
@@ -194,7 +195,7 @@ handleVmStart state vmId = runServerLogging state $ do
                       pure $ RespInvalidTransition VmError $ "Failed to start: " <> err
             VmPaused -> do
               -- Resume using QMP
-              qmpResult <- liftIO $ qmpContinue vmId
+              qmpResult <- liftIO $ qmpContinue (ssQemuConfig state) vmId
               case qmpResult of
                 QmpSuccess -> do
                   logInfoN $ "VM " <> T.pack (show vmId) <> " resumed"
@@ -225,7 +226,7 @@ handleVmStop state vmId = runServerLogging state $ do
             then do
               -- Use guest agent for clean shutdown (like running "poweroff" inside the guest)
               logDebugN $ "Sending guest-shutdown to VM " <> T.pack (show vmId)
-              ok <- liftIO $ guestShutdown vmId
+              ok <- liftIO $ guestShutdown (ssQemuConfig state) vmId
               if ok
                 then do
                   logInfoN $ "VM " <> T.pack (show vmId) <> " guest-shutdown initiated"
@@ -237,7 +238,7 @@ handleVmStop state vmId = runServerLogging state $ do
   where
     shutdownViaQmp vmId' currentStatus' = do
       logDebugN $ "Sending QMP shutdown command to VM " <> T.pack (show vmId')
-      qmpResult <- liftIO $ qmpShutdown vmId'
+      qmpResult <- liftIO $ qmpShutdown (ssQemuConfig state) vmId'
       case qmpResult of
         QmpSuccess -> do
           logInfoN $ "VM " <> T.pack (show vmId') <> " shutdown initiated"
@@ -262,7 +263,7 @@ handleVmPause state vmId = runServerLogging state $ do
         Right _ -> do
           -- Pause VM via QMP
           logDebugN $ "Sending pause command to VM " <> T.pack (show vmId)
-          qmpResult <- liftIO $ qmpStop vmId
+          qmpResult <- liftIO $ qmpStop (ssQemuConfig state) vmId
           case qmpResult of
             QmpSuccess -> do
               logInfoN $ "VM " <> T.pack (show vmId) <> " paused"
@@ -471,8 +472,8 @@ listVms = do
         }
 
 -- | Get full VM details
-getVmDetails :: Int64 -> SqlPersistT IO (Maybe VmDetails)
-getVmDetails vmId = do
+getVmDetails :: QemuConfig -> Int64 -> SqlPersistT IO (Maybe VmDetails)
+getVmDetails config vmId = do
   let key = toSqlKey vmId :: VmId
   mVm <- get key
   case mVm of
@@ -481,10 +482,10 @@ getVmDetails vmId = do
       drives <- selectList [M.DriveVmId ==. key] []
       netIfs <- selectList [M.NetworkInterfaceVmId ==. key] []
       -- Get socket paths
-      monitorSock <- liftIO $ getMonitorSocket vmId
-      spiceSock <- liftIO $ getSpiceSocket vmId
-      serialSock <- liftIO $ getSerialSocket vmId
-      guestAgentSock <- liftIO $ getGuestAgentSocket vmId
+      monitorSock <- liftIO $ getMonitorSocket config vmId
+      spiceSock <- liftIO $ getSpiceSocket config vmId
+      serialSock <- liftIO $ getSerialSocket config vmId
+      guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
       -- Build drive info by fetching disk images
       driveInfos <- mapM toDriveInfo drives
       pure $

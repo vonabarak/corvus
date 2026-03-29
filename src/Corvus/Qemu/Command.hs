@@ -51,12 +51,12 @@ import System.FilePath ((</>))
 generateQemuCommandIO :: Pool SqlBackend -> QemuConfig -> Int64 -> IO (Maybe String)
 generateQemuCommandIO pool config vmId = do
   basePath <- getEffectiveBasePath config
-  monitorSock <- getMonitorSocket vmId
-  qmpSock <- getQmpSocket vmId
-  spiceSock <- getSpiceSocket vmId
-  serialSock <- getSerialSocket vmId
-  guestAgentSock <- getGuestAgentSocket vmId
-  vmRuntimeDir <- getVmRuntimeDir vmId
+  monitorSock <- getMonitorSocket config vmId
+  qmpSock <- getQmpSocket config vmId
+  spiceSock <- getSpiceSocket config vmId
+  serialSock <- getSerialSocket config vmId
+  guestAgentSock <- getGuestAgentSocket config vmId
+  vmRuntimeDir <- getVmRuntimeDir config vmId
   result <- runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir) pool
   pure $ case result of
     Nothing -> Nothing
@@ -77,14 +77,14 @@ generateQemuCommand config vmId = do
       driveWithImages <- mapM fetchDriveWithImage drives
       -- Get actual paths from environment
       basePath <- liftIO $ getEffectiveBasePath config
-      monitorSock <- liftIO $ getMonitorSocket vmId
-      qmpSock <- liftIO $ getQmpSocket vmId
-      spiceSock <- liftIO $ getSpiceSocket vmId
-      serialSock <- liftIO $ getSerialSocket vmId
-      guestAgentSock <- liftIO $ getGuestAgentSocket vmId
-      vmRuntimeDir <- liftIO $ getVmRuntimeDir vmId
+      monitorSock <- liftIO $ getMonitorSocket config vmId
+      qmpSock <- liftIO $ getQmpSocket config vmId
+      spiceSock <- liftIO $ getSpiceSocket config vmId
+      serialSock <- liftIO $ getSerialSocket config vmId
+      guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
+      vmRuntimeDir <- liftIO $ getVmRuntimeDir config vmId
       -- Resolve network socket paths for VDE interfaces with networkId
-      resolvedNetIfs <- liftIO $ mapM (resolveNetIfSocket . entityVal) netIfs
+      resolvedNetIfs <- liftIO $ mapM (resolveNetIfSocket config . entityVal) netIfs
       let (binary, args) =
             buildCommandWithSockets
               config
@@ -132,7 +132,7 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSoc
       netIfs <- selectList [NetworkInterfaceVmId ==. key] []
       sharedDirs <- selectList [SharedDirVmId ==. key] []
       -- Resolve network socket paths for VDE interfaces with networkId
-      resolvedNetIfs <- liftIO $ mapM (resolveNetIfSocket . entityVal) netIfs
+      resolvedNetIfs <- liftIO $ mapM (resolveNetIfSocket config . entityVal) netIfs
       pure $
         Just $
           buildCommandWithSockets
@@ -369,9 +369,9 @@ sharedDirArgs vmRuntimeDir (idx, dir) =
 
 -- | Resolve VDE socket path for network interfaces with a networkId.
 -- Substitutes the socket path into hostDevice so that netArgs stays pure.
-resolveNetIfSocket :: NetworkInterface -> IO NetworkInterface
-resolveNetIfSocket netIf = case networkInterfaceNetworkId netIf of
+resolveNetIfSocket :: QemuConfig -> NetworkInterface -> IO NetworkInterface
+resolveNetIfSocket config netIf = case networkInterfaceNetworkId netIf of
   Just nwKey -> do
-    socketPath <- getVdeSwitchSocket (fromSqlKey nwKey)
+    socketPath <- getVdeSwitchSocket config (fromSqlKey nwKey)
     pure $ netIf {networkInterfaceHostDevice = T.pack socketPath}
   Nothing -> pure netIf

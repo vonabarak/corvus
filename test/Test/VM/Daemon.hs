@@ -24,16 +24,13 @@ import Control.Concurrent.STM (atomically, writeTVar)
 import Control.Exception (bracket, catch)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel)
 import Corvus.Client.Connection (Connection, ConnectionError, withConnection)
-import Corvus.Qemu.Config (QemuConfig, defaultQemuConfig, qcBasePath)
+import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Server (runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), newServerState)
-import Data.Pool (Pool)
 import qualified Data.Text as T
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
-import Database.Persist.Sql (SqlBackend)
 import Network.Socket (Family (..), SockAddr (..), SocketType (..), close, connect, defaultProtocol, socket)
 import qualified Network.Socket as NS
 import System.Directory (createDirectoryIfMissing, removePathForcibly)
@@ -70,10 +67,13 @@ startTestDaemon env = do
   let socketPath = tempDir </> "daemon.sock"
       listenAddr = UnixAddress socketPath
       qemuBasePath = tempDir </> "VMs"
+      runtimeDir = tempDir </> "run"
 
-  -- Create QEMU config with test-specific base path
-  let qemuConfig = defaultQemuConfig {qcBasePath = Just qemuBasePath}
+  -- Create QEMU config with test-specific paths and no background poller
+  -- (healthcheckInterval=0 disables the poller to avoid QGA socket contention)
+  let qemuConfig = defaultQemuConfig {qcBasePath = Just qemuBasePath, qcRuntimeDir = Just runtimeDir, qcHealthcheckInterval = 0}
   createDirectoryIfMissing True qemuBasePath
+  createDirectoryIfMissing True runtimeDir
 
   -- Create server state with the test database pool
   logLevel <- getTestLogLevel
@@ -102,9 +102,11 @@ startTestDaemonWithConfig env modifyConfig = do
   let socketPath = tempDir </> "daemon.sock"
       listenAddr = UnixAddress socketPath
       qemuBasePath = tempDir </> "VMs"
+      runtimeDir = tempDir </> "run"
 
-  let qemuConfig = modifyConfig $ defaultQemuConfig {qcBasePath = Just qemuBasePath}
+  let qemuConfig = modifyConfig $ defaultQemuConfig {qcBasePath = Just qemuBasePath, qcRuntimeDir = Just runtimeDir, qcHealthcheckInterval = 0}
   createDirectoryIfMissing True qemuBasePath
+  createDirectoryIfMissing True runtimeDir
 
   logLevel <- getTestLogLevel
   state <- newServerState (tePool env) qemuConfig
@@ -122,7 +124,9 @@ startTestDaemonWithConfig env modifyConfig = do
       , tdTempDir = tempDir
       }
 
--- | Stop a test daemon
+-- | Stop a test daemon.
+-- Individual test brackets (withTestVmGuestExecWithDisk etc.) handle VM cleanup.
+-- Runtime dirs are per-daemon, so no cross-daemon interference.
 stopTestDaemon :: TestDaemon -> IO ()
 stopTestDaemon daemon = do
   -- Signal shutdown
@@ -131,7 +135,10 @@ stopTestDaemon daemon = do
   -- Cancel the server thread
   cancel (tdThread daemon)
 
-  -- Clean up temp directory
+  -- Brief delay to let background threads notice cancellation
+  threadDelay 100000
+
+  -- Clean up temp directory (includes per-daemon runtime dir)
   removePathForcibly (tdTempDir daemon)
 
 -- | Run an action with a test daemon

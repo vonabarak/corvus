@@ -2,10 +2,10 @@
 
 -- | Runtime directory management for VMs.
 -- Handles creation of runtime directories and socket paths.
+-- All functions accept QemuConfig to support per-daemon runtime directories.
 module Corvus.Qemu.Runtime
   ( -- * Runtime directories
-    getCorvusRuntimeDir
-  , getVmRuntimeDir
+    getVmRuntimeDir
   , createVmRuntimeDir
 
     -- * Network runtime directories
@@ -26,39 +26,26 @@ module Corvus.Qemu.Runtime
   )
 where
 
+import Corvus.Qemu.Config (QemuConfig, getEffectiveRuntimeDir)
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe)
 import System.Directory (createDirectoryIfMissing)
-import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
 --------------------------------------------------------------------------------
 -- Runtime Directory Management
 --------------------------------------------------------------------------------
 
--- | Get the base runtime directory for corvus
--- Uses $XDG_RUNTIME_DIR/corvus, falls back to /tmp/corvus-$UID
-getCorvusRuntimeDir :: IO FilePath
-getCorvusRuntimeDir = do
-  mXdg <- lookupEnv "XDG_RUNTIME_DIR"
-  case mXdg of
-    Just xdg -> pure $ xdg </> "corvus"
-    Nothing -> do
-      mUid <- lookupEnv "UID"
-      let uid = fromMaybe "1000" mUid
-      pure $ "/tmp/corvus-" ++ uid
-
 -- | Get the runtime directory for a specific VM
-getVmRuntimeDir :: Int64 -> IO FilePath
-getVmRuntimeDir vmId = do
-  baseDir <- getCorvusRuntimeDir
+getVmRuntimeDir :: QemuConfig -> Int64 -> IO FilePath
+getVmRuntimeDir config vmId = do
+  baseDir <- getEffectiveRuntimeDir config
   pure $ baseDir </> show vmId
 
 -- | Create runtime directory for a VM
 -- Returns the path to the created directory
-createVmRuntimeDir :: Int64 -> IO FilePath
-createVmRuntimeDir vmId = do
-  vmDir <- getVmRuntimeDir vmId
+createVmRuntimeDir :: QemuConfig -> Int64 -> IO FilePath
+createVmRuntimeDir config vmId = do
+  vmDir <- getVmRuntimeDir config vmId
   createDirectoryIfMissing True vmDir
   pure vmDir
 
@@ -67,22 +54,22 @@ createVmRuntimeDir vmId = do
 --------------------------------------------------------------------------------
 
 -- | Get the runtime directory for a specific network
-getNetworkRuntimeDir :: Int64 -> IO FilePath
-getNetworkRuntimeDir networkId = do
-  baseDir <- getCorvusRuntimeDir
+getNetworkRuntimeDir :: QemuConfig -> Int64 -> IO FilePath
+getNetworkRuntimeDir config networkId = do
+  baseDir <- getEffectiveRuntimeDir config
   pure $ baseDir </> "networks" </> show networkId
 
 -- | Create runtime directory for a network
-createNetworkRuntimeDir :: Int64 -> IO FilePath
-createNetworkRuntimeDir networkId = do
-  netDir <- getNetworkRuntimeDir networkId
+createNetworkRuntimeDir :: QemuConfig -> Int64 -> IO FilePath
+createNetworkRuntimeDir config networkId = do
+  netDir <- getNetworkRuntimeDir config networkId
   createDirectoryIfMissing True netDir
   pure netDir
 
 -- | Get path to vde_switch socket for a network
-getVdeSwitchSocket :: Int64 -> IO FilePath
-getVdeSwitchSocket networkId = do
-  netDir <- getNetworkRuntimeDir networkId
+getVdeSwitchSocket :: QemuConfig -> Int64 -> IO FilePath
+getVdeSwitchSocket config networkId = do
+  netDir <- getNetworkRuntimeDir config networkId
   pure $ netDir </> "switch.ctl"
 
 -- | Get the TAP interface name for a network (deterministic from ID)
@@ -90,15 +77,15 @@ getTapInterfaceName :: Int64 -> String
 getTapInterfaceName networkId = "crv" ++ show networkId
 
 -- | Get path to dnsmasq PID file for a network
-getDnsmasqPidFile :: Int64 -> IO FilePath
-getDnsmasqPidFile networkId = do
-  netDir <- getNetworkRuntimeDir networkId
+getDnsmasqPidFile :: QemuConfig -> Int64 -> IO FilePath
+getDnsmasqPidFile config networkId = do
+  netDir <- getNetworkRuntimeDir config networkId
   pure $ netDir </> "dnsmasq.pid"
 
 -- | Get path to dnsmasq lease file for a network
-getDnsmasqLeaseFile :: Int64 -> IO FilePath
-getDnsmasqLeaseFile networkId = do
-  netDir <- getNetworkRuntimeDir networkId
+getDnsmasqLeaseFile :: QemuConfig -> Int64 -> IO FilePath
+getDnsmasqLeaseFile config networkId = do
+  netDir <- getNetworkRuntimeDir config networkId
   pure $ netDir </> "dnsmasq.leases"
 
 --------------------------------------------------------------------------------
@@ -106,37 +93,37 @@ getDnsmasqLeaseFile networkId = do
 --------------------------------------------------------------------------------
 
 -- | Get path to HMP monitor socket for a VM
-getMonitorSocket :: Int64 -> IO FilePath
-getMonitorSocket vmId = do
-  vmDir <- getVmRuntimeDir vmId
+getMonitorSocket :: QemuConfig -> Int64 -> IO FilePath
+getMonitorSocket config vmId = do
+  vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "monitor.sock"
 
 -- | Get path to QMP socket for a VM
-getQmpSocket :: Int64 -> IO FilePath
-getQmpSocket vmId = do
-  vmDir <- getVmRuntimeDir vmId
+getQmpSocket :: QemuConfig -> Int64 -> IO FilePath
+getQmpSocket config vmId = do
+  vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "qmp.sock"
 
 -- | Get path to SPICE socket for a VM
-getSpiceSocket :: Int64 -> IO FilePath
-getSpiceSocket vmId = do
-  vmDir <- getVmRuntimeDir vmId
+getSpiceSocket :: QemuConfig -> Int64 -> IO FilePath
+getSpiceSocket config vmId = do
+  vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "spice.sock"
 
 -- | Get path to serial console socket for a VM
-getSerialSocket :: Int64 -> IO FilePath
-getSerialSocket vmId = do
-  vmDir <- getVmRuntimeDir vmId
+getSerialSocket :: QemuConfig -> Int64 -> IO FilePath
+getSerialSocket config vmId = do
+  vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "serial.sock"
 
 -- | Get path to QEMU Guest Agent socket for a VM
-getGuestAgentSocket :: Int64 -> IO FilePath
-getGuestAgentSocket vmId = do
-  vmDir <- getVmRuntimeDir vmId
+getGuestAgentSocket :: QemuConfig -> Int64 -> IO FilePath
+getGuestAgentSocket config vmId = do
+  vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "qga.sock"
 
 -- | Get path to PID file for a VM
-getPidFile :: Int64 -> IO FilePath
-getPidFile vmId = do
-  vmDir <- getVmRuntimeDir vmId
+getPidFile :: QemuConfig -> Int64 -> IO FilePath
+getPidFile config vmId = do
+  vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "qemu.pid"

@@ -11,12 +11,14 @@
 -- Run with: stack test --test-arguments="--match VmIntegration"
 module Corvus.VmIntegrationSpec (spec) where
 
+import Corvus.Types (ServerState (..))
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, startTestVmAndWaitGuestAgent, withTestVm, withTestVmBiosGuestExec, withTestVmGuestExec)
 import Test.VM.Console (connectSerialConsole, consoleExpect, consoleSend)
+import Test.VM.Daemon (TestDaemon (..))
 import Test.VM.Rpc (editTestVm, runInVm, runInVm_, stopTestVmAndWait)
 import Test.VM.Ssh (runInTestVm)
 
@@ -139,7 +141,7 @@ spec = withTestDb $ do
         -- Connect to serial console and verify login prompt is available.
         -- The login prompt was already printed during boot (before we connected),
         -- so send Enter to trigger a fresh one.
-        connectSerialConsole (tvmId vm) $ \console -> do
+        connectSerialConsole (ssQemuConfig (tdState (tvmDaemon vm))) (tvmId vm) $ \console -> do
           consoleSend console ""
           _ <- consoleExpect console "login:" 60
           pure ()

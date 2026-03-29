@@ -128,7 +128,7 @@ handleNetworkStop state networkId force = runServerLogging state $ do
   where
     doStop nwId = do
       logInfoN $ "Stopping network " <> T.pack (show nwId)
-      result <- liftIO $ stopVdeSwitch (ssDbPool state) nwId
+      result <- liftIO $ stopVdeSwitch (ssQemuConfig state) (ssDbPool state) nwId
       case result of
         Left err -> do
           logWarnN $ "Failed to stop network " <> T.pack (show nwId) <> ": " <> err

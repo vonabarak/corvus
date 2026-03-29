@@ -262,6 +262,7 @@ test-suite corvus-test
       Corvus.VirtiofsIntegrationSpec
       Corvus.VmIntegrationSpec
       Corvus.VmSpec
+      SpecHook
       Test.Database
       Test.DSL.Core
       Test.DSL.Given

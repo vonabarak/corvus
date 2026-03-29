@@ -6,7 +6,7 @@ module Corvus.SnapshotSpec (spec) where
 import Test.Prelude
 
 spec :: Spec
-spec = withTestDb $ do
+spec = sequential $ withTestDb $ do
   describe "snapshot list" $ do
     testCase "returns empty list for disk with no snapshots" $ do
       given $ do

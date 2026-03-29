@@ -19,12 +19,14 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
+import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Qmp (withUnixSocket)
 import Corvus.Qemu.Runtime (getGuestAgentSocket)
 import Data.Aeson (Value (..), (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.Aeson.Types as AT
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
@@ -34,6 +36,7 @@ import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
 import Network.Socket (Socket)
 import Network.Socket.ByteString (recv, sendAll)
+import System.Random (randomIO)
 import System.Timeout (timeout)
 
 -- | Result of a guest-exec command
@@ -68,9 +71,9 @@ data GuestNetIf = GuestNetIf
 
 -- | Execute a command inside the guest via the QEMU Guest Agent.
 -- Runs the command via /bin/sh -c, captures stdout and stderr.
-guestExec :: Int64 -> Text -> IO GuestExecResult
-guestExec vmId command = do
-  gaSock <- getGuestAgentSocket vmId
+guestExec :: QemuConfig -> Int64 -> Text -> IO GuestExecResult
+guestExec config vmId command = do
+  gaSock <- getGuestAgentSocket config vmId
   mResult <- withSyncedSocket gaSock $ \sock -> do
     -- Send guest-exec command
     let execCmd =
@@ -87,16 +90,16 @@ guestExec vmId command = do
     execResp <- recvJson sock
 
     case parsePid execResp of
-      Nothing -> pure $ GuestExecError "Failed to parse guest-exec response"
+      Nothing -> pure $ GuestExecError $ "Failed to parse guest-exec response: " <> T.pack (show execResp)
       Just pid -> pollStatus sock pid 0
   case mResult of
     Left err -> pure $ GuestExecConnectionFailed err
     Right r -> pure r
 
 -- | Ping the guest agent to check if it's available.
-guestPing :: Int64 -> IO Bool
-guestPing vmId = do
-  gaSock <- getGuestAgentSocket vmId
+guestPing :: QemuConfig -> Int64 -> IO Bool
+guestPing config vmId = do
+  gaSock <- getGuestAgentSocket config vmId
   mResult <- withSyncedSocket gaSock $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]
     resp <- recvJson sock
@@ -110,9 +113,9 @@ guestPing vmId = do
 -- | Request a graceful shutdown via the guest agent.
 -- This triggers a clean shutdown from inside the guest (like running "poweroff").
 -- Returns True if the command was accepted, False on error.
-guestShutdown :: Int64 -> IO Bool
-guestShutdown vmId = do
-  gaSock <- getGuestAgentSocket vmId
+guestShutdown :: QemuConfig -> Int64 -> IO Bool
+guestShutdown config vmId = do
+  gaSock <- getGuestAgentSocket config vmId
   mResult <- withSyncedSocket gaSock $ \sock -> do
     -- guest-shutdown with mode "powerdown" triggers a clean OS shutdown
     sendJson sock $
@@ -133,9 +136,9 @@ guestShutdown vmId = do
 
 -- | Query network interfaces from the guest via the QEMU Guest Agent.
 -- Returns Nothing on failure, Just [] if no interfaces reported.
-guestNetworkGetInterfaces :: Int64 -> IO (Maybe [GuestNetIf])
-guestNetworkGetInterfaces vmId = do
-  gaSock <- getGuestAgentSocket vmId
+guestNetworkGetInterfaces :: QemuConfig -> Int64 -> IO (Maybe [GuestNetIf])
+guestNetworkGetInterfaces config vmId = do
+  gaSock <- getGuestAgentSocket config vmId
   mResult <- withSyncedSocket gaSock $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
     resp <- recvJson sock
@@ -149,14 +152,15 @@ guestNetworkGetInterfaces vmId = do
 --------------------------------------------------------------------------------
 
 -- | Connect to the guest agent socket, perform guest-sync handshake, and run
--- an action. Retries up to 3 times with 1-second backoff if connect or sync
--- fails (handles transient unavailability, e.g. cloud-init restarting the agent).
+-- an action. Retries up to 5 times with 1-second backoff if connect or sync
+-- fails (handles transient unavailability from socket contention with the
+-- guest agent poller, or cloud-init restarting the agent).
 withSyncedSocket :: FilePath -> (Socket -> IO a) -> IO (Either Text a)
-withSyncedSocket path action = go 3
+withSyncedSocket path action = go 5
   where
     go 0 = pure $ Left "Guest agent unavailable after retries"
     go n = do
-      mResult <- timeout 5000000 $ try $ withUnixSocket path $ \sock -> do
+      mResult <- timeout 10000000 $ try $ withUnixSocket path $ \sock -> do
         syncGuest sock
         action sock
       case mResult of
@@ -171,26 +175,38 @@ withSyncedSocket path action = go 3
 
 -- | Synchronize with the guest agent.
 -- Each new connection requires a guest-sync handshake before commands will work.
+-- Drains any stale responses until the sync response (matching ID) arrives.
 syncGuest :: Socket -> IO ()
 syncGuest sock = do
+  syncId <- abs <$> randomIO :: IO Int
   let syncCmd =
         Aeson.object
           [ "execute" .= ("guest-sync" :: Text)
-          , "arguments" .= Aeson.object ["id" .= (1 :: Int)]
+          , "arguments" .= Aeson.object ["id" .= syncId]
           ]
   sendJson sock syncCmd
-  _ <- recvJson sock
-  pure ()
+  waitForSync syncId 10
+  where
+    waitForSync _ 0 = pure ()
+    waitForSync expected n = do
+      resp <- recvJson sock
+      case resp of
+        Just (Object obj)
+          | KM.lookup "return" obj == Just (Number (fromIntegral expected)) -> pure ()
+        _ -> waitForSync expected (n - 1 :: Int)
 
 -- | Send a JSON value over the socket
 sendJson :: Socket -> Value -> IO ()
 sendJson sock val = sendAll sock (BL.toStrict (Aeson.encode val) <> "\n")
 
--- | Read a JSON response from the socket
+-- | Read a JSON response from the socket.
+-- QGA sends newline-delimited JSON. Read a chunk and parse the first JSON value.
 recvJson :: Socket -> IO (Maybe Value)
 recvJson sock = do
   bs <- recv sock 65536
-  pure $ Aeson.decodeStrict bs
+  if BS.null bs
+    then pure Nothing
+    else pure $ Aeson.decodeStrict bs
 
 -- | Extract PID from guest-exec response: {"return": {"pid": N}}
 parsePid :: Maybe Value -> Maybe Int

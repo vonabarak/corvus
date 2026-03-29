@@ -52,7 +52,9 @@ import Corvus.Client
 import Corvus.Client.Rpc (GuestExecResult (..), NetIfResult (..), NetworkResult (..), networkCreate, networkDelete, networkStart, networkStop, vmExec)
 import Corvus.Model
 import Corvus.Protocol (NetIfInfo (..), VmDetails (..))
+import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Runtime (getQmpSocket)
+import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -139,7 +141,7 @@ stopTestVmAndWait daemon vmId timeoutSec = do
   -- The daemon sets VmStopped after waitForProcess returns, but there's a
   -- brief window where the process has exited but the OS hasn't released
   -- all file locks yet. The QMP socket disappearing confirms full cleanup.
-  waitForQemuExit vmId
+  waitForQemuExit (ssQemuConfig (tdState daemon)) vmId
 
 -- | Delete a VM via daemon RPC (best-effort cleanup, ignores errors)
 deleteTestVm :: TestDaemon -> Int64 -> IO ()
@@ -343,9 +345,9 @@ addVmNetIfWithNetwork daemon vmId nwId = do
 
 -- | Wait for the QEMU process to fully exit by checking the QMP socket.
 -- When QEMU exits, the socket file is removed by the OS.
-waitForQemuExit :: Int64 -> IO ()
-waitForQemuExit vmId = do
-  qmpSock <- getQmpSocket vmId
+waitForQemuExit :: QemuConfig -> Int64 -> IO ()
+waitForQemuExit config vmId = do
+  qmpSock <- getQmpSocket config vmId
   go qmpSock (20 :: Int) -- up to 2s
   where
     go _ 0 = pure ()

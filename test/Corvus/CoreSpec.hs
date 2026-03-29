@@ -5,7 +5,7 @@ import Test.DSL.When (executeRequest)
 import Test.Prelude
 
 spec :: Spec
-spec = withTestDb $ do
+spec = sequential $ withTestDb $ do
   describe "ping" $ do
     testCase "responds with pong" $ do
       resp <- executeRequest ReqPing

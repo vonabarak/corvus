@@ -14,6 +14,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Model
 import qualified Corvus.Model as M
+import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.GuestAgent (GuestIpAddress (..), GuestNetIf (..), guestNetworkGetInterfaces, guestPing)
 import Corvus.Types (runFilteredLogging)
 import Data.Int (Int64)
@@ -30,55 +31,55 @@ import Database.Persist.Sql (SqlBackend, SqlPersistT)
 -- Phase 1: waits 3s, then pings every 1s until first success.
 -- Phase 2: queries network interfaces and pings every the configured interval.
 -- Exits when the VM's PID is cleared from the database.
-startGuestAgentPoller :: Pool SqlBackend -> Int -> Int64 -> LogLevel -> IO ()
-startGuestAgentPoller pool intervalSec vmId logLevel = void $ forkIO $ runFilteredLogging logLevel $ do
+startGuestAgentPoller :: Pool SqlBackend -> QemuConfig -> Int -> Int64 -> LogLevel -> IO ()
+startGuestAgentPoller pool config intervalSec vmId logLevel = void $ forkIO $ runFilteredLogging logLevel $ do
   -- Initial delay: wait for VM to boot
   liftIO $ threadDelay 3000000
   logDebugN $ "Guest agent poller starting for VM " <> tshow vmId
-  waitForAgent pool intervalSec vmId
+  waitForAgent pool config intervalSec vmId
 
 --------------------------------------------------------------------------------
 -- Phase 1: Wait for agent readiness
 --------------------------------------------------------------------------------
 
 -- | Ping every 1s until the guest agent responds.
-waitForAgent :: Pool SqlBackend -> Int -> Int64 -> LoggingT IO ()
-waitForAgent pool intervalSec vmId = do
+waitForAgent :: Pool SqlBackend -> QemuConfig -> Int -> Int64 -> LoggingT IO ()
+waitForAgent pool config intervalSec vmId = do
   alive <- isVmAlive pool vmId
   when alive $ do
-    pingOk <- liftIO $ guestPing vmId
+    pingOk <- liftIO $ guestPing config vmId
     if pingOk
       then do
         now <- liftIO getCurrentTime
         liftIO $ runSqlPool (updateHealthcheck vmId now) pool
         logInfoN $ "Guest agent ready for VM " <> tshow vmId
         -- Immediately query network interfaces on first success
-        queryAndUpdateNetwork pool vmId
+        queryAndUpdateNetwork pool config vmId
         -- Enter steady-state polling
-        steadyPoll pool intervalSec vmId
+        steadyPoll pool config intervalSec vmId
       else do
         liftIO $ threadDelay 1000000
-        waitForAgent pool intervalSec vmId
+        waitForAgent pool config intervalSec vmId
 
 --------------------------------------------------------------------------------
 -- Phase 2: Steady-state polling (every 10s)
 --------------------------------------------------------------------------------
 
-steadyPoll :: Pool SqlBackend -> Int -> Int64 -> LoggingT IO ()
-steadyPoll pool intervalSec vmId = do
+steadyPoll :: Pool SqlBackend -> QemuConfig -> Int -> Int64 -> LoggingT IO ()
+steadyPoll pool config intervalSec vmId = do
   liftIO $ threadDelay (intervalSec * 1000000)
   alive <- isVmAlive pool vmId
   when alive $ do
-    pingOk <- liftIO $ guestPing vmId
+    pingOk <- liftIO $ guestPing config vmId
     if pingOk
       then do
         now <- liftIO getCurrentTime
         liftIO $ runSqlPool (updateHealthcheck vmId now) pool
         logDebugN $ "Guest agent ping OK for VM " <> tshow vmId
-        queryAndUpdateNetwork pool vmId
+        queryAndUpdateNetwork pool config vmId
       else
         logDebugN $ "Guest agent ping failed for VM " <> tshow vmId
-    steadyPoll pool intervalSec vmId
+    steadyPoll pool config intervalSec vmId
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -96,9 +97,9 @@ isVmAlive pool vmId = do
     Just _ -> pure True
 
 -- | Query guest network interfaces and update matching DB rows by MAC address.
-queryAndUpdateNetwork :: Pool SqlBackend -> Int64 -> LoggingT IO ()
-queryAndUpdateNetwork pool vmId = do
-  mGuestIfs <- liftIO $ guestNetworkGetInterfaces vmId
+queryAndUpdateNetwork :: Pool SqlBackend -> QemuConfig -> Int64 -> LoggingT IO ()
+queryAndUpdateNetwork pool config vmId = do
+  mGuestIfs <- liftIO $ guestNetworkGetInterfaces config vmId
   case mGuestIfs of
     Nothing -> logDebugN $ "Failed to get guest interfaces for VM " <> tshow vmId
     Just guestIfs -> do

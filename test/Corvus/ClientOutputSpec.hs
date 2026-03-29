@@ -18,7 +18,7 @@ testTime :: UTCTime
 testTime = posixSecondsToUTCTime 1700000000
 
 spec :: Spec
-spec = do
+spec = sequential $ do
   describe "JSON serialization of Protocol types" $ do
     describe "StatusInfo" $ do
       it "serializes with correct field names" $ do

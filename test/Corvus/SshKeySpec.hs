@@ -11,7 +11,7 @@ import Test.Hspec
 import Test.Prelude
 
 spec :: Spec
-spec = withTestDb $ do
+spec = sequential $ withTestDb $ do
   describe "ssh-key create" $ do
     testCase "creates a new SSH key" $ do
       result <- whenSshKeyCreate "my-key" "ssh-ed25519 AAAA... test"

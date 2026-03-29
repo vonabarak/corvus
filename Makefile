@@ -5,6 +5,9 @@
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
 
+# Number of parallel test jobs (override with: make integration-tests JOBS=4)
+JOBS ?= 8
+
 # Default target: build
 all: build
 
@@ -32,19 +35,19 @@ unit-tests:
 
 # Run only integration tests (those with "Integration" in their name)
 integration-tests:
-	stack test --test-arguments "--match Integration"
+	stack test --test-arguments "--match Integration --jobs=$(JOBS)"
 
 # Run integration tests that can run in a sandbox (no doas required)
 sandboxed-integration-tests:
-	stack test --test-arguments "--match Integration --skip Privileged"
+	stack test --test-arguments "--match Integration --skip Privileged --jobs=$(JOBS)"
 
 # Run integration tests that require privilege escalation (doas)
 privileged-integration-tests:
-	stack test --test-arguments "--match Privileged"
+	stack test --test-arguments "--match Privileged --jobs=$(JOBS)"
 
 # Run all tests
 all-tests:
-	stack test
+	stack test --test-arguments "--jobs=$(JOBS)"
 
 # Run specific tests (e.g., make test MATCH="test name")
 test:

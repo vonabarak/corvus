@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Disk image management handlers.
 -- Handles disk image CRUD operations, snapshots, and attach/detach.
@@ -42,6 +43,7 @@ module Corvus.Handlers.Disk
 where
 
 import Control.Applicative ((<|>))
+import Control.Exception (SomeException, try)
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
@@ -173,22 +175,35 @@ handleDiskRegister state name filePath format mSizeMb = runServerLogging state $
       logInfoN $ "Disk image already registered with ID: " <> T.pack (show $ fromSqlKey diskId)
       pure $ RespDiskCreated $ fromSqlKey diskId
     Nothing -> do
-      diskId <-
+      result <-
         liftIO $
-          runSqlPool
-            ( insert
-                DiskImage
-                  { diskImageName = name
-                  , diskImageFilePath = storedPath
-                  , diskImageFormat = format
-                  , diskImageSizeMb = fmap fromIntegral mSizeMb
-                  , diskImageCreatedAt = now
-                  , diskImageBackingImageId = Nothing
-                  }
-            )
-            (ssDbPool state)
-      logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
-      pure $ RespDiskCreated $ fromSqlKey diskId
+          try $
+            runSqlPool
+              ( insert
+                  DiskImage
+                    { diskImageName = name
+                    , diskImageFilePath = storedPath
+                    , diskImageFormat = format
+                    , diskImageSizeMb = fmap fromIntegral mSizeMb
+                    , diskImageCreatedAt = now
+                    , diskImageBackingImageId = Nothing
+                    }
+              )
+              (ssDbPool state)
+      case result of
+        Right diskId -> do
+          logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
+          pure $ RespDiskCreated $ fromSqlKey diskId
+        Left (_err :: SomeException) -> do
+          -- Race condition: another thread inserted first. Retry lookup.
+          mRetry <-
+            liftIO $
+              runSqlPool (getBy (UniqueImagePath storedPath)) (ssDbPool state)
+          case mRetry of
+            Just (Entity diskId _) -> do
+              logInfoN $ "Disk image registered concurrently with ID: " <> T.pack (show $ fromSqlKey diskId)
+              pure $ RespDiskCreated $ fromSqlKey diskId
+            Nothing -> pure $ RespError $ "Failed to register disk image: " <> name
 
 -- | Import a disk image from an HTTP/HTTPS URL.
 -- Downloads the file to the base images directory, decompresses .xz if needed,
@@ -650,11 +665,12 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                   filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
 
                   -- Add block device
-                  blockResult <- liftIO $ qmpBlockdevAdd vmId nodeName filePath format readOnly
+                  let qemuCfg = ssQemuConfig state
+                  blockResult <- liftIO $ qmpBlockdevAdd qemuCfg vmId nodeName filePath format readOnly
                   case blockResult of
                     QmpSuccess -> do
                       -- Add device
-                      deviceResult <- liftIO $ qmpDeviceAddDrive vmId deviceId nodeName interface
+                      deviceResult <- liftIO $ qmpDeviceAddDrive qemuCfg vmId deviceId nodeName interface
                       case deviceResult of
                         QmpSuccess -> do
                           logInfoN "Hot-plug successful"
@@ -662,7 +678,7 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                         QmpError err -> do
                           logWarnN $ "Device add failed: " <> err
                           -- Try to clean up blockdev
-                          _ <- liftIO $ qmpBlockdevDel vmId nodeName
+                          _ <- liftIO $ qmpBlockdevDel qemuCfg vmId nodeName
                           -- Remove drive record
                           liftIO $ runSqlPool (delete driveId) (ssDbPool state)
                           pure $ RespError $ "Device add failed: " <> err
@@ -711,11 +727,12 @@ handleDiskDetach state vmId driveId = runServerLogging state $ do
                       nodeName = "drive-" <> T.pack (show driveId)
 
                   -- Remove device first
-                  deviceResult <- liftIO $ qmpDeviceDel vmId deviceId
+                  let qemuCfg = ssQemuConfig state
+                  deviceResult <- liftIO $ qmpDeviceDel qemuCfg vmId deviceId
                   case deviceResult of
                     QmpSuccess -> do
                       -- Remove block device
-                      blockResult <- liftIO $ qmpBlockdevDel vmId nodeName
+                      blockResult <- liftIO $ qmpBlockdevDel qemuCfg vmId nodeName
                       case blockResult of
                         QmpSuccess -> do
                           liftIO $ runSqlPool (delete (toSqlKey driveId :: DriveId)) (ssDbPool state)
@@ -888,6 +905,9 @@ createDiskIO state name format sizeMb = do
 
 -- | Register an existing disk image file and return its ID.
 -- If the file is already registered (by path), returns the existing ID.
+-- Handles concurrent registration gracefully: if two threads try to register
+-- the same path simultaneously, the second one retries the lookup after the
+-- unique constraint violation.
 registerDiskIO :: ServerState -> Text -> Text -> DriveFormat -> Maybe Int -> IO (Either Text Int64)
 registerDiskIO state name filePath format mSizeMb = do
   basePath <- getEffectiveBasePath (ssQemuConfig state)
@@ -897,20 +917,28 @@ registerDiskIO state name filePath format mSizeMb = do
   case mExisting of
     Just (Entity diskId _) -> pure $ Right $ fromSqlKey diskId
     Nothing -> do
-      diskId <-
-        runSqlPool
-          ( insert
-              DiskImage
-                { diskImageName = name
-                , diskImageFilePath = storedPath
-                , diskImageFormat = format
-                , diskImageSizeMb = mSizeMb
-                , diskImageCreatedAt = now
-                , diskImageBackingImageId = Nothing
-                }
-          )
-          (ssDbPool state)
-      pure $ Right $ fromSqlKey diskId
+      result <-
+        try $
+          runSqlPool
+            ( insert
+                DiskImage
+                  { diskImageName = name
+                  , diskImageFilePath = storedPath
+                  , diskImageFormat = format
+                  , diskImageSizeMb = mSizeMb
+                  , diskImageCreatedAt = now
+                  , diskImageBackingImageId = Nothing
+                  }
+            )
+            (ssDbPool state)
+      case result of
+        Right diskId -> pure $ Right $ fromSqlKey diskId
+        Left (_err :: SomeException) -> do
+          -- Race condition: another thread inserted first. Retry lookup.
+          mRetry <- runSqlPool (getBy (UniqueImagePath storedPath)) (ssDbPool state)
+          case mRetry of
+            Just (Entity diskId _) -> pure $ Right $ fromSqlKey diskId
+            Nothing -> pure $ Left $ "Failed to register disk image: " <> name
 
 -- | Import a disk image from an HTTP/HTTPS URL and return its ID.
 -- Downloads to the base images directory, decompresses .xz if needed.
