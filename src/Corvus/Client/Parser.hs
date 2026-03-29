@@ -1090,6 +1090,11 @@ applyCommand =
       ( metavar "FILE"
           <> help "Path to YAML configuration file"
       )
+    <*> switch
+      ( long "skip-existing"
+          <> short 's'
+          <> help "Skip resources that already exist instead of failing"
+      )
 
 --------------------------------------------------------------------------------
 -- Main Command Parser

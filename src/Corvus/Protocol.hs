@@ -166,8 +166,8 @@ data Request
     ReqGuestExec !Int64 !Text
   | -- | Import disk image from URL (name, url, optionalFormat)
     ReqDiskImportUrl !Text !Text !(Maybe Text)
-  | -- | Apply environment from YAML config (yamlContent)
-    ReqApply !Text
+  | -- | Apply environment from YAML config (yamlContent, skipExisting)
+    ReqApply !Text !Bool
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server

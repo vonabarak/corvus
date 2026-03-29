@@ -19,8 +19,8 @@ import qualified Data.Text.IO as TIO
 import System.Directory (doesFileExist)
 
 -- | Handle apply command: read YAML file and send to daemon
-handleApply :: OutputFormat -> Connection -> FilePath -> IO Bool
-handleApply fmt conn path = do
+handleApply :: OutputFormat -> Connection -> FilePath -> Bool -> IO Bool
+handleApply fmt conn path skipExisting = do
   exists <- doesFileExist path
   if not exists
     then do
@@ -30,7 +30,7 @@ handleApply fmt conn path = do
       pure False
     else do
       content <- TIO.readFile path
-      resp <- applyConfig conn content
+      resp <- applyConfig conn content skipExisting
       case resp of
         Left err -> do
           if isStructured fmt

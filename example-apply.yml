@@ -25,6 +25,18 @@ disks:
     format: qcow2
     sizeMb: 20480
 
+  # Clone a disk (full copy, useful for OVMF UEFI vars)
+  # - name: ovmf-vars-template
+  #   import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+  #   format: raw
+  # - name: vm1-ovmf-vars
+  #   clone: ovmf-vars-template
+
+  # Overlay in a custom directory
+  # - name: vm1-root
+  #   overlay: alpine-base
+  #   path: "/data/vms/vm1"
+
   # Import from a local path on the daemon host
   # - name: custom-image
   #   import: /var/lib/corvus/images/custom.qcow2

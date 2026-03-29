@@ -62,7 +62,7 @@ spec = do
                   |]
 
           -- Apply the config
-          applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent
+          applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False
           vmId <- case applyRes of
             Right (Right (ApplyOk r)) -> do
               length (arDisks r) `shouldBe` 2
@@ -134,7 +134,7 @@ spec = do
                   |]
 
           -- Apply the config
-          applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent
+          applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False
           (vm1Id, vm2Id, nwId) <- case applyRes of
             Right (Right (ApplyOk r)) -> do
               length (arDisks r) `shouldBe` 3

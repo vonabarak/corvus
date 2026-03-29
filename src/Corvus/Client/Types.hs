@@ -162,5 +162,6 @@ data Command
   | -- Apply commands
 
     -- | Apply environment from YAML config file (file path)
-    Apply !FilePath
+    -- | Apply environment from YAML config file (file path, skipExisting)
+    Apply !FilePath !Bool
   deriving (Show)

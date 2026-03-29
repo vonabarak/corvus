@@ -335,7 +335,7 @@ runCommand opts = do
       NetworkList -> handleNetworkList fmt conn
       NetworkShow nwId -> handleNetworkShow fmt conn nwId
       -- Apply
-      Apply path -> handleApply fmt conn path
+      Apply path skipExisting -> handleApply fmt conn path skipExisting
 
   case connResult of
     Left err -> do

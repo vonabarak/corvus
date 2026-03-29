@@ -112,7 +112,7 @@ spec = do
                   overlay: other-disk
             |]
         then_ $ responseIs $ \case
-          RespError msg -> "cannot specify both" `T.isInfixOf` msg
+          RespError msg -> "cannot specify more than one" `T.isInfixOf` msg
           _ -> False
 
       testCase "applies config referencing pre-existing DB disk" $ do

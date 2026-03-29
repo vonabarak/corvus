@@ -37,6 +37,7 @@ module Corvus.Handlers.Disk
   , registerDiskIO
   , importDiskFromUrlIO
   , createOverlayDiskIO
+  , cloneDiskIO
   )
 where
 
@@ -962,8 +963,9 @@ importDiskFromUrlIO state name url mFormat = do
 
 -- | Create a qcow2 overlay backed by an existing disk and return its ID.
 -- Optionally resizes the overlay after creation.
-createOverlayDiskIO :: ServerState -> Text -> Int64 -> Maybe Int -> IO (Either Text Int64)
-createOverlayDiskIO state name backingDiskId mResizeMb = do
+-- When mDirPath is specified, the overlay is created in that directory instead of the base path.
+createOverlayDiskIO :: ServerState -> Text -> Int64 -> Maybe Int -> Maybe Text -> IO (Either Text Int64)
+createOverlayDiskIO state name backingDiskId mResizeMb mDirPath = do
   case sanitizeDiskName name of
     Left err -> pure $ Left err
     Right safeName -> do
@@ -973,7 +975,8 @@ createOverlayDiskIO state name backingDiskId mResizeMb = do
         Just backingDisk -> do
           basePath <- getEffectiveBasePath (ssQemuConfig state)
           let fileName = T.unpack safeName <> ".qcow2"
-              overlayPath = basePath </> fileName
+              overlayDir = maybe basePath T.unpack mDirPath
+              overlayPath = overlayDir </> fileName
           baseFilePath <- resolveDiskPath (ssQemuConfig state) backingDisk
           result <- createOverlay overlayPath baseFilePath (diskImageFormat backingDisk)
           case result of
@@ -1001,3 +1004,49 @@ createOverlayDiskIO state name backingDiskId mResizeMb = do
                   )
                   (ssDbPool state)
               pure $ Right $ fromSqlKey diskId
+
+-- | Clone a disk image and return the new disk's ID.
+-- Copies the image file and all snapshots. When mDestPath is specified, the clone
+-- is created in that directory instead of the base path.
+cloneDiskIO :: ServerState -> Text -> Int64 -> Maybe Text -> IO (Either Text Int64)
+cloneDiskIO state name baseDiskId mDestPath = do
+  case sanitizeDiskName name of
+    Left err -> pure $ Left err
+    Right safeName -> do
+      mBaseDisk <- runSqlPool (get (toSqlKey baseDiskId :: DiskImageId)) (ssDbPool state)
+      case mBaseDisk of
+        Nothing -> pure $ Left "Source disk not found"
+        Just baseDisk -> do
+          basePath <- getEffectiveBasePath (ssQemuConfig state)
+          let fileName = T.unpack safeName <> "." <> T.unpack (enumToText (diskImageFormat baseDisk))
+              destDir = maybe basePath T.unpack mDestPath
+              destPath = destDir </> fileName
+          srcPath <- resolveDiskPath (ssQemuConfig state) baseDisk
+          result <- cloneImage srcPath destPath
+          case result of
+            ImageError err -> pure $ Left err
+            ImageNotFound -> pure $ Left "Source image file not found"
+            _ -> do
+              now <- getCurrentTime
+              newDiskId <-
+                runSqlPool
+                  ( do
+                      dId <-
+                        insert
+                          DiskImage
+                            { diskImageName = safeName
+                            , diskImageFilePath = makeRelativeToBase basePath destPath
+                            , diskImageFormat = diskImageFormat baseDisk
+                            , diskImageSizeMb = diskImageSizeMb baseDisk
+                            , diskImageCreatedAt = now
+                            , diskImageBackingImageId = diskImageBackingImageId baseDisk
+                            }
+                      -- Clone snapshots as well
+                      baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey baseDiskId] []
+                      forM_ baseSnapshots $ \snapEntity -> do
+                        let snap = entityVal snapEntity
+                        insert_ snap {snapshotDiskImageId = dId}
+                      pure dId
+                  )
+                  (ssDbPool state)
+              pure $ Right $ fromSqlKey newDiskId

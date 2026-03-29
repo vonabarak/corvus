@@ -9,11 +9,13 @@ module Corvus.Handlers.Apply
 where
 
 import Control.Applicative ((<|>))
+import Control.Exception (SomeException, try)
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk
-  ( createDiskIO
+  ( cloneDiskIO
+  , createDiskIO
   , createOverlayDiskIO
   , detectFormatFromPath
   , importDiskFromUrlIO
@@ -74,6 +76,8 @@ data ApplyDisk = ApplyDisk
   , adSizeMb :: Maybe Int
   , adImport :: Maybe Text
   , adOverlay :: Maybe Text
+  , adClone :: Maybe Text
+  , adPath :: Maybe Text
   }
   deriving (Show)
 
@@ -85,6 +89,8 @@ instance FromJSON ApplyDisk where
       <*> o .:? "sizeMb"
       <*> o .:? "import"
       <*> o .:? "overlay"
+      <*> o .:? "clone"
+      <*> o .:? "path"
 
 data ApplyNetwork = ApplyNetwork
   { anName :: Text
@@ -145,13 +151,14 @@ instance FromJSON ApplyDrive where
       <*> o .: "interface"
       <*> o .:? "media"
       <*> o .:? "readOnly" .!= False
-      <*> o .:? "cacheType" .!= CacheNone
+      <*> o .:? "cacheType" .!= CacheWriteback
       <*> o .:? "discard" .!= False
 
 data ApplyNetIf = ApplyNetIf
   { aniType :: NetInterfaceType
   , aniHostDevice :: Maybe Text
   , aniNetwork :: Maybe Text
+  , aniMac :: Maybe Text
   }
   deriving (Show)
 
@@ -161,6 +168,7 @@ instance FromJSON ApplyNetIf where
       <$> o .: "type"
       <*> o .:? "hostDevice"
       <*> o .:? "network"
+      <*> o .:? "mac"
 
 data ApplySharedDir = ApplySharedDir
   { asdPath :: Text
@@ -182,8 +190,8 @@ instance FromJSON ApplySharedDir where
 -- Handler
 --------------------------------------------------------------------------------
 
-handleApply :: ServerState -> Text -> IO Response
-handleApply state yamlContent = runServerLogging state $ do
+handleApply :: ServerState -> Text -> Bool -> IO Response
+handleApply state yamlContent skipExisting = runServerLogging state $ do
   case decodeEither' (TE.encodeUtf8 yamlContent) of
     Left err -> do
       let msg = T.pack $ show err
@@ -196,7 +204,7 @@ handleApply state yamlContent = runServerLogging state $ do
           pure $ RespError err
         Right () -> do
           logInfoN "Applying environment configuration..."
-          result <- liftIO $ executeApply state config
+          result <- liftIO $ executeApply state config skipExisting
           case result of
             Left err -> do
               logWarnN $ "Apply failed: " <> err
@@ -241,13 +249,18 @@ validateConfig config = do
     validateDisk d =
       let hasImport = isJust (adImport d)
           hasOverlay = isJust (adOverlay d)
-          hasCreate = isJust (adFormat d) && isJust (adSizeMb d) && not hasImport && not hasOverlay
-       in if hasImport && hasOverlay
-            then Left $ "Disk '" <> adName d <> "': cannot specify both 'import' and 'overlay'"
+          hasClone = isJust (adClone d)
+          hasCreate = isJust (adFormat d) && isJust (adSizeMb d) && not hasImport && not hasOverlay && not hasClone
+          strategies = length $ filter id [hasImport, hasOverlay, hasClone]
+       in if strategies > 1
+            then Left $ "Disk '" <> adName d <> "': cannot specify more than one of 'import', 'overlay', 'clone'"
             else
-              if not hasImport && not hasOverlay && not hasCreate
-                then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', or both 'format' and 'sizeMb'"
-                else Right ()
+              if not hasImport && not hasOverlay && not hasClone && not hasCreate
+                then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', 'clone', or both 'format' and 'sizeMb'"
+                else
+                  if isJust (adPath d) && not hasOverlay && not hasClone
+                    then Left $ "Disk '" <> adName d <> "': 'path' can only be used with 'overlay' or 'clone'"
+                    else Right ()
 
 -- | Resolve effective cloudInit value for a VM.
 -- If explicitly set, use that. Otherwise, auto-enable when sshKeys are present.
@@ -260,21 +273,21 @@ effectiveCloudInit v = case avCloudInit v of
 -- Execution
 --------------------------------------------------------------------------------
 
-executeApply :: ServerState -> ApplyConfig -> IO (Either Text ApplyResult)
-executeApply state config = do
-  keyResult <- createSshKeys state (acSshKeys config)
+executeApply :: ServerState -> ApplyConfig -> Bool -> IO (Either Text ApplyResult)
+executeApply state config skipExisting = do
+  keyResult <- createSshKeys state (acSshKeys config) skipExisting
   case keyResult of
     Left err -> pure $ Left err
     Right (keyMap, keyCreated) -> do
-      diskResult <- createDisks state (acDisks config)
+      diskResult <- createDisks state (acDisks config) skipExisting
       case diskResult of
         Left err -> pure $ Left err
         Right (diskMap, diskCreated) -> do
-          nwResult <- createNetworks state (acNetworks config)
+          nwResult <- createNetworks state (acNetworks config) skipExisting
           case nwResult of
             Left err -> pure $ Left err
             Right (nwMap, nwCreated) -> do
-              vmResult <- createVms state keyMap diskMap nwMap (acVms config)
+              vmResult <- createVms state keyMap diskMap nwMap (acVms config) skipExisting
               case vmResult of
                 Left err -> pure $ Left err
                 Right vmCreated ->
@@ -288,76 +301,113 @@ executeApply state config = do
                         }
 
 -- | Create SSH keys, return map of name -> DB key ID
-createSshKeys :: ServerState -> [ApplySshKey] -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
-createSshKeys state keys = go keys Map.empty []
+createSshKeys :: ServerState -> [ApplySshKey] -> Bool -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
+createSshKeys state keys skipExisting = go keys Map.empty []
   where
     go [] m acc = pure $ Right (m, reverse acc)
     go (k : ks) m acc = do
-      now <- getCurrentTime
-      result <-
-        runSqlPool
-          ( insert
-              SshKey
-                { sshKeyName = askName k
-                , sshKeyPublicKey = askPublicKey k
-                , sshKeyCreatedAt = now
-                }
-          )
-          (ssDbPool state)
-      let keyId = fromSqlKey result
-      go ks (Map.insert (askName k) keyId m) (ApplyCreated (askName k) keyId : acc)
+      mExisting <-
+        if skipExisting
+          then resolveByName state UniqueSshKeyName Map.empty (askName k)
+          else pure Nothing
+      case mExisting of
+        Just existingId ->
+          go ks (Map.insert (askName k) existingId m) acc
+        Nothing -> do
+          now <- getCurrentTime
+          result <-
+            try $
+              runSqlPool
+                ( insert
+                    SshKey
+                      { sshKeyName = askName k
+                      , sshKeyPublicKey = askPublicKey k
+                      , sshKeyCreatedAt = now
+                      }
+                )
+                (ssDbPool state)
+          case result of
+            Left e -> pure $ Left $ "SSH key '" <> askName k <> "': " <> formatException e
+            Right keyEntity -> do
+              let keyId = fromSqlKey keyEntity
+              go ks (Map.insert (askName k) keyId m) (ApplyCreated (askName k) keyId : acc)
 
 -- | Create disks in listed order, return map of name -> DB disk ID
-createDisks :: ServerState -> [ApplyDisk] -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
-createDisks state disks = go disks Map.empty []
+createDisks :: ServerState -> [ApplyDisk] -> Bool -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
+createDisks state disks skipExisting = go disks Map.empty []
   where
     go [] m acc = pure $ Right (m, reverse acc)
     go (d : ds) m acc = do
-      result <- createOneDisk state m d
-      case result of
-        Left err -> pure $ Left $ "Disk '" <> adName d <> "': " <> err
-        Right diskId ->
-          go ds (Map.insert (adName d) diskId m) (ApplyCreated (adName d) diskId : acc)
+      mExisting <-
+        if skipExisting
+          then resolveByName state UniqueDiskImageName Map.empty (adName d)
+          else pure Nothing
+      case mExisting of
+        Just existingId ->
+          go ds (Map.insert (adName d) existingId m) acc
+        Nothing -> do
+          result <- createOneDisk state m d
+          case result of
+            Left err -> pure $ Left $ "Disk '" <> adName d <> "': " <> err
+            Right diskId ->
+              go ds (Map.insert (adName d) diskId m) (ApplyCreated (adName d) diskId : acc)
 
 createOneDisk :: ServerState -> Map.Map Text Int64 -> ApplyDisk -> IO (Either Text Int64)
-createOneDisk state diskMap d = case (adImport d, adOverlay d) of
-  (Just importPath, _)
+createOneDisk state diskMap d = case (adImport d, adOverlay d, adClone d) of
+  (Just importPath, _, _)
     | isHttpUrl importPath ->
         importDiskFromUrlIO state (adName d) importPath (adFormat d)
     | otherwise ->
         let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath importPath)
          in registerDiskIO state (adName d) importPath format (adSizeMb d)
-  (_, Just backingName) -> do
+  (_, Just backingName, _) -> do
     mBackingId <- resolveByName state UniqueDiskImageName diskMap backingName
     case mBackingId of
       Nothing -> pure $ Left $ "backing disk '" <> backingName <> "' not found"
-      Just backingId -> createOverlayDiskIO state (adName d) backingId (adSizeMb d)
+      Just backingId -> createOverlayDiskIO state (adName d) backingId (adSizeMb d) (adPath d)
+  (_, _, Just cloneName) -> do
+    mSourceId <- resolveByName state UniqueDiskImageName diskMap cloneName
+    case mSourceId of
+      Nothing -> pure $ Left $ "source disk '" <> cloneName <> "' not found"
+      Just sourceId -> cloneDiskIO state (adName d) sourceId (adPath d)
   _ ->
     let format = fromMaybe FormatQcow2 (adFormat d)
         sizeMb = fromMaybe 10240 (adSizeMb d)
      in createDiskIO state (adName d) format sizeMb
 
 -- | Create networks, return map of name -> DB network ID
-createNetworks :: ServerState -> [ApplyNetwork] -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
-createNetworks state networks = go networks Map.empty []
+createNetworks :: ServerState -> [ApplyNetwork] -> Bool -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
+createNetworks state networks skipExisting = go networks Map.empty []
   where
     go [] m acc = pure $ Right (m, reverse acc)
     go (n : ns) m acc = do
-      now <- getCurrentTime
-      nwId <-
-        runSqlPool
-          ( insert
-              Network
-                { networkName = anName n
-                , networkSubnet = anSubnet n
-                , networkVdeSwitchPid = Nothing
-                , networkDnsmasqPid = Nothing
-                , networkCreatedAt = now
-                }
-          )
-          (ssDbPool state)
-      let nid = fromSqlKey nwId
-      go ns (Map.insert (anName n) nid m) (ApplyCreated (anName n) nid : acc)
+      mExisting <-
+        if skipExisting
+          then resolveByName state UniqueNetworkName Map.empty (anName n)
+          else pure Nothing
+      case mExisting of
+        Just existingId ->
+          go ns (Map.insert (anName n) existingId m) acc
+        Nothing -> do
+          now <- getCurrentTime
+          result <-
+            try $
+              runSqlPool
+                ( insert
+                    Network
+                      { networkName = anName n
+                      , networkSubnet = anSubnet n
+                      , networkVdeSwitchPid = Nothing
+                      , networkDnsmasqPid = Nothing
+                      , networkCreatedAt = now
+                      }
+                )
+                (ssDbPool state)
+          case result of
+            Left e -> pure $ Left $ "Network '" <> anName n <> "': " <> formatException e
+            Right nwId -> do
+              let nid = fromSqlKey nwId
+              go ns (Map.insert (anName n) nid m) (ApplyCreated (anName n) nid : acc)
 
 -- | Create VMs with all their attachments
 createVms
@@ -366,15 +416,24 @@ createVms
   -> Map.Map Text Int64
   -> Map.Map Text Int64
   -> [ApplyVm]
+  -> Bool
   -> IO (Either Text [ApplyCreated])
-createVms state keyMap diskMap nwMap vms = go vms []
+createVms state keyMap diskMap nwMap vms skipExisting = go vms []
   where
     go [] acc = pure $ Right $ reverse acc
     go (v : vs) acc = do
-      result <- createOneVm state keyMap diskMap nwMap v
-      case result of
-        Left err -> pure $ Left err
-        Right vmId -> go vs (ApplyCreated (avName v) vmId : acc)
+      mExisting <-
+        if skipExisting
+          then resolveByName state UniqueName Map.empty (avName v)
+          else pure Nothing
+      case mExisting of
+        Just existingId ->
+          go vs acc
+        Nothing -> do
+          result <- createOneVm state keyMap diskMap nwMap v
+          case result of
+            Left err -> pure $ Left err
+            Right vmId -> go vs (ApplyCreated (avName v) vmId : acc)
 
 createOneVm
   :: ServerState
@@ -385,25 +444,38 @@ createOneVm
   -> IO (Either Text Int64)
 createOneVm state keyMap diskMap nwMap v = do
   now <- getCurrentTime
-  vmId <-
-    runSqlPool
-      ( insert
-          Vm
-            { vmName = avName v
-            , vmCreatedAt = now
-            , vmStatus = VmStopped
-            , vmCpuCount = avCpuCount v
-            , vmRamMb = avRamMb v
-            , vmDescription = avDescription v
-            , vmPid = Nothing
-            , vmHeadless = avHeadless v
-            , vmGuestAgent = avGuestAgent v
-            , vmCloudInit = effectiveCloudInit v
-            , vmHealthcheck = Nothing
-            }
-      )
-      (ssDbPool state)
+  vmResult <-
+    try $
+      runSqlPool
+        ( insert
+            Vm
+              { vmName = avName v
+              , vmCreatedAt = now
+              , vmStatus = VmStopped
+              , vmCpuCount = avCpuCount v
+              , vmRamMb = avRamMb v
+              , vmDescription = avDescription v
+              , vmPid = Nothing
+              , vmHeadless = avHeadless v
+              , vmGuestAgent = avGuestAgent v
+              , vmCloudInit = effectiveCloudInit v
+              , vmHealthcheck = Nothing
+              }
+        )
+        (ssDbPool state)
+  case vmResult of
+    Left e -> pure $ Left $ "VM '" <> avName v <> "': " <> formatException e
+    Right vmId -> createOneVmAttachments state keyMap diskMap nwMap v vmId
 
+createOneVmAttachments
+  :: ServerState
+  -> Map.Map Text Int64
+  -> Map.Map Text Int64
+  -> Map.Map Text Int64
+  -> ApplyVm
+  -> VmId
+  -> IO (Either Text Int64)
+createOneVmAttachments state keyMap diskMap nwMap v vmId = do
   -- Attach drives
   driveResult <- attachDrives state diskMap vmId (avDrives v) (avName v)
   case driveResult of
@@ -479,7 +551,7 @@ createNetIfs state nwMap vmId netIfs vmName = go netIfs
       case mNetworkId of
         Left err -> pure $ Left err
         Right networkId -> do
-          mac <- generateMacAddress
+          mac <- maybe generateMacAddress pure (aniMac ni)
           runSqlPool
             ( insert_
                 NetworkInterface
@@ -509,6 +581,20 @@ attachSshKeys state keyMap vmId keyNames vmName = go keyNames
 --------------------------------------------------------------------------------
 -- Name Resolution
 --------------------------------------------------------------------------------
+
+-- | Format an exception into a user-friendly error message.
+-- Strips common Haskell exception wrappers and SQL noise.
+formatException :: SomeException -> Text
+formatException e =
+  let msg = T.pack (show e)
+   in fromMaybe msg (extractDetail msg)
+  where
+    extractDetail msg
+      | "already exists" `T.isInfixOf` T.toLower msg = Just "already exists"
+      | "unique" `T.isInfixOf` T.toLower msg = Just "already exists (duplicate name)"
+      | "violates unique constraint" `T.isInfixOf` T.toLower msg = Just "already exists (duplicate name)"
+      | "violates foreign key" `T.isInfixOf` T.toLower msg = Just "referenced resource not found"
+      | otherwise = Nothing
 
 -- | Resolve a name to a DB ID. Checks in-config map first, then DB by unique constraint.
 resolveByName

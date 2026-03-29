@@ -104,4 +104,4 @@ handleRequest state req = case req of
   -- Disk URL import
   ReqDiskImportUrl name url mFmt -> handleDiskImportUrl state name url mFmt
   -- Apply config
-  ReqApply yaml -> handleApply state yaml
+  ReqApply yaml skipExisting -> handleApply state yaml skipExisting

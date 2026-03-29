@@ -11,7 +11,7 @@ where
 
 import Control.Concurrent (forkFinally)
 import Control.Concurrent.STM (atomically, modifyTVar')
-import Control.Exception (bracket)
+import Control.Exception (SomeException, bracket, try)
 import Control.Monad (forever, void)
 import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
@@ -110,7 +110,12 @@ handleClient state sock = loop
           loop
         Just (Right req) -> do
           logDebugN $ "Request: " <> T.pack (show req)
-          resp <- liftIO $ handleRequest state req
+          respResult <- liftIO $ try $ handleRequest state req
+          let resp = case respResult of
+                Right r -> r
+                Left e ->
+                  RespError $
+                    "Internal error: " <> T.pack (show (e :: SomeException))
           logDebugN $ "Response: " <> formatResponse resp
           liftIO $ sendResponse sock resp
           -- Continue unless shutdown

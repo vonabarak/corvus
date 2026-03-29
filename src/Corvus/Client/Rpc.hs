@@ -818,9 +818,9 @@ data ApplyRpcResult
   deriving (Eq, Show)
 
 -- | Apply an environment configuration from YAML
-applyConfig :: Connection -> Text -> IO (Either ConnectionError ApplyRpcResult)
-applyConfig conn yaml = do
-  result <- sendRequest conn (ReqApply yaml)
+applyConfig :: Connection -> Text -> Bool -> IO (Either ConnectionError ApplyRpcResult)
+applyConfig conn yaml skipExisting = do
+  result <- sendRequest conn (ReqApply yaml skipExisting)
   case result of
     Left err -> pure $ Left err
     Right (RespApplyResult ar) -> pure $ Right $ ApplyOk ar
