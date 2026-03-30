@@ -5,6 +5,7 @@ module Test.VM.Types
   ( -- * VM Configuration
     VmConfig (..)
   , DefaultVmConfig (..)
+  , biosVmConfig
   , cloudVmConfig
   , prebakedImageName
   , prebakedSshKeyPath
@@ -46,6 +47,8 @@ data VmConfig = VmConfig
   , vmcNetworkId :: Maybe Int64
   , vmcPrebakedSshKey :: Maybe FilePath
   -- ^ Pre-baked SSH private key path. When set, skip cloud-init key setup.
+  , vmcUefi :: Bool
+  -- ^ Use UEFI boot (adds OVMF firmware disks). Default: True.
   }
   deriving (Show, Eq)
 
@@ -72,6 +75,7 @@ instance DefaultVmConfig VmConfig where
       , vmcHeadless = True
       , vmcNetworkId = Nothing
       , vmcPrebakedSshKey = Just prebakedSshKeyPath
+      , vmcUefi = True
       }
 
 -- | VM config for cloud-image tests (uses cloud-init for SSH key deployment).
@@ -82,6 +86,10 @@ cloudVmConfig =
     , vmcWaitSshTimeout = 120
     , vmcPrebakedSshKey = Nothing
     }
+
+-- | VM config for BIOS boot (no UEFI firmware).
+biosVmConfig :: VmConfig
+biosVmConfig = defaultVmConfig {vmcUefi = False}
 
 -- | A VM running through the test daemon with SSH access
 data TestVm = TestVm

@@ -2,7 +2,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 
 -- | Integration tests for the `crv apply` declarative environment feature.
--- Tests that VMs created via YAML config can boot and communicate.
+-- Tests that VMs created via YAML config can boot, communicate, and accept SSH keys.
 --
 -- Run with: stack test --test-arguments="--match ApplyIntegration"
 module Corvus.ApplyIntegrationSpec (spec) where
@@ -13,10 +13,13 @@ import Corvus.Protocol (ApplyCreated (..), ApplyResult (..))
 import Corvus.Utils.Yaml (yamlQQ)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Yaml
 import System.Exit (ExitCode (..))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Database (withTestDb)
 import Test.Hspec
+import Test.VM.Common (findFreePort)
 import Test.VM.Daemon (withDaemonConnection, withTestDaemon)
 import Test.VM.Image (ensureBaseImage)
 import Test.VM.Rpc
@@ -28,147 +31,166 @@ import Test.VM.Rpc
   , stopTestVmAndWait
   , waitForGuestAgent
   )
+import Test.VM.Ssh (SshKeyPair (..), cleanupSshKeyPair, generateSshKeyPair, runInTestVmWith, waitForTestVmSshWithKey)
 
--- | Encode an Aeson Value as YAML Text
+-- | Encode a value as YAML Text
 encodeYaml :: (Yaml.ToJSON a) => a -> T.Text
 encodeYaml = TE.decodeUtf8 . Yaml.encode
 
 spec :: Spec
-spec = do
-  withTestDb $
-    describe "Apply integration" $
-      it "creates and boots a single VM with user networking" $ \env -> do
-        Right imagePath <- ensureBaseImage "corvus-test"
-        withTestDaemon env $ \daemon -> do
-          let yamlContent =
-                encodeYaml
-                  [yamlQQ|
-                    disks:
-                      - name: apply-base
-                        import: #{imagePath}
-                      - name: apply-root
-                        overlay: apply-base
-                    vms:
-                      - name: apply-vm
-                        cpuCount: 2
-                        ramMb: 2048
-                        headless: true
-                        guestAgent: true
-                        drives:
-                          - disk: apply-root
-                            interface: virtio
-                        networkInterfaces:
-                          - type: user
-                  |]
+spec = withTestDb $ do
+  describe "Apply integration" $ do
+    it "creates two VMs with networking and guest agent, and they can communicate" $ \env -> do
+      Right imagePath <- ensureBaseImage "corvus-test"
+      withTestDaemon env $ \daemon -> do
+        let yamlContent =
+              encodeYaml
+                [yamlQQ|
+                  disks:
+                    - name: apply-net-base
+                      import: #{imagePath}
+                    - name: apply-net-root1
+                      overlay: apply-net-base
+                    - name: apply-net-root2
+                      overlay: apply-net-base
+                  networks:
+                    - name: apply-vde
+                      subnet: ""
+                  vms:
+                    - name: apply-vm1
+                      cpuCount: 2
+                      ramMb: 2048
+                      headless: true
+                      guestAgent: true
+                      drives:
+                        - disk: apply-net-root1
+                          interface: virtio
+                      networkInterfaces:
+                        - type: user
+                        - type: vde
+                          network: apply-vde
+                    - name: apply-vm2
+                      cpuCount: 2
+                      ramMb: 2048
+                      headless: true
+                      guestAgent: true
+                      drives:
+                        - disk: apply-net-root2
+                          interface: virtio
+                      networkInterfaces:
+                        - type: user
+                        - type: vde
+                          network: apply-vde
+                |]
 
-          -- Apply the config
-          applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False
-          vmId <- case applyRes of
-            Right (Right (ApplyOk r)) -> do
-              length (arDisks r) `shouldBe` 2
-              length (arVms r) `shouldBe` 1
-              pure $ acId (head (arVms r))
-            other -> fail $ "Apply failed: " ++ show other
+        -- Apply the config
+        applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False
+        (vm1Id, vm2Id, nwId) <- case applyRes of
+          Right (Right (ApplyOk r)) -> do
+            length (arDisks r) `shouldBe` 3
+            length (arNetworks r) `shouldBe` 1
+            length (arVms r) `shouldBe` 2
+            let [v1, v2] = arVms r
+                [nw] = arNetworks r
+            pure (acId v1, acId v2, acId nw)
+          other -> fail $ "Apply failed: " ++ show other
 
-          -- Start VM and wait for guest agent
-          putStrLn "[test] Starting VM created via apply..."
-          startTestVm daemon vmId
-          waitForGuestAgent daemon vmId 30
+        -- Start the network, then start both VMs
+        bracket
+          (startNetwork daemon nwId)
+          (\_ -> stopNetwork daemon nwId)
+          $ \_ -> do
+            putStrLn "[test] Starting two VMs created via apply..."
+            startTestVm daemon vm1Id
+            startTestVm daemon vm2Id
 
-          -- Verify the VM is functional
-          (code, stdout, _) <- runViaGuestAgent daemon vmId "echo hello-from-apply"
-          code `shouldBe` ExitSuccess
-          T.strip stdout `shouldBe` "hello-from-apply"
+            waitForGuestAgent daemon vm1Id 60
+            waitForGuestAgent daemon vm2Id 60
 
-          -- Verify basic system info
-          (codeUname, uname, _) <- runViaGuestAgent daemon vmId "uname -s"
-          codeUname `shouldBe` ExitSuccess
-          T.strip uname `shouldBe` "Linux"
+            -- Configure static IPs on the VDE interface (eth1)
+            runViaGuestAgent_ daemon vm1Id "ip addr add 10.0.0.1/24 dev eth1 && ip link set eth1 up"
+            runViaGuestAgent_ daemon vm2Id "ip addr add 10.0.0.2/24 dev eth1 && ip link set eth1 up"
 
-          -- Cleanup
-          stopTestVmAndWait daemon vmId 10
+            -- Verify VM1 can ping VM2
+            (codePing1, _, _) <- runViaGuestAgent daemon vm1Id "ping -c 3 -W 5 10.0.0.2"
+            codePing1 `shouldBe` ExitSuccess
 
-  withTestDb $
-    describe "Privileged: apply with virtual networking" $
-      it "creates two VMs connected by a network and they can communicate" $ \env -> do
-        Right imagePath <- ensureBaseImage "corvus-test"
-        withTestDaemon env $ \daemon -> do
-          let yamlContent =
-                encodeYaml
-                  [yamlQQ|
-                    disks:
-                      - name: apply-net-base
-                        import: #{imagePath}
-                      - name: apply-net-root1
-                        overlay: apply-net-base
-                      - name: apply-net-root2
-                        overlay: apply-net-base
-                    networks:
-                      - name: apply-vde
-                        subnet: ""
-                    vms:
-                      - name: apply-vm1
-                        cpuCount: 2
-                        ramMb: 2048
-                        headless: true
-                        guestAgent: true
-                        drives:
-                          - disk: apply-net-root1
-                            interface: virtio
-                        networkInterfaces:
-                          - type: user
-                          - type: vde
-                            network: apply-vde
-                      - name: apply-vm2
-                        cpuCount: 2
-                        ramMb: 2048
-                        headless: true
-                        guestAgent: true
-                        drives:
-                          - disk: apply-net-root2
-                            interface: virtio
-                        networkInterfaces:
-                          - type: user
-                          - type: vde
-                            network: apply-vde
-                  |]
+            -- Verify VM2 can ping VM1
+            (codePing2, _, _) <- runViaGuestAgent daemon vm2Id "ping -c 3 -W 5 10.0.0.1"
+            codePing2 `shouldBe` ExitSuccess
 
-          -- Apply the config
-          applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False
-          (vm1Id, vm2Id, nwId) <- case applyRes of
-            Right (Right (ApplyOk r)) -> do
-              length (arDisks r) `shouldBe` 3
-              length (arNetworks r) `shouldBe` 1
-              length (arVms r) `shouldBe` 2
-              let [v1, v2] = arVms r
-                  [nw] = arNetworks r
-              pure (acId v1, acId v2, acId nw)
-            other -> fail $ "Apply failed: " ++ show other
+            -- Cleanup VMs
+            stopTestVmAndWait daemon vm1Id 10
+            stopTestVmAndWait daemon vm2Id 10
 
-          -- Start the network, then start both VMs
-          bracket
-            (startNetwork daemon nwId)
-            (\_ -> stopNetwork daemon nwId)
-            $ \_ -> do
-              putStrLn "[test] Starting two VMs created via apply..."
-              startTestVm daemon vm1Id
-              startTestVm daemon vm2Id
+    it "deploys SSH key via cloud-init from a downloaded Alpine image" $ \env -> do
+      withSystemTempDirectory "corvus-apply-ssh" $ \tmpDir -> do
+        -- Generate SSH key pair
+        keyResult <- generateSshKeyPair tmpDir
+        keyPair <- case keyResult of
+          Right kp -> pure kp
+          Left err -> fail $ "SSH keygen failed: " ++ T.unpack err
 
-              waitForGuestAgent daemon vm1Id 30
-              waitForGuestAgent daemon vm2Id 30
+        bracket (pure keyPair) cleanupSshKeyPair $ \kp -> do
+          publicKeyContent <- TIO.readFile (skpPublicKey kp)
+          sshPort <- findFreePort
 
-              -- Configure static IPs on the VDE interface (eth1)
-              runViaGuestAgent_ daemon vm1Id "ip addr add 10.0.0.1/24 dev eth1 && ip link set eth1 up"
-              runViaGuestAgent_ daemon vm2Id "ip addr add 10.0.0.2/24 dev eth1 && ip link set eth1 up"
+          withTestDaemon env $ \daemon -> do
+            let imageUrl = "https://dev.alpinelinux.org/~tomalok/alpine-cloud-images/v3.20/nocloud/x86_64/nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2" :: T.Text
+                hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
+                yamlContent =
+                  encodeYaml
+                    [yamlQQ|
+                      sshKeys:
+                        - name: apply-test-key
+                          publicKey: #{T.strip publicKeyContent}
+                      disks:
+                        - name: apply-alpine-base
+                          import: #{imageUrl}
+                        - name: apply-alpine-root
+                          overlay: apply-alpine-base
+                          sizeMb: 2048
+                      vms:
+                        - name: apply-ssh-vm
+                          cpuCount: 2
+                          ramMb: 2048
+                          headless: true
+                          guestAgent: true
+                          cloudInit: true
+                          drives:
+                            - disk: apply-alpine-root
+                              interface: virtio
+                          networkInterfaces:
+                            - type: user
+                              hostDevice: #{hostFwd}
+                          sshKeys:
+                            - apply-test-key
+                    |]
 
-              -- Verify VM1 can ping VM2
-              (codePing1, _, _) <- runViaGuestAgent daemon vm1Id "ping -c 3 -W 5 10.0.0.2"
-              codePing1 `shouldBe` ExitSuccess
+            -- Apply the config
+            applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False
+            vmId <- case applyRes of
+              Right (Right (ApplyOk r)) -> do
+                length (arSshKeys r) `shouldBe` 1
+                length (arDisks r) `shouldBe` 2
+                length (arVms r) `shouldBe` 1
+                pure $ acId (head (arVms r))
+              other -> fail $ "Apply failed: " ++ show other
 
-              -- Verify VM2 can ping VM1
-              (codePing2, _, _) <- runViaGuestAgent daemon vm2Id "ping -c 3 -W 5 10.0.0.1"
-              codePing2 `shouldBe` ExitSuccess
+            -- Start VM and wait for SSH with the deployed key
+            putStrLn "[test] Starting VM and waiting for SSH (cloud-init key deployment)..."
+            startTestVm daemon vmId
+            waitForTestVmSshWithKey "localhost" sshPort (skpPrivateKey kp) "corvus" 120
 
-              -- Cleanup VMs
-              stopTestVmAndWait daemon vm1Id 10
-              stopTestVmAndWait daemon vm2Id 10
+            -- Verify SSH works with the deployed key
+            (code1, stdout1, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "corvus" "echo ssh-via-apply"
+            code1 `shouldBe` ExitSuccess
+            T.strip stdout1 `shouldBe` "ssh-via-apply"
+
+            -- Verify the SSH key is in authorized_keys
+            (code2, stdout2, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "corvus" "cat ~/.ssh/authorized_keys"
+            code2 `shouldBe` ExitSuccess
+            T.isInfixOf "corvus-test@localhost" stdout2 `shouldBe` True
+
+            -- Cleanup
+            stopTestVmAndWait daemon vmId 30

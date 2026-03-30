@@ -1,13 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(wc -l /home/bobr/Work/corvus/src/Corvus/*.hs /home/bobr/Work/corvus/src/Corvus/**/*.hs)",
-      "Bash(wc -l /home/bobr/Work/corvus/test/*.hs /home/bobr/Work/corvus/test/**/*.hs)",
-      "Bash(find /home/bobr/Work/corvus/src -name \"*.hs\" -type f -exec wc -l {} +)",
-      "Bash(wc -l /home/bobr/Work/corvus/test/**/*.hs)",
-      "Bash(stack build:*)",
-      "Bash(stack test:*)",
-      "Bash(tee /tmp/full-alma.log)"
+      "Bash(make format:*)",
+      "Bash(make lint:*)"
     ]
   }
 }

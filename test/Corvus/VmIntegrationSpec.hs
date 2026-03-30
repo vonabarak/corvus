@@ -16,7 +16,7 @@ import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, startTestVmAndWait, startTestVmAndWaitGuestAgent, withTestVm, withTestVmBios, withTestVmGuestExec)
+import Test.VM.Common (TestVm (..), VmConfig (..), biosVmConfig, defaultVmConfig, startTestVmAndWait, withTestVm, withTestVmGuestExec)
 import Test.VM.Console (connectSerialConsole, consoleExpect, consoleSend)
 import Test.VM.Daemon (TestDaemon (..))
 import Test.VM.Rpc (editTestVm, runInVm, stopTestVmAndWait)
@@ -25,54 +25,51 @@ import Test.VM.Ssh (runInTestVm, runInTestVm_)
 spec :: Spec
 spec = withTestDb $ do
   describe "VM integration" $ do
-    it "can run echo command in VM via guest-exec" $ \env -> do
+    it "guest-exec: runs commands and executes as root" $ \env -> do
       withTestVmGuestExec env defaultVmConfig $ \vm -> do
-        (code, stdout, _stderr) <- runInVm vm "echo hello"
-        code `shouldBe` ExitSuccess
-        T.strip stdout `shouldBe` "hello"
-
-    it "can run echo command in VM via SSH" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
-        (code, stdout, _stderr) <- runInTestVm vm "echo hello"
-        code `shouldBe` ExitSuccess
-        T.strip stdout `shouldBe` "hello"
-
-    it "can check OS release" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
-        (code, stdout, _stderr) <- runInTestVm vm "cat /etc/os-release | grep -i alpine"
-        code `shouldBe` ExitSuccess
-        T.isInfixOf "Alpine" stdout `shouldBe` True
-
-    it "can run multiple commands" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
-        runInTestVm_ vm "echo 'test content' > /tmp/testfile"
-        (code, stdout, _) <- runInTestVm vm "cat /tmp/testfile"
-        code `shouldBe` ExitSuccess
-        T.strip stdout `shouldBe` "test content"
-
-    it "reports command failures correctly" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
-        (code, _, stderr) <- runInTestVm vm "nonexistent_command_12345"
-        code `shouldNotBe` ExitSuccess
-        T.isInfixOf "not found" stderr `shouldBe` True
-
-    it "can get system information" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
-        (code1, stdout1, _) <- runInTestVm vm "uname -s"
+        -- Echo command
+        (code1, stdout1, _) <- runInVm vm "echo hello"
         code1 `shouldBe` ExitSuccess
-        T.strip stdout1 `shouldBe` "Linux"
+        T.strip stdout1 `shouldBe` "hello"
 
-        (code2, _, _) <- runInTestVm vm "cat /proc/meminfo"
+        -- Guest agent runs as root
+        (code2, stdout2, _) <- runInVm vm "whoami"
         code2 `shouldBe` ExitSuccess
+        T.strip stdout2 `shouldBe` "root"
 
-        (code3, _, _) <- runInTestVm vm "cat /proc/mounts"
+    it "SSH: runs commands, checks OS, reports failures, gets system info" $ \env -> do
+      withTestVm env defaultVmConfig $ \vm -> do
+        -- Echo command
+        (code1, stdout1, _) <- runInTestVm vm "echo hello"
+        code1 `shouldBe` ExitSuccess
+        T.strip stdout1 `shouldBe` "hello"
+
+        -- OS release
+        (code2, stdout2, _) <- runInTestVm vm "cat /etc/os-release | grep -i alpine"
+        code2 `shouldBe` ExitSuccess
+        T.isInfixOf "Alpine" stdout2 `shouldBe` True
+
+        -- Multiple commands (write + read)
+        runInTestVm_ vm "echo 'test content' > /tmp/testfile"
+        (code3, stdout3, _) <- runInTestVm vm "cat /tmp/testfile"
         code3 `shouldBe` ExitSuccess
+        T.strip stdout3 `shouldBe` "test content"
 
-    it "runs commands as root via guest agent" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
-        (code, stdout, _) <- runInVm vm "whoami"
-        code `shouldBe` ExitSuccess
-        T.strip stdout `shouldBe` "root"
+        -- Command failure
+        (code4, _, stderr4) <- runInTestVm vm "nonexistent_command_12345"
+        code4 `shouldNotBe` ExitSuccess
+        T.isInfixOf "not found" stderr4 `shouldBe` True
+
+        -- System information
+        (code5, stdout5, _) <- runInTestVm vm "uname -s"
+        code5 `shouldBe` ExitSuccess
+        T.strip stdout5 `shouldBe` "Linux"
+
+        (code6, _, _) <- runInTestVm vm "cat /proc/meminfo"
+        code6 `shouldBe` ExitSuccess
+
+        (code7, _, _) <- runInTestVm vm "cat /proc/mounts"
+        code7 `shouldBe` ExitSuccess
 
     it "can edit CPU and RAM of a stopped VM" $ \env -> do
       let config = defaultVmConfig {vmcCpuCount = 2, vmcRamMb = 2048, vmcWaitSshTimeout = 120}
@@ -114,8 +111,8 @@ spec = withTestDb $ do
     it "detects virtio-vga graphics adapter in non-headless VM" $ \env -> do
       -- Use BIOS boot: UEFI NVRAM caches display settings, causing the
       -- headless restart to hang when the VGA device is removed.
-      let config = defaultVmConfig {vmcHeadless = False}
-      withTestVmBios env config $ \vm -> do
+      let config = biosVmConfig {vmcHeadless = False}
+      withTestVm env config $ \vm -> do
         let daemon = tvmDaemon vm
 
         -- Check that the virtio-vga device is visible via lshw
@@ -153,7 +150,7 @@ spec = withTestDb $ do
         T.isInfixOf "BootOrder" stdout `shouldBe` True
 
     it "BIOS VM does not have EFI support" $ \env -> do
-      withTestVmBios env defaultVmConfig $ \vm -> do
+      withTestVm env biosVmConfig $ \vm -> do
         (code, _, stderr) <- runInTestVm vm "efibootmgr"
         code `shouldNotBe` ExitSuccess
         T.isInfixOf "EFI variables are not supported" stderr `shouldBe` True

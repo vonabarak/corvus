@@ -159,7 +159,6 @@ handleVmStart state vmId = runServerLogging state $ do
                   result <- startVm (ssDbPool state) (ssQemuConfig state) vmId
                   case result of
                     VmStarted pid ph -> do
-                      logInfoN $ "VM " <> T.pack (show vmId) <> " started with PID " <> T.pack (show pid)
                       -- Set status to running and save PID first
                       liftIO $ runSqlPool (setVmRunning vmId pid) (ssDbPool state)
                       -- Start guest agent poller if guest agent is enabled and interval > 0

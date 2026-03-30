@@ -20,7 +20,7 @@ import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), VmConfig (..), cloudVmConfig, withTestVm, withTestVmBios, withTestVmConsole)
+import Test.VM.Common (TestVm (..), VmConfig (..), cloudVmConfig, withTestVm, withTestVmConsole)
 import Test.VM.Console (consoleDrain, consoleExpect, consoleSend)
 import Test.VM.Ssh (runInTestVm)
 
@@ -76,28 +76,28 @@ spec = withTestDb $ do
         withTestVm env (multiOsConfig {vmcOsName = "alpine-3.20-uefi"}) (verifyVm True True)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "alpine-3.20-bios"}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "alpine-3.20-bios", vmcUefi = False}) (verifyVm True True)
 
     describe "AlmaLinux" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
         withTestVm env (multiOsConfig {vmcOsName = "almalinux-10"}) (verifyVm True True)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "almalinux-10"}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "almalinux-10", vmcUefi = False}) (verifyVm True True)
 
     describe "Ubuntu" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
         withTestVm env (multiOsConfig {vmcOsName = "ubuntu-24.04"}) (verifyVm True True)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "ubuntu-24.04"}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "ubuntu-24.04", vmcUefi = False}) (verifyVm True True)
 
     describe "Debian" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
         withTestVm env (multiOsConfig {vmcOsName = "debian-12"}) (verifyVm True True)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "debian-12"}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "debian-12", vmcUefi = False}) (verifyVm True True)
 
     describe "Gentoo" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
@@ -108,7 +108,7 @@ spec = withTestDb $ do
         withTestVm env (multiOsConfig {vmcOsName = "freebsd-14"}) (verifyVm False True)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVmBios env (multiOsConfig {vmcOsName = "freebsd-14"}) (verifyVm False True)
+        withTestVm env (multiOsConfig {vmcOsName = "freebsd-14", vmcUefi = False}) (verifyVm False True)
 
       it "serial console login works" $ \env -> do
         withTestVmConsole env (multiOsConfig {vmcOsName = "freebsd-14"}) $ \console -> do

@@ -20,6 +20,7 @@ module Test.VM.Ssh
     -- * TestVm SSH operations
   , runInTestVm
   , runInTestVm_
+  , runInTestVmWith
   , waitForTestVmSsh
   , waitForTestVmSshWithKey
   )
@@ -262,6 +263,31 @@ runInTestVm_ vm cmd = do
           <> T.unpack stdout
           <> "\nStderr: "
           <> T.unpack stderr
+
+-- | Run a command via SSH with explicit connection parameters.
+-- Useful when the VM was not created via the test helpers (e.g., via apply).
+runInTestVmWith :: String -> Int -> FilePath -> Text -> Text -> IO (ExitCode, Text, Text)
+runInTestVmWith host port privateKey user cmd = do
+  let args =
+        [ "-o"
+        , "StrictHostKeyChecking=no"
+        , "-o"
+        , "UserKnownHostsFile=/dev/null"
+        , "-o"
+        , "BatchMode=yes"
+        , "-o"
+        , "ConnectTimeout=10"
+        , "-i"
+        , privateKey
+        , "-p"
+        , show port
+        , T.unpack user ++ "@" ++ host
+        , T.unpack cmd
+        ]
+  putStrLn $ "[ssh-run] Executing: " <> T.unpack cmd
+  (code, stdout, stderr) <- readProcessWithExitCode "ssh" args ""
+  putStrLn $ "[ssh-run] Exit code: " <> show code
+  pure (code, T.pack stdout, T.pack stderr)
 
 -- | Wait for SSH to be available on the VM (without key)
 waitForTestVmSsh :: String -> Int -> Int -> IO ()

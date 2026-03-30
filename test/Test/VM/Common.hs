@@ -6,29 +6,20 @@ module Test.VM.Common
     VmConfig (..)
   , DefaultVmConfig (..)
   , TestVm (..)
+  , biosVmConfig
   , cloudVmConfig
   , prebakedImageName
   , prebakedSshKeyPath
 
     -- * All-in-one VM wrappers (TestEnv → daemon → disk → VM)
   , withTestVm
-  , withTestVmBios
   , withTestVmConsole
-  , withTestVmBiosConsole
-
-    -- * All-in-one guest-exec VM wrappers
   , withTestVmGuestExec
-  , withTestVmBiosGuestExec
 
     -- * Daemon-level VM wrappers (disk setup + VM creation)
   , withTestVmOnDaemon
-  , withTestVmBiosOnDaemon
   , withTestVmConsoleOnDaemon
-  , withTestVmBiosConsoleOnDaemon
-
-    -- * Daemon-level guest-exec VM wrappers
   , withTestVmGuestExecOnDaemon
-  , withTestVmBiosGuestExecOnDaemon
 
     -- * Low-level VM wrappers (explicit disk ID)
   , withTestVmSshWithDisk
@@ -103,12 +94,11 @@ uniqueDiskNames = do
 withTestDiskSetup
   :: TestDaemon
   -> VmConfig
-  -> Bool
-  -- ^ Use UEFI (True) or BIOS (False)
   -> (Int64 -> VmConfig -> IO a)
   -- ^ Callback: overlay disk ID, final config (with OVMF disks if UEFI)
   -> IO a
-withTestDiskSetup daemon config useUefi callback = do
+withTestDiskSetup daemon config callback = do
+  let useUefi = vmcUefi config
   (baseName, overlayName, ovmfCodeName, ovmfVarsTemplateName, ovmfVarsName) <- uniqueDiskNames
 
   -- Ensure base image exists (locally)
@@ -405,85 +395,47 @@ startTestVmAndWaitGuestAgent vm timeoutSec = do
 -- Daemon-level VM convenience wrappers (disk setup + VM creation)
 --------------------------------------------------------------------------------
 
--- | Run a test with a UEFI VM on an existing daemon.
--- Handles disk setup internally.
+-- | Run a test with a VM on an existing daemon (SSH access).
+-- Uses vmcUefi from config to select UEFI or BIOS boot.
 withTestVmOnDaemon :: TestDaemon -> VmConfig -> (TestVm -> IO a) -> IO a
 withTestVmOnDaemon daemon config action =
-  withTestDiskSetup daemon config True $ \diskId cfg ->
+  withTestDiskSetup daemon config $ \diskId cfg ->
     withTestVmSshWithDisk daemon diskId cfg action
 
--- | Run a test with a BIOS-booted VM on an existing daemon.
--- Handles disk setup internally.
-withTestVmBiosOnDaemon :: TestDaemon -> VmConfig -> (TestVm -> IO a) -> IO a
-withTestVmBiosOnDaemon daemon config action =
-  withTestDiskSetup daemon config False $ \diskId cfg ->
-    withTestVmSshWithDisk daemon diskId cfg action
-
--- | Run a test with a UEFI VM connected via serial console on an existing daemon.
--- Handles disk setup internally.
+-- | Run a test with a VM connected via serial console on an existing daemon.
 withTestVmConsoleOnDaemon :: TestDaemon -> VmConfig -> (SerialConsole -> IO a) -> IO a
 withTestVmConsoleOnDaemon daemon config action =
-  withTestDiskSetup daemon config True $ \diskId cfg ->
+  withTestDiskSetup daemon config $ \diskId cfg ->
     withTestVmConsoleWithDisk daemon diskId cfg action
 
--- | Run a test with a BIOS-booted VM connected via serial console on an existing daemon.
--- Handles disk setup internally.
-withTestVmBiosConsoleOnDaemon :: TestDaemon -> VmConfig -> (SerialConsole -> IO a) -> IO a
-withTestVmBiosConsoleOnDaemon daemon config action =
-  withTestDiskSetup daemon config False $ \diskId cfg ->
-    withTestVmConsoleWithDisk daemon diskId cfg action
-
--- | Run a test with a UEFI VM using guest-exec on an existing daemon.
+-- | Run a test with a VM using guest-exec on an existing daemon.
 withTestVmGuestExecOnDaemon :: TestDaemon -> VmConfig -> (TestVm -> IO a) -> IO a
 withTestVmGuestExecOnDaemon daemon config action =
-  withTestDiskSetup daemon config True $ \diskId cfg ->
-    withTestVmGuestExecWithDisk daemon diskId cfg action
-
--- | Run a test with a BIOS-booted VM using guest-exec on an existing daemon.
-withTestVmBiosGuestExecOnDaemon :: TestDaemon -> VmConfig -> (TestVm -> IO a) -> IO a
-withTestVmBiosGuestExecOnDaemon daemon config action =
-  withTestDiskSetup daemon config False $ \diskId cfg ->
+  withTestDiskSetup daemon config $ \diskId cfg ->
     withTestVmGuestExecWithDisk daemon diskId cfg action
 
 --------------------------------------------------------------------------------
 -- All-in-one VM wrappers (TestEnv → daemon → disk → VM)
 --------------------------------------------------------------------------------
 
--- | Run a test with a UEFI VM. Creates daemon and handles all setup.
+-- | Run a test with a VM (SSH access). Creates daemon and handles all setup.
+-- Uses vmcUefi from config to select UEFI or BIOS boot.
 withTestVm :: TestEnv -> VmConfig -> (TestVm -> IO a) -> IO a
 withTestVm env config action =
   withTestDaemon env $ \daemon ->
     withTestVmOnDaemon daemon config action
 
--- | Run a test with a BIOS-booted VM. Creates daemon and handles all setup.
-withTestVmBios :: TestEnv -> VmConfig -> (TestVm -> IO a) -> IO a
-withTestVmBios env config action =
-  withTestDaemon env $ \daemon ->
-    withTestVmBiosOnDaemon daemon config action
-
--- | Run a test with a UEFI VM connected via serial console. Creates daemon and handles all setup.
+-- | Run a test with a VM connected via serial console. Creates daemon and handles all setup.
 withTestVmConsole :: TestEnv -> VmConfig -> (SerialConsole -> IO a) -> IO a
 withTestVmConsole env config action =
   withTestDaemon env $ \daemon ->
     withTestVmConsoleOnDaemon daemon config action
 
--- | Run a test with a BIOS-booted VM connected via serial console. Creates daemon and handles all setup.
-withTestVmBiosConsole :: TestEnv -> VmConfig -> (SerialConsole -> IO a) -> IO a
-withTestVmBiosConsole env config action =
-  withTestDaemon env $ \daemon ->
-    withTestVmBiosConsoleOnDaemon daemon config action
-
--- | Run a test with a UEFI VM using guest-exec. Creates daemon and handles all setup.
+-- | Run a test with a VM using guest-exec. Creates daemon and handles all setup.
 withTestVmGuestExec :: TestEnv -> VmConfig -> (TestVm -> IO a) -> IO a
 withTestVmGuestExec env config action =
   withTestDaemon env $ \daemon ->
     withTestVmGuestExecOnDaemon daemon config action
-
--- | Run a test with a BIOS-booted VM using guest-exec. Creates daemon and handles all setup.
-withTestVmBiosGuestExec :: TestEnv -> VmConfig -> (TestVm -> IO a) -> IO a
-withTestVmBiosGuestExec env config action =
-  withTestDaemon env $ \daemon ->
-    withTestVmBiosGuestExecOnDaemon daemon config action
 
 --------------------------------------------------------------------------------
 -- Utilities
