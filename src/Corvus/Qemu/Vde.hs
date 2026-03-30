@@ -30,7 +30,6 @@ import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend, toSqlKey)
 import System.Directory (doesDirectoryExist, removeDirectoryRecursive)
 import System.IO (hClose)
-import System.Posix.Process (getProcessStatus)
 import System.Posix.Signals (sigTERM, signalProcess)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, getPid, proc, waitForProcess)
 
@@ -157,16 +156,6 @@ startNamespaceManagerForNetwork config pool networkId subnet socketPath = do
         Right nsPid -> do
           -- Store namespace manager PID (reuses dnsmasqPid field)
           runSqlPool (update key [M.NetworkDnsmasqPid =. Just (fromIntegral nsPid)]) pool
-
-          -- Fork background thread to monitor namespace manager exit
-          _ <- forkIO $ do
-            -- waitpid for the namespace manager
-            _ <- getProcessStatus True False nsPid
-            runStdoutLoggingT $
-              logWarnN $
-                "Namespace manager for network " <> T.pack (show networkId) <> " exited"
-            -- Stop vde_switch if still running and clear all PIDs
-            stopNetwork config pool networkId
 
           pure $ Right ()
 

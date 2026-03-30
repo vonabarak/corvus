@@ -230,7 +230,7 @@ static void plug2tap(VDECONN *conn, int tapfd, int sigfd)
         if ((pfd[0].revents & POLLTERM) || (pfd[1].revents & POLLTERM))
             break;
 
-        /* SIGCHLD — child (dnsmasq) exited */
+        /* SIGCHLD (dnsmasq exited) or SIGTERM (stop requested) */
         if (pfd[2].revents & POLLIN) {
             struct signalfd_siginfo si;
             ssize_t r = read(sigfd, &si, sizeof(si));
@@ -269,7 +269,14 @@ static pid_t start_dnsmasq(
         return -1;
 
     if (pid == 0) {
-        /* Child: exec dnsmasq */
+        /* Child: restore default signal handling before exec.
+         * The parent set SIG_IGN for SIGTERM (for signalfd), but
+         * dnsmasq needs SIGTERM to shut down cleanly. */
+        signal(SIGTERM, SIG_DFL);
+        signal(SIGINT, SIG_DFL);
+        sigset_t empty;
+        sigemptyset(&empty);
+        sigprocmask(SIG_SETMASK, &empty, NULL);
         execlp(dnsmasq_bin, dnsmasq_bin,
                "--conf-file=/dev/null",
                "--bind-interfaces",
@@ -377,13 +384,14 @@ static void namespace_child(
         _exit(1);
     }
 
-    /* --- Step 6: Set up SIGCHLD handling --- */
+    /* --- Step 6: Set up signal handling (SIGCHLD + SIGTERM) --- */
 
-    sigset_t chldmask;
-    sigemptyset(&chldmask);
-    sigaddset(&chldmask, SIGCHLD);
-    sigprocmask(SIG_BLOCK, &chldmask, NULL);
-    int sigfd = signalfd(-1, &chldmask, SFD_CLOEXEC);
+    sigset_t sigmask;
+    sigemptyset(&sigmask);
+    sigaddset(&sigmask, SIGCHLD);
+    sigaddset(&sigmask, SIGTERM);
+    sigprocmask(SIG_BLOCK, &sigmask, NULL);
+    int sigfd = signalfd(-1, &sigmask, SFD_CLOEXEC);
     if (sigfd < 0) {
         fprintf(stderr, "corvus_vdens: signalfd failed: %s\n", strerror(errno));
         vde_close(conn);
@@ -455,7 +463,19 @@ int corvus_vdens_start(
 
     if (child == 0) {
         /* Child: single-threaded, safe for unshare.
-         * Close read end, pass write end as ready_fd. */
+         * Replace GHC's signal handlers — GHC's RTS installs C-level
+         * handlers that write to a pipe shared with the parent process.
+         * Without this, sending SIGTERM to the child would trigger the
+         * parent daemon's shutdown handler via the shared pipe.
+         *
+         * We use SIG_IGN (not SIG_DFL) for SIGTERM/SIGINT because signalfd
+         * cannot deliver signals with SIG_DFL disposition. The signals are
+         * later blocked via sigprocmask and consumed via signalfd in the
+         * bridge loop. SIG_IGN signals ARE queued and delivered by signalfd
+         * when also blocked via sigprocmask. */
+        signal(SIGTERM, SIG_IGN);
+        signal(SIGINT, SIG_IGN);
+        signal(SIGCHLD, SIG_DFL);
         close(ready_pipe[0]);
         namespace_child(vde_sock, tap_name, gw_addr, prefix_len,
                         dhcp_start, dhcp_end, subnet_mask,

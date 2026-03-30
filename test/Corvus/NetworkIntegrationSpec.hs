@@ -7,11 +7,13 @@
 module Corvus.NetworkIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
-import Control.Exception (IOException, bracket, try)
+import Control.Exception (bracket)
+import Control.Monad (when)
 import Corvus.Protocol (NetworkInfo (..))
+import Data.List (isInfixOf, isPrefixOf)
 import qualified Data.Text as T
+import System.Directory (doesFileExist)
 import System.Exit (ExitCode (..))
-import System.Posix.Signals (signalProcess)
 import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (VmConfig (..), defaultVmConfig, withTestVmOnDaemon)
@@ -77,8 +79,9 @@ spec = withTestDb $ do
           -- Stop the network
           stopNetwork daemon nwId
 
-          -- Give processes time to terminate
-          threadDelay 500000 -- 500ms
+          -- Wait for processes to terminate (up to 5 seconds)
+          waitForProcessExit nsPid 50
+          waitForProcessExit vdePid 50
 
           -- Verify both processes are dead
           processAlive nsPid `shouldReturn` False
@@ -162,13 +165,33 @@ spec = withTestDb $ do
                   (codePing2, _, _) <- runInTestVm vm2 ("ping -c 3 -W 5 " <> ip1)
                   codePing2 `shouldBe` ExitSuccess
 
--- | Check if a process with the given PID is alive by sending signal 0.
+          -- Verify the daemon is still running after network stop
+          -- (regression test: namespace manager SIGTERM must not propagate to daemon)
+          nwCheck <- createNetwork daemon "daemon-alive-check"
+          deleteNetwork daemon nwCheck
+
+-- | Wait for a process to exit, polling every 100ms up to n retries.
+waitForProcessExit :: Int -> Int -> IO ()
+waitForProcessExit _ 0 = pure ()
+waitForProcessExit pid retries = do
+  alive <- processAlive pid
+  when alive $
+    threadDelay 100000 >> waitForProcessExit pid (retries - 1)
+
+-- | Check if a process with the given PID is alive (not a zombie).
+-- Reads /proc/<pid>/status to check the process state.
 processAlive :: Int -> IO Bool
 processAlive pid = do
-  result <- try $ signalProcess 0 (fromIntegral pid)
-  pure $ case result of
-    Right () -> True
-    Left (_ :: IOException) -> False
+  let statusFile = "/proc/" <> show pid <> "/status"
+  exists <- doesFileExist statusFile
+  if not exists
+    then pure False
+    else do
+      content <- readFile statusFile
+      let stateLines = filter ("State:" `isPrefixOf`) (lines content)
+      pure $ case stateLines of
+        (s : _) -> not ("zombie" `isInfixOf` s)
+        [] -> False
 
 isJust :: Maybe a -> Bool
 isJust (Just _) = True
