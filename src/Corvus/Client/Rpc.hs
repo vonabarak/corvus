@@ -330,9 +330,9 @@ handleDiskResponse result = case result of
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Create a new disk image
-diskCreate :: Connection -> Text -> DriveFormat -> Int64 -> IO (Either ConnectionError DiskResult)
-diskCreate conn name format sizeMb =
-  handleDiskResponse <$> sendRequest conn (ReqDiskCreate name format sizeMb)
+diskCreate :: Connection -> Text -> DriveFormat -> Int64 -> Maybe Text -> IO (Either ConnectionError DiskResult)
+diskCreate conn name format sizeMb mPath =
+  handleDiskResponse <$> sendRequest conn (ReqDiskCreate name format sizeMb mPath)
 
 -- | Create an overlay disk image backed by an existing disk
 diskCreateOverlay :: Connection -> Text -> Int64 -> Maybe Text -> IO (Either ConnectionError DiskResult)

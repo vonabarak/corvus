@@ -247,14 +247,14 @@ runCommand opts = do
                     pure ()
                 pure True
       -- Disk commands
-      DiskCreate name formatStr sizeMb -> do
+      DiskCreate name formatStr sizeMb mPath -> do
         case parseFormat formatStr of
           Left err -> do
             if isStructured fmt
               then outputError fmt "invalid_format" err
               else putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right format -> handleDiskCreate fmt conn name format sizeMb
+          Right format -> handleDiskCreate fmt conn name format sizeMb mPath
       DiskCreateOverlay name baseDiskId optDirPath -> handleDiskCreateOverlay fmt conn name baseDiskId optDirPath
       DiskImport name path mFormatStr -> handleDiskImport fmt conn name path mFormatStr
       DiskDelete diskId -> handleDiskDelete fmt conn diskId

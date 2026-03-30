@@ -32,10 +32,34 @@ disks:
   # - name: vm1-ovmf-vars
   #   clone: ovmf-vars-template
 
-  # Overlay in a custom directory
+  # --- Path examples ---
+  # The optional `path` field controls where the disk file is placed.
+  # Rules:
+  #   - Starts with /  -> absolute path
+  #   - Otherwise       -> relative to base images dir ($HOME/VMs)
+  #   - Ends with /     -> directory (filename auto-generated from name + format)
+  #   - No trailing /   -> full file path
+  #
+  # Overlay in a subdirectory of the base images path:
   # - name: vm1-root
   #   overlay: alpine-base
-  #   path: "/data/vms/vm1"
+  #   path: "vm1/"                  # -> $HOME/VMs/vm1/vm1-root.qcow2
+  #
+  # Clone to an absolute directory:
+  # - name: vm1-ovmf-vars
+  #   clone: ovmf-vars-template
+  #   path: "/data/vms/"            # -> /data/vms/vm1-ovmf-vars.fd
+  #
+  # Clone with an explicit file path:
+  # - name: special-vars
+  #   clone: ovmf-vars-template
+  #   path: "/data/vms/custom.fd"   # -> /data/vms/custom.fd
+  #
+  # Create a data disk in a subdirectory:
+  # - name: vm1-data
+  #   format: qcow2
+  #   sizeMb: 51200
+  #   path: "vm1/"                  # -> $HOME/VMs/vm1/vm1-data.qcow2
 
   # Import from a local path on the daemon host
   # - name: custom-image

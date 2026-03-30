@@ -29,6 +29,8 @@ module Corvus.Handlers.Disk
     -- * Helpers
   , sanitizeDiskName
   , resolveDiskPath
+  , resolveDiskFilePath
+  , resolveDiskFilePathPure
   , makeRelativeToBase
   , getRunningAttachedVms
   , detectFormatFromPath
@@ -56,13 +58,15 @@ import Corvus.Qemu.Qmp
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import Data.List (isPrefixOf, isSuffixOf)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
-import System.FilePath (takeExtension, (</>))
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath (isRelative, takeDirectory, takeExtension, takeFileName, (</>))
 
 --------------------------------------------------------------------------------
 -- Path Utilities
@@ -98,13 +102,42 @@ makeRelativeToBase basePath filePath
   | (basePath ++ "/") `isPrefixOf` filePath = T.pack $ drop (length basePath + 1) filePath
   | otherwise = T.pack filePath
 
+-- | Resolve an optional path for a disk image file.
+--
+-- Path interpretation rules:
+--   * No path given: uses @basePath\/fileName@
+--   * Starts with @\/@: absolute path
+--   * Otherwise: relative to @basePath@
+--   * Ends with @\/@: treated as a directory — @fileName@ is appended
+--   * Does not end with @\/@: treated as the full file path
+--
+-- The parent directory is created if it does not exist.
+resolveDiskFilePath :: FilePath -> Maybe Text -> FilePath -> IO FilePath
+resolveDiskFilePath basePath mPath fileName = do
+  let result = resolveDiskFilePathPure basePath mPath fileName
+  createDirectoryIfMissing True (takeDirectory result)
+  pure result
+
+-- | Pure path resolution logic (no IO). See 'resolveDiskFilePath' for rules.
+resolveDiskFilePathPure :: FilePath -> Maybe Text -> FilePath -> FilePath
+resolveDiskFilePathPure basePath mPath fileName = case mPath of
+  Nothing -> basePath </> fileName
+  Just p ->
+    let raw = T.unpack p
+        resolved
+          | isRelative raw = basePath </> raw
+          | otherwise = raw
+     in if "/" `isSuffixOf` raw
+          then resolved </> fileName
+          else resolved
+
 --------------------------------------------------------------------------------
 -- Disk Image Handlers
 --------------------------------------------------------------------------------
 
 -- | Create a new disk image
-handleDiskCreate :: ServerState -> Text -> DriveFormat -> Int64 -> IO Response
-handleDiskCreate state name format sizeMb = runServerLogging state $ do
+handleDiskCreate :: ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> IO Response
+handleDiskCreate state name format sizeMb mPath = runServerLogging state $ do
   logInfoN $ "Creating disk image: " <> name <> " (" <> T.pack (show sizeMb) <> " MB)"
 
   -- Sanitize the name to prevent path traversal attacks
@@ -116,7 +149,7 @@ handleDiskCreate state name format sizeMb = runServerLogging state $ do
       -- Generate file path using sanitized name
       basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
       let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
-          filePath = basePath </> fileName
+      filePath <- liftIO $ resolveDiskFilePath basePath mPath fileName
 
       -- Create the actual image file
       result <- liftIO $ createImage filePath format sizeMb
@@ -253,8 +286,7 @@ handleDiskCreateOverlay state name baseDiskId optDirPath = runServerLogging stat
             else do
               basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
               let overlayFileName = T.unpack safeName <> ".qcow2"
-                  overlayDir = maybe basePath T.unpack optDirPath
-                  overlayFilePath = overlayDir </> overlayFileName
+              overlayFilePath <- liftIO $ resolveDiskFilePath basePath optDirPath overlayFileName
               baseFilePath <- liftIO $ resolveDiskPath (ssQemuConfig state) baseDisk
               result <- liftIO $ createOverlay overlayFilePath baseFilePath (diskImageFormat baseDisk)
               case result of
@@ -300,12 +332,9 @@ handleDiskClone state name baseDiskId optionalPath = runServerLogging state $ do
             then pure RespVmMustBeStopped
             else do
               basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
-              let fileName = T.unpack safeName <> "." <> T.unpack (enumToText (diskImageFormat baseDisk))
-                  destPath = case optionalPath of
-                    Just p -> T.unpack p
-                    Nothing -> basePath </> fileName
-
               srcPath <- liftIO $ resolveDiskPath (ssQemuConfig state) baseDisk
+              let fileName = takeFileName srcPath
+              destPath <- liftIO $ resolveDiskFilePath basePath optionalPath fileName
               result <- liftIO $ cloneImage srcPath destPath
               case result of
                 ImageError err -> do
@@ -875,14 +904,14 @@ detectFormatFromPath path =
 --------------------------------------------------------------------------------
 
 -- | Create a new empty disk image and return its ID.
-createDiskIO :: ServerState -> Text -> DriveFormat -> Int -> IO (Either Text Int64)
-createDiskIO state name format sizeMb = do
+createDiskIO :: ServerState -> Text -> DriveFormat -> Int -> Maybe Text -> IO (Either Text Int64)
+createDiskIO state name format sizeMb mPath = do
   case sanitizeDiskName name of
     Left err -> pure $ Left err
     Right safeName -> do
       basePath <- getEffectiveBasePath (ssQemuConfig state)
       let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
-          filePath = basePath </> fileName
+      filePath <- resolveDiskFilePath basePath mPath fileName
       result <- createImage filePath format (fromIntegral sizeMb)
       case result of
         ImageError err -> pure $ Left err
@@ -1003,8 +1032,7 @@ createOverlayDiskIO state name backingDiskId mResizeMb mDirPath = do
         Just backingDisk -> do
           basePath <- getEffectiveBasePath (ssQemuConfig state)
           let fileName = T.unpack safeName <> ".qcow2"
-              overlayDir = maybe basePath T.unpack mDirPath
-              overlayPath = overlayDir </> fileName
+          overlayPath <- resolveDiskFilePath basePath mDirPath fileName
           baseFilePath <- resolveDiskPath (ssQemuConfig state) backingDisk
           result <- createOverlay overlayPath baseFilePath (diskImageFormat backingDisk)
           case result of
@@ -1046,10 +1074,9 @@ cloneDiskIO state name baseDiskId mDestPath = do
         Nothing -> pure $ Left "Source disk not found"
         Just baseDisk -> do
           basePath <- getEffectiveBasePath (ssQemuConfig state)
-          let fileName = T.unpack safeName <> "." <> T.unpack (enumToText (diskImageFormat baseDisk))
-              destDir = maybe basePath T.unpack mDestPath
-              destPath = destDir </> fileName
           srcPath <- resolveDiskPath (ssQemuConfig state) baseDisk
+          let fileName = takeFileName srcPath
+          destPath <- resolveDiskFilePath basePath mDestPath fileName
           result <- cloneImage srcPath destPath
           case result of
             ImageError err -> pure $ Left err

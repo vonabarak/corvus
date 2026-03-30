@@ -77,9 +77,9 @@ parseMedia = enumFromText
 --------------------------------------------------------------------------------
 
 -- | Handle disk create command
-handleDiskCreate :: OutputFormat -> Connection -> Text -> DriveFormat -> Int64 -> IO Bool
-handleDiskCreate fmt conn name format sizeMb = do
-  resp <- diskCreate conn name format sizeMb
+handleDiskCreate :: OutputFormat -> Connection -> Text -> DriveFormat -> Int64 -> Maybe Text -> IO Bool
+handleDiskCreate fmt conn name format sizeMb mPath = do
+  resp <- diskCreate conn name format sizeMb mPath
   case resp of
     Left err -> do
       if isStructured fmt

@@ -70,6 +70,24 @@ instance FromJSON ApplySshKey where
       <$> o .: "name"
       <*> o .: "publicKey"
 
+-- | Disk definition in the apply YAML config.
+--
+-- The @path@ field controls where the disk image file is placed:
+--
+--   * Not specified: the image is placed in the base images directory
+--   * Starts with @\/@: interpreted as an absolute path
+--   * Otherwise: relative to the base images directory
+--   * Ends with @\/@: treated as a directory (auto-generates filename from disk name + format extension)
+--   * Does not end with @\/@: treated as the full file path
+--
+-- Examples:
+--
+-- @
+-- path: "ws25/"           # -> $BASE/ws25/my-disk.qcow2
+-- path: "my-disk.raw"     # -> $BASE/my-disk.raw
+-- path: "/data/vms/"      # -> /data/vms/my-disk.qcow2
+-- path: "/data/disk.raw"  # -> /data/disk.raw
+-- @
 data ApplyDisk = ApplyDisk
   { adName :: Text
   , adFormat :: Maybe DriveFormat
@@ -258,8 +276,8 @@ validateConfig config = do
               if not hasImport && not hasOverlay && not hasClone && not hasCreate
                 then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', 'clone', or both 'format' and 'sizeMb'"
                 else
-                  if isJust (adPath d) && not hasOverlay && not hasClone
-                    then Left $ "Disk '" <> adName d <> "': 'path' can only be used with 'overlay' or 'clone'"
+                  if isJust (adPath d) && not hasOverlay && not hasClone && not hasCreate
+                    then Left $ "Disk '" <> adName d <> "': 'path' can only be used with 'overlay', 'clone', or 'create'"
                     else Right ()
 
 -- | Resolve effective cloudInit value for a VM.
@@ -373,7 +391,7 @@ createOneDisk state diskMap d = case (adImport d, adOverlay d, adClone d) of
   _ ->
     let format = fromMaybe FormatQcow2 (adFormat d)
         sizeMb = fromMaybe 10240 (adSizeMb d)
-     in createDiskIO state (adName d) format sizeMb
+     in createDiskIO state (adName d) format sizeMb (adPath d)
 
 -- | Create networks, return map of name -> DB network ID
 createNetworks :: ServerState -> [ApplyNetwork] -> Bool -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))

@@ -51,7 +51,7 @@ import GHC.Generics (Generic)
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 11
+protocolVersion = 12
 
 -- | Client requests
 data Request
@@ -74,11 +74,11 @@ data Request
   | -- | Reset VM (any -> stopped)
     ReqVmReset !Int64
   | -- | Disk image operations
-    -- | Create disk image (name, format, sizeMb)
-    ReqDiskCreate !Text !DriveFormat !Int64
+    -- | Create disk image (name, format, sizeMb, optionalPath)
+    ReqDiskCreate !Text !DriveFormat !Int64 !(Maybe Text)
   | -- | Register existing disk image (name, filePath, format, sizeMb)
     ReqDiskRegister !Text !Text !DriveFormat !(Maybe Int64)
-  | -- | Create overlay disk image (overlayName, baseDiskImageId, optionalDirPath)
+  | -- | Create overlay disk image (overlayName, baseDiskImageId, optionalPath)
     ReqDiskCreateOverlay !Text !Int64 !(Maybe Text)
   | -- | Delete disk image (diskImageId)
     ReqDiskDelete !Int64

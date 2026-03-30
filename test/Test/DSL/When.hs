@@ -190,7 +190,7 @@ vmReset vmId = executeRpc (`Rpc.vmReset` vmId)
 -- | Create a disk image
 diskCreate :: Text -> DriveFormat -> Int64 -> TestM DiskResult
 diskCreate name format sizeMb =
-  executeRpc (\conn -> Rpc.diskCreate conn name format sizeMb)
+  executeRpc (\conn -> Rpc.diskCreate conn name format sizeMb Nothing)
 
 -- | Create an overlay disk image backed by an existing disk
 diskCreateOverlay :: Text -> Int64 -> Maybe Text -> TestM DiskResult

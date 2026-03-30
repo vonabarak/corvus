@@ -3,7 +3,7 @@
 
 module Corvus.DiskSpec (spec) where
 
-import Corvus.Handlers.Disk (makeRelativeToBase, resolveDiskPath)
+import Corvus.Handlers.Disk (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
 import Corvus.Model (DiskImage (..), DriveFormat (..))
 import Corvus.Protocol (DiskImageInfo (..), Response (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
@@ -58,6 +58,39 @@ spec = sequential $ do
 
     it "does not match partial directory names" $ do
       makeRelativeToBase "/base/path" "/base/pathmore/test.qcow2" `shouldBe` "/base/pathmore/test.qcow2"
+
+  describe "resolveDiskFilePathPure" $ do
+    it "uses basePath/fileName when no path given" $
+      resolveDiskFilePathPure "/base" Nothing "disk.qcow2"
+        `shouldBe` "/base/disk.qcow2"
+
+    it "treats trailing slash as directory and appends fileName" $
+      resolveDiskFilePathPure "/base" (Just "subdir/") "disk.qcow2"
+        `shouldBe` "/base/subdir/disk.qcow2"
+
+    it "treats path without trailing slash as full file path" $
+      resolveDiskFilePathPure "/base" (Just "custom.raw") "disk.qcow2"
+        `shouldBe` "/base/custom.raw"
+
+    it "resolves relative directory against basePath" $
+      resolveDiskFilePathPure "/base" (Just "vms/") "disk.qcow2"
+        `shouldBe` "/base/vms/disk.qcow2"
+
+    it "resolves relative file path against basePath" $
+      resolveDiskFilePathPure "/base" (Just "vms/my-disk.raw") "disk.qcow2"
+        `shouldBe` "/base/vms/my-disk.raw"
+
+    it "uses absolute directory as-is" $
+      resolveDiskFilePathPure "/base" (Just "/data/vms/") "disk.qcow2"
+        `shouldBe` "/data/vms/disk.qcow2"
+
+    it "uses absolute file path as-is" $
+      resolveDiskFilePathPure "/base" (Just "/data/my-disk.raw") "disk.qcow2"
+        `shouldBe` "/data/my-disk.raw"
+
+    it "handles just a slash as absolute root directory" $
+      resolveDiskFilePathPure "/base" (Just "/") "disk.qcow2"
+        `shouldBe` "/disk.qcow2"
 
   describe "URL detection" $ do
     it "detects HTTP URL" $ do

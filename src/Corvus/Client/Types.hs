@@ -71,8 +71,8 @@ data Command
     VmExec !Int64 !Text
   | -- Disk image commands
 
-    -- | Create disk image (name, format, sizeMb)
-    DiskCreate !Text !Text !Int64
+    -- | Create disk image (name, format, sizeMb, optionalPath)
+    DiskCreate !Text !Text !Int64 !(Maybe Text)
   | -- | Import existing disk image (name, path, format)
     DiskImport !Text !FilePath !(Maybe Text)
   | -- | Create overlay disk image (name, baseDiskId, optionalDirPath)

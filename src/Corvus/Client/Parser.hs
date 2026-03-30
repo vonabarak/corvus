@@ -357,6 +357,14 @@ diskCreateCommand =
           <> metavar "SIZE"
           <> help "Disk size in MB (or with suffix: 10G, 100M)"
       )
+    <*> optional
+      ( strOption
+          ( long "path"
+              <> short 'p'
+              <> metavar "PATH"
+              <> help "Destination path. Trailing / = directory (filename auto-generated). Relative paths resolve against base images path."
+          )
+      )
 
 -- | Parser for disk delete
 diskDeleteCommand :: Parser Command
@@ -499,8 +507,8 @@ diskOverlayCommand =
       ( strOption
           ( long "path"
               <> short 'p'
-              <> metavar "DIR"
-              <> help "Directory for the overlay file (default: base images path)"
+              <> metavar "PATH"
+              <> help "Destination path. Trailing / = directory (filename auto-generated). Relative paths resolve against base images path."
           )
       )
 
@@ -523,7 +531,7 @@ diskCloneCommand =
           ( long "path"
               <> short 'p'
               <> metavar "PATH"
-              <> help "Optional destination path for the cloned image file"
+              <> help "Destination path. Trailing / = directory (filename auto-generated). Relative paths resolve against base images path."
           )
       )
 

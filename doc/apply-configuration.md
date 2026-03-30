@@ -59,7 +59,7 @@ disks:
     clone: <string>           # Option C: Name of disk to clone (full copy).
     format: <string>          # Disk format (for import/create). Default: auto-detect or qcow2.
     sizeMb: <integer>         # Size in MB (for create; optional resize hint for overlay).
-    path: <string>            # Optional directory for overlay/clone output file.
+    path: <string>            # Optional destination path for overlay/clone/create output file.
 ```
 
 Exactly one creation strategy must be specified:
@@ -101,7 +101,23 @@ Creates a new empty disk image. Both `format` and `sizeMb` are required. The fil
 
 ### Custom Path
 
-The optional `path` field specifies a directory where the overlay or clone file should be created, instead of the default base images directory (`$HOME/VMs`). This field can only be used with `overlay` or `clone` strategies.
+The optional `path` field controls where the disk image file is placed. It can be used with `overlay`, `clone`, and `create` strategies.
+
+**Path interpretation rules:**
+
+| Path | Interpretation |
+|------|---------------|
+| *(omitted)* | Default: `$BASE/<name>.<ext>` (base images directory) |
+| `subdir/` | Directory (trailing `/`): `$BASE/subdir/<name>.<ext>` — filename auto-generated |
+| `custom.raw` | File path (no trailing `/`): `$BASE/custom.raw` — used as-is |
+| `/data/vms/` | Absolute directory: `/data/vms/<name>.<ext>` |
+| `/data/disk.raw` | Absolute file path: `/data/disk.raw` |
+
+- Paths starting with `/` are absolute; otherwise they are resolved relative to the base images directory (`$HOME/VMs` by default).
+- Paths ending with `/` are treated as directories — the filename is auto-generated from the disk name and format extension (e.g., `my-disk.qcow2`). The directory is created if it does not exist.
+- Paths **not** ending with `/` are treated as the full file path.
+
+The same rules apply to the `--path` option on `crv disk create`, `crv disk overlay`, and `crv disk clone` CLI commands.
 
 ### Examples
 
@@ -135,15 +151,31 @@ disks:
   - name: vm2-ovmf-vars
     clone: ovmf-vars-template
 
-  # Create overlay in a specific directory
+  # Create overlay in a subdirectory of the base images path
   - name: vm1-root
     overlay: alpine-base
-    path: "/data/vms/vm1"
+    path: "vm1/"
+
+  # Clone to an absolute directory
+  - name: vm2-ovmf-vars
+    clone: ovmf-vars-template
+    path: "/data/vms/vm2/"
+
+  # Clone with a specific absolute file path
+  - name: special-vars
+    clone: ovmf-vars-template
+    path: "/data/vms/my-custom-vars.fd"
 
   # Create a new empty data disk
   - name: data-disk
     format: qcow2
     sizeMb: 20480
+
+  # Create a data disk in a specific directory
+  - name: vm1-data
+    format: qcow2
+    sizeMb: 51200
+    path: "vm1/"
 ```
 
 ## Virtual Networks
@@ -302,8 +334,9 @@ It is a validation error to list `sshKeys` on a VM with `cloudInit: false`.
 The daemon validates the configuration before creating any resources:
 
 - No duplicate names within each section (SSH keys, disks, networks, VMs).
-- Each disk must use exactly one creation strategy (`import`, `overlay`, or `format` + `sizeMb`).
-- A disk cannot specify both `import` and `overlay`.
+- Each disk must use exactly one creation strategy (`import`, `overlay`, `clone`, or `format` + `sizeMb`).
+- A disk cannot specify more than one of `import`, `overlay`, `clone`.
+- The `path` field can only be used with `overlay`, `clone`, or `create` strategies (not `import`).
 - VMs with `sshKeys` must not have `cloudInit: false`.
 
 If validation fails, no resources are created.

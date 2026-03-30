@@ -58,7 +58,7 @@ instance Arbitrary Request where
       , ReqVmStop <$> arbitrary
       , ReqVmPause <$> arbitrary
       , ReqVmReset <$> arbitrary
-      , ReqDiskCreate "disk" <$> arbitrary <*> arbitrary
+      , ReqDiskCreate "disk" <$> arbitrary <*> arbitrary <*> pure Nothing
       , ReqDiskDelete <$> arbitrary
       , pure ReqDiskList
       , ReqDiskShow <$> arbitrary
