@@ -44,7 +44,9 @@ src/Corvus/
 │   ├── Command.hs       # QEMU command-line builder
 │   ├── Image.hs         # qemu-img wrapper (create, resize, snapshot, clone, download)
 │   ├── GuestAgent.hs    # QGA protocol client (exec, ping, network-get-interfaces)
-│   ├── Vde.hs           # VDE virtual switch management
+│   ├── Vde.hs           # VDE switch orchestration, namespace manager lifecycle
+│   ├── Vde/
+│   │   └── Namespace.hs # Haskell FFI to C namespace manager (startNamespaceManager)
 │   └── Virtiofsd.hs     # virtiofsd process management
 ├── Client/
 │   ├── Connection.hs    # Socket management, binary protocol
@@ -67,6 +69,10 @@ src/Corvus/
 └── Utils/
     ├── Yaml.hs          # YAML parsing with quasi-quoters (yamlQQ, yaml)
     └── Subnet.hs        # Subnet utilities for virtual networks
+
+cbits/
+├── vdens.h              # C namespace manager header
+└── vdens.c              # C namespace manager (fork, unshare, TAP, VDE bridge, dnsmasq)
 ```
 
 ### Key Patterns
@@ -75,6 +81,7 @@ src/Corvus/
 - **Database**: Persistent + Esqueleto ORM with PostgreSQL; `runSqlPool` pattern; auto-migration on startup
 - **Logging**: `MonadLogger` (LoggingT transformer)
 - **VM state machine**: Enforced in `Handlers.Vm.validateTransition` — stopped → running → paused, with reset always allowed
+- **Network namespaces**: dnsmasq runs in an isolated user+network+UTS namespace (no root required). The C helper (`cbits/vdens.c`) forks from the Haskell process, calls `unshare(2)` in the single-threaded child, creates a TAP interface, connects to the VDE switch via libvdeplug, and bridges packets. `unshare(CLONE_NEWUSER)` requires a single-threaded process — the fork **must** happen in C, not via GHC's `forkProcess`, because GHC's threaded RTS keeps multiple OS threads alive after fork.
 
 ### Database Entities
 
@@ -107,8 +114,9 @@ test/
 │       ├── Console.hs   # Serial console helpers
 │       └── Types.hs     # Test VM configuration types
 └── Corvus/
-    ├── *Spec.hs              # Unit tests
-    └── *IntegrationSpec.hs   # Integration tests (require QEMU/KVM)
+    ├── *Spec.hs                   # Unit tests
+    ├── *IntegrationSpec.hs        # Integration tests (require QEMU/KVM)
+    └── NetworkIntegrationSpec.hs  # Virtual networking + namespace manager tests
 ```
 
 Tests use a custom BDD DSL (`Test.DSL.*`) with `testCase`, `given`, `when_`, `then_`.
@@ -129,10 +137,14 @@ Stack + Hpack (`package.yaml` → `corvus.cabal`), LTS-23.28 resolver.
 | `make integration-tests` | Integration tests only (requires QEMU/KVM) |
 | `make all-tests` | Full test suite |
 
+### Build Dependencies
+
+- **libvdeplug** (`libvdeplug-dev`) — required for the C namespace manager (`cbits/vdens.c`), linked as `extra-libraries: vdeplug` in `package.yaml`.
+
 ### Integration Test Notes
 
 - Integration tests require QEMU/KVM access.
-- Tests marked **"Privileged:"** (e.g. virtual networking tests in `MultiVmIntegrationSpec`) require root escalation and cannot be run in a normal user session.
+- Virtual networking tests (`NetworkIntegrationSpec`) run unprivileged using user namespaces — no root or doas required. The kernel must have `CONFIG_USER_NS=y` (check with `unshare --user echo ok`).
 - Log level during tests is controlled by `CORVUS_TEST_LOG_LEVEL` env var (default: `info`). Use `CORVUS_TEST_LOG_LEVEL=debug` for verbose output.
 
 ## Project Rules
