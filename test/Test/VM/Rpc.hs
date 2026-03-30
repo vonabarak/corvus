@@ -42,6 +42,7 @@ module Test.VM.Rpc
   , deleteNetwork
   , startNetwork
   , stopNetwork
+  , showNetwork
   , addVmNetIfWithNetwork
   )
 where
@@ -49,9 +50,9 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Monad (when)
 import Corvus.Client
-import Corvus.Client.Rpc (GuestExecResult (..), NetIfResult (..), NetworkResult (..), networkCreate, networkDelete, networkStart, networkStop, vmExec)
+import Corvus.Client.Rpc (GuestExecResult (..), NetIfResult (..), NetworkResult (..), networkCreate, networkDelete, networkShow, networkStart, networkStop, vmExec)
 import Corvus.Model
-import Corvus.Protocol (NetIfInfo (..), VmDetails (..))
+import Corvus.Protocol (NetIfInfo (..), NetworkInfo (..), VmDetails (..))
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Runtime (getQmpSocket)
 import Corvus.Types (ServerState (..))
@@ -331,6 +332,19 @@ stopNetwork daemon nwId = do
   case result of
     Right (Right NetworkStopped) -> pure ()
     _ -> pure () -- Best-effort cleanup
+
+-- | Show virtual network details via daemon RPC
+showNetwork :: TestDaemon -> Int64 -> IO NetworkInfo
+showNetwork daemon nwId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    networkShow conn nwId
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "Connection error showing network: " <> show err
+    Right (Right (NetworkDetails info)) -> pure info
+    Right (Right NetworkNotFound) -> fail $ "Network not found: " <> show nwId
+    Right (Right (NetworkError msg)) -> fail $ "Failed to show network: " <> T.unpack msg
+    Right (Right other) -> fail $ "Unexpected response showing network: " <> show other
 
 -- | Add a network interface to a VM connected to a virtual network
 addVmNetIfWithNetwork :: TestDaemon -> Int64 -> Int64 -> IO ()

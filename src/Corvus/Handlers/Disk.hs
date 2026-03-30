@@ -333,8 +333,10 @@ handleDiskClone state name baseDiskId optionalPath = runServerLogging state $ do
             else do
               basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
               srcPath <- liftIO $ resolveDiskPath (ssQemuConfig state) baseDisk
-              let fileName = takeFileName srcPath
-              destPath <- liftIO $ resolveDiskFilePath basePath optionalPath fileName
+              let srcFileName = takeFileName srcPath
+                  ext = takeExtension srcFileName
+                  cloneFileName = T.unpack safeName <> ext
+              destPath <- liftIO $ resolveDiskFilePath basePath optionalPath cloneFileName
               result <- liftIO $ cloneImage srcPath destPath
               case result of
                 ImageError err -> do
@@ -1075,8 +1077,10 @@ cloneDiskIO state name baseDiskId mDestPath = do
         Just baseDisk -> do
           basePath <- getEffectiveBasePath (ssQemuConfig state)
           srcPath <- resolveDiskPath (ssQemuConfig state) baseDisk
-          let fileName = takeFileName srcPath
-          destPath <- resolveDiskFilePath basePath mDestPath fileName
+          let srcFileName = takeFileName srcPath
+              ext = takeExtension srcFileName
+              cloneFileName = T.unpack safeName <> ext
+          destPath <- resolveDiskFilePath basePath mDestPath cloneFileName
           result <- cloneImage srcPath destPath
           case result of
             ImageError err -> pure $ Left err

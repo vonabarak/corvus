@@ -154,7 +154,7 @@ withTestDiskSetup daemon config useUefi callback = do
 
       -- Clone OVMF vars for this test
       resOvmfVars <- withDaemonConnection daemon $ \conn ->
-        diskClone conn ovmfVarsName ovmfVarsTemplateId Nothing
+        diskClone conn ovmfVarsName ovmfVarsTemplateId (Just (ovmfVarsName <> ".fd"))
       ovmfVarsId <- case resOvmfVars of
         Right (Right (DiskCreated dId)) -> pure dId
         Right (Left err) -> fail $ "Failed to clone OVMF_VARS: " <> show err

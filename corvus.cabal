@@ -52,6 +52,7 @@ library
       Corvus.Qemu.Virtiofsd
       Corvus.Qemu.Image
       Corvus.Qemu.GuestAgent
+      Corvus.Qemu.Vde.Namespace
       Corvus.Handlers.GuestExec
       Corvus.Handlers.GuestAgentPoller
       Corvus.Handlers.Apply
@@ -83,6 +84,12 @@ library
       MultiParamTypeClasses
       QuasiQuotes
       TemplateHaskell
+  include-dirs:
+      cbits
+  c-sources:
+      cbits/vdens.c
+  extra-libraries:
+      vdeplug
   build-depends:
       aeson
     , aeson-qq
@@ -251,8 +258,8 @@ test-suite corvus-test
       Corvus.DiskOverlayIntegrationSpec
       Corvus.DiskSpec
       Corvus.GuestAgentPollerIntegrationSpec
-      Corvus.MultiVmIntegrationSpec
       Corvus.NetIfSpec
+      Corvus.NetworkIntegrationSpec
       Corvus.ProtocolSpec
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
