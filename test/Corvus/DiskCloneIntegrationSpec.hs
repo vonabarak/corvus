@@ -12,7 +12,7 @@ import System.Directory (doesFileExist, removeFile)
 import System.IO.Error (isDoesNotExistError)
 import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVmGuestExec)
+import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVm)
 import Test.VM.Daemon (withDaemonConnection)
 import Test.VM.Rpc (stopTestVmAndWait)
 
@@ -20,7 +20,7 @@ spec :: Spec
 spec = withTestDb $ do
   describe "Disk cloning integration" $ do
     it "can clone a disk and its content" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
+      withTestVm env defaultVmConfig $ \vm -> do
         let daemon = tvmDaemon vm
             diskId = tvmDiskId vm
             vmId = tvmId vm
@@ -46,7 +46,7 @@ spec = withTestDb $ do
           other -> fail $ "List failed: " ++ show other
 
     it "clones snapshots in the database" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
+      withTestVm env defaultVmConfig $ \vm -> do
         let daemon = tvmDaemon vm
             diskId = tvmDiskId vm
             vmId = tvmId vm
@@ -71,7 +71,7 @@ spec = withTestDb $ do
           other -> fail $ "Snapshot list failed: " ++ show other
 
     it "can clone to a custom path" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
+      withTestVm env defaultVmConfig $ \vm -> do
         let daemon = tvmDaemon vm
             diskId = tvmDiskId vm
             vmId = tvmId vm
@@ -95,7 +95,7 @@ spec = withTestDb $ do
         removeFile customPath
 
     it "rejects cloning if VM is running" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
+      withTestVm env defaultVmConfig $ \vm -> do
         let daemon = tvmDaemon vm
             diskId = tvmDiskId vm
 

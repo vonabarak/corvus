@@ -16,11 +16,11 @@ import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, startTestVmAndWaitGuestAgent, withTestVm, withTestVmBiosGuestExec, withTestVmGuestExec)
+import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, startTestVmAndWait, startTestVmAndWaitGuestAgent, withTestVm, withTestVmBios, withTestVmGuestExec)
 import Test.VM.Console (connectSerialConsole, consoleExpect, consoleSend)
 import Test.VM.Daemon (TestDaemon (..))
-import Test.VM.Rpc (editTestVm, runInVm, runInVm_, stopTestVmAndWait)
-import Test.VM.Ssh (runInTestVm)
+import Test.VM.Rpc (editTestVm, runInVm, stopTestVmAndWait)
+import Test.VM.Ssh (runInTestVm, runInTestVm_)
 
 spec :: Spec
 spec = withTestDb $ do
@@ -38,34 +38,34 @@ spec = withTestDb $ do
         T.strip stdout `shouldBe` "hello"
 
     it "can check OS release" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
-        (code, stdout, _stderr) <- runInVm vm "cat /etc/os-release | grep -i alpine"
+      withTestVm env defaultVmConfig $ \vm -> do
+        (code, stdout, _stderr) <- runInTestVm vm "cat /etc/os-release | grep -i alpine"
         code `shouldBe` ExitSuccess
         T.isInfixOf "Alpine" stdout `shouldBe` True
 
     it "can run multiple commands" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
-        runInVm_ vm "echo 'test content' > /tmp/testfile"
-        (code, stdout, _) <- runInVm vm "cat /tmp/testfile"
+      withTestVm env defaultVmConfig $ \vm -> do
+        runInTestVm_ vm "echo 'test content' > /tmp/testfile"
+        (code, stdout, _) <- runInTestVm vm "cat /tmp/testfile"
         code `shouldBe` ExitSuccess
         T.strip stdout `shouldBe` "test content"
 
     it "reports command failures correctly" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
-        (code, _, stderr) <- runInVm vm "nonexistent_command_12345"
+      withTestVm env defaultVmConfig $ \vm -> do
+        (code, _, stderr) <- runInTestVm vm "nonexistent_command_12345"
         code `shouldNotBe` ExitSuccess
         T.isInfixOf "not found" stderr `shouldBe` True
 
     it "can get system information" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
-        (code1, stdout1, _) <- runInVm vm "uname -s"
+      withTestVm env defaultVmConfig $ \vm -> do
+        (code1, stdout1, _) <- runInTestVm vm "uname -s"
         code1 `shouldBe` ExitSuccess
         T.strip stdout1 `shouldBe` "Linux"
 
-        (code2, _, _) <- runInVm vm "cat /proc/meminfo"
+        (code2, _, _) <- runInTestVm vm "cat /proc/meminfo"
         code2 `shouldBe` ExitSuccess
 
-        (code3, _, _) <- runInVm vm "cat /proc/mounts"
+        (code3, _, _) <- runInTestVm vm "cat /proc/mounts"
         code3 `shouldBe` ExitSuccess
 
     it "runs commands as root via guest agent" $ \env -> do
@@ -76,14 +76,14 @@ spec = withTestDb $ do
 
     it "can edit CPU and RAM of a stopped VM" $ \env -> do
       let config = defaultVmConfig {vmcCpuCount = 2, vmcRamMb = 2048, vmcWaitSshTimeout = 120}
-      withTestVmGuestExec env config $ \vm -> do
+      withTestVm env config $ \vm -> do
         -- Check initial CPU count
-        (code1, stdout1, _) <- runInVm vm "nproc"
+        (code1, stdout1, _) <- runInTestVm vm "nproc"
         code1 `shouldBe` ExitSuccess
         T.strip stdout1 `shouldBe` "2"
 
         -- Check initial RAM (should be ~2048 MB, check >= 1800 to account for kernel reservation)
-        (code2, stdout2, _) <- runInVm vm "free -m | awk '/Mem:/{print $2}'"
+        (code2, stdout2, _) <- runInTestVm vm "free -m | awk '/Mem:/{print $2}'"
         code2 `shouldBe` ExitSuccess
         let ramMb1 = read (T.unpack (T.strip stdout2)) :: Int
         ramMb1 `shouldSatisfy` (>= 1800)
@@ -96,16 +96,16 @@ spec = withTestDb $ do
         -- Edit CPU and RAM
         editTestVm daemon (tvmId vm) (Just 4) (Just 4096) Nothing Nothing
 
-        -- Restart the VM and wait for guest agent
-        startTestVmAndWaitGuestAgent vm (vmcWaitSshTimeout config)
+        -- Restart the VM and wait for SSH
+        startTestVmAndWait vm (vmcWaitSshTimeout config)
 
         -- Verify new CPU count
-        (code3, stdout3, _) <- runInVm vm "nproc"
+        (code3, stdout3, _) <- runInTestVm vm "nproc"
         code3 `shouldBe` ExitSuccess
         T.strip stdout3 `shouldBe` "4"
 
         -- Verify new RAM
-        (code4, stdout4, _) <- runInVm vm "free -m | awk '/Mem:/{print $2}'"
+        (code4, stdout4, _) <- runInTestVm vm "free -m | awk '/Mem:/{print $2}'"
         code4 `shouldBe` ExitSuccess
         let ramMb2 = read (T.unpack (T.strip stdout4)) :: Int
         ramMb2 `shouldSatisfy` (>= 3800)
@@ -115,11 +115,11 @@ spec = withTestDb $ do
       -- Use BIOS boot: UEFI NVRAM caches display settings, causing the
       -- headless restart to hang when the VGA device is removed.
       let config = defaultVmConfig {vmcHeadless = False}
-      withTestVmBiosGuestExec env config $ \vm -> do
+      withTestVmBios env config $ \vm -> do
         let daemon = tvmDaemon vm
 
         -- Check that the virtio-vga device is visible via lshw
-        (code, stdout, _) <- runInVm vm "lshw -class display"
+        (code, stdout, _) <- runInTestVm vm "lshw -class display"
         code `shouldBe` ExitSuccess
         T.isInfixOf "VGA compatible controller" stdout `shouldBe` True
         T.isInfixOf "Virtio 1.0 GPU" stdout `shouldBe` True
@@ -130,11 +130,11 @@ spec = withTestDb $ do
         -- Set headless mode
         editTestVm daemon (tvmId vm) Nothing Nothing Nothing (Just True)
 
-        -- Restart the VM and wait for guest agent
-        startTestVmAndWaitGuestAgent vm (vmcWaitSshTimeout config)
+        -- Restart the VM and wait for SSH
+        startTestVmAndWait vm (vmcWaitSshTimeout config)
 
         -- Check that VGA adapter is no longer present
-        (code2, stdout2, _) <- runInVm vm "lshw -class display"
+        (code2, stdout2, _) <- runInTestVm vm "lshw -class display"
         -- In headless mode there should be no VGA controller
         T.isInfixOf "VGA compatible controller" stdout2 `shouldBe` False
 
@@ -147,13 +147,13 @@ spec = withTestDb $ do
           pure ()
 
     it "UEFI VM has EFI boot entries" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
-        (code, stdout, _) <- runInVm vm "efibootmgr"
+      withTestVm env defaultVmConfig $ \vm -> do
+        (code, stdout, _) <- runInTestVm vm "efibootmgr"
         code `shouldBe` ExitSuccess
         T.isInfixOf "BootOrder" stdout `shouldBe` True
 
     it "BIOS VM does not have EFI support" $ \env -> do
-      withTestVmBiosGuestExec env defaultVmConfig $ \vm -> do
-        (code, _, stderr) <- runInVm vm "efibootmgr"
+      withTestVmBios env defaultVmConfig $ \vm -> do
+        (code, _, stderr) <- runInTestVm vm "efibootmgr"
         code `shouldNotBe` ExitSuccess
         T.isInfixOf "EFI variables are not supported" stderr `shouldBe` True

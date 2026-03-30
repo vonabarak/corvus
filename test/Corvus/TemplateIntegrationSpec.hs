@@ -11,9 +11,9 @@ import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVmGuestExec)
+import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVm)
 import Test.VM.Daemon (withDaemonConnection)
-import Test.VM.Rpc (runInVm, runViaGuestAgent, stopTestVmAndWait, waitForGuestAgent)
+import Test.VM.Rpc (runViaGuestAgent, stopTestVmAndWait, waitForGuestAgent)
 
 -- | Find a disk name matching a prefix from a list of disk images
 findDiskName :: T.Text -> [DiskImageInfo] -> T.Text
@@ -26,7 +26,7 @@ spec :: Spec
 spec = withTestDb $ do
   describe "VM Template integration" $ do
     it "can create a template from YAML and instantiate it" $ \env -> do
-      withTestVmGuestExec env defaultVmConfig $ \vm -> do
+      withTestVm env defaultVmConfig $ \vm -> do
         let daemon = tvmDaemon vm
 
         -- Stop the VM so we can use its disk for cloning/overlay strategy
