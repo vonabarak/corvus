@@ -8,6 +8,7 @@ import Corvus.Protocol
 import Data.Aeson (encode)
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.List (isInfixOf)
+import qualified Data.Text as T
 import Test.Hspec
 import Test.QuickCheck
 
@@ -35,6 +36,9 @@ instance Arbitrary SharedDirCache where
 
 instance Arbitrary TemplateCloneStrategy where
   arbitrary = elements [StrategyClone, StrategyOverlay, StrategyDirect]
+
+instance Arbitrary Ref where
+  arbitrary = Ref . T.pack <$> arbitrary
 
 -- Arbitrary for response data types
 instance Arbitrary StatusInfo where

@@ -88,7 +88,7 @@ waitForHealthcheckChange daemon vmId oldHc timeoutSec = go timeoutSec
 -- | Get the healthcheck timestamp from VM details.
 getHealthcheck :: TestDaemon -> Int64 -> IO (Maybe UTCTime)
 getHealthcheck daemon vmId = do
-  res <- withDaemonConnection daemon $ \conn -> showVm conn vmId
+  res <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show vmId))
   case res of
     Right (Right (Just details)) -> pure $ vdHealthcheck details
     _ -> pure Nothing

@@ -21,7 +21,6 @@ import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Protocol (SshKeyInfo (..))
 import Data.Aeson (toJSON)
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Printf (printf)
@@ -53,9 +52,9 @@ handleSshKeyCreate fmt conn name publicKey = do
       pure False
 
 -- | Handle ssh-key delete command
-handleSshKeyDelete :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleSshKeyDelete fmt conn keyId = do
-  resp <- sshKeyDelete conn keyId
+handleSshKeyDelete :: OutputFormat -> Connection -> Text -> IO Bool
+handleSshKeyDelete fmt conn keyRef = do
+  resp <- sshKeyDelete conn keyRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -70,13 +69,14 @@ handleSshKeyDelete fmt conn keyId = do
     Right SshKeyNotFound -> do
       if isStructured fmt
         then outputError fmt "not_found" "SSH key not found"
-        else putStrLn $ "SSH key with ID " ++ show keyId ++ " not found."
+        else putStrLn $ "SSH key '" ++ T.unpack keyRef ++ "' not found."
       pure False
-    Right (SshKeyInUse vmIds) -> do
+    Right (SshKeyInUse vmPairs) -> do
+      let vmNames = T.intercalate ", " (map snd vmPairs)
       if isStructured fmt
-        then outputError fmt "in_use" ("SSH key is attached to VMs: " <> T.pack (show vmIds))
+        then outputError fmt "in_use" ("SSH key is attached to VMs: " <> vmNames)
         else do
-          putStrLn $ "SSH key is attached to VMs: " ++ show vmIds
+          putStrLn $ "SSH key is attached to VMs: " ++ T.unpack vmNames
           putStrLn "Detach the key from all VMs first."
       pure False
     Right other -> do
@@ -112,9 +112,9 @@ handleSshKeyList fmt conn = do
       pure False
 
 -- | Handle ssh-key attach command
-handleSshKeyAttach :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
-handleSshKeyAttach fmt conn vmId keyId = do
-  resp <- sshKeyAttach conn vmId keyId
+handleSshKeyAttach :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSshKeyAttach fmt conn vmRef keyRef = do
+  resp <- sshKeyAttach conn vmRef keyRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -129,12 +129,12 @@ handleSshKeyAttach fmt conn vmId keyId = do
     Right SshKeyNotFound -> do
       if isStructured fmt
         then outputError fmt "not_found" "SSH key not found"
-        else putStrLn $ "SSH key with ID " ++ show keyId ++ " not found."
+        else putStrLn $ "SSH key '" ++ T.unpack keyRef ++ "' not found."
       pure False
     Right SshKeyVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (SshKeyError msg) -> do
       if isStructured fmt
@@ -148,9 +148,9 @@ handleSshKeyAttach fmt conn vmId keyId = do
       pure False
 
 -- | Handle ssh-key detach command
-handleSshKeyDetach :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
-handleSshKeyDetach fmt conn vmId keyId = do
-  resp <- sshKeyDetach conn vmId keyId
+handleSshKeyDetach :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSshKeyDetach fmt conn vmRef keyRef = do
+  resp <- sshKeyDetach conn vmRef keyRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -165,12 +165,12 @@ handleSshKeyDetach fmt conn vmId keyId = do
     Right SshKeyNotFound -> do
       if isStructured fmt
         then outputError fmt "not_found" "SSH key not found"
-        else putStrLn $ "SSH key with ID " ++ show keyId ++ " not found or not attached to VM."
+        else putStrLn $ "SSH key '" ++ T.unpack keyRef ++ "' not found or not attached to VM."
       pure False
     Right SshKeyVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (SshKeyError msg) -> do
       if isStructured fmt
@@ -184,9 +184,9 @@ handleSshKeyDetach fmt conn vmId keyId = do
       pure False
 
 -- | Handle ssh-key list-vm command
-handleSshKeyListForVm :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleSshKeyListForVm fmt conn vmId = do
-  resp <- sshKeyListForVm conn vmId
+handleSshKeyListForVm :: OutputFormat -> Connection -> Text -> IO Bool
+handleSshKeyListForVm fmt conn vmRef = do
+  resp <- sshKeyListForVm conn vmRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -205,8 +205,8 @@ handleSshKeyListForVm fmt conn vmId = do
       pure True
     Right SshKeyVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right other -> do
       if isStructured fmt
@@ -227,7 +227,7 @@ printSshKeyInfo k =
       (skiId k)
       (T.unpack $ skiName k)
       (truncateKey 50 $ skiPublicKey k)
-      (if null (skiAttachedVms k) then "-" else show (skiAttachedVms k))
+      (if null (skiAttachedVms k) then "-" else T.unpack (T.intercalate ", " (map snd (skiAttachedVms k))))
 
 -- | Print SSH key info without attached VMs column
 printSshKeyInfoShort :: SshKeyInfo -> IO ()

@@ -50,118 +50,117 @@ data Command
   | Shutdown
   | -- VM commands
     VmList
-  | VmShow !Int64
+  | VmShow !Text
   | -- | Create a new VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
     VmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool
   | -- | Delete a VM
-    VmDelete !Int64
-  | VmStart !Int64
-  | VmStop !Int64 !WaitOptions
-  | VmPause !Int64
-  | VmReset !Int64
+    VmDelete !Text
+  | VmStart !Text
+  | VmStop !Text !WaitOptions
+  | VmPause !Text
+  | VmReset !Text
   | -- | View VM via SPICE (runs remote-viewer)
-    VmView !Int64
+    VmView !Text
   | -- | Connect to VM's HMP monitor
-    VmMonitor !Int64
-  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
-    VmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
-  | -- | Generate/regenerate cloud-init ISO for a VM (vmId)
-    VmCloudInit !Int64
-  | -- | Execute a command in a VM via guest agent (vmId, command)
-    VmExec !Int64 !Text
+    VmMonitor !Text
+  | -- | Edit VM properties (vmRef, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
+    VmEdit !Text !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
+  | -- | Generate/regenerate cloud-init ISO for a VM
+    VmCloudInit !Text
+  | -- | Execute a command in a VM via guest agent (vmRef, command)
+    VmExec !Text !Text
   | -- Disk image commands
 
     -- | Create disk image (name, format, sizeMb, optionalPath)
     DiskCreate !Text !Text !Int64 !(Maybe Text)
   | -- | Import existing disk image (name, path, format)
     DiskImport !Text !FilePath !(Maybe Text)
-  | -- | Create overlay disk image (name, baseDiskId, optionalDirPath)
-    DiskCreateOverlay !Text !Int64 !(Maybe Text)
+  | -- | Create overlay disk image (name, baseDiskRef, optionalDirPath)
+    DiskCreateOverlay !Text !Text !(Maybe Text)
   | -- | Delete disk image
-    DiskDelete !Int64
-  | -- | Resize disk image (diskId, newSizeMb)
-    DiskResize !Int64 !Int64
+    DiskDelete !Text
+  | -- | Resize disk image (diskRef, newSizeMb)
+    DiskResize !Text !Int64
   | -- | List all disk images
     DiskList
   | -- | Show disk image details
-    DiskShow !Int64
-  | -- | Clone disk image (name, baseDiskId, optionalPath)
-    DiskClone !Text !Int64 !(Maybe Text)
-  | -- | Attach disk to VM (vmId, diskId, interface, media, readOnly, discard, cache)
-    DiskAttach !Int64 !Int64 !Text !(Maybe Text) !Bool !Bool !Text
-  | -- | Detach disk from VM (vmId, driveId)
-    DiskDetach !Int64 !Int64
+    DiskShow !Text
+  | -- | Clone disk image (name, baseDiskRef, optionalPath)
+    DiskClone !Text !Text !(Maybe Text)
+  | -- | Attach disk to VM (vmRef, diskRef, interface, media, readOnly, discard, cache)
+    DiskAttach !Text !Text !Text !(Maybe Text) !Bool !Bool !Text
+  | -- | Detach disk from VM (vmRef, diskRef)
+    DiskDetach !Text !Text
   | -- Shared directory commands
 
-    -- | Add shared directory to VM (vmId, path, tag, cache, readOnly)
-    SharedDirAdd !Int64 !Text !Text !Text !Bool
-  | -- | Remove shared directory from VM (vmId, sharedDirId)
-    SharedDirRemove !Int64 !Int64
+    -- | Add shared directory to VM (vmRef, path, tag, cache, readOnly)
+    SharedDirAdd !Text !Text !Text !Text !Bool
+  | -- | Remove shared directory from VM (vmRef, sharedDirRef)
+    SharedDirRemove !Text !Text
   | -- | List shared directories for VM
-    SharedDirList !Int64
+    SharedDirList !Text
   | -- Network interface commands
 
-    -- | Add network interface to VM (vmId, type, hostDevice, mac, networkId)
-    NetIfAdd !Int64 !Text !Text !(Maybe Text) !(Maybe Int64)
-  | -- | Remove network interface from VM (vmId, netIfId)
-    NetIfRemove !Int64 !Int64
+    -- | Add network interface to VM (vmRef, type, hostDevice, mac, networkRef)
+    NetIfAdd !Text !Text !Text !(Maybe Text) !(Maybe Text)
+  | -- | Remove network interface from VM (vmRef, netIfId)
+    NetIfRemove !Text !Int64
   | -- | List network interfaces for VM
-    NetIfList !Int64
+    NetIfList !Text
   | -- Snapshot commands
 
-    -- | Create snapshot (diskId, name)
-    SnapshotCreate !Int64 !Text
-  | -- | Delete snapshot (diskId, snapshotId)
-    SnapshotDelete !Int64 !Int64
-  | -- | Rollback to snapshot (diskId, snapshotId)
-    SnapshotRollback !Int64 !Int64
-  | -- | Merge snapshot (diskId, snapshotId)
-    SnapshotMerge !Int64 !Int64
-  | -- | List snapshots (diskId)
-    SnapshotList !Int64
+    -- | Create snapshot (diskRef, name)
+    SnapshotCreate !Text !Text
+  | -- | Delete snapshot (diskRef, snapshotRef)
+    SnapshotDelete !Text !Text
+  | -- | Rollback to snapshot (diskRef, snapshotRef)
+    SnapshotRollback !Text !Text
+  | -- | Merge snapshot (diskRef, snapshotRef)
+    SnapshotMerge !Text !Text
+  | -- | List snapshots (diskRef)
+    SnapshotList !Text
   | -- SSH key commands
 
     -- | Create SSH key (name, publicKey)
     SshKeyCreate !Text !Text
-  | -- | Delete SSH key (keyId)
-    SshKeyDelete !Int64
+  | -- | Delete SSH key (keyRef)
+    SshKeyDelete !Text
   | -- | List all SSH keys
     SshKeyList
-  | -- | Attach SSH key to VM (vmId, keyId)
-    SshKeyAttach !Int64 !Int64
-  | -- | Detach SSH key from VM (vmId, keyId)
-    SshKeyDetach !Int64 !Int64
-  | -- | List SSH keys for VM (vmId)
-    SshKeyListForVm !Int64
+  | -- | Attach SSH key to VM (vmRef, keyRef)
+    SshKeyAttach !Text !Text
+  | -- | Detach SSH key from VM (vmRef, keyRef)
+    SshKeyDetach !Text !Text
+  | -- | List SSH keys for VM (vmRef)
+    SshKeyListForVm !Text
   | -- Template commands
 
     -- | Create template from YAML file (file path)
     TemplateCreate !FilePath
-  | -- | Delete template (template id)
-    TemplateDelete !Int64
+  | -- | Delete template (templateRef)
+    TemplateDelete !Text
   | -- | List all templates
     TemplateList
-  | -- | Show template details (template id)
-    TemplateShow !Int64
-  | -- | Instantiate a template (template id, new vm name)
-    TemplateInstantiate !Int64 !Text
+  | -- | Show template details (templateRef)
+    TemplateShow !Text
+  | -- | Instantiate a template (templateRef, new vm name)
+    TemplateInstantiate !Text !Text
   | -- Virtual network commands
 
     -- | Create a virtual network (name, subnet)
     NetworkCreate !Text !Text
-  | -- | Delete a virtual network (networkId)
-    NetworkDelete !Int64
-  | -- | Start a virtual network (networkId)
-    NetworkStart !Int64
-  | -- | Stop a virtual network (networkId, force)
-    NetworkStop !Int64 !Bool
+  | -- | Delete a virtual network (networkRef)
+    NetworkDelete !Text
+  | -- | Start a virtual network (networkRef)
+    NetworkStart !Text
+  | -- | Stop a virtual network (networkRef, force)
+    NetworkStop !Text !Bool
   | -- | List all virtual networks
     NetworkList
-  | -- | Show virtual network details (networkId)
-    NetworkShow !Int64
+  | -- | Show virtual network details (networkRef)
+    NetworkShow !Text
   | -- Apply commands
 
-    -- | Apply environment from YAML config file (file path)
     -- | Apply environment from YAML config file (file path, skipExisting)
     Apply !FilePath !Bool
   deriving (Show)

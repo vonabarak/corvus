@@ -23,7 +23,6 @@ import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..))
 import Corvus.Protocol (TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
 import Data.Aeson (toJSON)
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as T.IO
@@ -67,7 +66,7 @@ handleTemplateCreate fmt conn path = do
           pure False
 
 -- | Handle template delete command
-handleTemplateDelete :: OutputFormat -> Connection -> Int64 -> IO Bool
+handleTemplateDelete :: OutputFormat -> Connection -> Text -> IO Bool
 handleTemplateDelete fmt conn tid = do
   resp <- templateDelete conn tid
   case resp of
@@ -124,7 +123,7 @@ handleTemplateList fmt conn = do
       pure False
 
 -- | Handle template show command
-handleTemplateShow :: OutputFormat -> Connection -> Int64 -> IO Bool
+handleTemplateShow :: OutputFormat -> Connection -> Text -> IO Bool
 handleTemplateShow fmt conn tid = do
   resp <- templateShow conn tid
   case resp of
@@ -155,7 +154,7 @@ handleTemplateShow fmt conn tid = do
       pure False
 
 -- | Handle template instantiate command
-handleTemplateInstantiate :: OutputFormat -> Connection -> Int64 -> Text -> IO Bool
+handleTemplateInstantiate :: OutputFormat -> Connection -> Text -> Text -> IO Bool
 handleTemplateInstantiate fmt conn tid name = do
   resp <- templateInstantiate conn tid name
   case resp of

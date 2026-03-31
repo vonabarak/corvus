@@ -126,8 +126,8 @@ runCommand opts = do
                     printTableHeader vmCols
                     mapM_ (printVmInfo now) vms
             pure True
-      VmShow vmId -> do
-        resp <- showVm conn vmId
+      VmShow vmRef -> do
+        resp <- showVm conn vmRef
         case resp of
           Left err -> do
             if isStructured fmt
@@ -136,8 +136,8 @@ runCommand opts = do
             pure False
           Right Nothing -> do
             if isStructured fmt
-              then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-              else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+              then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+              else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
             pure False
           Right (Just details) -> do
             if isStructured fmt
@@ -145,14 +145,14 @@ runCommand opts = do
               else printVmDetails details
             pure True
       VmCreate name cpuCount ramMb mDesc headless ga ci -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga ci
-      VmDelete vmId -> handleVmDelete fmt conn vmId
-      VmStart vmId -> handleVmAction fmt "start" vmId (vmStart conn vmId)
-      VmStop vmId waitOpts -> handleVmStop fmt conn vmId waitOpts
-      VmPause vmId -> handleVmAction fmt "pause" vmId (vmPause conn vmId)
-      VmReset vmId -> handleVmAction fmt "reset" vmId (vmReset conn vmId)
-      VmEdit vmId mCpus mRam mDesc mHeadless mGa mCi -> handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGa mCi
-      VmCloudInit vmId -> do
-        resp <- vmCloudInit conn vmId
+      VmDelete vmRef -> handleVmDelete fmt conn vmRef
+      VmStart vmRef -> handleVmAction fmt "start" vmRef (vmStart conn vmRef)
+      VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
+      VmPause vmRef -> handleVmAction fmt "pause" vmRef (vmPause conn vmRef)
+      VmReset vmRef -> handleVmAction fmt "reset" vmRef (vmReset conn vmRef)
+      VmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi -> handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mCi
+      VmCloudInit vmRef -> do
+        resp <- vmCloudInit conn vmRef
         case resp of
           Left err -> do
             if isStructured fmt then outputError fmt "rpc_error" (T.pack $ show err) else putStrLn $ "Error: " ++ show err
@@ -169,9 +169,9 @@ runCommand opts = do
           Right VmEditMustBeStopped -> do
             if isStructured fmt then outputError fmt "vm_running" "VM must be stopped" else putStrLn "VM must be stopped"
             pure False
-      VmExec vmId cmd -> handleVmExec fmt conn vmId cmd
-      VmView vmId -> do
-        resp <- showVm conn vmId
+      VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
+      VmView vmRef -> do
+        resp <- showVm conn vmRef
         case resp of
           Left err -> do
             if isStructured fmt
@@ -180,8 +180,8 @@ runCommand opts = do
             pure False
           Right Nothing -> do
             if isStructured fmt
-              then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-              else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+              then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+              else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
             pure False
           Right (Just details) -> do
             if vdStatus details /= VmRunning
@@ -213,8 +213,8 @@ runCommand opts = do
                         _ <- runRemoteViewer defaultClientConfig spiceSock
                         pure ()
                 pure True
-      VmMonitor vmId -> do
-        resp <- showVm conn vmId
+      VmMonitor vmRef -> do
+        resp <- showVm conn vmRef
         case resp of
           Left err -> do
             if isStructured fmt
@@ -223,8 +223,8 @@ runCommand opts = do
             pure False
           Right Nothing -> do
             if isStructured fmt
-              then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-              else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+              then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+              else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
             pure False
           Right (Just details) -> do
             if vdStatus details /= VmRunning
@@ -255,14 +255,14 @@ runCommand opts = do
               else putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right format -> handleDiskCreate fmt conn name format sizeMb mPath
-      DiskCreateOverlay name baseDiskId optDirPath -> handleDiskCreateOverlay fmt conn name baseDiskId optDirPath
+      DiskCreateOverlay name baseDiskRef optDirPath -> handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath
       DiskImport name path mFormatStr -> handleDiskImport fmt conn name path mFormatStr
-      DiskDelete diskId -> handleDiskDelete fmt conn diskId
-      DiskResize diskId newSizeMb -> handleDiskResize fmt conn diskId newSizeMb
+      DiskDelete diskRef -> handleDiskDelete fmt conn diskRef
+      DiskResize diskRef newSizeMb -> handleDiskResize fmt conn diskRef newSizeMb
       DiskList -> handleDiskList fmt conn
-      DiskShow diskId -> handleDiskShow fmt conn diskId
-      DiskClone name baseDiskId optionalPath -> handleDiskClone fmt conn name baseDiskId optionalPath
-      DiskAttach vmId diskId ifaceStr media readOnly discard cacheStr -> do
+      DiskShow diskRef -> handleDiskShow fmt conn diskRef
+      DiskClone name baseDiskRef optionalPath -> handleDiskClone fmt conn name baseDiskRef optionalPath
+      DiskAttach vmRef diskRef ifaceStr media readOnly discard cacheStr -> do
         case parseInterface ifaceStr of
           Left err -> do
             if isStructured fmt
@@ -278,62 +278,62 @@ runCommand opts = do
                 pure False
               Right cache -> do
                 case media of
-                  Nothing -> handleDiskAttach fmt conn vmId diskId iface Nothing readOnly discard cache
+                  Nothing -> handleDiskAttach fmt conn vmRef diskRef iface Nothing readOnly discard cache
                   Just m -> case parseMedia m of
                     Left err -> do
                       if isStructured fmt
                         then outputError fmt "invalid_media" err
                         else putStrLn $ "Error: " ++ T.unpack err
                       pure False
-                    Right parsedMedia -> handleDiskAttach fmt conn vmId diskId iface (Just parsedMedia) readOnly discard cache
-      DiskDetach vmId driveId -> handleDiskDetach fmt conn vmId driveId
+                    Right parsedMedia -> handleDiskAttach fmt conn vmRef diskRef iface (Just parsedMedia) readOnly discard cache
+      DiskDetach vmRef diskRef -> handleDiskDetach fmt conn vmRef diskRef
       -- Shared directory commands
-      SharedDirAdd vmId path tag cacheStr readOnly -> do
+      SharedDirAdd vmRef path tag cacheStr readOnly -> do
         case parseSharedDirCache cacheStr of
           Left err -> do
             if isStructured fmt
               then outputError fmt "invalid_cache" err
               else putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right cache -> handleSharedDirAdd fmt conn vmId path tag cache readOnly
-      SharedDirRemove vmId sharedDirId -> handleSharedDirRemove fmt conn vmId sharedDirId
-      SharedDirList vmId -> handleSharedDirList fmt conn vmId
+          Right cache -> handleSharedDirAdd fmt conn vmRef path tag cache readOnly
+      SharedDirRemove vmRef sharedDirRef -> handleSharedDirRemove fmt conn vmRef sharedDirRef
+      SharedDirList vmRef -> handleSharedDirList fmt conn vmRef
       -- Network interface commands
-      NetIfAdd vmId ifaceTypeStr hostDevice macAddress mNetworkId -> do
+      NetIfAdd vmRef ifaceTypeStr hostDevice macAddress mNetworkRef -> do
         case parseNetInterfaceType ifaceTypeStr of
           Left err -> do
             if isStructured fmt
               then outputError fmt "invalid_interface_type" err
               else putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right ifaceType -> handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress mNetworkId
-      NetIfRemove vmId netIfId -> handleNetIfRemove fmt conn vmId netIfId
-      NetIfList vmId -> handleNetIfList fmt conn vmId
+          Right ifaceType -> handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef
+      NetIfRemove vmRef netIfId -> handleNetIfRemove fmt conn vmRef netIfId
+      NetIfList vmRef -> handleNetIfList fmt conn vmRef
       -- Snapshot commands
-      SnapshotCreate diskId name -> handleSnapshotCreate fmt conn diskId name
-      SnapshotDelete diskId snapshotId -> handleSnapshotDelete fmt conn diskId snapshotId
-      SnapshotRollback diskId snapshotId -> handleSnapshotRollback fmt conn diskId snapshotId
-      SnapshotMerge diskId snapshotId -> handleSnapshotMerge fmt conn diskId snapshotId
-      SnapshotList diskId -> handleSnapshotList fmt conn diskId
+      SnapshotCreate diskRef name -> handleSnapshotCreate fmt conn diskRef name
+      SnapshotDelete diskRef snapshotRef -> handleSnapshotDelete fmt conn diskRef snapshotRef
+      SnapshotRollback diskRef snapshotRef -> handleSnapshotRollback fmt conn diskRef snapshotRef
+      SnapshotMerge diskRef snapshotRef -> handleSnapshotMerge fmt conn diskRef snapshotRef
+      SnapshotList diskRef -> handleSnapshotList fmt conn diskRef
       -- SSH key commands
       SshKeyCreate name publicKey -> handleSshKeyCreate fmt conn name publicKey
-      SshKeyDelete keyId -> handleSshKeyDelete fmt conn keyId
+      SshKeyDelete keyRef -> handleSshKeyDelete fmt conn keyRef
       SshKeyList -> handleSshKeyList fmt conn
-      SshKeyAttach vmId keyId -> handleSshKeyAttach fmt conn vmId keyId
-      SshKeyDetach vmId keyId -> handleSshKeyDetach fmt conn vmId keyId
-      SshKeyListForVm vmId -> handleSshKeyListForVm fmt conn vmId
+      SshKeyAttach vmRef keyRef -> handleSshKeyAttach fmt conn vmRef keyRef
+      SshKeyDetach vmRef keyRef -> handleSshKeyDetach fmt conn vmRef keyRef
+      SshKeyListForVm vmRef -> handleSshKeyListForVm fmt conn vmRef
       TemplateCreate path -> handleTemplateCreate fmt conn path
-      TemplateDelete tid -> handleTemplateDelete fmt conn tid
+      TemplateDelete tRef -> handleTemplateDelete fmt conn tRef
       TemplateList -> handleTemplateList fmt conn
-      TemplateShow tid -> handleTemplateShow fmt conn tid
-      TemplateInstantiate tid name -> handleTemplateInstantiate fmt conn tid name
+      TemplateShow tRef -> handleTemplateShow fmt conn tRef
+      TemplateInstantiate tRef name -> handleTemplateInstantiate fmt conn tRef name
       -- Network commands
       NetworkCreate name subnet -> handleNetworkCreate fmt conn name subnet
-      NetworkDelete nwId -> handleNetworkDelete fmt conn nwId
-      NetworkStart nwId -> handleNetworkStart fmt conn nwId
-      NetworkStop nwId force -> handleNetworkStop fmt conn nwId force
+      NetworkDelete nwRef -> handleNetworkDelete fmt conn nwRef
+      NetworkStart nwRef -> handleNetworkStart fmt conn nwRef
+      NetworkStop nwRef force -> handleNetworkStop fmt conn nwRef force
       NetworkList -> handleNetworkList fmt conn
-      NetworkShow nwId -> handleNetworkShow fmt conn nwId
+      NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
       -- Apply
       Apply path skipExisting -> handleApply fmt conn path skipExisting
 

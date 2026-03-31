@@ -84,9 +84,9 @@ vmDeleteCommand :: Parser Command
 vmDeleteCommand =
   VmDelete
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to delete"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to delete"
       )
 
 -- | Parser for vm show
@@ -94,9 +94,9 @@ vmShowCommand :: Parser Command
 vmShowCommand =
   VmShow
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to show"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to show"
       )
 
 -- | Parser for vm start
@@ -104,9 +104,9 @@ vmStartCommand :: Parser Command
 vmStartCommand =
   VmStart
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to start"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to start"
       )
 
 -- | Parser for vm stop
@@ -114,9 +114,9 @@ vmStopCommand :: Parser Command
 vmStopCommand =
   VmStop
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to stop"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to stop"
       )
     <*> waitOptionsParser
 
@@ -144,9 +144,9 @@ vmPauseCommand :: Parser Command
 vmPauseCommand =
   VmPause
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to pause"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to pause"
       )
 
 -- | Parser for vm reset
@@ -154,9 +154,9 @@ vmResetCommand :: Parser Command
 vmResetCommand =
   VmReset
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to reset"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to reset"
       )
 
 -- | Parser for vm edit
@@ -164,9 +164,9 @@ vmEditCommand :: Parser Command
 vmEditCommand =
   VmEdit
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to edit"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to edit"
       )
     <*> optional
       ( option
@@ -224,9 +224,9 @@ vmCloudInitCommand :: Parser Command
 vmCloudInitCommand =
   VmCloudInit
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
 
 -- | Reader for boolean values
@@ -245,9 +245,9 @@ vmViewCommand :: Parser Command
 vmViewCommand =
   VmView
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to view via SPICE"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to view via SPICE"
       )
 
 -- | Parser for vm monitor
@@ -255,9 +255,9 @@ vmMonitorCommand :: Parser Command
 vmMonitorCommand =
   VmMonitor
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to connect to HMP monitor"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to connect to HMP monitor"
       )
 
 -- | Parser for vm exec
@@ -265,9 +265,9 @@ vmExecCommand :: Parser Command
 vmExecCommand =
   VmExec
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM to execute command in"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to execute command in"
       )
     <*> argument
       (T.pack <$> str)
@@ -371,9 +371,9 @@ diskDeleteCommand :: Parser Command
 diskDeleteCommand =
   DiskDelete
     <$> argument
-      auto
-      ( metavar "DISK_ID"
-          <> help "ID of the disk image to delete"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image to delete"
       )
 
 -- | Parser for disk resize
@@ -381,9 +381,9 @@ diskResizeCommand :: Parser Command
 diskResizeCommand =
   DiskResize
     <$> argument
-      auto
-      ( metavar "DISK_ID"
-          <> help "ID of the disk image to resize"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image to resize"
       )
     <*> option
       parseSizeWithUnit
@@ -402,9 +402,9 @@ diskShowCommand :: Parser Command
 diskShowCommand =
   DiskShow
     <$> argument
-      auto
-      ( metavar "DISK_ID"
-          <> help "ID of the disk image to show"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image to show"
       )
 
 -- | Parser for disk attach
@@ -412,14 +412,14 @@ diskAttachCommand :: Parser Command
 diskAttachCommand =
   DiskAttach
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
     <*> argument
-      auto
-      ( metavar "DISK_ID"
-          <> help "ID of the disk image to attach"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image to attach"
       )
     <*> strOption
       ( long "interface"
@@ -456,14 +456,14 @@ diskDetachCommand :: Parser Command
 diskDetachCommand =
   DiskDetach
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
     <*> argument
-      auto
-      ( metavar "DRIVE_ID"
-          <> help "ID of the drive to detach"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image to detach"
       )
 
 -- | Parser for disk import
@@ -499,9 +499,9 @@ diskOverlayCommand =
           <> help "Name for the overlay disk image"
       )
     <*> argument
-      auto
-      ( metavar "BASE_DISK_ID"
-          <> help "ID of the base disk image to overlay"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the base disk image to overlay"
       )
     <*> optional
       ( strOption
@@ -522,9 +522,9 @@ diskCloneCommand =
           <> help "Name for the cloned disk image"
       )
     <*> argument
-      auto
-      ( metavar "BASE_DISK_ID"
-          <> help "ID of the base disk image to clone"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the base disk image to clone"
       )
     <*> optional
       ( strOption
@@ -580,9 +580,9 @@ snapshotCreateCommand :: Parser Command
 snapshotCreateCommand =
   SnapshotCreate
     <$> argument
-      auto
-      ( metavar "DISK_ID"
-          <> help "ID of the disk image"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image"
       )
     <*> argument
       (T.pack <$> str)
@@ -595,14 +595,14 @@ snapshotDeleteCommand :: Parser Command
 snapshotDeleteCommand =
   SnapshotDelete
     <$> argument
-      auto
-      ( metavar "DISK_ID"
-          <> help "ID of the disk image"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image"
       )
     <*> argument
-      auto
-      ( metavar "SNAPSHOT_ID"
-          <> help "ID of the snapshot to delete"
+      (T.pack <$> str)
+      ( metavar "SNAPSHOT"
+          <> help "Name or ID of the snapshot to delete"
       )
 
 -- | Parser for snapshot rollback
@@ -610,14 +610,14 @@ snapshotRollbackCommand :: Parser Command
 snapshotRollbackCommand =
   SnapshotRollback
     <$> argument
-      auto
-      ( metavar "DISK_ID"
-          <> help "ID of the disk image"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image"
       )
     <*> argument
-      auto
-      ( metavar "SNAPSHOT_ID"
-          <> help "ID of the snapshot to rollback to"
+      (T.pack <$> str)
+      ( metavar "SNAPSHOT"
+          <> help "Name or ID of the snapshot to rollback to"
       )
 
 -- | Parser for snapshot merge
@@ -625,14 +625,14 @@ snapshotMergeCommand :: Parser Command
 snapshotMergeCommand =
   SnapshotMerge
     <$> argument
-      auto
-      ( metavar "DISK_ID"
-          <> help "ID of the disk image"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image"
       )
     <*> argument
-      auto
-      ( metavar "SNAPSHOT_ID"
-          <> help "ID of the snapshot to merge"
+      (T.pack <$> str)
+      ( metavar "SNAPSHOT"
+          <> help "Name or ID of the snapshot to merge"
       )
 
 -- | Parser for snapshot list
@@ -640,9 +640,9 @@ snapshotListCommand :: Parser Command
 snapshotListCommand =
   SnapshotList
     <$> argument
-      auto
-      ( metavar "DISK_ID"
-          <> help "ID of the disk image"
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image"
       )
 
 -- | Parser for all snapshot subcommands
@@ -690,9 +690,9 @@ sshKeyDeleteCommand :: Parser Command
 sshKeyDeleteCommand =
   SshKeyDelete
     <$> argument
-      auto
-      ( metavar "KEY_ID"
-          <> help "ID of the SSH key to delete"
+      (T.pack <$> str)
+      ( metavar "KEY"
+          <> help "Name or ID of the SSH key to delete"
       )
 
 -- | Parser for ssh-key list
@@ -704,14 +704,14 @@ sshKeyAttachCommand :: Parser Command
 sshKeyAttachCommand =
   SshKeyAttach
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
     <*> argument
-      auto
-      ( metavar "KEY_ID"
-          <> help "ID of the SSH key to attach"
+      (T.pack <$> str)
+      ( metavar "KEY"
+          <> help "Name or ID of the SSH key to attach"
       )
 
 -- | Parser for ssh-key detach
@@ -719,14 +719,14 @@ sshKeyDetachCommand :: Parser Command
 sshKeyDetachCommand =
   SshKeyDetach
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
     <*> argument
-      auto
-      ( metavar "KEY_ID"
-          <> help "ID of the SSH key to detach"
+      (T.pack <$> str)
+      ( metavar "KEY"
+          <> help "Name or ID of the SSH key to detach"
       )
 
 -- | Parser for ssh-key list-vm
@@ -734,9 +734,9 @@ sshKeyListVmCommand :: Parser Command
 sshKeyListVmCommand =
   SshKeyListForVm
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
 
 -- | Parser for all ssh-key subcommands
@@ -772,9 +772,9 @@ sharedDirAddCommand :: Parser Command
 sharedDirAddCommand =
   SharedDirAdd
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
     <*> argument
       (T.pack <$> str)
@@ -803,14 +803,14 @@ sharedDirRemoveCommand :: Parser Command
 sharedDirRemoveCommand =
   SharedDirRemove
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
     <*> argument
-      auto
-      ( metavar "SHARED_DIR_ID"
-          <> help "ID of the shared directory to remove"
+      (T.pack <$> str)
+      ( metavar "SHARED_DIR"
+          <> help "Tag or ID of the shared directory to remove"
       )
 
 -- | Parser for shared-dir list
@@ -818,9 +818,9 @@ sharedDirListCommand :: Parser Command
 sharedDirListCommand =
   SharedDirList
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
 
 -- | Parser for all shared-dir subcommands
@@ -847,9 +847,9 @@ netIfAddCommand :: Parser Command
 netIfAddCommand =
   NetIfAdd
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
     <*> strOption
       ( long "type"
@@ -875,11 +875,11 @@ netIfAddCommand =
       )
     <*> optional
       ( option
-          auto
+          (T.pack <$> str)
           ( long "network"
               <> short 'n'
-              <> metavar "NETWORK_ID"
-              <> help "Virtual network ID (overrides --type and --host-device)"
+              <> metavar "NETWORK"
+              <> help "Name or ID of the virtual network (overrides --type and --host-device)"
           )
       )
 
@@ -888,9 +888,9 @@ netIfRemoveCommand :: Parser Command
 netIfRemoveCommand =
   NetIfRemove
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
     <*> argument
       auto
@@ -903,9 +903,9 @@ netIfListCommand :: Parser Command
 netIfListCommand =
   NetIfList
     <$> argument
-      auto
-      ( metavar "VM_ID"
-          <> help "ID of the VM"
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
       )
 
 -- | Parser for template create
@@ -923,9 +923,9 @@ templateDeleteCommand :: Parser Command
 templateDeleteCommand =
   TemplateDelete
     <$> argument
-      auto
-      ( metavar "TEMPLATE_ID"
-          <> help "ID of the template to delete"
+      (T.pack <$> str)
+      ( metavar "TEMPLATE"
+          <> help "Name or ID of the template to delete"
       )
 
 -- | Parser for template list
@@ -937,9 +937,9 @@ templateShowCommand :: Parser Command
 templateShowCommand =
   TemplateShow
     <$> argument
-      auto
-      ( metavar "TEMPLATE_ID"
-          <> help "ID of the template to show"
+      (T.pack <$> str)
+      ( metavar "TEMPLATE"
+          <> help "Name or ID of the template to show"
       )
 
 -- | Parser for template instantiate
@@ -947,9 +947,9 @@ templateInstantiateCommand :: Parser Command
 templateInstantiateCommand =
   TemplateInstantiate
     <$> argument
-      auto
-      ( metavar "TEMPLATE_ID"
-          <> help "ID of the template to instantiate"
+      (T.pack <$> str)
+      ( metavar "TEMPLATE"
+          <> help "Name or ID of the template to instantiate"
       )
     <*> argument
       (T.pack <$> str)
@@ -1018,9 +1018,9 @@ networkDeleteCommand :: Parser Command
 networkDeleteCommand =
   NetworkDelete
     <$> argument
-      auto
-      ( metavar "NETWORK_ID"
-          <> help "ID of the network to delete"
+      (T.pack <$> str)
+      ( metavar "NETWORK"
+          <> help "Name or ID of the network to delete"
       )
 
 -- | Parser for network start
@@ -1028,9 +1028,9 @@ networkStartCommand :: Parser Command
 networkStartCommand =
   NetworkStart
     <$> argument
-      auto
-      ( metavar "NETWORK_ID"
-          <> help "ID of the network to start"
+      (T.pack <$> str)
+      ( metavar "NETWORK"
+          <> help "Name or ID of the network to start"
       )
 
 -- | Parser for network stop
@@ -1038,9 +1038,9 @@ networkStopCommand :: Parser Command
 networkStopCommand =
   NetworkStop
     <$> argument
-      auto
-      ( metavar "NETWORK_ID"
-          <> help "ID of the network to stop"
+      (T.pack <$> str)
+      ( metavar "NETWORK"
+          <> help "Name or ID of the network to stop"
       )
     <*> switch
       ( long "force"
@@ -1057,9 +1057,9 @@ networkShowCommand :: Parser Command
 networkShowCommand =
   NetworkShow
     <$> argument
-      auto
-      ( metavar "NETWORK_ID"
-          <> help "ID of the network to show"
+      (T.pack <$> str)
+      ( metavar "NETWORK"
+          <> help "Name or ID of the network to show"
       )
 
 -- | Parser for all network subcommands

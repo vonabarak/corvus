@@ -60,7 +60,7 @@ runOverlayTest daemon basePath = do
 
   overlayResult <-
     withDaemonConnection daemon $ \conn ->
-      diskCreateOverlay conn "overlay-disk" baseId Nothing
+      diskCreateOverlay conn "overlay-disk" (T.pack (show baseId)) Nothing
   overlayId <- case overlayResult of
     Left err -> fail $ "Connection error: " ++ show err
     Right (Left err) -> fail $ "RPC error: " ++ show err

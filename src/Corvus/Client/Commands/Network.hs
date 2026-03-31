@@ -18,7 +18,6 @@ import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Protocol (NetworkInfo (..))
 import Data.Aeson (toJSON)
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Printf (printf)
@@ -50,9 +49,9 @@ handleNetworkCreate fmt conn name subnet = do
       pure False
 
 -- | Handle network delete command
-handleNetworkDelete :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleNetworkDelete fmt conn nwId = do
-  resp <- networkDelete conn nwId
+handleNetworkDelete :: OutputFormat -> Connection -> Text -> IO Bool
+handleNetworkDelete fmt conn nwRef = do
+  resp <- networkDelete conn nwRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -67,7 +66,7 @@ handleNetworkDelete fmt conn nwId = do
     Right NetworkNotFound -> do
       if isStructured fmt
         then outputError fmt "not_found" "Network not found"
-        else putStrLn $ "Network with ID " ++ show nwId ++ " not found."
+        else putStrLn $ "Network '" ++ T.unpack nwRef ++ "' not found."
       pure False
     Right NetworkInUse -> do
       if isStructured fmt
@@ -81,9 +80,9 @@ handleNetworkDelete fmt conn nwId = do
       pure False
 
 -- | Handle network start command
-handleNetworkStart :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleNetworkStart fmt conn nwId = do
-  resp <- networkStart conn nwId
+handleNetworkStart :: OutputFormat -> Connection -> Text -> IO Bool
+handleNetworkStart fmt conn nwRef = do
+  resp <- networkStart conn nwRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -98,7 +97,7 @@ handleNetworkStart fmt conn nwId = do
     Right NetworkNotFound -> do
       if isStructured fmt
         then outputError fmt "not_found" "Network not found"
-        else putStrLn $ "Network with ID " ++ show nwId ++ " not found."
+        else putStrLn $ "Network '" ++ T.unpack nwRef ++ "' not found."
       pure False
     Right NetworkAlreadyRunning -> do
       if isStructured fmt
@@ -117,9 +116,9 @@ handleNetworkStart fmt conn nwId = do
       pure False
 
 -- | Handle network stop command
-handleNetworkStop :: OutputFormat -> Connection -> Int64 -> Bool -> IO Bool
-handleNetworkStop fmt conn nwId force = do
-  resp <- networkStop conn nwId force
+handleNetworkStop :: OutputFormat -> Connection -> Text -> Bool -> IO Bool
+handleNetworkStop fmt conn nwRef force = do
+  resp <- networkStop conn nwRef force
   case resp of
     Left err -> do
       if isStructured fmt
@@ -134,7 +133,7 @@ handleNetworkStop fmt conn nwId force = do
     Right NetworkNotFound -> do
       if isStructured fmt
         then outputError fmt "not_found" "Network not found"
-        else putStrLn $ "Network with ID " ++ show nwId ++ " not found."
+        else putStrLn $ "Network '" ++ T.unpack nwRef ++ "' not found."
       pure False
     Right NetworkNotRunning -> do
       if isStructured fmt
@@ -184,9 +183,9 @@ handleNetworkList fmt conn = do
       pure False
 
 -- | Handle network show command
-handleNetworkShow :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleNetworkShow fmt conn nwId = do
-  resp <- networkShow conn nwId
+handleNetworkShow :: OutputFormat -> Connection -> Text -> IO Bool
+handleNetworkShow fmt conn nwRef = do
+  resp <- networkShow conn nwRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -213,7 +212,7 @@ handleNetworkShow fmt conn nwId = do
     Right NetworkNotFound -> do
       if isStructured fmt
         then outputError fmt "not_found" "Network not found"
-        else putStrLn $ "Network with ID " ++ show nwId ++ " not found."
+        else putStrLn $ "Network '" ++ T.unpack nwRef ++ "' not found."
       pure False
     Right other -> do
       if isStructured fmt

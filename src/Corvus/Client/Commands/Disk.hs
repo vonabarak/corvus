@@ -103,9 +103,9 @@ handleDiskCreate fmt conn name format sizeMb mPath = do
       pure False
 
 -- | Handle disk overlay command
-handleDiskCreateOverlay :: OutputFormat -> Connection -> Text -> Int64 -> Maybe Text -> IO Bool
-handleDiskCreateOverlay fmt conn name baseDiskId optDirPath = do
-  resp <- diskCreateOverlay conn name baseDiskId optDirPath
+handleDiskCreateOverlay :: OutputFormat -> Connection -> Text -> Text -> Maybe Text -> IO Bool
+handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath = do
+  resp <- diskCreateOverlay conn name baseDiskRef optDirPath
   case resp of
     Left err -> do
       if isStructured fmt
@@ -119,8 +119,8 @@ handleDiskCreateOverlay fmt conn name baseDiskId optDirPath = do
       pure True
     Right DiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Base disk with ID " <> T.pack (show baseDiskId) <> " not found")
-        else putStrLn $ "Base disk with ID " ++ show baseDiskId ++ " not found."
+        then outputError fmt "not_found" ("Base disk '" <> baseDiskRef <> "' not found")
+        else putStrLn $ "Base disk '" ++ T.unpack baseDiskRef ++ "' not found."
       pure False
     Right (DiskError msg) -> do
       if isStructured fmt
@@ -245,9 +245,9 @@ getBaseImagesPath = do
   pure $ fromMaybe "/var/lib/qemu" mHome </> "VMs"
 
 -- | Handle disk delete command
-handleDiskDelete :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleDiskDelete fmt conn diskId = do
-  resp <- diskDelete conn diskId
+handleDiskDelete :: OutputFormat -> Connection -> Text -> IO Bool
+handleDiskDelete fmt conn diskRef = do
+  resp <- diskDelete conn diskRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -261,21 +261,23 @@ handleDiskDelete fmt conn diskId = do
       pure True
     Right DiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Disk with ID " <> T.pack (show diskId) <> " not found")
-        else putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
-    Right (DiskInUse vmIds) -> do
+    Right (DiskInUse vmPairs) -> do
+      let vmNames = T.intercalate ", " (map snd vmPairs)
       if isStructured fmt
-        then outputError fmt "in_use" ("Disk is attached to VMs: " <> T.pack (show vmIds))
+        then outputError fmt "in_use" ("Disk is attached to VMs: " <> vmNames)
         else do
-          putStrLn $ "Disk is attached to VMs: " ++ show vmIds
+          putStrLn $ "Disk is attached to VMs: " ++ T.unpack vmNames
           putStrLn "Detach the disk first before deleting."
       pure False
-    Right (DiskHasOverlays overlayIds) -> do
+    Right (DiskHasOverlays overlayPairs) -> do
+      let overlayNames = T.intercalate ", " (map snd overlayPairs)
       if isStructured fmt
-        then outputError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> T.pack (show overlayIds))
+        then outputError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> overlayNames)
         else do
-          putStrLn $ "Disk is used as backing image for overlays: " ++ show overlayIds
+          putStrLn $ "Disk is used as backing image for overlays: " ++ T.unpack overlayNames
           putStrLn "Delete the overlay disks first."
       pure False
     Right other -> do
@@ -285,9 +287,9 @@ handleDiskDelete fmt conn diskId = do
       pure False
 
 -- | Handle disk resize command
-handleDiskResize :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
-handleDiskResize fmt conn diskId newSizeMb = do
-  resp <- diskResize conn diskId newSizeMb
+handleDiskResize :: OutputFormat -> Connection -> Text -> Int64 -> IO Bool
+handleDiskResize fmt conn diskRef newSizeMb = do
+  resp <- diskResize conn diskRef newSizeMb
   case resp of
     Left err -> do
       if isStructured fmt
@@ -301,8 +303,8 @@ handleDiskResize fmt conn diskId newSizeMb = do
       pure True
     Right DiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Disk with ID " <> T.pack (show diskId) <> " not found")
-        else putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right VmMustBeStopped -> do
       if isStructured fmt
@@ -342,9 +344,9 @@ handleDiskList fmt conn = do
       pure False
 
 -- | Handle disk show command
-handleDiskShow :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleDiskShow fmt conn diskId = do
-  resp <- diskShow conn diskId
+handleDiskShow :: OutputFormat -> Connection -> Text -> IO Bool
+handleDiskShow fmt conn diskRef = do
+  resp <- diskShow conn diskRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -358,8 +360,8 @@ handleDiskShow fmt conn diskId = do
       pure True
     Right DiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Disk with ID " <> T.pack (show diskId) <> " not found")
-        else putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right other -> do
       if isStructured fmt
@@ -368,9 +370,9 @@ handleDiskShow fmt conn diskId = do
       pure False
 
 -- | Handle disk clone command
-handleDiskClone :: OutputFormat -> Connection -> Text -> Int64 -> Maybe Text -> IO Bool
-handleDiskClone fmt conn name baseDiskId optionalPath = do
-  resp <- diskClone conn name baseDiskId optionalPath
+handleDiskClone :: OutputFormat -> Connection -> Text -> Text -> Maybe Text -> IO Bool
+handleDiskClone fmt conn name baseDiskRef optionalPath = do
+  resp <- diskClone conn name baseDiskRef optionalPath
   case resp of
     Left err -> do
       if isStructured fmt
@@ -384,8 +386,8 @@ handleDiskClone fmt conn name baseDiskId optionalPath = do
       pure True
     Right DiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Base disk with ID " <> T.pack (show baseDiskId) <> " not found")
-        else putStrLn $ "Base disk with ID " ++ show baseDiskId ++ " not found."
+        then outputError fmt "not_found" ("Base disk '" <> baseDiskRef <> "' not found")
+        else putStrLn $ "Base disk '" ++ T.unpack baseDiskRef ++ "' not found."
       pure False
     Right VmMustBeStopped -> do
       if isStructured fmt
@@ -407,16 +409,16 @@ handleDiskClone fmt conn name baseDiskId optionalPath = do
 handleDiskAttach
   :: OutputFormat
   -> Connection
-  -> Int64
-  -> Int64
+  -> Text
+  -> Text
   -> DriveInterface
   -> Maybe DriveMedia
   -> Bool
   -> Bool
   -> CacheType
   -> IO Bool
-handleDiskAttach fmt conn vmId diskId iface media readOnly discard cache = do
-  resp <- diskAttach conn vmId diskId iface media readOnly discard cache
+handleDiskAttach fmt conn vmRef diskRef iface media readOnly discard cache = do
+  resp <- diskAttach conn vmRef diskRef iface media readOnly discard cache
   case resp of
     Left err -> do
       if isStructured fmt
@@ -430,19 +432,20 @@ handleDiskAttach fmt conn vmId diskId iface media readOnly discard cache = do
       pure True
     Right DiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Disk with ID " <> T.pack (show diskId) <> " not found")
-        else putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right DiskVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
-    Right (DiskHasOverlays overlayIds) -> do
+    Right (DiskHasOverlays overlayPairs) -> do
+      let overlayNames = T.intercalate ", " (map snd overlayPairs)
       if isStructured fmt
-        then outputError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> T.pack (show overlayIds))
+        then outputError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> overlayNames)
         else do
-          putStrLn $ "Error: Disk is used as backing image for overlays: " ++ show overlayIds
+          putStrLn $ "Error: Disk is used as backing image for overlays: " ++ T.unpack overlayNames
           putStrLn "Base images must be attached in read-only mode using --read-only."
       pure False
     Right (DiskError msg) -> do
@@ -457,9 +460,9 @@ handleDiskAttach fmt conn vmId diskId iface media readOnly discard cache = do
       pure False
 
 -- | Handle disk detach command
-handleDiskDetach :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
-handleDiskDetach fmt conn vmId driveId = do
-  resp <- diskDetach conn vmId driveId
+handleDiskDetach :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleDiskDetach fmt conn vmRef diskRef = do
+  resp <- diskDetach conn vmRef diskRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -473,13 +476,13 @@ handleDiskDetach fmt conn vmId driveId = do
       pure True
     Right DriveNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Drive with ID " <> T.pack (show driveId) <> " not found")
-        else putStrLn $ "Drive with ID " ++ show driveId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found on VM")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found on VM."
       pure False
     Right DiskVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (DiskError msg) -> do
       if isStructured fmt
@@ -497,9 +500,9 @@ handleDiskDetach fmt conn vmId driveId = do
 --------------------------------------------------------------------------------
 
 -- | Handle snapshot create command
-handleSnapshotCreate :: OutputFormat -> Connection -> Int64 -> Text -> IO Bool
-handleSnapshotCreate fmt conn diskId name = do
-  resp <- snapshotCreate conn diskId name
+handleSnapshotCreate :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSnapshotCreate fmt conn diskRef name = do
+  resp <- snapshotCreate conn diskRef name
   case resp of
     Left err -> do
       if isStructured fmt
@@ -513,8 +516,8 @@ handleSnapshotCreate fmt conn diskId name = do
       pure True
     Right SnapshotDiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Disk with ID " <> T.pack (show diskId) <> " not found")
-        else putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right (SnapshotFormatNotSupported msg) -> do
       if isStructured fmt
@@ -533,9 +536,9 @@ handleSnapshotCreate fmt conn diskId name = do
       pure False
 
 -- | Handle snapshot delete command
-handleSnapshotDelete :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
-handleSnapshotDelete fmt conn diskId snapshotId = do
-  resp <- snapshotDelete conn diskId snapshotId
+handleSnapshotDelete :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSnapshotDelete fmt conn diskRef snapshotRef = do
+  resp <- snapshotDelete conn diskRef snapshotRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -549,13 +552,13 @@ handleSnapshotDelete fmt conn diskId snapshotId = do
       pure True
     Right SnapshotNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Snapshot with ID " <> T.pack (show snapshotId) <> " not found")
-        else putStrLn $ "Snapshot with ID " ++ show snapshotId ++ " not found."
+        then outputError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found")
+        else putStrLn $ "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
       pure False
     Right SnapshotDiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Disk with ID " <> T.pack (show diskId) <> " not found")
-        else putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right SnapshotVmMustBeStopped -> do
       if isStructured fmt
@@ -569,9 +572,9 @@ handleSnapshotDelete fmt conn diskId snapshotId = do
       pure False
 
 -- | Handle snapshot rollback command
-handleSnapshotRollback :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
-handleSnapshotRollback fmt conn diskId snapshotId = do
-  resp <- snapshotRollback conn diskId snapshotId
+handleSnapshotRollback :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSnapshotRollback fmt conn diskRef snapshotRef = do
+  resp <- snapshotRollback conn diskRef snapshotRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -585,13 +588,13 @@ handleSnapshotRollback fmt conn diskId snapshotId = do
       pure True
     Right SnapshotNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Snapshot with ID " <> T.pack (show snapshotId) <> " not found")
-        else putStrLn $ "Snapshot with ID " ++ show snapshotId ++ " not found."
+        then outputError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found")
+        else putStrLn $ "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
       pure False
     Right SnapshotDiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Disk with ID " <> T.pack (show diskId) <> " not found")
-        else putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right SnapshotVmMustBeStopped -> do
       if isStructured fmt
@@ -605,9 +608,9 @@ handleSnapshotRollback fmt conn diskId snapshotId = do
       pure False
 
 -- | Handle snapshot merge command
-handleSnapshotMerge :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
-handleSnapshotMerge fmt conn diskId snapshotId = do
-  resp <- snapshotMerge conn diskId snapshotId
+handleSnapshotMerge :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSnapshotMerge fmt conn diskRef snapshotRef = do
+  resp <- snapshotMerge conn diskRef snapshotRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -621,13 +624,13 @@ handleSnapshotMerge fmt conn diskId snapshotId = do
       pure True
     Right SnapshotNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Snapshot with ID " <> T.pack (show snapshotId) <> " not found")
-        else putStrLn $ "Snapshot with ID " ++ show snapshotId ++ " not found."
+        then outputError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found")
+        else putStrLn $ "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
       pure False
     Right SnapshotDiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Disk with ID " <> T.pack (show diskId) <> " not found")
-        else putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right SnapshotVmMustBeStopped -> do
       if isStructured fmt
@@ -641,9 +644,9 @@ handleSnapshotMerge fmt conn diskId snapshotId = do
       pure False
 
 -- | Handle snapshot list command
-handleSnapshotList :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleSnapshotList fmt conn diskId = do
-  resp <- snapshotList conn diskId
+handleSnapshotList :: OutputFormat -> Connection -> Text -> IO Bool
+handleSnapshotList fmt conn diskRef = do
+  resp <- snapshotList conn diskRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -662,8 +665,8 @@ handleSnapshotList fmt conn diskId = do
       pure True
     Right SnapshotDiskNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("Disk with ID " <> T.pack (show diskId) <> " not found")
-        else putStrLn $ "Disk with ID " ++ show diskId ++ " not found."
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right other -> do
       if isStructured fmt
@@ -685,7 +688,7 @@ printDiskInfo d =
       (T.unpack $ diiName d)
       (T.unpack $ enumToText $ diiFormat d)
       (maybe "-" show $ diiSizeMb d)
-      (if null (diiAttachedTo d) then "-" else show (diiAttachedTo d))
+      (if null (diiAttachedTo d) then "-" else T.unpack (T.intercalate ", " (map snd (diiAttachedTo d))))
 
 -- | Print disk image details
 printDiskDetails :: DiskImageInfo -> IO ()
@@ -696,7 +699,7 @@ printDiskDetails d = do
   printField "Format" (T.unpack (enumToText $ diiFormat d))
   printField "Size (MB)" (maybe "(unknown)" show (diiSizeMb d))
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d))
-  printField "Attached to" (if null (diiAttachedTo d) then "(none)" else show (diiAttachedTo d))
+  printField "Attached to" (if null (diiAttachedTo d) then "(none)" else T.unpack (T.intercalate ", " (map snd (diiAttachedTo d))))
   case diiBackingImageName d of
     Nothing -> pure ()
     Just backingName ->

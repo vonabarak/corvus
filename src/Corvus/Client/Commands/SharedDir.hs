@@ -19,7 +19,6 @@ import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), SharedDirCache)
 import Corvus.Protocol (SharedDirInfo (..))
 import Data.Aeson (toJSON)
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Printf (printf)
@@ -29,9 +28,9 @@ parseSharedDirCache :: Text -> Either Text SharedDirCache
 parseSharedDirCache = enumFromText
 
 -- | Handle shared directory add command
-handleSharedDirAdd :: OutputFormat -> Connection -> Int64 -> Text -> Text -> SharedDirCache -> Bool -> IO Bool
-handleSharedDirAdd fmt conn vmId path tag cache readOnly = do
-  resp <- sharedDirAdd conn vmId path tag cache readOnly
+handleSharedDirAdd :: OutputFormat -> Connection -> Text -> Text -> Text -> SharedDirCache -> Bool -> IO Bool
+handleSharedDirAdd fmt conn vmRef path tag cache readOnly = do
+  resp <- sharedDirAdd conn vmRef path tag cache readOnly
   case resp of
     Left err -> do
       if isStructured fmt
@@ -45,8 +44,8 @@ handleSharedDirAdd fmt conn vmId path tag cache readOnly = do
       pure True
     Right SharedDirVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (SharedDirError msg) -> do
       if isStructured fmt
@@ -60,9 +59,9 @@ handleSharedDirAdd fmt conn vmId path tag cache readOnly = do
       pure False
 
 -- | Handle shared directory remove command
-handleSharedDirRemove :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
-handleSharedDirRemove fmt conn vmId sharedDirId = do
-  resp <- sharedDirRemove conn vmId sharedDirId
+handleSharedDirRemove :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSharedDirRemove fmt conn vmRef sharedDirRef = do
+  resp <- sharedDirRemove conn vmRef sharedDirRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -77,12 +76,12 @@ handleSharedDirRemove fmt conn vmId sharedDirId = do
     Right SharedDirNotFound -> do
       if isStructured fmt
         then outputError fmt "not_found" "Shared directory not found"
-        else putStrLn $ "Shared directory with ID " ++ show sharedDirId ++ " not found."
+        else putStrLn $ "Shared directory '" ++ T.unpack sharedDirRef ++ "' not found."
       pure False
     Right SharedDirVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right SharedDirVmMustBeStopped -> do
       if isStructured fmt
@@ -96,9 +95,9 @@ handleSharedDirRemove fmt conn vmId sharedDirId = do
       pure False
 
 -- | Handle shared directory list command
-handleSharedDirList :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleSharedDirList fmt conn vmId = do
-  resp <- sharedDirList conn vmId
+handleSharedDirList :: OutputFormat -> Connection -> Text -> IO Bool
+handleSharedDirList fmt conn vmRef = do
+  resp <- sharedDirList conn vmRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -117,8 +116,8 @@ handleSharedDirList fmt conn vmId = do
       pure True
     Right SharedDirVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right other -> do
       if isStructured fmt

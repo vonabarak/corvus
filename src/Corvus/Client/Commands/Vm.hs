@@ -38,7 +38,6 @@ import Corvus.Protocol (DriveInfo (..), NetIfInfo (..), VmDetails (..), VmInfo (
 import Data.Aeson (toJSON, (.=))
 import qualified Data.ByteString as BS
 import Data.Char (ord)
-import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -73,9 +72,9 @@ handleVmCreate fmt conn name cpuCount ramMb mDesc headless guestAgent cloudInit 
       pure False
 
 -- | Handle VM deletion
-handleVmDelete :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleVmDelete fmt conn vmId = do
-  resp <- vmDelete conn vmId
+handleVmDelete :: OutputFormat -> Connection -> Text -> IO Bool
+handleVmDelete fmt conn vmRef = do
+  resp <- vmDelete conn vmRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -85,17 +84,17 @@ handleVmDelete fmt conn vmId = do
     Right VmDeleted -> do
       if isStructured fmt
         then outputOk fmt
-        else putStrLn $ "VM " ++ show vmId ++ " deleted."
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' deleted."
       pure True
     Right VmDeleteNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "Error: VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "Error: VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right VmDeleteRunning -> do
       if isStructured fmt
-        then outputError fmt "vm_running" ("VM " <> T.pack (show vmId) <> " is running")
-        else putStrLn $ "Error: VM " ++ show vmId ++ " is running. Stop it before deleting."
+        then outputError fmt "vm_running" ("VM '" <> vmRef <> "' is running")
+        else putStrLn $ "Error: VM '" ++ T.unpack vmRef ++ "' is running. Stop it before deleting."
       pure False
     Right (VmDeleteError msg) -> do
       if isStructured fmt
@@ -104,8 +103,8 @@ handleVmDelete fmt conn vmId = do
       pure False
 
 -- | Handle VM action result
-handleVmAction :: OutputFormat -> String -> Int64 -> IO (Either ConnectionError VmActionResult) -> IO Bool
-handleVmAction fmt actionName vmId action = do
+handleVmAction :: OutputFormat -> String -> Text -> IO (Either ConnectionError VmActionResult) -> IO Bool
+handleVmAction fmt actionName vmRef action = do
   resp <- action
   case resp of
     Left err -> do
@@ -115,48 +114,48 @@ handleVmAction fmt actionName vmId action = do
       pure False
     Right VmActionNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (VmActionInvalid currentStatus errMsg) -> do
       if isStructured fmt
         then outputError fmt "invalid_transition" errMsg
         else do
-          putStrLn $ "Cannot " ++ actionName ++ " VM " ++ show vmId ++ ": " ++ T.unpack errMsg
+          putStrLn $ "Cannot " ++ actionName ++ " VM '" ++ T.unpack vmRef ++ "': " ++ T.unpack errMsg
           putStrLn $ "Current status: " ++ T.unpack (enumToText currentStatus)
       pure False
     Right (VmActionSuccess newStatus) -> do
       if isStructured fmt
         then outputOkWith fmt [("newState", toJSON newStatus)]
         else do
-          putStrLn $ "VM " ++ show vmId ++ " " ++ actionName ++ ": OK"
+          putStrLn $ "VM '" ++ T.unpack vmRef ++ "' " ++ actionName ++ ": OK"
           putStrLn $ "New status: " ++ T.unpack (enumToText newStatus)
       pure True
 
 -- | Handle VM stop with optional --wait polling
-handleVmStop :: OutputFormat -> Connection -> Int64 -> WaitOptions -> IO Bool
-handleVmStop fmt conn vmId waitOpts = do
-  success <- handleVmAction fmt "stop" vmId (vmStop conn vmId)
+handleVmStop :: OutputFormat -> Connection -> Text -> WaitOptions -> IO Bool
+handleVmStop fmt conn vmRef waitOpts = do
+  success <- handleVmAction fmt "stop" vmRef (vmStop conn vmRef)
   if success && woWait waitOpts
     then do
       let timeout = fromMaybe 120 (woTimeout waitOpts)
       unless (isStructured fmt) $
         putStrLn $
-          "Waiting for VM " ++ show vmId ++ " to stop..."
-      waited <- waitForVmStatus fmt conn vmId VmStopped timeout
+          "Waiting for VM '" ++ T.unpack vmRef ++ "' to stop..."
+      waited <- waitForVmStatus fmt conn vmRef VmStopped timeout
       if waited
         then do
           unless (isStructured fmt) $
             putStrLn $
-              "VM " ++ show vmId ++ " is now stopped."
+              "VM '" ++ T.unpack vmRef ++ "' is now stopped."
           pure True
         else pure False
     else pure success
 
 -- | Poll the daemon until a VM reaches a target status.
 -- Returns True if the target status was reached, False on timeout or error.
-waitForVmStatus :: OutputFormat -> Connection -> Int64 -> VmStatus -> Int -> IO Bool
-waitForVmStatus fmt conn vmId targetStatus timeout = do
+waitForVmStatus :: OutputFormat -> Connection -> Text -> VmStatus -> Int -> IO Bool
+waitForVmStatus fmt conn vmRef targetStatus timeout = do
   startTime <- getCurrentTime
   go startTime
   where
@@ -166,18 +165,18 @@ waitForVmStatus fmt conn vmId targetStatus timeout = do
       let elapsed = round (diffUTCTime now startTime) :: Int
       if elapsed >= timeout
         then do
-          let msg = "VM " ++ show vmId ++ " did not reach " ++ T.unpack (enumToText targetStatus) ++ " within " ++ show timeout ++ " seconds."
+          let msg = "VM '" ++ T.unpack vmRef ++ "' did not reach " ++ T.unpack (enumToText targetStatus) ++ " within " ++ show timeout ++ " seconds."
           if isStructured fmt
             then outputError fmt "timeout" (T.pack msg)
             else putStrLn $ "Timeout: " ++ msg
           pure False
         else do
-          resp <- showVm conn vmId
+          resp <- showVm conn vmRef
           case resp of
             Right (Just details)
               | vdStatus details == targetStatus -> pure True
               | vdStatus details == VmError -> do
-                  let msg = "VM " ++ show vmId ++ " entered error state."
+                  let msg = "VM '" ++ T.unpack vmRef ++ "' entered error state."
                   if isStructured fmt
                     then outputError fmt "vm_error" (T.pack msg)
                     else putStrLn msg
@@ -189,9 +188,9 @@ waitForVmStatus fmt conn vmId targetStatus timeout = do
               go startTime
 
 -- | Handle VM edit
-handleVmEdit :: OutputFormat -> Connection -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool
-handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
-  resp <- vmEdit conn vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit
+handleVmEdit :: OutputFormat -> Connection -> Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool
+handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
+  resp <- vmEdit conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit
   case resp of
     Left err -> do
       if isStructured fmt
@@ -201,17 +200,17 @@ handleVmEdit fmt conn vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = d
     Right VmEdited -> do
       if isStructured fmt
         then outputOk fmt
-        else putStrLn $ "VM " ++ show vmId ++ " updated."
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated."
       pure True
     Right VmEditNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "Error: VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "Error: VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right VmEditMustBeStopped -> do
       if isStructured fmt
-        then outputError fmt "vm_must_be_stopped" ("VM " <> T.pack (show vmId) <> " must be stopped to edit")
-        else putStrLn $ "Error: VM " ++ show vmId ++ " must be stopped to edit properties."
+        then outputError fmt "vm_must_be_stopped" ("VM '" <> vmRef <> "' must be stopped to edit")
+        else putStrLn $ "Error: VM '" ++ T.unpack vmRef ++ "' must be stopped to edit properties."
       pure False
     Right (VmEditError msg) -> do
       if isStructured fmt
@@ -267,6 +266,7 @@ printVmDetails vm = do
   where
     printDrive d = do
       putStrLn $ "  - ID: " ++ show (diId d)
+      putStrLn $ "    Disk Image: " ++ T.unpack (diDiskImageName d)
       putStrLn $ "    Interface: " ++ T.unpack (enumToText $ diInterface d)
       putStrLn $ "    Path: " ++ T.unpack (diFilePath d)
       putStrLn $ "    Format: " ++ T.unpack (enumToText $ diFormat d)

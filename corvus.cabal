@@ -61,6 +61,7 @@ library
   other-modules:
       Corvus.Client.Commands.Network
       Corvus.Handlers.Network
+      Corvus.Handlers.Resolve
       Corvus.Handlers.Template
       Corvus.Qemu.QmpQQ
       Corvus.Qemu.Vde

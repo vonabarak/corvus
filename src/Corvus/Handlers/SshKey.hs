@@ -23,6 +23,7 @@ import Control.Monad (forM, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.CloudInit
+import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -45,32 +46,35 @@ import System.Directory (doesFileExist, removeFile)
 
 -- | Create a new SSH key
 handleSshKeyCreate :: ServerState -> Text -> Text -> IO Response
-handleSshKeyCreate state name publicKey = runServerLogging state $ do
-  logInfoN $ "Creating SSH key: " <> name
+handleSshKeyCreate state name publicKey =
+  case validateName "SSH key" name of
+    Left err -> pure $ RespError err
+    Right () -> runServerLogging state $ do
+      logInfoN $ "Creating SSH key: " <> name
 
-  let pool = ssDbPool state
+      let pool = ssDbPool state
 
-  -- Check if name already exists
-  existing <- liftIO $ runSqlPool (getBy (UniqueSshKeyName name)) pool
-  case existing of
-    Just _ -> do
-      logWarnN $ "SSH key with name '" <> name <> "' already exists"
-      pure $ RespError $ "SSH key with name '" <> name <> "' already exists"
-    Nothing -> do
-      now <- liftIO getCurrentTime
-      keyId <-
-        liftIO $
-          runSqlPool
-            ( insert
-                SshKey
-                  { sshKeyName = name
-                  , sshKeyPublicKey = publicKey
-                  , sshKeyCreatedAt = now
-                  }
-            )
-            pool
-      logInfoN $ "Created SSH key with ID: " <> T.pack (show $ fromSqlKey keyId)
-      pure $ RespSshKeyCreated $ fromSqlKey keyId
+      -- Check if name already exists
+      existing <- liftIO $ runSqlPool (getBy (UniqueSshKeyName name)) pool
+      case existing of
+        Just _ -> do
+          logWarnN $ "SSH key with name '" <> name <> "' already exists"
+          pure $ RespError $ "SSH key with name '" <> name <> "' already exists"
+        Nothing -> do
+          now <- liftIO getCurrentTime
+          keyId <-
+            liftIO $
+              runSqlPool
+                ( insert
+                    SshKey
+                      { sshKeyName = name
+                      , sshKeyPublicKey = publicKey
+                      , sshKeyCreatedAt = now
+                      }
+                )
+                pool
+          logInfoN $ "Created SSH key with ID: " <> T.pack (show $ fromSqlKey keyId)
+          pure $ RespSshKeyCreated $ fromSqlKey keyId
 
 -- | Delete an SSH key (fails if attached to any VMs)
 handleSshKeyDelete :: ServerState -> Int64 -> IO Response
@@ -94,10 +98,14 @@ handleSshKeyDelete state keyId = runServerLogging state $ do
           logInfoN "SSH key deleted"
           pure RespSshKeyOk
         _ -> do
-          -- Key is in use
-          let vmIds = map (fromSqlKey . vmSshKeyVmId . entityVal) attachments
-          logWarnN $ "SSH key is attached to VMs: " <> T.pack (show vmIds)
-          pure $ RespSshKeyInUse vmIds
+          -- Key is in use — resolve VM names for the error message
+          vmPairs <- liftIO $ forM attachments $ \att -> do
+            let vmKey = vmSshKeyVmId (entityVal att)
+            mVm <- runSqlPool (get vmKey) pool
+            let name = maybe "(deleted)" vmName mVm
+            pure (fromSqlKey vmKey, name)
+          logWarnN $ "SSH key is attached to VMs: " <> T.pack (show (map fst vmPairs))
+          pure $ RespSshKeyInUse vmPairs
 
 -- | List all SSH keys
 handleSshKeyList :: ServerState -> IO Response
@@ -109,14 +117,18 @@ handleSshKeyList state = runServerLogging state $ do
   keys <- liftIO $ runSqlPool (selectList [] [Asc SshKeyName]) pool
   infos <- liftIO $ forM keys $ \(Entity keyId key) -> do
     attachments <- runSqlPool (selectList [VmSshKeySshKeyId ==. keyId] []) pool
-    let vmIds = map (fromSqlKey . vmSshKeyVmId . entityVal) attachments
+    vmPairs <- forM attachments $ \att -> do
+      let vmKey = vmSshKeyVmId (entityVal att)
+      mVm <- runSqlPool (get vmKey) pool
+      let name = maybe "(deleted)" vmName mVm
+      pure (fromSqlKey vmKey, name)
     pure
       SshKeyInfo
         { skiId = fromSqlKey keyId
         , skiName = sshKeyName key
         , skiPublicKey = sshKeyPublicKey key
         , skiCreatedAt = sshKeyCreatedAt key
-        , skiAttachedVms = vmIds
+        , skiAttachedVms = vmPairs
         }
   pure $ RespSshKeyList infos
 
@@ -248,7 +260,11 @@ handleSshKeyListForVm state vmId = runServerLogging state $ do
           Just key -> do
             -- Get all VMs this key is attached to
             allAttachments <- runSqlPool (selectList [VmSshKeySshKeyId ==. sshKeyKey] []) pool
-            let allVmIds = map (fromSqlKey . vmSshKeyVmId . entityVal) allAttachments
+            vmPairs <- forM allAttachments $ \att -> do
+              let vmKey = vmSshKeyVmId (entityVal att)
+              mVm <- runSqlPool (get vmKey) pool
+              let vName = maybe "(deleted)" vmName mVm
+              pure (fromSqlKey vmKey, vName)
             pure $
               Just
                 SshKeyInfo
@@ -256,7 +272,7 @@ handleSshKeyListForVm state vmId = runServerLogging state $ do
                   , skiName = sshKeyName key
                   , skiPublicKey = sshKeyPublicKey key
                   , skiCreatedAt = sshKeyCreatedAt key
-                  , skiAttachedVms = allVmIds
+                  , skiAttachedVms = vmPairs
                   }
       pure $ RespSshKeyList $ map (\(Just x) -> x) $ filter (/= Nothing) infos
 

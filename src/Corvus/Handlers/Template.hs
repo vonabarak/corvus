@@ -16,6 +16,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk (getRunningAttachedVms, resolveDiskPath, sanitizeDiskName)
 import Corvus.Handlers.NetIf (generateMacAddress)
+import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model
 import Corvus.Protocol
@@ -123,17 +124,20 @@ handleTemplateCreate state yamlContent = runServerLogging state $ do
       let msg = T.pack $ show err
       logWarnN $ "Failed to parse template YAML: " <> msg
       pure $ RespError msg
-    Right ty -> do
-      logInfoN $ "Creating template: " <> tyName ty
-      now <- liftIO getCurrentTime
-      result <- liftIO $ runSqlPool (createTemplate ty now) (ssDbPool state)
-      case result of
-        Left err -> do
-          logWarnN $ "Failed to create template: " <> err
-          pure $ RespError err
-        Right tid -> do
-          logInfoN $ "Created template with ID: " <> T.pack (show $ fromSqlKey tid)
-          pure $ RespTemplateCreated (fromSqlKey tid)
+    Right ty ->
+      case validateName "Template" (tyName ty) of
+        Left err -> pure $ RespError err
+        Right () -> do
+          logInfoN $ "Creating template: " <> tyName ty
+          now <- liftIO getCurrentTime
+          result <- liftIO $ runSqlPool (createTemplate ty now) (ssDbPool state)
+          case result of
+            Left err -> do
+              logWarnN $ "Failed to create template: " <> err
+              pure $ RespError err
+            Right tid -> do
+              logInfoN $ "Created template with ID: " <> T.pack (show $ fromSqlKey tid)
+              pure $ RespTemplateCreated (fromSqlKey tid)
 
 handleTemplateList :: ServerState -> IO Response
 handleTemplateList state = do

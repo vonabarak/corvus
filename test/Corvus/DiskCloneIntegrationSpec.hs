@@ -29,7 +29,7 @@ spec = withTestDb $ do
         stopTestVmAndWait daemon vmId 10
 
         -- Clone the disk
-        res <- withDaemonConnection daemon $ \conn -> diskClone conn "cloned-disk" diskId Nothing
+        res <- withDaemonConnection daemon $ \conn -> diskClone conn "cloned-disk" (T.pack (show diskId)) Nothing
         newDiskId <- case res of
           Right (Right (DiskCreated id_)) -> pure id_
           other -> fail $ "Clone failed: " ++ show other
@@ -54,16 +54,16 @@ spec = withTestDb $ do
         stopTestVmAndWait daemon vmId 10
 
         -- Create a snapshot
-        void $ withDaemonConnection daemon $ \conn -> snapshotCreate conn diskId "snap1"
+        void $ withDaemonConnection daemon $ \conn -> snapshotCreate conn (T.pack (show diskId)) "snap1"
 
         -- Clone the disk
-        res <- withDaemonConnection daemon $ \conn -> diskClone conn "cloned-with-snap" diskId Nothing
+        res <- withDaemonConnection daemon $ \conn -> diskClone conn "cloned-with-snap" (T.pack (show diskId)) Nothing
         newDiskId <- case res of
           Right (Right (DiskCreated id_)) -> pure id_
           other -> fail $ "Clone failed: " ++ show other
 
         -- Verify snapshots for the new disk
-        snapsResult <- withDaemonConnection daemon $ \conn -> snapshotList conn newDiskId
+        snapsResult <- withDaemonConnection daemon $ \conn -> snapshotList conn (T.pack (show newDiskId))
         case snapsResult of
           Right (Right (SnapshotListResult snaps)) -> do
             length snaps `shouldBe` 1
@@ -83,7 +83,7 @@ spec = withTestDb $ do
         catch (removeFile customPath) $ \e ->
           if isDoesNotExistError e then pure () else ioError e
 
-        res <- withDaemonConnection daemon $ \conn -> diskClone conn "custom-path-clone" diskId (Just $ T.pack customPath)
+        res <- withDaemonConnection daemon $ \conn -> diskClone conn "custom-path-clone" (T.pack (show diskId)) (Just $ T.pack customPath)
         case res of
           Right (Right (DiskCreated _)) -> pure ()
           other -> fail $ "Clone to custom path failed: " ++ show other
@@ -100,7 +100,7 @@ spec = withTestDb $ do
             diskId = tvmDiskId vm
 
         -- VM is running
-        res <- withDaemonConnection daemon $ \conn -> diskClone conn "failed-clone" diskId Nothing
+        res <- withDaemonConnection daemon $ \conn -> diskClone conn "failed-clone" (T.pack (show diskId)) Nothing
         case res of
           Right (Right VmMustBeStopped) -> pure ()
           other -> fail $ "Expected VmMustBeStopped but got: " ++ show other

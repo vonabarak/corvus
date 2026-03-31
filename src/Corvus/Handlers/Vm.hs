@@ -27,6 +27,7 @@ import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller)
+import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
@@ -102,9 +103,12 @@ handleVmShow state vmId = do
 
 -- | Handle VM create command
 handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO Response
-handleVmCreate state name cpuCount ramMb description headless guestAgent cloudInit = do
-  vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit) (ssDbPool state)
-  pure $ RespVmCreated vmId
+handleVmCreate state name cpuCount ramMb description headless guestAgent cloudInit =
+  case validateName "VM" name of
+    Left err -> pure $ RespError err
+    Right () -> do
+      vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit) (ssDbPool state)
+      pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
 handleVmDelete :: ServerState -> Int64 -> IO Response
@@ -518,6 +522,7 @@ getVmDetails config vmId = do
             DriveInfo
               { diId = fromSqlKey driveKey
               , diDiskImageId = fromSqlKey diskImageKey
+              , diDiskImageName = "(deleted)"
               , diInterface = driveInterface drive
               , diFilePath = "(deleted)"
               , diFormat = FormatRaw
@@ -531,6 +536,7 @@ getVmDetails config vmId = do
             DriveInfo
               { diId = fromSqlKey driveKey
               , diDiskImageId = fromSqlKey diskImageKey
+              , diDiskImageName = diskImageName diskImage
               , diInterface = driveInterface drive
               , diFilePath = diskImageFilePath diskImage
               , diFormat = diskImageFormat diskImage

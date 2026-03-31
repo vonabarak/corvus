@@ -24,12 +24,15 @@ import Corvus.Handlers.Disk
 import Corvus.Handlers.GuestExec
 import Corvus.Handlers.NetIf
 import Corvus.Handlers.Network
+import Corvus.Handlers.Resolve
 import Corvus.Handlers.SharedDir
 import Corvus.Handlers.SshKey
 import Corvus.Handlers.Template
 import Corvus.Handlers.Vm
 import Corvus.Protocol
 import Corvus.Types
+import Data.Int (Int64)
+import Data.Text (Text)
 
 --------------------------------------------------------------------------------
 -- Request Dispatch
@@ -44,64 +47,138 @@ handleRequest state req = case req of
   ReqShutdown -> handleShutdown state
   -- VM handlers
   ReqListVms -> handleVmList state
-  ReqShowVm vmId -> handleVmShow state vmId
+  ReqShowVm vmRef -> withVm vmRef $ \vmId -> handleVmShow state vmId
   ReqVmCreate name cpus ram desc headless ga ci -> handleVmCreate state name cpus ram desc headless ga ci
-  ReqVmDelete vmId -> handleVmDelete state vmId
-  ReqVmStart vmId -> handleVmStart state vmId
-  ReqVmStop vmId -> handleVmStop state vmId
-  ReqVmPause vmId -> handleVmPause state vmId
-  ReqVmReset vmId -> handleVmReset state vmId
-  ReqVmEdit vmId mCpus mRam mDesc mHeadless mGa mCi -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa mCi
-  ReqVmCloudInit vmId -> handleVmCloudInit state vmId
+  ReqVmDelete vmRef -> withVm vmRef $ \vmId -> handleVmDelete state vmId
+  ReqVmStart vmRef -> withVm vmRef $ \vmId -> handleVmStart state vmId
+  ReqVmStop vmRef -> withVm vmRef $ \vmId -> handleVmStop state vmId
+  ReqVmPause vmRef -> withVm vmRef $ \vmId -> handleVmPause state vmId
+  ReqVmReset vmRef -> withVm vmRef $ \vmId -> handleVmReset state vmId
+  ReqVmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi -> withVm vmRef $ \vmId -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa mCi
+  ReqVmCloudInit vmRef -> withVm vmRef $ \vmId -> handleVmCloudInit state vmId
   -- Disk image handlers
   ReqDiskCreate name format sizeMb mPath -> handleDiskCreate state name format sizeMb mPath
-  ReqDiskCreateOverlay name baseDiskId optPath -> handleDiskCreateOverlay state name baseDiskId optPath
+  ReqDiskCreateOverlay name baseDiskRef optPath -> withDisk baseDiskRef $ \baseDiskId -> handleDiskCreateOverlay state name baseDiskId optPath
   ReqDiskRegister name path format sizeMb -> handleDiskRegister state name path format sizeMb
-  ReqDiskDelete diskId -> handleDiskDelete state diskId
-  ReqDiskResize diskId newSizeMb -> handleDiskResize state diskId newSizeMb
+  ReqDiskDelete diskRef -> withDisk diskRef $ \diskId -> handleDiskDelete state diskId
+  ReqDiskResize diskRef newSizeMb -> withDisk diskRef $ \diskId -> handleDiskResize state diskId newSizeMb
   ReqDiskList -> handleDiskList state
-  ReqDiskShow diskId -> handleDiskShow state diskId
-  ReqDiskClone name baseDiskId optionalPath -> handleDiskClone state name baseDiskId optionalPath
+  ReqDiskShow diskRef -> withDisk diskRef $ \diskId -> handleDiskShow state diskId
+  ReqDiskClone name baseDiskRef optionalPath -> withDisk baseDiskRef $ \baseDiskId -> handleDiskClone state name baseDiskId optionalPath
   -- Snapshot handlers
-  ReqSnapshotCreate diskId name -> handleSnapshotCreate state diskId name
-  ReqSnapshotDelete diskId snapshotId -> handleSnapshotDelete state diskId snapshotId
-  ReqSnapshotRollback diskId snapshotId -> handleSnapshotRollback state diskId snapshotId
-  ReqSnapshotMerge diskId snapshotId -> handleSnapshotMerge state diskId snapshotId
-  ReqSnapshotList diskId -> handleSnapshotList state diskId
+  ReqSnapshotCreate diskRef name -> withDisk diskRef $ \diskId -> handleSnapshotCreate state diskId name
+  ReqSnapshotDelete diskRef snapRef -> withDisk diskRef $ \diskId -> handleSnapshotDelete state diskId snapRef
+  ReqSnapshotRollback diskRef snapRef -> withDisk diskRef $ \diskId -> handleSnapshotRollback state diskId snapRef
+  ReqSnapshotMerge diskRef snapRef -> withDisk diskRef $ \diskId -> handleSnapshotMerge state diskId snapRef
+  ReqSnapshotList diskRef -> withDisk diskRef $ \diskId -> handleSnapshotList state diskId
   -- Attach/detach handlers
-  ReqDiskAttach vmId diskId interface media readOnly discard cache -> handleDiskAttach state vmId diskId interface media readOnly discard cache
-  ReqDiskDetach vmId driveId -> handleDiskDetach state vmId driveId
+  ReqDiskAttach vmRef diskRef interface media readOnly discard cache ->
+    withVmDisk vmRef diskRef $ \vmId diskId -> handleDiskAttach state vmId diskId interface media readOnly discard cache
+  ReqDiskDetach vmRef diskRef ->
+    withVmDisk vmRef diskRef $ \vmId diskId -> handleDiskDetachByDisk state vmId diskId
   -- Shared directory handlers
-  ReqSharedDirAdd vmId path tag cache readOnly -> handleSharedDirAdd state vmId path tag cache readOnly
-  ReqSharedDirRemove vmId sharedDirId -> handleSharedDirRemove state vmId sharedDirId
-  ReqSharedDirList vmId -> handleSharedDirList state vmId
+  ReqSharedDirAdd vmRef path tag cache readOnly -> withVm vmRef $ \vmId -> handleSharedDirAdd state vmId path tag cache readOnly
+  ReqSharedDirRemove vmRef dirRef -> do
+    r1 <- resolveVm vmRef pool
+    case r1 of
+      Left _ -> pure RespVmNotFound
+      Right vmId -> do
+        r2 <- resolveSharedDir dirRef vmId pool
+        case r2 of
+          Left _ -> pure RespSharedDirNotFound
+          Right dirId -> handleSharedDirRemove state vmId dirId
+  ReqSharedDirList vmRef -> withVm vmRef $ \vmId -> handleSharedDirList state vmId
   -- Network interface handlers
-  ReqNetIfAdd vmId ifaceType hostDev mac nwId -> handleNetIfAdd state vmId ifaceType hostDev mac nwId
-  ReqNetIfRemove vmId netIfId -> handleNetIfRemove state vmId netIfId
-  ReqNetIfList vmId -> handleNetIfList state vmId
+  ReqNetIfAdd vmRef ifaceType hostDev mac mNwRef -> do
+    r1 <- resolveVm vmRef pool
+    case r1 of
+      Left _ -> pure RespVmNotFound
+      Right vmId -> do
+        mNwId <- resolveOptionalNetwork mNwRef
+        case mNwId of
+          Left _ -> pure RespNetworkNotFound
+          Right nwId -> handleNetIfAdd state vmId ifaceType hostDev mac nwId
+  ReqNetIfRemove vmRef netIfId -> withVm vmRef $ \vmId -> handleNetIfRemove state vmId netIfId
+  ReqNetIfList vmRef -> withVm vmRef $ \vmId -> handleNetIfList state vmId
   -- SSH key handlers
   ReqSshKeyCreate name publicKey -> handleSshKeyCreate state name publicKey
-  ReqSshKeyDelete keyId -> handleSshKeyDelete state keyId
+  ReqSshKeyDelete keyRef -> withSshKey keyRef $ \keyId -> handleSshKeyDelete state keyId
   ReqSshKeyList -> handleSshKeyList state
-  ReqSshKeyAttach vmId keyId -> handleSshKeyAttach state vmId keyId
-  ReqSshKeyDetach vmId keyId -> handleSshKeyDetach state vmId keyId
-  ReqSshKeyListForVm vmId -> handleSshKeyListForVm state vmId
+  ReqSshKeyAttach vmRef keyRef -> withVmSshKey vmRef keyRef $ \vmId keyId -> handleSshKeyAttach state vmId keyId
+  ReqSshKeyDetach vmRef keyRef -> withVmSshKey vmRef keyRef $ \vmId keyId -> handleSshKeyDetach state vmId keyId
+  ReqSshKeyListForVm vmRef -> withVm vmRef $ \vmId -> handleSshKeyListForVm state vmId
   -- Template handlers
   ReqTemplateCreate yaml -> handleTemplateCreate state yaml
-  ReqTemplateDelete tid -> handleTemplateDelete state tid
+  ReqTemplateDelete tRef -> withTemplate tRef $ \tid -> handleTemplateDelete state tid
   ReqTemplateList -> handleTemplateList state
-  ReqTemplateShow tid -> handleTemplateShow state tid
-  ReqTemplateInstantiate tid name -> handleTemplateInstantiate state tid name
+  ReqTemplateShow tRef -> withTemplate tRef $ \tid -> handleTemplateShow state tid
+  ReqTemplateInstantiate tRef name -> withTemplate tRef $ \tid -> handleTemplateInstantiate state tid name
   -- Network handlers
   ReqNetworkCreate name subnet -> handleNetworkCreate state name subnet
-  ReqNetworkDelete nwId -> handleNetworkDelete state nwId
-  ReqNetworkStart nwId -> handleNetworkStart state nwId
-  ReqNetworkStop nwId force -> handleNetworkStop state nwId force
+  ReqNetworkDelete nwRef -> withNetwork nwRef $ \nwId -> handleNetworkDelete state nwId
+  ReqNetworkStart nwRef -> withNetwork nwRef $ \nwId -> handleNetworkStart state nwId
+  ReqNetworkStop nwRef force -> withNetwork nwRef $ \nwId -> handleNetworkStop state nwId force
   ReqNetworkList -> handleNetworkList state
-  ReqNetworkShow nwId -> handleNetworkShow state nwId
+  ReqNetworkShow nwRef -> withNetwork nwRef $ \nwId -> handleNetworkShow state nwId
   -- Guest execution handlers
-  ReqGuestExec vmId cmd -> handleGuestExec state vmId cmd
+  ReqGuestExec vmRef cmd -> withVm vmRef $ \vmId -> handleGuestExec state vmId cmd
   -- Disk URL import
   ReqDiskImportUrl name url mFmt -> handleDiskImportUrl state name url mFmt
   -- Apply config
   ReqApply yaml skipExisting -> handleApply state yaml skipExisting
+  where
+    pool = ssDbPool state
+
+    -- Single-entity resolution helpers (return domain-specific "not found")
+    withVm :: Ref -> (Int64 -> IO Response) -> IO Response
+    withVm ref f = resolveVm ref pool >>= either (const $ pure RespVmNotFound) f
+
+    withDisk :: Ref -> (Int64 -> IO Response) -> IO Response
+    withDisk ref f = resolveDisk ref pool >>= either (const $ pure RespDiskNotFound) f
+
+    withNetwork :: Ref -> (Int64 -> IO Response) -> IO Response
+    withNetwork ref f = resolveNetwork ref pool >>= either (const $ pure RespNetworkNotFound) f
+
+    withSshKey :: Ref -> (Int64 -> IO Response) -> IO Response
+    withSshKey ref f = resolveSshKey ref pool >>= either (const $ pure RespSshKeyNotFound) f
+
+    withTemplate :: Ref -> (Int64 -> IO Response) -> IO Response
+    withTemplate ref f = resolveTemplate ref pool >>= either (const $ pure RespTemplateNotFound) f
+
+    -- Two-entity resolution helpers
+    withVmDisk :: Ref -> Ref -> (Int64 -> Int64 -> IO Response) -> IO Response
+    withVmDisk vmRef diskRef f = do
+      r1 <- resolveVm vmRef pool
+      r2 <- resolveDisk diskRef pool
+      case (r1, r2) of
+        (Right vmId, Right diskId) -> f vmId diskId
+        (Left _, _) -> pure RespVmNotFound
+        (_, Left _) -> pure RespDiskNotFound
+
+    withVmSshKey :: Ref -> Ref -> (Int64 -> Int64 -> IO Response) -> IO Response
+    withVmSshKey vmRef keyRef f = do
+      r1 <- resolveVm vmRef pool
+      r2 <- resolveSshKey keyRef pool
+      case (r1, r2) of
+        (Right vmId, Right keyId) -> f vmId keyId
+        (Left _, _) -> pure RespVmNotFound
+        (_, Left _) -> pure RespSshKeyNotFound
+
+    withDiskSnapshot :: Ref -> Ref -> (Int64 -> Int64 -> IO Response) -> IO Response
+    withDiskSnapshot diskRef snapRef f = do
+      r1 <- resolveDisk diskRef pool
+      case r1 of
+        Left _ -> pure RespDiskNotFound
+        Right diskId -> do
+          r2 <- resolveSnapshot snapRef diskId pool
+          case r2 of
+            Left _ -> pure RespSnapshotNotFound
+            Right snapId -> f diskId snapId
+
+    resolveOptionalNetwork :: Maybe Ref -> IO (Either Text (Maybe Int64))
+    resolveOptionalNetwork Nothing = pure $ Right Nothing
+    resolveOptionalNetwork (Just nwRef) = do
+      r <- resolveNetwork nwRef pool
+      case r of
+        Left err -> pure $ Left err
+        Right nwId -> pure $ Right (Just nwId)

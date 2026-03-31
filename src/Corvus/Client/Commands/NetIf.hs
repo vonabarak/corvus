@@ -29,9 +29,9 @@ parseNetInterfaceType :: Text -> Either Text NetInterfaceType
 parseNetInterfaceType = enumFromText
 
 -- | Handle network interface add command
-handleNetIfAdd :: OutputFormat -> Connection -> Int64 -> NetInterfaceType -> Text -> Maybe Text -> Maybe Int64 -> IO Bool
-handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress mNetworkId = do
-  resp <- netIfAdd conn vmId ifaceType hostDevice macAddress mNetworkId
+handleNetIfAdd :: OutputFormat -> Connection -> Text -> NetInterfaceType -> Text -> Maybe Text -> Maybe Text -> IO Bool
+handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef = do
+  resp <- netIfAdd conn vmRef ifaceType hostDevice macAddress mNetworkRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -45,8 +45,8 @@ handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress mNetworkId = do
       pure True
     Right NetIfVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (NetIfError msg) -> do
       if isStructured fmt
@@ -60,9 +60,9 @@ handleNetIfAdd fmt conn vmId ifaceType hostDevice macAddress mNetworkId = do
       pure False
 
 -- | Handle network interface remove command
-handleNetIfRemove :: OutputFormat -> Connection -> Int64 -> Int64 -> IO Bool
-handleNetIfRemove fmt conn vmId netIfId = do
-  resp <- netIfRemove conn vmId netIfId
+handleNetIfRemove :: OutputFormat -> Connection -> Text -> Int64 -> IO Bool
+handleNetIfRemove fmt conn vmRef netIfId = do
+  resp <- netIfRemove conn vmRef netIfId
   case resp of
     Left err -> do
       if isStructured fmt
@@ -81,8 +81,8 @@ handleNetIfRemove fmt conn vmId netIfId = do
       pure False
     Right NetIfVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right other -> do
       if isStructured fmt
@@ -91,9 +91,9 @@ handleNetIfRemove fmt conn vmId netIfId = do
       pure False
 
 -- | Handle network interface list command
-handleNetIfList :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleNetIfList fmt conn vmId = do
-  resp <- netIfList conn vmId
+handleNetIfList :: OutputFormat -> Connection -> Text -> IO Bool
+handleNetIfList fmt conn vmRef = do
+  resp <- netIfList conn vmRef
   case resp of
     Left err -> do
       if isStructured fmt
@@ -112,8 +112,8 @@ handleNetIfList fmt conn vmId = do
       pure True
     Right NetIfVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right other -> do
       if isStructured fmt

@@ -22,6 +22,7 @@ import Corvus.Handlers.Disk
   , registerDiskIO
   )
 import Corvus.Handlers.NetIf (generateMacAddress)
+import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model
 import Corvus.Protocol
@@ -241,6 +242,10 @@ validateConfig config = do
   checkDuplicates "disk" $ map adName (acDisks config)
   checkDuplicates "network" $ map anName (acNetworks config)
   checkDuplicates "VM" $ map avName (acVms config)
+  forM_ (acSshKeys config) $ \k -> validateName "SSH key" (askName k)
+  forM_ (acDisks config) $ \d -> validateName "Disk" (adName d)
+  forM_ (acNetworks config) $ \n -> validateName "Network" (anName n)
+  forM_ (acVms config) $ \v -> validateName "VM" (avName v)
   forM_ (acDisks config) validateDisk
   forM_ (acVms config) validateVmCloudInit
   where

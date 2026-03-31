@@ -55,7 +55,7 @@ spec = sequential $ do
 
     describe "DiskImageInfo" $ do
       it "serializes with all fields" $ do
-        let disk = DiskImageInfo 1 "boot" "/path/boot.qcow2" FormatQcow2 (Just 10240) testTime [1, 2] Nothing Nothing
+        let disk = DiskImageInfo 1 "boot" "/path/boot.qcow2" FormatQcow2 (Just 10240) testTime [(1, "vm1"), (2, "vm2")] Nothing Nothing
             val = toJSON disk
         case val of
           Object obj -> do
@@ -97,7 +97,7 @@ spec = sequential $ do
 
     describe "SshKeyInfo" $ do
       it "serializes with attached VMs" $ do
-        let key = SshKeyInfo 1 "mykey" "ssh-ed25519 AAAA..." testTime [1, 3]
+        let key = SshKeyInfo 1 "mykey" "ssh-ed25519 AAAA..." testTime [(1, "vm1"), (3, "vm3")]
             val = toJSON key
         case val of
           Object obj -> do
@@ -107,7 +107,7 @@ spec = sequential $ do
 
     describe "DriveInfo" $ do
       it "serializes interface and cache enums" $ do
-        let drive = DriveInfo 1 10 InterfaceVirtio "/path/disk.qcow2" FormatQcow2 (Just MediaDisk) False CacheWriteback True
+        let drive = DriveInfo 1 10 "disk" InterfaceVirtio "/path/disk.qcow2" FormatQcow2 (Just MediaDisk) False CacheWriteback True
             val = toJSON drive
         case val of
           Object obj -> do

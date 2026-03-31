@@ -101,7 +101,7 @@ createTestVmWithOptions daemon name cpus ram mDesc headless guestAgent cloudInit
 startTestVm :: TestDaemon -> Int64 -> IO ()
 startTestVm daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmStart conn vmId
+    vmStart conn (T.pack (show vmId))
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error starting VM: " <> show err
@@ -112,7 +112,7 @@ startTestVm daemon vmId = do
 stopTestVm :: TestDaemon -> Int64 -> IO ()
 stopTestVm daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmStop conn vmId
+    vmStop conn (T.pack (show vmId))
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error stopping VM: " <> show err
@@ -127,10 +127,10 @@ stopTestVmAndWait daemon vmId timeoutSec = do
   -- Poll for status
   let go 0 = do
         -- Force stop if graceful shutdown failed
-        _ <- withDaemonConnection daemon $ \conn -> vmReset conn vmId
+        _ <- withDaemonConnection daemon $ \conn -> vmReset conn (T.pack (show vmId))
         pure ()
       go n = do
-        res <- withDaemonConnection daemon $ \conn -> showVm conn vmId
+        res <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show vmId))
         case res of
           Right (Right (Just details)) ->
             if vdStatus details == VmStopped
@@ -148,7 +148,7 @@ stopTestVmAndWait daemon vmId timeoutSec = do
 deleteTestVm :: TestDaemon -> Int64 -> IO ()
 deleteTestVm daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmDelete conn vmId
+    vmDelete conn (T.pack (show vmId))
   case result of
     Right (Right VmDeleted) -> pure ()
     _ -> pure ()
@@ -157,7 +157,7 @@ deleteTestVm daemon vmId = do
 editTestVm :: TestDaemon -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO ()
 editTestVm daemon vmId mCpus mRam mDesc mHeadless = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmEdit conn vmId mCpus mRam mDesc mHeadless Nothing Nothing
+    vmEdit conn (T.pack (show vmId)) mCpus mRam mDesc mHeadless Nothing Nothing
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error editing VM: " <> show err
@@ -172,7 +172,7 @@ editTestVm daemon vmId mCpus mRam mDesc mHeadless = do
 addVmDisk :: TestDaemon -> Int64 -> Int64 -> DriveInterface -> CacheType -> Bool -> Bool -> IO ()
 addVmDisk daemon vmId diskImageId iface cache discard ro = do
   result <- withDaemonConnection daemon $ \conn ->
-    diskAttach conn vmId diskImageId iface Nothing ro discard cache
+    diskAttach conn (T.pack (show vmId)) (T.pack (show diskImageId)) iface Nothing ro discard cache
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error attaching disk: " <> show err
@@ -183,7 +183,7 @@ addVmDisk daemon vmId diskImageId iface cache discard ro = do
 addVmNetIf :: TestDaemon -> Int64 -> NetInterfaceType -> Text -> Maybe Text -> IO ()
 addVmNetIf daemon vmId ifaceType hostDevice mac = do
   result <- withDaemonConnection daemon $ \conn ->
-    netIfAdd conn vmId ifaceType hostDevice mac Nothing
+    netIfAdd conn (T.pack (show vmId)) ifaceType hostDevice mac Nothing
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error adding network interface: " <> show err
@@ -194,7 +194,7 @@ addVmNetIf daemon vmId ifaceType hostDevice mac = do
 removeVmNetIf :: TestDaemon -> Int64 -> Int64 -> IO ()
 removeVmNetIf daemon vmId netIfId = do
   result <- withDaemonConnection daemon $ \conn ->
-    netIfRemove conn vmId netIfId
+    netIfRemove conn (T.pack (show vmId)) netIfId
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error removing network interface: " <> show err
@@ -204,7 +204,7 @@ removeVmNetIf daemon vmId netIfId = do
 listVmNetIfs :: TestDaemon -> Int64 -> IO [NetIfInfo]
 listVmNetIfs daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
-    netIfList conn vmId
+    netIfList conn (T.pack (show vmId))
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error listing network interfaces: " <> show err
@@ -215,7 +215,7 @@ listVmNetIfs daemon vmId = do
 addVmSharedDir :: TestDaemon -> Int64 -> Text -> Text -> SharedDirCache -> IO ()
 addVmSharedDir daemon vmId path tag cache = do
   result <- withDaemonConnection daemon $ \conn ->
-    sharedDirAdd conn vmId path tag cache False
+    sharedDirAdd conn (T.pack (show vmId)) path tag cache False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error adding shared directory: " <> show err
@@ -266,7 +266,7 @@ createSshKey daemon name publicKey = do
 attachSshKey :: TestDaemon -> Int64 -> Int64 -> IO ()
 attachSshKey daemon vmId keyId = do
   result <- withDaemonConnection daemon $ \conn ->
-    sshKeyAttach conn vmId keyId
+    sshKeyAttach conn (T.pack (show vmId)) (T.pack (show keyId))
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error attaching SSH key: " <> show err
@@ -277,7 +277,7 @@ attachSshKey daemon vmId keyId = do
 cleanupSshKey :: TestDaemon -> Int64 -> IO ()
 cleanupSshKey daemon keyId = do
   result <- withDaemonConnection daemon $ \conn ->
-    sshKeyDelete conn keyId
+    sshKeyDelete conn (T.pack (show keyId))
   case result of
     Left _ -> pure () -- Ignore errors during cleanup
     Right _ -> pure ()
@@ -306,7 +306,7 @@ createNetworkWithSubnet daemon name subnet = do
 deleteNetwork :: TestDaemon -> Int64 -> IO ()
 deleteNetwork daemon nwId = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkDelete conn nwId
+    networkDelete conn (T.pack (show nwId))
   case result of
     Right (Right NetworkDeleted) -> pure ()
     _ -> pure () -- Best-effort cleanup
@@ -315,7 +315,7 @@ deleteNetwork daemon nwId = do
 startNetwork :: TestDaemon -> Int64 -> IO ()
 startNetwork daemon nwId = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkStart conn nwId
+    networkStart conn (T.pack (show nwId))
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error starting network: " <> show err
@@ -328,7 +328,7 @@ startNetwork daemon nwId = do
 stopNetwork :: TestDaemon -> Int64 -> IO ()
 stopNetwork daemon nwId = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkStop conn nwId True -- force stop
+    networkStop conn (T.pack (show nwId)) True -- force stop
   case result of
     Right (Right NetworkStopped) -> pure ()
     _ -> pure () -- Best-effort cleanup
@@ -337,7 +337,7 @@ stopNetwork daemon nwId = do
 showNetwork :: TestDaemon -> Int64 -> IO NetworkInfo
 showNetwork daemon nwId = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkShow conn nwId
+    networkShow conn (T.pack (show nwId))
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error showing network: " <> show err
@@ -350,7 +350,7 @@ showNetwork daemon nwId = do
 addVmNetIfWithNetwork :: TestDaemon -> Int64 -> Int64 -> IO ()
 addVmNetIfWithNetwork daemon vmId nwId = do
   result <- withDaemonConnection daemon $ \conn ->
-    netIfAdd conn vmId NetVde "" Nothing (Just nwId)
+    netIfAdd conn (T.pack (show vmId)) NetVde "" Nothing (Just (T.pack (show nwId)))
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error adding network interface: " <> show err
@@ -390,7 +390,7 @@ runInVm_ vm = runViaGuestAgent_ (tvmDaemon vm) (tvmId vm)
 runViaGuestAgent :: TestDaemon -> Int64 -> Text -> IO (ExitCode, Text, Text)
 runViaGuestAgent daemon vmId command = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmExec conn vmId command
+    vmExec conn (T.pack (show vmId)) command
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error executing guest command: " <> show err
@@ -418,7 +418,7 @@ waitForGuestAgent daemon vmId timeoutSec = go timeoutSec
     go 0 = fail $ "Guest agent not ready after " <> show timeoutSec <> "s"
     go n = do
       result <- withDaemonConnection daemon $ \conn ->
-        vmExec conn vmId "echo ok"
+        vmExec conn (T.pack (show vmId)) "echo ok"
       case result of
         Right (Right (GuestExecOk 0 _ _)) -> pure ()
         _ -> do

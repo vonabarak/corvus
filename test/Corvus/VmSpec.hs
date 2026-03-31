@@ -3,7 +3,7 @@
 
 module Corvus.VmSpec (spec) where
 
-import Corvus.Protocol (Request (..), StatusInfo (..))
+import Corvus.Protocol (Ref (..), Request (..), StatusInfo (..))
 import Test.DSL.When (executeRequest)
 import Test.Prelude
 
@@ -61,7 +61,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "delete-me" VmStopped
         pure ()
-      resp <- executeRequest (ReqVmDelete 1)
+      resp <- executeRequest (ReqVmDelete (Ref "1"))
       liftIO $ resp `shouldBe` RespVmDeleted
       then_ $ vmNotExists 1
 
@@ -69,11 +69,11 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "running-vm" VmRunning
         pure ()
-      resp <- executeRequest (ReqVmDelete 1)
+      resp <- executeRequest (ReqVmDelete (Ref "1"))
       liftIO $ resp `shouldBe` RespVmRunning
 
     testCase "fails for non-existent VM" $ do
-      resp <- executeRequest (ReqVmDelete 999)
+      resp <- executeRequest (ReqVmDelete (Ref "999"))
       liftIO $ resp `shouldBe` RespVmNotFound
 
   describe "vm start" $ do

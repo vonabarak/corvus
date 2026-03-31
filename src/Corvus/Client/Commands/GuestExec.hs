@@ -13,16 +13,15 @@ import Corvus.Client.Rpc (GuestExecResult (..), vmExec)
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..))
 import Data.Aeson (toJSON)
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.IO (stderr)
 
 -- | Handle guest-exec command
-handleVmExec :: OutputFormat -> Connection -> Int64 -> Text -> IO Bool
-handleVmExec fmt conn vmId command = do
-  resp <- vmExec conn vmId command
+handleVmExec :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleVmExec fmt conn vmRef command = do
+  resp <- vmExec conn vmRef command
   case resp of
     Left err -> do
       if isStructured fmt
@@ -44,13 +43,13 @@ handleVmExec fmt conn vmId command = do
       pure (exitcode == 0)
     Right GuestExecVmNotFound -> do
       if isStructured fmt
-        then outputError fmt "not_found" ("VM with ID " <> T.pack (show vmId) <> " not found")
-        else putStrLn $ "VM with ID " ++ show vmId ++ " not found."
+        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
+        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right GuestExecNotEnabled -> do
       if isStructured fmt
-        then outputError fmt "guest_agent_not_enabled" ("Guest agent is not enabled on VM " <> T.pack (show vmId))
-        else putStrLn $ "Error: Guest agent is not enabled on VM " ++ show vmId ++ ". Enable with: crv vm edit " ++ show vmId ++ " --guest-agent true"
+        then outputError fmt "guest_agent_not_enabled" ("Guest agent is not enabled on VM '" <> vmRef <> "'")
+        else putStrLn $ "Error: Guest agent is not enabled on VM '" ++ T.unpack vmRef ++ "'. Enable with: crv vm edit " ++ T.unpack vmRef ++ " --guest-agent true"
       pure False
     Right (GuestExecInvalidState status msg) -> do
       if isStructured fmt

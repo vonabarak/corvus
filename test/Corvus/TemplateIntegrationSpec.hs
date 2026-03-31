@@ -76,7 +76,7 @@ spec = withTestDb $ do
           other -> fail $ "Template list failed: " ++ show other
 
         -- 3. Show template
-        resShow <- withDaemonConnection daemon $ \conn -> templateShow conn templateId
+        resShow <- withDaemonConnection daemon $ \conn -> templateShow conn (T.pack (show templateId))
         case resShow of
           Right (Right (TemplateDetailsResult details)) -> do
             tvdName details `shouldBe` "test-template"
@@ -87,13 +87,13 @@ spec = withTestDb $ do
           other -> fail $ "Template show failed: " ++ show other
 
         -- 4. Instantiate template
-        resInst <- withDaemonConnection daemon $ \conn -> templateInstantiate conn templateId "instantiated-vm"
+        resInst <- withDaemonConnection daemon $ \conn -> templateInstantiate conn (T.pack (show templateId)) "instantiated-vm"
         newVmId <- case resInst of
           Right (Right (TemplateInstantiated vmId)) -> pure vmId
           other -> fail $ "Template instantiation failed: " ++ show other
 
         -- 5. Verify instantiated VM
-        resVm <- withDaemonConnection daemon $ \conn -> showVm conn newVmId
+        resVm <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show newVmId))
         case resVm of
           Right (Right (Just details)) -> do
             vdName details `shouldBe` "instantiated-vm"
@@ -106,12 +106,12 @@ spec = withTestDb $ do
           other -> fail $ "VM show failed: " ++ show other
 
         -- 6. Enable guest agent and start the VM
-        resEdit <- withDaemonConnection daemon $ \conn -> vmEdit conn newVmId Nothing Nothing Nothing Nothing (Just True) Nothing
+        resEdit <- withDaemonConnection daemon $ \conn -> vmEdit conn (T.pack (show newVmId)) Nothing Nothing Nothing Nothing (Just True) Nothing
         case resEdit of
           Right (Right VmEdited) -> pure ()
           other -> fail $ "VM edit failed: " ++ show other
 
-        resStart <- withDaemonConnection daemon $ \conn -> vmStart conn newVmId
+        resStart <- withDaemonConnection daemon $ \conn -> vmStart conn (T.pack (show newVmId))
         case resStart of
           Right (Right (VmActionSuccess _)) -> pure ()
           other -> fail $ "VM start failed: " ++ show other
@@ -129,4 +129,4 @@ spec = withTestDb $ do
         stopTestVmAndWait daemon newVmId 10
 
         -- Cleanup: delete template
-        void $ withDaemonConnection daemon $ \conn -> templateDelete conn templateId
+        void $ withDaemonConnection daemon $ \conn -> templateDelete conn (T.pack (show templateId))

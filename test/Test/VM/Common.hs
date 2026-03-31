@@ -118,7 +118,7 @@ withTestDiskSetup daemon config callback = do
 
   -- Create overlay via daemon
   resOverlay <- withDaemonConnection daemon $ \conn ->
-    diskCreateOverlay conn overlayName baseDiskId Nothing
+    diskCreateOverlay conn overlayName (T.pack (show baseDiskId)) Nothing
   overlayDiskId <- case resOverlay of
     Right (Right (DiskCreated dId)) -> pure dId
     Right (Left err) -> fail $ "Failed to create overlay: " <> show err
@@ -144,7 +144,7 @@ withTestDiskSetup daemon config callback = do
 
       -- Clone OVMF vars for this test
       resOvmfVars <- withDaemonConnection daemon $ \conn ->
-        diskClone conn ovmfVarsName ovmfVarsTemplateId (Just (ovmfVarsName <> ".fd"))
+        diskClone conn ovmfVarsName (T.pack (show ovmfVarsTemplateId)) (Just (ovmfVarsName <> ".fd"))
       ovmfVarsId <- case resOvmfVars of
         Right (Right (DiskCreated dId)) -> pure dId
         Right (Left err) -> fail $ "Failed to clone OVMF_VARS: " <> show err
@@ -161,8 +161,8 @@ withTestDiskSetup daemon config callback = do
       bracket
         (pure ())
         ( \_ -> do
-            _ <- withDaemonConnection daemon $ \conn -> diskDelete conn overlayDiskId
-            _ <- withDaemonConnection daemon $ \conn -> diskDelete conn ovmfVarsId
+            _ <- withDaemonConnection daemon $ \conn -> diskDelete conn (T.pack (show overlayDiskId))
+            _ <- withDaemonConnection daemon $ \conn -> diskDelete conn (T.pack (show ovmfVarsId))
             pure ()
         )
         (\_ -> callback overlayDiskId configWithOvmf)
@@ -170,7 +170,7 @@ withTestDiskSetup daemon config callback = do
       bracket
         (pure ())
         ( \_ -> do
-            _ <- withDaemonConnection daemon $ \conn -> diskDelete conn overlayDiskId
+            _ <- withDaemonConnection daemon $ \conn -> diskDelete conn (T.pack (show overlayDiskId))
             pure ()
         )
         (\_ -> callback overlayDiskId config)

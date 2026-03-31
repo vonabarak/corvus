@@ -249,19 +249,19 @@ spec = sequential $ do
             _ -> False
           driveNotExists 1
 
-      testCase "fails when drive does not exist (no VM or drive)" $ do
+      testCase "fails when VM does not exist" $ do
         when_ $ diskDetach 999 1
         then_ $ responseIs $ \case
-          RespDriveNotFound -> True
+          RespVmNotFound -> True
           _ -> False
 
-      testCase "fails when drive does not exist (VM exists)" $ do
+      testCase "fails when disk does not exist" $ do
         given $ do
           _ <- insertVm "test-vm" VmStopped
           pure ()
         when_ $ diskDetach 1 999
         then_ $ responseIs $ \case
-          RespDriveNotFound -> True
+          RespDiskNotFound -> True
           _ -> False
 
     describe "overlay extra protections" $ do

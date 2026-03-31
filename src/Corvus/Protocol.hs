@@ -35,6 +35,9 @@ module Corvus.Protocol
     -- * Apply config
   , ApplyCreated (..)
   , ApplyResult (..)
+
+    -- * Entity reference
+  , Ref (..)
   )
 where
 
@@ -49,9 +52,15 @@ import Data.Time (UTCTime)
 import Data.Word (Word8)
 import GHC.Generics (Generic)
 
+-- | A reference to an entity by name or numeric ID.
+-- If the text parses as an integer, it is treated as an ID lookup.
+-- Otherwise it is treated as a name lookup via the entity's unique constraint.
+newtype Ref = Ref {unRef :: Text}
+  deriving (Eq, Show, Generic, Binary)
+
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 12
+protocolVersion = 13
 
 -- | Client requests
 data Request
@@ -59,111 +68,111 @@ data Request
   | ReqStatus
   | ReqShutdown
   | ReqListVms
-  | -- | VM ID
-    ReqShowVm !Int64
+  | -- | Show VM (vmRef)
+    ReqShowVm !Ref
   | -- | Create VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
     ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool
-  | -- | Delete VM (vmId)
-    ReqVmDelete !Int64
+  | -- | Delete VM (vmRef)
+    ReqVmDelete !Ref
   | -- | Start VM (stopped/paused -> running)
-    ReqVmStart !Int64
+    ReqVmStart !Ref
   | -- | Stop VM (running -> stopped)
-    ReqVmStop !Int64
+    ReqVmStop !Ref
   | -- | Pause VM (running -> paused)
-    ReqVmPause !Int64
+    ReqVmPause !Ref
   | -- | Reset VM (any -> stopped)
-    ReqVmReset !Int64
+    ReqVmReset !Ref
   | -- | Disk image operations
     -- | Create disk image (name, format, sizeMb, optionalPath)
     ReqDiskCreate !Text !DriveFormat !Int64 !(Maybe Text)
   | -- | Register existing disk image (name, filePath, format, sizeMb)
     ReqDiskRegister !Text !Text !DriveFormat !(Maybe Int64)
-  | -- | Create overlay disk image (overlayName, baseDiskImageId, optionalPath)
-    ReqDiskCreateOverlay !Text !Int64 !(Maybe Text)
-  | -- | Delete disk image (diskImageId)
-    ReqDiskDelete !Int64
-  | -- | Resize disk image (diskImageId, newSizeMb)
-    ReqDiskResize !Int64 !Int64
+  | -- | Create overlay disk image (overlayName, baseDiskRef, optionalPath)
+    ReqDiskCreateOverlay !Text !Ref !(Maybe Text)
+  | -- | Delete disk image (diskRef)
+    ReqDiskDelete !Ref
+  | -- | Resize disk image (diskRef, newSizeMb)
+    ReqDiskResize !Ref !Int64
   | -- | List all disk images
     ReqDiskList
-  | -- | Show disk image details (diskImageId)
-    ReqDiskShow !Int64
-  | -- | Clone disk image (name, baseDiskImageId, optionalPath)
-    ReqDiskClone !Text !Int64 !(Maybe Text)
+  | -- | Show disk image details (diskRef)
+    ReqDiskShow !Ref
+  | -- | Clone disk image (name, baseDiskRef, optionalPath)
+    ReqDiskClone !Text !Ref !(Maybe Text)
   | -- | Snapshot operations (qcow2 only)
-    -- | Create snapshot (diskImageId, snapshotName)
-    ReqSnapshotCreate !Int64 !Text
-  | -- | Delete snapshot (diskImageId, snapshotId)
-    ReqSnapshotDelete !Int64 !Int64
-  | -- | Rollback to snapshot (diskImageId, snapshotId)
-    ReqSnapshotRollback !Int64 !Int64
-  | -- | Merge snapshot (diskImageId, snapshotId)
-    ReqSnapshotMerge !Int64 !Int64
-  | -- | List snapshots (diskImageId)
-    ReqSnapshotList !Int64
+    -- | Create snapshot (diskRef, snapshotName)
+    ReqSnapshotCreate !Ref !Text
+  | -- | Delete snapshot (diskRef, snapshotRef)
+    ReqSnapshotDelete !Ref !Ref
+  | -- | Rollback to snapshot (diskRef, snapshotRef)
+    ReqSnapshotRollback !Ref !Ref
+  | -- | Merge snapshot (diskRef, snapshotRef)
+    ReqSnapshotMerge !Ref !Ref
+  | -- | List snapshots (diskRef)
+    ReqSnapshotList !Ref
   | -- | Attach/detach operations
-    -- | Attach disk to VM (vmId, diskImageId, interface, media, readOnly, discard, cache)
-    ReqDiskAttach !Int64 !Int64 !DriveInterface !(Maybe DriveMedia) !Bool !Bool !CacheType
-  | -- | Detach disk from VM (vmId, driveId)
-    ReqDiskDetach !Int64 !Int64
+    -- | Attach disk to VM (vmRef, diskRef, interface, media, readOnly, discard, cache)
+    ReqDiskAttach !Ref !Ref !DriveInterface !(Maybe DriveMedia) !Bool !Bool !CacheType
+  | -- | Detach disk from VM (vmRef, diskRef)
+    ReqDiskDetach !Ref !Ref
   | -- | Shared directory operations
-    -- | Add shared directory to VM (vmId, hostPath, tag, cache, readOnly)
-    ReqSharedDirAdd !Int64 !Text !Text !SharedDirCache !Bool
-  | -- | Remove shared directory from VM (vmId, sharedDirId)
-    ReqSharedDirRemove !Int64 !Int64
-  | -- | List shared directories for VM (vmId)
-    ReqSharedDirList !Int64
+    -- | Add shared directory to VM (vmRef, hostPath, tag, cache, readOnly)
+    ReqSharedDirAdd !Ref !Text !Text !SharedDirCache !Bool
+  | -- | Remove shared directory from VM (vmRef, sharedDirRef)
+    ReqSharedDirRemove !Ref !Ref
+  | -- | List shared directories for VM (vmRef)
+    ReqSharedDirList !Ref
   | -- | Network interface operations
-    -- | Add network interface to VM (vmId, interfaceType, hostDevice, macAddress, networkId)
-    ReqNetIfAdd !Int64 !NetInterfaceType !Text !(Maybe Text) !(Maybe Int64)
-  | -- | Remove network interface from VM (vmId, netIfId)
-    ReqNetIfRemove !Int64 !Int64
-  | -- | List network interfaces for VM (vmId)
-    ReqNetIfList !Int64
+    -- | Add network interface to VM (vmRef, interfaceType, hostDevice, macAddress, networkRef)
+    ReqNetIfAdd !Ref !NetInterfaceType !Text !(Maybe Text) !(Maybe Ref)
+  | -- | Remove network interface from VM (vmRef, netIfId)
+    ReqNetIfRemove !Ref !Int64
+  | -- | List network interfaces for VM (vmRef)
+    ReqNetIfList !Ref
   | -- | SSH key operations
     -- | Create SSH key (name, publicKey)
     ReqSshKeyCreate !Text !Text
-  | -- | Delete SSH key (keyId)
-    ReqSshKeyDelete !Int64
+  | -- | Delete SSH key (keyRef)
+    ReqSshKeyDelete !Ref
   | -- | List all SSH keys
     ReqSshKeyList
-  | -- | Attach SSH key to VM (vmId, keyId)
-    ReqSshKeyAttach !Int64 !Int64
-  | -- | Detach SSH key from VM (vmId, keyId)
-    ReqSshKeyDetach !Int64 !Int64
-  | -- | List SSH keys for VM (vmId)
-    ReqSshKeyListForVm !Int64
+  | -- | Attach SSH key to VM (vmRef, keyRef)
+    ReqSshKeyAttach !Ref !Ref
+  | -- | Detach SSH key from VM (vmRef, keyRef)
+    ReqSshKeyDetach !Ref !Ref
+  | -- | List SSH keys for VM (vmRef)
+    ReqSshKeyListForVm !Ref
   | -- | Template operations
     -- | Create template from YAML (yamlContent)
     ReqTemplateCreate !Text
-  | -- | Delete template (templateId)
-    ReqTemplateDelete !Int64
+  | -- | Delete template (templateRef)
+    ReqTemplateDelete !Ref
   | -- | List all templates
     ReqTemplateList
-  | -- | Show template details (templateId)
-    ReqTemplateShow !Int64
-  | -- | Instantiate template (templateId, newVmName)
-    ReqTemplateInstantiate !Int64 !Text
-  | -- | Edit VM properties (vmId, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
+  | -- | Show template details (templateRef)
+    ReqTemplateShow !Ref
+  | -- | Instantiate template (templateRef, newVmName)
+    ReqTemplateInstantiate !Ref !Text
+  | -- | Edit VM properties (vmRef, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
     -- Each Maybe field is updated only if Just.
-    ReqVmEdit !Int64 !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
-  | -- | Generate/regenerate cloud-init ISO for a VM (vmId)
-    ReqVmCloudInit !Int64
+    ReqVmEdit !Ref !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
+  | -- | Generate/regenerate cloud-init ISO for a VM (vmRef)
+    ReqVmCloudInit !Ref
   | -- | Virtual network operations
     -- | Create network (name, subnet)
     ReqNetworkCreate !Text !Text
-  | -- | Delete network (networkId)
-    ReqNetworkDelete !Int64
-  | -- | Start network (networkId)
-    ReqNetworkStart !Int64
-  | -- | Stop network (networkId, force)
-    ReqNetworkStop !Int64 !Bool
+  | -- | Delete network (networkRef)
+    ReqNetworkDelete !Ref
+  | -- | Start network (networkRef)
+    ReqNetworkStart !Ref
+  | -- | Stop network (networkRef, force)
+    ReqNetworkStop !Ref !Bool
   | -- | List all networks
     ReqNetworkList
-  | -- | Show network details (networkId)
-    ReqNetworkShow !Int64
-  | -- | Guest command execution (vmId, command)
-    ReqGuestExec !Int64 !Text
+  | -- | Show network details (networkRef)
+    ReqNetworkShow !Ref
+  | -- | Guest command execution (vmRef, command)
+    ReqGuestExec !Ref !Text
   | -- | Import disk image from URL (name, url, optionalFormat)
     ReqDiskImportUrl !Text !Text !(Maybe Text)
   | -- | Apply environment from YAML config (yamlContent, skipExisting)
@@ -199,6 +208,7 @@ data VmInfo = VmInfo
 data DriveInfo = DriveInfo
   { diId :: !Int64
   , diDiskImageId :: !Int64
+  , diDiskImageName :: !Text
   , diInterface :: !DriveInterface
   , diFilePath :: !Text
   , diFormat :: !DriveFormat
@@ -258,8 +268,8 @@ data DiskImageInfo = DiskImageInfo
   , diiFormat :: !DriveFormat
   , diiSizeMb :: !(Maybe Int)
   , diiCreatedAt :: !UTCTime
-  , diiAttachedTo :: ![Int64]
-  -- ^ VM IDs this disk is attached to
+  , diiAttachedTo :: ![(Int64, Text)]
+  -- ^ VM (ID, name) pairs this disk is attached to
   , diiBackingImageId :: !(Maybe Int64)
   -- ^ Backing image ID (if this is an overlay)
   , diiBackingImageName :: !(Maybe Text)
@@ -294,8 +304,8 @@ data SshKeyInfo = SshKeyInfo
   , skiName :: !Text
   , skiPublicKey :: !Text
   , skiCreatedAt :: !UTCTime
-  , skiAttachedVms :: ![Int64]
-  -- ^ VMs this key is attached to
+  , skiAttachedVms :: ![(Int64, Text)]
+  -- ^ VM (ID, name) pairs this key is attached to
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -413,6 +423,7 @@ instance ToJSON DriveInfo where
     object
       [ "id" .= diId d
       , "diskImageId" .= diDiskImageId d
+      , "diskImageName" .= diDiskImageName d
       , "interface" .= diInterface d
       , "filePath" .= diFilePath d
       , "format" .= diFormat d
@@ -630,10 +641,10 @@ data Response
     RespFormatNotSupported !Text
   | -- | VM must be stopped for this operation
     RespVmMustBeStopped
-  | -- | Disk is still attached to VMs
-    RespDiskInUse ![Int64]
-  | -- | Disk is used as backing image for overlays
-    RespDiskHasOverlays ![Int64]
+  | -- | Disk is still attached to VMs (ID, name pairs)
+    RespDiskInUse ![(Int64, Text)]
+  | -- | Disk is used as backing image for overlays (ID, name pairs)
+    RespDiskHasOverlays ![(Int64, Text)]
   | -- | Shared directory responses
     -- | List of shared directories
     RespSharedDirList ![SharedDirInfo]
@@ -661,8 +672,8 @@ data Response
     RespSshKeyOk
   | -- | SSH key not found
     RespSshKeyNotFound
-  | -- | SSH key is in use by VMs
-    RespSshKeyInUse ![Int64]
+  | -- | SSH key is in use by VMs (ID, name pairs)
+    RespSshKeyInUse ![(Int64, Text)]
   | -- | Template responses
     -- | List of templates
     RespTemplateList ![TemplateVmInfo]

@@ -457,6 +457,7 @@ Snapshot
     name Text
     createdAt UTCTime
     sizeMb Int Maybe
+    UniqueSnapshot diskImageId name
     deriving Show Eq Generic
 
 Drive
@@ -467,6 +468,7 @@ Drive
     readOnly Bool default=false
     cacheType CacheType
     discard Bool default=false
+    UniqueDrive vmId diskImageId
     deriving Show Eq Generic
 
 Network
@@ -494,6 +496,7 @@ SharedDir
     cache SharedDirCache
     readOnly Bool default=false
     pid Int Maybe
+    UniqueSharedDirTag vmId tag
     deriving Show Eq Generic
 
 SshKey

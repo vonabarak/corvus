@@ -156,9 +156,9 @@ listVms conn = do
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 -- | Show VM details
-showVm :: Connection -> Int64 -> IO (Either ConnectionError (Maybe VmDetails))
-showVm conn vmId = do
-  result <- sendRequest conn (ReqShowVm vmId)
+showVm :: Connection -> Text -> IO (Either ConnectionError (Maybe VmDetails))
+showVm conn vmRef = do
+  result <- sendRequest conn (ReqShowVm (Ref vmRef))
   case result of
     Left err -> pure $ Left err
     Right (RespVmDetails details) -> pure $ Right (Just details)
@@ -195,9 +195,9 @@ vmCreate conn name cpuCount ramMb description headless guestAgent cloudInit = do
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 -- | Delete a VM
-vmDelete :: Connection -> Int64 -> IO (Either ConnectionError VmDeleteResult)
-vmDelete conn vmId = do
-  result <- sendRequest conn (ReqVmDelete vmId)
+vmDelete :: Connection -> Text -> IO (Either ConnectionError VmDeleteResult)
+vmDelete conn vmRef = do
+  result <- sendRequest conn (ReqVmDelete (Ref vmRef))
   case result of
     Left err -> pure $ Left err
     Right RespVmDeleted -> pure $ Right VmDeleted
@@ -217,20 +217,20 @@ handleVmActionResponse result = case result of
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Start a VM (stopped/paused -> running)
-vmStart :: Connection -> Int64 -> IO (Either ConnectionError VmActionResult)
-vmStart conn vmId = handleVmActionResponse <$> sendRequest conn (ReqVmStart vmId)
+vmStart :: Connection -> Text -> IO (Either ConnectionError VmActionResult)
+vmStart conn vmRef = handleVmActionResponse <$> sendRequest conn (ReqVmStart (Ref vmRef))
 
 -- | Stop a VM (running -> stopped)
-vmStop :: Connection -> Int64 -> IO (Either ConnectionError VmActionResult)
-vmStop conn vmId = handleVmActionResponse <$> sendRequest conn (ReqVmStop vmId)
+vmStop :: Connection -> Text -> IO (Either ConnectionError VmActionResult)
+vmStop conn vmRef = handleVmActionResponse <$> sendRequest conn (ReqVmStop (Ref vmRef))
 
 -- | Pause a VM (running -> paused)
-vmPause :: Connection -> Int64 -> IO (Either ConnectionError VmActionResult)
-vmPause conn vmId = handleVmActionResponse <$> sendRequest conn (ReqVmPause vmId)
+vmPause :: Connection -> Text -> IO (Either ConnectionError VmActionResult)
+vmPause conn vmRef = handleVmActionResponse <$> sendRequest conn (ReqVmPause (Ref vmRef))
 
 -- | Reset a VM (any -> stopped)
-vmReset :: Connection -> Int64 -> IO (Either ConnectionError VmActionResult)
-vmReset conn vmId = handleVmActionResponse <$> sendRequest conn (ReqVmReset vmId)
+vmReset :: Connection -> Text -> IO (Either ConnectionError VmActionResult)
+vmReset conn vmRef = handleVmActionResponse <$> sendRequest conn (ReqVmReset (Ref vmRef))
 
 --------------------------------------------------------------------------------
 -- VM Edit
@@ -247,7 +247,7 @@ data VmEditResult
 -- | Edit VM properties. Only provided (Just) fields are updated.
 vmEdit
   :: Connection
-  -> Int64
+  -> Text
   -> Maybe Int
   -> Maybe Int
   -> Maybe Text
@@ -255,8 +255,8 @@ vmEdit
   -> Maybe Bool
   -> Maybe Bool
   -> IO (Either ConnectionError VmEditResult)
-vmEdit conn vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
-  result <- sendRequest conn (ReqVmEdit vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit)
+vmEdit conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
+  result <- sendRequest conn (ReqVmEdit (Ref vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit)
   case result of
     Left err -> pure $ Left err
     Right RespVmEdited -> pure $ Right VmEdited
@@ -266,9 +266,9 @@ vmEdit conn vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 -- | Generate/regenerate cloud-init ISO for a VM
-vmCloudInit :: Connection -> Int64 -> IO (Either ConnectionError VmEditResult)
-vmCloudInit conn vmId = do
-  result <- sendRequest conn (ReqVmCloudInit vmId)
+vmCloudInit :: Connection -> Text -> IO (Either ConnectionError VmEditResult)
+vmCloudInit conn vmRef = do
+  result <- sendRequest conn (ReqVmCloudInit (Ref vmRef))
   case result of
     Left err -> pure $ Left err
     Right RespVmEdited -> pure $ Right VmEdited
@@ -297,9 +297,9 @@ data DiskResult
   | -- | Drive not found
     DriveNotFound
   | -- | Disk is in use by VMs
-    DiskInUse ![Int64]
+    DiskInUse ![(Int64, Text)]
   | -- | Disk has overlay images depending on it
-    DiskHasOverlays ![Int64]
+    DiskHasOverlays ![(Int64, Text)]
   | -- | VM must be stopped
     VmMustBeStopped
   | -- | Format not supported for operation
@@ -335,9 +335,9 @@ diskCreate conn name format sizeMb mPath =
   handleDiskResponse <$> sendRequest conn (ReqDiskCreate name format sizeMb mPath)
 
 -- | Create an overlay disk image backed by an existing disk
-diskCreateOverlay :: Connection -> Text -> Int64 -> Maybe Text -> IO (Either ConnectionError DiskResult)
-diskCreateOverlay conn name baseDiskId optDirPath =
-  handleDiskResponse <$> sendRequest conn (ReqDiskCreateOverlay name baseDiskId optDirPath)
+diskCreateOverlay :: Connection -> Text -> Text -> Maybe Text -> IO (Either ConnectionError DiskResult)
+diskCreateOverlay conn name baseDiskRef optDirPath =
+  handleDiskResponse <$> sendRequest conn (ReqDiskCreateOverlay name (Ref baseDiskRef) optDirPath)
 
 -- | Register an existing disk image file
 diskRegister
@@ -356,45 +356,45 @@ diskImportUrl conn name url mFormat =
   handleDiskResponse <$> sendRequest conn (ReqDiskImportUrl name url mFormat)
 
 -- | Delete a disk image
-diskDelete :: Connection -> Int64 -> IO (Either ConnectionError DiskResult)
-diskDelete conn diskId = handleDiskResponse <$> sendRequest conn (ReqDiskDelete diskId)
+diskDelete :: Connection -> Text -> IO (Either ConnectionError DiskResult)
+diskDelete conn diskRef = handleDiskResponse <$> sendRequest conn (ReqDiskDelete (Ref diskRef))
 
 -- | Resize a disk image
-diskResize :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError DiskResult)
-diskResize conn diskId newSizeMb =
-  handleDiskResponse <$> sendRequest conn (ReqDiskResize diskId newSizeMb)
+diskResize :: Connection -> Text -> Int64 -> IO (Either ConnectionError DiskResult)
+diskResize conn diskRef newSizeMb =
+  handleDiskResponse <$> sendRequest conn (ReqDiskResize (Ref diskRef) newSizeMb)
 
 -- | List all disk images
 diskList :: Connection -> IO (Either ConnectionError DiskResult)
 diskList conn = handleDiskResponse <$> sendRequest conn ReqDiskList
 
 -- | Show disk image details
-diskShow :: Connection -> Int64 -> IO (Either ConnectionError DiskResult)
-diskShow conn diskId = handleDiskResponse <$> sendRequest conn (ReqDiskShow diskId)
+diskShow :: Connection -> Text -> IO (Either ConnectionError DiskResult)
+diskShow conn diskRef = handleDiskResponse <$> sendRequest conn (ReqDiskShow (Ref diskRef))
 
 -- | Clone a disk image
-diskClone :: Connection -> Text -> Int64 -> Maybe Text -> IO (Either ConnectionError DiskResult)
-diskClone conn name baseDiskId optionalPath =
-  handleDiskResponse <$> sendRequest conn (ReqDiskClone name baseDiskId optionalPath)
+diskClone :: Connection -> Text -> Text -> Maybe Text -> IO (Either ConnectionError DiskResult)
+diskClone conn name baseDiskRef optionalPath =
+  handleDiskResponse <$> sendRequest conn (ReqDiskClone name (Ref baseDiskRef) optionalPath)
 
 -- | Attach a disk to a VM
 diskAttach
   :: Connection
-  -> Int64
-  -> Int64
+  -> Text
+  -> Text
   -> DriveInterface
   -> Maybe DriveMedia
   -> Bool
   -> Bool
   -> CacheType
   -> IO (Either ConnectionError DiskResult)
-diskAttach conn vmId diskId interface media readOnly discard cache =
-  handleDiskResponse <$> sendRequest conn (ReqDiskAttach vmId diskId interface media readOnly discard cache)
+diskAttach conn vmRef diskRef interface media readOnly discard cache =
+  handleDiskResponse <$> sendRequest conn (ReqDiskAttach (Ref vmRef) (Ref diskRef) interface media readOnly discard cache)
 
 -- | Detach a disk from a VM
-diskDetach :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError DiskResult)
-diskDetach conn vmId driveId =
-  handleDiskResponse <$> sendRequest conn (ReqDiskDetach vmId driveId)
+diskDetach :: Connection -> Text -> Text -> IO (Either ConnectionError DiskResult)
+diskDetach conn vmRef driveRef =
+  handleDiskResponse <$> sendRequest conn (ReqDiskDetach (Ref vmRef) (Ref driveRef))
 
 --------------------------------------------------------------------------------
 -- Snapshot Operations
@@ -435,29 +435,29 @@ handleSnapshotResponse result = case result of
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Create a snapshot
-snapshotCreate :: Connection -> Int64 -> Text -> IO (Either ConnectionError SnapshotResult)
-snapshotCreate conn diskId name =
-  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotCreate diskId name)
+snapshotCreate :: Connection -> Text -> Text -> IO (Either ConnectionError SnapshotResult)
+snapshotCreate conn diskRef name =
+  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotCreate (Ref diskRef) name)
 
 -- | Delete a snapshot
-snapshotDelete :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError SnapshotResult)
-snapshotDelete conn diskId snapshotId =
-  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotDelete diskId snapshotId)
+snapshotDelete :: Connection -> Text -> Text -> IO (Either ConnectionError SnapshotResult)
+snapshotDelete conn diskRef snapshotRef =
+  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotDelete (Ref diskRef) (Ref snapshotRef))
 
 -- | Rollback to a snapshot
-snapshotRollback :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError SnapshotResult)
-snapshotRollback conn diskId snapshotId =
-  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotRollback diskId snapshotId)
+snapshotRollback :: Connection -> Text -> Text -> IO (Either ConnectionError SnapshotResult)
+snapshotRollback conn diskRef snapshotRef =
+  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotRollback (Ref diskRef) (Ref snapshotRef))
 
 -- | Merge a snapshot
-snapshotMerge :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError SnapshotResult)
-snapshotMerge conn diskId snapshotId =
-  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotMerge diskId snapshotId)
+snapshotMerge :: Connection -> Text -> Text -> IO (Either ConnectionError SnapshotResult)
+snapshotMerge conn diskRef snapshotRef =
+  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotMerge (Ref diskRef) (Ref snapshotRef))
 
 -- | List snapshots for a disk
-snapshotList :: Connection -> Int64 -> IO (Either ConnectionError SnapshotResult)
-snapshotList conn diskId =
-  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotList diskId)
+snapshotList :: Connection -> Text -> IO (Either ConnectionError SnapshotResult)
+snapshotList conn diskRef =
+  handleSnapshotResponse <$> sendRequest conn (ReqSnapshotList (Ref diskRef))
 
 --------------------------------------------------------------------------------
 -- Shared Directory Operations
@@ -497,24 +497,24 @@ handleSharedDirResponse result = case result of
 -- | Add a shared directory to a VM
 sharedDirAdd
   :: Connection
-  -> Int64
+  -> Text
   -> Text
   -> Text
   -> SharedDirCache
   -> Bool
   -> IO (Either ConnectionError SharedDirResult)
-sharedDirAdd conn vmId path tag cache readOnly =
-  handleSharedDirResponse <$> sendRequest conn (ReqSharedDirAdd vmId path tag cache readOnly)
+sharedDirAdd conn vmRef path tag cache readOnly =
+  handleSharedDirResponse <$> sendRequest conn (ReqSharedDirAdd (Ref vmRef) path tag cache readOnly)
 
 -- | Remove a shared directory from a VM
-sharedDirRemove :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError SharedDirResult)
-sharedDirRemove conn vmId sharedDirId =
-  handleSharedDirResponse <$> sendRequest conn (ReqSharedDirRemove vmId sharedDirId)
+sharedDirRemove :: Connection -> Text -> Text -> IO (Either ConnectionError SharedDirResult)
+sharedDirRemove conn vmRef sharedDirRef =
+  handleSharedDirResponse <$> sendRequest conn (ReqSharedDirRemove (Ref vmRef) (Ref sharedDirRef))
 
 -- | List shared directories for a VM
-sharedDirList :: Connection -> Int64 -> IO (Either ConnectionError SharedDirResult)
-sharedDirList conn vmId =
-  handleSharedDirResponse <$> sendRequest conn (ReqSharedDirList vmId)
+sharedDirList :: Connection -> Text -> IO (Either ConnectionError SharedDirResult)
+sharedDirList conn vmRef =
+  handleSharedDirResponse <$> sendRequest conn (ReqSharedDirList (Ref vmRef))
 
 --------------------------------------------------------------------------------
 -- Network Interface Operations
@@ -551,24 +551,24 @@ handleNetIfResponse result = case result of
 -- | Add a network interface to a VM
 netIfAdd
   :: Connection
-  -> Int64
+  -> Text
   -> NetInterfaceType
   -> Text
   -> Maybe Text
-  -> Maybe Int64
+  -> Maybe Text
   -> IO (Either ConnectionError NetIfResult)
-netIfAdd conn vmId ifaceType hostDevice macAddress mNetworkId =
-  handleNetIfResponse <$> sendRequest conn (ReqNetIfAdd vmId ifaceType hostDevice macAddress mNetworkId)
+netIfAdd conn vmRef ifaceType hostDevice macAddress mNetworkRef =
+  handleNetIfResponse <$> sendRequest conn (ReqNetIfAdd (Ref vmRef) ifaceType hostDevice macAddress (Ref <$> mNetworkRef))
 
 -- | Remove a network interface from a VM
-netIfRemove :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError NetIfResult)
-netIfRemove conn vmId netIfId =
-  handleNetIfResponse <$> sendRequest conn (ReqNetIfRemove vmId netIfId)
+netIfRemove :: Connection -> Text -> Int64 -> IO (Either ConnectionError NetIfResult)
+netIfRemove conn vmRef netIfId =
+  handleNetIfResponse <$> sendRequest conn (ReqNetIfRemove (Ref vmRef) netIfId)
 
 -- | List network interfaces for a VM
-netIfList :: Connection -> Int64 -> IO (Either ConnectionError NetIfResult)
-netIfList conn vmId =
-  handleNetIfResponse <$> sendRequest conn (ReqNetIfList vmId)
+netIfList :: Connection -> Text -> IO (Either ConnectionError NetIfResult)
+netIfList conn vmRef =
+  handleNetIfResponse <$> sendRequest conn (ReqNetIfList (Ref vmRef))
 
 --------------------------------------------------------------------------------
 -- SSH Key Operations
@@ -585,7 +585,7 @@ data SshKeyResult
   | -- | SSH key not found
     SshKeyNotFound
   | -- | SSH key is in use by VMs
-    SshKeyInUse ![Int64]
+    SshKeyInUse ![(Int64, Text)]
   | -- | VM not found
     SshKeyVmNotFound
   | -- | Error with message
@@ -611,9 +611,9 @@ sshKeyCreate conn name publicKey =
   handleSshKeyResponse <$> sendRequest conn (ReqSshKeyCreate name publicKey)
 
 -- | Delete an SSH key
-sshKeyDelete :: Connection -> Int64 -> IO (Either ConnectionError SshKeyResult)
-sshKeyDelete conn keyId =
-  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyDelete keyId)
+sshKeyDelete :: Connection -> Text -> IO (Either ConnectionError SshKeyResult)
+sshKeyDelete conn keyRef =
+  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyDelete (Ref keyRef))
 
 -- | List all SSH keys
 sshKeyList :: Connection -> IO (Either ConnectionError SshKeyResult)
@@ -621,19 +621,19 @@ sshKeyList conn =
   handleSshKeyResponse <$> sendRequest conn ReqSshKeyList
 
 -- | Attach an SSH key to a VM
-sshKeyAttach :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError SshKeyResult)
-sshKeyAttach conn vmId keyId =
-  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyAttach vmId keyId)
+sshKeyAttach :: Connection -> Text -> Text -> IO (Either ConnectionError SshKeyResult)
+sshKeyAttach conn vmRef keyRef =
+  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyAttach (Ref vmRef) (Ref keyRef))
 
 -- | Detach an SSH key from a VM
-sshKeyDetach :: Connection -> Int64 -> Int64 -> IO (Either ConnectionError SshKeyResult)
-sshKeyDetach conn vmId keyId =
-  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyDetach vmId keyId)
+sshKeyDetach :: Connection -> Text -> Text -> IO (Either ConnectionError SshKeyResult)
+sshKeyDetach conn vmRef keyRef =
+  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyDetach (Ref vmRef) (Ref keyRef))
 
 -- | List SSH keys for a VM
-sshKeyListForVm :: Connection -> Int64 -> IO (Either ConnectionError SshKeyResult)
-sshKeyListForVm conn vmId =
-  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyListForVm vmId)
+sshKeyListForVm :: Connection -> Text -> IO (Either ConnectionError SshKeyResult)
+sshKeyListForVm conn vmRef =
+  handleSshKeyResponse <$> sendRequest conn (ReqSshKeyListForVm (Ref vmRef))
 
 --------------------------------------------------------------------------------
 -- Template Operations
@@ -676,9 +676,9 @@ templateCreate conn yaml =
   handleTemplateResponse <$> sendRequest conn (ReqTemplateCreate yaml)
 
 -- | Delete a template
-templateDelete :: Connection -> Int64 -> IO (Either ConnectionError TemplateResult)
-templateDelete conn tid =
-  handleTemplateResponse <$> sendRequest conn (ReqTemplateDelete tid)
+templateDelete :: Connection -> Text -> IO (Either ConnectionError TemplateResult)
+templateDelete conn templateRef =
+  handleTemplateResponse <$> sendRequest conn (ReqTemplateDelete (Ref templateRef))
 
 -- | List all templates
 templateList :: Connection -> IO (Either ConnectionError TemplateResult)
@@ -686,14 +686,14 @@ templateList conn =
   handleTemplateResponse <$> sendRequest conn ReqTemplateList
 
 -- | Show template details
-templateShow :: Connection -> Int64 -> IO (Either ConnectionError TemplateResult)
-templateShow conn tid =
-  handleTemplateResponse <$> sendRequest conn (ReqTemplateShow tid)
+templateShow :: Connection -> Text -> IO (Either ConnectionError TemplateResult)
+templateShow conn templateRef =
+  handleTemplateResponse <$> sendRequest conn (ReqTemplateShow (Ref templateRef))
 
 -- | Instantiate a template
-templateInstantiate :: Connection -> Int64 -> Text -> IO (Either ConnectionError TemplateResult)
-templateInstantiate conn tid newVmName =
-  handleTemplateResponse <$> sendRequest conn (ReqTemplateInstantiate tid newVmName)
+templateInstantiate :: Connection -> Text -> Text -> IO (Either ConnectionError TemplateResult)
+templateInstantiate conn templateRef newVmName =
+  handleTemplateResponse <$> sendRequest conn (ReqTemplateInstantiate (Ref templateRef) newVmName)
 
 --------------------------------------------------------------------------------
 -- Virtual Network Operations
@@ -749,19 +749,19 @@ networkCreate conn name subnet =
   handleNetworkResponse <$> sendRequest conn (ReqNetworkCreate name subnet)
 
 -- | Delete a virtual network
-networkDelete :: Connection -> Int64 -> IO (Either ConnectionError NetworkResult)
-networkDelete conn nwId =
-  handleNetworkResponse <$> sendRequest conn (ReqNetworkDelete nwId)
+networkDelete :: Connection -> Text -> IO (Either ConnectionError NetworkResult)
+networkDelete conn networkRef =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkDelete (Ref networkRef))
 
 -- | Start a virtual network
-networkStart :: Connection -> Int64 -> IO (Either ConnectionError NetworkResult)
-networkStart conn nwId =
-  handleNetworkResponse <$> sendRequest conn (ReqNetworkStart nwId)
+networkStart :: Connection -> Text -> IO (Either ConnectionError NetworkResult)
+networkStart conn networkRef =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkStart (Ref networkRef))
 
 -- | Stop a virtual network
-networkStop :: Connection -> Int64 -> Bool -> IO (Either ConnectionError NetworkResult)
-networkStop conn nwId force =
-  handleNetworkResponse <$> sendRequest conn (ReqNetworkStop nwId force)
+networkStop :: Connection -> Text -> Bool -> IO (Either ConnectionError NetworkResult)
+networkStop conn networkRef force =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkStop (Ref networkRef) force)
 
 -- | List all virtual networks
 networkList :: Connection -> IO (Either ConnectionError NetworkResult)
@@ -769,9 +769,9 @@ networkList conn =
   handleNetworkResponse <$> sendRequest conn ReqNetworkList
 
 -- | Show virtual network details
-networkShow :: Connection -> Int64 -> IO (Either ConnectionError NetworkResult)
-networkShow conn nwId =
-  handleNetworkResponse <$> sendRequest conn (ReqNetworkShow nwId)
+networkShow :: Connection -> Text -> IO (Either ConnectionError NetworkResult)
+networkShow conn networkRef =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkShow (Ref networkRef))
 
 --------------------------------------------------------------------------------
 -- Guest Execution
@@ -792,9 +792,9 @@ data GuestExecResult
   deriving (Eq, Show)
 
 -- | Execute a command inside a VM via guest agent
-vmExec :: Connection -> Int64 -> Text -> IO (Either ConnectionError GuestExecResult)
-vmExec conn vmId command = do
-  result <- sendRequest conn (ReqGuestExec vmId command)
+vmExec :: Connection -> Text -> Text -> IO (Either ConnectionError GuestExecResult)
+vmExec conn vmRef command = do
+  result <- sendRequest conn (ReqGuestExec (Ref vmRef) command)
   case result of
     Left err -> pure $ Left err
     Right (RespGuestExecResult exitcode stdout stderr) -> pure $ Right $ GuestExecOk exitcode stdout stderr

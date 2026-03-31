@@ -70,20 +70,20 @@ where
 
 import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel)
 import Control.Monad.Reader (asks)
 import Corvus.Client.Connection (Connection (..), ConnectionError)
 import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
 import qualified Corvus.Client.Rpc as Rpc
 import Corvus.Handlers (handleRequest)
-import Corvus.Model (CacheType (..), DiskImage, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDir, SharedDirCache, Snapshot, VmStatus)
-import Corvus.Protocol (Request (..), Response (..), StatusInfo, VmDetails (..), VmInfo (..))
+import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache)
+import Corvus.Protocol (Request (..), Response (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Types (ServerState (..))
 import Data.IORef (writeIORef)
 import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time.Clock (getCurrentTime)
 import Database.Persist.Postgresql (SqlBackend)
 import Test.DSL.Core (TestM, getDbPool, getTempDir, setLastResponse)
@@ -155,6 +155,10 @@ executeRpc rpcCall = do
     Left err -> error $ "Direct RPC failed: " <> show err
     Right a -> pure a
 
+-- | Convert an Int64 database ID to a Text ref for RPC calls
+toRef :: Int64 -> Text
+toRef = T.pack . show
+
 --------------------------------------------------------------------------------
 -- VM Commands
 --------------------------------------------------------------------------------
@@ -165,23 +169,23 @@ vmList = executeRpc Rpc.listVms
 
 -- | Show VM details
 vmShow :: Int64 -> TestM (Maybe VmDetails)
-vmShow vmId = executeRpc (`Rpc.showVm` vmId)
+vmShow vmId = executeRpc (`Rpc.showVm` toRef vmId)
 
 -- | Start a VM
 vmStart :: Int64 -> TestM VmActionResult
-vmStart vmId = executeRpc (`Rpc.vmStart` vmId)
+vmStart vmId = executeRpc (`Rpc.vmStart` toRef vmId)
 
 -- | Stop a VM
 vmStop :: Int64 -> TestM VmActionResult
-vmStop vmId = executeRpc (`Rpc.vmStop` vmId)
+vmStop vmId = executeRpc (`Rpc.vmStop` toRef vmId)
 
 -- | Pause a VM
 vmPause :: Int64 -> TestM VmActionResult
-vmPause vmId = executeRpc (`Rpc.vmPause` vmId)
+vmPause vmId = executeRpc (`Rpc.vmPause` toRef vmId)
 
 -- | Reset a VM
 vmReset :: Int64 -> TestM VmActionResult
-vmReset vmId = executeRpc (`Rpc.vmReset` vmId)
+vmReset vmId = executeRpc (`Rpc.vmReset` toRef vmId)
 
 --------------------------------------------------------------------------------
 -- Disk Commands
@@ -195,7 +199,7 @@ diskCreate name format sizeMb =
 -- | Create an overlay disk image backed by an existing disk
 diskCreateOverlay :: Text -> Int64 -> Maybe Text -> TestM DiskResult
 diskCreateOverlay name baseDiskId optDirPath =
-  executeRpc (\conn -> Rpc.diskCreateOverlay conn name baseDiskId optDirPath)
+  executeRpc (\conn -> Rpc.diskCreateOverlay conn name (toRef baseDiskId) optDirPath)
 
 -- | Register an existing disk image file
 diskRegister :: Text -> Text -> DriveFormat -> Maybe Int64 -> TestM DiskResult
@@ -205,16 +209,16 @@ diskRegister name filePath format sizeMb =
 -- | Clone a disk image
 diskClone :: Text -> Int64 -> Maybe Text -> TestM DiskResult
 diskClone name baseDiskId optionalPath =
-  executeRpc (\conn -> Rpc.diskClone conn name baseDiskId optionalPath)
+  executeRpc (\conn -> Rpc.diskClone conn name (toRef baseDiskId) optionalPath)
 
 -- | Delete a disk image
 diskDelete :: Int64 -> TestM DiskResult
-diskDelete diskId = executeRpc (`Rpc.diskDelete` diskId)
+diskDelete diskId = executeRpc (`Rpc.diskDelete` toRef diskId)
 
 -- | Resize a disk image
 diskResize :: Int64 -> Int64 -> TestM DiskResult
 diskResize diskId newSizeMb =
-  executeRpc (\conn -> Rpc.diskResize conn diskId newSizeMb)
+  executeRpc (\conn -> Rpc.diskResize conn (toRef diskId) newSizeMb)
 
 -- | List all disk images
 diskList :: TestM DiskResult
@@ -222,21 +226,21 @@ diskList = executeRpc Rpc.diskList
 
 -- | Show disk image details
 diskShow :: Int64 -> TestM DiskResult
-diskShow diskId = executeRpc (`Rpc.diskShow` diskId)
+diskShow diskId = executeRpc (`Rpc.diskShow` toRef diskId)
 
 -- | Attach a disk to a VM
 diskAttach :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM DiskResult
 diskAttach vmId diskId interface media =
-  executeRpc (\conn -> Rpc.diskAttach conn vmId diskId interface media False False CacheWriteback)
+  executeRpc (\conn -> Rpc.diskAttach conn (toRef vmId) (toRef diskId) interface media False False CacheWriteback)
 
 -- | Attach a disk to a VM in read-only mode
 diskAttachReadOnly :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM DiskResult
 diskAttachReadOnly vmId diskId interface media =
-  executeRpc (\conn -> Rpc.diskAttach conn vmId diskId interface media True False CacheNone)
+  executeRpc (\conn -> Rpc.diskAttach conn (toRef vmId) (toRef diskId) interface media True False CacheNone)
 
 -- | Detach a drive from a VM
 diskDetach :: Int64 -> Int64 -> TestM DiskResult
-diskDetach vmId driveId = executeRpc (\conn -> Rpc.diskDetach conn vmId driveId)
+diskDetach vmId driveId = executeRpc (\conn -> Rpc.diskDetach conn (toRef vmId) (toRef driveId))
 
 --------------------------------------------------------------------------------
 -- Snapshot Commands
@@ -245,26 +249,26 @@ diskDetach vmId driveId = executeRpc (\conn -> Rpc.diskDetach conn vmId driveId)
 -- | Create a snapshot
 snapshotCreate :: Int64 -> Text -> TestM SnapshotResult
 snapshotCreate diskId name =
-  executeRpc (\conn -> Rpc.snapshotCreate conn diskId name)
+  executeRpc (\conn -> Rpc.snapshotCreate conn (toRef diskId) name)
 
 -- | Delete a snapshot
 snapshotDelete :: Int64 -> Int64 -> TestM SnapshotResult
 snapshotDelete diskId snapshotId =
-  executeRpc (\conn -> Rpc.snapshotDelete conn diskId snapshotId)
+  executeRpc (\conn -> Rpc.snapshotDelete conn (toRef diskId) (toRef snapshotId))
 
 -- | Rollback to a snapshot
 snapshotRollback :: Int64 -> Int64 -> TestM SnapshotResult
 snapshotRollback diskId snapshotId =
-  executeRpc (\conn -> Rpc.snapshotRollback conn diskId snapshotId)
+  executeRpc (\conn -> Rpc.snapshotRollback conn (toRef diskId) (toRef snapshotId))
 
 -- | Merge a snapshot
 snapshotMerge :: Int64 -> Int64 -> TestM SnapshotResult
 snapshotMerge diskId snapshotId =
-  executeRpc (\conn -> Rpc.snapshotMerge conn diskId snapshotId)
+  executeRpc (\conn -> Rpc.snapshotMerge conn (toRef diskId) (toRef snapshotId))
 
 -- | List snapshots for a disk
 snapshotList :: Int64 -> TestM SnapshotResult
-snapshotList diskId = executeRpc (`Rpc.snapshotList` diskId)
+snapshotList diskId = executeRpc (`Rpc.snapshotList` toRef diskId)
 
 --------------------------------------------------------------------------------
 -- Shared Directory Commands
@@ -273,16 +277,16 @@ snapshotList diskId = executeRpc (`Rpc.snapshotList` diskId)
 -- | Add a shared directory to a VM
 whenSharedDirAdd :: Int64 -> Text -> Text -> SharedDirCache -> Bool -> TestM SharedDirResult
 whenSharedDirAdd vmId path tag cache readOnly =
-  executeRpc (\conn -> Rpc.sharedDirAdd conn vmId path tag cache readOnly)
+  executeRpc (\conn -> Rpc.sharedDirAdd conn (toRef vmId) path tag cache readOnly)
 
 -- | Remove a shared directory from a VM
 whenSharedDirRemove :: Int64 -> Int64 -> TestM SharedDirResult
 whenSharedDirRemove vmId sharedDirId =
-  executeRpc (\conn -> Rpc.sharedDirRemove conn vmId sharedDirId)
+  executeRpc (\conn -> Rpc.sharedDirRemove conn (toRef vmId) (toRef sharedDirId))
 
 -- | List shared directories for a VM
 whenSharedDirList :: Int64 -> TestM SharedDirResult
-whenSharedDirList vmId = executeRpc (`Rpc.sharedDirList` vmId)
+whenSharedDirList vmId = executeRpc (`Rpc.sharedDirList` toRef vmId)
 
 --------------------------------------------------------------------------------
 -- Network Interface Commands
@@ -291,16 +295,16 @@ whenSharedDirList vmId = executeRpc (`Rpc.sharedDirList` vmId)
 -- | Add a network interface to a VM
 whenNetIfAdd :: Int64 -> NetInterfaceType -> Text -> Maybe Text -> TestM NetIfResult
 whenNetIfAdd vmId ifaceType hostDevice mac =
-  executeRpc (\conn -> Rpc.netIfAdd conn vmId ifaceType hostDevice mac Nothing)
+  executeRpc (\conn -> Rpc.netIfAdd conn (toRef vmId) ifaceType hostDevice mac Nothing)
 
 -- | Remove a network interface from a VM
 whenNetIfRemove :: Int64 -> Int64 -> TestM NetIfResult
 whenNetIfRemove vmId netIfId =
-  executeRpc (\conn -> Rpc.netIfRemove conn vmId netIfId)
+  executeRpc (\conn -> Rpc.netIfRemove conn (toRef vmId) netIfId)
 
 -- | List network interfaces for a VM
 whenNetIfList :: Int64 -> TestM NetIfResult
-whenNetIfList vmId = executeRpc (`Rpc.netIfList` vmId)
+whenNetIfList vmId = executeRpc (`Rpc.netIfList` toRef vmId)
 
 --------------------------------------------------------------------------------
 -- SSH Key Commands
@@ -313,7 +317,7 @@ whenSshKeyCreate name publicKey =
 
 -- | Delete an SSH key
 whenSshKeyDelete :: Int64 -> TestM SshKeyResult
-whenSshKeyDelete keyId = executeRpc (`Rpc.sshKeyDelete` keyId)
+whenSshKeyDelete keyId = executeRpc (`Rpc.sshKeyDelete` toRef keyId)
 
 -- | List all SSH keys
 whenSshKeyList :: TestM SshKeyResult
@@ -322,16 +326,16 @@ whenSshKeyList = executeRpc Rpc.sshKeyList
 -- | Attach an SSH key to a VM
 whenSshKeyAttach :: Int64 -> Int64 -> TestM SshKeyResult
 whenSshKeyAttach vmId keyId =
-  executeRpc (\conn -> Rpc.sshKeyAttach conn vmId keyId)
+  executeRpc (\conn -> Rpc.sshKeyAttach conn (toRef vmId) (toRef keyId))
 
 -- | Detach an SSH key from a VM
 whenSshKeyDetach :: Int64 -> Int64 -> TestM SshKeyResult
 whenSshKeyDetach vmId keyId =
-  executeRpc (\conn -> Rpc.sshKeyDetach conn vmId keyId)
+  executeRpc (\conn -> Rpc.sshKeyDetach conn (toRef vmId) (toRef keyId))
 
 -- | List SSH keys for a VM
 whenSshKeyListForVm :: Int64 -> TestM SshKeyResult
-whenSshKeyListForVm vmId = executeRpc (`Rpc.sshKeyListForVm` vmId)
+whenSshKeyListForVm vmId = executeRpc (`Rpc.sshKeyListForVm` toRef vmId)
 
 --------------------------------------------------------------------------------
 -- VM Edit Commands
@@ -340,7 +344,7 @@ whenSshKeyListForVm vmId = executeRpc (`Rpc.sshKeyListForVm` vmId)
 -- | Edit VM properties
 whenVmEdit :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> TestM VmEditResult
 whenVmEdit vmId mCpus mRam mDesc mHeadless =
-  executeRpc (\conn -> Rpc.vmEdit conn vmId mCpus mRam mDesc mHeadless Nothing Nothing)
+  executeRpc (\conn -> Rpc.vmEdit conn (toRef vmId) mCpus mRam mDesc mHeadless Nothing Nothing)
 
 --------------------------------------------------------------------------------
 -- VM Create/Delete Commands
@@ -353,7 +357,7 @@ whenVmCreate name cpuCount ramMb description =
 
 -- | Delete a VM
 whenVmDelete :: Int64 -> TestM VmDeleteResult
-whenVmDelete vmId = executeRpc (`Rpc.vmDelete` vmId)
+whenVmDelete vmId = executeRpc (`Rpc.vmDelete` toRef vmId)
 
 --------------------------------------------------------------------------------
 -- Core Commands

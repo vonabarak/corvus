@@ -25,6 +25,7 @@ module Corvus.Handlers.Disk
     -- * Attach/detach handlers
   , handleDiskAttach
   , handleDiskDetach
+  , handleDiskDetachByDisk
 
     -- * Helpers
   , sanitizeDiskName
@@ -49,6 +50,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
+import Corvus.Handlers.Resolve (resolveSnapshot, validateName)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -75,10 +77,13 @@ import System.FilePath (isRelative, takeDirectory, takeExtension, takeFileName, 
 -- | Sanitize a disk image name to prevent path traversal attacks.
 -- First removes dangerous characters (path separators, null bytes), then
 -- removes parent directory references to handle cases like ".\0." -> ".."
+-- Also rejects all-digit names to prevent ambiguity with numeric IDs.
 sanitizeDiskName :: Text -> Either Text Text
 sanitizeDiskName name
   | T.null sanitized = Left "Invalid disk name: name is empty after sanitization"
-  | otherwise = Right sanitized
+  | otherwise = case validateName "Disk image" sanitized of
+      Left err -> Left err
+      Right () -> Right sanitized
   where
     sanitized =
       T.replace ".." "" $
@@ -187,72 +192,78 @@ handleDiskRegister
   -> DriveFormat
   -> Maybe Int64
   -> IO Response
-handleDiskRegister state name filePath format mSizeMb = runServerLogging state $ do
-  logInfoN $ "Registering disk image: " <> name <> " at " <> filePath
+handleDiskRegister state name filePath format mSizeMb =
+  case validateName "Disk image" name of
+    Left err -> pure $ RespError err
+    Right () -> runServerLogging state $ do
+      logInfoN $ "Registering disk image: " <> name <> " at " <> filePath
 
-  -- Normalize path: strip base directory prefix if applicable
-  basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
-  let storedPath = makeRelativeToBase basePath (T.unpack filePath)
+      -- Normalize path: strip base directory prefix if applicable
+      basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+      let storedPath = makeRelativeToBase basePath (T.unpack filePath)
 
-  -- Store in database
-  now <- liftIO getCurrentTime
-  mExisting <-
-    liftIO $
-      runSqlPool
-        ( getBy (UniqueImagePath storedPath)
-        )
-        (ssDbPool state)
-
-  case mExisting of
-    Just (Entity diskId _) -> do
-      logInfoN $ "Disk image already registered with ID: " <> T.pack (show $ fromSqlKey diskId)
-      pure $ RespDiskCreated $ fromSqlKey diskId
-    Nothing -> do
-      result <-
+      -- Store in database
+      now <- liftIO getCurrentTime
+      mExisting <-
         liftIO $
-          try $
-            runSqlPool
-              ( insert
-                  DiskImage
-                    { diskImageName = name
-                    , diskImageFilePath = storedPath
-                    , diskImageFormat = format
-                    , diskImageSizeMb = fmap fromIntegral mSizeMb
-                    , diskImageCreatedAt = now
-                    , diskImageBackingImageId = Nothing
-                    }
-              )
-              (ssDbPool state)
-      case result of
-        Right diskId -> do
-          logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
+          runSqlPool
+            ( getBy (UniqueImagePath storedPath)
+            )
+            (ssDbPool state)
+
+      case mExisting of
+        Just (Entity diskId _) -> do
+          logInfoN $ "Disk image already registered with ID: " <> T.pack (show $ fromSqlKey diskId)
           pure $ RespDiskCreated $ fromSqlKey diskId
-        Left (_err :: SomeException) -> do
-          -- Race condition: another thread inserted first. Retry lookup.
-          mRetry <-
+        Nothing -> do
+          result <-
             liftIO $
-              runSqlPool (getBy (UniqueImagePath storedPath)) (ssDbPool state)
-          case mRetry of
-            Just (Entity diskId _) -> do
-              logInfoN $ "Disk image registered concurrently with ID: " <> T.pack (show $ fromSqlKey diskId)
+              try $
+                runSqlPool
+                  ( insert
+                      DiskImage
+                        { diskImageName = name
+                        , diskImageFilePath = storedPath
+                        , diskImageFormat = format
+                        , diskImageSizeMb = fmap fromIntegral mSizeMb
+                        , diskImageCreatedAt = now
+                        , diskImageBackingImageId = Nothing
+                        }
+                  )
+                  (ssDbPool state)
+          case result of
+            Right diskId -> do
+              logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
               pure $ RespDiskCreated $ fromSqlKey diskId
-            Nothing -> pure $ RespError $ "Failed to register disk image: " <> name
+            Left (_err :: SomeException) -> do
+              -- Race condition: another thread inserted first. Retry lookup.
+              mRetry <-
+                liftIO $
+                  runSqlPool (getBy (UniqueImagePath storedPath)) (ssDbPool state)
+              case mRetry of
+                Just (Entity diskId _) -> do
+                  logInfoN $ "Disk image registered concurrently with ID: " <> T.pack (show $ fromSqlKey diskId)
+                  pure $ RespDiskCreated $ fromSqlKey diskId
+                Nothing -> pure $ RespError $ "Failed to register disk image: " <> name
 
 -- | Import a disk image from an HTTP/HTTPS URL.
 -- Downloads the file to the base images directory, decompresses .xz if needed,
 -- and registers it in the database.
 handleDiskImportUrl :: ServerState -> Text -> Text -> Maybe Text -> IO Response
-handleDiskImportUrl state name url mFormatStr = runServerLogging state $ do
-  logInfoN $ "Importing disk image from URL: " <> name <> " <- " <> url
-  let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
-  result <- liftIO $ importDiskFromUrlIO state name url mExplicitFmt
-  case result of
-    Left err -> do
-      logWarnN $ "URL import failed: " <> err
-      pure $ RespError err
-    Right diskId -> do
-      logInfoN $ "Imported disk image with ID: " <> T.pack (show diskId)
-      pure $ RespDiskCreated diskId
+handleDiskImportUrl state name url mFormatStr =
+  case validateName "Disk image" name of
+    Left err -> pure $ RespError err
+    Right () -> runServerLogging state $ do
+      logInfoN $ "Importing disk image from URL: " <> name <> " <- " <> url
+      let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
+      result <- liftIO $ importDiskFromUrlIO state name url mExplicitFmt
+      case result of
+        Left err -> do
+          logWarnN $ "URL import failed: " <> err
+          pure $ RespError err
+        Right diskId -> do
+          logInfoN $ "Imported disk image with ID: " <> T.pack (show diskId)
+          pure $ RespDiskCreated diskId
 
 -- | Create a qcow2 overlay backed by an existing disk image
 handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe T.Text -> IO Response
@@ -462,51 +473,54 @@ handleDiskShow state diskId = do
 
 -- | Create a snapshot
 handleSnapshotCreate :: ServerState -> Int64 -> Text -> IO Response
-handleSnapshotCreate state diskId snapshotName = runServerLogging state $ do
-  logInfoN $ "Creating snapshot '" <> snapshotName <> "' for disk " <> T.pack (show diskId)
+handleSnapshotCreate state diskId snapshotName =
+  case validateName "Snapshot" snapshotName of
+    Left err -> pure $ RespError err
+    Right () -> runServerLogging state $ do
+      logInfoN $ "Creating snapshot '" <> snapshotName <> "' for disk " <> T.pack (show diskId)
 
-  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-  case mDisk of
-    Nothing -> pure RespDiskNotFound
-    Just disk -> do
-      -- Check format - only qcow2 supports snapshots
-      if diskImageFormat disk /= FormatQcow2
-        then do
-          logWarnN "Snapshot requested on non-qcow2 image"
-          pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
-        else do
-          -- Check if any attached VM is running or paused
-          runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
-          if not (null runningVms)
-            then pure RespVmMustBeStopped
+      mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+      case mDisk of
+        Nothing -> pure RespDiskNotFound
+        Just disk -> do
+          -- Check format - only qcow2 supports snapshots
+          if diskImageFormat disk /= FormatQcow2
+            then do
+              logWarnN "Snapshot requested on non-qcow2 image"
+              pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
             else do
-              filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-              result <- liftIO $ createSnapshot filePath snapshotName
-              case result of
-                ImageSuccess -> do
-                  now <- liftIO getCurrentTime
-                  snapshotId <-
-                    liftIO $
-                      runSqlPool
-                        ( insert
-                            Snapshot
-                              { snapshotDiskImageId = toSqlKey diskId
-                              , snapshotName = snapshotName
-                              , snapshotCreatedAt = now
-                              , snapshotSizeMb = Nothing
-                              }
-                        )
-                        (ssDbPool state)
-                  logInfoN $ "Created snapshot with ID: " <> T.pack (show $ fromSqlKey snapshotId)
-                  pure $ RespSnapshotCreated $ fromSqlKey snapshotId
-                ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
-                ImageError err -> pure $ RespError err
-                ImageNotFound -> pure RespDiskNotFound
+              -- Check if any attached VM is running or paused
+              runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
+              if not (null runningVms)
+                then pure RespVmMustBeStopped
+                else do
+                  filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                  result <- liftIO $ createSnapshot filePath snapshotName
+                  case result of
+                    ImageSuccess -> do
+                      now <- liftIO getCurrentTime
+                      snapshotId <-
+                        liftIO $
+                          runSqlPool
+                            ( insert
+                                Snapshot
+                                  { snapshotDiskImageId = toSqlKey diskId
+                                  , snapshotName = snapshotName
+                                  , snapshotCreatedAt = now
+                                  , snapshotSizeMb = Nothing
+                                  }
+                            )
+                            (ssDbPool state)
+                      logInfoN $ "Created snapshot with ID: " <> T.pack (show $ fromSqlKey snapshotId)
+                      pure $ RespSnapshotCreated $ fromSqlKey snapshotId
+                    ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
+                    ImageError err -> pure $ RespError err
+                    ImageNotFound -> pure RespDiskNotFound
 
 -- | Delete a snapshot
-handleSnapshotDelete :: ServerState -> Int64 -> Int64 -> IO Response
-handleSnapshotDelete state diskId snapshotId = runServerLogging state $ do
-  logInfoN $ "Deleting snapshot " <> T.pack (show snapshotId) <> " from disk " <> T.pack (show diskId)
+handleSnapshotDelete :: ServerState -> Int64 -> Ref -> IO Response
+handleSnapshotDelete state diskId snapRef = runServerLogging state $ do
+  logInfoN $ "Deleting snapshot '" <> unRef snapRef <> "' from disk " <> T.pack (show diskId)
 
   -- First check disk exists
   mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
@@ -522,15 +536,15 @@ handleSnapshotDelete state diskId snapshotId = runServerLogging state $ do
           if not (null runningVms)
             then pure RespVmMustBeStopped
             else do
-              -- Check snapshot exists
-              mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
-              case mSnapshot of
-                Nothing -> pure RespSnapshotNotFound
-                Just snapshot -> do
-                  -- Verify snapshot belongs to this disk
-                  if snapshotDiskImageId snapshot /= toSqlKey diskId
-                    then pure RespSnapshotNotFound
-                    else do
+              -- Resolve snapshot ref
+              mSnapId <- liftIO $ resolveSnapshot snapRef diskId (ssDbPool state)
+              case mSnapId of
+                Left _ -> pure RespSnapshotNotFound
+                Right snapshotId -> do
+                  mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
+                  case mSnapshot of
+                    Nothing -> pure RespSnapshotNotFound
+                    Just snapshot -> do
                       filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
                       result <- liftIO $ deleteSnapshot filePath (snapshotName snapshot)
                       case result of
@@ -543,33 +557,29 @@ handleSnapshotDelete state diskId snapshotId = runServerLogging state $ do
                         ImageNotFound -> pure RespDiskNotFound
 
 -- | Rollback to a snapshot (VM must be stopped)
-handleSnapshotRollback :: ServerState -> Int64 -> Int64 -> IO Response
-handleSnapshotRollback state diskId snapshotId = runServerLogging state $ do
-  logInfoN $ "Rolling back disk " <> T.pack (show diskId) <> " to snapshot " <> T.pack (show snapshotId)
+handleSnapshotRollback :: ServerState -> Int64 -> Ref -> IO Response
+handleSnapshotRollback state diskId snapRef = runServerLogging state $ do
+  logInfoN $ "Rolling back disk " <> T.pack (show diskId) <> " to snapshot '" <> unRef snapRef <> "'"
 
-  -- First check disk exists
   mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
   case mDisk of
     Nothing -> pure RespDiskNotFound
     Just disk -> do
-      -- Check format supports snapshots - only qcow2 supports snapshots
       if diskImageFormat disk /= FormatQcow2
         then pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
         else do
-          -- Check if any attached VM is running
           runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
           if not (null runningVms)
             then pure RespVmMustBeStopped
             else do
-              -- Check snapshot exists
-              mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
-              case mSnapshot of
-                Nothing -> pure RespSnapshotNotFound
-                Just snapshot -> do
-                  -- Verify snapshot belongs to this disk
-                  if snapshotDiskImageId snapshot /= toSqlKey diskId
-                    then pure RespSnapshotNotFound
-                    else do
+              mSnapId <- liftIO $ resolveSnapshot snapRef diskId (ssDbPool state)
+              case mSnapId of
+                Left _ -> pure RespSnapshotNotFound
+                Right snapshotId -> do
+                  mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
+                  case mSnapshot of
+                    Nothing -> pure RespSnapshotNotFound
+                    Just snapshot -> do
                       filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
                       result <- liftIO $ rollbackSnapshot filePath (snapshotName snapshot)
                       case result of
@@ -581,38 +591,33 @@ handleSnapshotRollback state diskId snapshotId = runServerLogging state $ do
                         ImageNotFound -> pure RespDiskNotFound
 
 -- | Merge a snapshot (VM must be stopped)
-handleSnapshotMerge :: ServerState -> Int64 -> Int64 -> IO Response
-handleSnapshotMerge state diskId snapshotId = runServerLogging state $ do
-  logInfoN $ "Merging snapshot " <> T.pack (show snapshotId) <> " for disk " <> T.pack (show diskId)
+handleSnapshotMerge :: ServerState -> Int64 -> Ref -> IO Response
+handleSnapshotMerge state diskId snapRef = runServerLogging state $ do
+  logInfoN $ "Merging snapshot '" <> unRef snapRef <> "' for disk " <> T.pack (show diskId)
 
-  -- First check disk exists
   mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
   case mDisk of
     Nothing -> pure RespDiskNotFound
     Just disk -> do
-      -- Check format supports snapshots - only qcow2 supports snapshots
       if diskImageFormat disk /= FormatQcow2
         then pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
         else do
-          -- Check if any attached VM is running
           runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
           if not (null runningVms)
             then pure RespVmMustBeStopped
             else do
-              -- Check snapshot exists
-              mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
-              case mSnapshot of
-                Nothing -> pure RespSnapshotNotFound
-                Just snapshot -> do
-                  -- Verify snapshot belongs to this disk
-                  if snapshotDiskImageId snapshot /= toSqlKey diskId
-                    then pure RespSnapshotNotFound
-                    else do
+              mSnapId <- liftIO $ resolveSnapshot snapRef diskId (ssDbPool state)
+              case mSnapId of
+                Left _ -> pure RespSnapshotNotFound
+                Right snapshotId -> do
+                  mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
+                  case mSnapshot of
+                    Nothing -> pure RespSnapshotNotFound
+                    Just snapshot -> do
                       filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
                       result <- liftIO $ mergeSnapshot filePath (snapshotName snapshot)
                       case result of
                         ImageSuccess -> do
-                          -- Remove snapshot from database after merge
                           liftIO $ runSqlPool (delete (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
                           logInfoN "Merge complete"
                           pure RespSnapshotOk
@@ -787,15 +792,76 @@ handleDiskDetach state vmId driveId = runServerLogging state $ do
                   logInfoN "Drive detached from database"
                   pure RespDiskOk
 
+-- | Detach a disk from a VM by disk image ID (looks up drive via UniqueDrive constraint)
+handleDiskDetachByDisk :: ServerState -> Int64 -> Int64 -> IO Response
+handleDiskDetachByDisk state vmId diskId = runServerLogging state $ do
+  logInfoN $
+    "Detaching disk image "
+      <> T.pack (show diskId)
+      <> " from VM "
+      <> T.pack (show vmId)
+
+  -- Look up drive by (vmId, diskImageId) unique constraint
+  mDrive <- liftIO $ runSqlPool (getBy (UniqueDrive (toSqlKey vmId) (toSqlKey diskId))) (ssDbPool state)
+  case mDrive of
+    Nothing -> pure RespDriveNotFound
+    Just (Entity driveKey drive) -> do
+      let driveId = fromSqlKey driveKey
+      -- Check VM status
+      mVm <- liftIO $ runSqlPool (get (driveVmId drive)) (ssDbPool state)
+      case mVm of
+        Nothing -> pure RespVmNotFound
+        Just vm -> do
+          -- If VM is running or paused, hot-unplug via QMP (both have live QEMU process)
+          if vmStatus vm == VmRunning || vmStatus vm == VmPaused
+            then do
+              logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-unplug"
+              let deviceId = "device-" <> T.pack (show driveId)
+                  nodeName = "drive-" <> T.pack (show driveId)
+
+              -- Remove device first
+              let qemuCfg = ssQemuConfig state
+              deviceResult <- liftIO $ qmpDeviceDel qemuCfg vmId deviceId
+              case deviceResult of
+                QmpSuccess -> do
+                  -- Remove block device
+                  blockResult <- liftIO $ qmpBlockdevDel qemuCfg vmId nodeName
+                  case blockResult of
+                    QmpSuccess -> do
+                      liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
+                      logInfoN "Hot-unplug successful"
+                      pure RespDiskOk
+                    QmpError err -> do
+                      logWarnN $ "Blockdev remove failed (device already removed): " <> err
+                      -- Still remove from DB since device is gone
+                      liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
+                      pure RespDiskOk
+                    QmpConnectionFailed err ->
+                      pure $ RespError $ "QMP connection failed: " <> err
+                QmpError err -> do
+                  logWarnN $ "Device remove failed: " <> err
+                  pure $ RespError $ "Device remove failed: " <> err
+                QmpConnectionFailed err ->
+                  pure $ RespError $ "QMP connection failed: " <> err
+            else do
+              -- Just remove from database
+              liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
+              logInfoN "Drive detached from database"
+              pure RespDiskOk
+
 --------------------------------------------------------------------------------
 -- Database Operations
 --------------------------------------------------------------------------------
 
--- | Get VMs that have this disk attached
-getAttachedVms :: Int64 -> SqlPersistT IO [Int64]
+-- | Get VMs that have this disk attached (ID + name pairs)
+getAttachedVms :: Int64 -> SqlPersistT IO [(Int64, T.Text)]
 getAttachedVms diskId = do
   drives <- selectList [M.DriveDiskImageId ==. toSqlKey diskId] []
-  pure $ map (fromSqlKey . driveVmId . entityVal) drives
+  let vmKeys = map (driveVmId . entityVal) drives
+  forM vmKeys $ \vmKey -> do
+    mVm <- get vmKey
+    let name = maybe "(deleted)" vmName mVm
+    pure (fromSqlKey vmKey, name)
 
 -- | Get running VMs that have this disk attached
 -- | Get VMs with active QEMU processes that have this disk attached
@@ -807,11 +873,11 @@ getRunningAttachedVms diskId = do
   activeVms <- selectList [M.VmId <-. vmKeys, M.VmStatus <-. [VmRunning, VmPaused]] []
   pure $ map (fromSqlKey . entityKey) activeVms
 
--- | Get overlay disk IDs that reference this disk as a backing image
-getOverlayIds :: Int64 -> SqlPersistT IO [Int64]
+-- | Get overlay disk (ID, name) pairs that reference this disk as a backing image
+getOverlayIds :: Int64 -> SqlPersistT IO [(Int64, T.Text)]
 getOverlayIds diskId = do
   overlays <- selectList [M.DiskImageBackingImageId ==. Just (toSqlKey diskId)] []
-  pure $ map (fromSqlKey . entityKey) overlays
+  pure $ map (\(Entity key d) -> (fromSqlKey key, diskImageName d)) overlays
 
 -- | Delete disk and its snapshots
 deleteDiskAndSnapshots :: Int64 -> SqlPersistT IO ()

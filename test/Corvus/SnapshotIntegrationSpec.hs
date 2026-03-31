@@ -41,7 +41,7 @@ spec = withTestDb $ do
     it "can merge snapshot to consolidate changes" $ \env -> do
       testSnapshotMerge env
 
-    it "allows duplicate snapshot names" $ \env -> do
+    it "rejects duplicate snapshot names on the same disk" $ \env -> do
       testSnapshotNameDuplicates env
 
     it "rejects snapshot operations on running VM" $ \env -> do
@@ -199,22 +199,25 @@ testSnapshotNameDuplicates env = do
 
     stopTestVmAndWait daemon vmId 30
 
+    -- First snapshot with this name succeeds
     snap1 <- createSnapshot daemon diskId "same-name"
-    snap2 <- createSnapshot daemon diskId "same-name"
-    snap3 <- createSnapshot daemon diskId "same-name"
+    snap1 `shouldSatisfy` (> 0)
 
-    snap1 `shouldNotBe` snap2
-    snap2 `shouldNotBe` snap3
-    snap1 `shouldNotBe` snap3
+    -- Second snapshot with same name on same disk should fail
+    dupResult <- tryCreateSnapshot daemon diskId "same-name"
+    case dupResult of
+      SnapshotError _ -> pure () -- expected: unique constraint violation
+      other -> fail $ "Expected error for duplicate name, got: " <> show other
 
+    -- Only one snapshot should exist
     snapshots <- listSnapshots daemon diskId
     let sameNameSnaps = filter (\s -> sniName s == "same-name") snapshots
-    length sameNameSnaps `shouldBe` 3
+    length sameNameSnaps `shouldBe` 1
 
-    let ids = sort $ map sniId sameNameSnaps
-    ids `shouldBe` sort [snap1, snap2, snap3]
+    -- Different name on same disk works
+    snap2 <- createSnapshot daemon diskId "different-name"
+    snap2 `shouldNotBe` snap1
 
-    deleteSnapshot daemon diskId snap3
     deleteSnapshot daemon diskId snap2
     deleteSnapshot daemon diskId snap1
 
@@ -283,7 +286,7 @@ testConcurrentSnapshotOperations env = do
 createSnapshot :: TestDaemon -> Int64 -> T.Text -> IO Int64
 createSnapshot daemon diskId name = do
   result <- withDaemonConnection daemon $ \conn ->
-    snapshotCreate conn diskId name
+    snapshotCreate conn (T.pack (show diskId)) name
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
@@ -294,7 +297,7 @@ createSnapshot daemon diskId name = do
 rollbackSnapshot :: TestDaemon -> Int64 -> Int64 -> IO ()
 rollbackSnapshot daemon diskId snapshotId = do
   result <- withDaemonConnection daemon $ \conn ->
-    snapshotRollback conn diskId snapshotId
+    snapshotRollback conn (T.pack (show diskId)) (T.pack (show snapshotId))
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
@@ -305,7 +308,7 @@ rollbackSnapshot daemon diskId snapshotId = do
 deleteSnapshot :: TestDaemon -> Int64 -> Int64 -> IO ()
 deleteSnapshot daemon diskId snapshotId = do
   result <- withDaemonConnection daemon $ \conn ->
-    snapshotDelete conn diskId snapshotId
+    snapshotDelete conn (T.pack (show diskId)) (T.pack (show snapshotId))
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
@@ -317,7 +320,7 @@ deleteSnapshot daemon diskId snapshotId = do
 mergeSnapshot :: TestDaemon -> Int64 -> Int64 -> IO ()
 mergeSnapshot daemon diskId snapshotId = do
   result <- withDaemonConnection daemon $ \conn ->
-    snapshotMerge conn diskId snapshotId
+    snapshotMerge conn (T.pack (show diskId)) (T.pack (show snapshotId))
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
@@ -328,7 +331,7 @@ mergeSnapshot daemon diskId snapshotId = do
 listSnapshots :: TestDaemon -> Int64 -> IO [SnapshotInfo]
 listSnapshots daemon diskId = do
   result <- withDaemonConnection daemon $ \conn ->
-    snapshotList conn diskId
+    snapshotList conn (T.pack (show diskId))
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
@@ -339,7 +342,7 @@ listSnapshots daemon diskId = do
 tryCreateSnapshot :: TestDaemon -> Int64 -> T.Text -> IO SnapshotResult
 tryCreateSnapshot daemon diskId name = do
   result <- withDaemonConnection daemon $ \conn ->
-    snapshotCreate conn diskId name
+    snapshotCreate conn (T.pack (show diskId)) name
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
@@ -349,7 +352,7 @@ tryCreateSnapshot daemon diskId name = do
 tryRollbackSnapshot :: TestDaemon -> Int64 -> Int64 -> IO SnapshotResult
 tryRollbackSnapshot daemon diskId snapshotId = do
   result <- withDaemonConnection daemon $ \conn ->
-    snapshotRollback conn diskId snapshotId
+    snapshotRollback conn (T.pack (show diskId)) (T.pack (show snapshotId))
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err
@@ -359,7 +362,7 @@ tryRollbackSnapshot daemon diskId snapshotId = do
 tryMergeSnapshot :: TestDaemon -> Int64 -> Int64 -> IO SnapshotResult
 tryMergeSnapshot daemon diskId snapshotId = do
   result <- withDaemonConnection daemon $ \conn ->
-    snapshotMerge conn diskId snapshotId
+    snapshotMerge conn (T.pack (show diskId)) (T.pack (show snapshotId))
   case result of
     Left err -> fail $ "Connection error: " <> show err
     Right (Left err) -> fail $ "RPC error: " <> show err

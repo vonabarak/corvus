@@ -14,6 +14,7 @@ where
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model (Network (..), NetworkInterface (..), Vm (..), VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -34,27 +35,30 @@ import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 
 -- | Create a new virtual network
 handleNetworkCreate :: ServerState -> Text -> Text -> IO Response
-handleNetworkCreate state name subnet = do
-  -- Validate subnet if provided
-  let validatedSubnet
-        | T.null subnet = Right ""
-        | otherwise = validateSubnet subnet
-  case validatedSubnet of
-    Left err -> pure $ RespNetworkError $ "Invalid subnet: " <> err
-    Right normalizedSubnet -> do
-      now <- getCurrentTime
-      let network =
-            Network
-              { networkName = name
-              , networkSubnet = normalizedSubnet
-              , networkVdeSwitchPid = Nothing
-              , networkDnsmasqPid = Nothing
-              , networkCreatedAt = now
-              }
-      result <- runSqlPool (insertUnique network) (ssDbPool state)
-      case result of
-        Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
-        Just key -> pure $ RespNetworkCreated $ fromSqlKey key
+handleNetworkCreate state name subnet =
+  case validateName "Network" name of
+    Left err -> pure $ RespNetworkError err
+    Right () -> do
+      -- Validate subnet if provided
+      let validatedSubnet
+            | T.null subnet = Right ""
+            | otherwise = validateSubnet subnet
+      case validatedSubnet of
+        Left err -> pure $ RespNetworkError $ "Invalid subnet: " <> err
+        Right normalizedSubnet -> do
+          now <- getCurrentTime
+          let network =
+                Network
+                  { networkName = name
+                  , networkSubnet = normalizedSubnet
+                  , networkVdeSwitchPid = Nothing
+                  , networkDnsmasqPid = Nothing
+                  , networkCreatedAt = now
+                  }
+          result <- runSqlPool (insertUnique network) (ssDbPool state)
+          case result of
+            Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
+            Just key -> pure $ RespNetworkCreated $ fromSqlKey key
 
 -- | Delete a virtual network
 handleNetworkDelete :: ServerState -> Int64 -> IO Response
