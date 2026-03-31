@@ -299,7 +299,7 @@ spec = sequential $ do
       testCase "strips base directory prefix from absolute path" $ do
         basePath <- getTempDir
         let absPath = T.pack $ basePath <> "/foo.qcow2"
-        when_ $ diskRegister "test-disk" absPath FormatQcow2 Nothing
+        when_ $ diskRegister "test-disk" absPath FormatQcow2
         then_ $ do
           responseIsDiskCreated
           diskImageHasPath 1 "foo.qcow2"
@@ -307,19 +307,19 @@ spec = sequential $ do
       testCase "strips base directory prefix with subdirectory" $ do
         basePath <- getTempDir
         let absPath = T.pack $ basePath <> "/sub/foo.qcow2"
-        when_ $ diskRegister "test-disk" absPath FormatQcow2 Nothing
+        when_ $ diskRegister "test-disk" absPath FormatQcow2
         then_ $ do
           responseIsDiskCreated
           diskImageHasPath 1 "sub/foo.qcow2"
 
       testCase "preserves path outside base directory" $ do
-        when_ $ diskRegister "test-disk" "/other/dir/foo.qcow2" FormatQcow2 Nothing
+        when_ $ diskRegister "test-disk" "/other/dir/foo.qcow2" FormatQcow2
         then_ $ do
           responseIsDiskCreated
           diskImageHasPath 1 "/other/dir/foo.qcow2"
 
       testCase "preserves already-relative path" $ do
-        when_ $ diskRegister "test-disk" "foo.qcow2" FormatQcow2 Nothing
+        when_ $ diskRegister "test-disk" "foo.qcow2" FormatQcow2
         then_ $ do
           responseIsDiskCreated
           diskImageHasPath 1 "foo.qcow2"

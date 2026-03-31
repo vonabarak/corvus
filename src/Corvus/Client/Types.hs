@@ -73,10 +73,12 @@ data Command
 
     -- | Create disk image (name, format, sizeMb, optionalPath)
     DiskCreate !Text !Text !Int64 !(Maybe Text)
-  | -- | Import existing disk image (name, path, format)
+  | -- | Import existing disk image (name, path, optional format)
     DiskImport !Text !FilePath !(Maybe Text)
   | -- | Create overlay disk image (name, baseDiskRef, optionalDirPath)
     DiskCreateOverlay !Text !Text !(Maybe Text)
+  | -- | Refresh disk image size from qemu-img info
+    DiskRefresh !Text
   | -- | Delete disk image
     DiskDelete !Text
   | -- | Resize disk image (diskRef, newSizeMb)

@@ -264,6 +264,7 @@ runCommand opts = do
           Right format -> handleDiskCreate fmt conn name format sizeMb mPath
       DiskCreateOverlay name baseDiskRef optDirPath -> handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath
       DiskImport name path mFormatStr -> handleDiskImport fmt conn name path mFormatStr
+      DiskRefresh diskRef -> handleDiskRefresh fmt conn diskRef
       DiskDelete diskRef -> handleDiskDelete fmt conn diskRef
       DiskResize diskRef newSizeMb -> handleDiskResize fmt conn diskRef newSizeMb
       DiskList -> handleDiskList fmt conn

@@ -12,6 +12,7 @@ module Corvus.Client.Commands.Disk
   , handleDiskList
   , handleDiskShow
   , handleDiskClone
+  , handleDiskRefresh
   , handleDiskAttach
   , handleDiskDetach
 
@@ -181,24 +182,26 @@ handleDiskImportFromFile fmt conn name path mFormatStr = do
         else putStrLn $ "Error: File not found: " ++ path
       pure False
     else do
-      let ext = takeExtension path
-          format = case mFormatStr of
-            Just f -> parseFormat f
-            Nothing -> detectFormat ext
-      case format of
-        Left err -> do
+      let mFormat = case mFormatStr of
+            Just f -> case parseFormat f of
+              Right fmt' -> Just (Just fmt')
+              Left err -> Nothing
+            Nothing -> Just Nothing -- no format specified, let server auto-detect
+      case mFormat of
+        Nothing -> do
+          let err = "Unknown format: " <> fromMaybe "" mFormatStr
           if isStructured fmt
             then outputError fmt "invalid_format" err
             else putStrLn $ "Error: " ++ T.unpack err
           pure False
-        Right fmt' -> do
+        Just mFmt -> do
           absPath <- canonicalizePath path
           basePath <- getBaseImagesPath
           let storedPath =
                 if basePath `isPrefixOfPath` absPath
                   then makeRelative basePath absPath
                   else absPath
-          resp <- diskRegister conn name (T.pack storedPath) fmt' Nothing
+          resp <- diskRegister conn name (T.pack storedPath) mFmt
           case resp of
             Left err -> do
               if isStructured fmt
@@ -402,6 +405,37 @@ handleDiskClone fmt conn name baseDiskRef optionalPath = do
     Right other -> do
       if isStructured fmt
         then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle disk refresh command
+handleDiskRefresh :: OutputFormat -> Connection -> Text -> IO Bool
+handleDiskRefresh fmt conn diskRef = do
+  resp <- diskRefresh conn diskRef
+  case resp of
+    Left err -> do
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
+      pure False
+    Right DiskOk -> do
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn "Disk size refreshed"
+      pure True
+    Right DiskNotFound -> do
+      if isStructured fmt
+        then outputError fmt "not_found" "Disk not found"
+        else putStrLn "Disk not found"
+      pure False
+    Right (DiskError msg) -> do
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      if isStructured fmt
+        then outputError fmt "error" (T.pack $ show other)
         else putStrLn $ "Unexpected response: " ++ show other
       pure False
 

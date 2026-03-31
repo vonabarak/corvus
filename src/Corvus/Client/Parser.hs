@@ -363,8 +363,8 @@ diskCreateCommand =
           <> short 'f'
           <> metavar "FORMAT"
           <> value "qcow2"
-          <> help "Disk format: qcow2, raw, vmdk, vdi (default: qcow2)"
-          <> completeWith ["qcow2", "raw", "vmdk", "vdi"]
+          <> help "Disk format: qcow2, raw, vmdk, vdi, vpc, vhdx (default: qcow2)"
+          <> completeWith ["qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx"]
       )
     <*> option
       parseSizeWithUnit
@@ -511,8 +511,8 @@ diskImportCommand =
           ( long "format"
               <> short 'f'
               <> metavar "FORMAT"
-              <> help "Disk format: qcow2, raw (auto-detected from extension if not specified)"
-              <> completeWith ["qcow2", "raw"]
+              <> help "Disk format (auto-detected if not specified): qcow2, raw, vmdk, vdi, vpc, vhdx"
+              <> completeWith ["qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx"]
           )
       )
 
@@ -598,7 +598,21 @@ diskCommandParser =
         <> command
           "detach"
           (info diskDetachCommand (progDesc "Detach a disk from a VM"))
+        <> command
+          "refresh"
+          (info diskRefreshCommand (progDesc "Refresh disk image size from qemu-img"))
     )
+
+-- | Parser for disk refresh
+diskRefreshCommand :: Parser Command
+diskRefreshCommand =
+  DiskRefresh
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk to refresh"
+          <> completer diskCompleter
+      )
 
 --------------------------------------------------------------------------------
 -- Snapshot Command Parsers

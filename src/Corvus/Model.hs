@@ -222,6 +222,8 @@ data DriveFormat
   | FormatRaw
   | FormatVmdk
   | FormatVdi
+  | FormatVpc
+  | FormatVhdx
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance Binary DriveFormat
@@ -233,6 +235,8 @@ instance EnumText DriveFormat where
     , (FormatRaw, "raw")
     , (FormatVmdk, "vmdk")
     , (FormatVdi, "vdi")
+    , (FormatVpc, "vpc")
+    , (FormatVhdx, "vhdx")
     ]
 
 instance FromJSON DriveFormat where

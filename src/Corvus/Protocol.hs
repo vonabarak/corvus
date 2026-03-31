@@ -85,10 +85,12 @@ data Request
   | -- | Disk image operations
     -- | Create disk image (name, format, sizeMb, optionalPath)
     ReqDiskCreate !Text !DriveFormat !Int64 !(Maybe Text)
-  | -- | Register existing disk image (name, filePath, format, sizeMb)
-    ReqDiskRegister !Text !Text !DriveFormat !(Maybe Int64)
+  | -- | Register existing disk image (name, filePath, format)
+    ReqDiskRegister !Text !Text !(Maybe DriveFormat)
   | -- | Create overlay disk image (overlayName, baseDiskRef, optionalPath)
     ReqDiskCreateOverlay !Text !Ref !(Maybe Text)
+  | -- | Refresh disk image size from qemu-img info (diskRef)
+    ReqDiskRefresh !Ref
   | -- | Delete disk image (diskRef)
     ReqDiskDelete !Ref
   | -- | Resize disk image (diskRef, newSizeMb)

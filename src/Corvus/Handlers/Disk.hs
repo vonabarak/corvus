@@ -14,6 +14,7 @@ module Corvus.Handlers.Disk
   , handleDiskList
   , handleDiskShow
   , handleDiskClone
+  , handleDiskRefresh
 
     -- * Snapshot handlers
   , handleSnapshotCreate
@@ -184,15 +185,16 @@ handleDiskCreate state name format sizeMb mPath = runServerLogging state $ do
           logInfoN $ "Created disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
           pure $ RespDiskCreated $ fromSqlKey diskId
 
--- | Register an existing disk image file
+-- | Register an existing disk image file.
+-- Format and size are auto-detected via qemu-img info.
+-- If format is provided, it is used instead of auto-detection.
 handleDiskRegister
   :: ServerState
   -> Text
   -> Text
-  -> DriveFormat
-  -> Maybe Int64
+  -> Maybe DriveFormat
   -> IO Response
-handleDiskRegister state name filePath format mSizeMb =
+handleDiskRegister state name filePath mFormat =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -201,6 +203,28 @@ handleDiskRegister state name filePath format mSizeMb =
       -- Normalize path: strip base directory prefix if applicable
       basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
       let storedPath = makeRelativeToBase basePath (T.unpack filePath)
+          resolvedPath =
+            if "/" `isPrefixOf` T.unpack storedPath
+              then T.unpack storedPath
+              else basePath </> T.unpack storedPath
+
+      -- Detect format if not provided
+      format <- case mFormat of
+        Just f -> pure f
+        Nothing -> do
+          mInfo <- liftIO $ getImageInfo resolvedPath
+          case mInfo of
+            Right info -> pure $ iiFormat info
+            Left err -> do
+              -- Fall back to extension-based detection
+              case detectFormatFromPath (T.pack resolvedPath) of
+                Just f -> pure f
+                Nothing -> do
+                  logWarnN $ "Could not detect format for " <> T.pack resolvedPath <> ": " <> err
+                  pure FormatRaw -- safe default
+
+      -- Auto-detect size
+      sizeMb <- liftIO $ getImageSizeMb resolvedPath
 
       -- Store in database
       now <- liftIO getCurrentTime
@@ -225,7 +249,7 @@ handleDiskRegister state name filePath format mSizeMb =
                         { diskImageName = name
                         , diskImageFilePath = storedPath
                         , diskImageFormat = format
-                        , diskImageSizeMb = fmap fromIntegral mSizeMb
+                        , diskImageSizeMb = sizeMb
                         , diskImageCreatedAt = now
                         , diskImageBackingImageId = Nothing
                         }
@@ -380,6 +404,26 @@ handleDiskClone state name baseDiskId optionalPath = runServerLogging state $ do
                         (ssDbPool state)
                   logInfoN $ "Cloned disk image with ID: " <> T.pack (show $ fromSqlKey newDiskId)
                   pure $ RespDiskCreated $ fromSqlKey newDiskId
+
+-- | Refresh a disk image's size by querying qemu-img info
+handleDiskRefresh :: ServerState -> Int64 -> IO Response
+handleDiskRefresh state diskId = runServerLogging state $ do
+  logInfoN $ "Refreshing disk image size: " <> T.pack (show diskId)
+  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+  case mDisk of
+    Nothing -> pure RespDiskNotFound
+    Just disk -> do
+      resolvedPath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+      mSize <- liftIO $ getImageSizeMb resolvedPath
+      case mSize of
+        Nothing -> pure $ RespError "Could not determine disk image size"
+        Just newSize -> do
+          liftIO $
+            runSqlPool
+              (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
+              (ssDbPool state)
+          logInfoN $ "Updated size to " <> T.pack (show newSize) <> " MB"
+          pure RespDiskOk
 
 -- | Delete a disk image
 handleDiskDelete :: ServerState -> Int64 -> IO Response
@@ -964,6 +1008,9 @@ detectFormatFromPath path =
     ".img" -> Just FormatRaw
     ".vmdk" -> Just FormatVmdk
     ".vdi" -> Just FormatVdi
+    ".vpc" -> Just FormatVpc
+    ".vhd" -> Just FormatVpc
+    ".vhdx" -> Just FormatVhdx
     _ -> Nothing
 
 --------------------------------------------------------------------------------
@@ -984,6 +1031,7 @@ createDiskIO state name format sizeMb mPath = do
       case result of
         ImageError err -> pure $ Left err
         _ -> do
+          actualSize <- getImageSizeMb filePath
           now <- getCurrentTime
           diskId <-
             runSqlPool
@@ -992,7 +1040,7 @@ createDiskIO state name format sizeMb mPath = do
                     { diskImageName = safeName
                     , diskImageFilePath = makeRelativeToBase basePath filePath
                     , diskImageFormat = format
-                    , diskImageSizeMb = Just sizeMb
+                    , diskImageSizeMb = actualSize
                     , diskImageCreatedAt = now
                     , diskImageBackingImageId = Nothing
                     }
@@ -1005,10 +1053,15 @@ createDiskIO state name format sizeMb mPath = do
 -- Handles concurrent registration gracefully: if two threads try to register
 -- the same path simultaneously, the second one retries the lookup after the
 -- unique constraint violation.
-registerDiskIO :: ServerState -> Text -> Text -> DriveFormat -> Maybe Int -> IO (Either Text Int64)
-registerDiskIO state name filePath format mSizeMb = do
+registerDiskIO :: ServerState -> Text -> Text -> DriveFormat -> IO (Either Text Int64)
+registerDiskIO state name filePath format = do
   basePath <- getEffectiveBasePath (ssQemuConfig state)
   let storedPath = makeRelativeToBase basePath (T.unpack filePath)
+      resolvedPath =
+        if "/" `isPrefixOf` T.unpack storedPath
+          then T.unpack storedPath
+          else basePath </> T.unpack storedPath
+  sizeMb <- getImageSizeMb resolvedPath
   now <- getCurrentTime
   mExisting <- runSqlPool (getBy (UniqueImagePath storedPath)) (ssDbPool state)
   case mExisting of
@@ -1022,7 +1075,7 @@ registerDiskIO state name filePath format mSizeMb = do
                   { diskImageName = name
                   , diskImageFilePath = storedPath
                   , diskImageFormat = format
-                  , diskImageSizeMb = mSizeMb
+                  , diskImageSizeMb = sizeMb
                   , diskImageCreatedAt = now
                   , diskImageBackingImageId = Nothing
                   }
@@ -1068,6 +1121,7 @@ importDiskFromUrlIO state name url mFormat = do
                 Left err -> pure $ Left err
                 Right diskPath -> do
                   let storedPath = makeRelativeToBase basePath diskPath
+                  sizeMb <- getImageSizeMb diskPath
                   now <- getCurrentTime
                   diskId <-
                     runSqlPool
@@ -1076,7 +1130,7 @@ importDiskFromUrlIO state name url mFormat = do
                             { diskImageName = safeName
                             , diskImageFilePath = storedPath
                             , diskImageFormat = format
-                            , diskImageSizeMb = Nothing
+                            , diskImageSizeMb = sizeMb
                             , diskImageCreatedAt = now
                             , diskImageBackingImageId = Nothing
                             }
@@ -1113,6 +1167,7 @@ createOverlayDiskIO state name backingDiskId mResizeMb mDirPath = do
                   _ <- resizeImage overlayPath (fromIntegral newSize)
                   pure ()
                 Nothing -> pure ()
+              actualSize <- getImageSizeMb overlayPath
               now <- getCurrentTime
               diskId <-
                 runSqlPool
@@ -1121,7 +1176,7 @@ createOverlayDiskIO state name backingDiskId mResizeMb mDirPath = do
                         { diskImageName = safeName
                         , diskImageFilePath = makeRelativeToBase basePath overlayPath
                         , diskImageFormat = FormatQcow2
-                        , diskImageSizeMb = mResizeMb <|> diskImageSizeMb backingDisk
+                        , diskImageSizeMb = actualSize
                         , diskImageCreatedAt = now
                         , diskImageBackingImageId = Just (toSqlKey backingDiskId)
                         }
@@ -1152,6 +1207,7 @@ cloneDiskIO state name baseDiskId mDestPath = do
             ImageError err -> pure $ Left err
             ImageNotFound -> pure $ Left "Source image file not found"
             _ -> do
+              actualSize <- getImageSizeMb destPath
               now <- getCurrentTime
               newDiskId <-
                 runSqlPool
@@ -1162,7 +1218,7 @@ cloneDiskIO state name baseDiskId mDestPath = do
                             { diskImageName = safeName
                             , diskImageFilePath = makeRelativeToBase basePath destPath
                             , diskImageFormat = diskImageFormat baseDisk
-                            , diskImageSizeMb = diskImageSizeMb baseDisk
+                            , diskImageSizeMb = actualSize
                             , diskImageCreatedAt = now
                             , diskImageBackingImageId = diskImageBackingImageId baseDisk
                             }

@@ -382,7 +382,7 @@ createOneDisk state diskMap d = case (adImport d, adOverlay d, adClone d) of
         importDiskFromUrlIO state (adName d) importPath (adFormat d)
     | otherwise ->
         let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath importPath)
-         in registerDiskIO state (adName d) importPath format (adSizeMb d)
+         in registerDiskIO state (adName d) importPath format
   (_, Just backingName, _) -> do
     mBackingId <- resolveByName state UniqueDiskImageName diskMap backingName
     case mBackingId of

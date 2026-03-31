@@ -202,9 +202,9 @@ diskCreateOverlay name baseDiskId optDirPath =
   executeRpc (\conn -> Rpc.diskCreateOverlay conn name (toRef baseDiskId) optDirPath)
 
 -- | Register an existing disk image file
-diskRegister :: Text -> Text -> DriveFormat -> Maybe Int64 -> TestM DiskResult
-diskRegister name filePath format sizeMb =
-  executeRpc (\conn -> Rpc.diskRegister conn name filePath format sizeMb)
+diskRegister :: Text -> Text -> DriveFormat -> TestM DiskResult
+diskRegister name filePath format =
+  executeRpc (\conn -> Rpc.diskRegister conn name filePath (Just format))
 
 -- | Clone a disk image
 diskClone :: Text -> Int64 -> Maybe Text -> TestM DiskResult

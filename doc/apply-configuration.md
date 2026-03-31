@@ -84,7 +84,7 @@ disks:
     import: <string>          # Option A: Path or URL to import.
     overlay: <string>         # Option B: Name of backing disk for qcow2 overlay.
     clone: <string>           # Option C: Name of disk to clone (full copy).
-    format: <string>          # Disk format (for import/create). Default: auto-detect or qcow2.
+    format: <string>          # Disk format (for create; auto-detected on import). See below.
     sizeMb: <integer>         # Size in MB (for create; optional resize hint for overlay).
     path: <string>            # Optional destination path for overlay/clone/create output file.
 ```
@@ -108,7 +108,7 @@ The `import` field accepts:
 - **Local relative path**: `ws25/overlay.qcow2` — resolved relative to the daemon's base images directory (`$HOME/VMs` by default).
 - **HTTP/HTTPS URL**: `https://example.com/image.qcow2` — the daemon downloads the file. Compressed `.xz` files are automatically decompressed.
 
-The `format` field is optional for imports — it is auto-detected from the file extension when possible. Supported formats: `qcow2`, `raw`, `vmdk`, `vdi`.
+The `format` field is optional for imports — it is auto-detected from the file extension or via `qemu-img info` when possible. Supported formats: `qcow2`, `raw`, `vmdk`, `vdi`, `vpc` (VHD), `vhdx`.
 
 If a local file is already registered in the database (same path), the existing entry is reused without error.
 

@@ -9,6 +9,7 @@ module Corvus.Qemu.Image
   , deleteImage
   , resizeImage
   , getImageInfo
+  , getImageSizeMb
 
     -- * Snapshot operations
   , createSnapshot
@@ -185,6 +186,14 @@ getImageInfo path = do
       case exitCode of
         ExitFailure _ -> pure $ Left $ T.pack stderr
         ExitSuccess -> pure $ parseImageInfo stdout
+
+-- | Get the virtual size of a disk image in MB, returning Nothing on any failure.
+getImageSizeMb :: FilePath -> IO (Maybe Int)
+getImageSizeMb path = do
+  result <- getImageInfo path
+  pure $ case result of
+    Right info -> Just (fromIntegral $ iiVirtualSizeMb info)
+    Left _ -> Nothing
 
 -- | Parse qemu-img info output
 parseImageInfo :: String -> Either Text ImageInfo
@@ -443,4 +452,7 @@ detectFormatFromUrl url =
         ".img" -> Just FormatRaw
         ".vmdk" -> Just FormatVmdk
         ".vdi" -> Just FormatVdi
+        ".vpc" -> Just FormatVpc
+        ".vhd" -> Just FormatVpc
+        ".vhdx" -> Just FormatVhdx
         _ -> Nothing

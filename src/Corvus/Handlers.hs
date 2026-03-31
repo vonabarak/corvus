@@ -59,7 +59,8 @@ handleRequest state req = case req of
   -- Disk image handlers
   ReqDiskCreate name format sizeMb mPath -> handleDiskCreate state name format sizeMb mPath
   ReqDiskCreateOverlay name baseDiskRef optPath -> withDisk baseDiskRef $ \baseDiskId -> handleDiskCreateOverlay state name baseDiskId optPath
-  ReqDiskRegister name path format sizeMb -> handleDiskRegister state name path format sizeMb
+  ReqDiskRegister name path mFormat -> handleDiskRegister state name path mFormat
+  ReqDiskRefresh diskRef -> withDisk diskRef $ \diskId -> handleDiskRefresh state diskId
   ReqDiskDelete diskRef -> withDisk diskRef $ \diskId -> handleDiskDelete state diskId
   ReqDiskResize diskRef newSizeMb -> withDisk diskRef $ \diskId -> handleDiskResize state diskId newSizeMb
   ReqDiskList -> handleDiskList state

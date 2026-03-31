@@ -13,6 +13,7 @@ import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..))
 import Corvus.Protocol (DiskImageInfo (..), DriveInfo (..), SnapshotInfo (..), VmDetails (..))
 import Data.Int (Int64)
 import Data.List (find)
+import Data.Maybe (isJust)
 import qualified Data.Text as T
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
 import System.Environment (getEnvironment, setEnv, unsetEnv)
@@ -43,15 +44,10 @@ spec = withTestDb $ do
           Right (Right (DiskCreated id_)) -> pure id_
           other -> fail $ "Clone failed: " ++ show other
 
-        listResult <- withDaemonConnection daemon $ \conn -> diskList conn
-        case listResult of
-          Right (Right (DiskListResult disks)) -> do
-            let mCloned = find (\d -> diiId d == newDiskId) disks
-            case mCloned of
-              Nothing -> fail "Cloned disk not found in list"
-              Just cloned -> do
-                diiName cloned `shouldBe` "cloned-disk"
-          other -> fail $ "List failed: " ++ show other
+        cloned <- getDiskInfo daemon newDiskId
+        diiName cloned `shouldBe` "cloned-disk"
+        -- Cloned disk should have auto-detected size
+        diiSizeMb cloned `shouldSatisfy` isJust
 
     it "clones snapshots in the database" $ \env -> do
       withTestVm env defaultVmConfig $ \vm -> do
@@ -137,6 +133,10 @@ spec = withTestDb $ do
         -- Create an empty data disk via the daemon
         dataDiskId <- createEmptyDisk daemon "hotplug-data" FormatQcow2 512
 
+        -- Verify created disk has auto-detected size
+        diskInfo <- getDiskInfo daemon dataDiskId
+        diiSizeMb diskInfo `shouldBe` Just 512
+
         -- Hot-attach the disk to the running VM
         driveId <- hotAttachDisk daemon vmId dataDiskId InterfaceVirtio CacheWriteback
 
@@ -183,7 +183,7 @@ runOverlayTest :: TestDaemon -> FilePath -> IO ()
 runOverlayTest daemon basePath = do
   regResult <-
     withDaemonConnection daemon $ \conn ->
-      diskRegister conn "base-disk" (T.pack basePath) FormatQcow2 (Just 1)
+      diskRegister conn "base-disk" (T.pack basePath) (Just FormatQcow2)
   baseId <- case regResult of
     Left err -> fail $ "Connection error: " ++ show err
     Right (Left err) -> fail $ "RPC error: " ++ show err
@@ -206,12 +206,20 @@ runOverlayTest daemon basePath = do
   case listResult of
     Left err -> fail $ "Connection error: " ++ show err
     Right (Right (DiskListResult disks)) -> do
+      -- Verify base disk has auto-detected size
+      let mBase = find (\d -> diiId d == baseId) disks
+      case mBase of
+        Nothing -> fail "Base disk not in list"
+        Just base -> diiSizeMb base `shouldSatisfy` isJust
+
+      -- Verify overlay has auto-detected size and backing info
       let mOverlay = find (\d -> diiId d == overlayId) disks
       case mOverlay of
         Nothing -> fail "Overlay disk not in list"
         Just overlay -> do
           diiBackingImageId overlay `shouldBe` Just baseId
           diiBackingImageName overlay `shouldBe` Just "base-disk"
+          diiSizeMb overlay `shouldSatisfy` isJust
     Right (Left err) -> fail $ "RPC error: " ++ show err
     Right (Right other) -> fail $ "Unexpected list response: " ++ show other
 
@@ -257,6 +265,15 @@ hotDetachDisk daemon vmId diskId = do
   case result of
     Right (Right DiskOk) -> pure ()
     other -> fail $ "Failed to hot-detach disk: " ++ show other
+
+-- | Get disk image info by ID, failing on error
+getDiskInfo :: TestDaemon -> Int64 -> IO DiskImageInfo
+getDiskInfo daemon diskId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    diskShow conn (T.pack (show diskId))
+  case result of
+    Right (Right (DiskInfo info)) -> pure info
+    other -> fail $ "Failed to get disk info: " ++ show other
 
 -- | Get VM details, failing on error
 showVmDetails :: TestDaemon -> Int64 -> IO VmDetails

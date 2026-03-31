@@ -38,6 +38,7 @@ module Corvus.Client.Rpc
   , diskCreate
   , diskCreateOverlay
   , diskRegister
+  , diskRefresh
   , diskImportUrl
   , diskDelete
   , diskResize
@@ -344,11 +345,15 @@ diskRegister
   :: Connection
   -> Text
   -> Text
-  -> DriveFormat
-  -> Maybe Int64
+  -> Maybe DriveFormat
   -> IO (Either ConnectionError DiskResult)
-diskRegister conn name filePath format sizeMb =
-  handleDiskResponse <$> sendRequest conn (ReqDiskRegister name filePath format sizeMb)
+diskRegister conn name filePath mFormat =
+  handleDiskResponse <$> sendRequest conn (ReqDiskRegister name filePath mFormat)
+
+-- | Refresh a disk image's size from qemu-img info
+diskRefresh :: Connection -> Text -> IO (Either ConnectionError DiskResult)
+diskRefresh conn diskRef =
+  handleDiskResponse <$> sendRequest conn (ReqDiskRefresh (Ref diskRef))
 
 -- | Import a disk image from an HTTP/HTTPS URL
 diskImportUrl :: Connection -> Text -> Text -> Maybe Text -> IO (Either ConnectionError DiskResult)
