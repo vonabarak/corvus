@@ -1,87 +1,91 @@
 # Example environment configuration for `crv apply`
 #
-# This file declares all resources needed for a complete VM environment.
-# The daemon creates them in dependency order: SSH keys -> disks -> networks -> VMs.
+# This file declares all resources needed for a two-VM environment with UEFI boot,
+# virtual networking, and shared configuration via YAML anchors.
+#
+# The daemon creates resources in dependency order: SSH keys -> disks -> networks -> VMs.
 #
 # Usage:
 #   crv apply example-apply.yml
+#   crv apply example-apply.yml --skip-existing   # re-run after partial failure
 
 sshKeys:
   - name: deploy-key
     publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@host"
+  - name: admin-key
+    publicKey: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQExample admin@host"
 
 disks:
-  # Import a cloud image from a URL (daemon downloads it)
-  - name: alpine-base
-    import: "https://dev.alpinelinux.org/~tomalok/alpine-cloud-images/v3.20/nocloud/x86_64/nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2"
+  # Shared UEFI firmware code (read-only, from edk2 package)
+  - name: ovmf-code
+    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    format: raw
 
-  # Create an overlay backed by the imported image
+  # OVMF UEFI vars template (import once, clone per-VM)
+  - name: ovmf-vars-template
+    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    format: raw
+
+  # Download a cloud image from the internet
+  - name: alpine-base
+    import: "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/cloud/nocloud_alpine-3.20.6-x86_64-bios-cloudinit-r0.qcow2"
+
+  # Per-VM OVMF vars (full copy, each VM gets its own writable file)
+  - name: web-ovmf-vars
+    clone: ovmf-vars-template
+    path: web/
+  - name: db-ovmf-vars
+    clone: ovmf-vars-template
+    path: db/
+
+  # Per-VM overlays (copy-on-write, backed by alpine-base)
   - name: web-root
     overlay: alpine-base
     sizeMb: 10240
+    path: web/
+  - name: db-root
+    overlay: alpine-base
+    sizeMb: 10240
+    path: db/
 
-  # Create a new empty data disk
-  - name: data-disk
+  # Empty data disk for the database server
+  - name: db-data
     format: qcow2
-    sizeMb: 20480
-
-  # Clone a disk (full copy, useful for OVMF UEFI vars)
-  # - name: ovmf-vars-template
-  #   import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
-  #   format: raw
-  # - name: vm1-ovmf-vars
-  #   clone: ovmf-vars-template
-
-  # --- Path examples ---
-  # The optional `path` field controls where the disk file is placed.
-  # Rules:
-  #   - Starts with /  -> absolute path
-  #   - Otherwise       -> relative to base images dir ($HOME/VMs)
-  #   - Ends with /     -> directory (filename auto-generated from name + format)
-  #   - No trailing /   -> full file path
-  #
-  # Overlay in a subdirectory of the base images path:
-  # - name: vm1-root
-  #   overlay: alpine-base
-  #   path: "vm1/"                  # -> $HOME/VMs/vm1/vm1-root.qcow2
-  #
-  # Clone to an absolute directory:
-  # - name: vm1-ovmf-vars
-  #   clone: ovmf-vars-template
-  #   path: "/data/vms/"            # -> /data/vms/vm1-ovmf-vars.fd
-  #
-  # Clone with an explicit file path:
-  # - name: special-vars
-  #   clone: ovmf-vars-template
-  #   path: "/data/vms/custom.fd"   # -> /data/vms/custom.fd
-  #
-  # Create a data disk in a subdirectory:
-  # - name: vm1-data
-  #   format: qcow2
-  #   sizeMb: 51200
-  #   path: "vm1/"                  # -> $HOME/VMs/vm1/vm1-data.qcow2
-
-  # Import from a local path on the daemon host
-  # - name: custom-image
-  #   import: /var/lib/corvus/images/custom.qcow2
-  #   format: qcow2
+    sizeMb: 51200
+    path: db/
 
 networks:
   - name: lab-net
     subnet: "10.0.1.0/24"
 
+# ── YAML anchors for shared VM configuration ────────────────────────────
+# Anchors (&name) define reusable blocks; aliases (*name) reference them.
+# The merge key (<<:) merges an anchor's mappings into the current mapping.
+# Fields after the merge override the anchor's values.
+#
+# The _vm_defaults key is ignored by the parser (only sshKeys, disks,
+# networks, and vms are recognized), so it serves purely as an anchor host.
+
+_vm_defaults: &vm_defaults
+  cpuCount: 2
+  ramMb: 2048
+  headless: true
+  guestAgent: true
+
 vms:
   - name: web-server
-    cpuCount: 2
-    ramMb: 2048
-    description: "Web server with Alpine Linux"
-    headless: true
-    guestAgent: true
+    <<: *vm_defaults
+    description: "Alpine Linux web server"
     drives:
+      - disk: ovmf-code
+        interface: pflash
+        readOnly: true
+      - disk: web-ovmf-vars
+        interface: pflash
       - disk: web-root
         interface: virtio
-      - disk: data-disk
-        interface: virtio
+        cacheType: writeback
+        discard: true
     networkInterfaces:
       - type: vde
         network: lab-net
@@ -93,3 +97,49 @@ vms:
         readOnly: true
     sshKeys:
       - deploy-key
+
+  - name: db-server
+    <<: *vm_defaults
+    cpuCount: 4                    # override anchor default
+    ramMb: 4096                    # override anchor default
+    description: "Alpine Linux database server"
+    cloudInit: true                # explicit (auto-detect would also work here)
+    drives:
+      - disk: ovmf-code
+        interface: pflash
+        readOnly: true
+      - disk: db-ovmf-vars
+        interface: pflash
+      - disk: db-root
+        interface: virtio
+        cacheType: writeback
+        discard: true
+      - disk: db-data
+        interface: virtio
+        cacheType: none            # safest for data integrity
+    networkInterfaces:
+      - type: vde
+        network: lab-net
+        mac: "52:54:00:12:34:56"   # explicit MAC address
+    sharedDirs:
+      - path: /home/user/backups
+        tag: backups
+        cache: never               # direct access, no caching
+    sshKeys:
+      - deploy-key
+      - admin-key
+
+# After applying, start the network and VMs:
+#
+#   crv network start lab-net
+#   crv vm start web-server
+#   crv vm start db-server
+
+# ── Path reference ──────────────────────────────────────────────────────
+# The optional `path` field on disks controls where the file is placed.
+#
+#   (omitted)        -> $BASE/<name>.<ext>           (base images directory, ~/VMs)
+#   subdir/          -> $BASE/subdir/<name>.<ext>     (trailing / = directory)
+#   custom.raw       -> $BASE/custom.raw              (no trailing / = file path)
+#   /data/vms/       -> /data/vms/<name>.<ext>        (absolute directory)
+#   /data/disk.raw   -> /data/disk.raw                (absolute file path)

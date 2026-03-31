@@ -27,6 +27,33 @@ Resources are created in the order listed above. Within each section, items are 
 
 Resources can also reference items that already exist in the database. For example, a VM drive can reference a disk image that was previously imported via `crv disk import`, not just disks defined in the same YAML file.
 
+## YAML Features
+
+Configuration files support standard YAML features including anchors (`&name`), aliases (`*name`), and merge keys (`<<:`). These are useful for reducing duplication when multiple VMs share common settings.
+
+Anchors can be defined on an ignored top-level key (any key other than `sshKeys`, `disks`, `networks`, `vms` is silently ignored):
+
+```yaml
+_vm_defaults: &vm_defaults
+  cpuCount: 2
+  ramMb: 2048
+  headless: true
+  guestAgent: true
+
+vms:
+  - name: web
+    <<: *vm_defaults
+    description: "Web server"
+  - name: db
+    <<: *vm_defaults
+    cpuCount: 4        # override anchor default
+    description: "Database server"
+```
+
+The merge key (`<<:`) only works for mappings, not lists — so it applies to VM-level fields but not to lists like `drives` or `networkInterfaces`.
+
+See `example-apply.yml` for a complete example with anchors, UEFI boot, and multiple VMs.
+
 ## SSH Keys
 
 ```yaml
