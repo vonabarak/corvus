@@ -163,4 +163,6 @@ data Command
 
     -- | Apply environment from YAML config file (file path, skipExisting)
     Apply !FilePath !Bool
+  | -- | Generate shell completion script (bash, zsh, fish)
+    Completion !Text
   deriving (Show)

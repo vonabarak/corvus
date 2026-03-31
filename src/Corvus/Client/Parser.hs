@@ -8,6 +8,7 @@ module Corvus.Client.Parser
   )
 where
 
+import Corvus.Client.Completion
 import Corvus.Client.Types
 import Data.Char (toLower)
 import Data.Int (Int64)
@@ -87,6 +88,7 @@ vmDeleteCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to delete"
+          <> completer vmCompleter
       )
 
 -- | Parser for vm show
@@ -97,6 +99,7 @@ vmShowCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to show"
+          <> completer vmCompleter
       )
 
 -- | Parser for vm start
@@ -107,6 +110,7 @@ vmStartCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to start"
+          <> completer vmCompleter
       )
 
 -- | Parser for vm stop
@@ -117,6 +121,7 @@ vmStopCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to stop"
+          <> completer vmCompleter
       )
     <*> waitOptionsParser
 
@@ -147,6 +152,7 @@ vmPauseCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to pause"
+          <> completer vmCompleter
       )
 
 -- | Parser for vm reset
@@ -157,6 +163,7 @@ vmResetCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to reset"
+          <> completer vmCompleter
       )
 
 -- | Parser for vm edit
@@ -167,6 +174,7 @@ vmEditCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to edit"
+          <> completer vmCompleter
       )
     <*> optional
       ( option
@@ -200,6 +208,7 @@ vmEditCommand =
           ( long "headless"
               <> metavar "BOOL"
               <> help "Set headless mode (true/false)"
+              <> completeWith ["true", "false"]
           )
       )
     <*> optional
@@ -208,6 +217,7 @@ vmEditCommand =
           ( long "guest-agent"
               <> metavar "BOOL"
               <> help "Enable/disable QEMU guest agent (true/false)"
+              <> completeWith ["true", "false"]
           )
       )
     <*> optional
@@ -216,6 +226,7 @@ vmEditCommand =
           ( long "cloud-init"
               <> metavar "BOOL"
               <> help "Enable/disable cloud-init (true/false)"
+              <> completeWith ["true", "false"]
           )
       )
 
@@ -227,6 +238,7 @@ vmCloudInitCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
 
 -- | Reader for boolean values
@@ -248,6 +260,7 @@ vmViewCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to view via SPICE"
+          <> completer vmCompleter
       )
 
 -- | Parser for vm monitor
@@ -258,6 +271,7 @@ vmMonitorCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to connect to HMP monitor"
+          <> completer vmCompleter
       )
 
 -- | Parser for vm exec
@@ -268,6 +282,7 @@ vmExecCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM to execute command in"
+          <> completer vmCompleter
       )
     <*> argument
       (T.pack <$> str)
@@ -349,6 +364,7 @@ diskCreateCommand =
           <> metavar "FORMAT"
           <> value "qcow2"
           <> help "Disk format: qcow2, raw, vmdk, vdi (default: qcow2)"
+          <> completeWith ["qcow2", "raw", "vmdk", "vdi"]
       )
     <*> option
       parseSizeWithUnit
@@ -374,6 +390,7 @@ diskDeleteCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image to delete"
+          <> completer diskCompleter
       )
 
 -- | Parser for disk resize
@@ -384,6 +401,7 @@ diskResizeCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image to resize"
+          <> completer diskCompleter
       )
     <*> option
       parseSizeWithUnit
@@ -405,6 +423,7 @@ diskShowCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image to show"
+          <> completer diskCompleter
       )
 
 -- | Parser for disk attach
@@ -415,11 +434,13 @@ diskAttachCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
     <*> argument
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image to attach"
+          <> completer diskCompleter
       )
     <*> strOption
       ( long "interface"
@@ -427,6 +448,7 @@ diskAttachCommand =
           <> metavar "INTERFACE"
           <> value "virtio"
           <> help "Drive interface: virtio, ide, scsi, sata, nvme (default: virtio)"
+          <> completeWith ["virtio", "ide", "scsi", "sata", "nvme"]
       )
     <*> optional
       ( strOption
@@ -434,6 +456,7 @@ diskAttachCommand =
               <> short 'm'
               <> metavar "MEDIA"
               <> help "Media type: disk, cdrom"
+              <> completeWith ["disk", "cdrom"]
           )
       )
     <*> switch
@@ -449,6 +472,7 @@ diskAttachCommand =
           <> metavar "CACHE_TYPE"
           <> value "writeback"
           <> help "Disk cache type: writeback, none, writethrough, directsync, unsafe (default: writeback)"
+          <> completeWith ["writeback", "none", "writethrough", "directsync", "unsafe"]
       )
 
 -- | Parser for disk detach
@@ -459,11 +483,13 @@ diskDetachCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
     <*> argument
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image to detach"
+          <> completer diskCompleter
       )
 
 -- | Parser for disk import
@@ -486,6 +512,7 @@ diskImportCommand =
               <> short 'f'
               <> metavar "FORMAT"
               <> help "Disk format: qcow2, raw (auto-detected from extension if not specified)"
+              <> completeWith ["qcow2", "raw"]
           )
       )
 
@@ -502,6 +529,7 @@ diskOverlayCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the base disk image to overlay"
+          <> completer diskCompleter
       )
     <*> optional
       ( strOption
@@ -525,6 +553,7 @@ diskCloneCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the base disk image to clone"
+          <> completer diskCompleter
       )
     <*> optional
       ( strOption
@@ -583,6 +612,7 @@ snapshotCreateCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image"
+          <> completer diskCompleter
       )
     <*> argument
       (T.pack <$> str)
@@ -598,6 +628,7 @@ snapshotDeleteCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image"
+          <> completer diskCompleter
       )
     <*> argument
       (T.pack <$> str)
@@ -613,6 +644,7 @@ snapshotRollbackCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image"
+          <> completer diskCompleter
       )
     <*> argument
       (T.pack <$> str)
@@ -628,6 +660,7 @@ snapshotMergeCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image"
+          <> completer diskCompleter
       )
     <*> argument
       (T.pack <$> str)
@@ -643,6 +676,7 @@ snapshotListCommand =
       (T.pack <$> str)
       ( metavar "DISK"
           <> help "Name or ID of the disk image"
+          <> completer diskCompleter
       )
 
 -- | Parser for all snapshot subcommands
@@ -693,6 +727,7 @@ sshKeyDeleteCommand =
       (T.pack <$> str)
       ( metavar "KEY"
           <> help "Name or ID of the SSH key to delete"
+          <> completer sshKeyCompleter
       )
 
 -- | Parser for ssh-key list
@@ -707,11 +742,13 @@ sshKeyAttachCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
     <*> argument
       (T.pack <$> str)
       ( metavar "KEY"
           <> help "Name or ID of the SSH key to attach"
+          <> completer sshKeyCompleter
       )
 
 -- | Parser for ssh-key detach
@@ -722,11 +759,13 @@ sshKeyDetachCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
     <*> argument
       (T.pack <$> str)
       ( metavar "KEY"
           <> help "Name or ID of the SSH key to detach"
+          <> completer sshKeyCompleter
       )
 
 -- | Parser for ssh-key list-vm
@@ -737,6 +776,7 @@ sshKeyListVmCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
 
 -- | Parser for all ssh-key subcommands
@@ -775,6 +815,7 @@ sharedDirAddCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
     <*> argument
       (T.pack <$> str)
@@ -792,6 +833,7 @@ sharedDirAddCommand =
           <> value "auto"
           <> showDefault
           <> help "Cache type: always, auto, never"
+          <> completeWith ["always", "auto", "never"]
       )
     <*> switch
       ( long "read-only"
@@ -806,6 +848,7 @@ sharedDirRemoveCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
     <*> argument
       (T.pack <$> str)
@@ -821,6 +864,7 @@ sharedDirListCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
 
 -- | Parser for all shared-dir subcommands
@@ -850,6 +894,7 @@ netIfAddCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
     <*> strOption
       ( long "type"
@@ -858,6 +903,7 @@ netIfAddCommand =
           <> value "user"
           <> showDefault
           <> help "Interface type: user, tap, bridge, macvtap, vde"
+          <> completeWith ["user", "tap", "bridge", "macvtap", "vde"]
       )
     <*> strOption
       ( long "host-device"
@@ -880,6 +926,7 @@ netIfAddCommand =
               <> short 'n'
               <> metavar "NETWORK"
               <> help "Name or ID of the virtual network (overrides --type and --host-device)"
+              <> completer networkCompleter
           )
       )
 
@@ -891,6 +938,7 @@ netIfRemoveCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
     <*> argument
       auto
@@ -906,6 +954,7 @@ netIfListCommand =
       (T.pack <$> str)
       ( metavar "VM"
           <> help "Name or ID of the VM"
+          <> completer vmCompleter
       )
 
 -- | Parser for template create
@@ -926,6 +975,7 @@ templateDeleteCommand =
       (T.pack <$> str)
       ( metavar "TEMPLATE"
           <> help "Name or ID of the template to delete"
+          <> completer templateCompleter
       )
 
 -- | Parser for template list
@@ -940,6 +990,7 @@ templateShowCommand =
       (T.pack <$> str)
       ( metavar "TEMPLATE"
           <> help "Name or ID of the template to show"
+          <> completer templateCompleter
       )
 
 -- | Parser for template instantiate
@@ -950,6 +1001,7 @@ templateInstantiateCommand =
       (T.pack <$> str)
       ( metavar "TEMPLATE"
           <> help "Name or ID of the template to instantiate"
+          <> completer templateCompleter
       )
     <*> argument
       (T.pack <$> str)
@@ -1021,6 +1073,7 @@ networkDeleteCommand =
       (T.pack <$> str)
       ( metavar "NETWORK"
           <> help "Name or ID of the network to delete"
+          <> completer networkCompleter
       )
 
 -- | Parser for network start
@@ -1031,6 +1084,7 @@ networkStartCommand =
       (T.pack <$> str)
       ( metavar "NETWORK"
           <> help "Name or ID of the network to start"
+          <> completer networkCompleter
       )
 
 -- | Parser for network stop
@@ -1041,6 +1095,7 @@ networkStopCommand =
       (T.pack <$> str)
       ( metavar "NETWORK"
           <> help "Name or ID of the network to stop"
+          <> completer networkCompleter
       )
     <*> switch
       ( long "force"
@@ -1060,6 +1115,7 @@ networkShowCommand =
       (T.pack <$> str)
       ( metavar "NETWORK"
           <> help "Name or ID of the network to show"
+          <> completer networkCompleter
       )
 
 -- | Parser for all network subcommands
@@ -1102,6 +1158,21 @@ applyCommand =
       ( long "skip-existing"
           <> short 's'
           <> help "Skip resources that already exist instead of failing"
+      )
+
+--------------------------------------------------------------------------------
+-- Completion Command Parser
+--------------------------------------------------------------------------------
+
+-- | Generate shell completion script
+completionCommand :: Parser Command
+completionCommand =
+  Completion
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "SHELL"
+          <> help "Shell to generate completion for (bash, zsh, fish)"
+          <> completeWith ["bash", "zsh", "fish"]
       )
 
 --------------------------------------------------------------------------------
@@ -1148,6 +1219,9 @@ commandParser =
         <> command
           "apply"
           (info applyCommand (progDesc "Apply environment from YAML config file"))
+        <> command
+          "completion"
+          (info completionCommand (progDesc "Generate shell completion script"))
     )
 
 -- | Parser for global options
@@ -1194,6 +1268,7 @@ outputFormatParser =
         <> metavar "FORMAT"
         <> value TextOutput
         <> help "Output format: text, json, yaml (default: text)"
+        <> completeWith ["text", "json", "yaml"]
     )
 
 -- | Reader for output format values

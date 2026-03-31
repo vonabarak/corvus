@@ -23,6 +23,13 @@ install:
 	systemctl --user daemon-reload
 	systemctl --user enable corvus.service
 	systemctl --user restart corvus.service
+	# Shell completions
+	mkdir -p $(HOME)/.local/share/bash-completion/completions
+	crv completion bash > $(HOME)/.local/share/bash-completion/completions/crv
+	mkdir -p $(HOME)/.local/share/zsh/site-functions
+	crv completion zsh > $(HOME)/.local/share/zsh/site-functions/_crv
+	mkdir -p $(HOME)/.config/fish/completions
+	crv completion fish > $(HOME)/.config/fish/completions/crv.fish
 
 # Cleanup the project build artifacts and test cache
 cleanup:

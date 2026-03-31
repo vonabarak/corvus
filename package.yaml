@@ -108,6 +108,7 @@ library:
     - Corvus.Handlers.Apply
     - Corvus.Client.Commands.GuestExec
     - Corvus.Client.Commands.Apply
+    - Corvus.Client.Completion
 
 executables:
   corvus:

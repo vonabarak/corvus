@@ -37,10 +37,13 @@ import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (StatusInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import Data.Aeson (object, toJSON, (.=))
+import Data.Char (toLower)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
+import Options.Applicative.BashCompletion (bashCompletionScript, fishCompletionScript, zshCompletionScript)
 import System.Exit (exitFailure, exitSuccess)
+import System.IO (hPutStrLn, stderr)
 import System.Posix.Signals (Handler (..), installHandler, sigINT)
 import Text.Printf (printf)
 
@@ -56,6 +59,10 @@ getListenAddress opts
 runCommand :: Options -> IO ()
 runCommand opts = do
   let fmt = optOutput opts
+  -- Handle completion command before establishing daemon connection
+  case optCommand opts of
+    Completion shell -> handleCompletion shell
+    _ -> pure ()
   addr <- getListenAddress opts
   connResult <- withConnection addr $ \conn ->
     case optCommand opts of
@@ -336,6 +343,8 @@ runCommand opts = do
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
       -- Apply
       Apply path skipExisting -> handleApply fmt conn path skipExisting
+      -- Completion (handled above, but needed for exhaustive pattern match)
+      Completion _ -> pure True
 
   case connResult of
     Left err -> do
@@ -345,6 +354,18 @@ runCommand opts = do
       exitFailure
     Right True -> exitSuccess
     Right False -> exitFailure
+
+-- | Handle the completion command by generating a shell completion script.
+-- This exits immediately without connecting to the daemon.
+handleCompletion :: Text -> IO ()
+handleCompletion shell = do
+  let progName = "crv"
+  case map toLower (T.unpack shell) of
+    "bash" -> putStr (bashCompletionScript progName progName)
+    "zsh" -> putStr (zshCompletionScript progName progName)
+    "fish" -> putStr (fishCompletionScript progName progName)
+    _ -> hPutStrLn stderr ("Unknown shell: " <> T.unpack shell <> " (use bash, zsh, or fish)")
+  exitSuccess
 
 -- | Run an action with SIGINT ignored, restoring the previous handler afterwards.
 -- This lets Ctrl+C pass through to the child process (VM) instead of killing the client.
