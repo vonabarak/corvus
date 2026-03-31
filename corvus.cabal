@@ -256,8 +256,7 @@ test-suite corvus-test
       Corvus.ClientOutputSpec
       Corvus.CloudInitIntegrationSpec
       Corvus.CoreSpec
-      Corvus.DiskCloneIntegrationSpec
-      Corvus.DiskOverlayIntegrationSpec
+      Corvus.DiskIntegrationSpec
       Corvus.DiskSpec
       Corvus.GuestAgentPollerIntegrationSpec
       Corvus.NetIfSpec

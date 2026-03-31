@@ -94,7 +94,6 @@ qmpBlockdevAdd
 qmpBlockdevAdd config vmId nodeName filePath format readOnly = do
   let formatStr = enumToText format
       filePathText = T.pack filePath
-      readOnlyStr = if readOnly then "true" :: Text else "false" :: Text
       cmd =
         [qmpQQ|
           {
@@ -102,11 +101,11 @@ qmpBlockdevAdd config vmId nodeName filePath format readOnly = do
             "arguments": {
               "driver": #{formatStr},
               "node-name": #{nodeName},
-              "read-only": #{readOnlyStr},
+              "read-only": #{readOnly},
               "file": {
                 "driver": "file",
                 "filename": #{filePathText},
-                "read-only": #{readOnlyStr}
+                "read-only": #{readOnly}
               }
             }
           }
@@ -127,6 +126,7 @@ qmpDeviceAddDrive
   -> IO QmpResult
 qmpDeviceAddDrive config vmId deviceId nodeName iface = do
   let driver = T.pack $ interfaceToDriver iface
+      bus = "hotplug" :: Text
       cmd =
         [qmpQQ|
           {
@@ -134,7 +134,8 @@ qmpDeviceAddDrive config vmId deviceId nodeName iface = do
             "arguments": {
               "driver": #{driver},
               "id": #{deviceId},
-              "drive": #{nodeName}
+              "drive": #{nodeName},
+              "bus": #{bus}
             }
           }
         |]

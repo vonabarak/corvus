@@ -180,6 +180,7 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
       , ["-enable-kvm"]
       , memoryArgs
       , ["-smp", show (vmCpuCount vm)]
+      , hotplugPortArgs
       , guestAgentArgs
       , displayArgs
       , monitorArgs
@@ -201,6 +202,16 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
           , "-numa"
           , "node,memdev=mem"
           ]
+
+    -- PCIe root port + PCI bridge for device hotplugging.
+    -- Q35's pcie.0 root complex does not support hotplug, so we add a
+    -- pcie-pci-bridge behind a root port. QMP device_add targets bus=hotplug.
+    hotplugPortArgs =
+      [ "-device"
+      , "pcie-root-port,id=hotplug-rp,chassis=0,slot=0"
+      , "-device"
+      , "pcie-pci-bridge,id=hotplug,bus=hotplug-rp"
+      ]
 
     guestAgentArgs =
       [ "-device"
