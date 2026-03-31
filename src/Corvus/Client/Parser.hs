@@ -965,6 +965,7 @@ templateCreateCommand =
       str
       ( metavar "FILE"
           <> help "Path to the YAML template file"
+          <> action "file"
       )
 
 -- | Parser for template delete
@@ -1153,6 +1154,7 @@ applyCommand =
     <$> strArgument
       ( metavar "FILE"
           <> help "Path to YAML configuration file"
+          <> action "file"
       )
     <*> switch
       ( long "skip-existing"
