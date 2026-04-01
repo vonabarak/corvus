@@ -39,6 +39,7 @@ library
       Corvus.Client.Commands.SharedDir
       Corvus.Client.Commands.NetIf
       Corvus.Client.Commands.SshKey
+      Corvus.Client.Commands.Task
       Corvus.Client.Commands.Template
       Corvus.Model
       Corvus.Qemu

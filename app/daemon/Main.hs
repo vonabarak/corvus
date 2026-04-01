@@ -10,7 +10,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN, runStdoutLoggingT)
 import Corvus.Model (migrateAll)
 import Corvus.Qemu.Config (defaultQemuConfig)
-import Corvus.Server (runServer)
+import Corvus.Server (cleanupStaleState, runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath, newServerState, runFilteredLogging)
 import Data.ByteString.Char8 (pack)
 import qualified Data.Text as T
@@ -101,6 +101,10 @@ main = do
     logInfoN "Running database migrations..."
     liftIO $ runSqlPool (runMigration migrateAll) pool
     logInfoN "Migrations complete."
+
+    -- Clean up stale state from previous daemon crash
+    state0 <- liftIO $ newServerState pool defaultQemuConfig
+    liftIO $ cleanupStaleState state0 30
 
     -- Initialize server state with database pool
     state <- liftIO $ newServerState pool defaultQemuConfig

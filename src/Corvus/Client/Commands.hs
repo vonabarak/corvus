@@ -26,6 +26,7 @@ import Corvus.Client.Commands.NetIf
 import Corvus.Client.Commands.Network
 import Corvus.Client.Commands.SharedDir
 import Corvus.Client.Commands.SshKey
+import Corvus.Client.Commands.Task
 import Corvus.Client.Commands.Template
 import Corvus.Client.Commands.Vm
 import Corvus.Client.Config (defaultClientConfig)
@@ -344,6 +345,10 @@ runCommand opts = do
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
       -- Apply
       Apply path skipExisting -> handleApply fmt conn path skipExisting
+      -- Task history
+      TaskList limit mSub mResult -> handleTaskList fmt conn limit mSub mResult
+      TaskShow taskId -> handleTaskShow fmt conn taskId
+      TaskWait taskId -> handleTaskWait fmt conn taskId
       -- Completion (handled above, but needed for exhaustive pattern match)
       Completion _ -> pure True
 

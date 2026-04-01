@@ -6,17 +6,20 @@
 -- and connection lifecycle. Business logic is delegated to Corvus.Handlers.
 module Corvus.Server
   ( runServer
+  , cleanupStaleState
   )
 where
 
 import Control.Concurrent (forkFinally)
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Exception (SomeException, bracket, try)
-import Control.Monad (forever, void)
+import Control.Monad (forever, void, when)
 import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers (handleRequest)
+import Corvus.Model
+import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types
 import Data.Binary (decodeOrFail, encode)
@@ -25,7 +28,10 @@ import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time (UTCTime, addUTCTime, getCurrentTime)
 import Data.Word (Word8)
+import Database.Persist
+import Database.Persist.Postgresql (runSqlPool)
 import Network.Simple.TCP (HostPreference (..), serve)
 import Network.Socket
   ( Family (AF_UNIX)
@@ -195,3 +201,29 @@ formatResponse resp = case resp of
   RespVmList vms -> "RespVmList [" <> T.pack (show (length vms)) <> " VMs]"
   RespVmDetails d -> "RespVmDetails { id=" <> T.pack (show (vdId d)) <> ", name=" <> vdName d <> " }"
   other -> T.pack (show other)
+
+--------------------------------------------------------------------------------
+-- Startup Cleanup
+--------------------------------------------------------------------------------
+
+-- | Clean up stale state from a previous daemon crash.
+-- Should be called after migrations and before accepting connections.
+cleanupStaleState :: ServerState -> Int -> IO ()
+cleanupStaleState state retentionDays = runServerLogging state $ do
+  let pool = ssDbPool state
+
+  -- Mark stale "running" tasks as error (daemon crashed while processing)
+  staleTasks <- liftIO $ runSqlPool (updateWhere [TaskHistoryResult ==. TaskRunning] [TaskHistoryResult =. TaskError, TaskHistoryMessage =. Just "Daemon restarted"]) pool
+  logInfoN "Marked stale running tasks as error"
+
+  -- Reset VMs in non-stopped states to error (stale from crash)
+  let staleStatuses = [VmStarting, VmRunning, VmStopping, VmPaused]
+  liftIO $ runSqlPool (updateWhere [M.VmStatus <-. staleStatuses] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing]) pool
+  logInfoN "Reset stale VMs to error state"
+
+  -- Delete old task history entries
+  when (retentionDays > 0) $ do
+    now <- liftIO getCurrentTime
+    let cutoff = addUTCTime (fromIntegral $ negate $ retentionDays * 86400) now
+    liftIO $ runSqlPool (deleteWhere [TaskHistoryStartedAt <. cutoff]) pool
+    logInfoN $ "Cleaned up task history older than " <> T.pack (show retentionDays) <> " days"

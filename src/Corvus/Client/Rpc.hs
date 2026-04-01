@@ -97,11 +97,15 @@ module Corvus.Client.Rpc
     -- * Apply operations
   , ApplyRpcResult (..)
   , applyConfig
+
+    -- * Task history operations
+  , taskList
+  , taskShow
   )
 where
 
 import Corvus.Client.Connection
-import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, VmStatus)
+import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TaskResult, TaskSubsystem, VmStatus)
 import Corvus.Protocol
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -830,4 +834,27 @@ applyConfig conn yaml skipExisting = do
     Left err -> pure $ Left err
     Right (RespApplyResult ar) -> pure $ Right $ ApplyOk ar
     Right (RespError msg) -> pure $ Right $ ApplyFailed msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+--------------------------------------------------------------------------------
+-- Task History Operations
+--------------------------------------------------------------------------------
+
+-- | List task history entries
+taskList :: Connection -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> IO (Either ConnectionError [TaskInfo])
+taskList conn limit mSub mResult = do
+  result <- sendRequest conn (ReqTaskList limit mSub mResult)
+  case result of
+    Left err -> pure $ Left err
+    Right (RespTaskList tasks) -> pure $ Right tasks
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+-- | Show a single task history entry
+taskShow :: Connection -> Int64 -> IO (Either ConnectionError (Maybe TaskInfo))
+taskShow conn taskId = do
+  result <- sendRequest conn (ReqTaskShow taskId)
+  case result of
+    Left err -> pure $ Left err
+    Right (RespTaskInfo info) -> pure $ Right $ Just info
+    Right RespTaskNotFound -> pure $ Right Nothing
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"

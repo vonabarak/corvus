@@ -130,7 +130,7 @@ handleVmDelete state vmId = do
   case result of
     Nothing -> pure RespVmNotFound
     Just (_, status) ->
-      if status == VmRunning || status == VmPaused
+      if status `elem` [VmRunning, VmStarting, VmStopping, VmPaused]
         then pure RespVmRunning
         else do
           runSqlPool (deleteVm vmId) (ssDbPool state)

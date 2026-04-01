@@ -35,13 +35,14 @@ module Corvus.Protocol
     -- * Apply config
   , ApplyCreated (..)
   , ApplyResult (..)
+  , TaskInfo (..)
 
     -- * Entity reference
   , Ref (..)
   )
 where
 
-import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TemplateCloneStrategy, VmStatus)
+import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TaskResult, TaskSubsystem, TemplateCloneStrategy, VmStatus)
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Binary (Binary, decodeOrFail, encode)
 import Data.ByteString.Lazy (ByteString)
@@ -179,6 +180,10 @@ data Request
     ReqDiskImportUrl !Text !Text !(Maybe Text)
   | -- | Apply environment from YAML config (yamlContent, skipExisting)
     ReqApply !Text !Bool
+  | -- | List task history (limit, optionalSubsystem, optionalResult)
+    ReqTaskList !Int !(Maybe TaskSubsystem) !(Maybe TaskResult)
+  | -- | Show single task details (taskId)
+    ReqTaskShow !Int64
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -394,6 +399,20 @@ data ApplyResult = ApplyResult
   }
   deriving (Eq, Show, Generic, Binary)
 
+-- | Information about a task history entry
+data TaskInfo = TaskInfo
+  { tiId :: !Int64
+  , tiStartedAt :: !UTCTime
+  , tiFinishedAt :: !(Maybe UTCTime)
+  , tiSubsystem :: !TaskSubsystem
+  , tiEntityId :: !(Maybe Int)
+  , tiEntityName :: !(Maybe Text)
+  , tiCommand :: !Text
+  , tiResult :: !TaskResult
+  , tiMessage :: !(Maybe Text)
+  }
+  deriving (Eq, Show, Generic, Binary)
+
 --------------------------------------------------------------------------------
 -- ToJSON instances for machine-readable output
 --------------------------------------------------------------------------------
@@ -596,6 +615,20 @@ instance ToJSON ApplyResult where
       , "vms" .= arVms r
       ]
 
+instance ToJSON TaskInfo where
+  toJSON t =
+    object
+      [ "id" .= tiId t
+      , "startedAt" .= tiStartedAt t
+      , "finishedAt" .= tiFinishedAt t
+      , "subsystem" .= tiSubsystem t
+      , "entityId" .= tiEntityId t
+      , "entityName" .= tiEntityName t
+      , "command" .= tiCommand t
+      , "result" .= tiResult t
+      , "message" .= tiMessage t
+      ]
+
 -- | Server responses
 data Response
   = RespPong
@@ -722,6 +755,12 @@ data Response
     RespGuestAgentError !Text
   | -- | Apply config result with summary of created resources
     RespApplyResult !ApplyResult
+  | -- | Task history list
+    RespTaskList ![TaskInfo]
+  | -- | Single task info
+    RespTaskInfo !TaskInfo
+  | -- | Task not found
+    RespTaskNotFound
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

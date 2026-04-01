@@ -1,5 +1,10 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- | Request handling module.
 -- Re-exports handlers from submodules and provides the main dispatch function.
+-- All mutating requests are wrapped with task history recording.
 module Corvus.Handlers
   ( -- * Request handling
     handleRequest
@@ -18,6 +23,7 @@ module Corvus.Handlers
   )
 where
 
+import Control.Exception (SomeException, try)
 import Corvus.Handlers.Apply
 import Corvus.Handlers.Core
 import Corvus.Handlers.Disk
@@ -29,18 +35,30 @@ import Corvus.Handlers.SharedDir
 import Corvus.Handlers.SshKey
 import Corvus.Handlers.Template
 import Corvus.Handlers.Vm
+import Corvus.Model
 import Corvus.Protocol
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Text (Text)
+import qualified Data.Text as T
+import Data.Time (UTCTime, getCurrentTime)
+import Database.Persist
+import Database.Persist.Postgresql (runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Request Dispatch
 --------------------------------------------------------------------------------
 
--- | Handle a request and produce a response
+-- | Handle a request and produce a response.
+-- Mutating requests are recorded in the task history table.
 handleRequest :: ServerState -> Request -> IO Response
-handleRequest state req = case req of
+handleRequest state req
+  | isReadOnly req = dispatchRequest state req
+  | otherwise = withTaskHistory state req (dispatchRequest state req)
+
+-- | Dispatch a request to the appropriate handler
+dispatchRequest :: ServerState -> Request -> IO Response
+dispatchRequest state req = case req of
   -- Core handlers
   ReqPing -> handlePing
   ReqStatus -> handleStatus state
@@ -127,6 +145,9 @@ handleRequest state req = case req of
   ReqDiskImportUrl name url mFmt -> handleDiskImportUrl state name url mFmt
   -- Apply config
   ReqApply yaml skipExisting -> handleApply state yaml skipExisting
+  -- Task history queries (read-only, but dispatched here for completeness)
+  ReqTaskList limit mSub mResult -> handleTaskList state limit mSub mResult
+  ReqTaskShow taskId -> handleTaskShow state taskId
   where
     pool = ssDbPool state
 
@@ -165,17 +186,6 @@ handleRequest state req = case req of
         (Left _, _) -> pure RespVmNotFound
         (_, Left _) -> pure RespSshKeyNotFound
 
-    withDiskSnapshot :: Ref -> Ref -> (Int64 -> Int64 -> IO Response) -> IO Response
-    withDiskSnapshot diskRef snapRef f = do
-      r1 <- resolveDisk diskRef pool
-      case r1 of
-        Left _ -> pure RespDiskNotFound
-        Right diskId -> do
-          r2 <- resolveSnapshot snapRef diskId pool
-          case r2 of
-            Left _ -> pure RespSnapshotNotFound
-            Right snapId -> f diskId snapId
-
     resolveOptionalNetwork :: Maybe Ref -> IO (Either Text (Maybe Int64))
     resolveOptionalNetwork Nothing = pure $ Right Nothing
     resolveOptionalNetwork (Just nwRef) = do
@@ -183,3 +193,285 @@ handleRequest state req = case req of
       case r of
         Left err -> pure $ Left err
         Right nwId -> pure $ Right (Just nwId)
+
+--------------------------------------------------------------------------------
+-- Task History
+--------------------------------------------------------------------------------
+
+-- | Wrap a handler with task history recording.
+-- Inserts a "running" record before the handler, updates it after.
+withTaskHistory :: ServerState -> Request -> IO Response -> IO Response
+withTaskHistory state req action = do
+  let (subsystem, command, mEntityRef) = classifyRequest req
+  now <- getCurrentTime
+
+  -- Resolve entity name from ref (best-effort, for readability)
+  mEntityInfo <- resolveEntityInfo mEntityRef
+
+  -- Insert "running" task record
+  taskKey <-
+    runSqlPool
+      ( insert
+          TaskHistory
+            { taskHistoryStartedAt = now
+            , taskHistoryFinishedAt = Nothing
+            , taskHistorySubsystem = subsystem
+            , taskHistoryEntityId = fmap fst mEntityInfo
+            , taskHistoryEntityName = fmap snd mEntityInfo
+            , taskHistoryCommand = command
+            , taskHistoryResult = TaskRunning
+            , taskHistoryMessage = Nothing
+            }
+      )
+      pool
+
+  -- Run the handler
+  result <- try action
+  finishTime <- getCurrentTime
+
+  case result of
+    Right response -> do
+      let (taskResult, message) = classifyResponse response
+          (mId, mName) = extractEntityFromResponse response
+      runSqlPool
+        ( update
+            taskKey
+            [ TaskHistoryFinishedAt =. Just finishTime
+            , TaskHistoryResult =. taskResult
+            , TaskHistoryMessage =. message
+            , TaskHistoryEntityId =. (mId <|> fmap fst mEntityInfo)
+            , TaskHistoryEntityName =. (mName <|> fmap snd mEntityInfo)
+            ]
+        )
+        pool
+      pure response
+    Left (err :: SomeException) -> do
+      runSqlPool
+        ( update
+            taskKey
+            [ TaskHistoryFinishedAt =. Just finishTime
+            , TaskHistoryResult =. TaskError
+            , TaskHistoryMessage =. Just (T.pack $ show err)
+            ]
+        )
+        pool
+      pure $ RespError $ "Internal error: " <> T.pack (show err)
+  where
+    pool = ssDbPool state
+    (<|>) Nothing b = b
+    (<|>) a _ = a
+
+    resolveEntityInfo :: Maybe Ref -> IO (Maybe (Int, Text))
+    resolveEntityInfo Nothing = pure Nothing
+    resolveEntityInfo (Just ref) = do
+      -- Try to resolve the ref to get entity ID and name
+      -- Best-effort: return Nothing on failure
+      let refText = unRef ref
+      case reads (T.unpack refText) :: [(Int, String)] of
+        [(n, "")] -> pure $ Just (n, refText)
+        _ -> pure $ Just (0, refText) -- Name-based ref, ID unknown until handler runs
+
+-- | Classify a request into subsystem, command name, and optional entity ref.
+classifyRequest :: Request -> (TaskSubsystem, Text, Maybe Ref)
+classifyRequest = \case
+  ReqPing -> (SubSystem, "ping", Nothing)
+  ReqStatus -> (SubSystem, "status", Nothing)
+  ReqShutdown -> (SubSystem, "shutdown", Nothing)
+  ReqListVms -> (SubVm, "list", Nothing)
+  ReqShowVm ref -> (SubVm, "show", Just ref)
+  ReqVmCreate name _ _ _ _ _ _ -> (SubVm, "create", Just (Ref name))
+  ReqVmDelete ref -> (SubVm, "delete", Just ref)
+  ReqVmStart ref -> (SubVm, "start", Just ref)
+  ReqVmStop ref -> (SubVm, "stop", Just ref)
+  ReqVmPause ref -> (SubVm, "pause", Just ref)
+  ReqVmReset ref -> (SubVm, "reset", Just ref)
+  ReqVmEdit ref _ _ _ _ _ _ -> (SubVm, "edit", Just ref)
+  ReqVmCloudInit ref -> (SubVm, "cloud-init", Just ref)
+  ReqDiskCreate name _ _ _ -> (SubDisk, "create", Just (Ref name))
+  ReqDiskCreateOverlay name _ _ -> (SubDisk, "overlay", Just (Ref name))
+  ReqDiskRegister name _ _ -> (SubDisk, "import", Just (Ref name))
+  ReqDiskRefresh ref -> (SubDisk, "refresh", Just ref)
+  ReqDiskDelete ref -> (SubDisk, "delete", Just ref)
+  ReqDiskResize ref _ -> (SubDisk, "resize", Just ref)
+  ReqDiskList -> (SubDisk, "list", Nothing)
+  ReqDiskShow ref -> (SubDisk, "show", Just ref)
+  ReqDiskClone name _ _ -> (SubDisk, "clone", Just (Ref name))
+  ReqDiskImportUrl name _ _ -> (SubDisk, "import-url", Just (Ref name))
+  ReqSnapshotCreate ref _ -> (SubSnapshot, "create", Just ref)
+  ReqSnapshotDelete ref _ -> (SubSnapshot, "delete", Just ref)
+  ReqSnapshotRollback ref _ -> (SubSnapshot, "rollback", Just ref)
+  ReqSnapshotMerge ref _ -> (SubSnapshot, "merge", Just ref)
+  ReqSnapshotList ref -> (SubSnapshot, "list", Just ref)
+  ReqDiskAttach vmRef _ _ _ _ _ _ -> (SubDisk, "attach", Just vmRef)
+  ReqDiskDetach vmRef _ -> (SubDisk, "detach", Just vmRef)
+  ReqSharedDirAdd ref _ _ _ _ -> (SubSharedDir, "add", Just ref)
+  ReqSharedDirRemove ref _ -> (SubSharedDir, "remove", Just ref)
+  ReqSharedDirList ref -> (SubSharedDir, "list", Just ref)
+  ReqNetIfAdd ref _ _ _ _ -> (SubVm, "add-netif", Just ref)
+  ReqNetIfRemove ref _ -> (SubVm, "remove-netif", Just ref)
+  ReqNetIfList ref -> (SubVm, "list-netif", Just ref)
+  ReqSshKeyCreate name _ -> (SubSshKey, "create", Just (Ref name))
+  ReqSshKeyDelete ref -> (SubSshKey, "delete", Just ref)
+  ReqSshKeyList -> (SubSshKey, "list", Nothing)
+  ReqSshKeyAttach _ ref -> (SubSshKey, "attach", Just ref)
+  ReqSshKeyDetach _ ref -> (SubSshKey, "detach", Just ref)
+  ReqSshKeyListForVm ref -> (SubSshKey, "list-for-vm", Just ref)
+  ReqTemplateCreate _ -> (SubTemplate, "create", Nothing)
+  ReqTemplateDelete ref -> (SubTemplate, "delete", Just ref)
+  ReqTemplateList -> (SubTemplate, "list", Nothing)
+  ReqTemplateShow ref -> (SubTemplate, "show", Just ref)
+  ReqTemplateInstantiate ref name -> (SubTemplate, "instantiate", Just ref)
+  ReqNetworkCreate name _ -> (SubNetwork, "create", Just (Ref name))
+  ReqNetworkDelete ref -> (SubNetwork, "delete", Just ref)
+  ReqNetworkStart ref -> (SubNetwork, "start", Just ref)
+  ReqNetworkStop ref _ -> (SubNetwork, "stop", Just ref)
+  ReqNetworkList -> (SubNetwork, "list", Nothing)
+  ReqNetworkShow ref -> (SubNetwork, "show", Just ref)
+  ReqGuestExec ref _ -> (SubVm, "guest-exec", Just ref)
+  ReqApply _ _ -> (SubApply, "apply", Nothing)
+  ReqTaskList {} -> (SubSystem, "task-list", Nothing)
+  ReqTaskShow _ -> (SubSystem, "task-show", Nothing)
+
+-- | Check if a request is read-only (should not be recorded in task history).
+isReadOnly :: Request -> Bool
+isReadOnly = \case
+  ReqPing -> True
+  ReqStatus -> True
+  ReqShutdown -> True
+  ReqListVms -> True
+  ReqShowVm _ -> True
+  ReqDiskList -> True
+  ReqDiskShow _ -> True
+  ReqSnapshotList _ -> True
+  ReqSharedDirList _ -> True
+  ReqNetIfList _ -> True
+  ReqSshKeyList -> True
+  ReqSshKeyListForVm _ -> True
+  ReqTemplateList -> True
+  ReqTemplateShow _ -> True
+  ReqNetworkList -> True
+  ReqNetworkShow _ -> True
+  ReqTaskList {} -> True
+  ReqTaskShow _ -> True
+  _ -> False
+
+-- | Classify a response into task result and optional message.
+classifyResponse :: Response -> (TaskResult, Maybe Text)
+classifyResponse = \case
+  -- Errors
+  RespError msg -> (TaskError, Just msg)
+  RespVmNotFound -> (TaskError, Just "VM not found")
+  RespDiskNotFound -> (TaskError, Just "Disk not found")
+  RespDriveNotFound -> (TaskError, Just "Drive not found")
+  RespSnapshotNotFound -> (TaskError, Just "Snapshot not found")
+  RespNetworkNotFound -> (TaskError, Just "Network not found")
+  RespSshKeyNotFound -> (TaskError, Just "SSH key not found")
+  RespTemplateNotFound -> (TaskError, Just "Template not found")
+  RespSharedDirNotFound -> (TaskError, Just "Shared directory not found")
+  RespVmMustBeStopped -> (TaskError, Just "VM must be stopped")
+  RespNetworkInUse -> (TaskError, Just "Network is in use")
+  RespNetworkError msg -> (TaskError, Just msg)
+  RespGuestAgentNotEnabled -> (TaskError, Just "Guest agent not enabled")
+  RespGuestAgentError msg -> (TaskError, Just msg)
+  RespInvalidTransition _ msg -> (TaskError, Just msg)
+  RespFormatNotSupported msg -> (TaskError, Just msg)
+  RespTaskNotFound -> (TaskError, Just "Task not found")
+  -- Successes
+  RespVmCreated vid -> (TaskSuccess, Just $ "Created with ID " <> T.pack (show vid))
+  RespVmDeleted -> (TaskSuccess, Just "Deleted")
+  RespVmEdited -> (TaskSuccess, Just "Edited")
+  RespVmStateChanged s -> (TaskSuccess, Just $ "State: " <> enumToText s)
+  RespVmRunning -> (TaskSuccess, Just "Already running")
+  RespDiskCreated did -> (TaskSuccess, Just $ "Created with ID " <> T.pack (show did))
+  RespDiskOk -> (TaskSuccess, Nothing)
+  RespDiskAttached did -> (TaskSuccess, Just $ "Drive ID " <> T.pack (show did))
+  RespSnapshotCreated sid -> (TaskSuccess, Just $ "Snapshot ID " <> T.pack (show sid))
+  RespSnapshotOk -> (TaskSuccess, Nothing)
+  RespSshKeyCreated kid -> (TaskSuccess, Just $ "Key ID " <> T.pack (show kid))
+  RespSshKeyOk -> (TaskSuccess, Nothing)
+  RespTemplateCreated tid -> (TaskSuccess, Just $ "Template ID " <> T.pack (show tid))
+  RespTemplateDeleted -> (TaskSuccess, Just "Deleted")
+  RespTemplateInstantiated vid -> (TaskSuccess, Just $ "VM ID " <> T.pack (show vid))
+  RespNetworkCreated nid -> (TaskSuccess, Just $ "Network ID " <> T.pack (show nid))
+  RespNetworkDeleted -> (TaskSuccess, Just "Deleted")
+  RespNetworkStarted -> (TaskSuccess, Just "Started")
+  RespNetworkStopped -> (TaskSuccess, Just "Stopped")
+  RespApplyResult _ -> (TaskSuccess, Nothing)
+  RespSharedDirAdded did -> (TaskSuccess, Just $ "Dir ID " <> T.pack (show did))
+  RespSharedDirOk -> (TaskSuccess, Nothing)
+  RespNetIfAdded nid -> (TaskSuccess, Just $ "NetIf ID " <> T.pack (show nid))
+  RespNetIfOk -> (TaskSuccess, Nothing)
+  RespGuestExecResult code _ _ -> (TaskSuccess, Just $ "Exit code " <> T.pack (show code))
+  -- Read-only (shouldn't reach here, but handle gracefully)
+  _ -> (TaskSuccess, Nothing)
+
+-- | Extract entity ID and name from response (for create operations).
+extractEntityFromResponse :: Response -> (Maybe Int, Maybe Text)
+extractEntityFromResponse = \case
+  RespVmCreated vid -> (Just (fromIntegral vid), Nothing)
+  RespDiskCreated did -> (Just (fromIntegral did), Nothing)
+  RespSnapshotCreated sid -> (Just (fromIntegral sid), Nothing)
+  RespSshKeyCreated kid -> (Just (fromIntegral kid), Nothing)
+  RespTemplateCreated tid -> (Just (fromIntegral tid), Nothing)
+  RespNetworkCreated nid -> (Just (fromIntegral nid), Nothing)
+  RespTemplateInstantiated vid -> (Just (fromIntegral vid), Nothing)
+  RespDiskAttached did -> (Just (fromIntegral did), Nothing)
+  _ -> (Nothing, Nothing)
+
+--------------------------------------------------------------------------------
+-- Task History Handlers
+--------------------------------------------------------------------------------
+
+-- | List task history entries
+handleTaskList :: ServerState -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> IO Response
+handleTaskList state limit mSub mResult = do
+  tasks <-
+    runSqlPool
+      ( selectList
+          (catMaybes [subFilter, resultFilter])
+          [Desc TaskHistoryStartedAt, LimitTo limit]
+      )
+      (ssDbPool state)
+  pure $ RespTaskList $ map toTaskInfo tasks
+  where
+    subFilter = fmap (TaskHistorySubsystem ==.) mSub
+    resultFilter = fmap (TaskHistoryResult ==.) mResult
+    toTaskInfo (Entity key th) =
+      TaskInfo
+        { tiId = fromSqlKey key
+        , tiStartedAt = taskHistoryStartedAt th
+        , tiFinishedAt = taskHistoryFinishedAt th
+        , tiSubsystem = taskHistorySubsystem th
+        , tiEntityId = taskHistoryEntityId th
+        , tiEntityName = taskHistoryEntityName th
+        , tiCommand = taskHistoryCommand th
+        , tiResult = taskHistoryResult th
+        , tiMessage = taskHistoryMessage th
+        }
+
+-- | Show a single task history entry
+handleTaskShow :: ServerState -> Int64 -> IO Response
+handleTaskShow state taskId = do
+  mTask <- runSqlPool (get (toSqlKey taskId :: TaskHistoryId)) (ssDbPool state)
+  case mTask of
+    Nothing -> pure RespTaskNotFound
+    Just th ->
+      pure $
+        RespTaskInfo
+          TaskInfo
+            { tiId = taskId
+            , tiStartedAt = taskHistoryStartedAt th
+            , tiFinishedAt = taskHistoryFinishedAt th
+            , tiSubsystem = taskHistorySubsystem th
+            , tiEntityId = taskHistoryEntityId th
+            , tiEntityName = taskHistoryEntityName th
+            , tiCommand = taskHistoryCommand th
+            , tiResult = taskHistoryResult th
+            , tiMessage = taskHistoryMessage th
+            }
+
+-- | Helper to filter out Nothing values
+catMaybes :: [Maybe a] -> [a]
+catMaybes [] = []
+catMaybes (Nothing : xs) = catMaybes xs
+catMaybes (Just x : xs) = x : catMaybes xs

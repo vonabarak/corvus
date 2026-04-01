@@ -1196,6 +1196,67 @@ completionCommand =
 --------------------------------------------------------------------------------
 
 -- | Parser for all commands
+
+--------------------------------------------------------------------------------
+-- Task Command Parsers
+--------------------------------------------------------------------------------
+
+-- | Parser for task subcommands
+taskCommandParser :: Parser Command
+taskCommandParser =
+  subparser
+    ( command
+        "list"
+        (info taskListCommand (progDesc "List task history"))
+        <> command
+          "show"
+          (info taskShowCommand (progDesc "Show task details"))
+        <> command
+          "wait"
+          (info taskWaitCommand (progDesc "Wait for a task to complete"))
+    )
+
+-- | Parser for task list
+taskListCommand :: Parser Command
+taskListCommand =
+  TaskList
+    <$> option
+      auto
+      ( long "last"
+          <> short 'n'
+          <> metavar "N"
+          <> value 10
+          <> help "Number of tasks to show (default: 10)"
+      )
+    <*> optional
+      ( strOption
+          ( long "subsystem"
+              <> metavar "SUB"
+              <> help "Filter by subsystem: vm, disk, network, ssh-key, template, snapshot, apply"
+              <> completeWith ["vm", "disk", "network", "ssh-key", "template", "shared-dir", "snapshot", "system", "apply"]
+          )
+      )
+    <*> optional
+      ( strOption
+          ( long "result"
+              <> metavar "RESULT"
+              <> help "Filter by result: success, error, running"
+              <> completeWith ["success", "error", "running"]
+          )
+      )
+
+-- | Parser for task show
+taskShowCommand :: Parser Command
+taskShowCommand =
+  TaskShow
+    <$> argument auto (metavar "ID" <> help "Task ID to show")
+
+-- | Parser for task wait
+taskWaitCommand :: Parser Command
+taskWaitCommand =
+  TaskWait
+    <$> argument auto (metavar "ID" <> help "Task ID to wait for")
+
 commandParser :: Parser Command
 commandParser =
   subparser
@@ -1238,6 +1299,9 @@ commandParser =
         <> command
           "completion"
           (info completionCommand (progDesc "Generate shell completion script"))
+        <> command
+          "task"
+          (info taskCommandParser (progDesc "Task history commands"))
     )
 
 -- | Parser for global options

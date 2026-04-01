@@ -165,6 +165,14 @@ data Command
 
     -- | Apply environment from YAML config file (file path, skipExisting)
     Apply !FilePath !Bool
+  | -- Task history commands
+
+    -- | List task history (limit, optional subsystem, optional result)
+    TaskList !Int !(Maybe Text) !(Maybe Text)
+  | -- | Show single task details (taskId)
+    TaskShow !Int64
+  | -- | Wait for task to complete (taskId)
+    TaskWait !Int64
   | -- | Generate shell completion script (bash, zsh, fish)
     Completion !Text
   deriving (Show)
