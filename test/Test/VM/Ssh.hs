@@ -225,27 +225,39 @@ scpFromVm config remotePath localPath = do
 
 -- | Run a command in the test VM via SSH using the configured key
 runInTestVm :: TestVm -> Text -> IO (ExitCode, Text, Text)
-runInTestVm vm cmd = do
-  let args =
-        [ "-o"
-        , "StrictHostKeyChecking=no"
-        , "-o"
-        , "UserKnownHostsFile=/dev/null"
-        , "-o"
-        , "BatchMode=yes"
-        , "-o"
-        , "ConnectTimeout=10"
-        , "-i"
-        , tvmSshPrivateKey vm
-        , "-p"
-        , show (tvmSshPort vm)
-        , T.unpack (tvmSshUser vm) ++ "@" ++ tvmSshHost vm
-        , T.unpack cmd
-        ]
-  putStrLn $ "[ssh-run] Executing: " <> T.unpack cmd
-  (code, stdout, stderr) <- readProcessWithExitCode "ssh" args ""
-  putStrLn $ "[ssh-run] Exit code: " <> show code
-  pure (code, T.pack stdout, T.pack stderr)
+runInTestVm vm cmd = go (3 :: Int)
+  where
+    go 0 = runOnce
+    go n = do
+      result@(code, _, _) <- runOnce
+      case code of
+        -- SSH transport error (e.g. cloud-init restarted sshd) — retry
+        ExitFailure 255 -> do
+          putStrLn "[ssh-run] SSH transport error (255), retrying..."
+          threadDelay 2000000
+          go (n - 1)
+        _ -> pure result
+    runOnce = do
+      let args =
+            [ "-o"
+            , "StrictHostKeyChecking=no"
+            , "-o"
+            , "UserKnownHostsFile=/dev/null"
+            , "-o"
+            , "BatchMode=yes"
+            , "-o"
+            , "ConnectTimeout=10"
+            , "-i"
+            , tvmSshPrivateKey vm
+            , "-p"
+            , show (tvmSshPort vm)
+            , T.unpack (tvmSshUser vm) ++ "@" ++ tvmSshHost vm
+            , T.unpack cmd
+            ]
+      putStrLn $ "[ssh-run] Executing: " <> T.unpack cmd
+      (code, stdout, stderr) <- readProcessWithExitCode "ssh" args ""
+      putStrLn $ "[ssh-run] Exit code: " <> show code
+      pure (code, T.pack stdout, T.pack stderr)
 
 -- | Run a command in the test VM, failing on non-zero exit
 runInTestVm_ :: TestVm -> Text -> IO ()

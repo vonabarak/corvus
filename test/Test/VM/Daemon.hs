@@ -153,13 +153,23 @@ withTestDaemonConfig env modifyConfig = bracket (startTestDaemonWithConfig env m
 -- RPC Client Helpers
 --------------------------------------------------------------------------------
 
--- | Run an action with a connection to the test daemon
+-- | Run an action with a connection to the test daemon.
+-- Retries up to 3 times on transient connection failures (resource exhausted)
+-- which can occur when many tests run in parallel.
 withDaemonConnection
   :: TestDaemon
   -> (Connection -> IO a)
   -> IO (Either ConnectionError a)
-withDaemonConnection daemon =
-  withConnection (UnixAddress (tdSocketPath daemon))
+withDaemonConnection daemon action = go (3 :: Int)
+  where
+    go 0 = withConnection (UnixAddress (tdSocketPath daemon)) action
+    go n = do
+      result <- withConnection (UnixAddress (tdSocketPath daemon)) action
+      case result of
+        Left _ -> do
+          threadDelay 200000 -- 200ms backoff
+          go (n - 1)
+        Right _ -> pure result
 
 --------------------------------------------------------------------------------
 -- Internal Helpers

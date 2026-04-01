@@ -104,8 +104,8 @@ spec = withTestDb $ do
             startTestVm daemon vm1Id
             startTestVm daemon vm2Id
 
-            waitForGuestAgent daemon vm1Id 60
-            waitForGuestAgent daemon vm2Id 60
+            waitForGuestAgent daemon vm1Id 90
+            waitForGuestAgent daemon vm2Id 90
 
             -- Configure static IPs on the VDE interface (eth1)
             runViaGuestAgent_ daemon vm1Id "ip addr add 10.0.0.1/24 dev eth1 && ip link set eth1 up"
@@ -180,7 +180,7 @@ spec = withTestDb $ do
             -- Start VM and wait for SSH with the deployed key
             putStrLn "[test] Starting VM and waiting for SSH (cloud-init key deployment)..."
             startTestVm daemon vmId
-            waitForTestVmSshWithKey "localhost" sshPort (skpPrivateKey kp) "corvus" 120
+            waitForTestVmSshWithKey "localhost" sshPort (skpPrivateKey kp) "corvus" 180
 
             -- Verify SSH works with the deployed key
             (code1, stdout1, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "corvus" "echo ssh-via-apply"

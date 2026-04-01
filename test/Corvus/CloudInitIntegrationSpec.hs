@@ -26,7 +26,7 @@ import Test.VM.Ssh (runInTestVm)
 
 -- | VM config for multi-OS cloud-image tests (uses cloud-init for SSH key deployment)
 multiOsConfig :: VmConfig
-multiOsConfig = cloudVmConfig {vmcWaitSshTimeout = 120}
+multiOsConfig = cloudVmConfig {vmcWaitSshTimeout = 300}
 
 -- | Verify SSH key auth works, key is deployed, user was created,
 -- and optionally check privilege escalation and qemu-guest-agent.

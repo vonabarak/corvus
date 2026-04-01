@@ -5,8 +5,8 @@
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
 
-# Number of parallel test jobs (override with: make integration-tests JOBS=4)
-JOBS ?= 8
+# Number of parallel test jobs (override with: make integration-tests JOBS=8)
+JOBS ?= 4
 
 # Default target: build
 all: build
