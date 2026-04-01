@@ -52,6 +52,8 @@ waitForAgent pool config intervalSec vmId = do
       then do
         now <- liftIO getCurrentTime
         liftIO $ runSqlPool (updateHealthcheck vmId now) pool
+        -- Transition VmStarting → VmRunning on first successful healthcheck
+        liftIO $ runSqlPool (transitionStartingToRunning vmId) pool
         logInfoN $ "Guest agent ready for VM " <> tshow vmId
         -- Immediately query network interfaces on first success
         queryAndUpdateNetwork pool config vmId
@@ -136,6 +138,17 @@ updateGuestNetworkData vmId guestIfs = do
 -- e.g. "10.0.0.5/24,fd00::5/64"
 formatIpAddresses :: [GuestIpAddress] -> Text
 formatIpAddresses = T.intercalate "," . map (\ip -> giaAddress ip <> "/" <> tshow (giaPrefix ip))
+
+-- | Transition VM from VmStarting to VmRunning (only if currently VmStarting).
+transitionStartingToRunning :: Int64 -> SqlPersistT IO ()
+transitionStartingToRunning vmId = do
+  let key = toSqlKey vmId :: VmId
+  mVm <- get key
+  case mVm of
+    Just vm
+      | vmStatus vm == VmStarting ->
+          update key [M.VmStatus =. VmRunning]
+    _ -> pure ()
 
 -- | Show helper for Text conversion.
 tshow :: (Show a) => a -> Text

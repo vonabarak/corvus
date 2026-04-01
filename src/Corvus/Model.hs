@@ -60,6 +60,14 @@ module Corvus.Model
   , TemplateSshKey (..)
   , TemplateSshKeyId
 
+    -- * Task history entity
+  , TaskHistory (..)
+  , TaskHistoryId
+
+    -- * Task enums
+  , TaskSubsystem (..)
+  , TaskResult (..)
+
     -- * Unique constraints
   , Unique (..)
 
@@ -145,7 +153,9 @@ enumFromPersistValue x = Left $ "Expected Text for " <> enumTypeName @a <> ", go
 
 data VmStatus
   = VmStopped
+  | VmStarting
   | VmRunning
+  | VmStopping
   | VmPaused
   | VmError
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
@@ -156,7 +166,9 @@ instance EnumText VmStatus where
   enumTypeName = "VmStatus"
   enumMapping =
     [ (VmStopped, "stopped")
+    , (VmStarting, "starting")
     , (VmRunning, "running")
+    , (VmStopping, "stopping")
     , (VmPaused, "paused")
     , (VmError, "error")
     ]
@@ -424,6 +436,84 @@ instance PersistFieldSql TemplateCloneStrategy where
   sqlType _ = SqlString
 
 --------------------------------------------------------------------------------
+-- TaskSubsystem
+--------------------------------------------------------------------------------
+
+data TaskSubsystem
+  = SubVm
+  | SubDisk
+  | SubNetwork
+  | SubSshKey
+  | SubTemplate
+  | SubSharedDir
+  | SubSnapshot
+  | SubSystem
+  | SubApply
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+
+instance Binary TaskSubsystem
+
+instance EnumText TaskSubsystem where
+  enumTypeName = "TaskSubsystem"
+  enumMapping =
+    [ (SubVm, "vm")
+    , (SubDisk, "disk")
+    , (SubNetwork, "network")
+    , (SubSshKey, "ssh-key")
+    , (SubTemplate, "template")
+    , (SubSharedDir, "shared-dir")
+    , (SubSnapshot, "snapshot")
+    , (SubSystem, "system")
+    , (SubApply, "apply")
+    ]
+
+instance FromJSON TaskSubsystem where
+  parseJSON = parseEnumJSON
+
+instance ToJSON TaskSubsystem where
+  toJSON = toEnumJSON
+
+instance PersistField TaskSubsystem where
+  toPersistValue = enumToPersistValue
+  fromPersistValue = enumFromPersistValue
+
+instance PersistFieldSql TaskSubsystem where
+  sqlType _ = SqlString
+
+--------------------------------------------------------------------------------
+-- TaskResult
+--------------------------------------------------------------------------------
+
+data TaskResult
+  = TaskRunning
+  | TaskSuccess
+  | TaskError
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+
+instance Binary TaskResult
+
+instance EnumText TaskResult where
+  enumTypeName = "TaskResult"
+  enumMapping =
+    [ (TaskRunning, "running")
+    , (TaskSuccess, "success")
+    , (TaskError, "error")
+    ]
+
+instance FromJSON TaskResult where
+  parseJSON = parseEnumJSON
+
+instance ToJSON TaskResult where
+  toJSON = toEnumJSON
+
+instance PersistField TaskResult where
+  toPersistValue = enumToPersistValue
+  fromPersistValue = enumFromPersistValue
+
+instance PersistFieldSql TaskResult where
+  sqlType _ = SqlString
+
+--------------------------------------------------------------------------------
 -- Entity definitions
 --------------------------------------------------------------------------------
 
@@ -550,6 +640,17 @@ TemplateSshKey
     sshKeyId SshKeyId
     UniqueTemplateSshKey templateId sshKeyId
     deriving Show Eq Generic
+
+TaskHistory
+    startedAt UTCTime
+    finishedAt UTCTime Maybe
+    subsystem TaskSubsystem
+    entityId Int Maybe
+    entityName Text Maybe
+    command Text
+    result TaskResult
+    message Text Maybe
+    deriving Show Eq Generic
 |]
 
 -- Binary instances for entities (for network serialization)
@@ -578,6 +679,8 @@ instance Binary TemplateDrive
 instance Binary TemplateNetworkInterface
 
 instance Binary TemplateSshKey
+
+instance Binary TaskHistory
 
 -- Binary instances for keys
 instance Binary (Key Vm) where

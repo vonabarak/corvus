@@ -19,7 +19,7 @@ testTime = UTCTime (fromGregorian 2025 1 1) (secondsToDiffTime 0)
 
 -- Arbitrary instances for enums
 instance Arbitrary VmStatus where
-  arbitrary = elements [VmStopped, VmRunning, VmPaused, VmError]
+  arbitrary = elements [VmStopped, VmStarting, VmRunning, VmStopping, VmPaused, VmError]
 
 instance Arbitrary DriveFormat where
   arbitrary = elements [FormatQcow2, FormatRaw, FormatVmdk, FormatVdi, FormatVpc, FormatVhdx]

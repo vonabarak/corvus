@@ -58,10 +58,15 @@ data VmAction = ActionStart | ActionStop | ActionPause | ActionReset
 --
 -- Transition rules:
 --   * Reset: always allowed, sets to Stopped
---   * From Stopped: can only Start
---   * From Running: can Stop or Pause
---   * From Paused: can only Start (resume)
+--   * From Stopped: can Start (→ Starting if GA enabled, → Running otherwise)
+--   * From Starting: can Stop (→ Stopping) or Reset (→ Stopped)
+--   * From Running: can Stop (→ Stopping) or Pause (→ Paused)
+--   * From Stopping: only Reset is allowed
+--   * From Paused: can Start (resume → Running)
 --   * From Error: only Reset is allowed
+--
+-- Note: validateTransition returns VmRunning for Start from Stopped.
+-- The caller (handleVmStart) overrides to VmStarting when guest agent is enabled.
 validateTransition :: VmStatus -> VmAction -> Either Text VmStatus
 validateTransition currentStatus action = case (currentStatus, action) of
   -- Reset is always allowed, sets to Stopped
@@ -70,10 +75,18 @@ validateTransition currentStatus action = case (currentStatus, action) of
   (VmStopped, ActionStart) -> Right VmRunning
   (VmStopped, ActionStop) -> Left "VM is already stopped"
   (VmStopped, ActionPause) -> Left "Cannot pause a stopped VM"
+  -- From Starting: can Stop or Reset (handled above)
+  (VmStarting, ActionStart) -> Left "VM is already starting"
+  (VmStarting, ActionStop) -> Right VmStopping
+  (VmStarting, ActionPause) -> Left "Cannot pause a VM that is still starting"
   -- From Running: can Stop or Pause
   (VmRunning, ActionStart) -> Left "VM is already running"
-  (VmRunning, ActionStop) -> Right VmStopped
+  (VmRunning, ActionStop) -> Right VmStopping
   (VmRunning, ActionPause) -> Right VmPaused
+  -- From Stopping: only Reset (handled above)
+  (VmStopping, ActionStart) -> Left "Cannot start VM while it is stopping"
+  (VmStopping, ActionStop) -> Left "VM is already stopping"
+  (VmStopping, ActionPause) -> Left "Cannot pause VM while it is stopping"
   -- From Paused: can only Start (resume)
   (VmPaused, ActionStart) -> Right VmRunning
   (VmPaused, ActionStop) -> Left "Cannot stop a paused VM, reset instead"
@@ -163,8 +176,10 @@ handleVmStart state vmId = runServerLogging state $ do
                   result <- startVm (ssDbPool state) (ssQemuConfig state) vmId
                   case result of
                     VmStarted pid ph -> do
-                      -- Set status to running and save PID first
-                      liftIO $ runSqlPool (setVmRunning vmId pid) (ssDbPool state)
+                      -- Set status: VmStarting if guest agent enabled (will transition
+                      -- to VmRunning on first healthcheck), VmRunning otherwise
+                      let initialStatus = if vmGuestAgent vm then VmStarting else VmRunning
+                      liftIO $ runSqlPool (setVmStarted vmId initialStatus pid) (ssDbPool state)
                       -- Start guest agent poller if guest agent is enabled and interval > 0
                       -- (interval=0 disables the poller, useful for tests to avoid QGA socket contention)
                       when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
@@ -190,7 +205,7 @@ handleVmStart state vmId = runServerLogging state $ do
                               ExitFailure code -> do
                                 logWarnN $ "VM " <> T.pack (show vmId) <> " exited with error code " <> T.pack (show code)
                                 liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
-                      pure $ RespVmStateChanged VmRunning
+                      pure $ RespVmStateChanged initialStatus
                     VmNotFound -> pure RespVmNotFound
                     VmStartError err -> do
                       logWarnN $ "Failed to start VM " <> T.pack (show vmId) <> ": " <> err
@@ -224,33 +239,38 @@ handleVmStop state vmId = runServerLogging state $ do
     Just (vm, currentStatus) ->
       case validateTransition currentStatus ActionStop of
         Left errMsg -> pure $ RespInvalidTransition currentStatus errMsg
-        Right _ ->
+        Right newStatus -> do
+          -- Set status to Stopping immediately
+          liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. newStatus]) (ssDbPool state)
+          -- Initiate shutdown (QEMU process exit is handled by the background thread)
           if vmGuestAgent vm
             then do
-              -- Use guest agent for clean shutdown (like running "poweroff" inside the guest)
               logDebugN $ "Sending guest-shutdown to VM " <> T.pack (show vmId)
               ok <- liftIO $ guestShutdown (ssQemuConfig state) vmId
               if ok
                 then do
                   logInfoN $ "VM " <> T.pack (show vmId) <> " guest-shutdown initiated"
-                  pure $ RespVmStateChanged VmRunning
+                  pure $ RespVmStateChanged newStatus
                 else do
                   logWarnN $ "Guest-shutdown failed for VM " <> T.pack (show vmId) <> ", falling back to QMP"
-                  shutdownViaQmp vmId currentStatus
-            else shutdownViaQmp vmId currentStatus
+                  shutdownViaQmp vmId currentStatus newStatus
+            else shutdownViaQmp vmId currentStatus newStatus
   where
-    shutdownViaQmp vmId' currentStatus' = do
+    shutdownViaQmp vmId' currentStatus' newStatus' = do
       logDebugN $ "Sending QMP shutdown command to VM " <> T.pack (show vmId')
       qmpResult <- liftIO $ qmpShutdown (ssQemuConfig state) vmId'
       case qmpResult of
         QmpSuccess -> do
           logInfoN $ "VM " <> T.pack (show vmId') <> " shutdown initiated"
-          pure $ RespVmStateChanged VmRunning
+          pure $ RespVmStateChanged newStatus'
         QmpError err -> do
           logWarnN $ "QMP error stopping VM " <> T.pack (show vmId') <> ": " <> err
+          -- Revert status since shutdown failed
+          liftIO $ runSqlPool (update (toSqlKey vmId' :: VmId) [M.VmStatus =. currentStatus']) (ssDbPool state)
           pure $ RespInvalidTransition currentStatus' $ "QMP error: " <> err
         QmpConnectionFailed err -> do
           logWarnN $ "QMP connection failed for VM " <> T.pack (show vmId') <> ": " <> err
+          liftIO $ runSqlPool (update (toSqlKey vmId' :: VmId) [M.VmStatus =. currentStatus']) (ssDbPool state)
           pure $ RespInvalidTransition currentStatus' $ "QMP connection failed: " <> err
 
 -- | Handle VM pause command
@@ -361,10 +381,11 @@ getVmWithPid vmId = do
     Just vm -> Just (vm, vmPid vm)
 
 -- | Set VM status to running and save PID
-setVmRunning :: Int64 -> Int -> SqlPersistT IO ()
-setVmRunning vmId pid = do
+-- | Set VM status and PID (used during start: VmStarting or VmRunning)
+setVmStarted :: Int64 -> VmStatus -> Int -> SqlPersistT IO ()
+setVmStarted vmId status pid = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmRunning, M.VmPid =. Just pid]
+  update key [M.VmStatus =. status, M.VmPid =. Just pid]
 
 -- | Get the current PID stored for a VM (Nothing if cleared or VM not found)
 getVmPid :: Int64 -> SqlPersistT IO (Maybe Int)
@@ -393,7 +414,7 @@ setVmStopped vmId = do
 setVmError :: Int64 -> SqlPersistT IO ()
 setVmError vmId = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmError, M.VmHealthcheck =. Nothing]
+  update key [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing]
   updateWhere
     [M.NetworkInterfaceVmId ==. key]
     [M.NetworkInterfaceGuestIpAddresses =. Nothing]
