@@ -47,6 +47,7 @@ module Corvus.Handlers.Disk
 where
 
 import Control.Applicative ((<|>))
+import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
@@ -808,13 +809,14 @@ handleDiskDetach state vmId driveId = runServerLogging state $ do
                   let deviceId = "device-" <> T.pack (show driveId)
                       nodeName = "drive-" <> T.pack (show driveId)
 
-                  -- Remove device first
+                  -- Remove device first (device_del is async — QEMU returns
+                  -- immediately but the device is removed in the background)
                   let qemuCfg = ssQemuConfig state
                   deviceResult <- liftIO $ qmpDeviceDel qemuCfg vmId deviceId
                   case deviceResult of
                     QmpSuccess -> do
-                      -- Remove block device
-                      blockResult <- liftIO $ qmpBlockdevDel qemuCfg vmId nodeName
+                      -- Remove block device, retrying if device_del hasn't completed yet
+                      blockResult <- liftIO $ retryBlockdevDel qemuCfg vmId nodeName
                       case blockResult of
                         QmpSuccess -> do
                           liftIO $ runSqlPool (delete (toSqlKey driveId :: DriveId)) (ssDbPool state)
@@ -865,13 +867,14 @@ handleDiskDetachByDisk state vmId diskId = runServerLogging state $ do
               let deviceId = "device-" <> T.pack (show driveId)
                   nodeName = "drive-" <> T.pack (show driveId)
 
-              -- Remove device first
+              -- Remove device first (device_del is async — QEMU returns
+              -- immediately but the device is removed in the background)
               let qemuCfg = ssQemuConfig state
               deviceResult <- liftIO $ qmpDeviceDel qemuCfg vmId deviceId
               case deviceResult of
                 QmpSuccess -> do
-                  -- Remove block device
-                  blockResult <- liftIO $ qmpBlockdevDel qemuCfg vmId nodeName
+                  -- Remove block device, retrying if device_del hasn't completed yet
+                  blockResult <- liftIO $ retryBlockdevDel qemuCfg vmId nodeName
                   case blockResult of
                     QmpSuccess -> do
                       liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
@@ -894,6 +897,24 @@ handleDiskDetachByDisk state vmId diskId = runServerLogging state $ do
               liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
               logInfoN "Drive detached from database"
               pure RespDiskOk
+
+-- | Retry blockdev-del up to 5 times with 200ms delay between attempts.
+-- QEMU's device_del is asynchronous — the device may still be in use
+-- when we try to remove its block backend immediately after device_del returns.
+retryBlockdevDel :: QemuConfig -> Int64 -> T.Text -> IO QmpResult
+retryBlockdevDel config vmId nodeName = go (5 :: Int)
+  where
+    go 0 = qmpBlockdevDel config vmId nodeName
+    go n = do
+      result <- qmpBlockdevDel config vmId nodeName
+      case result of
+        QmpSuccess -> pure QmpSuccess
+        QmpError err
+          | "in use" `T.isInfixOf` err -> do
+              threadDelay 200000
+              go (n - 1)
+          | otherwise -> pure result
+        other -> pure other
 
 --------------------------------------------------------------------------------
 -- Database Operations

@@ -157,6 +157,17 @@ spec = withTestDb $ do
         let driveIds2 = map diId (vdDrives details2)
         driveIds2 `shouldNotSatisfy` elem driveId
 
+        -- Re-attach the same disk (verifies file lock is properly released)
+        driveId2 <- hotAttachDisk daemon vmId dataDiskId InterfaceVirtio CacheWriteback
+
+        -- Verify drive appears again
+        details3 <- showVmDetails daemon vmId
+        let driveIds3 = map diId (vdDrives details3)
+        driveIds3 `shouldSatisfy` elem driveId2
+
+        -- Clean up
+        hotDetachDisk daemon vmId dataDiskId
+
     it "can attach a disk read-only to a running VM" $ \env -> do
       withTestVmGuestExec env defaultVmConfig $ \vm -> do
         let daemon = tvmDaemon vm
