@@ -42,6 +42,12 @@ instance Arbitrary SharedDirCache where
 instance Arbitrary TemplateCloneStrategy where
   arbitrary = elements [StrategyClone, StrategyOverlay, StrategyDirect]
 
+instance Arbitrary TaskSubsystem where
+  arbitrary = elements [SubVm, SubDisk, SubNetwork, SubSshKey, SubTemplate, SubSharedDir, SubSnapshot, SubSystem, SubApply]
+
+instance Arbitrary TaskResult where
+  arbitrary = elements [TaskRunning, TaskSuccess, TaskError]
+
 instance Arbitrary Ref where
   arbitrary = Ref . T.pack <$> arbitrary
 
@@ -83,6 +89,8 @@ instance Arbitrary Request where
       , ReqNetworkShow <$> arbitrary
       , ReqGuestExec <$> arbitrary <*> pure "echo ok"
       , ReqApply "sshKeys: []" <$> arbitrary
+      , ReqTaskList <$> arbitrary <*> pure Nothing <*> pure Nothing
+      , ReqTaskShow <$> arbitrary
       ]
 
 spec :: Spec

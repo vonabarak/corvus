@@ -62,7 +62,8 @@ src/Corvus/
 │   │   ├── NetIf.hs     # Network interface command handlers
 │   │   ├── SshKey.hs    # SSH key command handlers
 │   │   ├── SharedDir.hs # Shared directory command handlers
-│   │   └── GuestExec.hs # Guest exec command handlers
+│   │   ├── GuestExec.hs # Guest exec command handlers
+│   │   └── Task.hs     # Task history command handlers
 │   ├── Output.hs        # Unified table/detail output formatting (printTableHeader, printField)
 │   ├── Types.hs         # CLI command types
 │   └── Config.hs        # Client configuration
@@ -80,16 +81,17 @@ cbits/
 - **Concurrency**: STM (`TVar`) for shared server state; `async` for background VM process monitoring
 - **Database**: Persistent + Esqueleto ORM with PostgreSQL; `runSqlPool` pattern; auto-migration on startup
 - **Logging**: `MonadLogger` (LoggingT transformer)
-- **VM state machine**: Enforced in `Handlers.Vm.validateTransition` — stopped → running → paused, with reset always allowed
+- **VM state machine**: Enforced in `Handlers.Vm.validateTransition` — stopped → starting (if guest agent) or running → stopping → stopped. VMs with guest agent go through `starting` state until first healthcheck ping succeeds. Reset always returns to stopped.
+- **Task history**: Every mutating request is recorded in `task_history` table via `withTaskHistory` wrapper in `Handlers.hs`. Read-only requests (list, show, ping) are skipped.
 - **Network namespaces**: dnsmasq runs in an isolated user+network+UTS namespace (no root required). The C helper (`cbits/vdens.c`) forks from the Haskell process, calls `unshare(2)` in the single-threaded child, creates a TAP interface, connects to the VDE switch via libvdeplug, and bridges packets. `unshare(CLONE_NEWUSER)` requires a single-threaded process — the fork **must** happen in C, not via GHC's `forkProcess`, because GHC's threaded RTS keeps multiple OS threads alive after fork.
 
 ### Database Entities
 
-`Vm`, `DiskImage`, `Drive`, `Network`, `NetworkInterface`, `SharedDir`, `Snapshot`, `SshKey`, `VmSshKey`, `TemplateVm`, `TemplateDrive`, `TemplateNetworkInterface`, `TemplateSshKey` — all defined in `Model.hs`.
+`Vm`, `DiskImage`, `Drive`, `Network`, `NetworkInterface`, `SharedDir`, `Snapshot`, `SshKey`, `VmSshKey`, `TemplateVm`, `TemplateDrive`, `TemplateNetworkInterface`, `TemplateSshKey`, `TaskHistory` — all defined in `Model.hs`.
 
 ### Key Enums (text-serializable via `EnumText` typeclass)
 
-`VmStatus` (stopped/running/paused/error), `DriveInterface`, `DriveFormat`, `DriveMedia`, `CacheType`, `NetInterfaceType`, `SharedDirCache`, `TemplateCloneStrategy` (clone/overlay/direct).
+`VmStatus` (stopped/starting/running/stopping/paused/error), `DriveInterface`, `DriveFormat`, `DriveMedia`, `CacheType`, `NetInterfaceType`, `SharedDirCache`, `TemplateCloneStrategy` (clone/overlay/direct), `TaskSubsystem` (vm/disk/network/ssh-key/template/shared-dir/snapshot/system/apply), `TaskResult` (running/success/error).
 
 ### Test Structure
 
