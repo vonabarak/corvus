@@ -3,7 +3,7 @@
 
 module Corvus.DiskSpec (spec) where
 
-import Corvus.Handlers.Disk (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
+import Corvus.Handlers.Disk (detectFormatFromPath, makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Model (DiskImage (..), DriveFormat (..))
 import Corvus.Protocol (DiskImageInfo (..), Response (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
@@ -117,6 +117,59 @@ spec = sequential $ do
 
     it "returns Nothing for unknown extension" $ do
       detectFormatFromUrl "https://example.com/image.iso" `shouldBe` Nothing
+
+  describe "sanitizeDiskName" $ do
+    it "accepts normal name" $ do
+      sanitizeDiskName "my-disk" `shouldBe` Right "my-disk"
+
+    it "accepts name with dots" $ do
+      sanitizeDiskName "disk.qcow2" `shouldBe` Right "disk.qcow2"
+
+    it "strips path traversal" $ do
+      sanitizeDiskName "../../../etc/passwd" `shouldBe` Right "etcpasswd"
+
+    it "strips null bytes" $ do
+      sanitizeDiskName "disk\0name" `shouldBe` Right "diskname"
+
+    it "strips slashes" $ do
+      sanitizeDiskName "a/b\\c" `shouldBe` Right "abc"
+
+    it "rejects name that becomes empty after sanitization" $ do
+      sanitizeDiskName ".." `shouldSatisfy` isLeft
+
+    it "rejects all-digit names" $ do
+      sanitizeDiskName "123" `shouldSatisfy` isLeft
+
+    it "rejects empty name" $ do
+      sanitizeDiskName "" `shouldSatisfy` isLeft
+
+  describe "detectFormatFromPath" $ do
+    it "detects qcow2" $ do
+      detectFormatFromPath "test.qcow2" `shouldBe` Just FormatQcow2
+
+    it "detects raw" $ do
+      detectFormatFromPath "test.raw" `shouldBe` Just FormatRaw
+
+    it "detects img as raw" $ do
+      detectFormatFromPath "test.img" `shouldBe` Just FormatRaw
+
+    it "detects vmdk" $ do
+      detectFormatFromPath "test.vmdk" `shouldBe` Just FormatVmdk
+
+    it "detects vdi" $ do
+      detectFormatFromPath "test.vdi" `shouldBe` Just FormatVdi
+
+    it "detects vpc" $ do
+      detectFormatFromPath "test.vpc" `shouldBe` Just FormatVpc
+
+    it "detects vhd as vpc" $ do
+      detectFormatFromPath "test.vhd" `shouldBe` Just FormatVpc
+
+    it "detects vhdx" $ do
+      detectFormatFromPath "test.vhdx" `shouldBe` Just FormatVhdx
+
+    it "returns Nothing for unknown extension" $ do
+      detectFormatFromPath "test.iso" `shouldBe` Nothing
 
   withTestDb $ do
     describe "disk list" $ do
@@ -323,3 +376,7 @@ spec = sequential $ do
         then_ $ do
           responseIsDiskCreated
           diskImageHasPath 1 "foo.qcow2"
+
+isLeft :: Either a b -> Bool
+isLeft (Left _) = True
+isLeft _ = False

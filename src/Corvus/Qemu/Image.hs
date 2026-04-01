@@ -10,6 +10,7 @@ module Corvus.Qemu.Image
   , resizeImage
   , getImageInfo
   , getImageSizeMb
+  , parseImageInfo
 
     -- * Snapshot operations
   , createSnapshot

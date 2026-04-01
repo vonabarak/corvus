@@ -2,5 +2,6 @@
 .stack-work/
 dist-newstyle/
 dist/
+plans/
 .test-cache/
 .test-images/
