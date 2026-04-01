@@ -18,11 +18,14 @@ module Corvus.CloudInitIntegrationSpec (spec) where
 import Control.Monad (when)
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
+import System.IO.Temp (withSystemTempDirectory)
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), VmConfig (..), cloudVmConfig, withTestVm, withTestVmConsole)
+import Test.VM.Common (TestVm (..), VmConfig (..), cloudVmConfig, findFreePort, startTestVmAndWait, withTestDiskSetup, withTestVm, withTestVmConsole)
 import Test.VM.Console (consoleDrain, consoleExpect, consoleSend)
-import Test.VM.Ssh (runInTestVm)
+import Test.VM.Daemon (withTestDaemon)
+import Test.VM.Rpc (addVmDisk, addVmNetIf, cleanupSshKey, createTestVmWithOptions, deleteTestVm, setupVmSshKey, stopTestVmAndWait)
+import Test.VM.Ssh (SshKeyPair (..), generateSshKeyPair, runInTestVm, runInTestVmWith, waitForTestVmSshWithKey)
 
 -- | VM config for multi-OS cloud-image tests (uses cloud-init for SSH key deployment)
 multiOsConfig :: VmConfig
@@ -49,6 +52,11 @@ verifyVm checkPrivEsc checkGuestAgent vm = do
   (code3, stdout3, _) <- runInTestVm vm "whoami"
   code3 `shouldBe` ExitSuccess
   T.strip stdout3 `shouldBe` "corvus"
+
+  -- Verify hostname is set (cloud-init sets local-hostname from VM name)
+  (codeH, stdoutH, _) <- runInTestVm vm "hostname"
+  codeH `shouldBe` ExitSuccess
+  T.isPrefixOf "test-vm-" (T.strip stdoutH) `shouldBe` True
 
   -- Wait for cloud-init to finish. SSH becomes available before cloud-init
   -- completes modules-final (which runs runcmd and package installation),
@@ -84,6 +92,47 @@ spec = withTestDb $ do
 
       it "SSH key setup works with BIOS boot" $ \env -> do
         withTestVm env (multiOsConfig {vmcOsName = "almalinux-10", vmcUefi = False}) (verifyVm True True)
+
+      it "SSH key setup works with multiple SSH keys" $ \env -> do
+        let config = multiOsConfig {vmcOsName = "almalinux-10"}
+        withTestDaemon env $ \daemon ->
+          withTestDiskSetup daemon config $ \diskId cfg ->
+            withSystemTempDirectory "corvus-multi-key" $ \tmpDir -> do
+              -- Create VM with cloud-init
+              vmId <- createTestVmWithOptions daemon "test-vm-multikey" 2 2048 Nothing True False True
+
+              -- Add boot disk
+              addVmDisk daemon vmId diskId (vmcDiskInterface cfg) (vmcDiskCache cfg) (vmcDiskDiscard cfg) False
+
+              -- Set up two SSH key pairs
+              (keyId1, privKey1, _) <- setupVmSshKey daemon vmId tmpDir
+              (keyId2, privKey2, _) <- setupVmSshKey daemon vmId tmpDir
+
+              -- Add network with SSH port forwarding
+              sshPort <- findFreePort
+              let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
+              addVmNetIf daemon vmId (vmcNetworkType cfg) hostFwd Nothing
+
+              -- Start VM and wait for SSH
+              let vm = TestVm vmId diskId sshPort "localhost" daemon privKey1 keyId1 "corvus"
+              startTestVmAndWait vm 300
+
+              -- Verify both keys are in authorized_keys
+              (code, stdout, _) <- runInTestVm vm "cat ~/.ssh/authorized_keys"
+              code `shouldBe` ExitSuccess
+              let keyCount = length $ filter (T.isPrefixOf "ssh-") (T.lines stdout)
+              keyCount `shouldSatisfy` (>= 2)
+
+              -- Verify SSH works with the second key too
+              (code2, stdout2, _) <- runInTestVmWith "localhost" sshPort privKey2 "corvus" "echo key2-ok"
+              code2 `shouldBe` ExitSuccess
+              T.strip stdout2 `shouldBe` "key2-ok"
+
+              -- Cleanup
+              stopTestVmAndWait daemon vmId 30
+              deleteTestVm daemon vmId
+              cleanupSshKey daemon keyId1
+              cleanupSshKey daemon keyId2
 
     describe "Ubuntu" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do

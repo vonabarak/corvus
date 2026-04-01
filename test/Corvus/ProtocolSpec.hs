@@ -9,15 +9,20 @@ import Data.Aeson (encode)
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.List (isInfixOf)
 import qualified Data.Text as T
+import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
 import Test.Hspec
 import Test.QuickCheck
+
+-- | Fixed timestamp for deterministic tests
+testTime :: UTCTime
+testTime = UTCTime (fromGregorian 2025 1 1) (secondsToDiffTime 0)
 
 -- Arbitrary instances for enums
 instance Arbitrary VmStatus where
   arbitrary = elements [VmStopped, VmRunning, VmPaused, VmError]
 
 instance Arbitrary DriveFormat where
-  arbitrary = elements [FormatQcow2, FormatRaw, FormatVmdk, FormatVdi]
+  arbitrary = elements [FormatQcow2, FormatRaw, FormatVmdk, FormatVdi, FormatVpc, FormatVhdx]
 
 instance Arbitrary DriveInterface where
   arbitrary = elements [InterfaceVirtio, InterfaceIde, InterfaceScsi, InterfaceSata, InterfaceNvme, InterfacePflash]
@@ -70,6 +75,14 @@ instance Arbitrary Request where
       , ReqSnapshotList <$> arbitrary
       , pure ReqSshKeyList
       , pure ReqTemplateList
+      , pure ReqDiskList
+      , pure ReqNetworkList
+      , ReqDiskRefresh <$> arbitrary
+      , pure (ReqNetworkCreate "net" "10.0.0.0/24")
+      , ReqNetworkDelete <$> arbitrary
+      , ReqNetworkShow <$> arbitrary
+      , ReqGuestExec <$> arbitrary <*> pure "echo ok"
+      , ReqApply "sshKeys: []" <$> arbitrary
       ]
 
 spec :: Spec
@@ -92,3 +105,18 @@ spec = sequential $ do
       json `shouldSatisfy` ("name" `isInfixOf`)
       json `shouldSatisfy` ("status" `isInfixOf`)
       json `shouldSatisfy` ("running" `isInfixOf`)
+
+    it "NetworkInfo produces valid JSON with expected fields" $ do
+      let nw = NetworkInfo 1 "lab-net" "10.0.0.0/24" False Nothing Nothing testTime
+          json = BL.unpack (encode nw)
+      json `shouldSatisfy` ("name" `isInfixOf`)
+      json `shouldSatisfy` ("subnet" `isInfixOf`)
+      json `shouldSatisfy` ("lab-net" `isInfixOf`)
+
+    it "DriveInfo produces valid JSON with enum values" $ do
+      let drive = DriveInfo 1 10 "disk1" InterfaceVirtio "/path.qcow2" FormatQcow2 Nothing False CacheWriteback True
+          json = BL.unpack (encode drive)
+      json `shouldSatisfy` ("virtio" `isInfixOf`)
+      json `shouldSatisfy` ("qcow2" `isInfixOf`)
+      json `shouldSatisfy` ("writeback" `isInfixOf`)
+      json `shouldSatisfy` ("discard" `isInfixOf`)

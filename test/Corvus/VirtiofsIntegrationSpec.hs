@@ -56,3 +56,11 @@ spec = withTestDb $ do
             (code4, stdout4, _) <- runInTestVm vm "cat /mnt/share/testfile.txt"
             code4 `shouldBe` ExitSuccess
             T.strip stdout4 `shouldBe` T.pack testContent
+
+            -- Write a file from the guest and verify on host
+            let writeContent = "WRITTEN-BY-GUEST:" <> T.unpack (T.take 8 (toText uuid))
+            (code5, _, _) <- runInTestVm vm $ "echo '" <> T.pack writeContent <> "' > /mnt/share/guest-file.txt"
+            code5 `shouldBe` ExitSuccess
+
+            hostContent <- readFile (testDir </> "guest-file.txt")
+            T.strip (T.pack hostContent) `shouldBe` T.pack writeContent

@@ -5,7 +5,7 @@ module Corvus.DiskSpec (spec) where
 
 import Corvus.Handlers.Disk (detectFormatFromPath, makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Model (DiskImage (..), DriveFormat (..))
-import Corvus.Protocol (DiskImageInfo (..), Response (..))
+import Corvus.Protocol (DiskImageInfo (..), Ref (..), Request (..), Response (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Qemu.Image (detectFormatFromUrl, isHttpUrl)
 import qualified Data.Text as T
@@ -347,6 +347,42 @@ spec = sequential $ do
         -- Try to resize base-disk (ID 1)
         when_ $ diskResize 1 20480
         then_ responseIsDiskHasOverlays
+
+    describe "disk resize" $ do
+      testCase "fails for disk attached to running VM" $ do
+        given $ do
+          vmId <- insertVm "running-vm" VmRunning
+          diskId <- insertDiskImage "run-disk" "run.qcow2" FormatQcow2
+          _ <- attachDrive vmId diskId InterfaceVirtio
+          pure ()
+        when_ $ diskResize 1 20480
+        then_ $ responseIs $ \case
+          RespVmMustBeStopped -> True
+          _ -> False
+
+    describe "disk attach extra" $ do
+      testCase "fails for duplicate disk attachment to same VM" $ do
+        given $ do
+          vmId <- insertVm "test-vm" VmStopped
+          diskId <- insertDiskImage "test-disk" "test.qcow2" FormatQcow2
+          _ <- attachDrive vmId diskId InterfaceVirtio
+          pure ()
+        when_ $ diskAttach 1 1 InterfaceVirtio (Just MediaDisk)
+        then_ $ responseIs $ \case
+          RespError msg -> "already attached" `T.isInfixOf` msg
+          _ -> False
+
+    describe "disk clone" $ do
+      testCase "fails for non-existent base disk" $ do
+        when_ $ diskClone "clone1" 999 Nothing
+        then_ responseIsDiskNotFound
+
+    describe "disk refresh" $ do
+      testCase "fails for non-existent disk" $ do
+        when_ $ executeRequest (ReqDiskRefresh (Ref "999"))
+        then_ $ responseIs $ \case
+          RespDiskNotFound -> True
+          _ -> False
 
     describe "disk register stores relative path" $ do
       testCase "strips base directory prefix from absolute path" $ do

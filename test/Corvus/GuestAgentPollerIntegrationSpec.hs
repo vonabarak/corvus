@@ -18,9 +18,9 @@ import qualified Data.Text as T
 import Data.Time (UTCTime)
 import Test.Database (withTestDb)
 import Test.Hspec
-import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, withTestVmGuestExecOnDaemon)
+import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, startTestVmAndWaitGuestAgent, withTestVmGuestExecOnDaemon)
 import Test.VM.Daemon (TestDaemon, withDaemonConnection, withTestDaemonConfig)
-import Test.VM.Rpc (listVmNetIfs)
+import Test.VM.Rpc (listVmNetIfs, stopTestVmAndWait, waitForGuestAgent)
 
 spec :: Spec
 spec = withTestDb $ do
@@ -44,6 +44,12 @@ spec = withTestDb $ do
           -- Wait for the next poll cycle and verify healthcheck updates
           hc2 <- waitForHealthcheckChange daemon vmId hc1 30
           hc2 `shouldSatisfy` (/= Just hc1)
+
+          -- Stop and restart the VM, verify healthcheck updates with a new timestamp
+          stopTestVmAndWait daemon vmId 30
+          startTestVmAndWaitGuestAgent vm 120
+          hc3 <- waitForHealthcheck daemon vmId 60
+          hc3 `shouldSatisfy` (> hc1)
 
 -- | Poll until healthcheck timestamp is set. Fails after timeout seconds.
 waitForHealthcheck :: TestDaemon -> Int64 -> Int -> IO UTCTime

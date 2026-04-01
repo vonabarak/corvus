@@ -718,11 +718,11 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
           if not (null overlayIds) && not readOnly
             then pure $ RespDiskHasOverlays overlayIds
             else do
-              -- Create drive record
-              driveId <-
+              -- Create drive record (unique constraint: one drive per VM+disk pair)
+              mDriveId <-
                 liftIO $
                   runSqlPool
-                    ( insert
+                    ( insertUnique
                         Drive
                           { driveVmId = toSqlKey vmId
                           , driveDiskImageId = toSqlKey diskId
@@ -734,47 +734,49 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                           }
                     )
                     (ssDbPool state)
+              case mDriveId of
+                Nothing -> pure $ RespError "Disk is already attached to this VM"
+                Just driveId -> do
+                  -- If VM is running or paused, hot-plug via QMP (both have live QEMU process)
+                  if vmStatus vm == VmRunning || vmStatus vm == VmPaused
+                    then do
+                      logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-plug"
+                      let nodeName = "drive-" <> T.pack (show $ fromSqlKey driveId)
+                          deviceId = "device-" <> T.pack (show $ fromSqlKey driveId)
+                          format = diskImageFormat disk
+                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
 
-              -- If VM is running or paused, hot-plug via QMP (both have live QEMU process)
-              if vmStatus vm == VmRunning || vmStatus vm == VmPaused
-                then do
-                  logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-plug"
-                  let nodeName = "drive-" <> T.pack (show $ fromSqlKey driveId)
-                      deviceId = "device-" <> T.pack (show $ fromSqlKey driveId)
-                      format = diskImageFormat disk
-                  filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-
-                  -- Add block device
-                  let qemuCfg = ssQemuConfig state
-                  blockResult <- liftIO $ qmpBlockdevAdd qemuCfg vmId nodeName filePath format readOnly
-                  case blockResult of
-                    QmpSuccess -> do
-                      -- Add device
-                      deviceResult <- liftIO $ qmpDeviceAddDrive qemuCfg vmId deviceId nodeName interface
-                      case deviceResult of
+                      -- Add block device
+                      let qemuCfg = ssQemuConfig state
+                      blockResult <- liftIO $ qmpBlockdevAdd qemuCfg vmId nodeName filePath format readOnly
+                      case blockResult of
                         QmpSuccess -> do
-                          logInfoN "Hot-plug successful"
-                          pure $ RespDiskAttached $ fromSqlKey driveId
+                          -- Add device
+                          deviceResult <- liftIO $ qmpDeviceAddDrive qemuCfg vmId deviceId nodeName interface
+                          case deviceResult of
+                            QmpSuccess -> do
+                              logInfoN "Hot-plug successful"
+                              pure $ RespDiskAttached $ fromSqlKey driveId
+                            QmpError err -> do
+                              logWarnN $ "Device add failed: " <> err
+                              -- Try to clean up blockdev
+                              _ <- liftIO $ qmpBlockdevDel qemuCfg vmId nodeName
+                              -- Remove drive record
+                              liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                              pure $ RespError $ "Device add failed: " <> err
+                            QmpConnectionFailed err -> do
+                              liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                              pure $ RespError $ "QMP connection failed: " <> err
                         QmpError err -> do
-                          logWarnN $ "Device add failed: " <> err
-                          -- Try to clean up blockdev
-                          _ <- liftIO $ qmpBlockdevDel qemuCfg vmId nodeName
-                          -- Remove drive record
+                          logWarnN $ "Blockdev add failed: " <> err
                           liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                          pure $ RespError $ "Device add failed: " <> err
+                          pure $ RespError $ "Blockdev add failed: " <> err
                         QmpConnectionFailed err -> do
                           liftIO $ runSqlPool (delete driveId) (ssDbPool state)
                           pure $ RespError $ "QMP connection failed: " <> err
-                    QmpError err -> do
-                      logWarnN $ "Blockdev add failed: " <> err
-                      liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                      pure $ RespError $ "Blockdev add failed: " <> err
-                    QmpConnectionFailed err -> do
-                      liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                      pure $ RespError $ "QMP connection failed: " <> err
-                else do
-                  logInfoN "VM is not active, disk attached to database only"
-                  pure $ RespDiskAttached $ fromSqlKey driveId
+                    else do
+                      logInfoN "VM is not active, disk attached to database only"
+                      pure $ RespDiskAttached $ fromSqlKey driveId
 
 -- | Detach a disk from a VM
 handleDiskDetach :: ServerState -> Int64 -> Int64 -> IO Response

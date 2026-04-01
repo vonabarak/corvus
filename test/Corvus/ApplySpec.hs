@@ -178,3 +178,114 @@ spec = sequential $ do
               [c] -> acName c == "id-test-key" && acId c > 0
               _ -> False
           _ -> False
+
+      testCase "fails on disk with both clone and overlay" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: bad-disk
+                  clone: some-disk
+                  overlay: other-disk
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "cannot specify more than one" `T.isInfixOf` msg
+          _ -> False
+
+      testCase "fails on disk with path but using import strategy" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: bad-disk
+                  import: /some/path.qcow2
+                  path: subdir/
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "path" `T.isInfixOf` msg
+          _ -> False
+
+      testCase "fails on VM with sshKeys but cloudInit false" $ do
+        when_ $
+          whenApply
+            [yaml|
+              sshKeys:
+                - name: ci-key
+                  publicKey: ssh-ed25519 AAAA citest
+              disks:
+                - name: ci-disk
+                  format: qcow2
+                  sizeMb: 1024
+              vms:
+                - name: ci-vm
+                  cpuCount: 1
+                  ramMb: 256
+                  cloudInit: false
+                  drives:
+                    - disk: ci-disk
+                      interface: virtio
+                  sshKeys:
+                    - ci-key
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "cloud" `T.isInfixOf` msg || "Cloud" `T.isInfixOf` msg
+          _ -> False
+
+      testCase "fails on duplicate VM names" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: d1
+                  format: qcow2
+                  sizeMb: 512
+                - name: d2
+                  format: qcow2
+                  sizeMb: 512
+              vms:
+                - name: dup-vm
+                  cpuCount: 1
+                  ramMb: 256
+                  drives:
+                    - disk: d1
+                      interface: virtio
+                - name: dup-vm
+                  cpuCount: 1
+                  ramMb: 256
+                  drives:
+                    - disk: d2
+                      interface: virtio
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "Duplicate" `T.isInfixOf` msg || "duplicate" `T.isInfixOf` msg
+          _ -> False
+
+      testCase "fails on duplicate disk names" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: same-disk
+                  format: qcow2
+                  sizeMb: 512
+                - name: same-disk
+                  format: raw
+                  sizeMb: 256
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "Duplicate" `T.isInfixOf` msg || "duplicate" `T.isInfixOf` msg
+          _ -> False
+
+      testCase "fails on duplicate network names" $ do
+        when_ $
+          whenApply
+            [yaml|
+              networks:
+                - name: same-net
+                  subnet: "10.0.0.0/24"
+                - name: same-net
+                  subnet: "10.0.1.0/24"
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "Duplicate" `T.isInfixOf` msg || "duplicate" `T.isInfixOf` msg
+          _ -> False

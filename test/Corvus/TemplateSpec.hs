@@ -39,6 +39,27 @@ spec = sequential $ withTestDb $ do
         TemplateError _ -> pure ()
         other -> fail $ "Expected TemplateError, got: " ++ show other
 
+    testCase "rejects duplicate template name" $ do
+      _ <- given $ insertDiskImage "base-disk" "base.qcow2" FormatQcow2
+      let tplYaml =
+            [yaml|
+              name: dup-template
+              cpuCount: 2
+              ramMb: 2048
+              drives:
+                - diskImageName: base-disk
+                  interface: virtio
+                  strategy: overlay
+            |]
+      result1 <- whenTemplateCreate tplYaml
+      liftIO $ case result1 of
+        TemplateCreated _ -> pure ()
+        other -> fail $ "First create should succeed: " ++ show other
+      result2 <- whenTemplateCreate tplYaml
+      liftIO $ case result2 of
+        TemplateError _ -> pure ()
+        other -> fail $ "Expected TemplateError for duplicate, got: " ++ show other
+
   describe "template list" $ do
     testCase "returns empty list when no templates exist" $ do
       result <- whenTemplateList

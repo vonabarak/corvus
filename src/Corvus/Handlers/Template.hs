@@ -225,28 +225,30 @@ createTemplate ty now = do
     then pure $ Left "Template has SSH keys but cloud-init is not enabled"
     else case (sequence mDiskIds, sequence mKeyIds) of
       (Right diskIds, Right keyIds) -> do
-        tid <- insert $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) now
+        mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) now
+        case mTid of
+          Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
+          Just tid -> do
+            forM_ (zip diskIds (tyDrives ty)) $ \(diskId, tdy) ->
+              insert_ $
+                TemplateDrive
+                  tid
+                  diskId
+                  (tdyInterface tdy)
+                  (tdyMedia tdy)
+                  (fromMaybe False (tdyReadOnly tdy))
+                  (fromMaybe CacheNone (tdyCacheType tdy))
+                  (fromMaybe False (tdyDiscard tdy))
+                  (tdyStrategy tdy)
+                  (tdyNewSizeMb tdy)
 
-        forM_ (zip diskIds (tyDrives ty)) $ \(diskId, tdy) -> do
-          insert_ $
-            TemplateDrive
-              tid
-              diskId
-              (tdyInterface tdy)
-              (tdyMedia tdy)
-              (fromMaybe False (tdyReadOnly tdy))
-              (fromMaybe CacheNone (tdyCacheType tdy))
-              (fromMaybe False (tdyDiscard tdy))
-              (tdyStrategy tdy)
-              (tdyNewSizeMb tdy)
+            forM_ (tyNetworkInterfaces ty) $ \tny ->
+              insert_ $ TemplateNetworkInterface tid (tnyType tny) (tnyHostDevice tny)
 
-        forM_ (tyNetworkInterfaces ty) $ \tny -> do
-          insert_ $ TemplateNetworkInterface tid (tnyType tny) (tnyHostDevice tny)
+            forM_ keyIds $ \keyId ->
+              insert_ $ TemplateSshKey tid keyId
 
-        forM_ keyIds $ \keyId -> do
-          insert_ $ TemplateSshKey tid keyId
-
-        pure $ Right tid
+            pure $ Right tid
       (Left err, _) -> pure $ Left err
       (_, Left err) -> pure $ Left err
 
