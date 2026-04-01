@@ -259,9 +259,11 @@ test-suite corvus-test
       Corvus.DiskIntegrationSpec
       Corvus.DiskSpec
       Corvus.GuestAgentPollerIntegrationSpec
+      Corvus.GuestExecSpec
       Corvus.ImageSpec
       Corvus.NetIfSpec
       Corvus.NetworkIntegrationSpec
+      Corvus.NetworkSpec
       Corvus.ProtocolSpec
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
@@ -269,6 +271,7 @@ test-suite corvus-test
       Corvus.SshKeySpec
       Corvus.SubnetSpec
       Corvus.TemplateIntegrationSpec
+      Corvus.TemplateSpec
       Corvus.VirtiofsIntegrationSpec
       Corvus.VmIntegrationSpec
       Corvus.VmSpec

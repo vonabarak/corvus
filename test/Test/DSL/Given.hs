@@ -24,6 +24,9 @@ module Test.DSL.Given
   , insertSnapshot
   , givenSnapshotExists
 
+    -- * Network setup
+  , insertNetwork
+
     -- * Network interface setup
   , insertNetworkInterface
 
@@ -282,6 +285,26 @@ insertSnapshot diskImageId name = do
           , snapshotName = name
           , snapshotCreatedAt = now
           , snapshotSizeMb = Nothing
+          }
+  pure $ fromSqlKey key
+
+--------------------------------------------------------------------------------
+-- Network Setup
+--------------------------------------------------------------------------------
+
+-- | Insert a network into the database
+insertNetwork :: Text -> Text -> TestM Int64
+insertNetwork name subnet = do
+  now <- liftIO getCurrentTime
+  key <-
+    runDb $
+      insert
+        Network
+          { networkName = name
+          , networkSubnet = subnet
+          , networkVdeSwitchPid = Nothing
+          , networkDnsmasqPid = Nothing
+          , networkCreatedAt = now
           }
   pure $ fromSqlKey key
 

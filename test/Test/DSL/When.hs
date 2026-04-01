@@ -62,6 +62,21 @@ module Test.DSL.When
     -- * Apply
   , whenApply
 
+    -- * Network commands
+  , whenNetworkCreate
+  , whenNetworkDelete
+  , whenNetworkList
+  , whenNetworkShow
+
+    -- * Template commands
+  , whenTemplateCreate
+  , whenTemplateDelete
+  , whenTemplateList
+  , whenTemplateShow
+
+    -- * Guest exec commands
+  , whenGuestExec
+
     -- * Low-level
   , executeRequest
   , createTestServerState
@@ -72,7 +87,7 @@ import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import Corvus.Client.Connection (Connection (..), ConnectionError)
-import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
+import Corvus.Client.Rpc (DiskResult (..), GuestExecResult (..), NetIfResult (..), NetworkResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), TemplateResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
 import qualified Corvus.Client.Rpc as Rpc
 import Corvus.Handlers (handleRequest)
 import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache)
@@ -382,3 +397,58 @@ whenShutdown = executeRequest ReqShutdown
 -- | Apply environment from YAML content
 whenApply :: Text -> TestM Response
 whenApply yaml = executeRequest (ReqApply yaml False)
+
+--------------------------------------------------------------------------------
+-- Network Commands
+--------------------------------------------------------------------------------
+
+-- | Create a network
+whenNetworkCreate :: Text -> Text -> TestM NetworkResult
+whenNetworkCreate name subnet =
+  executeRpc (\conn -> Rpc.networkCreate conn name subnet)
+
+-- | Delete a network
+whenNetworkDelete :: Int64 -> TestM NetworkResult
+whenNetworkDelete nwId =
+  executeRpc (\conn -> Rpc.networkDelete conn (toRef nwId))
+
+-- | List all networks
+whenNetworkList :: TestM NetworkResult
+whenNetworkList = executeRpc Rpc.networkList
+
+-- | Show network details
+whenNetworkShow :: Int64 -> TestM NetworkResult
+whenNetworkShow nwId =
+  executeRpc (\conn -> Rpc.networkShow conn (toRef nwId))
+
+--------------------------------------------------------------------------------
+-- Template Commands
+--------------------------------------------------------------------------------
+
+-- | Create a template from YAML
+whenTemplateCreate :: Text -> TestM TemplateResult
+whenTemplateCreate tplYaml =
+  executeRpc (`Rpc.templateCreate` tplYaml)
+
+-- | Delete a template
+whenTemplateDelete :: Int64 -> TestM TemplateResult
+whenTemplateDelete tplId =
+  executeRpc (\conn -> Rpc.templateDelete conn (toRef tplId))
+
+-- | List all templates
+whenTemplateList :: TestM TemplateResult
+whenTemplateList = executeRpc Rpc.templateList
+
+-- | Show template details
+whenTemplateShow :: Int64 -> TestM TemplateResult
+whenTemplateShow tplId =
+  executeRpc (\conn -> Rpc.templateShow conn (toRef tplId))
+
+--------------------------------------------------------------------------------
+-- Guest Exec Commands
+--------------------------------------------------------------------------------
+
+-- | Execute a command in a VM via guest agent
+whenGuestExec :: Int64 -> Text -> TestM GuestExecResult
+whenGuestExec vmId cmd =
+  executeRpc (\conn -> Rpc.vmExec conn (toRef vmId) cmd)
