@@ -739,7 +739,7 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                 Nothing -> pure $ RespError "Disk is already attached to this VM"
                 Just driveId -> do
                   -- If VM is running or paused, hot-plug via QMP (both have live QEMU process)
-                  if vmStatus vm `elem` [VmRunning, VmStarting, VmPaused]
+                  if vmStatus vm `elem` [VmRunning, VmPaused]
                     then do
                       logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-plug"
                       let nodeName = "drive-" <> T.pack (show $ fromSqlKey driveId)
@@ -803,7 +803,7 @@ handleDiskDetach state vmId driveId = runServerLogging state $ do
             Nothing -> pure RespVmNotFound
             Just vm -> do
               -- If VM is running or paused, hot-unplug via QMP (both have live QEMU process)
-              if vmStatus vm `elem` [VmRunning, VmStarting, VmPaused]
+              if vmStatus vm `elem` [VmRunning, VmPaused]
                 then do
                   logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-unplug"
                   let deviceId = "device-" <> T.pack (show driveId)
@@ -861,7 +861,7 @@ handleDiskDetachByDisk state vmId diskId = runServerLogging state $ do
         Nothing -> pure RespVmNotFound
         Just vm -> do
           -- If VM is running or paused, hot-unplug via QMP (both have live QEMU process)
-          if vmStatus vm `elem` [VmRunning, VmStarting, VmPaused]
+          if vmStatus vm `elem` [VmRunning, VmPaused]
             then do
               logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-unplug"
               let deviceId = "device-" <> T.pack (show driveId)

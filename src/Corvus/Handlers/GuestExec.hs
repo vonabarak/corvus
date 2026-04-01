@@ -27,7 +27,7 @@ handleGuestExec state vmId command = do
   case mVm of
     Nothing -> pure RespVmNotFound
     Just (status, ga) ->
-      if status /= VmRunning && status /= VmStarting
+      if status /= VmRunning
         then pure $ RespInvalidTransition status "VM must be running for guest-exec"
         else
           if not ga
