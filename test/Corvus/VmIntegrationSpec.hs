@@ -15,6 +15,7 @@ import Control.Concurrent (threadDelay)
 import Corvus.Client (showVm, vmStart, vmStop)
 import Corvus.Model (VmStatus (..))
 import Corvus.Protocol (VmDetails (..))
+import Corvus.Server (handleGracefulShutdown)
 import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
 import qualified Data.Text as T
@@ -28,7 +29,12 @@ import Test.VM.Rpc (editTestVm, runInVm, stopTestVmAndWait)
 import Test.VM.Ssh (runInTestVm, runInTestVm_)
 
 spec :: Spec
-spec = withTestDb $ do
+spec = do
+  vmIntegrationTests
+  gracefulShutdownTests
+
+vmIntegrationTests :: Spec
+vmIntegrationTests = withTestDb $ do
   describe "VM integration" $ do
     it "guest-exec: runs commands and executes as root" $ \env -> do
       withTestVmGuestExec env defaultVmConfig $ \vm -> do
@@ -249,3 +255,22 @@ waitForStatus daemon vmId target timeoutSec = go timeoutSec
         else do
           threadDelay 1000000
           go (n - 1)
+
+gracefulShutdownTests :: Spec
+gracefulShutdownTests = withTestDb $ do
+  describe "Graceful shutdown integration" $ do
+    it "graceful shutdown stops running VMs" $ \env -> do
+      withTestVmGuestExec env defaultVmConfig $ \vm -> do
+        let daemon = tvmDaemon vm
+            vmId = tvmId vm
+
+        -- VM is running, verify
+        details1 <- getVmDetails daemon vmId
+        vdStatus details1 `shouldBe` VmRunning
+
+        -- Run graceful shutdown (kills all running VMs)
+        handleGracefulShutdown (tdState daemon)
+
+        -- VM should be stopped now
+        details2 <- getVmDetails daemon vmId
+        vdStatus details2 `shouldBe` VmStopped

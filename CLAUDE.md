@@ -82,12 +82,12 @@ cbits/
 - **Database**: Persistent + Esqueleto ORM with PostgreSQL; `runSqlPool` pattern; auto-migration on startup
 - **Logging**: `MonadLogger` (LoggingT transformer)
 - **VM state machine**: Enforced in `Handlers.Vm.validateTransition` — stopped → starting (if guest agent) or running → stopping → stopped. VMs with guest agent go through `starting` state until first healthcheck ping succeeds. Reset always returns to stopped.
-- **Task history**: Every mutating request is recorded in `task_history` table via `withTaskHistory` wrapper in `Handlers.hs`. Read-only requests (list, show, ping) are skipped.
+- **Task tracking**: Every mutating request is recorded in the `task` table via `withTask` wrapper in `Handlers.hs`. Read-only requests (list, show, ping) are skipped. Startup and shutdown are also recorded as tasks.
 - **Network namespaces**: dnsmasq runs in an isolated user+network+UTS namespace (no root required). The C helper (`cbits/vdens.c`) forks from the Haskell process, calls `unshare(2)` in the single-threaded child, creates a TAP interface, connects to the VDE switch via libvdeplug, and bridges packets. `unshare(CLONE_NEWUSER)` requires a single-threaded process — the fork **must** happen in C, not via GHC's `forkProcess`, because GHC's threaded RTS keeps multiple OS threads alive after fork.
 
 ### Database Entities
 
-`Vm`, `DiskImage`, `Drive`, `Network`, `NetworkInterface`, `SharedDir`, `Snapshot`, `SshKey`, `VmSshKey`, `TemplateVm`, `TemplateDrive`, `TemplateNetworkInterface`, `TemplateSshKey`, `TaskHistory` — all defined in `Model.hs`.
+`Vm`, `DiskImage`, `Drive`, `Network`, `NetworkInterface`, `SharedDir`, `Snapshot`, `SshKey`, `VmSshKey`, `TemplateVm`, `TemplateDrive`, `TemplateNetworkInterface`, `TemplateSshKey`, `Task` — all defined in `Model.hs`.
 
 ### Key Enums (text-serializable via `EnumText` typeclass)
 

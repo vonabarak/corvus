@@ -160,7 +160,7 @@ handleVmStartValidate state vmId = do
             else pure $ Right (vm, currentStatus)
 
 -- | Execute VM start to completion (blocks until VmRunning).
--- Used with --wait flag or in withTaskHistoryAsync.
+-- Used with --wait flag or in withTaskAsync.
 handleVmStartExecute :: ServerState -> Int64 -> IO Response
 handleVmStartExecute state vmId = do
   validated <- handleVmStartValidate state vmId

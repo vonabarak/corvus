@@ -10,7 +10,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN, runStdoutLoggingT)
 import Corvus.Model (migrateAll)
 import Corvus.Qemu.Config (defaultQemuConfig)
-import Corvus.Server (cleanupStaleState, runServer)
+import Corvus.Server (handleGracefulShutdown, handleStartup, runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath, newServerState, runFilteredLogging)
 import Data.ByteString.Char8 (pack)
 import qualified Data.Text as T
@@ -102,13 +102,13 @@ main = do
     liftIO $ runSqlPool (runMigration migrateAll) pool
     logInfoN "Migrations complete."
 
-    -- Clean up stale state from previous daemon crash
-    state0 <- liftIO $ newServerState pool defaultQemuConfig
-    liftIO $ cleanupStaleState state0 30
-
     -- Initialize server state with database pool
     state <- liftIO $ newServerState pool defaultQemuConfig
     let state' = state {ssLogLevel = logLevel}
+
+    -- Run startup handler (clean stale state, kill orphan processes)
+    logInfoN "Running startup tasks..."
+    liftIO $ handleStartup state' 30
 
     -- Install signal handlers for graceful shutdown
     let shutdownHandler = atomically $ writeTVar (ssShutdownFlag state') True
@@ -134,6 +134,10 @@ main = do
 
     logInfoN "Shutting down..."
     liftIO $ cancel serverThread
+
+    -- Run graceful shutdown handler (stop VMs, networks)
+    liftIO $ handleGracefulShutdown state'
+
     liftIO exitSuccess
 
 -- | Determine listen address from options

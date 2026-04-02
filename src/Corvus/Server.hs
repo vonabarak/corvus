@@ -6,14 +6,15 @@
 -- and connection lifecycle. Business logic is delegated to Corvus.Handlers.
 module Corvus.Server
   ( runServer
-  , cleanupStaleState
+  , handleStartup
+  , handleGracefulShutdown
   )
 where
 
 import Control.Concurrent (forkFinally)
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Control.Exception (SomeException, bracket, try)
-import Control.Monad (forever, void, when)
+import Control.Monad (forM_, forever, void, when)
 import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
@@ -21,6 +22,9 @@ import Corvus.Handlers (handleRequest)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
+import Corvus.Qemu.Process (killVmProcess)
+import Corvus.Qemu.Vde (stopVdeSwitch)
+import Corvus.Qemu.Virtiofsd (killVirtiofsdProcesses)
 import Corvus.Types
 import Data.Binary (decodeOrFail, encode)
 import qualified Data.ByteString as BS
@@ -203,27 +207,163 @@ formatResponse resp = case resp of
   other -> T.pack (show other)
 
 --------------------------------------------------------------------------------
--- Startup Cleanup
+-- Startup Handler
 --------------------------------------------------------------------------------
 
--- | Clean up stale state from a previous daemon crash.
+-- | Run startup tasks: clean stale state, kill orphan processes.
+-- Records itself as a task in the DB.
 -- Should be called after migrations and before accepting connections.
-cleanupStaleState :: ServerState -> Int -> IO ()
-cleanupStaleState state retentionDays = runServerLogging state $ do
+handleStartup :: ServerState -> Int -> IO ()
+handleStartup state retentionDays = do
   let pool = ssDbPool state
+  now <- getCurrentTime
 
-  -- Mark stale "running" tasks as error (daemon crashed while processing)
-  staleTasks <- liftIO $ runSqlPool (updateWhere [TaskHistoryResult ==. TaskRunning] [TaskHistoryResult =. TaskError, TaskHistoryMessage =. Just "Daemon restarted"]) pool
-  logInfoN "Marked stale running tasks as error"
+  -- Record startup task
+  taskKey <-
+    runSqlPool
+      ( insert
+          Task
+            { taskStartedAt = now
+            , taskFinishedAt = Nothing
+            , taskSubsystem = SubSystem
+            , taskEntityId = Nothing
+            , taskEntityName = Nothing
+            , taskCommand = "startup"
+            , taskResult = TaskRunning
+            , taskMessage = Nothing
+            }
+      )
+      pool
 
-  -- Reset VMs in non-stopped states to error (stale from crash)
-  let staleStatuses = [VmStarting, VmRunning, VmStopping, VmPaused]
-  liftIO $ runSqlPool (updateWhere [M.VmStatus <-. staleStatuses] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing]) pool
-  logInfoN "Reset stale VMs to error state"
+  runServerLogging state $ do
+    -- Mark stale "running" tasks as error (daemon crashed while processing)
+    liftIO $ runSqlPool (updateWhere [TaskResult ==. TaskRunning, TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon restarted"]) pool
+    logInfoN "Marked stale running tasks as error"
 
-  -- Delete old task history entries
-  when (retentionDays > 0) $ do
-    now <- liftIO getCurrentTime
-    let cutoff = addUTCTime (fromIntegral $ negate $ retentionDays * 86400) now
-    liftIO $ runSqlPool (deleteWhere [TaskHistoryStartedAt <. cutoff]) pool
-    logInfoN $ "Cleaned up task history older than " <> T.pack (show retentionDays) <> " days"
+    -- Kill orphaned QEMU processes and reset stale VMs
+    staleVms <- liftIO $ runSqlPool (selectList [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] []) pool
+    liftIO $ forM_ staleVms $ \(Entity vmKey vm) -> do
+      case vmPid vm of
+        Just pid -> runServerLogging state $ do
+          logInfoN $ "Killing orphaned QEMU process for VM " <> vmName vm <> " (PID " <> T.pack (show pid) <> ")"
+          _ <- killVmProcess (fromSqlKey vmKey) pid
+          -- Kill orphaned virtiofsd processes
+          killVirtiofsdProcesses pool (fromSqlKey vmKey)
+        Nothing -> pure ()
+    liftIO $ runSqlPool (updateWhere [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing]) pool
+    logInfoN "Reset stale VMs to error state"
+
+    -- Kill orphaned VDE switches and dnsmasq, clear network PIDs
+    staleNetworks <- liftIO $ runSqlPool (selectList ([M.NetworkVdeSwitchPid !=. Nothing] ||. [M.NetworkDnsmasqPid !=. Nothing]) []) pool
+    liftIO $ forM_ staleNetworks $ \(Entity nwKey _nw) -> do
+      _ <- stopVdeSwitch (ssQemuConfig state) pool (fromSqlKey nwKey)
+      pure ()
+    logInfoN "Cleaned up orphaned network processes"
+
+    -- Delete old task entries
+    when (retentionDays > 0) $ do
+      let cutoff = addUTCTime (fromIntegral $ negate $ retentionDays * 86400) now
+      liftIO $ runSqlPool (deleteWhere [TaskStartedAt <. cutoff]) pool
+      logInfoN $ "Cleaned up tasks older than " <> T.pack (show retentionDays) <> " days"
+
+  -- Mark startup task as completed
+  finishTime <- getCurrentTime
+  runSqlPool
+    ( update
+        taskKey
+        [ TaskFinishedAt =. Just finishTime
+        , TaskResult =. TaskSuccess
+        , TaskMessage =. Just "Startup complete"
+        ]
+    )
+    pool
+
+--------------------------------------------------------------------------------
+-- Graceful Shutdown Handler
+--------------------------------------------------------------------------------
+
+-- | Gracefully shut down all running VMs and networks.
+-- Records itself as a task in the DB.
+-- Should be called after stopping new connection acceptance, before exit.
+handleGracefulShutdown :: ServerState -> IO ()
+handleGracefulShutdown state = do
+  let pool = ssDbPool state
+  now <- getCurrentTime
+
+  -- Record shutdown task
+  taskKey <-
+    runSqlPool
+      ( insert
+          Task
+            { taskStartedAt = now
+            , taskFinishedAt = Nothing
+            , taskSubsystem = SubSystem
+            , taskEntityId = Nothing
+            , taskEntityName = Nothing
+            , taskCommand = "shutdown"
+            , taskResult = TaskRunning
+            , taskMessage = Nothing
+            }
+      )
+      pool
+
+  result <- try $ runServerLogging state $ do
+    -- Stop all running/starting VMs
+    runningVms <- liftIO $ runSqlPool (selectList [M.VmStatus <-. [VmStarting, VmRunning, VmPaused]] []) pool
+    logInfoN $ "Stopping " <> T.pack (show (length runningVms)) <> " running VM(s)"
+    liftIO $ forM_ runningVms $ \(Entity vmKey vm) -> do
+      case vmPid vm of
+        Just pid -> runServerLogging state $ do
+          logInfoN $ "Killing VM " <> vmName vm <> " (PID " <> T.pack (show pid) <> ")"
+          -- Clear PID first (so process monitor thread doesn't interfere)
+          liftIO $ runSqlPool (update vmKey [M.VmPid =. Nothing]) pool
+          _ <- killVmProcess (fromSqlKey vmKey) pid
+          killVirtiofsdProcesses pool (fromSqlKey vmKey)
+          liftIO $ runSqlPool (update vmKey [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing]) pool
+        Nothing -> pure ()
+    -- Also handle VMs in Stopping state (QEMU still running)
+    stoppingVms <- liftIO $ runSqlPool (selectList [M.VmStatus ==. VmStopping] []) pool
+    liftIO $ forM_ stoppingVms $ \(Entity vmKey vm) -> do
+      case vmPid vm of
+        Just pid -> runServerLogging state $ do
+          logInfoN $ "Force-killing stopping VM " <> vmName vm <> " (PID " <> T.pack (show pid) <> ")"
+          liftIO $ runSqlPool (update vmKey [M.VmPid =. Nothing]) pool
+          _ <- killVmProcess (fromSqlKey vmKey) pid
+          killVirtiofsdProcesses pool (fromSqlKey vmKey)
+          liftIO $ runSqlPool (update vmKey [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing]) pool
+        Nothing -> pure ()
+
+    -- Stop all running networks
+    runningNetworks <- liftIO $ runSqlPool (selectList ([M.NetworkVdeSwitchPid !=. Nothing] ||. [M.NetworkDnsmasqPid !=. Nothing]) []) pool
+    logInfoN $ "Stopping " <> T.pack (show (length runningNetworks)) <> " running network(s)"
+    liftIO $ forM_ runningNetworks $ \(Entity nwKey _nw) -> do
+      _ <- stopVdeSwitch (ssQemuConfig state) pool (fromSqlKey nwKey)
+      pure ()
+
+    -- Mark any remaining running tasks as error
+    liftIO $ runSqlPool (updateWhere [TaskResult ==. TaskRunning, TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon shutting down"]) pool
+    logInfoN "Graceful shutdown complete"
+
+  -- Mark shutdown task as completed
+  finishTime <- getCurrentTime
+  case result of
+    Right () ->
+      runSqlPool
+        ( update
+            taskKey
+            [ TaskFinishedAt =. Just finishTime
+            , TaskResult =. TaskSuccess
+            , TaskMessage =. Just "Shutdown complete"
+            ]
+        )
+        pool
+    Left (err :: SomeException) ->
+      runSqlPool
+        ( update
+            taskKey
+            [ TaskFinishedAt =. Just finishTime
+            , TaskResult =. TaskError
+            , TaskMessage =. Just ("Shutdown error: " <> T.pack (show err))
+            ]
+        )
+        pool

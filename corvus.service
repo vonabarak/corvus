@@ -9,7 +9,7 @@ ExecStart=%h/.local/bin/corvus \
     --database postgresql://localhost/corvus \
     --log-level debug
 
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]

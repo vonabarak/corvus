@@ -55,7 +55,7 @@ import Database.Persist.Postgresql (runSqlPool)
 handleRequest :: ServerState -> Request -> IO Response
 handleRequest state req
   | isReadOnly req = dispatchRequest state req
-  | otherwise = withTaskHistory state req (dispatchRequest state req)
+  | otherwise = withTask state req (dispatchRequest state req)
 
 -- | Dispatch a command that supports sync (--wait) and async modes.
 -- Validates synchronously in both cases. In async mode, forks the
@@ -81,7 +81,7 @@ dispatchWithWait state req wait validate execute interimResponse = do
     Right validData ->
       if wait
         then execute validData
-        else withTaskHistoryAsync state req (execute validData) interimResponse
+        else withTaskAsync state req (execute validData) interimResponse
 
 -- | Dispatch a request to the appropriate handler
 dispatchRequest :: ServerState -> Request -> IO Response
@@ -241,8 +241,8 @@ dispatchRequest state req = case req of
 
 -- | Wrap a long-running handler: insert task record, fork handler in background,
 -- return interim response immediately. Task stays "running" until background thread completes.
-withTaskHistoryAsync :: ServerState -> Request -> IO Response -> Response -> IO Response
-withTaskHistoryAsync state req action interimResponse = do
+withTaskAsync :: ServerState -> Request -> IO Response -> Response -> IO Response
+withTaskAsync state req action interimResponse = do
   let (subsystem, command, mEntityRef) = classifyRequest req
   now <- getCurrentTime
   mEntityInfo <- resolveEntityInfo mEntityRef
@@ -250,15 +250,15 @@ withTaskHistoryAsync state req action interimResponse = do
   taskKey <-
     runSqlPool
       ( insert
-          TaskHistory
-            { taskHistoryStartedAt = now
-            , taskHistoryFinishedAt = Nothing
-            , taskHistorySubsystem = subsystem
-            , taskHistoryEntityId = fmap fst mEntityInfo
-            , taskHistoryEntityName = fmap snd mEntityInfo
-            , taskHistoryCommand = command
-            , taskHistoryResult = TaskRunning
-            , taskHistoryMessage = Nothing
+          Task
+            { taskStartedAt = now
+            , taskFinishedAt = Nothing
+            , taskSubsystem = subsystem
+            , taskEntityId = fmap fst mEntityInfo
+            , taskEntityName = fmap snd mEntityInfo
+            , taskCommand = command
+            , taskResult = TaskRunning
+            , taskMessage = Nothing
             }
       )
       (ssDbPool state)
@@ -273,11 +273,11 @@ withTaskHistoryAsync state req action interimResponse = do
         runSqlPool
           ( update
               taskKey
-              [ TaskHistoryFinishedAt =. Just finishTime
-              , TaskHistoryResult =. taskResult
-              , TaskHistoryMessage =. message
-              , TaskHistoryEntityId =. (mId <|> fmap fst mEntityInfo)
-              , TaskHistoryEntityName =. (mName <|> fmap snd mEntityInfo)
+              [ TaskFinishedAt =. Just finishTime
+              , TaskResult =. taskResult
+              , TaskMessage =. message
+              , TaskEntityId =. (mId <|> fmap fst mEntityInfo)
+              , TaskEntityName =. (mName <|> fmap snd mEntityInfo)
               ]
           )
           (ssDbPool state)
@@ -285,9 +285,9 @@ withTaskHistoryAsync state req action interimResponse = do
         runSqlPool
           ( update
               taskKey
-              [ TaskHistoryFinishedAt =. Just finishTime
-              , TaskHistoryResult =. TaskError
-              , TaskHistoryMessage =. Just (T.pack $ show err)
+              [ TaskFinishedAt =. Just finishTime
+              , TaskResult =. TaskError
+              , TaskMessage =. Just (T.pack $ show err)
               ]
           )
           (ssDbPool state)
@@ -307,8 +307,8 @@ withTaskHistoryAsync state req action interimResponse = do
 
 -- | Wrap a handler with task history recording (synchronous).
 -- Inserts a "running" record before the handler, updates it after.
-withTaskHistory :: ServerState -> Request -> IO Response -> IO Response
-withTaskHistory state req action = do
+withTask :: ServerState -> Request -> IO Response -> IO Response
+withTask state req action = do
   let (subsystem, command, mEntityRef) = classifyRequest req
   now <- getCurrentTime
 
@@ -319,15 +319,15 @@ withTaskHistory state req action = do
   taskKey <-
     runSqlPool
       ( insert
-          TaskHistory
-            { taskHistoryStartedAt = now
-            , taskHistoryFinishedAt = Nothing
-            , taskHistorySubsystem = subsystem
-            , taskHistoryEntityId = fmap fst mEntityInfo
-            , taskHistoryEntityName = fmap snd mEntityInfo
-            , taskHistoryCommand = command
-            , taskHistoryResult = TaskRunning
-            , taskHistoryMessage = Nothing
+          Task
+            { taskStartedAt = now
+            , taskFinishedAt = Nothing
+            , taskSubsystem = subsystem
+            , taskEntityId = fmap fst mEntityInfo
+            , taskEntityName = fmap snd mEntityInfo
+            , taskCommand = command
+            , taskResult = TaskRunning
+            , taskMessage = Nothing
             }
       )
       pool
@@ -343,11 +343,11 @@ withTaskHistory state req action = do
       runSqlPool
         ( update
             taskKey
-            [ TaskHistoryFinishedAt =. Just finishTime
-            , TaskHistoryResult =. taskResult
-            , TaskHistoryMessage =. message
-            , TaskHistoryEntityId =. (mId <|> fmap fst mEntityInfo)
-            , TaskHistoryEntityName =. (mName <|> fmap snd mEntityInfo)
+            [ TaskFinishedAt =. Just finishTime
+            , TaskResult =. taskResult
+            , TaskMessage =. message
+            , TaskEntityId =. (mId <|> fmap fst mEntityInfo)
+            , TaskEntityName =. (mName <|> fmap snd mEntityInfo)
             ]
         )
         pool
@@ -356,9 +356,9 @@ withTaskHistory state req action = do
       runSqlPool
         ( update
             taskKey
-            [ TaskHistoryFinishedAt =. Just finishTime
-            , TaskHistoryResult =. TaskError
-            , TaskHistoryMessage =. Just (T.pack $ show err)
+            [ TaskFinishedAt =. Just finishTime
+            , TaskResult =. TaskError
+            , TaskMessage =. Just (T.pack $ show err)
             ]
         )
         pool
@@ -535,30 +535,30 @@ handleTaskList state limit mSub mResult = do
     runSqlPool
       ( selectList
           (catMaybes [subFilter, resultFilter])
-          [Desc TaskHistoryStartedAt, LimitTo limit]
+          [Desc TaskStartedAt, LimitTo limit]
       )
       (ssDbPool state)
   pure $ RespTaskList $ map toTaskInfo tasks
   where
-    subFilter = fmap (TaskHistorySubsystem ==.) mSub
-    resultFilter = fmap (TaskHistoryResult ==.) mResult
+    subFilter = fmap (TaskSubsystem ==.) mSub
+    resultFilter = fmap (TaskResult ==.) mResult
     toTaskInfo (Entity key th) =
       TaskInfo
         { tiId = fromSqlKey key
-        , tiStartedAt = taskHistoryStartedAt th
-        , tiFinishedAt = taskHistoryFinishedAt th
-        , tiSubsystem = taskHistorySubsystem th
-        , tiEntityId = taskHistoryEntityId th
-        , tiEntityName = taskHistoryEntityName th
-        , tiCommand = taskHistoryCommand th
-        , tiResult = taskHistoryResult th
-        , tiMessage = taskHistoryMessage th
+        , tiStartedAt = taskStartedAt th
+        , tiFinishedAt = taskFinishedAt th
+        , tiSubsystem = taskSubsystem th
+        , tiEntityId = taskEntityId th
+        , tiEntityName = taskEntityName th
+        , tiCommand = taskCommand th
+        , tiResult = taskResult th
+        , tiMessage = taskMessage th
         }
 
 -- | Show a single task history entry
 handleTaskShow :: ServerState -> Int64 -> IO Response
 handleTaskShow state taskId = do
-  mTask <- runSqlPool (get (toSqlKey taskId :: TaskHistoryId)) (ssDbPool state)
+  mTask <- runSqlPool (get (toSqlKey taskId :: TaskId)) (ssDbPool state)
   case mTask of
     Nothing -> pure RespTaskNotFound
     Just th ->
@@ -566,14 +566,14 @@ handleTaskShow state taskId = do
         RespTaskInfo
           TaskInfo
             { tiId = taskId
-            , tiStartedAt = taskHistoryStartedAt th
-            , tiFinishedAt = taskHistoryFinishedAt th
-            , tiSubsystem = taskHistorySubsystem th
-            , tiEntityId = taskHistoryEntityId th
-            , tiEntityName = taskHistoryEntityName th
-            , tiCommand = taskHistoryCommand th
-            , tiResult = taskHistoryResult th
-            , tiMessage = taskHistoryMessage th
+            , tiStartedAt = taskStartedAt th
+            , tiFinishedAt = taskFinishedAt th
+            , tiSubsystem = taskSubsystem th
+            , tiEntityId = taskEntityId th
+            , tiEntityName = taskEntityName th
+            , tiCommand = taskCommand th
+            , tiResult = taskResult th
+            , tiMessage = taskMessage th
             }
 
 -- | Helper to filter out Nothing values

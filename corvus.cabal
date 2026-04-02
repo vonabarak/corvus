@@ -270,6 +270,7 @@ test-suite corvus-test
       Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec
       Corvus.SshKeySpec
+      Corvus.StartupShutdownSpec
       Corvus.SubnetSpec
       Corvus.TemplateIntegrationSpec
       Corvus.TemplateSpec

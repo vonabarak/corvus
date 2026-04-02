@@ -60,9 +60,9 @@ module Corvus.Model
   , TemplateSshKey (..)
   , TemplateSshKeyId
 
-    -- * Task history entity
-  , TaskHistory (..)
-  , TaskHistoryId
+    -- * Task entity
+  , Task (..)
+  , TaskId
 
     -- * Task enums
   , TaskSubsystem (..)
@@ -641,7 +641,7 @@ TemplateSshKey
     UniqueTemplateSshKey templateId sshKeyId
     deriving Show Eq Generic
 
-TaskHistory
+Task
     startedAt UTCTime
     finishedAt UTCTime Maybe
     subsystem TaskSubsystem
@@ -680,7 +680,7 @@ instance Binary TemplateNetworkInterface
 
 instance Binary TemplateSshKey
 
-instance Binary TaskHistory
+instance Binary Task
 
 -- Binary instances for keys
 instance Binary (Key Vm) where
