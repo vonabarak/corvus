@@ -348,7 +348,7 @@ runCommand opts = do
       -- Task history
       TaskList limit mSub mResult -> handleTaskList fmt conn limit mSub mResult
       TaskShow taskId -> handleTaskShow fmt conn taskId
-      TaskWait taskId -> handleTaskWait fmt conn taskId
+      TaskWait taskId mTimeout -> handleTaskWait fmt conn taskId mTimeout
       -- Completion (handled above, but needed for exhaustive pattern match)
       Completion _ -> pure True
 

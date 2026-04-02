@@ -171,8 +171,8 @@ data Command
     TaskList !Int !(Maybe Text) !(Maybe Text)
   | -- | Show single task details (taskId)
     TaskShow !Int64
-  | -- | Wait for task to complete (taskId)
-    TaskWait !Int64
+  | -- | Wait for task to complete (taskId, optional timeout in seconds)
+    TaskWait !Int64 !(Maybe Int)
   | -- | Generate shell completion script (bash, zsh, fish)
     Completion !Text
   deriving (Show)

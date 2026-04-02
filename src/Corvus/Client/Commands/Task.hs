@@ -21,7 +21,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
-import System.IO (hFlush, stdout)
+import System.IO (hFlush, hPutStr, stderr, stdout)
 import Text.Printf (printf)
 
 -- | Handle task list command
@@ -80,9 +80,9 @@ handleTaskShow fmt conn taskId = do
         else printTaskDetail info
       pure True
 
--- | Handle task wait command — poll until task finishes
-handleTaskWait :: OutputFormat -> Connection -> Int64 -> IO Bool
-handleTaskWait fmt conn taskId = do
+-- | Handle task wait command — poll until task finishes or timeout
+handleTaskWait :: OutputFormat -> Connection -> Int64 -> Maybe Int -> IO Bool
+handleTaskWait fmt conn taskId mTimeout = do
   -- Get initial task info
   resp <- taskShow conn taskId
   case resp of
@@ -100,18 +100,13 @@ handleTaskWait fmt conn taskId = do
       | tiResult info /= TaskRunning -> do
           if isStructured fmt
             then outputResult fmt info
-            else
-              putStrLn $
-                "Task "
-                  ++ show taskId
-                  ++ " already completed: "
-                  ++ T.unpack (enumToText (tiResult info))
-                  ++ maybe "" (\d -> " (" ++ formatDuration d ++ ")") (durationOf info)
-          pure True
+            else printCompletionMessage taskId info
+          pure (tiResult info == TaskSuccess)
       | otherwise -> do
+          startTime <- getCurrentTime
           unless (isStructured fmt) $ do
             putStr $
-              "Waiting for task "
+              "\rWaiting for task "
                 ++ show taskId
                 ++ " ("
                 ++ T.unpack (enumToText (tiSubsystem info))
@@ -120,39 +115,78 @@ handleTaskWait fmt conn taskId = do
                 ++ maybe "" (\n -> " " ++ T.unpack n) (tiEntityName info)
                 ++ ")..."
             hFlush stdout
-          pollUntilDone fmt conn taskId
+          -- Poll with adaptive interval: 200ms for first 3s, then 1s
+          pollUntilDone fmt conn taskId startTime mTimeout
 
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
 
-pollUntilDone :: OutputFormat -> Connection -> Int64 -> IO Bool
-pollUntilDone fmt conn taskId = do
-  threadDelay 1000000
-  resp <- taskShow conn taskId
-  case resp of
-    Left err -> do
-      putStrLn ""
+-- | Poll interval in microseconds based on elapsed time.
+-- 200ms for the first 3 seconds, then 1s.
+pollInterval :: Double -> Int
+pollInterval elapsed
+  | elapsed < 3.0 = 200000
+  | otherwise = 1000000
+
+pollUntilDone :: OutputFormat -> Connection -> Int64 -> UTCTime -> Maybe Int -> IO Bool
+pollUntilDone fmt conn taskId startTime mTimeout = do
+  now <- getCurrentTime
+  let elapsed = realToFrac (diffUTCTime now startTime) :: Double
+
+  -- Check timeout
+  case mTimeout of
+    Just timeout | elapsed >= fromIntegral timeout -> do
+      unless (isStructured fmt) $ putStrLn ""
       if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error polling task: " ++ show err
+        then outputError fmt "timeout" $ "Task did not complete within " <> T.pack (show timeout) <> "s"
+        else putStrLn $ "Timeout: task did not complete within " ++ show timeout ++ "s"
       pure False
-    Right Nothing -> do
-      putStrLn ""
-      putStrLn "Task disappeared"
-      pure False
-    Right (Just info)
-      | tiResult info == TaskRunning -> pollUntilDone fmt conn taskId
-      | otherwise -> do
+    _ -> do
+      threadDelay (pollInterval elapsed)
+      resp <- taskShow conn taskId
+      case resp of
+        Left err -> do
+          unless (isStructured fmt) $ putStrLn ""
           if isStructured fmt
-            then outputResult fmt info
-            else
-              putStrLn $
-                "\nTask completed: "
-                  ++ T.unpack (enumToText (tiResult info))
-                  ++ maybe "" (\d -> " (" ++ formatDuration d ++ ")") (durationOf info)
-                  ++ maybe "" (\m -> " — " ++ T.unpack m) (tiMessage info)
-          pure (tiResult info == TaskSuccess)
+            then outputError fmt "rpc_error" (T.pack $ show err)
+            else putStrLn $ "Error polling task: " ++ show err
+          pure False
+        Right Nothing -> do
+          unless (isStructured fmt) $ putStrLn ""
+          putStrLn "Task disappeared"
+          pure False
+        Right (Just info)
+          | tiResult info == TaskRunning -> do
+              -- Show elapsed time
+              unless (isStructured fmt) $ do
+                hPutStr stderr $ "\r\x1b[K" ++ "Waiting... (" ++ formatDuration elapsed ++ " elapsed)"
+                hFlush stderr
+              pollUntilDone fmt conn taskId startTime mTimeout
+          | otherwise -> do
+              unless (isStructured fmt) $ do
+                hPutStr stderr "\r\x1b[K"
+                hFlush stderr
+              if isStructured fmt
+                then outputResult fmt info
+                else printCompletionMessage taskId info
+              pure (tiResult info == TaskSuccess)
+
+-- | Print a human-readable completion message with full details
+printCompletionMessage :: Int64 -> TaskInfo -> IO ()
+printCompletionMessage taskId info =
+  putStrLn $
+    "Task "
+      ++ show taskId
+      ++ " completed: "
+      ++ T.unpack (enumToText (tiResult info))
+      ++ maybe "" (\d -> " (" ++ formatDuration d ++ ")") (durationOf info)
+      ++ " — "
+      ++ T.unpack (enumToText (tiSubsystem info))
+      ++ " "
+      ++ T.unpack (tiCommand info)
+      ++ maybe "" (\n -> " " ++ T.unpack n) (tiEntityName info)
+      ++ maybe "" (\m -> ": " ++ T.unpack m) (tiMessage info)
 
 printTaskRow :: UTCTime -> TaskInfo -> IO ()
 printTaskRow now info =

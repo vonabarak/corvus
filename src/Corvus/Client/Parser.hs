@@ -1257,6 +1257,15 @@ taskWaitCommand :: Parser Command
 taskWaitCommand =
   TaskWait
     <$> argument auto (metavar "ID" <> help "Task ID to wait for")
+    <*> optional
+      ( option
+          auto
+          ( long "timeout"
+              <> short 't'
+              <> metavar "SECONDS"
+              <> help "Timeout in seconds (default: no timeout)"
+          )
+      )
 
 commandParser :: Parser Command
 commandParser =
