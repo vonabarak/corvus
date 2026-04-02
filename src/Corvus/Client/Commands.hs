@@ -154,7 +154,7 @@ runCommand opts = do
             pure True
       VmCreate name cpuCount ramMb mDesc headless ga ci -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga ci
       VmDelete vmRef -> handleVmDelete fmt conn vmRef
-      VmStart vmRef -> handleVmAction fmt "start" vmRef (vmStart conn vmRef)
+      VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
       VmPause vmRef -> handleVmAction fmt "pause" vmRef (vmPause conn vmRef)
       VmReset vmRef -> handleVmAction fmt "reset" vmRef (vmReset conn vmRef)

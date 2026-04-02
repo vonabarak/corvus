@@ -69,8 +69,8 @@ instance Arbitrary Request where
       , ReqShowVm <$> arbitrary
       , ReqVmCreate "test" <$> arbitrary <*> arbitrary <*> pure Nothing <*> arbitrary <*> arbitrary <*> arbitrary
       , ReqVmDelete <$> arbitrary
-      , ReqVmStart <$> arbitrary
-      , ReqVmStop <$> arbitrary
+      , ReqVmStart <$> arbitrary <*> arbitrary
+      , ReqVmStop <$> arbitrary <*> arbitrary
       , ReqVmPause <$> arbitrary
       , ReqVmReset <$> arbitrary
       , ReqDiskCreate "disk" <$> arbitrary <*> arbitrary <*> pure Nothing

@@ -186,13 +186,13 @@ vmList = executeRpc Rpc.listVms
 vmShow :: Int64 -> TestM (Maybe VmDetails)
 vmShow vmId = executeRpc (`Rpc.showVm` toRef vmId)
 
--- | Start a VM
+-- | Start a VM (no wait)
 vmStart :: Int64 -> TestM VmActionResult
-vmStart vmId = executeRpc (`Rpc.vmStart` toRef vmId)
+vmStart vmId = executeRpc (\conn -> Rpc.vmStart conn (toRef vmId) False)
 
--- | Stop a VM
+-- | Stop a VM (no wait)
 vmStop :: Int64 -> TestM VmActionResult
-vmStop vmId = executeRpc (`Rpc.vmStop` toRef vmId)
+vmStop vmId = executeRpc (\conn -> Rpc.vmStop conn (toRef vmId) False)
 
 -- | Pause a VM
 vmPause :: Int64 -> TestM VmActionResult

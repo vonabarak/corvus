@@ -222,12 +222,12 @@ handleVmActionResponse result = case result of
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Start a VM (stopped/paused -> running)
-vmStart :: Connection -> Text -> IO (Either ConnectionError VmActionResult)
-vmStart conn vmRef = handleVmActionResponse <$> sendRequest conn (ReqVmStart (Ref vmRef))
+vmStart :: Connection -> Text -> Bool -> IO (Either ConnectionError VmActionResult)
+vmStart conn vmRef wait = handleVmActionResponse <$> sendRequest conn (ReqVmStart (Ref vmRef) wait)
 
 -- | Stop a VM (running -> stopped)
-vmStop :: Connection -> Text -> IO (Either ConnectionError VmActionResult)
-vmStop conn vmRef = handleVmActionResponse <$> sendRequest conn (ReqVmStop (Ref vmRef))
+vmStop :: Connection -> Text -> Bool -> IO (Either ConnectionError VmActionResult)
+vmStop conn vmRef wait = handleVmActionResponse <$> sendRequest conn (ReqVmStop (Ref vmRef) wait)
 
 -- | Pause a VM (running -> paused)
 vmPause :: Connection -> Text -> IO (Either ConnectionError VmActionResult)

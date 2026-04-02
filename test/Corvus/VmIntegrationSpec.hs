@@ -11,15 +11,20 @@
 -- Run with: stack test --test-arguments="--match VmIntegration"
 module Corvus.VmIntegrationSpec (spec) where
 
+import Control.Concurrent (threadDelay)
+import Corvus.Client (showVm, vmStart, vmStop)
+import Corvus.Model (VmStatus (..))
+import Corvus.Protocol (VmDetails (..))
 import Corvus.Types (ServerState (..))
+import Data.Int (Int64)
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), VmConfig (..), biosVmConfig, defaultVmConfig, startTestVmAndWait, withTestVm, withTestVmGuestExec)
 import Test.VM.Console (connectSerialConsole, consoleExpect, consoleSend)
-import Test.VM.Daemon (TestDaemon (..))
-import Test.VM.Rpc (editTestVm, runInVm, stopTestVmAndWait)
+import Test.VM.Daemon (TestDaemon (..), withDaemonConnection)
+import Test.VM.Rpc (editTestVm, runInVm, stopTestVmAndWait, waitForGuestAgent)
 import Test.VM.Ssh (runInTestVm, runInTestVm_)
 
 spec :: Spec
@@ -154,3 +159,93 @@ spec = withTestDb $ do
         (code, _, stderr) <- runInTestVm vm "efibootmgr"
         code `shouldNotBe` ExitSuccess
         T.isInfixOf "EFI variables are not supported" stderr `shouldBe` True
+
+    it "async start/stop works (no --wait)" $ \env -> do
+      withTestVmGuestExec env defaultVmConfig $ \vm -> do
+        let daemon = tvmDaemon vm
+            vmId = tvmId vm
+
+        -- VM was started by withTestVmGuestExec, verify it's running
+        details1 <- getVmDetails daemon vmId
+        vdStatus details1 `shouldSatisfy` (\s -> s == VmRunning || s == VmStarting)
+
+        -- Async stop (wait=False) — should return immediately with VmStopping
+        stopResp <- withDaemonConnection daemon $ \conn -> vmStop conn (T.pack (show vmId)) False
+        case stopResp of
+          Right (Right _) -> pure ()
+          other -> fail $ "Stop failed: " ++ show other
+
+        -- VM should eventually reach Stopped
+        waitForStatus daemon vmId VmStopped 30
+
+        -- Async start (wait=False) — should return immediately
+        startResp <- withDaemonConnection daemon $ \conn -> vmStart conn (T.pack (show vmId)) False
+        case startResp of
+          Right (Right _) -> pure ()
+          other -> fail $ "Start failed: " ++ show other
+
+        -- VM should eventually reach Running (after Starting → Running transition)
+        waitForStatus daemon vmId VmRunning 120
+
+        -- Verify guest agent works
+        (code, stdout, _) <- runInVm vm "echo async-ok"
+        code `shouldBe` ExitSuccess
+        T.strip stdout `shouldBe` "async-ok"
+
+        -- Clean up
+        stopTestVmAndWait daemon vmId 30
+
+    it "sync start/stop works (--wait)" $ \env -> do
+      withTestVmGuestExec env defaultVmConfig $ \vm -> do
+        let daemon = tvmDaemon vm
+            vmId = tvmId vm
+
+        -- Sync stop (wait=True) — should block until Stopped
+        stopResp <- withDaemonConnection daemon $ \conn -> vmStop conn (T.pack (show vmId)) True
+        case stopResp of
+          Right (Right _) -> pure ()
+          other -> fail $ "Sync stop failed: " ++ show other
+
+        -- VM should be Stopped immediately (server waited)
+        details1 <- getVmDetails daemon vmId
+        vdStatus details1 `shouldBe` VmStopped
+
+        -- Sync start (wait=True) — should block until Running
+        startResp <- withDaemonConnection daemon $ \conn -> vmStart conn (T.pack (show vmId)) True
+        case startResp of
+          Right (Right _) -> pure ()
+          other -> fail $ "Sync start failed: " ++ show other
+
+        -- VM should be Running immediately (server waited for guest agent)
+        details2 <- getVmDetails daemon vmId
+        vdStatus details2 `shouldBe` VmRunning
+
+        -- Verify guest agent works
+        (code, stdout, _) <- runInVm vm "echo sync-ok"
+        code `shouldBe` ExitSuccess
+        T.strip stdout `shouldBe` "sync-ok"
+
+        -- Clean up
+        stopTestVmAndWait daemon vmId 30
+
+-- | Get VM details, failing on error
+getVmDetails :: TestDaemon -> Int64 -> IO VmDetails
+getVmDetails daemon vmId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    showVm conn (T.pack (show vmId))
+  case result of
+    Right (Right (Just details)) -> pure details
+    other -> fail $ "Failed to get VM details: " ++ show other
+
+-- | Poll until VM reaches target status, fail on timeout
+waitForStatus :: TestDaemon -> Int64 -> VmStatus -> Int -> IO ()
+waitForStatus daemon vmId target timeoutSec = go timeoutSec
+  where
+    go 0 = fail $ "VM did not reach " ++ show target ++ " within " ++ show timeoutSec ++ "s"
+    go n = do
+      details <- getVmDetails daemon vmId
+      if vdStatus details == target
+        then pure ()
+        else do
+          threadDelay 1000000
+          go (n - 1)

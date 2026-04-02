@@ -75,10 +75,10 @@ data Request
     ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool
   | -- | Delete VM (vmRef)
     ReqVmDelete !Ref
-  | -- | Start VM (stopped/paused -> running)
-    ReqVmStart !Ref
-  | -- | Stop VM (running -> stopped)
-    ReqVmStop !Ref
+  | -- | Start VM (stopped/paused -> running). Bool = wait for completion.
+    ReqVmStart !Ref !Bool
+  | -- | Stop VM (running -> stopped). Bool = wait for completion.
+    ReqVmStop !Ref !Bool
   | -- | Pause VM (running -> paused)
     ReqVmPause !Ref
   | -- | Reset VM (any -> stopped)

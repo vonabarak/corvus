@@ -7,6 +7,7 @@ module Corvus.Client.Commands.Vm
     handleVmCreate
   , handleVmDelete
   , handleVmAction
+  , handleVmStart
   , handleVmStop
   , handleVmEdit
 
@@ -27,7 +28,7 @@ where
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, bracket, try)
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
 import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, printField, tableFormat)
@@ -133,24 +134,25 @@ handleVmAction fmt actionName vmRef action = do
       pure True
 
 -- | Handle VM stop with optional --wait polling
+-- | Handle VM start command. With --wait, the server blocks until VmRunning.
+handleVmStart :: OutputFormat -> Connection -> Text -> WaitOptions -> IO Bool
+handleVmStart fmt conn vmRef waitOpts = do
+  let wait = woWait waitOpts
+  unless (isStructured fmt) $
+    when wait $
+      putStrLn $
+        "Starting VM '" ++ T.unpack vmRef ++ "' and waiting for it to become running..."
+  handleVmAction fmt "start" vmRef (vmStart conn vmRef wait)
+
+-- | Handle VM stop command. With --wait, the server blocks until VmStopped.
 handleVmStop :: OutputFormat -> Connection -> Text -> WaitOptions -> IO Bool
 handleVmStop fmt conn vmRef waitOpts = do
-  success <- handleVmAction fmt "stop" vmRef (vmStop conn vmRef)
-  if success && woWait waitOpts
-    then do
-      let timeout = fromMaybe 120 (woTimeout waitOpts)
-      unless (isStructured fmt) $
-        putStrLn $
-          "Waiting for VM '" ++ T.unpack vmRef ++ "' to stop..."
-      waited <- waitForVmStatus fmt conn vmRef VmStopped timeout
-      if waited
-        then do
-          unless (isStructured fmt) $
-            putStrLn $
-              "VM '" ++ T.unpack vmRef ++ "' is now stopped."
-          pure True
-        else pure False
-    else pure success
+  let wait = woWait waitOpts
+  unless (isStructured fmt) $
+    when wait $
+      putStrLn $
+        "Stopping VM '" ++ T.unpack vmRef ++ "' and waiting for it to stop..."
+  handleVmAction fmt "stop" vmRef (vmStop conn vmRef wait)
 
 -- | Poll the daemon until a VM reaches a target status.
 -- Returns True if the target status was reached, False on timeout or error.

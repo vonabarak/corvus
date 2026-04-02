@@ -55,7 +55,7 @@ data Command
     VmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool
   | -- | Delete a VM
     VmDelete !Text
-  | VmStart !Text
+  | VmStart !Text !WaitOptions
   | VmStop !Text !WaitOptions
   | VmPause !Text
   | VmReset !Text

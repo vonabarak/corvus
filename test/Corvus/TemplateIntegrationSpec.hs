@@ -111,7 +111,7 @@ spec = withTestDb $ do
           Right (Right VmEdited) -> pure ()
           other -> fail $ "VM edit failed: " ++ show other
 
-        resStart <- withDaemonConnection daemon $ \conn -> vmStart conn (T.pack (show newVmId))
+        resStart <- withDaemonConnection daemon $ \conn -> vmStart conn (T.pack (show newVmId)) False
         case resStart of
           Right (Right (VmActionSuccess _)) -> pure ()
           other -> fail $ "VM start failed: " ++ show other

@@ -23,6 +23,7 @@ module Corvus.Handlers
   )
 where
 
+import Control.Concurrent (forkIO)
 import Control.Exception (SomeException, try)
 import Corvus.Handlers.Apply
 import Corvus.Handlers.Core
@@ -54,7 +55,44 @@ import Database.Persist.Postgresql (runSqlPool)
 handleRequest :: ServerState -> Request -> IO Response
 handleRequest state req
   | isReadOnly req = dispatchRequest state req
+  | isAsyncVmOp req = dispatchAsyncVmOp state req
   | otherwise = withTaskHistory state req (dispatchRequest state req)
+
+-- | Check if request is an async VM operation (start/stop without --wait)
+isAsyncVmOp :: Request -> Bool
+isAsyncVmOp (ReqVmStart _ False) = True
+isAsyncVmOp (ReqVmStop _ False) = True
+isAsyncVmOp _ = False
+
+-- | Handle async VM start/stop: validate synchronously, execute in background.
+-- Task history stays "running" until the background thread completes.
+dispatchAsyncVmOp :: ServerState -> Request -> IO Response
+dispatchAsyncVmOp state req = case req of
+  ReqVmStart vmRef False -> withVm vmRef $ \vmId -> do
+    validated <- handleVmStartValidate state vmId
+    case validated of
+      Left errResp -> withTaskHistory state req (pure errResp)
+      Right _ ->
+        withTaskHistoryAsync
+          state
+          req
+          (handleVmStartExecute state vmId)
+          (RespVmStateChanged VmStarting)
+  ReqVmStop vmRef False -> withVm vmRef $ \vmId -> do
+    validated <- handleVmStopValidate state vmId
+    case validated of
+      Left errResp -> withTaskHistory state req (pure errResp)
+      Right _ ->
+        withTaskHistoryAsync
+          state
+          req
+          (handleVmStopExecute state vmId)
+          (RespVmStateChanged VmStopping)
+  _ -> dispatchRequest state req -- shouldn't happen
+  where
+    pool = ssDbPool state
+    withVm :: Ref -> (Int64 -> IO Response) -> IO Response
+    withVm ref f = resolveVm ref pool >>= either (const $ pure RespVmNotFound) f
 
 -- | Dispatch a request to the appropriate handler
 dispatchRequest :: ServerState -> Request -> IO Response
@@ -68,8 +106,14 @@ dispatchRequest state req = case req of
   ReqShowVm vmRef -> withVm vmRef $ \vmId -> handleVmShow state vmId
   ReqVmCreate name cpus ram desc headless ga ci -> handleVmCreate state name cpus ram desc headless ga ci
   ReqVmDelete vmRef -> withVm vmRef $ \vmId -> handleVmDelete state vmId
-  ReqVmStart vmRef -> withVm vmRef $ \vmId -> handleVmStart state vmId
-  ReqVmStop vmRef -> withVm vmRef $ \vmId -> handleVmStop state vmId
+  ReqVmStart vmRef wait -> withVm vmRef $ \vmId ->
+    if wait
+      then handleVmStartExecute state vmId
+      else handleVmStart state vmId
+  ReqVmStop vmRef wait -> withVm vmRef $ \vmId ->
+    if wait
+      then handleVmStopExecute state vmId
+      else handleVmStop state vmId
   ReqVmPause vmRef -> withVm vmRef $ \vmId -> handleVmPause state vmId
   ReqVmReset vmRef -> withVm vmRef $ \vmId -> handleVmReset state vmId
   ReqVmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi -> withVm vmRef $ \vmId -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa mCi
@@ -198,7 +242,73 @@ dispatchRequest state req = case req of
 -- Task History
 --------------------------------------------------------------------------------
 
--- | Wrap a handler with task history recording.
+-- | Wrap a long-running handler: insert task record, fork handler in background,
+-- return interim response immediately. Task stays "running" until background thread completes.
+withTaskHistoryAsync :: ServerState -> Request -> IO Response -> Response -> IO Response
+withTaskHistoryAsync state req action interimResponse = do
+  let (subsystem, command, mEntityRef) = classifyRequest req
+  now <- getCurrentTime
+  mEntityInfo <- resolveEntityInfo mEntityRef
+
+  taskKey <-
+    runSqlPool
+      ( insert
+          TaskHistory
+            { taskHistoryStartedAt = now
+            , taskHistoryFinishedAt = Nothing
+            , taskHistorySubsystem = subsystem
+            , taskHistoryEntityId = fmap fst mEntityInfo
+            , taskHistoryEntityName = fmap snd mEntityInfo
+            , taskHistoryCommand = command
+            , taskHistoryResult = TaskRunning
+            , taskHistoryMessage = Nothing
+            }
+      )
+      (ssDbPool state)
+
+  _ <- forkIO $ do
+    result <- try action
+    finishTime <- getCurrentTime
+    case result of
+      Right response -> do
+        let (taskResult, message) = classifyResponse response
+            (mId, mName) = extractEntityFromResponse response
+        runSqlPool
+          ( update
+              taskKey
+              [ TaskHistoryFinishedAt =. Just finishTime
+              , TaskHistoryResult =. taskResult
+              , TaskHistoryMessage =. message
+              , TaskHistoryEntityId =. (mId <|> fmap fst mEntityInfo)
+              , TaskHistoryEntityName =. (mName <|> fmap snd mEntityInfo)
+              ]
+          )
+          (ssDbPool state)
+      Left (err :: SomeException) ->
+        runSqlPool
+          ( update
+              taskKey
+              [ TaskHistoryFinishedAt =. Just finishTime
+              , TaskHistoryResult =. TaskError
+              , TaskHistoryMessage =. Just (T.pack $ show err)
+              ]
+          )
+          (ssDbPool state)
+
+  pure interimResponse
+  where
+    (<|>) Nothing b = b
+    (<|>) a _ = a
+
+    resolveEntityInfo :: Maybe Ref -> IO (Maybe (Int, Text))
+    resolveEntityInfo Nothing = pure Nothing
+    resolveEntityInfo (Just ref) = do
+      let refText = unRef ref
+      case reads (T.unpack refText) :: [(Int, String)] of
+        [(n, "")] -> pure $ Just (n, refText)
+        _ -> pure $ Just (0, refText)
+
+-- | Wrap a handler with task history recording (synchronous).
 -- Inserts a "running" record before the handler, updates it after.
 withTaskHistory :: ServerState -> Request -> IO Response -> IO Response
 withTaskHistory state req action = do
@@ -281,8 +391,8 @@ classifyRequest = \case
   ReqShowVm ref -> (SubVm, "show", Just ref)
   ReqVmCreate name _ _ _ _ _ _ -> (SubVm, "create", Just (Ref name))
   ReqVmDelete ref -> (SubVm, "delete", Just ref)
-  ReqVmStart ref -> (SubVm, "start", Just ref)
-  ReqVmStop ref -> (SubVm, "stop", Just ref)
+  ReqVmStart ref _ -> (SubVm, "start", Just ref)
+  ReqVmStop ref _ -> (SubVm, "stop", Just ref)
   ReqVmPause ref -> (SubVm, "pause", Just ref)
   ReqVmReset ref -> (SubVm, "reset", Just ref)
   ReqVmEdit ref _ _ _ _ _ _ -> (SubVm, "edit", Just ref)
@@ -337,7 +447,6 @@ isReadOnly :: Request -> Bool
 isReadOnly = \case
   ReqPing -> True
   ReqStatus -> True
-  ReqShutdown -> True
   ReqListVms -> True
   ReqShowVm _ -> True
   ReqDiskList -> True

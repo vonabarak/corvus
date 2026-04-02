@@ -112,6 +112,7 @@ vmStartCommand =
           <> help "Name or ID of the VM to start"
           <> completer vmCompleter
       )
+    <*> waitOptionsParser
 
 -- | Parser for vm stop
 vmStopCommand :: Parser Command

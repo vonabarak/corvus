@@ -101,7 +101,7 @@ createTestVmWithOptions daemon name cpus ram mDesc headless guestAgent cloudInit
 startTestVm :: TestDaemon -> Int64 -> IO ()
 startTestVm daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmStart conn (T.pack (show vmId))
+    vmStart conn (T.pack (show vmId)) False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error starting VM: " <> show err
@@ -112,7 +112,7 @@ startTestVm daemon vmId = do
 stopTestVm :: TestDaemon -> Int64 -> IO ()
 stopTestVm daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmStop conn (T.pack (show vmId))
+    vmStop conn (T.pack (show vmId)) False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error stopping VM: " <> show err

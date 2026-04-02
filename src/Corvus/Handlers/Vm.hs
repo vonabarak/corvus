@@ -10,7 +10,11 @@ module Corvus.Handlers.Vm
   , handleVmCreate
   , handleVmDelete
   , handleVmStart
+  , handleVmStartValidate
+  , handleVmStartExecute
   , handleVmStop
+  , handleVmStopValidate
+  , handleVmStopExecute
   , handleVmPause
   , handleVmReset
   , handleVmEdit
@@ -22,11 +26,11 @@ module Corvus.Handlers.Vm
   )
 where
 
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
-import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller)
+import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
+import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller, waitForFirstPing)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
@@ -136,125 +140,196 @@ handleVmDelete state vmId = do
           runSqlPool (deleteVm vmId) (ssDbPool state)
           pure RespVmDeleted
 
--- | Handle VM start command
--- If stopped: set to running, start QEMU in background thread, monitor for exit
--- If paused: send QMP continue, set to running
+-- | Handle VM start command (async — returns immediately).
+-- For backward compatibility; used when wait=False.
 handleVmStart :: ServerState -> Int64 -> IO Response
-handleVmStart state vmId = runServerLogging state $ do
-  mVm <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+handleVmStart state vmId = do
+  validated <- handleVmStartValidate state vmId
+  case validated of
+    Left errResp -> pure errResp
+    Right (vm, currentStatus) ->
+      case currentStatus of
+        VmPaused -> runServerLogging state $ resumeFromPaused state vmId
+        _ -> do
+          -- Start QEMU and fork background agent wait + process monitor
+          resp <- runServerLogging state $ startQemuAndMonitor state vmId vm
+          case resp of
+            RespVmStateChanged _ -> do
+              -- If guest agent, fork agent wait in background (for poller transition)
+              when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
+                startGuestAgentPoller (ssDbPool state) (ssQemuConfig state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
+              pure resp
+            _ -> pure resp
+
+-- | Validate that a VM can be started. Returns the VM and current status, or an error response.
+-- Checks: VM exists, state transition valid, all referenced networks are running.
+handleVmStartValidate :: ServerState -> Int64 -> IO (Either Response (Vm, VmStatus))
+handleVmStartValidate state vmId = do
+  mVm <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
-    Nothing -> pure RespVmNotFound
+    Nothing -> pure $ Left RespVmNotFound
     Just (vm, currentStatus) ->
       case validateTransition currentStatus ActionStart of
-        Left errMsg -> pure $ RespInvalidTransition currentStatus errMsg
-        Right _ ->
-          case currentStatus of
-            VmStopped -> do
-              -- Verify all referenced networks are running
-              networkCheck <- liftIO $ runSqlPool (checkNetworksRunning vmId) (ssDbPool state)
+        Left errMsg -> pure $ Left $ RespInvalidTransition currentStatus errMsg
+        Right _ -> do
+          -- Check that all referenced networks are running (only for cold start)
+          if currentStatus == VmStopped
+            then do
+              networkCheck <- runSqlPool (checkNetworksRunning vmId) (ssDbPool state)
               case networkCheck of
-                Just networkName -> do
-                  logWarnN $ "VM " <> T.pack (show vmId) <> " references stopped network: " <> networkName
-                  pure $ RespInvalidTransition VmStopped $ "Network '" <> networkName <> "' is not running"
-                Nothing -> do
-                  -- Generate cloud-init ISO if enabled and not yet attached
-                  when (vmCloudInit vm) $ do
-                    hasCloudInitDisk <- liftIO $ runSqlPool (hasCloudInitIso vmId) (ssDbPool state)
-                    unless hasCloudInitDisk $ do
-                      logInfoN $ "Generating cloud-init ISO for VM " <> T.pack (show vmId)
-                      _ <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId (vmName vm) (ssLogLevel state)
-                      pure ()
+                Just networkName ->
+                  pure $ Left $ RespInvalidTransition VmStopped $ "Network '" <> networkName <> "' is not running"
+                Nothing -> pure $ Right (vm, currentStatus)
+            else pure $ Right (vm, currentStatus)
 
-                  -- Start virtiofsd processes for shared directories
-                  virtiofsdResult <- startVirtiofsdProcesses (ssDbPool state) (ssQemuConfig state) vmId
-                  case virtiofsdResult of
-                    VirtiofsdSomeFailed -> do
-                      logWarnN $ "Some virtiofsd processes failed to start for VM " <> T.pack (show vmId)
-                    _ -> pure ()
+-- | Execute VM start to completion (blocks until VmRunning).
+-- Used with --wait flag or in withTaskHistoryAsync.
+handleVmStartExecute :: ServerState -> Int64 -> IO Response
+handleVmStartExecute state vmId = do
+  validated <- handleVmStartValidate state vmId
+  case validated of
+    Left errResp -> pure errResp
+    Right (vm, currentStatus) ->
+      case currentStatus of
+        VmPaused -> runServerLogging state $ resumeFromPaused state vmId
+        _ -> runServerLogging state $ do
+          resp <- startQemuAndMonitor state vmId vm
+          case resp of
+            RespVmStateChanged _ -> do
+              -- Wait for guest agent if enabled (blocking)
+              when (vmGuestAgent vm) $ do
+                logInfoN $ "Waiting for guest agent on VM " <> T.pack (show vmId)
+                liftIO $ waitForFirstPing (ssDbPool state) (ssQemuConfig state) vmId (ssLogLevel state)
+              -- Start steady-state poller for ongoing healthchecks
+              when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
+                liftIO $
+                  startGuestAgentPoller (ssDbPool state) (ssQemuConfig state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
+              -- Return final status (Running, since we waited for agent)
+              pure $ RespVmStateChanged VmRunning
+            _ -> pure resp
 
-                  -- Start the VM using QEMU
-                  result <- startVm (ssDbPool state) (ssQemuConfig state) vmId
-                  case result of
-                    VmStarted pid ph -> do
-                      -- Set status: VmStarting if guest agent enabled (will transition
-                      -- to VmRunning on first healthcheck), VmRunning otherwise
-                      let initialStatus = if vmGuestAgent vm then VmStarting else VmRunning
-                      liftIO $ runSqlPool (setVmStarted vmId initialStatus pid) (ssDbPool state)
-                      -- Start guest agent poller if guest agent is enabled and interval > 0
-                      -- (interval=0 disables the poller, useful for tests to avoid QGA socket contention)
-                      when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
-                        liftIO $
-                          startGuestAgentPoller (ssDbPool state) (ssQemuConfig state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
-                      -- Fork a thread to wait for process exit
-                      _ <- liftIO $ forkIO $ runServerLogging state $ do
-                        logDebugN $ "Waiting for VM " <> T.pack (show vmId) <> " process to exit"
-                        exitCode <- liftIO $ waitForProcess ph
-                        -- Check if the VM was intentionally stopped/reset.
-                        -- If PID was cleared, another handler already set the final status.
-                        mCurrentPid <- liftIO $ runSqlPool (getVmPid vmId) (ssDbPool state)
-                        case mCurrentPid of
-                          Nothing ->
-                            -- PID was cleared by handleVmReset — it already set the status
-                            logDebugN $ "VM " <> T.pack (show vmId) <> " was reset externally, skipping status update"
-                          Just _ ->
-                            -- Normal exit — we're responsible for setting the final status
-                            case exitCode of
-                              ExitSuccess -> do
-                                logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
-                                liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-                              ExitFailure code -> do
-                                logWarnN $ "VM " <> T.pack (show vmId) <> " exited with error code " <> T.pack (show code)
-                                liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
-                      pure $ RespVmStateChanged initialStatus
-                    VmNotFound -> pure RespVmNotFound
-                    VmStartError err -> do
-                      logWarnN $ "Failed to start VM " <> T.pack (show vmId) <> ": " <> err
-                      liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
-                      pure $ RespInvalidTransition VmError $ "Failed to start: " <> err
-            VmPaused -> do
-              -- Resume using QMP
-              qmpResult <- liftIO $ qmpContinue (ssQemuConfig state) vmId
-              case qmpResult of
-                QmpSuccess -> do
-                  logInfoN $ "VM " <> T.pack (show vmId) <> " resumed"
-                  liftIO $ runSqlPool (setVmStatus vmId VmRunning) (ssDbPool state)
-                  pure $ RespVmStateChanged VmRunning
-                QmpError err -> do
-                  logWarnN $ "QMP error resuming VM " <> T.pack (show vmId) <> ": " <> err
-                  pure $ RespInvalidTransition currentStatus $ "QMP error: " <> err
-                QmpConnectionFailed err -> do
-                  logWarnN $ "QMP connection failed for VM " <> T.pack (show vmId) <> ": " <> err
-                  pure $ RespInvalidTransition currentStatus $ "QMP connection failed: " <> err
-            _ -> pure $ RespInvalidTransition currentStatus "Unexpected state"
+-- | Resume a paused VM via QMP continue
+resumeFromPaused :: ServerState -> Int64 -> LoggingT IO Response
+resumeFromPaused state vmId = do
+  qmpResult <- liftIO $ qmpContinue (ssQemuConfig state) vmId
+  case qmpResult of
+    QmpSuccess -> do
+      logInfoN $ "VM " <> T.pack (show vmId) <> " resumed"
+      liftIO $ runSqlPool (setVmStatus vmId VmRunning) (ssDbPool state)
+      pure $ RespVmStateChanged VmRunning
+    QmpError err -> do
+      logWarnN $ "QMP error resuming VM " <> T.pack (show vmId) <> ": " <> err
+      pure $ RespInvalidTransition VmPaused $ "QMP error: " <> err
+    QmpConnectionFailed err -> do
+      logWarnN $ "QMP connection failed for VM " <> T.pack (show vmId) <> ": " <> err
+      pure $ RespInvalidTransition VmPaused $ "QMP connection failed: " <> err
 
--- | Handle VM stop command
--- Uses guest-shutdown via QGA if the guest agent is enabled, otherwise
--- falls back to ACPI system_powerdown via QMP.
--- Status will change when the QEMU process exits (background thread).
+-- | Start QEMU process, set initial status, fork process monitor thread.
+-- Returns the initial state change response. Does NOT wait for guest agent.
+startQemuAndMonitor :: ServerState -> Int64 -> Vm -> LoggingT IO Response
+startQemuAndMonitor state vmId vm = do
+  -- Generate cloud-init ISO if enabled and not yet attached
+  when (vmCloudInit vm) $ do
+    hasCloudInitDisk <- liftIO $ runSqlPool (hasCloudInitIso vmId) (ssDbPool state)
+    unless hasCloudInitDisk $ do
+      logInfoN $ "Generating cloud-init ISO for VM " <> T.pack (show vmId)
+      _ <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId (vmName vm) (ssLogLevel state)
+      pure ()
+
+  -- Start virtiofsd processes for shared directories
+  virtiofsdResult <- startVirtiofsdProcesses (ssDbPool state) (ssQemuConfig state) vmId
+  case virtiofsdResult of
+    VirtiofsdSomeFailed ->
+      logWarnN $ "Some virtiofsd processes failed to start for VM " <> T.pack (show vmId)
+    _ -> pure ()
+
+  -- Start the VM using QEMU
+  result <- startVm (ssDbPool state) (ssQemuConfig state) vmId
+  case result of
+    VmStarted pid ph -> do
+      let initialStatus = if vmGuestAgent vm then VmStarting else VmRunning
+      liftIO $ runSqlPool (setVmStarted vmId initialStatus pid) (ssDbPool state)
+      -- Fork process monitor thread (watches for QEMU exit independently)
+      _ <- liftIO $ forkIO $ runServerLogging state $ do
+        logDebugN $ "Waiting for VM " <> T.pack (show vmId) <> " process to exit"
+        exitCode <- liftIO $ waitForProcess ph
+        mCurrentPid <- liftIO $ runSqlPool (getVmPid vmId) (ssDbPool state)
+        case mCurrentPid of
+          Nothing ->
+            logDebugN $ "VM " <> T.pack (show vmId) <> " was reset externally, skipping status update"
+          Just _ ->
+            case exitCode of
+              ExitSuccess -> do
+                logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
+                liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+              ExitFailure code -> do
+                logWarnN $ "VM " <> T.pack (show vmId) <> " exited with error code " <> T.pack (show code)
+                liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
+      pure $ RespVmStateChanged initialStatus
+    VmNotFound -> pure RespVmNotFound
+    VmStartError err -> do
+      logWarnN $ "Failed to start VM " <> T.pack (show vmId) <> ": " <> err
+      liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
+      pure $ RespInvalidTransition VmError $ "Failed to start: " <> err
+
+-- | Handle VM stop command (async — returns VmStopping immediately).
 handleVmStop :: ServerState -> Int64 -> IO Response
-handleVmStop state vmId = runServerLogging state $ do
-  mVm <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+handleVmStop state vmId = do
+  validated <- handleVmStopValidate state vmId
+  case validated of
+    Left errResp -> pure errResp
+    Right (vm, currentStatus) ->
+      runServerLogging state $ initiateShutdown state vmId vm currentStatus
+
+-- | Validate that a VM can be stopped.
+handleVmStopValidate :: ServerState -> Int64 -> IO (Either Response (Vm, VmStatus))
+handleVmStopValidate state vmId = do
+  mVm <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
-    Nothing -> pure RespVmNotFound
+    Nothing -> pure $ Left RespVmNotFound
     Just (vm, currentStatus) ->
       case validateTransition currentStatus ActionStop of
-        Left errMsg -> pure $ RespInvalidTransition currentStatus errMsg
-        Right newStatus -> do
-          -- Set status to Stopping immediately
-          liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. newStatus]) (ssDbPool state)
-          -- Initiate shutdown (QEMU process exit is handled by the background thread)
-          if vmGuestAgent vm
-            then do
-              logDebugN $ "Sending guest-shutdown to VM " <> T.pack (show vmId)
-              ok <- liftIO $ guestShutdown (ssQemuConfig state) vmId
-              if ok
-                then do
-                  logInfoN $ "VM " <> T.pack (show vmId) <> " guest-shutdown initiated"
-                  pure $ RespVmStateChanged newStatus
-                else do
-                  logWarnN $ "Guest-shutdown failed for VM " <> T.pack (show vmId) <> ", falling back to QMP"
-                  shutdownViaQmp vmId currentStatus newStatus
-            else shutdownViaQmp vmId currentStatus newStatus
+        Left errMsg -> pure $ Left $ RespInvalidTransition currentStatus errMsg
+        Right _ -> pure $ Right (vm, currentStatus)
+
+-- | Execute VM stop to completion (blocks until VmStopped).
+handleVmStopExecute :: ServerState -> Int64 -> IO Response
+handleVmStopExecute state vmId = do
+  validated <- handleVmStopValidate state vmId
+  case validated of
+    Left errResp -> pure errResp
+    Right (vm, currentStatus) -> runServerLogging state $ do
+      resp <- initiateShutdown state vmId vm currentStatus
+      case resp of
+        RespVmStateChanged VmStopping -> do
+          -- Poll until VM reaches Stopped or Error
+          logInfoN $ "Waiting for VM " <> T.pack (show vmId) <> " to stop"
+          liftIO $ waitForVmStopped state vmId 300
+          -- Check final status
+          mFinal <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+          case mFinal of
+            Just (_, VmStopped) -> pure $ RespVmStateChanged VmStopped
+            Just (_, VmError) -> pure $ RespInvalidTransition VmError "VM exited with error"
+            _ -> pure $ RespVmStateChanged VmStopped
+        _ -> pure resp
+
+-- | Initiate VM shutdown (set Stopping, send shutdown command). Returns immediately.
+initiateShutdown :: ServerState -> Int64 -> Vm -> VmStatus -> LoggingT IO Response
+initiateShutdown state vmId vm currentStatus = do
+  let newStatus = VmStopping
+  liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. newStatus]) (ssDbPool state)
+  if vmGuestAgent vm
+    then do
+      logDebugN $ "Sending guest-shutdown to VM " <> T.pack (show vmId)
+      ok <- liftIO $ guestShutdown (ssQemuConfig state) vmId
+      if ok
+        then do
+          logInfoN $ "VM " <> T.pack (show vmId) <> " guest-shutdown initiated"
+          pure $ RespVmStateChanged newStatus
+        else do
+          logWarnN $ "Guest-shutdown failed for VM " <> T.pack (show vmId) <> ", falling back to QMP"
+          shutdownViaQmp vmId currentStatus newStatus
+    else shutdownViaQmp vmId currentStatus newStatus
   where
     shutdownViaQmp vmId' currentStatus' newStatus' = do
       logDebugN $ "Sending QMP shutdown command to VM " <> T.pack (show vmId')
@@ -265,13 +340,26 @@ handleVmStop state vmId = runServerLogging state $ do
           pure $ RespVmStateChanged newStatus'
         QmpError err -> do
           logWarnN $ "QMP error stopping VM " <> T.pack (show vmId') <> ": " <> err
-          -- Revert status since shutdown failed
           liftIO $ runSqlPool (update (toSqlKey vmId' :: VmId) [M.VmStatus =. currentStatus']) (ssDbPool state)
           pure $ RespInvalidTransition currentStatus' $ "QMP error: " <> err
         QmpConnectionFailed err -> do
           logWarnN $ "QMP connection failed for VM " <> T.pack (show vmId') <> ": " <> err
           liftIO $ runSqlPool (update (toSqlKey vmId' :: VmId) [M.VmStatus =. currentStatus']) (ssDbPool state)
           pure $ RespInvalidTransition currentStatus' $ "QMP connection failed: " <> err
+
+-- | Poll until VM status is VmStopped or VmError, or timeout.
+waitForVmStopped :: ServerState -> Int64 -> Int -> IO ()
+waitForVmStopped state vmId = go
+  where
+    go 0 = pure () -- timeout, return anyway
+    go n = do
+      mVm <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+      case mVm of
+        Just (_, VmStopped) -> pure ()
+        Just (_, VmError) -> pure ()
+        _ -> do
+          threadDelay 1000000
+          go (n - 1)
 
 -- | Handle VM pause command
 -- Send QMP stop command

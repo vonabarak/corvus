@@ -5,6 +5,7 @@
 -- and queries guest network interfaces, persisting results to the database.
 module Corvus.Handlers.GuestAgentPoller
   ( startGuestAgentPoller
+  , waitForFirstPing
   )
 where
 
@@ -37,6 +38,31 @@ startGuestAgentPoller pool config intervalSec vmId logLevel = void $ forkIO $ ru
   liftIO $ threadDelay 3000000
   logDebugN $ "Guest agent poller starting for VM " <> tshow vmId
   waitForAgent pool config intervalSec vmId
+
+-- | Block until the guest agent responds for the first time.
+-- Waits 3s initial delay, then pings every 1s.
+-- Transitions VmStarting → VmRunning on success.
+-- Does NOT start steady-state polling (caller should start the poller separately).
+waitForFirstPing :: Pool SqlBackend -> QemuConfig -> Int64 -> LogLevel -> IO ()
+waitForFirstPing pool config vmId logLevel = runFilteredLogging logLevel $ do
+  liftIO $ threadDelay 3000000
+  logDebugN $ "Waiting for first guest agent ping for VM " <> tshow vmId
+  go
+  where
+    go = do
+      alive <- isVmAlive pool vmId
+      when alive $ do
+        pingOk <- liftIO $ guestPing config vmId
+        if pingOk
+          then do
+            now <- liftIO getCurrentTime
+            liftIO $ runSqlPool (updateHealthcheck vmId now) pool
+            liftIO $ runSqlPool (transitionStartingToRunning vmId) pool
+            logInfoN $ "Guest agent ready for VM " <> tshow vmId
+            queryAndUpdateNetwork pool config vmId
+          else do
+            liftIO $ threadDelay 1000000
+            go
 
 --------------------------------------------------------------------------------
 -- Phase 1: Wait for agent readiness
