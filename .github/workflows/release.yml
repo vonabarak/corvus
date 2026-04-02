@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  LANG: C.UTF-8
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvdeplug-dev
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.8.4'
+          enable-stack: true
+          stack-version: 'latest'
+
+      - name: Cache Stack global
+        uses: actions/cache@v4
+        with:
+          path: ~/.stack
+          key: stack-global-${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
+          restore-keys: stack-global-${{ runner.os }}-
+
+      - name: Build
+        run: stack build --system-ghc --no-install-ghc
+
+      - name: Package binaries
+        run: |
+          BINDIR=$(stack path --system-ghc --no-install-ghc --local-install-root)/bin
+          VERSION=${GITHUB_REF_NAME#v}
+          mkdir -p release
+          cp ${BINDIR}/corvus ${BINDIR}/crv release/
+          strip release/corvus release/crv
+          tar czf corvus-${VERSION}-linux-amd64.tar.gz -C release corvus crv
+          cp corvus.service release/
+          cp example-apply.yml release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            corvus-*.tar.gz
+          generate_release_notes: true

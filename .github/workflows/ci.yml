@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LANG: C.UTF-8
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: corvus
+          POSTGRES_PASSWORD: corvus
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvdeplug-dev qemu-utils postgresql-client genisoimage
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.8.4'
+          enable-stack: true
+          stack-version: 'latest'
+
+      - name: Cache Stack global
+        uses: actions/cache@v4
+        with:
+          path: ~/.stack
+          key: stack-global-${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
+          restore-keys: stack-global-${{ runner.os }}-
+
+      - name: Cache Stack work
+        uses: actions/cache@v4
+        with:
+          path: .stack-work
+          key: stack-work-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            stack-work-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-
+            stack-work-${{ runner.os }}-
+
+      - name: Build
+        run: stack build --system-ghc --no-install-ghc
+
+      - name: Lint
+        run: |
+          stack install hlint --system-ghc --no-install-ghc 2>/dev/null || true
+          hlint src app test
+
+      - name: Format check
+        run: |
+          stack install fourmolu --system-ghc --no-install-ghc 2>/dev/null || true
+          fourmolu --mode check src app test
+
+      - name: Unit tests
+        env:
+          TEST_DB_HOST: localhost
+          TEST_DB_PORT: "5432"
+          TEST_DB_USER: corvus
+          TEST_DB_PASSWORD: corvus
+        run: stack test --system-ghc --no-install-ghc --test-arguments "--skip Integration"
