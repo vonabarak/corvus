@@ -9,10 +9,8 @@ module Corvus.Handlers.Vm
   , handleVmShow
   , handleVmCreate
   , handleVmDelete
-  , handleVmStart
   , handleVmStartValidate
   , handleVmStartExecute
-  , handleVmStop
   , handleVmStopValidate
   , handleVmStopExecute
   , handleVmPause
@@ -140,27 +138,6 @@ handleVmDelete state vmId = do
           runSqlPool (deleteVm vmId) (ssDbPool state)
           pure RespVmDeleted
 
--- | Handle VM start command (async — returns immediately).
--- For backward compatibility; used when wait=False.
-handleVmStart :: ServerState -> Int64 -> IO Response
-handleVmStart state vmId = do
-  validated <- handleVmStartValidate state vmId
-  case validated of
-    Left errResp -> pure errResp
-    Right (vm, currentStatus) ->
-      case currentStatus of
-        VmPaused -> runServerLogging state $ resumeFromPaused state vmId
-        _ -> do
-          -- Start QEMU and fork background agent wait + process monitor
-          resp <- runServerLogging state $ startQemuAndMonitor state vmId vm
-          case resp of
-            RespVmStateChanged _ -> do
-              -- If guest agent, fork agent wait in background (for poller transition)
-              when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
-                startGuestAgentPoller (ssDbPool state) (ssQemuConfig state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
-              pure resp
-            _ -> pure resp
-
 -- | Validate that a VM can be started. Returns the VM and current status, or an error response.
 -- Checks: VM exists, state transition valid, all referenced networks are running.
 handleVmStartValidate :: ServerState -> Int64 -> IO (Either Response (Vm, VmStatus))
@@ -271,15 +248,6 @@ startQemuAndMonitor state vmId vm = do
       logWarnN $ "Failed to start VM " <> T.pack (show vmId) <> ": " <> err
       liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
       pure $ RespInvalidTransition VmError $ "Failed to start: " <> err
-
--- | Handle VM stop command (async — returns VmStopping immediately).
-handleVmStop :: ServerState -> Int64 -> IO Response
-handleVmStop state vmId = do
-  validated <- handleVmStopValidate state vmId
-  case validated of
-    Left errResp -> pure errResp
-    Right (vm, currentStatus) ->
-      runServerLogging state $ initiateShutdown state vmId vm currentStatus
 
 -- | Validate that a VM can be stopped.
 handleVmStopValidate :: ServerState -> Int64 -> IO (Either Response (Vm, VmStatus))

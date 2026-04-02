@@ -55,44 +55,33 @@ import Database.Persist.Postgresql (runSqlPool)
 handleRequest :: ServerState -> Request -> IO Response
 handleRequest state req
   | isReadOnly req = dispatchRequest state req
-  | isAsyncVmOp req = dispatchAsyncVmOp state req
   | otherwise = withTaskHistory state req (dispatchRequest state req)
 
--- | Check if request is an async VM operation (start/stop without --wait)
-isAsyncVmOp :: Request -> Bool
-isAsyncVmOp (ReqVmStart _ False) = True
-isAsyncVmOp (ReqVmStop _ False) = True
-isAsyncVmOp _ = False
-
--- | Handle async VM start/stop: validate synchronously, execute in background.
--- Task history stays "running" until the background thread completes.
-dispatchAsyncVmOp :: ServerState -> Request -> IO Response
-dispatchAsyncVmOp state req = case req of
-  ReqVmStart vmRef False -> withVm vmRef $ \vmId -> do
-    validated <- handleVmStartValidate state vmId
-    case validated of
-      Left errResp -> withTaskHistory state req (pure errResp)
-      Right _ ->
-        withTaskHistoryAsync
-          state
-          req
-          (handleVmStartExecute state vmId)
-          (RespVmStateChanged VmStarting)
-  ReqVmStop vmRef False -> withVm vmRef $ \vmId -> do
-    validated <- handleVmStopValidate state vmId
-    case validated of
-      Left errResp -> withTaskHistory state req (pure errResp)
-      Right _ ->
-        withTaskHistoryAsync
-          state
-          req
-          (handleVmStopExecute state vmId)
-          (RespVmStateChanged VmStopping)
-  _ -> dispatchRequest state req -- shouldn't happen
-  where
-    pool = ssDbPool state
-    withVm :: Ref -> (Int64 -> IO Response) -> IO Response
-    withVm ref f = resolveVm ref pool >>= either (const $ pure RespVmNotFound) f
+-- | Dispatch a command that supports sync (--wait) and async modes.
+-- Validates synchronously in both cases. In async mode, forks the
+-- execute function in a background thread and returns the interim
+-- response immediately; the task history stays "running" until the
+-- background thread completes.
+dispatchWithWait
+  :: ServerState
+  -> Request
+  -> Bool
+  -- ^ Wait flag (True = sync, False = async)
+  -> IO (Either Response a)
+  -- ^ Validate (sync). Left = error response, Right = validated data.
+  -> (a -> IO Response)
+  -- ^ Execute (may block for a long time). Takes validated data.
+  -> Response
+  -- ^ Interim response returned immediately in async mode.
+  -> IO Response
+dispatchWithWait state req wait validate execute interimResponse = do
+  validated <- validate
+  case validated of
+    Left errResp -> pure errResp
+    Right validData ->
+      if wait
+        then execute validData
+        else withTaskHistoryAsync state req (execute validData) interimResponse
 
 -- | Dispatch a request to the appropriate handler
 dispatchRequest :: ServerState -> Request -> IO Response
@@ -107,13 +96,21 @@ dispatchRequest state req = case req of
   ReqVmCreate name cpus ram desc headless ga ci -> handleVmCreate state name cpus ram desc headless ga ci
   ReqVmDelete vmRef -> withVm vmRef $ \vmId -> handleVmDelete state vmId
   ReqVmStart vmRef wait -> withVm vmRef $ \vmId ->
-    if wait
-      then handleVmStartExecute state vmId
-      else handleVmStart state vmId
+    dispatchWithWait
+      state
+      req
+      wait
+      (handleVmStartValidate state vmId)
+      (\_ -> handleVmStartExecute state vmId)
+      (RespVmStateChanged VmStarting)
   ReqVmStop vmRef wait -> withVm vmRef $ \vmId ->
-    if wait
-      then handleVmStopExecute state vmId
-      else handleVmStop state vmId
+    dispatchWithWait
+      state
+      req
+      wait
+      (handleVmStopValidate state vmId)
+      (\_ -> handleVmStopExecute state vmId)
+      (RespVmStateChanged VmStopping)
   ReqVmPause vmRef -> withVm vmRef $ \vmId -> handleVmPause state vmId
   ReqVmReset vmRef -> withVm vmRef $ \vmId -> handleVmReset state vmId
   ReqVmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi -> withVm vmRef $ \vmId -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa mCi
