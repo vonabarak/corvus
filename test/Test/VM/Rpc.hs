@@ -9,6 +9,7 @@ module Test.VM.Rpc
   , createTestVmWithGuestAgent
   , createTestVmWithOptions
   , startTestVm
+  , startTestVmSync
   , stopTestVm
   , stopTestVmAndWait
   , deleteTestVm
@@ -34,7 +35,6 @@ module Test.VM.Rpc
   , runInVm_
   , runViaGuestAgent
   , runViaGuestAgent_
-  , waitForGuestAgent
 
     -- * Virtual network management
   , createNetwork
@@ -97,11 +97,22 @@ createTestVmWithOptions daemon name cpus ram mDesc headless guestAgent cloudInit
     Right (Right (VmCreated vmId)) -> pure vmId
     Right (Right other) -> fail $ "Unexpected response creating VM: " <> show other
 
--- | Start a VM via daemon RPC
+-- | Start a VM via daemon RPC (async — returns immediately)
 startTestVm :: TestDaemon -> Int64 -> IO ()
 startTestVm daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
     vmStart conn (T.pack (show vmId)) False
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "RPC error starting VM: " <> show err
+    Right (Right (VmActionSuccess _)) -> pure ()
+    Right (Right other) -> fail $ "Failed to start VM: " <> show other
+
+-- | Start a VM via daemon RPC (sync — blocks until VmRunning, including guest agent)
+startTestVmSync :: TestDaemon -> Int64 -> IO ()
+startTestVmSync daemon vmId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    vmStart conn (T.pack (show vmId)) True
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error starting VM: " <> show err
@@ -412,32 +423,3 @@ runViaGuestAgent_ daemon vmId command = do
 
 -- | Wait for the guest agent to become available by polling with guest-ping.
 -- Fails if the agent is not ready within the timeout.
--- | Wait for the guest agent to become available by polling.
--- First waits for the VM to reach VmRunning (the guest agent poller
--- transitions VmStarting → VmRunning on first successful healthcheck),
--- then verifies guest-exec works.
-waitForGuestAgent :: TestDaemon -> Int64 -> Int -> IO ()
-waitForGuestAgent daemon vmId timeoutSec = do
-  -- Phase 1: wait for VM to reach Running state
-  waitForRunning timeoutSec
-  -- Phase 2: verify guest-exec actually works
-  waitForExec 10
-  where
-    waitForRunning 0 = fail $ "Guest agent not ready after " <> show timeoutSec <> "s (VM not running)"
-    waitForRunning n = do
-      res <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show vmId))
-      case res of
-        Right (Right (Just details))
-          | vdStatus details == VmRunning -> pure ()
-        _ -> do
-          threadDelay 1000000
-          waitForRunning (n - 1)
-    waitForExec 0 = fail "Guest agent not responding after VM reached running state"
-    waitForExec n = do
-      result <- withDaemonConnection daemon $ \conn ->
-        vmExec conn (T.pack (show vmId)) "echo ok"
-      case result of
-        Right (Right (GuestExecOk 0 _ _)) -> pure ()
-        _ -> do
-          threadDelay 1000000
-          waitForExec (n - 1 :: Int)

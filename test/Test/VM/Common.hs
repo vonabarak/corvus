@@ -320,11 +320,10 @@ withTestVmGuestExecWithDisk daemon diskImageId config action = do
               , tvmSshUser = ""
               }
 
-      -- Start the VM and wait for guest agent
+      -- Start the VM synchronously (blocks until guest agent responds)
       putStrLn "[test] Starting VM and waiting for guest agent..."
       vmStartTime <- getCurrentTime
-      startTestVm daemon vmId
-      waitForGuestAgent daemon vmId (vmcWaitSshTimeout config)
+      startTestVmSync daemon vmId
       vmReadyTime <- getCurrentTime
       let bootSec = round (diffUTCTime vmReadyTime vmStartTime) :: Int
       putStrLn $ "[test] Guest agent is ready (boot to agent: " <> show bootSec <> "s)"
@@ -384,12 +383,10 @@ startTestVmAndWait vm timeoutSec = do
   startTestVm (tvmDaemon vm) (tvmId vm)
   waitForTestVmSshWithKey (tvmSshHost vm) (tvmSshPort vm) (tvmSshPrivateKey vm) (tvmSshUser vm) timeoutSec
 
--- | Start a VM and wait for the guest agent to become available.
--- Fails if the guest agent is not ready within timeout.
+-- | Start a VM and wait for the guest agent to become available (sync start).
 startTestVmAndWaitGuestAgent :: TestVm -> Int -> IO ()
-startTestVmAndWaitGuestAgent vm timeoutSec = do
-  startTestVm (tvmDaemon vm) (tvmId vm)
-  waitForGuestAgent (tvmDaemon vm) (tvmId vm) timeoutSec
+startTestVmAndWaitGuestAgent vm _timeoutSec =
+  startTestVmSync (tvmDaemon vm) (tvmId vm)
 
 --------------------------------------------------------------------------------
 -- Daemon-level VM convenience wrappers (disk setup + VM creation)

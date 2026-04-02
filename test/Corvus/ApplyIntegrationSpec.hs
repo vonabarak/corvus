@@ -27,9 +27,9 @@ import Test.VM.Rpc
   , runViaGuestAgent_
   , startNetwork
   , startTestVm
+  , startTestVmSync
   , stopNetwork
   , stopTestVmAndWait
-  , waitForGuestAgent
   )
 import Test.VM.Ssh (SshKeyPair (..), cleanupSshKeyPair, generateSshKeyPair, runInTestVmWith, waitForTestVmSshWithKey)
 
@@ -100,12 +100,9 @@ spec = withTestDb $ do
           (startNetwork daemon nwId)
           (\_ -> stopNetwork daemon nwId)
           $ \_ -> do
-            putStrLn "[test] Starting two VMs created via apply..."
-            startTestVm daemon vm1Id
-            startTestVm daemon vm2Id
-
-            waitForGuestAgent daemon vm1Id 90
-            waitForGuestAgent daemon vm2Id 90
+            putStrLn "[test] Starting two VMs created via apply (sync)..."
+            startTestVmSync daemon vm1Id
+            startTestVmSync daemon vm2Id
 
             -- Configure static IPs on the VDE interface (eth1)
             runViaGuestAgent_ daemon vm1Id "ip addr add 10.0.0.1/24 dev eth1 && ip link set eth1 up"

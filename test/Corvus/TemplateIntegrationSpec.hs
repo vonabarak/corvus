@@ -13,7 +13,7 @@ import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVm)
 import Test.VM.Daemon (withDaemonConnection)
-import Test.VM.Rpc (runViaGuestAgent, stopTestVmAndWait, waitForGuestAgent)
+import Test.VM.Rpc (runViaGuestAgent, startTestVmSync, stopTestVmAndWait)
 
 -- | Find a disk name matching a prefix from a list of disk images
 findDiskName :: T.Text -> [DiskImageInfo] -> T.Text
@@ -111,14 +111,9 @@ spec = withTestDb $ do
           Right (Right VmEdited) -> pure ()
           other -> fail $ "VM edit failed: " ++ show other
 
-        resStart <- withDaemonConnection daemon $ \conn -> vmStart conn (T.pack (show newVmId)) False
-        case resStart of
-          Right (Right (VmActionSuccess _)) -> pure ()
-          other -> fail $ "VM start failed: " ++ show other
-
-        -- Wait for guest agent to be available
-        putStrLn "[test] Waiting for guest agent on instantiated VM"
-        waitForGuestAgent daemon newVmId 90
+        -- Start VM synchronously (blocks until guest agent responds)
+        putStrLn "[test] Starting instantiated VM (sync)..."
+        startTestVmSync daemon newVmId
 
         -- Verify we can run commands via guest agent
         (exitCode, stdout, _) <- runViaGuestAgent daemon newVmId "whoami"

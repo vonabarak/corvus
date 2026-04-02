@@ -20,7 +20,7 @@ import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), VmConfig (..), defaultVmConfig, startTestVmAndWaitGuestAgent, withTestVmGuestExecOnDaemon)
 import Test.VM.Daemon (TestDaemon, withDaemonConnection, withTestDaemonConfig)
-import Test.VM.Rpc (listVmNetIfs, stopTestVmAndWait, waitForGuestAgent)
+import Test.VM.Rpc (listVmNetIfs, stopTestVmAndWait)
 
 spec :: Spec
 spec = withTestDb $ do

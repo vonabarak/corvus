@@ -24,7 +24,7 @@ import Test.Hspec
 import Test.VM.Common (TestVm (..), VmConfig (..), biosVmConfig, defaultVmConfig, startTestVmAndWait, withTestVm, withTestVmGuestExec)
 import Test.VM.Console (connectSerialConsole, consoleExpect, consoleSend)
 import Test.VM.Daemon (TestDaemon (..), withDaemonConnection)
-import Test.VM.Rpc (editTestVm, runInVm, stopTestVmAndWait, waitForGuestAgent)
+import Test.VM.Rpc (editTestVm, runInVm, stopTestVmAndWait)
 import Test.VM.Ssh (runInTestVm, runInTestVm_)
 
 spec :: Spec
