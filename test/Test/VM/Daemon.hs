@@ -20,12 +20,13 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
-import Control.Concurrent.STM (atomically, writeTVar)
-import Control.Exception (bracket, catch)
+import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
+import Control.Exception (SomeException, bracket, catch, try)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Client.Connection (Connection, ConnectionError, withConnection)
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
+import Corvus.Qemu.Netns (startNamespace)
 import Corvus.Server (runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), newServerState)
 import qualified Data.Text as T
@@ -35,6 +36,8 @@ import Network.Socket (Family (..), SockAddr (..), SocketType (..), close, conne
 import qualified Network.Socket as NS
 import System.Directory (createDirectoryIfMissing, removePathForcibly)
 import System.FilePath ((</>))
+import System.Posix.Process (ProcessStatus, getProcessStatus)
+import System.Posix.Signals (sigTERM, signalProcess)
 import Test.Database (TestEnv (..), createTestTempDir)
 import Test.Settings (getTestLogLevel)
 
@@ -80,6 +83,10 @@ startTestDaemon env = do
   state <- newServerState (tePool env) qemuConfig
   let state' = state {ssLogLevel = logLevel}
 
+  -- Start the network namespace (don't call handleStartup — it would
+  -- kill VMs from parallel tests sharing the same database)
+  startTestNamespace state'
+
   -- Start the server in a background thread
   serverThread <- async $ runServer state' listenAddr
 
@@ -112,6 +119,8 @@ startTestDaemonWithConfig env modifyConfig = do
   state <- newServerState (tePool env) qemuConfig
   let state' = state {ssLogLevel = logLevel}
 
+  startTestNamespace state'
+
   serverThread <- async $ runServer state' listenAddr
 
   waitForSocket socketPath
@@ -134,6 +143,9 @@ stopTestDaemon daemon = do
 
   -- Cancel the server thread
   cancel (tdThread daemon)
+
+  -- Kill namespace manager if running
+  stopTestNamespace (tdState daemon)
 
   -- Brief delay to let background threads notice cancellation
   threadDelay 100000
@@ -198,3 +210,25 @@ checkSocketAvailable path = do
       sock <- socket AF_UNIX Stream defaultProtocol
       (connect sock (SockAddrUnix path) >> close sock >> pure (Right ()))
         `catch` (\(_ :: IOError) -> close sock >> pure (Left ()))
+
+-- | Start the network namespace for a test daemon.
+-- Only creates the namespace — does NOT run handleStartup which would
+-- interfere with parallel tests sharing the same database.
+startTestNamespace :: ServerState -> IO ()
+startTestNamespace state = do
+  nsResult <- startNamespace
+  case nsResult of
+    Left _ -> pure () -- Namespace creation failed, tests without networking will still work
+    Right nsPid ->
+      atomically $ writeTVar (ssNamespacePid state) (Just (fromIntegral nsPid))
+
+-- | Stop the network namespace for a test daemon.
+stopTestNamespace :: ServerState -> IO ()
+stopTestNamespace state = do
+  mNsPid <- readTVarIO (ssNamespacePid state)
+  case mNsPid of
+    Just nsPid -> do
+      _ <- try $ signalProcess sigTERM (fromIntegral nsPid) :: IO (Either SomeException ())
+      _ <- try $ getProcessStatus True False (fromIntegral nsPid) :: IO (Either SomeException (Maybe ProcessStatus))
+      atomically $ writeTVar (ssNamespacePid state) Nothing
+    Nothing -> pure ()

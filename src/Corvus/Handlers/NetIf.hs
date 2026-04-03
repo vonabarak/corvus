@@ -41,9 +41,9 @@ handleNetIfAdd state vmId ifaceType hostDevice mMacAddress mNetworkId = do
     Just m | not (T.null m) -> pure m
     _ -> generateMacAddress
   let networkKey = toSqlKey <$> mNetworkId :: Maybe M.NetworkId
-      -- When a network is specified, force VDE type
+      -- When a network is specified, force managed type
       actualType = case mNetworkId of
-        Just _ -> NetVde
+        Just _ -> NetManaged
         Nothing -> ifaceType
   result <- runSqlPool (addNetIf vmId actualType hostDevice mac networkKey) (ssDbPool state)
   case result of

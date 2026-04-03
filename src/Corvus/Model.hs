@@ -341,7 +341,7 @@ data NetInterfaceType
   | NetTap
   | NetBridge
   | NetMacvtap
-  | NetVde
+  | NetManaged
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance Binary NetInterfaceType
@@ -353,7 +353,7 @@ instance EnumText NetInterfaceType where
     , (NetTap, "tap")
     , (NetBridge, "bridge")
     , (NetMacvtap, "macvtap")
-    , (NetVde, "vde")
+    , (NetManaged, "managed")
     ]
 
 instance FromJSON NetInterfaceType where
@@ -568,7 +568,8 @@ Drive
 Network
     name Text
     subnet Text default=''
-    vdeSwitchPid Int Maybe
+    dhcp Bool default=false
+    running Bool default=false
     dnsmasqPid Int Maybe
     createdAt UTCTime
     UniqueNetworkName name

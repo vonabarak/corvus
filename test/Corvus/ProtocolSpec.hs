@@ -34,7 +34,7 @@ instance Arbitrary DriveMedia where
   arbitrary = elements [MediaDisk, MediaCdrom]
 
 instance Arbitrary NetInterfaceType where
-  arbitrary = elements [NetUser, NetTap, NetBridge, NetMacvtap, NetVde]
+  arbitrary = elements [NetUser, NetTap, NetBridge, NetMacvtap, NetManaged]
 
 instance Arbitrary SharedDirCache where
   arbitrary = elements [CacheAlways, CacheAuto, CacheNever]
@@ -84,7 +84,7 @@ instance Arbitrary Request where
       , pure ReqDiskList
       , pure ReqNetworkList
       , ReqDiskRefresh <$> arbitrary
-      , pure (ReqNetworkCreate "net" "10.0.0.0/24")
+      , pure (ReqNetworkCreate "net" "10.0.0.0/24" False)
       , ReqNetworkDelete <$> arbitrary
       , ReqNetworkShow <$> arbitrary
       , ReqGuestExec <$> arbitrary <*> pure "echo ok"
@@ -115,7 +115,7 @@ spec = sequential $ do
       json `shouldSatisfy` ("running" `isInfixOf`)
 
     it "NetworkInfo produces valid JSON with expected fields" $ do
-      let nw = NetworkInfo 1 "lab-net" "10.0.0.0/24" False Nothing Nothing testTime
+      let nw = NetworkInfo 1 "lab-net" "10.0.0.0/24" False False Nothing testTime
           json = BL.unpack (encode nw)
       json `shouldSatisfy` ("name" `isInfixOf`)
       json `shouldSatisfy` ("subnet" `isInfixOf`)

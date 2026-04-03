@@ -53,7 +53,8 @@ library
       Corvus.Qemu.Virtiofsd
       Corvus.Qemu.Image
       Corvus.Qemu.GuestAgent
-      Corvus.Qemu.Vde.Namespace
+      Corvus.Qemu.Netns
+      Corvus.Qemu.Netns.Manager
       Corvus.Handlers.GuestExec
       Corvus.Handlers.GuestAgentPoller
       Corvus.Handlers.Apply
@@ -66,7 +67,6 @@ library
       Corvus.Handlers.Resolve
       Corvus.Handlers.Template
       Corvus.Qemu.QmpQQ
-      Corvus.Qemu.Vde
       Paths_corvus
   autogen-modules:
       Paths_corvus
@@ -90,9 +90,7 @@ library
   include-dirs:
       cbits
   c-sources:
-      cbits/vdens.c
-  extra-libraries:
-      vdeplug
+      cbits/netns.c
   build-depends:
       aeson
     , aeson-qq

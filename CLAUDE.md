@@ -31,7 +31,7 @@ src/Corvus/
 │   ├── Apply.hs         # Declarative environment (crv apply) YAML handler
 │   ├── SshKey.hs        # SSH key management (cloud-init gated)
 │   ├── NetIf.hs         # Network interface configuration, MAC generation
-│   ├── Network.hs       # Virtual network management (VDE)
+│   ├── Network.hs       # Virtual network management (bridge/TAP in namespace)
 │   ├── SharedDir.hs     # Virtiofs shared directories
 │   ├── GuestExec.hs     # QEMU guest agent command execution
 │   └── GuestAgentPoller.hs  # Periodic guest agent health/network polling
@@ -44,9 +44,9 @@ src/Corvus/
 │   ├── Command.hs       # QEMU command-line builder
 │   ├── Image.hs         # qemu-img wrapper (create, resize, snapshot, clone, download)
 │   ├── GuestAgent.hs    # QGA protocol client (exec, ping, network-get-interfaces)
-│   ├── Vde.hs           # VDE switch orchestration, namespace manager lifecycle
-│   ├── Vde/
-│   │   └── Namespace.hs # Haskell FFI to C namespace manager (startNamespaceManager)
+│   ├── Netns.hs         # Haskell FFI to C namespace creator (startNamespace)
+│   ├── Netns/
+│   │   └── Manager.hs   # Bridge/dnsmasq management via nsenter
 │   └── Virtiofsd.hs     # virtiofsd process management
 ├── Client/
 │   ├── Connection.hs    # Socket management, binary protocol
@@ -72,8 +72,8 @@ src/Corvus/
     └── Subnet.hs        # Subnet utilities for virtual networks
 
 cbits/
-├── vdens.h              # C namespace manager header
-└── vdens.c              # C namespace manager (fork, unshare, TAP, VDE bridge, dnsmasq)
+├── netns.h              # C namespace manager header
+└── netns.c              # C namespace manager (fork, unshare, loopback, signal wait)
 ```
 
 ### Key Patterns
@@ -83,7 +83,7 @@ cbits/
 - **Logging**: `MonadLogger` (LoggingT transformer)
 - **VM state machine**: Enforced in `Handlers.Vm.validateTransition` — stopped → starting (if guest agent) or running → stopping → stopped. VMs with guest agent go through `starting` state until first healthcheck ping succeeds. Reset always returns to stopped.
 - **Task tracking**: Every mutating request is recorded in the `task` table via `withTask` wrapper in `Handlers.hs`. Read-only requests (list, show, ping) are skipped. Startup and shutdown are also recorded as tasks.
-- **Network namespaces**: dnsmasq runs in an isolated user+network+UTS namespace (no root required). The C helper (`cbits/vdens.c`) forks from the Haskell process, calls `unshare(2)` in the single-threaded child, creates a TAP interface, connects to the VDE switch via libvdeplug, and bridges packets. `unshare(CLONE_NEWUSER)` requires a single-threaded process — the fork **must** happen in C, not via GHC's `forkProcess`, because GHC's threaded RTS keeps multiple OS threads alive after fork.
+- **Network namespaces**: A single shared user+network+UTS namespace is created at daemon startup (no root required). The C helper (`cbits/netns.c`) forks from the Haskell process, calls `unshare(2)` in the single-threaded child, brings up loopback, and waits. `unshare(CLONE_NEWUSER)` requires a single-threaded process — the fork **must** happen in C, not via GHC's `forkProcess`, because GHC's threaded RTS keeps multiple OS threads alive after fork. All bridges, dnsmasq instances, and QEMU processes are managed inside this namespace via `nsenter` from Haskell.
 
 ### Database Entities
 
@@ -91,7 +91,7 @@ cbits/
 
 ### Key Enums (text-serializable via `EnumText` typeclass)
 
-`VmStatus` (stopped/starting/running/stopping/paused/error), `DriveInterface`, `DriveFormat`, `DriveMedia`, `CacheType`, `NetInterfaceType`, `SharedDirCache`, `TemplateCloneStrategy` (clone/overlay/direct), `TaskSubsystem` (vm/disk/network/ssh-key/template/shared-dir/snapshot/system/apply), `TaskResult` (running/success/error).
+`VmStatus` (stopped/starting/running/stopping/paused/error), `DriveInterface`, `DriveFormat`, `DriveMedia`, `CacheType`, `NetInterfaceType` (user/tap/bridge/macvtap/managed), `SharedDirCache`, `TemplateCloneStrategy` (clone/overlay/direct), `TaskSubsystem` (vm/disk/network/ssh-key/template/shared-dir/snapshot/system/apply), `TaskResult` (running/success/error).
 
 ### Test Structure
 
@@ -118,7 +118,7 @@ test/
 └── Corvus/
     ├── *Spec.hs                   # Unit tests
     ├── *IntegrationSpec.hs        # Integration tests (require QEMU/KVM)
-    └── NetworkIntegrationSpec.hs  # Virtual networking + namespace manager tests
+    └── NetworkIntegrationSpec.hs  # Virtual networking + namespace tests
 ```
 
 Tests use a custom BDD DSL (`Test.DSL.*`) with `testCase`, `given`, `when_`, `then_`.
@@ -141,7 +141,7 @@ Stack + Hpack (`package.yaml` → `corvus.cabal`), LTS-23.28 resolver.
 
 ### Build Dependencies
 
-- **libvdeplug** (`libvdeplug-dev`) — required for the C namespace manager (`cbits/vdens.c`), linked as `extra-libraries: vdeplug` in `package.yaml`.
+No external C libraries required. The C namespace manager (`cbits/netns.c`) uses only Linux kernel interfaces (`unshare`, `signalfd`, `capget`/`capset`).
 
 ### Integration Test Notes
 

@@ -130,6 +130,7 @@ createTestServerState pool basePath = do
   startTime <- getCurrentTime
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
+  namespacePid <- newTVarIO Nothing
   logLevel <- getTestLogLevel
   pure
     ServerState
@@ -139,6 +140,7 @@ createTestServerState pool basePath = do
       , ssDbPool = pool
       , ssQemuConfig = defaultQemuConfig {qcBasePath = Just basePath}
       , ssLogLevel = logLevel
+      , ssNamespacePid = namespacePid
       }
 
 --------------------------------------------------------------------------------
@@ -405,7 +407,12 @@ whenApply yaml = executeRequest (ReqApply yaml False)
 -- | Create a network
 whenNetworkCreate :: Text -> Text -> TestM NetworkResult
 whenNetworkCreate name subnet =
-  executeRpc (\conn -> Rpc.networkCreate conn name subnet)
+  executeRpc (\conn -> Rpc.networkCreate conn name subnet False)
+
+-- | Create a network with DHCP enabled
+whenNetworkCreateWithDhcp :: Text -> Text -> TestM NetworkResult
+whenNetworkCreateWithDhcp name subnet =
+  executeRpc (\conn -> Rpc.networkCreate conn name subnet True)
 
 -- | Delete a network
 whenNetworkDelete :: Int64 -> TestM NetworkResult

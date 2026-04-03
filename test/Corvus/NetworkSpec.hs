@@ -68,7 +68,7 @@ spec = sequential $ withTestDb $ do
           insert
             NetworkInterface
               { networkInterfaceVmId = toSqlKey vmId
-              , networkInterfaceInterfaceType = NetVde
+              , networkInterfaceInterfaceType = NetManaged
               , networkInterfaceHostDevice = ""
               , networkInterfaceMacAddress = "52:54:00:00:00:01"
               , networkInterfaceNetworkId = Just (toSqlKey nwId)

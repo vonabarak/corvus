@@ -917,8 +917,8 @@ netIfAddCommand =
           <> metavar "TYPE"
           <> value "user"
           <> showDefault
-          <> help "Interface type: user, tap, bridge, macvtap, vde"
-          <> completeWith ["user", "tap", "bridge", "macvtap", "vde"]
+          <> help "Interface type: user, tap, bridge, macvtap, managed"
+          <> completeWith ["user", "tap", "bridge", "macvtap", "managed"]
       )
     <*> strOption
       ( long "host-device"
@@ -1080,6 +1080,10 @@ networkCreateCommand =
           <> help "IPv4 subnet in CIDR notation (e.g., 10.0.1.0/24)"
           <> value ""
       )
+    <*> switch
+      ( long "dhcp"
+          <> help "Enable DHCP (starts dnsmasq when network is running)"
+      )
 
 -- | Parser for network delete
 networkDeleteCommand :: Parser Command
@@ -1146,7 +1150,7 @@ networkCommandParser =
           (info networkDeleteCommand (progDesc "Delete a virtual network"))
         <> command
           "start"
-          (info networkStartCommand (progDesc "Start a virtual network (launch vde_switch)"))
+          (info networkStartCommand (progDesc "Start a virtual network namespace"))
         <> command
           "stop"
           (info networkStopCommand (progDesc "Stop a virtual network"))

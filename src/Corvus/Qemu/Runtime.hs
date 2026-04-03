@@ -11,7 +11,8 @@ module Corvus.Qemu.Runtime
     -- * Network runtime directories
   , getNetworkRuntimeDir
   , createNetworkRuntimeDir
-  , getVdeSwitchSocket
+  , getBridgeName
+  , getTapUpScript
   , getTapInterfaceName
   , getDnsmasqPidFile
   , getDnsmasqLeaseFile
@@ -66,11 +67,15 @@ createNetworkRuntimeDir config networkId = do
   createDirectoryIfMissing True netDir
   pure netDir
 
--- | Get path to vde_switch socket for a network
-getVdeSwitchSocket :: QemuConfig -> Int64 -> IO FilePath
-getVdeSwitchSocket config networkId = do
+-- | Get the bridge name for a network (deterministic from ID)
+getBridgeName :: Int64 -> String
+getBridgeName networkId = "crv" ++ show networkId
+
+-- | Get path to the tap-up script for a network
+getTapUpScript :: QemuConfig -> Int64 -> IO FilePath
+getTapUpScript config networkId = do
   netDir <- getNetworkRuntimeDir config networkId
-  pure $ netDir </> "switch.ctl"
+  pure $ netDir </> "tap-up.sh"
 
 -- | Get the TAP interface name for a network (deterministic from ID)
 getTapInterfaceName :: Int64 -> String

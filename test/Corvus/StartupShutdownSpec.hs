@@ -80,11 +80,11 @@ spec = sequential $ withTestDb $ do
         stoppedVms <- runDb $ selectList [M.VmStatus ==. VmStopped] []
         liftIO $ length stoppedVms `shouldBe` 1
 
-    testCase "clears stale network PIDs" $ do
+    testCase "clears stale network state" $ do
       given $ do
         nwId <- insertNetwork "stale-net" "10.0.0.0/24"
-        -- Set fake PIDs (processes don't actually exist)
-        runDb $ update (toSqlKey nwId :: NetworkId) [M.NetworkVdeSwitchPid =. Just 88881, M.NetworkDnsmasqPid =. Just 88882]
+        -- Set fake running state (processes don't actually exist)
+        runDb $ update (toSqlKey nwId :: NetworkId) [M.NetworkRunning =. True, M.NetworkDnsmasqPid =. Just 88882]
         pure ()
 
       pool <- getDbPool
@@ -96,7 +96,7 @@ spec = sequential $ withTestDb $ do
         networks <- runDb $ selectList ([] :: [Filter Network]) []
         case networks of
           (Entity _ nw : _) -> do
-            liftIO $ networkVdeSwitchPid nw `shouldBe` Nothing
+            liftIO $ networkRunning nw `shouldBe` False
             liftIO $ networkDnsmasqPid nw `shouldBe` Nothing
           _ -> liftIO $ fail "No networks found"
 

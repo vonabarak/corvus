@@ -297,15 +297,23 @@ cleanupSshKey daemon keyId = do
 -- Virtual Network Management
 --------------------------------------------------------------------------------
 
--- | Create a virtual network via daemon RPC
+-- | Create a virtual network via daemon RPC (no subnet, no DHCP)
 createNetwork :: TestDaemon -> Text -> IO Int64
-createNetwork daemon name = createNetworkWithSubnet daemon name ""
+createNetwork daemon name = do
+  result <- withDaemonConnection daemon $ \conn ->
+    networkCreate conn name "" False
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "Connection error creating network: " <> show err
+    Right (Right (NetworkCreated nwId)) -> pure nwId
+    Right (Right (NetworkError msg)) -> fail $ "Failed to create network: " <> T.unpack msg
+    Right (Right other) -> fail $ "Unexpected response creating network: " <> show other
 
--- | Create a virtual network with a subnet via daemon RPC
+-- | Create a virtual network with a subnet and DHCP via daemon RPC
 createNetworkWithSubnet :: TestDaemon -> Text -> Text -> IO Int64
 createNetworkWithSubnet daemon name subnet = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name subnet
+    networkCreate conn name subnet True
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error creating network: " <> show err
@@ -361,7 +369,7 @@ showNetwork daemon nwId = do
 addVmNetIfWithNetwork :: TestDaemon -> Int64 -> Int64 -> IO ()
 addVmNetIfWithNetwork daemon vmId nwId = do
   result <- withDaemonConnection daemon $ \conn ->
-    netIfAdd conn (T.pack (show vmId)) NetVde "" Nothing (Just (T.pack (show nwId)))
+    netIfAdd conn (T.pack (show vmId)) NetManaged "" Nothing (Just (T.pack (show nwId)))
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error adding network interface: " <> show err

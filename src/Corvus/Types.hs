@@ -43,6 +43,8 @@ data ServerState = ServerState
   -- ^ QEMU configuration
   , ssLogLevel :: !LogLevel
   -- ^ Minimum log level for handler logging
+  , ssNamespacePid :: TVar (Maybe Int)
+  -- ^ PID of the global network namespace manager
   }
 
 -- | Create a new server state
@@ -51,6 +53,7 @@ newServerState pool qemuConfig = do
   startTime <- getCurrentTime
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
+  namespacePid <- newTVarIO Nothing
   pure
     ServerState
       { ssStartTime = startTime
@@ -59,6 +62,7 @@ newServerState pool qemuConfig = do
       , ssDbPool = pool
       , ssQemuConfig = qemuConfig
       , ssLogLevel = LevelInfo
+      , ssNamespacePid = namespacePid
       }
 
 -- | Run a LoggingT action filtered to the server's minimum log level

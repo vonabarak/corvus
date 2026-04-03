@@ -25,6 +25,7 @@ module Corvus.Handlers.Vm
 where
 
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
@@ -220,8 +221,13 @@ startQemuAndMonitor state vmId vm = do
       logWarnN $ "Some virtiofsd processes failed to start for VM " <> T.pack (show vmId)
     _ -> pure ()
 
-  -- Start the VM using QEMU
-  result <- startVm (ssDbPool state) (ssQemuConfig state) vmId
+  -- Only use namespace if the VM has managed network interfaces
+  hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) (ssDbPool state)
+  mNsPid <-
+    if hasManagedNic
+      then liftIO $ readTVarIO (ssNamespacePid state)
+      else pure Nothing
+  result <- startVm (ssDbPool state) (ssQemuConfig state) vmId mNsPid
   case result of
     VmStarted pid ph -> do
       let initialStatus = if vmGuestAgent vm then VmStarting else VmRunning
@@ -648,6 +654,13 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
     [] -> pure ()
     us -> update key us
 
+-- | Check if a VM has any managed (NetManaged) network interfaces with a networkId.
+hasManagedNetworkInterface :: Int64 -> SqlPersistT IO Bool
+hasManagedNetworkInterface vmId = do
+  let vmKey = toSqlKey vmId :: VmId
+  cnt <- count [M.NetworkInterfaceVmId ==. vmKey, M.NetworkInterfaceNetworkId !=. Nothing]
+  pure $ cnt > 0
+
 -- | Check if all networks referenced by a VM's network interfaces are running.
 -- Returns Just networkName if a stopped network is found, Nothing if all are running.
 checkNetworksRunning :: Int64 -> SqlPersistT IO (Maybe Text)
@@ -663,6 +676,6 @@ checkNetworksRunning vmId = do
       case mNetwork of
         Nothing -> pure $ Just "unknown (deleted)"
         Just network ->
-          case networkVdeSwitchPid network of
-            Just _ -> go rest
-            Nothing -> pure $ Just $ networkName network
+          if networkRunning network
+            then go rest
+            else pure $ Just $ networkName network

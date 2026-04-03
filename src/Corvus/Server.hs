@@ -12,7 +12,7 @@ module Corvus.Server
 where
 
 import Control.Concurrent (forkFinally)
-import Control.Concurrent.STM (atomically, modifyTVar')
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO, writeTVar)
 import Control.Exception (SomeException, bracket, try)
 import Control.Monad (forM_, forever, void, when)
 import Control.Monad.Catch (finally)
@@ -22,8 +22,9 @@ import Corvus.Handlers (handleRequest)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
+import Corvus.Qemu.Netns (startNamespace)
+import Corvus.Qemu.Netns.Manager (destroyBridge, stopDnsmasq)
 import Corvus.Qemu.Process (killVmProcess)
-import Corvus.Qemu.Vde (stopVdeSwitch)
 import Corvus.Qemu.Virtiofsd (killVirtiofsdProcesses)
 import Corvus.Types
 import Data.Binary (decodeOrFail, encode)
@@ -52,6 +53,8 @@ import Network.Socket
 import Network.Socket.ByteString (recv, sendAll)
 import System.Directory (removeFile)
 import System.IO.Error (catchIOError)
+import System.Posix.Process (ProcessStatus, getProcessStatus)
+import System.Posix.Signals (sigTERM, signalProcess)
 
 --------------------------------------------------------------------------------
 -- Server
@@ -253,12 +256,22 @@ handleStartup state retentionDays = do
     liftIO $ runSqlPool (updateWhere [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing]) pool
     logInfoN "Reset stale VMs to error state"
 
-    -- Kill orphaned VDE switches and dnsmasq, clear network PIDs
-    staleNetworks <- liftIO $ runSqlPool (selectList ([M.NetworkVdeSwitchPid !=. Nothing] ||. [M.NetworkDnsmasqPid !=. Nothing]) []) pool
-    liftIO $ forM_ staleNetworks $ \(Entity nwKey _nw) -> do
-      _ <- stopVdeSwitch (ssQemuConfig state) pool (fromSqlKey nwKey)
-      pure ()
-    logInfoN "Cleaned up orphaned network processes"
+    -- Kill orphaned dnsmasq processes, reset network state
+    staleNetworks <- liftIO $ runSqlPool (selectList ([M.NetworkRunning ==. True] ||. [M.NetworkDnsmasqPid !=. Nothing]) []) pool
+    liftIO $ forM_ staleNetworks $ \(Entity _nwKey nw) ->
+      forM_ (networkDnsmasqPid nw) stopDnsmasq
+    liftIO $ runSqlPool (updateWhere [M.NetworkRunning ==. True] [M.NetworkRunning =. False, M.NetworkDnsmasqPid =. Nothing]) pool
+    logInfoN "Reset stale network state"
+
+    -- Start the global network namespace
+    logInfoN "Starting network namespace"
+    nsResult <- liftIO startNamespace
+    case nsResult of
+      Left err ->
+        logWarnN $ "Failed to start network namespace: " <> err
+      Right nsPid -> do
+        liftIO $ atomically $ writeTVar (ssNamespacePid state) (Just (fromIntegral nsPid))
+        logInfoN $ "Network namespace started (PID " <> T.pack (show nsPid) <> ")"
 
     -- Delete old task entries
     when (retentionDays > 0) $ do
@@ -333,12 +346,30 @@ handleGracefulShutdown state = do
           liftIO $ runSqlPool (update vmKey [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing]) pool
         Nothing -> pure ()
 
-    -- Stop all running networks
-    runningNetworks <- liftIO $ runSqlPool (selectList ([M.NetworkVdeSwitchPid !=. Nothing] ||. [M.NetworkDnsmasqPid !=. Nothing]) []) pool
+    -- Stop all running networks (dnsmasq + bridges)
+    runningNetworks <- liftIO $ runSqlPool (selectList [M.NetworkRunning ==. True] []) pool
     logInfoN $ "Stopping " <> T.pack (show (length runningNetworks)) <> " running network(s)"
-    liftIO $ forM_ runningNetworks $ \(Entity nwKey _nw) -> do
-      _ <- stopVdeSwitch (ssQemuConfig state) pool (fromSqlKey nwKey)
-      pure ()
+    mNsPid <- liftIO $ readTVarIO (ssNamespacePid state)
+    liftIO $ forM_ runningNetworks $ \(Entity nwKey nw) -> do
+      forM_ (networkDnsmasqPid nw) stopDnsmasq
+      case mNsPid of
+        Just nsPid -> void $ destroyBridge nsPid (fromSqlKey nwKey)
+        Nothing -> pure ()
+      runSqlPool (update nwKey [M.NetworkRunning =. False, M.NetworkDnsmasqPid =. Nothing]) pool
+
+    -- Kill the network namespace manager
+    case mNsPid of
+      Just nsPid -> do
+        logInfoN $ "Killing namespace manager (PID " <> T.pack (show nsPid) <> ")"
+        result' <- liftIO $ try $ signalProcess sigTERM (fromIntegral nsPid)
+        case result' of
+          Left (_ :: SomeException) -> pure ()
+          Right () -> do
+            -- Reap the child process to avoid zombie
+            _ <- liftIO (try (getProcessStatus True False (fromIntegral nsPid)) :: IO (Either SomeException (Maybe ProcessStatus)))
+            pure ()
+        liftIO $ atomically $ writeTVar (ssNamespacePid state) Nothing
+      Nothing -> pure ()
 
     -- Mark any remaining running tasks as error
     liftIO $ runSqlPool (updateWhere [TaskResult ==. TaskRunning, TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon shutting down"]) pool

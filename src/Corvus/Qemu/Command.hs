@@ -23,13 +23,14 @@ import Corvus.Qemu.Config
   ( QemuConfig (..)
   , getEffectiveBasePath
   )
+import Corvus.Qemu.Netns (nsCreateTap)
 import Corvus.Qemu.Runtime
-  ( getGuestAgentSocket
+  ( getBridgeName
+  , getGuestAgentSocket
   , getMonitorSocket
   , getQmpSocket
   , getSerialSocket
   , getSpiceSocket
-  , getVdeSwitchSocket
   , getVmRuntimeDir
   )
 import Data.Int (Int64)
@@ -57,7 +58,7 @@ generateQemuCommandIO pool config vmId = do
   serialSock <- getSerialSocket config vmId
   guestAgentSock <- getGuestAgentSocket config vmId
   vmRuntimeDir <- getVmRuntimeDir config vmId
-  result <- runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir) pool
+  result <- runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir Nothing) pool
   pure $ case result of
     Nothing -> Nothing
     Just (binary, args) -> Just $ unwords (binary : args)
@@ -83,8 +84,8 @@ generateQemuCommand config vmId = do
       serialSock <- liftIO $ getSerialSocket config vmId
       guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
       vmRuntimeDir <- liftIO $ getVmRuntimeDir config vmId
-      -- Resolve network socket paths for VDE interfaces with networkId
-      resolvedNetIfs <- liftIO $ mapM (resolveNetIfSocket config . entityVal) netIfs
+      -- Resolve managed network interfaces (no namespace PID for IO-only path)
+      resolvedNetIfs <- liftIO $ mapM (resolveNetIfDevice Nothing . entityVal) netIfs
       let (binary, args) =
             buildCommandWithSockets
               config
@@ -110,6 +111,7 @@ fetchDriveWithImage (Entity _ drive) = do
   pure (drive, mDiskImage)
 
 -- | Generate QEMU command with socket paths (returns binary and args separately)
+-- mNamespacePid is passed to create TAP fds for managed network interfaces.
 generateQemuCommandWithSockets
   :: QemuConfig
   -> Int64
@@ -120,8 +122,9 @@ generateQemuCommandWithSockets
   -> FilePath
   -> FilePath
   -> FilePath
+  -> Maybe Int
   -> SqlPersistT IO (Maybe (FilePath, [String]))
-generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir = do
+generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir mNamespacePid = do
   let key = toSqlKey vmId :: VmId
   mVm <- get key
   case mVm of
@@ -131,8 +134,8 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSoc
       driveWithImages <- mapM fetchDriveWithImage drives
       netIfs <- selectList [NetworkInterfaceVmId ==. key] []
       sharedDirs <- selectList [SharedDirVmId ==. key] []
-      -- Resolve network socket paths for VDE interfaces with networkId
-      resolvedNetIfs <- liftIO $ mapM (resolveNetIfSocket config . entityVal) netIfs
+      -- Create TAP fds for managed network interfaces (in namespace)
+      resolvedNetIfs <- liftIO $ mapM (resolveNetIfDevice mNamespacePid . entityVal) netIfs
       pure $
         Just $
           buildCommandWithSockets
@@ -349,8 +352,9 @@ netArgs (idx, netIf) =
         ["-netdev", "bridge,id=" ++ netId ++ ",br=" ++ hostDev]
       NetMacvtap ->
         ["-netdev", "tap,id=" ++ netId ++ ",fd=3"] -- macvtap uses fd passing
-      NetVde ->
-        ["-netdev", "vde,id=" ++ netId ++ ",sock=" ++ hostDev]
+      NetManaged ->
+        -- hostDev contains the TAP fd number (created by nsCreateTap)
+        ["-netdev", "tap,id=" ++ netId ++ ",fd=" ++ hostDev]
 
     deviceArgs =
       ["-device", "virtio-net-pci,netdev=" ++ netId ++ ",mac=" ++ T.unpack (networkInterfaceMacAddress netIf)]
@@ -375,14 +379,18 @@ sharedDirArgs vmRuntimeDir (idx, dir) =
       ["-device", "vhost-user-fs-pci,chardev=" ++ charId ++ ",tag=" ++ tag]
 
 --------------------------------------------------------------------------------
--- Network Socket Resolution
+-- Network Device Resolution
 --------------------------------------------------------------------------------
 
--- | Resolve VDE socket path for network interfaces with a networkId.
--- Substitutes the socket path into hostDevice so that netArgs stays pure.
-resolveNetIfSocket :: QemuConfig -> NetworkInterface -> IO NetworkInterface
-resolveNetIfSocket config netIf = case networkInterfaceNetworkId netIf of
-  Just nwKey -> do
-    socketPath <- getVdeSwitchSocket config (fromSqlKey nwKey)
-    pure $ netIf {networkInterfaceHostDevice = T.pack socketPath}
-  Nothing -> pure netIf
+-- | Resolve managed network interfaces: create TAP device in namespace
+-- and substitute the fd number into hostDevice.
+-- For non-managed interfaces, this is a no-op.
+resolveNetIfDevice :: Maybe Int -> NetworkInterface -> IO NetworkInterface
+resolveNetIfDevice mNsPid netIf = case (networkInterfaceNetworkId netIf, mNsPid) of
+  (Just nwKey, Just nsPid) -> do
+    let bridge = getBridgeName (fromSqlKey nwKey)
+    result <- nsCreateTap nsPid bridge
+    case result of
+      Right fd -> pure $ netIf {networkInterfaceHostDevice = T.pack (show fd)}
+      Left _ -> pure netIf -- fallback: leave hostDevice as-is
+  _ -> pure netIf

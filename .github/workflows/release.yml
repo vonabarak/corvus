@@ -16,11 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libvdeplug-dev
-
       - uses: haskell-actions/setup@v2
         with:
           ghc-version: '9.8.4'
@@ -44,9 +39,10 @@ jobs:
           mkdir -p release
           cp ${BINDIR}/corvus ${BINDIR}/crv release/
           strip release/corvus release/crv
-          tar czf corvus-${VERSION}-linux-amd64.tar.gz -C release corvus crv
           cp corvus.service release/
           cp example-apply.yml release/
+          tar czf corvus-${VERSION}-linux-amd64.tar.gz -C release \
+            corvus crv corvus.service example-apply.yml
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

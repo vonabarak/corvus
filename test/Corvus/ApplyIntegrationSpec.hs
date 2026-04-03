@@ -67,7 +67,7 @@ spec = withTestDb $ do
                           interface: virtio
                       networkInterfaces:
                         - type: user
-                        - type: vde
+                        - type: managed
                           network: apply-vde
                     - name: apply-vm2
                       cpuCount: 2
@@ -79,7 +79,7 @@ spec = withTestDb $ do
                           interface: virtio
                       networkInterfaces:
                         - type: user
-                        - type: vde
+                        - type: managed
                           network: apply-vde
                 |]
 

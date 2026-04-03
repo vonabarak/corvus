@@ -753,9 +753,9 @@ handleNetworkResponse result = case result of
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Create a virtual network
-networkCreate :: Connection -> Text -> Text -> IO (Either ConnectionError NetworkResult)
-networkCreate conn name subnet =
-  handleNetworkResponse <$> sendRequest conn (ReqNetworkCreate name subnet)
+networkCreate :: Connection -> Text -> Text -> Bool -> IO (Either ConnectionError NetworkResult)
+networkCreate conn name subnet dhcp =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkCreate name subnet dhcp)
 
 -- | Delete a virtual network
 networkDelete :: Connection -> Text -> IO (Either ConnectionError NetworkResult)

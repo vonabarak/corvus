@@ -59,11 +59,15 @@ data KillResult
 -- Starting VMs
 --------------------------------------------------------------------------------
 
--- | Start a VM with the given configuration
--- Returns immediately with PID and ProcessHandle (QEMU runs in foreground)
--- The caller is responsible for waiting on the process handle
-startVm :: (MonadIO m, MonadLogger m) => Pool SqlBackend -> QemuConfig -> Int64 -> m StartVmResult
-startVm pool config vmId = do
+-- | Start a VM with the given configuration.
+-- Returns immediately with PID and ProcessHandle (QEMU runs in foreground).
+-- The caller is responsible for waiting on the process handle.
+--
+-- When mNamespacePid is Just, TAP file descriptors are created inside the
+-- namespace for managed network interfaces. QEMU itself always runs in the
+-- host namespace (so user-mode networking, SPICE, etc. remain accessible).
+startVm :: (MonadIO m, MonadLogger m) => Pool SqlBackend -> QemuConfig -> Int64 -> Maybe Int -> m StartVmResult
+startVm pool config vmId mNamespacePid = do
   -- Create runtime directory
   _ <- liftIO $ createVmRuntimeDir config vmId
 
@@ -78,8 +82,8 @@ startVm pool config vmId = do
   guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
   vmRuntimeDir <- liftIO $ getVmRuntimeDir config vmId
 
-  -- Generate command
-  mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir) pool
+  -- Generate command (TAP fds are created inside namespace during resolution)
+  mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir mNamespacePid) pool
   case mCmd of
     Nothing -> pure VmNotFound
     Just (binary, args) -> do
@@ -100,7 +104,6 @@ startVm pool config vmId = do
           logWarnN $ "Failed to spawn QEMU process for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
           pure $ VmStartError $ T.pack $ show e
         Right (_, _, _, ph) -> do
-          -- Get PID from process handle
           mPid <- liftIO $ getPid ph
           case mPid of
             Just pid -> do

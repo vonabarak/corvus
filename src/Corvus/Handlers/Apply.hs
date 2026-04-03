@@ -114,6 +114,7 @@ instance FromJSON ApplyDisk where
 data ApplyNetwork = ApplyNetwork
   { anName :: Text
   , anSubnet :: Text
+  , anDhcp :: Bool
   }
   deriving (Show)
 
@@ -121,7 +122,8 @@ instance FromJSON ApplyNetwork where
   parseJSON = withObject "ApplyNetwork" $ \o ->
     ApplyNetwork
       <$> o .: "name"
-      <*> o .: "subnet"
+      <*> o .:? "subnet" .!= ""
+      <*> o .:? "dhcp" .!= False
 
 data ApplyVm = ApplyVm
   { avName :: Text
@@ -420,7 +422,8 @@ createNetworks state networks skipExisting = go networks Map.empty []
                     Network
                       { networkName = anName n
                       , networkSubnet = anSubnet n
-                      , networkVdeSwitchPid = Nothing
+                      , networkDhcp = anDhcp n
+                      , networkRunning = False
                       , networkDnsmasqPid = Nothing
                       , networkCreatedAt = now
                       }

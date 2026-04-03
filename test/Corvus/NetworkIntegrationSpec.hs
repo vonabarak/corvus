@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | Integration tests for virtual networking and namespace manager.
+-- | Integration tests for virtual networking with bridge/TAP in namespace.
 --
 -- Run with: stack test --test-arguments="--match NetworkIntegration"
 module Corvus.NetworkIntegrationSpec (spec) where
@@ -43,8 +43,8 @@ spec = withTestDb $ do
               (_, id2, _) <- runInTestVm vm2 "cat /proc/sys/kernel/random/boot_id"
               T.strip id1 `shouldNotBe` T.strip id2
 
-    describe "Namespace manager" $ do
-      it "starts namespace manager and dnsmasq for a network with subnet" $ \env -> do
+    describe "Network namespace" $ do
+      it "starts dnsmasq for a network with DHCP enabled" $ \env -> do
         withTestDaemon env $ \daemon -> do
           bracket
             (do nwId <- createNetworkWithSubnet daemon "test-ns" "10.88.0.0/24"; startNetwork daemon nwId; pure nwId)
@@ -53,59 +53,50 @@ spec = withTestDb $ do
               -- Query network state via RPC
               info <- showNetwork daemon nwId
 
-              -- Verify both vde_switch and namespace manager are running
+              -- Verify network is running with DHCP
               nwiRunning info `shouldBe` True
-              nwiVdeSwitchPid info `shouldSatisfy` isJust
+              nwiDhcp info `shouldBe` True
               nwiDnsmasqPid info `shouldSatisfy` isJust
 
-              -- Verify the namespace manager process is actually alive
-              let Just nsPid = nwiDnsmasqPid info
-              processAlive nsPid `shouldReturn` True
+              -- Verify the dnsmasq process is actually alive
+              let Just dnsPid = nwiDnsmasqPid info
+              processAlive dnsPid `shouldReturn` True
 
-              -- Verify the vde_switch process is actually alive
-              let Just vdePid = nwiVdeSwitchPid info
-              processAlive vdePid `shouldReturn` True
-
-      it "namespace manager stops cleanly when network is stopped" $ \env -> do
+      it "dnsmasq stops cleanly when network is stopped" $ \env -> do
         withTestDaemon env $ \daemon -> do
           nwId <- createNetworkWithSubnet daemon "test-ns-stop" "10.87.0.0/24"
           startNetwork daemon nwId
 
-          -- Get PIDs while running
+          -- Get PID while running
           info <- showNetwork daemon nwId
-          let Just nsPid = nwiDnsmasqPid info
-              Just vdePid = nwiVdeSwitchPid info
+          let Just dnsPid = nwiDnsmasqPid info
 
           -- Stop the network
           stopNetwork daemon nwId
 
-          -- Wait for processes to terminate (up to 5 seconds)
-          waitForProcessExit nsPid 50
-          waitForProcessExit vdePid 50
+          -- Wait for process to terminate (up to 5 seconds)
+          waitForProcessExit dnsPid 50
 
-          -- Verify both processes are dead
-          processAlive nsPid `shouldReturn` False
-          processAlive vdePid `shouldReturn` False
+          -- Verify process is dead
+          processAlive dnsPid `shouldReturn` False
 
           -- Verify network reports as not running
           infoAfter <- showNetwork daemon nwId
           nwiRunning infoAfter `shouldBe` False
-          nwiVdeSwitchPid infoAfter `shouldBe` Nothing
           nwiDnsmasqPid infoAfter `shouldBe` Nothing
 
           deleteNetwork daemon nwId
 
-      it "network without subnet does not start namespace manager" $ \env -> do
+      it "network without DHCP does not start dnsmasq" $ \env -> do
         withTestDaemon env $ \daemon -> do
           bracket
-            (do nwId <- createNetwork daemon "test-no-subnet"; startNetwork daemon nwId; pure nwId)
+            (do nwId <- createNetwork daemon "test-no-dhcp"; startNetwork daemon nwId; pure nwId)
             (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
             $ \nwId -> do
               info <- showNetwork daemon nwId
 
-              -- vde_switch should be running, but no namespace manager
+              -- Bridge should be running, but no dnsmasq
               nwiRunning info `shouldBe` True
-              nwiVdeSwitchPid info `shouldSatisfy` isJust
               nwiDnsmasqPid info `shouldBe` Nothing
 
     describe "Virtual networking" $ do
@@ -113,14 +104,14 @@ spec = withTestDb $ do
         withTestDaemon env $ \daemon -> do
           -- Create and start a virtual network
           bracket
-            (do nwId <- createNetwork daemon "test-vde"; startNetwork daemon nwId; pure nwId)
+            (do nwId <- createNetwork daemon "test-bridge"; startNetwork daemon nwId; pure nwId)
             (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
             $ \nwId -> do
               let config = defaultVmConfig {vmcNetworkId = Just nwId}
               withTestVmOnDaemon daemon config $ \vm1 -> do
                 withTestVmOnDaemon daemon config $ \vm2 -> do
-                  -- Configure static IP addresses on the VDE interfaces
-                  -- The VDE interface is the second NIC (eth1)
+                  -- Configure static IP addresses on the bridge interfaces
+                  -- The managed interface is the second NIC (eth1)
                   runInTestVm_ vm1 "doas sh -c 'ip addr add 10.0.0.1/24 dev eth1 && ip link set eth1 up'"
                   runInTestVm_ vm2 "doas sh -c 'ip addr add 10.0.0.2/24 dev eth1 && ip link set eth1 up'"
 
@@ -134,7 +125,7 @@ spec = withTestDb $ do
 
       it "two VMs get DHCP addresses and communicate over a virtual network" $ \env -> do
         withTestDaemon env $ \daemon -> do
-          -- Create and start a virtual network with a subnet (enables DHCP via dnsmasq)
+          -- Create and start a virtual network with DHCP enabled
           bracket
             (do nwId <- createNetworkWithSubnet daemon "test-dhcp" "10.99.0.0/24"; startNetwork daemon nwId; pure nwId)
             (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
@@ -142,7 +133,7 @@ spec = withTestDb $ do
               let config = defaultVmConfig {vmcNetworkId = Just nwId}
               withTestVmOnDaemon daemon config $ \vm1 -> do
                 withTestVmOnDaemon daemon config $ \vm2 -> do
-                  -- Request DHCP on the VDE interface (eth1)
+                  -- Request DHCP on the managed interface (eth1)
                   runInTestVm_ vm1 "doas sh -c 'ip link set eth1 up && udhcpc -i eth1 -n -q'"
                   runInTestVm_ vm2 "doas sh -c 'ip link set eth1 up && udhcpc -i eth1 -n -q'"
 

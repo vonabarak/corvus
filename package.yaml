@@ -59,11 +59,9 @@ default-extensions:
 library:
   source-dirs: src
   c-sources:
-    - cbits/vdens.c
+    - cbits/netns.c
   include-dirs:
     - cbits
-  extra-libraries:
-    - vdeplug
   exposed-modules:
     - Corvus.Protocol
     - Corvus.Types
@@ -103,7 +101,8 @@ library:
     - Corvus.Qemu.Virtiofsd
     - Corvus.Qemu.Image
     - Corvus.Qemu.GuestAgent
-    - Corvus.Qemu.Vde.Namespace
+    - Corvus.Qemu.Netns
+    - Corvus.Qemu.Netns.Manager
     - Corvus.Handlers.GuestExec
     - Corvus.Handlers.GuestAgentPoller
     - Corvus.Handlers.Apply
