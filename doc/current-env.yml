@@ -1,0 +1,108 @@
+# Corvus environment configuration
+# Reproduces the current VM setup from the database.
+#
+# Usage:
+#   crv apply current-env.yml
+#
+# Notes:
+#   - ws25-system disk must already exist at ~/VMs/ws25/overlay.qcow2
+#     (Windows Server install cannot be reproduced from scratch)
+#   - Base cloud images must be present at their paths under /data/images/
+#   - OVMF firmware files come from the edk2 package
+
+sshKeys:
+  - name: corvus
+    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
+
+disks:
+  # Shared UEFI firmware code (read-only, from edk2 package)
+  - name: ovmf-code
+    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    format: raw
+
+  # OVMF UEFI vars (for cloning)
+  - name: ovmf-vars
+    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    format: raw
+
+  # Windows Server 2025 system disk (pre-existing install)
+  - name: ws25-system
+    import: "ws25/overlay.qcow2"
+    format: qcow2
+    sizeMb: 102400
+
+  # OVMF UEFI vars for Windows Server (fresh copy)
+  - name: ws25-ovmf-vars
+    clone: ovmf-vars
+    path: ws25/
+
+  # AlmaLinux 10 base cloud image
+  - name: Almalinux-10-base
+    import: "/data/images/AlmaLinux/AlmaLinux-10-GenericCloud-10.1-20251125.0.x86_64_v2.qcow2"
+
+  # AlmaLinux VM disk (overlay on base image)
+  - name: alma10
+    overlay: Almalinux-10-base
+    path: alma10/
+
+  # OVMF UEFI vars for AlmaLinux (fresh copy)
+  - name: alma10-ovmf-vars
+    clone: ovmf-vars
+    path: alma10/
+
+networks:
+  - name: vnet1
+    subnet: "192.168.92.0/24"
+
+vms:
+  - name: ws25
+    cpuCount: 8
+    ramMb: 8192
+    description: "Windows Server 2025"
+    drives:
+      - disk: ws25-system
+        interface: virtio
+        media: disk
+        cacheType: writeback
+        discard: true
+      - disk: ovmf-code
+        interface: pflash
+        readOnly: true
+      - disk: ws25-ovmf-vars
+        interface: pflash
+    networkInterfaces:
+      - type: vde
+        hostDevice: /run/vde2/switch.ctl
+        mac: 08:00:27:4b:3d:ac
+    sharedDirs:
+      - path: /home/bobr/Dropbox
+        tag: dropbox
+        cache: auto
+
+  - name: alma10
+    cpuCount: 2
+    ramMb: 2048
+    headless: true
+    guestAgent: true
+    drives:
+      - disk: ovmf-code
+        interface: pflash
+        readOnly: true
+        cacheType: writeback
+      - disk: alma10-ovmf-vars
+        interface: pflash
+        cacheType: writeback
+      - disk: alma10
+        interface: virtio
+        media: disk
+        cacheType: writeback
+        discard: true
+    networkInterfaces:
+      - type: vde
+        hostDevice: /run/vde2/switch.ctl
+        mac: 52:54:00:48:38:38
+      - type: vde
+        network: vnet1
+    sshKeys:
+      - corvus
+

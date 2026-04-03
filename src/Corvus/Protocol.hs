@@ -61,7 +61,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 14
+protocolVersion = 15
 
 -- | Client requests
 data Request
@@ -194,6 +194,8 @@ data StatusInfo = StatusInfo
   -- ^ Number of active connections
   , siVersion :: !Text
   -- ^ Daemon version
+  , siNamespacePid :: !(Maybe Int)
+  -- ^ PID of the network namespace manager
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -423,6 +425,7 @@ instance ToJSON StatusInfo where
       [ "uptime" .= siUptime s
       , "connections" .= siConnections s
       , "version" .= siVersion s
+      , "namespacePid" .= siNamespacePid s
       ]
 
 instance ToJSON VmInfo where

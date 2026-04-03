@@ -341,6 +341,7 @@ data NetInterfaceType
   | NetTap
   | NetBridge
   | NetMacvtap
+  | NetVde
   | NetManaged
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
@@ -353,6 +354,7 @@ instance EnumText NetInterfaceType where
     , (NetTap, "tap")
     , (NetBridge, "bridge")
     , (NetMacvtap, "macvtap")
+    , (NetVde, "vde")
     , (NetManaged, "managed")
     ]
 

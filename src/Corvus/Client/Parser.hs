@@ -917,8 +917,8 @@ netIfAddCommand =
           <> metavar "TYPE"
           <> value "user"
           <> showDefault
-          <> help "Interface type: user, tap, bridge, macvtap, managed"
-          <> completeWith ["user", "tap", "bridge", "macvtap", "managed"]
+          <> help "Interface type: user, tap, bridge, macvtap, vde, managed"
+          <> completeWith ["user", "tap", "bridge", "macvtap", "vde", "managed"]
       )
     <*> strOption
       ( long "host-device"
@@ -1271,6 +1271,18 @@ taskWaitCommand =
           )
       )
 
+-- | Parser for namespace exec command
+namespaceExecCommand :: Parser Command
+namespaceExecCommand =
+  NamespaceExec
+    <$> many
+      ( argument
+          str
+          ( metavar "COMMAND..."
+              <> help "Command to run (default: $SHELL or /bin/sh)"
+          )
+      )
+
 commandParser :: Parser Command
 commandParser =
   subparser
@@ -1316,6 +1328,9 @@ commandParser =
         <> command
           "task"
           (info taskCommandParser (progDesc "Task history commands"))
+        <> command
+          "ns"
+          (info namespaceExecCommand (progDesc "Run command in network namespace (default: interactive shell)"))
     )
 
 -- | Parser for global options

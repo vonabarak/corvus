@@ -1,0 +1,56 @@
+---
+
+sshKeys:
+  - name: corvus
+    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
+
+disks:
+  # Shared UEFI firmware code (read-only, from edk2 package)
+  - name: ovmf-code
+    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    format: raw
+
+  # OVMF UEFI vars (for cloning)
+  - name: ovmf-vars
+    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    format: raw
+
+  - name: ubuntu-24.04-server-cloudimg-amd64
+    import: "ubuntu-24.04-server-cloudimg-amd64.img"
+    format: qcow2
+
+  - name: ubuntu24
+    overlay: ubuntu-24.04-server-cloudimg-amd64
+    path: ubuntu24/
+
+  - name: ubuntu24-ovmf-vars
+    clone: ovmf-vars
+    path: ubuntu24/
+
+networks:
+  - name: vnet1
+    subnet: "192.168.92.0/24"
+
+vms:
+  - name: ubuntu24
+    cpuCount: 4
+    ramMb: 4096
+    description: "Ubuntu 24.04"
+    cloudInit: true
+    guestAgent: true
+    drives:
+      - disk: ubuntu24
+        interface: virtio
+        media: disk
+        cacheType: writeback
+        discard: true
+      - disk: ovmf-code
+        interface: pflash
+        readOnly: true
+      - disk: ubuntu24-ovmf-vars
+        interface: pflash
+    networkInterfaces:
+      - type: vde
+        hostDevice: /run/vde2/switch.ctl
+      - type: bridge
+        network: vnet1

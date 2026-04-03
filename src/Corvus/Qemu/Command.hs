@@ -352,6 +352,8 @@ netArgs (idx, netIf) =
         ["-netdev", "bridge,id=" ++ netId ++ ",br=" ++ hostDev]
       NetMacvtap ->
         ["-netdev", "tap,id=" ++ netId ++ ",fd=3"] -- macvtap uses fd passing
+      NetVde ->
+        ["-netdev", "vde,id=" ++ netId ++ ",sock=" ++ hostDev]
       NetManaged ->
         -- hostDev contains the TAP fd number (created by nsCreateTap)
         ["-netdev", "tap,id=" ++ netId ++ ",fd=" ++ hostDev]

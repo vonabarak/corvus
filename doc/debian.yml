@@ -1,0 +1,48 @@
+---
+
+sshKeys:
+  - name: corvus
+    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
+
+disks:
+  # Shared UEFI firmware code (read-only, from edk2 package)
+  - name: ovmf-code
+    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    format: raw
+
+  # OVMF UEFI vars (for cloning)
+  - name: ovmf-vars
+    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    format: raw
+
+  - name: Debian-12-base
+    import: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
+
+  - name: debian12
+    overlay: Debian-12-base
+    path: debian12/
+
+  - name: debian12-ovmf-vars
+    clone: ovmf-vars
+    path: debian12/
+
+vms:
+  - name: debian12
+    cpuCount: 4
+    ramMb: 4096
+    description: "Debian 12"
+    cloudInit: true
+    drives:
+      - disk: debian12
+        interface: virtio
+        media: disk
+        cacheType: writeback
+        discard: true
+      - disk: ovmf-code
+        interface: pflash
+        readOnly: true
+      - disk: debian12-ovmf-vars
+        interface: pflash
+    networkInterfaces:
+      - type: vde
+        hostDevice: /run/vde2/switch.ctl

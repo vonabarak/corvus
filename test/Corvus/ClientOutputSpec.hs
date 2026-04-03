@@ -22,13 +22,14 @@ spec = sequential $ do
   describe "JSON serialization of Protocol types" $ do
     describe "StatusInfo" $ do
       it "serializes with correct field names" $ do
-        let info = StatusInfo 3600 5 "1.0.0"
+        let info = StatusInfo 3600 5 "1.0.0" (Just 12345)
             val = toJSON info
         val
           `shouldBe` object
             [ "uptime" .= (3600 :: Int)
             , "connections" .= (5 :: Int)
             , "version" .= ("1.0.0" :: String)
+            , "namespacePid" .= Just (12345 :: Int)
             ]
 
     describe "VmInfo" $ do

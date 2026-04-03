@@ -173,6 +173,8 @@ data Command
     TaskShow !Int64
   | -- | Wait for task to complete (taskId, optional timeout in seconds)
     TaskWait !Int64 !(Maybe Int)
+  | -- | Execute command in daemon's network namespace
+    NamespaceExec ![String]
   | -- | Generate shell completion script (bash, zsh, fish)
     Completion !Text
   deriving (Show)

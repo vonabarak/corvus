@@ -36,13 +36,16 @@ import Corvus.Client.Rpc
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (StatusInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Qemu.Netns (nsExec)
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import Data.Aeson (object, toJSON, (.=))
 import Data.Char (toLower)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Options.Applicative.BashCompletion (bashCompletionScript, fishCompletionScript, zshCompletionScript)
+import System.Environment (lookupEnv)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hPutStrLn, stderr)
 import System.Posix.Signals (Handler (..), installHandler, sigINT)
@@ -95,6 +98,9 @@ runCommand opts = do
                 putStrLn $ "Uptime:      " ++ formatUptime (siUptime st)
                 putStrLn $ "Connections: " ++ show (siConnections st)
                 putStrLn $ "Version:     " ++ T.unpack (siVersion st)
+                case siNamespacePid st of
+                  Nothing -> putStrLn "Namespace:   not running"
+                  Just pid -> putStrLn $ "Namespace:   PID " ++ show pid
             pure True
       Shutdown -> do
         resp <- requestShutdown conn
@@ -349,6 +355,8 @@ runCommand opts = do
       TaskList limit mSub mResult -> handleTaskList fmt conn limit mSub mResult
       TaskShow taskId -> handleTaskShow fmt conn taskId
       TaskWait taskId mTimeout -> handleTaskWait fmt conn taskId mTimeout
+      -- Namespace exec
+      NamespaceExec cmdArgs -> handleNamespaceExec fmt conn cmdArgs
       -- Completion (handled above, but needed for exhaustive pattern match)
       Completion _ -> pure True
 
@@ -360,6 +368,37 @@ runCommand opts = do
       exitFailure
     Right True -> exitSuccess
     Right False -> exitFailure
+
+-- | Handle namespace exec: fetch namespace PID from daemon, then run command locally via FFI.
+handleNamespaceExec :: OutputFormat -> Connection -> [String] -> IO Bool
+handleNamespaceExec fmt conn cmdArgs = do
+  resp <- getStatus conn
+  case resp of
+    Left err -> do
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
+      pure False
+    Right st -> case siNamespacePid st of
+      Nothing -> do
+        if isStructured fmt
+          then outputError fmt "no_namespace" "Network namespace is not running"
+          else putStrLn "Error: network namespace is not running"
+        pure False
+      Just nsPid -> do
+        args <- case cmdArgs of
+          [] -> do
+            mShell <- lookupEnv "SHELL"
+            pure [fromMaybe "/bin/sh" mShell]
+          as -> pure as
+        result <- withIgnoredSigINT $ nsExec nsPid args
+        case result of
+          Right () -> pure True
+          Left err -> do
+            if isStructured fmt
+              then outputError fmt "ns_exec_error" err
+              else putStrLn $ "Error: " ++ T.unpack err
+            pure False
 
 -- | Handle the completion command by generating a shell completion script.
 -- This exits immediately without connecting to the daemon.

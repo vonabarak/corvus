@@ -34,7 +34,7 @@ instance Arbitrary DriveMedia where
   arbitrary = elements [MediaDisk, MediaCdrom]
 
 instance Arbitrary NetInterfaceType where
-  arbitrary = elements [NetUser, NetTap, NetBridge, NetMacvtap, NetManaged]
+  arbitrary = elements [NetUser, NetTap, NetBridge, NetMacvtap, NetVde, NetManaged]
 
 instance Arbitrary SharedDirCache where
   arbitrary = elements [CacheAlways, CacheAuto, CacheNever]
@@ -53,7 +53,7 @@ instance Arbitrary Ref where
 
 -- Arbitrary for response data types
 instance Arbitrary StatusInfo where
-  arbitrary = StatusInfo <$> arbitrary <*> arbitrary <*> pure "test"
+  arbitrary = StatusInfo <$> arbitrary <*> arbitrary <*> pure "test" <*> arbitrary
 
 instance Arbitrary VmInfo where
   arbitrary = VmInfo <$> arbitrary <*> pure "test-vm" <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> pure Nothing
@@ -101,7 +101,7 @@ spec = sequential $ do
 
   describe "Protocol JSON encoding" $ do
     it "StatusInfo produces valid JSON with expected fields" $ do
-      let info = StatusInfo 3600 5 "1.0"
+      let info = StatusInfo 3600 5 "1.0" Nothing
           json = BL.unpack (encode info)
       json `shouldSatisfy` ("uptime" `isInfixOf`)
       json `shouldSatisfy` ("connections" `isInfixOf`)

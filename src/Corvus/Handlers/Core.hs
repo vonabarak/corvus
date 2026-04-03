@@ -38,12 +38,14 @@ handleStatus state = do
   now <- getCurrentTime
   let uptimeSecs = floor $ diffUTCTime now (ssStartTime state)
   connCount <- readTVarIO (ssConnectionCount state)
+  nsPid <- readTVarIO (ssNamespacePid state)
   pure $
     RespStatus
       StatusInfo
         { siUptime = uptimeSecs
         , siConnections = connCount
         , siVersion = version
+        , siNamespacePid = nsPid
         }
 
 -- | Handle shutdown request
