@@ -198,13 +198,14 @@ runCommand opts = do
               else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
             pure False
           Right (Just details) -> do
-            if vdStatus details /= VmRunning
+            let st = vdStatus details
+            if st `notElem` [VmRunning, VmStarting, VmStopping]
               then do
                 if isStructured fmt
                   then outputError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running")
                   else do
                     putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
-                    putStrLn $ "Current status: " ++ T.unpack (enumToText $ vdStatus details)
+                    putStrLn $ "Current status: " ++ T.unpack (enumToText st)
                 pure False
               else do
                 if vdHeadless details

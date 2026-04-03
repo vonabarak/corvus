@@ -41,6 +41,7 @@ import Corvus.Types
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
@@ -229,7 +230,7 @@ startQemuAndMonitor state vmId vm = do
       else pure Nothing
   result <- startVm (ssDbPool state) (ssQemuConfig state) vmId mNsPid
   case result of
-    VmStarted pid ph -> do
+    VmStarted pid ph mStderr -> do
       let initialStatus = if vmGuestAgent vm then VmStarting else VmRunning
       liftIO $ runSqlPool (setVmStarted vmId initialStatus pid) (ssDbPool state)
       -- Fork process monitor thread (watches for QEMU exit independently)
@@ -246,7 +247,14 @@ startQemuAndMonitor state vmId vm = do
                 logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
                 liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
               ExitFailure code -> do
+                -- Read stderr output from QEMU for diagnostics
+                stderrOutput <- liftIO $ case mStderr of
+                  Just h -> TIO.hGetContents h
+                  Nothing -> pure ""
                 logWarnN $ "VM " <> T.pack (show vmId) <> " exited with error code " <> T.pack (show code)
+                unless (T.null stderrOutput) $
+                  logWarnN $
+                    "VM " <> T.pack (show vmId) <> " stderr: " <> stderrOutput
                 liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
       pure $ RespVmStateChanged initialStatus
     VmNotFound -> pure RespVmNotFound

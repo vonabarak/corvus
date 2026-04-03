@@ -26,6 +26,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend)
+import System.IO (Handle)
 import System.Posix.Signals (sigKILL, signalProcess)
 import System.Posix.Types (ProcessID)
 import System.Process (ProcessHandle, StdStream (..), createProcess, getPid, proc, std_err, std_out)
@@ -36,8 +37,8 @@ import System.Process (ProcessHandle, StdStream (..), createProcess, getPid, pro
 
 -- | Result of starting a VM
 data StartVmResult
-  = -- | VM started, returns PID and process handle
-    VmStarted !Int !ProcessHandle
+  = -- | VM started, returns PID, process handle, and stderr handle
+    VmStarted !Int !ProcessHandle !(Maybe Handle)
   | -- | VM not found in database
     VmNotFound
   | -- | Error starting VM
@@ -103,13 +104,13 @@ startVm pool config vmId mNamespacePid = do
         Left (e :: SomeException) -> do
           logWarnN $ "Failed to spawn QEMU process for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
           pure $ VmStartError $ T.pack $ show e
-        Right (_, _, _, ph) -> do
+        Right (_, _, mStderr, ph) -> do
           mPid <- liftIO $ getPid ph
           case mPid of
             Just pid -> do
               let pidInt = fromIntegral pid
               logInfoN $ "VM " <> T.pack (show vmId) <> " started with PID " <> T.pack (show pidInt)
-              pure $ VmStarted pidInt ph
+              pure $ VmStarted pidInt ph mStderr
             Nothing -> do
               logWarnN $ "Failed to get PID for VM " <> T.pack (show vmId)
               pure $ VmStartError "Failed to get process PID"

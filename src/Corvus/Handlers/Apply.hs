@@ -184,12 +184,19 @@ data ApplyNetIf = ApplyNetIf
   deriving (Show)
 
 instance FromJSON ApplyNetIf where
-  parseJSON = withObject "ApplyNetIf" $ \o ->
-    ApplyNetIf
-      <$> o .: "type"
-      <*> o .:? "hostDevice"
-      <*> o .:? "network"
-      <*> o .:? "mac"
+  parseJSON = withObject "ApplyNetIf" $ \o -> do
+    mType <- o .:? "type"
+    network <- o .:? "network"
+    hostDevice <- o .:? "hostDevice"
+    mac <- o .:? "mac"
+    ifType <- case (mType, network) of
+      (Nothing, Just _) -> pure NetManaged
+      (Just t, Just _)
+        | t /= NetManaged -> fail "network interface with 'network' must have type 'managed' or omit 'type'"
+        | otherwise -> pure NetManaged
+      (Just t, Nothing) -> pure t
+      (Nothing, Nothing) -> pure NetUser
+    pure $ ApplyNetIf ifType hostDevice network mac
 
 data ApplySharedDir = ApplySharedDir
   { asdPath :: Text
