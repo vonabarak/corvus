@@ -40,7 +40,7 @@ jobs:
           cp ${BINDIR}/corvus ${BINDIR}/crv release/
           strip release/corvus release/crv
           cp corvus.service release/
-          cp example-apply.yml release/
+          cp doc/example-apply.yml release/
           tar czf corvus-${VERSION}-linux-amd64.tar.gz -C release \
             corvus crv corvus.service example-apply.yml
 
