@@ -226,7 +226,8 @@ handleStartup state retentionDays = do
     runSqlPool
       ( insert
           Task
-            { taskStartedAt = now
+            { taskParent = Nothing
+            , taskStartedAt = now
             , taskFinishedAt = Nothing
             , taskSubsystem = SubSystem
             , taskEntityId = Nothing
@@ -239,8 +240,8 @@ handleStartup state retentionDays = do
       pool
 
   runServerLogging state $ do
-    -- Mark stale "running" tasks as error (daemon crashed while processing)
-    liftIO $ runSqlPool (updateWhere [TaskResult ==. TaskRunning, TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon restarted"]) pool
+    -- Mark stale "running" and "not_started" tasks as error (daemon crashed while processing)
+    liftIO $ runSqlPool (updateWhere [TaskResult <-. [TaskRunning, TaskNotStarted], TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon restarted"]) pool
     logInfoN "Marked stale running tasks as error"
 
     -- Kill orphaned QEMU processes and reset stale VMs
@@ -328,7 +329,8 @@ handleGracefulShutdown state = do
     runSqlPool
       ( insert
           Task
-            { taskStartedAt = now
+            { taskParent = Nothing
+            , taskStartedAt = now
             , taskFinishedAt = Nothing
             , taskSubsystem = SubSystem
             , taskEntityId = Nothing
@@ -408,7 +410,7 @@ handleGracefulShutdown state = do
       Nothing -> pure ()
 
     -- Mark any remaining running tasks as error
-    liftIO $ runSqlPool (updateWhere [TaskResult ==. TaskRunning, TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon shutting down"]) pool
+    liftIO $ runSqlPool (updateWhere [TaskResult <-. [TaskRunning, TaskNotStarted], TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon shutting down"]) pool
     logInfoN "Graceful shutdown complete"
 
   -- Mark shutdown task as completed

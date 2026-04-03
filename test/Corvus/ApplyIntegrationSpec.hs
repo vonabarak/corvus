@@ -84,7 +84,7 @@ spec = withTestDb $ do
                 |]
 
         -- Apply the config
-        applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False
+        applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False True
         (vm1Id, vm2Id, nwId) <- case applyRes of
           Right (Right (ApplyOk r)) -> do
             length (arDisks r) `shouldBe` 3
@@ -165,7 +165,7 @@ spec = withTestDb $ do
                     |]
 
             -- Apply the config
-            applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False
+            applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False True
             vmId <- case applyRes of
               Right (Right (ApplyOk r)) -> do
                 length (arSshKeys r) `shouldBe` 1

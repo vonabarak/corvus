@@ -1184,6 +1184,7 @@ applyCommand =
           <> short 's'
           <> help "Skip resources that already exist instead of failing"
       )
+    <*> waitOptionsParser
 
 --------------------------------------------------------------------------------
 -- Completion Command Parser
@@ -1249,9 +1250,14 @@ taskListCommand =
       ( strOption
           ( long "result"
               <> metavar "RESULT"
-              <> help "Filter by result: success, error, running"
-              <> completeWith ["success", "error", "running"]
+              <> help "Filter by result: success, error, running, not_started, cancelled"
+              <> completeWith ["success", "error", "running", "not_started", "cancelled"]
           )
+      )
+    <*> switch
+      ( long "all"
+          <> short 'a'
+          <> help "Include subtasks in the list"
       )
 
 -- | Parser for task show

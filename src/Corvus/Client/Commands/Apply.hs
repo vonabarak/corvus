@@ -11,7 +11,7 @@ import Control.Monad (unless)
 import Corvus.Client.Connection
 import Corvus.Client.Output (isStructured, outputError, outputResult)
 import Corvus.Client.Rpc
-import Corvus.Client.Types (OutputFormat (..))
+import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Protocol (ApplyCreated (..), ApplyResult (..))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -19,8 +19,8 @@ import qualified Data.Text.IO as TIO
 import System.Directory (doesFileExist)
 
 -- | Handle apply command: read YAML file and send to daemon
-handleApply :: OutputFormat -> Connection -> FilePath -> Bool -> IO Bool
-handleApply fmt conn path skipExisting = do
+handleApply :: OutputFormat -> Connection -> FilePath -> Bool -> WaitOptions -> IO Bool
+handleApply fmt conn path skipExisting waitOpts = do
   exists <- doesFileExist path
   if not exists
     then do
@@ -30,7 +30,8 @@ handleApply fmt conn path skipExisting = do
       pure False
     else do
       content <- TIO.readFile path
-      resp <- applyConfig conn content skipExisting
+      let wait = woWait waitOpts
+      resp <- applyConfig conn content skipExisting wait
       case resp of
         Left err -> do
           if isStructured fmt
@@ -47,6 +48,11 @@ handleApply fmt conn path skipExisting = do
             then outputError fmt "apply_failed" msg
             else putStrLn $ "Apply failed: " ++ T.unpack msg
           pure False
+        Right (ApplyAsync taskId) -> do
+          if isStructured fmt
+            then outputResult fmt (T.pack $ show taskId)
+            else putStrLn $ "Apply started (task ID: " ++ show taskId ++ ")"
+          pure True
 
 -- | Print apply result in human-readable format
 printApplyResult :: ApplyResult -> IO ()

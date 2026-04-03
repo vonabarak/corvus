@@ -400,7 +400,7 @@ whenShutdown = executeRequest ReqShutdown
 
 -- | Apply environment from YAML content
 whenApply :: Text -> TestM Response
-whenApply yaml = executeRequest (ReqApply yaml False)
+whenApply yaml = executeRequest (ReqApply yaml False True)
 
 --------------------------------------------------------------------------------
 -- Network Commands

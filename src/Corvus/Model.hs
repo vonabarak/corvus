@@ -490,6 +490,8 @@ data TaskResult
   = TaskRunning
   | TaskSuccess
   | TaskError
+  | TaskNotStarted
+  | TaskCancelled
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance Binary TaskResult
@@ -500,6 +502,8 @@ instance EnumText TaskResult where
     [ (TaskRunning, "running")
     , (TaskSuccess, "success")
     , (TaskError, "error")
+    , (TaskNotStarted, "not_started")
+    , (TaskCancelled, "cancelled")
     ]
 
 instance FromJSON TaskResult where
@@ -646,6 +650,7 @@ TemplateSshKey
     deriving Show Eq Generic
 
 Task
+    parent TaskId Maybe
     startedAt UTCTime
     finishedAt UTCTime Maybe
     subsystem TaskSubsystem
@@ -736,5 +741,9 @@ instance Binary (Key TemplateNetworkInterface) where
   get = toSqlKey <$> Bin.get
 
 instance Binary (Key TemplateSshKey) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key Task) where
   put = Bin.put . fromSqlKey
   get = toSqlKey <$> Bin.get

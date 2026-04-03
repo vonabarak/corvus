@@ -101,6 +101,7 @@ module Corvus.Client.Rpc
     -- * Task history operations
   , taskList
   , taskShow
+  , taskListChildren
   )
 where
 
@@ -824,15 +825,18 @@ data ApplyRpcResult
     ApplyOk !ApplyResult
   | -- | Apply failed
     ApplyFailed !Text
+  | -- | Apply started asynchronously (task ID)
+    ApplyAsync !Int64
   deriving (Eq, Show)
 
 -- | Apply an environment configuration from YAML
-applyConfig :: Connection -> Text -> Bool -> IO (Either ConnectionError ApplyRpcResult)
-applyConfig conn yaml skipExisting = do
-  result <- sendRequest conn (ReqApply yaml skipExisting)
+applyConfig :: Connection -> Text -> Bool -> Bool -> IO (Either ConnectionError ApplyRpcResult)
+applyConfig conn yaml skipExisting wait = do
+  result <- sendRequest conn (ReqApply yaml skipExisting wait)
   case result of
     Left err -> pure $ Left err
     Right (RespApplyResult ar) -> pure $ Right $ ApplyOk ar
+    Right (RespApplyStarted tid) -> pure $ Right $ ApplyAsync tid
     Right (RespError msg) -> pure $ Right $ ApplyFailed msg
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
@@ -841,9 +845,9 @@ applyConfig conn yaml skipExisting = do
 --------------------------------------------------------------------------------
 
 -- | List task history entries
-taskList :: Connection -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> IO (Either ConnectionError [TaskInfo])
-taskList conn limit mSub mResult = do
-  result <- sendRequest conn (ReqTaskList limit mSub mResult)
+taskList :: Connection -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> Bool -> IO (Either ConnectionError [TaskInfo])
+taskList conn limit mSub mResult includeSubtasks = do
+  result <- sendRequest conn (ReqTaskList limit mSub mResult includeSubtasks)
   case result of
     Left err -> pure $ Left err
     Right (RespTaskList tasks) -> pure $ Right tasks
@@ -857,4 +861,13 @@ taskShow conn taskId = do
     Left err -> pure $ Left err
     Right (RespTaskInfo info) -> pure $ Right $ Just info
     Right RespTaskNotFound -> pure $ Right Nothing
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+-- | List subtasks for a parent task
+taskListChildren :: Connection -> Int64 -> IO (Either ConnectionError [TaskInfo])
+taskListChildren conn parentId = do
+  result <- sendRequest conn (ReqTaskListChildren parentId)
+  case result of
+    Left err -> pure $ Left err
+    Right (RespTaskList tasks) -> pure $ Right tasks
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"

@@ -27,7 +27,8 @@ spec = sequential $ withTestDb $ do
         runDb $
           insert
             Task
-              { taskStartedAt = now
+              { taskParent = Nothing
+              , taskStartedAt = now
               , taskFinishedAt = Nothing
               , taskSubsystem = SubVm
               , taskEntityId = Just 1
@@ -122,7 +123,8 @@ spec = sequential $ withTestDb $ do
         runDb $
           insert
             Task
-              { taskStartedAt = oldTime
+              { taskParent = Nothing
+              , taskStartedAt = oldTime
               , taskFinishedAt = Just oldTime
               , taskSubsystem = SubVm
               , taskEntityId = Nothing
@@ -148,7 +150,8 @@ spec = sequential $ withTestDb $ do
         runDb $
           insert
             Task
-              { taskStartedAt = now
+              { taskParent = Nothing
+              , taskStartedAt = now
               , taskFinishedAt = Nothing
               , taskSubsystem = SubDisk
               , taskEntityId = Nothing

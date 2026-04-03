@@ -12,7 +12,7 @@ import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
 import Corvus.Client.Connection (Connection)
 import Corvus.Client.Output (isStructured, outputError, outputResult)
-import Corvus.Client.Rpc (taskList, taskShow)
+import Corvus.Client.Rpc (taskList, taskListChildren, taskShow)
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), TaskResult (..), TaskSubsystem)
 import Corvus.Protocol (TaskInfo (..))
@@ -25,11 +25,11 @@ import System.IO (hFlush, hPutStr, stderr, stdout)
 import Text.Printf (printf)
 
 -- | Handle task list command
-handleTaskList :: OutputFormat -> Connection -> Int -> Maybe Text -> Maybe Text -> IO Bool
-handleTaskList fmt conn limit mSubStr mResultStr = do
+handleTaskList :: OutputFormat -> Connection -> Int -> Maybe Text -> Maybe Text -> Bool -> IO Bool
+handleTaskList fmt conn limit mSubStr mResultStr includeSubtasks = do
   let mSub = mSubStr >>= eitherToMaybe . enumFromText
       mResult = mResultStr >>= eitherToMaybe . enumFromText
-  resp <- taskList conn limit mSub mResult
+  resp <- taskList conn limit mSub mResult includeSubtasks
   case resp of
     Left err -> do
       if isStructured fmt
@@ -77,7 +77,28 @@ handleTaskShow fmt conn taskId = do
     Right (Just info) -> do
       if isStructured fmt
         then outputResult fmt info
-        else printTaskDetail info
+        else do
+          printTaskDetail info
+          -- Show subtasks if this task has any
+          childResp <- taskListChildren conn taskId
+          case childResp of
+            Right children | not (null children) -> do
+              putStrLn ""
+              putStrLn "Subtasks:"
+              putStrLn $
+                printf
+                  "  %-6s %-10s %-12s %-22s %-10s %-10s %s"
+                  ("ID" :: String)
+                  ("SUBSYSTEM" :: String)
+                  ("COMMAND" :: String)
+                  ("ENTITY" :: String)
+                  ("RESULT" :: String)
+                  ("DURATION" :: String)
+                  ("MESSAGE" :: String)
+              putStrLn $ "  " ++ replicate 100 '-'
+              now <- getCurrentTime
+              mapM_ (printSubtaskRow now) children
+            _ -> pure ()
       pure True
 
 -- | Handle task wait command — poll until task finishes or timeout
@@ -97,12 +118,7 @@ handleTaskWait fmt conn taskId mTimeout = do
         else putStrLn "Task not found"
       pure False
     Right (Just info)
-      | tiResult info /= TaskRunning -> do
-          if isStructured fmt
-            then outputResult fmt info
-            else printCompletionMessage taskId info
-          pure (tiResult info == TaskSuccess)
-      | otherwise -> do
+      | isTaskPending (tiResult info) -> do
           startTime <- getCurrentTime
           unless (isStructured fmt) $ do
             putStr $
@@ -117,6 +133,17 @@ handleTaskWait fmt conn taskId mTimeout = do
             hFlush stdout
           -- Poll with adaptive interval: 200ms for first 3s, then 1s
           pollUntilDone fmt conn taskId startTime mTimeout
+      | otherwise -> do
+          if isStructured fmt
+            then outputResult fmt info
+            else printCompletionMessage taskId info
+          pure (tiResult info == TaskSuccess)
+
+-- | A task is still pending if it's running or not yet started
+isTaskPending :: TaskResult -> Bool
+isTaskPending TaskRunning = True
+isTaskPending TaskNotStarted = True
+isTaskPending _ = False
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -157,7 +184,7 @@ pollUntilDone fmt conn taskId startTime mTimeout = do
           putStrLn "Task disappeared"
           pure False
         Right (Just info)
-          | tiResult info == TaskRunning -> do
+          | isTaskPending (tiResult info) -> do
               -- Show elapsed time
               unless (isStructured fmt) $ do
                 hPutStr stderr $ "\r\x1b[K" ++ "Waiting... (" ++ formatDuration elapsed ++ " elapsed)"
@@ -202,9 +229,25 @@ printTaskRow now info =
       (durationLabel now info)
       (T.unpack $ fromMaybe "-" $ tiMessage info)
 
+printSubtaskRow :: UTCTime -> TaskInfo -> IO ()
+printSubtaskRow now info =
+  putStrLn $
+    printf
+      "  %-6d %-10s %-12s %-22s %-10s %-10s %s"
+      (tiId info)
+      (T.unpack $ enumToText $ tiSubsystem info)
+      (T.unpack $ tiCommand info)
+      (entityLabel info)
+      (T.unpack $ enumToText $ tiResult info)
+      (durationLabel now info)
+      (T.unpack $ fromMaybe "-" $ tiMessage info)
+
 printTaskDetail :: TaskInfo -> IO ()
 printTaskDetail info = do
   putStrLn $ "Task ID:    " ++ show (tiId info)
+  case tiParentId info of
+    Just pid -> putStrLn $ "Parent:     " ++ show pid
+    Nothing -> pure ()
   putStrLn $ "Subsystem:  " ++ T.unpack (enumToText (tiSubsystem info))
   putStrLn $ "Command:    " ++ T.unpack (tiCommand info)
   putStrLn $ "Entity:     " ++ entityLabel info
@@ -233,7 +276,7 @@ durationLabel :: UTCTime -> TaskInfo -> String
 durationLabel now info = case tiFinishedAt info of
   Just finish -> formatDuration (realToFrac $ diffUTCTime finish (tiStartedAt info))
   Nothing ->
-    if tiResult info == TaskRunning
+    if isTaskPending (tiResult info)
       then formatDuration (realToFrac $ diffUTCTime now (tiStartedAt info)) ++ "..."
       else "-"
 

@@ -61,7 +61,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 16
+protocolVersion = 17
 
 -- | Client requests
 data Request
@@ -178,12 +178,14 @@ data Request
     ReqGuestExec !Ref !Text
   | -- | Import disk image from URL (name, url, optionalFormat)
     ReqDiskImportUrl !Text !Text !(Maybe Text)
-  | -- | Apply environment from YAML config (yamlContent, skipExisting)
-    ReqApply !Text !Bool
-  | -- | List task history (limit, optionalSubsystem, optionalResult)
-    ReqTaskList !Int !(Maybe TaskSubsystem) !(Maybe TaskResult)
+  | -- | Apply environment from YAML config (yamlContent, skipExisting, wait)
+    ReqApply !Text !Bool !Bool
+  | -- | List task history (limit, optionalSubsystem, optionalResult, includeSubtasks)
+    ReqTaskList !Int !(Maybe TaskSubsystem) !(Maybe TaskResult) !Bool
   | -- | Show single task details (taskId)
     ReqTaskShow !Int64
+  | -- | List subtasks for a parent task (parentTaskId)
+    ReqTaskListChildren !Int64
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -405,6 +407,7 @@ data ApplyResult = ApplyResult
 -- | Information about a task history entry
 data TaskInfo = TaskInfo
   { tiId :: !Int64
+  , tiParentId :: !(Maybe Int64)
   , tiStartedAt :: !UTCTime
   , tiFinishedAt :: !(Maybe UTCTime)
   , tiSubsystem :: !TaskSubsystem
@@ -624,6 +627,7 @@ instance ToJSON TaskInfo where
   toJSON t =
     object
       [ "id" .= tiId t
+      , "parentId" .= tiParentId t
       , "startedAt" .= tiStartedAt t
       , "finishedAt" .= tiFinishedAt t
       , "subsystem" .= tiSubsystem t
@@ -760,6 +764,8 @@ data Response
     RespGuestAgentError !Text
   | -- | Apply config result with summary of created resources
     RespApplyResult !ApplyResult
+  | -- | Apply started asynchronously (parent task ID)
+    RespApplyStarted !Int64
   | -- | Task history list
     RespTaskList ![TaskInfo]
   | -- | Single task info

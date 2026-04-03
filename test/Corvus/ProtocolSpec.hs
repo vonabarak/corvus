@@ -46,7 +46,7 @@ instance Arbitrary TaskSubsystem where
   arbitrary = elements [SubVm, SubDisk, SubNetwork, SubSshKey, SubTemplate, SubSharedDir, SubSnapshot, SubSystem, SubApply]
 
 instance Arbitrary TaskResult where
-  arbitrary = elements [TaskRunning, TaskSuccess, TaskError]
+  arbitrary = elements [TaskRunning, TaskSuccess, TaskError, TaskNotStarted, TaskCancelled]
 
 instance Arbitrary Ref where
   arbitrary = Ref . T.pack <$> arbitrary
@@ -88,9 +88,10 @@ instance Arbitrary Request where
       , ReqNetworkDelete <$> arbitrary
       , ReqNetworkShow <$> arbitrary
       , ReqGuestExec <$> arbitrary <*> pure "echo ok"
-      , ReqApply "sshKeys: []" <$> arbitrary
-      , ReqTaskList <$> arbitrary <*> pure Nothing <*> pure Nothing
+      , ReqApply "sshKeys: []" <$> arbitrary <*> arbitrary
+      , ReqTaskList <$> arbitrary <*> pure Nothing <*> pure Nothing <*> arbitrary
       , ReqTaskShow <$> arbitrary
+      , ReqTaskListChildren <$> arbitrary
       ]
 
 spec :: Spec

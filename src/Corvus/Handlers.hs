@@ -45,6 +45,7 @@ import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Sql (fromSqlKey, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Request Dispatch
@@ -55,7 +56,29 @@ import Database.Persist.Postgresql (runSqlPool)
 handleRequest :: ServerState -> Request -> IO Response
 handleRequest state req
   | isReadOnly req = dispatchRequest state req
+  | isApply req = dispatchApply state req
   | otherwise = withTask state req (dispatchRequest state req)
+
+isApply :: Request -> Bool
+isApply (ReqApply {}) = True
+isApply _ = False
+
+-- | Dispatch apply with sync/async support and subtask tracking.
+dispatchApply :: ServerState -> Request -> IO Response
+dispatchApply state req@(ReqApply yaml skipExisting wait) = do
+  validated <- handleApplyValidate state yaml
+  case validated of
+    Left errResp -> pure errResp
+    Right config ->
+      if wait
+        then withParentTask state req $ \parentId ->
+          handleApplyExecute state config skipExisting parentId
+        else
+          withParentTaskAsync
+            state
+            req
+            (handleApplyExecute state config skipExisting)
+dispatchApply _ _ = error "dispatchApply: impossible"
 
 -- | Dispatch a command that supports sync (--wait) and async modes.
 -- Validates synchronously in both cases. In async mode, forks the
@@ -184,11 +207,12 @@ dispatchRequest state req = case req of
   ReqGuestExec vmRef cmd -> withVm vmRef $ \vmId -> handleGuestExec state vmId cmd
   -- Disk URL import
   ReqDiskImportUrl name url mFmt -> handleDiskImportUrl state name url mFmt
-  -- Apply config
-  ReqApply yaml skipExisting -> handleApply state yaml skipExisting
+  -- Apply config (handled by dispatchApply, but keep for completeness)
+  ReqApply yaml skipExisting _wait -> handleApply state yaml skipExisting
   -- Task history queries (read-only, but dispatched here for completeness)
-  ReqTaskList limit mSub mResult -> handleTaskList state limit mSub mResult
+  ReqTaskList limit mSub mResult inclSub -> handleTaskList state limit mSub mResult inclSub
   ReqTaskShow taskId -> handleTaskShow state taskId
+  ReqTaskListChildren parentId -> handleTaskListChildren state parentId
   where
     pool = ssDbPool state
 
@@ -251,7 +275,8 @@ withTaskAsync state req action interimResponse = do
     runSqlPool
       ( insert
           Task
-            { taskStartedAt = now
+            { taskParent = Nothing
+            , taskStartedAt = now
             , taskFinishedAt = Nothing
             , taskSubsystem = subsystem
             , taskEntityId = fmap fst mEntityInfo
@@ -320,7 +345,8 @@ withTask state req action = do
     runSqlPool
       ( insert
           Task
-            { taskStartedAt = now
+            { taskParent = Nothing
+            , taskStartedAt = now
             , taskFinishedAt = Nothing
             , taskSubsystem = subsystem
             , taskEntityId = fmap fst mEntityInfo
@@ -377,6 +403,134 @@ withTask state req action = do
       case reads (T.unpack refText) :: [(Int, String)] of
         [(n, "")] -> pure $ Just (n, refText)
         _ -> pure $ Just (0, refText) -- Name-based ref, ID unknown until handler runs
+
+-- | Like withTask, but passes the created TaskId to the handler.
+-- Used for operations that create subtasks (e.g., apply).
+withParentTask :: ServerState -> Request -> (TaskId -> IO Response) -> IO Response
+withParentTask state req action = do
+  let (subsystem, command, mEntityRef) = classifyRequest req
+  now <- getCurrentTime
+  mEntityInfo <- resolveEntityInfo mEntityRef
+  taskKey <-
+    runSqlPool
+      ( insert
+          Task
+            { taskParent = Nothing
+            , taskStartedAt = now
+            , taskFinishedAt = Nothing
+            , taskSubsystem = subsystem
+            , taskEntityId = fmap fst mEntityInfo
+            , taskEntityName = fmap snd mEntityInfo
+            , taskCommand = command
+            , taskResult = TaskRunning
+            , taskMessage = Nothing
+            }
+      )
+      pool
+  result <- try (action taskKey)
+  finishTime <- getCurrentTime
+  case result of
+    Right response -> do
+      let (taskResult, message) = classifyResponse response
+          (mId, mName) = extractEntityFromResponse response
+      runSqlPool
+        ( update
+            taskKey
+            [ TaskFinishedAt =. Just finishTime
+            , TaskResult =. taskResult
+            , TaskMessage =. message
+            , TaskEntityId =. (mId <|> fmap fst mEntityInfo)
+            , TaskEntityName =. (mName <|> fmap snd mEntityInfo)
+            ]
+        )
+        pool
+      pure response
+    Left (err :: SomeException) -> do
+      runSqlPool
+        ( update
+            taskKey
+            [ TaskFinishedAt =. Just finishTime
+            , TaskResult =. TaskError
+            , TaskMessage =. Just (T.pack $ show err)
+            ]
+        )
+        pool
+      pure $ RespError $ "Internal error: " <> T.pack (show err)
+  where
+    pool = ssDbPool state
+    (<|>) Nothing b = b
+    (<|>) a _ = a
+    resolveEntityInfo :: Maybe Ref -> IO (Maybe (Int, Text))
+    resolveEntityInfo Nothing = pure Nothing
+    resolveEntityInfo (Just ref) = do
+      let refText = unRef ref
+      case reads (T.unpack refText) :: [(Int, String)] of
+        [(n, "")] -> pure $ Just (n, refText)
+        _ -> pure $ Just (0, refText)
+
+-- | Like withParentTask, but forks execution and returns immediately.
+-- Returns RespApplyStarted with the parent task ID.
+withParentTaskAsync :: ServerState -> Request -> (TaskId -> IO Response) -> IO Response
+withParentTaskAsync state req action = do
+  let (subsystem, command, mEntityRef) = classifyRequest req
+  now <- getCurrentTime
+  mEntityInfo <- resolveEntityInfo mEntityRef
+  taskKey <-
+    runSqlPool
+      ( insert
+          Task
+            { taskParent = Nothing
+            , taskStartedAt = now
+            , taskFinishedAt = Nothing
+            , taskSubsystem = subsystem
+            , taskEntityId = fmap fst mEntityInfo
+            , taskEntityName = fmap snd mEntityInfo
+            , taskCommand = command
+            , taskResult = TaskRunning
+            , taskMessage = Nothing
+            }
+      )
+      pool
+  _ <- forkIO $ do
+    result <- try (action taskKey)
+    finishTime <- getCurrentTime
+    case result of
+      Right response -> do
+        let (taskResult, message) = classifyResponse response
+            (mId, mName) = extractEntityFromResponse response
+        runSqlPool
+          ( update
+              taskKey
+              [ TaskFinishedAt =. Just finishTime
+              , TaskResult =. taskResult
+              , TaskMessage =. message
+              , TaskEntityId =. (mId <|> fmap fst mEntityInfo)
+              , TaskEntityName =. (mName <|> fmap snd mEntityInfo)
+              ]
+          )
+          pool
+      Left (err :: SomeException) ->
+        runSqlPool
+          ( update
+              taskKey
+              [ TaskFinishedAt =. Just finishTime
+              , TaskResult =. TaskError
+              , TaskMessage =. Just (T.pack $ show err)
+              ]
+          )
+          pool
+  pure $ RespApplyStarted (fromSqlKey taskKey)
+  where
+    pool = ssDbPool state
+    (<|>) Nothing b = b
+    (<|>) a _ = a
+    resolveEntityInfo :: Maybe Ref -> IO (Maybe (Int, Text))
+    resolveEntityInfo Nothing = pure Nothing
+    resolveEntityInfo (Just ref) = do
+      let refText = unRef ref
+      case reads (T.unpack refText) :: [(Int, String)] of
+        [(n, "")] -> pure $ Just (n, refText)
+        _ -> pure $ Just (0, refText)
 
 -- | Classify a request into subsystem, command name, and optional entity ref.
 classifyRequest :: Request -> (TaskSubsystem, Text, Maybe Ref)
@@ -435,9 +589,10 @@ classifyRequest = \case
   ReqNetworkList -> (SubNetwork, "list", Nothing)
   ReqNetworkShow ref -> (SubNetwork, "show", Just ref)
   ReqGuestExec ref _ -> (SubVm, "guest-exec", Just ref)
-  ReqApply _ _ -> (SubApply, "apply", Nothing)
+  ReqApply {} -> (SubApply, "apply", Nothing)
   ReqTaskList {} -> (SubSystem, "task-list", Nothing)
   ReqTaskShow _ -> (SubSystem, "task-show", Nothing)
+  ReqTaskListChildren _ -> (SubSystem, "task-list-children", Nothing)
 
 -- | Check if a request is read-only (should not be recorded in task history).
 isReadOnly :: Request -> Bool
@@ -459,6 +614,7 @@ isReadOnly = \case
   ReqNetworkShow _ -> True
   ReqTaskList {} -> True
   ReqTaskShow _ -> True
+  ReqTaskListChildren _ -> True
   _ -> False
 
 -- | Classify a response into task result and optional message.
@@ -503,6 +659,7 @@ classifyResponse = \case
   RespNetworkStarted -> (TaskSuccess, Just "Started")
   RespNetworkStopped -> (TaskSuccess, Just "Stopped")
   RespApplyResult _ -> (TaskSuccess, Nothing)
+  RespApplyStarted tid -> (TaskSuccess, Just $ "Task ID " <> T.pack (show tid))
   RespSharedDirAdded did -> (TaskSuccess, Just $ "Dir ID " <> T.pack (show did))
   RespSharedDirOk -> (TaskSuccess, Nothing)
   RespNetIfAdded nid -> (TaskSuccess, Just $ "NetIf ID " <> T.pack (show nid))
@@ -528,13 +685,15 @@ extractEntityFromResponse = \case
 -- Task History Handlers
 --------------------------------------------------------------------------------
 
--- | List task history entries
-handleTaskList :: ServerState -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> IO Response
-handleTaskList state limit mSub mResult = do
+-- | List task history entries.
+-- When includeSubtasks is False, only top-level tasks (parent = NULL) are returned.
+handleTaskList :: ServerState -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> Bool -> IO Response
+handleTaskList state limit mSub mResult includeSubtasks = do
+  let parentFilter = [TaskParent ==. Nothing | not includeSubtasks]
   tasks <-
     runSqlPool
       ( selectList
-          (catMaybes [subFilter, resultFilter])
+          (parentFilter ++ catMaybes [subFilter, resultFilter])
           [Desc TaskStartedAt, LimitTo limit]
       )
       (ssDbPool state)
@@ -542,18 +701,6 @@ handleTaskList state limit mSub mResult = do
   where
     subFilter = fmap (TaskSubsystem ==.) mSub
     resultFilter = fmap (TaskResult ==.) mResult
-    toTaskInfo (Entity key th) =
-      TaskInfo
-        { tiId = fromSqlKey key
-        , tiStartedAt = taskStartedAt th
-        , tiFinishedAt = taskFinishedAt th
-        , tiSubsystem = taskSubsystem th
-        , tiEntityId = taskEntityId th
-        , tiEntityName = taskEntityName th
-        , tiCommand = taskCommand th
-        , tiResult = taskResult th
-        , tiMessage = taskMessage th
-        }
 
 -- | Show a single task history entry
 handleTaskShow :: ServerState -> Int64 -> IO Response
@@ -563,18 +710,38 @@ handleTaskShow state taskId = do
     Nothing -> pure RespTaskNotFound
     Just th ->
       pure $
-        RespTaskInfo
-          TaskInfo
-            { tiId = taskId
-            , tiStartedAt = taskStartedAt th
-            , tiFinishedAt = taskFinishedAt th
-            , tiSubsystem = taskSubsystem th
-            , tiEntityId = taskEntityId th
-            , tiEntityName = taskEntityName th
-            , tiCommand = taskCommand th
-            , tiResult = taskResult th
-            , tiMessage = taskMessage th
-            }
+        RespTaskInfo $
+          toTaskInfoWith taskId th
+
+-- | List subtasks for a parent task
+handleTaskListChildren :: ServerState -> Int64 -> IO Response
+handleTaskListChildren state parentId = do
+  tasks <-
+    runSqlPool
+      ( selectList
+          [TaskParent ==. Just (toSqlKey parentId)]
+          [Asc TaskId]
+      )
+      (ssDbPool state)
+  pure $ RespTaskList $ map toTaskInfo tasks
+
+toTaskInfo :: Entity Task -> TaskInfo
+toTaskInfo (Entity key th) = toTaskInfoWith (fromSqlKey key) th
+
+toTaskInfoWith :: Int64 -> Task -> TaskInfo
+toTaskInfoWith tid th =
+  TaskInfo
+    { tiId = tid
+    , tiParentId = fmap fromSqlKey (taskParent th)
+    , tiStartedAt = taskStartedAt th
+    , tiFinishedAt = taskFinishedAt th
+    , tiSubsystem = taskSubsystem th
+    , tiEntityId = taskEntityId th
+    , tiEntityName = taskEntityName th
+    , tiCommand = taskCommand th
+    , tiResult = taskResult th
+    , tiMessage = taskMessage th
+    }
 
 -- | Helper to filter out Nothing values
 catMaybes :: [Maybe a] -> [a]

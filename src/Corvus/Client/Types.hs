@@ -163,12 +163,12 @@ data Command
     NetworkShow !Text
   | -- Apply commands
 
-    -- | Apply environment from YAML config file (file path, skipExisting)
-    Apply !FilePath !Bool
+    -- | Apply environment from YAML config file (file path, skipExisting, waitOptions)
+    Apply !FilePath !Bool !WaitOptions
   | -- Task history commands
 
-    -- | List task history (limit, optional subsystem, optional result)
-    TaskList !Int !(Maybe Text) !(Maybe Text)
+    -- | List task history (limit, optional subsystem, optional result, includeSubtasks)
+    TaskList !Int !(Maybe Text) !(Maybe Text) !Bool
   | -- | Show single task details (taskId)
     TaskShow !Int64
   | -- | Wait for task to complete (taskId, optional timeout in seconds)

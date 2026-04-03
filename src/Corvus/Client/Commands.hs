@@ -351,9 +351,9 @@ runCommand opts = do
       NetworkList -> handleNetworkList fmt conn
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
       -- Apply
-      Apply path skipExisting -> handleApply fmt conn path skipExisting
+      Apply path skipExisting waitOpts -> handleApply fmt conn path skipExisting waitOpts
       -- Task history
-      TaskList limit mSub mResult -> handleTaskList fmt conn limit mSub mResult
+      TaskList limit mSub mResult inclSub -> handleTaskList fmt conn limit mSub mResult inclSub
       TaskShow taskId -> handleTaskShow fmt conn taskId
       TaskWait taskId mTimeout -> handleTaskWait fmt conn taskId mTimeout
       -- Namespace exec
