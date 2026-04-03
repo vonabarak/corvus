@@ -571,6 +571,7 @@ Network
     name Text
     subnet Text default=''
     dhcp Bool default=false
+    nat Bool default=false
     running Bool default=false
     dnsmasqPid Int Maybe
     createdAt UTCTime

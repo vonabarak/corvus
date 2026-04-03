@@ -31,6 +31,10 @@ data QemuConfig = QemuConfig
   -- ^ Shared memory size for virtiofs (e.g. "4G"), Nothing uses VM RAM
   , qcDnsmasqBinary :: FilePath
   -- ^ Path to dnsmasq binary
+  , qcPastaBinary :: FilePath
+  -- ^ Path to pasta binary (for NAT)
+  , qcNftBinary :: FilePath
+  -- ^ Path to nft binary (for NAT rules)
   , qcHealthcheckInterval :: Int
   -- ^ Healthcheck ping interval in seconds (default 10)
   }
@@ -46,6 +50,8 @@ defaultQemuConfig =
     , qcVirtiofsdBinary = "/usr/libexec/virtiofsd"
     , qcSharedMemSize = Nothing -- Will use VM RAM size
     , qcDnsmasqBinary = "dnsmasq"
+    , qcPastaBinary = "pasta"
+    , qcNftBinary = "nft"
     , qcHealthcheckInterval = 10
     }
 

@@ -23,7 +23,7 @@ import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Qemu.Netns (startNamespace)
-import Corvus.Qemu.Netns.Manager (destroyBridge, stopDnsmasq)
+import Corvus.Qemu.Netns.Manager (destroyBridge, enableIpForwarding, setupNatTable, startPasta, stopDnsmasq, stopPasta, teardownNatTable)
 import Corvus.Qemu.Process (killVmProcess)
 import Corvus.Qemu.Virtiofsd (killVirtiofsdProcesses)
 import Corvus.Types
@@ -270,8 +270,28 @@ handleStartup state retentionDays = do
       Left err ->
         logWarnN $ "Failed to start network namespace: " <> err
       Right nsPid -> do
-        liftIO $ atomically $ writeTVar (ssNamespacePid state) (Just (fromIntegral nsPid))
+        let nsPidInt = fromIntegral nsPid
+        liftIO $ atomically $ writeTVar (ssNamespacePid state) (Just nsPidInt)
         logInfoN $ "Network namespace started (PID " <> T.pack (show nsPid) <> ")"
+
+        -- Start pasta for NAT support
+        pastaResult <- liftIO $ startPasta nsPidInt (ssQemuConfig state)
+        case pastaResult of
+          Left err ->
+            logWarnN $ "Failed to start pasta (NAT unavailable): " <> err
+          Right pastaPid -> do
+            liftIO $ atomically $ writeTVar (ssPastaPid state) (Just pastaPid)
+            logInfoN $ "pasta started for NAT (PID " <> T.pack (show pastaPid) <> ")"
+            -- Enable IP forwarding inside the namespace
+            fwdResult <- liftIO $ enableIpForwarding nsPidInt
+            case fwdResult of
+              Left err -> logWarnN $ "Failed to enable IP forwarding: " <> err
+              Right () -> logInfoN "IP forwarding enabled in namespace"
+            -- Create nftables NAT table and chain
+            natResult <- liftIO $ setupNatTable nsPidInt (ssQemuConfig state)
+            case natResult of
+              Left err -> logWarnN $ "Failed to setup NAT table: " <> err
+              Right () -> logInfoN "nftables NAT table created"
 
     -- Delete old task entries
     when (retentionDays > 0) $ do
@@ -356,6 +376,22 @@ handleGracefulShutdown state = do
         Just nsPid -> void $ destroyBridge nsPid (fromSqlKey nwKey)
         Nothing -> pure ()
       runSqlPool (update nwKey [M.NetworkRunning =. False, M.NetworkDnsmasqPid =. Nothing]) pool
+
+    -- Teardown nftables NAT table
+    case mNsPid of
+      Just nsPid -> do
+        _ <- liftIO $ teardownNatTable nsPid (ssQemuConfig state)
+        pure ()
+      Nothing -> pure ()
+
+    -- Kill pasta if running
+    mPastaPid <- liftIO $ readTVarIO (ssPastaPid state)
+    case mPastaPid of
+      Just pastaPid -> do
+        logInfoN $ "Killing pasta (PID " <> T.pack (show pastaPid) <> ")"
+        liftIO $ stopPasta pastaPid
+        liftIO $ atomically $ writeTVar (ssPastaPid state) Nothing
+      Nothing -> pure ()
 
     -- Kill the network namespace manager
     case mNsPid of

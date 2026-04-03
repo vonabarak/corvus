@@ -61,7 +61,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 15
+protocolVersion = 16
 
 -- | Client requests
 data Request
@@ -162,8 +162,8 @@ data Request
   | -- | Generate/regenerate cloud-init ISO for a VM (vmRef)
     ReqVmCloudInit !Ref
   | -- | Virtual network operations
-    -- | Create network (name, subnet, dhcp)
-    ReqNetworkCreate !Text !Text !Bool
+    -- | Create network (name, subnet, dhcp, nat)
+    ReqNetworkCreate !Text !Text !Bool !Bool
   | -- | Delete network (networkRef)
     ReqNetworkDelete !Ref
   | -- | Start network (networkRef)
@@ -379,6 +379,7 @@ data NetworkInfo = NetworkInfo
   , nwiName :: !Text
   , nwiSubnet :: !Text
   , nwiDhcp :: !Bool
+  , nwiNat :: !Bool
   , nwiRunning :: !Bool
   , nwiDnsmasqPid :: !(Maybe Int)
   , nwiCreatedAt :: !UTCTime
@@ -581,6 +582,7 @@ instance ToJSON NetworkInfo where
       , "name" .= nwiName n
       , "subnet" .= nwiSubnet n
       , "dhcp" .= nwiDhcp n
+      , "nat" .= nwiNat n
       , "running" .= nwiRunning n
       , "dnsmasqPid" .= nwiDnsmasqPid n
       , "createdAt" .= nwiCreatedAt n

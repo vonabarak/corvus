@@ -115,6 +115,7 @@ data ApplyNetwork = ApplyNetwork
   { anName :: Text
   , anSubnet :: Text
   , anDhcp :: Bool
+  , anNat :: Bool
   }
   deriving (Show)
 
@@ -124,6 +125,7 @@ instance FromJSON ApplyNetwork where
       <$> o .: "name"
       <*> o .:? "subnet" .!= ""
       <*> o .:? "dhcp" .!= False
+      <*> o .:? "nat" .!= False
 
 data ApplyVm = ApplyVm
   { avName :: Text
@@ -430,6 +432,7 @@ createNetworks state networks skipExisting = go networks Map.empty []
                       { networkName = anName n
                       , networkSubnet = anSubnet n
                       , networkDhcp = anDhcp n
+                      , networkNat = anNat n
                       , networkRunning = False
                       , networkDnsmasqPid = Nothing
                       , networkCreatedAt = now

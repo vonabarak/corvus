@@ -19,7 +19,7 @@ import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model (Network (..), NetworkInterface (..), Vm (..), VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
-import Corvus.Qemu.Netns.Manager (createBridge, destroyBridge, startDnsmasq, stopDnsmasq)
+import Corvus.Qemu.Netns.Manager (addNatRule, createBridge, destroyBridge, removeNatRule, startDnsmasq, stopDnsmasq)
 import Corvus.Types (ServerState (..), runServerLogging)
 import Corvus.Utils.Subnet (validateSubnet)
 import Data.Int (Int64)
@@ -35,8 +35,8 @@ import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 --------------------------------------------------------------------------------
 
 -- | Create a new virtual network
-handleNetworkCreate :: ServerState -> Text -> Text -> Bool -> IO Response
-handleNetworkCreate state name subnet dhcp =
+handleNetworkCreate :: ServerState -> Text -> Text -> Bool -> Bool -> IO Response
+handleNetworkCreate state name subnet dhcp nat =
   case validateName "Network" name of
     Left err -> pure $ RespNetworkError err
     Right () -> do
@@ -47,24 +47,28 @@ handleNetworkCreate state name subnet dhcp =
       case validatedSubnet of
         Left err -> pure $ RespNetworkError $ "Invalid subnet: " <> err
         Right normalizedSubnet -> do
-          -- DHCP requires a subnet
+          -- DHCP requires a subnet; NAT requires a subnet
           if dhcp && T.null normalizedSubnet
             then pure $ RespNetworkError "DHCP requires a subnet"
-            else do
-              now <- getCurrentTime
-              let network =
-                    Network
-                      { networkName = name
-                      , networkSubnet = normalizedSubnet
-                      , networkDhcp = dhcp
-                      , networkRunning = False
-                      , networkDnsmasqPid = Nothing
-                      , networkCreatedAt = now
-                      }
-              result <- runSqlPool (insertUnique network) (ssDbPool state)
-              case result of
-                Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
-                Just key -> pure $ RespNetworkCreated $ fromSqlKey key
+            else
+              if nat && T.null normalizedSubnet
+                then pure $ RespNetworkError "NAT requires a subnet"
+                else do
+                  now <- getCurrentTime
+                  let network =
+                        Network
+                          { networkName = name
+                          , networkSubnet = normalizedSubnet
+                          , networkDhcp = dhcp
+                          , networkNat = nat
+                          , networkRunning = False
+                          , networkDnsmasqPid = Nothing
+                          , networkCreatedAt = now
+                          }
+                  result <- runSqlPool (insertUnique network) (ssDbPool state)
+                  case result of
+                    Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
+                    Just key -> pure $ RespNetworkCreated $ fromSqlKey key
 
 -- | Delete a virtual network
 handleNetworkDelete :: ServerState -> Int64 -> IO Response
@@ -118,10 +122,22 @@ handleNetworkStart state networkId = runServerLogging state $ do
                   logWarnN $ "Failed to create bridge for network " <> T.pack (show networkId) <> ": " <> err
                   pure $ RespNetworkError err
                 Right () -> do
+                  -- Add NAT rules if enabled
+                  when (networkNat network && not (T.null (networkSubnet network))) $ do
+                    mPastaPid <- liftIO $ readTVarIO (ssPastaPid state)
+                    case mPastaPid of
+                      Nothing ->
+                        logWarnN $ "NAT enabled but pasta is not running for network " <> T.pack (show networkId)
+                      Just _ -> do
+                        natResult <- liftIO $ addNatRule nsPid (ssQemuConfig state) networkId (networkSubnet network)
+                        case natResult of
+                          Left err -> logWarnN $ "Failed to add NAT rules for network " <> T.pack (show networkId) <> ": " <> err
+                          Right () -> logInfoN $ "NAT rules added for network " <> T.pack (show networkId)
+
                   -- Start dnsmasq if DHCP is enabled
                   if networkDhcp network && not (T.null (networkSubnet network))
                     then do
-                      dnsmasqResult <- liftIO $ startDnsmasq nsPid (ssQemuConfig state) networkId (networkSubnet network)
+                      dnsmasqResult <- liftIO $ startDnsmasq nsPid (ssQemuConfig state) networkId (networkSubnet network) (networkNat network)
                       case dnsmasqResult of
                         Left err -> do
                           logWarnN $ "Failed to start dnsmasq for network " <> T.pack (show networkId) <> ": " <> err
@@ -168,6 +184,16 @@ handleNetworkStop state networkId force = runServerLogging state $ do
     doStop key network = do
       logInfoN $ "Stopping network " <> T.pack (show networkId)
       mNsPid <- liftIO $ readTVarIO (ssNamespacePid state)
+
+      -- Remove NAT rules if enabled
+      when (networkNat network) $ do
+        case mNsPid of
+          Just nsPid -> do
+            natResult <- liftIO $ removeNatRule nsPid (ssQemuConfig state) networkId
+            case natResult of
+              Left err -> logWarnN $ "Failed to remove NAT rules: " <> err
+              Right () -> logInfoN $ "NAT rules removed for network " <> T.pack (show networkId)
+          Nothing -> pure ()
 
       -- Stop dnsmasq if running
       case networkDnsmasqPid network of
@@ -238,6 +264,7 @@ toNetworkInfoWith nwId network =
     , nwiName = networkName network
     , nwiSubnet = networkSubnet network
     , nwiDhcp = networkDhcp network
+    , nwiNat = networkNat network
     , nwiRunning = networkRunning network
     , nwiDnsmasqPid = networkDnsmasqPid network
     , nwiCreatedAt = networkCreatedAt network

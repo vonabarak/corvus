@@ -344,7 +344,7 @@ runCommand opts = do
       TemplateShow tRef -> handleTemplateShow fmt conn tRef
       TemplateInstantiate tRef name -> handleTemplateInstantiate fmt conn tRef name
       -- Network commands
-      NetworkCreate name subnet dhcp -> handleNetworkCreate fmt conn name subnet dhcp
+      NetworkCreate name subnet dhcp nat -> handleNetworkCreate fmt conn name subnet dhcp nat
       NetworkDelete nwRef -> handleNetworkDelete fmt conn nwRef
       NetworkStart nwRef -> handleNetworkStart fmt conn nwRef
       NetworkStop nwRef force -> handleNetworkStop fmt conn nwRef force

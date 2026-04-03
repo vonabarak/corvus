@@ -174,7 +174,7 @@ dispatchRequest state req = case req of
   ReqTemplateShow tRef -> withTemplate tRef $ \tid -> handleTemplateShow state tid
   ReqTemplateInstantiate tRef name -> withTemplate tRef $ \tid -> handleTemplateInstantiate state tid name
   -- Network handlers
-  ReqNetworkCreate name subnet dhcp -> handleNetworkCreate state name subnet dhcp
+  ReqNetworkCreate name subnet dhcp nat -> handleNetworkCreate state name subnet dhcp nat
   ReqNetworkDelete nwRef -> withNetwork nwRef $ \nwId -> handleNetworkDelete state nwId
   ReqNetworkStart nwRef -> withNetwork nwRef $ \nwId -> handleNetworkStart state nwId
   ReqNetworkStop nwRef force -> withNetwork nwRef $ \nwId -> handleNetworkStop state nwId force
@@ -428,7 +428,7 @@ classifyRequest = \case
   ReqTemplateList -> (SubTemplate, "list", Nothing)
   ReqTemplateShow ref -> (SubTemplate, "show", Just ref)
   ReqTemplateInstantiate ref name -> (SubTemplate, "instantiate", Just ref)
-  ReqNetworkCreate name _ _ -> (SubNetwork, "create", Just (Ref name))
+  ReqNetworkCreate name _ _ _ -> (SubNetwork, "create", Just (Ref name))
   ReqNetworkDelete ref -> (SubNetwork, "delete", Just ref)
   ReqNetworkStart ref -> (SubNetwork, "start", Just ref)
   ReqNetworkStop ref _ -> (SubNetwork, "stop", Just ref)

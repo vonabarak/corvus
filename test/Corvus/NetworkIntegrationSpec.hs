@@ -18,7 +18,7 @@ import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (VmConfig (..), defaultVmConfig, withTestVmOnDaemon)
 import Test.VM.Daemon (withTestDaemon)
-import Test.VM.Rpc (createNetwork, createNetworkWithSubnet, deleteNetwork, showNetwork, startNetwork, stopNetwork)
+import Test.VM.Rpc (createNetwork, createNetworkWithNat, createNetworkWithSubnet, deleteNetwork, showNetwork, startNetwork, stopNetwork)
 import Test.VM.Ssh (runInTestVm, runInTestVm_)
 
 spec :: Spec
@@ -160,6 +160,27 @@ spec = withTestDb $ do
           -- (regression test: namespace manager SIGTERM must not propagate to daemon)
           nwCheck <- createNetwork daemon "daemon-alive-check"
           deleteNetwork daemon nwCheck
+
+    describe "NAT" $ do
+      it "VM on a NAT-enabled network can reach the internet" $ \env -> do
+        withTestDaemon env $ \daemon -> do
+          bracket
+            (do nwId <- createNetworkWithNat daemon "test-nat" "10.77.0.0/24"; startNetwork daemon nwId; pure nwId)
+            (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
+            $ \nwId -> do
+              let config = defaultVmConfig {vmcNetworkId = Just nwId}
+              withTestVmOnDaemon daemon config $ \vm -> do
+                -- Request DHCP on the managed interface (eth1)
+                runInTestVm_ vm "doas sh -c 'ip link set eth1 up && udhcpc -i eth1 -n -q'"
+
+                -- Verify the VM got an address from the subnet
+                (_, ipRaw, _) <- runInTestVm vm "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
+                let ip = T.strip ipRaw
+                ip `shouldSatisfy` ("10.77.0." `T.isPrefixOf`)
+
+                -- Verify the VM can reach the internet (ping Google DNS)
+                (codePing, _, _) <- runInTestVm vm "ping -c 3 -W 5 8.8.8.8"
+                codePing `shouldBe` ExitSuccess
 
 -- | Wait for a process to exit, polling every 100ms up to n retries.
 waitForProcessExit :: Int -> Int -> IO ()

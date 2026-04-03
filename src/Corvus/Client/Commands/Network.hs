@@ -23,9 +23,9 @@ import qualified Data.Text as T
 import Text.Printf (printf)
 
 -- | Handle network create command
-handleNetworkCreate :: OutputFormat -> Connection -> Text -> Text -> Bool -> IO Bool
-handleNetworkCreate fmt conn name subnet dhcp = do
-  resp <- networkCreate conn name subnet dhcp
+handleNetworkCreate :: OutputFormat -> Connection -> Text -> Text -> Bool -> Bool -> IO Bool
+handleNetworkCreate fmt conn name subnet dhcp nat = do
+  resp <- networkCreate conn name subnet dhcp nat
   case resp of
     Left err -> do
       if isStructured fmt
@@ -173,7 +173,7 @@ handleNetworkList fmt conn = do
           if null networks
             then putStrLn "No networks found."
             else do
-              printTableHeader [("ID", -5), ("NAME", -20), ("SUBNET", -18), ("DHCP", -6), ("STATUS", -10)]
+              printTableHeader [("ID", -5), ("NAME", -20), ("SUBNET", -18), ("DHCP", -6), ("NAT", -5), ("STATUS", -10)]
               mapM_ printNetworkInfo networks
       pure True
     Right other -> do
@@ -202,6 +202,7 @@ handleNetworkShow fmt conn nwRef = do
           unless (T.null sub) $
             printField "Subnet" (T.unpack sub)
           printField "DHCP" (if nwiDhcp info then "enabled" else "disabled")
+          printField "NAT" (if nwiNat info then "enabled" else "disabled")
           printField "Status" (if nwiRunning info then "running" else "stopped")
           case nwiDnsmasqPid info of
             Just pid -> printField "DHCP PID" (show pid)
@@ -222,9 +223,10 @@ handleNetworkShow fmt conn nwRef = do
 printNetworkInfo :: NetworkInfo -> IO ()
 printNetworkInfo info =
   printf
-    "%-5d %-20s %-18s %-6s %-10s\n"
+    "%-5d %-20s %-18s %-6s %-5s %-10s\n"
     (nwiId info)
     (T.unpack $ nwiName info)
     (let s = nwiSubnet info in if T.null s then "-" :: String else T.unpack s)
     (if nwiDhcp info then "yes" :: String else "no")
+    (if nwiNat info then "yes" :: String else "no")
     (if nwiRunning info then "running" :: String else "stopped")

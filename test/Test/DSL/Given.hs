@@ -303,6 +303,7 @@ insertNetwork name subnet = do
           { networkName = name
           , networkSubnet = subnet
           , networkDhcp = False
+          , networkNat = False
           , networkRunning = False
           , networkDnsmasqPid = Nothing
           , networkCreatedAt = now

@@ -39,6 +39,7 @@ module Test.VM.Rpc
     -- * Virtual network management
   , createNetwork
   , createNetworkWithSubnet
+  , createNetworkWithNat
   , deleteNetwork
   , startNetwork
   , stopNetwork
@@ -301,7 +302,7 @@ cleanupSshKey daemon keyId = do
 createNetwork :: TestDaemon -> Text -> IO Int64
 createNetwork daemon name = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name "" False
+    networkCreate conn name "" False False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error creating network: " <> show err
@@ -313,7 +314,19 @@ createNetwork daemon name = do
 createNetworkWithSubnet :: TestDaemon -> Text -> Text -> IO Int64
 createNetworkWithSubnet daemon name subnet = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name subnet True
+    networkCreate conn name subnet True False
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "Connection error creating network: " <> show err
+    Right (Right (NetworkCreated nwId)) -> pure nwId
+    Right (Right (NetworkError msg)) -> fail $ "Failed to create network: " <> T.unpack msg
+    Right (Right other) -> fail $ "Unexpected response creating network: " <> show other
+
+-- | Create a virtual network with subnet, DHCP, and NAT via daemon RPC
+createNetworkWithNat :: TestDaemon -> Text -> Text -> IO Int64
+createNetworkWithNat daemon name subnet = do
+  result <- withDaemonConnection daemon $ \conn ->
+    networkCreate conn name subnet True True
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error creating network: " <> show err

@@ -149,8 +149,8 @@ data Command
     TemplateInstantiate !Text !Text
   | -- Virtual network commands
 
-    -- | Create a virtual network (name, subnet, dhcp)
-    NetworkCreate !Text !Text !Bool
+    -- | Create a virtual network (name, subnet, dhcp, nat)
+    NetworkCreate !Text !Text !Bool !Bool
   | -- | Delete a virtual network (networkRef)
     NetworkDelete !Text
   | -- | Start a virtual network (networkRef)

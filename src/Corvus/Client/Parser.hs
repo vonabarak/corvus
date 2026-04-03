@@ -1084,6 +1084,10 @@ networkCreateCommand =
       ( long "dhcp"
           <> help "Enable DHCP (starts dnsmasq when network is running)"
       )
+    <*> switch
+      ( long "nat"
+          <> help "Enable NAT (provides internet access via host network)"
+      )
 
 -- | Parser for network delete
 networkDeleteCommand :: Parser Command

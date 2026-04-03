@@ -45,6 +45,8 @@ data ServerState = ServerState
   -- ^ Minimum log level for handler logging
   , ssNamespacePid :: TVar (Maybe Int)
   -- ^ PID of the global network namespace manager
+  , ssPastaPid :: TVar (Maybe Int)
+  -- ^ PID of the pasta process (for NAT)
   }
 
 -- | Create a new server state
@@ -54,6 +56,7 @@ newServerState pool qemuConfig = do
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
   namespacePid <- newTVarIO Nothing
+  pastaPid <- newTVarIO Nothing
   pure
     ServerState
       { ssStartTime = startTime
@@ -63,6 +66,7 @@ newServerState pool qemuConfig = do
       , ssQemuConfig = qemuConfig
       , ssLogLevel = LevelInfo
       , ssNamespacePid = namespacePid
+      , ssPastaPid = pastaPid
       }
 
 -- | Run a LoggingT action filtered to the server's minimum log level
