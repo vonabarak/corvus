@@ -123,25 +123,8 @@ generateMetaData config =
         local-hostname: #{ciHostname config}
       |]
 
--- | Generate network-config for cloud-init.
--- Enables DHCP on all ethernet interfaces so managed network interfaces
--- get IP addresses automatically.
-generateNetworkConfig :: Text
-generateNetworkConfig =
-  T.decodeUtf8 $
-    Yaml.encode
-      [yamlQQ|
-        version: 2
-        ethernets:
-          allnics:
-            match:
-              name: "e*"
-            dhcp4: true
-            dhcp6: true
-      |]
-
 -- | Generate a cloud-init NoCloud ISO image with multiple SSH keys.
--- The ISO contains user-data, meta-data, and network-config files.
+-- The ISO contains user-data and meta-data files.
 -- Returns the path to the generated ISO, or an error message.
 generateCloudInitIso :: FilePath -> CloudInitConfig -> [Text] -> IO (Either Text FilePath)
 generateCloudInitIso targetDir config sshPubKeys = do
@@ -150,15 +133,13 @@ generateCloudInitIso targetDir config sshPubKeys = do
 
   let userDataPath = targetDir </> "user-data"
       metaDataPath = targetDir </> "meta-data"
-      networkConfigPath = targetDir </> "network-config"
       isoPath = targetDir </> "cloud-init.iso"
 
   -- Write cloud-init files
   TIO.writeFile userDataPath (generateUserData config sshPubKeys)
   TIO.writeFile metaDataPath (generateMetaData config)
-  TIO.writeFile networkConfigPath generateNetworkConfig
 
-  let inputFiles = [userDataPath, metaDataPath, networkConfigPath]
+  let inputFiles = [userDataPath, metaDataPath]
 
   -- Try genisoimage first, fall back to mkisofs
   result <- tryGenIsoImage inputFiles isoPath
