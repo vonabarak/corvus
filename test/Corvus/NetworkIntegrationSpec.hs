@@ -170,18 +170,19 @@ spec = withTestDb $ do
             $ \nwId -> do
               let config = defaultVmConfig {vmcNetworkId = Just nwId}
               withTestVmOnDaemon daemon config $ \vm -> do
-                -- Request DHCP on the managed interface (eth1)
-                runInTestVm_ vm "doas sh -c 'ip link set eth1 up && udhcpc -i eth1 -n -q'"
+                -- Request DHCP on the managed interface (eth1).
+                -- Use -b to background udhcpc so it keeps the lease and routes.
+                runInTestVm_ vm "doas sh -c 'ip link set eth1 up && udhcpc -i eth1 -n -b'"
 
                 -- Verify the VM got an address from the subnet
                 (_, ipRaw, _) <- runInTestVm vm "ip -4 -o addr show eth1 | awk '{print $4}' | cut -d/ -f1"
                 let ip = T.strip ipRaw
                 ip `shouldSatisfy` ("10.77.0." `T.isPrefixOf`)
 
-                -- Replace default route with eth1's gateway to force all
-                -- outbound traffic through the managed NAT network, not the
-                -- user-mode NIC. This ensures ping and DNS actually test NAT.
-                runInTestVm_ vm "doas sh -c 'ip route replace default via 10.77.0.1 dev eth1'"
+                -- Replace default route to force traffic through the managed
+                -- NAT network. SSH still works because QEMU user-mode networking
+                -- handles return traffic internally via slirp NAT.
+                runInTestVm_ vm "doas ip route replace default via 10.77.0.1 dev eth1"
 
                 -- Verify the VM can reach the internet via the managed interface
                 (codePing, _, _) <- runInTestVm vm "ping -c 3 -W 5 8.8.8.8"

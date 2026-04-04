@@ -230,7 +230,7 @@ startTestNamespace state = do
         Right pastaPid -> do
           atomically $ writeTVar (ssPastaPid state) (Just pastaPid)
           -- Wait for pasta0 interface to appear
-          waitForPastaInterface pid 20
+          waitForPastaInterface pid 50
           -- Enable IP forwarding and set up NAT table
           _ <- enableIpForwarding pid
           _ <- setupNatTable pid (ssQemuConfig state)

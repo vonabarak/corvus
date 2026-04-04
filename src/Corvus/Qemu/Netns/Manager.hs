@@ -39,9 +39,10 @@ import Data.List (intercalate, isPrefixOf)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import System.Exit (ExitCode (..))
 import System.Posix.Files (ownerExecuteMode, ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
 import System.Posix.Signals (sigTERM, signalProcess)
-import System.Process (CreateProcess (..), StdStream (..), createProcess, getPid, proc)
+import System.Process (CreateProcess (..), StdStream (..), createProcess, getPid, proc, readProcessWithExitCode)
 
 --------------------------------------------------------------------------------
 -- Bridge lifecycle
@@ -105,19 +106,22 @@ startDnsmasq nsPid config networkId subnet nat = do
       let bridge = getBridgeName networkId
           dnsmasqBin = qcDnsmasqBinary config
           interfaceArg = "--interface=" <> bridge
+          listenArg = "--listen-address=" <> T.unpack gw
           rangeArg = "--dhcp-range=" <> T.unpack rangeStart <> "," <> T.unpack rangeEnd <> "," <> T.unpack mask <> ",12h"
           leaseArg = "--dhcp-leasefile=" <> leaseFile
-      -- When NAT is enabled, advertise public DNS servers to DHCP clients.
-      -- We use --port=0 (DHCP only, no DNS server) because pasta's DNS
-      -- forwarder occupies port 53 in the namespace.
-      dnsArgs <-
+      -- When NAT is enabled, forward DNS to the host via pasta's gateway
+      -- mapping. pasta maps the pasta0 gateway address to the host, so
+      -- dnsmasq can reach host DNS (including VPN resolvers) through it.
+      serverArgs <-
         if nat
           then do
-            servers <- readHostDnsServers
-            -- Use host DNS if non-loopback, otherwise fall back to public DNS
-            let usable = filter (not . isLoopback) servers
-                dns = if null usable then ["8.8.8.8", "8.8.4.4"] else usable
-            pure ["--dhcp-option=6," <> intercalate "," dns]
+            mPastaGw <- getPastaGateway nsPid
+            case mPastaGw of
+              Just pastaGw ->
+                pure ["--no-resolv", "--server=" <> pastaGw]
+              Nothing -> do
+                -- Fallback: use public DNS if pasta gateway unavailable
+                pure ["--no-resolv", "--server=8.8.8.8", "--server=8.8.4.4"]
           else pure []
       nsSpawn
         nsPid
@@ -125,14 +129,14 @@ startDnsmasq nsPid config networkId subnet nat = do
           , "--conf-file=/dev/null"
           , "--bind-dynamic"
           , interfaceArg
+          , listenArg
           , "--except-interface=lo"
-          , "--port=0"
           , rangeArg
           , "--keep-in-foreground"
           , "--no-hosts"
           , leaseArg
           ]
-            ++ dnsArgs
+            ++ serverArgs
         )
 
 -- | Stop a dnsmasq process by PID.
@@ -177,6 +181,9 @@ writeTapUpScript config networkId = do
 startPasta :: Int -> QemuConfig -> IO (Either Text Int)
 startPasta nsPid config = do
   let pastaBin = qcPastaBinary config
+      -- Disable TCP/UDP port forwarding and pasta's built-in DNS forwarder
+      -- so dnsmasq can bind port 53 on bridge interfaces.
+      -- pasta still provides the NAT uplink via pasta0.
       pastaArgs =
         [ "--config-net"
         , "--ns-ifname"
@@ -185,6 +192,8 @@ startPasta nsPid config = do
         , "none"
         , "-u"
         , "none"
+        , "-D"
+        , ""
         , "-f"
         , show nsPid
         ]
@@ -300,6 +309,36 @@ readHostDnsServers = do
       case words line of
         ("nameserver" : ip : _) -> Just ip
         _ -> Nothing
+
+-- | Get the pasta0 interface's default gateway inside the namespace.
+-- pasta maps this gateway to the host via --map-host-loopback, so it
+-- can be used to reach host services (DNS, etc.) from the namespace.
+getPastaGateway :: Int -> IO (Maybe String)
+getPastaGateway nsPid = do
+  result <- try $ nsExecCapture nsPid ["ip", "route", "show", "dev", "pasta0"] :: IO (Either SomeException (Either T.Text String))
+  case result of
+    Right (Right output) ->
+      case mapMaybe parseGateway (lines output) of
+        (gw : _) -> pure $ Just gw
+        [] -> pure Nothing
+    _ -> pure Nothing
+  where
+    parseGateway line = case words line of
+      ("default" : "via" : gw : _) -> Just gw
+      _ -> Nothing
+
+-- | Like nsExec but captures stdout instead of inheriting it.
+nsExecCapture :: Int -> [String] -> IO (Either T.Text String)
+nsExecCapture nsPid args = do
+  let argsStr = unwords (map quote args)
+      cmd = "nsenter --user --net --uts --preserve-credentials --target " <> show nsPid <> " -- " <> argsStr
+  result <- try $ readProcessWithExitCode "sh" ["-c", cmd] ""
+  case result of
+    Left (err :: SomeException) -> pure $ Left $ T.pack $ show err
+    Right (ExitSuccess, stdout, _) -> pure $ Right stdout
+    Right (ExitFailure _, _, stderr) -> pure $ Left $ T.pack stderr
+  where
+    quote s = "'" <> concatMap (\c -> if c == '\'' then "'\\''" else [c]) s <> "'"
 
 -- | Check if an IP address is a loopback address (127.x.x.x or ::1)
 isLoopback :: String -> Bool
