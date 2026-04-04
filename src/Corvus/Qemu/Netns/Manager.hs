@@ -29,7 +29,6 @@ module Corvus.Qemu.Netns.Manager
   )
 where
 
-import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Corvus.Qemu.Config (QemuConfig (..))
 import Corvus.Qemu.Netns (nsExec, nsSpawn)
@@ -42,7 +41,7 @@ import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import System.Posix.Files (ownerExecuteMode, ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
 import System.Posix.Signals (sigTERM, signalProcess)
-import System.Process (CreateProcess (..), StdStream (..), createProcess, getPid, getProcessExitCode, proc, readProcessWithExitCode)
+import System.Process (CreateProcess (..), StdStream (..), createProcess, getPid, proc, readProcessWithExitCode)
 
 --------------------------------------------------------------------------------
 -- Bridge lifecycle
@@ -179,52 +178,42 @@ writeTapUpScript config networkId = do
 -- pasta runs on the host (not inside the namespace) because it needs
 -- access to the host's network stack to bridge traffic.
 --
--- Newer pasta versions (>= 2025) enable a DNS forwarder that binds port 53
--- inside the namespace, conflicting with dnsmasq. We disable it with @-D ""@.
--- Older versions reject the empty DNS argument, so we retry without it if
--- pasta exits immediately.
+-- All port forwarding is disabled (@-t none -u none -T none -U none@) so
+-- pasta doesn't bind host listening ports (SSH, DNS, etc.) on loopback
+-- inside the namespace. This avoids port 53 conflicts with dnsmasq.
+-- pasta still provides the NAT uplink via the pasta0 TAP interface.
 startPasta :: Int -> QemuConfig -> IO (Either Text Int)
 startPasta nsPid config = do
-  -- Try with -D "" first (disables DNS forwarder on newer pasta)
-  result <- tryPasta True
+  let pastaBin = qcPastaBinary config
+      pastaArgs =
+        [ "--config-net"
+        , "--ns-ifname"
+        , "pasta0"
+        , "-t"
+        , "none"
+        , "-u"
+        , "none"
+        , "-T"
+        , "none"
+        , "-U"
+        , "none"
+        , "-f"
+        , show nsPid
+        ]
+      cp =
+        (proc pastaBin pastaArgs)
+          { std_out = CreatePipe
+          , std_err = CreatePipe
+          }
+  result <- try $ createProcess cp
   case result of
-    Right pid -> pure $ Right pid
-    Left _ -> tryPasta False
-  where
-    tryPasta :: Bool -> IO (Either Text Int)
-    tryPasta disableDns = do
-      let pastaBin = qcPastaBinary config
-          baseArgs =
-            [ "--config-net"
-            , "--ns-ifname"
-            , "pasta0"
-            , "-t"
-            , "none"
-            , "-u"
-            , "none"
-            ]
-          dnsArgs = if disableDns then ["-D", ""] else []
-          pastaArgs = baseArgs ++ dnsArgs ++ ["-f", show nsPid]
-          cp =
-            (proc pastaBin pastaArgs)
-              { std_out = CreatePipe
-              , std_err = CreatePipe
-              }
-      result <- try $ createProcess cp
-      case result of
-        Left (err :: SomeException) ->
-          pure $ Left $ "Failed to start pasta: " <> T.pack (show err)
-        Right (_, _, _, ph) -> do
-          mPid <- getPid ph
-          case mPid of
-            Nothing -> pure $ Left "Failed to get pasta PID"
-            Just pid -> do
-              -- Brief pause to check if pasta exits immediately (bad args)
-              threadDelay 200000
-              mExit <- getProcessExitCode ph
-              case mExit of
-                Just _ -> pure $ Left "pasta exited immediately"
-                Nothing -> pure $ Right (fromIntegral pid)
+    Left (err :: SomeException) ->
+      pure $ Left $ "Failed to start pasta: " <> T.pack (show err)
+    Right (_, _, _, ph) -> do
+      mPid <- getPid ph
+      case mPid of
+        Just pid -> pure $ Right (fromIntegral pid)
+        Nothing -> pure $ Left "Failed to get pasta PID"
 
 -- | Stop pasta by PID.
 stopPasta :: Int -> IO ()

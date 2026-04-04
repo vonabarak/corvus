@@ -16,7 +16,8 @@ disks:
     format: raw
 
   - name: ubuntu-24.04-server-cloudimg-amd64
-    import: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+#    import: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    import: "ubuntu-24.04-server-cloudimg-amd64.img"
     format: qcow2
 
   - name: ubuntu24
@@ -27,11 +28,11 @@ disks:
     clone: ovmf-vars
     path: ubuntu24/
 
-networks:
-  - name: vnet1
-    dhcp: true
-    nat: true
-    subnet: "192.168.92.0/24"
+#networks:
+#  - name: vnet1
+#    dhcp: true
+#    nat: true
+#    subnet: "192.168.92.0/24"
 
 vms:
   - name: ubuntu24
@@ -56,4 +57,4 @@ vms:
     networkInterfaces:
       - type: vde
         hostDevice: /run/vde2/switch.ctl
-      - network: vnet1
+#      - network: vnet1
