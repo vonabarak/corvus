@@ -19,7 +19,7 @@ A configuration file has four top-level sections, all optional:
 ```yaml
 sshKeys:    [...]   # SSH public keys for cloud-init injection
 disks:      [...]   # Disk images (import, create, or overlay)
-networks:   [...]   # VDE virtual networks
+networks:   [...]   # Virtual networks (bridge/TAP in daemon namespace)
 vms:        [...]   # Virtual machines with drives, NICs, shared dirs
 ```
 
@@ -210,10 +210,16 @@ disks:
 ```yaml
 networks:
   - name: <string>           # Required. Unique name for the network.
-    subnet: <string>          # Required. CIDR subnet (e.g., "10.0.1.0/24").
+    subnet: <string>          # Optional. CIDR subnet (e.g., "10.0.1.0/24").
+    dhcp: <boolean>           # Optional. Default: false. Enable DHCP via dnsmasq.
+    nat: <boolean>            # Optional. Default: false. Enable NAT to host network.
 ```
 
-Creates a VDE virtual network. The network must be started separately with `crv network start <id>` after apply completes — apply only creates the database record. When started, the daemon launches a VDE switch and dnsmasq for DHCP/DNS on the specified subnet.
+Creates a virtual network using bridge/TAP devices inside the daemon's network namespace. The network must be started separately with `crv network start <name>` after apply completes — apply only creates the database record.
+
+When started, the daemon creates a bridge interface in its namespace. If `dhcp` is enabled, it starts dnsmasq on the bridge to provide DHCP and DNS for connected VMs. If `nat` is enabled, nftables MASQUERADE rules are added so VMs can reach the internet through the host via pasta.
+
+Both `dhcp` and `nat` require a `subnet` to be specified. A network without a subnet creates a bridge-only L2 network (VMs can communicate with each other using static IPs).
 
 Networks declared here can be referenced by name in `networkInterfaces` entries of VMs in the same file.
 
@@ -221,10 +227,20 @@ Networks declared here can be referenced by name in `networkInterfaces` entries 
 
 ```yaml
 networks:
-  - name: lab-net
+  # Bridge-only network (no DHCP, no NAT — use static IPs)
+  - name: internal
     subnet: "10.0.1.0/24"
-  - name: dmz
+
+  # Network with DHCP (VMs get addresses automatically)
+  - name: lab-net
     subnet: "10.0.2.0/24"
+    dhcp: true
+
+  # Network with DHCP and NAT (VMs can reach the internet)
+  - name: internet
+    subnet: "10.0.3.0/24"
+    dhcp: true
+    nat: true
 ```
 
 ## Virtual Machines
@@ -290,23 +306,26 @@ VMs are created in `stopped` state. Start them with `crv vm start <id>` after ap
 
 ```yaml
     networkInterfaces:
-      - type: <string>          # Required. Network type.
-        hostDevice: <string>    # Optional. Host device path (for tap/bridge/vde without managed network).
-        network: <string>       # Optional. Name of a managed virtual network.
+      - network: <string>       # Option A: Name of a managed virtual network (type defaults to "managed").
+      - type: <string>          # Option B: Explicit network type.
+        hostDevice: <string>    # Host device path or QEMU netdev options (for non-managed types).
         mac: <string>           # Optional. MAC address (auto-generated if omitted).
 ```
+
+When `network` is specified, the interface type is automatically set to `managed` — you should not specify `type` explicitly (it is a validation error to specify a type other than `managed` when `network` is present).
 
 **`type`** values:
 
 | Value | Description |
 |-------|-------------|
-| `user` | QEMU user-mode networking (NAT, no host device needed) |
-| `vde` | VDE virtual switch (use with `network` for managed networks) |
-| `tap` | TAP device (requires pre-configured host device) |
-| `bridge` | Bridge device (requires pre-configured host bridge) |
-| `macvtap` | MACVTAP device |
+| `managed` | Managed virtual network (bridge/TAP in daemon namespace). Set automatically when `network` is specified. |
+| `user` | QEMU user-mode networking (built-in NAT, no host device needed). |
+| `vde` | External VDE virtual switch (specify `hostDevice` as VDE socket path). |
+| `tap` | TAP device (requires pre-configured host device). |
+| `bridge` | Bridge device (requires pre-configured host bridge). |
+| `macvtap` | MACVTAP device. |
 
-For `vde` interfaces, specify either `network` (name of a managed network from this file or DB) or `hostDevice` (raw VDE switch control path). When `network` is specified, the host device is configured automatically when the network is started.
+For `managed` interfaces, the daemon creates a TAP device inside its network namespace and passes the file descriptor to QEMU. The VM's NIC is automatically connected to the network's bridge.
 
 A MAC address is generated automatically for each interface unless `mac` is specified. Use explicit MAC addresses when you need reproducible network configurations or specific addressing.
 
@@ -443,6 +462,8 @@ disks:
 networks:
   - name: lab-net
     subnet: "10.0.1.0/24"
+    dhcp: true
+    nat: true
 
 vms:
   - name: web-server
@@ -466,8 +487,7 @@ vms:
         cacheType: writeback
         discard: true
     networkInterfaces:
-      - type: vde
-        network: lab-net
+      - network: lab-net
       - type: user
     sharedDirs:
       - path: /home/user/www
@@ -482,6 +502,6 @@ After applying:
 
 ```bash
 crv apply environment.yml         # Create everything
-crv network start 1               # Start the VDE network
-crv vm start 5                    # Start the VM
+crv network start lab-net         # Start the virtual network
+crv vm start web-server           # Start the VM
 ```

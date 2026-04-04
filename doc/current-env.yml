@@ -101,8 +101,7 @@ vms:
       - type: vde
         hostDevice: /run/vde2/switch.ctl
         mac: 52:54:00:48:38:38
-      - type: vde
-        network: vnet1
+      - network: vnet1
     sshKeys:
       - corvus
 

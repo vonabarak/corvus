@@ -101,7 +101,9 @@ startDnsmasq nsPid config networkId subnet nat = do
   case (,,,,) <$> gatewayAddress subnet <*> prefixLength subnet <*> dhcpRangeStart subnet <*> dhcpRangeEnd subnet <*> subnetMask subnet of
     Left err -> pure $ Left $ "Subnet error: " <> err
     Right (gw, _prefix, rangeStart, rangeEnd, mask) -> do
-      let dnsmasqBin = qcDnsmasqBinary config
+      let bridge = getBridgeName networkId
+          dnsmasqBin = qcDnsmasqBinary config
+          interfaceArg = "--interface=" <> bridge
           listenArg = "--listen-address=" <> T.unpack gw
           rangeArg = "--dhcp-range=" <> T.unpack rangeStart <> "," <> T.unpack rangeEnd <> "," <> T.unpack mask <> ",12h"
           leaseArg = "--dhcp-leasefile=" <> leaseFile
@@ -110,13 +112,18 @@ startDnsmasq nsPid config networkId subnet nat = do
         if nat
           then map ("--server=" <>) <$> readHostDnsServers
           else pure []
+      -- Use --port=0 to disable DNS server (avoids port 53 conflict with pasta).
+      -- Advertise the gateway as DNS server via DHCP option 6, so VMs can
+      -- resolve names through pasta's forwarded DNS.
       nsSpawn
         nsPid
         ( [ dnsmasqBin
           , "--conf-file=/dev/null"
-          , "--bind-interfaces"
+          , "--bind-dynamic"
+          , interfaceArg
           , listenArg
           , "--except-interface=lo"
+          , "--port=0"
           , rangeArg
           , "--keep-in-foreground"
           , "--no-hosts"

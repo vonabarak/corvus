@@ -965,8 +965,8 @@ createOneVmAttachments state keyMap diskMap nwMap v vmId = do
           case keyResult of
             Left err -> pure $ Left err
             Right () -> do
-              -- Generate cloud-init ISO only if cloud-init enabled and SSH keys present
-              when (effectiveCloudInit v && not (null (avSshKeys v))) $ do
+              -- Generate cloud-init ISO if cloud-init is enabled
+              when (effectiveCloudInit v) $ do
                 _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (avName v) (ssLogLevel state)
                 pure ()
               pure $ Right $ fromSqlKey vmId
