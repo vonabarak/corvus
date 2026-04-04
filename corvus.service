@@ -7,7 +7,7 @@ Type=exec
 # Uses Unix socket by default: $XDG_RUNTIME_DIR/corvus/corvus.sock
 ExecStart=%h/.local/bin/corvus \
     --database postgresql://localhost/corvus \
-    --log-level debug
+    --log-level warn
 
 Restart=always
 RestartSec=5

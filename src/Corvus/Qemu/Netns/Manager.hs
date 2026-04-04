@@ -29,20 +29,20 @@ module Corvus.Qemu.Netns.Manager
   )
 where
 
+import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Corvus.Qemu.Config (QemuConfig (..))
 import Corvus.Qemu.Netns (nsExec, nsSpawn)
 import Corvus.Qemu.Runtime (createNetworkRuntimeDir, getBridgeName, getDnsmasqLeaseFile, getTapUpScript)
 import Corvus.Utils.Subnet (dhcpRangeEnd, dhcpRangeStart, gatewayAddress, prefixLength, subnetMask)
 import Data.Int (Int64)
-import Data.List (intercalate, isPrefixOf)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import System.Posix.Files (ownerExecuteMode, ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
 import System.Posix.Signals (sigTERM, signalProcess)
-import System.Process (CreateProcess (..), StdStream (..), createProcess, getPid, proc, readProcessWithExitCode)
+import System.Process (CreateProcess (..), StdStream (..), createProcess, getPid, getProcessExitCode, proc, readProcessWithExitCode)
 
 --------------------------------------------------------------------------------
 -- Bridge lifecycle
@@ -178,39 +178,53 @@ writeTapUpScript config networkId = do
 --
 -- pasta runs on the host (not inside the namespace) because it needs
 -- access to the host's network stack to bridge traffic.
+--
+-- Newer pasta versions (>= 2025) enable a DNS forwarder that binds port 53
+-- inside the namespace, conflicting with dnsmasq. We disable it with @-D ""@.
+-- Older versions reject the empty DNS argument, so we retry without it if
+-- pasta exits immediately.
 startPasta :: Int -> QemuConfig -> IO (Either Text Int)
 startPasta nsPid config = do
-  let pastaBin = qcPastaBinary config
-      -- Disable TCP/UDP port forwarding and pasta's built-in DNS forwarder
-      -- so dnsmasq can bind port 53 on bridge interfaces.
-      -- pasta still provides the NAT uplink via pasta0.
-      pastaArgs =
-        [ "--config-net"
-        , "--ns-ifname"
-        , "pasta0"
-        , "-t"
-        , "none"
-        , "-u"
-        , "none"
-        , "-D"
-        , ""
-        , "-f"
-        , show nsPid
-        ]
-      cp =
-        (proc pastaBin pastaArgs)
-          { std_out = CreatePipe
-          , std_err = CreatePipe
-          }
-  result <- try $ createProcess cp
+  -- Try with -D "" first (disables DNS forwarder on newer pasta)
+  result <- tryPasta True
   case result of
-    Left (err :: SomeException) ->
-      pure $ Left $ "Failed to start pasta: " <> T.pack (show err)
-    Right (_, _, _, ph) -> do
-      mPid <- getPid ph
-      case mPid of
-        Just pid -> pure $ Right (fromIntegral pid)
-        Nothing -> pure $ Left "Failed to get pasta PID"
+    Right pid -> pure $ Right pid
+    Left _ -> tryPasta False
+  where
+    tryPasta :: Bool -> IO (Either Text Int)
+    tryPasta disableDns = do
+      let pastaBin = qcPastaBinary config
+          baseArgs =
+            [ "--config-net"
+            , "--ns-ifname"
+            , "pasta0"
+            , "-t"
+            , "none"
+            , "-u"
+            , "none"
+            ]
+          dnsArgs = if disableDns then ["-D", ""] else []
+          pastaArgs = baseArgs ++ dnsArgs ++ ["-f", show nsPid]
+          cp =
+            (proc pastaBin pastaArgs)
+              { std_out = CreatePipe
+              , std_err = CreatePipe
+              }
+      result <- try $ createProcess cp
+      case result of
+        Left (err :: SomeException) ->
+          pure $ Left $ "Failed to start pasta: " <> T.pack (show err)
+        Right (_, _, _, ph) -> do
+          mPid <- getPid ph
+          case mPid of
+            Nothing -> pure $ Left "Failed to get pasta PID"
+            Just pid -> do
+              -- Brief pause to check if pasta exits immediately (bad args)
+              threadDelay 200000
+              mExit <- getProcessExitCode ph
+              case mExit of
+                Just _ -> pure $ Left "pasta exited immediately"
+                Nothing -> pure $ Right (fromIntegral pid)
 
 -- | Stop pasta by PID.
 stopPasta :: Int -> IO ()
@@ -293,23 +307,6 @@ removeNatRule nsPid config networkId = do
 -- DNS resolution
 --------------------------------------------------------------------------------
 
--- | Read host DNS servers from /etc/resolv.conf.
--- Falls back to Google DNS if resolv.conf is unavailable or empty.
-readHostDnsServers :: IO [String]
-readHostDnsServers = do
-  content <- try (readFile "/etc/resolv.conf")
-  case content of
-    Left (_ :: SomeException) -> pure fallback
-    Right text -> do
-      let servers = mapMaybe parseNameserver (lines text)
-      pure $ if null servers then fallback else servers
-  where
-    fallback = ["8.8.8.8", "8.8.4.4"]
-    parseNameserver line =
-      case words line of
-        ("nameserver" : ip : _) -> Just ip
-        _ -> Nothing
-
 -- | Get the pasta0 interface's default gateway inside the namespace.
 -- pasta maps this gateway to the host via --map-host-loopback, so it
 -- can be used to reach host services (DNS, etc.) from the namespace.
@@ -339,7 +336,3 @@ nsExecCapture nsPid args = do
     Right (ExitFailure _, _, stderr) -> pure $ Left $ T.pack stderr
   where
     quote s = "'" <> concatMap (\c -> if c == '\'' then "'\\''" else [c]) s <> "'"
-
--- | Check if an IP address is a loopback address (127.x.x.x or ::1)
-isLoopback :: String -> Bool
-isLoopback addr = "127." `isPrefixOf` addr || addr == "::1"
