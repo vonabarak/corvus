@@ -27,6 +27,8 @@ import Control.Monad.IO.Class (liftIO)
 import Corvus.Client.Connection (Connection, ConnectionError, withConnection)
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Qemu.Netns (startNamespace)
+import qualified Corvus.Qemu.Netns
+import Corvus.Qemu.Netns.Manager (enableIpForwarding, setupNatTable, startPasta, stopPasta, teardownNatTable)
 import Corvus.Server (runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), newServerState)
 import qualified Data.Text as T
@@ -219,13 +221,47 @@ startTestNamespace state = do
   nsResult <- startNamespace
   case nsResult of
     Left _ -> pure () -- Namespace creation failed, tests without networking will still work
-    Right nsPid ->
-      atomically $ writeTVar (ssNamespacePid state) (Just (fromIntegral nsPid))
+    Right nsPid -> do
+      let pid = fromIntegral nsPid
+      atomically $ writeTVar (ssNamespacePid state) (Just pid)
+      -- Start pasta for NAT support (best-effort, non-fatal)
+      pastaResult <- startPasta pid (ssQemuConfig state)
+      case pastaResult of
+        Right pastaPid -> do
+          atomically $ writeTVar (ssPastaPid state) (Just pastaPid)
+          -- Wait for pasta0 interface to appear
+          waitForPastaInterface pid 20
+          -- Enable IP forwarding and set up NAT table
+          _ <- enableIpForwarding pid
+          _ <- setupNatTable pid (ssQemuConfig state)
+          pure ()
+        Left _ -> pure () -- pasta not available, NAT tests will fail but others work
+  where
+    waitForPastaInterface _ 0 = pure ()
+    waitForPastaInterface nsPid retries = do
+      result <- try $ Corvus.Qemu.Netns.nsExec nsPid ["ip", "link", "show", "pasta0"] :: IO (Either SomeException (Either T.Text ()))
+      case result of
+        Right (Right ()) -> pure ()
+        _ -> threadDelay 200000 >> waitForPastaInterface nsPid (retries - 1 :: Int)
 
 -- | Stop the network namespace for a test daemon.
 stopTestNamespace :: ServerState -> IO ()
 stopTestNamespace state = do
   mNsPid <- readTVarIO (ssNamespacePid state)
+  mPastaPid <- readTVarIO (ssPastaPid state)
+  case mNsPid of
+    Just nsPid -> do
+      -- Tear down NAT table (best-effort)
+      _ <- try $ teardownNatTable nsPid (ssQemuConfig state) :: IO (Either SomeException (Either T.Text ()))
+      pure ()
+    Nothing -> pure ()
+  -- Stop pasta
+  case mPastaPid of
+    Just pastaPid -> do
+      stopPasta pastaPid
+      atomically $ writeTVar (ssPastaPid state) Nothing
+    Nothing -> pure ()
+  -- Stop namespace
   case mNsPid of
     Just nsPid -> do
       _ <- try $ signalProcess sigTERM (fromIntegral nsPid) :: IO (Either SomeException ())

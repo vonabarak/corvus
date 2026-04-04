@@ -178,9 +178,19 @@ spec = withTestDb $ do
                 let ip = T.strip ipRaw
                 ip `shouldSatisfy` ("10.77.0." `T.isPrefixOf`)
 
-                -- Verify the VM can reach the internet (ping Google DNS)
+                -- Replace default route with eth1's gateway to force all
+                -- outbound traffic through the managed NAT network, not the
+                -- user-mode NIC. This ensures ping and DNS actually test NAT.
+                runInTestVm_ vm "doas sh -c 'ip route replace default via 10.77.0.1 dev eth1'"
+
+                -- Verify the VM can reach the internet via the managed interface
                 (codePing, _, _) <- runInTestVm vm "ping -c 3 -W 5 8.8.8.8"
                 codePing `shouldBe` ExitSuccess
+
+                -- Verify DNS resolution works through NAT
+                (codeDns, dnsOut, _) <- runInTestVm vm "nslookup example.com 8.8.8.8"
+                codeDns `shouldBe` ExitSuccess
+                T.unpack (T.toLower dnsOut) `shouldSatisfy` isInfixOf "example.com"
 
 -- | Wait for a process to exit, polling every 100ms up to n retries.
 waitForProcessExit :: Int -> Int -> IO ()

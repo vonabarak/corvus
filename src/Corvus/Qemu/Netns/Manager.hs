@@ -35,6 +35,7 @@ import Corvus.Qemu.Netns (nsExec, nsSpawn)
 import Corvus.Qemu.Runtime (createNetworkRuntimeDir, getBridgeName, getDnsmasqLeaseFile, getTapUpScript)
 import Corvus.Utils.Subnet (dhcpRangeEnd, dhcpRangeStart, gatewayAddress, prefixLength, subnetMask)
 import Data.Int (Int64)
+import Data.List (intercalate, isPrefixOf)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -104,24 +105,26 @@ startDnsmasq nsPid config networkId subnet nat = do
       let bridge = getBridgeName networkId
           dnsmasqBin = qcDnsmasqBinary config
           interfaceArg = "--interface=" <> bridge
-          listenArg = "--listen-address=" <> T.unpack gw
           rangeArg = "--dhcp-range=" <> T.unpack rangeStart <> "," <> T.unpack rangeEnd <> "," <> T.unpack mask <> ",12h"
           leaseArg = "--dhcp-leasefile=" <> leaseFile
-      -- When NAT is enabled, add upstream DNS servers so dnsmasq can resolve internet names
-      serverArgs <-
+      -- When NAT is enabled, advertise public DNS servers to DHCP clients.
+      -- We use --port=0 (DHCP only, no DNS server) because pasta's DNS
+      -- forwarder occupies port 53 in the namespace.
+      dnsArgs <-
         if nat
-          then map ("--server=" <>) <$> readHostDnsServers
+          then do
+            servers <- readHostDnsServers
+            -- Use host DNS if non-loopback, otherwise fall back to public DNS
+            let usable = filter (not . isLoopback) servers
+                dns = if null usable then ["8.8.8.8", "8.8.4.4"] else usable
+            pure ["--dhcp-option=6," <> intercalate "," dns]
           else pure []
-      -- Use --port=0 to disable DNS server (avoids port 53 conflict with pasta).
-      -- Advertise the gateway as DNS server via DHCP option 6, so VMs can
-      -- resolve names through pasta's forwarded DNS.
       nsSpawn
         nsPid
         ( [ dnsmasqBin
           , "--conf-file=/dev/null"
           , "--bind-dynamic"
           , interfaceArg
-          , listenArg
           , "--except-interface=lo"
           , "--port=0"
           , rangeArg
@@ -129,7 +132,7 @@ startDnsmasq nsPid config networkId subnet nat = do
           , "--no-hosts"
           , leaseArg
           ]
-            ++ serverArgs
+            ++ dnsArgs
         )
 
 -- | Stop a dnsmasq process by PID.
@@ -178,6 +181,10 @@ startPasta nsPid config = do
         [ "--config-net"
         , "--ns-ifname"
         , "pasta0"
+        , "-t"
+        , "none"
+        , "-u"
+        , "none"
         , "-f"
         , show nsPid
         ]
@@ -293,3 +300,7 @@ readHostDnsServers = do
       case words line of
         ("nameserver" : ip : _) -> Just ip
         _ -> Nothing
+
+-- | Check if an IP address is a loopback address (127.x.x.x or ::1)
+isLoopback :: String -> Bool
+isLoopback addr = "127." `isPrefixOf` addr || addr == "::1"
