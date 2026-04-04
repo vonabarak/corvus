@@ -106,6 +106,7 @@ library:
     - Corvus.Handlers.GuestExec
     - Corvus.Handlers.GuestAgentPoller
     - Corvus.Handlers.Apply
+    - Corvus.Handlers.Subtask
     - Corvus.Client.Commands.GuestExec
     - Corvus.Client.Commands.Apply
     - Corvus.Client.Completion

@@ -19,6 +19,7 @@ import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers (handleRequest)
+import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -264,35 +265,53 @@ handleStartup state retentionDays = do
     liftIO $ runSqlPool (updateWhere [M.NetworkRunning ==. True] [M.NetworkRunning =. False, M.NetworkDnsmasqPid =. Nothing]) pool
     logInfoN "Reset stale network state"
 
-    -- Start the global network namespace
+    -- Start the global network namespace (subtask)
     logInfoN "Starting network namespace"
-    nsResult <- liftIO startNamespace
+    nsResult <- liftIO $ do
+      let spec = SubtaskSpec SubSystem "start-namespace" Nothing
+      withOptionalSubtask
+        pool
+        (Just taskKey)
+        spec
+        (fmap (fmap fromIntegral) startNamespace)
+        (Just . fromIntegral)
     case nsResult of
       Left err ->
         logWarnN $ "Failed to start network namespace: " <> err
-      Right nsPid -> do
-        let nsPidInt = fromIntegral nsPid
+      Right nsPidInt -> do
         liftIO $ atomically $ writeTVar (ssNamespacePid state) (Just nsPidInt)
-        logInfoN $ "Network namespace started (PID " <> T.pack (show nsPid) <> ")"
+        logInfoN $ "Network namespace started (PID " <> T.pack (show nsPidInt) <> ")"
 
-        -- Start pasta for NAT support
-        pastaResult <- liftIO $ startPasta nsPidInt (ssQemuConfig state)
+        -- Start pasta for NAT support (subtask)
+        pastaResult <- liftIO $ do
+          let spec = SubtaskSpec SubSystem "start-pasta" Nothing
+          withOptionalSubtask
+            pool
+            (Just taskKey)
+            spec
+            (startPasta nsPidInt (ssQemuConfig state))
+            (Just . fromIntegral)
         case pastaResult of
           Left err ->
             logWarnN $ "Failed to start pasta (NAT unavailable): " <> err
           Right pastaPid -> do
             liftIO $ atomically $ writeTVar (ssPastaPid state) (Just pastaPid)
             logInfoN $ "pasta started for NAT (PID " <> T.pack (show pastaPid) <> ")"
-            -- Enable IP forwarding inside the namespace
-            fwdResult <- liftIO $ enableIpForwarding nsPidInt
-            case fwdResult of
-              Left err -> logWarnN $ "Failed to enable IP forwarding: " <> err
-              Right () -> logInfoN "IP forwarding enabled in namespace"
-            -- Create nftables NAT table and chain
-            natResult <- liftIO $ setupNatTable nsPidInt (ssQemuConfig state)
-            case natResult of
-              Left err -> logWarnN $ "Failed to setup NAT table: " <> err
-              Right () -> logInfoN "nftables NAT table created"
+            -- Enable IP forwarding and setup NAT table (subtask)
+            _ <- liftIO $ do
+              let spec = SubtaskSpec SubNetwork "setup-nat" Nothing
+              withOptionalSubtask
+                pool
+                (Just taskKey)
+                spec
+                ( do
+                    fwdResult <- enableIpForwarding nsPidInt
+                    case fwdResult of
+                      Left err -> pure $ Left $ "IP forwarding: " <> err
+                      Right () -> setupNatTable nsPidInt (ssQemuConfig state)
+                )
+                (const Nothing)
+            logInfoN "IP forwarding enabled, nftables NAT table created"
 
     -- Delete old task entries
     when (retentionDays > 0) $ do

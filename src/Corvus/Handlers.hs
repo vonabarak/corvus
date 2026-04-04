@@ -57,11 +57,20 @@ handleRequest :: ServerState -> Request -> IO Response
 handleRequest state req
   | isReadOnly req = dispatchRequest state req
   | isApply req = dispatchApply state req
+  | needsParentTask req = withParentTask state req $ \parentId ->
+      dispatchRequestWithParent state req parentId
   | otherwise = withTask state req (dispatchRequest state req)
 
 isApply :: Request -> Bool
 isApply (ReqApply {}) = True
 isApply _ = False
+
+-- | Requests that create subtasks need a parent task.
+needsParentTask :: Request -> Bool
+needsParentTask (ReqNetworkStart {}) = True
+needsParentTask (ReqNetworkStop {}) = True
+needsParentTask (ReqTemplateInstantiate {}) = True
+needsParentTask _ = False
 
 -- | Dispatch apply with sync/async support and subtask tracking.
 dispatchApply :: ServerState -> Request -> IO Response
@@ -106,6 +115,47 @@ dispatchWithWait state req wait validate execute interimResponse = do
         then execute validData
         else withTaskAsync state req (execute validData) interimResponse
 
+-- | Like dispatchWithWait but creates a parent task and passes TaskId to the
+-- execute function, enabling subtask tracking within the handler.
+dispatchWithWaitParent
+  :: ServerState
+  -> Request
+  -> Bool
+  -- ^ Wait flag (True = sync, False = async)
+  -> IO (Either Response a)
+  -- ^ Validate (sync). Left = error response, Right = validated data.
+  -> (a -> TaskId -> IO Response)
+  -- ^ Execute (may block). Takes validated data and parent TaskId.
+  -> Response
+  -- ^ Interim response returned immediately in async mode.
+  -> IO Response
+dispatchWithWaitParent state req wait validate execute interimResponse = do
+  validated <- validate
+  case validated of
+    Left errResp -> pure errResp
+    Right validData ->
+      if wait
+        then withParentTask state req $ \parentId ->
+          execute validData parentId
+        else
+          withParentTaskAsyncInterim
+            state
+            req
+            (execute validData)
+            (Just interimResponse)
+
+-- | Dispatch requests that need a parent TaskId for subtask tracking.
+dispatchRequestWithParent :: ServerState -> Request -> TaskId -> IO Response
+dispatchRequestWithParent state req parentId = case req of
+  ReqNetworkStart nwRef -> withNetwork nwRef $ \nwId -> handleNetworkStart state nwId parentId
+  ReqNetworkStop nwRef force -> withNetwork nwRef $ \nwId -> handleNetworkStop state nwId force parentId
+  ReqTemplateInstantiate tRef name -> withTemplate tRef $ \tid -> handleTemplateInstantiate state tid name parentId
+  _ -> error "dispatchRequestWithParent: unhandled request"
+  where
+    pool = ssDbPool state
+    withNetwork ref f = resolveNetwork ref pool >>= either (const $ pure RespNetworkNotFound) f
+    withTemplate ref f = resolveTemplate ref pool >>= either (const $ pure RespTemplateNotFound) f
+
 -- | Dispatch a request to the appropriate handler
 dispatchRequest :: ServerState -> Request -> IO Response
 dispatchRequest state req = case req of
@@ -119,7 +169,7 @@ dispatchRequest state req = case req of
   ReqVmCreate name cpus ram desc headless ga ci -> handleVmCreate state name cpus ram desc headless ga ci
   ReqVmDelete vmRef -> withVm vmRef $ \vmId -> handleVmDelete state vmId
   ReqVmStart vmRef wait -> withVm vmRef $ \vmId ->
-    dispatchWithWait
+    dispatchWithWaitParent
       state
       req
       wait
@@ -195,20 +245,20 @@ dispatchRequest state req = case req of
   ReqTemplateDelete tRef -> withTemplate tRef $ \tid -> handleTemplateDelete state tid
   ReqTemplateList -> handleTemplateList state
   ReqTemplateShow tRef -> withTemplate tRef $ \tid -> handleTemplateShow state tid
-  ReqTemplateInstantiate tRef name -> withTemplate tRef $ \tid -> handleTemplateInstantiate state tid name
+  ReqTemplateInstantiate {} -> error "dispatchRequest: ReqTemplateInstantiate should be handled by dispatchRequestWithParent"
   -- Network handlers
   ReqNetworkCreate name subnet dhcp nat -> handleNetworkCreate state name subnet dhcp nat
   ReqNetworkDelete nwRef -> withNetwork nwRef $ \nwId -> handleNetworkDelete state nwId
-  ReqNetworkStart nwRef -> withNetwork nwRef $ \nwId -> handleNetworkStart state nwId
-  ReqNetworkStop nwRef force -> withNetwork nwRef $ \nwId -> handleNetworkStop state nwId force
+  ReqNetworkStart {} -> error "dispatchRequest: ReqNetworkStart should be handled by dispatchRequestWithParent"
+  ReqNetworkStop {} -> error "dispatchRequest: ReqNetworkStop should be handled by dispatchRequestWithParent"
   ReqNetworkList -> handleNetworkList state
   ReqNetworkShow nwRef -> withNetwork nwRef $ \nwId -> handleNetworkShow state nwId
   -- Guest execution handlers
   ReqGuestExec vmRef cmd -> withVm vmRef $ \vmId -> handleGuestExec state vmId cmd
   -- Disk URL import
   ReqDiskImportUrl name url mFmt -> handleDiskImportUrl state name url mFmt
-  -- Apply config (handled by dispatchApply, but keep for completeness)
-  ReqApply yaml skipExisting _wait -> handleApply state yaml skipExisting
+  -- Apply config (always handled by dispatchApply via isApply guard)
+  ReqApply {} -> error "dispatchRequest: ReqApply should be handled by dispatchApply"
   -- Task history queries (read-only, but dispatched here for completeness)
   ReqTaskList limit mSub mResult inclSub -> handleTaskList state limit mSub mResult inclSub
   ReqTaskShow taskId -> handleTaskShow state taskId
@@ -469,9 +519,13 @@ withParentTask state req action = do
         _ -> pure $ Just (0, refText)
 
 -- | Like withParentTask, but forks execution and returns immediately.
--- Returns RespApplyStarted with the parent task ID.
+-- Returns the given interim response (or RespApplyStarted if Nothing).
 withParentTaskAsync :: ServerState -> Request -> (TaskId -> IO Response) -> IO Response
-withParentTaskAsync state req action = do
+withParentTaskAsync state req action = withParentTaskAsyncInterim state req action Nothing
+
+-- | Like withParentTaskAsync but with a custom interim response.
+withParentTaskAsyncInterim :: ServerState -> Request -> (TaskId -> IO Response) -> Maybe Response -> IO Response
+withParentTaskAsyncInterim state req action mInterimResponse = do
   let (subsystem, command, mEntityRef) = classifyRequest req
   now <- getCurrentTime
   mEntityInfo <- resolveEntityInfo mEntityRef
@@ -519,7 +573,9 @@ withParentTaskAsync state req action = do
               ]
           )
           pool
-  pure $ RespApplyStarted (fromSqlKey taskKey)
+  pure $ case mInterimResponse of
+    Just resp -> resp
+    Nothing -> RespApplyStarted (fromSqlKey taskKey)
   where
     pool = ssDbPool state
     (<|>) Nothing b = b

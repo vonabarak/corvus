@@ -45,7 +45,7 @@ handleTaskList fmt conn limit mSubStr mResultStr includeSubtasks = do
             else do
               putStrLn $
                 printf
-                  "%-6s %-10s %-12s %-22s %-8s %-20s %-10s %s"
+                  "%-6s %-10s %-18s %-22s %-8s %-20s %-10s %s"
                   ("ID" :: String)
                   ("SUBSYSTEM" :: String)
                   ("COMMAND" :: String)
@@ -54,7 +54,7 @@ handleTaskList fmt conn limit mSubStr mResultStr includeSubtasks = do
                   ("STARTED" :: String)
                   ("DURATION" :: String)
                   ("MESSAGE" :: String)
-              putStrLn $ replicate 110 '-'
+              putStrLn $ replicate 116 '-'
               now <- getCurrentTime
               mapM_ (printTaskRow now) tasks
       pure True
@@ -87,7 +87,7 @@ handleTaskShow fmt conn taskId = do
               putStrLn "Subtasks:"
               putStrLn $
                 printf
-                  "  %-6s %-10s %-12s %-22s %-10s %-10s %s"
+                  "  %-6s %-10s %-18s %-22s %-10s %-10s %s"
                   ("ID" :: String)
                   ("SUBSYSTEM" :: String)
                   ("COMMAND" :: String)
@@ -95,7 +95,7 @@ handleTaskShow fmt conn taskId = do
                   ("RESULT" :: String)
                   ("DURATION" :: String)
                   ("MESSAGE" :: String)
-              putStrLn $ "  " ++ replicate 100 '-'
+              putStrLn $ "  " ++ replicate 106 '-'
               now <- getCurrentTime
               mapM_ (printSubtaskRow now) children
             _ -> pure ()
@@ -219,7 +219,7 @@ printTaskRow :: UTCTime -> TaskInfo -> IO ()
 printTaskRow now info =
   putStrLn $
     printf
-      "%-6d %-10s %-12s %-22s %-8s %-20s %-10s %s"
+      "%-6d %-10s %-18s %-22s %-8s %-20s %-10s %s"
       (tiId info)
       (T.unpack $ enumToText $ tiSubsystem info)
       (T.unpack $ tiCommand info)
@@ -233,7 +233,7 @@ printSubtaskRow :: UTCTime -> TaskInfo -> IO ()
 printSubtaskRow now info =
   putStrLn $
     printf
-      "  %-6d %-10s %-12s %-22s %-10s %-10s %s"
+      "  %-6d %-10s %-18s %-22s %-10s %-10s %s"
       (tiId info)
       (T.unpack $ enumToText $ tiSubsystem info)
       (T.unpack $ tiCommand info)

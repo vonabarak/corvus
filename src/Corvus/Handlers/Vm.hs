@@ -32,6 +32,7 @@ import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller, waitForFirstPing)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
+import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
@@ -163,8 +164,8 @@ handleVmStartValidate state vmId = do
 
 -- | Execute VM start to completion (blocks until VmRunning).
 -- Used with --wait flag or in withTaskAsync.
-handleVmStartExecute :: ServerState -> Int64 -> IO Response
-handleVmStartExecute state vmId = do
+handleVmStartExecute :: ServerState -> Int64 -> TaskId -> IO Response
+handleVmStartExecute state vmId parentTaskId = do
   validated <- handleVmStartValidate state vmId
   case validated of
     Left errResp -> pure errResp
@@ -172,7 +173,7 @@ handleVmStartExecute state vmId = do
       case currentStatus of
         VmPaused -> runServerLogging state $ resumeFromPaused state vmId
         _ -> runServerLogging state $ do
-          resp <- startQemuAndMonitor state vmId vm
+          resp <- startQemuAndMonitor state vmId vm parentTaskId
           case resp of
             RespVmStateChanged _ -> do
               -- Wait for guest agent if enabled (blocking)
@@ -205,30 +206,62 @@ resumeFromPaused state vmId = do
 
 -- | Start QEMU process, set initial status, fork process monitor thread.
 -- Returns the initial state change response. Does NOT wait for guest agent.
-startQemuAndMonitor :: ServerState -> Int64 -> Vm -> LoggingT IO Response
-startQemuAndMonitor state vmId vm = do
-  -- Generate cloud-init ISO if enabled and not yet attached
+-- Each major step (cloud-init, virtiofsd, QEMU launch) is tracked as a subtask.
+startQemuAndMonitor :: ServerState -> Int64 -> Vm -> TaskId -> LoggingT IO Response
+startQemuAndMonitor state vmId vm parentTaskId = do
+  let pool = ssDbPool state
+
+  -- Subtask 1: Generate cloud-init ISO if enabled and not yet attached
   when (vmCloudInit vm) $ do
-    hasCloudInitDisk <- liftIO $ runSqlPool (hasCloudInitIso vmId) (ssDbPool state)
+    hasCloudInitDisk <- liftIO $ runSqlPool (hasCloudInitIso vmId) pool
     unless hasCloudInitDisk $ do
       logInfoN $ "Generating cloud-init ISO for VM " <> T.pack (show vmId)
-      _ <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId (vmName vm) (ssLogLevel state)
+      _ <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state) (Just parentTaskId)
       pure ()
 
-  -- Start virtiofsd processes for shared directories
-  virtiofsdResult <- startVirtiofsdProcesses (ssDbPool state) (ssQemuConfig state) vmId
+  -- Subtask 2: Start virtiofsd processes for shared directories
+  virtiofsdResult <- liftIO $ do
+    let spec = SubtaskSpec SubSharedDir "start-virtiofsd" (Just $ vmName vm)
+    withOptionalSubtask
+      pool
+      (Just parentTaskId)
+      spec
+      ( do
+          r <- runServerLogging state $ startVirtiofsdProcesses pool (ssQemuConfig state) vmId
+          pure $ case r of
+            VirtiofsdAllStarted -> Right ()
+            VirtiofsdNoSharedDirs -> Right ()
+            VirtiofsdSomeFailed -> Left ("Some virtiofsd processes failed to start" :: Text)
+      )
+      (const Nothing)
   case virtiofsdResult of
-    VirtiofsdSomeFailed ->
-      logWarnN $ "Some virtiofsd processes failed to start for VM " <> T.pack (show vmId)
-    _ -> pure ()
+    Left err ->
+      logWarnN err
+    Right () -> pure ()
 
-  -- Only use namespace if the VM has managed network interfaces
-  hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) (ssDbPool state)
+  -- Subtask 3: Launch QEMU
+  hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
   mNsPid <-
     if hasManagedNic
       then liftIO $ readTVarIO (ssNamespacePid state)
       else pure Nothing
-  result <- startVm (ssDbPool state) (ssQemuConfig state) vmId mNsPid
+  qemuResult <- liftIO $ do
+    let spec = SubtaskSpec SubVm "start-qemu" (Just $ vmName vm)
+    withOptionalSubtask
+      pool
+      (Just parentTaskId)
+      spec
+      ( do
+          r <- runServerLogging state $ startVm pool (ssQemuConfig state) vmId mNsPid
+          pure $ case r of
+            VmStarted pid ph mStderr -> Right (pid, ph, mStderr)
+            VmNotFound -> Left ("VM not found" :: Text)
+            VmStartError err -> Left $ "Failed to start: " <> err
+      )
+      (const Nothing)
+  let result = case qemuResult of
+        Right (pid, ph, mStderr) -> VmStarted pid ph mStderr
+        Left err -> VmStartError err
   case result of
     VmStarted pid ph mStderr -> do
       let initialStatus = if vmGuestAgent vm then VmStarting else VmRunning
@@ -423,7 +456,7 @@ handleVmCloudInit state vmId = do
       if not (vmCloudInit vm)
         then pure $ RespError "Cloud-init is not enabled on this VM"
         else do
-          ciResult <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId (vmName vm) (ssLogLevel state)
+          ciResult <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId (vmName vm) (ssLogLevel state) Nothing
           case ciResult of
             Left err -> pure $ RespError $ "Cloud-init ISO generation failed: " <> err
             Right _ -> pure RespVmEdited

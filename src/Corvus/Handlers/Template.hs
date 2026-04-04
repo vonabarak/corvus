@@ -18,6 +18,7 @@ import Corvus.Handlers.Disk (getRunningAttachedVms, resolveDiskPath, sanitizeDis
 import Corvus.Handlers.NetIf (generateMacAddress)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
+import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
@@ -169,35 +170,55 @@ handleTemplateDelete state tidLong = runServerLogging state $ do
   liftIO $ runSqlPool (deleteTemplate tid) (ssDbPool state)
   pure RespTemplateDeleted
 
-handleTemplateInstantiate :: ServerState -> Int64 -> Text -> IO Response
-handleTemplateInstantiate state tidLong newVmName = runServerLogging state $ do
+handleTemplateInstantiate :: ServerState -> Int64 -> Text -> TaskId -> IO Response
+handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLogging state $ do
   logInfoN $ "Instantiating template " <> T.pack (show tidLong) <> " as '" <> newVmName <> "'"
+  let pool = ssDbPool state
 
   -- 1. Get template details
-  mDetails <- liftIO $ runSqlPool (getTemplateDetails (toSqlKey tidLong)) (ssDbPool state)
+  mDetails <- liftIO $ runSqlPool (getTemplateDetails (toSqlKey tidLong)) pool
   case mDetails of
     Nothing -> pure RespTemplateNotFound
     Just details -> do
-      -- 2. Create VM record
-      now <- liftIO getCurrentTime
-      vmId <- liftIO $ runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False (tvdCloudInit details) Nothing) (ssDbPool state)
+      -- Subtask 1: Create VM record
+      vmResult <- liftIO $ do
+        let spec = SubtaskSpec SubVm "create" (Just newVmName)
+        withOptionalSubtask
+          pool
+          (Just parentTaskId)
+          spec
+          ( do
+              now <- getCurrentTime
+              Right . fromSqlKey <$> runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False (tvdCloudInit details) Nothing) pool
+          )
+          (Just . fromIntegral)
+      case vmResult of
+        Left err -> pure $ RespError err
+        Right vmIdLong -> do
+          let vmId = toSqlKey vmIdLong :: VmId
 
-      -- 3. Instantiate drives
-      driveResults <- forM (tvdDrives details) $ \td -> do
-        liftIO $ instantiateDriveIO state vmId newVmName td
+          -- Subtask per drive: Instantiate drives
+          driveResults <- forM (tvdDrives details) $ \td -> do
+            liftIO $ do
+              let spec = SubtaskSpec SubDisk "instantiate" (Just $ tvdiDiskImageName td)
+              withOptionalSubtask
+                pool
+                (Just parentTaskId)
+                spec
+                (instantiateDriveIO state vmId newVmName td)
+                (const Nothing)
 
-      -- Check for errors
-      let errors = lefts driveResults
-      if not (null errors)
-        then do
-          let msg = T.intercalate "; " errors
-          logWarnN $ "Failed to instantiate drives: " <> msg
-          pure $ RespError msg
-        else do
-          -- 4. Finish instantiation (Net and SSH)
-          liftIO $ finishInstantiation state vmId details
-          logInfoN $ "Instantiated VM with ID: " <> T.pack (show $ fromSqlKey vmId)
-          pure $ RespTemplateInstantiated (fromSqlKey vmId)
+          let errors = lefts driveResults
+          if not (null errors)
+            then do
+              let msg = T.intercalate "; " errors
+              logWarnN $ "Failed to instantiate drives: " <> msg
+              pure $ RespError msg
+            else do
+              -- Subtask: Finish instantiation (Net, SSH, cloud-init)
+              liftIO $ finishInstantiation state vmId details parentTaskId
+              logInfoN $ "Instantiated VM with ID: " <> T.pack (show $ fromSqlKey vmId)
+              pure $ RespTemplateInstantiated (fromSqlKey vmId)
 
 --------------------------------------------------------------------------------
 -- Internal Functions (SQL)
@@ -307,8 +328,8 @@ deleteTemplate tid = do
   deleteWhere [TemplateSshKeyTemplateId ==. tid]
   delete tid
 
-finishInstantiation :: ServerState -> VmId -> TemplateDetails -> IO ()
-finishInstantiation state vmId details = runServerLogging state $ do
+finishInstantiation :: ServerState -> VmId -> TemplateDetails -> TaskId -> IO ()
+finishInstantiation state vmId details parentTaskId = runServerLogging state $ do
   -- Network
   forM_ (tvdNetIfs details) $ \tni -> do
     mac <- liftIO generateMacAddress
@@ -318,10 +339,10 @@ finishInstantiation state vmId details = runServerLogging state $ do
   forM_ (tvdSshKeys details) $ \tsk -> do
     liftIO $ runSqlPool (insert_ $ VmSshKey vmId (toSqlKey (tvskiId tsk))) (ssDbPool state)
 
-  -- Generate cloud-init ISO if cloud-init is enabled
+  -- Generate cloud-init ISO if cloud-init is enabled (tracked as subtask)
   when (tvdCloudInit details) $ do
     logInfoN "Generating cloud-init ISO for instantiated VM"
-    result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details) (ssLogLevel state)
+    result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details) (ssLogLevel state) (Just parentTaskId)
     case result of
       Left err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
       Right _ -> logInfoN "Cloud-init ISO generated and attached"

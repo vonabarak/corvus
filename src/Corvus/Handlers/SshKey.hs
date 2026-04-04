@@ -24,6 +24,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.CloudInit
 import Corvus.Handlers.Resolve (validateName)
+import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -186,7 +187,7 @@ handleSshKeyAttach state vmId keyId = runServerLogging state $ do
                   logInfoN "SSH key attached"
 
                   -- Regenerate cloud-init ISO
-                  result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state)
+                  result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state) Nothing
                   case result of
                     Left err -> do
                       logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -226,7 +227,7 @@ handleSshKeyDetach state vmId keyId = runServerLogging state $ do
           -- Regenerate cloud-init ISO if cloud-init is enabled
           if vmCloudInit vm
             then do
-              result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state)
+              result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state) Nothing
               case result of
                 Left err -> do
                   logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -280,10 +281,22 @@ handleSshKeyListForVm state vmId = runServerLogging state $ do
 -- Cloud-Init ISO Management
 --------------------------------------------------------------------------------
 
--- | Regenerate cloud-init ISO for a VM
--- Always generates the ISO (needed for guest agent installation even without SSH keys)
-regenerateCloudInitIso :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> LogLevel -> IO (Either Text ())
-regenerateCloudInitIso qemuConfig pool vmId vmName logLevel = do
+-- | Regenerate cloud-init ISO for a VM.
+-- Always generates the ISO (needed for guest agent installation even without SSH keys).
+-- When @mParentTaskId@ is @Just parentId@, the operation is tracked as a subtask.
+regenerateCloudInitIso :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> LogLevel -> Maybe TaskId -> IO (Either Text ())
+regenerateCloudInitIso qemuConfig pool vmId vmName logLevel mParentTaskId = do
+  let spec = SubtaskSpec SubSshKey "cloud-init" (Just vmName)
+  withOptionalSubtask
+    pool
+    mParentTaskId
+    spec
+    (doRegenerateCloudInitIso qemuConfig pool vmId vmName logLevel)
+    (const Nothing)
+
+-- | Internal: actual cloud-init ISO regeneration logic.
+doRegenerateCloudInitIso :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> LogLevel -> IO (Either Text ())
+doRegenerateCloudInitIso qemuConfig pool vmId vmName logLevel = do
   let vmKey = toSqlKey vmId :: VmId
 
   -- Get all SSH keys attached to this VM
