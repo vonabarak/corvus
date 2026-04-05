@@ -52,7 +52,7 @@ vms:
 
 The merge key (`<<:`) only works for mappings, not lists — so it applies to VM-level fields but not to lists like `drives` or `networkInterfaces`.
 
-See `example-apply.yml` for a complete example with anchors, UEFI boot, and multiple VMs.
+See `doc/apply-examples/example-apply.yml` for a complete example with anchors, UEFI boot, and multiple VMs.
 
 ## SSH Keys
 

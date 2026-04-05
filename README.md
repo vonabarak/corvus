@@ -392,7 +392,7 @@ corvus/
 │       ├── Yaml.hs           # YAML parsing with quasi-quoters
 │       └── Subnet.hs         # Subnet utilities
 ├── test/                     # Integration and unit tests
-├── example-apply.yml         # Example YAML for crv apply
+├── doc/apply-examples/       # Example YAML files for crv apply
 ├── package.yaml
 ├── stack.yaml
 └── corvus.service            # Systemd user service
