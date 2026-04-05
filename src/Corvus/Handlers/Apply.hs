@@ -26,6 +26,7 @@ import Corvus.Handlers.NetIf (generateMacAddress)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (regenerateCloudInitIso)
 import Corvus.Handlers.Subtask
+import Corvus.Handlers.Template (CloudInitConfigYaml (..))
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.Image (isHttpUrl)
@@ -139,6 +140,7 @@ data ApplyVm = ApplyVm
   , avHeadless :: Bool
   , avGuestAgent :: Bool
   , avCloudInit :: Maybe Bool
+  , avCloudInitConfig :: Maybe CloudInitConfigYaml
   , avDrives :: [ApplyDrive]
   , avNetworkInterfaces :: [ApplyNetIf]
   , avSharedDirs :: [ApplySharedDir]
@@ -156,6 +158,7 @@ instance FromJSON ApplyVm where
       <*> o .:? "headless" .!= False
       <*> o .:? "guestAgent" .!= False
       <*> o .:? "cloudInit"
+      <*> o .:? "cloudInitConfig"
       <*> o .:? "drives" .!= []
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sharedDirs" .!= []
@@ -720,6 +723,17 @@ createOneVmAttachments state keyMap diskMap nwMap v vmId = do
           case keyResult of
             Left err -> pure $ Left err
             Right () -> do
+              -- Insert cloud-init config if provided
+              forM_ (avCloudInitConfig v) $ \cic ->
+                runSqlPool
+                  ( insert_ $
+                      CloudInit
+                        vmId
+                        (cicyUserData cic)
+                        (cicyNetworkConfig cic)
+                        (cicyInjectSshKeys cic)
+                  )
+                  (ssDbPool state)
               -- Generate cloud-init ISO if cloud-init is enabled
               when (effectiveCloudInit v) $ do
                 _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (avName v) (ssLogLevel state) Nothing

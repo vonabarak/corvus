@@ -8,6 +8,7 @@ module Corvus.Handlers.Template
   , handleTemplateShow
   , handleTemplateDelete
   , handleTemplateInstantiate
+  , CloudInitConfigYaml (..)
   )
 where
 
@@ -24,6 +25,7 @@ import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Qemu.Image (ImageResult (..), cloneImage, createOverlay, resizeImage)
 import Corvus.Types
+import Data.Aeson (Value)
 import Data.Either (lefts)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -32,6 +34,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Yaml (FromJSON (..), decodeEither', withObject, (.!=), (.:), (.:?))
+import qualified Data.Yaml as Yaml
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
@@ -49,6 +52,7 @@ data TemplateYaml = TemplateYaml
   , tyDescription :: Maybe Text
   , tyHeadless :: Bool
   , tyCloudInit :: Bool
+  , tyCloudInitConfig :: Maybe CloudInitConfigYaml
   , tyDrives :: [TemplateDriveYaml]
   , tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml]
   , tySshKeys :: [TemplateSshKeyYaml]
@@ -64,6 +68,7 @@ instance FromJSON TemplateYaml where
       <*> o .:? "description"
       <*> o .:? "headless" .!= False
       <*> o .:? "cloudInit" .!= False
+      <*> o .:? "cloudInitConfig"
       <*> o .: "drives"
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sshKeys" .!= []
@@ -113,6 +118,28 @@ instance FromJSON TemplateSshKeyYaml where
   parseJSON = withObject "TemplateSshKeyYaml" $ \o ->
     TemplateSshKeyYaml
       <$> o .: "name"
+
+-- | Cloud-init config YAML, used in both template and apply contexts.
+-- userData and networkConfig are parsed as YAML Values and serialized to text for DB storage.
+data CloudInitConfigYaml = CloudInitConfigYaml
+  { cicyUserData :: Maybe Text
+  , cicyNetworkConfig :: Maybe Text
+  , cicyInjectSshKeys :: Bool
+  }
+  deriving (Show, Generic)
+
+instance FromJSON CloudInitConfigYaml where
+  parseJSON = withObject "CloudInitConfigYaml" $ \o -> do
+    mUserDataVal <- o .:? "userData" :: Yaml.Parser (Maybe Value)
+    mNetworkConfigVal <- o .:? "networkConfig" :: Yaml.Parser (Maybe Value)
+    injectKeys <- o .:? "injectSshKeys" .!= True
+    let encodeVal v = T.decodeUtf8 (Yaml.encode v)
+    pure
+      CloudInitConfigYaml
+        { cicyUserData = fmap encodeVal mUserDataVal
+        , cicyNetworkConfig = fmap encodeVal mNetworkConfigVal
+        , cicyInjectSshKeys = injectKeys
+        }
 
 --------------------------------------------------------------------------------
 -- Handlers
@@ -269,6 +296,15 @@ createTemplate ty now = do
             forM_ keyIds $ \keyId ->
               insert_ $ TemplateSshKey tid keyId
 
+            -- Insert cloud-init config if provided
+            forM_ (tyCloudInitConfig ty) $ \cic ->
+              insert_ $
+                TemplateCloudInit
+                  tid
+                  (cicyUserData cic)
+                  (cicyNetworkConfig cic)
+                  (cicyInjectSshKeys cic)
+
             pure $ Right tid
       (Left err, _) -> pure $ Left err
       (_, Left err) -> pure $ Left err
@@ -305,6 +341,19 @@ getTemplateDetails tid = do
         let keyName = maybe "unknown" sshKeyName mKey
         pure $ TemplateSshKeyInfo (fromSqlKey $ templateSshKeySshKeyId tsk) keyName
 
+      -- Get cloud-init config if present
+      mCiConfig <- getBy (UniqueTemplateCloudInitVm tid)
+      let ciInfo =
+            fmap
+              ( \(Entity _ tci) ->
+                  CloudInitInfo
+                    { ciiUserData = templateCloudInitUserData tci
+                    , ciiNetworkConfig = templateCloudInitNetworkConfig tci
+                    , ciiInjectSshKeys = templateCloudInitInjectSshKeys tci
+                    }
+              )
+              mCiConfig
+
       pure $
         Just
           TemplateDetails
@@ -315,6 +364,7 @@ getTemplateDetails tid = do
             , tvdDescription = templateVmDescription t
             , tvdHeadless = templateVmHeadless t
             , tvdCloudInit = templateVmCloudInit t
+            , tvdCloudInitConfig = ciInfo
             , tvdCreatedAt = templateVmCreatedAt t
             , tvdDrives = driveInfos
             , tvdNetIfs = netIfInfos
@@ -326,6 +376,7 @@ deleteTemplate tid = do
   deleteWhere [TemplateDriveTemplateId ==. tid]
   deleteWhere [TemplateNetworkInterfaceTemplateId ==. tid]
   deleteWhere [TemplateSshKeyTemplateId ==. tid]
+  deleteBy (UniqueTemplateCloudInitVm tid)
   delete tid
 
 finishInstantiation :: ServerState -> VmId -> TemplateDetails -> TaskId -> IO ()
@@ -338,6 +389,19 @@ finishInstantiation state vmId details parentTaskId = runServerLogging state $ d
   -- SSH Keys
   forM_ (tvdSshKeys details) $ \tsk -> do
     liftIO $ runSqlPool (insert_ $ VmSshKey vmId (toSqlKey (tvskiId tsk))) (ssDbPool state)
+
+  -- Copy cloud-init config from template if present
+  forM_ (tvdCloudInitConfig details) $ \ciConfig ->
+    liftIO $
+      runSqlPool
+        ( insert_ $
+            CloudInit
+              vmId
+              (ciiUserData ciConfig)
+              (ciiNetworkConfig ciConfig)
+              (ciiInjectSshKeys ciConfig)
+        )
+        (ssDbPool state)
 
   -- Generate cloud-init ISO if cloud-init is enabled (tracked as subtask)
   when (tvdCloudInit details) $ do

@@ -307,13 +307,25 @@ doRegenerateCloudInitIso qemuConfig pool vmId vmName logLevel = do
 
   let publicKeys = catMaybes sshKeys
 
+  -- Check for custom cloud-init config
+  mCustomConfig <- runSqlPool (getBy (UniqueCloudInitVm vmKey)) pool
+
   -- Always generate ISO (guest agent installation + SSH keys if any)
   vmDir <- getCloudInitDir qemuConfig vmName
-  let config =
-        defaultCloudInitConfig
-          { ciHostname = vmName
-          , ciInstanceId = "corvus-" <> T.pack (show vmId)
-          }
+  let config = case mCustomConfig of
+        Just (Entity _ ci) ->
+          defaultCloudInitConfig
+            { ciHostname = vmName
+            , ciInstanceId = "corvus-" <> T.pack (show vmId)
+            , ciCustomUserData = cloudInitUserData ci
+            , ciNetworkConfig = cloudInitNetworkConfig ci
+            , ciInjectSshKeys = cloudInitInjectSshKeys ci
+            }
+        Nothing ->
+          defaultCloudInitConfig
+            { ciHostname = vmName
+            , ciInstanceId = "corvus-" <> T.pack (show vmId)
+            }
   result <- generateCloudInitIso vmDir config publicKeys
   case result of
     Left err -> pure $ Left err

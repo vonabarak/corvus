@@ -247,6 +247,9 @@ printVmDetails vm = do
   printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")
   printField "Guest Agent" (if vdGuestAgent vm then "enabled" else "disabled")
   printField "Cloud-init" (if vdCloudInit vm then "enabled" else "disabled")
+  case vdCloudInitConfig vm of
+    Just _ -> printField "Cloud-init Config" "custom"
+    Nothing -> pure ()
   printField "Healthcheck" (maybe "(no data)" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S") (vdHealthcheck vm))
   printField "Monitor" (T.unpack (vdMonitorSocket vm))
   if vdHeadless vm

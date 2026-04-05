@@ -45,13 +45,18 @@ module Test.VM.Rpc
   , stopNetwork
   , showNetwork
   , addVmNetIfWithNetwork
+
+    -- * Cloud-init config management
+  , setCloudInitConfig
+  , getCloudInitConfig
+  , deleteCloudInitConfig
   )
 where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (when)
 import Corvus.Client
-import Corvus.Client.Rpc (GuestExecResult (..), NetIfResult (..), NetworkResult (..), networkCreate, networkDelete, networkShow, networkStart, networkStop, vmExec)
+import Corvus.Client.Rpc (CloudInitResult (..), GuestExecResult (..), NetIfResult (..), NetworkResult (..), cloudInitDelete, cloudInitGet, cloudInitSet, networkCreate, networkDelete, networkShow, networkStart, networkStop, vmExec)
 import Corvus.Model
 import Corvus.Protocol (NetIfInfo (..), NetworkInfo (..), VmDetails (..))
 import Corvus.Qemu.Config (QemuConfig)
@@ -442,5 +447,35 @@ runViaGuestAgent_ daemon vmId command = do
     ExitFailure c ->
       fail $ "Guest command failed with exit code " <> show c <> ": " <> T.unpack stderr
 
--- | Wait for the guest agent to become available by polling with guest-ping.
--- Fails if the agent is not ready within the timeout.
+--------------------------------------------------------------------------------
+-- Cloud-Init Config Management
+--------------------------------------------------------------------------------
+
+-- | Set custom cloud-init config for a VM
+setCloudInitConfig :: TestDaemon -> Int64 -> Maybe Text -> Maybe Text -> Bool -> IO ()
+setCloudInitConfig daemon vmId mUserData mNetworkConfig injectKeys = do
+  result <- withDaemonConnection daemon $ \conn ->
+    cloudInitSet conn (T.pack (show vmId)) mUserData mNetworkConfig injectKeys
+  case result of
+    Right (Right CloudInitOk) -> pure ()
+    Right (Right (CloudInitError msg)) -> fail $ "Cloud-init config set error: " <> T.unpack msg
+    Right (Right CloudInitNotFound) -> fail "VM not found for cloud-init config set"
+    other -> fail $ "Failed to set cloud-init config: " <> show other
+
+-- | Get cloud-init config for a VM
+getCloudInitConfig :: TestDaemon -> Int64 -> IO CloudInitResult
+getCloudInitConfig daemon vmId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    cloudInitGet conn (T.pack (show vmId))
+  case result of
+    Right (Right r) -> pure r
+    other -> fail $ "Failed to get cloud-init config: " <> show other
+
+-- | Delete cloud-init config for a VM
+deleteCloudInitConfig :: TestDaemon -> Int64 -> IO ()
+deleteCloudInitConfig daemon vmId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    cloudInitDelete conn (T.pack (show vmId))
+  case result of
+    Right (Right CloudInitOk) -> pure ()
+    other -> fail $ "Failed to delete cloud-init config: " <> show other

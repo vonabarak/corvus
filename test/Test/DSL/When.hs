@@ -77,6 +77,11 @@ module Test.DSL.When
     -- * Guest exec commands
   , whenGuestExec
 
+    -- * Cloud-init config commands
+  , whenCloudInitSet
+  , whenCloudInitGet
+  , whenCloudInitDelete
+
     -- * Low-level
   , executeRequest
   , createTestServerState
@@ -87,7 +92,7 @@ import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import Corvus.Client.Connection (Connection (..), ConnectionError)
-import Corvus.Client.Rpc (DiskResult (..), GuestExecResult (..), NetIfResult (..), NetworkResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), TemplateResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
+import Corvus.Client.Rpc (CloudInitResult (..), DiskResult (..), GuestExecResult (..), NetIfResult (..), NetworkResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), TemplateResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
 import qualified Corvus.Client.Rpc as Rpc
 import Corvus.Handlers (handleRequest)
 import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache)
@@ -461,3 +466,22 @@ whenTemplateShow tplId =
 whenGuestExec :: Int64 -> Text -> TestM GuestExecResult
 whenGuestExec vmId cmd =
   executeRpc (\conn -> Rpc.vmExec conn (toRef vmId) cmd)
+
+--------------------------------------------------------------------------------
+-- Cloud-init Config Commands
+--------------------------------------------------------------------------------
+
+-- | Set cloud-init config for a VM
+whenCloudInitSet :: Int64 -> Maybe Text -> Maybe Text -> Bool -> TestM CloudInitResult
+whenCloudInitSet vmId mUserData mNetworkConfig injectSshKeys =
+  executeRpc (\conn -> Rpc.cloudInitSet conn (toRef vmId) mUserData mNetworkConfig injectSshKeys)
+
+-- | Get cloud-init config for a VM
+whenCloudInitGet :: Int64 -> TestM CloudInitResult
+whenCloudInitGet vmId =
+  executeRpc (\conn -> Rpc.cloudInitGet conn (toRef vmId))
+
+-- | Delete cloud-init config for a VM
+whenCloudInitDelete :: Int64 -> TestM CloudInitResult
+whenCloudInitDelete vmId =
+  executeRpc (\conn -> Rpc.cloudInitDelete conn (toRef vmId))

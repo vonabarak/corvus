@@ -64,6 +64,12 @@ module Corvus.Model
   , Task (..)
   , TaskId
 
+    -- * Cloud-init config entities
+  , CloudInit (..)
+  , CloudInitId
+  , TemplateCloudInit (..)
+  , TemplateCloudInitId
+
     -- * Task enums
   , TaskSubsystem (..)
   , TaskResult (..)
@@ -660,6 +666,22 @@ Task
     result TaskResult
     message Text Maybe
     deriving Show Eq Generic
+
+CloudInit
+    vmId VmId
+    userData Text Maybe
+    networkConfig Text Maybe
+    injectSshKeys Bool default=true
+    UniqueCloudInitVm vmId
+    deriving Show Eq Generic
+
+TemplateCloudInit
+    templateId TemplateVmId
+    userData Text Maybe
+    networkConfig Text Maybe
+    injectSshKeys Bool default=true
+    UniqueTemplateCloudInitVm templateId
+    deriving Show Eq Generic
 |]
 
 -- Binary instances for entities (for network serialization)
@@ -690,6 +712,10 @@ instance Binary TemplateNetworkInterface
 instance Binary TemplateSshKey
 
 instance Binary Task
+
+instance Binary CloudInit
+
+instance Binary TemplateCloudInit
 
 -- Binary instances for keys
 instance Binary (Key Vm) where
@@ -745,5 +771,13 @@ instance Binary (Key TemplateSshKey) where
   get = toSqlKey <$> Bin.get
 
 instance Binary (Key Task) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key CloudInit) where
+  put = Bin.put . fromSqlKey
+  get = toSqlKey <$> Bin.get
+
+instance Binary (Key TemplateCloudInit) where
   put = Bin.put . fromSqlKey
   get = toSqlKey <$> Bin.get

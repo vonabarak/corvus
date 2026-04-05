@@ -4,9 +4,15 @@
 
 module Corvus.ApplySpec (spec) where
 
-import Corvus.Protocol (ApplyCreated (..), ApplyResult (..), Response (..))
+import Corvus.Client.Rpc (CloudInitResult (..))
+import Corvus.Model (CloudInit (..), CloudInitId, Unique (..))
+import Corvus.Protocol (ApplyCreated (..), ApplyResult (..), CloudInitInfo (..), Response (..))
 import Corvus.Utils.Yaml (yaml)
+import Data.Maybe (isJust)
 import qualified Data.Text as T
+import Database.Persist (Entity (..), getBy)
+import Database.Persist.Sql (toSqlKey)
+import Test.DSL.Core (runDb)
 import Test.Prelude
 
 spec :: Spec
@@ -289,3 +295,47 @@ spec = sequential $ do
         then_ $ responseIs $ \case
           RespError msg -> "Duplicate" `T.isInfixOf` msg || "duplicate" `T.isInfixOf` msg
           _ -> False
+
+      testCase "applies config with custom cloud-init config" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: ci-test-disk
+                  format: qcow2
+                  sizeMb: 1024
+              vms:
+                - name: ci-test-vm
+                  cpuCount: 1
+                  ramMb: 512
+                  cloudInit: true
+                  cloudInitConfig:
+                    userData:
+                      users:
+                        - name: admin
+                          sudo: "ALL=(ALL) NOPASSWD:ALL"
+                      packages:
+                        - nginx
+                    networkConfig:
+                      version: 2
+                      ethernets:
+                        eth0:
+                          dhcp4: true
+                    injectSshKeys: false
+                  drives:
+                    - disk: ci-test-disk
+                      interface: virtio
+            |]
+        then_ $ responseIs $ \case
+          RespApplyResult r -> length (arVms r) == 1
+          _ -> False
+        -- Verify cloud-init config was created in DB
+        then_ $ do
+          mCi <- runDb $ getBy (UniqueCloudInitVm (toSqlKey 1))
+          liftIO $ mCi `shouldSatisfy` isJust
+          case mCi of
+            Just (Entity _ ci) -> do
+              liftIO $ cloudInitUserData ci `shouldSatisfy` isJust
+              liftIO $ cloudInitNetworkConfig ci `shouldSatisfy` isJust
+              liftIO $ cloudInitInjectSshKeys ci `shouldBe` False
+            Nothing -> liftIO $ expectationFailure "CloudInit row should exist"

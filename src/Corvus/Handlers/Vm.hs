@@ -568,6 +568,8 @@ createVm name cpuCount ramMb description headless guestAgent cloudInit = do
 deleteVm :: Int64 -> SqlPersistT IO ()
 deleteVm vmId = do
   let key = toSqlKey vmId :: VmId
+  -- Delete cloud-init config
+  deleteBy (M.UniqueCloudInitVm key)
   -- Delete SSH key associations
   deleteWhere [M.VmSshKeyVmId ==. key]
   -- Delete drives
@@ -615,6 +617,18 @@ getVmDetails config vmId = do
       guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
       -- Build drive info by fetching disk images
       driveInfos <- mapM toDriveInfo drives
+      -- Get custom cloud-init config if present
+      mCiConfig <- getBy (M.UniqueCloudInitVm key)
+      let ciInfo =
+            fmap
+              ( \(Entity _ ci) ->
+                  CloudInitInfo
+                    { ciiUserData = cloudInitUserData ci
+                    , ciiNetworkConfig = cloudInitNetworkConfig ci
+                    , ciiInjectSshKeys = cloudInitInjectSshKeys ci
+                    }
+              )
+              mCiConfig
       pure $
         Just
           VmDetails
@@ -634,6 +648,7 @@ getVmDetails config vmId = do
             , vdGuestAgentSocket = T.pack guestAgentSock
             , vdGuestAgent = vmGuestAgent vm
             , vdCloudInit = vmCloudInit vm
+            , vdCloudInitConfig = ciInfo
             , vdHealthcheck = vmHealthcheck vm
             }
   where

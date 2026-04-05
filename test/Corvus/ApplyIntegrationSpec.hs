@@ -191,3 +191,90 @@ spec = withTestDb $ do
 
             -- Cleanup
             stopTestVmAndWait daemon vmId 30
+
+    it "deploys SSH key via apply with custom cloud-init config" $ \env -> do
+      withSystemTempDirectory "corvus-apply-custom-ci" $ \tmpDir -> do
+        -- Generate SSH key pair
+        keyResult <- generateSshKeyPair tmpDir
+        keyPair <- case keyResult of
+          Right kp -> pure kp
+          Left err -> fail $ "SSH keygen failed: " ++ T.unpack err
+
+        bracket (pure keyPair) cleanupSshKeyPair $ \kp -> do
+          publicKeyContent <- TIO.readFile (skpPublicKey kp)
+          sshPort <- findFreePort
+
+          withTestDaemon env $ \daemon -> do
+            let imageUrl = "https://dev.alpinelinux.org/~tomalok/alpine-cloud-images/v3.20/nocloud/x86_64/nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2" :: T.Text
+                hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
+                yamlContent =
+                  encodeYaml
+                    [yamlQQ|
+                      sshKeys:
+                        - name: apply-ci-key
+                          publicKey: #{T.strip publicKeyContent}
+                      disks:
+                        - name: apply-ci-base
+                          import: #{imageUrl}
+                        - name: apply-ci-root
+                          overlay: apply-ci-base
+                          sizeMb: 2048
+                      vms:
+                        - name: apply-ci-vm
+                          cpuCount: 2
+                          ramMb: 2048
+                          headless: true
+                          guestAgent: true
+                          cloudInit: true
+                          cloudInitConfig:
+                            userData:
+                              users:
+                                - name: deployer
+                                  sudo: "ALL=(ALL) NOPASSWD:ALL"
+                                  shell: /bin/sh
+                                  lock_passwd: false
+                                  plain_text_passwd: testpass
+                              ssh_pwauth: true
+                              package_update: true
+                              packages:
+                                - qemu-guest-agent
+                              runcmd:
+                                - "rc-service sshd restart || systemctl restart ssh || true"
+                                - "rc-update add qemu-guest-agent default || true"
+                                - "rc-service qemu-guest-agent start || true"
+                            injectSshKeys: true
+                          drives:
+                            - disk: apply-ci-root
+                              interface: virtio
+                          networkInterfaces:
+                            - type: user
+                              hostDevice: #{hostFwd}
+                          sshKeys:
+                            - apply-ci-key
+                    |]
+
+            -- Apply the config
+            applyRes <- withDaemonConnection daemon $ \conn -> applyConfig conn yamlContent False True
+            vmId <- case applyRes of
+              Right (Right (ApplyOk r)) -> do
+                length (arVms r) `shouldBe` 1
+                pure $ acId (head (arVms r))
+              other -> fail $ "Apply failed: " ++ show other
+
+            -- Start VM and wait for SSH with the custom user
+            putStrLn "[test] Starting VM and waiting for SSH (custom cloud-init config)..."
+            startTestVm daemon vmId
+            waitForTestVmSshWithKey "localhost" sshPort (skpPrivateKey kp) "deployer" 180
+
+            -- Verify SSH works with the custom user
+            (code1, stdout1, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "deployer" "echo custom-apply-ok"
+            code1 `shouldBe` ExitSuccess
+            T.strip stdout1 `shouldBe` "custom-apply-ok"
+
+            -- Verify the custom user was created
+            (code2, stdout2, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "deployer" "whoami"
+            code2 `shouldBe` ExitSuccess
+            T.strip stdout2 `shouldBe` "deployer"
+
+            -- Cleanup
+            stopTestVmAndWait daemon vmId 30

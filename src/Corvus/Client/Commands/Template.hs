@@ -211,6 +211,10 @@ printTemplateDetails t = do
     Just desc -> printField "Description" (T.unpack desc)
     Nothing -> pure ()
   printField "Console" (if tvdHeadless t then "serial (headless)" else "SPICE (graphics)")
+  printField "Cloud-init" (if tvdCloudInit t then "enabled" else "disabled")
+  case tvdCloudInitConfig t of
+    Just _ -> printField "Cloud-init Config" "custom"
+    Nothing -> pure ()
 
   putStrLn "\nDrives:"
   if null (tvdDrives t)

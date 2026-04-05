@@ -32,6 +32,9 @@ module Corvus.Protocol
     -- * Network info
   , NetworkInfo (..)
 
+    -- * Cloud-init config
+  , CloudInitInfo (..)
+
     -- * Apply config
   , ApplyCreated (..)
   , ApplyResult (..)
@@ -61,7 +64,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 17
+protocolVersion = 18
 
 -- | Client requests
 data Request
@@ -186,6 +189,12 @@ data Request
     ReqTaskShow !Int64
   | -- | List subtasks for a parent task (parentTaskId)
     ReqTaskListChildren !Int64
+  | -- | Set/update cloud-init config for a VM (vmRef, userData, networkConfig, injectSshKeys)
+    ReqCloudInitSet !Ref !(Maybe Text) !(Maybe Text) !Bool
+  | -- | Get cloud-init config for a VM (vmRef)
+    ReqCloudInitGet !Ref
+  | -- | Delete custom cloud-init config for a VM (vmRef)
+    ReqCloudInitDelete !Ref
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -266,6 +275,8 @@ data VmDetails = VmDetails
   -- ^ Whether guest agent is enabled for this VM
   , vdCloudInit :: !Bool
   -- ^ Whether cloud-init is enabled for this VM
+  , vdCloudInitConfig :: !(Maybe CloudInitInfo)
+  -- ^ Custom cloud-init configuration (Nothing = using defaults)
   , vdHealthcheck :: !(Maybe UTCTime)
   -- ^ Last successful guest agent ping time
   }
@@ -368,6 +379,7 @@ data TemplateDetails = TemplateDetails
   , tvdDescription :: !(Maybe Text)
   , tvdHeadless :: !Bool
   , tvdCloudInit :: !Bool
+  , tvdCloudInitConfig :: !(Maybe CloudInitInfo)
   , tvdCreatedAt :: !UTCTime
   , tvdDrives :: ![TemplateDriveInfo]
   , tvdNetIfs :: ![TemplateNetIfInfo]
@@ -416,6 +428,14 @@ data TaskInfo = TaskInfo
   , tiCommand :: !Text
   , tiResult :: !TaskResult
   , tiMessage :: !(Maybe Text)
+  }
+  deriving (Eq, Show, Generic, Binary)
+
+-- | Cloud-init configuration info
+data CloudInitInfo = CloudInitInfo
+  { ciiUserData :: !(Maybe Text)
+  , ciiNetworkConfig :: !(Maybe Text)
+  , ciiInjectSshKeys :: !Bool
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -473,6 +493,14 @@ instance ToJSON NetIfInfo where
       , "guestIpAddresses" .= niGuestIpAddresses n
       ]
 
+instance ToJSON CloudInitInfo where
+  toJSON c =
+    object
+      [ "userData" .= ciiUserData c
+      , "networkConfig" .= ciiNetworkConfig c
+      , "injectSshKeys" .= ciiInjectSshKeys c
+      ]
+
 instance ToJSON VmDetails where
   toJSON v =
     object
@@ -492,6 +520,7 @@ instance ToJSON VmDetails where
       , "guestAgentSocket" .= vdGuestAgentSocket v
       , "guestAgent" .= vdGuestAgent v
       , "cloudInit" .= vdCloudInit v
+      , "cloudInitConfig" .= vdCloudInitConfig v
       , "healthcheck" .= vdHealthcheck v
       ]
 
@@ -601,6 +630,7 @@ instance ToJSON TemplateDetails where
       , "description" .= tvdDescription t
       , "headless" .= tvdHeadless t
       , "cloudInit" .= tvdCloudInit t
+      , "cloudInitConfig" .= tvdCloudInitConfig t
       , "createdAt" .= tvdCreatedAt t
       , "drives" .= tvdDrives t
       , "networkInterfaces" .= tvdNetIfs t
@@ -772,6 +802,10 @@ data Response
     RespTaskInfo !TaskInfo
   | -- | Task not found
     RespTaskNotFound
+  | -- | Cloud-init config (Nothing = using defaults)
+    RespCloudInitConfig !(Maybe CloudInitInfo)
+  | -- | Cloud-init config operation successful
+    RespCloudInitOk
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

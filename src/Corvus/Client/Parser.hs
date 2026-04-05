@@ -1212,6 +1212,53 @@ completionCommand =
 --------------------------------------------------------------------------------
 
 -- | Parser for task subcommands
+cloudInitCommandParser :: Parser Command
+cloudInitCommandParser =
+  subparser
+    ( command
+        "set"
+        (info cloudInitSetCommand (progDesc "Set custom cloud-init config for a VM"))
+        <> command
+          "show"
+          (info cloudInitShowCommand (progDesc "Show cloud-init config for a VM"))
+        <> command
+          "delete"
+          (info cloudInitDeleteCommand (progDesc "Delete custom cloud-init config (revert to defaults)"))
+    )
+
+cloudInitSetCommand :: Parser Command
+cloudInitSetCommand =
+  CloudInitSet
+    <$> argument str (metavar "VM" <> help "VM name or ID")
+    <*> optional
+      ( strOption
+          ( long "user-data"
+              <> metavar "FILE"
+              <> help "Path to custom user-data YAML file"
+          )
+      )
+    <*> optional
+      ( strOption
+          ( long "network-config"
+              <> metavar "FILE"
+              <> help "Path to network-config YAML file"
+          )
+      )
+    <*> switch
+      ( long "no-inject-ssh-keys"
+          <> help "Do not inject SSH keys from the database into the user-data"
+      )
+
+cloudInitShowCommand :: Parser Command
+cloudInitShowCommand =
+  CloudInitShow
+    <$> argument str (metavar "VM" <> help "VM name or ID")
+
+cloudInitDeleteCommand :: Parser Command
+cloudInitDeleteCommand =
+  CloudInitDelete
+    <$> argument str (metavar "VM" <> help "VM name or ID")
+
 taskCommandParser :: Parser Command
 taskCommandParser =
   subparser
@@ -1329,6 +1376,9 @@ commandParser =
         <> command
           "network"
           (info networkCommandParser (progDesc "Virtual network management commands"))
+        <> command
+          "cloud-init"
+          (info cloudInitCommandParser (progDesc "Cloud-init configuration management"))
         <> command
           "apply"
           (info applyCommand (progDesc "Apply environment from YAML config file"))

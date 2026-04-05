@@ -161,6 +161,14 @@ data Command
     NetworkList
   | -- | Show virtual network details (networkRef)
     NetworkShow !Text
+  | -- Cloud-init config commands
+
+    -- | Set cloud-init config (vmRef, userDataFile, networkConfigFile, noInjectSshKeys)
+    CloudInitSet !Text !(Maybe FilePath) !(Maybe FilePath) !Bool
+  | -- | Show cloud-init config (vmRef)
+    CloudInitShow !Text
+  | -- | Delete cloud-init config (vmRef)
+    CloudInitDelete !Text
   | -- Apply commands
 
     -- | Apply environment from YAML config file (file path, skipExisting, waitOptions)

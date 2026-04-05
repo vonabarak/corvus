@@ -98,6 +98,12 @@ module Corvus.Client.Rpc
   , ApplyRpcResult (..)
   , applyConfig
 
+    -- * Cloud-init config operations
+  , CloudInitResult (..)
+  , cloudInitSet
+  , cloudInitGet
+  , cloudInitDelete
+
     -- * Task history operations
   , taskList
   , taskShow
@@ -870,4 +876,49 @@ taskListChildren conn parentId = do
   case result of
     Left err -> pure $ Left err
     Right (RespTaskList tasks) -> pure $ Right tasks
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+--------------------------------------------------------------------------------
+-- Cloud-Init Config Operations
+--------------------------------------------------------------------------------
+
+-- | Result of a cloud-init config operation
+data CloudInitResult
+  = CloudInitOk
+  | CloudInitConfig !(Maybe CloudInitInfo)
+  | CloudInitNotFound
+  | CloudInitError !Text
+  deriving (Show)
+
+-- | Set cloud-init config for a VM
+cloudInitSet :: Connection -> Text -> Maybe Text -> Maybe Text -> Bool -> IO (Either ConnectionError CloudInitResult)
+cloudInitSet conn vmRef mUserData mNetworkConfig injectSshKeys = do
+  result <- sendRequest conn (ReqCloudInitSet (Ref vmRef) mUserData mNetworkConfig injectSshKeys)
+  case result of
+    Left err -> pure $ Left err
+    Right RespCloudInitOk -> pure $ Right CloudInitOk
+    Right RespVmNotFound -> pure $ Right CloudInitNotFound
+    Right (RespError msg) -> pure $ Right $ CloudInitError msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+-- | Get cloud-init config for a VM
+cloudInitGet :: Connection -> Text -> IO (Either ConnectionError CloudInitResult)
+cloudInitGet conn vmRef = do
+  result <- sendRequest conn (ReqCloudInitGet (Ref vmRef))
+  case result of
+    Left err -> pure $ Left err
+    Right (RespCloudInitConfig mConfig) -> pure $ Right $ CloudInitConfig mConfig
+    Right RespVmNotFound -> pure $ Right CloudInitNotFound
+    Right (RespError msg) -> pure $ Right $ CloudInitError msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+-- | Delete cloud-init config for a VM (revert to defaults)
+cloudInitDelete :: Connection -> Text -> IO (Either ConnectionError CloudInitResult)
+cloudInitDelete conn vmRef = do
+  result <- sendRequest conn (ReqCloudInitDelete (Ref vmRef))
+  case result of
+    Left err -> pure $ Left err
+    Right RespCloudInitOk -> pure $ Right CloudInitOk
+    Right RespVmNotFound -> pure $ Right CloudInitNotFound
+    Right (RespError msg) -> pure $ Right $ CloudInitError msg
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"

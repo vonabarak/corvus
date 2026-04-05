@@ -20,12 +20,14 @@ module Corvus.Handlers
   , module Corvus.Handlers.Network
   , module Corvus.Handlers.GuestExec
   , module Corvus.Handlers.Apply
+  , module Corvus.Handlers.CloudInit
   )
 where
 
 import Control.Concurrent (forkIO)
 import Control.Exception (SomeException, try)
 import Corvus.Handlers.Apply
+import Corvus.Handlers.CloudInit
 import Corvus.Handlers.Core
 import Corvus.Handlers.Disk
 import Corvus.Handlers.GuestExec
@@ -259,6 +261,10 @@ dispatchRequest state req = case req of
   ReqDiskImportUrl name url mFmt -> handleDiskImportUrl state name url mFmt
   -- Apply config (always handled by dispatchApply via isApply guard)
   ReqApply {} -> error "dispatchRequest: ReqApply should be handled by dispatchApply"
+  -- Cloud-init config handlers
+  ReqCloudInitSet vmRef mUserData mNetConfig injectKeys -> withVm vmRef $ \vmId -> handleCloudInitSet state vmId mUserData mNetConfig injectKeys
+  ReqCloudInitGet vmRef -> withVm vmRef $ \vmId -> handleCloudInitGet state vmId
+  ReqCloudInitDelete vmRef -> withVm vmRef $ \vmId -> handleCloudInitDelete state vmId
   -- Task history queries (read-only, but dispatched here for completeness)
   ReqTaskList limit mSub mResult inclSub -> handleTaskList state limit mSub mResult inclSub
   ReqTaskShow taskId -> handleTaskShow state taskId
@@ -646,6 +652,9 @@ classifyRequest = \case
   ReqNetworkShow ref -> (SubNetwork, "show", Just ref)
   ReqGuestExec ref _ -> (SubVm, "guest-exec", Just ref)
   ReqApply {} -> (SubApply, "apply", Nothing)
+  ReqCloudInitSet ref _ _ _ -> (SubVm, "cloud-init-set", Just ref)
+  ReqCloudInitGet ref -> (SubVm, "cloud-init-get", Just ref)
+  ReqCloudInitDelete ref -> (SubVm, "cloud-init-delete", Just ref)
   ReqTaskList {} -> (SubSystem, "task-list", Nothing)
   ReqTaskShow _ -> (SubSystem, "task-show", Nothing)
   ReqTaskListChildren _ -> (SubSystem, "task-list-children", Nothing)
@@ -668,6 +677,7 @@ isReadOnly = \case
   ReqTemplateShow _ -> True
   ReqNetworkList -> True
   ReqNetworkShow _ -> True
+  ReqCloudInitGet _ -> True
   ReqTaskList {} -> True
   ReqTaskShow _ -> True
   ReqTaskListChildren _ -> True
@@ -721,6 +731,7 @@ classifyResponse = \case
   RespNetIfAdded nid -> (TaskSuccess, Just $ "NetIf ID " <> T.pack (show nid))
   RespNetIfOk -> (TaskSuccess, Nothing)
   RespGuestExecResult code _ _ -> (TaskSuccess, Just $ "Exit code " <> T.pack (show code))
+  RespCloudInitOk -> (TaskSuccess, Nothing)
   -- Read-only (shouldn't reach here, but handle gracefully)
   _ -> (TaskSuccess, Nothing)
 

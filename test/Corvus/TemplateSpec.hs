@@ -4,7 +4,13 @@
 module Corvus.TemplateSpec (spec) where
 
 import Corvus.Client.Rpc (TemplateResult (..))
+import Corvus.Model (TemplateCloudInit (..), Unique (..))
+import Corvus.Protocol (CloudInitInfo (..), TemplateDetails (..))
 import Corvus.Utils.Yaml (yaml)
+import Data.Maybe (isJust)
+import Database.Persist (Entity (..), getBy)
+import Database.Persist.Sql (toSqlKey)
+import Test.DSL.Core (runDb)
 import Test.Prelude
 
 spec :: Spec
@@ -71,6 +77,46 @@ spec = sequential $ withTestDb $ do
     testCase "returns not found for non-existent template" $ do
       result <- whenTemplateShow 999
       liftIO $ result `shouldBe` TemplateNotFound
+
+  describe "template with cloud-init config" $ do
+    testCase "creates template with cloudInitConfig" $ do
+      _ <- given $ insertDiskImage "ci-base-disk" "ci-base.qcow2" FormatQcow2
+      let tplYaml =
+            [yaml|
+              name: ci-template
+              cpuCount: 2
+              ramMb: 2048
+              cloudInit: true
+              cloudInitConfig:
+                userData:
+                  users:
+                    - name: deploy
+                      sudo: "ALL=(ALL) NOPASSWD:ALL"
+                  packages:
+                    - nginx
+                injectSshKeys: false
+              drives:
+                - diskImageName: ci-base-disk
+                  interface: virtio
+                  strategy: overlay
+            |]
+      result <- whenTemplateCreate tplYaml
+      case result of
+        TemplateCreated tId -> do
+          -- Verify cloud-init config stored in DB
+          mCi <- runDb $ getBy (UniqueTemplateCloudInitVm (toSqlKey tId))
+          liftIO $ mCi `shouldSatisfy` isJust
+          case mCi of
+            Just (Entity _ tci) -> do
+              liftIO $ templateCloudInitUserData tci `shouldSatisfy` isJust
+              liftIO $ templateCloudInitInjectSshKeys tci `shouldBe` False
+            Nothing -> liftIO $ expectationFailure "TemplateCloudInit row should exist"
+          -- Verify template show includes cloud-init config
+          showResult <- whenTemplateShow tId
+          liftIO $ case showResult of
+            TemplateDetailsResult details -> tvdCloudInitConfig details `shouldSatisfy` isJust
+            other -> fail $ "Expected TemplateDetailsResult, got: " ++ show other
+        other -> liftIO $ fail $ "Expected TemplateCreated, got: " ++ show other
 
   describe "template delete" $ do
     testCase "fails for non-existent template" $ do

@@ -20,6 +20,7 @@ module Corvus.Client.Commands
 where
 
 import Corvus.Client.Commands.Apply
+import Corvus.Client.Commands.CloudInit
 import Corvus.Client.Commands.Disk
 import Corvus.Client.Commands.GuestExec
 import Corvus.Client.Commands.NetIf
@@ -350,6 +351,10 @@ runCommand opts = do
       NetworkStop nwRef force -> handleNetworkStop fmt conn nwRef force
       NetworkList -> handleNetworkList fmt conn
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
+      -- Cloud-init config
+      CloudInitSet vmRef mUdFile mNcFile noInject -> handleCloudInitSet fmt conn vmRef mUdFile mNcFile noInject
+      CloudInitShow vmRef -> handleCloudInitShow fmt conn vmRef
+      CloudInitDelete vmRef -> handleCloudInitDelete fmt conn vmRef
       -- Apply
       Apply path skipExisting waitOpts -> handleApply fmt conn path skipExisting waitOpts
       -- Task history

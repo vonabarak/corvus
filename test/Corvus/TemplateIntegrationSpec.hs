@@ -4,6 +4,7 @@ module Corvus.TemplateIntegrationSpec (spec) where
 
 import Control.Monad (void)
 import Corvus.Client
+import Corvus.Client.Rpc (CloudInitResult (..))
 import Corvus.Protocol
 import Data.List (find)
 import Data.Maybe (isJust)
@@ -13,7 +14,7 @@ import Test.Database (withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVm)
 import Test.VM.Daemon (withDaemonConnection)
-import Test.VM.Rpc (runViaGuestAgent, startTestVmSync, stopTestVmAndWait)
+import Test.VM.Rpc (getCloudInitConfig, runViaGuestAgent, startTestVmSync, stopTestVmAndWait)
 
 -- | Find a disk name matching a prefix from a list of disk images
 findDiskName :: T.Text -> [DiskImageInfo] -> T.Text
@@ -124,4 +125,86 @@ spec = withTestDb $ do
         stopTestVmAndWait daemon newVmId 10
 
         -- Cleanup: delete template
+        void $ withDaemonConnection daemon $ \conn -> templateDelete conn (T.pack (show templateId))
+
+    it "propagates cloud-init config from template to instantiated VM" $ \env -> do
+      withTestVm env defaultVmConfig $ \vm -> do
+        let daemon = tvmDaemon vm
+
+        -- Stop the VM so we can use its disk
+        stopTestVmAndWait daemon (tvmId vm) 10
+
+        -- Discover actual disk names
+        diskListRes <- withDaemonConnection daemon $ \conn -> diskList conn
+        disks <- case diskListRes of
+          Right (Right (DiskListResult ds)) -> pure ds
+          other -> fail $ "Failed to list disks: " ++ show other
+        let baseDiskName = findDiskName "base-image" disks
+            ovmfCodeName = findDiskName "ovmf-code" disks
+            ovmfVarsTemplateName = findDiskName "ovmf-vars-template" disks
+
+        -- Create template with cloud-init config
+        let templateYaml =
+              T.unlines
+                [ "name: \"ci-template\""
+                , "cpuCount: 2"
+                , "ramMb: 2048"
+                , "cloudInit: true"
+                , "cloudInitConfig:"
+                , "  userData:"
+                , "    users:"
+                , "      - name: custom-user"
+                , "        sudo: \"ALL=(ALL) NOPASSWD:ALL\""
+                , "    packages:"
+                , "      - curl"
+                , "  injectSshKeys: false"
+                , "drives:"
+                , "  - diskImageName: \"" <> baseDiskName <> "\""
+                , "    interface: \"virtio\""
+                , "    strategy: \"overlay\""
+                , "  - diskImageName: \"" <> ovmfCodeName <> "\""
+                , "    interface: \"pflash\""
+                , "    strategy: \"direct\""
+                , "    readOnly: true"
+                , "  - diskImageName: \"" <> ovmfVarsTemplateName <> "\""
+                , "    interface: \"pflash\""
+                , "    strategy: \"clone\""
+                ]
+
+        resCreate <- withDaemonConnection daemon $ \conn -> templateCreate conn templateYaml
+        templateId <- case resCreate of
+          Right (Right (TemplateCreated tid)) -> pure tid
+          other -> fail $ "Template creation failed: " ++ show other
+
+        -- Verify template show includes cloud-init config
+        resShow <- withDaemonConnection daemon $ \conn -> templateShow conn (T.pack (show templateId))
+        case resShow of
+          Right (Right (TemplateDetailsResult details)) -> do
+            tvdCloudInit details `shouldBe` True
+            tvdCloudInitConfig details `shouldSatisfy` isJust
+          other -> fail $ "Template show failed: " ++ show other
+
+        -- Instantiate template
+        resInst <- withDaemonConnection daemon $ \conn -> templateInstantiate conn (T.pack (show templateId)) "ci-inst-vm"
+        newVmId <- case resInst of
+          Right (Right (TemplateInstantiated vmId)) -> pure vmId
+          other -> fail $ "Template instantiation failed: " ++ show other
+
+        -- Verify instantiated VM has the cloud-init config
+        ciResult <- getCloudInitConfig daemon newVmId
+        case ciResult of
+          CloudInitConfig (Just ci) -> do
+            ciiUserData ci `shouldSatisfy` isJust
+            ciiInjectSshKeys ci `shouldBe` False
+          other -> fail $ "Expected cloud-init config on instantiated VM, got: " ++ show other
+
+        -- Verify VM details show the config
+        resVm <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show newVmId))
+        case resVm of
+          Right (Right (Just details)) -> do
+            vdCloudInit details `shouldBe` True
+            vdCloudInitConfig details `shouldSatisfy` isJust
+          other -> fail $ "VM show failed: " ++ show other
+
+        -- Cleanup
         void $ withDaemonConnection daemon $ \conn -> templateDelete conn (T.pack (show templateId))
