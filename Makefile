@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install cleanup unit-tests integration-tests all-tests test test-image lint format
+.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image lint format
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -30,6 +30,18 @@ install:
 	crv completion zsh > $(HOME)/.local/share/zsh/site-functions/_crv
 	mkdir -p $(HOME)/.config/fish/completions
 	crv completion fish > $(HOME)/.config/fish/completions/crv.fish
+
+# Uninstall binaries, systemd service, and shell completions
+uninstall:
+	-systemctl --user stop corvus.service
+	-systemctl --user disable corvus.service
+	rm -f $(HOME)/.config/systemd/user/corvus.service
+	-systemctl --user daemon-reload
+	rm -f $(HOME)/.local/bin/corvus
+	rm -f $(HOME)/.local/bin/crv
+	rm -f $(HOME)/.local/share/bash-completion/completions/crv
+	rm -f $(HOME)/.local/share/zsh/site-functions/_crv
+	rm -f $(HOME)/.config/fish/completions/crv.fish
 
 # Cleanup the project build artifacts and test cache
 cleanup:

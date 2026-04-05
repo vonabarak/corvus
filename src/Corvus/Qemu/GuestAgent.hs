@@ -8,12 +8,14 @@ module Corvus.Qemu.GuestAgent
     GuestExecResult (..)
   , GuestIpAddress (..)
   , GuestNetIf (..)
+  , GuestOsInfo (..)
 
     -- * Commands
   , guestExec
   , guestPing
   , guestShutdown
   , guestNetworkGetInterfaces
+  , guestGetOsInfo
   )
 where
 
@@ -34,9 +36,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
+import Data.Word (Word8)
 import Network.Socket (Socket)
 import Network.Socket.ByteString (recv, sendAll)
-import System.Random (randomIO)
+import System.Random (randomRIO)
 import System.Timeout (timeout)
 
 -- | Result of a guest-exec command
@@ -47,6 +50,19 @@ data GuestExecResult
     GuestExecError !Text
   | -- | Could not connect to guest agent socket
     GuestExecConnectionFailed !Text
+  deriving (Eq, Show)
+
+-- | Guest OS information returned by guest-get-osinfo
+data GuestOsInfo = GuestOsInfo
+  { goiKernelRelease :: !Text
+  -- ^ e.g. "10.0.19041" or "6.1.0-20-amd64"
+  , goiKernelVersion :: !Text
+  -- ^ e.g. "#1 SMP" or "10.0"
+  , goiId :: !Text
+  -- ^ OS ID: "mswindows", "linux", "freebsd", etc.
+  , goiMachine :: !Text
+  -- ^ Machine type, e.g. "x86_64"
+  }
   deriving (Eq, Show)
 
 -- | A single IP address reported by the guest agent
@@ -70,19 +86,22 @@ data GuestNetIf = GuestNetIf
   deriving (Eq, Show)
 
 -- | Execute a command inside the guest via the QEMU Guest Agent.
--- Runs the command via /bin/sh -c, captures stdout and stderr.
+-- Detects the guest OS and uses the appropriate shell:
+-- Linux/BSD: /bin/sh -c, Windows: cmd.exe /c
 guestExec :: QemuConfig -> Int64 -> Text -> IO GuestExecResult
 guestExec config vmId command = do
   gaSock <- getGuestAgentSocket config vmId
   mResult <- withSyncedSocket gaSock $ \sock -> do
+    -- First detect the guest OS to choose the right shell
+    (shellPath, shellArgs) <- detectGuestShell sock
     -- Send guest-exec command
     let execCmd =
           Aeson.object
             [ "execute" .= ("guest-exec" :: Text)
             , "arguments"
                 .= Aeson.object
-                  [ "path" .= ("/bin/sh" :: Text)
-                  , "arg" .= ["-c" :: Text, command]
+                  [ "path" .= shellPath
+                  , "arg" .= (shellArgs ++ [command])
                   , "capture-output" .= True
                   ]
             ]
@@ -147,6 +166,19 @@ guestNetworkGetInterfaces config vmId = do
     Left _ -> pure Nothing
     Right r -> pure r
 
+-- | Query guest OS info via the QEMU Guest Agent.
+-- Returns Nothing on failure.
+guestGetOsInfo :: QemuConfig -> Int64 -> IO (Maybe GuestOsInfo)
+guestGetOsInfo config vmId = do
+  gaSock <- getGuestAgentSocket config vmId
+  mResult <- withSyncedSocket gaSock $ \sock -> do
+    sendJson sock $ Aeson.object ["execute" .= ("guest-get-osinfo" :: Text)]
+    resp <- recvJson sock
+    pure $ parseOsInfo resp
+  case mResult of
+    Left _ -> pure Nothing
+    Right r -> pure r
+
 --------------------------------------------------------------------------------
 -- Internal helpers
 --------------------------------------------------------------------------------
@@ -176,9 +208,12 @@ withSyncedSocket path action = go 5
 -- | Synchronize with the guest agent.
 -- Each new connection requires a guest-sync handshake before commands will work.
 -- Drains any stale responses until the sync response (matching ID) arrives.
+-- Uses bounded random IDs (0 to 2^30) to avoid floating-point precision issues
+-- in JSON parsers that use double internally.
 syncGuest :: Socket -> IO ()
 syncGuest sock = do
-  syncId <- abs <$> randomIO :: IO Int
+  -- Use bounded range to avoid precision loss in JSON number handling
+  syncId <- randomRIO (1, 1073741823 :: Int) -- 2^30 - 1
   let syncCmd =
         Aeson.object
           [ "execute" .= ("guest-sync" :: Text)
@@ -200,13 +235,66 @@ sendJson :: Socket -> Value -> IO ()
 sendJson sock val = sendAll sock (BL.toStrict (Aeson.encode val) <> "\n")
 
 -- | Read a JSON response from the socket.
--- QGA sends newline-delimited JSON. Read a chunk and parse the first JSON value.
+-- QGA sends newline-delimited JSON. Read a chunk and parse the first complete
+-- JSON object. Strips leading @\\xff@ bytes (QGA framing delimiter used by
+-- @guest-sync-delimited@ responses that may be left in the buffer).
 recvJson :: Socket -> IO (Maybe Value)
 recvJson sock = do
   bs <- recv sock 65536
   if BS.null bs
     then pure Nothing
-    else pure $ Aeson.decodeStrict bs
+    else
+      let cleaned = BS.filter (/= 0xFF) bs
+          -- Try to parse the first JSON object from newline-delimited stream.
+          -- Split on newlines and try each line until one parses.
+          lines' = filter (not . BS.null) $ BS.split (fromIntegral (fromEnum '\n') :: Word8) cleaned
+       in pure $ firstParse lines'
+  where
+    firstParse [] = Nothing
+    firstParse (l : ls) = case Aeson.decodeStrict l of
+      Just v -> Just v
+      Nothing -> firstParse ls
+
+-- | Detect the guest OS shell by querying guest-get-osinfo.
+-- Returns (shell path, shell args) for the detected OS.
+-- Defaults to /bin/sh -c if detection fails.
+detectGuestShell :: Socket -> IO (Text, [Text])
+detectGuestShell sock = do
+  sendJson sock $ Aeson.object ["execute" .= ("guest-get-osinfo" :: Text)]
+  resp <- recvJson sock
+  case parseOsId resp of
+    Just osId
+      | "mswindows" `T.isPrefixOf` osId -> pure ("cmd.exe", ["/c"])
+    _ -> pure ("/bin/sh", ["-c"])
+  where
+    parseOsId mVal = do
+      val <- mVal
+      AT.parseMaybe
+        ( AT.withObject "response" $ \obj -> do
+            ret <- obj .: "return"
+            ret .:? "id" AT..!= ("" :: Text)
+        )
+        val
+
+-- | Parse guest-get-osinfo response.
+parseOsInfo :: Maybe Value -> Maybe GuestOsInfo
+parseOsInfo mVal = do
+  val <- mVal
+  AT.parseMaybe osInfoParser val
+  where
+    osInfoParser = AT.withObject "response" $ \obj -> do
+      ret <- obj .: "return"
+      kernelRelease <- ret .:? "kernel-release" AT..!= ""
+      kernelVersion <- ret .:? "kernel-version" AT..!= ""
+      osId <- ret .:? "id" AT..!= ""
+      machine <- ret .:? "machine" AT..!= ""
+      pure
+        GuestOsInfo
+          { goiKernelRelease = kernelRelease
+          , goiKernelVersion = kernelVersion
+          , goiId = osId
+          , goiMachine = machine
+          }
 
 -- | Extract PID from guest-exec response: {"return": {"pid": N}}
 parsePid :: Maybe Value -> Maybe Int

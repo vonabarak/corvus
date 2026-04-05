@@ -261,6 +261,7 @@ test-suite corvus-test
       Corvus.DiskIntegrationSpec
       Corvus.DiskSpec
       Corvus.GuestAgentPollerIntegrationSpec
+      Corvus.GuestAgentSpec
       Corvus.GuestExecSpec
       Corvus.ImageSpec
       Corvus.NetIfSpec
@@ -279,6 +280,7 @@ test-suite corvus-test
       Corvus.VmIntegrationSpec
       Corvus.VmSpec
       Corvus.VmTransitionSpec
+      Corvus.WindowsIntegrationSpec
       SpecHook
       Test.Database
       Test.DSL.Core
