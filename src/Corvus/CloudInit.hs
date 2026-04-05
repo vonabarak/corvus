@@ -153,14 +153,18 @@ generateCloudInitIso targetDir config sshPubKeys = do
       networkConfigPath = targetDir </> "network-config"
       isoPath = targetDir </> "cloud-init.iso"
 
-  -- Generate user-data: custom or default
-  let userDataContent = case ciCustomUserData config of
-        Just customYaml
+  -- Generate user-data: custom or default.
+  -- Raw scripts (starting with #, e.g. #ps1_sysnative, #!, #cloud-config)
+  -- are used as-is. Structured YAML gets a #cloud-config header prepended.
+  let isRawScript t = T.isPrefixOf "#" (T.stripStart t)
+      userDataContent = case ciCustomUserData config of
+        Just customData
+          | isRawScript customData -> customData
           | ciInjectSshKeys config && not (null sshPubKeys) ->
-              case injectSshKeysIntoYaml customYaml sshPubKeys of
+              case injectSshKeysIntoYaml customData sshPubKeys of
                 Right merged -> "#cloud-config\n" <> merged
-                Left _ -> "#cloud-config\n" <> customYaml
-          | otherwise -> "#cloud-config\n" <> customYaml
+                Left _ -> "#cloud-config\n" <> customData
+          | otherwise -> "#cloud-config\n" <> customData
         Nothing -> generateUserData config sshPubKeys
 
   -- Write cloud-init files

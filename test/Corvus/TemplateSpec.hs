@@ -8,6 +8,7 @@ import Corvus.Model (TemplateCloudInit (..), Unique (..))
 import Corvus.Protocol (CloudInitInfo (..), TemplateDetails (..))
 import Corvus.Utils.Yaml (yaml)
 import Data.Maybe (isJust)
+import qualified Data.Text as T
 import Database.Persist (Entity (..), getBy)
 import Database.Persist.Sql (toSqlKey)
 import Test.DSL.Core (runDb)
@@ -116,6 +117,40 @@ spec = sequential $ withTestDb $ do
           liftIO $ case showResult of
             TemplateDetailsResult details -> tvdCloudInitConfig details `shouldSatisfy` isJust
             other -> fail $ "Expected TemplateDetailsResult, got: " ++ show other
+        other -> liftIO $ fail $ "Expected TemplateCreated, got: " ++ show other
+
+    testCase "creates template with raw string cloudInit userData" $ do
+      _ <- given $ insertDiskImage "raw-ci-base" "raw-ci-base.qcow2" FormatQcow2
+      let tplYaml =
+            [yaml|
+              name: raw-ci-template
+              cpuCount: 2
+              ramMb: 2048
+              cloudInit: true
+              cloudInitConfig:
+                userData: |
+                  #ps1_sysnative
+                  net user Administrator "WinPass123!" /y
+                  Start-Service QEMU-GA
+                injectSshKeys: false
+              drives:
+                - diskImageName: raw-ci-base
+                  interface: virtio
+                  strategy: overlay
+            |]
+      result <- whenTemplateCreate tplYaml
+      case result of
+        TemplateCreated tId -> do
+          mCi <- runDb $ getBy (UniqueTemplateCloudInitVm (toSqlKey tId))
+          liftIO $ mCi `shouldSatisfy` isJust
+          case mCi of
+            Just (Entity _ tci) -> do
+              liftIO $ templateCloudInitUserData tci `shouldSatisfy` isJust
+              case templateCloudInitUserData tci of
+                Just ud -> liftIO $ T.isPrefixOf "#ps1_sysnative" ud `shouldBe` True
+                Nothing -> liftIO $ expectationFailure "userData should be Just"
+              liftIO $ templateCloudInitInjectSshKeys tci `shouldBe` False
+            Nothing -> liftIO $ expectationFailure "TemplateCloudInit row should exist"
         other -> liftIO $ fail $ "Expected TemplateCreated, got: " ++ show other
 
   describe "template delete" $ do

@@ -16,7 +16,7 @@ module Corvus.WindowsIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Corvus.Client (showVm)
-import Corvus.Client.Rpc (DiskResult (..), diskRegister)
+import Corvus.Client.Rpc (DiskResult (..), diskClone, diskCreateOverlay, diskRegister)
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), NetInterfaceType (..), VmStatus (..))
 import Corvus.Protocol (VmDetails (..))
 import Corvus.Qemu.GuestAgent (GuestOsInfo (..), guestGetOsInfo)
@@ -60,14 +60,24 @@ spec = withTestDb $ do
               ++ imagePath
               ++ ". Build with: scripts/build-windows-test-image.sh"
         else withTestDaemon env $ \daemon -> do
-          -- Import the pre-built Windows image
-          diskId <- importWindowsDisk daemon (T.pack imagePath)
+          -- Import the pre-built Windows image and create an overlay
+          baseId <- registerDisk daemon "win-base" (T.pack imagePath) (Just FormatQcow2)
+          diskId <- createOverlay daemon "win-test" baseId
+
+          -- Set up UEFI firmware (OVMF_CODE read-only + OVMF_VARS clone)
+          ovmfCodeId <- registerDisk daemon "win-ovmf-code" "/usr/share/edk2/OvmfX64/OVMF_CODE.fd" (Just FormatRaw)
+          ovmfVarsTemplateId <- registerDisk daemon "win-ovmf-vars-tpl" "/usr/share/edk2/OvmfX64/OVMF_VARS.fd" (Just FormatRaw)
+          ovmfVarsId <- cloneDisk daemon "win-ovmf-vars" ovmfVarsTemplateId
 
           -- Create VM: headless=False (SPICE graphics), guest-agent=True,
           -- cloud-init=False (Windows doesn't use NoCloud cloud-init)
           vmId <- createTestVmWithOptions daemon "test-win-vm" 2 4096 Nothing False True False
 
-          -- Add boot disk
+          -- Attach UEFI firmware first (pflash order matters: CODE then VARS)
+          addVmDisk daemon vmId ovmfCodeId InterfacePflash CacheWriteback False True
+          addVmDisk daemon vmId ovmfVarsId InterfacePflash CacheWriteback False False
+
+          -- Add boot disk (virtio — the Windows image has virtio drivers)
           addVmDisk daemon vmId diskId InterfaceVirtio CacheWriteback False False
 
           -- Add user-mode network
@@ -108,16 +118,42 @@ spec = withTestDb $ do
           stopTestVmAndWait daemon vmId 60
           deleteTestVm daemon vmId
 
--- | Import a Windows disk image via daemon RPC and return its ID.
-importWindowsDisk :: TestDaemon -> T.Text -> IO Int64
-importWindowsDisk daemon filePath = do
+--------------------------------------------------------------------------------
+-- Helpers
+--------------------------------------------------------------------------------
+
+-- | Register a disk image and return its ID.
+registerDisk :: TestDaemon -> T.Text -> T.Text -> Maybe DriveFormat -> IO Int64
+registerDisk daemon name filePath mFormat = do
   result <- withDaemonConnection daemon $ \conn ->
-    diskRegister conn "win-test-base" filePath (Just FormatQcow2)
+    diskRegister conn name filePath mFormat
   case result of
-    Left err -> fail $ "Failed to connect: " <> show err
-    Right (Left err) -> fail $ "RPC error: " <> show err
     Right (Right (DiskCreated id')) -> pure id'
-    Right (Right other) -> fail $ "Failed to import disk: " <> show other
+    Right (Left err) -> fail $ "RPC error registering disk: " <> show err
+    Right (Right other) -> fail $ "Unexpected response: " <> show other
+    Left err -> fail $ "Connection error: " <> show err
+
+-- | Create a qcow2 overlay and return its ID.
+createOverlay :: TestDaemon -> T.Text -> Int64 -> IO Int64
+createOverlay daemon name baseId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    diskCreateOverlay conn name (T.pack (show baseId)) Nothing
+  case result of
+    Right (Right (DiskCreated id')) -> pure id'
+    Right (Left err) -> fail $ "RPC error creating overlay: " <> show err
+    Right (Right other) -> fail $ "Unexpected response: " <> show other
+    Left err -> fail $ "Connection error: " <> show err
+
+-- | Clone a disk and return the clone's ID.
+cloneDisk :: TestDaemon -> T.Text -> Int64 -> IO Int64
+cloneDisk daemon name sourceId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    diskClone conn name (T.pack (show sourceId)) Nothing
+  case result of
+    Right (Right (DiskCreated id')) -> pure id'
+    Right (Left err) -> fail $ "RPC error cloning disk: " <> show err
+    Right (Right other) -> fail $ "Unexpected response: " <> show other
+    Left err -> fail $ "Connection error: " <> show err
 
 -- | Poll until healthcheck timestamp is set. Fails after timeout seconds.
 waitForHealthcheck :: TestDaemon -> Int64 -> Int -> IO UTCTime

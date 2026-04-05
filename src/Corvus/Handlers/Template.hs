@@ -25,7 +25,7 @@ import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Qemu.Image (ImageResult (..), cloneImage, createOverlay, resizeImage)
 import Corvus.Types
-import Data.Aeson (Value)
+import Data.Aeson (Value (..))
 import Data.Either (lefts)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -121,6 +121,9 @@ instance FromJSON TemplateSshKeyYaml where
 
 -- | Cloud-init config YAML, used in both template and apply contexts.
 -- userData and networkConfig are parsed as YAML Values and serialized to text for DB storage.
+-- Supports both structured YAML (objects/arrays) and raw text strings (e.g. PowerShell scripts
+-- for cloudbase-init on Windows). Raw strings are stored as-is; structured values are
+-- serialized via @Yaml.encode@.
 data CloudInitConfigYaml = CloudInitConfigYaml
   { cicyUserData :: Maybe Text
   , cicyNetworkConfig :: Maybe Text
@@ -133,11 +136,12 @@ instance FromJSON CloudInitConfigYaml where
     mUserDataVal <- o .:? "userData" :: Yaml.Parser (Maybe Value)
     mNetworkConfigVal <- o .:? "networkConfig" :: Yaml.Parser (Maybe Value)
     injectKeys <- o .:? "injectSshKeys" .!= True
-    let encodeVal v = T.decodeUtf8 (Yaml.encode v)
+    let valueToText (String t) = t
+        valueToText v = T.decodeUtf8 (Yaml.encode v)
     pure
       CloudInitConfigYaml
-        { cicyUserData = fmap encodeVal mUserDataVal
-        , cicyNetworkConfig = fmap encodeVal mNetworkConfigVal
+        { cicyUserData = fmap valueToText mUserDataVal
+        , cicyNetworkConfig = fmap valueToText mNetworkConfigVal
         , cicyInjectSshKeys = injectKeys
         }
 

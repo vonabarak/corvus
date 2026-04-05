@@ -339,3 +339,41 @@ spec = sequential $ do
               liftIO $ cloudInitNetworkConfig ci `shouldSatisfy` isJust
               liftIO $ cloudInitInjectSshKeys ci `shouldBe` False
             Nothing -> liftIO $ expectationFailure "CloudInit row should exist"
+
+      testCase "applies config with raw string cloud-init userData" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: raw-ci-disk
+                  format: qcow2
+                  sizeMb: 1024
+              vms:
+                - name: raw-ci-vm
+                  cpuCount: 1
+                  ramMb: 512
+                  cloudInit: true
+                  cloudInitConfig:
+                    userData: |
+                      #ps1_sysnative
+                      net user Administrator "Password123!" /y
+                    injectSshKeys: false
+                  drives:
+                    - disk: raw-ci-disk
+                      interface: virtio
+            |]
+        then_ $ responseIs $ \case
+          RespApplyResult r -> length (arVms r) == 1
+          _ -> False
+        -- Verify raw content was stored as-is (not re-encoded via Yaml.encode)
+        then_ $ do
+          mCi <- runDb $ getBy (UniqueCloudInitVm (toSqlKey 1))
+          liftIO $ mCi `shouldSatisfy` isJust
+          case mCi of
+            Just (Entity _ ci) -> do
+              liftIO $ cloudInitUserData ci `shouldSatisfy` isJust
+              case cloudInitUserData ci of
+                Just ud -> liftIO $ T.isPrefixOf "#ps1_sysnative" ud `shouldBe` True
+                Nothing -> liftIO $ expectationFailure "userData should be Just"
+              liftIO $ cloudInitInjectSshKeys ci `shouldBe` False
+            Nothing -> liftIO $ expectationFailure "CloudInit row should exist"
