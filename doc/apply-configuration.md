@@ -320,18 +320,54 @@ When `network` is specified, the interface type is automatically set to `managed
 
 **`type`** values:
 
-| Value | Description |
-|-------|-------------|
-| `managed` | Managed virtual network (bridge/TAP in daemon namespace). Set automatically when `network` is specified. |
-| `user` | QEMU user-mode networking (built-in NAT, no host device needed). |
-| `vde` | External VDE virtual switch (specify `hostDevice` as VDE socket path). |
-| `tap` | TAP device (requires pre-configured host device). |
-| `bridge` | Bridge device (requires pre-configured host bridge). |
-| `macvtap` | MACVTAP device. |
+| Value | Description | `hostDevice` |
+|-------|-------------|--------------|
+| `user` | QEMU user-mode networking (built-in NAT, no host device needed). Default when `type` and `network` are both omitted. | Optional: QEMU netdev options (e.g. `hostfwd=tcp::2222-:22`). |
+| `managed` | Managed virtual network (bridge/TAP in daemon namespace). Set automatically when `network` is specified. | Not used (daemon manages TAP fd). |
+| `tap` | TAP device (requires pre-configured host device). | Required: TAP device name (e.g. `tap0`). |
+| `bridge` | Bridge device (requires pre-configured host bridge). | Required: bridge name (e.g. `br0`). |
+| `vde` | External VDE virtual switch. | Required: VDE socket path (e.g. `/var/run/vde.ctl`). |
+| `macvtap` | MACVTAP device. | Not used (fd passing). |
 
 For `managed` interfaces, the daemon creates a TAP device inside its network namespace and passes the file descriptor to QEMU. The VM's NIC is automatically connected to the network's bridge.
 
 A MAC address is generated automatically for each interface unless `mac` is specified. Use explicit MAC addresses when you need reproducible network configurations or specific addressing.
+
+#### Examples
+
+```yaml
+    networkInterfaces:
+      # User-mode networking with SSH port forwarding (no host setup required)
+      - type: user
+        hostDevice: "hostfwd=tcp::2222-:22"
+
+      # User-mode with multiple port forwards (SSH + HTTP)
+      - type: user
+        hostDevice: "hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80"
+
+      # Managed virtual network (daemon handles bridge/TAP in namespace)
+      # Requires a network defined in the 'networks' section or pre-existing in DB
+      - network: lab-net
+
+      # TAP device (pre-configured on host)
+      - type: tap
+        hostDevice: tap0
+
+      # Bridge (pre-configured on host)
+      - type: bridge
+        hostDevice: br0
+
+      # VDE virtual switch (external vde_switch process)
+      - type: vde
+        hostDevice: /var/run/vde.ctl
+
+      # Explicit MAC address (for reproducible addressing)
+      - type: user
+        mac: "52:54:00:12:34:56"
+        hostDevice: "hostfwd=tcp::2222-:22"
+```
+
+**Port forwarding** (user mode only): format is `hostfwd=<proto>::<host_port>-:<guest_port>`. Protocol is `tcp` or `udp`. Multiple rules are comma-separated in `hostDevice`.
 
 ### Shared Directories
 

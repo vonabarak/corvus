@@ -187,14 +187,62 @@ crv guest-exec 1 cat /etc/hostname           # Example: read file
 
 #### Network Commands
 
-Manage virtual networks (VDE-based with dnsmasq for DHCP/DNS).
+Manage virtual networks (bridge-based with dnsmasq for DHCP/DNS, running inside the daemon's unprivileged network namespace).
 
 ```bash
-crv network create <name>         # Create a virtual network
+crv network create <name>                       # Create a virtual network
+crv network create <name> --subnet 10.0.1.0/24  # With subnet
+crv network create <name> --subnet 10.0.1.0/24 --dhcp  # With DHCP
+crv network create <name> --subnet 10.0.1.0/24 --dhcp --nat  # With DHCP + NAT
+crv network start <id>            # Start the network (creates bridge, dnsmasq)
+crv network stop <id>             # Stop the network
 crv network list                  # List all networks
 crv network show <id>             # Show network details
 crv network delete <id>           # Delete a network
 ```
+
+#### Network Interface Commands
+
+Add and remove network interfaces on VMs. Each interface gets a VirtIO NIC with an auto-generated MAC address (or specify one with `--mac`).
+
+```bash
+# List/remove interfaces
+crv net-if list <vm_id>                    # List VM's network interfaces
+crv net-if remove <vm_id> <netif_id>       # Remove a network interface
+
+# User-mode networking (default, built-in NAT, no setup required)
+crv net-if add <vm_id> --type user
+crv net-if add <vm_id> -t user -d "hostfwd=tcp::2222-:22"                     # SSH forwarding
+crv net-if add <vm_id> -t user -d "hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80"  # Multi-port
+
+# Managed virtual network (daemon creates bridge + TAP in namespace)
+crv net-if add <vm_id> --network my-net
+
+# TAP device (pre-configured on host)
+crv net-if add <vm_id> --type tap --host-device tap0
+
+# Bridge (pre-configured on host)
+crv net-if add <vm_id> --type bridge --host-device br0
+
+# VDE virtual switch (external vde_switch)
+crv net-if add <vm_id> --type vde --host-device /var/run/vde.ctl
+
+# Explicit MAC address
+crv net-if add <vm_id> --type user --mac 52:54:00:12:34:56
+```
+
+**Interface types:**
+
+| Type | Description | `--host-device` |
+|------|-------------|-----------------|
+| `user` | QEMU user-mode networking with built-in NAT | Optional: QEMU netdev options (e.g. `hostfwd=...`) |
+| `managed` | Daemon-managed bridge/TAP in network namespace | Auto (set via `--network`) |
+| `tap` | Pre-configured TAP device on host | Required: TAP device name |
+| `bridge` | Pre-configured bridge on host | Required: bridge name |
+| `vde` | External VDE virtual switch | Required: VDE socket path |
+| `macvtap` | MACVTAP device | N/A (uses fd passing) |
+
+**Port forwarding** (user mode only): `hostfwd=<proto>::<host_port>-:<guest_port>`, e.g. `hostfwd=tcp::2222-:22` forwards host port 2222 to guest SSH. Multiple rules are comma-separated.
 
 #### Template Commands
 
