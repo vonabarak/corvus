@@ -32,6 +32,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
@@ -348,6 +349,8 @@ parseExecStatus mVal = do
 
 -- | Parse the guest-network-get-interfaces response.
 -- Expected format: {"return": [{"name": "eth0", "hardware-address": "...", "ip-addresses": [...]}]}
+-- On Windows, some interfaces (e.g. loopback) omit "hardware-address" entirely.
+-- These are skipped since they cannot be matched to host interfaces by MAC.
 parseGuestInterfaces :: Maybe Value -> Maybe [GuestNetIf]
 parseGuestInterfaces mVal = do
   val <- mVal
@@ -355,13 +358,16 @@ parseGuestInterfaces mVal = do
   where
     interfacesParser = AT.withObject "response" $ \obj -> do
       ret <- obj .: "return"
-      mapM parseIface ret
+      catMaybes <$> mapM tryParseIface ret
 
-    parseIface = AT.withObject "interface" $ \obj -> do
-      hwAddr <- obj .: "hardware-address"
-      ipAddrs <- obj .:? "ip-addresses" AT..!= []
-      parsedIps <- mapM parseIpAddr ipAddrs
-      pure GuestNetIf {gniHardwareAddress = hwAddr, gniIpAddresses = parsedIps}
+    tryParseIface = AT.withObject "interface" $ \obj -> do
+      mHwAddr <- obj .:? "hardware-address"
+      case mHwAddr of
+        Nothing -> pure Nothing -- skip interfaces without MAC (e.g. Windows loopback)
+        Just hwAddr -> do
+          ipAddrs <- obj .:? "ip-addresses" AT..!= []
+          parsedIps <- mapM parseIpAddr ipAddrs
+          pure $ Just GuestNetIf {gniHardwareAddress = hwAddr, gniIpAddresses = parsedIps}
 
     parseIpAddr = AT.withObject "ip-address" $ \obj -> do
       ipType <- obj .: "ip-address-type"
