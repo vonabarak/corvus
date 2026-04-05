@@ -194,13 +194,14 @@ runCommand opts = do
                 if vdHeadless details
                   then do
                     let serialSock = T.unpack (vdSerialSocket details)
+                        monitorSock = T.unpack (vdMonitorSocket details)
                     if isStructured fmt
                       then outputValue fmt (object ["serialSocket" .= vdSerialSocket details])
                       else do
                         putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' serial console..."
-                        putStrLn "Press Ctrl+] to exit."
+                        putStrLn "Escape: Ctrl+]  then  q=quit  d=Ctrl+Alt+Del  ?=help"
                         putStrLn ""
-                        _ <- runMonitorSession serialSock
+                        _ <- runMonitorSession serialSock (Just monitorSock)
                         pure ()
                   else do
                     let spiceSock = T.unpack (vdSpiceSocket details)
@@ -239,9 +240,9 @@ runCommand opts = do
                   then outputValue fmt (object ["monitorSocket" .= vdMonitorSocket details])
                   else do
                     putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' HMP monitor..."
-                    putStrLn "Press Ctrl+] to exit."
+                    putStrLn "Escape: Ctrl+]  then  q=quit  ?=help"
                     putStrLn ""
-                    runMonitorSession monitorSock
+                    _ <- runMonitorSession monitorSock Nothing
                     pure ()
                 pure True
       -- Disk commands
