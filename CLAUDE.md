@@ -22,7 +22,7 @@ src/Corvus/
 ├── Server.hs            # Socket listener, request dispatch
 ├── Model.hs             # Persistent ORM schema, enums, migrations
 ├── Handlers.hs          # Central request dispatcher
-├── CloudInit.hs         # Cloud-init NoCloud ISO generation
+├── CloudInit.hs         # Cloud-init NoCloud ISO generation + SSH key injection
 ├── Handlers/
 │   ├── Core.hs          # Ping, status, shutdown
 │   ├── Vm.hs            # VM lifecycle + state machine validation
@@ -30,6 +30,7 @@ src/Corvus/
 │   ├── Template.hs      # YAML template parsing and instantiation
 │   ├── Apply.hs         # Declarative environment (crv apply) YAML handler
 │   ├── SshKey.hs        # SSH key management (cloud-init gated)
+│   ├── CloudInit.hs     # Custom cloud-init config CRUD (set/get/delete)
 │   ├── NetIf.hs         # Network interface configuration, MAC generation
 │   ├── Network.hs       # Virtual network management (bridge/TAP in namespace)
 │   ├── SharedDir.hs     # Virtiofs shared directories
@@ -63,6 +64,7 @@ src/Corvus/
 │   │   ├── SshKey.hs    # SSH key command handlers
 │   │   ├── SharedDir.hs # Shared directory command handlers
 │   │   ├── GuestExec.hs # Guest exec command handlers
+│   │   ├── CloudInit.hs # Cloud-init config command handlers
 │   │   └── Task.hs     # Task history command handlers
 │   ├── Output.hs        # Unified table/detail output formatting (printTableHeader, printField)
 │   ├── Types.hs         # CLI command types
@@ -87,7 +89,7 @@ cbits/
 
 ### Database Entities
 
-`Vm`, `DiskImage`, `Drive`, `Network`, `NetworkInterface`, `SharedDir`, `Snapshot`, `SshKey`, `VmSshKey`, `TemplateVm`, `TemplateDrive`, `TemplateNetworkInterface`, `TemplateSshKey`, `Task` — all defined in `Model.hs`.
+`Vm`, `DiskImage`, `Drive`, `Network`, `NetworkInterface`, `SharedDir`, `Snapshot`, `SshKey`, `VmSshKey`, `TemplateVm`, `TemplateDrive`, `TemplateNetworkInterface`, `TemplateSshKey`, `CloudInit`, `TemplateCloudInit`, `Task` — all defined in `Model.hs`.
 
 ### Key Enums (text-serializable via `EnumText` typeclass)
 

@@ -231,10 +231,10 @@ vmEditCommand =
           )
       )
 
--- | Parser for vm cloud-init
-vmCloudInitCommand :: Parser Command
-vmCloudInitCommand =
-  VmCloudInit
+-- | Parser for cloud-init generate
+cloudInitGenerateCommand :: Parser Command
+cloudInitGenerateCommand =
+  CloudInitGenerate
     <$> argument
       (T.pack <$> str)
       ( metavar "VM"
@@ -331,9 +331,6 @@ vmCommandParser =
         <> command
           "exec"
           (info vmExecCommand (progDesc "Execute a command inside a VM via guest agent"))
-        <> command
-          "cloud-init"
-          (info vmCloudInitCommand (progDesc "Generate/regenerate cloud-init ISO for a VM"))
     )
 
 --------------------------------------------------------------------------------
@@ -1216,8 +1213,11 @@ cloudInitCommandParser :: Parser Command
 cloudInitCommandParser =
   subparser
     ( command
-        "set"
-        (info cloudInitSetCommand (progDesc "Set custom cloud-init config for a VM"))
+        "generate"
+        (info cloudInitGenerateCommand (progDesc "Generate/regenerate cloud-init ISO for a VM"))
+        <> command
+          "set"
+          (info cloudInitSetCommand (progDesc "Set custom cloud-init config for a VM"))
         <> command
           "show"
           (info cloudInitShowCommand (progDesc "Show cloud-init config for a VM"))

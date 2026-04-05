@@ -2,21 +2,52 @@
 
 -- | Cloud-init config command handlers for the Corvus client.
 module Corvus.Client.Commands.CloudInit
-  ( handleCloudInitSet
+  ( handleCloudInitGenerate
+  , handleCloudInitSet
   , handleCloudInitShow
   , handleCloudInitDelete
   )
 where
 
 import Corvus.Client.Connection (Connection)
-import Corvus.Client.Output (isStructured, outputError, outputResult)
-import Corvus.Client.Rpc (CloudInitResult (..), cloudInitDelete, cloudInitGet, cloudInitSet)
+import Corvus.Client.Output (isStructured, outputError, outputOk, outputResult)
+import Corvus.Client.Rpc (CloudInitResult (..), VmEditResult (..), cloudInitDelete, cloudInitGet, cloudInitSet, vmCloudInit)
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Protocol (CloudInitInfo (..))
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+
+-- | Handle cloud-init generate command (regenerate ISO)
+handleCloudInitGenerate :: OutputFormat -> Connection -> Text -> IO Bool
+handleCloudInitGenerate fmt conn vmRef = do
+  resp <- vmCloudInit conn vmRef
+  case resp of
+    Left err -> do
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
+      pure False
+    Right VmEdited -> do
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn "Cloud-init ISO generated."
+      pure True
+    Right (VmEditError msg) -> do
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error: " ++ T.unpack msg
+      pure False
+    Right VmEditNotFound -> do
+      if isStructured fmt
+        then outputError fmt "not_found" "VM not found"
+        else putStrLn "VM not found"
+      pure False
+    Right VmEditMustBeStopped -> do
+      if isStructured fmt
+        then outputError fmt "vm_running" "VM must be stopped"
+        else putStrLn "VM must be stopped"
+      pure False
 
 -- | Handle cloud-init set command
 handleCloudInitSet :: OutputFormat -> Connection -> Text -> Maybe FilePath -> Maybe FilePath -> Bool -> IO Bool

@@ -166,24 +166,6 @@ runCommand opts = do
       VmPause vmRef -> handleVmAction fmt "pause" vmRef (vmPause conn vmRef)
       VmReset vmRef -> handleVmAction fmt "reset" vmRef (vmReset conn vmRef)
       VmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi -> handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mCi
-      VmCloudInit vmRef -> do
-        resp <- vmCloudInit conn vmRef
-        case resp of
-          Left err -> do
-            if isStructured fmt then outputError fmt "rpc_error" (T.pack $ show err) else putStrLn $ "Error: " ++ show err
-            pure False
-          Right VmEdited -> do
-            if isStructured fmt then outputOk fmt else putStrLn "Cloud-init ISO generated"
-            pure True
-          Right (VmEditError msg) -> do
-            if isStructured fmt then outputError fmt "error" msg else putStrLn $ "Error: " ++ T.unpack msg
-            pure False
-          Right VmEditNotFound -> do
-            if isStructured fmt then outputError fmt "not_found" "VM not found" else putStrLn "VM not found"
-            pure False
-          Right VmEditMustBeStopped -> do
-            if isStructured fmt then outputError fmt "vm_running" "VM must be stopped" else putStrLn "VM must be stopped"
-            pure False
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> do
         resp <- showVm conn vmRef
@@ -352,6 +334,7 @@ runCommand opts = do
       NetworkList -> handleNetworkList fmt conn
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
       -- Cloud-init config
+      CloudInitGenerate vmRef -> handleCloudInitGenerate fmt conn vmRef
       CloudInitSet vmRef mUdFile mNcFile noInject -> handleCloudInitSet fmt conn vmRef mUdFile mNcFile noInject
       CloudInitShow vmRef -> handleCloudInitShow fmt conn vmRef
       CloudInitDelete vmRef -> handleCloudInitDelete fmt conn vmRef

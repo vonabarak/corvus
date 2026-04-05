@@ -10,7 +10,7 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 - **State Machine**: Enforces valid state transitions (stopped → running → paused, etc.)
 - **Disk Image Management**: Create, resize, and attach qcow2/raw/vmdk/vdi disk images; import from local path or HTTP URL
 - **Snapshot Support**: Create, rollback, merge, and delete qcow2 snapshots
-- **Cloud-Init Integration**: Optional per-VM cloud-init with SSH key injection via NoCloud datasource; lazy ISO generation on first SSH key attach or VM start
+- **Cloud-Init Integration**: Optional per-VM cloud-init with SSH key injection via NoCloud datasource; custom user-data and network-config per VM; lazy ISO generation on first SSH key attach or VM start
 - **QEMU Guest Agent**: Execute commands in guests, periodic health checks and network address discovery via QGA protocol
 - **SPICE Display**: Remote desktop access via SPICE protocol
 - **VM Templates**: Define VM blueprints in YAML and instantiate them easily
@@ -88,7 +88,6 @@ crv vm start <id>                 # Start a stopped/paused VM
 crv vm stop <id>                  # Graceful shutdown (via QMP or guest agent)
 crv vm pause <id>                 # Pause execution
 crv vm reset <id>                 # Force stop (SIGKILL)
-crv vm cloud-init <id>            # Generate/regenerate cloud-init ISO
 crv vm view <id>                  # Open SPICE viewer (remote-viewer)
 crv vm monitor <id>               # Connect to HMP monitor (Ctrl+] to exit)
 ```
@@ -154,6 +153,28 @@ crv ssh-key detach <vm_id> <key_id>       # Detach key from VM
 crv ssh-key list-vm <vm_id>               # List keys attached to a VM
 ```
 
+#### Cloud-Init Commands
+
+Manage per-VM cloud-init configuration. By default, cloud-init generates a standard config with user `corvus`, SSH key injection, and `qemu-guest-agent`. Custom configs allow different users, packages, and commands per VM/OS.
+
+```bash
+# Generate/regenerate cloud-init ISO
+crv cloud-init generate <vm_id>
+
+# Set custom cloud-init config from files
+crv cloud-init set <vm_id> --user-data <file>              # Custom user-data
+crv cloud-init set <vm_id> --network-config <file>         # Custom network-config
+crv cloud-init set <vm_id> --user-data <file> --no-inject-ssh-keys  # No SSH key injection
+
+# Show current cloud-init config
+crv cloud-init show <vm_id>
+
+# Delete custom config (revert to defaults)
+crv cloud-init delete <vm_id>
+```
+
+When `--no-inject-ssh-keys` is omitted (default), SSH keys from the database are automatically merged into the first user's `ssh_authorized_keys` in the custom config. The `#cloud-config` header is managed by Corvus — do not include it in your files.
+
 #### Guest Agent Commands
 
 Execute commands inside running VMs via the QEMU Guest Agent (requires `guest-agent` enabled on the VM and qemu-ga running in the guest).
@@ -198,6 +219,22 @@ description: "Standard web server template with 20GB root disk"
 cpuCount: 2
 ramMb: 2048
 cloudInit: true            # Enable cloud-init (required for sshKeys)
+cloudInitConfig:           # Optional: custom cloud-init config
+  userData:                # Parsed as YAML, #cloud-config header added by Corvus
+    users:
+      - name: deploy
+        sudo: "ALL=(ALL) NOPASSWD:ALL"
+    packages:
+      - nginx
+      - certbot
+    runcmd:
+      - systemctl enable nginx
+  networkConfig:           # Optional: network-config for static IPs etc.
+    version: 2
+    ethernets:
+      eth0:
+        dhcp4: true
+  injectSshKeys: true      # Default: true (merge DB SSH keys into first user)
 drives:
   - diskImageName: "ubuntu-22.04-base"
     interface: "virtio"
@@ -218,7 +255,7 @@ crv apply <file.yaml>              # Create all resources from YAML
 crv apply my-environment.yml       # Example
 ```
 
-Cloud-init is auto-enabled on VMs that reference SSH keys. See `example-apply.yml` in the project root for a complete example.
+Cloud-init is auto-enabled on VMs that reference SSH keys. VMs can include a `cloudInitConfig` section with custom `userData`, `networkConfig`, and `injectSshKeys` settings. See `doc/apply-examples/` for complete examples.
 
 ### Connection Options
 
@@ -268,7 +305,7 @@ corvus/
 │   ├── Protocol.hs           # RPC message types (Binary)
 │   ├── Types.hs              # Shared daemon types
 │   ├── Server.hs             # Network communication
-│   ├── CloudInit.hs          # Cloud-init ISO generation
+│   ├── CloudInit.hs          # Cloud-init ISO generation + SSH key injection
 │   ├── Handlers.hs           # Central request dispatcher
 │   ├── Handlers/
 │   │   ├── Core.hs           # Ping, status, shutdown handlers
@@ -276,6 +313,7 @@ corvus/
 │   │   ├── Disk.hs           # Disk image handlers (incl. HTTP import)
 │   │   ├── Template.hs       # VM template handlers
 │   │   ├── Apply.hs          # Declarative apply handler
+│   │   ├── CloudInit.hs      # Custom cloud-init config CRUD
 │   │   ├── Network.hs        # Virtual network handlers (VDE)
 │   │   ├── NetIf.hs          # Network interface handlers
 │   │   ├── SharedDir.hs      # Shared directory handlers
@@ -405,6 +443,8 @@ template_vm (id, name, cpu_count, ram_mb, description, headless, cloud_init, cre
 template_drive (id, template_id, disk_image_id, interface, media, read_only, cache_type, discard, clone_strategy, new_size_mb)
 template_network_interface (id, template_id, interface_type, host_device)
 template_ssh_key (id, template_id, ssh_key_id)
+cloud_init (id, vm_id, user_data, network_config, inject_ssh_keys)
+template_cloud_init (id, template_id, user_data, network_config, inject_ssh_keys)
 ```
 
 ## Limitations

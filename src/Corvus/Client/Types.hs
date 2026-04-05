@@ -66,7 +66,7 @@ data Command
   | -- | Edit VM properties (vmRef, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
     VmEdit !Text !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
   | -- | Generate/regenerate cloud-init ISO for a VM
-    VmCloudInit !Text
+    CloudInitGenerate !Text
   | -- | Execute a command in a VM via guest agent (vmRef, command)
     VmExec !Text !Text
   | -- Disk image commands
