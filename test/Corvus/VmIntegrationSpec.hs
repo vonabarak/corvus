@@ -12,6 +12,7 @@
 module Corvus.VmIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.STM (readTVarIO)
 import Corvus.Client (showVm, vmStart, vmStop)
 import Corvus.Model (VmStatus (..))
 import Corvus.Protocol (VmDetails (..))
@@ -149,7 +150,8 @@ vmIntegrationTests = withTestDb $ do
         -- Connect to serial console and verify login prompt is available.
         -- The login prompt was already printed during boot (before we connected),
         -- so send Enter to trigger a fresh one.
-        connectSerialConsole (ssQemuConfig (tdState (tvmDaemon vm))) (tvmId vm) $ \console -> do
+        bufMap <- readTVarIO (ssSerialBuffers (tdState (tvmDaemon vm)))
+        connectSerialConsole (ssQemuConfig (tdState (tvmDaemon vm))) (tvmId vm) (Just bufMap) $ \console -> do
           consoleSend console ""
           _ <- consoleExpect console "login:" 60
           pure ()

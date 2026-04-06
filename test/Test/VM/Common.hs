@@ -40,6 +40,7 @@ module Test.VM.Common
 where
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.STM (readTVarIO)
 import Control.Exception (bracket)
 import Control.Monad (forM_)
 import Corvus.Client (DiskResult (..), diskClone, diskCreateOverlay, diskDelete, diskRegister)
@@ -370,7 +371,8 @@ withTestVmConsoleWithDisk daemon diskImageId config action = do
       startTestVm daemon vmId
 
       -- Connect to serial console immediately
-      connectSerialConsole (ssQemuConfig (tdState daemon)) vmId action
+      bufMap <- readTVarIO (ssSerialBuffers (tdState daemon))
+      connectSerialConsole (ssQemuConfig (tdState daemon)) vmId (Just bufMap) action
 
 --------------------------------------------------------------------------------
 -- VM lifecycle helpers
