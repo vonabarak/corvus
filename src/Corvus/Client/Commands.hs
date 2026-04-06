@@ -202,9 +202,13 @@ runCommand opts = do
                         case serialResp of
                           Right RespSerialConsoleOk -> do
                             putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' serial console..."
-                            putStrLn "Escape: Ctrl+]  then  q=quit  d=Ctrl+Alt+Del  ?=help"
+                            putStrLn "Escape: Ctrl+]  then  q=quit  d=Ctrl+Alt+Del  f=flush  ?=help"
                             putStrLn ""
-                            _ <- runRawTerminalSession (connSocket conn) (Just monitorSock)
+                            let flushAction = do
+                                  _ <- withConnection addr $ \flushConn ->
+                                    sendRequest flushConn (ReqSerialConsoleFlush (Ref vmRef))
+                                  pure ()
+                            _ <- runRawTerminalSession (connSocket conn) (Just monitorSock) (Just flushAction)
                             pure ()
                           Right (RespError err) ->
                             putStrLn $ "Error: " ++ T.unpack err

@@ -336,7 +336,7 @@ runMonitorSession sockPath mMonitorSock = do
             pure sock
         )
         close
-        (\sock -> doRawTerminalSession savedAttrs sock mMonitorSock)
+        (\sock -> doRawTerminalSession savedAttrs sock mMonitorSock Nothing)
   setTerminalAttributes stdInput savedAttrs Immediately
   hSetBinaryMode stdin False
   hSetBinaryMode stdout False
@@ -355,12 +355,13 @@ runMonitorSession sockPath mMonitorSock = do
 -- Ctrl+] is the escape prefix:
 --   Ctrl+] q   — quit
 --   Ctrl+] d   — send Ctrl+Alt+Del (requires monitor socket)
+--   Ctrl+] f   — flush serial console buffer
 --   Ctrl+] ?   — show help
 --   Ctrl+] Ctrl+] — send literal Ctrl+] to the VM
-runRawTerminalSession :: Socket -> Maybe FilePath -> IO Bool
-runRawTerminalSession sock mMonitorSock = do
+runRawTerminalSession :: Socket -> Maybe FilePath -> Maybe (IO ()) -> IO Bool
+runRawTerminalSession sock mMonitorSock mFlushAction = do
   savedAttrs <- getTerminalAttributes stdInput
-  result <- try $ doRawTerminalSession savedAttrs sock mMonitorSock
+  result <- try $ doRawTerminalSession savedAttrs sock mMonitorSock mFlushAction
   setTerminalAttributes stdInput savedAttrs Immediately
   hSetBinaryMode stdin False
   hSetBinaryMode stdout False
@@ -433,8 +434,8 @@ rawPutStrLn s = do
   hFlush stderr
 
 -- | Core raw terminal session logic. Caller must save/restore terminal attributes.
-doRawTerminalSession :: TerminalAttributes -> Socket -> Maybe FilePath -> IO ()
-doRawTerminalSession savedAttrs sock mMonitorSock = do
+doRawTerminalSession :: TerminalAttributes -> Socket -> Maybe FilePath -> Maybe (IO ()) -> IO ()
+doRawTerminalSession savedAttrs sock mMonitorSock mFlushAction = do
   setTerminalAttributes stdInput (makeRaw savedAttrs) Immediately
   hSetBinaryMode stdin True
   hSetBinaryMode stdout True
@@ -489,10 +490,23 @@ doRawTerminalSession savedAttrs sock mMonitorSock = do
               Nothing ->
                 rawPutStrLn "Ctrl+Alt+Del not available (no monitor socket)."
             inputLoop
+          'f' -> do
+            case mFlushAction of
+              Just flush -> do
+                result' <- try flush
+                case result' of
+                  Left (ex :: SomeException) ->
+                    rawPutStrLn $ "Failed to flush buffer: " ++ show ex
+                  Right () ->
+                    rawPutStrLn "Buffer flushed."
+              Nothing ->
+                rawPutStrLn "Flush not available."
+            inputLoop
           '?' -> do
             rawPutStrLn "Escape commands (Ctrl+] prefix):"
             rawPutStrLn "  q         — quit"
             rawPutStrLn "  d         — send Ctrl+Alt+Del"
+            rawPutStrLn "  f         — flush serial console buffer"
             rawPutStrLn "  Ctrl+]    — send literal Ctrl+]"
             rawPutStrLn "  ?         — this help"
             inputLoop

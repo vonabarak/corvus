@@ -10,6 +10,7 @@ module Corvus.Qemu.SerialBuffer
   , writeBuffer
   , readBufferFrom
   , waitForData
+  , flushBuffer
 
     -- * Background thread
   , startSerialBufferThread
@@ -86,6 +87,10 @@ waitForData :: SerialBuffer -> Int64 -> IO (BS.ByteString, Int64)
 waitForData sb fromPos = do
   atomically $ takeTMVar (sbNotify sb)
   readBufferFrom sb fromPos
+
+-- | Clear the ring buffer. New writes continue from the current position.
+flushBuffer :: SerialBuffer -> IO ()
+flushBuffer sb = atomically $ writeTVar (sbData sb) BS.empty
 
 --------------------------------------------------------------------------------
 -- Background Thread

@@ -64,7 +64,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 19
+protocolVersion = 20
 
 -- | Client requests
 data Request
@@ -198,6 +198,8 @@ data Request
   | -- | Attach to serial console (vmRef). After RespSerialConsoleOk,
     -- the connection switches to raw byte streaming.
     ReqSerialConsole !Ref
+  | -- | Flush (clear) the serial console ring buffer for a VM (vmRef)
+    ReqSerialConsoleFlush !Ref
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -811,6 +813,8 @@ data Response
     RespCloudInitOk
   | -- | Serial console attached; connection switches to raw byte streaming
     RespSerialConsoleOk
+  | -- | Serial console buffer flushed
+    RespSerialConsoleFlushed
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

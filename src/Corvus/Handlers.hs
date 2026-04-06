@@ -267,6 +267,7 @@ dispatchRequest state req = case req of
   ReqCloudInitDelete vmRef -> withVm vmRef $ \vmId -> handleCloudInitDelete state vmId
   -- Serial console (protocol upgrade — relay handled in Server.hs)
   ReqSerialConsole vmRef -> withVm vmRef $ \vmId -> handleSerialConsole state vmId
+  ReqSerialConsoleFlush vmRef -> withVm vmRef $ \vmId -> handleSerialConsoleFlush state vmId
   -- Task history queries (read-only, but dispatched here for completeness)
   ReqTaskList limit mSub mResult inclSub -> handleTaskList state limit mSub mResult inclSub
   ReqTaskShow taskId -> handleTaskShow state taskId
@@ -681,6 +682,7 @@ isReadOnly = \case
   ReqNetworkShow _ -> True
   ReqCloudInitGet _ -> True
   ReqSerialConsole _ -> True
+  ReqSerialConsoleFlush _ -> True
   ReqTaskList {} -> True
   ReqTaskShow _ -> True
   ReqTaskListChildren _ -> True

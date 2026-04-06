@@ -13,6 +13,7 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 - **Cloud-Init Integration**: Optional per-VM cloud-init with SSH key injection via NoCloud datasource; custom user-data and network-config per VM; lazy ISO generation on first SSH key attach or VM start
 - **QEMU Guest Agent**: Execute commands in guests, periodic health checks and network address discovery via QGA protocol
 - **SPICE Display**: Remote desktop access via SPICE protocol
+- **Serial Console**: Buffered serial console for headless VMs with scrollback replay on reconnect
 - **VM Templates**: Define VM blueprints in YAML and instantiate them easily
 - **Declarative Apply**: Define entire environments (VMs, disks, networks, SSH keys) in a single YAML file with `crv apply`
 - **Virtual Networks**: VDE-based virtual networks with automatic subnet allocation and dnsmasq DHCP/DNS
@@ -88,7 +89,7 @@ crv vm start <id>                 # Start a stopped/paused VM
 crv vm stop <id>                  # Graceful shutdown (via QMP or guest agent)
 crv vm pause <id>                 # Pause execution
 crv vm reset <id>                 # Force stop (SIGKILL)
-crv vm view <id>                  # Open SPICE viewer (remote-viewer)
+crv vm view <id>                  # Open SPICE viewer or serial console (headless)
 crv vm monitor <id>               # Connect to HMP monitor (Ctrl+] to exit)
 ```
 
@@ -184,6 +185,28 @@ crv guest-exec <vm_id> <command> [args...]   # Run command in VM
 crv guest-exec 1 whoami                      # Example: check user
 crv guest-exec 1 cat /etc/hostname           # Example: read file
 ```
+
+#### Serial Console
+
+Headless VMs (`--headless`) use a serial console instead of SPICE. The daemon maintains a 1 MB ring buffer per headless VM, so reconnecting shows recent output (boot messages, login prompts, etc.) instead of a blank screen.
+
+```bash
+crv vm view <id>                  # Connects to serial console for headless VMs
+```
+
+The serial console uses raw terminal mode. An escape prefix (`Ctrl+]`) provides special commands:
+
+| Sequence | Action |
+|----------|--------|
+| `Ctrl+]` `q` | Quit the console session |
+| `Ctrl+]` `d` | Send Ctrl+Alt+Del to the VM |
+| `Ctrl+]` `f` | Flush (clear) the serial console ring buffer |
+| `Ctrl+]` `Ctrl+]` | Send a literal `Ctrl+]` to the VM |
+| `Ctrl+]` `?` | Show help |
+
+The ring buffer captures all serial output while the VM is running, regardless of whether a client is connected. On reconnect, the buffer contents are replayed so you see what happened while disconnected. The buffer persists across guest reboots (the QEMU process stays alive) and is automatically cleaned up when the VM stops.
+
+To use the serial console, the guest OS must be configured to output to the serial port. For Linux guests, add `console=ttyS0,115200n8` to the kernel command line and enable a serial getty (e.g. `systemctl enable serial-getty@ttyS0`). UEFI firmware menus also work over serial when no VGA device is present.
 
 #### Network Commands
 
@@ -472,6 +495,7 @@ Sockets and runtime files are stored in `$XDG_RUNTIME_DIR/corvus/<vm_id>/`:
 - `monitor.sock` - HMP monitor socket
 - `qmp.sock` - QMP control socket
 - `spice.sock` - SPICE display socket
+- `serial.sock` - Serial console socket (headless VMs)
 - `qga.sock` - QEMU Guest Agent socket
 - `virtiofsd-<tag>.sock` - virtiofsd sockets
 

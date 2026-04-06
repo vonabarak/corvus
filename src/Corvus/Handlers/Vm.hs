@@ -18,6 +18,7 @@ module Corvus.Handlers.Vm
   , handleVmEdit
   , handleVmCloudInit
   , handleSerialConsole
+  , handleSerialConsoleFlush
 
     -- * State machine
   , VmAction (..)
@@ -39,7 +40,7 @@ import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Qemu
-import Corvus.Qemu.SerialBuffer (startSerialBufferThread)
+import Corvus.Qemu.SerialBuffer (flushBuffer, startSerialBufferThread)
 import Corvus.Types
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
@@ -485,6 +486,16 @@ handleSerialConsole state vmId = do
           case Map.lookup vmId buffers of
             Nothing -> pure $ RespError "Serial console buffer not available"
             Just _ -> pure RespSerialConsoleOk
+
+-- | Handle serial console buffer flush request.
+handleSerialConsoleFlush :: ServerState -> Int64 -> IO Response
+handleSerialConsoleFlush state vmId = do
+  buffers <- readTVarIO (ssSerialBuffers state)
+  case Map.lookup vmId buffers of
+    Nothing -> pure $ RespError "Serial console buffer not available"
+    Just handle -> do
+      flushBuffer (sbhBuffer handle)
+      pure RespSerialConsoleFlushed
 
 --------------------------------------------------------------------------------
 -- Database Operations
