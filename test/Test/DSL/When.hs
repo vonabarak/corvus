@@ -137,6 +137,7 @@ createTestServerState pool basePath = do
   shutdownFlag <- newTVarIO False
   namespacePid <- newTVarIO Nothing
   pastaPid <- newTVarIO Nothing
+  serialBuffers <- newTVarIO mempty
   logLevel <- getTestLogLevel
   pure
     ServerState
@@ -148,6 +149,7 @@ createTestServerState pool basePath = do
       , ssLogLevel = logLevel
       , ssNamespacePid = namespacePid
       , ssPastaPid = pastaPid
+      , ssSerialBuffers = serialBuffers
       }
 
 --------------------------------------------------------------------------------

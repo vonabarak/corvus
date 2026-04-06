@@ -42,6 +42,8 @@ import Network.Socket.ByteString (recv, sendAll)
 data Connection = Connection
   { connSendRequest :: Request -> IO (Either ConnectionError Response)
   , connClose :: IO ()
+  , connSocket :: Socket
+  -- ^ Raw socket for protocol upgrades (e.g. serial console streaming)
   }
 
 -- | Connection errors
@@ -86,6 +88,7 @@ socketConnection sock =
   Connection
     { connSendRequest = realSendRequest sock
     , connClose = close sock
+    , connSocket = sock
     }
 
 -- | Send a request and receive a response

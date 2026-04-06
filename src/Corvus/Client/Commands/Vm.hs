@@ -17,6 +17,7 @@ module Corvus.Client.Commands.Vm
     -- * VM display/interaction
   , runRemoteViewer
   , runMonitorSession
+  , runRawTerminalSession
 
     -- * Formatters
   , printVmInfo
@@ -321,22 +322,10 @@ runRemoteViewer config spiceSock = do
       pure False
     Right () -> pure True
 
--- | Run interactive terminal session over Unix socket.
--- Uses true raw terminal mode (cfmakeraw) so that serial consoles,
--- including UEFI firmware menus, work correctly: CR is not translated
--- to NL on input, and NL is not expanded to CR+NL on output.
---
--- Ctrl+] is the escape prefix:
---   Ctrl+] q   — quit
---   Ctrl+] d   — send Ctrl+Alt+Del (requires monitor socket)
---   Ctrl+] ?   — show help
---   Ctrl+] Ctrl+] — send literal Ctrl+] to the VM
---
--- The optional monitor socket path enables sending special key
--- combinations via the QEMU HMP monitor (e.g. sendkey ctrl-alt-delete).
+-- | Connect to a Unix socket and run a raw terminal session.
+-- Convenience wrapper around 'runRawTerminalSession'.
 runMonitorSession :: FilePath -> Maybe FilePath -> IO Bool
 runMonitorSession sockPath mMonitorSock = do
-  -- Save terminal attributes before any modification
   savedAttrs <- getTerminalAttributes stdInput
   result <-
     try $
@@ -347,153 +336,174 @@ runMonitorSession sockPath mMonitorSock = do
             pure sock
         )
         close
-        (runRawSession savedAttrs)
-  -- Always restore terminal settings (even after exceptions)
+        (\sock -> doRawTerminalSession savedAttrs sock mMonitorSock)
   setTerminalAttributes stdInput savedAttrs Immediately
   hSetBinaryMode stdin False
   hSetBinaryMode stdout False
   case result of
     Left (e :: SomeException) -> do
-      putStrLn $ "\nFailed to connect to monitor: " ++ show e
+      putStrLn $ "\nFailed to connect: " ++ show e
       pure False
     Right () -> do
       putStrLn "\nDisconnected."
       pure True
-  where
-    -- \| cfmakeraw equivalent: disable all input/output processing
-    makeRaw :: TerminalAttributes -> TerminalAttributes
-    makeRaw attrs =
-      withMinInput
-        ( withTime
-            ( withBits
-                ( foldl
-                    withoutMode
-                    attrs
-                    [ -- Input: no CR/NL translation, no parity/break handling
-                      MapCRtoLF
-                    , MapLFtoCR
-                    , IgnoreCR
-                    , IgnoreBreak
-                    , InterruptOnBreak
-                    , MarkParityErrors
-                    , StripHighBit
-                    , StartStopInput
-                    , -- Output: no NL→CR+NL expansion
-                      ProcessOutput
-                    , -- Local: no echo, no canonical mode, no signals
-                      EnableEcho
-                    , EchoLF
-                    , ProcessInput
-                    , KeyboardInterrupts
-                    , ExtendedFunctions
-                    , -- Control: no parity
-                      EnableParity
-                    ]
-                )
-                8 -- CS8: 8 bits per byte
+
+-- | Run a raw terminal session on an already-connected socket.
+-- Uses true raw terminal mode (cfmakeraw) so that serial consoles,
+-- including UEFI firmware menus, work correctly.
+--
+-- Ctrl+] is the escape prefix:
+--   Ctrl+] q   — quit
+--   Ctrl+] d   — send Ctrl+Alt+Del (requires monitor socket)
+--   Ctrl+] ?   — show help
+--   Ctrl+] Ctrl+] — send literal Ctrl+] to the VM
+runRawTerminalSession :: Socket -> Maybe FilePath -> IO Bool
+runRawTerminalSession sock mMonitorSock = do
+  savedAttrs <- getTerminalAttributes stdInput
+  result <- try $ doRawTerminalSession savedAttrs sock mMonitorSock
+  setTerminalAttributes stdInput savedAttrs Immediately
+  hSetBinaryMode stdin False
+  hSetBinaryMode stdout False
+  case result of
+    Left (_ :: SomeException) -> pure False
+    Right () -> pure True
+
+--------------------------------------------------------------------------------
+-- Raw Terminal Internals
+--------------------------------------------------------------------------------
+
+-- | cfmakeraw equivalent: disable all input/output processing
+makeRaw :: TerminalAttributes -> TerminalAttributes
+makeRaw attrs =
+  withMinInput
+    ( withTime
+        ( withBits
+            ( foldl
+                withoutMode
+                attrs
+                [ -- Input: no CR/NL translation, no parity/break handling
+                  MapCRtoLF
+                , MapLFtoCR
+                , IgnoreCR
+                , IgnoreBreak
+                , InterruptOnBreak
+                , MarkParityErrors
+                , StripHighBit
+                , StartStopInput
+                , -- Output: no NL→CR+NL expansion
+                  ProcessOutput
+                , -- Local: no echo, no canonical mode, no signals
+                  EnableEcho
+                , EchoLF
+                , ProcessInput
+                , KeyboardInterrupts
+                , ExtendedFunctions
+                , -- Control: no parity
+                  EnableParity
+                ]
             )
-            0 -- VTIME = 0
+            8 -- CS8: 8 bits per byte
         )
-        1 -- VMIN = 1
+        0 -- VTIME = 0
+    )
+    1 -- VMIN = 1
 
-    -- \| Send an HMP command via a temporary connection to the monitor socket.
-    sendMonitorCommand :: FilePath -> String -> IO ()
-    sendMonitorCommand monSock cmd =
-      bracket
-        ( do
-            s <- socket AF_UNIX Stream defaultProtocol
-            NS.connect s (SockAddrUnix monSock)
-            pure s
-        )
-        close
-        $ \s -> do
-          -- Drain the HMP greeting/prompt
-          _ <- recv s 4096
-          sendAll s (BS.pack (map (fromIntegral . ord) (cmd ++ "\n")))
-          -- Read the response (discard it)
-          _ <- recv s 4096
-          pure ()
+-- | Send an HMP command via a temporary connection to the monitor socket.
+sendMonitorCommand :: FilePath -> String -> IO ()
+sendMonitorCommand monSock cmd =
+  bracket
+    ( do
+        s <- socket AF_UNIX Stream defaultProtocol
+        NS.connect s (SockAddrUnix monSock)
+        pure s
+    )
+    close
+    $ \s -> do
+      -- Drain the HMP greeting/prompt
+      _ <- recv s 4096
+      sendAll s (BS.pack (map (fromIntegral . ord) (cmd ++ "\n")))
+      -- Read the response (discard it)
+      _ <- recv s 4096
+      pure ()
 
-    -- \| Print a status line and return to normal I/O.
-    -- Output uses CR+LF since we are in raw terminal mode (no OPOST).
-    rawPutStrLn :: String -> IO ()
-    rawPutStrLn s = do
-      hPutStr stderr ("\r\n" ++ s ++ "\r\n")
-      hFlush stderr
+-- | Print a status line in raw terminal mode (uses CR+LF since OPOST is off).
+rawPutStrLn :: String -> IO ()
+rawPutStrLn s = do
+  hPutStr stderr ("\r\n" ++ s ++ "\r\n")
+  hFlush stderr
 
-    runRawSession :: TerminalAttributes -> Socket -> IO ()
-    runRawSession savedAttrs sock = do
-      -- Set true raw terminal mode
-      setTerminalAttributes stdInput (makeRaw savedAttrs) Immediately
-      hSetBinaryMode stdin True
-      hSetBinaryMode stdout True
-      hSetBuffering stdin NoBuffering
-      hSetBuffering stdout NoBuffering
+-- | Core raw terminal session logic. Caller must save/restore terminal attributes.
+doRawTerminalSession :: TerminalAttributes -> Socket -> Maybe FilePath -> IO ()
+doRawTerminalSession savedAttrs sock mMonitorSock = do
+  setTerminalAttributes stdInput (makeRaw savedAttrs) Immediately
+  hSetBinaryMode stdin True
+  hSetBinaryMode stdout True
+  hSetBuffering stdin NoBuffering
+  hSetBuffering stdout NoBuffering
 
-      -- MVar to signal exit
-      exitVar <- newEmptyMVar
+  exitVar <- newEmptyMVar
 
-      -- Thread to read from socket and write raw bytes to stdout
-      _ <- forkIO $ do
-        let loop = do
-              chunk <- recv sock 4096
-              if BS.null chunk
-                then putMVar exitVar ()
-                else do
-                  BS.putStr chunk
-                  hFlush stdout
-                  loop
-        result' <- try loop
-        case result' of
-          Left (_ :: SomeException) -> putMVar exitVar ()
-          Right () -> pure ()
+  -- Thread to read from socket and write raw bytes to stdout
+  _ <- forkIO $ do
+    let loop = do
+          chunk <- recv sock 4096
+          if BS.null chunk
+            then putMVar exitVar ()
+            else do
+              BS.putStr chunk
+              hFlush stdout
+              loop
+    result' <- try loop
+    case result' of
+      Left (_ :: SomeException) -> putMVar exitVar ()
+      Right () -> pure ()
 
-      -- Read raw bytes from stdin and send to socket.
-      -- In raw mode Ctrl+C arrives as byte 0x03 (forwarded to VM),
-      -- Enter arrives as CR 0x0D (not translated to NL).
-      let inputLoop = do
-            c <- getChar
-            if ord c == 29 -- Ctrl+]  — escape prefix
-              then handleEscape
-              else do
-                sendAll sock (BS.singleton (fromIntegral $ ord c))
-                inputLoop
+  -- Read raw bytes from stdin and send to socket.
+  -- In raw mode Ctrl+C arrives as byte 0x03 (forwarded to VM),
+  -- Enter arrives as CR 0x0D (not translated to NL).
+  let inputLoop = do
+        c <- getChar
+        if ord c == 29 -- Ctrl+]  — escape prefix
+          then handleEscape
+          else do
+            sendAll sock (BS.singleton (fromIntegral $ ord c))
+            inputLoop
 
-          handleEscape = do
-            e <- getChar
-            case e of
-              _ | ord e == 29 -> do
-                -- Ctrl+] Ctrl+] — send literal Ctrl+] to VM
-                sendAll sock (BS.singleton 29)
-                inputLoop
-              'q' -> putMVar exitVar ()
-              'd' -> do
-                case mMonitorSock of
-                  Just monSock -> do
-                    result' <- try $ sendMonitorCommand monSock "sendkey ctrl-alt-delete"
-                    case result' of
-                      Left (ex :: SomeException) ->
-                        rawPutStrLn $ "Failed to send Ctrl+Alt+Del: " ++ show ex
-                      Right () ->
-                        rawPutStrLn "Sent Ctrl+Alt+Del."
-                  Nothing ->
-                    rawPutStrLn "Ctrl+Alt+Del not available (no monitor socket)."
-                inputLoop
-              '?' -> do
-                rawPutStrLn "Escape commands (Ctrl+] prefix):"
-                rawPutStrLn "  q         — quit"
-                rawPutStrLn "  d         — send Ctrl+Alt+Del"
-                rawPutStrLn "  Ctrl+]    — send literal Ctrl+]"
-                rawPutStrLn "  ?         — this help"
-                inputLoop
-              _ -> inputLoop -- unknown escape, ignore
+      handleEscape = do
+        e <- getChar
+        case e of
+          _ | ord e == 29 -> do
+            -- Ctrl+] Ctrl+] — send literal Ctrl+] to VM
+            sendAll sock (BS.singleton 29)
+            inputLoop
+          'q' -> putMVar exitVar ()
+          'd' -> do
+            case mMonitorSock of
+              Just monSock -> do
+                result' <- try $ sendMonitorCommand monSock "sendkey ctrl-alt-delete"
+                case result' of
+                  Left (ex :: SomeException) ->
+                    rawPutStrLn $ "Failed to send Ctrl+Alt+Del: " ++ show ex
+                  Right () ->
+                    rawPutStrLn "Sent Ctrl+Alt+Del."
+              Nothing ->
+                rawPutStrLn "Ctrl+Alt+Del not available (no monitor socket)."
+            inputLoop
+          '?' -> do
+            rawPutStrLn "Escape commands (Ctrl+] prefix):"
+            rawPutStrLn "  q         — quit"
+            rawPutStrLn "  d         — send Ctrl+Alt+Del"
+            rawPutStrLn "  Ctrl+]    — send literal Ctrl+]"
+            rawPutStrLn "  ?         — this help"
+            inputLoop
+          _ -> inputLoop -- unknown escape, ignore
 
-      -- Run input loop, catching exceptions
-      _ <- forkIO $ do
-        result' <- try inputLoop
-        case result' of
-          Left (_ :: SomeException) -> putMVar exitVar ()
-          Right () -> pure ()
+  -- Run input loop, catching exceptions
+  _ <- forkIO $ do
+    result' <- try inputLoop
+    case result' of
+      Left (_ :: SomeException) -> putMVar exitVar ()
+      Right () -> pure ()
 
-      -- Wait for exit signal
-      takeMVar exitVar
+  -- Wait for exit signal
+  takeMVar exitVar

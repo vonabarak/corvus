@@ -36,7 +36,7 @@ import Corvus.Client.Output
 import Corvus.Client.Rpc
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), VmStatus (..))
-import Corvus.Protocol (StatusInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Protocol (Ref (..), Request (..), Response (..), StatusInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Netns (nsExec)
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import Data.Aeson (object, toJSON, (.=))
@@ -193,16 +193,25 @@ runCommand opts = do
               else do
                 if vdHeadless details
                   then do
-                    let serialSock = T.unpack (vdSerialSocket details)
-                        monitorSock = T.unpack (vdMonitorSocket details)
+                    let monitorSock = T.unpack (vdMonitorSocket details)
                     if isStructured fmt
                       then outputValue fmt (object ["serialSocket" .= vdSerialSocket details])
                       else do
-                        putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' serial console..."
-                        putStrLn "Escape: Ctrl+]  then  q=quit  d=Ctrl+Alt+Del  ?=help"
-                        putStrLn ""
-                        _ <- runMonitorSession serialSock (Just monitorSock)
-                        pure ()
+                        -- Attach to serial console via daemon RPC (buffered)
+                        serialResp <- sendRequest conn (ReqSerialConsole (Ref vmRef))
+                        case serialResp of
+                          Right RespSerialConsoleOk -> do
+                            putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' serial console..."
+                            putStrLn "Escape: Ctrl+]  then  q=quit  d=Ctrl+Alt+Del  ?=help"
+                            putStrLn ""
+                            _ <- runRawTerminalSession (connSocket conn) (Just monitorSock)
+                            pure ()
+                          Right (RespError err) ->
+                            putStrLn $ "Error: " ++ T.unpack err
+                          Right other ->
+                            putStrLn $ "Unexpected response: " ++ show other
+                          Left err ->
+                            putStrLn $ "Error: " ++ show err
                   else do
                     let spiceSock = T.unpack (vdSpiceSocket details)
                     if isStructured fmt

@@ -64,7 +64,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 18
+protocolVersion = 19
 
 -- | Client requests
 data Request
@@ -195,6 +195,9 @@ data Request
     ReqCloudInitGet !Ref
   | -- | Delete custom cloud-init config for a VM (vmRef)
     ReqCloudInitDelete !Ref
+  | -- | Attach to serial console (vmRef). After RespSerialConsoleOk,
+    -- the connection switches to raw byte streaming.
+    ReqSerialConsole !Ref
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -806,6 +809,8 @@ data Response
     RespCloudInitConfig !(Maybe CloudInitInfo)
   | -- | Cloud-init config operation successful
     RespCloudInitOk
+  | -- | Serial console attached; connection switches to raw byte streaming
+    RespSerialConsoleOk
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

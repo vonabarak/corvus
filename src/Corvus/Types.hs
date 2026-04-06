@@ -8,6 +8,10 @@ module Corvus.Types
   , runServerLogging
   , runFilteredLogging
 
+    -- * Serial Buffer Types
+  , SerialBuffer (..)
+  , SerialBufferHandle (..)
+
     -- * Configuration
   , ServerConfig (..)
   , defaultServerConfig
@@ -18,14 +22,18 @@ module Corvus.Types
   )
 where
 
-import Control.Concurrent.STM (TVar, newTVarIO)
+import Control.Concurrent.STM (TMVar, TVar, newTVarIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
 import Corvus.Qemu.Config (QemuConfig)
+import qualified Data.ByteString as BS
+import Data.Int (Int64)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Database.Persist.Postgresql (SqlBackend)
+import Network.Socket (Socket)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
@@ -47,6 +55,8 @@ data ServerState = ServerState
   -- ^ PID of the global network namespace manager
   , ssPastaPid :: TVar (Maybe Int)
   -- ^ PID of the pasta process (for NAT)
+  , ssSerialBuffers :: TVar (Map.Map Int64 SerialBufferHandle)
+  -- ^ Per-VM serial console ring buffers (headless VMs only)
   }
 
 -- | Create a new server state
@@ -57,6 +67,7 @@ newServerState pool qemuConfig = do
   shutdownFlag <- newTVarIO False
   namespacePid <- newTVarIO Nothing
   pastaPid <- newTVarIO Nothing
+  serialBuffers <- newTVarIO Map.empty
   pure
     ServerState
       { ssStartTime = startTime
@@ -67,7 +78,34 @@ newServerState pool qemuConfig = do
       , ssLogLevel = LevelInfo
       , ssNamespacePid = namespacePid
       , ssPastaPid = pastaPid
+      , ssSerialBuffers = serialBuffers
       }
+
+--------------------------------------------------------------------------------
+-- Serial Buffer Types
+--------------------------------------------------------------------------------
+
+-- | Ring buffer for serial console output.
+data SerialBuffer = SerialBuffer
+  { sbData :: !(TVar BS.ByteString)
+  -- ^ Current buffer contents (truncated to capacity)
+  , sbTotalWritten :: !(TVar Int64)
+  -- ^ Monotonically increasing total bytes written
+  , sbNotify :: !(TMVar ())
+  -- ^ Signaled when new data is written
+  , sbCapacity :: !Int
+  -- ^ Maximum buffer size in bytes
+  }
+
+-- | Handle stored in ServerState for each headless VM.
+data SerialBufferHandle = SerialBufferHandle
+  { sbhBuffer :: !SerialBuffer
+  -- ^ The ring buffer
+  , sbhQemuSock :: !(TVar (Maybe Socket))
+  -- ^ QEMU serial socket (for writing client input); Nothing if disconnected
+  , sbhShutdown :: !(TVar Bool)
+  -- ^ Set when QEMU disconnects
+  }
 
 -- | Run a LoggingT action filtered to the server's minimum log level
 runServerLogging :: ServerState -> LoggingT IO a -> IO a

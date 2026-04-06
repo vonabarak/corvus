@@ -17,6 +17,7 @@ module Corvus.Handlers.Vm
   , handleVmReset
   , handleVmEdit
   , handleVmCloudInit
+  , handleSerialConsole
 
     -- * State machine
   , VmAction (..)
@@ -38,8 +39,10 @@ import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Qemu
+import Corvus.Qemu.SerialBuffer (startSerialBufferThread)
 import Corvus.Types
 import Data.Int (Int64)
+import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -289,6 +292,10 @@ startQemuAndMonitor state vmId vm parentTaskId = do
                   logWarnN $
                     "VM " <> T.pack (show vmId) <> " stderr: " <> stderrOutput
                 liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
+      -- Start serial console buffer for headless VMs
+      when (vmHeadless vm) $
+        liftIO $
+          startSerialBufferThread (ssQemuConfig state) vmId (ssSerialBuffers state) (ssLogLevel state)
       pure $ RespVmStateChanged initialStatus
     VmNotFound -> pure RespVmNotFound
     VmStartError err -> do
@@ -460,6 +467,24 @@ handleVmCloudInit state vmId = do
           case ciResult of
             Left err -> pure $ RespError $ "Cloud-init ISO generation failed: " <> err
             Right _ -> pure RespVmEdited
+
+-- | Handle serial console attach request.
+-- Validates that the VM is running and headless, and that a buffer handle exists.
+handleSerialConsole :: ServerState -> Int64 -> IO Response
+handleSerialConsole state vmId = do
+  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+  case result of
+    Nothing -> pure RespVmNotFound
+    Just (vm, status)
+      | status `notElem` [VmRunning, VmStarting] ->
+          pure $ RespError $ "VM is not running (status: " <> enumToText status <> ")"
+      | not (vmHeadless vm) ->
+          pure $ RespError "VM is not headless — use SPICE viewer instead"
+      | otherwise -> do
+          buffers <- readTVarIO (ssSerialBuffers state)
+          case Map.lookup vmId buffers of
+            Nothing -> pure $ RespError "Serial console buffer not available"
+            Just _ -> pure RespSerialConsoleOk
 
 --------------------------------------------------------------------------------
 -- Database Operations

@@ -54,6 +54,7 @@ library
       Corvus.Qemu.Virtiofsd
       Corvus.Qemu.Image
       Corvus.Qemu.GuestAgent
+      Corvus.Qemu.SerialBuffer
       Corvus.Qemu.Netns
       Corvus.Qemu.Netns.Manager
       Corvus.Handlers.GuestExec
