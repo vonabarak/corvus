@@ -1,3 +1,4 @@
+![Corvus logo](corvus.png)
 # Corvus
 
 A lightweight QEMU/KVM virtual machine management daemon written in Haskell.
@@ -320,6 +321,7 @@ sshKeys:
 #### Apply Command
 
 Define entire environments declaratively in YAML and create them with a single command. Supports SSH keys, disk images (local or HTTP), virtual networks, and VMs with drives, network interfaces, and shared directories.
+See `apply-configuration.md` for complete documentation and  `apply-examples/` for examples.
 
 ```bash
 crv apply <file.yaml>              # Create all resources from YAML
@@ -364,80 +366,24 @@ source <(crv --zsh-completion-script $(which crv))
 
 ## Development
 
-### Project Structure
-
-```
-corvus/
-├── app/
-│   ├── client/Main.hs        # CLI client entry point
-│   └── daemon/Main.hs        # Daemon entry point
-├── src/Corvus/
-│   ├── Model.hs              # Database schema (Persistent)
-│   ├── Protocol.hs           # RPC message types (Binary)
-│   ├── Types.hs              # Shared daemon types
-│   ├── Server.hs             # Network communication
-│   ├── CloudInit.hs          # Cloud-init ISO generation + SSH key injection
-│   ├── Handlers.hs           # Central request dispatcher
-│   ├── Handlers/
-│   │   ├── Core.hs           # Ping, status, shutdown handlers
-│   │   ├── Vm.hs             # VM lifecycle handlers
-│   │   ├── Disk.hs           # Disk image handlers (incl. HTTP import)
-│   │   ├── Template.hs       # VM template handlers
-│   │   ├── Apply.hs          # Declarative apply handler
-│   │   ├── CloudInit.hs      # Custom cloud-init config CRUD
-│   │   ├── Network.hs        # Virtual network handlers (VDE)
-│   │   ├── NetIf.hs          # Network interface handlers
-│   │   ├── SharedDir.hs      # Shared directory handlers
-│   │   ├── SshKey.hs         # SSH key handlers
-│   │   ├── GuestExec.hs      # Guest agent command execution
-│   │   └── GuestAgentPoller.hs  # Guest agent health/network polling
-│   ├── Client/
-│   │   ├── Commands.hs       # Command execution dispatcher
-│   │   ├── Commands/         # Domain-specific command handlers
-│   │   ├── Connection.hs     # Socket handling
-│   │   ├── Output.hs         # Unified table/detail formatting
-│   │   ├── Parser.hs         # CLI argument parsing
-│   │   ├── Rpc.hs            # RPC call wrappers
-│   │   ├── Config.hs         # Client configuration
-│   │   └── Types.hs          # CLI types
-│   ├── Qemu/
-│   │   ├── Command.hs        # QEMU command-line builder
-│   │   ├── Config.hs         # QEMU configuration
-│   │   ├── Process.hs        # Process spawning
-│   │   ├── Qmp.hs            # QMP protocol client
-│   │   ├── QmpQQ.hs          # QMP quasi-quoter
-│   │   ├── Runtime.hs        # Runtime directories/sockets
-│   │   ├── Image.hs          # qemu-img + HTTP download operations
-│   │   ├── GuestAgent.hs     # QGA protocol client
-│   │   ├── Vde.hs            # VDE virtual switch management
-│   │   └── Virtiofsd.hs      # virtiofsd management
-│   └── Utils/
-│       ├── Yaml.hs           # YAML parsing with quasi-quoters
-│       └── Subnet.hs         # Subnet utilities
-├── test/                     # Integration and unit tests
-├── doc/apply-examples/       # Example YAML files for crv apply
-├── package.yaml
-├── stack.yaml
-└── corvus.service            # Systemd user service
-```
-
 ### Building and Testing
 
 ```bash
 # Build
 make build
 
-# Build with file watching
-stack build --file-watch
-
 # Run tests
-make all-tests
+make all-tests  # Run all tests
+make unit-tests  # Run unit tests
+make integration-tests  # Run integration tests
+make test MATCH="/Corvus.VmIntegration"  # Run integration tests for a specific test suite 
+make integration-tests JOBS=1  # Run integration tests sequentially. Slower but more reliable.
 
 # Run daemon locally
-stack run corvus -- --host 127.0.0.1 --port 9876 --database postgresql://localhost/corvus
+stack exec corvus -- -d postgresql://localhost/corvus_test --log-level debug
 
 # Run client
-stack run crv -- vm list
+stack exec crv -- vm list
 ```
 
 ### Code Quality
@@ -461,22 +407,6 @@ Client and daemon communicate over TCP or Unix socket using a simple binary prot
 
 Messages are serialized using GHC's `Data.Binary` with auto-derived instances.
 
-### VM State Machine
-
-```
- stop/reset
-┌───────────────────────┐
-│                       │
-▼         start         │
-stopped ────────► running
-▲                  │    ▲
-│             pause│    │unpause
-│stop/reset        ▼    │
-└───────────────── paused
-```
-
-State transitions are validated server-side. The `reset` command forces any VM to `stopped` state.
-
 ### Process Management
 
 When a VM starts:
@@ -498,26 +428,6 @@ Sockets and runtime files are stored in `$XDG_RUNTIME_DIR/corvus/<vm_id>/`:
 - `serial.sock` - Serial console socket (headless VMs)
 - `qga.sock` - QEMU Guest Agent socket
 - `virtiofsd-<tag>.sock` - virtiofsd sockets
-
-### Database Schema
-
-```sql
-vm (id, name, created_at, status, cpu_count, ram_mb, description, pid, headless, guest_agent, cloud_init, healthcheck)
-disk_image (id, name, file_path, format, size_mb, created_at, backing_image_id)
-snapshot (id, disk_image_id, name, created_at, size_mb)
-drive (id, vm_id, disk_image_id, interface, media, read_only, cache_type, discard)
-network (id, name, subnet, vde_switch_pid, dnsmasq_pid, created_at)
-network_interface (id, vm_id, interface_type, host_device, mac_address, network_id, guest_ip_addresses)
-shared_dir (id, vm_id, path, tag, cache, read_only, pid)
-ssh_key (id, name, public_key, created_at)
-vm_ssh_key (id, vm_id, ssh_key_id)
-template_vm (id, name, cpu_count, ram_mb, description, headless, cloud_init, created_at)
-template_drive (id, template_id, disk_image_id, interface, media, read_only, cache_type, discard, clone_strategy, new_size_mb)
-template_network_interface (id, template_id, interface_type, host_device)
-template_ssh_key (id, template_id, ssh_key_id)
-cloud_init (id, vm_id, user_data, network_config, inject_ssh_keys)
-template_cloud_init (id, template_id, user_data, network_config, inject_ssh_keys)
-```
 
 ## Limitations
 
