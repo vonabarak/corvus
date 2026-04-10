@@ -220,7 +220,7 @@ handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLoggin
           spec
           ( do
               now <- getCurrentTime
-              Right . fromSqlKey <$> runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False (tvdCloudInit details) Nothing) pool
+              Right . fromSqlKey <$> runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False (tvdCloudInit details) Nothing False) pool
           )
           (Just . fromIntegral)
       case vmResult of

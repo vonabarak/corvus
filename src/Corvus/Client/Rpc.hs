@@ -93,6 +93,7 @@ module Corvus.Client.Rpc
   , networkStop
   , networkList
   , networkShow
+  , networkEdit
 
     -- * Apply operations
   , ApplyRpcResult (..)
@@ -197,9 +198,9 @@ data VmDeleteResult
   deriving (Eq, Show)
 
 -- | Create a new VM
-vmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO (Either ConnectionError VmCreateResult)
-vmCreate conn name cpuCount ramMb description headless guestAgent cloudInit = do
-  result <- sendRequest conn (ReqVmCreate name cpuCount ramMb description headless guestAgent cloudInit)
+vmCreate :: Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> Bool -> IO (Either ConnectionError VmCreateResult)
+vmCreate conn name cpuCount ramMb description headless guestAgent cloudInit autostart = do
+  result <- sendRequest conn (ReqVmCreate name cpuCount ramMb description headless guestAgent cloudInit autostart)
   case result of
     Left err -> pure $ Left err
     Right (RespVmCreated vmId) -> pure $ Right $ VmCreated vmId
@@ -266,9 +267,10 @@ vmEdit
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe Bool
+  -> Maybe Bool
   -> IO (Either ConnectionError VmEditResult)
-vmEdit conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
-  result <- sendRequest conn (ReqVmEdit (Ref vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit)
+vmEdit conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart = do
+  result <- sendRequest conn (ReqVmEdit (Ref vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart)
   case result of
     Left err -> pure $ Left err
     Right RespVmEdited -> pure $ Right VmEdited
@@ -729,6 +731,8 @@ data NetworkResult
     NetworkListResult ![NetworkInfo]
   | -- | Single network details
     NetworkDetails !NetworkInfo
+  | -- | Network edited
+    NetworkEdited
   | -- | Network not found
     NetworkNotFound
   | -- | Network is already running
@@ -747,6 +751,7 @@ handleNetworkResponse result = case result of
   Left err -> Left err
   Right (RespNetworkCreated nwId) -> Right $ NetworkCreated nwId
   Right RespNetworkDeleted -> Right NetworkDeleted
+  Right RespNetworkEdited -> Right NetworkEdited
   Right RespNetworkStarted -> Right NetworkStarted
   Right RespNetworkStopped -> Right NetworkStopped
   Right (RespNetworkList networks) -> Right $ NetworkListResult networks
@@ -760,9 +765,9 @@ handleNetworkResponse result = case result of
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
 -- | Create a virtual network
-networkCreate :: Connection -> Text -> Text -> Bool -> Bool -> IO (Either ConnectionError NetworkResult)
-networkCreate conn name subnet dhcp nat =
-  handleNetworkResponse <$> sendRequest conn (ReqNetworkCreate name subnet dhcp nat)
+networkCreate :: Connection -> Text -> Text -> Bool -> Bool -> Bool -> IO (Either ConnectionError NetworkResult)
+networkCreate conn name subnet dhcp nat autostart =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkCreate name subnet dhcp nat autostart)
 
 -- | Delete a virtual network
 networkDelete :: Connection -> Text -> IO (Either ConnectionError NetworkResult)
@@ -788,6 +793,11 @@ networkList conn =
 networkShow :: Connection -> Text -> IO (Either ConnectionError NetworkResult)
 networkShow conn networkRef =
   handleNetworkResponse <$> sendRequest conn (ReqNetworkShow (Ref networkRef))
+
+-- | Edit virtual network properties
+networkEdit :: Connection -> Text -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO (Either ConnectionError NetworkResult)
+networkEdit conn networkRef mSubnet mDhcp mNat mAutostart =
+  handleNetworkResponse <$> sendRequest conn (ReqNetworkEdit (Ref networkRef) mSubnet mDhcp mNat mAutostart)
 
 --------------------------------------------------------------------------------
 -- Guest Execution

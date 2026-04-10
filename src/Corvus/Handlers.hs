@@ -168,7 +168,7 @@ dispatchRequest state req = case req of
   -- VM handlers
   ReqListVms -> handleVmList state
   ReqShowVm vmRef -> withVm vmRef $ \vmId -> handleVmShow state vmId
-  ReqVmCreate name cpus ram desc headless ga ci -> handleVmCreate state name cpus ram desc headless ga ci
+  ReqVmCreate name cpus ram desc headless ga ci as -> handleVmCreate state name cpus ram desc headless ga ci as
   ReqVmDelete vmRef -> withVm vmRef $ \vmId -> handleVmDelete state vmId
   ReqVmStart vmRef wait -> withVm vmRef $ \vmId ->
     dispatchWithWaitParent
@@ -188,7 +188,7 @@ dispatchRequest state req = case req of
       (RespVmStateChanged VmStopping)
   ReqVmPause vmRef -> withVm vmRef $ \vmId -> handleVmPause state vmId
   ReqVmReset vmRef -> withVm vmRef $ \vmId -> handleVmReset state vmId
-  ReqVmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi -> withVm vmRef $ \vmId -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa mCi
+  ReqVmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi mAs -> withVm vmRef $ \vmId -> handleVmEdit state vmId mCpus mRam mDesc mHeadless mGa mCi mAs
   ReqVmCloudInit vmRef -> withVm vmRef $ \vmId -> handleVmCloudInit state vmId
   -- Disk image handlers
   ReqDiskCreate name format sizeMb mPath -> handleDiskCreate state name format sizeMb mPath
@@ -249,12 +249,13 @@ dispatchRequest state req = case req of
   ReqTemplateShow tRef -> withTemplate tRef $ \tid -> handleTemplateShow state tid
   ReqTemplateInstantiate {} -> error "dispatchRequest: ReqTemplateInstantiate should be handled by dispatchRequestWithParent"
   -- Network handlers
-  ReqNetworkCreate name subnet dhcp nat -> handleNetworkCreate state name subnet dhcp nat
+  ReqNetworkCreate name subnet dhcp nat as -> handleNetworkCreate state name subnet dhcp nat as
   ReqNetworkDelete nwRef -> withNetwork nwRef $ \nwId -> handleNetworkDelete state nwId
   ReqNetworkStart {} -> error "dispatchRequest: ReqNetworkStart should be handled by dispatchRequestWithParent"
   ReqNetworkStop {} -> error "dispatchRequest: ReqNetworkStop should be handled by dispatchRequestWithParent"
   ReqNetworkList -> handleNetworkList state
   ReqNetworkShow nwRef -> withNetwork nwRef $ \nwId -> handleNetworkShow state nwId
+  ReqNetworkEdit nwRef mSubnet mDhcp mNat mAutostart -> withNetwork nwRef $ \nwId -> handleNetworkEdit state nwId mSubnet mDhcp mNat mAutostart
   -- Guest execution handlers
   ReqGuestExec vmRef cmd -> withVm vmRef $ \vmId -> handleGuestExec state vmId cmd
   -- Disk URL import
@@ -605,13 +606,13 @@ classifyRequest = \case
   ReqShutdown -> (SubSystem, "shutdown", Nothing)
   ReqListVms -> (SubVm, "list", Nothing)
   ReqShowVm ref -> (SubVm, "show", Just ref)
-  ReqVmCreate name _ _ _ _ _ _ -> (SubVm, "create", Just (Ref name))
+  ReqVmCreate name _ _ _ _ _ _ _ -> (SubVm, "create", Just (Ref name))
   ReqVmDelete ref -> (SubVm, "delete", Just ref)
   ReqVmStart ref _ -> (SubVm, "start", Just ref)
   ReqVmStop ref _ -> (SubVm, "stop", Just ref)
   ReqVmPause ref -> (SubVm, "pause", Just ref)
   ReqVmReset ref -> (SubVm, "reset", Just ref)
-  ReqVmEdit ref _ _ _ _ _ _ -> (SubVm, "edit", Just ref)
+  ReqVmEdit ref _ _ _ _ _ _ _ -> (SubVm, "edit", Just ref)
   ReqVmCloudInit ref -> (SubVm, "cloud-init", Just ref)
   ReqDiskCreate name _ _ _ -> (SubDisk, "create", Just (Ref name))
   ReqDiskCreateOverlay name _ _ -> (SubDisk, "overlay", Just (Ref name))
@@ -647,12 +648,13 @@ classifyRequest = \case
   ReqTemplateList -> (SubTemplate, "list", Nothing)
   ReqTemplateShow ref -> (SubTemplate, "show", Just ref)
   ReqTemplateInstantiate ref name -> (SubTemplate, "instantiate", Just ref)
-  ReqNetworkCreate name _ _ _ -> (SubNetwork, "create", Just (Ref name))
+  ReqNetworkCreate name _ _ _ _ -> (SubNetwork, "create", Just (Ref name))
   ReqNetworkDelete ref -> (SubNetwork, "delete", Just ref)
   ReqNetworkStart ref -> (SubNetwork, "start", Just ref)
   ReqNetworkStop ref _ -> (SubNetwork, "stop", Just ref)
   ReqNetworkList -> (SubNetwork, "list", Nothing)
   ReqNetworkShow ref -> (SubNetwork, "show", Just ref)
+  ReqNetworkEdit ref _ _ _ _ -> (SubNetwork, "edit", Just ref)
   ReqGuestExec ref _ -> (SubVm, "guest-exec", Just ref)
   ReqApply {} -> (SubApply, "apply", Nothing)
   ReqCloudInitSet ref _ _ _ -> (SubVm, "cloud-init-set", Just ref)
@@ -727,6 +729,7 @@ classifyResponse = \case
   RespTemplateInstantiated vid -> (TaskSuccess, Just $ "VM ID " <> T.pack (show vid))
   RespNetworkCreated nid -> (TaskSuccess, Just $ "Network ID " <> T.pack (show nid))
   RespNetworkDeleted -> (TaskSuccess, Just "Deleted")
+  RespNetworkEdited -> (TaskSuccess, Just "Edited")
   RespNetworkStarted -> (TaskSuccess, Just "Started")
   RespNetworkStopped -> (TaskSuccess, Just "Stopped")
   RespApplyResult _ -> (TaskSuccess, Nothing)

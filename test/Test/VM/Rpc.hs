@@ -96,7 +96,7 @@ createTestVmFull daemon name cpus ram mDesc headless guestAgent =
 createTestVmWithOptions :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO Int64
 createTestVmWithOptions daemon name cpus ram mDesc headless guestAgent cloudInit = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmCreate conn name cpus ram mDesc headless guestAgent cloudInit
+    vmCreate conn name cpus ram mDesc headless guestAgent cloudInit False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error creating VM: " <> show err
@@ -174,7 +174,7 @@ deleteTestVm daemon vmId = do
 editTestVm :: TestDaemon -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO ()
 editTestVm daemon vmId mCpus mRam mDesc mHeadless = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmEdit conn (T.pack (show vmId)) mCpus mRam mDesc mHeadless Nothing Nothing
+    vmEdit conn (T.pack (show vmId)) mCpus mRam mDesc mHeadless Nothing Nothing Nothing
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "RPC error editing VM: " <> show err
@@ -307,7 +307,7 @@ cleanupSshKey daemon keyId = do
 createNetwork :: TestDaemon -> Text -> IO Int64
 createNetwork daemon name = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name "" False False
+    networkCreate conn name "" False False False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error creating network: " <> show err
@@ -319,7 +319,7 @@ createNetwork daemon name = do
 createNetworkWithSubnet :: TestDaemon -> Text -> Text -> IO Int64
 createNetworkWithSubnet daemon name subnet = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name subnet True False
+    networkCreate conn name subnet True False False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error creating network: " <> show err
@@ -331,7 +331,7 @@ createNetworkWithSubnet daemon name subnet = do
 createNetworkWithNat :: TestDaemon -> Text -> Text -> IO Int64
 createNetworkWithNat daemon name subnet = do
   result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name subnet True True
+    networkCreate conn name subnet True True False
   case result of
     Left err -> fail $ "Failed to connect to daemon: " <> show err
     Right (Left err) -> fail $ "Connection error creating network: " <> show err

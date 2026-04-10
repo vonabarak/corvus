@@ -51,8 +51,8 @@ data Command
   | -- VM commands
     VmList
   | VmShow !Text
-  | -- | Create a new VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
-    VmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool
+  | -- | Create a new VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit, autostart)
+    VmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool !Bool
   | -- | Delete a VM
     VmDelete !Text
   | VmStart !Text !WaitOptions
@@ -63,8 +63,8 @@ data Command
     VmView !Text
   | -- | Connect to VM's HMP monitor
     VmMonitor !Text
-  | -- | Edit VM properties (vmRef, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
-    VmEdit !Text !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
+  | -- | Edit VM properties (vmRef, cpuCount, ramMb, description, headless, guestAgent, cloudInit, autostart)
+    VmEdit !Text !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
   | -- | Generate/regenerate cloud-init ISO for a VM
     CloudInitGenerate !Text
   | -- | Execute a command in a VM via guest agent (vmRef, command)
@@ -149,8 +149,8 @@ data Command
     TemplateInstantiate !Text !Text
   | -- Virtual network commands
 
-    -- | Create a virtual network (name, subnet, dhcp, nat)
-    NetworkCreate !Text !Text !Bool !Bool
+    -- | Create a virtual network (name, subnet, dhcp, nat, autostart)
+    NetworkCreate !Text !Text !Bool !Bool !Bool
   | -- | Delete a virtual network (networkRef)
     NetworkDelete !Text
   | -- | Start a virtual network (networkRef)
@@ -161,6 +161,8 @@ data Command
     NetworkList
   | -- | Show virtual network details (networkRef)
     NetworkShow !Text
+  | -- | Edit network properties (networkRef, subnet, dhcp, nat, autostart)
+    NetworkEdit !Text !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
   | -- Cloud-init config commands
 
     -- | Set cloud-init config (vmRef, userDataFile, networkConfigFile, noInjectSshKeys)

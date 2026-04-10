@@ -79,6 +79,10 @@ vmCreateCommand =
       ( long "cloud-init"
           <> help "Enable cloud-init for this VM (required for SSH key injection)"
       )
+    <*> switch
+      ( long "autostart"
+          <> help "Automatically start this VM when the daemon starts"
+      )
 
 -- | Parser for vm delete
 vmDeleteCommand :: Parser Command
@@ -227,6 +231,15 @@ vmEditCommand =
           ( long "cloud-init"
               <> metavar "BOOL"
               <> help "Enable/disable cloud-init (true/false)"
+              <> completeWith ["true", "false"]
+          )
+      )
+    <*> optional
+      ( option
+          readBool
+          ( long "autostart"
+              <> metavar "BOOL"
+              <> help "Enable/disable autostart (true/false)"
               <> completeWith ["true", "false"]
           )
       )
@@ -1085,6 +1098,10 @@ networkCreateCommand =
       ( long "nat"
           <> help "Enable NAT (provides internet access via host network)"
       )
+    <*> switch
+      ( long "autostart"
+          <> help "Automatically start this network when the daemon starts"
+      )
 
 -- | Parser for network delete
 networkDeleteCommand :: Parser Command
@@ -1139,6 +1156,51 @@ networkShowCommand =
           <> completer networkCompleter
       )
 
+-- | Parser for network edit
+networkEditCommand :: Parser Command
+networkEditCommand =
+  NetworkEdit
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NETWORK"
+          <> help "Name or ID of the network to edit"
+          <> completer networkCompleter
+      )
+    <*> optional
+      ( strOption
+          ( long "subnet"
+              <> metavar "SUBNET"
+              <> help "New subnet in CIDR notation (e.g., 10.0.1.0/24)"
+          )
+      )
+    <*> optional
+      ( option
+          readBool
+          ( long "dhcp"
+              <> metavar "BOOL"
+              <> help "Enable/disable DHCP (true/false)"
+              <> completeWith ["true", "false"]
+          )
+      )
+    <*> optional
+      ( option
+          readBool
+          ( long "nat"
+              <> metavar "BOOL"
+              <> help "Enable/disable NAT (true/false)"
+              <> completeWith ["true", "false"]
+          )
+      )
+    <*> optional
+      ( option
+          readBool
+          ( long "autostart"
+              <> metavar "BOOL"
+              <> help "Enable/disable autostart (true/false)"
+              <> completeWith ["true", "false"]
+          )
+      )
+
 -- | Parser for all network subcommands
 networkCommandParser :: Parser Command
 networkCommandParser =
@@ -1161,6 +1223,9 @@ networkCommandParser =
         <> command
           "show"
           (info networkShowCommand (progDesc "Show virtual network details"))
+        <> command
+          "edit"
+          (info networkEditCommand (progDesc "Edit virtual network properties"))
     )
 
 --------------------------------------------------------------------------------

@@ -8,6 +8,7 @@ module Corvus.Handlers.Network
   , handleNetworkStop
   , handleNetworkList
   , handleNetworkShow
+  , handleNetworkEdit
   )
 where
 
@@ -24,6 +25,7 @@ import Corvus.Qemu.Netns.Manager (addNatRule, createBridge, destroyBridge, remov
 import Corvus.Types (ServerState (..), runServerLogging)
 import Corvus.Utils.Subnet (validateSubnet)
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (getCurrentTime)
@@ -36,8 +38,8 @@ import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 --------------------------------------------------------------------------------
 
 -- | Create a new virtual network
-handleNetworkCreate :: ServerState -> Text -> Text -> Bool -> Bool -> IO Response
-handleNetworkCreate state name subnet dhcp nat =
+handleNetworkCreate :: ServerState -> Text -> Text -> Bool -> Bool -> Bool -> IO Response
+handleNetworkCreate state name subnet dhcp nat autostart =
   case validateName "Network" name of
     Left err -> pure $ RespNetworkError err
     Right () -> do
@@ -65,6 +67,7 @@ handleNetworkCreate state name subnet dhcp nat =
                           , networkRunning = False
                           , networkDnsmasqPid = Nothing
                           , networkCreatedAt = now
+                          , networkAutostart = autostart
                           }
                   result <- runSqlPool (insertUnique network) (ssDbPool state)
                   case result of
@@ -286,6 +289,52 @@ handleNetworkShow state networkId = do
     Nothing -> pure RespNetworkNotFound
     Just network -> pure $ RespNetworkDetails $ toNetworkInfoWith networkId network
 
+-- | Edit virtual network properties.
+-- Subnet, DHCP, and NAT require the network to be stopped.
+-- Autostart can be toggled regardless of state.
+handleNetworkEdit :: ServerState -> Int64 -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Response
+handleNetworkEdit state networkId mSubnet mDhcp mNat mAutostart = do
+  let key = toSqlKey networkId :: M.NetworkId
+      pool = ssDbPool state
+  mNetwork <- runSqlPool (get key) pool
+  case mNetwork of
+    Nothing -> pure RespNetworkNotFound
+    Just network -> do
+      let hasNonAutostartEdits = isJust mSubnet || isJust mDhcp || isJust mNat
+      if hasNonAutostartEdits && networkRunning network
+        then pure $ RespNetworkError "Network must be stopped to change subnet/dhcp/nat"
+        else do
+          -- Validate and normalize subnet if provided
+          mNormalizedSubnet <- case mSubnet of
+            Just s
+              | T.null s -> pure $ Right (Just "")
+              | otherwise -> case validateSubnet s of
+                  Left err -> pure $ Left $ "Invalid subnet: " <> err
+                  Right normalized -> pure $ Right (Just normalized)
+            Nothing -> pure $ Right Nothing
+          case mNormalizedSubnet of
+            Left err -> pure $ RespNetworkError err
+            Right mSub -> do
+              let effectiveSubnet = fromMaybe (networkSubnet network) mSub
+                  effectiveDhcp = fromMaybe (networkDhcp network) mDhcp
+                  effectiveNat = fromMaybe (networkNat network) mNat
+              if effectiveDhcp && T.null effectiveSubnet
+                then pure $ RespNetworkError "DHCP requires a subnet"
+                else
+                  if effectiveNat && T.null effectiveSubnet
+                    then pure $ RespNetworkError "NAT requires a subnet"
+                    else do
+                      let updates =
+                            maybe [] (\s -> [M.NetworkSubnet =. s]) mSub
+                              ++ maybe [] (\d -> [M.NetworkDhcp =. d]) mDhcp
+                              ++ maybe [] (\n -> [M.NetworkNat =. n]) mNat
+                              ++ maybe [] (\a -> [M.NetworkAutostart =. a]) mAutostart
+                      case updates of
+                        [] -> pure RespNetworkEdited
+                        us -> do
+                          runSqlPool (update key us) pool
+                          pure RespNetworkEdited
+
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
@@ -304,4 +353,5 @@ toNetworkInfoWith nwId network =
     , nwiRunning = networkRunning network
     , nwiDnsmasqPid = networkDnsmasqPid network
     , nwiCreatedAt = networkCreatedAt network
+    , nwiAutostart = networkAutostart network
     }

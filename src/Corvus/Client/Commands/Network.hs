@@ -8,6 +8,7 @@ module Corvus.Client.Commands.Network
   , handleNetworkStop
   , handleNetworkList
   , handleNetworkShow
+  , handleNetworkEdit
   )
 where
 
@@ -23,9 +24,9 @@ import qualified Data.Text as T
 import Text.Printf (printf)
 
 -- | Handle network create command
-handleNetworkCreate :: OutputFormat -> Connection -> Text -> Text -> Bool -> Bool -> IO Bool
-handleNetworkCreate fmt conn name subnet dhcp nat = do
-  resp <- networkCreate conn name subnet dhcp nat
+handleNetworkCreate :: OutputFormat -> Connection -> Text -> Text -> Bool -> Bool -> Bool -> IO Bool
+handleNetworkCreate fmt conn name subnet dhcp nat autostart = do
+  resp <- networkCreate conn name subnet dhcp nat autostart
   case resp of
     Left err -> do
       if isStructured fmt
@@ -173,7 +174,7 @@ handleNetworkList fmt conn = do
           if null networks
             then putStrLn "No networks found."
             else do
-              printTableHeader [("ID", -5), ("NAME", -20), ("SUBNET", -18), ("DHCP", -6), ("NAT", -5), ("STATUS", -10)]
+              printTableHeader [("ID", -5), ("NAME", -20), ("SUBNET", -18), ("DHCP", -6), ("NAT", -5), ("STATUS", -10), ("AS", -3)]
               mapM_ printNetworkInfo networks
       pure True
     Right other -> do
@@ -204,6 +205,7 @@ handleNetworkShow fmt conn nwRef = do
           printField "DHCP" (if nwiDhcp info then "enabled" else "disabled")
           printField "NAT" (if nwiNat info then "enabled" else "disabled")
           printField "Status" (if nwiRunning info then "running" else "stopped")
+          printField "Autostart" (if nwiAutostart info then "enabled" else "disabled")
           case nwiDnsmasqPid info of
             Just pid -> printField "DHCP PID" (show pid)
             Nothing -> pure ()
@@ -223,10 +225,42 @@ handleNetworkShow fmt conn nwRef = do
 printNetworkInfo :: NetworkInfo -> IO ()
 printNetworkInfo info =
   printf
-    "%-5d %-20s %-18s %-6s %-5s %-10s\n"
+    "%-5d %-20s %-18s %-6s %-5s %-10s %-3s\n"
     (nwiId info)
     (T.unpack $ nwiName info)
     (let s = nwiSubnet info in if T.null s then "-" :: String else T.unpack s)
     (if nwiDhcp info then "yes" :: String else "no")
     (if nwiNat info then "yes" :: String else "no")
     (if nwiRunning info then "running" :: String else "stopped")
+    (if nwiAutostart info then "+" :: String else "-")
+
+-- | Handle network edit command
+handleNetworkEdit :: OutputFormat -> Connection -> Text -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool
+handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart = do
+  resp <- networkEdit conn nwRef mSubnet mDhcp mNat mAutostart
+  case resp of
+    Left err -> do
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
+      pure False
+    Right NetworkEdited -> do
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn $ "Network '" ++ T.unpack nwRef ++ "' updated."
+      pure True
+    Right NetworkNotFound -> do
+      if isStructured fmt
+        then outputError fmt "not_found" ("Network '" <> nwRef <> "' not found")
+        else putStrLn $ "Network '" ++ T.unpack nwRef ++ "' not found."
+      pure False
+    Right (NetworkError msg) -> do
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Failed to edit network: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
+      pure False

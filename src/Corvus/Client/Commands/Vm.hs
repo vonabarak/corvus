@@ -54,9 +54,9 @@ import System.Process (callProcess)
 import Text.Printf (printf)
 
 -- | Handle VM creation
-handleVmCreate :: OutputFormat -> Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO Bool
-handleVmCreate fmt conn name cpuCount ramMb mDesc headless guestAgent cloudInit = do
-  resp <- vmCreate conn name cpuCount ramMb mDesc headless guestAgent cloudInit
+handleVmCreate :: OutputFormat -> Connection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> Bool -> IO Bool
+handleVmCreate fmt conn name cpuCount ramMb mDesc headless guestAgent cloudInit autostart = do
+  resp <- vmCreate conn name cpuCount ramMb mDesc headless guestAgent cloudInit autostart
   case resp of
     Left err -> do
       if isStructured fmt
@@ -192,9 +192,9 @@ waitForVmStatus fmt conn vmRef targetStatus timeout = do
               go startTime
 
 -- | Handle VM edit
-handleVmEdit :: OutputFormat -> Connection -> Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool
-handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
-  resp <- vmEdit conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit
+handleVmEdit :: OutputFormat -> Connection -> Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool
+handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart = do
+  resp <- vmEdit conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart
   case resp of
     Left err -> do
       if isStructured fmt
@@ -227,7 +227,7 @@ printVmInfo :: UTCTime -> VmInfo -> IO ()
 printVmInfo now vm =
   putStrLn $
     printf
-      "%-6d %-20s %-12s %5d %8d  %-6s %-2s"
+      "%-6d %-20s %-12s %5d %8d  %-6s %-2s %-2s"
       (viId vm)
       (T.unpack $ viName vm)
       (T.unpack $ enumToText $ viStatus vm)
@@ -235,6 +235,7 @@ printVmInfo now vm =
       (viRamMb vm)
       (healthLabel now vm)
       (if viCloudInit vm then "+" else "-" :: String)
+      (if viAutostart vm then "+" else "-" :: String)
 
 -- | Print full VM details
 printVmDetails :: VmDetails -> IO ()
@@ -249,6 +250,7 @@ printVmDetails vm = do
   printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")
   printField "Guest Agent" (if vdGuestAgent vm then "enabled" else "disabled")
   printField "Cloud-init" (if vdCloudInit vm then "enabled" else "disabled")
+  printField "Autostart" (if vdAutostart vm then "enabled" else "disabled")
   case vdCloudInitConfig vm of
     Just _ -> printField "Cloud-init Config" "custom"
     Nothing -> pure ()

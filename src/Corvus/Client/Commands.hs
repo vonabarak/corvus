@@ -137,7 +137,7 @@ runCommand opts = do
                   then putStrLn "No VMs found."
                   else do
                     now <- getCurrentTime
-                    let vmCols = [("ID", -6), ("NAME", -20), ("STATUS", -12), ("CPUS", 5), ("RAM_MB", 8), ("HEALTH", -6), ("CI", -2)]
+                    let vmCols = [("ID", -6), ("NAME", -20), ("STATUS", -12), ("CPUS", 5), ("RAM_MB", 8), ("HEALTH", -6), ("CI", -2), ("AS", -2)]
                     printTableHeader vmCols
                     mapM_ (printVmInfo now) vms
             pure True
@@ -159,13 +159,13 @@ runCommand opts = do
               then outputResult fmt details
               else printVmDetails details
             pure True
-      VmCreate name cpuCount ramMb mDesc headless ga ci -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga ci
+      VmCreate name cpuCount ramMb mDesc headless ga ci as -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga ci as
       VmDelete vmRef -> handleVmDelete fmt conn vmRef
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
       VmPause vmRef -> handleVmAction fmt "pause" vmRef (vmPause conn vmRef)
       VmReset vmRef -> handleVmAction fmt "reset" vmRef (vmReset conn vmRef)
-      VmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi -> handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mCi
+      VmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi mAs -> handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mCi mAs
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> do
         resp <- showVm conn vmRef
@@ -341,12 +341,13 @@ runCommand opts = do
       TemplateShow tRef -> handleTemplateShow fmt conn tRef
       TemplateInstantiate tRef name -> handleTemplateInstantiate fmt conn tRef name
       -- Network commands
-      NetworkCreate name subnet dhcp nat -> handleNetworkCreate fmt conn name subnet dhcp nat
+      NetworkCreate name subnet dhcp nat as -> handleNetworkCreate fmt conn name subnet dhcp nat as
       NetworkDelete nwRef -> handleNetworkDelete fmt conn nwRef
       NetworkStart nwRef -> handleNetworkStart fmt conn nwRef
       NetworkStop nwRef force -> handleNetworkStop fmt conn nwRef force
       NetworkList -> handleNetworkList fmt conn
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
+      NetworkEdit nwRef mSubnet mDhcp mNat mAutostart -> handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart
       -- Cloud-init config
       CloudInitGenerate vmRef -> handleCloudInitGenerate fmt conn vmRef
       CloudInitSet vmRef mUdFile mNcFile noInject -> handleCloudInitSet fmt conn vmRef mUdFile mNcFile noInject

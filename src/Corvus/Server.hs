@@ -20,8 +20,10 @@ import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers (handleRequest)
+import Corvus.Handlers.Network (handleNetworkStart)
 import Corvus.Handlers.Resolve (resolveVm)
 import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
+import Corvus.Handlers.Vm (handleVmStartExecute, handleVmStartValidate)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -388,6 +390,63 @@ handleStartup state retentionDays = do
                 )
                 (const Nothing)
             logInfoN "IP forwarding enabled, nftables NAT table created"
+
+    -- Autostart networks (before VMs, since VMs may depend on networks)
+    autostartNetworks <- liftIO $ runSqlPool (selectList [M.NetworkAutostart ==. True] [Asc M.NetworkName]) pool
+    unless (null autostartNetworks) $ do
+      logInfoN $ "Autostarting " <> T.pack (show (length autostartNetworks)) <> " network(s)"
+      liftIO $ forM_ autostartNetworks $ \(Entity nwKey nw) -> do
+        let nwId = fromSqlKey nwKey
+            spec = SubtaskSpec SubNetwork "autostart" (Just $ networkName nw)
+        nwResult <-
+          withOptionalSubtask
+            pool
+            (Just taskKey)
+            spec
+            ( do
+                resp <- handleNetworkStart state nwId taskKey
+                pure $ case resp of
+                  RespNetworkStarted -> Right ()
+                  RespNetworkAlreadyRunning -> Right ()
+                  RespNetworkError err -> Left err
+                  _ -> Left $ "Unexpected response: " <> T.pack (show resp)
+            )
+            (const Nothing)
+        runServerLogging state $ case nwResult of
+          Right () -> logInfoN $ "Autostarted network " <> networkName nw
+          Left err -> logWarnN $ "Failed to autostart network " <> networkName nw <> ": " <> err
+
+    -- Autostart VMs (after networks are up)
+    autostartVms <- liftIO $ runSqlPool (selectList [M.VmAutostart ==. True] [Asc M.VmName]) pool
+    unless (null autostartVms) $ do
+      logInfoN $ "Autostarting " <> T.pack (show (length autostartVms)) <> " VM(s)"
+      liftIO $ forM_ autostartVms $ \(Entity vmKey vm) -> do
+        let vmId = fromSqlKey vmKey
+        -- Only autostart VMs that are stopped
+        when (vmStatus vm == VmStopped) $ do
+          -- Reset error state VMs to stopped first
+          when (vmStatus vm == VmError) $
+            runSqlPool (update vmKey [M.VmStatus =. VmStopped]) pool
+          let spec = SubtaskSpec SubVm "autostart" (Just $ vmName vm)
+          vmResult <-
+            withOptionalSubtask
+              pool
+              (Just taskKey)
+              spec
+              ( do
+                  validated <- handleVmStartValidate state vmId
+                  case validated of
+                    Left errResp -> pure $ Left $ T.pack $ show errResp
+                    Right _ -> do
+                      resp <- handleVmStartExecute state vmId taskKey
+                      pure $ case resp of
+                        RespVmStateChanged _ -> Right ()
+                        _ -> Left $ T.pack $ show resp
+              )
+              (const Nothing)
+          runServerLogging state $ case vmResult of
+            Right () -> logInfoN $ "Autostarted VM " <> vmName vm
+            Left err -> logWarnN $ "Failed to autostart VM " <> vmName vm <> ": " <> err
 
     -- Delete old task entries
     when (retentionDays > 0) $ do

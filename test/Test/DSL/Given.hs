@@ -79,6 +79,7 @@ insertVm name status = do
           , vmGuestAgent = False
           , vmCloudInit = False
           , vmHealthcheck = Nothing
+          , vmAutostart = False
           }
   pure $ fromSqlKey key
 
@@ -108,6 +109,7 @@ insertVmFull name status cpus ramMb desc pid = do
           , vmGuestAgent = False
           , vmCloudInit = False
           , vmHealthcheck = Nothing
+          , vmAutostart = False
           }
   pure $ fromSqlKey key
 
@@ -128,6 +130,7 @@ defaultVm = do
       , vmGuestAgent = False
       , vmCloudInit = False
       , vmHealthcheck = Nothing
+      , vmAutostart = False
       }
 
 --------------------------------------------------------------------------------
@@ -307,6 +310,7 @@ insertNetwork name subnet = do
           , networkRunning = False
           , networkDnsmasqPid = Nothing
           , networkCreatedAt = now
+          , networkAutostart = False
           }
   pure $ fromSqlKey key
 
@@ -388,6 +392,7 @@ givenCloudInitVmExists name = do
           , vmGuestAgent = False
           , vmCloudInit = True
           , vmHealthcheck = Nothing
+          , vmAutostart = False
           }
   pure $ fromSqlKey key
 

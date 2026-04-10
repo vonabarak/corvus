@@ -121,6 +121,7 @@ data ApplyNetwork = ApplyNetwork
   , anSubnet :: Text
   , anDhcp :: Bool
   , anNat :: Bool
+  , anAutostart :: Bool
   }
   deriving (Show)
 
@@ -131,6 +132,7 @@ instance FromJSON ApplyNetwork where
       <*> o .:? "subnet" .!= ""
       <*> o .:? "dhcp" .!= False
       <*> o .:? "nat" .!= False
+      <*> o .:? "autostart" .!= False
 
 data ApplyVm = ApplyVm
   { avName :: Text
@@ -145,6 +147,7 @@ data ApplyVm = ApplyVm
   , avNetworkInterfaces :: [ApplyNetIf]
   , avSharedDirs :: [ApplySharedDir]
   , avSshKeys :: [Text]
+  , avAutostart :: Bool
   }
   deriving (Show)
 
@@ -163,6 +166,7 @@ instance FromJSON ApplyVm where
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sharedDirs" .!= []
       <*> o .:? "sshKeys" .!= []
+      <*> o .:? "autostart" .!= False
 
 data ApplyDrive = ApplyDrive
   { adrDisk :: Text
@@ -573,6 +577,7 @@ createOneNetworkTracked state n (_, subId) _nwMap skipExisting parentId pool = d
                   , networkRunning = False
                   , networkDnsmasqPid = Nothing
                   , networkCreatedAt = now
+                  , networkAutostart = anAutostart n
                   }
             )
             (ssDbPool state)
@@ -677,6 +682,7 @@ createOneVm state keyMap diskMap nwMap v = do
               , vmGuestAgent = avGuestAgent v
               , vmCloudInit = effectiveCloudInit v
               , vmHealthcheck = Nothing
+              , vmAutostart = avAutostart v
               }
         )
         (ssDbPool state)

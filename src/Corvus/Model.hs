@@ -544,6 +544,7 @@ Vm
     guestAgent Bool default=false
     cloudInit Bool default=false
     healthcheck UTCTime Maybe default=NULL
+    autostart Bool default=false
     UniqueName name
     deriving Show Eq Generic
 
@@ -585,6 +586,7 @@ Network
     running Bool default=false
     dnsmasqPid Int Maybe
     createdAt UTCTime
+    autostart Bool default=false
     UniqueNetworkName name
     deriving Show Eq Generic
 

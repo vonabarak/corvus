@@ -56,7 +56,7 @@ instance Arbitrary StatusInfo where
   arbitrary = StatusInfo <$> arbitrary <*> arbitrary <*> pure "test" <*> arbitrary
 
 instance Arbitrary VmInfo where
-  arbitrary = VmInfo <$> arbitrary <*> pure "test-vm" <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> pure Nothing
+  arbitrary = VmInfo <$> arbitrary <*> pure "test-vm" <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> pure Nothing <*> arbitrary
 
 -- Arbitrary for Request (subset - the most common ones)
 instance Arbitrary Request where
@@ -67,7 +67,7 @@ instance Arbitrary Request where
       , pure ReqShutdown
       , pure ReqListVms
       , ReqShowVm <$> arbitrary
-      , ReqVmCreate "test" <$> arbitrary <*> arbitrary <*> pure Nothing <*> arbitrary <*> arbitrary <*> arbitrary
+      , ReqVmCreate "test" <$> arbitrary <*> arbitrary <*> pure Nothing <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
       , ReqVmDelete <$> arbitrary
       , ReqVmStart <$> arbitrary <*> arbitrary
       , ReqVmStop <$> arbitrary <*> arbitrary
@@ -84,7 +84,7 @@ instance Arbitrary Request where
       , pure ReqDiskList
       , pure ReqNetworkList
       , ReqDiskRefresh <$> arbitrary
-      , pure (ReqNetworkCreate "net" "10.0.0.0/24" False False)
+      , pure (ReqNetworkCreate "net" "10.0.0.0/24" False False False)
       , ReqNetworkDelete <$> arbitrary
       , ReqNetworkShow <$> arbitrary
       , ReqGuestExec <$> arbitrary <*> pure "echo ok"
@@ -109,14 +109,14 @@ spec = sequential $ do
       json `shouldSatisfy` ("version" `isInfixOf`)
 
     it "VmInfo produces valid JSON with expected fields" $ do
-      let vm = VmInfo 1 "test" VmRunning 2 1024 False False False Nothing
+      let vm = VmInfo 1 "test" VmRunning 2 1024 False False False Nothing False
           json = BL.unpack (encode vm)
       json `shouldSatisfy` ("name" `isInfixOf`)
       json `shouldSatisfy` ("status" `isInfixOf`)
       json `shouldSatisfy` ("running" `isInfixOf`)
 
     it "NetworkInfo produces valid JSON with expected fields" $ do
-      let nw = NetworkInfo 1 "lab-net" "10.0.0.0/24" False False False Nothing testTime
+      let nw = NetworkInfo 1 "lab-net" "10.0.0.0/24" False False False Nothing testTime False
           json = BL.unpack (encode nw)
       json `shouldSatisfy` ("name" `isInfixOf`)
       json `shouldSatisfy` ("subnet" `isInfixOf`)

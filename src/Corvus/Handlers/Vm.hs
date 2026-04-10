@@ -44,6 +44,7 @@ import Corvus.Qemu.SerialBuffer (flushBuffer, startSerialBufferThread)
 import Corvus.Types
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -124,12 +125,12 @@ handleVmShow state vmId = do
     Just details -> pure $ RespVmDetails details
 
 -- | Handle VM create command
-handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO Response
-handleVmCreate state name cpuCount ramMb description headless guestAgent cloudInit =
+handleVmCreate :: ServerState -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> Bool -> IO Response
+handleVmCreate state name cpuCount ramMb description headless guestAgent cloudInit autostart =
   case validateName "VM" name of
     Left err -> pure $ RespError err
     Right () -> do
-      vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit) (ssDbPool state)
+      vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit autostart) (ssDbPool state)
       pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
@@ -442,17 +443,18 @@ handleVmReset state vmId = runServerLogging state $ do
 
 -- | Handle VM edit command
 -- Only allowed when VM is stopped. Updates only the provided fields.
-handleVmEdit :: ServerState -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Response
-handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
+handleVmEdit :: ServerState -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Response
+handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
     Just (_, status) ->
-      if status /= VmStopped
-        then pure RespVmMustBeStopped
-        else do
-          runSqlPool (editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit) (ssDbPool state)
-          pure RespVmEdited
+      let hasNonAutostartEdits = or [isJust mCpus, isJust mRam, isJust mDesc, isJust mHeadless, isJust mGuestAgent, isJust mCloudInit]
+       in if hasNonAutostartEdits && status /= VmStopped
+            then pure RespVmMustBeStopped
+            else do
+              runSqlPool (editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart) (ssDbPool state)
+              pure RespVmEdited
 
 -- | Handle cloud-init ISO generation/regeneration for a VM
 handleVmCloudInit :: ServerState -> Int64 -> IO Response
@@ -580,8 +582,8 @@ setVmStatus vmId status = do
   update key [M.VmStatus =. status]
 
 -- | Create a new VM
-createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> SqlPersistT IO Int64
-createVm name cpuCount ramMb description headless guestAgent cloudInit = do
+createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> Bool -> SqlPersistT IO Int64
+createVm name cpuCount ramMb description headless guestAgent cloudInit autostart = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -596,6 +598,7 @@ createVm name cpuCount ramMb description headless guestAgent cloudInit = do
           , vmGuestAgent = guestAgent
           , vmCloudInit = cloudInit
           , vmHealthcheck = Nothing
+          , vmAutostart = autostart
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -634,6 +637,7 @@ listVms = do
         , viGuestAgent = vmGuestAgent vm
         , viCloudInit = vmCloudInit vm
         , viHealthcheck = vmHealthcheck vm
+        , viAutostart = vmAutostart vm
         }
 
 -- | Get full VM details
@@ -686,6 +690,7 @@ getVmDetails config vmId = do
             , vdCloudInit = vmCloudInit vm
             , vdCloudInitConfig = ciInfo
             , vdHealthcheck = vmHealthcheck vm
+            , vdAutostart = vmAutostart vm
             }
   where
     toDriveInfo (Entity driveKey drive) = do
@@ -732,8 +737,8 @@ getVmDetails config vmId = do
         }
 
 -- | Edit VM properties. Only updates fields that are Just.
-editVm :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> SqlPersistT IO ()
-editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
+editVm :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> Maybe Bool -> SqlPersistT IO ()
+editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart = do
   let key = toSqlKey vmId :: VmId
       updates =
         maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
@@ -742,6 +747,7 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit = do
           ++ maybe [] (\h -> [M.VmHeadless =. h]) mHeadless
           ++ maybe [] (\ga -> [M.VmGuestAgent =. ga]) mGuestAgent
           ++ maybe [] (\ci -> [M.VmCloudInit =. ci]) mCloudInit
+          ++ maybe [] (\a -> [M.VmAutostart =. a]) mAutostart
   case updates of
     [] -> pure ()
     us -> update key us

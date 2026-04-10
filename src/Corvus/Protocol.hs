@@ -64,7 +64,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 20
+protocolVersion = 21
 
 -- | Client requests
 data Request
@@ -74,8 +74,8 @@ data Request
   | ReqListVms
   | -- | Show VM (vmRef)
     ReqShowVm !Ref
-  | -- | Create VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
-    ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool
+  | -- | Create VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit, autostart)
+    ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool !Bool
   | -- | Delete VM (vmRef)
     ReqVmDelete !Ref
   | -- | Start VM (stopped/paused -> running). Bool = wait for completion.
@@ -159,14 +159,14 @@ data Request
     ReqTemplateShow !Ref
   | -- | Instantiate template (templateRef, newVmName)
     ReqTemplateInstantiate !Ref !Text
-  | -- | Edit VM properties (vmRef, cpuCount, ramMb, description, headless, guestAgent, cloudInit)
+  | -- | Edit VM properties (vmRef, cpuCount, ramMb, description, headless, guestAgent, cloudInit, autostart)
     -- Each Maybe field is updated only if Just.
-    ReqVmEdit !Ref !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
+    ReqVmEdit !Ref !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
   | -- | Generate/regenerate cloud-init ISO for a VM (vmRef)
     ReqVmCloudInit !Ref
   | -- | Virtual network operations
-    -- | Create network (name, subnet, dhcp, nat)
-    ReqNetworkCreate !Text !Text !Bool !Bool
+    -- | Create network (name, subnet, dhcp, nat, autostart)
+    ReqNetworkCreate !Text !Text !Bool !Bool !Bool
   | -- | Delete network (networkRef)
     ReqNetworkDelete !Ref
   | -- | Start network (networkRef)
@@ -177,6 +177,9 @@ data Request
     ReqNetworkList
   | -- | Show network details (networkRef)
     ReqNetworkShow !Ref
+  | -- | Edit network properties (networkRef, subnet, dhcp, nat, autostart)
+    -- Each Maybe field is updated only if Just.
+    ReqNetworkEdit !Ref !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
   | -- | Guest command execution (vmRef, command)
     ReqGuestExec !Ref !Text
   | -- | Import disk image from URL (name, url, optionalFormat)
@@ -226,6 +229,7 @@ data VmInfo = VmInfo
   , viGuestAgent :: !Bool
   , viCloudInit :: !Bool
   , viHealthcheck :: !(Maybe UTCTime)
+  , viAutostart :: !Bool
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -284,6 +288,8 @@ data VmDetails = VmDetails
   -- ^ Custom cloud-init configuration (Nothing = using defaults)
   , vdHealthcheck :: !(Maybe UTCTime)
   -- ^ Last successful guest agent ping time
+  , vdAutostart :: !Bool
+  -- ^ Whether this VM autostarts when the daemon starts
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -402,6 +408,7 @@ data NetworkInfo = NetworkInfo
   , nwiRunning :: !Bool
   , nwiDnsmasqPid :: !(Maybe Int)
   , nwiCreatedAt :: !UTCTime
+  , nwiAutostart :: !Bool
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -469,6 +476,7 @@ instance ToJSON VmInfo where
       , "guestAgent" .= viGuestAgent v
       , "cloudInit" .= viCloudInit v
       , "healthcheck" .= viHealthcheck v
+      , "autostart" .= viAutostart v
       ]
 
 instance ToJSON DriveInfo where
@@ -527,6 +535,7 @@ instance ToJSON VmDetails where
       , "cloudInit" .= vdCloudInit v
       , "cloudInitConfig" .= vdCloudInitConfig v
       , "healthcheck" .= vdHealthcheck v
+      , "autostart" .= vdAutostart v
       ]
 
 instance ToJSON DiskImageInfo where
@@ -623,6 +632,7 @@ instance ToJSON NetworkInfo where
       , "running" .= nwiRunning n
       , "dnsmasqPid" .= nwiDnsmasqPid n
       , "createdAt" .= nwiCreatedAt n
+      , "autostart" .= nwiAutostart n
       ]
 
 instance ToJSON TemplateDetails where
@@ -789,6 +799,8 @@ data Response
     RespNetworkNotRunning
   | -- | Network is in use (referenced by interfaces or running VMs)
     RespNetworkInUse
+  | -- | Network edited successfully
+    RespNetworkEdited
   | -- | Network error
     RespNetworkError !Text
   | -- | Guest command execution result (exitcode, stdout, stderr)

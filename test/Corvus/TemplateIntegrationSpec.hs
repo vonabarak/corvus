@@ -107,7 +107,7 @@ spec = withTestDb $ do
           other -> fail $ "VM show failed: " ++ show other
 
         -- 6. Enable guest agent and start the VM
-        resEdit <- withDaemonConnection daemon $ \conn -> vmEdit conn (T.pack (show newVmId)) Nothing Nothing Nothing Nothing (Just True) Nothing
+        resEdit <- withDaemonConnection daemon $ \conn -> vmEdit conn (T.pack (show newVmId)) Nothing Nothing Nothing Nothing (Just True) Nothing Nothing
         case resEdit of
           Right (Right VmEdited) -> pure ()
           other -> fail $ "VM edit failed: " ++ show other
