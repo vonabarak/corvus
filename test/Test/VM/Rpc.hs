@@ -170,7 +170,7 @@ stopTestVmAndWait daemon vmId timeoutSec = do
 deleteTestVm :: TestDaemon -> Int64 -> IO ()
 deleteTestVm daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
-    vmDelete conn (T.pack (show vmId))
+    vmDelete conn (T.pack (show vmId)) False
   case result of
     Right (Right VmDeleted) -> pure ()
     _ -> pure ()

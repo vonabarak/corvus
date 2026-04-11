@@ -40,7 +40,7 @@ import System.FilePath ((</>))
 getVmRuntimeDir :: QemuConfig -> Int64 -> IO FilePath
 getVmRuntimeDir config vmId = do
   baseDir <- getEffectiveRuntimeDir config
-  pure $ baseDir </> show vmId
+  pure $ baseDir </> "vms" </> show vmId
 
 -- | Create runtime directory for a VM
 -- Returns the path to the created directory

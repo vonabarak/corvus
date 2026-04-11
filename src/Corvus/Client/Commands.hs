@@ -160,7 +160,7 @@ runCommand opts = do
               else printVmDetails details
             pure True
       VmCreate name cpuCount ramMb mDesc headless ga ci as -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga ci as
-      VmDelete vmRef -> handleVmDelete fmt conn vmRef
+      VmDelete vmRef deleteDisks -> handleVmDelete fmt conn vmRef deleteDisks
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
       VmPause vmRef -> handleVmAction fmt "pause" vmRef (vmPause conn vmRef)

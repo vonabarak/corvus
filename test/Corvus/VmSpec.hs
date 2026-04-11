@@ -61,7 +61,7 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "delete-me" VmStopped
         pure ()
-      resp <- executeRequest (ReqVmDelete (Ref "1"))
+      resp <- executeRequest (ReqVmDelete (Ref "1") False)
       liftIO $ resp `shouldBe` RespVmDeleted
       then_ $ vmNotExists 1
 
@@ -69,12 +69,55 @@ spec = sequential $ withTestDb $ do
       given $ do
         _ <- insertVm "running-vm" VmRunning
         pure ()
-      resp <- executeRequest (ReqVmDelete (Ref "1"))
+      resp <- executeRequest (ReqVmDelete (Ref "1") False)
       liftIO $ resp `shouldBe` RespVmRunning
 
     testCase "fails for non-existent VM" $ do
-      resp <- executeRequest (ReqVmDelete (Ref "999"))
+      resp <- executeRequest (ReqVmDelete (Ref "999") False)
       liftIO $ resp `shouldBe` RespVmNotFound
+
+    testCase "with --delete-disks deletes exclusive disks" $ do
+      given $ do
+        vmId <- insertVm "vm-with-disks" VmStopped
+        diskId1 <- givenDiskExists "disk1"
+        diskId2 <- givenDiskExists "disk2"
+        _ <- attachDrive vmId diskId1 InterfaceVirtio
+        _ <- attachDrive vmId diskId2 InterfaceVirtio
+        pure ()
+      resp <- executeRequest (ReqVmDelete (Ref "1") True)
+      liftIO $ resp `shouldBe` RespVmDeleted
+      then_ $ do
+        vmNotExists 1
+        diskImageNotExists 1
+        diskImageNotExists 2
+
+    testCase "with --delete-disks preserves shared disks" $ do
+      given $ do
+        vm1 <- insertVm "vm1" VmStopped
+        vm2 <- insertVm "vm2" VmStopped
+        exclusiveDisk <- givenDiskExists "exclusive"
+        sharedDisk <- givenDiskExists "shared"
+        _ <- attachDrive vm1 exclusiveDisk InterfaceVirtio
+        _ <- attachDrive vm1 sharedDisk InterfaceVirtio
+        _ <- attachDrive vm2 sharedDisk InterfaceVirtio
+        pure ()
+      resp <- executeRequest (ReqVmDelete (Ref "vm1") True)
+      liftIO $ resp `shouldBe` RespVmDeleted
+      then_ $ do
+        vmNotExists 1
+        diskImageNotExists 1 -- exclusive disk deleted
+        diskImageExists 2 -- shared disk preserved
+    testCase "without --delete-disks preserves all disks" $ do
+      given $ do
+        vmId <- insertVm "vm-keep-disks" VmStopped
+        diskId <- givenDiskExists "keep-me"
+        _ <- attachDrive vmId diskId InterfaceVirtio
+        pure ()
+      resp <- executeRequest (ReqVmDelete (Ref "1") False)
+      liftIO $ resp `shouldBe` RespVmDeleted
+      then_ $ do
+        vmNotExists 1
+        diskImageExists 1
 
   describe "vm start" $ do
     testCase "fails for non-existent VM" $ do

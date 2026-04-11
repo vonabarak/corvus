@@ -383,7 +383,7 @@ whenVmCreate name cpuCount ramMb description =
 
 -- | Delete a VM
 whenVmDelete :: Int64 -> TestM VmDeleteResult
-whenVmDelete vmId = executeRpc (`Rpc.vmDelete` toRef vmId)
+whenVmDelete vmId = executeRpc (\c -> Rpc.vmDelete c (toRef vmId) False)
 
 --------------------------------------------------------------------------------
 -- Core Commands

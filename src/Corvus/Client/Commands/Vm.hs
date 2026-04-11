@@ -75,9 +75,9 @@ handleVmCreate fmt conn name cpuCount ramMb mDesc headless guestAgent cloudInit 
       pure False
 
 -- | Handle VM deletion
-handleVmDelete :: OutputFormat -> Connection -> Text -> IO Bool
-handleVmDelete fmt conn vmRef = do
-  resp <- vmDelete conn vmRef
+handleVmDelete :: OutputFormat -> Connection -> Text -> Bool -> IO Bool
+handleVmDelete fmt conn vmRef deleteDisks = do
+  resp <- vmDelete conn vmRef deleteDisks
   case resp of
     Left err -> do
       if isStructured fmt

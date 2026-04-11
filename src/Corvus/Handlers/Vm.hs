@@ -42,10 +42,11 @@ import Corvus.Action
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 import Control.Concurrent.STM (readTVarIO)
-import Control.Monad (unless, when)
+import Control.Monad (filterM, unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
+import Corvus.Handlers.Disk (DiskDelete (..))
 import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller, waitForFirstPing)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
@@ -148,8 +149,9 @@ handleVmCreate state name cpuCount ramMb description headless guestAgent cloudIn
       pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
-handleVmDelete :: ServerState -> Int64 -> IO Response
-handleVmDelete state vmId = do
+handleVmDelete :: ActionContext -> Int64 -> Bool -> IO Response
+handleVmDelete ctx vmId deleteDisks = do
+  let state = acState ctx
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
@@ -157,7 +159,15 @@ handleVmDelete state vmId = do
       if status `elem` [VmRunning, VmStarting, VmStopping, VmPaused]
         then pure RespVmRunning
         else do
+          -- Collect disks to delete before removing drives
+          disksToDelete <-
+            if deleteDisks
+              then runSqlPool (getExclusiveDisks vmId) (ssDbPool state)
+              else pure []
+          -- Delete VM and its associations (drives, netifs, etc.)
           runSqlPool (deleteVm vmId) (ssDbPool state)
+          -- Delete exclusive disks as subtasks
+          mapM_ (\diskId -> runActionAsSubtask state (DiskDelete diskId) (acTaskId ctx)) disksToDelete
           pure RespVmDeleted
 
 -- | Validate that a VM can be started. Returns the VM and current status, or an error response.
@@ -595,6 +605,19 @@ createVm name cpuCount ramMb description headless guestAgent cloudInit autostart
   key <- insert vm
   pure $ fromSqlKey key
 
+-- | Get disk IDs attached to this VM that are not attached to any other VM.
+getExclusiveDisks :: Int64 -> SqlPersistT IO [Int64]
+getExclusiveDisks vmId = do
+  let key = toSqlKey vmId :: VmId
+  drives <- selectList [M.DriveVmId ==. key] []
+  let diskKeys = map (driveDiskImageId . entityVal) drives
+  filterM (fmap not . isSharedDisk vmId) (map fromSqlKey diskKeys)
+  where
+    isSharedDisk :: Int64 -> Int64 -> SqlPersistT IO Bool
+    isSharedDisk thisVmId diskId = do
+      otherDrives <- selectList [M.DriveDiskImageId ==. toSqlKey diskId, M.DriveVmId !=. toSqlKey thisVmId] [LimitTo 1]
+      pure $ not (null otherDrives)
+
 -- | Delete a VM and all associated resources
 deleteVm :: Int64 -> SqlPersistT IO ()
 deleteVm vmId = do
@@ -801,13 +824,16 @@ instance Action VmCreate where
       (vcrCloudInit a)
       (vcrAutostart a)
 
-newtype VmDelete = VmDelete {vdelVmId :: Int64}
+data VmDelete = VmDelete
+  { vdelVmId :: Int64
+  , vdelDeleteDisks :: Bool
+  }
 
 instance Action VmDelete where
   actionSubsystem _ = SubVm
   actionCommand _ = "delete"
   actionEntityId = Just . fromIntegral . vdelVmId
-  actionExecute ctx a = handleVmDelete (acState ctx) (vdelVmId a)
+  actionExecute ctx a = handleVmDelete ctx (vdelVmId a) (vdelDeleteDisks a)
 
 data VmEdit = VmEdit
   { vedVmId :: Int64

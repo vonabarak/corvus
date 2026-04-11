@@ -94,6 +94,10 @@ vmDeleteCommand =
           <> help "Name or ID of the VM to delete"
           <> completer vmCompleter
       )
+    <*> switch
+      ( long "delete-disks"
+          <> help "Also delete disks that are exclusively attached to this VM"
+      )
 
 -- | Parser for vm show
 vmShowCommand :: Parser Command

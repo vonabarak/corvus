@@ -81,8 +81,8 @@ handleRequest state = \case
   -- VM mutations
   ReqVmCreate name cpus ram desc headless ga ci as ->
     runAction state (VmCreate name cpus ram desc headless ga ci as)
-  ReqVmDelete vmRef -> withVm vmRef $ \vmId ->
-    runAction state (VmDelete vmId)
+  ReqVmDelete vmRef deleteDisks -> withVm vmRef $ \vmId ->
+    runActionWithSubtasks state (VmDelete vmId deleteDisks)
   ReqVmStart vmRef wait -> withVm vmRef $ \vmId ->
     if wait
       then runAction state (VmStart vmId)

@@ -78,5 +78,5 @@ spec = sequential $ withTestDb $ do
         given $ do
           _ <- insertVm "del-vm" VmStopped
           pure ()
-        _ <- executeRequest (ReqVmDelete (Ref "del-vm"))
+        _ <- executeRequest (ReqVmDelete (Ref "del-vm") False)
         then_ $ taskExists SubVm "delete" TaskSuccess

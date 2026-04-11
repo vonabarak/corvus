@@ -64,7 +64,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 21
+protocolVersion = 22
 
 -- | Client requests
 data Request
@@ -76,8 +76,8 @@ data Request
     ReqShowVm !Ref
   | -- | Create VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit, autostart)
     ReqVmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool !Bool
-  | -- | Delete VM (vmRef)
-    ReqVmDelete !Ref
+  | -- | Delete VM (vmRef, deleteDisks)
+    ReqVmDelete !Ref !Bool
   | -- | Start VM (stopped/paused -> running). Bool = wait for completion.
     ReqVmStart !Ref !Bool
   | -- | Stop VM (running -> stopped). Bool = wait for completion.

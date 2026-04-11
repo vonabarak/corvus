@@ -208,9 +208,9 @@ vmCreate conn name cpuCount ramMb description headless guestAgent cloudInit auto
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 -- | Delete a VM
-vmDelete :: Connection -> Text -> IO (Either ConnectionError VmDeleteResult)
-vmDelete conn vmRef = do
-  result <- sendRequest conn (ReqVmDelete (Ref vmRef))
+vmDelete :: Connection -> Text -> Bool -> IO (Either ConnectionError VmDeleteResult)
+vmDelete conn vmRef deleteDisks = do
+  result <- sendRequest conn (ReqVmDelete (Ref vmRef) deleteDisks)
   case result of
     Left err -> pure $ Left err
     Right RespVmDeleted -> pure $ Right VmDeleted

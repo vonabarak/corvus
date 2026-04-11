@@ -68,7 +68,7 @@ instance Arbitrary Request where
       , pure ReqListVms
       , ReqShowVm <$> arbitrary
       , ReqVmCreate "test" <$> arbitrary <*> arbitrary <*> pure Nothing <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
-      , ReqVmDelete <$> arbitrary
+      , ReqVmDelete <$> arbitrary <*> arbitrary
       , ReqVmStart <$> arbitrary <*> arbitrary
       , ReqVmStop <$> arbitrary <*> arbitrary
       , ReqVmPause <$> arbitrary
