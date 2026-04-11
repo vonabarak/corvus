@@ -50,15 +50,20 @@ module Test.VM.Rpc
   , setCloudInitConfig
   , getCloudInitConfig
   , deleteCloudInitConfig
+
+    -- * Task history queries
+  , listTasks
+  , showTask
+  , listSubtasks
   )
 where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (when)
 import Corvus.Client
-import Corvus.Client.Rpc (CloudInitResult (..), GuestExecResult (..), NetIfResult (..), NetworkResult (..), cloudInitDelete, cloudInitGet, cloudInitSet, networkCreate, networkDelete, networkShow, networkStart, networkStop, vmExec)
+import Corvus.Client.Rpc (CloudInitResult (..), GuestExecResult (..), NetIfResult (..), NetworkResult (..), cloudInitDelete, cloudInitGet, cloudInitSet, networkCreate, networkDelete, networkShow, networkStart, networkStop, taskList, taskListChildren, taskShow, vmExec)
 import Corvus.Model
-import Corvus.Protocol (NetIfInfo (..), NetworkInfo (..), VmDetails (..))
+import Corvus.Protocol (NetIfInfo (..), NetworkInfo (..), TaskInfo (..), VmDetails (..))
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Runtime (getQmpSocket)
 import Corvus.Types (ServerState (..))
@@ -479,3 +484,34 @@ deleteCloudInitConfig daemon vmId = do
   case result of
     Right (Right CloudInitOk) -> pure ()
     other -> fail $ "Failed to delete cloud-init config: " <> show other
+
+--------------------------------------------------------------------------------
+-- Task History Queries
+--------------------------------------------------------------------------------
+
+-- | List tasks via daemon RPC
+listTasks :: TestDaemon -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> Bool -> IO [TaskInfo]
+listTasks daemon limit mSub mResult includeSubtasks = do
+  result <- withDaemonConnection daemon $ \conn ->
+    taskList conn limit mSub mResult includeSubtasks
+  case result of
+    Right (Right tasks) -> pure tasks
+    other -> fail $ "Failed to list tasks: " <> show other
+
+-- | Show a single task via daemon RPC
+showTask :: TestDaemon -> Int64 -> IO (Maybe TaskInfo)
+showTask daemon taskId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    taskShow conn taskId
+  case result of
+    Right (Right mTask) -> pure mTask
+    other -> fail $ "Failed to show task: " <> show other
+
+-- | List subtasks of a parent task via daemon RPC
+listSubtasks :: TestDaemon -> Int64 -> IO [TaskInfo]
+listSubtasks daemon parentId = do
+  result <- withDaemonConnection daemon $ \conn ->
+    taskListChildren conn parentId
+  case result of
+    Right (Right tasks) -> pure tasks
+    other -> fail $ "Failed to list subtasks: " <> show other

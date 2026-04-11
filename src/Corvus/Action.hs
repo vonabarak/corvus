@@ -157,7 +157,13 @@ runActionAsSubtask state action parentId = do
         Left errResp -> do
           cancelRemainingSubtasks (ssDbPool state) parentId
           pure errResp
-        Right resp -> pure resp
+        Right resp -> do
+          -- Also cancel siblings if the action returned an error response
+          let (taskResult, _) = classifyResponse resp
+          case taskResult of
+            TaskError -> cancelRemainingSubtasks (ssDbPool state) parentId
+            _ -> pure ()
+          pure resp
 
 -- | Run an action as a parent task that may create subtasks.
 -- Like runAction but the action receives its own TaskId via ActionContext

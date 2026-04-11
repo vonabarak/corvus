@@ -31,10 +31,16 @@ module Test.Prelude
   , CacheType (..)
   , NetInterfaceType (..)
   , SharedDirCache (..)
+  , TaskSubsystem (..)
+  , TaskResult (..)
 
     -- * Protocol types
   , Response (..)
   , VmEditResult (..)
+
+    -- * Database types
+  , Entity (..)
+  , Task (..)
 
     -- * Common types
   , Int64
@@ -44,20 +50,13 @@ where
 
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Client.Rpc (VmEditResult (..))
-import Corvus.Model
-  ( CacheType (..)
-  , DriveFormat (..)
-  , DriveInterface (..)
-  , DriveMedia (..)
-  , NetInterfaceType (..)
-  , SharedDirCache (..)
-  , VmStatus (..)
-  )
+import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), NetInterfaceType (..), SharedDirCache (..), Task (..), TaskResult (..), TaskSubsystem (..), VmStatus (..))
 import Corvus.Protocol
   ( Response (..)
   )
 import Data.Int (Int64)
 import Data.Text (Text)
+import Database.Persist (Entity (..))
 import Test.DSL.Core (TestM, given, testCase, then_, when_)
 import Test.DSL.Given
 import Test.DSL.Then

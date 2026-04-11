@@ -58,12 +58,13 @@ import Corvus.Types
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
+import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Postgresql (SqlBackend, runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
 import System.Exit (ExitCode (..))
 import System.Process (waitForProcess)
@@ -240,9 +241,15 @@ startQemuAndMonitor state vmId vm parentTaskId = do
   -- Subtask 2: Start virtiofsd processes for shared directories
   virtiofsdResp <- liftIO $ runActionAsSubtask state (StartVirtiofsd vmId (vmName vm)) parentTaskId
   case virtiofsdResp of
-    RespError err -> logWarnN err
-    _ -> pure ()
+    RespError err -> do
+      logWarnN $ "Virtiofsd failed, aborting VM start: " <> err
+      liftIO $ runSqlPool (setVmError vmId) pool
+      pure $ RespError $ "Failed to start virtiofsd: " <> err
+    _ -> launchQemu state vmId vm parentTaskId pool
 
+-- | Launch QEMU and set up process monitor (called after virtiofsd succeeds)
+launchQemu :: ServerState -> Int64 -> Vm -> TaskId -> Pool SqlBackend -> LoggingT IO Response
+launchQemu state vmId vm parentTaskId pool = do
   -- Subtask 3: Launch QEMU
   hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
   mNsPid <-

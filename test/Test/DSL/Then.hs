@@ -75,6 +75,14 @@ module Test.DSL.Then
   , snapshotNotExists
   , snapshotCountForDisk
 
+    -- * Task database assertions
+  , taskCount
+  , taskExists
+  , taskNotExists
+  , subtaskCount
+  , subtaskExists
+  , getLastTask
+
     -- * General assertions
   , shouldBeTrue
   , shouldBeFalse
@@ -533,3 +541,46 @@ thenVmDeleteRunning :: VmDeleteResult -> TestM ()
 thenVmDeleteRunning VmDeleteRunning = pure ()
 thenVmDeleteRunning other =
   liftIO $ fail $ "Expected VM delete running, got: " <> show other
+
+--------------------------------------------------------------------------------
+-- Task Database Assertions
+--------------------------------------------------------------------------------
+
+-- | Assert total number of tasks in the DB
+taskCount :: Int -> TestM ()
+taskCount expected = do
+  tasks <- runDb $ selectList ([] :: [Filter Task]) []
+  liftIO $ length tasks `shouldBe` expected
+
+-- | Assert a task exists with the given subsystem, command, and result
+taskExists :: TaskSubsystem -> Text -> TaskResult -> TestM ()
+taskExists sub cmd result = do
+  tasks <- runDb $ selectList [TaskSubsystem ==. sub, TaskCommand ==. cmd, TaskResult ==. result] []
+  liftIO $ tasks `shouldSatisfy` (not . null)
+
+-- | Assert no task exists with the given subsystem, command, and result
+taskNotExists :: TaskSubsystem -> Text -> TaskResult -> TestM ()
+taskNotExists sub cmd result = do
+  tasks <- runDb $ selectList [TaskSubsystem ==. sub, TaskCommand ==. cmd, TaskResult ==. result] []
+  liftIO $ tasks `shouldSatisfy` null
+
+-- | Assert number of subtasks under a parent task ID
+subtaskCount :: Int64 -> Int -> TestM ()
+subtaskCount parentId expected = do
+  tasks <- runDb $ selectList [TaskParent ==. Just (toSqlKey parentId)] []
+  liftIO $ length tasks `shouldBe` expected
+
+-- | Assert a subtask exists under a parent with given subsystem, command, result
+subtaskExists :: Int64 -> TaskSubsystem -> Text -> TaskResult -> TestM ()
+subtaskExists parentId sub cmd result = do
+  tasks <- runDb $ selectList [TaskParent ==. Just (toSqlKey parentId), TaskSubsystem ==. sub, TaskCommand ==. cmd, TaskResult ==. result] []
+  liftIO $ tasks `shouldSatisfy` (not . null)
+
+-- | Get the most recent task (by ID) matching subsystem and command.
+-- Fails if no such task exists.
+getLastTask :: TaskSubsystem -> Text -> TestM (Entity Task)
+getLastTask sub cmd = do
+  tasks <- runDb $ selectList [TaskSubsystem ==. sub, TaskCommand ==. cmd] [Desc TaskId, LimitTo 1]
+  case tasks of
+    (t : _) -> pure t
+    [] -> liftIO $ fail $ "No task found with subsystem=" <> show sub <> " command=" <> T.unpack cmd

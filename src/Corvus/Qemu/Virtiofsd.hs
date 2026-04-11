@@ -162,17 +162,21 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
               Nothing -> pure ()
 
       -- Wait for virtiofsd to create its socket (up to 5 seconds)
-      liftIO $ waitForSocket socketPath 50
-      pure True
+      socketReady <- liftIO $ waitForSocket socketPath 50
+      if socketReady
+        then pure True
+        else do
+          logWarnN $ "Virtiofsd socket did not appear for tag '" <> sharedDirTag dir <> "'"
+          pure False
 
 -- | Wait for a socket file to appear on disk, polling every 100ms.
--- Gives up after the specified number of attempts.
-waitForSocket :: FilePath -> Int -> IO ()
-waitForSocket _ 0 = pure ()
+-- Returns True if socket appeared, False if timed out.
+waitForSocket :: FilePath -> Int -> IO Bool
+waitForSocket _ 0 = pure False
 waitForSocket path n = do
   exists <- doesFileExist path
   if exists
-    then pure ()
+    then pure True
     else do
       threadDelay 100000 -- 100ms
       waitForSocket path (n - 1)
