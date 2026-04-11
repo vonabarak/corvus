@@ -8,26 +8,23 @@ module Corvus.Handlers.NetIf
   , handleNetIfAdd
   , handleNetIfRemove
   , handleNetIfList
-  , generateMacAddress
   )
 where
 
 import Corvus.Action
 
-import Control.Monad (replicateM)
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Model (NetInterfaceType (..), Network (..), NetworkInterface (..), TaskSubsystem (..), Vm, VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types (ServerState (..))
+import Corvus.Utils.Network (generateMacAddress)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
-import System.Random (randomRIO)
-import Text.Printf (printf)
 
 --------------------------------------------------------------------------------
 -- Network Interface Handlers
@@ -57,12 +54,6 @@ handleNetIfAdd state vmId ifaceType hostDevice mMacAddress mNetworkId = do
     Nothing -> pure RespVmNotFound
     Just (Left err) -> pure $ RespError err
     Just (Right netIfId) -> pure $ RespNetIfAdded netIfId
-
--- | Generate a random MAC address with the QEMU OUI prefix (52:54:00).
-generateMacAddress :: IO Text
-generateMacAddress = do
-  [b1, b2, b3] <- replicateM 3 (randomRIO (0, 255 :: Int))
-  pure $ T.pack $ printf "52:54:00:%02x:%02x:%02x" b1 b2 b3
 
 -- | Remove a network interface from a VM
 handleNetIfRemove :: ServerState -> Int64 -> Int64 -> IO Response

@@ -101,7 +101,7 @@ handleRequest state = \case
   ReqDiskCreate name format sizeMb mPath ->
     runAction state (DiskCreate name format sizeMb mPath)
   ReqDiskCreateOverlay name baseDiskRef optPath -> withDisk baseDiskRef $ \baseDiskId ->
-    runAction state (DiskCreateOverlay name baseDiskId optPath)
+    runAction state (DiskCreateOverlay name baseDiskId Nothing optPath)
   ReqDiskRegister name path mFormat ->
     runAction state (DiskRegister name path mFormat)
   ReqDiskImportUrl name url mFmt ->
@@ -113,7 +113,7 @@ handleRequest state = \case
   ReqDiskResize diskRef newSizeMb -> withDisk diskRef $ \diskId ->
     runAction state (DiskResize diskId newSizeMb)
   ReqDiskClone name baseDiskRef optPath -> withDisk baseDiskRef $ \baseDiskId ->
-    runAction state (DiskClone name baseDiskId optPath)
+    runAction state (DiskClone name baseDiskId Nothing optPath)
   -- Snapshot mutations
   ReqSnapshotCreate diskRef name -> withDisk diskRef $ \diskId ->
     runAction state (SnapshotCreate diskId name)

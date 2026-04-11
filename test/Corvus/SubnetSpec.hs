@@ -2,7 +2,7 @@
 
 module Corvus.SubnetSpec (spec) where
 
-import Corvus.Utils.Subnet
+import Corvus.Utils.Network
 import Test.Hspec
 
 spec :: Spec

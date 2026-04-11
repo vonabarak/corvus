@@ -1,23 +1,43 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | IPv4 CIDR subnet utilities.
--- Pure functions for parsing and computing addresses from CIDR notation.
-module Corvus.Utils.Subnet
-  ( validateSubnet
+-- | Network utilities: IPv4 CIDR subnet operations and MAC address generation.
+module Corvus.Utils.Network
+  ( -- * Subnet operations
+    validateSubnet
   , gatewayAddress
   , dhcpRangeStart
   , dhcpRangeEnd
   , prefixLength
   , subnetMask
+
+    -- * MAC address generation
+  , generateMacAddress
   )
 where
 
+import Control.Monad (replicateM)
 import Data.Bits (complement, shiftL, shiftR, (.&.))
 import Data.List (intercalate)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word32)
+import System.Random (randomRIO)
+import Text.Printf (printf)
 import Text.Read (readMaybe)
+
+--------------------------------------------------------------------------------
+-- MAC Address
+--------------------------------------------------------------------------------
+
+-- | Generate a random MAC address with the QEMU OUI prefix (52:54:00).
+generateMacAddress :: IO Text
+generateMacAddress = do
+  [b1, b2, b3] <- replicateM 3 (randomRIO (0, 255 :: Int))
+  pure $ T.pack $ printf "52:54:00:%02x:%02x:%02x" b1 b2 b3
+
+--------------------------------------------------------------------------------
+-- Subnet Operations
+--------------------------------------------------------------------------------
 
 -- | Validate and normalize a CIDR subnet string (e.g., "10.0.1.0/24").
 -- Returns the normalized CIDR string or an error message.

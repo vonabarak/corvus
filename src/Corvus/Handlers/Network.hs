@@ -40,7 +40,7 @@ import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Qemu.Netns.Manager (addNatRule, createBridge, destroyBridge, removeNatRule, startDnsmasq, stopDnsmasq)
 import Corvus.Types (ServerState (..), runServerLogging)
-import Corvus.Utils.Subnet (validateSubnet)
+import Corvus.Utils.Network (validateSubnet)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)

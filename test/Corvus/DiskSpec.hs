@@ -3,11 +3,11 @@
 
 module Corvus.DiskSpec (spec) where
 
-import Corvus.Handlers.Disk (detectFormatFromPath, makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
+import Corvus.Handlers.Disk (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Model (DiskImage (..), DriveFormat (..))
 import Corvus.Protocol (DiskImageInfo (..), Ref (..), Request (..), Response (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
-import Corvus.Qemu.Image (detectFormatFromUrl, isHttpUrl)
+import Corvus.Qemu.Image (detectFormatFromPath, detectFormatFromUrl, isHttpUrl)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Test.DSL.Core (getTempDir)

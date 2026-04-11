@@ -153,6 +153,14 @@ No external C libraries required. The C namespace manager (`cbits/netns.c`) uses
 
 ## Project Rules
 
+### Handler implementation
+
+All mutating operations must be implemented as Action types (instances of the `Action` type class from `Corvus.Action`), not as plain `handle*` functions. Each Action is a data type carrying its parameters, with `actionExecute` containing the logic. The `handle*` functions are internal implementation details called only by their own Action instance — they should not be exported or called directly from other modules.
+
+When one handler needs to invoke another handler's logic, it should use the other handler's Action type via `actionExecute`, `runAction`, or `runActionAsSubtask` — never by calling the `handle*` function directly.
+
+Read-only operations (list, show, get) are the exception — they are dispatched directly in `Handlers.hs` without Action wrapping since they don't need task recording.
+
 ### After any code changes
 
 Always run `make format` and `make lint` after modifying Haskell source files. Fix all lint warnings before committing.

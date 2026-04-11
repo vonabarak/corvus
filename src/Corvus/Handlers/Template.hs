@@ -25,14 +25,12 @@ import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
-import Corvus.Handlers.Disk (getRunningAttachedVms, resolveDiskPath, sanitizeDiskName)
-import Corvus.Handlers.NetIf (generateMacAddress)
+import Corvus.Handlers.Disk (DiskAttach (..), DiskClone (..), DiskCreateOverlay (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Qemu.Config (getEffectiveBasePath)
-import Corvus.Qemu.Image (ImageResult (..), cloneImage, createOverlay, resizeImage)
 import Corvus.Types
+import Corvus.Utils.Network (generateMacAddress)
 import Data.Aeson (Value (..))
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -46,7 +44,6 @@ import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 import GHC.Generics (Generic)
-import System.FilePath ((</>))
 
 --------------------------------------------------------------------------------
 -- YAML Types
@@ -426,122 +423,41 @@ finishInstantiation state vmId details parentTaskId = runServerLogging state $ d
 -- Internal Functions (IO & Orchestration)
 --------------------------------------------------------------------------------
 
-instantiateDriveIO :: ServerState -> VmId -> Text -> TemplateDriveInfo -> IO (Either Text ())
-instantiateDriveIO state vmId vmName td = runServerLogging state $ do
-  mDisk <- liftIO $ runSqlPool (get (toSqlKey (tvdiDiskImageId td) :: DiskImageId)) (ssDbPool state)
-  case mDisk of
-    Nothing -> pure $ Left "Master disk image not found"
-    Just masterDisk -> do
-      case tvdiCloneStrategy td of
-        StrategyDirect -> do
-          liftIO $ runSqlPool (insert_ $ Drive vmId (toSqlKey (tvdiDiskImageId td)) (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiCacheType td) (tvdiDiscard td)) (ssDbPool state)
-          pure $ Right ()
-        StrategyClone -> do
-          let newName = vmName <> "-" <> tvdiDiskImageName td
-          case sanitizeDiskName newName of
-            Left err -> pure $ Left err
-            Right safeName -> do
-              basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
-              let fileName = T.unpack safeName <> "." <> T.unpack (enumToText (diskImageFormat masterDisk))
-                  destPath = basePath </> fileName
-
-              srcPath <- liftIO $ resolveDiskPath (ssQemuConfig state) masterDisk
-
-              -- Check if master is in use (should be stopped for cloning if we want consistency)
-              runningVms <- liftIO $ runSqlPool (getRunningAttachedVms (tvdiDiskImageId td)) (ssDbPool state)
-              if not (null runningVms)
-                then pure $ Left $ "Cannot clone disk " <> tvdiDiskImageName td <> " because it is attached to running VMs"
-                else do
-                  result <- liftIO $ cloneImage srcPath destPath
-                  case result of
-                    ImageError err -> pure $ Left err
-                    ImageNotFound -> pure $ Left "Master image file not found"
-                    _ -> do
-                      now <- liftIO getCurrentTime
-                      newDiskId <-
-                        liftIO $
-                          runSqlPool
-                            ( do
-                                dId <-
-                                  insert
-                                    DiskImage
-                                      { diskImageName = safeName
-                                      , diskImageFilePath = T.pack destPath
-                                      , diskImageFormat = diskImageFormat masterDisk
-                                      , diskImageSizeMb = diskImageSizeMb masterDisk
-                                      , diskImageCreatedAt = now
-                                      , diskImageBackingImageId = diskImageBackingImageId masterDisk
-                                      }
-                                -- Clone snapshots
-                                baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey (tvdiDiskImageId td)] []
-                                forM_ baseSnapshots $ \snapEntity -> do
-                                  let snap = entityVal snapEntity
-                                  insert_ snap {snapshotDiskImageId = dId}
-                                pure dId
-                            )
-                            (ssDbPool state)
-
-                      -- Resize if requested
-                      case tvdiNewSizeMb td of
-                        Just newSize -> do
-                          res <- liftIO $ resizeImage destPath (fromIntegral newSize)
-                          case res of
-                            ImageSuccess -> do
-                              liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
-                              pure ()
-                            _ -> pure () -- Log warning?
-                        Nothing -> pure ()
-
-                      -- Attach to VM
-                      liftIO $ runSqlPool (insert_ $ Drive vmId newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiCacheType td) (tvdiDiscard td)) (ssDbPool state)
-                      pure $ Right ()
-        StrategyOverlay -> do
-          let newName = vmName <> "-" <> tvdiDiskImageName td <> "-overlay"
-          case sanitizeDiskName newName of
-            Left err -> pure $ Left err
-            Right safeName -> do
-              basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
-              let fileName = T.unpack safeName <> ".qcow2"
-                  destPath = basePath </> fileName
-
-              srcPath <- liftIO $ resolveDiskPath (ssQemuConfig state) masterDisk
-
-              result <- liftIO $ createOverlay destPath srcPath (diskImageFormat masterDisk)
-              case result of
-                ImageError err -> pure $ Left err
-                ImageFormatNotSupported msg -> pure $ Left msg
-                ImageNotFound -> pure $ Left "Master image file not found"
-                ImageSuccess -> do
-                  now <- liftIO getCurrentTime
-                  newDiskId <-
-                    liftIO $
-                      runSqlPool
-                        ( insert
-                            DiskImage
-                              { diskImageName = safeName
-                              , diskImageFilePath = T.pack destPath
-                              , diskImageFormat = FormatQcow2
-                              , diskImageSizeMb = diskImageSizeMb masterDisk
-                              , diskImageCreatedAt = now
-                              , diskImageBackingImageId = Just (toSqlKey (tvdiDiskImageId td))
-                              }
-                        )
-                        (ssDbPool state)
-
-                  -- Resize if requested
-                  case tvdiNewSizeMb td of
-                    Just newSize -> do
-                      res <- liftIO $ resizeImage destPath (fromIntegral newSize)
-                      case res of
-                        ImageSuccess -> do
-                          liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
-                          pure ()
-                        _ -> pure ()
-                    Nothing -> pure ()
-
-                  -- Attach to VM
-                  liftIO $ runSqlPool (insert_ $ Drive vmId newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiCacheType td) (tvdiDiscard td)) (ssDbPool state)
-                  pure $ Right ()
+instantiateDriveIO :: ActionContext -> VmId -> Text -> TemplateDriveInfo -> IO (Either Text ())
+instantiateDriveIO ctx vmId vmName td = do
+  let state = acState ctx
+      parentTaskId = acTaskId ctx
+      vmIdLong = fromSqlKey vmId
+      diskIdLong = tvdiDiskImageId td
+      attachDisk newDiskId = runActionAsSubtask state (DiskAttach vmIdLong newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiDiscard td) (tvdiCacheType td)) parentTaskId
+  case tvdiCloneStrategy td of
+    StrategyDirect -> do
+      resp <- attachDisk diskIdLong
+      case resp of
+        RespError err -> pure $ Left err
+        _ -> pure $ Right ()
+    StrategyClone -> do
+      let newName = vmName <> "-" <> tvdiDiskImageName td
+      resp <- runActionAsSubtask state (DiskClone newName diskIdLong (tvdiNewSizeMb td) Nothing) parentTaskId
+      case resp of
+        RespDiskCreated newDiskId -> do
+          attachResp <- attachDisk newDiskId
+          case attachResp of
+            RespError err -> pure $ Left err
+            _ -> pure $ Right ()
+        RespError err -> pure $ Left err
+        _ -> pure $ Left "Unexpected response from disk clone"
+    StrategyOverlay -> do
+      let newName = vmName <> "-" <> tvdiDiskImageName td <> "-overlay"
+      resp <- runActionAsSubtask state (DiskCreateOverlay newName diskIdLong (tvdiNewSizeMb td) Nothing) parentTaskId
+      case resp of
+        RespDiskCreated newDiskId -> do
+          attachResp <- attachDisk newDiskId
+          case attachResp of
+            RespError err -> pure $ Left err
+            _ -> pure $ Right ()
+        RespError err -> pure $ Left err
+        _ -> pure $ Left "Unexpected response from disk overlay"
 
 --------------------------------------------------------------------------------
 -- Action Types
@@ -585,8 +501,7 @@ instance Action InstantiateDrive where
   actionCommand _ = "instantiate"
   actionEntityName a = Just $ tvdiDiskImageName (idDriveInfo a)
   actionExecute ctx a = do
-    let state = acState ctx
-    result <- instantiateDriveIO state (idVmId a) (idVmName a) (idDriveInfo a)
+    result <- instantiateDriveIO ctx (idVmId a) (idVmName a) (idDriveInfo a)
     case result of
       Left err -> pure $ RespError err
       Right () -> pure RespOk

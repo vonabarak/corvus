@@ -24,15 +24,7 @@ import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
-import Corvus.Handlers.Disk
-  ( cloneDiskIO
-  , createDiskIO
-  , createOverlayDiskIO
-  , detectFormatFromPath
-  , importDiskFromUrlIO
-  , registerDiskIO
-  )
-import Corvus.Handlers.NetIf (generateMacAddress)
+import Corvus.Handlers.Disk (DiskClone (..), DiskCreate (..), DiskCreateOverlay (..), DiskImportUrl (..), DiskRegister (..))
 import Corvus.Handlers.Network (NetworkCreate (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (SshKeyCreate (..))
@@ -40,8 +32,9 @@ import Corvus.Handlers.Template (CloudInitConfigYaml (..))
 import Corvus.Handlers.Vm (VmCreate (..))
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Qemu.Image (isHttpUrl)
+import Corvus.Qemu.Image (detectFormatFromPath, isHttpUrl)
 import Corvus.Types
+import Corvus.Utils.Network (generateMacAddress)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust)
@@ -439,29 +432,6 @@ executeApply state config skipExisting parentId = do
 -- Resource creation primitives (shared by tracked path)
 --------------------------------------------------------------------------------
 
-createOneDisk :: ServerState -> Map.Map Text Int64 -> ApplyDisk -> IO (Either Text Int64)
-createOneDisk state diskMap d = case (adImport d, adOverlay d, adClone d) of
-  (Just importPath, _, _)
-    | isHttpUrl importPath ->
-        importDiskFromUrlIO state (adName d) importPath (adFormat d)
-    | otherwise ->
-        let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath importPath)
-         in registerDiskIO state (adName d) importPath format
-  (_, Just backingName, _) -> do
-    mBackingId <- resolveByName state UniqueDiskImageName diskMap backingName
-    case mBackingId of
-      Nothing -> pure $ Left $ "backing disk '" <> backingName <> "' not found"
-      Just backingId -> createOverlayDiskIO state (adName d) backingId (adSizeMb d) (adPath d)
-  (_, _, Just cloneName) -> do
-    mSourceId <- resolveByName state UniqueDiskImageName diskMap cloneName
-    case mSourceId of
-      Nothing -> pure $ Left $ "source disk '" <> cloneName <> "' not found"
-      Just sourceId -> cloneDiskIO state (adName d) sourceId (adPath d)
-  _ ->
-    let format = fromMaybe FormatQcow2 (adFormat d)
-        sizeMb = fromMaybe 10240 (adSizeMb d)
-     in createDiskIO state (adName d) format sizeMb (adPath d)
-
 createOneVm
   :: ServerState
   -> Map.Map Text Int64
@@ -668,11 +638,30 @@ instance Action ApplyDiskCreate where
   actionSubsystem _ = SubDisk
   actionCommand _ = "create"
   actionEntityName = Just . adName . adcConfig
-  actionExecute ctx a = do
-    result <- createOneDisk (acState ctx) (adcDiskMap a) (adcConfig a)
-    case result of
-      Left err -> pure $ RespError err
-      Right diskId -> pure $ RespDiskCreated diskId
+  actionExecute ctx a =
+    let d = adcConfig a
+        state = acState ctx
+     in case (adImport d, adOverlay d, adClone d) of
+          (Just importPath, _, _)
+            | isHttpUrl importPath ->
+                actionExecute ctx (DiskImportUrl (adName d) importPath (fmap enumToText (adFormat d)))
+            | otherwise ->
+                let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath importPath)
+                 in actionExecute ctx (DiskRegister (adName d) importPath (Just format))
+          (_, Just backingName, _) -> do
+            mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
+            case mBackingId of
+              Nothing -> pure $ RespError $ "backing disk '" <> backingName <> "' not found"
+              Just backingId -> actionExecute ctx (DiskCreateOverlay (adName d) backingId (adSizeMb d) (adPath d))
+          (_, _, Just cloneName) -> do
+            mSourceId <- resolveByName state UniqueDiskImageName (adcDiskMap a) cloneName
+            case mSourceId of
+              Nothing -> pure $ RespError $ "source disk '" <> cloneName <> "' not found"
+              Just sourceId -> actionExecute ctx (DiskClone (adName d) sourceId Nothing (adPath d))
+          _ ->
+            let format = fromMaybe FormatQcow2 (adFormat d)
+                sizeMb = fromMaybe 10240 (adSizeMb d)
+             in actionExecute ctx (DiskCreate (adName d) format (fromIntegral sizeMb) (adPath d))
 
 -- | Apply-specific VM creation with attachments (drives, netifs, SSH keys, cloud-init).
 data ApplyVmCreate = ApplyVmCreate

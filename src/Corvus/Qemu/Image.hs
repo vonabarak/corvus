@@ -28,6 +28,9 @@ module Corvus.Qemu.Image
   , isHttpUrl
   , detectFormatFromUrl
 
+    -- * Path utilities
+  , detectFormatFromPath
+
     -- * Types
   , ImageInfo (..)
   , SnapshotData (..)
@@ -457,3 +460,17 @@ detectFormatFromUrl url =
         ".vhd" -> Just FormatVpc
         ".vhdx" -> Just FormatVhdx
         _ -> Nothing
+
+-- | Detect disk format from a file path extension.
+detectFormatFromPath :: Text -> Maybe DriveFormat
+detectFormatFromPath path =
+  case takeExtension (T.unpack path) of
+    ".qcow2" -> Just FormatQcow2
+    ".raw" -> Just FormatRaw
+    ".img" -> Just FormatRaw
+    ".vmdk" -> Just FormatVmdk
+    ".vdi" -> Just FormatVdi
+    ".vpc" -> Just FormatVpc
+    ".vhd" -> Just FormatVpc
+    ".vhdx" -> Just FormatVhdx
+    _ -> Nothing
