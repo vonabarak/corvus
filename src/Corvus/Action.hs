@@ -22,6 +22,7 @@ module Corvus.Action
 
     -- * Helpers
   , executeCreate
+  , cancelRemainingSubtasks
 
     -- * Response classification (used by runners)
   , classifyResponse
@@ -31,16 +32,16 @@ where
 
 import Control.Concurrent (forkIO)
 import Control.Exception (SomeException, try)
-import Corvus.Handlers.Subtask (cancelRemainingSubtasks)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Types
 import Data.Int (Int64)
+import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Postgresql (SqlBackend, runSqlPool)
 import Database.Persist.Sql (fromSqlKey)
 
 --------------------------------------------------------------------------------
@@ -271,6 +272,21 @@ executeCreate state action taskId = do
     fromMaybe def Nothing = def
     fromMaybe _ (Just x) = x
 
+-- | Cancel all remaining NotStarted subtasks under a parent.
+-- Used by runActionAsSubtask when a sibling fails.
+cancelRemainingSubtasks :: Pool SqlBackend -> TaskId -> IO ()
+cancelRemainingSubtasks pool parentId = do
+  now <- getCurrentTime
+  runSqlPool
+    ( updateWhere
+        [TaskParent ==. Just parentId, TaskResult ==. TaskNotStarted]
+        [ TaskResult =. TaskCancelled
+        , TaskFinishedAt =. Just now
+        , TaskMessage =. Just "Cancelled: prior step failed"
+        ]
+    )
+    pool
+
 --------------------------------------------------------------------------------
 -- Response Classification
 --------------------------------------------------------------------------------
@@ -327,6 +343,7 @@ classifyResponse = \case
   RespCloudInitOk -> (TaskSuccess, Nothing)
   RespStartupComplete -> (TaskSuccess, Just "Startup complete")
   RespShutdownComplete -> (TaskSuccess, Just "Shutdown complete")
+  RespOk -> (TaskSuccess, Nothing)
   -- Read-only (shouldn't reach here, but handle gracefully)
   _ -> (TaskSuccess, Nothing)
 

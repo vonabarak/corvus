@@ -831,6 +831,8 @@ data Response
     RespStartupComplete
   | -- | Daemon shutdown completed
     RespShutdownComplete
+  | -- | Generic success for internal operations
+    RespOk
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

@@ -14,10 +14,6 @@ module Corvus.CloudInit
 
     -- * ISO generation
   , generateCloudInitIso
-  , removeCloudInitIso
-
-    -- * SSH key injection
-  , injectSshKeysIntoYaml
   )
 where
 
@@ -229,10 +225,6 @@ tryMkIsofs inputFiles isoPath = do
       pure $
         Left $
           "mkisofs failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
-
--- | Remove cloud-init ISO file
-removeCloudInitIso :: FilePath -> IO ()
-removeCloudInitIso = removeIfExists
 
 -- | Helper to remove file if it exists
 removeIfExists :: FilePath -> IO ()

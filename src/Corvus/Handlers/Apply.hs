@@ -7,6 +7,8 @@
 module Corvus.Handlers.Apply
   ( -- * Action types
     ApplyAction (..)
+  , ApplyDiskCreate (..)
+  , ApplyVmCreate (..)
 
     -- * Handlers
   , handleApplyValidate
@@ -21,6 +23,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Disk
   ( cloneDiskIO
   , createDiskIO
@@ -32,8 +35,7 @@ import Corvus.Handlers.Disk
 import Corvus.Handlers.NetIf (generateMacAddress)
 import Corvus.Handlers.Network (NetworkCreate (..))
 import Corvus.Handlers.Resolve (validateName)
-import Corvus.Handlers.SshKey (SshKeyCreate (..), regenerateCloudInitIso)
-import Corvus.Handlers.Subtask
+import Corvus.Handlers.SshKey (SshKeyCreate (..))
 import Corvus.Handlers.Template (CloudInitConfigYaml (..))
 import Corvus.Handlers.Vm (VmCreate (..))
 import Corvus.Model
@@ -258,17 +260,11 @@ handleApplyValidate state yamlContent = runServerLogging state $ do
 
 -- | Execute apply with subtask tracking.
 -- Called by dispatchApply with the parent task ID.
+-- Each resource creation is dispatched as an Action subtask via runActionAsSubtask.
 handleApplyExecute :: ServerState -> ApplyConfig -> Bool -> TaskId -> IO Response
 handleApplyExecute state config skipExisting parentTaskId = runServerLogging state $ do
   logInfoN "Applying environment configuration..."
-
-  -- Build the list of subtask specs from the config
-  let subtaskSpecs = buildSubtaskSpecs config
-  -- Pre-create all subtasks in NotStarted state
-  subtaskIds <- liftIO $ mapM (createSubtask (ssDbPool state) parentTaskId) subtaskSpecs
-
-  -- Execute with subtask tracking
-  result <- liftIO $ executeApplyWithSubtasks state config skipExisting (ssDbPool state) (zip subtaskSpecs subtaskIds)
+  result <- liftIO $ executeApply state config skipExisting parentTaskId
   case result of
     Left err -> do
       logWarnN $ "Apply failed: " <> err
@@ -341,107 +337,44 @@ effectiveCloudInit v = case avCloudInit v of
 -- Execution
 --------------------------------------------------------------------------------
 
---------------------------------------------------------------------------------
--- Subtask planning
---------------------------------------------------------------------------------
-
--- | Build the list of subtask specs from an apply config.
--- Order matches execution order: SSH keys, disks, networks, VMs (with attachments).
-buildSubtaskSpecs :: ApplyConfig -> [SubtaskSpec]
-buildSubtaskSpecs config =
-  map sshKeySpec (acSshKeys config)
-    ++ map diskSpec (acDisks config)
-    ++ map networkSpec (acNetworks config)
-    ++ concatMap vmSpecs (acVms config)
-  where
-    sshKeySpec k = SubtaskSpec SubSshKey "create" (Just $ askName k)
-    diskSpec d = SubtaskSpec SubDisk (diskCommand d) (Just $ adName d)
-    diskCommand d
-      | isJust (adImport d) = if maybe False isHttpUrl (adImport d) then "import-url" else "import"
-      | isJust (adOverlay d) = "overlay"
-      | isJust (adClone d) = "clone"
-      | otherwise = "create"
-    networkSpec n = SubtaskSpec SubNetwork "create" (Just $ anName n)
-    vmSpecs v =
-      [SubtaskSpec SubVm "create" (Just $ avName v)]
-
--- | Execute apply with subtask tracking.
--- Takes (spec, taskId) pairs aligned with the config resources.
-executeApplyWithSubtasks
-  :: ServerState
-  -> ApplyConfig
-  -> Bool
-  -> Pool SqlBackend
-  -> [(SubtaskSpec, TaskId)]
-  -> IO (Either Text ApplyResult)
-executeApplyWithSubtasks _state _config _skipExisting _pool [] =
-  pure $
-    Right
-      ApplyResult
-        { arSshKeys = []
-        , arDisks = []
-        , arNetworks = []
-        , arVms = []
-        }
-executeApplyWithSubtasks state config skipExisting pool subtasks = do
-  -- Split subtasks into phases by counting config items
-  let nKeys = length (acSshKeys config)
-      nDisks = length (acDisks config)
-      nNetworks = length (acNetworks config)
-      (keySubtasks, rest1) = splitAt nKeys subtasks
-      (diskSubtasks, rest2) = splitAt nDisks rest1
-      (nwSubtasks, vmSubtasks) = splitAt nNetworks rest2
-
-  -- Extract the parent task ID from any subtask's parent field
-  parentTaskId <- case subtasks of
-    ((_, firstSubId) : _) -> do
-      mParent <- runSqlPool (get firstSubId) pool
-      case mParent >>= taskParent of
-        Just pid -> pure pid
-        Nothing -> error "executeApplyWithSubtasks: subtask has no parent"
-    _ -> error "executeApplyWithSubtasks: impossible"
-
+-- | Execute apply: create resources in dependency order using Action subtasks.
+executeApply :: ServerState -> ApplyConfig -> Bool -> TaskId -> IO (Either Text ApplyResult)
+executeApply state config skipExisting parentId = do
   -- Phase 1: SSH keys
-  keyResult <-
-    runSubtasksSequential
-      state
-      (acSshKeys config)
-      keySubtasks
-      skipExisting
-      parentTaskId
-      Map.empty
-      (\st k sub m -> createOneSshKeyTracked st k sub m skipExisting parentTaskId pool)
+  keyResult <- runSequentialCreate (acSshKeys config) Map.empty $ \k _keyMap -> do
+    mExisting <- if skipExisting then resolveByName state UniqueSshKeyName Map.empty (askName k) else pure Nothing
+    case mExisting of
+      Just eid -> pure $ Right (askName k, eid)
+      Nothing -> do
+        resp <- runActionAsSubtask state (SshKeyCreate (askName k) (askPublicKey k)) parentId
+        extractCreatedResult (askName k) resp
   case keyResult of
     Left err -> pure $ Left err
     Right (keyMap, keyCreated) -> do
-      -- Phase 2: Disks
-      diskResult <-
-        runSubtasksSequential
-          state
-          (acDisks config)
-          diskSubtasks
-          skipExisting
-          parentTaskId
-          Map.empty
-          (\st d sub m -> createOneDiskTracked st d sub m skipExisting parentTaskId pool)
+      -- Phase 2: Disks (need accumulating map for overlay/clone references)
+      diskResult <- runSequentialCreate (acDisks config) Map.empty $ \d diskMap -> do
+        mExisting <- if skipExisting then resolveByName state UniqueDiskImageName diskMap (adName d) else pure Nothing
+        case mExisting of
+          Just eid -> pure $ Right (adName d, eid)
+          Nothing -> do
+            resp <- runActionAsSubtask state (ApplyDiskCreate d diskMap) parentId
+            extractCreatedResult (adName d) resp
       case diskResult of
         Left err -> pure $ Left err
         Right (diskMap, diskCreated) -> do
           -- Phase 3: Networks
-          nwResult <-
-            runSubtasksSequential
-              state
-              (acNetworks config)
-              nwSubtasks
-              skipExisting
-              parentTaskId
-              Map.empty
-              (\st n sub m -> createOneNetworkTracked st n sub m skipExisting parentTaskId pool)
+          nwResult <- runSequentialCreate (acNetworks config) Map.empty $ \n _nwMap -> do
+            mExisting <- if skipExisting then resolveByName state UniqueNetworkName Map.empty (anName n) else pure Nothing
+            case mExisting of
+              Just eid -> pure $ Right (anName n, eid)
+              Nothing -> do
+                resp <- runActionAsSubtask state (NetworkCreate (anName n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n)) parentId
+                extractCreatedResult (anName n) resp
           case nwResult of
             Left err -> pure $ Left err
             Right (nwMap, nwCreated) -> do
-              -- Phase 4: VMs (each VM has one subtask for the whole create+attach)
-              vmResult <- runVmSubtasks state keyMap diskMap nwMap (acVms config) vmSubtasks skipExisting parentTaskId pool
+              -- Phase 4: VMs
+              vmResult <- runSequentialVms (acVms config) keyMap diskMap nwMap
               case vmResult of
                 Left err -> pure $ Left err
                 Right vmCreated ->
@@ -453,162 +386,54 @@ executeApplyWithSubtasks state config skipExisting pool subtasks = do
                         , arNetworks = nwCreated
                         , arVms = vmCreated
                         }
-
--- | Run a sequence of subtasks, building up a map and created list.
-runSubtasksSequential
-  :: ServerState
-  -> [a]
-  -> [(SubtaskSpec, TaskId)]
-  -> Bool
-  -> TaskId
-  -> Map.Map Text Int64
-  -> (ServerState -> a -> (SubtaskSpec, TaskId) -> Map.Map Text Int64 -> IO (Either Text (Text, Int64)))
-  -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
-runSubtasksSequential _ [] _ _ _ m _ = pure $ Right (m, [])
-runSubtasksSequential state items subs skipExisting parentId initMap action = go items subs initMap []
   where
-    go [] _ m acc = pure $ Right (m, reverse acc)
-    go (item : rest) ((spec, subId) : restSubs) m acc = do
-      result <- action state item (spec, subId) m
-      case result of
-        Left err -> pure $ Left err
-        Right (name, rid) ->
-          go rest restSubs (Map.insert name rid m) (ApplyCreated name rid : acc)
-    go _ [] _ _ = pure $ Left "Internal error: subtask count mismatch"
-
--- | Create one SSH key with subtask tracking
-createOneSshKeyTracked
-  :: ServerState
-  -> ApplySshKey
-  -> (SubtaskSpec, TaskId)
-  -> Map.Map Text Int64
-  -> Bool
-  -> TaskId
-  -> Pool SqlBackend
-  -> IO (Either Text (Text, Int64))
-createOneSshKeyTracked state k (_, subId) _m skipExisting parentId pool = do
-  mExisting <-
-    if skipExisting
-      then resolveByName state UniqueSshKeyName Map.empty (askName k)
-      else pure Nothing
-  case mExisting of
-    Just existingId -> do
-      completeSubtask pool subId TaskSuccess (Just "Already exists") (Just (fromIntegral existingId))
-      pure $ Right (askName k, existingId)
-    Nothing -> do
-      startSubtask pool subId
-      result <- executeCreate state (SshKeyCreate (askName k) (askPublicKey k)) subId
-      case result of
-        Left err -> do
-          let fullErr = "SSH key '" <> askName k <> "': " <> err
-          completeSubtask pool subId TaskError (Just fullErr) Nothing
-          cancelRemainingSubtasks pool parentId
-          pure $ Left fullErr
-        Right keyId -> do
-          completeSubtask pool subId TaskSuccess Nothing (Just (fromIntegral keyId))
-          pure $ Right (askName k, keyId)
-
--- | Create one disk with subtask tracking
-createOneDiskTracked
-  :: ServerState
-  -> ApplyDisk
-  -> (SubtaskSpec, TaskId)
-  -> Map.Map Text Int64
-  -> Bool
-  -> TaskId
-  -> Pool SqlBackend
-  -> IO (Either Text (Text, Int64))
-createOneDiskTracked state d (_, subId) diskMap skipExisting parentId pool = do
-  mExisting <-
-    if skipExisting
-      then resolveByName state UniqueDiskImageName Map.empty (adName d)
-      else pure Nothing
-  case mExisting of
-    Just existingId -> do
-      completeSubtask pool subId TaskSuccess (Just "Already exists") (Just (fromIntegral existingId))
-      pure $ Right (adName d, existingId)
-    Nothing -> do
-      startSubtask pool subId
-      result <- createOneDisk state diskMap d
-      case result of
-        Left err -> do
-          let fullErr = "Disk '" <> adName d <> "': " <> err
-          completeSubtask pool subId TaskError (Just fullErr) Nothing
-          cancelRemainingSubtasks pool parentId
-          pure $ Left fullErr
-        Right diskId -> do
-          completeSubtask pool subId TaskSuccess Nothing (Just (fromIntegral diskId))
-          pure $ Right (adName d, diskId)
-
--- | Create one network with subtask tracking
-createOneNetworkTracked
-  :: ServerState
-  -> ApplyNetwork
-  -> (SubtaskSpec, TaskId)
-  -> Map.Map Text Int64
-  -> Bool
-  -> TaskId
-  -> Pool SqlBackend
-  -> IO (Either Text (Text, Int64))
-createOneNetworkTracked state n (_, subId) _nwMap skipExisting parentId pool = do
-  mExisting <-
-    if skipExisting
-      then resolveByName state UniqueNetworkName Map.empty (anName n)
-      else pure Nothing
-  case mExisting of
-    Just existingId -> do
-      completeSubtask pool subId TaskSuccess (Just "Already exists") (Just (fromIntegral existingId))
-      pure $ Right (anName n, existingId)
-    Nothing -> do
-      startSubtask pool subId
-      result <- executeCreate state (NetworkCreate (anName n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n)) subId
-      case result of
-        Left err -> do
-          let fullErr = "Network '" <> anName n <> "': " <> err
-          completeSubtask pool subId TaskError (Just fullErr) Nothing
-          cancelRemainingSubtasks pool parentId
-          pure $ Left fullErr
-        Right nid -> do
-          completeSubtask pool subId TaskSuccess Nothing (Just (fromIntegral nid))
-          pure $ Right (anName n, nid)
-
--- | Create VMs with subtask tracking
-runVmSubtasks
-  :: ServerState
-  -> Map.Map Text Int64
-  -> Map.Map Text Int64
-  -> Map.Map Text Int64
-  -> [ApplyVm]
-  -> [(SubtaskSpec, TaskId)]
-  -> Bool
-  -> TaskId
-  -> Pool SqlBackend
-  -> IO (Either Text [ApplyCreated])
-runVmSubtasks _ _ _ _ [] _ _ _ _ = pure $ Right []
-runVmSubtasks state keyMap diskMap nwMap vms subs skipExisting parentId pool = go vms subs []
-  where
-    go [] _ acc = pure $ Right $ reverse acc
-    go (v : vs) ((_, subId) : restSubs) acc = do
-      mExisting <-
-        if skipExisting
-          then resolveByName state UniqueName Map.empty (avName v)
-          else pure Nothing
-      case mExisting of
-        Just _existingId -> do
-          completeSubtask pool subId TaskSuccess (Just "Already exists") Nothing
-          go vs restSubs acc
-        Nothing -> do
-          startSubtask pool subId
-          result <- createOneVm state keyMap diskMap nwMap v
+    -- Run items sequentially, building a name→ID map.
+    runSequentialCreate
+      :: [a]
+      -> Map.Map Text Int64
+      -> (a -> Map.Map Text Int64 -> IO (Either Text (Text, Int64)))
+      -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
+    runSequentialCreate items initMap action = go items initMap []
+      where
+        go [] m acc = pure $ Right (m, reverse acc)
+        go (item : rest) m acc = do
+          result <- action item m
           case result of
-            Left err -> do
-              completeSubtask pool subId TaskError (Just err) Nothing
-              cancelRemainingSubtasks pool parentId
-              pure $ Left err
-            Right vmId -> do
-              completeSubtask pool subId TaskSuccess Nothing (Just (fromIntegral vmId))
-              go vs restSubs (ApplyCreated (avName v) vmId : acc)
-    go _ [] _ = pure $ Left "Internal error: subtask count mismatch"
+            Left err -> pure $ Left err
+            Right (name, rid) ->
+              go rest (Map.insert name rid m) (ApplyCreated name rid : acc)
+
+    -- Run VM creation sequentially (VMs don't need a name map)
+    runSequentialVms
+      :: [ApplyVm]
+      -> Map.Map Text Int64
+      -> Map.Map Text Int64
+      -> Map.Map Text Int64
+      -> IO (Either Text [ApplyCreated])
+    runSequentialVms vms keyMap diskMap nwMap = go vms []
+      where
+        go [] acc = pure $ Right $ reverse acc
+        go (v : vs) acc = do
+          mExisting <- if skipExisting then resolveByName state UniqueName Map.empty (avName v) else pure Nothing
+          case mExisting of
+            Just _existingId -> go vs acc
+            Nothing -> do
+              resp <- runActionAsSubtask state (ApplyVmCreate keyMap diskMap nwMap v) parentId
+              case resp of
+                RespVmCreated vmId -> go vs (ApplyCreated (avName v) vmId : acc)
+                RespError err -> pure $ Left $ "VM '" <> avName v <> "': " <> err
+                _ -> pure $ Left $ "VM '" <> avName v <> "': unexpected response"
+
+    -- Extract entity ID from a creation response.
+    extractCreatedResult :: Text -> Response -> IO (Either Text (Text, Int64))
+    extractCreatedResult name resp =
+      let (result, msg) = classifyResponse resp
+          (mId, _) = extractEntityFromResponse resp
+       in case result of
+            TaskSuccess -> case mId of
+              Just eid -> pure $ Right (name, fromIntegral eid)
+              Nothing -> pure $ Left $ name <> ": succeeded but no entity ID"
+            _ -> pure $ Left $ name <> ": " <> fromMaybe "unknown error" msg
 
 --------------------------------------------------------------------------------
 -- Resource creation primitives (shared by tracked path)
@@ -717,7 +542,7 @@ createOneVmAttachments state keyMap diskMap nwMap v vmId = do
                   (ssDbPool state)
               -- Generate cloud-init ISO if cloud-init is enabled
               when (effectiveCloudInit v) $ do
-                _ <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (avName v) (ssLogLevel state) Nothing
+                _ <- runAction state (RegenerateCloudInit (fromSqlKey vmId) (avName v))
                 pure ()
               pure $ Right $ fromSqlKey vmId
 
@@ -832,3 +657,37 @@ instance Action ApplyAction where
   actionSubsystem _ = SubApply
   actionCommand _ = "apply"
   actionExecute ctx a = handleApplyExecute (acState ctx) (aaConfig a) (aaSkipExisting a) (acTaskId ctx)
+
+-- | Apply-specific disk creation that handles overlay/clone name resolution.
+data ApplyDiskCreate = ApplyDiskCreate
+  { adcConfig :: ApplyDisk
+  , adcDiskMap :: Map.Map Text Int64
+  }
+
+instance Action ApplyDiskCreate where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "create"
+  actionEntityName = Just . adName . adcConfig
+  actionExecute ctx a = do
+    result <- createOneDisk (acState ctx) (adcDiskMap a) (adcConfig a)
+    case result of
+      Left err -> pure $ RespError err
+      Right diskId -> pure $ RespDiskCreated diskId
+
+-- | Apply-specific VM creation with attachments (drives, netifs, SSH keys, cloud-init).
+data ApplyVmCreate = ApplyVmCreate
+  { avcKeyMap :: Map.Map Text Int64
+  , avcDiskMap :: Map.Map Text Int64
+  , avcNwMap :: Map.Map Text Int64
+  , avcVm :: ApplyVm
+  }
+
+instance Action ApplyVmCreate where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "create"
+  actionEntityName = Just . avName . avcVm
+  actionExecute ctx a = do
+    result <- createOneVm (acState ctx) (avcKeyMap a) (avcDiskMap a) (avcNwMap a) (avcVm a)
+    case result of
+      Left err -> pure $ RespError err
+      Right vmId -> pure $ RespVmCreated vmId

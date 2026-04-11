@@ -24,18 +24,16 @@ import Corvus.Handlers.Vm (VmCreate (..))
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Disk (getRunningAttachedVms, resolveDiskPath, sanitizeDiskName)
 import Corvus.Handlers.NetIf (generateMacAddress)
 import Corvus.Handlers.Resolve (validateName)
-import Corvus.Handlers.SshKey (regenerateCloudInitIso)
-import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Qemu.Image (ImageResult (..), cloneImage, createOverlay, resizeImage)
 import Corvus.Types
 import Data.Aeson (Value (..))
-import Data.Either (lefts)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -46,7 +44,7 @@ import Data.Yaml (FromJSON (..), decodeEither', withObject, (.!=), (.:), (.:?))
 import qualified Data.Yaml as Yaml
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlPersistT)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 import GHC.Generics (Generic)
 import System.FilePath ((</>))
 
@@ -221,44 +219,32 @@ handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLoggin
     Nothing -> pure RespTemplateNotFound
     Just details -> do
       -- Subtask 1: Create VM record (delegates to VmCreate action)
-      vmResult <- liftIO $ do
-        let spec = SubtaskSpec SubVm "create" (Just newVmName)
-        withOptionalSubtask
-          pool
-          (Just parentTaskId)
-          spec
-          ( executeCreate
-              state
-              ( VmCreate
-                  newVmName
-                  (tvdCpuCount details)
-                  (tvdRamMb details)
-                  (tvdDescription details)
-                  (tvdHeadless details)
-                  False -- guestAgent
-                  (tvdCloudInit details)
-                  False -- autostart
-              )
-              (toSqlKey 0)
-          )
-          (Just . fromIntegral)
-      case vmResult of
-        Left err -> pure $ RespError err
-        Right vmIdLong -> do
+      vmResp <-
+        liftIO $
+          runActionAsSubtask
+            state
+            ( VmCreate
+                newVmName
+                (tvdCpuCount details)
+                (tvdRamMb details)
+                (tvdDescription details)
+                (tvdHeadless details)
+                False -- guestAgent
+                (tvdCloudInit details)
+                False -- autostart
+            )
+            parentTaskId
+      case vmResp of
+        RespVmCreated vmIdLong -> do
           let vmId = toSqlKey vmIdLong :: VmId
 
           -- Subtask per drive: Instantiate drives
-          driveResults <- forM (tvdDrives details) $ \td -> do
+          driveResults <- forM (tvdDrives details) $ \td ->
             liftIO $ do
-              let spec = SubtaskSpec SubDisk "instantiate" (Just $ tvdiDiskImageName td)
-              withOptionalSubtask
-                pool
-                (Just parentTaskId)
-                spec
-                (instantiateDriveIO state vmId newVmName td)
-                (const Nothing)
+              resp <- runActionAsSubtask state (InstantiateDrive vmId newVmName td) parentTaskId
+              pure $ classifyResponse resp
 
-          let errors = lefts driveResults
+          let errors = [err | (TaskError, Just err) <- driveResults]
           if not (null errors)
             then do
               let msg = T.intercalate "; " errors
@@ -269,6 +255,8 @@ handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLoggin
               liftIO $ finishInstantiation state vmId details parentTaskId
               logInfoN $ "Instantiated VM with ID: " <> T.pack (show $ fromSqlKey vmId)
               pure $ RespTemplateInstantiated (fromSqlKey vmId)
+        RespError err -> pure $ RespError err
+        _ -> pure $ RespError "Unexpected response from VM creation"
 
 --------------------------------------------------------------------------------
 -- Internal Functions (SQL)
@@ -429,10 +417,10 @@ finishInstantiation state vmId details parentTaskId = runServerLogging state $ d
   -- Generate cloud-init ISO if cloud-init is enabled (tracked as subtask)
   when (tvdCloudInit details) $ do
     logInfoN "Generating cloud-init ISO for instantiated VM"
-    result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) (fromSqlKey vmId) (tvdName details) (ssLogLevel state) (Just parentTaskId)
-    case result of
-      Left err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
-      Right _ -> logInfoN "Cloud-init ISO generated and attached"
+    resp <- liftIO $ runActionAsSubtask state (RegenerateCloudInit (fromSqlKey vmId) (tvdName details)) parentTaskId
+    case resp of
+      RespError err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
+      _ -> logInfoN "Cloud-init ISO generated and attached"
 
 --------------------------------------------------------------------------------
 -- Internal Functions (IO & Orchestration)
@@ -584,3 +572,21 @@ instance Action TemplateInstantiate where
   actionCommand _ = "instantiate"
   actionEntityId = Just . fromIntegral . tiTemplateId
   actionExecute ctx a = handleTemplateInstantiate (acState ctx) (tiTemplateId a) (tiName a) (acTaskId ctx)
+
+-- | Instantiate a single template drive (clone, overlay, or direct attach).
+data InstantiateDrive = InstantiateDrive
+  { idVmId :: !VmId
+  , idVmName :: !Text
+  , idDriveInfo :: !TemplateDriveInfo
+  }
+
+instance Action InstantiateDrive where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "instantiate"
+  actionEntityName a = Just $ tvdiDiskImageName (idDriveInfo a)
+  actionExecute ctx a = do
+    let state = acState ctx
+    result <- instantiateDriveIO state (idVmId a) (idVmName a) (idDriveInfo a)
+    case result of
+      Left err -> pure $ RespError err
+      Right () -> pure RespOk

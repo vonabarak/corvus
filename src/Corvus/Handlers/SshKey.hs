@@ -19,9 +19,6 @@ module Corvus.Handlers.SshKey
   , handleSshKeyAttach
   , handleSshKeyDetach
   , handleSshKeyListForVm
-
-    -- * Cloud-init ISO management
-  , regenerateCloudInitIso
   )
 where
 
@@ -29,25 +26,20 @@ import Corvus.Action
 
 import Control.Monad (forM, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel (..), LoggingT, logDebugN, logInfoN, logWarnN)
-import Corvus.CloudInit
+import Control.Monad.Logger (logDebugN, logInfoN, logWarnN)
+import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Resolve (validateName)
-import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
-import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Types
 import Data.Int (Int64)
-import Data.Maybe (catMaybes)
-import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlBackend, fromSqlKey, toSqlKey)
-import System.Directory (doesFileExist, removeFile)
+import Database.Persist.Sql (fromSqlKey, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- SSH Key CRUD Handlers
@@ -195,7 +187,7 @@ handleSshKeyAttach state vmId keyId = runServerLogging state $ do
                   logInfoN "SSH key attached"
 
                   -- Regenerate cloud-init ISO
-                  result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state) Nothing
+                  result <- liftIO $ classifyRegenResponse <$> runAction state (RegenerateCloudInit vmId (vmName vm))
                   case result of
                     Left err -> do
                       logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -235,7 +227,7 @@ handleSshKeyDetach state vmId keyId = runServerLogging state $ do
           -- Regenerate cloud-init ISO if cloud-init is enabled
           if vmCloudInit vm
             then do
-              result <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state) Nothing
+              result <- liftIO $ classifyRegenResponse <$> runAction state (RegenerateCloudInit vmId (vmName vm))
               case result of
                 Left err -> do
                   logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -286,137 +278,6 @@ handleSshKeyListForVm state vmId = runServerLogging state $ do
       pure $ RespSshKeyList $ map (\(Just x) -> x) $ filter (/= Nothing) infos
 
 --------------------------------------------------------------------------------
--- Cloud-Init ISO Management
---------------------------------------------------------------------------------
-
--- | Regenerate cloud-init ISO for a VM.
--- Always generates the ISO (needed for guest agent installation even without SSH keys).
--- When @mParentTaskId@ is @Just parentId@, the operation is tracked as a subtask.
-regenerateCloudInitIso :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> LogLevel -> Maybe TaskId -> IO (Either Text ())
-regenerateCloudInitIso qemuConfig pool vmId vmName logLevel mParentTaskId = do
-  let spec = SubtaskSpec SubSshKey "cloud-init" (Just vmName)
-  withOptionalSubtask
-    pool
-    mParentTaskId
-    spec
-    (doRegenerateCloudInitIso qemuConfig pool vmId vmName logLevel)
-    (const Nothing)
-
--- | Internal: actual cloud-init ISO regeneration logic.
-doRegenerateCloudInitIso :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> LogLevel -> IO (Either Text ())
-doRegenerateCloudInitIso qemuConfig pool vmId vmName logLevel = do
-  let vmKey = toSqlKey vmId :: VmId
-
-  -- Get all SSH keys attached to this VM
-  attachments <- runSqlPool (selectList [VmSshKeyVmId ==. vmKey] []) pool
-  sshKeys <- forM attachments $ \(Entity _ attachment) -> do
-    mKey <- runSqlPool (get (vmSshKeySshKeyId attachment)) pool
-    pure $ fmap sshKeyPublicKey mKey
-
-  let publicKeys = catMaybes sshKeys
-
-  -- Check for custom cloud-init config
-  mCustomConfig <- runSqlPool (getBy (UniqueCloudInitVm vmKey)) pool
-
-  -- Always generate ISO (guest agent installation + SSH keys if any)
-  vmDir <- getCloudInitDir qemuConfig vmName
-  let config = case mCustomConfig of
-        Just (Entity _ ci) ->
-          defaultCloudInitConfig
-            { ciHostname = vmName
-            , ciInstanceId = "corvus-" <> T.pack (show vmId)
-            , ciCustomUserData = cloudInitUserData ci
-            , ciNetworkConfig = cloudInitNetworkConfig ci
-            , ciInjectSshKeys = cloudInitInjectSshKeys ci
-            }
-        Nothing ->
-          defaultCloudInitConfig
-            { ciHostname = vmName
-            , ciInstanceId = "corvus-" <> T.pack (show vmId)
-            }
-  result <- generateCloudInitIso vmDir config publicKeys
-  case result of
-    Left err -> pure $ Left err
-    Right isoPath -> do
-      -- Ensure disk is registered
-      ensureCloudInitDiskRegistered pool vmId vmName (T.pack isoPath) logLevel
-      pure $ Right ()
-
--- | Remove cloud-init ISO for a VM
-removeCloudInitIsoForVm :: QemuConfig -> Text -> IO ()
-removeCloudInitIsoForVm qemuConfig vmName = do
-  isoPath <- getCloudInitIsoPath qemuConfig vmName
-  exists <- doesFileExist isoPath
-  when exists $ removeFile isoPath
-
--- | Ensure cloud-init disk is registered and attached to VM
-ensureCloudInitDiskRegistered :: Pool SqlBackend -> Int64 -> Text -> Text -> LogLevel -> IO ()
-ensureCloudInitDiskRegistered pool vmId vmName isoPath logLevel = runFilteredLogging logLevel $ do
-  let vmKey = toSqlKey vmId :: VmId
-  let diskName = vmName <> "-cloud-init"
-
-  -- Check if disk already exists with this path
-  mExisting <- liftIO $ runSqlPool (getBy (UniqueImagePath isoPath)) pool
-  case mExisting of
-    Just (Entity diskId _) -> do
-      -- Disk exists, ensure it's attached
-      logDebugN $ "Cloud-init disk already registered: " <> T.pack (show $ fromSqlKey diskId)
-      ensureDiskAttached pool vmKey diskId
-    Nothing -> do
-      -- Register new disk
-      now <- liftIO getCurrentTime
-      diskId <-
-        liftIO $
-          runSqlPool
-            ( insert
-                DiskImage
-                  { diskImageName = diskName
-                  , diskImageFilePath = isoPath
-                  , diskImageFormat = FormatRaw
-                  , diskImageSizeMb = Nothing
-                  , diskImageCreatedAt = now
-                  , diskImageBackingImageId = Nothing
-                  }
-            )
-            pool
-      logInfoN $ "Registered cloud-init disk with ID: " <> T.pack (show $ fromSqlKey diskId)
-      ensureDiskAttached pool vmKey diskId
-
--- | Ensure a disk is attached to a VM as CDROM
-ensureDiskAttached
-  :: Pool SqlBackend
-  -> VmId
-  -> DiskImageId
-  -> LoggingT IO ()
-ensureDiskAttached pool vmKey diskId = do
-  -- Check if already attached
-  existing <-
-    liftIO $
-      runSqlPool
-        (selectList [M.DriveVmId ==. vmKey, M.DriveDiskImageId ==. diskId] [])
-        pool
-  case existing of
-    (_ : _) -> logDebugN "Cloud-init disk already attached"
-    [] -> do
-      -- Attach as CDROM
-      driveId <-
-        liftIO $
-          runSqlPool
-            ( insert
-                Drive
-                  { driveVmId = vmKey
-                  , driveDiskImageId = diskId
-                  , driveInterface = InterfaceIde
-                  , driveMedia = Just MediaCdrom
-                  , driveReadOnly = True
-                  , driveCacheType = CacheNone
-                  , driveDiscard = False
-                  }
-            )
-            pool
-      logInfoN $ "Attached cloud-init disk as CDROM, drive ID: " <> T.pack (show $ fromSqlKey driveId)
-
---------------------------------------------------------------------------------
 -- Action Types
 --------------------------------------------------------------------------------
 
@@ -460,3 +321,12 @@ instance Action SshKeyDetach where
   actionCommand _ = "detach"
   actionEntityId = Just . fromIntegral . skdetKeyId
   actionExecute ctx a = handleSshKeyDetach (acState ctx) (skdetVmId a) (skdetKeyId a)
+
+--------------------------------------------------------------------------------
+-- Internal Helpers
+--------------------------------------------------------------------------------
+
+-- | Convert a RegenerateCloudInit response to Either for legacy call sites
+classifyRegenResponse :: Response -> Either Text ()
+classifyRegenResponse (RespError err) = Left err
+classifyRegenResponse _ = Right ()

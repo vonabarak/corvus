@@ -110,7 +110,6 @@ library:
     - Corvus.Handlers.GuestAgentPoller
     - Corvus.Handlers.Apply
     - Corvus.Handlers.CloudInit
-    - Corvus.Handlers.Subtask
     - Corvus.Handlers.Lifecycle
     - Corvus.Client.Commands.GuestExec
     - Corvus.Client.Commands.Apply

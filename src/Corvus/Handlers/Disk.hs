@@ -42,7 +42,6 @@ module Corvus.Handlers.Disk
     -- * Attach/detach handlers
   , handleDiskAttach
   , handleDiskDetach
-  , handleDiskDetachByDisk
 
     -- * Helpers
   , sanitizeDiskName
@@ -797,70 +796,9 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                       logInfoN "VM is not active, disk attached to database only"
                       pure $ RespDiskAttached $ fromSqlKey driveId
 
--- | Detach a disk from a VM
-handleDiskDetach :: ServerState -> Int64 -> Int64 -> IO Response
-handleDiskDetach state vmId driveId = runServerLogging state $ do
-  logInfoN $
-    "Detaching drive "
-      <> T.pack (show driveId)
-      <> " from VM "
-      <> T.pack (show vmId)
-
-  -- Check drive exists
-  mDrive <- liftIO $ runSqlPool (get (toSqlKey driveId :: DriveId)) (ssDbPool state)
-  case mDrive of
-    Nothing -> pure RespDriveNotFound
-    Just drive -> do
-      -- Verify VM ID matches
-      if driveVmId drive /= toSqlKey vmId
-        then pure $ RespError "Drive is not attached to this VM"
-        else do
-          -- Check VM status
-          mVm <- liftIO $ runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
-          case mVm of
-            Nothing -> pure RespVmNotFound
-            Just vm -> do
-              -- If VM is running or paused, hot-unplug via QMP (both have live QEMU process)
-              if vmStatus vm `elem` [VmRunning, VmPaused]
-                then do
-                  logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-unplug"
-                  let deviceId = "device-" <> T.pack (show driveId)
-                      nodeName = "drive-" <> T.pack (show driveId)
-
-                  -- Remove device first (device_del is async — QEMU returns
-                  -- immediately but the device is removed in the background)
-                  let qemuCfg = ssQemuConfig state
-                  deviceResult <- liftIO $ qmpDeviceDel qemuCfg vmId deviceId
-                  case deviceResult of
-                    QmpSuccess -> do
-                      -- Remove block device, retrying if device_del hasn't completed yet
-                      blockResult <- liftIO $ retryBlockdevDel qemuCfg vmId nodeName
-                      case blockResult of
-                        QmpSuccess -> do
-                          liftIO $ runSqlPool (delete (toSqlKey driveId :: DriveId)) (ssDbPool state)
-                          logInfoN "Hot-unplug successful"
-                          pure RespDiskOk
-                        QmpError err -> do
-                          logWarnN $ "Blockdev remove failed (device already removed): " <> err
-                          -- Still remove from DB since device is gone
-                          liftIO $ runSqlPool (delete (toSqlKey driveId :: DriveId)) (ssDbPool state)
-                          pure RespDiskOk
-                        QmpConnectionFailed err ->
-                          pure $ RespError $ "QMP connection failed: " <> err
-                    QmpError err -> do
-                      logWarnN $ "Device remove failed: " <> err
-                      pure $ RespError $ "Device remove failed: " <> err
-                    QmpConnectionFailed err ->
-                      pure $ RespError $ "QMP connection failed: " <> err
-                else do
-                  -- Just remove from database
-                  liftIO $ runSqlPool (delete (toSqlKey driveId :: DriveId)) (ssDbPool state)
-                  logInfoN "Drive detached from database"
-                  pure RespDiskOk
-
 -- | Detach a disk from a VM by disk image ID (looks up drive via UniqueDrive constraint)
-handleDiskDetachByDisk :: ServerState -> Int64 -> Int64 -> IO Response
-handleDiskDetachByDisk state vmId diskId = runServerLogging state $ do
+handleDiskDetach :: ServerState -> Int64 -> Int64 -> IO Response
+handleDiskDetach state vmId diskId = runServerLogging state $ do
   logInfoN $
     "Detaching disk image "
       <> T.pack (show diskId)
@@ -1434,4 +1372,4 @@ instance Action DiskDetachByDisk where
   actionSubsystem _ = SubDisk
   actionCommand _ = "detach"
   actionEntityId = Just . fromIntegral . ddbVmId
-  actionExecute ctx a = handleDiskDetachByDisk (acState ctx) (ddbVmId a) (ddbDiskId a)
+  actionExecute ctx a = handleDiskDetach (acState ctx) (ddbVmId a) (ddbDiskId a)

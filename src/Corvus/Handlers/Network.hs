@@ -9,6 +9,14 @@ module Corvus.Handlers.Network
   , NetworkStop (..)
   , NetworkEdit (..)
 
+    -- * Infrastructure Action types (subtasks of start/stop)
+  , CreateBridge (..)
+  , SetupNetworkNat (..)
+  , StartDnsmasq (..)
+  , TeardownNetworkNat (..)
+  , StopDnsmasqAction (..)
+  , DestroyBridge (..)
+
     -- * Handlers
   , handleNetworkCreate
   , handleNetworkDelete
@@ -23,11 +31,10 @@ where
 import Corvus.Action
 
 import Control.Concurrent.STM (readTVarIO)
-import Control.Monad (unless, when)
+import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Resolve (validateName)
-import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
 import Corvus.Model (Network (..), NetworkInterface (..), TaskId, TaskSubsystem (..), Vm (..), VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -132,19 +139,12 @@ handleNetworkStart state networkId parentTaskId = runServerLogging state $ do
               logInfoN $ "Starting network " <> nwName
 
               -- Subtask 1: Create bridge
-              bridgeResult <- liftIO $ do
-                let spec = SubtaskSpec SubNetwork "create-bridge" (Just $ networkName network)
-                withOptionalSubtask
-                  pool
-                  (Just parentTaskId)
-                  spec
-                  (createBridge nsPid (ssQemuConfig state) networkId (networkSubnet network))
-                  (const Nothing)
-              case bridgeResult of
-                Left err -> do
+              bridgeResp <- liftIO $ runActionAsSubtask state (CreateBridge nsPid networkId (networkSubnet network)) parentTaskId
+              case bridgeResp of
+                RespError err -> do
                   logWarnN $ "Failed to create bridge for network " <> nwName <> ": " <> err
                   pure $ RespNetworkError err
-                Right () -> do
+                _ -> do
                   -- Subtask 2: Add NAT rules if enabled
                   when (networkNat network && not (T.null (networkSubnet network))) $ do
                     mPastaPid <- liftIO $ readTVarIO (ssPastaPid state)
@@ -152,40 +152,21 @@ handleNetworkStart state networkId parentTaskId = runServerLogging state $ do
                       Nothing ->
                         logWarnN $ "NAT enabled but pasta is not running for network " <> nwName
                       Just _ -> do
-                        natResult <- liftIO $ do
-                          let spec = SubtaskSpec SubNetwork "setup-nat" (Just $ networkName network)
-                          withOptionalSubtask
-                            pool
-                            (Just parentTaskId)
-                            spec
-                            (addNatRule nsPid (ssQemuConfig state) networkId (networkSubnet network))
-                            (const Nothing)
-                        case natResult of
-                          Left err -> logWarnN $ "Failed to add NAT rules for network " <> nwName <> ": " <> err
-                          Right () -> logInfoN $ "NAT rules added for network " <> nwName
+                        natResp <- liftIO $ runActionAsSubtask state (SetupNetworkNat nsPid networkId (networkSubnet network)) parentTaskId
+                        case natResp of
+                          RespError err -> logWarnN $ "Failed to add NAT rules for network " <> nwName <> ": " <> err
+                          _ -> logInfoN $ "NAT rules added for network " <> nwName
 
-                  -- Subtask 3: Start dnsmasq if DHCP is enabled
+                  -- Subtask 3: Start dnsmasq if DHCP is enabled (also marks network as running)
                   if networkDhcp network && not (T.null (networkSubnet network))
                     then do
-                      dnsmasqResult <- liftIO $ do
-                        let spec = SubtaskSpec SubNetwork "start-dnsmasq" (Just $ networkName network)
-                        withOptionalSubtask
-                          pool
-                          (Just parentTaskId)
-                          spec
-                          (startDnsmasq nsPid (ssQemuConfig state) networkId (networkSubnet network) (networkNat network))
-                          (Just . fromIntegral)
-                      case dnsmasqResult of
-                        Left err -> do
+                      dnsmasqResp <- liftIO $ runActionAsSubtask state (StartDnsmasq nsPid networkId (networkSubnet network) (networkNat network)) parentTaskId
+                      case dnsmasqResp of
+                        RespError err -> do
                           logWarnN $ "Failed to start dnsmasq for network " <> nwName <> ": " <> err
                           pure $ RespNetworkError err
-                        Right dnsmasqPid -> do
-                          liftIO $
-                            runSqlPool
-                              ( update key [M.NetworkRunning =. True, M.NetworkDnsmasqPid =. Just dnsmasqPid]
-                              )
-                              pool
-                          logInfoN $ "Network " <> nwName <> " started with DHCP (dnsmasq PID " <> T.pack (show dnsmasqPid) <> ")"
+                        _ -> do
+                          logInfoN $ "Network " <> nwName <> " started with DHCP"
                           pure RespNetworkStarted
                     else do
                       liftIO $ runSqlPool (update key [M.NetworkRunning =. True]) pool
@@ -212,8 +193,7 @@ handleNetworkStop state networkId force parentTaskId = runServerLogging state $ 
             else doStop key network
   where
     doStop key network = do
-      let pool = ssDbPool state
-          nwName = networkName network
+      let nwName = networkName network
       logInfoN $ "Stopping network " <> T.pack (show networkId)
       mNsPid <- liftIO $ readTVarIO (ssNamespacePid state)
 
@@ -221,48 +201,27 @@ handleNetworkStop state networkId force parentTaskId = runServerLogging state $ 
       when (networkNat network) $ do
         case mNsPid of
           Just nsPid -> do
-            natResult <- liftIO $ do
-              let spec = SubtaskSpec SubNetwork "teardown-nat" (Just nwName)
-              withOptionalSubtask
-                pool
-                (Just parentTaskId)
-                spec
-                (removeNatRule nsPid (ssQemuConfig state) networkId)
-                (const Nothing)
-            case natResult of
-              Left err -> logWarnN $ "Failed to remove NAT rules: " <> err
-              Right () -> logInfoN $ "NAT rules removed for network " <> T.pack (show networkId)
+            natResp <- liftIO $ runActionAsSubtask state (TeardownNetworkNat nsPid networkId) parentTaskId
+            case natResp of
+              RespError err -> logWarnN $ "Failed to remove NAT rules: " <> err
+              _ -> logInfoN $ "NAT rules removed for network " <> T.pack (show networkId)
           Nothing -> pure ()
 
       -- Subtask 2: Stop dnsmasq if running
       case networkDnsmasqPid network of
         Just dnsmasqPid -> do
-          liftIO $ do
-            let spec = SubtaskSpec SubNetwork "stop-dnsmasq" (Just nwName)
-            withOptionalSubtask
-              pool
-              (Just parentTaskId)
-              spec
-              (stopDnsmasq dnsmasqPid >> pure (Right ()))
-              (const Nothing)
+          _ <- liftIO $ runActionAsSubtask state (StopDnsmasqAction dnsmasqPid) parentTaskId
           logInfoN $ "Stopped dnsmasq PID " <> T.pack (show dnsmasqPid)
         Nothing -> pure ()
 
       -- Subtask 3: Destroy bridge in namespace
       case mNsPid of
         Just nsPid -> do
-          bridgeResult <- liftIO $ do
-            let spec = SubtaskSpec SubNetwork "destroy-bridge" (Just nwName)
-            withOptionalSubtask
-              pool
-              (Just parentTaskId)
-              spec
-              (destroyBridge nsPid networkId)
-              (const Nothing)
-          case bridgeResult of
-            Left err ->
+          bridgeResp <- liftIO $ runActionAsSubtask state (DestroyBridge nsPid networkId) parentTaskId
+          case bridgeResp of
+            RespError err ->
               logWarnN $ "Failed to destroy bridge for network " <> T.pack (show networkId) <> ": " <> err
-            Right () -> pure ()
+            _ -> pure ()
         Nothing -> pure ()
 
       -- Clear state
@@ -270,7 +229,7 @@ handleNetworkStop state networkId force parentTaskId = runServerLogging state $ 
         runSqlPool
           ( update key [M.NetworkRunning =. False, M.NetworkDnsmasqPid =. Nothing]
           )
-          pool
+          (ssDbPool state)
       logInfoN $ "Network " <> T.pack (show networkId) <> " stopped"
       pure RespNetworkStopped
 
@@ -426,3 +385,89 @@ instance Action NetworkStop where
   actionCommand _ = "stop"
   actionEntityId = Just . fromIntegral . nstopNetworkId
   actionExecute ctx a = handleNetworkStop (acState ctx) (nstopNetworkId a) (nstopForce a) (acTaskId ctx)
+
+-- Infrastructure subtask Actions for network start/stop
+
+data CreateBridge = CreateBridge
+  { cbNsPid :: Int
+  , cbNetworkId :: Int64
+  , cbSubnet :: Text
+  }
+
+instance Action CreateBridge where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "create-bridge"
+  actionEntityId = Just . fromIntegral . cbNetworkId
+  actionExecute ctx a = do
+    result <- createBridge (cbNsPid a) (ssQemuConfig $ acState ctx) (cbNetworkId a) (cbSubnet a)
+    pure $ either RespError (const RespOk) result
+
+data SetupNetworkNat = SetupNetworkNat
+  { snnNsPid :: Int
+  , snnNetworkId :: Int64
+  , snnSubnet :: Text
+  }
+
+instance Action SetupNetworkNat where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "setup-nat"
+  actionEntityId = Just . fromIntegral . snnNetworkId
+  actionExecute ctx a = do
+    result <- addNatRule (snnNsPid a) (ssQemuConfig $ acState ctx) (snnNetworkId a) (snnSubnet a)
+    pure $ either RespError (const RespOk) result
+
+data StartDnsmasq = StartDnsmasq
+  { sdqNsPid :: Int
+  , sdqNetworkId :: Int64
+  , sdqSubnet :: Text
+  , sdqNat :: Bool
+  }
+
+instance Action StartDnsmasq where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "start-dnsmasq"
+  actionEntityId = Just . fromIntegral . sdqNetworkId
+  actionExecute ctx a = do
+    let state = acState ctx
+        key = toSqlKey (sdqNetworkId a) :: M.NetworkId
+    result <- startDnsmasq (sdqNsPid a) (ssQemuConfig state) (sdqNetworkId a) (sdqSubnet a) (sdqNat a)
+    case result of
+      Left err -> pure $ RespError err
+      Right dnsmasqPid -> do
+        runSqlPool (update key [M.NetworkRunning =. True, M.NetworkDnsmasqPid =. Just dnsmasqPid]) (ssDbPool state)
+        pure RespOk
+
+data TeardownNetworkNat = TeardownNetworkNat
+  { tnnNsPid :: Int
+  , tnnNetworkId :: Int64
+  }
+
+instance Action TeardownNetworkNat where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "teardown-nat"
+  actionEntityId = Just . fromIntegral . tnnNetworkId
+  actionExecute ctx a = do
+    result <- removeNatRule (tnnNsPid a) (ssQemuConfig $ acState ctx) (tnnNetworkId a)
+    pure $ either RespError (const RespOk) result
+
+newtype StopDnsmasqAction = StopDnsmasqAction {sdaPid :: Int}
+
+instance Action StopDnsmasqAction where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "stop-dnsmasq"
+  actionExecute _ctx a = do
+    stopDnsmasq (sdaPid a)
+    pure RespOk
+
+data DestroyBridge = DestroyBridge
+  { dbNsPid :: Int
+  , dbNetworkId :: Int64
+  }
+
+instance Action DestroyBridge where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "destroy-bridge"
+  actionEntityId = Just . fromIntegral . dbNetworkId
+  actionExecute _ctx a = do
+    result <- destroyBridge (dbNsPid a) (dbNetworkId a)
+    pure $ either RespError (const RespOk) result

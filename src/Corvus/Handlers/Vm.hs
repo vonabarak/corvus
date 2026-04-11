@@ -12,6 +12,8 @@ module Corvus.Handlers.Vm
   , VmEdit (..)
   , VmPause (..)
   , VmReset (..)
+  , StartVirtiofsd (..)
+  , LaunchQemu (..)
 
     -- * Handlers
   , handleVmList
@@ -38,14 +40,14 @@ where
 import Corvus.Action
 
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
+import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller, waitForFirstPing)
 import Corvus.Handlers.Resolve (validateName)
-import Corvus.Handlers.SshKey (regenerateCloudInitIso)
-import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
@@ -232,28 +234,14 @@ startQemuAndMonitor state vmId vm parentTaskId = do
     hasCloudInitDisk <- liftIO $ runSqlPool (hasCloudInitIso vmId) pool
     unless hasCloudInitDisk $ do
       logInfoN $ "Generating cloud-init ISO for VM " <> T.pack (show vmId)
-      _ <- liftIO $ regenerateCloudInitIso (ssQemuConfig state) pool vmId (vmName vm) (ssLogLevel state) (Just parentTaskId)
+      _ <- liftIO $ runActionAsSubtask state (RegenerateCloudInit vmId (vmName vm)) parentTaskId
       pure ()
 
   -- Subtask 2: Start virtiofsd processes for shared directories
-  virtiofsdResult <- liftIO $ do
-    let spec = SubtaskSpec SubSharedDir "start-virtiofsd" (Just $ vmName vm)
-    withOptionalSubtask
-      pool
-      (Just parentTaskId)
-      spec
-      ( do
-          r <- runServerLogging state $ startVirtiofsdProcesses pool (ssQemuConfig state) vmId
-          pure $ case r of
-            VirtiofsdAllStarted -> Right ()
-            VirtiofsdNoSharedDirs -> Right ()
-            VirtiofsdSomeFailed -> Left ("Some virtiofsd processes failed to start" :: Text)
-      )
-      (const Nothing)
-  case virtiofsdResult of
-    Left err ->
-      logWarnN err
-    Right () -> pure ()
+  virtiofsdResp <- liftIO $ runActionAsSubtask state (StartVirtiofsd vmId (vmName vm)) parentTaskId
+  case virtiofsdResp of
+    RespError err -> logWarnN err
+    _ -> pure ()
 
   -- Subtask 3: Launch QEMU
   hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
@@ -261,23 +249,9 @@ startQemuAndMonitor state vmId vm parentTaskId = do
     if hasManagedNic
       then liftIO $ readTVarIO (ssNamespacePid state)
       else pure Nothing
-  qemuResult <- liftIO $ do
-    let spec = SubtaskSpec SubVm "start-qemu" (Just $ vmName vm)
-    withOptionalSubtask
-      pool
-      (Just parentTaskId)
-      spec
-      ( do
-          r <- runServerLogging state $ startVm pool (ssQemuConfig state) vmId mNsPid
-          pure $ case r of
-            VmStarted pid ph mStderr -> Right (pid, ph, mStderr)
-            VmNotFound -> Left ("VM not found" :: Text)
-            VmStartError err -> Left $ "Failed to start: " <> err
-      )
-      (const Nothing)
-  let result = case qemuResult of
-        Right (pid, ph, mStderr) -> VmStarted pid ph mStderr
-        Left err -> VmStartError err
+  resultVar <- liftIO newEmptyMVar
+  _ <- liftIO $ runActionAsSubtask state (LaunchQemu vmId (vmName vm) mNsPid resultVar) parentTaskId
+  result <- liftIO $ readMVar resultVar
   case result of
     VmStarted pid ph mStderr -> do
       let initialStatus = if vmGuestAgent vm then VmStarting else VmRunning
@@ -477,10 +451,10 @@ handleVmCloudInit state vmId = do
       if not (vmCloudInit vm)
         then pure $ RespError "Cloud-init is not enabled on this VM"
         else do
-          ciResult <- regenerateCloudInitIso (ssQemuConfig state) (ssDbPool state) vmId (vmName vm) (ssLogLevel state) Nothing
-          case ciResult of
-            Left err -> pure $ RespError $ "Cloud-init ISO generation failed: " <> err
-            Right _ -> pure RespVmEdited
+          ciResp <- runAction state (RegenerateCloudInit vmId (vmName vm))
+          case ciResp of
+            RespError err -> pure $ RespError $ "Cloud-init ISO generation failed: " <> err
+            _ -> pure RespVmEdited
 
 -- | Handle serial console attach request.
 -- Validates that the VM is running and headless, and that a buffer handle exists.
@@ -898,3 +872,48 @@ instance Action VmStop where
       Left errResp -> Just errResp
       Right _ -> Nothing
   actionExecute ctx a = handleVmStopExecute (acState ctx) (vstpVmId a)
+
+-- Subtask actions used during VM start
+
+-- | Start virtiofsd processes for a VM's shared directories.
+data StartVirtiofsd = StartVirtiofsd
+  { svVmId :: Int64
+  , svVmName :: Text
+  }
+
+instance Action StartVirtiofsd where
+  actionSubsystem _ = SubSharedDir
+  actionCommand _ = "start-virtiofsd"
+  actionEntityName = Just . svVmName
+  actionEntityId = Just . fromIntegral . svVmId
+  actionExecute ctx a = do
+    let state = acState ctx
+    r <- runServerLogging state $ startVirtiofsdProcesses (ssDbPool state) (ssQemuConfig state) (svVmId a)
+    pure $ case r of
+      VirtiofsdAllStarted -> RespOk
+      VirtiofsdNoSharedDirs -> RespOk
+      VirtiofsdSomeFailed -> RespError "Some virtiofsd processes failed to start"
+
+-- | Launch the QEMU process for a VM.
+-- The caller provides an MVar to receive the StartVmResult, because the process
+-- handle (an in-memory value) cannot be communicated through the Response type.
+data LaunchQemu = LaunchQemu
+  { lqVmId :: Int64
+  , lqVmName :: Text
+  , lqNsPid :: Maybe Int
+  , lqResultVar :: MVar StartVmResult
+  }
+
+instance Action LaunchQemu where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "start-qemu"
+  actionEntityName = Just . lqVmName
+  actionEntityId = Just . fromIntegral . lqVmId
+  actionExecute ctx a = do
+    let state = acState ctx
+    r <- runServerLogging state $ startVm (ssDbPool state) (ssQemuConfig state) (lqVmId a) (lqNsPid a)
+    putMVar (lqResultVar a) r
+    pure $ case r of
+      VmStarted {} -> RespOk
+      VmNotFound -> RespError "VM not found"
+      VmStartError err -> RespError $ "Failed to start: " <> err

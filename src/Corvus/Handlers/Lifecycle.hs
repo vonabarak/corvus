@@ -8,6 +8,9 @@ module Corvus.Handlers.Lifecycle
   ( -- * Action types
     Startup (..)
   , GracefulShutdown (..)
+  , StartNamespaceAction (..)
+  , StartPastaAction (..)
+  , SetupNatInfra (..)
   )
 where
 
@@ -17,9 +20,8 @@ import Control.Monad (forM_, unless, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Action
-import Corvus.Handlers.Network (handleNetworkStart)
-import Corvus.Handlers.Subtask (SubtaskSpec (..), withOptionalSubtask)
-import Corvus.Handlers.Vm (handleVmStartExecute, handleVmStartValidate)
+import Corvus.Handlers.Network (NetworkStart (..))
+import Corvus.Handlers.Vm (VmStart (..))
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
@@ -28,7 +30,6 @@ import Corvus.Qemu.Netns.Manager (destroyBridge, enableIpForwarding, setupNatTab
 import Corvus.Qemu.Process (killVmProcess)
 import Corvus.Qemu.Virtiofsd (killVirtiofsdProcesses)
 import Corvus.Types
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (addUTCTime, getCurrentTime)
@@ -80,51 +81,31 @@ instance Action Startup where
 
       -- Start the global network namespace (subtask)
       logInfoN "Starting network namespace"
-      nsResult <- liftIO $ do
-        let spec = SubtaskSpec SubSystem "start-namespace" Nothing
-        withOptionalSubtask
-          pool
-          (Just taskKey)
-          spec
-          (fmap (fmap fromIntegral) startNamespace)
-          (Just . fromIntegral)
-      case nsResult of
-        Left err ->
+      nsResp <- liftIO $ runActionAsSubtask state StartNamespaceAction taskKey
+      case classifyResponse nsResp of
+        (TaskError, Just err) ->
           logWarnN $ "Failed to start network namespace: " <> err
-        Right nsPidInt -> do
-          liftIO $ atomically $ writeTVar (ssNamespacePid state) (Just nsPidInt)
-          logInfoN $ "Network namespace started (PID " <> T.pack (show nsPidInt) <> ")"
+        _ -> do
+          mNsPidStarted <- liftIO $ readTVarIO (ssNamespacePid state)
+          case mNsPidStarted of
+            Nothing -> logWarnN "Namespace started but PID not found in TVar"
+            Just nsPidInt -> do
+              logInfoN $ "Network namespace started (PID " <> T.pack (show nsPidInt) <> ")"
 
-          -- Start pasta for NAT support (subtask)
-          pastaResult <- liftIO $ do
-            let spec = SubtaskSpec SubSystem "start-pasta" Nothing
-            withOptionalSubtask
-              pool
-              (Just taskKey)
-              spec
-              (startPasta nsPidInt (ssQemuConfig state))
-              (Just . fromIntegral)
-          case pastaResult of
-            Left err ->
-              logWarnN $ "Failed to start pasta (NAT unavailable): " <> err
-            Right pastaPid -> do
-              liftIO $ atomically $ writeTVar (ssPastaPid state) (Just pastaPid)
-              logInfoN $ "pasta started for NAT (PID " <> T.pack (show pastaPid) <> ")"
-              -- Enable IP forwarding and setup NAT table (subtask)
-              _ <- liftIO $ do
-                let spec = SubtaskSpec SubNetwork "setup-nat" Nothing
-                withOptionalSubtask
-                  pool
-                  (Just taskKey)
-                  spec
-                  ( do
-                      fwdResult <- enableIpForwarding nsPidInt
-                      case fwdResult of
-                        Left err -> pure $ Left $ "IP forwarding: " <> err
-                        Right () -> setupNatTable nsPidInt (ssQemuConfig state)
-                  )
-                  (const Nothing)
-              logInfoN "IP forwarding enabled, nftables NAT table created"
+              -- Start pasta for NAT support (subtask)
+              pastaResp <- liftIO $ runActionAsSubtask state (StartPastaAction nsPidInt) taskKey
+              case classifyResponse pastaResp of
+                (TaskError, Just err) ->
+                  logWarnN $ "Failed to start pasta (NAT unavailable): " <> err
+                _ -> do
+                  mPastaPidStarted <- liftIO $ readTVarIO (ssPastaPid state)
+                  case mPastaPidStarted of
+                    Nothing -> logWarnN "Pasta started but PID not found in TVar"
+                    Just pastaPid -> do
+                      logInfoN $ "pasta started for NAT (PID " <> T.pack (show pastaPid) <> ")"
+                      -- Enable IP forwarding and setup NAT table (subtask)
+                      _ <- liftIO $ runActionAsSubtask state (SetupNatInfra nsPidInt) taskKey
+                      logInfoN "IP forwarding enabled, nftables NAT table created"
 
       -- Autostart networks (before VMs, since VMs may depend on networks)
       autostartNetworks <- liftIO $ runSqlPool (selectList [M.NetworkAutostart ==. True] [Asc M.NetworkName]) pool
@@ -132,24 +113,10 @@ instance Action Startup where
         logInfoN $ "Autostarting " <> T.pack (show (length autostartNetworks)) <> " network(s)"
         liftIO $ forM_ autostartNetworks $ \(Entity nwKey nw) -> do
           let nwId = fromSqlKey nwKey
-              spec = SubtaskSpec SubNetwork "autostart" (Just $ networkName nw)
-          nwResult <-
-            withOptionalSubtask
-              pool
-              (Just taskKey)
-              spec
-              ( do
-                  resp <- handleNetworkStart state nwId taskKey
-                  pure $ case resp of
-                    RespNetworkStarted -> Right ()
-                    RespNetworkAlreadyRunning -> Right ()
-                    RespNetworkError err -> Left err
-                    _ -> Left $ "Unexpected response: " <> T.pack (show resp)
-              )
-              (const Nothing)
-          runServerLogging state $ case nwResult of
-            Right () -> logInfoN $ "Autostarted network " <> networkName nw
-            Left err -> logWarnN $ "Failed to autostart network " <> networkName nw <> ": " <> err
+          nwResp <- runActionAsSubtask state (NetworkStart nwId) taskKey
+          runServerLogging state $ case classifyResponse nwResp of
+            (TaskError, Just err) -> logWarnN $ "Failed to autostart network " <> networkName nw <> ": " <> err
+            _ -> logInfoN $ "Autostarted network " <> networkName nw
 
       -- Autostart VMs (after networks are up)
       autostartVms <- liftIO $ runSqlPool (selectList [M.VmAutostart ==. True] [Asc M.VmName]) pool
@@ -162,26 +129,10 @@ instance Action Startup where
             -- Reset error state VMs to stopped first
             when (vmStatus vm == VmError) $
               runSqlPool (update vmKey [M.VmStatus =. VmStopped]) pool
-            let spec = SubtaskSpec SubVm "autostart" (Just $ vmName vm)
-            vmResult <-
-              withOptionalSubtask
-                pool
-                (Just taskKey)
-                spec
-                ( do
-                    validated <- handleVmStartValidate state vmId
-                    case validated of
-                      Left errResp -> pure $ Left $ T.pack $ show errResp
-                      Right _ -> do
-                        resp <- handleVmStartExecute state vmId taskKey
-                        pure $ case resp of
-                          RespVmStateChanged _ -> Right ()
-                          _ -> Left $ T.pack $ show resp
-                )
-                (const Nothing)
-            runServerLogging state $ case vmResult of
-              Right () -> logInfoN $ "Autostarted VM " <> vmName vm
-              Left err -> logWarnN $ "Failed to autostart VM " <> vmName vm <> ": " <> err
+            vmResp <- runActionAsSubtask state (VmStart vmId) taskKey
+            runServerLogging state $ case classifyResponse vmResp of
+              (TaskError, Just err) -> logWarnN $ "Failed to autostart VM " <> vmName vm <> ": " <> err
+              _ -> logInfoN $ "Autostarted VM " <> vmName vm
 
       -- Delete old task entries
       when (retentionDays > 0) $ do
@@ -278,3 +229,56 @@ instance Action GracefulShutdown where
       logInfoN "Graceful shutdown complete"
 
     pure RespShutdownComplete
+
+--------------------------------------------------------------------------------
+-- Infrastructure Action Types (startup subtasks)
+--------------------------------------------------------------------------------
+
+-- | Start the global network namespace.
+-- Writes the namespace PID to the ServerState TVar on success.
+data StartNamespaceAction = StartNamespaceAction
+
+instance Action StartNamespaceAction where
+  actionSubsystem _ = SubSystem
+  actionCommand _ = "start-namespace"
+  actionExecute ctx StartNamespaceAction = do
+    let state = acState ctx
+    result <- fmap (fmap fromIntegral) startNamespace
+    case result of
+      Left err -> pure $ RespError err
+      Right nsPid -> do
+        atomically $ writeTVar (ssNamespacePid state) (Just nsPid)
+        pure RespOk
+
+-- | Start pasta for NAT support inside the namespace.
+-- Writes the pasta PID to the ServerState TVar on success.
+newtype StartPastaAction = StartPastaAction {spaNsPid :: Int}
+
+instance Action StartPastaAction where
+  actionSubsystem _ = SubSystem
+  actionCommand _ = "start-pasta"
+  actionExecute ctx (StartPastaAction nsPid) = do
+    let state = acState ctx
+    result <- startPasta nsPid (ssQemuConfig state)
+    case result of
+      Left err -> pure $ RespError err
+      Right pastaPid -> do
+        atomically $ writeTVar (ssPastaPid state) (Just pastaPid)
+        pure RespOk
+
+-- | Enable IP forwarding and setup nftables NAT table inside the namespace.
+newtype SetupNatInfra = SetupNatInfra {sniNsPid :: Int}
+
+instance Action SetupNatInfra where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "setup-nat"
+  actionExecute ctx (SetupNatInfra nsPid) = do
+    let state = acState ctx
+    fwdResult <- enableIpForwarding nsPid
+    case fwdResult of
+      Left err -> pure $ RespError $ "IP forwarding: " <> err
+      Right () -> do
+        natResult <- setupNatTable nsPid (ssQemuConfig state)
+        case natResult of
+          Left err -> pure $ RespError err
+          Right () -> pure RespOk
