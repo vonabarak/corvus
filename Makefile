@@ -49,20 +49,21 @@ cleanup:
 	rm -rf .test-cache
 
 # Run only unit tests (excluding those with "Integration" in their name)
+# Uses script(1) to provide a pseudo-terminal, preventing hangs when piping output.
 unit-tests:
-	stack test --test-arguments "--skip Integration"
+	script -qec 'stack test --test-arguments "--skip Integration"' /dev/null
 
 # Run only integration tests (those with "Integration" in their name)
 integration-tests:
-	stack test --test-arguments "--match Integration --jobs=$(JOBS)"
+	script -qec 'stack test --test-arguments "--match Integration --jobs=$(JOBS)"' /dev/null
 
 # Run all tests
 all-tests:
-	stack test --test-arguments "--jobs=$(JOBS)"
+	script -qec 'stack test --test-arguments "--jobs=$(JOBS)"' /dev/null
 
 # Run specific tests (e.g., make test MATCH="test name")
 test:
-	stack test --test-arguments "--match \"$(MATCH)\""
+	script -qec 'stack test --test-arguments "--match \"$(MATCH)\""' /dev/null
 
 # Run linter on src, app and test directories
 lint:
