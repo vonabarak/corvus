@@ -4,8 +4,14 @@
 -- | SSH key management handlers.
 -- Handles SSH key CRUD operations, VM associations, and cloud-init ISO generation.
 module Corvus.Handlers.SshKey
-  ( -- * SSH key handlers
-    handleSshKeyCreate
+  ( -- * Action types
+    SshKeyCreate (..)
+  , SshKeyDelete (..)
+  , SshKeyAttach (..)
+  , SshKeyDetach (..)
+
+    -- * SSH key handlers
+  , handleSshKeyCreate
   , handleSshKeyDelete
   , handleSshKeyList
 
@@ -18,6 +24,8 @@ module Corvus.Handlers.SshKey
   , regenerateCloudInitIso
   )
 where
+
+import Corvus.Action
 
 import Control.Monad (forM, when)
 import Control.Monad.IO.Class (liftIO)
@@ -407,3 +415,48 @@ ensureDiskAttached pool vmKey diskId = do
             )
             pool
       logInfoN $ "Attached cloud-init disk as CDROM, drive ID: " <> T.pack (show $ fromSqlKey driveId)
+
+--------------------------------------------------------------------------------
+-- Action Types
+--------------------------------------------------------------------------------
+
+data SshKeyCreate = SshKeyCreate
+  { skcName :: Text
+  , skcPublicKey :: Text
+  }
+
+instance Action SshKeyCreate where
+  actionSubsystem _ = SubSshKey
+  actionCommand _ = "create"
+  actionEntityName = Just . skcName
+  actionExecute ctx a = handleSshKeyCreate (acState ctx) (skcName a) (skcPublicKey a)
+
+newtype SshKeyDelete = SshKeyDelete {skdKeyId :: Int64}
+
+instance Action SshKeyDelete where
+  actionSubsystem _ = SubSshKey
+  actionCommand _ = "delete"
+  actionEntityId = Just . fromIntegral . skdKeyId
+  actionExecute ctx a = handleSshKeyDelete (acState ctx) (skdKeyId a)
+
+data SshKeyAttach = SshKeyAttach
+  { skaVmId :: Int64
+  , skaKeyId :: Int64
+  }
+
+instance Action SshKeyAttach where
+  actionSubsystem _ = SubSshKey
+  actionCommand _ = "attach"
+  actionEntityId = Just . fromIntegral . skaKeyId
+  actionExecute ctx a = handleSshKeyAttach (acState ctx) (skaVmId a) (skaKeyId a)
+
+data SshKeyDetach = SshKeyDetach
+  { skdetVmId :: Int64
+  , skdetKeyId :: Int64
+  }
+
+instance Action SshKeyDetach where
+  actionSubsystem _ = SubSshKey
+  actionCommand _ = "detach"
+  actionEntityId = Just . fromIntegral . skdetKeyId
+  actionExecute ctx a = handleSshKeyDetach (acState ctx) (skdetVmId a) (skdetKeyId a)

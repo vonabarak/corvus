@@ -1,15 +1,22 @@
 -- | Network interface management handlers.
 module Corvus.Handlers.NetIf
-  ( handleNetIfAdd
+  ( -- * Action types
+    NetIfAdd (..)
+  , NetIfRemove (..)
+
+    -- * Handlers
+  , handleNetIfAdd
   , handleNetIfRemove
   , handleNetIfList
   , generateMacAddress
   )
 where
 
+import Corvus.Action
+
 import Control.Monad (replicateM)
 import Control.Monad.IO.Class (liftIO)
-import Corvus.Model (NetInterfaceType (..), Network (..), NetworkInterface (..), Vm, VmId, VmStatus (..))
+import Corvus.Model (NetInterfaceType (..), Network (..), NetworkInterface (..), TaskSubsystem (..), Vm, VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types (ServerState (..))
@@ -161,3 +168,32 @@ listNetIfs vmId = do
           , niNetworkName = mNetworkName
           , niGuestIpAddresses = networkInterfaceGuestIpAddresses netIf
           }
+
+--------------------------------------------------------------------------------
+-- Action Types
+--------------------------------------------------------------------------------
+
+data NetIfAdd = NetIfAdd
+  { niaVmId :: Int64
+  , niaType :: NetInterfaceType
+  , niaHostDevice :: Text
+  , niaMacAddress :: Maybe Text
+  , niaNetworkId :: Maybe Int64
+  }
+
+instance Action NetIfAdd where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "add-netif"
+  actionEntityId = Just . fromIntegral . niaVmId
+  actionExecute ctx a = handleNetIfAdd (acState ctx) (niaVmId a) (niaType a) (niaHostDevice a) (niaMacAddress a) (niaNetworkId a)
+
+data NetIfRemove = NetIfRemove
+  { nirVmId :: Int64
+  , nirNetIfId :: Int64
+  }
+
+instance Action NetIfRemove where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "remove-netif"
+  actionEntityId = Just . fromIntegral . nirVmId
+  actionExecute ctx a = handleNetIfRemove (acState ctx) (nirVmId a) (nirNetIfId a)

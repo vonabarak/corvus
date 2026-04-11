@@ -1,8 +1,8 @@
 ---
 
-sshKeys:
-  - name: corvus
-    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
+#sshKeys:
+#  - name: corvus
+#    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
 
 disks:
   # Shared UEFI firmware code (read-only, from edk2 package)
@@ -20,9 +20,11 @@ disks:
     import: "di-amd64-cloudinit-20260316T093103Z.qcow2"
     format: qcow2
 
+#  - name: gentoo
+#    overlay: gentoo-cloud-base
+#    path: gentoo/
   - name: gentoo
-    overlay: gentoo-cloud-base
-    path: gentoo/
+    import: gentoo/gentoo.qcow2
 
   - name: gentoo-ovmf-vars
     clone: ovmf-vars
@@ -39,7 +41,7 @@ vms:
     cpuCount: 8
     ramMb: 32768
     description: "Gentoo"
-    cloudInit: true
+#    cloudInit: true
     guestAgent: true
     drives:
       - disk: gentoo
@@ -52,8 +54,8 @@ vms:
         readOnly: true
       - disk: gentoo-ovmf-vars
         interface: pflash
-    sshKeys:
-      - corvus
+#    sshKeys:
+#      - corvus
     networkInterfaces:
       - type: vde
         hostDevice: /run/vde2/switch.ctl

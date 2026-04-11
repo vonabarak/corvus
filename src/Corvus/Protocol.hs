@@ -827,6 +827,10 @@ data Response
     RespSerialConsoleOk
   | -- | Serial console buffer flushed
     RespSerialConsoleFlushed
+  | -- | Daemon startup completed
+    RespStartupComplete
+  | -- | Daemon shutdown completed
+    RespShutdownComplete
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

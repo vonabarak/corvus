@@ -66,6 +66,7 @@ library:
     - Corvus.Protocol
     - Corvus.Types
     - Corvus.Server
+    - Corvus.Action
     - Corvus.Handlers
     - Corvus.Handlers.Core
     - Corvus.Handlers.Vm
@@ -110,6 +111,7 @@ library:
     - Corvus.Handlers.Apply
     - Corvus.Handlers.CloudInit
     - Corvus.Handlers.Subtask
+    - Corvus.Handlers.Lifecycle
     - Corvus.Client.Commands.GuestExec
     - Corvus.Client.Commands.Apply
     - Corvus.Client.Completion

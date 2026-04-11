@@ -4,8 +4,24 @@
 -- | Disk image management handlers.
 -- Handles disk image CRUD operations, snapshots, and attach/detach.
 module Corvus.Handlers.Disk
-  ( -- * Disk image handlers
-    handleDiskCreate
+  ( -- * Action types
+    DiskCreate (..)
+  , DiskCreateOverlay (..)
+  , DiskRegister (..)
+  , DiskImportUrl (..)
+  , DiskDelete (..)
+  , DiskResize (..)
+  , DiskClone (..)
+  , DiskRefresh (..)
+  , SnapshotCreate (..)
+  , SnapshotDelete (..)
+  , SnapshotRollback (..)
+  , SnapshotMerge (..)
+  , DiskAttach (..)
+  , DiskDetachByDisk (..)
+
+    -- * Disk image handlers
+  , handleDiskCreate
   , handleDiskCreateOverlay
   , handleDiskRegister
   , handleDiskImportUrl
@@ -45,6 +61,8 @@ module Corvus.Handlers.Disk
   , cloneDiskIO
   )
 where
+
+import Corvus.Action
 
 import Control.Applicative ((<|>))
 import Control.Concurrent (threadDelay)
@@ -1254,3 +1272,166 @@ cloneDiskIO state name baseDiskId mDestPath = do
                   )
                   (ssDbPool state)
               pure $ Right $ fromSqlKey newDiskId
+
+--------------------------------------------------------------------------------
+-- Action Types
+--------------------------------------------------------------------------------
+
+data DiskCreate = DiskCreate
+  { dcrName :: Text
+  , dcrFormat :: DriveFormat
+  , dcrSizeMb :: Int64
+  , dcrPath :: Maybe Text
+  }
+
+instance Action DiskCreate where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "create"
+  actionEntityName = Just . dcrName
+  actionExecute ctx a = handleDiskCreate (acState ctx) (dcrName a) (dcrFormat a) (dcrSizeMb a) (dcrPath a)
+
+data DiskCreateOverlay = DiskCreateOverlay
+  { dcoName :: Text
+  , dcoBaseDiskId :: Int64
+  , dcoPath :: Maybe Text
+  }
+
+instance Action DiskCreateOverlay where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "overlay"
+  actionEntityName = Just . dcoName
+  actionExecute ctx a = handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoPath a)
+
+data DiskRegister = DiskRegister
+  { drgName :: Text
+  , drgPath :: Text
+  , drgFormat :: Maybe DriveFormat
+  }
+
+instance Action DiskRegister where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "import"
+  actionEntityName = Just . drgName
+  actionExecute ctx a = handleDiskRegister (acState ctx) (drgName a) (drgPath a) (drgFormat a)
+
+data DiskImportUrl = DiskImportUrl
+  { diuName :: Text
+  , diuUrl :: Text
+  , diuFormat :: Maybe Text
+  }
+
+instance Action DiskImportUrl where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "import-url"
+  actionEntityName = Just . diuName
+  actionExecute ctx a = handleDiskImportUrl (acState ctx) (diuName a) (diuUrl a) (diuFormat a)
+
+newtype DiskDelete = DiskDelete {ddelDiskId :: Int64}
+
+instance Action DiskDelete where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "delete"
+  actionEntityId = Just . fromIntegral . ddelDiskId
+  actionExecute ctx a = handleDiskDelete (acState ctx) (ddelDiskId a)
+
+data DiskResize = DiskResize
+  { drzDiskId :: Int64
+  , drzNewSizeMb :: Int64
+  }
+
+instance Action DiskResize where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "resize"
+  actionEntityId = Just . fromIntegral . drzDiskId
+  actionExecute ctx a = handleDiskResize (acState ctx) (drzDiskId a) (drzNewSizeMb a)
+
+data DiskClone = DiskClone
+  { dclName :: Text
+  , dclBaseDiskId :: Int64
+  , dclPath :: Maybe Text
+  }
+
+instance Action DiskClone where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "clone"
+  actionEntityName = Just . dclName
+  actionExecute ctx a = handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclPath a)
+
+newtype DiskRefresh = DiskRefresh {drfDiskId :: Int64}
+
+instance Action DiskRefresh where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "refresh"
+  actionEntityId = Just . fromIntegral . drfDiskId
+  actionExecute ctx a = handleDiskRefresh (acState ctx) (drfDiskId a)
+
+data SnapshotCreate = SnapshotCreate
+  { scrDiskId :: Int64
+  , scrName :: Text
+  }
+
+instance Action SnapshotCreate where
+  actionSubsystem _ = SubSnapshot
+  actionCommand _ = "create"
+  actionEntityId = Just . fromIntegral . scrDiskId
+  actionExecute ctx a = handleSnapshotCreate (acState ctx) (scrDiskId a) (scrName a)
+
+data SnapshotDelete = SnapshotDelete
+  { sdelDiskId :: Int64
+  , sdelSnapRef :: Ref
+  }
+
+instance Action SnapshotDelete where
+  actionSubsystem _ = SubSnapshot
+  actionCommand _ = "delete"
+  actionEntityId = Just . fromIntegral . sdelDiskId
+  actionExecute ctx a = handleSnapshotDelete (acState ctx) (sdelDiskId a) (sdelSnapRef a)
+
+data SnapshotRollback = SnapshotRollback
+  { srlDiskId :: Int64
+  , srlSnapRef :: Ref
+  }
+
+instance Action SnapshotRollback where
+  actionSubsystem _ = SubSnapshot
+  actionCommand _ = "rollback"
+  actionEntityId = Just . fromIntegral . srlDiskId
+  actionExecute ctx a = handleSnapshotRollback (acState ctx) (srlDiskId a) (srlSnapRef a)
+
+data SnapshotMerge = SnapshotMerge
+  { smrDiskId :: Int64
+  , smrSnapRef :: Ref
+  }
+
+instance Action SnapshotMerge where
+  actionSubsystem _ = SubSnapshot
+  actionCommand _ = "merge"
+  actionEntityId = Just . fromIntegral . smrDiskId
+  actionExecute ctx a = handleSnapshotMerge (acState ctx) (smrDiskId a) (smrSnapRef a)
+
+data DiskAttach = DiskAttach
+  { datVmId :: Int64
+  , datDiskId :: Int64
+  , datInterface :: DriveInterface
+  , datMedia :: Maybe DriveMedia
+  , datReadOnly :: Bool
+  , datDiscard :: Bool
+  , datCache :: CacheType
+  }
+
+instance Action DiskAttach where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "attach"
+  actionEntityId = Just . fromIntegral . datVmId
+  actionExecute ctx a = handleDiskAttach (acState ctx) (datVmId a) (datDiskId a) (datInterface a) (datMedia a) (datReadOnly a) (datDiscard a) (datCache a)
+
+data DiskDetachByDisk = DiskDetachByDisk
+  { ddbVmId :: Int64
+  , ddbDiskId :: Int64
+  }
+
+instance Action DiskDetachByDisk where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "detach"
+  actionEntityId = Just . fromIntegral . ddbVmId
+  actionExecute ctx a = handleDiskDetachByDisk (acState ctx) (ddbVmId a) (ddbDiskId a)

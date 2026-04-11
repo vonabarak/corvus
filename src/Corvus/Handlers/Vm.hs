@@ -4,8 +4,17 @@
 -- This module contains handlers for VM lifecycle operations:
 -- list, show, start, stop, pause, reset.
 module Corvus.Handlers.Vm
-  ( -- * Handlers
-    handleVmList
+  ( -- * Action types
+    VmCreate (..)
+  , VmDelete (..)
+  , VmStart (..)
+  , VmStop (..)
+  , VmEdit (..)
+  , VmPause (..)
+  , VmReset (..)
+
+    -- * Handlers
+  , handleVmList
   , handleVmShow
   , handleVmCreate
   , handleVmDelete
@@ -25,6 +34,8 @@ module Corvus.Handlers.Vm
   , validateTransition
   )
 where
+
+import Corvus.Action
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM (readTVarIO)
@@ -777,3 +788,113 @@ checkNetworksRunning vmId = do
           if networkRunning network
             then go rest
             else pure $ Just $ networkName network
+
+--------------------------------------------------------------------------------
+-- Action Types (simple handlers)
+--------------------------------------------------------------------------------
+
+data VmCreate = VmCreate
+  { vcrName :: Text
+  , vcrCpuCount :: Int
+  , vcrRamMb :: Int
+  , vcrDescription :: Maybe Text
+  , vcrHeadless :: Bool
+  , vcrGuestAgent :: Bool
+  , vcrCloudInit :: Bool
+  , vcrAutostart :: Bool
+  }
+
+instance Action VmCreate where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "create"
+  actionEntityName = Just . vcrName
+  actionExecute ctx a =
+    handleVmCreate
+      (acState ctx)
+      (vcrName a)
+      (vcrCpuCount a)
+      (vcrRamMb a)
+      (vcrDescription a)
+      (vcrHeadless a)
+      (vcrGuestAgent a)
+      (vcrCloudInit a)
+      (vcrAutostart a)
+
+newtype VmDelete = VmDelete {vdelVmId :: Int64}
+
+instance Action VmDelete where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "delete"
+  actionEntityId = Just . fromIntegral . vdelVmId
+  actionExecute ctx a = handleVmDelete (acState ctx) (vdelVmId a)
+
+data VmEdit = VmEdit
+  { vedVmId :: Int64
+  , vedCpus :: Maybe Int
+  , vedRam :: Maybe Int
+  , vedDesc :: Maybe Text
+  , vedHeadless :: Maybe Bool
+  , vedGuestAgent :: Maybe Bool
+  , vedCloudInit :: Maybe Bool
+  , vedAutostart :: Maybe Bool
+  }
+
+instance Action VmEdit where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "edit"
+  actionEntityId = Just . fromIntegral . vedVmId
+  actionExecute ctx a =
+    handleVmEdit
+      (acState ctx)
+      (vedVmId a)
+      (vedCpus a)
+      (vedRam a)
+      (vedDesc a)
+      (vedHeadless a)
+      (vedGuestAgent a)
+      (vedCloudInit a)
+      (vedAutostart a)
+
+newtype VmPause = VmPause {vpVmId :: Int64}
+
+instance Action VmPause where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "pause"
+  actionEntityId = Just . fromIntegral . vpVmId
+  actionExecute ctx a = handleVmPause (acState ctx) (vpVmId a)
+
+newtype VmReset = VmReset {vrstVmId :: Int64}
+
+instance Action VmReset where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "reset"
+  actionEntityId = Just . fromIntegral . vrstVmId
+  actionExecute ctx a = handleVmReset (acState ctx) (vrstVmId a)
+
+-- Complex handlers with validate/execute split
+
+newtype VmStart = VmStart {vsVmId :: Int64}
+
+instance Action VmStart where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "start"
+  actionEntityId = Just . fromIntegral . vsVmId
+  actionValidate state a = do
+    result <- handleVmStartValidate state (vsVmId a)
+    pure $ case result of
+      Left errResp -> Just errResp
+      Right _ -> Nothing
+  actionExecute ctx a = handleVmStartExecute (acState ctx) (vsVmId a) (acTaskId ctx)
+
+newtype VmStop = VmStop {vstpVmId :: Int64}
+
+instance Action VmStop where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "stop"
+  actionEntityId = Just . fromIntegral . vstpVmId
+  actionValidate state a = do
+    result <- handleVmStopValidate state (vstpVmId a)
+    pure $ case result of
+      Left errResp -> Just errResp
+      Right _ -> Nothing
+  actionExecute ctx a = handleVmStopExecute (acState ctx) (vstpVmId a)

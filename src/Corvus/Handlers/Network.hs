@@ -2,7 +2,15 @@
 
 -- | Virtual network management handlers.
 module Corvus.Handlers.Network
-  ( handleNetworkCreate
+  ( -- * Action types
+    NetworkCreate (..)
+  , NetworkDelete (..)
+  , NetworkStart (..)
+  , NetworkStop (..)
+  , NetworkEdit (..)
+
+    -- * Handlers
+  , handleNetworkCreate
   , handleNetworkDelete
   , handleNetworkStart
   , handleNetworkStop
@@ -11,6 +19,8 @@ module Corvus.Handlers.Network
   , handleNetworkEdit
   )
 where
+
+import Corvus.Action
 
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (unless, when)
@@ -355,3 +365,64 @@ toNetworkInfoWith nwId network =
     , nwiCreatedAt = networkCreatedAt network
     , nwiAutostart = networkAutostart network
     }
+
+--------------------------------------------------------------------------------
+-- Action Types
+--------------------------------------------------------------------------------
+
+data NetworkCreate = NetworkCreate
+  { ncrName :: Text
+  , ncrSubnet :: Text
+  , ncrDhcp :: Bool
+  , ncrNat :: Bool
+  , ncrAutostart :: Bool
+  }
+
+instance Action NetworkCreate where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "create"
+  actionEntityName = Just . ncrName
+  actionExecute ctx a = handleNetworkCreate (acState ctx) (ncrName a) (ncrSubnet a) (ncrDhcp a) (ncrNat a) (ncrAutostart a)
+
+newtype NetworkDelete = NetworkDelete {ndelNetworkId :: Int64}
+
+instance Action NetworkDelete where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "delete"
+  actionEntityId = Just . fromIntegral . ndelNetworkId
+  actionExecute ctx a = handleNetworkDelete (acState ctx) (ndelNetworkId a)
+
+data NetworkEdit = NetworkEdit
+  { nedNetworkId :: Int64
+  , nedSubnet :: Maybe Text
+  , nedDhcp :: Maybe Bool
+  , nedNat :: Maybe Bool
+  , nedAutostart :: Maybe Bool
+  }
+
+instance Action NetworkEdit where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "edit"
+  actionEntityId = Just . fromIntegral . nedNetworkId
+  actionExecute ctx a = handleNetworkEdit (acState ctx) (nedNetworkId a) (nedSubnet a) (nedDhcp a) (nedNat a) (nedAutostart a)
+
+-- Complex handlers with subtask creation
+
+newtype NetworkStart = NetworkStart {nstartNetworkId :: Int64}
+
+instance Action NetworkStart where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "start"
+  actionEntityId = Just . fromIntegral . nstartNetworkId
+  actionExecute ctx a = handleNetworkStart (acState ctx) (nstartNetworkId a) (acTaskId ctx)
+
+data NetworkStop = NetworkStop
+  { nstopNetworkId :: Int64
+  , nstopForce :: Bool
+  }
+
+instance Action NetworkStop where
+  actionSubsystem _ = SubNetwork
+  actionCommand _ = "stop"
+  actionEntityId = Just . fromIntegral . nstopNetworkId
+  actionExecute ctx a = handleNetworkStop (acState ctx) (nstopNetworkId a) (nstopForce a) (acTaskId ctx)

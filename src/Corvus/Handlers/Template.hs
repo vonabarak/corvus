@@ -3,7 +3,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Corvus.Handlers.Template
-  ( handleTemplateCreate
+  ( -- * Action types
+    TemplateCreate (..)
+  , TemplateDelete (..)
+  , TemplateInstantiate (..)
+
+    -- * Handlers
+  , handleTemplateCreate
   , handleTemplateList
   , handleTemplateShow
   , handleTemplateDelete
@@ -11,6 +17,9 @@ module Corvus.Handlers.Template
   , CloudInitConfigYaml (..)
   )
 where
+
+import Corvus.Action
+import Corvus.Handlers.Vm (VmCreate (..))
 
 import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
@@ -211,16 +220,26 @@ handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLoggin
   case mDetails of
     Nothing -> pure RespTemplateNotFound
     Just details -> do
-      -- Subtask 1: Create VM record
+      -- Subtask 1: Create VM record (delegates to VmCreate action)
       vmResult <- liftIO $ do
         let spec = SubtaskSpec SubVm "create" (Just newVmName)
         withOptionalSubtask
           pool
           (Just parentTaskId)
           spec
-          ( do
-              now <- getCurrentTime
-              Right . fromSqlKey <$> runSqlPool (insert $ Vm newVmName now VmStopped (tvdCpuCount details) (tvdRamMb details) (tvdDescription details) Nothing (tvdHeadless details) False (tvdCloudInit details) Nothing False) pool
+          ( executeCreate
+              state
+              ( VmCreate
+                  newVmName
+                  (tvdCpuCount details)
+                  (tvdRamMb details)
+                  (tvdDescription details)
+                  (tvdHeadless details)
+                  False -- guestAgent
+                  (tvdCloudInit details)
+                  False -- autostart
+              )
+              (toSqlKey 0)
           )
           (Just . fromIntegral)
       case vmResult of
@@ -535,3 +554,33 @@ instantiateDriveIO state vmId vmName td = runServerLogging state $ do
                   -- Attach to VM
                   liftIO $ runSqlPool (insert_ $ Drive vmId newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiCacheType td) (tvdiDiscard td)) (ssDbPool state)
                   pure $ Right ()
+
+--------------------------------------------------------------------------------
+-- Action Types
+--------------------------------------------------------------------------------
+
+newtype TemplateCreate = TemplateCreate {tcrYaml :: Text}
+
+instance Action TemplateCreate where
+  actionSubsystem _ = SubTemplate
+  actionCommand _ = "create"
+  actionExecute ctx a = handleTemplateCreate (acState ctx) (tcrYaml a)
+
+newtype TemplateDelete = TemplateDelete {tdelTemplateId :: Int64}
+
+instance Action TemplateDelete where
+  actionSubsystem _ = SubTemplate
+  actionCommand _ = "delete"
+  actionEntityId = Just . fromIntegral . tdelTemplateId
+  actionExecute ctx a = handleTemplateDelete (acState ctx) (tdelTemplateId a)
+
+data TemplateInstantiate = TemplateInstantiate
+  { tiTemplateId :: Int64
+  , tiName :: Text
+  }
+
+instance Action TemplateInstantiate where
+  actionSubsystem _ = SubTemplate
+  actionCommand _ = "instantiate"
+  actionEntityId = Just . fromIntegral . tiTemplateId
+  actionExecute ctx a = handleTemplateInstantiate (acState ctx) (tiTemplateId a) (tiName a) (acTaskId ctx)

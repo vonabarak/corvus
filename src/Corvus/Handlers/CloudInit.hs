@@ -4,11 +4,18 @@
 -- | Cloud-init configuration handlers.
 -- Handles CRUD operations for custom cloud-init configs per VM.
 module Corvus.Handlers.CloudInit
-  ( handleCloudInitSet
+  ( -- * Action types
+    CloudInitSet (..)
+  , CloudInitDelete (..)
+
+    -- * Handlers
+  , handleCloudInitSet
   , handleCloudInitGet
   , handleCloudInitDelete
   )
 where
+
+import Corvus.Action
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN)
@@ -123,3 +130,28 @@ handleCloudInitDelete state vmId = runServerLogging state $ do
           case ciResult of
             Left err -> pure $ RespError $ "Cloud-init ISO regeneration failed: " <> err
             Right _ -> pure RespCloudInitOk
+
+--------------------------------------------------------------------------------
+-- Action Types
+--------------------------------------------------------------------------------
+
+data CloudInitSet = CloudInitSet
+  { cisVmId :: Int64
+  , cisUserData :: Maybe Text
+  , cisNetworkConfig :: Maybe Text
+  , cisInjectKeys :: Bool
+  }
+
+instance Action CloudInitSet where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "cloud-init-set"
+  actionEntityId = Just . fromIntegral . cisVmId
+  actionExecute ctx a = handleCloudInitSet (acState ctx) (cisVmId a) (cisUserData a) (cisNetworkConfig a) (cisInjectKeys a)
+
+newtype CloudInitDelete = CloudInitDelete {cidVmId :: Int64}
+
+instance Action CloudInitDelete where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "cloud-init-delete"
+  actionEntityId = Just . fromIntegral . cidVmId
+  actionExecute ctx a = handleCloudInitDelete (acState ctx) (cidVmId a)

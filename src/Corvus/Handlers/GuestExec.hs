@@ -3,9 +3,15 @@
 -- | Guest command execution handler.
 -- Executes commands inside running VMs via the QEMU Guest Agent.
 module Corvus.Handlers.GuestExec
-  ( handleGuestExec
+  ( -- * Action types
+    GuestExec (..)
+
+    -- * Handlers
+  , handleGuestExec
   )
 where
+
+import Corvus.Action
 
 import Corvus.Model (VmStatus (..))
 import Corvus.Model hiding (VmStatus)
@@ -50,3 +56,18 @@ getVmForExec vmId = do
   pure $ case mVm of
     Nothing -> Nothing
     Just vm -> Just (vmStatus vm, vmGuestAgent vm)
+
+--------------------------------------------------------------------------------
+-- Action Types
+--------------------------------------------------------------------------------
+
+data GuestExec = GuestExec
+  { geVmId :: Int64
+  , geCommand :: Text
+  }
+
+instance Action GuestExec where
+  actionSubsystem _ = SubVm
+  actionCommand _ = "guest-exec"
+  actionEntityId = Just . fromIntegral . geVmId
+  actionExecute ctx a = handleGuestExec (acState ctx) (geVmId a) (geCommand a)

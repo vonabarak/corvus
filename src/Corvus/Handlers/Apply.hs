@@ -1,13 +1,20 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Handler for applying declarative environment configurations from YAML.
 -- Creates SSH keys, disks, networks, and VMs in dependency order.
 module Corvus.Handlers.Apply
-  ( handleApplyValidate
+  ( -- * Action types
+    ApplyAction (..)
+
+    -- * Handlers
+  , handleApplyValidate
   , handleApplyExecute
   )
 where
+
+import Corvus.Action
 
 import Control.Applicative ((<|>))
 import Control.Exception (SomeException, try)
@@ -23,10 +30,12 @@ import Corvus.Handlers.Disk
   , registerDiskIO
   )
 import Corvus.Handlers.NetIf (generateMacAddress)
+import Corvus.Handlers.Network (NetworkCreate (..))
 import Corvus.Handlers.Resolve (validateName)
-import Corvus.Handlers.SshKey (regenerateCloudInitIso)
+import Corvus.Handlers.SshKey (SshKeyCreate (..), regenerateCloudInitIso)
 import Corvus.Handlers.Subtask
 import Corvus.Handlers.Template (CloudInitConfigYaml (..))
+import Corvus.Handlers.Vm (VmCreate (..))
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.Image (isHttpUrl)
@@ -488,26 +497,14 @@ createOneSshKeyTracked state k (_, subId) _m skipExisting parentId pool = do
       pure $ Right (askName k, existingId)
     Nothing -> do
       startSubtask pool subId
-      now <- getCurrentTime
-      result <-
-        try $
-          runSqlPool
-            ( insert
-                SshKey
-                  { sshKeyName = askName k
-                  , sshKeyPublicKey = askPublicKey k
-                  , sshKeyCreatedAt = now
-                  }
-            )
-            (ssDbPool state)
+      result <- executeCreate state (SshKeyCreate (askName k) (askPublicKey k)) subId
       case result of
-        Left e -> do
-          let err = "SSH key '" <> askName k <> "': " <> formatException e
-          completeSubtask pool subId TaskError (Just err) Nothing
+        Left err -> do
+          let fullErr = "SSH key '" <> askName k <> "': " <> err
+          completeSubtask pool subId TaskError (Just fullErr) Nothing
           cancelRemainingSubtasks pool parentId
-          pure $ Left err
-        Right keyEntity -> do
-          let keyId = fromSqlKey keyEntity
+          pure $ Left fullErr
+        Right keyId -> do
           completeSubtask pool subId TaskSuccess Nothing (Just (fromIntegral keyId))
           pure $ Right (askName k, keyId)
 
@@ -564,31 +561,14 @@ createOneNetworkTracked state n (_, subId) _nwMap skipExisting parentId pool = d
       pure $ Right (anName n, existingId)
     Nothing -> do
       startSubtask pool subId
-      now <- getCurrentTime
-      result <-
-        try $
-          runSqlPool
-            ( insert
-                Network
-                  { networkName = anName n
-                  , networkSubnet = anSubnet n
-                  , networkDhcp = anDhcp n
-                  , networkNat = anNat n
-                  , networkRunning = False
-                  , networkDnsmasqPid = Nothing
-                  , networkCreatedAt = now
-                  , networkAutostart = anAutostart n
-                  }
-            )
-            (ssDbPool state)
+      result <- executeCreate state (NetworkCreate (anName n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n)) subId
       case result of
-        Left e -> do
-          let err = "Network '" <> anName n <> "': " <> formatException e
-          completeSubtask pool subId TaskError (Just err) Nothing
+        Left err -> do
+          let fullErr = "Network '" <> anName n <> "': " <> err
+          completeSubtask pool subId TaskError (Just fullErr) Nothing
           cancelRemainingSubtasks pool parentId
-          pure $ Left err
-        Right nwId -> do
-          let nid = fromSqlKey nwId
+          pure $ Left fullErr
+        Right nid -> do
           completeSubtask pool subId TaskSuccess Nothing (Just (fromIntegral nid))
           pure $ Right (anName n, nid)
 
@@ -665,30 +645,25 @@ createOneVm
   -> ApplyVm
   -> IO (Either Text Int64)
 createOneVm state keyMap diskMap nwMap v = do
-  now <- getCurrentTime
+  -- Use a dummy TaskId since VM creation doesn't create subtasks
+  let dummyTaskId = toSqlKey 0
   vmResult <-
-    try $
-      runSqlPool
-        ( insert
-            Vm
-              { vmName = avName v
-              , vmCreatedAt = now
-              , vmStatus = VmStopped
-              , vmCpuCount = avCpuCount v
-              , vmRamMb = avRamMb v
-              , vmDescription = avDescription v
-              , vmPid = Nothing
-              , vmHeadless = avHeadless v
-              , vmGuestAgent = avGuestAgent v
-              , vmCloudInit = effectiveCloudInit v
-              , vmHealthcheck = Nothing
-              , vmAutostart = avAutostart v
-              }
-        )
-        (ssDbPool state)
+    executeCreate
+      state
+      ( VmCreate
+          (avName v)
+          (avCpuCount v)
+          (avRamMb v)
+          (avDescription v)
+          (avHeadless v)
+          (avGuestAgent v)
+          (effectiveCloudInit v)
+          (avAutostart v)
+      )
+      dummyTaskId
   case vmResult of
-    Left e -> pure $ Left $ "VM '" <> avName v <> "': " <> formatException e
-    Right vmId -> createOneVmAttachments state keyMap diskMap nwMap v vmId
+    Left err -> pure $ Left $ "VM '" <> avName v <> "': " <> err
+    Right vmId -> createOneVmAttachments state keyMap diskMap nwMap v (toSqlKey vmId)
 
 createOneVmAttachments
   :: ServerState
@@ -843,3 +818,17 @@ resolveByName state mkUnique localMap name = case Map.lookup name localMap of
   Nothing -> do
     mEntity <- runSqlPool (getBy (mkUnique name)) (ssDbPool state)
     pure $ fmap (fromSqlKey . entityKey) mEntity
+
+--------------------------------------------------------------------------------
+-- Action Types
+--------------------------------------------------------------------------------
+
+data ApplyAction = ApplyAction
+  { aaConfig :: ApplyConfig
+  , aaSkipExisting :: Bool
+  }
+
+instance Action ApplyAction where
+  actionSubsystem _ = SubApply
+  actionCommand _ = "apply"
+  actionExecute ctx a = handleApplyExecute (acState ctx) (aaConfig a) (aaSkipExisting a) (acTaskId ctx)

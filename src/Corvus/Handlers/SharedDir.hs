@@ -4,12 +4,18 @@
 -- | Shared directory management handlers.
 -- Handles adding, removing, and listing shared directories for VMs.
 module Corvus.Handlers.SharedDir
-  ( -- * Handlers
-    handleSharedDirAdd
+  ( -- * Action types
+    SharedDirAdd (..)
+  , SharedDirRemove (..)
+
+    -- * Handlers
+  , handleSharedDirAdd
   , handleSharedDirRemove
   , handleSharedDirList
   )
 where
+
+import Corvus.Action
 
 import Control.Monad.Logger (logDebugN, logInfoN)
 import Corvus.Handlers.Resolve (validateName)
@@ -145,3 +151,32 @@ toSharedDirInfo (Entity key dir) =
     , sdiReadOnly = sharedDirReadOnly dir
     , sdiPid = sharedDirPid dir
     }
+
+--------------------------------------------------------------------------------
+-- Action Types
+--------------------------------------------------------------------------------
+
+data SharedDirAdd = SharedDirAdd
+  { sdaVmId :: Int64
+  , sdaPath :: Text
+  , sdaTag :: Text
+  , sdaCache :: SharedDirCache
+  , sdaReadOnly :: Bool
+  }
+
+instance Action SharedDirAdd where
+  actionSubsystem _ = SubSharedDir
+  actionCommand _ = "add"
+  actionEntityId = Just . fromIntegral . sdaVmId
+  actionExecute ctx a = handleSharedDirAdd (acState ctx) (sdaVmId a) (sdaPath a) (sdaTag a) (sdaCache a) (sdaReadOnly a)
+
+data SharedDirRemove = SharedDirRemove
+  { sdrVmId :: Int64
+  , sdrDirId :: Int64
+  }
+
+instance Action SharedDirRemove where
+  actionSubsystem _ = SubSharedDir
+  actionCommand _ = "remove"
+  actionEntityId = Just . fromIntegral . sdrVmId
+  actionExecute ctx a = handleSharedDirRemove (acState ctx) (sdrVmId a) (sdrDirId a)
