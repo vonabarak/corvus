@@ -19,6 +19,7 @@ module Corvus.Handlers.Disk
   , SnapshotMerge (..)
   , DiskAttach (..)
   , DiskDetachByDisk (..)
+  , DiskRebase (..)
 
     -- * Disk image handlers
   , handleDiskCreate
@@ -30,6 +31,7 @@ module Corvus.Handlers.Disk
   , handleDiskList
   , handleDiskShow
   , handleDiskClone
+  , handleDiskRebase
   , handleDiskRefresh
 
     -- * Snapshot handlers
@@ -430,6 +432,91 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath = runServerLogging 
                     Nothing -> pure ()
                   logInfoN $ "Cloned disk image with ID: " <> T.pack (show $ fromSqlKey newDiskId)
                   pure $ RespDiskCreated $ fromSqlKey newDiskId
+
+-- | Rebase an overlay to a different backing image, or flatten (remove backing).
+handleDiskRebase :: ServerState -> Int64 -> Maybe Int64 -> Bool -> IO Response
+handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
+  logInfoN $ "Rebasing disk image: " <> T.pack (show diskId)
+
+  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+  case mDisk of
+    Nothing -> pure RespDiskNotFound
+    Just disk -> do
+      -- Must be qcow2
+      if diskImageFormat disk /= FormatQcow2
+        then pure $ RespFormatNotSupported "Rebase requires qcow2 format"
+        else case diskImageBackingImageId disk of
+          Nothing -> pure $ RespError "Disk is not an overlay"
+          Just _ -> do
+            -- Must not be attached to running/paused VMs
+            runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
+            if not (null runningVms)
+              then pure RespVmMustBeStopped
+              else do
+                overlayPath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                case mNewBackingId of
+                  -- Flatten: remove backing
+                  Nothing -> do
+                    logInfoN "Flattening overlay (removing backing)"
+                    result <- liftIO $ rebaseImage overlayPath Nothing unsafe
+                    case result of
+                      ImageSuccess -> do
+                        liftIO $
+                          runSqlPool
+                            (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Nothing])
+                            (ssDbPool state)
+                        -- Refresh size since flatten merges backing data
+                        mSize <- liftIO $ getImageSizeMb overlayPath
+                        case mSize of
+                          Just newSize ->
+                            liftIO $
+                              runSqlPool
+                                (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
+                                (ssDbPool state)
+                          Nothing -> pure ()
+                        logInfoN "Overlay flattened successfully"
+                        pure RespDiskOk
+                      ImageNotFound -> pure $ RespError "Overlay file not found on disk"
+                      ImageError err -> do
+                        logWarnN $ "Failed to flatten overlay: " <> err
+                        pure $ RespError err
+                      _ -> pure $ RespError "Unexpected rebase result"
+                  -- Rebase to new backing
+                  Just newBackingId -> do
+                    mNewBacking <- liftIO $ runSqlPool (get (toSqlKey newBackingId :: DiskImageId)) (ssDbPool state)
+                    case mNewBacking of
+                      Nothing -> pure $ RespError "New backing image not found"
+                      Just newBacking -> do
+                        -- Check circular dependency
+                        circular <- liftIO $ runSqlPool (isCircularBacking diskId newBackingId) (ssDbPool state)
+                        if circular
+                          then pure $ RespError "Circular backing dependency detected"
+                          else do
+                            newBackingPath <- liftIO $ resolveDiskPath (ssQemuConfig state) newBacking
+                            logInfoN $ "Rebasing to new backing: " <> T.pack newBackingPath
+                            result <- liftIO $ rebaseImage overlayPath (Just (newBackingPath, diskImageFormat newBacking)) unsafe
+                            case result of
+                              ImageSuccess -> do
+                                liftIO $
+                                  runSqlPool
+                                    (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Just (toSqlKey newBackingId)])
+                                    (ssDbPool state)
+                                -- Refresh size
+                                mSize <- liftIO $ getImageSizeMb overlayPath
+                                case mSize of
+                                  Just newSize ->
+                                    liftIO $
+                                      runSqlPool
+                                        (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
+                                        (ssDbPool state)
+                                  Nothing -> pure ()
+                                logInfoN "Overlay rebased successfully"
+                                pure RespDiskOk
+                              ImageNotFound -> pure $ RespError "Overlay file not found on disk"
+                              ImageError err -> do
+                                logWarnN $ "Failed to rebase overlay: " <> err
+                                pure $ RespError err
+                              _ -> pure $ RespError "Unexpected rebase result"
 
 -- | Refresh a disk image's size by querying qemu-img info
 handleDiskRefresh :: ServerState -> Int64 -> IO Response
@@ -910,6 +997,23 @@ getOverlayIds diskId = do
   overlays <- selectList [M.DiskImageBackingImageId ==. Just (toSqlKey diskId)] []
   pure $ map (\(Entity key d) -> (fromSqlKey key, diskImageName d)) overlays
 
+-- | Check if newBackingId transitively depends on diskId via the backing chain.
+-- Returns True if making diskId backed by newBackingId would create a cycle.
+isCircularBacking :: Int64 -> Int64 -> SqlPersistT IO Bool
+isCircularBacking diskId newBackingId
+  | diskId == newBackingId = pure True
+  | otherwise = walk newBackingId
+  where
+    walk currentId = do
+      mDisk <- get (toSqlKey currentId :: DiskImageId)
+      case mDisk of
+        Nothing -> pure False
+        Just disk -> case diskImageBackingImageId disk of
+          Nothing -> pure False
+          Just parentKey ->
+            let parentId = fromSqlKey parentKey
+             in if parentId == diskId then pure True else walk parentId
+
 -- | Delete disk and its snapshots
 deleteDiskAndSnapshots :: Int64 -> SqlPersistT IO ()
 deleteDiskAndSnapshots diskId = do
@@ -1122,6 +1226,19 @@ instance Action DiskClone where
   actionCommand _ = "clone"
   actionEntityName = Just . dclName
   actionExecute ctx a = handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResizeMb a) (dclPath a)
+
+data DiskRebase = DiskRebase
+  { drbDiskId :: Int64
+  , drbNewBackingId :: Maybe Int64
+  , drbUnsafe :: Bool
+  }
+
+instance Action DiskRebase where
+  actionSubsystem _ = SubDisk
+  actionCommand (DiskRebase _ Nothing _) = "flatten"
+  actionCommand (DiskRebase _ (Just _) _) = "rebase"
+  actionEntityId = Just . fromIntegral . drbDiskId
+  actionExecute ctx a = handleDiskRebase (acState ctx) (drbDiskId a) (drbNewBackingId a) (drbUnsafe a)
 
 newtype DiskRefresh = DiskRefresh {drfDiskId :: Int64}
 

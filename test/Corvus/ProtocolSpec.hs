@@ -75,6 +75,7 @@ instance Arbitrary Request where
       , ReqVmReset <$> arbitrary
       , ReqDiskCreate "disk" <$> arbitrary <*> arbitrary <*> pure Nothing
       , ReqDiskDelete <$> arbitrary
+      , ReqDiskRebase <$> arbitrary <*> arbitrary <*> arbitrary
       , pure ReqDiskList
       , ReqDiskShow <$> arbitrary
       , ReqSnapshotCreate <$> arbitrary <*> pure "snap"

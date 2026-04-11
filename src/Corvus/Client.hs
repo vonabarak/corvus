@@ -54,6 +54,7 @@ module Corvus.Client
   , diskDelete
   , diskResize
   , diskClone
+  , diskRebase
   , diskList
   , diskShow
   , diskAttach

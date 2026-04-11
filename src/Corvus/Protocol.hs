@@ -64,7 +64,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 22
+protocolVersion = 23
 
 -- | Client requests
 data Request
@@ -105,6 +105,8 @@ data Request
     ReqDiskShow !Ref
   | -- | Clone disk image (name, baseDiskRef, optionalPath)
     ReqDiskClone !Text !Ref !(Maybe Text)
+  | -- | Rebase overlay to new backing or flatten (diskRef, newBackingRef, unsafe)
+    ReqDiskRebase !Ref !(Maybe Ref) !Bool
   | -- | Snapshot operations (qcow2 only)
     -- | Create snapshot (diskRef, snapshotName)
     ReqSnapshotCreate !Ref !Text

@@ -89,6 +89,8 @@ data Command
     DiskShow !Text
   | -- | Clone disk image (name, baseDiskRef, optionalPath)
     DiskClone !Text !Text !(Maybe Text)
+  | -- | Rebase overlay to new backing or flatten (diskRef, newBackingRef, unsafe)
+    DiskRebase !Text !(Maybe Text) !Bool
   | -- | Attach disk to VM (vmRef, diskRef, interface, media, readOnly, discard, cache)
     DiskAttach !Text !Text !Text !(Maybe Text) !Bool !Bool !Text
   | -- | Detach disk from VM (vmRef, diskRef)

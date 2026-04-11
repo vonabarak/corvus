@@ -26,7 +26,7 @@ src/Corvus/
 ├── Handlers/
 │   ├── Core.hs          # Ping, status, shutdown
 │   ├── Vm.hs            # VM lifecycle + state machine validation
-│   ├── Disk.hs          # Disk image CRUD, snapshots, attach/detach, HTTP import
+│   ├── Disk.hs          # Disk image CRUD, snapshots, attach/detach, HTTP import, rebase/flatten
 │   ├── Template.hs      # YAML template parsing and instantiation
 │   ├── Apply.hs         # Declarative environment (crv apply) YAML handler
 │   ├── SshKey.hs        # SSH key management (cloud-init gated)

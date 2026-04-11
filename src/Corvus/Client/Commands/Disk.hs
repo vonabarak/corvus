@@ -12,6 +12,7 @@ module Corvus.Client.Commands.Disk
   , handleDiskList
   , handleDiskShow
   , handleDiskClone
+  , handleDiskRebase
   , handleDiskRefresh
   , handleDiskAttach
   , handleDiskDetach
@@ -401,6 +402,50 @@ handleDiskClone fmt conn name baseDiskRef optionalPath = do
       if isStructured fmt
         then outputError fmt "error" msg
         else putStrLn $ "Error cloning disk: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
+      pure False
+
+-- | Handle disk rebase command
+handleDiskRebase :: OutputFormat -> Connection -> Text -> Maybe Text -> Bool -> IO Bool
+handleDiskRebase fmt conn diskRef mNewBacking unsafe = do
+  resp <- diskRebase conn diskRef mNewBacking unsafe
+  case resp of
+    Left err -> do
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
+      pure False
+    Right DiskOk -> do
+      let msg = case mNewBacking of
+            Nothing -> "Disk flattened (backing merged into overlay)."
+            Just _ -> "Disk rebased to new backing image."
+      if isStructured fmt
+        then outputOk fmt
+        else putStrLn msg
+      pure True
+    Right DiskNotFound -> do
+      if isStructured fmt
+        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
+        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      pure False
+    Right VmMustBeStopped -> do
+      if isStructured fmt
+        then outputError fmt "vm_must_be_stopped" "VM must be stopped for this operation"
+        else putStrLn "Error: Disk is attached to a running VM. Please stop the VM first."
+      pure False
+    Right (FormatNotSupported msg) -> do
+      if isStructured fmt
+        then outputError fmt "format_not_supported" msg
+        else putStrLn $ "Error: " ++ T.unpack msg
+      pure False
+    Right (DiskError msg) -> do
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
       if isStructured fmt

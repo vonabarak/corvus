@@ -3,6 +3,7 @@
 
 module Corvus.DiskSpec (spec) where
 
+import Corvus.Client.Rpc (DiskResult (..))
 import Corvus.Handlers.Disk (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Model (DiskImage (..), DriveFormat (..))
 import Corvus.Protocol (DiskImageInfo (..), Ref (..), Request (..), Response (..))
@@ -412,6 +413,40 @@ spec = sequential $ do
         then_ $ do
           responseIsDiskCreated
           diskImageHasPath 1 "foo.qcow2"
+
+    describe "disk rebase" $ do
+      testCase "fails for non-existent disk" $ do
+        result <- diskRebase 999 Nothing False
+        liftIO $ result `shouldBe` DiskNotFound
+
+      testCase "fails for disk without backing" $ do
+        given $ do
+          _ <- insertDiskImage "plain-disk" "plain.qcow2" FormatQcow2
+          pure ()
+        result <- diskRebase 1 Nothing False
+        liftIO $ case result of
+          DiskError msg -> msg `shouldSatisfy` T.isInfixOf "not an overlay"
+          other -> fail $ "Expected DiskError, got: " ++ show other
+
+      testCase "fails for non-qcow2 disk" $ do
+        given $ do
+          baseId <- insertDiskImage "base" "base.qcow2" FormatQcow2
+          _ <- insertDiskImageWithBacking "raw-overlay" "raw.img" FormatRaw Nothing (Just baseId)
+          pure ()
+        result <- diskRebase 2 Nothing False
+        liftIO $ case result of
+          FormatNotSupported _ -> pure ()
+          other -> fail $ "Expected FormatNotSupported, got: " ++ show other
+
+      testCase "fails for disk attached to running VM" $ do
+        given $ do
+          baseId <- insertDiskImage "base" "base.qcow2" FormatQcow2
+          overlayId <- insertDiskImageWithBacking "overlay" "overlay.qcow2" FormatQcow2 Nothing (Just baseId)
+          vmId <- insertVm "running-vm" VmRunning
+          _ <- attachDrive vmId overlayId InterfaceVirtio
+          pure ()
+        result <- diskRebase 2 Nothing False
+        liftIO $ result `shouldBe` VmMustBeStopped
 
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True

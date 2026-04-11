@@ -14,6 +14,7 @@ module Test.DSL.When
   , diskCreateOverlay
   , diskRegister
   , diskClone
+  , diskRebase
   , diskDelete
   , diskResize
   , diskList
@@ -236,6 +237,11 @@ diskRegister name filePath format =
 diskClone :: Text -> Int64 -> Maybe Text -> TestM DiskResult
 diskClone name baseDiskId optionalPath =
   executeRpc (\conn -> Rpc.diskClone conn name (toRef baseDiskId) optionalPath)
+
+-- | Rebase an overlay to a different backing or flatten
+diskRebase :: Int64 -> Maybe Int64 -> Bool -> TestM DiskResult
+diskRebase diskId mNewBackingId unsafe =
+  executeRpc (\conn -> Rpc.diskRebase conn (toRef diskId) (fmap toRef mNewBackingId) unsafe)
 
 -- | Delete a disk image
 diskDelete :: Int64 -> TestM DiskResult

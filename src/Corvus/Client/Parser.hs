@@ -579,6 +579,30 @@ diskCloneCommand =
           )
       )
 
+-- | Parser for disk rebase
+diskRebaseCommand :: Parser Command
+diskRebaseCommand =
+  DiskRebase
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the overlay disk image to rebase"
+          <> completer diskCompleter
+      )
+    <*> optional
+      ( strOption
+          ( long "backing"
+              <> short 'b'
+              <> metavar "BACKING"
+              <> help "New backing image (name or ID). Omit to flatten (merge backing into overlay)."
+              <> completer diskCompleter
+          )
+      )
+    <*> switch
+      ( long "unsafe"
+          <> help "Only update backing pointer without data transformation (use when old and new backing have identical content)"
+      )
+
 -- | Parser for all disk subcommands
 diskCommandParser :: Parser Command
 diskCommandParser =
@@ -607,6 +631,9 @@ diskCommandParser =
         <> command
           "clone"
           (info diskCloneCommand (progDesc "Clone a disk image"))
+        <> command
+          "rebase"
+          (info diskRebaseCommand (progDesc "Rebase overlay to a different backing image, or flatten"))
         <> command
           "attach"
           (info diskAttachCommand (progDesc "Attach a disk to a VM"))

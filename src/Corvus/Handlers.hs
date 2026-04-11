@@ -114,6 +114,14 @@ handleRequest state = \case
     runAction state (DiskResize diskId newSizeMb)
   ReqDiskClone name baseDiskRef optPath -> withDisk baseDiskRef $ \baseDiskId ->
     runAction state (DiskClone name baseDiskId Nothing optPath)
+  ReqDiskRebase diskRef mBackingRef unsafe -> withDisk diskRef $ \diskId ->
+    case mBackingRef of
+      Nothing -> runAction state (DiskRebase diskId Nothing unsafe)
+      Just backingRef -> do
+        r <- resolveDisk backingRef pool
+        case r of
+          Left _ -> pure RespDiskNotFound
+          Right backingId -> runAction state (DiskRebase diskId (Just backingId) unsafe)
   -- Snapshot mutations
   ReqSnapshotCreate diskRef name -> withDisk diskRef $ \diskId ->
     runAction state (SnapshotCreate diskId name)

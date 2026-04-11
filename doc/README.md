@@ -9,7 +9,7 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 
 - **VM Lifecycle Management**: Start, stop, pause, and reset virtual machines
 - **State Machine**: Enforces valid state transitions (stopped → running → paused, etc.)
-- **Disk Image Management**: Create, resize, and attach qcow2/raw/vmdk/vdi disk images; import from local path or HTTP URL
+- **Disk Image Management**: Create, resize, clone, overlay, rebase, and attach qcow2/raw/vmdk/vdi disk images; import from local path or HTTP URL
 - **Snapshot Support**: Create, rollback, merge, and delete qcow2 snapshots
 - **Cloud-Init Integration**: Optional per-VM cloud-init with SSH key injection via NoCloud datasource; custom user-data and network-config per VM; lazy ISO generation on first SSH key attach or VM start
 - **QEMU Guest Agent**: Execute commands in guests, periodic health checks and network address discovery via QGA protocol
@@ -113,6 +113,12 @@ crv disk list                    # List all disk images
 crv disk show <disk_id>          # Show disk details
 crv disk delete <disk_id>        # Delete a disk image
 crv disk resize <disk_id> -s <size>  # Resize disk (VM must be stopped)
+
+# Overlay and clone
+crv disk overlay <name> --base <disk>            # Create qcow2 overlay backed by existing disk
+crv disk clone <name> --base <disk>              # Full copy of a disk image
+crv disk rebase <disk> --backing <new_backing>   # Change overlay's backing image
+crv disk rebase <disk>                           # Flatten: merge backing into overlay (standalone)
 
 # Attach/detach disks to VMs
 crv disk attach <vm_id> <disk_id> [-i <interface>] [-m <media>]

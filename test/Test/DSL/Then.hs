@@ -66,6 +66,7 @@ module Test.DSL.Then
   , vmCount
   , diskImageExists
   , diskImageNotExists
+  , diskImageHasBacking
   , diskImageCount
   , driveExists
   , driveNotExists
@@ -100,7 +101,7 @@ import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Sql (toSqlKey)
+import Database.Persist.Sql (fromSqlKey, toSqlKey)
 import Test.DSL.Core (TestM, getLastResponse, runDb)
 import Test.Hspec.Expectations (shouldBe, shouldSatisfy)
 
@@ -258,6 +259,14 @@ diskImageHasPath diskId expectedPath = do
   case mDisk of
     Nothing -> liftIO $ fail $ "Disk image " ++ show diskId ++ " not found"
     Just disk -> liftIO $ diskImageFilePath disk `shouldBe` expectedPath
+
+-- | Assert that a disk image has a specific backing image (or none)
+diskImageHasBacking :: Int64 -> Maybe Int64 -> TestM ()
+diskImageHasBacking diskId expectedBackingId = do
+  mDisk <- runDb $ get (toSqlKey diskId :: Key DiskImage)
+  case mDisk of
+    Nothing -> liftIO $ fail $ "Disk image " ++ show diskId ++ " not found"
+    Just disk -> liftIO $ fmap fromSqlKey (diskImageBackingImageId disk) `shouldBe` expectedBackingId
 
 -- | Assert the total number of disk images
 diskImageCount :: Int -> TestM ()

@@ -124,6 +124,47 @@ spec = withTestDb $ do
           daemon <- startTestDaemon env
           runOverlayTest daemon basePath `finally_` stopTestDaemon daemon
 
+  describe "Disk rebase integration (requires qemu-img)" $ do
+    it "flattens an overlay into a standalone disk" $ \env -> do
+      withSystemTempDirectory "corvus-rebase-test" $ \tmpDir -> do
+        let vmDir = tmpDir </> "VMs"
+            basePath = vmDir </> "base.qcow2"
+        createDirectoryIfMissing True vmDir
+        -- Create base image with some content
+        (code, _, err) <-
+          readProcessWithExitCode "qemu-img" ["create", "-f", "qcow2", basePath, "1M"] ""
+        case code of
+          ExitFailure _ -> fail $ "qemu-img create failed: " ++ err
+          ExitSuccess -> pure ()
+
+        oldHome <- lookup "HOME" <$> getEnvironment
+        let setTestHome = setEnv "HOME" tmpDir
+            restoreHome = case oldHome of
+              Nothing -> unsetEnv "HOME"
+              Just v -> setEnv "HOME" v
+        bracket_ setTestHome restoreHome $ do
+          daemon <- startTestDaemon env
+          runFlattenTest daemon basePath `finally_` stopTestDaemon daemon
+
+    it "rebases overlay to a different backing image" $ \env -> do
+      withSystemTempDirectory "corvus-rebase-test" $ \tmpDir -> do
+        let vmDir = tmpDir </> "VMs"
+            base1Path = vmDir </> "base1.qcow2"
+            base2Path = vmDir </> "base2.qcow2"
+        createDirectoryIfMissing True vmDir
+        -- Create two base images
+        void $ readProcessWithExitCode "qemu-img" ["create", "-f", "qcow2", base1Path, "1M"] ""
+        void $ readProcessWithExitCode "qemu-img" ["create", "-f", "qcow2", base2Path, "1M"] ""
+
+        oldHome <- lookup "HOME" <$> getEnvironment
+        let setTestHome = setEnv "HOME" tmpDir
+            restoreHome = case oldHome of
+              Nothing -> unsetEnv "HOME"
+              Just v -> setEnv "HOME" v
+        bracket_ setTestHome restoreHome $ do
+          daemon <- startTestDaemon env
+          runRebaseTest daemon base1Path base2Path `finally_` stopTestDaemon daemon
+
   describe "Live disk attach/detach integration" $ do
     it "can hot-plug and hot-unplug a data disk on a running VM" $ \env -> do
       withTestVmGuestExec env defaultVmConfig $ \vm -> do
@@ -233,6 +274,76 @@ runOverlayTest daemon basePath = do
           diiSizeMb overlay `shouldSatisfy` isJust
     Right (Left err) -> fail $ "RPC error: " ++ show err
     Right (Right other) -> fail $ "Unexpected list response: " ++ show other
+
+-- | Flatten test: create base + overlay, flatten, verify standalone
+runFlattenTest :: TestDaemon -> FilePath -> IO ()
+runFlattenTest daemon basePath = do
+  -- Register base disk
+  regResult <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn "flatten-base" (T.pack basePath) (Just FormatQcow2)
+  baseId <- case regResult of
+    Right (Right (DiskCreated id_)) -> pure id_
+    other -> fail $ "Register base failed: " ++ show other
+
+  -- Create overlay
+  overlayResult <- withDaemonConnection daemon $ \conn ->
+    diskCreateOverlay conn "flatten-overlay" (T.pack (show baseId)) Nothing
+  overlayId <- case overlayResult of
+    Right (Right (DiskCreated id_)) -> pure id_
+    other -> fail $ "Create overlay failed: " ++ show other
+
+  -- Verify overlay has backing
+  overlayInfo <- getDiskInfo daemon overlayId
+  diiBackingImageId overlayInfo `shouldBe` Just baseId
+
+  -- Flatten the overlay
+  flattenResult <- withDaemonConnection daemon $ \conn ->
+    diskRebase conn (T.pack (show overlayId)) Nothing False
+  case flattenResult of
+    Right (Right DiskOk) -> pure ()
+    other -> fail $ "Flatten failed: " ++ show other
+
+  -- Verify backing removed
+  flattenedInfo <- getDiskInfo daemon overlayId
+  diiBackingImageId flattenedInfo `shouldBe` Nothing
+
+-- | Rebase test: create two bases + overlay, rebase overlay to second base
+runRebaseTest :: TestDaemon -> FilePath -> FilePath -> IO ()
+runRebaseTest daemon base1Path base2Path = do
+  -- Register both base disks
+  reg1 <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn "rebase-base1" (T.pack base1Path) (Just FormatQcow2)
+  base1Id <- case reg1 of
+    Right (Right (DiskCreated id_)) -> pure id_
+    other -> fail $ "Register base1 failed: " ++ show other
+
+  reg2 <- withDaemonConnection daemon $ \conn ->
+    diskRegister conn "rebase-base2" (T.pack base2Path) (Just FormatQcow2)
+  base2Id <- case reg2 of
+    Right (Right (DiskCreated id_)) -> pure id_
+    other -> fail $ "Register base2 failed: " ++ show other
+
+  -- Create overlay backed by base1
+  overlayResult <- withDaemonConnection daemon $ \conn ->
+    diskCreateOverlay conn "rebase-overlay" (T.pack (show base1Id)) Nothing
+  overlayId <- case overlayResult of
+    Right (Right (DiskCreated id_)) -> pure id_
+    other -> fail $ "Create overlay failed: " ++ show other
+
+  -- Verify overlay backed by base1
+  overlayInfo <- getDiskInfo daemon overlayId
+  diiBackingImageId overlayInfo `shouldBe` Just base1Id
+
+  -- Rebase overlay to base2
+  rebaseResult <- withDaemonConnection daemon $ \conn ->
+    diskRebase conn (T.pack (show overlayId)) (Just (T.pack (show base2Id))) False
+  case rebaseResult of
+    Right (Right DiskOk) -> pure ()
+    other -> fail $ "Rebase failed: " ++ show other
+
+  -- Verify backing changed to base2
+  rebasedInfo <- getDiskInfo daemon overlayId
+  diiBackingImageId rebasedInfo `shouldBe` Just base2Id
 
 -- | Equivalent of Control.Exception.finally but returns the first action's result
 finally_ :: IO a -> IO b -> IO a

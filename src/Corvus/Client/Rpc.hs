@@ -43,6 +43,7 @@ module Corvus.Client.Rpc
   , diskDelete
   , diskResize
   , diskClone
+  , diskRebase
   , diskList
   , diskShow
   , diskAttach
@@ -394,6 +395,11 @@ diskShow conn diskRef = handleDiskResponse <$> sendRequest conn (ReqDiskShow (Re
 diskClone :: Connection -> Text -> Text -> Maybe Text -> IO (Either ConnectionError DiskResult)
 diskClone conn name baseDiskRef optionalPath =
   handleDiskResponse <$> sendRequest conn (ReqDiskClone name (Ref baseDiskRef) optionalPath)
+
+-- | Rebase an overlay to a different backing image, or flatten
+diskRebase :: Connection -> Text -> Maybe Text -> Bool -> IO (Either ConnectionError DiskResult)
+diskRebase conn diskRef mNewBackingRef unsafe =
+  handleDiskResponse <$> sendRequest conn (ReqDiskRebase (Ref diskRef) (fmap Ref mNewBackingRef) unsafe)
 
 -- | Attach a disk to a VM
 diskAttach

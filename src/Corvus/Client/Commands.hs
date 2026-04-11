@@ -275,6 +275,7 @@ runCommand opts = do
       DiskList -> handleDiskList fmt conn
       DiskShow diskRef -> handleDiskShow fmt conn diskRef
       DiskClone name baseDiskRef optionalPath -> handleDiskClone fmt conn name baseDiskRef optionalPath
+      DiskRebase diskRef mNewBacking unsafe -> handleDiskRebase fmt conn diskRef mNewBacking unsafe
       DiskAttach vmRef diskRef ifaceStr media readOnly discard cacheStr -> do
         case parseInterface ifaceStr of
           Left err -> do

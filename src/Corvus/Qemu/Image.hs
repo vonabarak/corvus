@@ -8,6 +8,7 @@ module Corvus.Qemu.Image
   , createOverlay
   , deleteImage
   , resizeImage
+  , rebaseImage
   , getImageInfo
   , getImageSizeMb
   , parseImageInfo
@@ -170,6 +171,33 @@ resizeImage path newSizeMb = do
     else do
       let sizeStr = show newSizeMb ++ "M"
           args = ["resize", path, sizeStr]
+      (exitCode, _, stderr) <- readProcessWithExitCode qemuImgBinary args ""
+      case exitCode of
+        ExitSuccess -> pure ImageSuccess
+        ExitFailure _ -> pure $ ImageError $ T.pack stderr
+
+-- | Rebase an overlay image to a different backing file, or flatten (remove backing).
+-- Safe rebase (default) rewrites the overlay so reads produce the same result with the new backing.
+-- Unsafe rebase (-u) only updates the backing pointer without data transformation.
+rebaseImage
+  :: FilePath
+  -- ^ Overlay file path
+  -> Maybe (FilePath, DriveFormat)
+  -- ^ New backing (path, format). Nothing = flatten (remove backing).
+  -> Bool
+  -- ^ Unsafe mode
+  -> IO ImageResult
+rebaseImage overlayPath mNewBacking unsafe = do
+  exists <- doesFileExist overlayPath
+  if not exists
+    then pure ImageNotFound
+    else do
+      let unsafeFlag = ["-u" | unsafe]
+          backingArgs = case mNewBacking of
+            Nothing -> ["-b", ""]
+            Just (backingPath, backingFormat) ->
+              ["-b", backingPath, "-F", T.unpack (enumToText backingFormat)]
+          args = ["rebase"] ++ unsafeFlag ++ backingArgs ++ [overlayPath]
       (exitCode, _, stderr) <- readProcessWithExitCode qemuImgBinary args ""
       case exitCode of
         ExitSuccess -> pure ImageSuccess
