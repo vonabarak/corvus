@@ -112,8 +112,8 @@ imageConfigs =
   ,
     ( "gentoo"
     , ImageConfig
-        { icImageUrl = "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260316T093103Z.qcow2"
-        , icImageName = "di-amd64-cloudinit-20260316T093103Z.qcow2"
+        { icImageUrl = "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260405T093103Z.qcow2"
+        , icImageName = "di-amd64-cloudinit-20260405T093103Z.qcow2"
         }
     )
   ,

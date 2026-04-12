@@ -1,0 +1,85 @@
+---
+# An apply setup using test images (see the "scripts" directory for scripts to generate them)
+disks:
+  # Shared UEFI firmware code (read-only, from edk2 package)
+  - name: ovmf-code
+    register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
+    format: qcow2
+
+  # OVMF UEFI vars (for cloning)
+  - name: ovmf-vars
+    register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
+    format: qcow2
+
+  - name: alpine-test-base
+    register: "/home/bobr/Work/corvus/.test-images/corvus-test.qcow2"
+    format: qcow2
+
+  - name: windows-server-2012-r2-base
+    register: "/home/bobr/Work/corvus/.test-images/windows-server-eval.qcow2"
+    format: qcow2
+
+  - name: windows-server-2012-r2
+    overlay: windows-server-2012-r2-base
+    path: windows-server-2012-r2/
+
+  - name: alpine-test
+    overlay: alpine-test-base
+    path: alpine-test/
+
+  - name: alpine-test-ovmf-vars
+    clone: ovmf-vars
+    path: alpine-test/
+
+  - name: windows-server-2012-r2-ovmf-vars
+    clone: ovmf-vars
+    path: windows-server-2012-r2/
+
+vms:
+  - name: alpine-test
+    cpuCount: 4
+    ramMb: 4096
+    description: "alpine-test"
+    cloudInit: true
+    guestAgent: true
+    drives:
+      - disk: alpine-test
+        interface: virtio
+        media: disk
+        cacheType: writeback
+        discard: true
+      - disk: ovmf-code
+        interface: pflash
+        readOnly: true
+      - disk: alpine-test-ovmf-vars
+        interface: pflash
+    networkInterfaces:
+      - type: vde
+        hostDevice: /run/vde2/switch.ctl
+
+  - name: windows-server-2012-r2
+    cpuCount: 4
+    ramMb: 4096
+    description: "Windows Server 2012 R2"
+    cloudInit: true
+    guestAgent: true
+    cloudInitConfig:
+      injectSshKeys: false
+      userData: |
+        #ps1_sysnative
+        # Set Administrator password
+        net user Corvus "CHANGE_ME" /y
+    drives:
+      - disk: ovmf-code
+        interface: pflash
+        readOnly: true
+      - disk: windows-server-2012-r2-ovmf-vars
+        interface: pflash
+      - disk: windows-server-2012-r2
+        interface: virtio
+        media: disk
+        cacheType: writeback
+        discard: true
+    networkInterfaces:
+      - type: vde
+        hostDevice: /run/vde2/switch.ctl
