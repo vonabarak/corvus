@@ -19,6 +19,7 @@ import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitSuccess)
 import System.FilePath (takeDirectory)
+import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
 
 -- | Command line options for the daemon
@@ -90,6 +91,10 @@ optsInfo =
 
 main :: IO ()
 main = do
+  -- Ensure line buffering so logs appear promptly under systemd/journal
+  hSetBuffering stdout LineBuffering
+  hSetBuffering stderr LineBuffering
+
   opts <- execParser optsInfo
   let logLevel = optLogLevel opts
   runFilteredLogging logLevel $ do
