@@ -51,6 +51,7 @@ module Corvus.Client
   , diskCreate
   , diskCreateOverlay
   , diskRegister
+  , diskImport
   , diskDelete
   , diskResize
   , diskClone

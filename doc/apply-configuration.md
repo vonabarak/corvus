@@ -18,14 +18,14 @@ A configuration file has four top-level sections, all optional:
 
 ```yaml
 sshKeys:    [...]   # SSH public keys for cloud-init injection
-disks:      [...]   # Disk images (import, create, or overlay)
+disks:      [...]   # Disk images (import, register, create, overlay, or clone)
 networks:   [...]   # Virtual networks (bridge/TAP in daemon namespace)
 vms:        [...]   # Virtual machines with drives, NICs, shared dirs
 ```
 
 Resources are created in the order listed above. Within each section, items are processed sequentially — later items can reference earlier ones by name (e.g., an overlay disk can reference a base image defined earlier in the same file).
 
-Resources can also reference items that already exist in the database. For example, a VM drive can reference a disk image that was previously imported via `crv disk import`, not just disks defined in the same YAML file.
+Resources can also reference items that already exist in the database. For example, a VM drive can reference a disk image that was previously registered via `crv disk register`, not just disks defined in the same YAML file.
 
 ## YAML Features
 
@@ -81,34 +81,48 @@ Each disk entry creates a disk image in one of four ways, determined by which fi
 ```yaml
 disks:
   - name: <string>           # Required. Unique name for the disk.
-    import: <string>          # Option A: Path or URL to import.
-    overlay: <string>         # Option B: Name of backing disk for qcow2 overlay.
-    clone: <string>           # Option C: Name of disk to clone (full copy).
-    format: <string>          # Disk format (for create; auto-detected on import). See below.
+    import: <string>          # Option A: Copy from local path or download from URL.
+    register: <string>        # Option B: Register existing local file (no copy).
+    overlay: <string>         # Option C: Name of backing disk for qcow2 overlay.
+    clone: <string>           # Option D: Name of disk to clone (full copy).
+    format: <string>          # Disk format (for create; auto-detected on import/register). See below.
     sizeMb: <integer>         # Size in MB (for create; optional resize hint for overlay).
-    path: <string>            # Optional destination path for overlay/clone/create output file.
+    path: <string>            # Optional destination path for import/overlay/clone/create output file.
 ```
 
 Exactly one creation strategy must be specified:
 
 | Strategy | Required Fields | Description |
 |----------|----------------|-------------|
-| **Import** | `import` | Register an existing local file or download from HTTP/HTTPS URL. |
+| **Import** | `import` | Copy a local file or download from HTTP/HTTPS URL to the managed images directory. |
+| **Register** | `register` | Register an existing local file in the database without copying it. |
 | **Overlay** | `overlay` | Create a qcow2 overlay backed by the named disk. |
 | **Clone** | `clone` | Full copy of a disk image (including snapshots). |
 | **Create** | `format` + `sizeMb` | Create a new empty disk image. |
 
-Specifying more than one of `import`, `overlay`, `clone` is an error.
+Specifying more than one of `import`, `register`, `overlay`, `clone` is an error.
 
 ### Import
 
-The `import` field accepts:
+The `import` field copies a file to the managed images directory and registers it in the database. It accepts:
 
-- **Local absolute path**: `/data/images/alpine.qcow2` — the file is registered in the database at its current location. The file is not copied.
-- **Local relative path**: `ws25/overlay.qcow2` — resolved relative to the daemon's base images directory (`$HOME/VMs` by default).
+- **Local file path**: `/data/images/alpine.qcow2` — the file is copied to the base images directory (or to the `path` if specified).
 - **HTTP/HTTPS URL**: `https://example.com/image.qcow2` — the daemon downloads the file. Compressed `.xz` files are automatically decompressed.
 
-The `format` field is optional for imports — it is auto-detected from the file extension or via `qemu-img info` when possible. Supported formats: `qcow2`, `raw`, `vmdk`, `vdi`, `vpc` (VHD), `vhdx`.
+The `format` field is optional — it is auto-detected from the file extension or URL. Supported formats: `qcow2`, `raw`, `vmdk`, `vdi`, `vpc` (VHD), `vhdx`.
+
+The optional `path` field controls where the imported file is placed (see [Custom Path](#custom-path)). Without it, the file is placed in the base images directory with a name derived from the disk name and format extension.
+
+### Register
+
+The `register` field points the database at an existing local file without copying it. It accepts:
+
+- **Local absolute path**: `/data/images/alpine.qcow2` — the file is registered at its current location.
+- **Local relative path**: `ws25/overlay.qcow2` — resolved relative to the daemon's base images directory (`$HOME/VMs` by default).
+
+URLs are not accepted — use `import` for downloading.
+
+The `format` field is optional — it is auto-detected from the file extension or via `qemu-img info` when possible. The `path` field cannot be used with `register` since no file is being created or moved.
 
 If a local file is already registered in the database (same path), the existing entry is reused without error.
 
@@ -128,7 +142,7 @@ Creates a new empty disk image. Both `format` and `sizeMb` are required. The fil
 
 ### Custom Path
 
-The optional `path` field controls where the disk image file is placed. It can be used with `overlay`, `clone`, and `create` strategies.
+The optional `path` field controls where the disk image file is placed. It can be used with `import`, `overlay`, `clone`, and `create` strategies.
 
 **Path interpretation rules:**
 
@@ -144,24 +158,29 @@ The optional `path` field controls where the disk image file is placed. It can b
 - Paths ending with `/` are treated as directories — the filename is auto-generated from the disk name and format extension (e.g., `my-disk.qcow2`). The directory is created if it does not exist.
 - Paths **not** ending with `/` are treated as the full file path.
 
-The same rules apply to the `--path` option on `crv disk create`, `crv disk overlay`, and `crv disk clone` CLI commands.
+The same rules apply to the `--path` option on `crv disk create`, `crv disk import`, `crv disk overlay`, and `crv disk clone` CLI commands.
 
 ### Examples
 
 ```yaml
 disks:
-  # Download a cloud image from the internet
+  # Download a cloud image from the internet (copies to ~/VMs/)
   - name: alpine-base
     import: "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/cloud/nocloud_alpine-3.20.6-x86_64-bios-cloudinit-r0.qcow2"
 
-  # Register a local file (absolute path, not copied)
+  # Import a local file to the managed images directory (copies)
+  - name: base-image
+    import: "/data/images/base.qcow2"
+    path: "project/"
+
+  # Register a local file (absolute path, not copied — stays in place)
   - name: ovmf-code
-    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
     format: raw
 
-  # Register a local file (relative to ~/VMs)
+  # Register a local file (relative to ~/VMs, not copied)
   - name: ws25-system
-    import: "ws25/overlay.qcow2"
+    register: "ws25/overlay.qcow2"
     format: qcow2
 
   # Create overlay backed by the alpine-base image
@@ -171,7 +190,7 @@ disks:
 
   # Clone OVMF UEFI vars template (each VM needs its own writable copy)
   - name: ovmf-vars-template
-    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
     format: raw
   - name: vm1-ovmf-vars
     clone: ovmf-vars-template
@@ -455,9 +474,9 @@ Custom configs can also be managed via the CLI: `crv cloud-init set`, `crv cloud
 The daemon validates the configuration before creating any resources:
 
 - No duplicate names within each section (SSH keys, disks, networks, VMs).
-- Each disk must use exactly one creation strategy (`import`, `overlay`, `clone`, or `format` + `sizeMb`).
-- A disk cannot specify more than one of `import`, `overlay`, `clone`.
-- The `path` field can only be used with `overlay`, `clone`, or `create` strategies (not `import`).
+- Each disk must use exactly one creation strategy (`import`, `register`, `overlay`, `clone`, or `format` + `sizeMb`).
+- A disk cannot specify more than one of `import`, `register`, `overlay`, `clone`.
+- The `path` field can only be used with `import`, `overlay`, `clone`, or `create` strategies (not `register`).
 - VMs with `sshKeys` must not have `cloudInit: false`.
 
 If validation fails, no resources are created.
@@ -506,12 +525,12 @@ sshKeys:
     publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@host"
 
 disks:
-  # UEFI firmware (shared read-only by all UEFI VMs)
+  # UEFI firmware (shared read-only by all UEFI VMs, stays in place)
   - name: ovmf-code
-    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
     format: raw
 
-  # Download a cloud image
+  # Download a cloud image (copies to ~/VMs/)
   - name: alpine-base
     import: "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/cloud/nocloud_alpine-3.20.6-x86_64-bios-cloudinit-r0.qcow2"
 
@@ -520,9 +539,9 @@ disks:
     overlay: alpine-base
     sizeMb: 10240
 
-  # OVMF UEFI variables template (import once, clone per-VM)
+  # OVMF UEFI variables template (register in place, clone per-VM)
   - name: ovmf-vars-template
-    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
     format: raw
 
   # Per-VM OVMF vars (full copy, each VM gets its own writable file)

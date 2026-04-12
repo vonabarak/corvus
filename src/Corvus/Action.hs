@@ -350,6 +350,7 @@ classifyResponse = \case
   RespStartupComplete -> (TaskSuccess, Just "Startup complete")
   RespShutdownComplete -> (TaskSuccess, Just "Shutdown complete")
   RespOk -> (TaskSuccess, Nothing)
+  RespDiskImportStarted _ -> (TaskSuccess, Nothing)
   -- Read-only (shouldn't reach here, but handle gracefully)
   _ -> (TaskSuccess, Nothing)
 

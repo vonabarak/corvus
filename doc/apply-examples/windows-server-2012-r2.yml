@@ -3,7 +3,7 @@
 disks:
   - name: windows-server-2012-r2-base
     # https://cloudbase.it/windows-cloud-images/
-    import: "BaseImages/windows_server_2012_r2_standard_eval_kvm_20170321.qcow2"
+    register: "BaseImages/windows_server_2012_r2_standard_eval_kvm_20170321.qcow2"
     format: qcow2
 
   - name: windows-server-2012-r2

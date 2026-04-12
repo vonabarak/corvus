@@ -102,11 +102,15 @@ crv disk create <name> --size <size> [--format <format>]
 crv disk create myvm-boot --size 20G --format qcow2
 crv disk create data-disk --size 100G -f raw
 
-# Import an existing disk image (local path or HTTP URL)
-crv disk import <name> <path-or-url> [--format <format>]
-crv disk import debian-base ~/VMs/debian.qcow2
-crv disk import windows-iso /data/isos/windows.iso -f raw
-crv disk import alpine-cloud https://example.com/alpine-virt.qcow2
+# Register an existing local disk image (no copy)
+crv disk register <name> <path> [--format <format>]
+crv disk register ovmf-code /usr/share/edk2/OvmfX64/OVMF_CODE.fd -f raw
+crv disk register debian-base ~/VMs/debian.qcow2
+
+# Import a disk image (copies local file or downloads URL)
+crv disk import <name> <source> [--path <dest>] [--format <format>] [--wait]
+crv disk import alpine-cloud https://example.com/alpine-virt.qcow2 --wait
+crv disk import windows-iso /data/isos/windows.iso -f raw -p vms/
 
 # Manage disk images
 crv disk list                    # List all disk images

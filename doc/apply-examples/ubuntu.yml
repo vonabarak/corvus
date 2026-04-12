@@ -7,17 +7,17 @@ sshKeys:
 disks:
   # Shared UEFI firmware code (read-only, from edk2 package)
   - name: ovmf-code
-    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
     format: raw
 
   # OVMF UEFI vars (for cloning)
   - name: ovmf-vars
-    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
     format: raw
 
   - name: ubuntu-24.04-server-cloudimg-amd64
 #    import: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
-    import: "ubuntu-24.04-server-cloudimg-amd64.img"
+    register: "ubuntu-24.04-server-cloudimg-amd64.img"
     format: qcow2
 
   - name: ubuntu24

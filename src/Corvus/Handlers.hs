@@ -106,6 +106,10 @@ handleRequest state = \case
     runAction state (DiskRegister name path mFormat)
   ReqDiskImportUrl name url mFmt ->
     runAction state (DiskImportUrl name url mFmt)
+  ReqDiskImport name source mPath mFmt wait ->
+    if wait
+      then runAction state (DiskImportAction name source mPath mFmt)
+      else runActionAsyncWithId state (DiskImportAction name source mPath mFmt) RespDiskImportStarted
   ReqDiskRefresh diskRef -> withDisk diskRef $ \diskId ->
     runAction state (DiskRefresh diskId)
   ReqDiskDelete diskRef -> withDisk diskRef $ \diskId ->

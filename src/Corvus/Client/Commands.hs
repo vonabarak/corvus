@@ -268,7 +268,8 @@ runCommand opts = do
             pure False
           Right format -> handleDiskCreate fmt conn name format sizeMb mPath
       DiskCreateOverlay name baseDiskRef optDirPath -> handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath
-      DiskImport name path mFormatStr -> handleDiskImport fmt conn name path mFormatStr
+      DiskRegisterCmd name path mFormatStr -> handleDiskRegister fmt conn name path mFormatStr
+      DiskImport name source mPath mFormatStr waitOpts -> handleDiskImport fmt conn name source mPath mFormatStr waitOpts
       DiskRefresh diskRef -> handleDiskRefresh fmt conn diskRef
       DiskDelete diskRef -> handleDiskDelete fmt conn diskRef
       DiskResize diskRef newSizeMb -> handleDiskResize fmt conn diskRef newSizeMb

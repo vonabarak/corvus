@@ -7,12 +7,12 @@ sshKeys:
 disks:
   # Shared UEFI firmware code (read-only, from edk2 package)
   - name: ovmf-code
-    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
     format: raw
 
   # OVMF UEFI vars (for cloning)
   - name: ovmf-vars
-    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
     format: raw
 
   - name: Debian-12-base

@@ -73,8 +73,10 @@ data Command
 
     -- | Create disk image (name, format, sizeMb, optionalPath)
     DiskCreate !Text !Text !Int64 !(Maybe Text)
-  | -- | Import existing disk image (name, path, optional format)
-    DiskImport !Text !FilePath !(Maybe Text)
+  | -- | Register existing disk image in DB without copying (name, path, optional format)
+    DiskRegisterCmd !Text !FilePath !(Maybe Text)
+  | -- | Import disk image with copy/download (name, source, destPath, format, waitOptions)
+    DiskImport !Text !Text !(Maybe Text) !(Maybe Text) !WaitOptions
   | -- | Create overlay disk image (name, baseDiskRef, optionalDirPath)
     DiskCreateOverlay !Text !Text !(Maybe Text)
   | -- | Refresh disk image size from qemu-img info

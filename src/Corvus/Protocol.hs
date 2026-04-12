@@ -64,7 +64,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 23
+protocolVersion = 24
 
 -- | Client requests
 data Request
@@ -205,6 +205,9 @@ data Request
     ReqSerialConsole !Ref
   | -- | Flush (clear) the serial console ring buffer for a VM (vmRef)
     ReqSerialConsoleFlush !Ref
+  | -- | Import disk image from source (local path or URL) with copy to destination
+    -- (name, source, optionalDestPath, optionalFormat, wait)
+    ReqDiskImport !Text !Text !(Maybe Text) !(Maybe Text) !Bool
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -835,6 +838,8 @@ data Response
     RespShutdownComplete
   | -- | Generic success for internal operations
     RespOk
+  | -- | Disk import started asynchronously (task ID)
+    RespDiskImportStarted !Int64
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

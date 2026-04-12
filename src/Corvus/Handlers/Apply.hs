@@ -24,7 +24,7 @@ import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
-import Corvus.Handlers.Disk (DiskClone (..), DiskCreate (..), DiskCreateOverlay (..), DiskImportUrl (..), DiskRegister (..))
+import Corvus.Handlers.Disk (DiskClone (..), DiskCreate (..), DiskCreateOverlay (..), DiskImportAction (..), DiskRegister (..))
 import Corvus.Handlers.Network (NetworkCreate (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (SshKeyCreate (..))
@@ -106,6 +106,7 @@ data ApplyDisk = ApplyDisk
   , adOverlay :: Maybe Text
   , adClone :: Maybe Text
   , adPath :: Maybe Text
+  , adRegister :: Maybe Text
   }
   deriving (Show)
 
@@ -119,6 +120,7 @@ instance FromJSON ApplyDisk where
       <*> o .:? "overlay"
       <*> o .:? "clone"
       <*> o .:? "path"
+      <*> o .:? "register"
 
 data ApplyNetwork = ApplyNetwork
   { anName :: Text
@@ -307,16 +309,17 @@ validateConfig config = do
       let hasImport = isJust (adImport d)
           hasOverlay = isJust (adOverlay d)
           hasClone = isJust (adClone d)
-          hasCreate = isJust (adFormat d) && isJust (adSizeMb d) && not hasImport && not hasOverlay && not hasClone
-          strategies = length $ filter id [hasImport, hasOverlay, hasClone]
+          hasRegister = isJust (adRegister d)
+          hasCreate = isJust (adFormat d) && isJust (adSizeMb d) && not hasImport && not hasOverlay && not hasClone && not hasRegister
+          strategies = length $ filter id [hasImport, hasOverlay, hasClone, hasRegister]
        in if strategies > 1
-            then Left $ "Disk '" <> adName d <> "': cannot specify more than one of 'import', 'overlay', 'clone'"
+            then Left $ "Disk '" <> adName d <> "': cannot specify more than one of 'import', 'overlay', 'clone', 'register'"
             else
-              if not hasImport && not hasOverlay && not hasClone && not hasCreate
-                then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', 'clone', or both 'format' and 'sizeMb'"
+              if not hasImport && not hasOverlay && not hasClone && not hasRegister && not hasCreate
+                then Left $ "Disk '" <> adName d <> "': must specify 'import', 'overlay', 'clone', 'register', or both 'format' and 'sizeMb'"
                 else
-                  if isJust (adPath d) && not hasOverlay && not hasClone && not hasCreate
-                    then Left $ "Disk '" <> adName d <> "': 'path' can only be used with 'overlay', 'clone', or 'create'"
+                  if isJust (adPath d) && not hasOverlay && not hasClone && not hasCreate && not hasImport
+                    then Left $ "Disk '" <> adName d <> "': 'path' can only be used with 'import', 'overlay', 'clone', or 'create'"
                     else Right ()
 
 -- | Resolve effective cloudInit value for a VM.
@@ -641,19 +644,20 @@ instance Action ApplyDiskCreate where
   actionExecute ctx a =
     let d = adcConfig a
         state = acState ctx
-     in case (adImport d, adOverlay d, adClone d) of
-          (Just importPath, _, _)
-            | isHttpUrl importPath ->
-                actionExecute ctx (DiskImportUrl (adName d) importPath (fmap enumToText (adFormat d)))
+     in case (adImport d, adOverlay d, adClone d, adRegister d) of
+          (Just importPath, _, _, _) ->
+            actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)))
+          (_, _, _, Just registerPath)
+            | isHttpUrl registerPath -> pure $ RespError $ "Disk '" <> adName d <> "': register requires a local path, not a URL"
             | otherwise ->
-                let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath importPath)
-                 in actionExecute ctx (DiskRegister (adName d) importPath (Just format))
-          (_, Just backingName, _) -> do
+                let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath registerPath)
+                 in actionExecute ctx (DiskRegister (adName d) registerPath (Just format))
+          (_, Just backingName, _, _) -> do
             mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
             case mBackingId of
               Nothing -> pure $ RespError $ "backing disk '" <> backingName <> "' not found"
               Just backingId -> actionExecute ctx (DiskCreateOverlay (adName d) backingId (adSizeMb d) (adPath d))
-          (_, _, Just cloneName) -> do
+          (_, _, Just cloneName, _) -> do
             mSourceId <- resolveByName state UniqueDiskImageName (adcDiskMap a) cloneName
             case mSourceId of
               Nothing -> pure $ RespError $ "source disk '" <> cloneName <> "' not found"

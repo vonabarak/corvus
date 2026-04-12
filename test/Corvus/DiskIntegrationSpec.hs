@@ -25,7 +25,7 @@ import System.Process (readProcessWithExitCode)
 import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
 import Test.VM.Common (TestVm (..), defaultVmConfig, withTestVm, withTestVmGuestExec)
-import Test.VM.Daemon (TestDaemon, startTestDaemon, stopTestDaemon, withDaemonConnection)
+import Test.VM.Daemon (TestDaemon (..), startTestDaemon, stopTestDaemon, withDaemonConnection)
 import Test.VM.Rpc (runInVm_, stopTestVmAndWait)
 
 spec :: Spec
@@ -164,6 +164,33 @@ spec = withTestDb $ do
         bracket_ setTestHome restoreHome $ do
           daemon <- startTestDaemon env
           runRebaseTest daemon base1Path base2Path `finally_` stopTestDaemon daemon
+
+  describe "Disk import integration (requires qemu-img)" $ do
+    it "imports a local file by copying it to destination" $ \env -> do
+      withSystemTempDirectory "corvus-import-test" $ \tmpDir -> do
+        -- Create a source file outside the daemon's base path
+        let srcPath = tmpDir </> "source.qcow2"
+        (code, _, err) <-
+          readProcessWithExitCode "qemu-img" ["create", "-f", "qcow2", srcPath, "1M"] ""
+        case code of
+          ExitFailure _ -> fail $ "qemu-img create failed: " ++ err
+          ExitSuccess -> pure ()
+
+        daemon <- startTestDaemon env
+        let daemonVmDir = tdTempDir daemon </> "VMs"
+        runImportCopyTest daemon srcPath daemonVmDir `finally_` stopTestDaemon daemon
+
+    it "rejects import when source and destination are the same" $ \env -> do
+      daemon <- startTestDaemon env
+      let daemonVmDir = tdTempDir daemon </> "VMs"
+          srcPath = daemonVmDir </> "import-same.qcow2"
+      -- Create a source file inside the daemon's base images directory
+      (code, _, err) <-
+        readProcessWithExitCode "qemu-img" ["create", "-f", "qcow2", srcPath, "1M"] ""
+      case code of
+        ExitFailure _ -> fail $ "qemu-img create failed: " ++ err
+        ExitSuccess -> pure ()
+      runImportSamePathTest daemon srcPath `finally_` stopTestDaemon daemon
 
   describe "Live disk attach/detach integration" $ do
     it "can hot-plug and hot-unplug a data disk on a running VM" $ \env -> do
@@ -344,6 +371,35 @@ runRebaseTest daemon base1Path base2Path = do
   -- Verify backing changed to base2
   rebasedInfo <- getDiskInfo daemon overlayId
   diiBackingImageId rebasedInfo `shouldBe` Just base2Id
+
+-- | Test importing a local file by copying to the base images directory
+runImportCopyTest :: TestDaemon -> FilePath -> FilePath -> IO ()
+runImportCopyTest daemon srcPath vmDir = do
+  -- Import the source file (wait=True for synchronous)
+  importResult <- withDaemonConnection daemon $ \conn ->
+    diskImport conn "import-copy" (T.pack srcPath) Nothing (Just "qcow2") True
+  case importResult of
+    Right (Right (DiskCreated diskId)) -> do
+      -- Verify the file was copied to the VMs directory
+      let expectedPath = vmDir </> "import-copy.qcow2"
+      exists <- doesFileExist expectedPath
+      exists `shouldBe` True
+
+      -- Verify DB record
+      info <- getDiskInfo daemon diskId
+      diiName info `shouldBe` "import-copy"
+    other -> fail $ "Import failed: " ++ show other
+
+-- | Test that importing with same source and destination path fails
+runImportSamePathTest :: TestDaemon -> FilePath -> IO ()
+runImportSamePathTest daemon srcPath = do
+  -- The source is already in VMs dir, so default dest = VMs/import-same.qcow2 = same path
+  importResult <- withDaemonConnection daemon $ \conn ->
+    diskImport conn "import-same" (T.pack srcPath) Nothing (Just "qcow2") True
+  case importResult of
+    Right (Right (DiskError msg)) -> do
+      T.isInfixOf "same" msg `shouldBe` True
+    other -> fail $ "Expected same-path error but got: " ++ show other
 
 -- | Equivalent of Control.Exception.finally but returns the first action's result
 finally_ :: IO a -> IO b -> IO a

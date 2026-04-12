@@ -17,17 +17,17 @@ sshKeys:
 disks:
   # Shared UEFI firmware code (read-only, from edk2 package)
   - name: ovmf-code
-    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
     format: raw
 
   # OVMF UEFI vars (for cloning)
   - name: ovmf-vars
-    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
     format: raw
 
   # Windows Server 2025 system disk (pre-existing install)
   - name: ws25-system
-    import: "ws25/overlay.qcow2"
+    register: "ws25/overlay.qcow2"
     format: qcow2
     sizeMb: 102400
 
@@ -38,7 +38,7 @@ disks:
 
   # AlmaLinux 10 base cloud image
   - name: Almalinux-10-base
-    import: "/data/images/AlmaLinux/AlmaLinux-10-GenericCloud-10.1-20251125.0.x86_64_v2.qcow2"
+    register: "/data/images/AlmaLinux/AlmaLinux-10-GenericCloud-10.1-20251125.0.x86_64_v2.qcow2"
 
   # AlmaLinux VM disk (overlay on base image)
   - name: alma10

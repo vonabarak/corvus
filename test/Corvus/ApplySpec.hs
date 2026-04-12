@@ -198,17 +198,30 @@ spec = sequential $ do
           RespError msg -> "cannot specify more than one" `T.isInfixOf` msg
           _ -> False
 
-      testCase "fails on disk with path but using import strategy" $ do
+      testCase "fails on disk with path but using register strategy" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: bad-disk
+                  register: /some/path.qcow2
+                  path: subdir/
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "path" `T.isInfixOf` msg
+          _ -> False
+
+      testCase "fails on disk with both import and register" $ do
         when_ $
           whenApply
             [yaml|
               disks:
                 - name: bad-disk
                   import: /some/path.qcow2
-                  path: subdir/
+                  register: /some/other.qcow2
             |]
         then_ $ responseIs $ \case
-          RespError msg -> "path" `T.isInfixOf` msg
+          RespError msg -> "cannot specify more than one" `T.isInfixOf` msg
           _ -> False
 
       testCase "fails on VM with sshKeys but cloudInit false" $ do

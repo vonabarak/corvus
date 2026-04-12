@@ -14,6 +14,7 @@ module Test.DSL.When
   , diskCreateOverlay
   , diskRegister
   , diskClone
+  , diskImport
   , diskRebase
   , diskDelete
   , diskResize
@@ -242,6 +243,11 @@ diskClone name baseDiskId optionalPath =
 diskRebase :: Int64 -> Maybe Int64 -> Bool -> TestM DiskResult
 diskRebase diskId mNewBackingId unsafe =
   executeRpc (\conn -> Rpc.diskRebase conn (toRef diskId) (fmap toRef mNewBackingId) unsafe)
+
+-- | Import a disk image (copy or download to destination)
+diskImport :: Text -> Text -> Maybe Text -> Maybe Text -> Bool -> TestM DiskResult
+diskImport name source mPath mFormat wait =
+  executeRpc (\conn -> Rpc.diskImport conn name source mPath mFormat wait)
 
 -- | Delete a disk image
 diskDelete :: Int64 -> TestM DiskResult

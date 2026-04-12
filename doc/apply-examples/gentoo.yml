@@ -7,24 +7,24 @@
 disks:
   # Shared UEFI firmware code (read-only, from edk2 package)
   - name: ovmf-code
-    import: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_CODE.fd"
     format: raw
 
   # OVMF UEFI vars (for cloning)
   - name: ovmf-vars
-    import: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
+    register: "/usr/share/edk2/OvmfX64/OVMF_VARS.fd"
     format: raw
 
   - name: gentoo-cloud-base
     # import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260316T093103Z.qcow2"
-    import: "di-amd64-cloudinit-20260316T093103Z.qcow2"
+    register: "di-amd64-cloudinit-20260316T093103Z.qcow2"
     format: qcow2
 
 #  - name: gentoo
 #    overlay: gentoo-cloud-base
 #    path: gentoo/
   - name: gentoo
-    import: gentoo/gentoo.qcow2
+    register: gentoo/gentoo.qcow2
 
   - name: gentoo-ovmf-vars
     clone: ovmf-vars

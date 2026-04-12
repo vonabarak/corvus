@@ -6,6 +6,7 @@ module Corvus.Client.Commands.Disk
   ( -- * Disk command handlers
     handleDiskCreate
   , handleDiskCreateOverlay
+  , handleDiskRegister
   , handleDiskImport
   , handleDiskDelete
   , handleDiskResize
@@ -36,22 +37,22 @@ module Corvus.Client.Commands.Disk
   )
 where
 
+import Control.Monad (unless, when)
 import Corvus.Client.Connection
 import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult, printField, printTableHeader)
 import Corvus.Client.Rpc
-import Corvus.Client.Types (OutputFormat (..))
+import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat (..), DriveInterface, DriveMedia, EnumText (..))
 import Corvus.Protocol (DiskImageInfo (..), SnapshotInfo (..))
 import Data.Aeson (toJSON)
 import Data.Int (Int64)
-import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (defaultTimeLocale, formatTime)
 import System.Directory (canonicalizePath, doesFileExist)
 import System.Environment (lookupEnv)
-import System.FilePath (makeRelative, takeExtension, (</>))
+import System.FilePath (makeRelative, (</>))
 import Text.Printf (printf)
 
 --------------------------------------------------------------------------------
@@ -135,46 +136,9 @@ handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath = do
         else putStrLn $ "Unexpected response: " ++ show other
       pure False
 
--- | Handle disk import command (supports both local paths and HTTP/HTTPS URLs)
-handleDiskImport :: OutputFormat -> Connection -> Text -> FilePath -> Maybe Text -> IO Bool
-handleDiskImport fmt conn name path mFormatStr
-  | isUrl = handleDiskImportFromUrl fmt conn name (T.pack path) mFormatStr
-  | otherwise = handleDiskImportFromFile fmt conn name path mFormatStr
-  where
-    isUrl = "http://" `isPrefixOf` path || "https://" `isPrefixOf` path
-
--- | Import a disk from an HTTP/HTTPS URL (daemon downloads)
-handleDiskImportFromUrl :: OutputFormat -> Connection -> Text -> Text -> Maybe Text -> IO Bool
-handleDiskImportFromUrl fmt conn name url mFormatStr = do
-  if isStructured fmt
-    then pure ()
-    else putStrLn $ "Downloading from URL: " ++ T.unpack url
-  resp <- diskImportUrl conn name url mFormatStr
-  case resp of
-    Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
-      pure False
-    Right (DiskCreated diskId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON diskId)]
-        else putStrLn $ "Disk image imported with ID: " ++ show diskId
-      pure True
-    Right (DiskError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error importing disk: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
-      pure False
-
--- | Import a disk from a local file path
-handleDiskImportFromFile :: OutputFormat -> Connection -> Text -> FilePath -> Maybe Text -> IO Bool
-handleDiskImportFromFile fmt conn name path mFormatStr = do
+-- | Handle disk register command (registers local file in DB without copying)
+handleDiskRegister :: OutputFormat -> Connection -> Text -> FilePath -> Maybe Text -> IO Bool
+handleDiskRegister fmt conn name path mFormatStr = do
   exists <- doesFileExist path
   if not exists
     then do
@@ -186,7 +150,7 @@ handleDiskImportFromFile fmt conn name path mFormatStr = do
       let mFormat = case mFormatStr of
             Just f -> case parseFormat f of
               Right fmt' -> Just (Just fmt')
-              Left err -> Nothing
+              Left _err -> Nothing
             Nothing -> Just Nothing -- no format specified, let server auto-detect
       case mFormat of
         Nothing -> do
@@ -213,7 +177,7 @@ handleDiskImportFromFile fmt conn name path mFormatStr = do
               if isStructured fmt
                 then outputOkWith fmt [("id", toJSON diskId)]
                 else do
-                  putStrLn $ "Disk image imported with ID: " ++ show diskId
+                  putStrLn $ "Disk image registered with ID: " ++ show diskId
                   if storedPath /= absPath
                     then putStrLn $ "Stored as relative path: " ++ storedPath
                     else putStrLn $ "Stored as absolute path: " ++ storedPath
@@ -221,7 +185,7 @@ handleDiskImportFromFile fmt conn name path mFormatStr = do
             Right (DiskError msg) -> do
               if isStructured fmt
                 then outputError fmt "error" msg
-                else putStrLn $ "Error importing disk: " ++ T.unpack msg
+                else putStrLn $ "Error registering disk: " ++ T.unpack msg
               pure False
             Right other -> do
               if isStructured fmt
@@ -229,18 +193,48 @@ handleDiskImportFromFile fmt conn name path mFormatStr = do
                 else putStrLn $ "Unexpected response: " ++ show other
               pure False
   where
-    detectFormat :: String -> Either Text DriveFormat
-    detectFormat ".qcow2" = Right FormatQcow2
-    detectFormat ".raw" = Right FormatRaw
-    detectFormat ".img" = Right FormatRaw
-    detectFormat ".vmdk" = Right FormatVmdk
-    detectFormat ".vdi" = Right FormatVdi
-    detectFormat ext' = Left $ "Unknown format for extension: " <> T.pack ext' <> ". Use --format to specify."
-
     isPrefixOfPath :: FilePath -> FilePath -> Bool
     isPrefixOfPath prefix path' =
       let prefixWithSlash = if last prefix == '/' then prefix else prefix ++ "/"
        in prefixWithSlash == take (length prefixWithSlash) path' || prefix == path'
+
+-- | Handle disk import command (copies local file or downloads URL to destination)
+handleDiskImport :: OutputFormat -> Connection -> Text -> Text -> Maybe Text -> Maybe Text -> WaitOptions -> IO Bool
+handleDiskImport fmt conn name source mPath mFormatStr waitOpts = do
+  let wait = woWait waitOpts
+  unless (isStructured fmt) $
+    when wait $
+      putStrLn $
+        "Importing disk image '" ++ T.unpack name ++ "' and waiting for completion..."
+  resp <- diskImport conn name source mPath mFormatStr wait
+  case resp of
+    Left err -> do
+      if isStructured fmt
+        then outputError fmt "rpc_error" (T.pack $ show err)
+        else putStrLn $ "Error: " ++ show err
+      pure False
+    Right (DiskCreated diskId) -> do
+      if isStructured fmt
+        then outputOkWith fmt [("id", toJSON diskId)]
+        else putStrLn $ "Disk image imported with ID: " ++ show diskId
+      pure True
+    Right (DiskImportStarted taskId) -> do
+      if isStructured fmt
+        then outputOkWith fmt [("taskId", toJSON taskId)]
+        else do
+          putStrLn $ "Import started (task ID: " ++ show taskId ++ ")"
+          putStrLn $ "Use 'crv task wait " ++ show taskId ++ "' to wait for completion."
+      pure True
+    Right (DiskError msg) -> do
+      if isStructured fmt
+        then outputError fmt "error" msg
+        else putStrLn $ "Error importing disk: " ++ T.unpack msg
+      pure False
+    Right other -> do
+      if isStructured fmt
+        then outputError fmt "unexpected" (T.pack $ show other)
+        else putStrLn $ "Unexpected response: " ++ show other
+      pure False
 
 -- | Get base images path ($HOME/VMs by default)
 getBaseImagesPath :: IO FilePath

@@ -507,10 +507,10 @@ diskDetachCommand =
           <> completer diskCompleter
       )
 
--- | Parser for disk import
-diskImportCommand :: Parser Command
-diskImportCommand =
-  DiskImport
+-- | Parser for disk register (existing local file, no copy)
+diskRegisterCommand :: Parser Command
+diskRegisterCommand =
+  DiskRegisterCmd
     <$> argument
       (T.pack <$> str)
       ( metavar "NAME"
@@ -519,7 +519,7 @@ diskImportCommand =
     <*> argument
       str
       ( metavar "PATH"
-          <> help "Path to existing disk image file"
+          <> help "Path to existing disk image file (local only, not copied)"
       )
     <*> optional
       ( strOption
@@ -530,6 +530,41 @@ diskImportCommand =
               <> completeWith ["qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx"]
           )
       )
+
+-- | Parser for disk import (copies local file or downloads URL)
+diskImportCommand :: Parser Command
+diskImportCommand =
+  DiskImport
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the imported disk image"
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "SOURCE"
+          <> help "Source file path or HTTP/HTTPS URL"
+      )
+    <*> optional
+      ( T.pack
+          <$> strOption
+            ( long "path"
+                <> short 'p'
+                <> metavar "PATH"
+                <> help "Destination path (trailing / = directory, relative = under base images dir)"
+            )
+      )
+    <*> optional
+      ( T.pack
+          <$> strOption
+            ( long "format"
+                <> short 'f'
+                <> metavar "FORMAT"
+                <> help "Disk format (auto-detected if not specified): qcow2, raw, vmdk, vdi, vpc, vhdx"
+                <> completeWith ["qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx"]
+            )
+      )
+    <*> waitOptionsParser
 
 -- | Parser for disk overlay
 diskOverlayCommand :: Parser Command
@@ -614,8 +649,11 @@ diskCommandParser =
           "overlay"
           (info diskOverlayCommand (progDesc "Create a qcow2 overlay backed by an existing disk"))
         <> command
+          "register"
+          (info diskRegisterCommand (progDesc "Register an existing local disk image file (no copy)"))
+        <> command
           "import"
-          (info diskImportCommand (progDesc "Import an existing disk image"))
+          (info diskImportCommand (progDesc "Import a disk image from a local file or URL (copies to destination)"))
         <> command
           "delete"
           (info diskDeleteCommand (progDesc "Delete a disk image"))

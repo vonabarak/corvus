@@ -40,6 +40,7 @@ module Corvus.Client.Rpc
   , diskRegister
   , diskRefresh
   , diskImportUrl
+  , diskImport
   , diskDelete
   , diskResize
   , diskClone
@@ -321,6 +322,8 @@ data DiskResult
     FormatNotSupported !Text
   | -- | VM not found
     DiskVmNotFound
+  | -- | Import started asynchronously (task ID)
+    DiskImportStarted !Int64
   | -- | Error with message
     DiskError !Text
   deriving (Eq, Show)
@@ -341,6 +344,7 @@ handleDiskResponse result = case result of
   Right RespVmMustBeStopped -> Right VmMustBeStopped
   Right (RespFormatNotSupported msg) -> Right $ FormatNotSupported msg
   Right RespVmNotFound -> Right DiskVmNotFound
+  Right (RespDiskImportStarted tid) -> Right $ DiskImportStarted tid
   Right (RespError msg) -> Right $ DiskError msg
   Right _ -> Left $ DecodeFailed "Unexpected response"
 
@@ -373,6 +377,11 @@ diskRefresh conn diskRef =
 diskImportUrl :: Connection -> Text -> Text -> Maybe Text -> IO (Either ConnectionError DiskResult)
 diskImportUrl conn name url mFormat =
   handleDiskResponse <$> sendRequest conn (ReqDiskImportUrl name url mFormat)
+
+-- | Import a disk image from a local file or URL (copies to destination)
+diskImport :: Connection -> Text -> Text -> Maybe Text -> Maybe Text -> Bool -> IO (Either ConnectionError DiskResult)
+diskImport conn name source mPath mFormat wait =
+  handleDiskResponse <$> sendRequest conn (ReqDiskImport name source mPath mFormat wait)
 
 -- | Delete a disk image
 diskDelete :: Connection -> Text -> IO (Either ConnectionError DiskResult)
