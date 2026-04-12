@@ -15,13 +15,13 @@ disks:
     register: "/home/bobr/Work/corvus/.test-images/corvus-test.qcow2"
     format: qcow2
 
-  - name: windows-server-2012-r2-base
+  - name: windows-server-2025-base
     register: "/home/bobr/Work/corvus/.test-images/windows-server-eval.qcow2"
     format: qcow2
 
-  - name: windows-server-2012-r2
-    overlay: windows-server-2012-r2-base
-    path: windows-server-2012-r2/
+  - name: windows-server-2025
+    overlay: windows-server-2025-base
+    path: windows-server-2025/
 
   - name: alpine-test
     overlay: alpine-test-base
@@ -31,9 +31,9 @@ disks:
     clone: ovmf-vars
     path: alpine-test/
 
-  - name: windows-server-2012-r2-ovmf-vars
+  - name: windows-server-2025-ovmf-vars
     clone: ovmf-vars
-    path: windows-server-2012-r2/
+    path: windows-server-2025/
 
 vms:
   - name: alpine-test
@@ -57,10 +57,10 @@ vms:
       - type: vde
         hostDevice: /run/vde2/switch.ctl
 
-  - name: windows-server-2012-r2
+  - name: windows-server-2025
     cpuCount: 4
     ramMb: 4096
-    description: "Windows Server 2012 R2"
+    description: "Windows Server 2025"
     cloudInit: true
     guestAgent: true
     cloudInitConfig:
@@ -68,14 +68,24 @@ vms:
       userData: |
         #ps1_sysnative
         # Set Administrator password
-        net user Corvus "CHANGE_ME" /y
+        net user Administrator "corvus" /y
+        # Install Remote Desktop Session Host feature
+        Install-WindowsFeature -Name RDS-RD-Server
+        # Enable RDP connections
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -Value 0
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -Value 0
+        # Enable RDP firewall rules
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        # Start Remote Desktop service
+        Set-Service -Name TermService -StartupType Automatic
+        Start-Service TermService
     drives:
       - disk: ovmf-code
         interface: pflash
         readOnly: true
-      - disk: windows-server-2012-r2-ovmf-vars
+      - disk: windows-server-2025-ovmf-vars
         interface: pflash
-      - disk: windows-server-2012-r2
+      - disk: windows-server-2025
         interface: virtio
         media: disk
         cacheType: writeback

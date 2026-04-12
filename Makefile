@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image lint format
+.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -69,9 +69,16 @@ test:
 lint:
 	hlint src app test
 
+# Build all test images
+test-image: test-image-alpine test-image-windows
+
 # Build the custom Alpine test image (requires root for qemu-nbd + mount)
-test-image:
+test-image-alpine:
 	doas scripts/build-test-image.sh --force
+
+# Build the Windows Server 2025 test image (downloads ~8 GB, takes 15-30 min)
+test-image-windows:
+	scripts/build-windows-test-image.sh --force
 
 # Format the code using fourmolu
 format:

@@ -1,10 +1,10 @@
 #!/bin/sh
-# Build a Windows Server 2022 test image with QEMU Guest Agent pre-installed.
+# Build a Windows Server 2025 test image with QEMU Guest Agent pre-installed.
 # Requires: qemu-system-x86_64, qemu-img, mcopy (mtools), mkfs.fat
 #
 # Usage: ./scripts/build-windows-test-image.sh [--force] [--viewer]
 #
-# The script automatically downloads the Windows Server 2022 evaluation ISO
+# The script automatically downloads the Windows Server 2025 evaluation ISO
 # (~5 GB) and the VirtIO-Win drivers ISO (~700 MB) if not already cached.
 #
 # The unattended installation uses autounattend.xml to partition, install,
@@ -16,7 +16,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 IMAGES_DIR="${PROJECT_ROOT}/.test-images"
-WIN_ISO="${IMAGES_DIR}/windows-server-2022-eval.iso"
+WIN_ISO="${IMAGES_DIR}/windows-server-2025-eval.iso"
 VIRTIO_ISO="${IMAGES_DIR}/virtio-win.iso"
 OUTPUT="${IMAGES_DIR}/windows-server-eval.qcow2"
 AUTOUNATTEND="$(dirname "$0")/windows-autounattend.xml"
@@ -25,7 +25,7 @@ OVMF_CODE="/usr/share/edk2-ovmf/OVMF_CODE_4M.qcow2"
 OVMF_VARS_TEMPLATE="/usr/share/edk2-ovmf/OVMF_VARS_4M.qcow2"
 OVMF_VARS="${IMAGES_DIR}/windows-ovmf-vars.qcow2"
 
-WIN_ISO_URL="https://software-static.download.prss.microsoft.com/dbazure/888969d5-f34g-4e03-ac9d-1f9786c66749/SERVER_EVAL_x64FRE_en-us.iso"
+WIN_ISO_URL="https://software-static.download.prss.microsoft.com/dbazure/998969d5-f34g-4e03-ac9d-1f9786c66749/26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
 VIRTIO_ISO_URL="https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
 
 FORCE=0
@@ -93,8 +93,8 @@ download() {
     echo "$label downloaded (${size} bytes)."
 }
 
-# Download ISOs if not cached (~5 GB + ~700 MB)
-download "$WIN_ISO_URL"    "$WIN_ISO"    4000000000 "Windows Server 2022 evaluation ISO"
+# Download ISOs if not cached (~7.6 GB + ~700 MB)
+download "$WIN_ISO_URL"    "$WIN_ISO"    5000000000 "Windows Server 2025 evaluation ISO"
 download "$VIRTIO_ISO_URL" "$VIRTIO_ISO" 100000000  "VirtIO-Win drivers ISO"
 
 # Check local prerequisites

@@ -13,16 +13,16 @@
     <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
       <DriverPaths>
         <PathAndCredentials wcm:action="add" wcm:keyValue="1">
-          <Path>E:\vioserial\2k22\amd64</Path>
+          <Path>E:\vioserial\2k25\amd64</Path>
         </PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="2">
-          <Path>E:\viostor\2k22\amd64</Path>
+          <Path>E:\viostor\2k25\amd64</Path>
         </PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="3">
-          <Path>E:\NetKVM\2k22\amd64</Path>
+          <Path>E:\NetKVM\2k25\amd64</Path>
         </PathAndCredentials>
         <PathAndCredentials wcm:action="add" wcm:keyValue="4">
-          <Path>E:\qemufwcfg\2k22\amd64</Path>
+          <Path>E:\qemufwcfg\2k25\amd64</Path>
         </PathAndCredentials>
       </DriverPaths>
     </component>
@@ -72,7 +72,7 @@
         <OSImage>
           <InstallFrom>
             <MetaData wcm:action="add">
-              <!-- Index 2 = "Windows Server 2022 Standard Evaluation (Desktop Experience)" -->
+              <!-- Index 2 = "Windows Server 2025 Standard Evaluation (Desktop Experience)" -->
               <Key>/IMAGE/INDEX</Key>
               <Value>2</Value>
             </MetaData>
@@ -119,8 +119,24 @@
           <Order>3</Order>
         </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
-          <CommandLine>shutdown /s /t 30 /f</CommandLine>
+          <CommandLine>powershell -Command "Invoke-WebRequest -Uri 'https://cloudbase.it/downloads/CloudbaseInitSetup_Stable_x64.msi' -OutFile 'C:\Windows\Temp\CloudbaseInit.msi'"</CommandLine>
           <Order>4</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>powershell -Command "Start-Process msiexec -ArgumentList '/i','C:\Windows\Temp\CloudbaseInit.msi','/qn','/l*v','C:\Windows\Temp\cloudbase-init.log','USERNAME=Administrator','LOGGINGSERIALPORTNAME=COM1' -Wait"</CommandLine>
+          <Order>5</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>powershell -Command "Remove-Item 'C:\Windows\Temp\CloudbaseInit.msi' -Force -ErrorAction SilentlyContinue"</CommandLine>
+          <Order>6</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>powershell -Command "Add-Content -Path 'C:\Program Files\Cloudbase Solutions\Cloudbase-Init\conf\cloudbase-init.conf' -Value @('metadata_services=cloudbaseinit.metadata.services.nocloudservice.NoCloudConfigDriveService','first_logon_behaviour=no')"</CommandLine>
+          <Order>7</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>shutdown /s /t 30 /f</CommandLine>
+          <Order>8</Order>
         </SynchronousCommand>
       </FirstLogonCommands>
       <OOBE>

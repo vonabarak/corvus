@@ -28,7 +28,7 @@ import Data.Time (UTCTime)
 import System.Directory (doesFileExist, getCurrentDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
-import Test.Database (withTestDb)
+import Test.Database (TestEnv, withTestDb)
 import Test.Hspec
 import Test.VM.Common (findFreePort)
 import Test.VM.Daemon (TestDaemon (..), withDaemonConnection, withTestDaemon)
@@ -38,6 +38,7 @@ import Test.VM.Rpc
   , createTestVmWithOptions
   , deleteTestVm
   , runViaGuestAgent
+  , setCloudInitConfig
   , startTestVm
   , stopTestVmAndWait
   )
@@ -46,20 +47,27 @@ import Test.VM.Rpc
 windowsImagePath :: FilePath
 windowsImagePath = ".test-images" </> "windows-server-eval.qcow2"
 
+-- | Run a test that requires the Windows test image.
+-- Skips with pendingWith if the image does not exist.
+withWindowsImage :: (FilePath -> IO ()) -> IO ()
+withWindowsImage action = do
+  projectRoot <- getCurrentDirectory
+  let imagePath = projectRoot </> windowsImagePath
+  exists <- doesFileExist imagePath
+  if not exists
+    then
+      pendingWith $
+        "Windows test image not found at "
+          ++ imagePath
+          ++ ". Build with: scripts/build-windows-test-image.sh"
+    else action imagePath
+
 spec :: Spec
 spec = withTestDb $ do
   describe "Windows VM Integration" $ do
     it "guest agent healthcheck and exec work on Windows VM" $ \env -> do
-      projectRoot <- getCurrentDirectory
-      let imagePath = projectRoot </> windowsImagePath
-      exists <- doesFileExist imagePath
-      if not exists
-        then
-          pendingWith $
-            "Windows test image not found at "
-              ++ imagePath
-              ++ ". Build with: scripts/build-windows-test-image.sh"
-        else withTestDaemon env $ \daemon -> do
+      withWindowsImage $ \imagePath ->
+        withTestDaemon env $ \daemon -> do
           -- Import the pre-built Windows image and create an overlay
           baseId <- registerDisk daemon "win-base" (T.pack imagePath) (Just FormatQcow2)
           diskId <- createOverlay daemon "win-test" baseId
@@ -118,6 +126,64 @@ spec = withTestDb $ do
           stopTestVmAndWait daemon vmId 60
           deleteTestVm daemon vmId
 
+    it "cloud-init user-data script and hostname are applied on Windows VM" $ \env -> do
+      withWindowsImage $ \imagePath ->
+        withTestDaemon env $ \daemon -> do
+          -- Import the pre-built Windows image and create an overlay
+          baseId <- registerDisk daemon "win-ci-base" (T.pack imagePath) (Just FormatQcow2)
+          diskId <- createOverlay daemon "win-ci-test" baseId
+
+          -- Set up UEFI firmware
+          ovmfCodeId <- registerDisk daemon "win-ci-ovmf-code" "/usr/share/edk2/OvmfX64/OVMF_CODE.fd" (Just FormatRaw)
+          ovmfVarsTemplateId <- registerDisk daemon "win-ci-ovmf-vars-tpl" "/usr/share/edk2/OvmfX64/OVMF_VARS.fd" (Just FormatRaw)
+          ovmfVarsId <- cloneDisk daemon "win-ci-ovmf-vars" ovmfVarsTemplateId
+
+          -- Create VM with cloud-init enabled
+          vmId <- createTestVmWithOptions daemon "test-win-ci" 2 4096 Nothing False True True
+
+          -- Set custom cloud-init user-data: a PowerShell script that creates a marker file
+          setCloudInitConfig
+            daemon
+            vmId
+            ( Just $
+                T.unlines
+                  [ "#ps1_sysnative"
+                  , "Set-Content -Path 'C:\\cloud-init-marker.txt' -Value 'cloud-init-ok'"
+                  , "net user Administrator corvus /y"
+                  ]
+            )
+            Nothing
+            False
+
+          -- Attach UEFI firmware (pflash order: CODE then VARS)
+          addVmDisk daemon vmId ovmfCodeId InterfacePflash CacheWriteback False True
+          addVmDisk daemon vmId ovmfVarsId InterfacePflash CacheWriteback False False
+
+          -- Add boot disk
+          addVmDisk daemon vmId diskId InterfaceVirtio CacheWriteback False False
+
+          -- Add user-mode network
+          sshPort <- findFreePort
+          let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
+          addVmNetIf daemon vmId NetUser hostFwd Nothing
+
+          -- Start VM and wait for guest agent (Windows boots slowly)
+          startTestVm daemon vmId
+          _ <- waitForHealthcheck daemon vmId 300
+
+          -- Poll for the marker file (cloudbase-init runs after boot, may take a while)
+          stdout <- waitForMarkerFile daemon vmId 120
+          T.strip stdout `shouldSatisfy` T.isInfixOf "cloud-init-ok"
+
+          -- Verify cloud-init set the hostname from VM name
+          (codeH, stdoutH, _) <- runViaGuestAgent daemon vmId "hostname"
+          codeH `shouldBe` ExitSuccess
+          T.strip stdoutH `shouldBe` "test-win-ci"
+
+          -- Cleanup
+          stopTestVmAndWait daemon vmId 60
+          deleteTestVm daemon vmId
+
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
@@ -154,6 +220,21 @@ cloneDisk daemon name sourceId = do
     Right (Left err) -> fail $ "RPC error cloning disk: " <> show err
     Right (Right other) -> fail $ "Unexpected response: " <> show other
     Left err -> fail $ "Connection error: " <> show err
+
+-- | Poll until a marker file created by cloud-init user-data exists.
+-- Retries every 5 seconds. Fails after timeout seconds.
+waitForMarkerFile :: TestDaemon -> Int64 -> Int -> IO T.Text
+waitForMarkerFile daemon vmId timeoutSec = go timeoutSec
+  where
+    go n
+      | n <= 0 = fail $ "Cloud-init marker file not found after " <> show timeoutSec <> "s"
+      | otherwise = do
+          (code, stdout, _) <- runViaGuestAgent daemon vmId "type C:\\cloud-init-marker.txt"
+          case code of
+            ExitSuccess -> pure stdout
+            _ -> do
+              threadDelay 5000000
+              go (n - 5)
 
 -- | Poll until healthcheck timestamp is set. Fails after timeout seconds.
 waitForHealthcheck :: TestDaemon -> Int64 -> Int -> IO UTCTime

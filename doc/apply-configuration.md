@@ -610,3 +610,13 @@ crv apply environment.yml         # Create everything
 crv network start lab-net         # Start the virtual network
 crv vm start web-server           # Start the VM
 ```
+
+## Example Files
+
+The `doc/apply-examples/` directory contains ready-to-use configuration files:
+
+- **`multi-os.yml`** — Downloads cloud images for multiple operating systems (Debian, Ubuntu, AlmaLinux, FreeBSD, Gentoo) and creates a VM for each. Demonstrates importing from URLs, overlays, UEFI boot, and per-OS cloud-init customization (e.g. enabling `qemu-guest-agent` on FreeBSD where it is not started by default).
+
+- **`test-images.yml`** — Uses locally built test images (Alpine Linux and Windows Server) as base disks. Build them first with `make test-image-alpine` and `make test-image-windows`. Demonstrates `register` for local files, Windows cloud-init via cloudbase-init (PowerShell user-data scripts, RDP setup), and UEFI firmware configuration.
+
+- **`example-apply.yml`** — A self-contained example with UEFI boot, cloud image download, overlays, clones, virtual networking, and SSH key injection. Good starting point for new configurations.
