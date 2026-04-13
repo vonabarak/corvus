@@ -1,4 +1,4 @@
-name: "slmslinux-10"
+name: "almalinux-10"
 description: "Standard web server template with 20GB root disk"
 cpuCount: 2
 ramMb: 2048
