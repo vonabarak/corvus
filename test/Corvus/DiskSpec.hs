@@ -414,6 +414,35 @@ spec = sequential $ do
           responseIsDiskCreated
           diskImageHasPath 1 "foo.qcow2"
 
+    describe "disk register with backing image" $ do
+      testCase "stores backing reference when given by name" $ do
+        baseId <- given $ insertDiskImage "base" "base.qcow2" FormatQcow2
+        when_ $ diskRegisterWithBacking "overlay" "overlay.qcow2" FormatQcow2 "base"
+        then_ $ do
+          responseIsDiskCreated
+          diskImageHasBacking 2 (Just baseId)
+
+      testCase "stores backing reference when given by numeric ID" $ do
+        baseId <- given $ insertDiskImage "base" "base.qcow2" FormatQcow2
+        when_ $ diskRegisterWithBacking "overlay" "overlay.qcow2" FormatQcow2 (T.pack (show baseId))
+        then_ $ do
+          responseIsDiskCreated
+          diskImageHasBacking 2 (Just baseId)
+
+      testCase "fails when backing disk does not exist by name" $ do
+        when_ $ diskRegisterWithBacking "overlay" "overlay.qcow2" FormatQcow2 "missing-base"
+        then_ responseIsDiskNotFound
+
+      testCase "fails when backing disk does not exist by numeric ID" $ do
+        when_ $ diskRegisterWithBacking "overlay" "overlay.qcow2" FormatQcow2 "999"
+        then_ responseIsDiskNotFound
+
+      testCase "leaves backing unset when no backing is provided" $ do
+        when_ $ diskRegister "plain" "plain.qcow2" FormatQcow2
+        then_ $ do
+          responseIsDiskCreated
+          diskImageHasBacking 1 Nothing
+
     describe "disk rebase" $ do
       testCase "fails for non-existent disk" $ do
         result <- diskRebase 999 Nothing False

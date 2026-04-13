@@ -94,6 +94,7 @@ instance Arbitrary Request where
       , ReqTaskShow <$> arbitrary
       , ReqTaskListChildren <$> arbitrary
       , pure (ReqDiskImport "import-test" "https://example.com/disk.qcow2" Nothing (Just "qcow2") True)
+      , ReqDiskRegister "reg-test" "/tmp/disk.qcow2" (Just FormatQcow2) <$> arbitrary
       ]
 
 spec :: Spec

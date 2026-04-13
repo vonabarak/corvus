@@ -103,9 +103,10 @@ crv disk create myvm-boot --size 20G --format qcow2
 crv disk create data-disk --size 100G -f raw
 
 # Register an existing local disk image (no copy)
-crv disk register <name> <path> [--format <format>]
+crv disk register <name> <path> [--format <format>] [--backing <disk>]
 crv disk register ovmf-code /usr/share/edk2/OvmfX64/OVMF_CODE.fd -f raw
 crv disk register debian-base ~/VMs/debian.qcow2
+crv disk register ws25-overlay ~/VMs/ws25/overlay.qcow2 --backing ws25-base
 
 # Import a disk image (copies local file or downloads URL)
 crv disk import <name> <source> [--path <dest>] [--format <format>] [--wait]

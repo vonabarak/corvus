@@ -88,6 +88,7 @@ disks:
     format: <string>          # Disk format (for create; auto-detected on import/register). See below.
     sizeMb: <integer>         # Size in MB (for create; optional resize hint for overlay).
     path: <string>            # Optional destination path for import/overlay/clone/create output file.
+    backing: <string>         # Optional backing disk name (only valid with `register`, for overlays).
 ```
 
 Exactly one creation strategy must be specified:
@@ -123,6 +124,8 @@ The `register` field points the database at an existing local file without copyi
 URLs are not accepted — use `import` for downloading.
 
 The `format` field is optional — it is auto-detected from the file extension or via `qemu-img info` when possible. The `path` field cannot be used with `register` since no file is being created or moved.
+
+The optional `backing` field records that the registered file is a qcow2 overlay on top of another disk that is already known to Corvus. The value is the name (or numeric ID) of the backing disk. Use this when registering pre-existing overlay files (for example, an overlay that was created out-of-band or restored from a backup) so that Corvus tracks the dependency for snapshot, rebase, and delete operations.
 
 If a local file is already registered in the database (same path), the existing entry is reused without error.
 
@@ -182,6 +185,12 @@ disks:
   - name: ws25-system
     register: "ws25/overlay.qcow2"
     format: qcow2
+
+  # Register a pre-existing qcow2 overlay and link it to its backing disk
+  - name: ws25-overlay
+    register: "ws25/overlay.qcow2"
+    format: qcow2
+    backing: ws25-base
 
   # Create overlay backed by the alpine-base image
   - name: web-root
@@ -477,6 +486,7 @@ The daemon validates the configuration before creating any resources:
 - Each disk must use exactly one creation strategy (`import`, `register`, `overlay`, `clone`, or `format` + `sizeMb`).
 - A disk cannot specify more than one of `import`, `register`, `overlay`, `clone`.
 - The `path` field can only be used with `import`, `overlay`, `clone`, or `create` strategies (not `register`).
+- The `backing` field can only be used with the `register` strategy.
 - VMs with `sshKeys` must not have `cloudInit: false`.
 
 If validation fails, no resources are created.

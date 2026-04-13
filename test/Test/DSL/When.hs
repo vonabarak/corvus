@@ -13,6 +13,7 @@ module Test.DSL.When
   , diskCreate
   , diskCreateOverlay
   , diskRegister
+  , diskRegisterWithBacking
   , diskClone
   , diskImport
   , diskRebase
@@ -232,7 +233,13 @@ diskCreateOverlay name baseDiskId optDirPath =
 -- | Register an existing disk image file
 diskRegister :: Text -> Text -> DriveFormat -> TestM DiskResult
 diskRegister name filePath format =
-  executeRpc (\conn -> Rpc.diskRegister conn name filePath (Just format))
+  executeRpc (\conn -> Rpc.diskRegister conn name filePath (Just format) Nothing)
+
+-- | Register an existing disk image file with an explicit backing image reference
+-- (name or numeric ID).
+diskRegisterWithBacking :: Text -> Text -> DriveFormat -> Text -> TestM DiskResult
+diskRegisterWithBacking name filePath format backingRef =
+  executeRpc (\conn -> Rpc.diskRegister conn name filePath (Just format) (Just backingRef))
 
 -- | Clone a disk image
 diskClone :: Text -> Int64 -> Maybe Text -> TestM DiskResult

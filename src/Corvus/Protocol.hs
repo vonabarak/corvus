@@ -64,7 +64,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 24
+protocolVersion = 25
 
 -- | Client requests
 data Request
@@ -89,8 +89,8 @@ data Request
   | -- | Disk image operations
     -- | Create disk image (name, format, sizeMb, optionalPath)
     ReqDiskCreate !Text !DriveFormat !Int64 !(Maybe Text)
-  | -- | Register existing disk image (name, filePath, format)
-    ReqDiskRegister !Text !Text !(Maybe DriveFormat)
+  | -- | Register existing disk image (name, filePath, format, optionalBackingRef)
+    ReqDiskRegister !Text !Text !(Maybe DriveFormat) !(Maybe Ref)
   | -- | Create overlay disk image (overlayName, baseDiskRef, optionalPath)
     ReqDiskCreateOverlay !Text !Ref !(Maybe Text)
   | -- | Refresh disk image size from qemu-img info (diskRef)

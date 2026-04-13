@@ -192,7 +192,7 @@ spec = withTestDb $ do
 registerDisk :: TestDaemon -> T.Text -> T.Text -> Maybe DriveFormat -> IO Int64
 registerDisk daemon name filePath mFormat = do
   result <- withDaemonConnection daemon $ \conn ->
-    diskRegister conn name filePath mFormat
+    diskRegister conn name filePath mFormat Nothing
   case result of
     Right (Right (DiskCreated id')) -> pure id'
     Right (Left err) -> fail $ "RPC error registering disk: " <> show err

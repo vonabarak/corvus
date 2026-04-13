@@ -107,6 +107,7 @@ data ApplyDisk = ApplyDisk
   , adClone :: Maybe Text
   , adPath :: Maybe Text
   , adRegister :: Maybe Text
+  , adBacking :: Maybe Text
   }
   deriving (Show)
 
@@ -121,6 +122,7 @@ instance FromJSON ApplyDisk where
       <*> o .:? "clone"
       <*> o .:? "path"
       <*> o .:? "register"
+      <*> o .:? "backing"
 
 data ApplyNetwork = ApplyNetwork
   { anName :: Text
@@ -310,6 +312,7 @@ validateConfig config = do
           hasOverlay = isJust (adOverlay d)
           hasClone = isJust (adClone d)
           hasRegister = isJust (adRegister d)
+          hasBacking = isJust (adBacking d)
           hasCreate = isJust (adFormat d) && isJust (adSizeMb d) && not hasImport && not hasOverlay && not hasClone && not hasRegister
           strategies = length $ filter id [hasImport, hasOverlay, hasClone, hasRegister]
        in if strategies > 1
@@ -320,7 +323,10 @@ validateConfig config = do
                 else
                   if isJust (adPath d) && not hasOverlay && not hasClone && not hasCreate && not hasImport
                     then Left $ "Disk '" <> adName d <> "': 'path' can only be used with 'import', 'overlay', 'clone', or 'create'"
-                    else Right ()
+                    else
+                      if hasBacking && not hasRegister
+                        then Left $ "Disk '" <> adName d <> "': 'backing' can only be used with 'register'"
+                        else Right ()
 
 -- | Resolve effective cloudInit value for a VM.
 -- If explicitly set, use that. Otherwise, auto-enable when sshKeys are present.
@@ -649,9 +655,15 @@ instance Action ApplyDiskCreate where
             actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)))
           (_, _, _, Just registerPath)
             | isHttpUrl registerPath -> pure $ RespError $ "Disk '" <> adName d <> "': register requires a local path, not a URL"
-            | otherwise ->
+            | otherwise -> do
                 let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath registerPath)
-                 in actionExecute ctx (DiskRegister (adName d) registerPath (Just format))
+                case adBacking d of
+                  Nothing -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) Nothing)
+                  Just backingName -> do
+                    mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
+                    case mBackingId of
+                      Nothing -> pure $ RespError $ "backing disk '" <> backingName <> "' not found"
+                      Just backingId -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) (Just backingId))
           (_, Just backingName, _, _) -> do
             mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
             case mBackingId of

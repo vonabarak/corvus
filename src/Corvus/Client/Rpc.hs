@@ -358,15 +358,17 @@ diskCreateOverlay :: Connection -> Text -> Text -> Maybe Text -> IO (Either Conn
 diskCreateOverlay conn name baseDiskRef optDirPath =
   handleDiskResponse <$> sendRequest conn (ReqDiskCreateOverlay name (Ref baseDiskRef) optDirPath)
 
--- | Register an existing disk image file
+-- | Register an existing disk image file.
+-- An optional backing image reference may be supplied when registering an overlay.
 diskRegister
   :: Connection
   -> Text
   -> Text
   -> Maybe DriveFormat
+  -> Maybe Text
   -> IO (Either ConnectionError DiskResult)
-diskRegister conn name filePath mFormat =
-  handleDiskResponse <$> sendRequest conn (ReqDiskRegister name filePath mFormat)
+diskRegister conn name filePath mFormat mBackingRef =
+  handleDiskResponse <$> sendRequest conn (ReqDiskRegister name filePath mFormat (fmap Ref mBackingRef))
 
 -- | Refresh a disk image's size from qemu-img info
 diskRefresh :: Connection -> Text -> IO (Either ConnectionError DiskResult)

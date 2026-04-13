@@ -262,7 +262,7 @@ runOverlayTest :: TestDaemon -> FilePath -> IO ()
 runOverlayTest daemon basePath = do
   regResult <-
     withDaemonConnection daemon $ \conn ->
-      diskRegister conn "base-disk" (T.pack basePath) (Just FormatQcow2)
+      diskRegister conn "base-disk" (T.pack basePath) (Just FormatQcow2) Nothing
   baseId <- case regResult of
     Left err -> fail $ "Connection error: " ++ show err
     Right (Left err) -> fail $ "RPC error: " ++ show err
@@ -307,7 +307,7 @@ runFlattenTest :: TestDaemon -> FilePath -> IO ()
 runFlattenTest daemon basePath = do
   -- Register base disk
   regResult <- withDaemonConnection daemon $ \conn ->
-    diskRegister conn "flatten-base" (T.pack basePath) (Just FormatQcow2)
+    diskRegister conn "flatten-base" (T.pack basePath) (Just FormatQcow2) Nothing
   baseId <- case regResult of
     Right (Right (DiskCreated id_)) -> pure id_
     other -> fail $ "Register base failed: " ++ show other
@@ -339,13 +339,13 @@ runRebaseTest :: TestDaemon -> FilePath -> FilePath -> IO ()
 runRebaseTest daemon base1Path base2Path = do
   -- Register both base disks
   reg1 <- withDaemonConnection daemon $ \conn ->
-    diskRegister conn "rebase-base1" (T.pack base1Path) (Just FormatQcow2)
+    diskRegister conn "rebase-base1" (T.pack base1Path) (Just FormatQcow2) Nothing
   base1Id <- case reg1 of
     Right (Right (DiskCreated id_)) -> pure id_
     other -> fail $ "Register base1 failed: " ++ show other
 
   reg2 <- withDaemonConnection daemon $ \conn ->
-    diskRegister conn "rebase-base2" (T.pack base2Path) (Just FormatQcow2)
+    diskRegister conn "rebase-base2" (T.pack base2Path) (Just FormatQcow2) Nothing
   base2Id <- case reg2 of
     Right (Right (DiskCreated id_)) -> pure id_
     other -> fail $ "Register base2 failed: " ++ show other

@@ -224,6 +224,20 @@ spec = sequential $ do
           RespError msg -> "cannot specify more than one" `T.isInfixOf` msg
           _ -> False
 
+      testCase "fails on disk with backing but no register strategy" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: bad-disk
+                  format: qcow2
+                  sizeMb: 1024
+                  backing: some-base
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "'backing' can only be used with 'register'" `T.isInfixOf` msg
+          _ -> False
+
       testCase "fails on VM with sshKeys but cloudInit false" $ do
         when_ $
           whenApply

@@ -530,6 +530,16 @@ diskRegisterCommand =
               <> completeWith ["qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx"]
           )
       )
+    <*> optional
+      ( T.pack
+          <$> strOption
+            ( long "backing"
+                <> short 'b'
+                <> metavar "BACKING"
+                <> help "Name or ID of the backing disk image (use when registering an overlay)"
+                <> completer diskCompleter
+            )
+      )
 
 -- | Parser for disk import (copies local file or downloads URL)
 diskImportCommand :: Parser Command

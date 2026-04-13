@@ -137,8 +137,8 @@ handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath = do
       pure False
 
 -- | Handle disk register command (registers local file in DB without copying)
-handleDiskRegister :: OutputFormat -> Connection -> Text -> FilePath -> Maybe Text -> IO Bool
-handleDiskRegister fmt conn name path mFormatStr = do
+handleDiskRegister :: OutputFormat -> Connection -> Text -> FilePath -> Maybe Text -> Maybe Text -> IO Bool
+handleDiskRegister fmt conn name path mFormatStr mBackingRef = do
   exists <- doesFileExist path
   if not exists
     then do
@@ -166,7 +166,7 @@ handleDiskRegister fmt conn name path mFormatStr = do
                 if basePath `isPrefixOfPath` absPath
                   then makeRelative basePath absPath
                   else absPath
-          resp <- diskRegister conn name (T.pack storedPath) mFmt
+          resp <- diskRegister conn name (T.pack storedPath) mFmt mBackingRef
           case resp of
             Left err -> do
               if isStructured fmt

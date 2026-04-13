@@ -110,7 +110,7 @@ withTestDiskSetup daemon config callback = do
 
   -- Register base image with daemon
   resBase <- withDaemonConnection daemon $ \conn ->
-    diskRegister conn baseName (T.pack localBasePath) (Just FormatQcow2)
+    diskRegister conn baseName (T.pack localBasePath) (Just FormatQcow2) Nothing
   baseDiskId <- case resBase of
     Right (Right (DiskCreated dId)) -> pure dId
     Right (Left err) -> fail $ "Failed to register base disk: " <> show err
@@ -130,14 +130,14 @@ withTestDiskSetup daemon config callback = do
     then do
       -- Register OVMF firmware disks
       resOvmfCode <- withDaemonConnection daemon $ \conn ->
-        diskRegister conn ovmfCodeName "/usr/share/edk2/OvmfX64/OVMF_CODE.fd" (Just FormatRaw)
+        diskRegister conn ovmfCodeName "/usr/share/edk2/OvmfX64/OVMF_CODE.fd" (Just FormatRaw) Nothing
       ovmfCodeId <- case resOvmfCode of
         Right (Right (DiskCreated dId)) -> pure dId
         Right (Left err) -> fail $ "Failed to register OVMF_CODE disk: " <> show err
         _ -> fail "Unexpected response registering OVMF_CODE"
 
       resOvmfVarsTemplate <- withDaemonConnection daemon $ \conn ->
-        diskRegister conn ovmfVarsTemplateName "/usr/share/edk2/OvmfX64/OVMF_VARS.fd" (Just FormatRaw)
+        diskRegister conn ovmfVarsTemplateName "/usr/share/edk2/OvmfX64/OVMF_VARS.fd" (Just FormatRaw) Nothing
       ovmfVarsTemplateId <- case resOvmfVarsTemplate of
         Right (Right (DiskCreated dId)) -> pure dId
         Right (Left err) -> fail $ "Failed to register OVMF_VARS template disk: " <> show err

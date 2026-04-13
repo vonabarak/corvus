@@ -102,8 +102,14 @@ handleRequest state = \case
     runAction state (DiskCreate name format sizeMb mPath)
   ReqDiskCreateOverlay name baseDiskRef optPath -> withDisk baseDiskRef $ \baseDiskId ->
     runAction state (DiskCreateOverlay name baseDiskId Nothing optPath)
-  ReqDiskRegister name path mFormat ->
-    runAction state (DiskRegister name path mFormat)
+  ReqDiskRegister name path mFormat mBackingRef ->
+    case mBackingRef of
+      Nothing -> runAction state (DiskRegister name path mFormat Nothing)
+      Just backingRef -> do
+        r <- resolveDisk backingRef pool
+        case r of
+          Left _ -> pure RespDiskNotFound
+          Right backingId -> runAction state (DiskRegister name path mFormat (Just backingId))
   ReqDiskImportUrl name url mFmt ->
     runAction state (DiskImportUrl name url mFmt)
   ReqDiskImport name source mPath mFmt wait ->

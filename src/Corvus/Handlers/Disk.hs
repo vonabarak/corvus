@@ -205,8 +205,9 @@ handleDiskRegister
   -> Text
   -> Text
   -> Maybe DriveFormat
+  -> Maybe Int64
   -> IO Response
-handleDiskRegister state name filePath mFormat =
+handleDiskRegister state name filePath mFormat mBackingDiskId =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -263,7 +264,7 @@ handleDiskRegister state name filePath mFormat =
                         , diskImageFormat = format
                         , diskImageSizeMb = sizeMb
                         , diskImageCreatedAt = now
-                        , diskImageBackingImageId = Nothing
+                        , diskImageBackingImageId = fmap toSqlKey mBackingDiskId
                         }
                   )
                   (ssDbPool state)
@@ -1275,13 +1276,14 @@ data DiskRegister = DiskRegister
   { drgName :: Text
   , drgPath :: Text
   , drgFormat :: Maybe DriveFormat
+  , drgBackingDiskId :: Maybe Int64
   }
 
 instance Action DiskRegister where
   actionSubsystem _ = SubDisk
   actionCommand _ = "register"
   actionEntityName = Just . drgName
-  actionExecute ctx a = handleDiskRegister (acState ctx) (drgName a) (drgPath a) (drgFormat a)
+  actionExecute ctx a = handleDiskRegister (acState ctx) (drgName a) (drgPath a) (drgFormat a) (drgBackingDiskId a)
 
 data DiskImportAction = DiskImportAction
   { diaName :: Text

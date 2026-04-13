@@ -73,8 +73,8 @@ data Command
 
     -- | Create disk image (name, format, sizeMb, optionalPath)
     DiskCreate !Text !Text !Int64 !(Maybe Text)
-  | -- | Register existing disk image in DB without copying (name, path, optional format)
-    DiskRegisterCmd !Text !FilePath !(Maybe Text)
+  | -- | Register existing disk image in DB without copying (name, path, optional format, optional backing image ref)
+    DiskRegisterCmd !Text !FilePath !(Maybe Text) !(Maybe Text)
   | -- | Import disk image with copy/download (name, source, destPath, format, waitOptions)
     DiskImport !Text !Text !(Maybe Text) !(Maybe Text) !WaitOptions
   | -- | Create overlay disk image (name, baseDiskRef, optionalDirPath)
