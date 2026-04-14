@@ -54,10 +54,13 @@ src/Corvus/
 │   ├── Rpc.hs           # High-level RPC call wrappers
 │   ├── Parser.hs        # optparse-applicative CLI parsing
 │   ├── Commands.hs      # Command execution dispatcher
+│   ├── Editor.hs        # $EDITOR launcher for template/cloud-init editing
 │   ├── Commands/
 │   │   ├── Vm.hs        # VM command handlers and display
 │   │   ├── Disk.hs      # Disk command handlers (incl. HTTP import)
 │   │   ├── Template.hs  # Template command handlers
+│   │   ├── Template/
+│   │   │   └── Yaml.hs  # TemplateDetails → YAML serializer, skeleton template
 │   │   ├── Apply.hs     # Apply command handler
 │   │   ├── Network.hs   # Network command handlers
 │   │   ├── NetIf.hs     # Network interface command handlers
@@ -65,7 +68,7 @@ src/Corvus/
 │   │   ├── SharedDir.hs # Shared directory command handlers
 │   │   ├── GuestExec.hs # Guest exec command handlers
 │   │   ├── CloudInit.hs # Cloud-init config command handlers
-│   │   └── Task.hs     # Task history command handlers
+│   │   └── Task.hs      # Task history command handlers
 │   ├── Output.hs        # Unified table/detail output formatting (printTableHeader, printField)
 │   ├── Types.hs         # CLI command types
 │   └── Config.hs        # Client configuration
@@ -150,6 +153,25 @@ No external C libraries required. The C namespace manager (`cbits/netns.c`) uses
 - Integration tests require QEMU/KVM access.
 - Virtual networking tests (`NetworkIntegrationSpec`) run unprivileged using user namespaces — no root or doas required. The kernel must have `CONFIG_USER_NS=y` (check with `unshare --user echo ok`).
 - Log level during tests is controlled by `CORVUS_TEST_LOG_LEVEL` env var (default: `info`). Use `CORVUS_TEST_LOG_LEVEL=debug` for verbose output.
+
+## Documentation
+
+User-facing documentation lives in `doc/`. See `doc/INDEX.md` for the full list.
+
+| File | Content |
+|---|---|
+| `doc/README.md` | Project overview, installation, quick start (symlinked from repo root) |
+| `doc/vm-management.md` | VM lifecycle, state machine, serial console |
+| `doc/disk-management.md` | Disk CRUD, overlays, clones, rebase, attach/detach |
+| `doc/snapshots.md` | qcow2 snapshot operations |
+| `doc/networking.md` | Virtual networks, network interfaces, namespace exec |
+| `doc/ssh-keys.md` | SSH key management |
+| `doc/cloud-init.md` | Cloud-init ISO generation, SSH key injection, Windows support |
+| `doc/shared-directories.md` | virtiofs shared directories |
+| `doc/guest-exec.md` | Guest agent command execution |
+| `doc/task-history.md` | Async operation tracking |
+| `doc/templates.md` | VM template YAML schema and instantiation |
+| `doc/apply-configuration.md` | Declarative environment YAML reference |
 
 ## Project Rules
 

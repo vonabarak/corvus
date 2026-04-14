@@ -675,6 +675,6 @@ The `doc/apply-examples/` directory contains ready-to-use configuration files:
 
 - **`multi-os.yml`** — Downloads cloud images for multiple operating systems (Debian, Ubuntu, AlmaLinux, FreeBSD, Gentoo) and creates a **template** for each. No VMs are created — use `crv template instantiate <name> <vm-name>` to spin up instances on demand. Demonstrates YAML anchors for shared UEFI drive definitions, overlay strategy for base images, and per-OS cloud-init customization (e.g. enabling `qemu-guest-agent` on FreeBSD).
 
-- **`test-images.yml`** — Uses locally built test images (Alpine Linux and Windows Server) as base disks. Build them first with `make test-image-alpine` and `make test-image-windows`. Demonstrates `register` for local files, Windows cloud-init via cloudbase-init (PowerShell user-data scripts, RDP setup), and UEFI firmware configuration.
+- **`test-images.yml`** — Uses locally built test images (Alpine Linux and Windows Server) as base disks. These are the same images used by integration tests. Build both with `make test-image`, or individually with `make test-image-alpine` / `make test-image-windows`. Demonstrates `register` for local files, Windows cloud-init via cloudbase-init (PowerShell user-data scripts, RDP setup), and UEFI firmware configuration.
 
 - **`example-apply.yml`** — A self-contained example with UEFI boot, cloud image download, overlays, clones, virtual networking, and SSH key injection. Good starting point for new configurations.
