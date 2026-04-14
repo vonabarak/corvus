@@ -4,7 +4,7 @@
 module Corvus.TemplateSpec (spec) where
 
 import Corvus.Client.Rpc (TemplateResult (..))
-import Corvus.Model (Key, TemplateCloneStrategy (..), TemplateCloudInit (..), Unique (..), Vm (..))
+import Corvus.Model (DiskImage (..), Key, TemplateCloneStrategy (..), TemplateCloudInit (..), Unique (..), Vm (..))
 import Corvus.Protocol (CloudInitInfo (..), TemplateDetails (..), TemplateDriveInfo (..))
 import Corvus.Utils.Yaml (yaml)
 import Data.Maybe (isJust)
@@ -463,3 +463,64 @@ spec = sequential $ withTestDb $ do
           vmAutostart vm `shouldBe` False
           vmHeadless vm `shouldBe` False
           vmCloudInit vm `shouldBe` False
+
+  describe "template instantiate disk paths" $ do
+    testCase "create-strategy disk goes into VM subdirectory" $ do
+      let tplYaml =
+            [yaml|
+              name: path-tpl
+              cpuCount: 1
+              ramMb: 512
+              drives:
+                - diskImageName: data
+                  interface: virtio
+                  strategy: create
+                  format: qcow2
+                  sizeMb: 1024
+            |]
+      createRes <- whenTemplateCreate tplYaml
+      tId <- case createRes of
+        TemplateCreated i -> pure i
+        other -> liftIO $ fail $ "Expected TemplateCreated, got: " ++ show other
+      instRes <- whenTemplateInstantiate tId "pathtest-vm"
+      vmId <- case instRes of
+        TemplateInstantiated i -> pure i
+        other -> liftIO $ fail $ "Expected TemplateInstantiated, got: " ++ show other
+      then_ $ do
+        vmExists vmId
+        diskImageHasPath 1 "pathtest-vm/pathtest-vm-data.qcow2"
+        driveCountForVm vmId 1
+
+    -- Note: clone and overlay path tests require actual disk files on the
+    -- filesystem (qemu-img operations) and belong in integration tests.
+
+    testCase "cloud-init disk uses VM name and relative path" $ do
+      let tplYaml =
+            [yaml|
+              name: ci-path-tpl
+              cpuCount: 1
+              ramMb: 512
+              cloudInit: true
+              drives:
+                - interface: virtio
+                  strategy: create
+                  format: qcow2
+                  sizeMb: 512
+            |]
+      createRes <- whenTemplateCreate tplYaml
+      tId <- case createRes of
+        TemplateCreated i -> pure i
+        other -> liftIO $ fail $ "Expected TemplateCreated, got: " ++ show other
+      instRes <- whenTemplateInstantiate tId "citest-vm"
+      vmId <- case instRes of
+        TemplateInstantiated i -> pure i
+        other -> liftIO $ fail $ "Expected TemplateInstantiated, got: " ++ show other
+      -- Find the cloud-init disk by name
+      mCiDisk <- runDb $ getBy (UniqueDiskImageName "citest-vm-cloud-init")
+      liftIO $ case mCiDisk of
+        Nothing -> fail "Cloud-init disk not found with name 'citest-vm-cloud-init'"
+        Just (Entity _ disk) -> do
+          diskImageFilePath disk `shouldBe` "citest-vm/cloud-init.iso"
+      then_ $ do
+        vmExists vmId
+        driveCountForVm vmId 2 -- data disk + cloud-init CDROM

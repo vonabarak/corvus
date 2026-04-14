@@ -309,7 +309,7 @@ handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLoggin
               pure $ RespError msg
             else do
               -- Subtask: Finish instantiation (Net, SSH, cloud-init)
-              liftIO $ finishInstantiation state vmId details parentTaskId
+              liftIO $ finishInstantiation state vmId newVmName details parentTaskId
               logInfoN $ "Instantiated VM with ID: " <> T.pack (show $ fromSqlKey vmId)
               pure $ RespTemplateInstantiated (fromSqlKey vmId)
         RespError err -> pure $ RespError err
@@ -478,8 +478,8 @@ deleteTemplate tid = do
   deleteBy (UniqueTemplateCloudInitVm tid)
   delete tid
 
-finishInstantiation :: ServerState -> VmId -> TemplateDetails -> TaskId -> IO ()
-finishInstantiation state vmId details parentTaskId = runServerLogging state $ do
+finishInstantiation :: ServerState -> VmId -> Text -> TemplateDetails -> TaskId -> IO ()
+finishInstantiation state vmId newVmName details parentTaskId = runServerLogging state $ do
   -- Network
   forM_ (tvdNetIfs details) $ \tni -> do
     mac <- liftIO generateMacAddress
@@ -505,7 +505,7 @@ finishInstantiation state vmId details parentTaskId = runServerLogging state $ d
   -- Generate cloud-init ISO if cloud-init is enabled (tracked as subtask)
   when (tvdCloudInit details) $ do
     logInfoN "Generating cloud-init ISO for instantiated VM"
-    resp <- liftIO $ runActionAsSubtask state (RegenerateCloudInit (fromSqlKey vmId) (tvdName details)) parentTaskId
+    resp <- liftIO $ runActionAsSubtask state (RegenerateCloudInit (fromSqlKey vmId) newVmName) parentTaskId
     case resp of
       RespError err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
       _ -> logInfoN "Cloud-init ISO generated and attached"
@@ -520,6 +520,7 @@ instantiateDriveIO ctx vmId vmName td = do
       parentTaskId = acTaskId ctx
       vmIdLong = fromSqlKey vmId
       nameSuffix = fromMaybe "disk" (tvdiDiskImageName td)
+      vmDir = Just (vmName <> "/")
       attachDisk newDiskId = runActionAsSubtask state (DiskAttach vmIdLong newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiDiscard td) (tvdiCacheType td)) parentTaskId
   case tvdiCloneStrategy td of
     StrategyDirect -> case tvdiDiskImageId td of
@@ -533,7 +534,7 @@ instantiateDriveIO ctx vmId vmName td = do
       Nothing -> pure $ Left "clone strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix
-        resp <- runActionAsSubtask state (DiskClone newName diskIdLong (tvdiSizeMb td) Nothing) parentTaskId
+        resp <- runActionAsSubtask state (DiskClone newName diskIdLong (tvdiSizeMb td) vmDir) parentTaskId
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -546,7 +547,7 @@ instantiateDriveIO ctx vmId vmName td = do
       Nothing -> pure $ Left "overlay strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix <> "-overlay"
-        resp <- runActionAsSubtask state (DiskCreateOverlay newName diskIdLong (tvdiSizeMb td) Nothing) parentTaskId
+        resp <- runActionAsSubtask state (DiskCreateOverlay newName diskIdLong (tvdiSizeMb td) vmDir) parentTaskId
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -558,7 +559,7 @@ instantiateDriveIO ctx vmId vmName td = do
     StrategyCreate -> case (tvdiFormat td, tvdiSizeMb td) of
       (Just fmt, Just sizeMb) -> do
         let newName = vmName <> "-" <> nameSuffix
-        resp <- runActionAsSubtask state (DiskCreate newName fmt (fromIntegral sizeMb) Nothing) parentTaskId
+        resp <- runActionAsSubtask state (DiskCreate newName fmt (fromIntegral sizeMb) vmDir) parentTaskId
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId

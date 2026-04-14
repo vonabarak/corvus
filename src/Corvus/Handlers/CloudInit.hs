@@ -23,9 +23,10 @@ import Control.Monad (forM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN)
 import Corvus.CloudInit (CloudInitConfig (..), defaultCloudInitConfig, generateCloudInitIso, getCloudInitDir)
+import Corvus.Handlers.Disk (makeRelativeToBase)
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Qemu.Config (QemuConfig)
+import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Maybe (catMaybes)
@@ -208,16 +209,18 @@ regenerateCloudInitIsoForVm qemuConfig pool vmId vmName logLevel = do
   case result of
     Left err -> pure $ Left err
     Right isoPath -> do
-      ensureCloudInitDiskRegistered pool vmId vmName (T.pack isoPath) logLevel
+      ensureCloudInitDiskRegistered pool qemuConfig vmId vmName (T.pack isoPath) logLevel
       pure $ Right ()
 
 -- | Ensure cloud-init disk is registered and attached to VM as CDROM
-ensureCloudInitDiskRegistered :: Pool SqlBackend -> Int64 -> Text -> Text -> LogLevel -> IO ()
-ensureCloudInitDiskRegistered pool vmId vmName isoPath logLevel = runFilteredLogging logLevel $ do
+ensureCloudInitDiskRegistered :: Pool SqlBackend -> QemuConfig -> Int64 -> Text -> Text -> LogLevel -> IO ()
+ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = runFilteredLogging logLevel $ do
   let vmKey = toSqlKey vmId :: VmId
   let diskName = vmName <> "-cloud-init"
+  basePath <- liftIO $ getEffectiveBasePath qemuConfig
+  let storedPath = makeRelativeToBase basePath (T.unpack isoPath)
 
-  mExisting <- liftIO $ runSqlPool (getBy (UniqueImagePath isoPath)) pool
+  mExisting <- liftIO $ runSqlPool (getBy (UniqueImagePath storedPath)) pool
   case mExisting of
     Just (Entity diskId _) -> do
       logDebugN $ "Cloud-init disk already registered: " <> T.pack (show $ fromSqlKey diskId)
@@ -230,7 +233,7 @@ ensureCloudInitDiskRegistered pool vmId vmName isoPath logLevel = runFilteredLog
             ( insert
                 DiskImage
                   { diskImageName = diskName
-                  , diskImageFilePath = isoPath
+                  , diskImageFilePath = storedPath
                   , diskImageFormat = FormatRaw
                   , diskImageSizeMb = Nothing
                   , diskImageCreatedAt = now

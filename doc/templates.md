@@ -30,6 +30,17 @@ When `crv template create` is called without a file argument, the client writes 
 
 `crv template instantiate <TEMPLATE> <VM>` creates a new VM with the template's settings. Each drive is handled according to its strategy (see [Drive Strategies](#drive-strategies)). Network interfaces get fresh MAC addresses. SSH keys and cloud-init configuration are copied to the new VM.
 
+**File layout**: all disk files created during instantiation are placed in a subdirectory named after the new VM, under the base images directory (`$HOME/VMs` by default). For example, `crv template instantiate webserver my-vm` produces:
+
+```
+$HOME/VMs/my-vm/
+  my-vm-base-overlay.qcow2   # overlay of the root disk
+  my-vm-ovmf-vars.qcow2      # cloned UEFI variables
+  cloud-init.iso              # cloud-init NoCloud ISO (if enabled)
+```
+
+Disk names in the database include the VM name as a prefix for uniqueness (e.g., `my-vm-base-overlay`). The cloud-init disk is named `<vm>-cloud-init` and stored as a relative path (`my-vm/cloud-init.iso`).
+
 ---
 
 ## YAML Schema
