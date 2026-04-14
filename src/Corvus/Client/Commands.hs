@@ -353,7 +353,8 @@ runCommand opts = do
       NetworkEdit nwRef mSubnet mDhcp mNat mAutostart -> handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart
       -- Cloud-init config
       CloudInitGenerate vmRef -> handleCloudInitGenerate fmt conn vmRef
-      CloudInitSet vmRef mUdFile mNcFile noInject -> handleCloudInitSet fmt conn vmRef mUdFile mNcFile noInject
+      CloudInitSet vmRef mFile -> handleCloudInitSet fmt conn vmRef mFile
+      CloudInitEdit vmRef -> handleCloudInitEdit fmt conn vmRef
       CloudInitShow vmRef -> handleCloudInitShow fmt conn vmRef
       CloudInitDelete vmRef -> handleCloudInitDelete fmt conn vmRef
       -- Apply

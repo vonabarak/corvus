@@ -172,21 +172,35 @@ Manage per-VM cloud-init configuration. By default, cloud-init generates a stand
 
 ```bash
 # Generate/regenerate cloud-init ISO
-crv cloud-init generate <vm_id>
+crv cloud-init generate <vm>
 
-# Set custom cloud-init config from files
-crv cloud-init set <vm_id> --user-data <file>              # Custom user-data
-crv cloud-init set <vm_id> --network-config <file>         # Custom network-config
-crv cloud-init set <vm_id> --user-data <file> --no-inject-ssh-keys  # No SSH key injection
+# Set custom cloud-init config from a YAML file
+crv cloud-init set <vm> <file.yml>      # Load config from file
+crv cloud-init set <vm>                 # Open $EDITOR on a skeleton
+
+# Edit current cloud-init config in $EDITOR
+crv cloud-init edit <vm>
 
 # Show current cloud-init config
-crv cloud-init show <vm_id>
+crv cloud-init show <vm>
 
 # Delete custom config (revert to defaults)
-crv cloud-init delete <vm_id>
+crv cloud-init delete <vm>
 ```
 
-When `--no-inject-ssh-keys` is omitted (default), SSH keys from the database are automatically merged into the first user's `ssh_authorized_keys` in the custom config. The `#cloud-config` header is managed by Corvus — do not include it in your files.
+The config YAML uses the same format as `cloudInitConfig` in templates and apply files:
+
+```yaml
+injectSshKeys: true       # Merge SSH keys from DB into user-data (default: true)
+userData:                  # Cloud-config YAML or raw script (e.g. #ps1_sysnative)
+  packages:
+    - qemu-guest-agent
+networkConfig:             # Optional network-config (v2 format)
+  version: 2
+  ethernets:
+    eth*:
+      dhcp4: true
+```
 
 #### Guest Agent Commands
 

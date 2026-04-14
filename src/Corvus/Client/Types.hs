@@ -171,8 +171,10 @@ data Command
     NetworkEdit !Text !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
   | -- Cloud-init config commands
 
-    -- | Set cloud-init config (vmRef, userDataFile, networkConfigFile, noInjectSshKeys)
-    CloudInitSet !Text !(Maybe FilePath) !(Maybe FilePath) !Bool
+    -- | Set cloud-init config from YAML file. Nothing opens $EDITOR on a skeleton.
+    CloudInitSet !Text !(Maybe FilePath)
+  | -- | Edit cloud-init config in $EDITOR (vmRef)
+    CloudInitEdit !Text
   | -- | Show cloud-init config (vmRef)
     CloudInitShow !Text
   | -- | Delete cloud-init config (vmRef)

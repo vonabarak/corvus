@@ -475,6 +475,8 @@ vice-versa.
 
 ## Cloud-Init Behavior
 
+See [cloud-init.md](cloud-init.md) for the full cloud-init reference (default config, ISO generation, SSH key injection, Windows support, troubleshooting).
+
 Cloud-init controls whether a NoCloud ISO is generated and attached to the VM for first-boot provisioning (hostname, SSH keys, packages, etc.).
 
 The `cloudInit` field on a VM has three states:

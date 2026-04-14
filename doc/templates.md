@@ -103,7 +103,7 @@ SSH keys require `cloudInit: true` on the template. At instantiation, keys are a
 
 ### Cloud-Init Configuration
 
-The optional `cloudInitConfig` section customizes the NoCloud ISO generated for instantiated VMs.
+The optional `cloudInitConfig` section customizes the NoCloud ISO generated for instantiated VMs. See [cloud-init.md](cloud-init.md) for the full cloud-init reference.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

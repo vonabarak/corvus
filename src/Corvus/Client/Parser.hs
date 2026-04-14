@@ -1378,7 +1378,10 @@ cloudInitCommandParser =
         (info cloudInitGenerateCommand (progDesc "Generate/regenerate cloud-init ISO for a VM"))
         <> command
           "set"
-          (info cloudInitSetCommand (progDesc "Set custom cloud-init config for a VM"))
+          (info cloudInitSetCommand (progDesc "Set cloud-init config from a YAML file, or open $EDITOR on a skeleton"))
+        <> command
+          "edit"
+          (info cloudInitEditCommand (progDesc "Fetch cloud-init config, open $EDITOR, and upload the edited YAML"))
         <> command
           "show"
           (info cloudInitShowCommand (progDesc "Show cloud-init config for a VM"))
@@ -1392,23 +1395,17 @@ cloudInitSetCommand =
   CloudInitSet
     <$> argument str (metavar "VM" <> help "VM name or ID")
     <*> optional
-      ( strOption
-          ( long "user-data"
-              <> metavar "FILE"
-              <> help "Path to custom user-data YAML file"
+      ( argument
+          str
+          ( metavar "FILE"
+              <> help "Path to cloud-init config YAML file (omit to open $EDITOR on a skeleton)"
           )
       )
-    <*> optional
-      ( strOption
-          ( long "network-config"
-              <> metavar "FILE"
-              <> help "Path to network-config YAML file"
-          )
-      )
-    <*> switch
-      ( long "no-inject-ssh-keys"
-          <> help "Do not inject SSH keys from the database into the user-data"
-      )
+
+cloudInitEditCommand :: Parser Command
+cloudInitEditCommand =
+  CloudInitEdit
+    <$> argument str (metavar "VM" <> help "VM name or ID")
 
 cloudInitShowCommand :: Parser Command
 cloudInitShowCommand =
