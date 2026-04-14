@@ -5,7 +5,7 @@ cabal-version: 2.2
 -- see: https://github.com/sol/hpack
 
 name:           corvus
-version:        0.5.0.0
+version:        0.6.0.0
 synopsis:       Daemon/client application with RPC communication
 description:    A Haskell daemon that runs as a systemd service with a CLI client
 author:         Author
