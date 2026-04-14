@@ -40,7 +40,7 @@ instance Arbitrary SharedDirCache where
   arbitrary = elements [CacheAlways, CacheAuto, CacheNever]
 
 instance Arbitrary TemplateCloneStrategy where
-  arbitrary = elements [StrategyClone, StrategyOverlay, StrategyDirect]
+  arbitrary = elements [StrategyClone, StrategyOverlay, StrategyDirect, StrategyCreate]
 
 instance Arbitrary TaskSubsystem where
   arbitrary = elements [SubVm, SubDisk, SubNetwork, SubSshKey, SubTemplate, SubSharedDir, SubSnapshot, SubSystem, SubApply]
@@ -95,6 +95,7 @@ instance Arbitrary Request where
       , ReqTaskListChildren <$> arbitrary
       , pure (ReqDiskImport "import-test" "https://example.com/disk.qcow2" Nothing (Just "qcow2") True)
       , ReqDiskRegister "reg-test" "/tmp/disk.qcow2" (Just FormatQcow2) <$> arbitrary
+      , ReqTemplateUpdate <$> arbitrary <*> pure "name: t\ncpuCount: 1\nramMb: 512\ndrives: []\n"
       ]
 
 spec :: Spec

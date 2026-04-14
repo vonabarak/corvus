@@ -50,6 +50,55 @@ spec = sequential $ do
           RespApplyResult r -> length (arDisks r) == 1
           _ -> False
 
+      testCase "applies config with template referencing disk" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: tpl-base
+                  format: qcow2
+                  sizeMb: 1024
+              templates:
+                - name: my-template
+                  cpuCount: 2
+                  ramMb: 1024
+                  drives:
+                    - diskImageName: tpl-base
+                      interface: virtio
+                      strategy: overlay
+            |]
+        then_ $ responseIs $ \case
+          RespApplyResult r -> length (arTemplates r) == 1 && length (arDisks r) == 1
+          _ -> False
+
+      testCase "fails on duplicate template names" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: d1
+                  format: qcow2
+                  sizeMb: 1024
+              templates:
+                - name: dup-tpl
+                  cpuCount: 1
+                  ramMb: 512
+                  drives:
+                    - diskImageName: d1
+                      interface: virtio
+                      strategy: overlay
+                - name: dup-tpl
+                  cpuCount: 2
+                  ramMb: 1024
+                  drives:
+                    - diskImageName: d1
+                      interface: virtio
+                      strategy: overlay
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "Duplicate template" `T.isInfixOf` msg
+          _ -> False
+
       testCase "applies config with VM referencing same-file resources" $ do
         when_ $
           whenApply

@@ -337,7 +337,8 @@ runCommand opts = do
       SshKeyAttach vmRef keyRef -> handleSshKeyAttach fmt conn vmRef keyRef
       SshKeyDetach vmRef keyRef -> handleSshKeyDetach fmt conn vmRef keyRef
       SshKeyListForVm vmRef -> handleSshKeyListForVm fmt conn vmRef
-      TemplateCreate path -> handleTemplateCreate fmt conn path
+      TemplateCreate mPath -> handleTemplateCreate fmt conn mPath
+      TemplateEdit tRef -> handleTemplateEdit fmt conn tRef
       TemplateDelete tRef -> handleTemplateDelete fmt conn tRef
       TemplateList -> handleTemplateList fmt conn
       TemplateShow tRef -> handleTemplateShow fmt conn tRef

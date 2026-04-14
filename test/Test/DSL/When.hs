@@ -73,9 +73,11 @@ module Test.DSL.When
 
     -- * Template commands
   , whenTemplateCreate
+  , whenTemplateUpdate
   , whenTemplateDelete
   , whenTemplateList
   , whenTemplateShow
+  , whenTemplateInstantiate
 
     -- * Guest exec commands
   , whenGuestExec
@@ -478,6 +480,16 @@ whenTemplateList = executeRpc Rpc.templateList
 whenTemplateShow :: Int64 -> TestM TemplateResult
 whenTemplateShow tplId =
   executeRpc (\conn -> Rpc.templateShow conn (toRef tplId))
+
+-- | Update a template atomically from new YAML
+whenTemplateUpdate :: Int64 -> Text -> TestM TemplateResult
+whenTemplateUpdate tplId newYaml =
+  executeRpc (\conn -> Rpc.templateUpdate conn (toRef tplId) newYaml)
+
+-- | Instantiate a VM from a template
+whenTemplateInstantiate :: Int64 -> Text -> TestM TemplateResult
+whenTemplateInstantiate tplId vmName =
+  executeRpc (\conn -> Rpc.templateInstantiate conn (toRef tplId) vmName)
 
 --------------------------------------------------------------------------------
 -- Guest Exec Commands

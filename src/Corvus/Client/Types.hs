@@ -141,8 +141,10 @@ data Command
     SshKeyListForVm !Text
   | -- Template commands
 
-    -- | Create template from YAML file (file path)
-    TemplateCreate !FilePath
+    -- | Create template from YAML file. 'Nothing' opens $EDITOR on a skeleton.
+    TemplateCreate !(Maybe FilePath)
+  | -- | Edit an existing template in $EDITOR (templateRef)
+    TemplateEdit !Text
   | -- | Delete template (templateRef)
     TemplateDelete !Text
   | -- | List all templates

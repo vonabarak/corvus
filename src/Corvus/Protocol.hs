@@ -64,7 +64,7 @@ newtype Ref = Ref {unRef :: Text}
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 25
+protocolVersion = 28
 
 -- | Client requests
 data Request
@@ -208,6 +208,8 @@ data Request
   | -- | Import disk image from source (local path or URL) with copy to destination
     -- (name, source, optionalDestPath, optionalFormat, wait)
     ReqDiskImport !Text !Text !(Maybe Text) !(Maybe Text) !Bool
+  | -- | Update (replace) an existing template atomically with new YAML (templateRef, yaml)
+    ReqTemplateUpdate !Ref !Text
   deriving (Eq, Show, Generic, Binary)
 
 -- | Status information returned by the server
@@ -355,20 +357,23 @@ data TemplateVmInfo = TemplateVmInfo
   , tviRamMb :: !Int
   , tviDescription :: !(Maybe Text)
   , tviHeadless :: !Bool
+  , tviGuestAgent :: !Bool
+  , tviAutostart :: !Bool
   }
   deriving (Eq, Show, Generic, Binary)
 
 -- | Template drive info for details view
 data TemplateDriveInfo = TemplateDriveInfo
-  { tvdiDiskImageId :: !Int64
-  , tvdiDiskImageName :: !Text
+  { tvdiDiskImageId :: !(Maybe Int64)
+  , tvdiDiskImageName :: !(Maybe Text)
   , tvdiInterface :: !DriveInterface
   , tvdiMedia :: !(Maybe DriveMedia)
   , tvdiReadOnly :: !Bool
   , tvdiCacheType :: !CacheType
   , tvdiDiscard :: !Bool
   , tvdiCloneStrategy :: !TemplateCloneStrategy
-  , tvdiNewSizeMb :: !(Maybe Int)
+  , tvdiSizeMb :: !(Maybe Int)
+  , tvdiFormat :: !(Maybe DriveFormat)
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -395,6 +400,8 @@ data TemplateDetails = TemplateDetails
   , tvdDescription :: !(Maybe Text)
   , tvdHeadless :: !Bool
   , tvdCloudInit :: !Bool
+  , tvdGuestAgent :: !Bool
+  , tvdAutostart :: !Bool
   , tvdCloudInitConfig :: !(Maybe CloudInitInfo)
   , tvdCreatedAt :: !UTCTime
   , tvdDrives :: ![TemplateDriveInfo]
@@ -430,6 +437,7 @@ data ApplyResult = ApplyResult
   , arDisks :: ![ApplyCreated]
   , arNetworks :: ![ApplyCreated]
   , arVms :: ![ApplyCreated]
+  , arTemplates :: ![ApplyCreated]
   }
   deriving (Eq, Show, Generic, Binary)
 
@@ -596,6 +604,8 @@ instance ToJSON TemplateVmInfo where
       , "ramMb" .= tviRamMb t
       , "description" .= tviDescription t
       , "headless" .= tviHeadless t
+      , "guestAgent" .= tviGuestAgent t
+      , "autostart" .= tviAutostart t
       ]
 
 instance ToJSON TemplateDriveInfo where
@@ -609,7 +619,8 @@ instance ToJSON TemplateDriveInfo where
       , "cacheType" .= tvdiCacheType d
       , "discard" .= tvdiDiscard d
       , "cloneStrategy" .= tvdiCloneStrategy d
-      , "newSizeMb" .= tvdiNewSizeMb d
+      , "sizeMb" .= tvdiSizeMb d
+      , "format" .= tvdiFormat d
       ]
 
 instance ToJSON TemplateNetIfInfo where
@@ -650,6 +661,8 @@ instance ToJSON TemplateDetails where
       , "description" .= tvdDescription t
       , "headless" .= tvdHeadless t
       , "cloudInit" .= tvdCloudInit t
+      , "guestAgent" .= tvdGuestAgent t
+      , "autostart" .= tvdAutostart t
       , "cloudInitConfig" .= tvdCloudInitConfig t
       , "createdAt" .= tvdCreatedAt t
       , "drives" .= tvdDrives t
@@ -671,6 +684,7 @@ instance ToJSON ApplyResult where
       , "disks" .= arDisks r
       , "networks" .= arNetworks r
       , "vms" .= arVms r
+      , "templates" .= arTemplates r
       ]
 
 instance ToJSON TaskInfo where
@@ -840,6 +854,8 @@ data Response
     RespOk
   | -- | Disk import started asynchronously (task ID)
     RespDiskImportStarted !Int64
+  | -- | Template updated successfully (new template ID)
+    RespTemplateUpdated !Int64
   deriving (Eq, Show, Generic, Binary)
 
 -- | Encode a message with protocol version and length prefix.

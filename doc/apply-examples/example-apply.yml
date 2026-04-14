@@ -129,6 +129,28 @@ vms:
       - deploy-key
       - admin-key
 
+# ── Templates ──────────────────────────────────────────────────────────
+# Templates are created after VMs so they can reference any existing
+# disk or SSH key by name. They don't create VMs on their own — use
+# `crv template instantiate <name> <new-vm-name>` to spawn from them.
+
+templates:
+  - name: alpine-workstation
+    description: "Blank Alpine Linux workstation template"
+    cpuCount: 2
+    ramMb: 2048
+    headless: true
+    guestAgent: true
+    cloudInit: true
+    drives:
+      - diskImageName: alpine-base
+        interface: virtio
+        strategy: overlay
+    networkInterfaces:
+      - type: user
+    sshKeys:
+      - name: deploy-key
+
 # After applying, start the network and VMs:
 #
 #   crv network start lab-net

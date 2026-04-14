@@ -42,7 +42,10 @@ library
       Corvus.Client.Commands.SshKey
       Corvus.Client.Commands.Task
       Corvus.Client.Commands.Template
+      Corvus.Client.Commands.Template.Yaml
       Corvus.Client.Commands.CloudInit
+      Corvus.Client.Editor
+      Corvus.Handlers.Template
       Corvus.Model
       Corvus.Qemu
       Corvus.Qemu.Config
@@ -70,7 +73,6 @@ library
       Corvus.Client.Commands.Network
       Corvus.Handlers.Network
       Corvus.Handlers.Resolve
-      Corvus.Handlers.Template
       Corvus.Qemu.QmpQQ
       Paths_corvus
   autogen-modules:
@@ -123,6 +125,7 @@ library
     , resource-pool
     , stm
     , template-haskell
+    , temporary
     , text
     , time
     , unix
@@ -183,6 +186,7 @@ executable corvus
     , resource-pool
     , stm
     , template-haskell
+    , temporary
     , text
     , time
     , unix
@@ -243,6 +247,7 @@ executable crv
     , resource-pool
     , stm
     , template-haskell
+    , temporary
     , text
     , time
     , unix
@@ -280,6 +285,7 @@ test-suite corvus-test
       Corvus.TaskRecordingSpec
       Corvus.TemplateIntegrationSpec
       Corvus.TemplateSpec
+      Corvus.TemplateYamlSpec
       Corvus.VirtiofsIntegrationSpec
       Corvus.VmIntegrationSpec
       Corvus.VmSpec

@@ -82,6 +82,7 @@ module Corvus.Client.Rpc
     -- * Template operations
   , TemplateResult (..)
   , templateCreate
+  , templateUpdate
   , templateDelete
   , templateList
   , templateShow
@@ -678,6 +679,8 @@ sshKeyListForVm conn vmRef =
 data TemplateResult
   = -- | Template created with new ID
     TemplateCreated !Int64
+  | -- | Template updated (new template ID)
+    TemplateUpdated !Int64
   | -- | List of templates
     TemplateListResult ![TemplateVmInfo]
   | -- | Single template details
@@ -697,6 +700,7 @@ handleTemplateResponse :: Either ConnectionError Response -> Either ConnectionEr
 handleTemplateResponse result = case result of
   Left err -> Left err
   Right (RespTemplateCreated tid) -> Right $ TemplateCreated tid
+  Right (RespTemplateUpdated tid) -> Right $ TemplateUpdated tid
   Right (RespTemplateList templates) -> Right $ TemplateListResult templates
   Right (RespTemplateInfo details) -> Right $ TemplateDetailsResult details
   Right RespTemplateDeleted -> Right TemplateDeleted
@@ -709,6 +713,11 @@ handleTemplateResponse result = case result of
 templateCreate :: Connection -> Text -> IO (Either ConnectionError TemplateResult)
 templateCreate conn yaml =
   handleTemplateResponse <$> sendRequest conn (ReqTemplateCreate yaml)
+
+-- | Atomically replace an existing template with new YAML
+templateUpdate :: Connection -> Text -> Text -> IO (Either ConnectionError TemplateResult)
+templateUpdate conn templateRef yaml =
+  handleTemplateResponse <$> sendRequest conn (ReqTemplateUpdate (Ref templateRef) yaml)
 
 -- | Delete a template
 templateDelete :: Connection -> Text -> IO (Either ConnectionError TemplateResult)

@@ -184,6 +184,8 @@ handleRequest state = \case
   -- Templates
   ReqTemplateCreate yaml ->
     runAction state (TemplateCreate yaml)
+  ReqTemplateUpdate tRef yaml -> withTemplate tRef $ \tid ->
+    runAction state (TemplateUpdate tid yaml)
   ReqTemplateDelete tRef -> withTemplate tRef $ \tid ->
     runAction state (TemplateDelete tid)
   ReqTemplateInstantiate tRef name -> withTemplate tRef $ \tid ->

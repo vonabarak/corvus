@@ -5,16 +5,25 @@
 module Corvus.Handlers.Template
   ( -- * Action types
     TemplateCreate (..)
+  , TemplateUpdate (..)
   , TemplateDelete (..)
   , TemplateInstantiate (..)
 
     -- * Handlers
   , handleTemplateCreate
+  , handleTemplateUpdate
   , handleTemplateList
   , handleTemplateShow
   , handleTemplateDelete
   , handleTemplateInstantiate
+
+    -- * YAML schema (re-used by Apply)
+  , TemplateYaml (..)
+  , TemplateDriveYaml (..)
+  , TemplateNetworkInterfaceYaml (..)
+  , TemplateSshKeyYaml (..)
   , CloudInitConfigYaml (..)
+  , insertTemplateYaml
   )
 where
 
@@ -25,7 +34,7 @@ import Control.Monad (forM, forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
-import Corvus.Handlers.Disk (DiskAttach (..), DiskClone (..), DiskCreateOverlay (..))
+import Corvus.Handlers.Disk (DiskAttach (..), DiskClone (..), DiskCreate (..), DiskCreateOverlay (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
 import Corvus.Protocol
@@ -33,7 +42,7 @@ import Corvus.Types
 import Corvus.Utils.Network (generateMacAddress)
 import Data.Aeson (Value (..))
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -56,6 +65,8 @@ data TemplateYaml = TemplateYaml
   , tyDescription :: Maybe Text
   , tyHeadless :: Bool
   , tyCloudInit :: Bool
+  , tyGuestAgent :: Bool
+  , tyAutostart :: Bool
   , tyCloudInitConfig :: Maybe CloudInitConfigYaml
   , tyDrives :: [TemplateDriveYaml]
   , tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml]
@@ -72,34 +83,38 @@ instance FromJSON TemplateYaml where
       <*> o .:? "description"
       <*> o .:? "headless" .!= False
       <*> o .:? "cloudInit" .!= False
+      <*> o .:? "guestAgent" .!= False
+      <*> o .:? "autostart" .!= False
       <*> o .:? "cloudInitConfig"
       <*> o .: "drives"
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sshKeys" .!= []
 
 data TemplateDriveYaml = TemplateDriveYaml
-  { tdyDiskImageName :: Text
+  { tdyDiskImageName :: Maybe Text
   , tdyInterface :: DriveInterface
   , tdyMedia :: Maybe DriveMedia
   , tdyReadOnly :: Maybe Bool
   , tdyCacheType :: Maybe CacheType
   , tdyDiscard :: Maybe Bool
   , tdyStrategy :: TemplateCloneStrategy
-  , tdyNewSizeMb :: Maybe Int
+  , tdySizeMb :: Maybe Int
+  , tdyFormat :: Maybe DriveFormat
   }
   deriving (Show, Generic)
 
 instance FromJSON TemplateDriveYaml where
   parseJSON = withObject "TemplateDriveYaml" $ \o ->
     TemplateDriveYaml
-      <$> o .: "diskImageName"
+      <$> o .:? "diskImageName"
       <*> o .: "interface"
       <*> o .:? "media"
       <*> o .:? "readOnly"
       <*> o .:? "cacheType"
       <*> o .:? "discard"
       <*> o .: "strategy"
-      <*> o .:? "newSizeMb"
+      <*> o .:? "sizeMb"
+      <*> o .:? "format"
 
 data TemplateNetworkInterfaceYaml = TemplateNetworkInterfaceYaml
   { tnyType :: NetInterfaceType
@@ -166,7 +181,7 @@ handleTemplateCreate state yamlContent = runServerLogging state $ do
         Right () -> do
           logInfoN $ "Creating template: " <> tyName ty
           now <- liftIO getCurrentTime
-          result <- liftIO $ runSqlPool (createTemplate ty now) (ssDbPool state)
+          result <- liftIO $ runSqlPool (insertTemplateYaml ty now) (ssDbPool state)
           case result of
             Left err -> do
               logWarnN $ "Failed to create template: " <> err
@@ -174,6 +189,49 @@ handleTemplateCreate state yamlContent = runServerLogging state $ do
             Right tid -> do
               logInfoN $ "Created template with ID: " <> T.pack (show $ fromSqlKey tid)
               pure $ RespTemplateCreated (fromSqlKey tid)
+
+-- | Atomically replace an existing template with the contents of a new YAML.
+-- The old rows are deleted and new ones inserted within a single transaction,
+-- so a failed insert (e.g. renaming to a name that already exists) rolls back
+-- and leaves the original template intact.
+handleTemplateUpdate :: ServerState -> Int64 -> Text -> IO Response
+handleTemplateUpdate state oldTidLong yamlContent = runServerLogging state $ do
+  case decodeEither' (T.encodeUtf8 yamlContent) of
+    Left err -> do
+      let msg = T.pack $ show err
+      logWarnN $ "Failed to parse template YAML: " <> msg
+      pure $ RespError msg
+    Right ty ->
+      case validateName "Template" (tyName ty) of
+        Left err -> pure $ RespError err
+        Right () -> do
+          logInfoN $ "Updating template #" <> T.pack (show oldTidLong) <> " -> " <> tyName ty
+          now <- liftIO getCurrentTime
+          let oldTid = toSqlKey oldTidLong :: TemplateVmId
+          let replace = do
+                deleteTemplate oldTid
+                insertTemplateYaml ty now
+              runReplace = do
+                mOld <- get oldTid
+                case mOld of
+                  Nothing -> pure $ Left "Template not found"
+                  Just old ->
+                    let newName = tyName ty
+                     in if newName /= templateVmName old
+                          then do
+                            mExisting <- getBy (UniqueTemplateVmName newName)
+                            case mExisting of
+                              Just _ -> pure $ Left $ "Template with name '" <> newName <> "' already exists"
+                              Nothing -> replace
+                          else replace
+          result <- liftIO $ runSqlPool runReplace (ssDbPool state)
+          case result of
+            Left err -> do
+              logWarnN $ "Failed to update template: " <> err
+              pure $ RespError err
+            Right newTid -> do
+              logInfoN $ "Updated template with ID: " <> T.pack (show $ fromSqlKey newTid)
+              pure $ RespTemplateUpdated (fromSqlKey newTid)
 
 handleTemplateList :: ServerState -> IO Response
 handleTemplateList state = do
@@ -189,6 +247,8 @@ handleTemplateList state = do
         , tviRamMb = templateVmRamMb t
         , tviDescription = templateVmDescription t
         , tviHeadless = templateVmHeadless t
+        , tviGuestAgent = templateVmGuestAgent t
+        , tviAutostart = templateVmAutostart t
         }
 
 handleTemplateShow :: ServerState -> Int64 -> IO Response
@@ -226,9 +286,9 @@ handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLoggin
                 (tvdRamMb details)
                 (tvdDescription details)
                 (tvdHeadless details)
-                False -- guestAgent
+                (tvdGuestAgent details)
                 (tvdCloudInit details)
-                False -- autostart
+                (tvdAutostart details)
             )
             parentTaskId
       case vmResp of
@@ -259,63 +319,86 @@ handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLoggin
 -- Internal Functions (SQL)
 --------------------------------------------------------------------------------
 
-createTemplate :: TemplateYaml -> UTCTime -> SqlPersistT IO (Either Text TemplateVmId)
-createTemplate ty now = do
-  -- Resolve disk images
-  mDiskIds <- forM (tyDrives ty) $ \tdy -> do
-    mDisk <- getBy (UniqueDiskImageName (tdyDiskImageName tdy))
-    case mDisk of
-      Nothing -> pure $ Left $ "Disk image not found: " <> tdyDiskImageName tdy
-      Just (Entity tid _) -> pure $ Right tid
+-- | Insert an already-parsed 'TemplateYaml' into the database.
+-- Used by both 'handleTemplateCreate' and 'handleTemplateUpdate' and by the
+-- Apply subsystem when processing a @templates:@ section.
+insertTemplateYaml :: TemplateYaml -> UTCTime -> SqlPersistT IO (Either Text TemplateVmId)
+insertTemplateYaml ty now = do
+  -- Validate drive definitions
+  let driveErrs = concatMap validateDrive (tyDrives ty)
+  if not (null driveErrs)
+    then pure $ Left $ T.intercalate "; " driveErrs
+    else do
+      -- Resolve disk images (only for non-create strategies)
+      mDiskIds <- forM (tyDrives ty) $ \tdy ->
+        case tdyStrategy tdy of
+          StrategyCreate -> pure $ Right Nothing
+          _ -> case tdyDiskImageName tdy of
+            Nothing -> pure $ Left "diskImageName is required for clone/overlay/direct strategies"
+            Just diskName -> do
+              mDisk <- getBy (UniqueDiskImageName diskName)
+              case mDisk of
+                Nothing -> pure $ Left $ "Disk image not found: " <> diskName
+                Just (Entity did _) -> pure $ Right (Just did)
 
-  -- Resolve SSH keys
-  mKeyIds <- forM (tySshKeys ty) $ \tky -> do
-    mKey <- getBy (UniqueSshKeyName (tkyName tky))
-    case mKey of
-      Nothing -> pure $ Left $ "SSH key not found: " <> tkyName tky
-      Just (Entity kid _) -> pure $ Right kid
+      -- Resolve SSH keys
+      mKeyIds <- forM (tySshKeys ty) $ \tky -> do
+        mKey <- getBy (UniqueSshKeyName (tkyName tky))
+        case mKey of
+          Nothing -> pure $ Left $ "SSH key not found: " <> tkyName tky
+          Just (Entity kid _) -> pure $ Right kid
 
-  -- Validate: SSH keys require cloud-init
-  let hasKeys = not (null (tySshKeys ty))
-  if hasKeys && not (tyCloudInit ty)
-    then pure $ Left "Template has SSH keys but cloud-init is not enabled"
-    else case (sequence mDiskIds, sequence mKeyIds) of
-      (Right diskIds, Right keyIds) -> do
-        mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) now
-        case mTid of
-          Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
-          Just tid -> do
-            forM_ (zip diskIds (tyDrives ty)) $ \(diskId, tdy) ->
-              insert_ $
-                TemplateDrive
-                  tid
-                  diskId
-                  (tdyInterface tdy)
-                  (tdyMedia tdy)
-                  (fromMaybe False (tdyReadOnly tdy))
-                  (fromMaybe CacheNone (tdyCacheType tdy))
-                  (fromMaybe False (tdyDiscard tdy))
-                  (tdyStrategy tdy)
-                  (tdyNewSizeMb tdy)
+      -- Validate: SSH keys require cloud-init
+      let hasKeys = not (null (tySshKeys ty))
+      if hasKeys && not (tyCloudInit ty)
+        then pure $ Left "Template has SSH keys but cloud-init is not enabled"
+        else case (sequence mDiskIds, sequence mKeyIds) of
+          (Right diskIds, Right keyIds) -> do
+            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyAutostart ty) now
+            case mTid of
+              Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
+              Just tid -> do
+                forM_ (zip diskIds (tyDrives ty)) $ \(mDiskId, tdy) ->
+                  insert_ $
+                    TemplateDrive
+                      tid
+                      mDiskId
+                      (tdyDiskImageName tdy)
+                      (tdyInterface tdy)
+                      (tdyMedia tdy)
+                      (fromMaybe False (tdyReadOnly tdy))
+                      (fromMaybe CacheNone (tdyCacheType tdy))
+                      (fromMaybe False (tdyDiscard tdy))
+                      (tdyStrategy tdy)
+                      (tdySizeMb tdy)
+                      (tdyFormat tdy)
 
-            forM_ (tyNetworkInterfaces ty) $ \tny ->
-              insert_ $ TemplateNetworkInterface tid (tnyType tny) (tnyHostDevice tny)
+                forM_ (tyNetworkInterfaces ty) $ \tny ->
+                  insert_ $ TemplateNetworkInterface tid (tnyType tny) (tnyHostDevice tny)
 
-            forM_ keyIds $ \keyId ->
-              insert_ $ TemplateSshKey tid keyId
+                forM_ keyIds $ \keyId ->
+                  insert_ $ TemplateSshKey tid keyId
 
-            -- Insert cloud-init config if provided
-            forM_ (tyCloudInitConfig ty) $ \cic ->
-              insert_ $
-                TemplateCloudInit
-                  tid
-                  (cicyUserData cic)
-                  (cicyNetworkConfig cic)
-                  (cicyInjectSshKeys cic)
+                -- Insert cloud-init config if provided
+                forM_ (tyCloudInitConfig ty) $ \cic ->
+                  insert_ $
+                    TemplateCloudInit
+                      tid
+                      (cicyUserData cic)
+                      (cicyNetworkConfig cic)
+                      (cicyInjectSshKeys cic)
 
-            pure $ Right tid
-      (Left err, _) -> pure $ Left err
-      (_, Left err) -> pure $ Left err
+                pure $ Right tid
+          (Left err, _) -> pure $ Left err
+          (_, Left err) -> pure $ Left err
+  where
+    validateDrive tdy = case tdyStrategy tdy of
+      StrategyCreate ->
+        let errs1 = ["format is required for 'create' strategy" | isNothing (tdyFormat tdy)]
+            errs2 = ["sizeMb is required for 'create' strategy" | isNothing (tdySizeMb tdy)]
+         in errs1 ++ errs2
+      _ ->
+        ["diskImageName is required for '" <> enumToText (tdyStrategy tdy) <> "' strategy" | isNothing (tdyDiskImageName tdy)]
 
 getTemplateDetails :: TemplateVmId -> SqlPersistT IO (Maybe TemplateDetails)
 getTemplateDetails tid = do
@@ -325,19 +408,25 @@ getTemplateDetails tid = do
     Just t -> do
       drives <- selectList [TemplateDriveTemplateId ==. tid] []
       driveInfos <- forM drives $ \(Entity _ td) -> do
-        mDisk <- get (templateDriveDiskImageId td)
-        let diskName = maybe "unknown" diskImageName mDisk
+        mDiskName <- case templateDriveDiskName td of
+          Just n -> pure $ Just n
+          Nothing -> case templateDriveDiskImageId td of
+            Nothing -> pure Nothing
+            Just diskId -> do
+              mDisk <- get diskId
+              pure $ Just $ maybe "unknown" diskImageName mDisk
         pure $
           TemplateDriveInfo
-            { tvdiDiskImageId = fromSqlKey (templateDriveDiskImageId td)
-            , tvdiDiskImageName = diskName
+            { tvdiDiskImageId = fmap fromSqlKey (templateDriveDiskImageId td)
+            , tvdiDiskImageName = mDiskName
             , tvdiInterface = templateDriveInterface td
             , tvdiMedia = templateDriveMedia td
             , tvdiReadOnly = templateDriveReadOnly td
             , tvdiCacheType = templateDriveCacheType td
             , tvdiDiscard = templateDriveDiscard td
             , tvdiCloneStrategy = templateDriveCloneStrategy td
-            , tvdiNewSizeMb = templateDriveNewSizeMb td
+            , tvdiSizeMb = templateDriveSizeMb td
+            , tvdiFormat = templateDriveFormat td
             }
 
       netIfs <- selectList [TemplateNetworkInterfaceTemplateId ==. tid] []
@@ -372,6 +461,8 @@ getTemplateDetails tid = do
             , tvdDescription = templateVmDescription t
             , tvdHeadless = templateVmHeadless t
             , tvdCloudInit = templateVmCloudInit t
+            , tvdGuestAgent = templateVmGuestAgent t
+            , tvdAutostart = templateVmAutostart t
             , tvdCloudInitConfig = ciInfo
             , tvdCreatedAt = templateVmCreatedAt t
             , tvdDrives = driveInfos
@@ -428,36 +519,55 @@ instantiateDriveIO ctx vmId vmName td = do
   let state = acState ctx
       parentTaskId = acTaskId ctx
       vmIdLong = fromSqlKey vmId
-      diskIdLong = tvdiDiskImageId td
+      nameSuffix = fromMaybe "disk" (tvdiDiskImageName td)
       attachDisk newDiskId = runActionAsSubtask state (DiskAttach vmIdLong newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiDiscard td) (tvdiCacheType td)) parentTaskId
   case tvdiCloneStrategy td of
-    StrategyDirect -> do
-      resp <- attachDisk diskIdLong
-      case resp of
-        RespError err -> pure $ Left err
-        _ -> pure $ Right ()
-    StrategyClone -> do
-      let newName = vmName <> "-" <> tvdiDiskImageName td
-      resp <- runActionAsSubtask state (DiskClone newName diskIdLong (tvdiNewSizeMb td) Nothing) parentTaskId
-      case resp of
-        RespDiskCreated newDiskId -> do
-          attachResp <- attachDisk newDiskId
-          case attachResp of
-            RespError err -> pure $ Left err
-            _ -> pure $ Right ()
-        RespError err -> pure $ Left err
-        _ -> pure $ Left "Unexpected response from disk clone"
-    StrategyOverlay -> do
-      let newName = vmName <> "-" <> tvdiDiskImageName td <> "-overlay"
-      resp <- runActionAsSubtask state (DiskCreateOverlay newName diskIdLong (tvdiNewSizeMb td) Nothing) parentTaskId
-      case resp of
-        RespDiskCreated newDiskId -> do
-          attachResp <- attachDisk newDiskId
-          case attachResp of
-            RespError err -> pure $ Left err
-            _ -> pure $ Right ()
-        RespError err -> pure $ Left err
-        _ -> pure $ Left "Unexpected response from disk overlay"
+    StrategyDirect -> case tvdiDiskImageId td of
+      Nothing -> pure $ Left "direct strategy requires a disk image"
+      Just diskIdLong -> do
+        resp <- attachDisk diskIdLong
+        case resp of
+          RespError err -> pure $ Left err
+          _ -> pure $ Right ()
+    StrategyClone -> case tvdiDiskImageId td of
+      Nothing -> pure $ Left "clone strategy requires a disk image"
+      Just diskIdLong -> do
+        let newName = vmName <> "-" <> nameSuffix
+        resp <- runActionAsSubtask state (DiskClone newName diskIdLong (tvdiSizeMb td) Nothing) parentTaskId
+        case resp of
+          RespDiskCreated newDiskId -> do
+            attachResp <- attachDisk newDiskId
+            case attachResp of
+              RespError err -> pure $ Left err
+              _ -> pure $ Right ()
+          RespError err -> pure $ Left err
+          _ -> pure $ Left "Unexpected response from disk clone"
+    StrategyOverlay -> case tvdiDiskImageId td of
+      Nothing -> pure $ Left "overlay strategy requires a disk image"
+      Just diskIdLong -> do
+        let newName = vmName <> "-" <> nameSuffix <> "-overlay"
+        resp <- runActionAsSubtask state (DiskCreateOverlay newName diskIdLong (tvdiSizeMb td) Nothing) parentTaskId
+        case resp of
+          RespDiskCreated newDiskId -> do
+            attachResp <- attachDisk newDiskId
+            case attachResp of
+              RespError err -> pure $ Left err
+              _ -> pure $ Right ()
+          RespError err -> pure $ Left err
+          _ -> pure $ Left "Unexpected response from disk overlay"
+    StrategyCreate -> case (tvdiFormat td, tvdiSizeMb td) of
+      (Just fmt, Just sizeMb) -> do
+        let newName = vmName <> "-" <> nameSuffix
+        resp <- runActionAsSubtask state (DiskCreate newName fmt (fromIntegral sizeMb) Nothing) parentTaskId
+        case resp of
+          RespDiskCreated newDiskId -> do
+            attachResp <- attachDisk newDiskId
+            case attachResp of
+              RespError err -> pure $ Left err
+              _ -> pure $ Right ()
+          RespError err -> pure $ Left err
+          _ -> pure $ Left "Unexpected response from disk create"
+      _ -> pure $ Left "create strategy requires 'format' and 'sizeMb'"
 
 --------------------------------------------------------------------------------
 -- Action Types
@@ -469,6 +579,17 @@ instance Action TemplateCreate where
   actionSubsystem _ = SubTemplate
   actionCommand _ = "create"
   actionExecute ctx a = handleTemplateCreate (acState ctx) (tcrYaml a)
+
+data TemplateUpdate = TemplateUpdate
+  { tupOldId :: Int64
+  , tupYaml :: Text
+  }
+
+instance Action TemplateUpdate where
+  actionSubsystem _ = SubTemplate
+  actionCommand _ = "update"
+  actionEntityId = Just . fromIntegral . tupOldId
+  actionExecute ctx a = handleTemplateUpdate (acState ctx) (tupOldId a) (tupYaml a)
 
 newtype TemplateDelete = TemplateDelete {tdelTemplateId :: Int64}
 
@@ -499,7 +620,7 @@ data InstantiateDrive = InstantiateDrive
 instance Action InstantiateDrive where
   actionSubsystem _ = SubDisk
   actionCommand _ = "instantiate"
-  actionEntityName a = Just $ tvdiDiskImageName (idDriveInfo a)
+  actionEntityName a = tvdiDiskImageName (idDriveInfo a)
   actionExecute ctx a = do
     result <- instantiateDriveIO ctx (idVmId a) (idVmName a) (idDriveInfo a)
     case result of

@@ -28,7 +28,7 @@ import Corvus.Handlers.Disk (DiskClone (..), DiskCreate (..), DiskCreateOverlay 
 import Corvus.Handlers.Network (NetworkCreate (..))
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.SshKey (SshKeyCreate (..))
-import Corvus.Handlers.Template (CloudInitConfigYaml (..))
+import Corvus.Handlers.Template (CloudInitConfigYaml (..), TemplateYaml (..), insertTemplateYaml)
 import Corvus.Handlers.Vm (VmCreate (..))
 import Corvus.Model
 import Corvus.Protocol
@@ -57,6 +57,7 @@ data ApplyConfig = ApplyConfig
   , acDisks :: [ApplyDisk]
   , acNetworks :: [ApplyNetwork]
   , acVms :: [ApplyVm]
+  , acTemplates :: [TemplateYaml]
   }
   deriving (Show)
 
@@ -67,6 +68,7 @@ instance FromJSON ApplyConfig where
       <*> o .:? "disks" .!= []
       <*> o .:? "networks" .!= []
       <*> o .:? "vms" .!= []
+      <*> o .:? "templates" .!= []
 
 data ApplySshKey = ApplySshKey
   { askName :: Text
@@ -280,10 +282,12 @@ validateConfig config = do
   checkDuplicates "disk" $ map adName (acDisks config)
   checkDuplicates "network" $ map anName (acNetworks config)
   checkDuplicates "VM" $ map avName (acVms config)
+  checkDuplicates "template" $ map tyName (acTemplates config)
   forM_ (acSshKeys config) $ \k -> validateName "SSH key" (askName k)
   forM_ (acDisks config) $ \d -> validateName "Disk" (adName d)
   forM_ (acNetworks config) $ \n -> validateName "Network" (anName n)
   forM_ (acVms config) $ \v -> validateName "VM" (avName v)
+  forM_ (acTemplates config) $ \t -> validateName "Template" (tyName t)
   forM_ (acDisks config) validateDisk
   forM_ (acVms config) validateVmCloudInit
   where
@@ -379,15 +383,30 @@ executeApply state config skipExisting parentId = do
               vmResult <- runSequentialVms (acVms config) keyMap diskMap nwMap
               case vmResult of
                 Left err -> pure $ Left err
-                Right vmCreated ->
-                  pure $
-                    Right
-                      ApplyResult
-                        { arSshKeys = keyCreated
-                        , arDisks = diskCreated
-                        , arNetworks = nwCreated
-                        , arVms = vmCreated
-                        }
+                Right vmCreated -> do
+                  -- Phase 5: Templates
+                  tmplResult <- runSequentialCreate (acTemplates config) Map.empty $ \ty _ -> do
+                    mExisting <-
+                      if skipExisting
+                        then resolveByName state UniqueTemplateVmName Map.empty (tyName ty)
+                        else pure Nothing
+                    case mExisting of
+                      Just eid -> pure $ Right (tyName ty, eid)
+                      Nothing -> do
+                        resp <- runActionAsSubtask state (ApplyTemplateCreate ty) parentId
+                        extractCreatedResult (tyName ty) resp
+                  case tmplResult of
+                    Left err -> pure $ Left err
+                    Right (_tmplMap, tmplCreated) ->
+                      pure $
+                        Right
+                          ApplyResult
+                            { arSshKeys = keyCreated
+                            , arDisks = diskCreated
+                            , arNetworks = nwCreated
+                            , arVms = vmCreated
+                            , arTemplates = tmplCreated
+                            }
   where
     -- Run items sequentially, building a name→ID map.
     runSequentialCreate
@@ -696,3 +715,24 @@ instance Action ApplyVmCreate where
     case result of
       Left err -> pure $ RespError err
       Right vmId -> pure $ RespVmCreated vmId
+
+-- | Apply-specific template creation: takes an already-parsed 'TemplateYaml'
+-- and inserts it via 'insertTemplateYaml'. Avoids re-serialising YAML just to
+-- have the server parse it again.
+newtype ApplyTemplateCreate = ApplyTemplateCreate {atcYaml :: TemplateYaml}
+
+instance Action ApplyTemplateCreate where
+  actionSubsystem _ = SubTemplate
+  actionCommand _ = "create"
+  actionEntityName = Just . tyName . atcYaml
+  actionExecute ctx a = do
+    let ty = atcYaml a
+        state = acState ctx
+    case validateName "Template" (tyName ty) of
+      Left err -> pure $ RespError err
+      Right () -> do
+        now <- liftIO getCurrentTime
+        result <- liftIO $ runSqlPool (insertTemplateYaml ty now) (ssDbPool state)
+        case result of
+          Left err -> pure $ RespError err
+          Right tid -> pure $ RespTemplateCreated (fromSqlKey tid)

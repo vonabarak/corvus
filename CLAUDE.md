@@ -93,7 +93,7 @@ cbits/
 
 ### Key Enums (text-serializable via `EnumText` typeclass)
 
-`VmStatus` (stopped/starting/running/stopping/paused/error), `DriveInterface`, `DriveFormat`, `DriveMedia`, `CacheType`, `NetInterfaceType` (user/tap/bridge/macvtap/managed), `SharedDirCache`, `TemplateCloneStrategy` (clone/overlay/direct), `TaskSubsystem` (vm/disk/network/ssh-key/template/shared-dir/snapshot/system/apply), `TaskResult` (running/success/error).
+`VmStatus` (stopped/starting/running/stopping/paused/error), `DriveInterface`, `DriveFormat`, `DriveMedia`, `CacheType`, `NetInterfaceType` (user/tap/bridge/macvtap/managed), `SharedDirCache`, `TemplateCloneStrategy` (clone/overlay/direct/create), `TaskSubsystem` (vm/disk/network/ssh-key/template/shared-dir/snapshot/system/apply), `TaskResult` (running/success/error).
 
 ### Test Structure
 

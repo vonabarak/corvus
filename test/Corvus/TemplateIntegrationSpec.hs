@@ -52,7 +52,7 @@ spec = withTestDb $ do
                 , "  - diskImageName: \"" <> baseDiskName <> "\""
                 , "    interface: \"virtio\""
                 , "    strategy: \"overlay\""
-                , "    newSizeMb: 1024"
+                , "    sizeMb: 1024"
                 , "  - diskImageName: \"" <> ovmfCodeName <> "\""
                 , "    interface: \"pflash\""
                 , "    strategy: \"direct\""
@@ -83,7 +83,7 @@ spec = withTestDb $ do
             tvdName details `shouldBe` "test-template"
             length (tvdDrives details) `shouldBe` 3
             case tvdDrives details of
-              (d : _) -> tvdiDiskImageName d `shouldBe` baseDiskName
+              (d : _) -> tvdiDiskImageName d `shouldBe` Just baseDiskName
               [] -> fail "Expected at least one drive in template"
           other -> fail $ "Template show failed: " ++ show other
 

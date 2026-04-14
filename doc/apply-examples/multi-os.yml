@@ -1,4 +1,14 @@
 ---
+# Multi-OS template library.
+#
+# Imports base cloud images for several Linux distributions and FreeBSD,
+# then defines a template for each OS. No VMs are created — use
+# `crv template instantiate <template> <vm-name>` to spin up instances.
+#
+# Usage:
+#   crv apply multi-os.yml
+#   crv template instantiate debian12 my-debian-vm
+#   crv vm start my-debian-vm
 
 sshKeys:
   - name: corvus
@@ -10,153 +20,116 @@ disks:
     register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
     format: qcow2
 
-  # OVMF UEFI vars (for cloning)
+  # OVMF UEFI vars template (cloned per-VM by each template)
   - name: ovmf-vars
     register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
     format: qcow2
+
+  # ── Base cloud images ──────────────────────────────────────────────────
 
   - name: debian-12-generic-base
     import: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
     format: qcow2
     path: BaseImages/Debian/
 
-  - name: debian12
-    overlay: debian-12-generic-base
-    path: debian12/
-
-  - name: debian12-ovmf-vars
-    clone: ovmf-vars
-    path: debian12/
-
   - name: ubuntu-24.04-server-base
     import: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
     format: qcow2
     path: BaseImages/Ubuntu/
-
-  - name: ubuntu24
-    overlay: ubuntu-24.04-server-base
-    path: ubuntu24/
-
-  - name: ubuntu24-ovmf-vars
-    clone: ovmf-vars
-    path: ubuntu24/
-
 
   - name: almalinux-10-base
     import: "https://repo.almalinux.org/almalinux/10/cloud/x86_64_v2/images/AlmaLinux-10-GenericCloud-10.1-20251125.0.x86_64_v2.qcow2"
     format: qcow2
     path: BaseImages/Almalinux/
 
-  - name: almalinux10
-    overlay: almalinux-10-base
-    path: almalinux10/
-
-  - name: almalinux10-ovmf-vars
-    clone: ovmf-vars
-    path: almalinux10/
-
   - name: freebsd-14-base
     import: "https://download.freebsd.org/releases/VM-IMAGES/14.4-RELEASE/amd64/Latest/FreeBSD-14.4-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz"
     format: qcow2
     path: BaseImages/FreeBSD/
 
-  - name: freebsd14
-    overlay: freebsd-14-base
-    path: freebsd14/
-
-  - name: freebsd14-ovmf-vars
-    clone: ovmf-vars
-    path: freebsd14/
-
-  - name: gentoo-20260405-base
-    import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260405T170105Z.qcow2"
+  - name: gentoo-20260412-base
+    import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260412T164603Z.qcow2"
     format: qcow2
     path: BaseImages/Gentoo/
 
-  - name: gentoo20260405
-    overlay: gentoo-20260405-base
-    path: gentoo20260405/
+# ── YAML anchors for shared template settings ──────────────────────────
+# Anchors defined on ignored top-level keys (only sshKeys, disks,
+# networks, vms, templates are recognized by the parser).
 
-  - name: gentoo20260405-ovmf-vars
-    clone: ovmf-vars
-    path: gentoo20260405/
+_defaults: &defaults
+  cpuCount: 4
+  ramMb: 4096
+  cloudInit: true
+  guestAgent: true
 
-vms:
+_ovmf_code_drive: &ovmf_code
+  diskImageName: ovmf-code
+  interface: pflash
+  readOnly: true
+  strategy: direct
+
+_ovmf_vars_drive: &ovmf_vars
+  diskImageName: ovmf-vars
+  interface: pflash
+  strategy: clone
+
+# ── Templates ──────────────────────────────────────────────────────────
+
+templates:
   - name: debian12
-    cpuCount: 4
-    ramMb: 4096
-    description: "Debian 12"
-    cloudInit: true
-    guestAgent: true
+    <<: *defaults
+    description: "Debian 12 (Bookworm)"
     drives:
-      - disk: debian12
+      - diskImageName: debian-12-generic-base
         interface: virtio
-        media: disk
+        strategy: overlay
         cacheType: writeback
         discard: true
-      - disk: ovmf-code
-        interface: pflash
-        readOnly: true
-      - disk: debian12-ovmf-vars
-        interface: pflash
-    sshKeys:
-      - corvus
+      - *ovmf_code
+      - *ovmf_vars
     networkInterfaces:
       - type: vde
         hostDevice: /run/vde2/switch.ctl
+    sshKeys:
+      - name: corvus
 
   - name: ubuntu24
-    cpuCount: 4
-    ramMb: 4096
-    description: "Ubuntu 24.04"
-    cloudInit: true
-    guestAgent: true
+    <<: *defaults
+    description: "Ubuntu 24.04 LTS"
     drives:
-      - disk: ubuntu24
+      - diskImageName: ubuntu-24.04-server-base
         interface: virtio
-        media: disk
+        strategy: overlay
         cacheType: writeback
         discard: true
-      - disk: ovmf-code
-        interface: pflash
-        readOnly: true
-      - disk: ubuntu24-ovmf-vars
-        interface: pflash
-    sshKeys:
-      - corvus
+      - *ovmf_code
+      - *ovmf_vars
     networkInterfaces:
       - type: vde
         hostDevice: /run/vde2/switch.ctl
+    sshKeys:
+      - name: corvus
 
   - name: almalinux10
-    cpuCount: 4
-    ramMb: 4096
-    description: "Almalinux 10"
-    cloudInit: true
-    guestAgent: true
+    <<: *defaults
+    description: "AlmaLinux 10"
     drives:
-      - disk: almalinux10
+      - diskImageName: almalinux-10-base
         interface: virtio
-        media: disk
+        strategy: overlay
         cacheType: writeback
         discard: true
-      - disk: ovmf-code
-        interface: pflash
-        readOnly: true
-      - disk: almalinux10-ovmf-vars
-        interface: pflash
-    sshKeys:
-      - corvus
+      - *ovmf_code
+      - *ovmf_vars
     networkInterfaces:
       - type: vde
         hostDevice: /run/vde2/switch.ctl
+    sshKeys:
+      - name: corvus
 
   - name: freebsd14
-    cpuCount: 4
-    ramMb: 4096
+    <<: *defaults
     description: "FreeBSD 14"
-    cloudInit: true
-    guestAgent: true
     cloudInitConfig:
       userData:
         packages:
@@ -165,41 +138,32 @@ vms:
           - sysrc qemu_guest_agent_enable=YES
           - service qemu-guest-agent start
     drives:
-      - disk: freebsd14
+      - diskImageName: freebsd-14-base
         interface: virtio
-        media: disk
+        strategy: overlay
         cacheType: writeback
         discard: true
-      - disk: ovmf-code
-        interface: pflash
-        readOnly: true
-      - disk: freebsd14-ovmf-vars
-        interface: pflash
-    sshKeys:
-      - corvus
+      - *ovmf_code
+      - *ovmf_vars
     networkInterfaces:
       - type: vde
         hostDevice: /run/vde2/switch.ctl
+    sshKeys:
+      - name: corvus
 
-  - name: gentoo20260405
-    cpuCount: 4
-    ramMb: 4096
-    description: "Gentoo 2026.03.16"
-    cloudInit: true
-    guestAgent: true
+  - name: gentoo20260412
+    <<: *defaults
+    description: "Gentoo (2026-04-05 snapshot)"
     drives:
-      - disk: gentoo20260405
+      - diskImageName: gentoo-20260412-base
         interface: virtio
-        media: disk
+        strategy: overlay
         cacheType: writeback
         discard: true
-      - disk: ovmf-code
-        interface: pflash
-        readOnly: true
-      - disk: gentoo20260405-ovmf-vars
-        interface: pflash
-    sshKeys:
-      - corvus
+      - *ovmf_code
+      - *ovmf_vars
     networkInterfaces:
       - type: vde
         hostDevice: /run/vde2/switch.ctl
+    sshKeys:
+      - name: corvus

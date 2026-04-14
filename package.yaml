@@ -39,6 +39,7 @@ dependencies:
   - fourmolu
   - base64-bytestring
   - containers
+  - temporary
 
 default-extensions:
   - OverloadedStrings
@@ -90,7 +91,10 @@ library:
     - Corvus.Client.Commands.SshKey
     - Corvus.Client.Commands.Task
     - Corvus.Client.Commands.Template
+    - Corvus.Client.Commands.Template.Yaml
     - Corvus.Client.Commands.CloudInit
+    - Corvus.Client.Editor
+    - Corvus.Handlers.Template
     - Corvus.Model
     - Corvus.Qemu
     - Corvus.Qemu.Config
@@ -151,5 +155,4 @@ tests:
       - QuickCheck
       - random
       - uuid
-      - temporary
       - async

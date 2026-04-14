@@ -281,18 +281,28 @@ crv net-if add <vm_id> --type user --mac 52:54:00:12:34:56
 
 #### Template Commands
 
-VM templates allow you to define a complete VM configuration (CPU, RAM, disks, network, SSH keys) in a YAML file and instantiate it as many times as needed.
+VM templates allow you to define a complete VM configuration (CPU, RAM, disks, network, SSH keys) in a YAML file and instantiate it as many times as needed. See [templates.md](templates.md) for the full reference.
 
 ```bash
 # Manage templates
 crv template create <file.yaml>           # Create a template from YAML
-crv template list                        # List all templates
-crv template show <template_id>          # Show template details
-crv template delete <template_id>        # Delete a template
+crv template create                       # Open $EDITOR on a skeleton template
+crv template edit <template>              # Fetch template, open $EDITOR, upload
+crv template list                         # List all templates
+crv template show <template_id>           # Show template details
+crv template delete <template_id>         # Delete a template
 
 # Instantiate a VM from a template
 crv template instantiate <template_id> <new_name>
 ```
+
+`crv template create` without a file opens `$EDITOR` (or `vi`) on a temporary
+`.yml` skeleton; on exit, the edited contents are sent to the server as if
+passed via `<file.yaml>`. `crv template edit <template>` fetches an existing
+template, writes it to a temporary `.yml` file, opens `$EDITOR`, and on exit
+atomically replaces the template with the edited version. Renames are
+supported; renaming to a name already in use leaves the original template
+intact.
 
 ##### Template YAML Example
 
@@ -301,7 +311,10 @@ name: "ubuntu-22.04-webserver"
 description: "Standard web server template with 20GB root disk"
 cpuCount: 2
 ramMb: 2048
+headless: true             # Serial console only (no SPICE graphics)
+guestAgent: true           # Enable QEMU guest agent
 cloudInit: true            # Enable cloud-init (required for sshKeys)
+autostart: false           # Auto-start VM when daemon starts
 cloudInitConfig:           # Optional: custom cloud-init config
   userData:                # Parsed as YAML, #cloud-config header added by Corvus
     users:
@@ -322,7 +335,7 @@ drives:
   - diskImageName: "ubuntu-22.04-base"
     interface: "virtio"
     strategy: "overlay"    # options: clone, overlay, direct
-    newSizeMb: 20480       # resize disk after instantiation
+    sizeMb: 20480          # resize disk after instantiation
 networkInterfaces:
   - type: "user"           # options: user, bridge, tap, vde
 sshKeys:

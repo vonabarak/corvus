@@ -418,6 +418,7 @@ data TemplateCloneStrategy
   = StrategyClone
   | StrategyOverlay
   | StrategyDirect
+  | StrategyCreate
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance Binary TemplateCloneStrategy
@@ -428,6 +429,7 @@ instance EnumText TemplateCloneStrategy where
     [ (StrategyClone, "clone")
     , (StrategyOverlay, "overlay")
     , (StrategyDirect, "direct")
+    , (StrategyCreate, "create")
     ]
 
 instance FromJSON TemplateCloneStrategy where
@@ -629,20 +631,24 @@ TemplateVm
     description Text Maybe
     headless Bool default=false
     cloudInit Bool default=false
+    guestAgent Bool default=false
+    autostart Bool default=false
     createdAt UTCTime
     UniqueTemplateVmName name
     deriving Show Eq Generic
 
 TemplateDrive
     templateId TemplateVmId
-    diskImageId DiskImageId
+    diskImageId DiskImageId Maybe
+    diskName Text Maybe
     interface DriveInterface
     media DriveMedia Maybe
     readOnly Bool default=false
     cacheType CacheType
     discard Bool default=false
     cloneStrategy TemplateCloneStrategy
-    newSizeMb Int Maybe
+    sizeMb Int Maybe
+    format DriveFormat Maybe
     deriving Show Eq Generic
 
 TemplateNetworkInterface

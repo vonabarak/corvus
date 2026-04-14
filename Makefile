@@ -63,7 +63,7 @@ all-tests:
 
 # Run specific tests (e.g., make test MATCH="test name")
 test:
-	script -qec 'stack test --test-arguments "--match \"$(MATCH)\""' /dev/null
+	script -qec 'stack test --test-arguments "--match \"$(MATCH)\" --jobs=$(JOBS)"' /dev/null
 
 # Run linter on src, app and test directories
 lint:

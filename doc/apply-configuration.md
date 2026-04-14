@@ -1,6 +1,6 @@
 # Apply Configuration Reference
 
-The `crv apply` command creates a complete VM environment from a single YAML file. The daemon processes the file and creates all declared resources in dependency order: SSH keys, disk images, virtual networks, then VMs.
+The `crv apply` command creates a complete VM environment from a single YAML file. The daemon processes the file and creates all declared resources in dependency order: SSH keys, disk images, virtual networks, VMs, then templates.
 
 ## Usage
 
@@ -14,16 +14,17 @@ crv apply <file.yml> -o json        # Output result as JSON
 
 ## File Structure
 
-A configuration file has four top-level sections, all optional:
+A configuration file has five top-level sections, all optional:
 
 ```yaml
 sshKeys:    [...]   # SSH public keys for cloud-init injection
 disks:      [...]   # Disk images (import, register, create, overlay, or clone)
 networks:   [...]   # Virtual networks (bridge/TAP in daemon namespace)
 vms:        [...]   # Virtual machines with drives, NICs, shared dirs
+templates:  [...]   # VM templates (same schema as `crv template create`)
 ```
 
-Resources are created in the order listed above. Within each section, items are processed sequentially — later items can reference earlier ones by name (e.g., an overlay disk can reference a base image defined earlier in the same file).
+Resources are created in the order listed above. Within each section, items are processed sequentially — later items can reference earlier ones by name (e.g., an overlay disk can reference a base image defined earlier in the same file). Templates are created last and may reference SSH keys and disks defined earlier in the file.
 
 Resources can also reference items that already exist in the database. For example, a VM drive can reference a disk image that was previously registered via `crv disk register`, not just disks defined in the same YAML file.
 
@@ -31,7 +32,7 @@ Resources can also reference items that already exist in the database. For examp
 
 Configuration files support standard YAML features including anchors (`&name`), aliases (`*name`), and merge keys (`<<:`). These are useful for reducing duplication when multiple VMs share common settings.
 
-Anchors can be defined on an ignored top-level key (any key other than `sshKeys`, `disks`, `networks`, `vms` is silently ignored):
+Anchors can be defined on an ignored top-level key (any key other than `sshKeys`, `disks`, `networks`, `vms`, `templates` is silently ignored):
 
 ```yaml
 _vm_defaults: &vm_defaults
@@ -427,6 +428,51 @@ Shared directories use virtiofs. The daemon starts a `virtiofsd` process for eac
 
 A flat list of SSH key names to attach to the VM. See [Cloud-Init Behavior](#cloud-init-behavior) for how this interacts with cloud-init.
 
+## Templates
+
+The `templates:` section declares reusable VM templates. See [templates.md](templates.md) for the full template YAML reference. Each entry uses the
+same YAML schema accepted by `crv template create` and `crv template edit`, so
+definitions can be copied between this section and a standalone template file
+without change.
+
+```yaml
+templates:
+  - name: <string>              # Required. Unique template name.
+    cpuCount: <integer>         # Required. vCPU count for instantiated VMs.
+    ramMb: <integer>            # Required. RAM in MB.
+    description: <string>       # Optional.
+    headless: <bool>            # Optional. Default: false.
+    cloudInit: <bool>           # Optional. Default: false.
+    guestAgent: <bool>          # Optional. Default: false. Enable QEMU guest agent.
+    autostart: <bool>           # Optional. Default: false. Auto-start VM on daemon start.
+    cloudInitConfig:            # Optional. See Cloud-Init Behavior above.
+      userData: ...
+      networkConfig: ...
+      injectSshKeys: <bool>
+    drives:                     # Required (may be empty).
+      - diskImageName: <name>   # Must match a disk defined earlier or registered in the DB.
+        interface: <virtio|ide|scsi|sata|nvme|pflash>
+        strategy: <clone|overlay|direct>
+        media: <disk|cdrom>     # Optional.
+        readOnly: <bool>        # Optional.
+        cacheType: <none|writeback|writethrough|directsync|unsafe>  # Optional.
+        discard: <bool>         # Optional.
+        sizeMb: <integer>       # Optional. Size in MB: disk size for create, resize after clone/overlay.
+    networkInterfaces:          # Optional.
+      - type: <user|tap|bridge|macvtap>
+        hostDevice: <string>    # Optional, depends on type.
+    sshKeys:                    # Optional.
+      - name: <key-name>
+```
+
+Templates are created **after** SSH keys, disks, networks, and VMs so they can
+reference any of them by name. They do not create VMs themselves — a VM is
+only created later via `crv template instantiate`.
+
+Because templates use the same schema as `crv template create`, you can move
+a template from an apply file into a standalone file with no edits, and
+vice-versa.
+
 ## Cloud-Init Behavior
 
 Cloud-init controls whether a NoCloud ISO is generated and attached to the VM for first-boot provisioning (hostname, SSH keys, packages, etc.).
@@ -625,7 +671,7 @@ crv vm start web-server           # Start the VM
 
 The `doc/apply-examples/` directory contains ready-to-use configuration files:
 
-- **`multi-os.yml`** — Downloads cloud images for multiple operating systems (Debian, Ubuntu, AlmaLinux, FreeBSD, Gentoo) and creates a VM for each. Demonstrates importing from URLs, overlays, UEFI boot, and per-OS cloud-init customization (e.g. enabling `qemu-guest-agent` on FreeBSD where it is not started by default).
+- **`multi-os.yml`** — Downloads cloud images for multiple operating systems (Debian, Ubuntu, AlmaLinux, FreeBSD, Gentoo) and creates a **template** for each. No VMs are created — use `crv template instantiate <name> <vm-name>` to spin up instances on demand. Demonstrates YAML anchors for shared UEFI drive definitions, overlay strategy for base images, and per-OS cloud-init customization (e.g. enabling `qemu-guest-agent` on FreeBSD).
 
 - **`test-images.yml`** — Uses locally built test images (Alpine Linux and Windows Server) as base disks. Build them first with `make test-image-alpine` and `make test-image-windows`. Demonstrates `register` for local files, Windows cloud-init via cloudbase-init (PowerShell user-data scripts, RDP setup), and UEFI firmware configuration.
 
