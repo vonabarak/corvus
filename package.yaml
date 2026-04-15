@@ -124,6 +124,7 @@ library:
     - Corvus.Client.Editor
     - Corvus.Handlers.Template
     - Corvus.Model
+    - Corvus.Model.VmState
     - Corvus.Schema.CloudInit
     - Corvus.Schema.Template
     - Corvus.Schema.Apply

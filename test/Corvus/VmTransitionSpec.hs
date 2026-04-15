@@ -2,8 +2,8 @@
 
 module Corvus.VmTransitionSpec (spec) where
 
-import Corvus.Handlers.Vm (VmAction (..), validateTransition)
 import Corvus.Model (VmStatus (..))
+import Corvus.Model.VmState (VmAction (..), validateTransition)
 import Test.Hspec
 
 spec :: Spec

@@ -86,7 +86,7 @@ cbits/
 - **Concurrency**: STM (`TVar`) for shared server state; `async` for background VM process monitoring
 - **Database**: Persistent + Esqueleto ORM with PostgreSQL; `runSqlPool` pattern; auto-migration on startup
 - **Logging**: `MonadLogger` (LoggingT transformer)
-- **VM state machine**: Enforced in `Handlers.Vm.validateTransition` — stopped → starting (if guest agent) or running → stopping → stopped. VMs with guest agent go through `starting` state until first healthcheck ping succeeds. Reset always returns to stopped.
+- **VM state machine**: Enforced in `Model.VmState.validateTransition` (pure, directly unit-testable) — stopped → starting (if guest agent) or running → stopping → stopped. VMs with guest agent go through `starting` state until first healthcheck ping succeeds. Reset always returns to stopped.
 - **Task tracking**: Every mutating request is recorded in the `task` table via `withTask` wrapper in `Handlers.hs`. Read-only requests (list, show, ping) are skipped. Startup and shutdown are also recorded as tasks.
 - **Network namespaces**: A single shared user+network+UTS namespace is created at daemon startup (no root required). The C helper (`cbits/netns.c`) forks from the Haskell process, calls `unshare(2)` in the single-threaded child, brings up loopback, and waits. `unshare(CLONE_NEWUSER)` requires a single-threaded process — the fork **must** happen in C, not via GHC's `forkProcess`, because GHC's threaded RTS keeps multiple OS threads alive after fork. All bridges, dnsmasq instances, and QEMU processes are managed inside this namespace via `nsenter` from Haskell.
 

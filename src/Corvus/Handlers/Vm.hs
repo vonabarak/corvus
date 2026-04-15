@@ -30,10 +30,6 @@ module Corvus.Handlers.Vm
   , handleVmCloudInit
   , handleSerialConsole
   , handleSerialConsoleFlush
-
-    -- * State machine
-  , VmAction (..)
-  , validateTransition
   )
 where
 
@@ -52,6 +48,7 @@ import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
+import Corvus.Model.VmState (VmAction (..), validateTransition)
 import Corvus.Protocol
 import Corvus.Qemu
 import Corvus.Qemu.SerialBuffer (flushBuffer, startSerialBufferThread)
@@ -69,57 +66,6 @@ import Database.Persist.Postgresql (SqlBackend, runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
 import System.Exit (ExitCode (..))
 import System.Process (waitForProcess)
-
---------------------------------------------------------------------------------
--- State Machine: Valid VM state transitions for client commands
---------------------------------------------------------------------------------
-
--- | VM action triggered by client
-data VmAction = ActionStart | ActionStop | ActionPause | ActionReset
-  deriving (Eq, Show)
-
--- | Check if a state transition is valid for client commands.
--- Returns Right newStatus if valid, Left errorMessage if invalid.
---
--- Transition rules:
---   * Reset: always allowed, sets to Stopped
---   * From Stopped: can Start (→ Starting if GA enabled, → Running otherwise)
---   * From Starting: can Stop (→ Stopping) or Reset (→ Stopped)
---   * From Running: can Stop (→ Stopping) or Pause (→ Paused)
---   * From Stopping: only Reset is allowed
---   * From Paused: can Start (resume → Running)
---   * From Error: only Reset is allowed
---
--- Note: validateTransition returns VmRunning for Start from Stopped.
--- The caller (handleVmStart) overrides to VmStarting when guest agent is enabled.
-validateTransition :: VmStatus -> VmAction -> Either Text VmStatus
-validateTransition currentStatus action = case (currentStatus, action) of
-  -- Reset is always allowed, sets to Stopped
-  (_, ActionReset) -> Right VmStopped
-  -- From Stopped: can only Start
-  (VmStopped, ActionStart) -> Right VmRunning
-  (VmStopped, ActionStop) -> Left "VM is already stopped"
-  (VmStopped, ActionPause) -> Left "Cannot pause a stopped VM"
-  -- From Starting: can Stop or Reset (handled above)
-  (VmStarting, ActionStart) -> Left "VM is already starting"
-  (VmStarting, ActionStop) -> Right VmStopping
-  (VmStarting, ActionPause) -> Left "Cannot pause a VM that is still starting"
-  -- From Running: can Stop or Pause
-  (VmRunning, ActionStart) -> Left "VM is already running"
-  (VmRunning, ActionStop) -> Right VmStopping
-  (VmRunning, ActionPause) -> Right VmPaused
-  -- From Stopping: only Reset (handled above)
-  (VmStopping, ActionStart) -> Left "Cannot start VM while it is stopping"
-  (VmStopping, ActionStop) -> Left "VM is already stopping"
-  (VmStopping, ActionPause) -> Left "Cannot pause VM while it is stopping"
-  -- From Paused: can only Start (resume)
-  (VmPaused, ActionStart) -> Right VmRunning
-  (VmPaused, ActionStop) -> Left "Cannot stop a paused VM, reset instead"
-  (VmPaused, ActionPause) -> Left "VM is already paused"
-  -- From Error: only Reset is allowed (handled above)
-  (VmError, ActionStart) -> Left "Cannot start VM in error state, reset first"
-  (VmError, ActionStop) -> Left "Cannot stop VM in error state, reset first"
-  (VmError, ActionPause) -> Left "Cannot pause VM in error state, reset first"
 
 --------------------------------------------------------------------------------
 -- VM Handlers
