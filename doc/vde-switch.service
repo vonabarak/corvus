@@ -1,0 +1,29 @@
+[Unit]
+Description=VDE Virtual Switch attached to TAP vde0
+After=network-pre.target systemd-networkd.service
+Wants=network-pre.target systemd-networkd.service
+
+[Service]
+Type=forking
+
+# Create /run/vde2 automatically
+RuntimeDirectory=vde2
+
+# Run vde_switch in daemon mode and attach tap vde0
+ExecStart=/usr/bin/vde_switch \
+    --sock /run/vde2/switch.ctl \
+    --mgmt /run/vde2/switch.mgmt \
+    -tap vde0 \
+    -m 666 \
+    -group kvm \
+    --daemon \
+    --pidfile /run/vde2/vde_switch.pid
+
+PIDFile=/run/vde2/vde_switch.pid
+
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target
+

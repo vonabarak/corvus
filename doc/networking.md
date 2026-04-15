@@ -118,3 +118,124 @@ crv ns brctl show       # Inspect bridges
 ```
 
 Useful for debugging network configuration inside the namespace.
+
+---
+
+## Recommended Setup: VDE Switch with TAP
+
+For full bidirectional TCP connectivity between the host and VMs — without requiring root to run VMs and without the network namespace isolation of Corvus managed networks — the recommended approach is a **VDE virtual switch** connected to a **TAP device** on the host.
+
+This setup:
+- Gives VMs routable IP addresses reachable from the host (unlike QEMU user-mode networking, which only supports port forwarding).
+- Does not require root privileges to start VMs or attach network interfaces — only the initial VDE switch setup needs root (one-time systemd service).
+- Is not isolated inside a namespace like Corvus managed networks, so host processes can reach VM IPs directly.
+
+This is the network configuration assumed by the [multi-os.yml](apply-examples/multi-os.yml) and [test-images.yml](apply-examples/test-images.yml) example apply configurations.
+
+### 1. Install VDE
+
+```bash
+# Gentoo
+emerge net-misc/vde
+
+# Debian/Ubuntu
+apt install vde2
+
+# Arch
+pacman -S vde2
+```
+
+### 2. Create a systemd service for the VDE switch
+
+Save the following as `/etc/systemd/system/vde-switch.service`:
+
+```ini
+[Unit]
+Description=VDE Virtual Switch with TAP
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/install -d -m 0755 /run/vde2
+ExecStart=/usr/bin/vde_switch \
+    --sock /run/vde2/switch.ctl \
+    --tap tap0 \
+    --mode 0770 \
+    --group qemu
+ExecStartPost=/bin/sh -c 'sleep 0.5 && ip addr add 192.168.89.1/24 dev tap0 && ip link set tap0 up'
+ExecStop=/bin/kill $MAINPID
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+This creates a VDE switch at `/run/vde2/switch.ctl` with a TAP device `tap0`, assigns the static IP `192.168.89.1/24` to it, and makes the socket accessible to the `qemu` group. Adjust the IP subnet, group, and socket path to your needs.
+
+Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now vde-switch
+```
+
+### 3. Set up DHCP on the TAP interface
+
+Use dnsmasq (or any DHCP server) to hand out addresses to VMs on the TAP subnet:
+
+```bash
+# /etc/dnsmasq.d/vde.conf
+interface=tap0
+bind-interfaces
+dhcp-range=192.168.89.100,192.168.89.200,24h
+```
+
+Restart dnsmasq:
+
+```bash
+sudo systemctl restart dnsmasq
+```
+
+VMs connected to the VDE switch will receive an IP in the `192.168.89.0/24` range via DHCP.
+
+### 4. Optional: NAT / masquerade
+
+If you want VMs to access the internet through the host, enable IP forwarding and add a masquerade rule:
+
+```bash
+# Enable forwarding
+sudo sysctl -w net.ipv4.ip_forward=1
+
+# nftables masquerade (adjust the output interface)
+sudo nft add table nat
+sudo nft add chain nat postrouting '{ type nat hook postrouting priority 100; }'
+sudo nft add rule nat postrouting oifname "eth0" ip saddr 192.168.89.0/24 masquerade
+
+# Or with iptables
+sudo iptables -t nat -A POSTROUTING -s 192.168.89.0/24 -o eth0 -j MASQUERADE
+```
+
+To make forwarding persistent, add `net.ipv4.ip_forward=1` to `/etc/sysctl.conf`.
+
+### 5. Connect VMs via VDE
+
+Use the `vde` interface type pointing to the switch socket:
+
+```bash
+crv net-if add my-vm --type vde --host-device /run/vde2/switch.ctl
+```
+
+Or in apply YAML / templates:
+
+```yaml
+networkInterfaces:
+  - type: vde
+    hostDevice: /run/vde2/switch.ctl
+```
+
+After starting the VM, it will obtain an IP from dnsmasq and be reachable from the host:
+
+```bash
+crv vm start my-vm --wait
+ssh user@192.168.89.100
+```
