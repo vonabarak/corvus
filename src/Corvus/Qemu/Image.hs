@@ -42,9 +42,10 @@ where
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Corvus.Model (DriveFormat (..), EnumText (..))
+import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:), (.:?))
+import qualified Data.ByteString.Char8 as BS8
 import Data.Int (Int64)
 import Data.List (isSuffixOf)
-import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime)
@@ -52,7 +53,6 @@ import System.Directory (copyFile, doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeExtension)
 import System.Process (readProcessWithExitCode)
-import Text.Read (readMaybe)
 
 --------------------------------------------------------------------------------
 -- Types
@@ -203,7 +203,12 @@ rebaseImage overlayPath mNewBacking unsafe = do
         ExitSuccess -> pure ImageSuccess
         ExitFailure _ -> pure $ ImageError $ T.pack stderr
 
--- | Get information about a disk image
+-- | Get information about a disk image.
+--
+-- Runs @qemu-img info --output=json@ and decodes the resulting JSON.
+-- JSON output is stable across qemu versions (it tracks the QAPI
+-- @ImageInfo@ schema); the older human-readable output changed format
+-- between releases and required fragile line-grepping.
 getImageInfo
   :: FilePath
   -- ^ File path
@@ -213,7 +218,7 @@ getImageInfo path = do
   if not exists
     then pure $ Left "Image file not found"
     else do
-      let args = ["info", "--output=human", path]
+      let args = ["info", "--output=json", path]
       (exitCode, stdout, stderr) <- readProcessWithExitCode qemuImgBinary args ""
       case exitCode of
         ExitFailure _ -> pure $ Left $ T.pack stderr
@@ -227,73 +232,65 @@ getImageSizeMb path = do
     Right info -> Just (fromIntegral $ iiVirtualSizeMb info)
     Left _ -> Nothing
 
--- | Parse qemu-img info output
+--------------------------------------------------------------------------------
+-- JSON wire types for @qemu-img info --output=json@.
+--
+-- These mirror the subset of the QAPI @ImageInfo@ schema we care about;
+-- fields like @cluster-size@, @format-specific@, @dirty-flag@, and the
+-- @children@ array are ignored.
+--------------------------------------------------------------------------------
+
+data QemuImgInfo = QemuImgInfo
+  { qimFormat :: !Text
+  , qimVirtualSize :: !Int64
+  , qimActualSize :: !(Maybe Int64)
+  , qimSnapshots :: !(Maybe [QemuImgSnapshot])
+  }
+
+instance FromJSON QemuImgInfo where
+  parseJSON = withObject "QemuImgInfo" $ \o ->
+    QemuImgInfo
+      <$> o .: "format"
+      <*> o .: "virtual-size"
+      <*> o .:? "actual-size"
+      <*> o .:? "snapshots"
+
+data QemuImgSnapshot = QemuImgSnapshot
+  { qisId :: !Text
+  , qisName :: !Text
+  , qisVmStateSize :: !(Maybe Int64)
+  }
+
+instance FromJSON QemuImgSnapshot where
+  parseJSON = withObject "QemuImgSnapshot" $ \o ->
+    QemuImgSnapshot
+      <$> o .: "id"
+      <*> o .: "name"
+      <*> o .:? "vm-state-size"
+
+-- | Parse the JSON payload produced by @qemu-img info --output=json@.
 parseImageInfo :: String -> Either Text ImageInfo
-parseImageInfo output = do
-  let ls = lines output
-  format <- parseFormat ls
-  virtualSize <- parseVirtualSize ls
-  let actualSize = parseActualSize ls
-      snapshots = parseSnapshots ls
-  Right $
-    ImageInfo
-      { iiFormat = format
-      , iiVirtualSizeMb = virtualSize
-      , iiActualSizeMb = actualSize
-      , iiSnapshots = snapshots
-      }
+parseImageInfo output =
+  case eitherDecodeStrict (BS8.pack output) of
+    Left err -> Left $ "Failed to parse qemu-img JSON: " <> T.pack err
+    Right qim -> do
+      format <- case enumFromText (qimFormat qim) of
+        Right f -> Right f
+        Left _ -> Left $ "Unknown format: " <> qimFormat qim
+      Right
+        ImageInfo
+          { iiFormat = format
+          , iiVirtualSizeMb = qimVirtualSize qim `div` (1024 * 1024)
+          , iiActualSizeMb = fmap (`div` (1024 * 1024)) (qimActualSize qim)
+          , iiSnapshots = maybe [] (map snapToInfo) (qimSnapshots qim)
+          }
   where
-    parseFormat ls =
-      case filter ("file format:" `T.isPrefixOf`) (map T.pack ls) of
-        (line : _) ->
-          let formatStr = T.strip $ T.drop (T.length "file format:") line
-           in case enumFromText formatStr of
-                Right f -> Right f
-                Left _ -> Left $ "Unknown format: " <> formatStr
-        [] -> Left "Could not find format in image info"
-
-    parseVirtualSize ls =
-      case filter ("virtual size:" `T.isPrefixOf`) (map T.pack ls) of
-        (line : _) -> extractSizeMb line
-        [] -> Left "Could not find virtual size in image info"
-
-    parseActualSize ls =
-      case filter ("disk size:" `T.isPrefixOf`) (map T.pack ls) of
-        (line : _) -> either (const Nothing) Just $ extractSizeMb line
-        [] -> Nothing
-
-    extractSizeMb line =
-      -- qemu-img info output: "virtual size: 10 GiB (10737418240 bytes)"
-      -- Extract the byte count from inside parentheses
-      case T.breakOn "(" line of
-        (_, rest)
-          | not (T.null rest) ->
-              -- rest is "(10737418240 bytes)" - extract the number
-              let numStr = T.takeWhile (`elem` ['0' .. '9']) $ T.drop 1 rest
-               in case readMaybe (T.unpack numStr) of
-                    Just n -> Right $ n `div` (1024 * 1024)
-                    Nothing -> Left "Could not parse byte count from parentheses"
-        _ -> Left "Could not find byte count in parentheses"
-
-    parseSnapshots ls =
-      let textLines = map T.pack ls
-          snapshotLines = dropWhile (not . ("Snapshot list:" `T.isPrefixOf`)) textLines
-       in case snapshotLines of
-            [] -> []
-            (_ : _ : rest) -> mapMaybe parseSnapshotLine $ takeWhile (not . T.null) rest
-            _ -> []
-
-    parseSnapshotLine line =
-      let parts = T.words line
-       in case parts of
-            (snapId : name : _) ->
-              Just $
-                SnapshotData
-                  { sdId = snapId
-                  , sdName = name
-                  , sdSizeMb = Nothing
-                  }
-            _ -> Nothing
+    snapToInfo qs =
+      SnapshotData
+        { sdId = qisId qs
+        , sdName = qisName qs
+        , sdSizeMb = fmap (fromIntegral . (`div` (1024 * 1024))) (qisVmStateSize qs)
+        }
 
 --------------------------------------------------------------------------------
 -- Snapshot Operations
