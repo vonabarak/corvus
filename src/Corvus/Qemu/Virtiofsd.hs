@@ -16,12 +16,13 @@ module Corvus.Qemu.Virtiofsd
   )
 where
 
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkIO)
 import Control.Exception (SomeException, try)
-import Control.Monad (forM_, when)
+import Control.Monad (forM_)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN)
 import Corvus.Model
+import Corvus.Process (StopResult (..), stopProcess, waitForSocketFile)
 import Corvus.Qemu.Config (QemuConfig (..))
 import Corvus.Qemu.Runtime (createVmRuntimeDir, getVmRuntimeDir)
 import Data.Int (Int64)
@@ -31,11 +32,8 @@ import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend, SqlPersistT, toSqlKey)
-import System.Directory (doesFileExist)
 import System.FilePath ((</>))
-import System.Posix.Signals (sigKILL, signalProcess)
-import System.Posix.Types (ProcessID)
-import System.Process (ProcessHandle, StdStream (..), createProcess, getPid, proc, std_err, std_out, waitForProcess)
+import System.Process (StdStream (..), createProcess, getPid, proc, std_err, std_out, waitForProcess)
 
 --------------------------------------------------------------------------------
 -- Types
@@ -146,7 +144,7 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
                 , std_err = CreatePipe
                 }
         case result of
-          Left (e :: SomeException) -> do
+          Left (_ :: SomeException) -> do
             -- Process failed to start
             pure ()
           Right (_, _, _, ph) -> do
@@ -162,24 +160,12 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
               Nothing -> pure ()
 
       -- Wait for virtiofsd to create its socket (up to 5 seconds)
-      socketReady <- liftIO $ waitForSocket socketPath 50
+      socketReady <- liftIO $ waitForSocketFile socketPath 5000
       if socketReady
         then pure True
         else do
           logWarnN $ "Virtiofsd socket did not appear for tag '" <> sharedDirTag dir <> "'"
           pure False
-
--- | Wait for a socket file to appear on disk, polling every 100ms.
--- Returns True if socket appeared, False if timed out.
-waitForSocket :: FilePath -> Int -> IO Bool
-waitForSocket _ 0 = pure False
-waitForSocket path n = do
-  exists <- doesFileExist path
-  if exists
-    then pure True
-    else do
-      threadDelay 100000 -- 100ms
-      waitForSocket path (n - 1)
 
 -- | Save virtiofsd PID to database
 saveDirPid :: Key SharedDir -> Int -> SqlPersistT IO ()
@@ -199,7 +185,11 @@ getSharedDirsForVm vmId = do
 -- Killing Virtiofsd
 --------------------------------------------------------------------------------
 
--- | Kill all virtiofsd processes for a VM
+-- | Stop all virtiofsd processes for a VM.
+--
+-- Virtiofsd has no control channel, so we go straight to @SIGTERM@ (which
+-- it handles cleanly) and fall back to @SIGKILL@ if it's still alive after
+-- 3 seconds.
 killVirtiofsdProcesses
   :: (MonadIO m, MonadLogger m)
   => Pool SqlBackend
@@ -212,20 +202,9 @@ killVirtiofsdProcesses pool vmId = do
     case sharedDirPid dir of
       Nothing -> pure ()
       Just pid -> do
-        logDebugN $
-          "Killing virtiofsd for tag '"
-            <> sharedDirTag dir
-            <> "' with PID "
-            <> T.pack (show pid)
-        result <- liftIO $ try $ signalProcess sigKILL (fromIntegral pid :: ProcessID)
-        case result of
-          Left (e :: SomeException) -> do
-            let errMsg = T.pack $ show e
-            if "does not exist" `T.isInfixOf` errMsg || "No such process" `T.isInfixOf` errMsg
-              then logDebugN $ "Virtiofsd process " <> T.pack (show pid) <> " already dead"
-              else logWarnN $ "Failed to kill virtiofsd: " <> errMsg
-          Right () ->
-            logInfoN $ "Killed virtiofsd for tag '" <> sharedDirTag dir <> "'"
-
-        -- Clear PID from database
+        let name = "virtiofsd(tag=" <> sharedDirTag dir <> ")"
+        _ <- stopProcess name (fromIntegral pid) Nothing 0 3
+        -- Clear PID from database regardless of StopResult: even a failed
+        -- stop leaves nothing useful to track, and on next spawn we'd
+        -- create a new process anyway.
         liftIO $ runSqlPool (clearDirPid dirKey) pool

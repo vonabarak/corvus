@@ -8,7 +8,7 @@ module Corvus.Qemu.Process
     StartVmResult (..)
   , startVm
 
-    -- * Killing VMs
+    -- * Stopping VMs
   , KillResult (..)
   , killVmProcess
   )
@@ -16,7 +16,8 @@ where
 
 import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN)
+import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
+import Corvus.Process (StopResult (..), stopProcess)
 import Corvus.Qemu.Command (generateQemuCommandWithSockets)
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Corvus.Qemu.Runtime (createVmRuntimeDir, getGuestAgentSocket, getMonitorSocket, getQmpSocket, getSerialSocket, getSpiceSocket, getVmRuntimeDir)
@@ -27,8 +28,6 @@ import qualified Data.Text as T
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend)
 import System.IO (Handle)
-import System.Posix.Signals (sigKILL, signalProcess)
-import System.Posix.Types (ProcessID)
 import System.Process (ProcessHandle, StdStream (..), createProcess, getPid, proc, std_err, std_out)
 
 --------------------------------------------------------------------------------
@@ -49,7 +48,11 @@ data StartVmResult
 instance Show ProcessHandle where
   show _ = "<ProcessHandle>"
 
--- | Result of killing a VM process
+-- | Result of stopping a VM process.
+--
+-- Backwards-compatible names preserved from the SIGKILL-only era.
+-- 'KillSuccess' now covers any clean termination (SIGTERM-responsive or
+-- forced SIGKILL); 'KillError' covers genuine signalling failures.
 data KillResult
   = KillSuccess
   | KillNotRunning
@@ -116,24 +119,26 @@ startVm pool config vmId mNamespacePid = do
               pure $ VmStartError "Failed to get process PID"
 
 --------------------------------------------------------------------------------
--- Killing VMs
+-- Stopping VMs
 --------------------------------------------------------------------------------
 
--- | Kill a VM process by PID (SIGKILL)
+-- | Stop a running QEMU process.
+--
+-- Sends @SIGTERM@ first to give QEMU a chance to flush qcow2 writes and
+-- exit cleanly; escalates to @SIGKILL@ if the process is still alive after
+-- a short grace period (see 'Corvus.Process.stopProcess').
+--
+-- The caller is expected to have already tried higher-level graceful paths
+-- — guest agent shutdown or @qmpShutdown@ (ACPI) — before reaching here.
+-- This function is the bail-out for reset, daemon shutdown, and orphan
+-- cleanup: the VM isn't responding, just get it off the host.
 killVmProcess :: (MonadIO m, MonadLogger m) => Int64 -> Int -> m KillResult
 killVmProcess vmId pid = do
-  logDebugN $ "Attempting to kill VM " <> T.pack (show vmId) <> " with PID " <> T.pack (show pid)
-  result <- liftIO $ try $ signalProcess sigKILL (fromIntegral pid :: ProcessID)
+  let name = "qemu(vm=" <> T.pack (show vmId) <> ")"
+  result <- stopProcess name (fromIntegral pid) Nothing 0 5
   case result of
-    Left (e :: SomeException) -> do
-      let errMsg = T.pack $ show e
-      if "does not exist" `T.isInfixOf` errMsg || "No such process" `T.isInfixOf` errMsg
-        then do
-          logDebugN $ "VM " <> T.pack (show vmId) <> " process " <> T.pack (show pid) <> " not running"
-          pure KillNotRunning
-        else do
-          logWarnN $ "Failed to kill VM " <> T.pack (show vmId) <> ": " <> errMsg
-          pure $ KillError errMsg
-    Right () -> do
-      logInfoN $ "Killed VM " <> T.pack (show vmId) <> " process " <> T.pack (show pid)
-      pure KillSuccess
+    StoppedByTerm -> pure KillSuccess
+    StoppedByKill -> pure KillSuccess
+    StoppedGracefully -> pure KillSuccess
+    NotRunning -> pure KillNotRunning
+    StopFailed err -> pure $ KillError err

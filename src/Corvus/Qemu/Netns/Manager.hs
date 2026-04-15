@@ -30,6 +30,8 @@ module Corvus.Qemu.Netns.Manager
 where
 
 import Control.Exception (SomeException, try)
+import Control.Monad.Logger (runNoLoggingT)
+import Corvus.Process (stopProcess)
 import Corvus.Qemu.Config (QemuConfig (..))
 import Corvus.Qemu.Netns (nsExec, nsSpawn)
 import Corvus.Qemu.Runtime (createNetworkRuntimeDir, getBridgeName, getDnsmasqLeaseFile, getTapUpScript)
@@ -40,7 +42,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
 import System.Posix.Files (ownerExecuteMode, ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
-import System.Posix.Signals (sigTERM, signalProcess)
 import System.Process (CreateProcess (..), StdStream (..), createProcess, getPid, proc, readProcessWithExitCode)
 
 --------------------------------------------------------------------------------
@@ -139,12 +140,13 @@ startDnsmasq nsPid config networkId subnet nat = do
         )
 
 -- | Stop a dnsmasq process by PID.
+--
+-- dnsmasq handles SIGTERM cleanly (releases leases, closes sockets).
+-- We fall back to SIGKILL if it's still alive after 3s.
 stopDnsmasq :: Int -> IO ()
-stopDnsmasq pid = do
-  result <- try $ signalProcess sigTERM (fromIntegral pid)
-  case result of
-    Left (_ :: SomeException) -> pure ()
-    Right () -> pure ()
+stopDnsmasq pid = runNoLoggingT $ do
+  _ <- stopProcess "dnsmasq" (fromIntegral pid) Nothing 0 3
+  pure ()
 
 --------------------------------------------------------------------------------
 -- Tap-up script
@@ -216,12 +218,14 @@ startPasta nsPid config = do
         Nothing -> pure $ Left "Failed to get pasta PID"
 
 -- | Stop pasta by PID.
+--
+-- pasta exits cleanly on SIGTERM, tearing down the TAP interface it
+-- created inside the namespace. Falls back to SIGKILL if still alive
+-- after 3s.
 stopPasta :: Int -> IO ()
-stopPasta pid = do
-  result <- try $ signalProcess sigTERM (fromIntegral pid)
-  case result of
-    Left (_ :: SomeException) -> pure ()
-    Right () -> pure ()
+stopPasta pid = runNoLoggingT $ do
+  _ <- stopProcess "pasta" (fromIntegral pid) Nothing 0 3
+  pure ()
 
 --------------------------------------------------------------------------------
 -- nftables NAT

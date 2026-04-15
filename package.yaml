@@ -68,6 +68,7 @@ library:
     - Corvus.Types
     - Corvus.Server
     - Corvus.Action
+    - Corvus.Process
     - Corvus.Handlers
     - Corvus.Handlers.Core
     - Corvus.Handlers.Vm
