@@ -13,32 +13,19 @@ module Corvus.Protocol
   , encodeMessage
   , decodeMessage
 
-    -- * Response data
+    -- * Daemon status
   , StatusInfo (..)
-  , VmInfo (..)
-  , VmDetails (..)
-  , DriveInfo (..)
-  , NetIfInfo (..)
-  , DiskImageInfo (..)
-  , SnapshotInfo (..)
-  , SharedDirInfo (..)
-  , SshKeyInfo (..)
-  , TemplateVmInfo (..)
-  , TemplateDetails (..)
-  , TemplateDriveInfo (..)
-  , TemplateNetIfInfo (..)
-  , TemplateSshKeyInfo (..)
 
-    -- * Network info
-  , NetworkInfo (..)
-
-    -- * Cloud-init config
-  , CloudInitInfo (..)
-
-    -- * Apply config
-  , ApplyCreated (..)
-  , ApplyResult (..)
-  , TaskInfo (..)
+    -- * Per-subsystem response data (re-exported for convenience)
+  , module Corvus.Protocol.Vm
+  , module Corvus.Protocol.Disk
+  , module Corvus.Protocol.SharedDir
+  , module Corvus.Protocol.SshKey
+  , module Corvus.Protocol.Template
+  , module Corvus.Protocol.Network
+  , module Corvus.Protocol.CloudInit
+  , module Corvus.Protocol.Apply
+  , module Corvus.Protocol.Task
 
     -- * Entity reference
   , Ref (..)
@@ -46,13 +33,21 @@ module Corvus.Protocol
 where
 
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TaskResult, TaskSubsystem, TemplateCloneStrategy, VmStatus)
+import Corvus.Protocol.Apply
+import Corvus.Protocol.CloudInit
+import Corvus.Protocol.Disk
+import Corvus.Protocol.Network
+import Corvus.Protocol.SharedDir
+import Corvus.Protocol.SshKey
+import Corvus.Protocol.Task
+import Corvus.Protocol.Template
+import Corvus.Protocol.Vm
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Binary (Binary, decodeOrFail, encode)
 import Data.ByteString.Lazy (ByteString)
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.Text (Text)
-import Data.Time (UTCTime)
 import Data.Word (Word8)
 import GHC.Generics (Generic)
 
@@ -212,7 +207,10 @@ data Request
     ReqTemplateUpdate !Ref !Text
   deriving (Eq, Show, Generic, Binary)
 
--- | Status information returned by the server
+-- | Status information returned by the server.
+--
+-- Daemon-level metadata — uptime, version, namespace PID — not tied to
+-- any one subsystem, so it stays in the umbrella module.
 data StatusInfo = StatusInfo
   { siUptime :: !Int
   -- ^ Uptime in seconds
@@ -225,249 +223,6 @@ data StatusInfo = StatusInfo
   }
   deriving (Eq, Show, Generic, Binary)
 
--- | VM summary for list view
-data VmInfo = VmInfo
-  { viId :: !Int64
-  , viName :: !Text
-  , viStatus :: !VmStatus
-  , viCpuCount :: !Int
-  , viRamMb :: !Int
-  , viHeadless :: !Bool
-  , viGuestAgent :: !Bool
-  , viCloudInit :: !Bool
-  , viHealthcheck :: !(Maybe UTCTime)
-  , viAutostart :: !Bool
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Drive info for details view
-data DriveInfo = DriveInfo
-  { diId :: !Int64
-  , diDiskImageId :: !Int64
-  , diDiskImageName :: !Text
-  , diInterface :: !DriveInterface
-  , diFilePath :: !Text
-  , diFormat :: !DriveFormat
-  , diMedia :: !(Maybe DriveMedia)
-  , diReadOnly :: !Bool
-  , diCacheType :: !CacheType
-  , diDiscard :: !Bool
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Network interface info for details view
-data NetIfInfo = NetIfInfo
-  { niId :: !Int64
-  , niType :: !NetInterfaceType
-  , niHostDevice :: !Text
-  , niMacAddress :: !Text
-  , niNetworkId :: !(Maybe Int64)
-  , niNetworkName :: !(Maybe Text)
-  , niGuestIpAddresses :: !(Maybe Text)
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Full VM details
-data VmDetails = VmDetails
-  { vdId :: !Int64
-  , vdName :: !Text
-  , vdCreatedAt :: !UTCTime
-  , vdStatus :: !VmStatus
-  , vdCpuCount :: !Int
-  , vdRamMb :: !Int
-  , vdDescription :: !(Maybe Text)
-  , vdDrives :: ![DriveInfo]
-  , vdNetIfs :: ![NetIfInfo]
-  , vdHeadless :: !Bool
-  , vdMonitorSocket :: !Text
-  -- ^ Path to HMP monitor socket
-  , vdSpiceSocket :: !Text
-  -- ^ Path to SPICE socket
-  , vdSerialSocket :: !Text
-  -- ^ Path to serial console socket
-  , vdGuestAgentSocket :: !Text
-  -- ^ Path to QEMU Guest Agent socket
-  , vdGuestAgent :: !Bool
-  -- ^ Whether guest agent is enabled for this VM
-  , vdCloudInit :: !Bool
-  -- ^ Whether cloud-init is enabled for this VM
-  , vdCloudInitConfig :: !(Maybe CloudInitInfo)
-  -- ^ Custom cloud-init configuration (Nothing = using defaults)
-  , vdHealthcheck :: !(Maybe UTCTime)
-  -- ^ Last successful guest agent ping time
-  , vdAutostart :: !Bool
-  -- ^ Whether this VM autostarts when the daemon starts
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Disk image info for list/show view
-data DiskImageInfo = DiskImageInfo
-  { diiId :: !Int64
-  , diiName :: !Text
-  , diiFilePath :: !Text
-  , diiFormat :: !DriveFormat
-  , diiSizeMb :: !(Maybe Int)
-  , diiCreatedAt :: !UTCTime
-  , diiAttachedTo :: ![(Int64, Text)]
-  -- ^ VM (ID, name) pairs this disk is attached to
-  , diiBackingImageId :: !(Maybe Int64)
-  -- ^ Backing image ID (if this is an overlay)
-  , diiBackingImageName :: !(Maybe Text)
-  -- ^ Backing image name (if this is an overlay)
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Snapshot info
-data SnapshotInfo = SnapshotInfo
-  { sniId :: !Int64
-  , sniName :: !Text
-  , sniCreatedAt :: !UTCTime
-  , sniSizeMb :: !(Maybe Int)
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Shared directory info
-data SharedDirInfo = SharedDirInfo
-  { sdiId :: !Int64
-  , sdiPath :: !Text
-  , sdiTag :: !Text
-  , sdiCache :: !SharedDirCache
-  , sdiReadOnly :: !Bool
-  , sdiPid :: !(Maybe Int)
-  -- ^ virtiofsd PID if running
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | SSH key info
-data SshKeyInfo = SshKeyInfo
-  { skiId :: !Int64
-  , skiName :: !Text
-  , skiPublicKey :: !Text
-  , skiCreatedAt :: !UTCTime
-  , skiAttachedVms :: ![(Int64, Text)]
-  -- ^ VM (ID, name) pairs this key is attached to
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Template VM summary for list view
-data TemplateVmInfo = TemplateVmInfo
-  { tviId :: !Int64
-  , tviName :: !Text
-  , tviCpuCount :: !Int
-  , tviRamMb :: !Int
-  , tviDescription :: !(Maybe Text)
-  , tviHeadless :: !Bool
-  , tviGuestAgent :: !Bool
-  , tviAutostart :: !Bool
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Template drive info for details view
-data TemplateDriveInfo = TemplateDriveInfo
-  { tvdiDiskImageId :: !(Maybe Int64)
-  , tvdiDiskImageName :: !(Maybe Text)
-  , tvdiInterface :: !DriveInterface
-  , tvdiMedia :: !(Maybe DriveMedia)
-  , tvdiReadOnly :: !Bool
-  , tvdiCacheType :: !CacheType
-  , tvdiDiscard :: !Bool
-  , tvdiCloneStrategy :: !TemplateCloneStrategy
-  , tvdiSizeMb :: !(Maybe Int)
-  , tvdiFormat :: !(Maybe DriveFormat)
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Template network interface info
-data TemplateNetIfInfo = TemplateNetIfInfo
-  { tvniType :: !NetInterfaceType
-  , tvniHostDevice :: !(Maybe Text)
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Template SSH key info
-data TemplateSshKeyInfo = TemplateSshKeyInfo
-  { tvskiId :: !Int64
-  , tvskiName :: !Text
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Template VM full details
-data TemplateDetails = TemplateDetails
-  { tvdId :: !Int64
-  , tvdName :: !Text
-  , tvdCpuCount :: !Int
-  , tvdRamMb :: !Int
-  , tvdDescription :: !(Maybe Text)
-  , tvdHeadless :: !Bool
-  , tvdCloudInit :: !Bool
-  , tvdGuestAgent :: !Bool
-  , tvdAutostart :: !Bool
-  , tvdCloudInitConfig :: !(Maybe CloudInitInfo)
-  , tvdCreatedAt :: !UTCTime
-  , tvdDrives :: ![TemplateDriveInfo]
-  , tvdNetIfs :: ![TemplateNetIfInfo]
-  , tvdSshKeys :: ![TemplateSshKeyInfo]
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Virtual network info
-data NetworkInfo = NetworkInfo
-  { nwiId :: !Int64
-  , nwiName :: !Text
-  , nwiSubnet :: !Text
-  , nwiDhcp :: !Bool
-  , nwiNat :: !Bool
-  , nwiRunning :: !Bool
-  , nwiDnsmasqPid :: !(Maybe Int)
-  , nwiCreatedAt :: !UTCTime
-  , nwiAutostart :: !Bool
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | A resource created during an apply operation
-data ApplyCreated = ApplyCreated
-  { acName :: !Text
-  , acId :: !Int64
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Summary of resources created by an apply operation
-data ApplyResult = ApplyResult
-  { arSshKeys :: ![ApplyCreated]
-  , arDisks :: ![ApplyCreated]
-  , arNetworks :: ![ApplyCreated]
-  , arVms :: ![ApplyCreated]
-  , arTemplates :: ![ApplyCreated]
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Information about a task history entry
-data TaskInfo = TaskInfo
-  { tiId :: !Int64
-  , tiParentId :: !(Maybe Int64)
-  , tiStartedAt :: !UTCTime
-  , tiFinishedAt :: !(Maybe UTCTime)
-  , tiSubsystem :: !TaskSubsystem
-  , tiEntityId :: !(Maybe Int)
-  , tiEntityName :: !(Maybe Text)
-  , tiCommand :: !Text
-  , tiResult :: !TaskResult
-  , tiMessage :: !(Maybe Text)
-  }
-  deriving (Eq, Show, Generic, Binary)
-
--- | Cloud-init configuration info
-data CloudInitInfo = CloudInitInfo
-  { ciiUserData :: !(Maybe Text)
-  , ciiNetworkConfig :: !(Maybe Text)
-  , ciiInjectSshKeys :: !Bool
-  }
-  deriving (Eq, Show, Generic, Binary)
-
---------------------------------------------------------------------------------
--- ToJSON instances for machine-readable output
---------------------------------------------------------------------------------
-
 instance ToJSON StatusInfo where
   toJSON s =
     object
@@ -475,231 +230,6 @@ instance ToJSON StatusInfo where
       , "connections" .= siConnections s
       , "version" .= siVersion s
       , "namespacePid" .= siNamespacePid s
-      ]
-
-instance ToJSON VmInfo where
-  toJSON v =
-    object
-      [ "id" .= viId v
-      , "name" .= viName v
-      , "status" .= viStatus v
-      , "cpuCount" .= viCpuCount v
-      , "ramMb" .= viRamMb v
-      , "headless" .= viHeadless v
-      , "guestAgent" .= viGuestAgent v
-      , "cloudInit" .= viCloudInit v
-      , "healthcheck" .= viHealthcheck v
-      , "autostart" .= viAutostart v
-      ]
-
-instance ToJSON DriveInfo where
-  toJSON d =
-    object
-      [ "id" .= diId d
-      , "diskImageId" .= diDiskImageId d
-      , "diskImageName" .= diDiskImageName d
-      , "interface" .= diInterface d
-      , "filePath" .= diFilePath d
-      , "format" .= diFormat d
-      , "media" .= diMedia d
-      , "readOnly" .= diReadOnly d
-      , "cacheType" .= diCacheType d
-      , "discard" .= diDiscard d
-      ]
-
-instance ToJSON NetIfInfo where
-  toJSON n =
-    object
-      [ "id" .= niId n
-      , "type" .= niType n
-      , "hostDevice" .= niHostDevice n
-      , "macAddress" .= niMacAddress n
-      , "networkId" .= niNetworkId n
-      , "networkName" .= niNetworkName n
-      , "guestIpAddresses" .= niGuestIpAddresses n
-      ]
-
-instance ToJSON CloudInitInfo where
-  toJSON c =
-    object
-      [ "userData" .= ciiUserData c
-      , "networkConfig" .= ciiNetworkConfig c
-      , "injectSshKeys" .= ciiInjectSshKeys c
-      ]
-
-instance ToJSON VmDetails where
-  toJSON v =
-    object
-      [ "id" .= vdId v
-      , "name" .= vdName v
-      , "createdAt" .= vdCreatedAt v
-      , "status" .= vdStatus v
-      , "cpuCount" .= vdCpuCount v
-      , "ramMb" .= vdRamMb v
-      , "description" .= vdDescription v
-      , "drives" .= vdDrives v
-      , "networkInterfaces" .= vdNetIfs v
-      , "headless" .= vdHeadless v
-      , "monitorSocket" .= vdMonitorSocket v
-      , "spiceSocket" .= vdSpiceSocket v
-      , "serialSocket" .= vdSerialSocket v
-      , "guestAgentSocket" .= vdGuestAgentSocket v
-      , "guestAgent" .= vdGuestAgent v
-      , "cloudInit" .= vdCloudInit v
-      , "cloudInitConfig" .= vdCloudInitConfig v
-      , "healthcheck" .= vdHealthcheck v
-      , "autostart" .= vdAutostart v
-      ]
-
-instance ToJSON DiskImageInfo where
-  toJSON d =
-    object
-      [ "id" .= diiId d
-      , "name" .= diiName d
-      , "filePath" .= diiFilePath d
-      , "format" .= diiFormat d
-      , "sizeMb" .= diiSizeMb d
-      , "createdAt" .= diiCreatedAt d
-      , "attachedTo" .= diiAttachedTo d
-      , "backingImageId" .= diiBackingImageId d
-      , "backingImageName" .= diiBackingImageName d
-      ]
-
-instance ToJSON SnapshotInfo where
-  toJSON s =
-    object
-      [ "id" .= sniId s
-      , "name" .= sniName s
-      , "createdAt" .= sniCreatedAt s
-      , "sizeMb" .= sniSizeMb s
-      ]
-
-instance ToJSON SharedDirInfo where
-  toJSON s =
-    object
-      [ "id" .= sdiId s
-      , "path" .= sdiPath s
-      , "tag" .= sdiTag s
-      , "cache" .= sdiCache s
-      , "readOnly" .= sdiReadOnly s
-      , "pid" .= sdiPid s
-      ]
-
-instance ToJSON SshKeyInfo where
-  toJSON k =
-    object
-      [ "id" .= skiId k
-      , "name" .= skiName k
-      , "publicKey" .= skiPublicKey k
-      , "createdAt" .= skiCreatedAt k
-      , "attachedVms" .= skiAttachedVms k
-      ]
-
-instance ToJSON TemplateVmInfo where
-  toJSON t =
-    object
-      [ "id" .= tviId t
-      , "name" .= tviName t
-      , "cpuCount" .= tviCpuCount t
-      , "ramMb" .= tviRamMb t
-      , "description" .= tviDescription t
-      , "headless" .= tviHeadless t
-      , "guestAgent" .= tviGuestAgent t
-      , "autostart" .= tviAutostart t
-      ]
-
-instance ToJSON TemplateDriveInfo where
-  toJSON d =
-    object
-      [ "diskImageId" .= tvdiDiskImageId d
-      , "diskImageName" .= tvdiDiskImageName d
-      , "interface" .= tvdiInterface d
-      , "media" .= tvdiMedia d
-      , "readOnly" .= tvdiReadOnly d
-      , "cacheType" .= tvdiCacheType d
-      , "discard" .= tvdiDiscard d
-      , "cloneStrategy" .= tvdiCloneStrategy d
-      , "sizeMb" .= tvdiSizeMb d
-      , "format" .= tvdiFormat d
-      ]
-
-instance ToJSON TemplateNetIfInfo where
-  toJSON n =
-    object
-      [ "type" .= tvniType n
-      , "hostDevice" .= tvniHostDevice n
-      ]
-
-instance ToJSON TemplateSshKeyInfo where
-  toJSON k =
-    object
-      [ "id" .= tvskiId k
-      , "name" .= tvskiName k
-      ]
-
-instance ToJSON NetworkInfo where
-  toJSON n =
-    object
-      [ "id" .= nwiId n
-      , "name" .= nwiName n
-      , "subnet" .= nwiSubnet n
-      , "dhcp" .= nwiDhcp n
-      , "nat" .= nwiNat n
-      , "running" .= nwiRunning n
-      , "dnsmasqPid" .= nwiDnsmasqPid n
-      , "createdAt" .= nwiCreatedAt n
-      , "autostart" .= nwiAutostart n
-      ]
-
-instance ToJSON TemplateDetails where
-  toJSON t =
-    object
-      [ "id" .= tvdId t
-      , "name" .= tvdName t
-      , "cpuCount" .= tvdCpuCount t
-      , "ramMb" .= tvdRamMb t
-      , "description" .= tvdDescription t
-      , "headless" .= tvdHeadless t
-      , "cloudInit" .= tvdCloudInit t
-      , "guestAgent" .= tvdGuestAgent t
-      , "autostart" .= tvdAutostart t
-      , "cloudInitConfig" .= tvdCloudInitConfig t
-      , "createdAt" .= tvdCreatedAt t
-      , "drives" .= tvdDrives t
-      , "networkInterfaces" .= tvdNetIfs t
-      , "sshKeys" .= tvdSshKeys t
-      ]
-
-instance ToJSON ApplyCreated where
-  toJSON a =
-    object
-      [ "name" .= acName a
-      , "id" .= acId a
-      ]
-
-instance ToJSON ApplyResult where
-  toJSON r =
-    object
-      [ "sshKeys" .= arSshKeys r
-      , "disks" .= arDisks r
-      , "networks" .= arNetworks r
-      , "vms" .= arVms r
-      , "templates" .= arTemplates r
-      ]
-
-instance ToJSON TaskInfo where
-  toJSON t =
-    object
-      [ "id" .= tiId t
-      , "parentId" .= tiParentId t
-      , "startedAt" .= tiStartedAt t
-      , "finishedAt" .= tiFinishedAt t
-      , "subsystem" .= tiSubsystem t
-      , "entityId" .= tiEntityId t
-      , "entityName" .= tiEntityName t
-      , "command" .= tiCommand t
-      , "result" .= tiResult t
-      , "message" .= tiMessage t
       ]
 
 -- | Server responses

@@ -65,6 +65,15 @@ library:
     - cbits
   exposed-modules:
     - Corvus.Protocol
+    - Corvus.Protocol.Vm
+    - Corvus.Protocol.Disk
+    - Corvus.Protocol.SharedDir
+    - Corvus.Protocol.SshKey
+    - Corvus.Protocol.Template
+    - Corvus.Protocol.Network
+    - Corvus.Protocol.CloudInit
+    - Corvus.Protocol.Apply
+    - Corvus.Protocol.Task
     - Corvus.Types
     - Corvus.Server
     - Corvus.Action
