@@ -4,7 +4,7 @@
 module Corvus.DiskSpec (spec) where
 
 import Corvus.Client.Rpc (DiskResult (..))
-import Corvus.Handlers.Disk (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
+import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Model (DiskImage (..), DriveFormat (..))
 import Corvus.Protocol (DiskImageInfo (..), Ref (..), Request (..), Response (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)

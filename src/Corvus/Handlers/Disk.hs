@@ -46,12 +46,6 @@ module Corvus.Handlers.Disk
     -- * Attach/detach handlers
   , handleDiskAttach
   , handleDiskDetach
-
-    -- * Helpers
-  , sanitizeDiskName
-  , resolveDiskPath
-  , resolveDiskFilePathPure
-  , makeRelativeToBase
   )
 where
 

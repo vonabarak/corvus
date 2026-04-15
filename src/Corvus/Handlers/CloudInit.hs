@@ -23,7 +23,7 @@ import Control.Monad (forM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN)
 import Corvus.CloudInit (CloudInitConfig (..), defaultCloudInitConfig, generateCloudInitIso, getCloudInitDir)
-import Corvus.Handlers.Disk (makeRelativeToBase)
+import Corvus.Handlers.Disk.Path (makeRelativeToBase)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
