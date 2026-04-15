@@ -8,6 +8,7 @@ module Corvus.Protocol.Network
 where
 
 import Corvus.Model ()
+
 -- for orphan Binary UTCTime instance
 import Data.Aeson (ToJSON (..), object, (.=))
 import Data.Binary (Binary)

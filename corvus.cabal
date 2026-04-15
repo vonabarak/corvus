@@ -33,6 +33,12 @@ library
       Corvus.Handlers.Core
       Corvus.Handlers.Vm
       Corvus.Handlers.Disk
+      Corvus.Handlers.Disk.Path
+      Corvus.Handlers.Disk.Db
+      Corvus.Handlers.Disk.Snapshot
+      Corvus.Handlers.Disk.Attach
+      Corvus.Handlers.Disk.Import
+      Corvus.Handlers.Disk.Rebase
       Corvus.Handlers.SharedDir
       Corvus.Handlers.NetIf
       Corvus.Handlers.SshKey
