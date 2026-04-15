@@ -15,8 +15,8 @@ import Corvus.Client.Editor (editInEditor)
 import Corvus.Client.Output (isStructured, outputError, outputOk, outputResult)
 import Corvus.Client.Rpc (CloudInitResult (..), VmEditResult (..), cloudInitDelete, cloudInitGet, cloudInitSet, vmCloudInit)
 import Corvus.Client.Types (OutputFormat (..))
-import Corvus.Handlers.Template (CloudInitConfigYaml (..))
 import Corvus.Protocol (CloudInitInfo (..))
+import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE

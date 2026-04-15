@@ -108,6 +108,9 @@ library:
     - Corvus.Client.Editor
     - Corvus.Handlers.Template
     - Corvus.Model
+    - Corvus.Schema.CloudInit
+    - Corvus.Schema.Template
+    - Corvus.Schema.Apply
     - Corvus.Qemu
     - Corvus.Qemu.Config
     - Corvus.Qemu.Runtime

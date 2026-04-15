@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -17,12 +16,7 @@ module Corvus.Handlers.Template
   , handleTemplateDelete
   , handleTemplateInstantiate
 
-    -- * YAML schema (re-used by Apply)
-  , TemplateYaml (..)
-  , TemplateDriveYaml (..)
-  , TemplateNetworkInterfaceYaml (..)
-  , TemplateSshKeyYaml (..)
-  , CloudInitConfigYaml (..)
+    -- * DB helpers for inserting template YAML (used by Apply)
   , insertTemplateYaml
   )
 where
@@ -38,131 +32,25 @@ import Corvus.Handlers.Disk (DiskAttach (..), DiskClone (..), DiskCreate (..), D
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
 import Corvus.Protocol
+import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
+import Corvus.Schema.Template
+  ( TemplateDriveYaml (..)
+  , TemplateNetworkInterfaceYaml (..)
+  , TemplateSshKeyYaml (..)
+  , TemplateYaml (..)
+  )
 import Corvus.Types
 import Corvus.Utils.Network (generateMacAddress)
-import Data.Aeson (Value (..))
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import Data.Time (UTCTime, getCurrentTime)
-import Data.Yaml (FromJSON (..), decodeEither', withObject, (.!=), (.:), (.:?))
-import qualified Data.Yaml as Yaml
+import Data.Yaml (decodeEither')
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
-import GHC.Generics (Generic)
-
---------------------------------------------------------------------------------
--- YAML Types
---------------------------------------------------------------------------------
-
-data TemplateYaml = TemplateYaml
-  { tyName :: Text
-  , tyCpuCount :: Int
-  , tyRamMb :: Int
-  , tyDescription :: Maybe Text
-  , tyHeadless :: Bool
-  , tyCloudInit :: Bool
-  , tyGuestAgent :: Bool
-  , tyAutostart :: Bool
-  , tyCloudInitConfig :: Maybe CloudInitConfigYaml
-  , tyDrives :: [TemplateDriveYaml]
-  , tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml]
-  , tySshKeys :: [TemplateSshKeyYaml]
-  }
-  deriving (Show, Generic)
-
-instance FromJSON TemplateYaml where
-  parseJSON = withObject "TemplateYaml" $ \o ->
-    TemplateYaml
-      <$> o .: "name"
-      <*> o .: "cpuCount"
-      <*> o .: "ramMb"
-      <*> o .:? "description"
-      <*> o .:? "headless" .!= False
-      <*> o .:? "cloudInit" .!= False
-      <*> o .:? "guestAgent" .!= False
-      <*> o .:? "autostart" .!= False
-      <*> o .:? "cloudInitConfig"
-      <*> o .: "drives"
-      <*> o .:? "networkInterfaces" .!= []
-      <*> o .:? "sshKeys" .!= []
-
-data TemplateDriveYaml = TemplateDriveYaml
-  { tdyDiskImageName :: Maybe Text
-  , tdyInterface :: DriveInterface
-  , tdyMedia :: Maybe DriveMedia
-  , tdyReadOnly :: Maybe Bool
-  , tdyCacheType :: Maybe CacheType
-  , tdyDiscard :: Maybe Bool
-  , tdyStrategy :: TemplateCloneStrategy
-  , tdySizeMb :: Maybe Int
-  , tdyFormat :: Maybe DriveFormat
-  }
-  deriving (Show, Generic)
-
-instance FromJSON TemplateDriveYaml where
-  parseJSON = withObject "TemplateDriveYaml" $ \o ->
-    TemplateDriveYaml
-      <$> o .:? "diskImageName"
-      <*> o .: "interface"
-      <*> o .:? "media"
-      <*> o .:? "readOnly"
-      <*> o .:? "cacheType"
-      <*> o .:? "discard"
-      <*> o .: "strategy"
-      <*> o .:? "sizeMb"
-      <*> o .:? "format"
-
-data TemplateNetworkInterfaceYaml = TemplateNetworkInterfaceYaml
-  { tnyType :: NetInterfaceType
-  , tnyHostDevice :: Maybe Text
-  }
-  deriving (Show, Generic)
-
-instance FromJSON TemplateNetworkInterfaceYaml where
-  parseJSON = withObject "TemplateNetworkInterfaceYaml" $ \o ->
-    TemplateNetworkInterfaceYaml
-      <$> o .: "type"
-      <*> o .:? "hostDevice"
-
-newtype TemplateSshKeyYaml = TemplateSshKeyYaml
-  { tkyName :: Text
-  }
-  deriving (Show, Generic)
-
-instance FromJSON TemplateSshKeyYaml where
-  parseJSON = withObject "TemplateSshKeyYaml" $ \o ->
-    TemplateSshKeyYaml
-      <$> o .: "name"
-
--- | Cloud-init config YAML, used in both template and apply contexts.
--- userData and networkConfig are parsed as YAML Values and serialized to text for DB storage.
--- Supports both structured YAML (objects/arrays) and raw text strings (e.g. PowerShell scripts
--- for cloudbase-init on Windows). Raw strings are stored as-is; structured values are
--- serialized via @Yaml.encode@.
-data CloudInitConfigYaml = CloudInitConfigYaml
-  { cicyUserData :: Maybe Text
-  , cicyNetworkConfig :: Maybe Text
-  , cicyInjectSshKeys :: Bool
-  }
-  deriving (Show, Generic)
-
-instance FromJSON CloudInitConfigYaml where
-  parseJSON = withObject "CloudInitConfigYaml" $ \o -> do
-    mUserDataVal <- o .:? "userData" :: Yaml.Parser (Maybe Value)
-    mNetworkConfigVal <- o .:? "networkConfig" :: Yaml.Parser (Maybe Value)
-    injectKeys <- o .:? "injectSshKeys" .!= True
-    let valueToText (String t) = t
-        valueToText v = T.decodeUtf8 (Yaml.encode v)
-    pure
-      CloudInitConfigYaml
-        { cicyUserData = fmap valueToText mUserDataVal
-        , cicyNetworkConfig = fmap valueToText mNetworkConfigVal
-        , cicyInjectSshKeys = injectKeys
-        }
 
 --------------------------------------------------------------------------------
 -- Handlers

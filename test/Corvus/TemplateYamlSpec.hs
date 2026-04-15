@@ -7,18 +7,18 @@
 module Corvus.TemplateYamlSpec (spec) where
 
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
-import Corvus.Handlers.Template
-  ( TemplateDriveYaml (..)
-  , TemplateNetworkInterfaceYaml (..)
-  , TemplateSshKeyYaml (..)
-  , TemplateYaml (..)
-  )
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), NetInterfaceType (..), TemplateCloneStrategy (..))
 import Corvus.Protocol
   ( TemplateDetails (..)
   , TemplateDriveInfo (..)
   , TemplateNetIfInfo (..)
   , TemplateSshKeyInfo (..)
+  )
+import Corvus.Schema.Template
+  ( TemplateDriveYaml (..)
+  , TemplateNetworkInterfaceYaml (..)
+  , TemplateSshKeyYaml (..)
+  , TemplateYaml (..)
   )
 import qualified Data.Text.Encoding as TE
 import Data.Time (UTCTime (..), fromGregorian, secondsToDiffTime)
