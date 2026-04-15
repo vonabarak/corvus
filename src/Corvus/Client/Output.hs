@@ -9,6 +9,13 @@ module Corvus.Client.Output
   , outputError
   , isStructured
 
+    -- * Dispatching emitters
+  , emitRpcError
+  , emitOk
+  , emitOkWith
+  , emitError
+  , emitResult
+
     -- * Table formatting
   , tableFormat
   , printTableHeader
@@ -21,6 +28,7 @@ import Data.Aeson (Key, ToJSON, Value, encode, object, toJSON, (.=))
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Yaml as Yaml
 import Text.Printf (printf)
 
@@ -57,6 +65,73 @@ outputError fmt code msg =
       , "error" .= code
       , "message" .= msg
       ]
+
+--------------------------------------------------------------------------------
+-- Dispatching Emitters
+--------------------------------------------------------------------------------
+
+-- | Emit a generic RPC error — the canonical @Left err@ branch.
+-- In structured mode emits error code @rpc_error@ with @show err@ as message;
+-- in text mode prints @Error: <show err>@. Use for @ConnectionError@ and other
+-- @Show@-able transport failures returned from 'Corvus.Client.Rpc'.
+emitRpcError :: (Show e) => OutputFormat -> e -> IO ()
+emitRpcError fmt err
+  | isStructured fmt = outputError fmt "rpc_error" (T.pack (show err))
+  | otherwise = putStrLn $ "Error: " ++ show err
+
+-- | Emit a plain success response.
+-- In structured mode: @{"status":"ok"}@. In text mode: runs the supplied @IO ()@.
+--
+-- @
+-- emitOk fmt $ putStrLn "VM deleted."
+-- @
+emitOk :: OutputFormat -> IO () -> IO ()
+emitOk fmt textAction
+  | isStructured fmt = outputOk fmt
+  | otherwise = textAction
+
+-- | Emit a success response with extra structured fields.
+-- In structured mode: @{"status":"ok", ...fields}@. In text mode: runs the
+-- supplied @IO ()@ (so callers can print whatever shape of human-readable
+-- message they want, including multi-line output).
+--
+-- @
+-- emitOkWith fmt [("id", toJSON vmId)] $
+--   putStrLn $ "VM created with ID: " ++ show vmId
+-- @
+emitOkWith :: OutputFormat -> [(Key, Value)] -> IO () -> IO ()
+emitOkWith fmt fields textAction
+  | isStructured fmt = outputOkWith fmt fields
+  | otherwise = textAction
+
+-- | Emit a specific error code with a text-mode callback.
+-- In structured mode: @{"status":"error","error":"<code>","message":"<msg>"}@.
+-- In text mode: runs the supplied @IO ()@.
+--
+-- @
+-- emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+--   putStrLn $ "Error: VM '" ++ T.unpack vmRef ++ "' not found."
+-- @
+emitError :: OutputFormat -> Text -> Text -> IO () -> IO ()
+emitError fmt code msg textAction
+  | isStructured fmt = outputError fmt code msg
+  | otherwise = textAction
+
+-- | Emit a full 'ToJSON' value for list/show commands.
+-- In structured mode: serialises the value directly (no wrapping object).
+-- In text mode: runs the supplied @IO ()@ (typically a human-readable table
+-- or detail view).
+--
+-- @
+-- emitResult fmt disks $
+--   if null disks
+--     then putStrLn "No disk images found."
+--     else printTableHeader cols >> mapM_ printDiskInfo disks
+-- @
+emitResult :: (ToJSON a) => OutputFormat -> a -> IO () -> IO ()
+emitResult fmt val textAction
+  | isStructured fmt = outputResult fmt val
+  | otherwise = textAction
 
 --------------------------------------------------------------------------------
 -- Table Formatting

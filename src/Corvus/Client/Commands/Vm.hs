@@ -32,7 +32,7 @@ import Control.Exception (SomeException, bracket, try)
 import Control.Monad (unless, when)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, printField, tableFormat)
+import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitRpcError, isStructured, printField, tableFormat)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
@@ -59,19 +59,17 @@ handleVmCreate fmt conn name cpuCount ramMb mDesc headless guestAgent cloudInit 
   resp <- vmCreate conn name cpuCount ramMb mDesc headless guestAgent cloudInit autostart
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (VmCreated vmId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON vmId)]
-        else putStrLn $ "VM '" ++ T.unpack name ++ "' created with ID: " ++ show vmId
+      emitOkWith fmt [("id", toJSON vmId)] $
+        putStrLn $
+          "VM '" ++ T.unpack name ++ "' created with ID: " ++ show vmId
       pure True
     Right (VmCreateError msg) -> do
-      if isStructured fmt
-        then outputError fmt "create_failed" msg
-        else putStrLn $ "Failed to create VM: " ++ T.unpack msg
+      emitError fmt "create_failed" msg $
+        putStrLn $
+          "Failed to create VM: " ++ T.unpack msg
       pure False
 
 -- | Handle VM deletion
@@ -80,29 +78,25 @@ handleVmDelete fmt conn vmRef deleteDisks = do
   resp <- vmDelete conn vmRef deleteDisks
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right VmDeleted -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' deleted."
+      emitOk fmt $ putStrLn $ "VM '" ++ T.unpack vmRef ++ "' deleted."
       pure True
     Right VmDeleteNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-        else putStrLn $ "Error: VM '" ++ T.unpack vmRef ++ "' not found."
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "Error: VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right VmDeleteRunning -> do
-      if isStructured fmt
-        then outputError fmt "vm_running" ("VM '" <> vmRef <> "' is running")
-        else putStrLn $ "Error: VM '" ++ T.unpack vmRef ++ "' is running. Stop it before deleting."
+      emitError fmt "vm_running" ("VM '" <> vmRef <> "' is running") $
+        putStrLn $
+          "Error: VM '" ++ T.unpack vmRef ++ "' is running. Stop it before deleting."
       pure False
     Right (VmDeleteError msg) -> do
-      if isStructured fmt
-        then outputError fmt "delete_failed" msg
-        else putStrLn $ "Failed to delete VM: " ++ T.unpack msg
+      emitError fmt "delete_failed" msg $
+        putStrLn $
+          "Failed to delete VM: " ++ T.unpack msg
       pure False
 
 -- | Handle VM action result
@@ -111,28 +105,22 @@ handleVmAction fmt actionName vmRef action = do
   resp <- action
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right VmActionNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (VmActionInvalid currentStatus errMsg) -> do
-      if isStructured fmt
-        then outputError fmt "invalid_transition" errMsg
-        else do
-          putStrLn $ "Cannot " ++ actionName ++ " VM '" ++ T.unpack vmRef ++ "': " ++ T.unpack errMsg
-          putStrLn $ "Current status: " ++ T.unpack (enumToText currentStatus)
+      emitError fmt "invalid_transition" errMsg $ do
+        putStrLn $ "Cannot " ++ actionName ++ " VM '" ++ T.unpack vmRef ++ "': " ++ T.unpack errMsg
+        putStrLn $ "Current status: " ++ T.unpack (enumToText currentStatus)
       pure False
     Right (VmActionSuccess newStatus) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("newState", toJSON newStatus)]
-        else do
-          putStrLn $ "VM '" ++ T.unpack vmRef ++ "' " ++ actionName ++ ": OK"
-          putStrLn $ "New status: " ++ T.unpack (enumToText newStatus)
+      emitOkWith fmt [("newState", toJSON newStatus)] $ do
+        putStrLn $ "VM '" ++ T.unpack vmRef ++ "' " ++ actionName ++ ": OK"
+        putStrLn $ "New status: " ++ T.unpack (enumToText newStatus)
       pure True
 
 -- | Handle VM stop with optional --wait polling
@@ -170,9 +158,9 @@ waitForVmStatus fmt conn vmRef targetStatus timeout = do
       if elapsed >= timeout
         then do
           let msg = "VM '" ++ T.unpack vmRef ++ "' did not reach " ++ T.unpack (enumToText targetStatus) ++ " within " ++ show timeout ++ " seconds."
-          if isStructured fmt
-            then outputError fmt "timeout" (T.pack msg)
-            else putStrLn $ "Timeout: " ++ msg
+          emitError fmt "timeout" (T.pack msg) $
+            putStrLn $
+              "Timeout: " ++ msg
           pure False
         else do
           resp <- showVm conn vmRef
@@ -181,9 +169,7 @@ waitForVmStatus fmt conn vmRef targetStatus timeout = do
               | vdStatus details == targetStatus -> pure True
               | vdStatus details == VmError -> do
                   let msg = "VM '" ++ T.unpack vmRef ++ "' entered error state."
-                  if isStructured fmt
-                    then outputError fmt "vm_error" (T.pack msg)
-                    else putStrLn msg
+                  emitError fmt "vm_error" (T.pack msg) $ putStrLn msg
                   pure False
             _ -> do
               unless (isStructured fmt) $ do
@@ -197,29 +183,25 @@ handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mA
   resp <- vmEdit conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right VmEdited -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated."
+      emitOk fmt $ putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated."
       pure True
     Right VmEditNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-        else putStrLn $ "Error: VM '" ++ T.unpack vmRef ++ "' not found."
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "Error: VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right VmEditMustBeStopped -> do
-      if isStructured fmt
-        then outputError fmt "vm_must_be_stopped" ("VM '" <> vmRef <> "' must be stopped to edit")
-        else putStrLn $ "Error: VM '" ++ T.unpack vmRef ++ "' must be stopped to edit properties."
+      emitError fmt "vm_must_be_stopped" ("VM '" <> vmRef <> "' must be stopped to edit") $
+        putStrLn $
+          "Error: VM '" ++ T.unpack vmRef ++ "' must be stopped to edit properties."
       pure False
     Right (VmEditError msg) -> do
-      if isStructured fmt
-        then outputError fmt "edit_failed" msg
-        else putStrLn $ "Failed to edit VM: " ++ T.unpack msg
+      emitError fmt "edit_failed" msg $
+        putStrLn $
+          "Failed to edit VM: " ++ T.unpack msg
       pure False
 
 -- | Print VM info in table format

@@ -9,7 +9,7 @@ where
 
 import Control.Monad (unless)
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputResult)
+import Corvus.Client.Output (emitError, emitResult, emitRpcError)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Protocol (ApplyCreated (..), ApplyResult (..))
@@ -24,9 +24,9 @@ handleApply fmt conn path skipExisting waitOpts = do
   exists <- doesFileExist path
   if not exists
     then do
-      if isStructured fmt
-        then outputError fmt "file_not_found" (T.pack $ "File not found: " ++ path)
-        else putStrLn $ "Error: File not found: " ++ path
+      emitError fmt "file_not_found" (T.pack $ "File not found: " ++ path) $
+        putStrLn $
+          "Error: File not found: " ++ path
       pure False
     else do
       content <- TIO.readFile path
@@ -34,24 +34,18 @@ handleApply fmt conn path skipExisting waitOpts = do
       resp <- applyConfig conn content skipExisting wait
       case resp of
         Left err -> do
-          if isStructured fmt
-            then outputError fmt "rpc_error" (T.pack $ show err)
-            else putStrLn $ "Error: " ++ show err
+          emitRpcError fmt err
           pure False
         Right (ApplyOk result) -> do
-          if isStructured fmt
-            then outputResult fmt result
-            else printApplyResult result
+          emitResult fmt result $ printApplyResult result
           pure True
         Right (ApplyFailed msg) -> do
-          if isStructured fmt
-            then outputError fmt "apply_failed" msg
-            else putStrLn $ "Apply failed: " ++ T.unpack msg
+          emitError fmt "apply_failed" msg $ putStrLn $ "Apply failed: " ++ T.unpack msg
           pure False
         Right (ApplyAsync taskId) -> do
-          if isStructured fmt
-            then outputResult fmt (T.pack $ show taskId)
-            else putStrLn $ "Apply started (task ID: " ++ show taskId ++ ")"
+          emitResult fmt (T.pack $ show taskId) $
+            putStrLn $
+              "Apply started (task ID: " ++ show taskId ++ ")"
           pure True
 
 -- | Print apply result in human-readable format

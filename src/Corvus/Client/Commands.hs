@@ -75,89 +75,68 @@ runCommand opts = do
         resp <- sendPing conn
         case resp of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "rpc_error" (T.pack $ show err)
-              else putStrLn $ "Error: " ++ show err
+            emitRpcError fmt err
             pure False
           Right () -> do
-            if isStructured fmt
-              then outputOk fmt
-              else putStrLn "pong"
+            emitOk fmt $ putStrLn "pong"
             pure True
       Status -> do
         resp <- getStatus conn
         case resp of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "rpc_error" (T.pack $ show err)
-              else putStrLn $ "Error: " ++ show err
+            emitRpcError fmt err
             pure False
           Right st -> do
-            if isStructured fmt
-              then outputResult fmt st
-              else do
-                putStrLn $ "Uptime:      " ++ formatUptime (siUptime st)
-                putStrLn $ "Connections: " ++ show (siConnections st)
-                putStrLn $ "Version:     " ++ T.unpack (siVersion st)
-                case siNamespacePid st of
-                  Nothing -> putStrLn "Namespace:   not running"
-                  Just pid -> putStrLn $ "Namespace:   PID " ++ show pid
+            emitResult fmt st $ do
+              putStrLn $ "Uptime:      " ++ formatUptime (siUptime st)
+              putStrLn $ "Connections: " ++ show (siConnections st)
+              putStrLn $ "Version:     " ++ T.unpack (siVersion st)
+              case siNamespacePid st of
+                Nothing -> putStrLn "Namespace:   not running"
+                Just pid -> putStrLn $ "Namespace:   PID " ++ show pid
             pure True
       Shutdown -> do
         resp <- requestShutdown conn
         case resp of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "rpc_error" (T.pack $ show err)
-              else putStrLn $ "Error: " ++ show err
+            emitRpcError fmt err
             pure False
           Right True -> do
-            if isStructured fmt
-              then outputOk fmt
-              else putStrLn "Shutdown acknowledged"
+            emitOk fmt $ putStrLn "Shutdown acknowledged"
             pure True
           Right False -> do
-            if isStructured fmt
-              then outputError fmt "shutdown_rejected" "Shutdown not acknowledged"
-              else putStrLn "Shutdown not acknowledged"
+            emitError fmt "shutdown_rejected" "Shutdown not acknowledged" $
+              putStrLn "Shutdown not acknowledged"
             pure False
       VmList -> do
         resp <- listVms conn
         case resp of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "rpc_error" (T.pack $ show err)
-              else putStrLn $ "Error: " ++ show err
+            emitRpcError fmt err
             pure False
           Right vms -> do
-            if isStructured fmt
-              then outputResult fmt vms
-              else do
-                if null vms
-                  then putStrLn "No VMs found."
-                  else do
-                    now <- getCurrentTime
-                    let vmCols = [("ID", -6), ("NAME", -20), ("STATUS", -12), ("CPUS", 5), ("RAM_MB", 8), ("HEALTH", -6), ("CI", -2), ("AS", -2)]
-                    printTableHeader vmCols
-                    mapM_ (printVmInfo now) vms
+            emitResult fmt vms $
+              if null vms
+                then putStrLn "No VMs found."
+                else do
+                  now <- getCurrentTime
+                  let vmCols = [("ID", -6), ("NAME", -20), ("STATUS", -12), ("CPUS", 5), ("RAM_MB", 8), ("HEALTH", -6), ("CI", -2), ("AS", -2)]
+                  printTableHeader vmCols
+                  mapM_ (printVmInfo now) vms
             pure True
       VmShow vmRef -> do
         resp <- showVm conn vmRef
         case resp of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "rpc_error" (T.pack $ show err)
-              else putStrLn $ "Error: " ++ show err
+            emitRpcError fmt err
             pure False
           Right Nothing -> do
-            if isStructured fmt
-              then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-              else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+            emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+              putStrLn $
+                "VM '" ++ T.unpack vmRef ++ "' not found."
             pure False
           Right (Just details) -> do
-            if isStructured fmt
-              then outputResult fmt details
-              else printVmDetails details
+            emitResult fmt details $ printVmDetails details
             pure True
       VmCreate name cpuCount ramMb mDesc headless ga ci as -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga ci as
       VmDelete vmRef deleteDisks -> handleVmDelete fmt conn vmRef deleteDisks
@@ -171,24 +150,20 @@ runCommand opts = do
         resp <- showVm conn vmRef
         case resp of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "rpc_error" (T.pack $ show err)
-              else putStrLn $ "Error: " ++ show err
+            emitRpcError fmt err
             pure False
           Right Nothing -> do
-            if isStructured fmt
-              then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-              else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+            emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+              putStrLn $
+                "VM '" ++ T.unpack vmRef ++ "' not found."
             pure False
           Right (Just details) -> do
             let st = vdStatus details
             if st `notElem` [VmRunning, VmStarting, VmStopping]
               then do
-                if isStructured fmt
-                  then outputError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running")
-                  else do
-                    putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
-                    putStrLn $ "Current status: " ++ T.unpack (enumToText st)
+                emitError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running") $ do
+                  putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
+                  putStrLn $ "Current status: " ++ T.unpack (enumToText st)
                 pure False
               else do
                 if vdHeadless details
@@ -229,23 +204,19 @@ runCommand opts = do
         resp <- showVm conn vmRef
         case resp of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "rpc_error" (T.pack $ show err)
-              else putStrLn $ "Error: " ++ show err
+            emitRpcError fmt err
             pure False
           Right Nothing -> do
-            if isStructured fmt
-              then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-              else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+            emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+              putStrLn $
+                "VM '" ++ T.unpack vmRef ++ "' not found."
             pure False
           Right (Just details) -> do
             if vdStatus details /= VmRunning
               then do
-                if isStructured fmt
-                  then outputError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running")
-                  else do
-                    putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
-                    putStrLn $ "Current status: " ++ T.unpack (enumToText $ vdStatus details)
+                emitError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running") $ do
+                  putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
+                  putStrLn $ "Current status: " ++ T.unpack (enumToText $ vdStatus details)
                 pure False
               else do
                 let monitorSock = T.unpack (vdMonitorSocket details)
@@ -262,9 +233,7 @@ runCommand opts = do
       DiskCreate name formatStr sizeMb mPath -> do
         case parseFormat formatStr of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "invalid_format" err
-              else putStrLn $ "Error: " ++ T.unpack err
+            emitError fmt "invalid_format" err $ putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right format -> handleDiskCreate fmt conn name format sizeMb mPath
       DiskCreateOverlay name baseDiskRef optDirPath -> handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath
@@ -280,25 +249,19 @@ runCommand opts = do
       DiskAttach vmRef diskRef ifaceStr media readOnly discard cacheStr -> do
         case parseInterface ifaceStr of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "invalid_interface" err
-              else putStrLn $ "Error: " ++ T.unpack err
+            emitError fmt "invalid_interface" err $ putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right iface -> do
             case parseCacheType cacheStr of
               Left err -> do
-                if isStructured fmt
-                  then outputError fmt "invalid_cache_type" err
-                  else putStrLn $ "Error: " ++ T.unpack err
+                emitError fmt "invalid_cache_type" err $ putStrLn $ "Error: " ++ T.unpack err
                 pure False
               Right cache -> do
                 case media of
                   Nothing -> handleDiskAttach fmt conn vmRef diskRef iface Nothing readOnly discard cache
                   Just m -> case parseMedia m of
                     Left err -> do
-                      if isStructured fmt
-                        then outputError fmt "invalid_media" err
-                        else putStrLn $ "Error: " ++ T.unpack err
+                      emitError fmt "invalid_media" err $ putStrLn $ "Error: " ++ T.unpack err
                       pure False
                     Right parsedMedia -> handleDiskAttach fmt conn vmRef diskRef iface (Just parsedMedia) readOnly discard cache
       DiskDetach vmRef diskRef -> handleDiskDetach fmt conn vmRef diskRef
@@ -306,9 +269,7 @@ runCommand opts = do
       SharedDirAdd vmRef path tag cacheStr readOnly -> do
         case parseSharedDirCache cacheStr of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "invalid_cache" err
-              else putStrLn $ "Error: " ++ T.unpack err
+            emitError fmt "invalid_cache" err $ putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right cache -> handleSharedDirAdd fmt conn vmRef path tag cache readOnly
       SharedDirRemove vmRef sharedDirRef -> handleSharedDirRemove fmt conn vmRef sharedDirRef
@@ -317,9 +278,7 @@ runCommand opts = do
       NetIfAdd vmRef ifaceTypeStr hostDevice macAddress mNetworkRef -> do
         case parseNetInterfaceType ifaceTypeStr of
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "invalid_interface_type" err
-              else putStrLn $ "Error: " ++ T.unpack err
+            emitError fmt "invalid_interface_type" err $ putStrLn $ "Error: " ++ T.unpack err
             pure False
           Right ifaceType -> handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef
       NetIfRemove vmRef netIfId -> handleNetIfRemove fmt conn vmRef netIfId
@@ -370,9 +329,9 @@ runCommand opts = do
 
   case connResult of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "connection_error" (T.pack $ show err)
-        else putStrLn $ "Connection error: " ++ show err
+      emitError fmt "connection_error" (T.pack $ show err) $
+        putStrLn $
+          "Connection error: " ++ show err
       exitFailure
     Right True -> exitSuccess
     Right False -> exitFailure
@@ -383,15 +342,12 @@ handleNamespaceExec fmt conn cmdArgs = do
   resp <- getStatus conn
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right st -> case siNamespacePid st of
       Nothing -> do
-        if isStructured fmt
-          then outputError fmt "no_namespace" "Network namespace is not running"
-          else putStrLn "Error: network namespace is not running"
+        emitError fmt "no_namespace" "Network namespace is not running" $
+          putStrLn "Error: network namespace is not running"
         pure False
       Just nsPid -> do
         args <- case cmdArgs of
@@ -403,9 +359,7 @@ handleNamespaceExec fmt conn cmdArgs = do
         case result of
           Right () -> pure True
           Left err -> do
-            if isStructured fmt
-              then outputError fmt "ns_exec_error" err
-              else putStrLn $ "Error: " ++ T.unpack err
+            emitError fmt "ns_exec_error" err $ putStrLn $ "Error: " ++ T.unpack err
             pure False
 
 -- | Handle the completion command by generating a shell completion script.

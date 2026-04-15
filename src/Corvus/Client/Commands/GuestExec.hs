@@ -8,7 +8,7 @@ where
 
 import Control.Monad (unless)
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOkWith)
+import Corvus.Client.Output (emitError, emitOkWith, emitRpcError)
 import Corvus.Client.Rpc (GuestExecResult (..), vmExec)
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..))
@@ -24,42 +24,34 @@ handleVmExec fmt conn vmRef command = do
   resp <- vmExec conn vmRef command
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (GuestExecOk exitcode stdout stdErr) -> do
-      if isStructured fmt
-        then
-          outputOkWith
-            fmt
-            [ ("exitcode", toJSON exitcode)
-            , ("stdout", toJSON stdout)
-            , ("stderr", toJSON stdErr)
-            ]
-        else do
+      emitOkWith
+        fmt
+        [ ("exitcode", toJSON exitcode)
+        , ("stdout", toJSON stdout)
+        , ("stderr", toJSON stdErr)
+        ]
+        $ do
           TIO.putStr stdout
           unless (T.null stdErr) $ TIO.hPutStr stderr stdErr
       pure (exitcode == 0)
     Right GuestExecVmNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right GuestExecNotEnabled -> do
-      if isStructured fmt
-        then outputError fmt "guest_agent_not_enabled" ("Guest agent is not enabled on VM '" <> vmRef <> "'")
-        else putStrLn $ "Error: Guest agent is not enabled on VM '" ++ T.unpack vmRef ++ "'. Enable with: crv vm edit " ++ T.unpack vmRef ++ " --guest-agent true"
+      emitError fmt "guest_agent_not_enabled" ("Guest agent is not enabled on VM '" <> vmRef <> "'") $
+        putStrLn $
+          "Error: Guest agent is not enabled on VM '" ++ T.unpack vmRef ++ "'. Enable with: crv vm edit " ++ T.unpack vmRef ++ " --guest-agent true"
       pure False
     Right (GuestExecInvalidState status msg) -> do
-      if isStructured fmt
-        then outputError fmt "invalid_state" msg
-        else do
-          putStrLn $ "Error: " ++ T.unpack msg
-          putStrLn $ "Current status: " ++ T.unpack (enumToText status)
+      emitError fmt "invalid_state" msg $ do
+        putStrLn $ "Error: " ++ T.unpack msg
+        putStrLn $ "Current status: " ++ T.unpack (enumToText status)
       pure False
     Right (GuestExecAgentError msg) -> do
-      if isStructured fmt
-        then outputError fmt "guest_agent_error" msg
-        else putStrLn $ "Guest agent error: " ++ T.unpack msg
+      emitError fmt "guest_agent_error" msg $ putStrLn $ "Guest agent error: " ++ T.unpack msg
       pure False

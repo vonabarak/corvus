@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Cloud-init config command handlers for the Corvus client.
 module Corvus.Client.Commands.CloudInit
@@ -12,7 +13,7 @@ where
 
 import Corvus.Client.Connection (Connection)
 import Corvus.Client.Editor (editInEditor)
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputResult)
+import Corvus.Client.Output (emitError, emitOk, emitResult, emitRpcError)
 import Corvus.Client.Rpc (CloudInitResult (..), VmEditResult (..), cloudInitDelete, cloudInitGet, cloudInitSet, vmCloudInit)
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Protocol (CloudInitInfo (..))
@@ -30,29 +31,19 @@ handleCloudInitGenerate fmt conn vmRef = do
   resp <- vmCloudInit conn vmRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right VmEdited -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn "Cloud-init ISO generated."
+      emitOk fmt $ putStrLn "Cloud-init ISO generated."
       pure True
     Right (VmEditError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right VmEditNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "VM not found"
-        else putStrLn "VM not found"
+      emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
       pure False
     Right VmEditMustBeStopped -> do
-      if isStructured fmt
-        then outputError fmt "vm_running" "VM must be stopped"
-        else putStrLn "VM must be stopped"
+      emitError fmt "vm_running" "VM must be stopped" $ putStrLn "VM must be stopped"
       pure False
 
 -- | Handle cloud-init set command.
@@ -64,9 +55,9 @@ handleCloudInitSet fmt conn vmRef mPath = case mPath of
     exists <- doesFileExist path
     if not exists
       then do
-        if isStructured fmt
-          then outputError fmt "file_not_found" (T.pack $ "File not found: " ++ path)
-          else putStrLn $ "Error: File not found: " ++ path
+        emitError fmt "file_not_found" (T.pack $ "File not found: " ++ path) $
+          putStrLn $
+            "Error: File not found: " ++ path
         pure False
       else do
         content <- TIO.readFile path
@@ -75,9 +66,7 @@ handleCloudInitSet fmt conn vmRef mPath = case mPath of
     edited <- editInEditor skeletonCloudInitYaml
     case edited of
       Left err -> do
-        if isStructured fmt
-          then outputError fmt "editor" err
-          else TIO.putStrLn $ "Error: " <> err
+        emitError fmt "editor" err $ TIO.putStrLn $ "Error: " <> err
         pure False
       Right content -> sendCloudInitConfig fmt conn vmRef content
 
@@ -87,35 +76,25 @@ handleCloudInitEdit fmt conn vmRef = do
   showResp <- cloudInitGet conn vmRef
   case showResp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right CloudInitNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "VM not found"
-        else putStrLn "VM not found"
+      emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
       pure False
     Right (CloudInitConfig mConfig) -> do
       let initial = maybe skeletonCloudInitYaml cloudInitInfoToYaml mConfig
       edited <- editInEditor initial
       case edited of
         Left err -> do
-          if isStructured fmt
-            then outputError fmt "editor" err
-            else TIO.putStrLn $ "Error: " <> err
+          emitError fmt "editor" err $ TIO.putStrLn $ "Error: " <> err
           pure False
         Right content
           | content == initial -> do
-              if isStructured fmt
-                then outputOk fmt
-                else putStrLn "No changes; cloud-init config left untouched."
+              emitOk fmt $ putStrLn "No changes; cloud-init config left untouched."
               pure True
           | otherwise -> sendCloudInitConfig fmt conn vmRef content
     Right (CloudInitError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right _ -> do
       putStrLn "Unexpected response"
@@ -127,41 +106,33 @@ handleCloudInitShow fmt conn vmRef = do
   resp <- cloudInitGet conn vmRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (CloudInitConfig mConfig) -> do
-      if isStructured fmt
-        then outputResult fmt mConfig
-        else case mConfig of
-          Nothing -> putStrLn "Using default cloud-init configuration."
-          Just ci -> do
-            putStrLn $ "Inject SSH Keys: " ++ show (ciiInjectSshKeys ci)
-            putStrLn $ "User Data:       " ++ maybe "(default)" (const "custom") (ciiUserData ci)
-            case ciiUserData ci of
-              Just ud -> do
-                putStrLn "--- user-data ---"
-                TIO.putStrLn ud
-                putStrLn "-----------------"
-              Nothing -> pure ()
-            putStrLn $ "Network Config:  " ++ maybe "(none)" (const "custom") (ciiNetworkConfig ci)
-            case ciiNetworkConfig ci of
-              Just nc -> do
-                putStrLn "--- network-config ---"
-                TIO.putStrLn nc
-                putStrLn "----------------------"
-              Nothing -> pure ()
+      emitResult fmt mConfig $ case mConfig of
+        Nothing -> putStrLn "Using default cloud-init configuration."
+        Just ci -> do
+          putStrLn $ "Inject SSH Keys: " ++ show (ciiInjectSshKeys ci)
+          putStrLn $ "User Data:       " ++ maybe "(default)" (const "custom") (ciiUserData ci)
+          case ciiUserData ci of
+            Just ud -> do
+              putStrLn "--- user-data ---"
+              TIO.putStrLn ud
+              putStrLn "-----------------"
+            Nothing -> pure ()
+          putStrLn $ "Network Config:  " ++ maybe "(none)" (const "custom") (ciiNetworkConfig ci)
+          case ciiNetworkConfig ci of
+            Just nc -> do
+              putStrLn "--- network-config ---"
+              TIO.putStrLn nc
+              putStrLn "----------------------"
+            Nothing -> pure ()
       pure True
     Right CloudInitNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "VM not found"
-        else putStrLn "VM not found"
+      emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
       pure False
     Right (CloudInitError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right _ -> do
       putStrLn "Unexpected response"
@@ -173,24 +144,16 @@ handleCloudInitDelete fmt conn vmRef = do
   resp <- cloudInitDelete conn vmRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right CloudInitOk -> do
-      if isStructured fmt
-        then outputResult fmt ("ok" :: Text)
-        else putStrLn "Cloud-init config deleted. Using defaults."
+      emitResult fmt ("ok" :: Text) $ putStrLn "Cloud-init config deleted. Using defaults."
       pure True
     Right CloudInitNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "VM not found"
-        else putStrLn "VM not found"
+      emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
       pure False
     Right (CloudInitError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right _ -> do
       putStrLn "Unexpected response"
@@ -206,32 +169,22 @@ sendCloudInitConfig fmt conn vmRef content =
   case Yaml.decodeEither' (TE.encodeUtf8 content) of
     Left err -> do
       let msg = T.pack $ show err
-      if isStructured fmt
-        then outputError fmt "parse_error" msg
-        else putStrLn $ "Error parsing YAML: " ++ T.unpack msg
+      emitError fmt "parse_error" msg $ putStrLn $ "Error parsing YAML: " ++ T.unpack msg
       pure False
-    Right cic -> do
+    Right (cic :: CloudInitConfigYaml) -> do
       resp <- cloudInitSet conn vmRef (cicyUserData cic) (cicyNetworkConfig cic) (cicyInjectSshKeys cic)
       case resp of
         Left err -> do
-          if isStructured fmt
-            then outputError fmt "rpc_error" (T.pack $ show err)
-            else putStrLn $ "Error: " ++ show err
+          emitRpcError fmt err
           pure False
         Right CloudInitOk -> do
-          if isStructured fmt
-            then outputResult fmt ("ok" :: Text)
-            else putStrLn "Cloud-init config updated."
+          emitResult fmt ("ok" :: Text) $ putStrLn "Cloud-init config updated."
           pure True
         Right CloudInitNotFound -> do
-          if isStructured fmt
-            then outputError fmt "not_found" "VM not found"
-            else putStrLn "VM not found"
+          emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
           pure False
         Right (CloudInitError msg) -> do
-          if isStructured fmt
-            then outputError fmt "error" msg
-            else putStrLn $ "Error: " ++ T.unpack msg
+          emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
           pure False
         Right _ -> do
           putStrLn "Unexpected response"

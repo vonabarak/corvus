@@ -11,7 +11,7 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
 import Corvus.Client.Connection (Connection)
-import Corvus.Client.Output (isStructured, outputError, outputResult)
+import Corvus.Client.Output (emitError, emitResult, emitRpcError, isStructured)
 import Corvus.Client.Rpc (taskList, taskListChildren, taskShow)
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), TaskResult (..), TaskSubsystem)
@@ -32,31 +32,27 @@ handleTaskList fmt conn limit mSubStr mResultStr includeSubtasks = do
   resp <- taskList conn limit mSub mResult includeSubtasks
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right tasks -> do
-      if isStructured fmt
-        then outputResult fmt tasks
-        else do
-          if null tasks
-            then putStrLn "No tasks found."
-            else do
-              putStrLn $
-                printf
-                  "%-6s %-10s %-18s %-22s %-8s %-20s %-10s %s"
-                  ("ID" :: String)
-                  ("SUBSYSTEM" :: String)
-                  ("COMMAND" :: String)
-                  ("ENTITY" :: String)
-                  ("RESULT" :: String)
-                  ("STARTED" :: String)
-                  ("DURATION" :: String)
-                  ("MESSAGE" :: String)
-              putStrLn $ replicate 116 '-'
-              now <- getCurrentTime
-              mapM_ (printTaskRow now) tasks
+      emitResult fmt tasks $
+        if null tasks
+          then putStrLn "No tasks found."
+          else do
+            putStrLn $
+              printf
+                "%-6s %-10s %-18s %-22s %-8s %-20s %-10s %s"
+                ("ID" :: String)
+                ("SUBSYSTEM" :: String)
+                ("COMMAND" :: String)
+                ("ENTITY" :: String)
+                ("RESULT" :: String)
+                ("STARTED" :: String)
+                ("DURATION" :: String)
+                ("MESSAGE" :: String)
+            putStrLn $ replicate 116 '-'
+            now <- getCurrentTime
+            mapM_ (printTaskRow now) tasks
       pure True
 
 -- | Handle task show command
@@ -65,40 +61,34 @@ handleTaskShow fmt conn taskId = do
   resp <- taskShow conn taskId
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right Nothing -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "Task not found"
-        else putStrLn "Task not found"
+      emitError fmt "not_found" "Task not found" $ putStrLn "Task not found"
       pure False
     Right (Just info) -> do
-      if isStructured fmt
-        then outputResult fmt info
-        else do
-          printTaskDetail info
-          -- Show subtasks if this task has any
-          childResp <- taskListChildren conn taskId
-          case childResp of
-            Right children | not (null children) -> do
-              putStrLn ""
-              putStrLn "Subtasks:"
-              putStrLn $
-                printf
-                  "  %-6s %-10s %-18s %-22s %-10s %-10s %s"
-                  ("ID" :: String)
-                  ("SUBSYSTEM" :: String)
-                  ("COMMAND" :: String)
-                  ("ENTITY" :: String)
-                  ("RESULT" :: String)
-                  ("DURATION" :: String)
-                  ("MESSAGE" :: String)
-              putStrLn $ "  " ++ replicate 106 '-'
-              now <- getCurrentTime
-              mapM_ (printSubtaskRow now) children
-            _ -> pure ()
+      emitResult fmt info $ do
+        printTaskDetail info
+        -- Show subtasks if this task has any
+        childResp <- taskListChildren conn taskId
+        case childResp of
+          Right children | not (null children) -> do
+            putStrLn ""
+            putStrLn "Subtasks:"
+            putStrLn $
+              printf
+                "  %-6s %-10s %-18s %-22s %-10s %-10s %s"
+                ("ID" :: String)
+                ("SUBSYSTEM" :: String)
+                ("COMMAND" :: String)
+                ("ENTITY" :: String)
+                ("RESULT" :: String)
+                ("DURATION" :: String)
+                ("MESSAGE" :: String)
+            putStrLn $ "  " ++ replicate 106 '-'
+            now <- getCurrentTime
+            mapM_ (printSubtaskRow now) children
+          _ -> pure ()
       pure True
 
 -- | Handle task wait command — poll until task finishes or timeout
@@ -108,14 +98,10 @@ handleTaskWait fmt conn taskId mTimeout = do
   resp <- taskShow conn taskId
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right Nothing -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "Task not found"
-        else putStrLn "Task not found"
+      emitError fmt "not_found" "Task not found" $ putStrLn "Task not found"
       pure False
     Right (Just info)
       | isTaskPending (tiResult info) -> do
@@ -134,9 +120,7 @@ handleTaskWait fmt conn taskId mTimeout = do
           -- Poll with adaptive interval: 200ms for first 3s, then 1s
           pollUntilDone fmt conn taskId startTime mTimeout
       | otherwise -> do
-          if isStructured fmt
-            then outputResult fmt info
-            else printCompletionMessage taskId info
+          emitResult fmt info $ printCompletionMessage taskId info
           pure (tiResult info == TaskSuccess)
 
 -- | A task is still pending if it's running or not yet started
@@ -165,9 +149,9 @@ pollUntilDone fmt conn taskId startTime mTimeout = do
   case mTimeout of
     Just timeout | elapsed >= fromIntegral timeout -> do
       unless (isStructured fmt) $ putStrLn ""
-      if isStructured fmt
-        then outputError fmt "timeout" $ "Task did not complete within " <> T.pack (show timeout) <> "s"
-        else putStrLn $ "Timeout: task did not complete within " ++ show timeout ++ "s"
+      emitError fmt "timeout" ("Task did not complete within " <> T.pack (show timeout) <> "s") $
+        putStrLn $
+          "Timeout: task did not complete within " ++ show timeout ++ "s"
       pure False
     _ -> do
       threadDelay (pollInterval elapsed)
@@ -175,9 +159,9 @@ pollUntilDone fmt conn taskId startTime mTimeout = do
       case resp of
         Left err -> do
           unless (isStructured fmt) $ putStrLn ""
-          if isStructured fmt
-            then outputError fmt "rpc_error" (T.pack $ show err)
-            else putStrLn $ "Error polling task: " ++ show err
+          emitError fmt "rpc_error" (T.pack $ show err) $
+            putStrLn $
+              "Error polling task: " ++ show err
           pure False
         Right Nothing -> do
           unless (isStructured fmt) $ putStrLn ""
@@ -194,9 +178,7 @@ pollUntilDone fmt conn taskId startTime mTimeout = do
               unless (isStructured fmt) $ do
                 hPutStr stderr "\r\x1b[K"
                 hFlush stderr
-              if isStructured fmt
-                then outputResult fmt info
-                else printCompletionMessage taskId info
+              emitResult fmt info $ printCompletionMessage taskId info
               pure (tiResult info == TaskSuccess)
 
 -- | Print a human-readable completion message with full details

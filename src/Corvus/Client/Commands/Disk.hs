@@ -39,7 +39,7 @@ where
 
 import Control.Monad (unless, when)
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult, printField, printTableHeader)
+import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitResult, emitRpcError, isStructured, printField, printTableHeader)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat (..), DriveInterface, DriveMedia, EnumText (..))
@@ -85,24 +85,20 @@ handleDiskCreate fmt conn name format sizeMb mPath = do
   resp <- diskCreate conn name format sizeMb mPath
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (DiskCreated diskId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON diskId)]
-        else putStrLn $ "Disk image created with ID: " ++ show diskId
+      emitOkWith fmt [("id", toJSON diskId)] $
+        putStrLn $
+          "Disk image created with ID: " ++ show diskId
       pure True
     Right (DiskError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error creating disk: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error creating disk: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk overlay command
@@ -111,29 +107,25 @@ handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath = do
   resp <- diskCreateOverlay conn name baseDiskRef optDirPath
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (DiskCreated diskId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON diskId)]
-        else putStrLn $ "Overlay created with ID: " ++ show diskId
+      emitOkWith fmt [("id", toJSON diskId)] $
+        putStrLn $
+          "Overlay created with ID: " ++ show diskId
       pure True
     Right DiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Base disk '" <> baseDiskRef <> "' not found")
-        else putStrLn $ "Base disk '" ++ T.unpack baseDiskRef ++ "' not found."
+      emitError fmt "not_found" ("Base disk '" <> baseDiskRef <> "' not found") $
+        putStrLn $
+          "Base disk '" ++ T.unpack baseDiskRef ++ "' not found."
       pure False
     Right (DiskError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error creating overlay: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error creating overlay: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk register command (registers local file in DB without copying)
@@ -142,9 +134,9 @@ handleDiskRegister fmt conn name path mFormatStr mBackingRef = do
   exists <- doesFileExist path
   if not exists
     then do
-      if isStructured fmt
-        then outputError fmt "file_not_found" (T.pack $ "File not found: " ++ path)
-        else putStrLn $ "Error: File not found: " ++ path
+      emitError fmt "file_not_found" (T.pack $ "File not found: " ++ path) $
+        putStrLn $
+          "Error: File not found: " ++ path
       pure False
     else do
       let mFormat = case mFormatStr of
@@ -155,9 +147,7 @@ handleDiskRegister fmt conn name path mFormatStr mBackingRef = do
       case mFormat of
         Nothing -> do
           let err = "Unknown format: " <> fromMaybe "" mFormatStr
-          if isStructured fmt
-            then outputError fmt "invalid_format" err
-            else putStrLn $ "Error: " ++ T.unpack err
+          emitError fmt "invalid_format" err $ putStrLn $ "Error: " ++ T.unpack err
           pure False
         Just mFmt -> do
           absPath <- canonicalizePath path
@@ -169,28 +159,22 @@ handleDiskRegister fmt conn name path mFormatStr mBackingRef = do
           resp <- diskRegister conn name (T.pack storedPath) mFmt mBackingRef
           case resp of
             Left err -> do
-              if isStructured fmt
-                then outputError fmt "rpc_error" (T.pack $ show err)
-                else putStrLn $ "Error: " ++ show err
+              emitRpcError fmt err
               pure False
             Right (DiskCreated diskId) -> do
-              if isStructured fmt
-                then outputOkWith fmt [("id", toJSON diskId)]
-                else do
-                  putStrLn $ "Disk image registered with ID: " ++ show diskId
-                  if storedPath /= absPath
-                    then putStrLn $ "Stored as relative path: " ++ storedPath
-                    else putStrLn $ "Stored as absolute path: " ++ storedPath
+              emitOkWith fmt [("id", toJSON diskId)] $ do
+                putStrLn $ "Disk image registered with ID: " ++ show diskId
+                if storedPath /= absPath
+                  then putStrLn $ "Stored as relative path: " ++ storedPath
+                  else putStrLn $ "Stored as absolute path: " ++ storedPath
               pure True
             Right (DiskError msg) -> do
-              if isStructured fmt
-                then outputError fmt "error" msg
-                else putStrLn $ "Error registering disk: " ++ T.unpack msg
+              emitError fmt "error" msg $ putStrLn $ "Error registering disk: " ++ T.unpack msg
               pure False
             Right other -> do
-              if isStructured fmt
-                then outputError fmt "unexpected" (T.pack $ show other)
-                else putStrLn $ "Unexpected response: " ++ show other
+              emitError fmt "unexpected" (T.pack $ show other) $
+                putStrLn $
+                  "Unexpected response: " ++ show other
               pure False
   where
     isPrefixOfPath :: FilePath -> FilePath -> Bool
@@ -209,31 +193,25 @@ handleDiskImport fmt conn name source mPath mFormatStr waitOpts = do
   resp <- diskImport conn name source mPath mFormatStr wait
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (DiskCreated diskId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON diskId)]
-        else putStrLn $ "Disk image imported with ID: " ++ show diskId
+      emitOkWith fmt [("id", toJSON diskId)] $
+        putStrLn $
+          "Disk image imported with ID: " ++ show diskId
       pure True
     Right (DiskImportStarted taskId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("taskId", toJSON taskId)]
-        else do
-          putStrLn $ "Import started (task ID: " ++ show taskId ++ ")"
-          putStrLn $ "Use 'crv task wait " ++ show taskId ++ "' to wait for completion."
+      emitOkWith fmt [("taskId", toJSON taskId)] $ do
+        putStrLn $ "Import started (task ID: " ++ show taskId ++ ")"
+        putStrLn $ "Use 'crv task wait " ++ show taskId ++ "' to wait for completion."
       pure True
     Right (DiskError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error importing disk: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error importing disk: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Get base images path ($HOME/VMs by default)
@@ -248,40 +226,32 @@ handleDiskDelete fmt conn diskRef = do
   resp <- diskDelete conn diskRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right DiskOk -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn "Disk image deleted."
+      emitOk fmt $ putStrLn "Disk image deleted."
       pure True
     Right DiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right (DiskInUse vmPairs) -> do
       let vmNames = T.intercalate ", " (map snd vmPairs)
-      if isStructured fmt
-        then outputError fmt "in_use" ("Disk is attached to VMs: " <> vmNames)
-        else do
-          putStrLn $ "Disk is attached to VMs: " ++ T.unpack vmNames
-          putStrLn "Detach the disk first before deleting."
+      emitError fmt "in_use" ("Disk is attached to VMs: " <> vmNames) $ do
+        putStrLn $ "Disk is attached to VMs: " ++ T.unpack vmNames
+        putStrLn "Detach the disk first before deleting."
       pure False
     Right (DiskHasOverlays overlayPairs) -> do
       let overlayNames = T.intercalate ", " (map snd overlayPairs)
-      if isStructured fmt
-        then outputError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> overlayNames)
-        else do
-          putStrLn $ "Disk is used as backing image for overlays: " ++ T.unpack overlayNames
-          putStrLn "Delete the overlay disks first."
+      emitError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> overlayNames) $ do
+        putStrLn $ "Disk is used as backing image for overlays: " ++ T.unpack overlayNames
+        putStrLn "Delete the overlay disks first."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk resize command
@@ -290,29 +260,24 @@ handleDiskResize fmt conn diskRef newSizeMb = do
   resp <- diskResize conn diskRef newSizeMb
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right DiskOk -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn $ "Disk resized to " ++ show newSizeMb ++ " MB."
+      emitOk fmt $ putStrLn $ "Disk resized to " ++ show newSizeMb ++ " MB."
       pure True
     Right DiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right VmMustBeStopped -> do
-      if isStructured fmt
-        then outputError fmt "vm_must_be_stopped" "VM must be stopped for this operation"
-        else putStrLn "Cannot resize disk while VM is running. Stop the VM first."
+      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
+        putStrLn "Cannot resize disk while VM is running. Stop the VM first."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk list command
@@ -321,24 +286,20 @@ handleDiskList fmt conn = do
   resp <- diskList conn
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (DiskListResult disks) -> do
-      if isStructured fmt
-        then outputResult fmt disks
-        else do
-          if null disks
-            then putStrLn "No disk images found."
-            else do
-              printTableHeader [("ID", -6), ("NAME", -20), ("FORMAT", -8), ("SIZE_MB", 10), ("ATTACHED_TO", -20)]
-              mapM_ printDiskInfo disks
+      emitResult fmt disks $
+        if null disks
+          then putStrLn "No disk images found."
+          else do
+            printTableHeader [("ID", -6), ("NAME", -20), ("FORMAT", -8), ("SIZE_MB", 10), ("ATTACHED_TO", -20)]
+            mapM_ printDiskInfo disks
       pure True
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk show command
@@ -347,24 +308,20 @@ handleDiskShow fmt conn diskRef = do
   resp <- diskShow conn diskRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (DiskInfo info) -> do
-      if isStructured fmt
-        then outputResult fmt info
-        else printDiskDetails info
+      emitResult fmt info $ printDiskDetails info
       pure True
     Right DiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk clone command
@@ -373,34 +330,29 @@ handleDiskClone fmt conn name baseDiskRef optionalPath = do
   resp <- diskClone conn name baseDiskRef optionalPath
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (DiskCreated diskId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON diskId)]
-        else putStrLn $ "Disk cloned successfully. New disk ID: " ++ show diskId
+      emitOkWith fmt [("id", toJSON diskId)] $
+        putStrLn $
+          "Disk cloned successfully. New disk ID: " ++ show diskId
       pure True
     Right DiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Base disk '" <> baseDiskRef <> "' not found")
-        else putStrLn $ "Base disk '" ++ T.unpack baseDiskRef ++ "' not found."
+      emitError fmt "not_found" ("Base disk '" <> baseDiskRef <> "' not found") $
+        putStrLn $
+          "Base disk '" ++ T.unpack baseDiskRef ++ "' not found."
       pure False
     Right VmMustBeStopped -> do
-      if isStructured fmt
-        then outputError fmt "vm_must_be_stopped" "VM must be stopped for this operation"
-        else putStrLn "Error: Disk is attached to a running VM. Please stop the VM before cloning."
+      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
+        putStrLn "Error: Disk is attached to a running VM. Please stop the VM before cloning."
       pure False
     Right (DiskError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error cloning disk: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error cloning disk: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk rebase command
@@ -409,42 +361,33 @@ handleDiskRebase fmt conn diskRef mNewBacking unsafe = do
   resp <- diskRebase conn diskRef mNewBacking unsafe
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right DiskOk -> do
       let msg = case mNewBacking of
             Nothing -> "Disk flattened (backing merged into overlay)."
             Just _ -> "Disk rebased to new backing image."
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn msg
+      emitOk fmt $ putStrLn msg
       pure True
     Right DiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right VmMustBeStopped -> do
-      if isStructured fmt
-        then outputError fmt "vm_must_be_stopped" "VM must be stopped for this operation"
-        else putStrLn "Error: Disk is attached to a running VM. Please stop the VM first."
+      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
+        putStrLn "Error: Disk is attached to a running VM. Please stop the VM first."
       pure False
     Right (FormatNotSupported msg) -> do
-      if isStructured fmt
-        then outputError fmt "format_not_supported" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "format_not_supported" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right (DiskError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk refresh command
@@ -453,29 +396,21 @@ handleDiskRefresh fmt conn diskRef = do
   resp <- diskRefresh conn diskRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right DiskOk -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn "Disk size refreshed"
+      emitOk fmt $ putStrLn "Disk size refreshed"
       pure True
     Right DiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "Disk not found"
-        else putStrLn "Disk not found"
+      emitError fmt "not_found" "Disk not found" $ putStrLn "Disk not found"
       pure False
     Right (DiskError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "error" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "error" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk attach command
@@ -494,42 +429,36 @@ handleDiskAttach fmt conn vmRef diskRef iface media readOnly discard cache = do
   resp <- diskAttach conn vmRef diskRef iface media readOnly discard cache
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (DriveAttached driveId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON driveId)]
-        else putStrLn $ "Disk attached. Drive ID: " ++ show driveId
+      emitOkWith fmt [("id", toJSON driveId)] $
+        putStrLn $
+          "Disk attached. Drive ID: " ++ show driveId
       pure True
     Right DiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right DiskVmNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (DiskHasOverlays overlayPairs) -> do
       let overlayNames = T.intercalate ", " (map snd overlayPairs)
-      if isStructured fmt
-        then outputError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> overlayNames)
-        else do
-          putStrLn $ "Error: Disk is used as backing image for overlays: " ++ T.unpack overlayNames
-          putStrLn "Base images must be attached in read-only mode using --read-only."
+      emitError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> overlayNames) $ do
+        putStrLn $ "Error: Disk is used as backing image for overlays: " ++ T.unpack overlayNames
+        putStrLn "Base images must be attached in read-only mode using --read-only."
       pure False
     Right (DiskError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error attaching disk: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error attaching disk: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle disk detach command
@@ -538,34 +467,28 @@ handleDiskDetach fmt conn vmRef diskRef = do
   resp <- diskDetach conn vmRef diskRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right DiskOk -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn "Disk detached."
+      emitOk fmt $ putStrLn "Disk detached."
       pure True
     Right DriveNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found on VM")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found on VM."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found on VM") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found on VM."
       pure False
     Right DiskVmNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (DiskError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error detaching disk: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error detaching disk: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 --------------------------------------------------------------------------------
@@ -578,34 +501,29 @@ handleSnapshotCreate fmt conn diskRef name = do
   resp <- snapshotCreate conn diskRef name
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (SnapshotCreated snapId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON snapId)]
-        else putStrLn $ "Snapshot created with ID: " ++ show snapId
+      emitOkWith fmt [("id", toJSON snapId)] $
+        putStrLn $
+          "Snapshot created with ID: " ++ show snapId
       pure True
     Right SnapshotDiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right (SnapshotFormatNotSupported msg) -> do
-      if isStructured fmt
-        then outputError fmt "format_not_supported" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "format_not_supported" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right SnapshotVmMustBeStopped -> do
-      if isStructured fmt
-        then outputError fmt "vm_must_be_stopped" "VM must be stopped for this operation"
-        else putStrLn "Cannot create snapshot while VM is running. Stop the VM first."
+      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
+        putStrLn "Cannot create snapshot while VM is running. Stop the VM first."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle snapshot delete command
@@ -614,34 +532,29 @@ handleSnapshotDelete fmt conn diskRef snapshotRef = do
   resp <- snapshotDelete conn diskRef snapshotRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right SnapshotOk -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn "Snapshot deleted."
+      emitOk fmt $ putStrLn "Snapshot deleted."
       pure True
     Right SnapshotNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found")
-        else putStrLn $ "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
+      emitError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found") $
+        putStrLn $
+          "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
       pure False
     Right SnapshotDiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right SnapshotVmMustBeStopped -> do
-      if isStructured fmt
-        then outputError fmt "vm_must_be_stopped" "VM must be stopped for this operation"
-        else putStrLn "Cannot delete snapshot while VM is running. Stop the VM first."
+      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
+        putStrLn "Cannot delete snapshot while VM is running. Stop the VM first."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle snapshot rollback command
@@ -650,34 +563,29 @@ handleSnapshotRollback fmt conn diskRef snapshotRef = do
   resp <- snapshotRollback conn diskRef snapshotRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right SnapshotOk -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn "Rollback complete."
+      emitOk fmt $ putStrLn "Rollback complete."
       pure True
     Right SnapshotNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found")
-        else putStrLn $ "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
+      emitError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found") $
+        putStrLn $
+          "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
       pure False
     Right SnapshotDiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right SnapshotVmMustBeStopped -> do
-      if isStructured fmt
-        then outputError fmt "vm_must_be_stopped" "VM must be stopped for this operation"
-        else putStrLn "Cannot rollback while VM is running. Stop the VM first."
+      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
+        putStrLn "Cannot rollback while VM is running. Stop the VM first."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle snapshot merge command
@@ -686,34 +594,29 @@ handleSnapshotMerge fmt conn diskRef snapshotRef = do
   resp <- snapshotMerge conn diskRef snapshotRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right SnapshotOk -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn "Snapshot merged."
+      emitOk fmt $ putStrLn "Snapshot merged."
       pure True
     Right SnapshotNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found")
-        else putStrLn $ "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
+      emitError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found") $
+        putStrLn $
+          "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
       pure False
     Right SnapshotDiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right SnapshotVmMustBeStopped -> do
-      if isStructured fmt
-        then outputError fmt "vm_must_be_stopped" "VM must be stopped for this operation"
-        else putStrLn "Cannot merge while VM is running. Stop the VM first."
+      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
+        putStrLn "Cannot merge while VM is running. Stop the VM first."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle snapshot list command
@@ -722,29 +625,25 @@ handleSnapshotList fmt conn diskRef = do
   resp <- snapshotList conn diskRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (SnapshotListResult snaps) -> do
-      if isStructured fmt
-        then outputResult fmt snaps
-        else do
-          if null snaps
-            then putStrLn "No snapshots found."
-            else do
-              printTableHeader [("ID", -6), ("NAME", -30), ("CREATED", -20), ("SIZE_MB", 10)]
-              mapM_ printSnapshotInfo snaps
+      emitResult fmt snaps $
+        if null snaps
+          then putStrLn "No snapshots found."
+          else do
+            printTableHeader [("ID", -6), ("NAME", -30), ("CREATED", -20), ("SIZE_MB", 10)]
+            mapM_ printSnapshotInfo snaps
       pure True
     Right SnapshotDiskNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Disk '" <> diskRef <> "' not found")
-        else putStrLn $ "Disk '" ++ T.unpack diskRef ++ "' not found."
+      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
+        putStrLn $
+          "Disk '" ++ T.unpack diskRef ++ "' not found."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 --------------------------------------------------------------------------------

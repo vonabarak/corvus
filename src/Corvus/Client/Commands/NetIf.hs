@@ -13,7 +13,7 @@ module Corvus.Client.Commands.NetIf
 where
 
 import Corvus.Client.Connection
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult, printTableHeader)
+import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTableHeader)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), NetInterfaceType)
@@ -34,29 +34,25 @@ handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef = do
   resp <- netIfAdd conn vmRef ifaceType hostDevice macAddress mNetworkRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (NetIfAdded netIfId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON netIfId)]
-        else putStrLn $ "Network interface added with ID: " ++ show netIfId
+      emitOkWith fmt [("id", toJSON netIfId)] $
+        putStrLn $
+          "Network interface added with ID: " ++ show netIfId
       pure True
     Right NetIfVmNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right (NetIfError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Failed to add network interface: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Failed to add network interface: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle network interface remove command
@@ -65,29 +61,25 @@ handleNetIfRemove fmt conn vmRef netIfId = do
   resp <- netIfRemove conn vmRef netIfId
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right NetIfOk -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn "Network interface removed."
+      emitOk fmt $ putStrLn "Network interface removed."
       pure True
     Right NetIfNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "Network interface not found"
-        else putStrLn $ "Network interface with ID " ++ show netIfId ++ " not found."
+      emitError fmt "not_found" "Network interface not found" $
+        putStrLn $
+          "Network interface with ID " ++ show netIfId ++ " not found."
       pure False
     Right NetIfVmNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle network interface list command
@@ -96,29 +88,25 @@ handleNetIfList fmt conn vmRef = do
   resp <- netIfList conn vmRef
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (NetIfListResult netIfs) -> do
-      if isStructured fmt
-        then outputResult fmt netIfs
-        else do
-          if null netIfs
-            then putStrLn "No network interfaces found for this VM."
-            else do
-              printTableHeader [("ID", -5), ("TYPE", -15), ("DEVICE", -20), ("MAC", -20), ("GUEST_IPS", -20)]
-              mapM_ printNetIfInfo netIfs
+      emitResult fmt netIfs $
+        if null netIfs
+          then putStrLn "No network interfaces found for this VM."
+          else do
+            printTableHeader [("ID", -5), ("TYPE", -15), ("DEVICE", -20), ("MAC", -20), ("GUEST_IPS", -20)]
+            mapM_ printNetIfInfo netIfs
       pure True
     Right NetIfVmNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("VM '" <> vmRef <> "' not found")
-        else putStrLn $ "VM '" ++ T.unpack vmRef ++ "' not found."
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "VM '" ++ T.unpack vmRef ++ "' not found."
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Print network interface info

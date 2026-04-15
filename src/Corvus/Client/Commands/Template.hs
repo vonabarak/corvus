@@ -20,7 +20,7 @@ import Control.Monad (forM_)
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
 import Corvus.Client.Connection
 import Corvus.Client.Editor (editInEditor)
-import Corvus.Client.Output (isStructured, outputError, outputOk, outputOkWith, outputResult, printField, printTableHeader, tableFormat)
+import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitResult, emitRpcError, printField, printTableHeader, tableFormat)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..))
@@ -43,9 +43,9 @@ handleTemplateCreate fmt conn mPath = case mPath of
     exists <- doesFileExist path
     if not exists
       then do
-        if isStructured fmt
-          then outputError fmt "file_not_found" (T.pack $ "YAML file not found: " ++ path)
-          else putStrLn $ "Error: YAML file not found: " ++ path
+        emitError fmt "file_not_found" (T.pack $ "YAML file not found: " ++ path) $
+          putStrLn $
+            "Error: YAML file not found: " ++ path
         pure False
       else do
         content <- T.IO.readFile path
@@ -54,9 +54,7 @@ handleTemplateCreate fmt conn mPath = case mPath of
     edited <- editInEditor skeletonTemplateYaml
     case edited of
       Left err -> do
-        if isStructured fmt
-          then outputError fmt "editor" err
-          else T.IO.putStrLn $ "Error: " <> err
+        emitError fmt "editor" err $ T.IO.putStrLn $ "Error: " <> err
         pure False
       Right content -> sendCreate fmt conn content
 
@@ -66,24 +64,20 @@ sendCreate fmt conn content = do
   resp <- templateCreate conn content
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (TemplateCreated tid) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON tid)]
-        else putStrLn $ "Template created with ID: " ++ show tid
+      emitOkWith fmt [("id", toJSON tid)] $
+        putStrLn $
+          "Template created with ID: " ++ show tid
       pure True
     Right (TemplateError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle template edit command: fetch → edit in $EDITOR → update.
@@ -92,62 +86,52 @@ handleTemplateEdit fmt conn tRef = do
   showResp <- templateShow conn tRef
   case showResp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right TemplateNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" ("Template '" <> tRef <> "' not found")
-        else putStrLn $ "Template '" ++ T.unpack tRef ++ "' not found."
+      emitError fmt "not_found" ("Template '" <> tRef <> "' not found") $
+        putStrLn $
+          "Template '" ++ T.unpack tRef ++ "' not found."
       pure False
     Right (TemplateDetailsResult details) -> do
       let initial = templateDetailsToYaml details
       edited <- editInEditor initial
       case edited of
         Left err -> do
-          if isStructured fmt
-            then outputError fmt "editor" err
-            else T.IO.putStrLn $ "Error: " <> err
+          emitError fmt "editor" err $ T.IO.putStrLn $ "Error: " <> err
           pure False
         Right content
           | content == initial -> do
-              if isStructured fmt
-                then outputOk fmt
-                else putStrLn "No changes; template left untouched."
+              emitOk fmt $ putStrLn "No changes; template left untouched."
               pure True
           | otherwise -> do
               updateResp <- templateUpdate conn tRef content
               case updateResp of
                 Left err -> do
-                  if isStructured fmt
-                    then outputError fmt "rpc_error" (T.pack $ show err)
-                    else putStrLn $ "Error: " ++ show err
+                  emitRpcError fmt err
                   pure False
                 Right (TemplateUpdated tid) -> do
-                  if isStructured fmt
-                    then outputOkWith fmt [("id", toJSON tid)]
-                    else putStrLn $ "Template updated with ID: " ++ show tid
+                  emitOkWith fmt [("id", toJSON tid)] $
+                    putStrLn $
+                      "Template updated with ID: " ++ show tid
                   pure True
                 Right (TemplateError msg) -> do
-                  if isStructured fmt
-                    then outputError fmt "error" msg
-                    else putStrLn $ "Error: " ++ T.unpack msg
+                  emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
                   pure False
                 Right TemplateNotFound -> do
-                  if isStructured fmt
-                    then outputError fmt "not_found" ("Template '" <> tRef <> "' not found")
-                    else putStrLn $ "Template '" ++ T.unpack tRef ++ "' not found."
+                  emitError fmt "not_found" ("Template '" <> tRef <> "' not found") $
+                    putStrLn $
+                      "Template '" ++ T.unpack tRef ++ "' not found."
                   pure False
                 Right other -> do
-                  if isStructured fmt
-                    then outputError fmt "unexpected" (T.pack $ show other)
-                    else putStrLn $ "Unexpected response: " ++ show other
+                  emitError fmt "unexpected" (T.pack $ show other) $
+                    putStrLn $
+                      "Unexpected response: " ++ show other
                   pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle template delete command
@@ -156,29 +140,21 @@ handleTemplateDelete fmt conn tid = do
   resp <- templateDelete conn tid
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right TemplateDeleted -> do
-      if isStructured fmt
-        then outputOk fmt
-        else putStrLn "Template deleted."
+      emitOk fmt $ putStrLn "Template deleted."
       pure True
     Right TemplateNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "Template not found"
-        else putStrLn "Template not found."
+      emitError fmt "not_found" "Template not found" $ putStrLn "Template not found."
       pure False
     Right (TemplateError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle template list command
@@ -187,24 +163,20 @@ handleTemplateList fmt conn = do
   resp <- templateList conn
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (TemplateListResult templates) -> do
-      if isStructured fmt
-        then outputResult fmt templates
-        else do
-          if null templates
-            then putStrLn "No templates found."
-            else do
-              printTableHeader [("ID", -6), ("NAME", -30), ("CPUS", -6), ("RAM_MB", -8)]
-              mapM_ printTemplateVmInfo templates
+      emitResult fmt templates $
+        if null templates
+          then putStrLn "No templates found."
+          else do
+            printTableHeader [("ID", -6), ("NAME", -30), ("CPUS", -6), ("RAM_MB", -8)]
+            mapM_ printTemplateVmInfo templates
       pure True
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle template show command
@@ -213,29 +185,21 @@ handleTemplateShow fmt conn tid = do
   resp <- templateShow conn tid
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (TemplateDetailsResult details) -> do
-      if isStructured fmt
-        then outputResult fmt details
-        else printTemplateDetails details
+      emitResult fmt details $ printTemplateDetails details
       pure True
     Right TemplateNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "Template not found"
-        else putStrLn "Template not found."
+      emitError fmt "not_found" "Template not found" $ putStrLn "Template not found."
       pure False
     Right (TemplateError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 -- | Handle template instantiate command
@@ -244,29 +208,23 @@ handleTemplateInstantiate fmt conn tid name = do
   resp <- templateInstantiate conn tid name
   case resp of
     Left err -> do
-      if isStructured fmt
-        then outputError fmt "rpc_error" (T.pack $ show err)
-        else putStrLn $ "Error: " ++ show err
+      emitRpcError fmt err
       pure False
     Right (TemplateInstantiated vmId) -> do
-      if isStructured fmt
-        then outputOkWith fmt [("id", toJSON vmId)]
-        else putStrLn $ "VM instantiated with ID: " ++ show vmId
+      emitOkWith fmt [("id", toJSON vmId)] $
+        putStrLn $
+          "VM instantiated with ID: " ++ show vmId
       pure True
     Right TemplateNotFound -> do
-      if isStructured fmt
-        then outputError fmt "not_found" "Template not found"
-        else putStrLn "Template not found."
+      emitError fmt "not_found" "Template not found" $ putStrLn "Template not found."
       pure False
     Right (TemplateError msg) -> do
-      if isStructured fmt
-        then outputError fmt "error" msg
-        else putStrLn $ "Error: " ++ T.unpack msg
+      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
       pure False
     Right other -> do
-      if isStructured fmt
-        then outputError fmt "unexpected" (T.pack $ show other)
-        else putStrLn $ "Unexpected response: " ++ show other
+      emitError fmt "unexpected" (T.pack $ show other) $
+        putStrLn $
+          "Unexpected response: " ++ show other
       pure False
 
 --------------------------------------------------------------------------------
@@ -338,6 +296,5 @@ printTemplateDetails t = do
   putStrLn "\nSSH Keys:"
   if null (tvdSshKeys t)
     then putStrLn "  No SSH keys defined."
-    else do
-      forM_ (tvdSshKeys t) $ \k ->
-        putStrLn $ "  - " ++ T.unpack (tvskiName k) ++ " (ID: " ++ show (tvskiId k) ++ ")"
+    else forM_ (tvdSshKeys t) $ \k ->
+      putStrLn $ "  - " ++ T.unpack (tvskiName k) ++ " (ID: " ++ show (tvskiId k) ++ ")"
