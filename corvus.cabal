@@ -34,6 +34,18 @@ library
       Corvus.Client.Rpc
       Corvus.Client.Types
       Corvus.Client.Parser
+      Corvus.Client.Parser.Utility
+      Corvus.Client.Parser.Vm
+      Corvus.Client.Parser.Disk
+      Corvus.Client.Parser.Snapshot
+      Corvus.Client.Parser.SshKey
+      Corvus.Client.Parser.SharedDir
+      Corvus.Client.Parser.NetIf
+      Corvus.Client.Parser.Template
+      Corvus.Client.Parser.Network
+      Corvus.Client.Parser.Apply
+      Corvus.Client.Parser.CloudInit
+      Corvus.Client.Parser.Task
       Corvus.Client.Commands
       Corvus.Client.Commands.Vm
       Corvus.Client.Commands.Disk
