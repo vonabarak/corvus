@@ -50,7 +50,7 @@ spec = withTestDb $ do
         (pure ())
         (\_ -> removeDirectoryRecursive testDir)
         $ \_ ->
-          withTestVm env (defaultVmConfig {vmcSharedDir = Just testDir, vmcWaitSshTimeout = 300}) $ \vm -> do
+          withTestVm env (defaultVmConfig {vmcSharedDir = Just testDir, vmcWaitSshTimeout = 300, vmcUefi = False}) $ \vm -> do
             -- Mount the shared directory (requires root via doas)
             (code2, _, _) <- runInTestVm vm "doas mkdir -p /mnt/share"
             code2 `shouldBe` ExitSuccess
