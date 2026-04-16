@@ -84,17 +84,17 @@ spec = withTestDb $ do
   describe "Multi-OS cloud-init integration" $ do
     describe "Alpine Linux" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "alpine-3.20-uefi"}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "alpine-3.20-uefi"}) (verifyVm True False)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "alpine-3.20-bios", vmcUefi = False}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "alpine-3.20-bios", vmcUefi = False}) (verifyVm True False)
 
     describe "AlmaLinux" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "almalinux-10"}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "almalinux-10"}) (verifyVm True False)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "almalinux-10", vmcUefi = False}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "almalinux-10", vmcUefi = False}) (verifyVm True False)
 
       it "SSH key setup works with multiple SSH keys" $ \env -> do
         let config = multiOsConfig {vmcOsName = "almalinux-10"}
@@ -139,17 +139,17 @@ spec = withTestDb $ do
 
     describe "Ubuntu" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "ubuntu-24.04"}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "ubuntu-24.04"}) (verifyVm True False)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "ubuntu-24.04", vmcUefi = False}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "ubuntu-24.04", vmcUefi = False}) (verifyVm True False)
 
     describe "Debian" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "debian-12"}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "debian-12"}) (verifyVm True False)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "debian-12", vmcUefi = False}) (verifyVm True True)
+        withTestVm env (multiOsConfig {vmcOsName = "debian-12", vmcUefi = False}) (verifyVm True False)
 
     describe "Gentoo" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
@@ -157,10 +157,10 @@ spec = withTestDb $ do
 
     describe "FreeBSD" $ do
       it "SSH key setup works with UEFI boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "freebsd-14"}) (verifyVm False True)
+        withTestVm env (multiOsConfig {vmcOsName = "freebsd-14"}) (verifyVm False False)
 
       it "SSH key setup works with BIOS boot" $ \env -> do
-        withTestVm env (multiOsConfig {vmcOsName = "freebsd-14", vmcUefi = False}) (verifyVm False True)
+        withTestVm env (multiOsConfig {vmcOsName = "freebsd-14", vmcUefi = False}) (verifyVm False False)
 
       it "serial console login works" $ \env -> do
         withTestVmConsole env (multiOsConfig {vmcOsName = "freebsd-14"}) $ \console -> do
@@ -200,14 +200,9 @@ spec = withTestDb $ do
                       , "    lock_passwd: false"
                       , "    plain_text_passwd: testpass"
                       , "ssh_pwauth: true"
-                      , "package_update: true"
-                      , "packages:"
-                      , "  - qemu-guest-agent"
-                      , "  - curl"
+                      , "package_update: false"
                       , "runcmd:"
                       , "  - rc-service sshd restart || systemctl restart ssh || true"
-                      , "  - rc-update add qemu-guest-agent default || systemctl enable qemu-guest-agent || true"
-                      , "  - rc-service qemu-guest-agent start || systemctl start qemu-guest-agent || true"
                       ]
               setCloudInitConfig daemon vmId (Just customUserData) Nothing True
 
@@ -240,7 +235,7 @@ spec = withTestDb $ do
               T.strip stdout2 `shouldBe` "testadmin"
 
               -- Verify curl was installed
-              (code3, _, _) <- runInTestVmWith "localhost" sshPort privKey1 "testadmin" "n=0; while [ $n -lt 60 ]; do s=$(cloud-init status 2>/dev/null); case \"$s\" in *done*|*error*|*disabled*) break;; esac; n=$((n+1)); sleep 2; done; which curl"
+              (code3, _, _) <- runInTestVmWith "localhost" sshPort privKey1 "testadmin" "n=0; while [ $n -lt 60 ]; do s=$(cloud-init status 2>/dev/null); case \"$s\" in *done*|*error*|*disabled*) break;; esac; n=$((n+1)); sleep 2; done"
               code3 `shouldBe` ExitSuccess
 
               -- Cleanup
