@@ -4,6 +4,7 @@
 module Corvus.DiskSpec (spec) where
 
 import Corvus.Client.Rpc (DiskResult (..))
+import Corvus.Handlers.Disk.Db (isCircularBacking)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Model (DiskImage (..), DriveFormat (..))
 import Corvus.Protocol (DiskImageInfo (..), Ref (..), Request (..), Response (..))
@@ -11,7 +12,7 @@ import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Qemu.Image (detectFormatFromPath, detectFormatFromUrl, isHttpUrl)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Test.DSL.Core (getTempDir)
+import Test.DSL.Core (getTempDir, runDb)
 import Test.Prelude
 
 spec :: Spec
@@ -476,6 +477,52 @@ spec = sequential $ do
           pure ()
         result <- diskRebase 2 Nothing False
         liftIO $ result `shouldBe` VmMustBeStopped
+
+    describe "isCircularBacking" $ do
+      testCase "straight chain: making B depend on A is not a cycle" $ do
+        aId <- given $ insertDiskImage "a" "a.qcow2" FormatQcow2
+        bId <- given $ insertDiskImage "b" "b.qcow2" FormatQcow2
+        result <- runDb $ isCircularBacking bId aId
+        liftIO $ result `shouldBe` False
+
+      testCase "self-loop: making A depend on A is a cycle" $ do
+        aId <- given $ insertDiskImage "a" "a.qcow2" FormatQcow2
+        result <- runDb $ isCircularBacking aId aId
+        liftIO $ result `shouldBe` True
+
+      testCase "two-step cycle: A already backs B; making A depend on B is a cycle" $ do
+        (aId, bId) <- given $ do
+          aId <- insertDiskImage "a" "a.qcow2" FormatQcow2
+          -- B has A as its backing image already.
+          bId <- insertDiskImageWithBacking "b" "b.qcow2" FormatQcow2 Nothing (Just aId)
+          pure (aId, bId)
+        -- Now ask: would making A be backed by B introduce a cycle?
+        -- Yes — we'd have A → B → A.
+        result <- runDb $ isCircularBacking aId bId
+        liftIO $ result `shouldBe` True
+
+      testCase "deep non-cycle: 5-level chain stays chain" $ do
+        -- Build A1 → A2 → A3 → A4 → A5 (each points to the previous).
+        (a1Id, a5Id) <- given $ do
+          a1 <- insertDiskImage "a1" "a1.qcow2" FormatQcow2
+          a2 <- insertDiskImageWithBacking "a2" "a2.qcow2" FormatQcow2 Nothing (Just a1)
+          a3 <- insertDiskImageWithBacking "a3" "a3.qcow2" FormatQcow2 Nothing (Just a2)
+          a4 <- insertDiskImageWithBacking "a4" "a4.qcow2" FormatQcow2 Nothing (Just a3)
+          a5 <- insertDiskImageWithBacking "a5" "a5.qcow2" FormatQcow2 Nothing (Just a4)
+          pure (a1, a5)
+        -- Would making a fresh disk X depend on a5 be a cycle? No — no link back to X.
+        xId <- given $ insertDiskImage "x" "x.qcow2" FormatQcow2
+        resultXa5 <- runDb $ isCircularBacking xId a5Id
+        liftIO $ resultXa5 `shouldBe` False
+        -- But making a1 depend on a5 *would* be a cycle (a1 → a5 → a4 → a3 → a2 → a1).
+        resultA1a5 <- runDb $ isCircularBacking a1Id a5Id
+        liftIO $ resultA1a5 `shouldBe` True
+
+      testCase "referring to a non-existent disk ID is safe (returns False)" $ do
+        aId <- given $ insertDiskImage "a" "a.qcow2" FormatQcow2
+        -- 999999 is not a real disk; walking its chain should short-circuit to False.
+        result <- runDb $ isCircularBacking aId 999999
+        liftIO $ result `shouldBe` False
 
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True

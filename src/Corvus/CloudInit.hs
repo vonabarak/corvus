@@ -14,6 +14,10 @@ module Corvus.CloudInit
 
     -- * ISO generation
   , generateCloudInitIso
+
+    -- * Pure user-data rendering (exposed for testing)
+  , renderUserData
+  , isRawUserDataScript
   )
 where
 
@@ -126,6 +130,43 @@ generateUserData config sshPubKeys' =
           |]
           )
 
+-- | Is the supplied user-data a raw script (passthrough) rather than
+-- structured YAML we should wrap with a @#cloud-config@ header?
+--
+-- Raw scripts are anything starting with @#@ after leading whitespace:
+--
+--   * @#!/bin/bash@ and friends
+--   * @#cloud-config@ (already has its own header)
+--   * @#ps1_sysnative@ (cloudbase-init on Windows)
+--   * @#include@ (cloud-init include directive)
+isRawUserDataScript :: Text -> Bool
+isRawUserDataScript t = T.isPrefixOf "#" (T.stripStart t)
+
+-- | Decide what to write as the @user-data@ file contents.
+--
+-- Four cases:
+--
+--   1. No 'ciCustomUserData' — generate the default cloud-config from
+--      'generateUserData' using the VM's user/hostname/SSH keys.
+--   2. Custom user-data that looks like a raw script (starts with
+--      @#@ per 'isRawUserDataScript') — use it verbatim, no header
+--      prepended. This is what Windows cloudbase-init scripts and
+--      shebang scripts need.
+--   3. Structured YAML with @ciInjectSshKeys@ and at least one key to
+--      inject — inject the keys into the YAML, then prepend
+--      @#cloud-config@.
+--   4. Structured YAML otherwise — prepend @#cloud-config@ and use as-is.
+renderUserData :: CloudInitConfig -> [Text] -> Text
+renderUserData config sshPubKeys = case ciCustomUserData config of
+  Just customData
+    | isRawUserDataScript customData -> customData
+    | ciInjectSshKeys config && not (null sshPubKeys) ->
+        case injectSshKeysIntoYaml customData sshPubKeys of
+          Right merged -> "#cloud-config\n" <> merged
+          Left _ -> "#cloud-config\n" <> customData
+    | otherwise -> "#cloud-config\n" <> customData
+  Nothing -> generateUserData config sshPubKeys
+
 -- | Generate meta-data for cloud-init
 generateMetaData :: CloudInitConfig -> Text
 generateMetaData config =
@@ -150,18 +191,7 @@ generateCloudInitIso targetDir config sshPubKeys = do
       isoPath = targetDir </> "cloud-init.iso"
 
   -- Generate user-data: custom or default.
-  -- Raw scripts (starting with #, e.g. #ps1_sysnative, #!, #cloud-config)
-  -- are used as-is. Structured YAML gets a #cloud-config header prepended.
-  let isRawScript t = T.isPrefixOf "#" (T.stripStart t)
-      userDataContent = case ciCustomUserData config of
-        Just customData
-          | isRawScript customData -> customData
-          | ciInjectSshKeys config && not (null sshPubKeys) ->
-              case injectSshKeysIntoYaml customData sshPubKeys of
-                Right merged -> "#cloud-config\n" <> merged
-                Left _ -> "#cloud-config\n" <> customData
-          | otherwise -> "#cloud-config\n" <> customData
-        Nothing -> generateUserData config sshPubKeys
+  let userDataContent = renderUserData config sshPubKeys
 
   -- Write cloud-init files
   TIO.writeFile userDataPath userDataContent

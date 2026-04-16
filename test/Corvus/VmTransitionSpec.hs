@@ -4,7 +4,9 @@ module Corvus.VmTransitionSpec (spec) where
 
 import Corvus.Model (VmStatus (..))
 import Corvus.Model.VmState (VmAction (..), validateTransition)
+import qualified Data.Text as T
 import Test.Hspec
+import Test.QuickCheck
 
 spec :: Spec
 spec = do
@@ -77,6 +79,42 @@ spec = do
       validateTransition VmStopping ActionReset `shouldBe` Right VmStopped
       validateTransition VmPaused ActionReset `shouldBe` Right VmStopped
       validateTransition VmError ActionReset `shouldBe` Right VmStopped
+
+  describe "validateTransition (properties)" $ do
+    -- These properties guard against two classes of regression:
+    -- 1. A future 'case _ -> Right currentStatus' wildcard that masks
+    --    an explicitly-invalid transition.
+    -- 2. A broken 'ActionReset' rule. Reset is the sole escape hatch
+    --    from VmError and VmStopping; if it ever stops returning
+    --    VmStopped, users get a stuck VM that can't be recovered.
+
+    it "every transition returns either a Right newStatus or a Left with a non-empty message" $
+      property $ \status action -> case validateTransition status action of
+        Right _ -> True
+        Left msg -> not (T.null msg)
+
+    it "ActionReset is always allowed and always lands in VmStopped" $
+      property $ \status ->
+        validateTransition status ActionReset === Right VmStopped
+
+    it "validateTransition is total: no pair produces an exception" $
+      -- QuickCheck's default handles exceptions as test failures. If
+      -- any pair blew up (e.g. an accidental 'error' call in a future
+      -- edit), we'd see it here.
+      property $ \status action ->
+        validateTransition status action `seq` True
+
+-- Arbitrary instances for exhaustive coverage of the (VmStatus, VmAction) space.
+-- VmStatus already derives Enum+Bounded upstream; VmAction is a fixed 4-case
+-- sum so we enumerate manually.
+
+instance Arbitrary VmStatus where
+  arbitrary = arbitraryBoundedEnum
+  shrink _ = []
+
+instance Arbitrary VmAction where
+  arbitrary = elements [ActionStart, ActionStop, ActionPause, ActionReset]
+  shrink _ = []
 
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True

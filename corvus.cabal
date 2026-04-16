@@ -296,9 +296,11 @@ test-suite corvus-test
       Corvus.ApplySpec
       Corvus.ClientOutputSpec
       Corvus.CloudInitIntegrationSpec
+      Corvus.CloudInitSpec
       Corvus.CoreSpec
       Corvus.DiskIntegrationSpec
       Corvus.DiskSpec
+      Corvus.EmitSpec
       Corvus.GuestAgentPollerIntegrationSpec
       Corvus.GuestAgentSpec
       Corvus.GuestExecSpec
@@ -308,6 +310,8 @@ test-suite corvus-test
       Corvus.NetworkSpec
       Corvus.ProcessSpec
       Corvus.ProtocolSpec
+      Corvus.ProtocolVersionSpec
+      Corvus.QmpSpec
       Corvus.SerialConsoleIntegrationSpec
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
@@ -390,6 +394,7 @@ test-suite corvus-test
     , process
     , random
     , resource-pool
+    , silently
     , stm
     , template-haskell
     , temporary

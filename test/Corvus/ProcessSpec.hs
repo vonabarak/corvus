@@ -107,3 +107,45 @@ spec = do
         result <- runLogged $ stopProcess "graceful" pid (Just graceful) 3 1
         result `shouldBe` StoppedGracefully
         isProcessAlive pid `shouldReturn` False
+
+    it "escalates to SIGTERM when the graceful hook throws" $ do
+      -- The hook might do anything: send a QMP command that fails, hit
+      -- a socket that's gone, etc. A throw in the hook must not
+      -- propagate out of stopProcess; we fall through to SIGTERM.
+      withSleeper 30 $ \pid -> do
+        let throwingHook = error "hook boom"
+        result <- runLogged $ stopProcess "throwyhook" pid (Just throwingHook) 0 3
+        -- The sleeper process dies on SIGTERM.
+        result `shouldBe` StoppedByTerm
+        isProcessAlive pid `shouldReturn` False
+
+    it "escalates when the graceful hook runs but the process outlives gracefulWaitSec" $ do
+      -- Hook succeeds (no throw) but the process ignores SIGTERM too.
+      -- We expect escalation through SIGTERM to SIGKILL.
+      ph <- spawnProcess "sh" ["-c", "trap '' TERM; exec sleep 60"]
+      mPid <- getPid ph
+      case mPid of
+        Nothing -> expectationFailure "failed to get PID of trap-shell"
+        Just pid -> do
+          threadDelay 200000
+          -- Hook is a no-op — simulates "we asked nicely but got no response".
+          let hook = pure ()
+          result <- runLogged $ stopProcess "stubborn-with-hook" pid (Just hook) 1 1
+          result `shouldBe` StoppedByKill
+          isProcessAlive pid `shouldReturn` False
+          _ <- waitForProcess ph
+          pure ()
+
+    it "reports NotRunning if the process exits between probe and signal send" $ do
+      -- Race: spawn a short-lived sleep, wait just long enough for the
+      -- kernel to reap it, then call stopProcess. The initial isAlive
+      -- check should return False and we should get NotRunning rather
+      -- than a StopFailed from sending a signal to a dead PID.
+      ph <- spawnProcess "sleep" ["0.1"]
+      mPid <- getPid ph
+      case mPid of
+        Nothing -> expectationFailure "failed to get PID of short sleep"
+        Just pid -> do
+          _ <- waitForProcess ph -- reaps the zombie
+          result <- runLogged $ stopProcess "raced" pid Nothing 1 1
+          result `shouldBe` NotRunning

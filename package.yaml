@@ -188,3 +188,4 @@ tests:
       - random
       - uuid
       - async
+      - silently

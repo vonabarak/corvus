@@ -21,6 +21,7 @@ module Corvus.Qemu.Qmp
 
     -- * Low-level
   , sendQmpCommand
+  , classifyQmpResponse
   , withUnixSocket
 
     -- * Re-export quasi-quoter
@@ -209,12 +210,22 @@ sendQmpCommand config vmId cmd = do
     -- Send the actual command
     sendAll sock cmd
     recv sock 4096
-  case result of
-    Left (e :: SomeException) -> pure $ QmpConnectionFailed $ T.pack $ show e
-    Right response ->
-      if BS.isInfixOf "\"return\"" response
-        then pure QmpSuccess
-        else pure $ QmpError $ T.pack $ BS.unpack response
+  pure $ case result of
+    Left (e :: SomeException) -> QmpConnectionFailed $ T.pack $ show e
+    Right response -> classifyQmpResponse response
+
+-- | Classify a raw QMP response payload as success or error.
+--
+-- QEMU QMP sends either @{"return": ...}@ for a successful command or
+-- @{"error": {"class": ..., "desc": ...}}@ on failure. We detect success
+-- by substring match on @\"return\"@ rather than parsing the JSON — the
+-- QMP wire format guarantees the key appears literally, and the keys we
+-- send ourselves don't contain the literal @\"return\"@ substring.
+-- Exposed for unit tests; real callers go through 'sendQmpCommand'.
+classifyQmpResponse :: BS.ByteString -> QmpResult
+classifyQmpResponse response
+  | BS.isInfixOf "\"return\"" response = QmpSuccess
+  | otherwise = QmpError $ T.pack $ BS.unpack response
 
 -- | Connect to a Unix socket and run an action.
 -- Retries on EAGAIN (resource temporarily unavailable), which occurs when
