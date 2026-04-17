@@ -121,6 +121,7 @@ spec = withTestDb $ do
             stopTestVmAndWait daemon vm2Id 10
 
     it "deploys SSH key via cloud-init from a downloaded Alpine image" $ \env -> do
+      Right imagePath <- ensureBaseImage "alpine-3.20-bios"
       withSystemTempDirectory "corvus-apply-ssh" $ \tmpDir -> do
         -- Generate SSH key pair
         keyResult <- generateSshKeyPair tmpDir
@@ -133,7 +134,7 @@ spec = withTestDb $ do
           sshPort <- findFreePort
 
           withTestDaemon env $ \daemon -> do
-            let imageUrl = "https://dev.alpinelinux.org/~tomalok/alpine-cloud-images/v3.20/nocloud/x86_64/nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2" :: T.Text
+            let imageImport = T.pack imagePath
                 hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
                 yamlContent =
                   encodeYaml
@@ -143,7 +144,7 @@ spec = withTestDb $ do
                           publicKey: #{T.strip publicKeyContent}
                       disks:
                         - name: apply-alpine-base
-                          import: #{imageUrl}
+                          import: #{imageImport}
                         - name: apply-alpine-root
                           overlay: apply-alpine-base
                           sizeMb: 2048
@@ -193,6 +194,7 @@ spec = withTestDb $ do
             stopTestVmAndWait daemon vmId 30
 
     it "deploys SSH key via apply with custom cloud-init config" $ \env -> do
+      Right imagePath <- ensureBaseImage "alpine-3.20-bios"
       withSystemTempDirectory "corvus-apply-custom-ci" $ \tmpDir -> do
         -- Generate SSH key pair
         keyResult <- generateSshKeyPair tmpDir
@@ -205,7 +207,7 @@ spec = withTestDb $ do
           sshPort <- findFreePort
 
           withTestDaemon env $ \daemon -> do
-            let imageUrl = "https://dev.alpinelinux.org/~tomalok/alpine-cloud-images/v3.20/nocloud/x86_64/nocloud_alpine-3.20.9-x86_64-bios-cloudinit-r0.qcow2" :: T.Text
+            let imageImport = T.pack imagePath
                 hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
                 yamlContent =
                   encodeYaml
@@ -215,7 +217,7 @@ spec = withTestDb $ do
                           publicKey: #{T.strip publicKeyContent}
                       disks:
                         - name: apply-ci-base
-                          import: #{imageUrl}
+                          import: #{imageImport}
                         - name: apply-ci-root
                           overlay: apply-ci-base
                           sizeMb: 2048
@@ -264,7 +266,7 @@ spec = withTestDb $ do
             -- Start VM and wait for SSH with the custom user
             putStrLn "[test] Starting VM and waiting for SSH (custom cloud-init config)..."
             startTestVm daemon vmId
-            waitForTestVmSshWithKey "localhost" sshPort (skpPrivateKey kp) "deployer" 180
+            waitForTestVmSshWithKey "localhost" sshPort (skpPrivateKey kp) "deployer" 120
 
             -- Verify SSH works with the custom user
             (code1, stdout1, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "deployer" "echo custom-apply-ok"
