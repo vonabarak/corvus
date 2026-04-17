@@ -17,7 +17,7 @@ import Corvus.Model (VmStatus (..))
 import Corvus.Model hiding (VmStatus)
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig)
-import Corvus.Qemu.GuestAgent (GuestExecResult (..), guestExec, withGuestAgentLock)
+import Corvus.Qemu.GuestAgent (GuestExecResult (..), guestExec)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -39,9 +39,7 @@ handleGuestExec state vmId command = do
           if not ga
             then pure RespGuestAgentNotEnabled
             else do
-              result <-
-                withGuestAgentLock (ssGuestAgentLocks state) vmId $
-                  guestExec (ssQemuConfig state) vmId command
+              result <- guestExec (ssGuestAgentConns state) (ssQemuConfig state) vmId command
               case result of
                 GuestExecSuccess exitcode stdout stderr ->
                   pure $ RespGuestExecResult exitcode stdout stderr

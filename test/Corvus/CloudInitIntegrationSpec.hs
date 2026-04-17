@@ -163,7 +163,7 @@ spec = withTestDb $ do
         withTestVm env (multiOsConfig {vmcOsName = "freebsd-14", vmcUefi = False}) (verifyVm False False)
 
       it "serial console login works" $ \env -> do
-        withTestVmConsole env (multiOsConfig {vmcOsName = "freebsd-14"}) $ \console -> do
+        withTestVmConsole env (multiOsConfig {vmcOsName = "freebsd-14", vmcHeadless = True}) $ \console -> do
           -- FreeBSD cloud-init reboots the VM after first boot, so the login
           -- prompt only appears after the second boot cycle (~60s total).
           -- Send Enter to trigger a fresh prompt once getty is ready.

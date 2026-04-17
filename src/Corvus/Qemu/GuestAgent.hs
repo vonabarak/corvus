@@ -3,6 +3,17 @@
 
 -- | QEMU Guest Agent (QGA) interaction.
 -- Provides functions to execute commands inside VMs via the guest agent.
+--
+-- == Connection model
+--
+-- QEMU's chardev listen backlog is hardcoded to 1, so concurrent @connect()@
+-- calls get EAGAIN.  To avoid this, we keep a persistent socket per VM in an
+-- @MVar (Maybe Socket)@.  The MVar serializes access — only one thread talks
+-- to the guest agent at a time — and the socket is reused across operations.
+--
+-- On any error the socket is closed and the MVar set to @Nothing@; the next
+-- operation will reconnect automatically.  @SO_RCVTIMEO@ is set on the socket
+-- so @recv@ never blocks indefinitely.
 module Corvus.Qemu.GuestAgent
   ( -- * Types
     GuestExecResult (..)
@@ -10,8 +21,9 @@ module Corvus.Qemu.GuestAgent
   , GuestNetIf (..)
   , GuestOsInfo (..)
 
-    -- * Serialized access
-  , withGuestAgentLock
+    -- * Persistent connection management
+  , GuestAgentConns
+  , closeGuestAgentConn
 
     -- * Commands
   , guestExec
@@ -22,11 +34,11 @@ module Corvus.Qemu.GuestAgent
   )
 where
 
-import Control.Concurrent (MVar, newMVar, threadDelay, withMVar)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, catch, mask, onException, try)
 import Corvus.Qemu.Config (QemuConfig)
-import Corvus.Qemu.Qmp (withUnixSocket)
 import Corvus.Qemu.Runtime (getGuestAgentSocket)
 import Data.Aeson (Value (..), (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
@@ -43,10 +55,27 @@ import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Word (Word8)
-import Network.Socket (Socket)
+import GHC.IO.Exception (IOErrorType (..))
+import Network.Socket
+  ( Family (..)
+  , SockAddr (..)
+  , Socket
+  , SocketType (..)
+  , close
+  , connect
+  , defaultProtocol
+  , socket
+  )
 import Network.Socket.ByteString (recv, sendAll)
+import System.IO.Error (ioeGetErrorType)
 import System.Random (randomRIO)
 import System.Timeout (timeout)
+
+-- | Per-VM persistent guest agent connections.
+-- Each entry is an MVar holding the socket state:
+--   * @Nothing@ — not connected (will connect on next operation)
+--   * @Just sock@ — persistent connection ready for commands
+type GuestAgentConns = TVar (Map.Map Int64 (MVar (Maybe Socket)))
 
 -- | Result of a guest-exec command
 data GuestExecResult
@@ -91,36 +120,146 @@ data GuestNetIf = GuestNetIf
   }
   deriving (Eq, Show)
 
--- | Serialize access to a VM's guest agent socket.
--- QEMU's chardev listen backlog is 1, so concurrent connect() calls get
--- EAGAIN ("resource exhausted"). This wrapper ensures at most one thread
--- touches the QGA socket for a given VM at a time.
-withGuestAgentLock :: TVar (Map.Map Int64 (MVar ())) -> Int64 -> IO a -> IO a
-withGuestAgentLock locksVar vmId action = do
-  lock <- getOrCreateLock
-  withMVar lock $ const action
+--------------------------------------------------------------------------------
+-- Persistent connection core
+--------------------------------------------------------------------------------
+
+-- | Get or create the MVar for a VM's connection.
+getOrCreateConn :: GuestAgentConns -> Int64 -> IO (MVar (Maybe Socket))
+getOrCreateConn connsVar vmId = do
+  mExisting <- atomically $ Map.lookup vmId <$> readTVar connsVar
+  case mExisting of
+    Just c -> pure c
+    Nothing -> do
+      newConn <- newMVar Nothing
+      atomically $ do
+        conns <- readTVar connsVar
+        case Map.lookup vmId conns of
+          Just existing -> pure existing -- another thread beat us
+          Nothing -> do
+            writeTVar connsVar (Map.insert vmId newConn conns)
+            pure newConn
+
+-- | Close a VM's persistent guest agent connection and remove it from the map.
+-- Called when a VM is stopped to clean up the socket.
+closeGuestAgentConn :: GuestAgentConns -> Int64 -> IO ()
+closeGuestAgentConn connsVar vmId = do
+  mConn <- atomically $ do
+    conns <- readTVar connsVar
+    let mC = Map.lookup vmId conns
+    writeTVar connsVar (Map.delete vmId conns)
+    pure mC
+  case mConn of
+    Nothing -> pure ()
+    Just connVar -> do
+      mSock <- takeMVar connVar
+      closeMaybe mSock
+      putMVar connVar Nothing
+
+-- | Run an action on a VM's persistent guest agent connection.
+-- Connects and syncs on first use; reuses the socket for subsequent calls.
+-- On any failure the socket is closed (next call will reconnect).
+-- Retries up to @retries@ times with 1-second backoff.
+withPersistentConn
+  :: GuestAgentConns
+  -> QemuConfig
+  -> Int64
+  -> Int
+  -- ^ Retry count
+  -> (Socket -> IO a)
+  -> IO (Either Text a)
+withPersistentConn connsVar config vmId retries action = do
+  connVar <- getOrCreateConn connsVar vmId
+  path <- getGuestAgentSocket config vmId
+  go connVar path retries
   where
-    getOrCreateLock = do
-      mExisting <- atomically $ Map.lookup vmId <$> readTVar locksVar
-      case mExisting of
-        Just l -> pure l
+    go _ _ 0 = pure $ Left "Guest agent unavailable after retries"
+    go connVar path n = do
+      result <- runOnce connVar path
+      case result of
+        Right a -> pure $ Right a
+        Left err
+          | n > 1 -> do
+              threadDelay 1000000
+              go connVar path (n - 1)
+          | otherwise -> pure $ Left err
+
+    runOnce connVar path = mask $ \restore -> do
+      mSock <- takeMVar connVar
+      -- If async exception arrives after takeMVar, onException fires
+      eResult <-
+        restore (doWork mSock path) `onException` do
+          closeMaybe mSock
+          putMVar connVar Nothing
+      case eResult of
+        Right (sock', a) -> do
+          putMVar connVar (Just sock')
+          pure $ Right a
+        Left err -> do
+          putMVar connVar Nothing
+          pure $ Left err
+
+    doWork mSock path = do
+      -- Timeout covers the entire operation: connect + sync + action.
+      -- GHC uses non-blocking sockets internally, so SO_RCVTIMEO is
+      -- ineffective — async exceptions from timeout are the only way
+      -- to interrupt a blocked recv().
+      mResult <- timeout 15000000 $ try $ do
+        sock <- case mSock of
+          Just s -> pure s
+          Nothing -> do
+            s <- connectWithRetry 10 path
+            syncGuest s
+            pure s
+        result <- action sock
+        pure (sock, result)
+      case mResult of
+        Just (Right (sock, a)) -> pure $ Right (sock, a)
+        Just (Left (e :: SomeException)) -> do
+          closeMaybe mSock
+          pure $ Left $ T.pack (show e)
         Nothing -> do
-          newLock <- newMVar ()
-          atomically $ do
-            locks <- readTVar locksVar
-            case Map.lookup vmId locks of
-              Just existing -> pure existing -- another thread beat us
-              Nothing -> do
-                writeTVar locksVar (Map.insert vmId newLock locks)
-                pure newLock
+          closeMaybe mSock
+          pure $ Left "Timed out waiting for guest agent"
+
+-- | Connect to a Unix domain socket with retries on EAGAIN.
+connectWithRetry :: Int -> FilePath -> IO Socket
+connectWithRetry 0 path = do
+  sock <- socket AF_UNIX Stream defaultProtocol
+  connect sock (SockAddrUnix path)
+  pure sock
+connectWithRetry n path = do
+  sock <- socket AF_UNIX Stream defaultProtocol
+  (connect sock (SockAddrUnix path) >> pure sock)
+    `catch` \(e :: IOError) ->
+      if ioeGetErrorType e == ResourceExhausted
+        then do
+          close sock
+          threadDelay 300000 -- 300ms
+          connectWithRetry (n - 1) path
+        else do
+          close sock
+          ioError e
+
+-- | Close a socket, ignoring errors (socket may already be closed).
+closeSafe :: Socket -> IO ()
+closeSafe sock = close sock `catch` \(_ :: SomeException) -> pure ()
+
+-- | Close a Maybe Socket.
+closeMaybe :: Maybe Socket -> IO ()
+closeMaybe Nothing = pure ()
+closeMaybe (Just s) = closeSafe s
+
+--------------------------------------------------------------------------------
+-- Public commands
+--------------------------------------------------------------------------------
 
 -- | Execute a command inside the guest via the QEMU Guest Agent.
 -- Detects the guest OS and uses the appropriate shell:
 -- Linux/BSD: /bin/sh -c, Windows: cmd.exe /c
-guestExec :: QemuConfig -> Int64 -> Text -> IO GuestExecResult
-guestExec config vmId command = do
-  gaSock <- getGuestAgentSocket config vmId
-  mResult <- withSyncedSocket gaSock $ \sock -> do
+guestExec :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> IO GuestExecResult
+guestExec conns config vmId command = do
+  mResult <- withPersistentConn conns config vmId 5 $ \sock -> do
     -- First detect the guest OS to choose the right shell
     (shellPath, shellArgs) <- detectGuestShell sock
     -- Send guest-exec command
@@ -145,10 +284,9 @@ guestExec config vmId command = do
     Right r -> pure r
 
 -- | Ping the guest agent to check if it's available.
-guestPing :: QemuConfig -> Int64 -> IO Bool
-guestPing config vmId = do
-  gaSock <- getGuestAgentSocket config vmId
-  mResult <- withSyncedSocket gaSock $ \sock -> do
+guestPing :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
+guestPing conns config vmId = do
+  mResult <- withPersistentConn conns config vmId 5 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]
     resp <- recvJson sock
     case resp of
@@ -161,10 +299,9 @@ guestPing config vmId = do
 -- | Request a graceful shutdown via the guest agent.
 -- This triggers a clean shutdown from inside the guest (like running "poweroff").
 -- Returns True if the command was accepted, False on error.
-guestShutdown :: QemuConfig -> Int64 -> IO Bool
-guestShutdown config vmId = do
-  gaSock <- getGuestAgentSocket config vmId
-  mResult <- withSyncedSocket gaSock $ \sock -> do
+guestShutdown :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
+guestShutdown conns config vmId = do
+  mResult <- withPersistentConn conns config vmId 3 $ \sock -> do
     -- guest-shutdown with mode "powerdown" triggers a clean OS shutdown
     sendJson sock $
       Aeson.object
@@ -184,10 +321,9 @@ guestShutdown config vmId = do
 
 -- | Query network interfaces from the guest via the QEMU Guest Agent.
 -- Returns Nothing on failure, Just [] if no interfaces reported.
-guestNetworkGetInterfaces :: QemuConfig -> Int64 -> IO (Maybe [GuestNetIf])
-guestNetworkGetInterfaces config vmId = do
-  gaSock <- getGuestAgentSocket config vmId
-  mResult <- withSyncedSocket gaSock $ \sock -> do
+guestNetworkGetInterfaces :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe [GuestNetIf])
+guestNetworkGetInterfaces conns config vmId = do
+  mResult <- withPersistentConn conns config vmId 5 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
     resp <- recvJson sock
     pure $ parseGuestInterfaces resp
@@ -197,10 +333,9 @@ guestNetworkGetInterfaces config vmId = do
 
 -- | Query guest OS info via the QEMU Guest Agent.
 -- Returns Nothing on failure.
-guestGetOsInfo :: QemuConfig -> Int64 -> IO (Maybe GuestOsInfo)
-guestGetOsInfo config vmId = do
-  gaSock <- getGuestAgentSocket config vmId
-  mResult <- withSyncedSocket gaSock $ \sock -> do
+guestGetOsInfo :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe GuestOsInfo)
+guestGetOsInfo conns config vmId = do
+  mResult <- withPersistentConn conns config vmId 5 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-get-osinfo" :: Text)]
     resp <- recvJson sock
     pure $ parseOsInfo resp
@@ -211,28 +346,6 @@ guestGetOsInfo config vmId = do
 --------------------------------------------------------------------------------
 -- Internal helpers
 --------------------------------------------------------------------------------
-
--- | Connect to the guest agent socket, perform guest-sync handshake, and run
--- an action. Retries up to 5 times with 1-second backoff if connect or sync
--- fails (handles transient unavailability from socket contention with the
--- guest agent poller, or cloud-init restarting the agent).
-withSyncedSocket :: FilePath -> (Socket -> IO a) -> IO (Either Text a)
-withSyncedSocket path action = go 5
-  where
-    go 0 = pure $ Left "Guest agent unavailable after retries"
-    go n = do
-      mResult <- timeout 10000000 $ try $ withUnixSocket path $ \sock -> do
-        syncGuest sock
-        action sock
-      case mResult of
-        Just (Right a) -> pure $ Right a
-        _ | n > 1 -> do
-          threadDelay 1000000
-          go (n - 1)
-        Just (Left (e :: SomeException)) ->
-          pure $ Left $ "Connection failed: " <> T.pack (show e)
-        Nothing ->
-          pure $ Left "Timed out waiting for guest agent"
 
 -- | Synchronize with the guest agent.
 -- Each new connection requires a guest-sync handshake before commands will work.

@@ -22,7 +22,7 @@ module Corvus.Types
   )
 where
 
-import Control.Concurrent (MVar)
+import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM (TMVar, TVar, newTVarIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
 import Corvus.Qemu.Config (QemuConfig)
@@ -36,6 +36,7 @@ import Data.Time.Clock (UTCTime, getCurrentTime)
 import Database.Persist.Postgresql (SqlBackend)
 import Network.Socket (Socket)
 import System.Environment (lookupEnv)
+
 import System.FilePath ((</>))
 
 -- | Shared server state
@@ -58,11 +59,12 @@ data ServerState = ServerState
   -- ^ PID of the pasta process (for NAT)
   , ssSerialBuffers :: TVar (Map.Map Int64 SerialBufferHandle)
   -- ^ Per-VM serial console ring buffers (headless VMs only)
-  , ssGuestAgentLocks :: TVar (Map.Map Int64 (MVar ()))
-  -- ^ Per-VM locks serializing guest agent socket access.
-  -- QEMU's chardev listen backlog is 1, so concurrent connect() calls
-  -- from the poller and guest-exec get EAGAIN. One MVar per VM ensures
-  -- at most one thread touches the QGA socket at a time.
+  , ssGuestAgentConns :: TVar (Map.Map Int64 (MVar (Maybe Socket)))
+  -- ^ Per-VM persistent guest agent connections.
+  -- QEMU's chardev only supports one connection at a time (listen backlog=1).
+  -- The MVar serializes access and holds the socket between operations.
+  -- Nothing = not connected (will connect on next use).
+  -- Just sock = persistent connection ready for commands.
   }
 
 -- | Create a new server state
@@ -86,7 +88,7 @@ newServerState pool qemuConfig = do
       , ssNamespacePid = namespacePid
       , ssPastaPid = pastaPid
       , ssSerialBuffers = serialBuffers
-      , ssGuestAgentLocks = gaLocks
+      , ssGuestAgentConns = gaLocks
       }
 
 --------------------------------------------------------------------------------

@@ -156,7 +156,7 @@ createTestServerState pool basePath = do
       , ssNamespacePid = namespacePid
       , ssPastaPid = pastaPid
       , ssSerialBuffers = serialBuffers
-      , ssGuestAgentLocks = gaLocks
+      , ssGuestAgentConns = gaLocks
       }
 
 --------------------------------------------------------------------------------

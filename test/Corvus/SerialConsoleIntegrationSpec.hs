@@ -48,7 +48,7 @@ spec :: Spec
 spec = withTestDb $ do
   describe "Serial Console Integration" $ do
     it "preserves output across reconnections" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
+      withTestVm env defaultVmConfig {vmcHeadless = True} $ \vm -> do
         let daemon = tvmDaemon vm
             state = tdState daemon
             qcfg = ssQemuConfig state
@@ -67,7 +67,7 @@ spec = withTestDb $ do
           pure ()
 
     it "captures output generated while disconnected" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
+      withTestVm env defaultVmConfig {vmcHeadless = True} $ \vm -> do
         let daemon = tvmDaemon vm
             state = tdState daemon
             qcfg = ssQemuConfig state
@@ -87,7 +87,7 @@ spec = withTestDb $ do
           pure ()
 
     it "RPC protocol upgrade works end-to-end" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
+      withTestVm env defaultVmConfig {vmcHeadless = True} $ \vm -> do
         let daemon = tvmDaemon vm
             vmName = T.pack (show (tvmId vm))
 
@@ -156,7 +156,7 @@ spec = withTestDb $ do
         deleteTestVm daemon vmId
 
     it "serial console works after VM reboot" $ \env -> do
-      withTestVm env defaultVmConfig $ \vm -> do
+      withTestVm env defaultVmConfig {vmcHeadless = True} $ \vm -> do
         let daemon = tvmDaemon vm
             state = tdState daemon
             qcfg = ssQemuConfig state
@@ -197,7 +197,7 @@ spec = withTestDb $ do
       withTestDaemon env $ \daemon -> do
         let state = tdState daemon
         -- Use withTestVmOnDaemon so we control the lifecycle
-        withTestVmOnDaemon daemon defaultVmConfig $ \vm -> do
+        withTestVmOnDaemon daemon defaultVmConfig {vmcHeadless = True} $ \vm -> do
           -- Verify buffer exists while VM is running
           bufMap1 <- readTVarIO (ssSerialBuffers state)
           Map.member (tvmId vm) bufMap1 `shouldBe` True

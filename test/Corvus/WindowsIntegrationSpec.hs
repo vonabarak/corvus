@@ -20,7 +20,7 @@ import Corvus.Client.Rpc (DiskResult (..), diskClone, diskCreateOverlay, diskReg
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), NetInterfaceType (..), VmStatus (..))
 import Corvus.Protocol (VmDetails (..))
 import Corvus.Qemu.GuestAgent (GuestOsInfo (..), guestGetOsInfo)
-import Corvus.Types (ssQemuConfig)
+import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
 import Data.Maybe (isJust)
 import qualified Data.Text as T
@@ -115,7 +115,8 @@ spec = withTestDb $ do
 
           -- Verify OS detection reports Windows
           let qcfg = ssQemuConfig (tdState daemon)
-          osInfo <- guestGetOsInfo qcfg vmId
+              gaConns = ssGuestAgentConns (tdState daemon)
+          osInfo <- guestGetOsInfo gaConns qcfg vmId
           case osInfo of
             Just info ->
               goiId info `shouldSatisfy` T.isPrefixOf "mswindows"
