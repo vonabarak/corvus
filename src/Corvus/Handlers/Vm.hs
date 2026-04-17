@@ -154,11 +154,11 @@ handleVmStartExecute state vmId parentTaskId = do
               -- Wait for guest agent if enabled (blocking)
               when (vmGuestAgent vm) $ do
                 logInfoN $ "Waiting for guest agent on VM " <> T.pack (show vmId)
-                liftIO $ waitForFirstPing (ssDbPool state) (ssQemuConfig state) vmId (ssLogLevel state)
+                liftIO $ waitForFirstPing (ssGuestAgentLocks state) (ssDbPool state) (ssQemuConfig state) vmId (ssLogLevel state)
               -- Start steady-state poller for ongoing healthchecks
               when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
                 liftIO $
-                  startGuestAgentPoller (ssDbPool state) (ssQemuConfig state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
+                  startGuestAgentPoller (ssGuestAgentLocks state) (ssDbPool state) (ssQemuConfig state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
               -- Return final status (Running, since we waited for agent)
               pure $ RespVmStateChanged VmRunning
             _ -> pure resp
@@ -293,7 +293,7 @@ initiateShutdown state vmId vm currentStatus = do
   if vmGuestAgent vm
     then do
       logDebugN $ "Sending guest-shutdown to VM " <> T.pack (show vmId)
-      ok <- liftIO $ guestShutdown (ssQemuConfig state) vmId
+      ok <- liftIO $ withGuestAgentLock (ssGuestAgentLocks state) vmId $ guestShutdown (ssQemuConfig state) vmId
       if ok
         then do
           logInfoN $ "VM " <> T.pack (show vmId) <> " guest-shutdown initiated"

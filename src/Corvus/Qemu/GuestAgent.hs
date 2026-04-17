@@ -10,6 +10,9 @@ module Corvus.Qemu.GuestAgent
   , GuestNetIf (..)
   , GuestOsInfo (..)
 
+    -- * Serialized access
+  , withGuestAgentLock
+
     -- * Commands
   , guestExec
   , guestPing
@@ -19,7 +22,8 @@ module Corvus.Qemu.GuestAgent
   )
 where
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (MVar, newMVar, threadDelay, withMVar)
+import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import Control.Exception (SomeException, try)
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Qmp (withUnixSocket)
@@ -32,6 +36,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -85,6 +90,29 @@ data GuestNetIf = GuestNetIf
   -- ^ All IP addresses on this interface
   }
   deriving (Eq, Show)
+
+-- | Serialize access to a VM's guest agent socket.
+-- QEMU's chardev listen backlog is 1, so concurrent connect() calls get
+-- EAGAIN ("resource exhausted"). This wrapper ensures at most one thread
+-- touches the QGA socket for a given VM at a time.
+withGuestAgentLock :: TVar (Map.Map Int64 (MVar ())) -> Int64 -> IO a -> IO a
+withGuestAgentLock locksVar vmId action = do
+  lock <- getOrCreateLock
+  withMVar lock $ const action
+  where
+    getOrCreateLock = do
+      mExisting <- atomically $ Map.lookup vmId <$> readTVar locksVar
+      case mExisting of
+        Just l -> pure l
+        Nothing -> do
+          newLock <- newMVar ()
+          atomically $ do
+            locks <- readTVar locksVar
+            case Map.lookup vmId locks of
+              Just existing -> pure existing -- another thread beat us
+              Nothing -> do
+                writeTVar locksVar (Map.insert vmId newLock locks)
+                pure newLock
 
 -- | Execute a command inside the guest via the QEMU Guest Agent.
 -- Detects the guest OS and uses the appropriate shell:

@@ -72,7 +72,7 @@ instance DefaultVmConfig VmConfig where
       , vmcSharedDirCache = CacheAuto
       , vmcSshUser = "corvus"
       , vmcAdditionalDisks = []
-      , vmcHeadless = True
+      , vmcHeadless = False
       , vmcNetworkId = Nothing
       , vmcPrebakedSshKey = Just prebakedSshKeyPath
       , vmcUefi = True

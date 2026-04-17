@@ -143,6 +143,7 @@ createTestServerState pool basePath = do
   namespacePid <- newTVarIO Nothing
   pastaPid <- newTVarIO Nothing
   serialBuffers <- newTVarIO mempty
+  gaLocks <- newTVarIO mempty
   logLevel <- getTestLogLevel
   pure
     ServerState
@@ -155,6 +156,7 @@ createTestServerState pool basePath = do
       , ssNamespacePid = namespacePid
       , ssPastaPid = pastaPid
       , ssSerialBuffers = serialBuffers
+      , ssGuestAgentLocks = gaLocks
       }
 
 --------------------------------------------------------------------------------

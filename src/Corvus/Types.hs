@@ -22,6 +22,7 @@ module Corvus.Types
   )
 where
 
+import Control.Concurrent (MVar)
 import Control.Concurrent.STM (TMVar, TVar, newTVarIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
 import Corvus.Qemu.Config (QemuConfig)
@@ -57,6 +58,11 @@ data ServerState = ServerState
   -- ^ PID of the pasta process (for NAT)
   , ssSerialBuffers :: TVar (Map.Map Int64 SerialBufferHandle)
   -- ^ Per-VM serial console ring buffers (headless VMs only)
+  , ssGuestAgentLocks :: TVar (Map.Map Int64 (MVar ()))
+  -- ^ Per-VM locks serializing guest agent socket access.
+  -- QEMU's chardev listen backlog is 1, so concurrent connect() calls
+  -- from the poller and guest-exec get EAGAIN. One MVar per VM ensures
+  -- at most one thread touches the QGA socket at a time.
   }
 
 -- | Create a new server state
@@ -68,6 +74,7 @@ newServerState pool qemuConfig = do
   namespacePid <- newTVarIO Nothing
   pastaPid <- newTVarIO Nothing
   serialBuffers <- newTVarIO Map.empty
+  gaLocks <- newTVarIO Map.empty
   pure
     ServerState
       { ssStartTime = startTime
@@ -79,6 +86,7 @@ newServerState pool qemuConfig = do
       , ssNamespacePid = namespacePid
       , ssPastaPid = pastaPid
       , ssSerialBuffers = serialBuffers
+      , ssGuestAgentLocks = gaLocks
       }
 
 --------------------------------------------------------------------------------

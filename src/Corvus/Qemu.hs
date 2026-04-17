@@ -56,6 +56,7 @@ module Corvus.Qemu
   , GuestExecResult (..)
   , GuestIpAddress (..)
   , GuestNetIf (..)
+  , withGuestAgentLock
   , guestExec
   , guestPing
   , guestShutdown
