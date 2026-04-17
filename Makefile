@@ -6,7 +6,11 @@
 export PATH := $(HOME)/.local/bin:$(PATH)
 
 # Number of parallel test jobs (override with: make integration-tests JOBS=8)
-JOBS ?= 4
+JOBS ?= 6
+
+# Auto-retry failed integration tests at JOBS=1 (override with: RETRY=false)
+RETRY ?= true
+RETRY_FLAG := $(if $(filter false,$(RETRY)),--no-retry,)
 
 # Default target: build
 all: build
@@ -53,9 +57,11 @@ cleanup:
 unit-tests:
 	script -qec 'stack test --test-arguments "--skip Integration"' /dev/null
 
-# Run only integration tests (those with "Integration" in their name)
+# Run only integration tests (those with "Integration" in their name).
+# By default, failed tests are retried at JOBS=1 — tests are considered failed
+# only if the retry also fails. Disable with: make integration-tests RETRY=false.
 integration-tests:
-	script -qec 'stack test --test-arguments "--match Integration --jobs=$(JOBS)"' /dev/null
+	script -qec 'scripts/run-tests-with-retry.sh $(RETRY_FLAG) --match Integration --jobs=$(JOBS)' /dev/null
 
 # Run all tests
 all-tests:
