@@ -25,7 +25,7 @@ cloudInitGenerateCommand =
 cloudInitSetCommand :: Parser Command
 cloudInitSetCommand =
   CloudInitSet
-    <$> argument str (metavar "VM" <> help "VM name or ID")
+    <$> argument str (metavar "VM" <> help "VM name or ID" <> completer vmCompleter)
     <*> optional
       ( argument
           str
@@ -37,17 +37,17 @@ cloudInitSetCommand =
 cloudInitEditCommand :: Parser Command
 cloudInitEditCommand =
   CloudInitEdit
-    <$> argument str (metavar "VM" <> help "VM name or ID")
+    <$> argument str (metavar "VM" <> help "VM name or ID" <> completer vmCompleter)
 
 cloudInitShowCommand :: Parser Command
 cloudInitShowCommand =
   CloudInitShow
-    <$> argument str (metavar "VM" <> help "VM name or ID")
+    <$> argument str (metavar "VM" <> help "VM name or ID" <> completer vmCompleter)
 
 cloudInitDeleteCommand :: Parser Command
 cloudInitDeleteCommand =
   CloudInitDelete
-    <$> argument str (metavar "VM" <> help "VM name or ID")
+    <$> argument str (metavar "VM" <> help "VM name or ID" <> completer vmCompleter)
 
 -- | Parser for cloud-init subcommands
 cloudInitCommandParser :: Parser Command
