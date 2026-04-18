@@ -3,6 +3,7 @@ module Corvus.Client.Types
   ( -- * Command line options
     Options (..)
   , Command (..)
+  , BorderStyleOpt (..)
 
     -- * Output format
   , OutputFormat (..)
@@ -39,9 +40,19 @@ data Options = Options
   , optHost :: String
   , optPort :: Int
   , optOutput :: OutputFormat
+  , optBorders :: !BorderStyleOpt
+  , optTruncate :: !Bool
+  , optColumns :: ![String]
+  , optFitWidth :: !Bool
   , optCommand :: Command
   }
   deriving (Show)
+
+-- | Border style for table output. The client parser translates this into
+-- 'Corvus.Client.Output.BorderStyle'; we keep them separate to avoid pulling
+-- Output into Types (which is imported by the parser).
+data BorderStyleOpt = BordersUnicodeOpt | BordersAsciiOpt | BordersNoneOpt
+  deriving (Show, Eq)
 
 -- | Available commands
 data Command

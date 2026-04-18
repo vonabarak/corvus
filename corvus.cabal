@@ -133,6 +133,7 @@ library
   build-depends:
       aeson
     , aeson-qq
+    , ansi-terminal
     , async
     , base >=4.7 && <5
     , base64-bytestring
@@ -193,6 +194,7 @@ executable corvus
   build-depends:
       aeson
     , aeson-qq
+    , ansi-terminal
     , async
     , base >=4.7 && <5
     , base64-bytestring
@@ -254,6 +256,7 @@ executable crv
   build-depends:
       aeson
     , aeson-qq
+    , ansi-terminal
     , async
     , base >=4.7 && <5
     , base64-bytestring
@@ -368,6 +371,7 @@ test-suite corvus-test
       QuickCheck
     , aeson
     , aeson-qq
+    , ansi-terminal
     , async
     , base >=4.7 && <5
     , base64-bytestring

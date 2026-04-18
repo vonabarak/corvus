@@ -13,7 +13,7 @@ module Corvus.Client.Commands.NetIf
 where
 
 import Corvus.Client.Connection
-import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTableHeader)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), NetInterfaceType)
@@ -22,7 +22,6 @@ import Data.Aeson (toJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Text.Printf (printf)
 
 -- | Parse network interface type string to NetInterfaceType
 parseNetInterfaceType :: Text -> Either Text NetInterfaceType
@@ -83,8 +82,8 @@ handleNetIfRemove fmt conn vmRef netIfId = do
       pure False
 
 -- | Handle network interface list command
-handleNetIfList :: OutputFormat -> Connection -> Text -> IO Bool
-handleNetIfList fmt conn vmRef = do
+handleNetIfList :: OutputFormat -> TableOpts -> Connection -> Text -> IO Bool
+handleNetIfList fmt tableOpts conn vmRef = do
   resp <- netIfList conn vmRef
   case resp of
     Left err -> do
@@ -94,9 +93,7 @@ handleNetIfList fmt conn vmRef = do
       emitResult fmt netIfs $
         if null netIfs
           then putStrLn "No network interfaces found for this VM."
-          else do
-            printTableHeader [("ID", -5), ("TYPE", -15), ("DEVICE", -20), ("MAC", -20), ("GUEST_IPS", -20)]
-            mapM_ printNetIfInfo netIfs
+          else printTable tableOpts netIfColumns netIfs
       pure True
     Right NetIfVmNotFound -> do
       emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
@@ -109,13 +106,12 @@ handleNetIfList fmt conn vmRef = do
           "Unexpected response: " ++ show other
       pure False
 
--- | Print network interface info
-printNetIfInfo :: NetIfInfo -> IO ()
-printNetIfInfo info =
-  printf
-    "%-5d %-15s %-20s %-20s  %s\n"
-    (niId info)
-    (T.unpack $ enumToText $ niType info)
-    (T.unpack $ niHostDevice info)
-    (T.unpack $ niMacAddress info)
-    (maybe "" T.unpack (niGuestIpAddresses info))
+-- | Column definitions for the @net-if list@ table.
+netIfColumns :: [Column NetIfInfo]
+netIfColumns =
+  [ Column "ID" RightAlign Nothing (show . niId)
+  , Column "TYPE" LeftAlign Nothing (T.unpack . enumToText . niType)
+  , Column "DEVICE" LeftAlign (Just 30) (T.unpack . niHostDevice)
+  , Column "MAC" LeftAlign Nothing (T.unpack . niMacAddress)
+  , Column "GUEST_IPS" LeftAlign (Just 40) (maybe "" T.unpack . niGuestIpAddresses)
+  ]

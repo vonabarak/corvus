@@ -32,14 +32,14 @@ module Corvus.Client.Commands.Disk
   , parseMedia
 
     -- * Formatters
-  , printDiskInfo
-  , printSnapshotInfo
+  , diskColumns
+  , snapshotColumns
   )
 where
 
 import Control.Monad (unless, when)
 import Corvus.Client.Connection
-import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitResult, emitRpcError, isStructured, printField, printTableHeader)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, isStructured, printField, printTable)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat (..), DriveInterface, DriveMedia, EnumText (..))
@@ -53,7 +53,6 @@ import Data.Time (defaultTimeLocale, formatTime)
 import System.Directory (canonicalizePath, doesFileExist)
 import System.Environment (lookupEnv)
 import System.FilePath (makeRelative, (</>))
-import Text.Printf (printf)
 
 --------------------------------------------------------------------------------
 -- Parsers
@@ -281,8 +280,8 @@ handleDiskResize fmt conn diskRef newSizeMb = do
       pure False
 
 -- | Handle disk list command
-handleDiskList :: OutputFormat -> Connection -> IO Bool
-handleDiskList fmt conn = do
+handleDiskList :: OutputFormat -> TableOpts -> Connection -> IO Bool
+handleDiskList fmt tableOpts conn = do
   resp <- diskList conn
   case resp of
     Left err -> do
@@ -292,9 +291,7 @@ handleDiskList fmt conn = do
       emitResult fmt disks $
         if null disks
           then putStrLn "No disk images found."
-          else do
-            printTableHeader [("ID", -6), ("NAME", -20), ("FORMAT", -8), ("SIZE_MB", 10), ("ATTACHED_TO", -20)]
-            mapM_ printDiskInfo disks
+          else printTable tableOpts diskColumns disks
       pure True
     Right other -> do
       emitError fmt "unexpected" (T.pack $ show other) $
@@ -620,8 +617,8 @@ handleSnapshotMerge fmt conn diskRef snapshotRef = do
       pure False
 
 -- | Handle snapshot list command
-handleSnapshotList :: OutputFormat -> Connection -> Text -> IO Bool
-handleSnapshotList fmt conn diskRef = do
+handleSnapshotList :: OutputFormat -> TableOpts -> Connection -> Text -> IO Bool
+handleSnapshotList fmt tableOpts conn diskRef = do
   resp <- snapshotList conn diskRef
   case resp of
     Left err -> do
@@ -631,9 +628,7 @@ handleSnapshotList fmt conn diskRef = do
       emitResult fmt snaps $
         if null snaps
           then putStrLn "No snapshots found."
-          else do
-            printTableHeader [("ID", -6), ("NAME", -30), ("CREATED", -20), ("SIZE_MB", 10)]
-            mapM_ printSnapshotInfo snaps
+          else printTable tableOpts snapshotColumns snaps
       pure True
     Right SnapshotDiskNotFound -> do
       emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
@@ -650,17 +645,19 @@ handleSnapshotList fmt conn diskRef = do
 -- Printers
 --------------------------------------------------------------------------------
 
--- | Print disk image info in table format
-printDiskInfo :: DiskImageInfo -> IO ()
-printDiskInfo d =
-  putStrLn $
-    printf
-      "%-6d %-20s %-8s %10s %-20s"
-      (diiId d)
-      (T.unpack $ diiName d)
-      (T.unpack $ enumToText $ diiFormat d)
-      (maybe "-" show $ diiSizeMb d)
-      (if null (diiAttachedTo d) then "-" else T.unpack (T.intercalate ", " (map snd (diiAttachedTo d))))
+-- | Column definitions for the @disk list@ table.
+diskColumns :: [Column DiskImageInfo]
+diskColumns =
+  [ Column "ID" RightAlign Nothing (show . diiId)
+  , Column "NAME" LeftAlign (Just 40) (T.unpack . diiName)
+  , Column "FORMAT" LeftAlign Nothing (T.unpack . enumToText . diiFormat)
+  , Column "SIZE_MB" RightAlign Nothing (maybe "-" show . diiSizeMb)
+  , Column "ATTACHED_TO" LeftAlign (Just 40) formatAttached
+  ]
+  where
+    formatAttached d
+      | null (diiAttachedTo d) = "-"
+      | otherwise = T.unpack (T.intercalate ", " (map snd (diiAttachedTo d)))
 
 -- | Print disk image details
 printDiskDetails :: DiskImageInfo -> IO ()
@@ -678,12 +675,11 @@ printDiskDetails d = do
       printField "Backing" (T.unpack backingName ++ " (ID: " ++ maybe "?" show (diiBackingImageId d) ++ ")")
 
 -- | Print snapshot info in table format
-printSnapshotInfo :: SnapshotInfo -> IO ()
-printSnapshotInfo s =
-  putStrLn $
-    printf
-      "%-6d %-30s %-20s %10s"
-      (sniId s)
-      (T.unpack $ sniName s)
-      (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (sniCreatedAt s))
-      (maybe "-" show $ sniSizeMb s)
+-- | Column definitions for the @disk snapshot list@ table.
+snapshotColumns :: [Column SnapshotInfo]
+snapshotColumns =
+  [ Column "ID" RightAlign Nothing (show . sniId)
+  , Column "NAME" LeftAlign (Just 40) (T.unpack . sniName)
+  , Column "CREATED" LeftAlign Nothing (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . sniCreatedAt)
+  , Column "SIZE_MB" RightAlign Nothing (maybe "-" show . sniSizeMb)
+  ]

@@ -11,19 +11,18 @@ module Corvus.Client.Commands.SshKey
   , handleSshKeyListForVm
 
     -- * Formatters
-  , printSshKeyInfo
+  , sshKeyColumns
   )
 where
 
 import Corvus.Client.Connection
-import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTableHeader)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Protocol (SshKeyInfo (..))
 import Data.Aeson (toJSON)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Text.Printf (printf)
 
 -- | Handle ssh-key create command
 handleSshKeyCreate :: OutputFormat -> Connection -> Text -> Text -> IO Bool
@@ -76,8 +75,8 @@ handleSshKeyDelete fmt conn keyRef = do
       pure False
 
 -- | Handle ssh-key list command
-handleSshKeyList :: OutputFormat -> Connection -> IO Bool
-handleSshKeyList fmt conn = do
+handleSshKeyList :: OutputFormat -> TableOpts -> Connection -> IO Bool
+handleSshKeyList fmt tableOpts conn = do
   resp <- sshKeyList conn
   case resp of
     Left err -> do
@@ -87,9 +86,7 @@ handleSshKeyList fmt conn = do
       emitResult fmt keys $
         if null keys
           then putStrLn "No SSH keys found."
-          else do
-            printTableHeader [("ID", -6), ("NAME", -20), ("PUBLIC_KEY", -50), ("ATTACHED_VMS", -15)]
-            mapM_ printSshKeyInfo keys
+          else printTable tableOpts sshKeyColumns keys
       pure True
     Right other -> do
       emitError fmt "unexpected" (T.pack $ show other) $
@@ -158,20 +155,19 @@ handleSshKeyDetach fmt conn vmRef keyRef = do
       pure False
 
 -- | Handle ssh-key list-vm command
-handleSshKeyListForVm :: OutputFormat -> Connection -> Text -> IO Bool
-handleSshKeyListForVm fmt conn vmRef = do
+handleSshKeyListForVm :: OutputFormat -> TableOpts -> Connection -> Text -> IO Bool
+handleSshKeyListForVm fmt tableOpts conn vmRef = do
   resp <- sshKeyListForVm conn vmRef
   case resp of
     Left err -> do
       emitRpcError fmt err
       pure False
     Right (SshKeyListResult keys) -> do
+      -- Short view: drop the ATTACHED_VMS column (always empty in this context).
       emitResult fmt keys $
         if null keys
           then putStrLn "No SSH keys attached to this VM."
-          else do
-            printTableHeader [("ID", -6), ("NAME", -20), ("PUBLIC_KEY", -50)]
-            mapM_ printSshKeyInfoShort keys
+          else printTable tableOpts (filter (\c -> colName c /= "ATTACHED_VMS") sshKeyColumns) keys
       pure True
     Right SshKeyVmNotFound -> do
       emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
@@ -188,31 +184,15 @@ handleSshKeyListForVm fmt conn vmRef = do
 -- Printers
 --------------------------------------------------------------------------------
 
--- | Print SSH key info in table format
-printSshKeyInfo :: SshKeyInfo -> IO ()
-printSshKeyInfo k =
-  putStrLn $
-    printf
-      "%-6d %-20s %-50s %-15s"
-      (skiId k)
-      (T.unpack $ skiName k)
-      (truncateKey 50 $ skiPublicKey k)
-      (if null (skiAttachedVms k) then "-" else T.unpack (T.intercalate ", " (map snd (skiAttachedVms k))))
-
--- | Print SSH key info without attached VMs column
-printSshKeyInfoShort :: SshKeyInfo -> IO ()
-printSshKeyInfoShort k =
-  putStrLn $
-    printf
-      "%-6d %-20s %-50s"
-      (skiId k)
-      (T.unpack $ skiName k)
-      (truncateKey 50 $ skiPublicKey k)
-
--- | Truncate SSH public key for display
-truncateKey :: Int -> Text -> String
-truncateKey maxLen key =
-  let keyStr = T.unpack key
-   in if length keyStr > maxLen
-        then take (maxLen - 3) keyStr ++ "..."
-        else keyStr
+-- | Column definitions for the @ssh-key list@ table.
+sshKeyColumns :: [Column SshKeyInfo]
+sshKeyColumns =
+  [ Column "ID" RightAlign Nothing (show . skiId)
+  , Column "NAME" LeftAlign (Just 30) (T.unpack . skiName)
+  , Column "PUBLIC_KEY" LeftAlign (Just 50) (T.unpack . skiPublicKey)
+  , Column "ATTACHED_VMS" LeftAlign (Just 30) formatAttached
+  ]
+  where
+    formatAttached k
+      | null (skiAttachedVms k) = "-"
+      | otherwise = T.unpack (T.intercalate ", " (map snd (skiAttachedVms k)))

@@ -11,7 +11,7 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Monad (unless)
 import Corvus.Client.Connection (Connection)
-import Corvus.Client.Output (emitError, emitResult, emitRpcError, isStructured)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitResult, emitRpcError, isStructured, printTable)
 import Corvus.Client.Rpc (taskList, taskListChildren, taskShow)
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), TaskResult (..), TaskSubsystem)
@@ -25,8 +25,8 @@ import System.IO (hFlush, hPutStr, stderr, stdout)
 import Text.Printf (printf)
 
 -- | Handle task list command
-handleTaskList :: OutputFormat -> Connection -> Int -> Maybe Text -> Maybe Text -> Bool -> IO Bool
-handleTaskList fmt conn limit mSubStr mResultStr includeSubtasks = do
+handleTaskList :: OutputFormat -> TableOpts -> Connection -> Int -> Maybe Text -> Maybe Text -> Bool -> IO Bool
+handleTaskList fmt tableOpts conn limit mSubStr mResultStr includeSubtasks = do
   let mSub = mSubStr >>= eitherToMaybe . enumFromText
       mResult = mResultStr >>= eitherToMaybe . enumFromText
   resp <- taskList conn limit mSub mResult includeSubtasks
@@ -39,20 +39,8 @@ handleTaskList fmt conn limit mSubStr mResultStr includeSubtasks = do
         if null tasks
           then putStrLn "No tasks found."
           else do
-            putStrLn $
-              printf
-                "%-6s %-10s %-18s %-22s %-8s %-20s %-10s %s"
-                ("ID" :: String)
-                ("SUBSYSTEM" :: String)
-                ("COMMAND" :: String)
-                ("ENTITY" :: String)
-                ("RESULT" :: String)
-                ("STARTED" :: String)
-                ("DURATION" :: String)
-                ("MESSAGE" :: String)
-            putStrLn $ replicate 116 '-'
             now <- getCurrentTime
-            mapM_ (printTaskRow now) tasks
+            printTable tableOpts (taskColumns now) tasks
       pure True
 
 -- | Handle task show command
@@ -197,19 +185,18 @@ printCompletionMessage taskId info =
       ++ maybe "" (\n -> " " ++ T.unpack n) (tiEntityName info)
       ++ maybe "" (\m -> ": " ++ T.unpack m) (tiMessage info)
 
-printTaskRow :: UTCTime -> TaskInfo -> IO ()
-printTaskRow now info =
-  putStrLn $
-    printf
-      "%-6d %-10s %-18s %-22s %-8s %-20s %-10s %s"
-      (tiId info)
-      (T.unpack $ enumToText $ tiSubsystem info)
-      (T.unpack $ tiCommand info)
-      (entityLabel info)
-      (T.unpack $ enumToText $ tiResult info)
-      (formatTimestamp $ tiStartedAt info)
-      (durationLabel now info)
-      (T.unpack $ fromMaybe "-" $ tiMessage info)
+-- | Column definitions for the @task list@ table.
+taskColumns :: UTCTime -> [Column TaskInfo]
+taskColumns now =
+  [ Column "ID" RightAlign Nothing (show . tiId)
+  , Column "SUBSYSTEM" LeftAlign Nothing (T.unpack . enumToText . tiSubsystem)
+  , Column "COMMAND" LeftAlign (Just 25) (T.unpack . tiCommand)
+  , Column "ENTITY" LeftAlign (Just 30) entityLabel
+  , Column "RESULT" LeftAlign Nothing (T.unpack . enumToText . tiResult)
+  , Column "STARTED" LeftAlign Nothing (formatTimestamp . tiStartedAt)
+  , Column "DURATION" RightAlign Nothing (durationLabel now)
+  , Column "MESSAGE" LeftAlign (Just 50) (T.unpack . fromMaybe "-" . tiMessage)
+  ]
 
 printSubtaskRow :: UTCTime -> TaskInfo -> IO ()
 printSubtaskRow now info =

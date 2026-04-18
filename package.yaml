@@ -40,6 +40,7 @@ dependencies:
   - base64-bytestring
   - containers
   - temporary
+  - ansi-terminal
 
 default-extensions:
   - OverloadedStrings

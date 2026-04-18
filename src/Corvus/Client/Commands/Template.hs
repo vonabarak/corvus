@@ -11,7 +11,7 @@ module Corvus.Client.Commands.Template
   , handleTemplateInstantiate
 
     -- * Formatters
-  , printTemplateVmInfo
+  , templateVmColumns
   , printTemplateDetails
   )
 where
@@ -20,7 +20,7 @@ import Control.Monad (forM_)
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
 import Corvus.Client.Connection
 import Corvus.Client.Editor (editInEditor)
-import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitResult, emitRpcError, printField, printTableHeader, tableFormat)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printField, printTable, tableFormat)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..))
@@ -158,8 +158,8 @@ handleTemplateDelete fmt conn tid = do
       pure False
 
 -- | Handle template list command
-handleTemplateList :: OutputFormat -> Connection -> IO Bool
-handleTemplateList fmt conn = do
+handleTemplateList :: OutputFormat -> TableOpts -> Connection -> IO Bool
+handleTemplateList fmt tableOpts conn = do
   resp <- templateList conn
   case resp of
     Left err -> do
@@ -169,9 +169,7 @@ handleTemplateList fmt conn = do
       emitResult fmt templates $
         if null templates
           then putStrLn "No templates found."
-          else do
-            printTableHeader [("ID", -6), ("NAME", -30), ("CPUS", -6), ("RAM_MB", -8)]
-            mapM_ printTemplateVmInfo templates
+          else printTable tableOpts templateVmColumns templates
       pure True
     Right other -> do
       emitError fmt "unexpected" (T.pack $ show other) $
@@ -231,16 +229,14 @@ handleTemplateInstantiate fmt conn tid name = do
 -- Printers
 --------------------------------------------------------------------------------
 
--- | Print template VM info in list view
-printTemplateVmInfo :: TemplateVmInfo -> IO ()
-printTemplateVmInfo t =
-  putStrLn $
-    printf
-      "%-6d %-30s %-6d %-8d"
-      (tviId t)
-      (T.unpack $ tviName t)
-      (tviCpuCount t)
-      (tviRamMb t)
+-- | Column definitions for the @template list@ table.
+templateVmColumns :: [Column TemplateVmInfo]
+templateVmColumns =
+  [ Column "ID" RightAlign Nothing (show . tviId)
+  , Column "NAME" LeftAlign (Just 40) (T.unpack . tviName)
+  , Column "CPUS" RightAlign Nothing (show . tviCpuCount)
+  , Column "RAM_MB" RightAlign Nothing (show . tviRamMb)
+  ]
 
 -- | Print full template details
 printTemplateDetails :: TemplateDetails -> IO ()

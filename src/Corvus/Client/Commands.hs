@@ -9,12 +9,12 @@ module Corvus.Client.Commands
 
     -- * Re-exported formatters
   , formatUptime
-  , printVmInfo
+  , vmColumns
   , printVmDetails
-  , printDiskInfo
-  , printSnapshotInfo
-  , printSshKeyInfo
-  , printTemplateVmInfo
+  , diskColumns
+  , snapshotColumns
+  , sshKeyColumns
+  , templateVmColumns
   , printTemplateDetails
   )
 where
@@ -64,6 +64,7 @@ getListenAddress opts
 runCommand :: Options -> IO ()
 runCommand opts = do
   let fmt = optOutput opts
+      tableOpts = tableOptsFromOptions opts
   -- Handle completion command before establishing daemon connection
   case optCommand opts of
     Completion shell -> handleCompletion shell
@@ -120,9 +121,7 @@ runCommand opts = do
                 then putStrLn "No VMs found."
                 else do
                   now <- getCurrentTime
-                  let vmCols = [("ID", -6), ("NAME", -20), ("STATUS", -12), ("CPUS", 5), ("RAM_MB", 8), ("HEALTH", -6), ("CI", -2), ("AS", -2)]
-                  printTableHeader vmCols
-                  mapM_ (printVmInfo now) vms
+                  printTable tableOpts (vmColumns now) vms
             pure True
       VmShow vmRef -> do
         resp <- showVm conn vmRef
@@ -242,7 +241,7 @@ runCommand opts = do
       DiskRefresh diskRef -> handleDiskRefresh fmt conn diskRef
       DiskDelete diskRef -> handleDiskDelete fmt conn diskRef
       DiskResize diskRef newSizeMb -> handleDiskResize fmt conn diskRef newSizeMb
-      DiskList -> handleDiskList fmt conn
+      DiskList -> handleDiskList fmt tableOpts conn
       DiskShow diskRef -> handleDiskShow fmt conn diskRef
       DiskClone name baseDiskRef optionalPath -> handleDiskClone fmt conn name baseDiskRef optionalPath
       DiskRebase diskRef mNewBacking unsafe -> handleDiskRebase fmt conn diskRef mNewBacking unsafe
@@ -273,7 +272,7 @@ runCommand opts = do
             pure False
           Right cache -> handleSharedDirAdd fmt conn vmRef path tag cache readOnly
       SharedDirRemove vmRef sharedDirRef -> handleSharedDirRemove fmt conn vmRef sharedDirRef
-      SharedDirList vmRef -> handleSharedDirList fmt conn vmRef
+      SharedDirList vmRef -> handleSharedDirList fmt tableOpts conn vmRef
       -- Network interface commands
       NetIfAdd vmRef ifaceTypeStr hostDevice macAddress mNetworkRef -> do
         case parseNetInterfaceType ifaceTypeStr of
@@ -282,24 +281,24 @@ runCommand opts = do
             pure False
           Right ifaceType -> handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef
       NetIfRemove vmRef netIfId -> handleNetIfRemove fmt conn vmRef netIfId
-      NetIfList vmRef -> handleNetIfList fmt conn vmRef
+      NetIfList vmRef -> handleNetIfList fmt tableOpts conn vmRef
       -- Snapshot commands
       SnapshotCreate diskRef name -> handleSnapshotCreate fmt conn diskRef name
       SnapshotDelete diskRef snapshotRef -> handleSnapshotDelete fmt conn diskRef snapshotRef
       SnapshotRollback diskRef snapshotRef -> handleSnapshotRollback fmt conn diskRef snapshotRef
       SnapshotMerge diskRef snapshotRef -> handleSnapshotMerge fmt conn diskRef snapshotRef
-      SnapshotList diskRef -> handleSnapshotList fmt conn diskRef
+      SnapshotList diskRef -> handleSnapshotList fmt tableOpts conn diskRef
       -- SSH key commands
       SshKeyCreate name publicKey -> handleSshKeyCreate fmt conn name publicKey
       SshKeyDelete keyRef -> handleSshKeyDelete fmt conn keyRef
-      SshKeyList -> handleSshKeyList fmt conn
+      SshKeyList -> handleSshKeyList fmt tableOpts conn
       SshKeyAttach vmRef keyRef -> handleSshKeyAttach fmt conn vmRef keyRef
       SshKeyDetach vmRef keyRef -> handleSshKeyDetach fmt conn vmRef keyRef
-      SshKeyListForVm vmRef -> handleSshKeyListForVm fmt conn vmRef
+      SshKeyListForVm vmRef -> handleSshKeyListForVm fmt tableOpts conn vmRef
       TemplateCreate mPath -> handleTemplateCreate fmt conn mPath
       TemplateEdit tRef -> handleTemplateEdit fmt conn tRef
       TemplateDelete tRef -> handleTemplateDelete fmt conn tRef
-      TemplateList -> handleTemplateList fmt conn
+      TemplateList -> handleTemplateList fmt tableOpts conn
       TemplateShow tRef -> handleTemplateShow fmt conn tRef
       TemplateInstantiate tRef name -> handleTemplateInstantiate fmt conn tRef name
       -- Network commands
@@ -307,7 +306,7 @@ runCommand opts = do
       NetworkDelete nwRef -> handleNetworkDelete fmt conn nwRef
       NetworkStart nwRef -> handleNetworkStart fmt conn nwRef
       NetworkStop nwRef force -> handleNetworkStop fmt conn nwRef force
-      NetworkList -> handleNetworkList fmt conn
+      NetworkList -> handleNetworkList fmt tableOpts conn
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
       NetworkEdit nwRef mSubnet mDhcp mNat mAutostart -> handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart
       -- Cloud-init config
@@ -319,7 +318,7 @@ runCommand opts = do
       -- Apply
       Apply path skipExisting waitOpts -> handleApply fmt conn path skipExisting waitOpts
       -- Task history
-      TaskList limit mSub mResult inclSub -> handleTaskList fmt conn limit mSub mResult inclSub
+      TaskList limit mSub mResult inclSub -> handleTaskList fmt tableOpts conn limit mSub mResult inclSub
       TaskShow taskId -> handleTaskShow fmt conn taskId
       TaskWait taskId mTimeout -> handleTaskWait fmt conn taskId mTimeout
       -- Namespace exec

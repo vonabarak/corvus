@@ -21,7 +21,6 @@ import Corvus.Protocol (NetworkInfo (..))
 import Data.Aeson (toJSON)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Text.Printf (printf)
 
 -- | Handle network create command
 handleNetworkCreate :: OutputFormat -> Connection -> Text -> Text -> Bool -> Bool -> Bool -> IO Bool
@@ -134,8 +133,8 @@ handleNetworkStop fmt conn nwRef force = do
       pure False
 
 -- | Handle network list command
-handleNetworkList :: OutputFormat -> Connection -> IO Bool
-handleNetworkList fmt conn = do
+handleNetworkList :: OutputFormat -> TableOpts -> Connection -> IO Bool
+handleNetworkList fmt tableOpts conn = do
   resp <- networkList conn
   case resp of
     Left err -> do
@@ -145,9 +144,7 @@ handleNetworkList fmt conn = do
       emitResult fmt networks $
         if null networks
           then putStrLn "No networks found."
-          else do
-            printTableHeader [("ID", -5), ("NAME", -20), ("SUBNET", -18), ("DHCP", -6), ("NAT", -5), ("STATUS", -10), ("AS", -3)]
-            mapM_ printNetworkInfo networks
+          else printTable tableOpts networkColumns networks
       pure True
     Right other -> do
       emitError fmt "unexpected" (T.pack $ show other) $
@@ -190,17 +187,17 @@ handleNetworkShow fmt conn nwRef = do
       pure False
 
 -- | Print a network info row
-printNetworkInfo :: NetworkInfo -> IO ()
-printNetworkInfo info =
-  printf
-    "%-5d %-20s %-18s %-6s %-5s %-10s %-3s\n"
-    (nwiId info)
-    (T.unpack $ nwiName info)
-    (let s = nwiSubnet info in if T.null s then "-" :: String else T.unpack s)
-    (if nwiDhcp info then "yes" :: String else "no")
-    (if nwiNat info then "yes" :: String else "no")
-    (if nwiRunning info then "running" :: String else "stopped")
-    (if nwiAutostart info then "+" :: String else "-")
+-- | Column definitions for the @network list@ table.
+networkColumns :: [Column NetworkInfo]
+networkColumns =
+  [ Column "ID" RightAlign Nothing (show . nwiId)
+  , Column "NAME" LeftAlign (Just 30) (T.unpack . nwiName)
+  , Column "SUBNET" LeftAlign Nothing (\i -> let s = nwiSubnet i in if T.null s then "-" else T.unpack s)
+  , Column "DHCP" LeftAlign Nothing (\i -> if nwiDhcp i then "yes" else "no")
+  , Column "NAT" LeftAlign Nothing (\i -> if nwiNat i then "yes" else "no")
+  , Column "STATUS" LeftAlign Nothing (\i -> if nwiRunning i then "running" else "stopped")
+  , Column "AS" LeftAlign Nothing (\i -> if nwiAutostart i then "+" else "-")
+  ]
 
 -- | Handle network edit command
 handleNetworkEdit :: OutputFormat -> Connection -> Text -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool

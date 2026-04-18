@@ -156,7 +156,54 @@ optionsParser =
           <> help "Port to connect to when using --tcp (default: 9876)"
       )
     <*> outputFormatParser
+    <*> bordersParser
+    <*> (not <$> switch (long "no-truncate" <> help "Print full values in table cells instead of truncating with ellipsis (useful for piping to awk/sed)"))
+    <*> columnsParser
+    <*> (not <$> switch (long "no-fit" <> help "Don't shrink table columns to fit the terminal width"))
     <*> commandParser
+
+-- | Parser for --borders and --no-borders flags.
+bordersParser :: Parser BorderStyleOpt
+bordersParser =
+  option
+    readBorderStyle
+    ( long "borders"
+        <> metavar "STYLE"
+        <> value BordersUnicodeOpt
+        <> help "Table border style: unicode, ascii, none (default: unicode)"
+        <> completeWith ["unicode", "ascii", "none"]
+    )
+    <|> flag' BordersNoneOpt (long "no-borders" <> help "Disable table borders (shorthand for --borders=none)")
+
+-- | Reader for border style values
+readBorderStyle :: ReadM BorderStyleOpt
+readBorderStyle = eitherReader $ \s -> case map toLower s of
+  "unicode" -> Right BordersUnicodeOpt
+  "ascii" -> Right BordersAsciiOpt
+  "none" -> Right BordersNoneOpt
+  _ -> Left $ "Unknown border style: " ++ s ++ " (use unicode, ascii, or none)"
+
+-- | Parser for --columns flag.
+columnsParser :: Parser [String]
+columnsParser =
+  option
+    (splitOn ',' <$> str)
+    ( long "columns"
+        <> metavar "COLS"
+        <> value []
+        <> help "Comma-separated column names to show in list output (e.g. --columns id,name). Default: all columns."
+    )
+
+-- | Split a string on a delimiter, filtering out empties.
+splitOn :: Char -> String -> [String]
+splitOn delim s = filter (not . null) (go s)
+  where
+    go [] = [""]
+    go (c : rest)
+      | c == delim = "" : go rest
+      | otherwise = case go rest of
+          (h : t) -> (c : h) : t
+          [] -> [[c]]
 
 -- | Parser for output format
 outputFormatParser :: Parser OutputFormat

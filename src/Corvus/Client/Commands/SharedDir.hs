@@ -13,7 +13,7 @@ module Corvus.Client.Commands.SharedDir
 where
 
 import Corvus.Client.Connection
-import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTableHeader)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..))
 import Corvus.Model (EnumText (..), SharedDirCache)
@@ -21,7 +21,6 @@ import Corvus.Protocol (SharedDirInfo (..))
 import Data.Aeson (toJSON)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Text.Printf (printf)
 
 -- | Parse shared directory cache string to SharedDirCache
 parseSharedDirCache :: Text -> Either Text SharedDirCache
@@ -86,8 +85,8 @@ handleSharedDirRemove fmt conn vmRef sharedDirRef = do
       pure False
 
 -- | Handle shared directory list command
-handleSharedDirList :: OutputFormat -> Connection -> Text -> IO Bool
-handleSharedDirList fmt conn vmRef = do
+handleSharedDirList :: OutputFormat -> TableOpts -> Connection -> Text -> IO Bool
+handleSharedDirList fmt tableOpts conn vmRef = do
   resp <- sharedDirList conn vmRef
   case resp of
     Left err -> do
@@ -97,9 +96,7 @@ handleSharedDirList fmt conn vmRef = do
       emitResult fmt dirs $
         if null dirs
           then putStrLn "No shared directories found for this VM."
-          else do
-            printTableHeader [("ID", -5), ("PATH", -40), ("TAG", -15), ("CACHE", -10), ("READ_ONLY", -10), ("PID", -10)]
-            mapM_ printSharedDirInfo dirs
+          else printTable tableOpts sharedDirColumns dirs
       pure True
     Right SharedDirVmNotFound -> do
       emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
@@ -112,14 +109,13 @@ handleSharedDirList fmt conn vmRef = do
           "Unexpected response: " ++ show other
       pure False
 
--- | Print shared directory info
-printSharedDirInfo :: SharedDirInfo -> IO ()
-printSharedDirInfo info =
-  printf
-    "%-5d %-40s %-15s %-10s %-10s %-10s\n"
-    (sdiId info)
-    (T.unpack $ sdiPath info)
-    (T.unpack $ sdiTag info)
-    (T.unpack $ enumToText $ sdiCache info)
-    (show $ sdiReadOnly info)
-    (maybe "-" show $ sdiPid info)
+-- | Column definitions for the @shared-dir list@ table.
+sharedDirColumns :: [Column SharedDirInfo]
+sharedDirColumns =
+  [ Column "ID" RightAlign Nothing (show . sdiId)
+  , Column "PATH" LeftAlign (Just 50) (T.unpack . sdiPath)
+  , Column "TAG" LeftAlign (Just 20) (T.unpack . sdiTag)
+  , Column "CACHE" LeftAlign Nothing (T.unpack . enumToText . sdiCache)
+  , Column "READ_ONLY" LeftAlign Nothing (show . sdiReadOnly)
+  , Column "PID" RightAlign Nothing (maybe "-" show . sdiPid)
+  ]

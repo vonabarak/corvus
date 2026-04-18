@@ -20,7 +20,7 @@ module Corvus.Client.Commands.Vm
   , runRawTerminalSession
 
     -- * Formatters
-  , printVmInfo
+  , vmColumns
   , printVmDetails
   , formatUptime
   )
@@ -32,7 +32,7 @@ import Control.Exception (SomeException, bracket, try)
 import Control.Monad (unless, when)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
-import Corvus.Client.Output (emitError, emitOk, emitOkWith, emitRpcError, isStructured, printField, tableFormat)
+import Corvus.Client.Output (Align (..), Column (..), emitError, emitOk, emitOkWith, emitRpcError, isStructured, printField)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
@@ -204,20 +204,18 @@ handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mA
           "Failed to edit VM: " ++ T.unpack msg
       pure False
 
--- | Print VM info in table format
-printVmInfo :: UTCTime -> VmInfo -> IO ()
-printVmInfo now vm =
-  putStrLn $
-    printf
-      "%-6d %-20s %-12s %5d %8d  %-6s %-2s %-2s"
-      (viId vm)
-      (T.unpack $ viName vm)
-      (T.unpack $ enumToText $ viStatus vm)
-      (viCpuCount vm)
-      (viRamMb vm)
-      (healthLabel now vm)
-      (if viCloudInit vm then "+" else "-" :: String)
-      (if viAutostart vm then "+" else "-" :: String)
+-- | Column definitions for the @vm list@ table.
+vmColumns :: UTCTime -> [Column VmInfo]
+vmColumns now =
+  [ Column "ID" RightAlign Nothing (show . viId)
+  , Column "NAME" LeftAlign (Just 30) (T.unpack . viName)
+  , Column "STATUS" LeftAlign Nothing (T.unpack . enumToText . viStatus)
+  , Column "CPUS" RightAlign Nothing (show . viCpuCount)
+  , Column "RAM_MB" RightAlign Nothing (show . viRamMb)
+  , Column "HEALTH" LeftAlign Nothing (healthLabel now)
+  , Column "CI" LeftAlign Nothing (\vm -> if viCloudInit vm then "+" else "-")
+  , Column "AS" LeftAlign Nothing (\vm -> if viAutostart vm then "+" else "-")
+  ]
 
 -- | Print full VM details
 printVmDetails :: VmDetails -> IO ()
