@@ -89,12 +89,13 @@ runCommand opts = do
             pure False
           Right st -> do
             emitResult fmt st $ do
-              putStrLn $ "Uptime:      " ++ formatUptime (siUptime st)
-              putStrLn $ "Connections: " ++ show (siConnections st)
-              putStrLn $ "Version:     " ++ T.unpack (siVersion st)
+              putStrLn $ "Uptime:           " ++ formatUptime (siUptime st)
+              putStrLn $ "Connections:      " ++ show (siConnections st)
+              putStrLn $ "Version:          " ++ T.unpack (siVersion st)
+              putStrLn $ "Protocol version: " ++ show (siProtocolVersion st)
               case siNamespacePid st of
-                Nothing -> putStrLn "Namespace:   not running"
-                Just pid -> putStrLn $ "Namespace:   PID " ++ show pid
+                Nothing -> putStrLn "Namespace:        not running"
+                Just pid -> putStrLn $ "Namespace:        PID " ++ show pid
             pure True
       Shutdown -> do
         resp <- requestShutdown conn

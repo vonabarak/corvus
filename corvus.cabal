@@ -145,6 +145,7 @@ library
     , exceptions
     , filepath
     , fourmolu
+    , gitrev
     , haskell-src-meta
     , monad-logger
     , mtl
@@ -207,6 +208,7 @@ executable corvus
     , exceptions
     , filepath
     , fourmolu
+    , gitrev
     , haskell-src-meta
     , monad-logger
     , mtl
@@ -269,6 +271,7 @@ executable crv
     , exceptions
     , filepath
     , fourmolu
+    , gitrev
     , haskell-src-meta
     , monad-logger
     , mtl
@@ -384,6 +387,7 @@ test-suite corvus-test
     , exceptions
     , filepath
     , fourmolu
+    , gitrev
     , haskell-src-meta
     , hspec
     , hspec-discover

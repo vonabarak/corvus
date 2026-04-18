@@ -32,12 +32,12 @@ spec = do
     it "rejects a message with a lower version byte" $ do
       -- Hand-craft a wire-format message that *looks* valid except for
       -- the version byte: encode a real Request but overwrite byte 0.
-      let wire = overwriteVersion 27 (encodeMessage ReqPing)
+      let wire = overwriteVersion (protocolVersion - 1) (encodeMessage ReqPing)
       (decodeMessage wire :: Either String Request)
         `shouldSatisfy` isLeftStartingWith "protocol version mismatch"
 
     it "rejects a message with a higher version byte" $ do
-      let wire = overwriteVersion 29 (encodeMessage ReqPing)
+      let wire = overwriteVersion (protocolVersion + 1) (encodeMessage ReqPing)
       (decodeMessage wire :: Either String Request)
         `shouldSatisfy` isLeftStartingWith "protocol version mismatch"
 
@@ -45,7 +45,7 @@ spec = do
       let wire = overwriteVersion 7 (encodeMessage ReqPing)
       case decodeMessage wire :: Either String Request of
         Left err -> do
-          err `shouldContain` "expected 28"
+          err `shouldContain` ("expected " <> show protocolVersion)
           err `shouldContain` "got 7"
         Right _ -> expectationFailure "expected a version mismatch, got a successful decode"
 

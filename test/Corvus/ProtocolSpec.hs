@@ -53,7 +53,7 @@ instance Arbitrary Ref where
 
 -- Arbitrary for response data types
 instance Arbitrary StatusInfo where
-  arbitrary = StatusInfo <$> arbitrary <*> arbitrary <*> pure "test" <*> arbitrary
+  arbitrary = StatusInfo <$> arbitrary <*> arbitrary <*> pure "test" <*> arbitrary <*> arbitrary
 
 instance Arbitrary VmInfo where
   arbitrary = VmInfo <$> arbitrary <*> pure "test-vm" <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary <*> pure Nothing <*> arbitrary
@@ -106,11 +106,12 @@ spec = sequential $ do
 
   describe "Protocol JSON encoding" $ do
     it "StatusInfo produces valid JSON with expected fields" $ do
-      let info = StatusInfo 3600 5 "1.0" Nothing
+      let info = StatusInfo 3600 5 "1.0-abcdef12" 29 Nothing
           json = BL.unpack (encode info)
       json `shouldSatisfy` ("uptime" `isInfixOf`)
       json `shouldSatisfy` ("connections" `isInfixOf`)
       json `shouldSatisfy` ("version" `isInfixOf`)
+      json `shouldSatisfy` ("protocolVersion" `isInfixOf`)
 
     it "VmInfo produces valid JSON with expected fields" $ do
       let vm = VmInfo 1 "test" VmRunning 2 1024 False False False Nothing False

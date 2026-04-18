@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | Core daemon handlers.
 -- This module contains handlers for daemon management:
@@ -8,9 +9,6 @@ module Corvus.Handlers.Core
     handlePing
   , handleStatus
   , handleShutdown
-
-    -- * Version
-  , version
   )
 where
 
@@ -18,11 +16,20 @@ import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Corvus.Protocol
 import Corvus.Types
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
+import Data.Version (showVersion)
+import Development.GitRev (gitHash)
+import Paths_corvus (version)
 
--- | Version string
-version :: Text
-version = "0.1.0"
+-- | Daemon version string: @<package version>-<short git hash>@.
+-- @version@ is baked in at compile time by Cabal via 'Paths_corvus';
+-- the git hash is baked in by the 'gitrev' TH splice.
+versionString :: Text
+versionString =
+  T.pack (showVersion version)
+    <> "-"
+    <> T.take 8 (T.pack $(gitHash))
 
 --------------------------------------------------------------------------------
 -- Core Handlers
@@ -44,7 +51,8 @@ handleStatus state = do
       StatusInfo
         { siUptime = uptimeSecs
         , siConnections = connCount
-        , siVersion = version
+        , siVersion = versionString
+        , siProtocolVersion = protocolVersion
         , siNamespacePid = nsPid
         }
 

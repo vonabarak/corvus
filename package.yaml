@@ -41,6 +41,7 @@ dependencies:
   - containers
   - temporary
   - ansi-terminal
+  - gitrev
 
 default-extensions:
   - OverloadedStrings
