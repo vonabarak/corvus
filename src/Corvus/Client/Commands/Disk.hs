@@ -648,11 +648,11 @@ handleSnapshotList fmt tableOpts conn diskRef = do
 -- | Column definitions for the @disk list@ table.
 diskColumns :: [Column DiskImageInfo]
 diskColumns =
-  [ Column "ID" RightAlign Nothing (show . diiId)
-  , Column "NAME" LeftAlign (Just 40) (T.unpack . diiName)
-  , Column "FORMAT" LeftAlign Nothing (T.unpack . enumToText . diiFormat)
-  , Column "SIZE_MB" RightAlign Nothing (maybe "-" show . diiSizeMb)
-  , Column "ATTACHED_TO" LeftAlign (Just 40) formatAttached
+  [ Column "ID" RightAlign (show . diiId)
+  , Column "NAME" LeftAlign (T.unpack . diiName)
+  , Column "FORMAT" LeftAlign (T.unpack . enumToText . diiFormat)
+  , Column "SIZE_MB" RightAlign (maybe "-" show . diiSizeMb)
+  , Column "ATTACHED_TO" LeftAlign formatAttached
   ]
   where
     formatAttached d
@@ -678,8 +678,8 @@ printDiskDetails d = do
 -- | Column definitions for the @disk snapshot list@ table.
 snapshotColumns :: [Column SnapshotInfo]
 snapshotColumns =
-  [ Column "ID" RightAlign Nothing (show . sniId)
-  , Column "NAME" LeftAlign (Just 40) (T.unpack . sniName)
-  , Column "CREATED" LeftAlign Nothing (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . sniCreatedAt)
-  , Column "SIZE_MB" RightAlign Nothing (maybe "-" show . sniSizeMb)
+  [ Column "ID" RightAlign (show . sniId)
+  , Column "NAME" LeftAlign (T.unpack . sniName)
+  , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . sniCreatedAt)
+  , Column "SIZE_MB" RightAlign (maybe "-" show . sniSizeMb)
   ]

@@ -207,14 +207,14 @@ handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mA
 -- | Column definitions for the @vm list@ table.
 vmColumns :: UTCTime -> [Column VmInfo]
 vmColumns now =
-  [ Column "ID" RightAlign Nothing (show . viId)
-  , Column "NAME" LeftAlign (Just 30) (T.unpack . viName)
-  , Column "STATUS" LeftAlign Nothing (T.unpack . enumToText . viStatus)
-  , Column "CPUS" RightAlign Nothing (show . viCpuCount)
-  , Column "RAM_MB" RightAlign Nothing (show . viRamMb)
-  , Column "HEALTH" LeftAlign Nothing (healthLabel now)
-  , Column "CI" LeftAlign Nothing (\vm -> if viCloudInit vm then "+" else "-")
-  , Column "AS" LeftAlign Nothing (\vm -> if viAutostart vm then "+" else "-")
+  [ Column "ID" RightAlign (show . viId)
+  , Column "NAME" LeftAlign (T.unpack . viName)
+  , Column "STATUS" LeftAlign (T.unpack . enumToText . viStatus)
+  , Column "CPUS" RightAlign (show . viCpuCount)
+  , Column "RAM_MB" RightAlign (show . viRamMb)
+  , Column "HEALTH" LeftAlign (healthLabel now)
+  , Column "CI" LeftAlign (\vm -> if viCloudInit vm then "+" else "-")
+  , Column "AS" LeftAlign (\vm -> if viAutostart vm then "+" else "-")
   ]
 
 -- | Print full VM details

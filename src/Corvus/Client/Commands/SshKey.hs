@@ -187,10 +187,10 @@ handleSshKeyListForVm fmt tableOpts conn vmRef = do
 -- | Column definitions for the @ssh-key list@ table.
 sshKeyColumns :: [Column SshKeyInfo]
 sshKeyColumns =
-  [ Column "ID" RightAlign Nothing (show . skiId)
-  , Column "NAME" LeftAlign (Just 30) (T.unpack . skiName)
-  , Column "PUBLIC_KEY" LeftAlign (Just 50) (T.unpack . skiPublicKey)
-  , Column "ATTACHED_VMS" LeftAlign (Just 30) formatAttached
+  [ Column "ID" RightAlign (show . skiId)
+  , Column "NAME" LeftAlign (T.unpack . skiName)
+  , Column "PUBLIC_KEY" LeftAlign (T.unpack . skiPublicKey)
+  , Column "ATTACHED_VMS" LeftAlign formatAttached
   ]
   where
     formatAttached k

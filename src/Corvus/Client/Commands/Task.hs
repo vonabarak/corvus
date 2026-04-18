@@ -188,14 +188,14 @@ printCompletionMessage taskId info =
 -- | Column definitions for the @task list@ table.
 taskColumns :: UTCTime -> [Column TaskInfo]
 taskColumns now =
-  [ Column "ID" RightAlign Nothing (show . tiId)
-  , Column "SUBSYSTEM" LeftAlign Nothing (T.unpack . enumToText . tiSubsystem)
-  , Column "COMMAND" LeftAlign (Just 25) (T.unpack . tiCommand)
-  , Column "ENTITY" LeftAlign (Just 30) entityLabel
-  , Column "RESULT" LeftAlign Nothing (T.unpack . enumToText . tiResult)
-  , Column "STARTED" LeftAlign Nothing (formatTimestamp . tiStartedAt)
-  , Column "DURATION" RightAlign Nothing (durationLabel now)
-  , Column "MESSAGE" LeftAlign (Just 50) (T.unpack . fromMaybe "-" . tiMessage)
+  [ Column "ID" RightAlign (show . tiId)
+  , Column "SUBSYSTEM" LeftAlign (T.unpack . enumToText . tiSubsystem)
+  , Column "COMMAND" LeftAlign (T.unpack . tiCommand)
+  , Column "ENTITY" LeftAlign entityLabel
+  , Column "RESULT" LeftAlign (T.unpack . enumToText . tiResult)
+  , Column "STARTED" LeftAlign (formatTimestamp . tiStartedAt)
+  , Column "DURATION" RightAlign (durationLabel now)
+  , Column "MESSAGE" LeftAlign (T.unpack . fromMaybe "-" . tiMessage)
   ]
 
 printSubtaskRow :: UTCTime -> TaskInfo -> IO ()

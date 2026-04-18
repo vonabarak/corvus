@@ -190,13 +190,13 @@ handleNetworkShow fmt conn nwRef = do
 -- | Column definitions for the @network list@ table.
 networkColumns :: [Column NetworkInfo]
 networkColumns =
-  [ Column "ID" RightAlign Nothing (show . nwiId)
-  , Column "NAME" LeftAlign (Just 30) (T.unpack . nwiName)
-  , Column "SUBNET" LeftAlign Nothing (\i -> let s = nwiSubnet i in if T.null s then "-" else T.unpack s)
-  , Column "DHCP" LeftAlign Nothing (\i -> if nwiDhcp i then "yes" else "no")
-  , Column "NAT" LeftAlign Nothing (\i -> if nwiNat i then "yes" else "no")
-  , Column "STATUS" LeftAlign Nothing (\i -> if nwiRunning i then "running" else "stopped")
-  , Column "AS" LeftAlign Nothing (\i -> if nwiAutostart i then "+" else "-")
+  [ Column "ID" RightAlign (show . nwiId)
+  , Column "NAME" LeftAlign (T.unpack . nwiName)
+  , Column "SUBNET" LeftAlign (\i -> let s = nwiSubnet i in if T.null s then "-" else T.unpack s)
+  , Column "DHCP" LeftAlign (\i -> if nwiDhcp i then "yes" else "no")
+  , Column "NAT" LeftAlign (\i -> if nwiNat i then "yes" else "no")
+  , Column "STATUS" LeftAlign (\i -> if nwiRunning i then "running" else "stopped")
+  , Column "AS" LeftAlign (\i -> if nwiAutostart i then "+" else "-")
   ]
 
 -- | Handle network edit command

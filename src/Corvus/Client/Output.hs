@@ -136,11 +136,13 @@ data Align = LeftAlign | RightAlign
 
 -- | A table column declaration. @colName@ doubles as the header label and the
 -- case-insensitive selector key for @--columns@.
+--
+-- Columns are sized to fit their widest rendered value by default. Shrinking
+-- only happens when the table would otherwise overflow the terminal width
+-- (see 'TableOpts'); callers do not cap individual columns.
 data Column a = Column
   { colName :: !String
   , colAlign :: !Align
-  , colMaxWidth :: !(Maybe Int)
-  -- ^ Per-column cap. @Nothing@ means no cap.
   , colRender :: a -> String
   }
 
@@ -213,17 +215,21 @@ printTable opts cols rows = do
 -- | Pure table rendering. Returns @Left err@ on column-selection errors.
 --
 -- The second argument is an optional terminal width; 'Nothing' disables
--- terminal fitting.
+-- terminal fitting. Columns are sized to the longest rendered value and
+-- only shrunk (with ellipsis truncation) when the natural layout would
+-- exceed the available terminal width AND truncation is enabled.
 renderTable :: TableOpts -> Maybe Int -> [Column a] -> [a] -> Either String Text
 renderTable opts mTermWidth allCols rows = do
   cols <- selectColumns (toColumns opts) allCols
   let natural = computeWidths cols rows
-      capped = applyCaps cols natural
       chars = borderChars (toBorders opts)
-      overhead = borderOverhead chars (length capped)
+      overhead = borderOverhead chars (length natural)
+      naturalTotal = sum natural + overhead
+      -- Only shrink when the user permitted truncation AND we actually
+      -- overflow the terminal. Natural widths are otherwise left alone.
       fitted = case mTermWidth of
-        Just w | toTruncate opts -> fitToWidth (w - overhead) capped
-        _ -> capped
+        Just w | toTruncate opts && naturalTotal > w -> fitToWidth (w - overhead) natural
+        _ -> natural
       header = map colName cols
       renderedRows = [[colRender c r | c <- cols] | r <- rows]
       aligns = map colAlign cols
@@ -262,14 +268,6 @@ computeWidths cols rows =
   | c <- cols
   ]
 
--- | Apply each column's 'colMaxWidth' cap (if any) to its natural width.
-applyCaps :: [Column a] -> [Int] -> [Int]
-applyCaps = zipWith clamp
-  where
-    clamp c w = case colMaxWidth c of
-      Nothing -> w
-      Just cap -> min cap w
-
 -- | Fit a list of column widths into the given total budget by shrinking
 -- widest columns first. Every column retains at least 3 characters.
 fitToWidth :: Int -> [Int] -> [Int]
@@ -300,16 +298,19 @@ fitToWidth available widths
 
 -- | Render a single cell: pad or truncate to the target width.
 --
--- First argument is whether truncation is enabled.
+-- First argument is whether truncation is enabled. With the natural-width
+-- layout in 'renderTable', 'width' is always ≥ the widest value in the
+-- column unless truncation is explicitly enabled *and* we're shrinking to
+-- fit the terminal — so the "value longer than width" case only arises
+-- with @truncateMode = True@.
 renderCell :: Bool -> Align -> Int -> String -> String
 renderCell truncateMode align width s
   | actualLen > width && truncateMode =
       case align of
         LeftAlign -> take (width - 1) s ++ "…"
         RightAlign -> "…" ++ drop (actualLen - width + 1) s
-  | actualLen >= width = s
   | otherwise =
-      let pad = replicate (width - actualLen) ' '
+      let pad = replicate (max 0 (width - actualLen)) ' '
        in case align of
             LeftAlign -> s ++ pad
             RightAlign -> pad ++ s

@@ -165,8 +165,8 @@ spec = sequential $ do
     -- Sample columns used across the renderCell/renderTable tests.
     let sampleCols :: [Column (String, String)]
         sampleCols =
-          [ Column "ID" RightAlign Nothing fst
-          , Column "NAME" LeftAlign (Just 10) snd
+          [ Column "ID" RightAlign fst
+          , Column "NAME" LeftAlign snd
           ]
 
     describe "selectColumns" $ do
@@ -279,13 +279,25 @@ spec = sequential $ do
             , ("2", "corvus-dev-gentoo-base-overlay")
             ]
 
-      it "default options render Unicode borders and truncate long names" $ do
+      it "default options render Unicode borders; no truncation when width is unbounded" $ do
         case renderTable defaultTableOpts Nothing sampleCols diskRows of
           Right txt -> do
             -- Unicode vertical bar present.
             T.unpack txt `shouldSatisfy` ("│" `isInfixOf`)
-            -- Long name truncated with the ellipsis character.
-            T.unpack txt `shouldSatisfy` ("…" `isInfixOf`)
+            -- No artificial truncation — full name preserved.
+            T.unpack txt `shouldSatisfy` (not . ("…" `isInfixOf`))
+            T.unpack txt `shouldSatisfy` ("corvus-dev-gentoo-base-overlay" `isInfixOf`)
+          Left err -> expectationFailure err
+
+      it "truncates only when table would exceed the terminal width" $ do
+        -- Natural total is ~30+ chars for NAME; budget is tight.
+        case renderTable defaultTableOpts (Just 15) sampleCols diskRows of
+          Right txt -> T.unpack txt `shouldSatisfy` ("…" `isInfixOf`)
+          Left err -> expectationFailure err
+
+      it "does not truncate when natural layout fits within the terminal" $ do
+        case renderTable defaultTableOpts (Just 200) sampleCols diskRows of
+          Right txt -> T.unpack txt `shouldSatisfy` (not . ("…" `isInfixOf`))
           Left err -> expectationFailure err
 
       it "--no-borders suppresses │ characters" $ do

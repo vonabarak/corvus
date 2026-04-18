@@ -232,10 +232,10 @@ handleTemplateInstantiate fmt conn tid name = do
 -- | Column definitions for the @template list@ table.
 templateVmColumns :: [Column TemplateVmInfo]
 templateVmColumns =
-  [ Column "ID" RightAlign Nothing (show . tviId)
-  , Column "NAME" LeftAlign (Just 40) (T.unpack . tviName)
-  , Column "CPUS" RightAlign Nothing (show . tviCpuCount)
-  , Column "RAM_MB" RightAlign Nothing (show . tviRamMb)
+  [ Column "ID" RightAlign (show . tviId)
+  , Column "NAME" LeftAlign (T.unpack . tviName)
+  , Column "CPUS" RightAlign (show . tviCpuCount)
+  , Column "RAM_MB" RightAlign (show . tviRamMb)
   ]
 
 -- | Print full template details

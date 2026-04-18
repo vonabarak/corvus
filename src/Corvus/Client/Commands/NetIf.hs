@@ -109,9 +109,9 @@ handleNetIfList fmt tableOpts conn vmRef = do
 -- | Column definitions for the @net-if list@ table.
 netIfColumns :: [Column NetIfInfo]
 netIfColumns =
-  [ Column "ID" RightAlign Nothing (show . niId)
-  , Column "TYPE" LeftAlign Nothing (T.unpack . enumToText . niType)
-  , Column "DEVICE" LeftAlign (Just 30) (T.unpack . niHostDevice)
-  , Column "MAC" LeftAlign Nothing (T.unpack . niMacAddress)
-  , Column "GUEST_IPS" LeftAlign (Just 40) (maybe "" T.unpack . niGuestIpAddresses)
+  [ Column "ID" RightAlign (show . niId)
+  , Column "TYPE" LeftAlign (T.unpack . enumToText . niType)
+  , Column "DEVICE" LeftAlign (T.unpack . niHostDevice)
+  , Column "MAC" LeftAlign (T.unpack . niMacAddress)
+  , Column "GUEST_IPS" LeftAlign (maybe "" T.unpack . niGuestIpAddresses)
   ]

@@ -112,10 +112,10 @@ handleSharedDirList fmt tableOpts conn vmRef = do
 -- | Column definitions for the @shared-dir list@ table.
 sharedDirColumns :: [Column SharedDirInfo]
 sharedDirColumns =
-  [ Column "ID" RightAlign Nothing (show . sdiId)
-  , Column "PATH" LeftAlign (Just 50) (T.unpack . sdiPath)
-  , Column "TAG" LeftAlign (Just 20) (T.unpack . sdiTag)
-  , Column "CACHE" LeftAlign Nothing (T.unpack . enumToText . sdiCache)
-  , Column "READ_ONLY" LeftAlign Nothing (show . sdiReadOnly)
-  , Column "PID" RightAlign Nothing (maybe "-" show . sdiPid)
+  [ Column "ID" RightAlign (show . sdiId)
+  , Column "PATH" LeftAlign (T.unpack . sdiPath)
+  , Column "TAG" LeftAlign (T.unpack . sdiTag)
+  , Column "CACHE" LeftAlign (T.unpack . enumToText . sdiCache)
+  , Column "READ_ONLY" LeftAlign (show . sdiReadOnly)
+  , Column "PID" RightAlign (maybe "-" show . sdiPid)
   ]
