@@ -8,7 +8,8 @@ module Corvus.Protocol.SharedDir
 where
 
 import Corvus.Model (SharedDirCache)
-import Data.Aeson (ToJSON (..), object, (.=))
+import Corvus.Protocol.Aeson (innerOptions)
+import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -27,12 +28,4 @@ data SharedDirInfo = SharedDirInfo
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON SharedDirInfo where
-  toJSON s =
-    object
-      [ "id" .= sdiId s
-      , "path" .= sdiPath s
-      , "tag" .= sdiTag s
-      , "cache" .= sdiCache s
-      , "readOnly" .= sdiReadOnly s
-      , "pid" .= sdiPid s
-      ]
+  toJSON = genericToJSON innerOptions

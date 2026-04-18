@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Command execution for the Corvus client.
@@ -87,13 +88,13 @@ runCommand opts = do
           Left err -> do
             emitRpcError fmt err
             pure False
-          Right st -> do
+          Right st@StatusInfo {..} -> do
             emitResult fmt st $ do
-              putStrLn $ "Uptime:           " ++ formatUptime (siUptime st)
-              putStrLn $ "Connections:      " ++ show (siConnections st)
-              putStrLn $ "Version:          " ++ T.unpack (siVersion st)
-              putStrLn $ "Protocol version: " ++ show (siProtocolVersion st)
-              case siNamespacePid st of
+              putStrLn $ "Uptime:           " ++ formatUptime siUptime
+              putStrLn $ "Connections:      " ++ show siConnections
+              putStrLn $ "Version:          " ++ T.unpack siVersion
+              putStrLn $ "Protocol version: " ++ show siProtocolVersion
+              case siNamespacePid of
                 Nothing -> putStrLn "Namespace:        not running"
                 Just pid -> putStrLn $ "Namespace:        PID " ++ show pid
             pure True
@@ -111,7 +112,7 @@ runCommand opts = do
               putStrLn "Shutdown not acknowledged"
             pure False
       VmList -> do
-        resp <- listVms conn
+        resp <- vmList conn
         case resp of
           Left err -> do
             emitRpcError fmt err
@@ -125,7 +126,7 @@ runCommand opts = do
                   printTable tableOpts (vmColumns now) vms
             pure True
       VmShow vmRef -> do
-        resp <- showVm conn vmRef
+        resp <- vmShow conn vmRef
         case resp of
           Left err -> do
             emitRpcError fmt err
@@ -147,7 +148,7 @@ runCommand opts = do
       VmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi mAs -> handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mCi mAs
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> do
-        resp <- showVm conn vmRef
+        resp <- vmShow conn vmRef
         case resp of
           Left err -> do
             emitRpcError fmt err
@@ -201,7 +202,7 @@ runCommand opts = do
                         pure ()
                 pure True
       VmMonitor vmRef -> do
-        resp <- showVm conn vmRef
+        resp <- vmShow conn vmRef
         case resp of
           Left err -> do
             emitRpcError fmt err
@@ -344,7 +345,7 @@ handleNamespaceExec fmt conn cmdArgs = do
     Left err -> do
       emitRpcError fmt err
       pure False
-    Right st -> case siNamespacePid st of
+    Right StatusInfo {siNamespacePid = mNsPid} -> case mNsPid of
       Nothing -> do
         emitError fmt "no_namespace" "Network namespace is not running" $
           putStrLn "Error: network namespace is not running"

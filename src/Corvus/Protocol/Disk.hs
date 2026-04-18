@@ -9,7 +9,8 @@ module Corvus.Protocol.Disk
 where
 
 import Corvus.Model (DriveFormat)
-import Data.Aeson (ToJSON (..), object, (.=))
+import Corvus.Protocol.Aeson (innerOptions)
+import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -43,24 +44,7 @@ data SnapshotInfo = SnapshotInfo
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON DiskImageInfo where
-  toJSON d =
-    object
-      [ "id" .= diiId d
-      , "name" .= diiName d
-      , "filePath" .= diiFilePath d
-      , "format" .= diiFormat d
-      , "sizeMb" .= diiSizeMb d
-      , "createdAt" .= diiCreatedAt d
-      , "attachedTo" .= diiAttachedTo d
-      , "backingImageId" .= diiBackingImageId d
-      , "backingImageName" .= diiBackingImageName d
-      ]
+  toJSON = genericToJSON innerOptions
 
 instance ToJSON SnapshotInfo where
-  toJSON s =
-    object
-      [ "id" .= sniId s
-      , "name" .= sniName s
-      , "createdAt" .= sniCreatedAt s
-      , "sizeMb" .= sniSizeMb s
-      ]
+  toJSON = genericToJSON innerOptions

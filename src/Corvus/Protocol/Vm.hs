@@ -15,8 +15,9 @@ module Corvus.Protocol.Vm
 where
 
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, VmStatus)
+import Corvus.Protocol.Aeson (innerOptions)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
-import Data.Aeson (ToJSON (..), object, (.=))
+import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -99,67 +100,13 @@ data VmDetails = VmDetails
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON VmInfo where
-  toJSON v =
-    object
-      [ "id" .= viId v
-      , "name" .= viName v
-      , "status" .= viStatus v
-      , "cpuCount" .= viCpuCount v
-      , "ramMb" .= viRamMb v
-      , "headless" .= viHeadless v
-      , "guestAgent" .= viGuestAgent v
-      , "cloudInit" .= viCloudInit v
-      , "healthcheck" .= viHealthcheck v
-      , "autostart" .= viAutostart v
-      ]
+  toJSON = genericToJSON innerOptions
 
 instance ToJSON DriveInfo where
-  toJSON d =
-    object
-      [ "id" .= diId d
-      , "diskImageId" .= diDiskImageId d
-      , "diskImageName" .= diDiskImageName d
-      , "interface" .= diInterface d
-      , "filePath" .= diFilePath d
-      , "format" .= diFormat d
-      , "media" .= diMedia d
-      , "readOnly" .= diReadOnly d
-      , "cacheType" .= diCacheType d
-      , "discard" .= diDiscard d
-      ]
+  toJSON = genericToJSON innerOptions
 
 instance ToJSON NetIfInfo where
-  toJSON n =
-    object
-      [ "id" .= niId n
-      , "type" .= niType n
-      , "hostDevice" .= niHostDevice n
-      , "macAddress" .= niMacAddress n
-      , "networkId" .= niNetworkId n
-      , "networkName" .= niNetworkName n
-      , "guestIpAddresses" .= niGuestIpAddresses n
-      ]
+  toJSON = genericToJSON innerOptions
 
 instance ToJSON VmDetails where
-  toJSON v =
-    object
-      [ "id" .= vdId v
-      , "name" .= vdName v
-      , "createdAt" .= vdCreatedAt v
-      , "status" .= vdStatus v
-      , "cpuCount" .= vdCpuCount v
-      , "ramMb" .= vdRamMb v
-      , "description" .= vdDescription v
-      , "drives" .= vdDrives v
-      , "networkInterfaces" .= vdNetIfs v
-      , "headless" .= vdHeadless v
-      , "monitorSocket" .= vdMonitorSocket v
-      , "spiceSocket" .= vdSpiceSocket v
-      , "serialSocket" .= vdSerialSocket v
-      , "guestAgentSocket" .= vdGuestAgentSocket v
-      , "guestAgent" .= vdGuestAgent v
-      , "cloudInit" .= vdCloudInit v
-      , "cloudInitConfig" .= vdCloudInitConfig v
-      , "healthcheck" .= vdHealthcheck v
-      , "autostart" .= vdAutostart v
-      ]
+  toJSON = genericToJSON innerOptions

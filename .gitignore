@@ -7,3 +7,9 @@ dist/
 plans/
 .test-cache/
 .test-images/
+# Python extension build artefacts
+python/.venv*/
+python/corvus_client/_corvus.abi3.so
+python/corvus_client/_generated.py
+python/**/__pycache__/
+python/.pytest_cache/

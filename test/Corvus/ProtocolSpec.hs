@@ -65,8 +65,8 @@ instance Arbitrary Request where
       [ pure ReqPing
       , pure ReqStatus
       , pure ReqShutdown
-      , pure ReqListVms
-      , ReqShowVm <$> arbitrary
+      , pure ReqVmList
+      , ReqVmShow <$> arbitrary
       , ReqVmCreate "test" <$> arbitrary <*> arbitrary <*> pure Nothing <*> arbitrary <*> arbitrary <*> arbitrary <*> arbitrary
       , ReqVmDelete <$> arbitrary <*> arbitrary
       , ReqVmStart <$> arbitrary <*> arbitrary
@@ -111,7 +111,7 @@ spec = sequential $ do
       json `shouldSatisfy` ("uptime" `isInfixOf`)
       json `shouldSatisfy` ("connections" `isInfixOf`)
       json `shouldSatisfy` ("version" `isInfixOf`)
-      json `shouldSatisfy` ("protocolVersion" `isInfixOf`)
+      json `shouldSatisfy` ("protocol_version" `isInfixOf`)
 
     it "VmInfo produces valid JSON with expected fields" $ do
       let vm = VmInfo 1 "test" VmRunning 2 1024 False False False Nothing False

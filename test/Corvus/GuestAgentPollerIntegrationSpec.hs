@@ -9,7 +9,7 @@
 module Corvus.GuestAgentPollerIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
-import Corvus.Client (showVm)
+import Corvus.Client (vmShow)
 import Corvus.Protocol (NetIfInfo (..), VmDetails (..))
 import Corvus.Qemu.Config (qcHealthcheckInterval)
 import Data.Int (Int64)
@@ -94,7 +94,7 @@ waitForHealthcheckChange daemon vmId oldHc timeoutSec = go timeoutSec
 -- | Get the healthcheck timestamp from VM details.
 getHealthcheck :: TestDaemon -> Int64 -> IO (Maybe UTCTime)
 getHealthcheck daemon vmId = do
-  res <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show vmId))
+  res <- withDaemonConnection daemon $ \conn -> vmShow conn (T.pack (show vmId))
   case res of
     Right (Right (Just details)) -> pure $ vdHealthcheck details
     _ -> pure Nothing

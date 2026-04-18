@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format
+.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format python-codegen python-lib python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -89,3 +89,39 @@ test-image-windows:
 # Format the code using fourmolu
 format:
 	fourmolu --mode inplace $(shell find src app test -name '*.hs')
+
+# Regenerate python/corvus_client/_generated.py from the Haskell
+# Request / Response types. Must run whenever src/Corvus/Protocol.hs
+# changes.
+#
+# The Python extension + codegen executable are gated behind the cabal
+# flag `python-client` (default: off). These targets enable it so the
+# foreign-library and gen-python-client are built; plain `stack build`
+# still works without pulling ginger / file-embed.
+#
+# We'd prefer `stack build :gen-python-client` but component-level
+# targets don't work reliably when hpack and the committed .cabal file
+# disagree on version, so we build everything and lean on ccache.
+python-codegen:
+	stack build --flag corvus:python-client
+	stack exec gen-python-client > python/corvus_client/_generated.py
+
+# Build the Haskell-backed Python extension and drop it into
+# python/corvus_client/_corvus.abi3.so so pytest can import it.
+# Stack doesn't expose foreign-library components as explicit targets
+# and its incremental-rebuild tracking for ffi-src/ is unreliable; we
+# use --force-dirty to guarantee the foreign-library is rebuilt when
+# sources under ffi-src/ or cbits/ change.
+python-lib: python-codegen
+	stack build --flag corvus:python-client --force-dirty
+	@built=$$(find .stack-work/install -name 'libcorvus-python.so' -print -quit); \
+	  if [ -z "$$built" ]; then \
+	    echo "libcorvus-python.so not found under .stack-work/install"; exit 1; \
+	  fi; \
+	  echo "built: $$built"; \
+	  cp "$$built" python/corvus_client/_corvus.abi3.so
+
+# Run the Python skeleton tests. Requires a venv at python/.venv-corvus-py
+# with pytest installed (see doc/python-client.md for setup).
+python-test: python-lib
+	python/.venv-corvus-py/bin/pytest python/tests/ -v

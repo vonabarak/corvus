@@ -22,8 +22,8 @@ module Corvus.Client
   , sendPing
   , getStatus
   , requestShutdown
-  , listVms
-  , showVm
+  , vmList
+  , vmShow
 
     -- * VM lifecycle
   , VmCreateResult (..)

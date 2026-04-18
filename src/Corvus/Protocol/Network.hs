@@ -10,7 +10,8 @@ where
 import Corvus.Model ()
 
 -- for orphan Binary UTCTime instance
-import Data.Aeson (ToJSON (..), object, (.=))
+import Corvus.Protocol.Aeson (innerOptions)
+import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -32,15 +33,4 @@ data NetworkInfo = NetworkInfo
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON NetworkInfo where
-  toJSON n =
-    object
-      [ "id" .= nwiId n
-      , "name" .= nwiName n
-      , "subnet" .= nwiSubnet n
-      , "dhcp" .= nwiDhcp n
-      , "nat" .= nwiNat n
-      , "running" .= nwiRunning n
-      , "dnsmasqPid" .= nwiDnsmasqPid n
-      , "createdAt" .= nwiCreatedAt n
-      , "autostart" .= nwiAutostart n
-      ]
+  toJSON = genericToJSON innerOptions

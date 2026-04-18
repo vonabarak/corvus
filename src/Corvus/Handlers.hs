@@ -58,8 +58,8 @@ handleRequest state = \case
   ReqPing -> handlePing
   ReqStatus -> handleStatus state
   ReqShutdown -> handleShutdown state
-  ReqListVms -> handleVmList state
-  ReqShowVm vmRef -> withVm vmRef $ \vmId -> handleVmShow state vmId
+  ReqVmList -> handleVmList state
+  ReqVmShow vmRef -> withVm vmRef $ \vmId -> handleVmShow state vmId
   ReqDiskList -> handleDiskList state
   ReqDiskShow diskRef -> withDisk diskRef $ \diskId -> handleDiskShow state diskId
   ReqSnapshotList diskRef -> withDisk diskRef $ \diskId -> handleSnapshotList state diskId

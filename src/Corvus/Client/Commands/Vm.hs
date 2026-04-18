@@ -163,7 +163,7 @@ waitForVmStatus fmt conn vmRef targetStatus timeout = do
               "Timeout: " ++ msg
           pure False
         else do
-          resp <- showVm conn vmRef
+          resp <- vmShow conn vmRef
           case resp of
             Right (Just details)
               | vdStatus details == targetStatus -> pure True

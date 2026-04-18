@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Corvus.CoreSpec (spec) where
 
 import Corvus.Protocol (Request (..), Response (..), StatusInfo (..))
@@ -15,9 +17,9 @@ spec = sequential $ withTestDb $ do
     testCase "returns status info" $ do
       resp <- executeRequest ReqStatus
       liftIO $ case resp of
-        RespStatus info -> do
-          siUptime info `shouldSatisfy` (>= 0)
-          siConnections info `shouldSatisfy` (>= 0)
+        RespStatus StatusInfo {..} -> do
+          siUptime `shouldSatisfy` (>= 0)
+          siConnections `shouldSatisfy` (>= 0)
         _ -> fail $ "Expected RespStatus, got: " ++ show resp
 
   describe "shutdown" $ do

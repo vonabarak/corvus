@@ -8,7 +8,8 @@ module Corvus.Protocol.Apply
   )
 where
 
-import Data.Aeson (ToJSON (..), object, (.=))
+import Corvus.Protocol.Aeson (innerOptions)
+import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -32,18 +33,7 @@ data ApplyResult = ApplyResult
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON ApplyCreated where
-  toJSON a =
-    object
-      [ "name" .= acName a
-      , "id" .= acId a
-      ]
+  toJSON = genericToJSON innerOptions
 
 instance ToJSON ApplyResult where
-  toJSON r =
-    object
-      [ "sshKeys" .= arSshKeys r
-      , "disks" .= arDisks r
-      , "networks" .= arNetworks r
-      , "vms" .= arVms r
-      , "templates" .= arTemplates r
-      ]
+  toJSON = genericToJSON innerOptions

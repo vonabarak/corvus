@@ -15,7 +15,7 @@
 module Corvus.WindowsIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
-import Corvus.Client (showVm)
+import Corvus.Client (vmShow)
 import Corvus.Client.Rpc (DiskResult (..), diskClone, diskCreateOverlay, diskRegister)
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), NetInterfaceType (..), VmStatus (..))
 import Corvus.Protocol (VmDetails (..))
@@ -101,7 +101,7 @@ spec = withTestDb $ do
           hc `shouldSatisfy` const True
 
           -- Verify VM transitioned to "running" status
-          mDetails <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show vmId))
+          mDetails <- withDaemonConnection daemon $ \conn -> vmShow conn (T.pack (show vmId))
           case mDetails of
             Right (Right (Just details)) ->
               vdStatus details `shouldBe` VmRunning
@@ -243,7 +243,7 @@ waitForHealthcheck daemon vmId timeoutSec = go timeoutSec
   where
     go 0 = fail $ "Windows VM healthcheck not set after " <> show timeoutSec <> "s"
     go n = do
-      mDetails <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show vmId))
+      mDetails <- withDaemonConnection daemon $ \conn -> vmShow conn (T.pack (show vmId))
       case mDetails of
         Right (Right (Just details))
           | Just hc <- vdHealthcheck details -> pure hc

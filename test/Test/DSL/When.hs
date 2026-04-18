@@ -198,11 +198,11 @@ toRef = T.pack . show
 
 -- | List all VMs
 vmList :: TestM [VmInfo]
-vmList = executeRpc Rpc.listVms
+vmList = executeRpc Rpc.vmList
 
 -- | Show VM details
 vmShow :: Int64 -> TestM (Maybe VmDetails)
-vmShow vmId = executeRpc (`Rpc.showVm` toRef vmId)
+vmShow vmId = executeRpc (`Rpc.vmShow` toRef vmId)
 
 -- | Start a VM (no wait)
 vmStart :: Int64 -> TestM VmActionResult

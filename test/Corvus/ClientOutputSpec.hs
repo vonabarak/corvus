@@ -42,25 +42,28 @@ spec = sequential $ do
             [ "uptime" .= (3600 :: Int)
             , "connections" .= (5 :: Int)
             , "version" .= ("1.0.0-abcdef12" :: String)
-            , "protocolVersion" .= (29 :: Int)
-            , "namespacePid" .= Just (12345 :: Int)
+            , "protocol_version" .= (29 :: Int)
+            , "namespace_pid" .= Just (12345 :: Int)
             ]
 
     describe "VmInfo" $ do
       it "serializes with correct field names and enum values" $ do
         let vm = VmInfo 1 "my-vm" VmRunning 4 2048 False False False Nothing False
             val = toJSON vm
+        -- 'omitNothingFields = True' in 'innerOptions' drops the
+        -- Nothing-valued 'healthcheck' entirely rather than serialising
+        -- it as null. Python-side @Optional[...] = None@ covers both
+        -- shapes via dict.get().
         val
           `shouldBe` object
             [ "id" .= (1 :: Int)
             , "name" .= ("my-vm" :: String)
             , "status" .= ("running" :: String)
-            , "cpuCount" .= (4 :: Int)
-            , "ramMb" .= (2048 :: Int)
+            , "cpu_count" .= (4 :: Int)
+            , "ram_mb" .= (2048 :: Int)
             , "headless" .= False
-            , "guestAgent" .= False
-            , "cloudInit" .= False
-            , "healthcheck" .= Null
+            , "guest_agent" .= False
+            , "cloud_init" .= False
             , "autostart" .= False
             ]
 
@@ -78,7 +81,7 @@ spec = sequential $ do
             KM.lookup "id" obj `shouldBe` Just (Number 1)
             KM.lookup "name" obj `shouldBe` Just (String "boot")
             KM.lookup "format" obj `shouldBe` Just (String "qcow2")
-            KM.lookup "attachedTo" obj `shouldSatisfy` isJust
+            KM.lookup "attached_to" obj `shouldSatisfy` isJust
           _ -> fail "Expected JSON object"
 
       it "serializes overlay backing info" $ do
@@ -86,8 +89,8 @@ spec = sequential $ do
             val = toJSON disk
         case val of
           Object obj -> do
-            KM.lookup "backingImageId" obj `shouldBe` Just (Number 1)
-            KM.lookup "backingImageName" obj `shouldBe` Just (String "base")
+            KM.lookup "backing_image_id" obj `shouldBe` Just (Number 1)
+            KM.lookup "backing_image_name" obj `shouldBe` Just (String "base")
           _ -> fail "Expected JSON object"
 
     describe "SnapshotInfo" $ do
@@ -98,7 +101,7 @@ spec = sequential $ do
           Object obj -> do
             KM.lookup "id" obj `shouldBe` Just (Number 5)
             KM.lookup "name" obj `shouldBe` Just (String "before-upgrade")
-            KM.lookup "sizeMb" obj `shouldBe` Just (Number 100)
+            KM.lookup "size_mb" obj `shouldBe` Just (Number 100)
           _ -> fail "Expected JSON object"
 
     describe "SharedDirInfo" $ do
@@ -108,7 +111,7 @@ spec = sequential $ do
         case val of
           Object obj -> do
             KM.lookup "cache" obj `shouldBe` Just (String "auto")
-            KM.lookup "readOnly" obj `shouldBe` Just (Bool False)
+            KM.lookup "read_only" obj `shouldBe` Just (Bool False)
           _ -> fail "Expected JSON object"
 
     describe "SshKeyInfo" $ do
@@ -118,7 +121,7 @@ spec = sequential $ do
         case val of
           Object obj -> do
             KM.lookup "name" obj `shouldBe` Just (String "mykey")
-            KM.lookup "attachedVms" obj `shouldSatisfy` isJust
+            KM.lookup "attached_vms" obj `shouldSatisfy` isJust
           _ -> fail "Expected JSON object"
 
     describe "DriveInfo" $ do
@@ -128,7 +131,7 @@ spec = sequential $ do
         case val of
           Object obj -> do
             KM.lookup "interface" obj `shouldBe` Just (String "virtio")
-            KM.lookup "cacheType" obj `shouldBe` Just (String "writeback")
+            KM.lookup "cache_type" obj `shouldBe` Just (String "writeback")
             KM.lookup "media" obj `shouldBe` Just (String "disk")
             KM.lookup "discard" obj `shouldBe` Just (Bool True)
           _ -> fail "Expected JSON object"
@@ -143,12 +146,12 @@ spec = sequential $ do
             KM.lookup "description" obj `shouldBe` Just (String "A test template")
           _ -> fail "Expected JSON object"
 
-      it "serializes null description" $ do
+      it "omits null description under omitNothingFields" $ do
         let t = TemplateVmInfo 1 "minimal" 1 512 Nothing False False False
             val = toJSON t
         case val of
-          Object obj -> do
-            KM.lookup "description" obj `shouldBe` Just Null
+          Object obj ->
+            KM.lookup "description" obj `shouldBe` Nothing
           _ -> fail "Expected JSON object"
 
     describe "List serialization" $ do

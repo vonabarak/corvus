@@ -94,7 +94,7 @@ spec = withTestDb $ do
           other -> fail $ "Template instantiation failed: " ++ show other
 
         -- 5. Verify instantiated VM
-        resVm <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show newVmId))
+        resVm <- withDaemonConnection daemon $ \conn -> vmShow conn (T.pack (show newVmId))
         case resVm of
           Right (Right (Just details)) -> do
             vdName details `shouldBe` "instantiated-vm"
@@ -199,7 +199,7 @@ spec = withTestDb $ do
           other -> fail $ "Expected cloud-init config on instantiated VM, got: " ++ show other
 
         -- Verify VM details show the config
-        resVm <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show newVmId))
+        resVm <- withDaemonConnection daemon $ \conn -> vmShow conn (T.pack (show newVmId))
         case resVm of
           Right (Right (Just details)) -> do
             vdCloudInit details `shouldBe` True

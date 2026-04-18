@@ -1,0 +1,9 @@
+[project]
+name = "corvus-client"
+version = "0.1.0"
+description = "Python client for the Corvus VM manager (Haskell-backed native extension)."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

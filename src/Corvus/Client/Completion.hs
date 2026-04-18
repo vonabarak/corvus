@@ -58,7 +58,7 @@ fetchNames query extract = do
 vmCompleter :: Completer
 vmCompleter =
   listIOCompleter $
-    fetchNames listVms (map (T.unpack . viName))
+    fetchNames vmList (map (T.unpack . viName))
 
 -- | Completer for disk image names.
 diskCompleter :: Completer

@@ -8,8 +8,8 @@ module Corvus.Client.Rpc
   , requestShutdown
 
     -- * VM listing
-  , listVms
-  , showVm
+  , vmList
+  , vmShow
 
     -- * VM lifecycle
   , VmCreateResult (..)
@@ -162,9 +162,9 @@ requestShutdown conn = do
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 -- | List all VMs
-listVms :: Connection -> IO (Either ConnectionError [VmInfo])
-listVms conn = do
-  result <- sendRequest conn ReqListVms
+vmList :: Connection -> IO (Either ConnectionError [VmInfo])
+vmList conn = do
+  result <- sendRequest conn ReqVmList
   case result of
     Left err -> pure $ Left err
     Right (RespVmList vms) -> pure $ Right vms
@@ -172,9 +172,9 @@ listVms conn = do
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 -- | Show VM details
-showVm :: Connection -> Text -> IO (Either ConnectionError (Maybe VmDetails))
-showVm conn vmRef = do
-  result <- sendRequest conn (ReqShowVm (Ref vmRef))
+vmShow :: Connection -> Text -> IO (Either ConnectionError (Maybe VmDetails))
+vmShow conn vmRef = do
+  result <- sendRequest conn (ReqVmShow (Ref vmRef))
   case result of
     Left err -> pure $ Left err
     Right (RespVmDetails details) -> pure $ Right (Just details)

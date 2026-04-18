@@ -152,7 +152,7 @@ stopTestVmAndWait daemon vmId timeoutSec = do
         _ <- withDaemonConnection daemon $ \conn -> vmReset conn (T.pack (show vmId))
         pure ()
       go n = do
-        res <- withDaemonConnection daemon $ \conn -> showVm conn (T.pack (show vmId))
+        res <- withDaemonConnection daemon $ \conn -> vmShow conn (T.pack (show vmId))
         case res of
           Right (Right (Just details)) ->
             if vdStatus details == VmStopped

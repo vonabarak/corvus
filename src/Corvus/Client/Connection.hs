@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Connection handling for the Corvus client.
 module Corvus.Client.Connection
@@ -7,17 +8,22 @@ module Corvus.Client.Connection
     Connection (..)
   , ConnectionError (..)
 
-    -- * Connecting
+    -- * Bracketed connecting
   , withConnection
   , withTcpConnection
   , withUnixConnection
+
+    -- * Non-bracketed connecting (for long-lived handles)
+  , openTcpConnection
+  , openUnixConnection
+  , socketConnection
 
     -- * Low-level communication
   , sendRequest
   )
 where
 
-import Control.Exception (Exception, SomeException, bracket, try)
+import Control.Exception (Exception, SomeException, bracket, throwIO, try)
 import Corvus.Protocol (Request, Response, protocolVersion)
 import Corvus.Types (ListenAddress (..))
 import Data.Binary (decodeOrFail, encode)
@@ -29,14 +35,19 @@ import qualified Data.Text as T
 import Data.Word (Word8)
 import Network.Simple.TCP (connect)
 import Network.Socket
-  ( Family (AF_UNIX)
+  ( AddrInfo (..)
+  , Family (AF_UNIX)
+  , SockAddr (..)
   , Socket
   , SocketType (Stream)
   , close
+  , defaultHints
+  , getAddrInfo
   , socket
   )
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
+import System.IO.Error (userError)
 
 -- | Connection handle
 data Connection = Connection
@@ -82,7 +93,41 @@ withUnixConnection path action = do
     Left (e :: SomeException) -> pure $ Left $ ConnectFailed $ T.pack $ show e
     Right a -> pure $ Right a
 
--- | Create a Connection from a Socket
+-- | Open a Unix-socket connection without bracketing the lifetime. The
+-- caller owns the returned 'Connection' and is responsible for closing
+-- it via 'connClose'. Used by the Python extension for long-lived
+-- handles; prefer 'withUnixConnection' for ordinary Haskell callers.
+openUnixConnection :: FilePath -> IO (Either ConnectionError Connection)
+openUnixConnection path = do
+  result <- try @SomeException $ do
+    sock <- socket AF_UNIX Stream 0
+    NS.connect sock (SockAddrUnix path)
+    pure (socketConnection sock)
+  pure $ case result of
+    Left e -> Left (ConnectFailed (T.pack (show e)))
+    Right c -> Right c
+
+-- | Open a TCP connection without bracketing. See 'openUnixConnection'.
+openTcpConnection :: String -> Int -> IO (Either ConnectionError Connection)
+openTcpConnection host port = do
+  result <- try @SomeException $ do
+    addrs <-
+      getAddrInfo
+        (Just defaultHints {addrSocketType = Stream})
+        (Just host)
+        (Just (show port))
+    case addrs of
+      [] -> throwIO (userError ("no address for " <> host <> ":" <> show port))
+      (addr : _) -> do
+        sock <- socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
+        NS.connect sock (addrAddress addr)
+        pure (socketConnection sock)
+  pure $ case result of
+    Left e -> Left (ConnectFailed (T.pack (show e)))
+    Right c -> Right c
+
+-- | Create a Connection from a Socket. Exported so the Python extension
+-- can wrap its own sockets without duplicating this logic.
 socketConnection :: Socket -> Connection
 socketConnection sock =
   Connection

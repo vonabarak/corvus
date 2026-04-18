@@ -457,7 +457,7 @@ getDiskInfo daemon diskId = do
 showVmDetails :: TestDaemon -> Int64 -> IO VmDetails
 showVmDetails daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
-    showVm conn (T.pack (show vmId))
+    vmShow conn (T.pack (show vmId))
   case result of
     Right (Right (Just details)) -> pure details
     other -> fail $ "Failed to show VM: " ++ show other

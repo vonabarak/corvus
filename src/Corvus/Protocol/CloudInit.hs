@@ -11,7 +11,8 @@ module Corvus.Protocol.CloudInit
   )
 where
 
-import Data.Aeson (ToJSON (..), object, (.=))
+import Corvus.Protocol.Aeson (innerOptions)
+import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Binary (Binary)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -25,9 +26,4 @@ data CloudInitInfo = CloudInitInfo
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON CloudInitInfo where
-  toJSON c =
-    object
-      [ "userData" .= ciiUserData c
-      , "networkConfig" .= ciiNetworkConfig c
-      , "injectSshKeys" .= ciiInjectSshKeys c
-      ]
+  toJSON = genericToJSON innerOptions

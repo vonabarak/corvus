@@ -13,7 +13,7 @@ module Corvus.VmIntegrationSpec (spec) where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (readTVarIO)
-import Corvus.Client (showVm, vmStart, vmStop)
+import Corvus.Client (vmShow, vmStart, vmStop)
 import Corvus.Model (VmStatus (..))
 import Corvus.Protocol (VmDetails (..))
 import Corvus.Server (handleGracefulShutdown)
@@ -240,7 +240,7 @@ vmIntegrationTests = withTestDb $ do
 getVmDetails :: TestDaemon -> Int64 -> IO VmDetails
 getVmDetails daemon vmId = do
   result <- withDaemonConnection daemon $ \conn ->
-    showVm conn (T.pack (show vmId))
+    vmShow conn (T.pack (show vmId))
   case result of
     Right (Right (Just details)) -> pure details
     other -> fail $ "Failed to get VM details: " ++ show other

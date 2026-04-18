@@ -16,8 +16,9 @@ module Corvus.Protocol.Template
 where
 
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, TemplateCloneStrategy)
+import Corvus.Protocol.Aeson (innerOptions)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
-import Data.Aeson (ToJSON (..), object, (.=))
+import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -86,62 +87,16 @@ data TemplateDetails = TemplateDetails
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON TemplateVmInfo where
-  toJSON t =
-    object
-      [ "id" .= tviId t
-      , "name" .= tviName t
-      , "cpuCount" .= tviCpuCount t
-      , "ramMb" .= tviRamMb t
-      , "description" .= tviDescription t
-      , "headless" .= tviHeadless t
-      , "guestAgent" .= tviGuestAgent t
-      , "autostart" .= tviAutostart t
-      ]
+  toJSON = genericToJSON innerOptions
 
 instance ToJSON TemplateDriveInfo where
-  toJSON d =
-    object
-      [ "diskImageId" .= tvdiDiskImageId d
-      , "diskImageName" .= tvdiDiskImageName d
-      , "interface" .= tvdiInterface d
-      , "media" .= tvdiMedia d
-      , "readOnly" .= tvdiReadOnly d
-      , "cacheType" .= tvdiCacheType d
-      , "discard" .= tvdiDiscard d
-      , "cloneStrategy" .= tvdiCloneStrategy d
-      , "sizeMb" .= tvdiSizeMb d
-      , "format" .= tvdiFormat d
-      ]
+  toJSON = genericToJSON innerOptions
 
 instance ToJSON TemplateNetIfInfo where
-  toJSON n =
-    object
-      [ "type" .= tvniType n
-      , "hostDevice" .= tvniHostDevice n
-      ]
+  toJSON = genericToJSON innerOptions
 
 instance ToJSON TemplateSshKeyInfo where
-  toJSON k =
-    object
-      [ "id" .= tvskiId k
-      , "name" .= tvskiName k
-      ]
+  toJSON = genericToJSON innerOptions
 
 instance ToJSON TemplateDetails where
-  toJSON t =
-    object
-      [ "id" .= tvdId t
-      , "name" .= tvdName t
-      , "cpuCount" .= tvdCpuCount t
-      , "ramMb" .= tvdRamMb t
-      , "description" .= tvdDescription t
-      , "headless" .= tvdHeadless t
-      , "cloudInit" .= tvdCloudInit t
-      , "guestAgent" .= tvdGuestAgent t
-      , "autostart" .= tvdAutostart t
-      , "cloudInitConfig" .= tvdCloudInitConfig t
-      , "createdAt" .= tvdCreatedAt t
-      , "drives" .= tvdDrives t
-      , "networkInterfaces" .= tvdNetIfs t
-      , "sshKeys" .= tvdSshKeys t
-      ]
+  toJSON = genericToJSON innerOptions

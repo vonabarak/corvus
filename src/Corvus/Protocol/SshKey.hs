@@ -10,7 +10,8 @@ where
 import Corvus.Model ()
 
 -- for orphan Binary UTCTime instance
-import Data.Aeson (ToJSON (..), object, (.=))
+import Corvus.Protocol.Aeson (innerOptions)
+import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -29,11 +30,4 @@ data SshKeyInfo = SshKeyInfo
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON SshKeyInfo where
-  toJSON k =
-    object
-      [ "id" .= skiId k
-      , "name" .= skiName k
-      , "publicKey" .= skiPublicKey k
-      , "createdAt" .= skiCreatedAt k
-      , "attachedVms" .= skiAttachedVms k
-      ]
+  toJSON = genericToJSON innerOptions

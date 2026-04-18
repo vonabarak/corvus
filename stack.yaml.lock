@@ -3,7 +3,14 @@
 # For more information, please see the documentation at:
 #   https://docs.haskellstack.org/en/stable/topics/lock_files
 
-packages: []
+packages:
+- completed:
+    hackage: ginger-0.10.6.0@sha256:047825338228f493135781d9a01481033c82ab3b02963e87ff4c5d465be94688,3188
+    pantry-tree:
+      sha256: d0cbd8cb0e47c00f307b34a0f51b1f2e08f39f85258831fb4aec954ed85db4af
+      size: 1430
+  original:
+    hackage: ginger-0.10.6.0@sha256:047825338228f493135781d9a01481033c82ab3b02963e87ff4c5d465be94688,3188
 snapshots:
 - completed:
     sha256: 7e724f347d5969cb5e8dde9f9aae30996e3231c29d1dafd45f21f1700d4c4fcb

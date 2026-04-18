@@ -8,7 +8,8 @@ module Corvus.Protocol.Task
 where
 
 import Corvus.Model (TaskResult, TaskSubsystem)
-import Data.Aeson (ToJSON (..), object, (.=))
+import Corvus.Protocol.Aeson (innerOptions)
+import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -31,16 +32,4 @@ data TaskInfo = TaskInfo
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON TaskInfo where
-  toJSON t =
-    object
-      [ "id" .= tiId t
-      , "parentId" .= tiParentId t
-      , "startedAt" .= tiStartedAt t
-      , "finishedAt" .= tiFinishedAt t
-      , "subsystem" .= tiSubsystem t
-      , "entityId" .= tiEntityId t
-      , "entityName" .= tiEntityName t
-      , "command" .= tiCommand t
-      , "result" .= tiResult t
-      , "message" .= tiMessage t
-      ]
+  toJSON = genericToJSON innerOptions
