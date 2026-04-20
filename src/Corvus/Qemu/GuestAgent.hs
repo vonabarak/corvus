@@ -37,7 +37,7 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
-import Control.Exception (SomeException, catch, mask, onException, try)
+import Control.Exception (SomeException, catch, mask, mask_, onException, try)
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Runtime (getGuestAgentSocket)
 import Data.Aeson (Value (..), (.:), (.:?), (.=))
@@ -47,6 +47,7 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as BL
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
@@ -159,16 +160,19 @@ closeGuestAgentConn connsVar vmId = do
 -- | Run an action on a VM's persistent guest agent connection.
 -- Connects and syncs on first use; reuses the socket for subsequent calls.
 -- On any failure the socket is closed (next call will reconnect).
--- Retries up to @retries@ times with 1-second backoff.
+-- Retries up to @retries@ times with 1-second backoff. Each attempt is
+-- bounded by @timeoutMicros@ covering connect + sync + action.
 withPersistentConn
   :: GuestAgentConns
   -> QemuConfig
   -> Int64
   -> Int
   -- ^ Retry count
+  -> Int
+  -- ^ Per-attempt timeout in microseconds
   -> (Socket -> IO a)
   -> IO (Either Text a)
-withPersistentConn connsVar config vmId retries action = do
+withPersistentConn connsVar config vmId retries timeoutMicros action = do
   connVar <- getOrCreateConn connsVar vmId
   path <- getGuestAgentSocket config vmId
   go connVar path retries
@@ -186,40 +190,52 @@ withPersistentConn connsVar config vmId retries action = do
 
     runOnce connVar path = mask $ \restore -> do
       mSock <- takeMVar connVar
-      -- If async exception arrives after takeMVar, onException fires
+      -- Track the socket currently in use so we can close it from the
+      -- exception/timeout path. Starts as @mSock@ (the cached socket, if any);
+      -- updated to the fresh socket right after @connectWithRetry@ succeeds,
+      -- so a timeout firing mid-@syncGuest@ still closes the new fd instead
+      -- of leaking it and blocking QEMU's single-slot chardev backlog.
+      sockRef <- newIORef mSock
       eResult <-
-        restore (doWork mSock path) `onException` do
-          closeMaybe mSock
+        restore (doWork mSock path sockRef) `onException` do
+          cur <- readIORef sockRef
+          closeMaybe cur
           putMVar connVar Nothing
       case eResult of
         Right (sock', a) -> do
           putMVar connVar (Just sock')
           pure $ Right a
         Left err -> do
+          cur <- readIORef sockRef
+          closeMaybe cur
           putMVar connVar Nothing
           pure $ Left err
 
-    doWork mSock path = do
+    doWork mSock path sockRef = do
       -- Timeout covers the entire operation: connect + sync + action.
       -- GHC uses non-blocking sockets internally, so SO_RCVTIMEO is
       -- ineffective — async exceptions from timeout are the only way
       -- to interrupt a blocked recv().
-      mResult <- timeout 15000000 $ try $ do
+      mResult <- timeout timeoutMicros $ try $ do
         sock <- case mSock of
           Just s -> pure s
           Nothing -> do
-            s <- connectWithRetry 10 path
+            -- Connect and publish the fd to sockRef atomically, so if an
+            -- async exception fires (most importantly the timeout's) the
+            -- handler in runOnce can still find and close this socket.
+            s <- mask_ $ do
+              s <- connectWithRetry 10 path
+              writeIORef sockRef (Just s)
+              pure s
             syncGuest s
             pure s
         result <- action sock
         pure (sock, result)
       case mResult of
         Just (Right (sock, a)) -> pure $ Right (sock, a)
-        Just (Left (e :: SomeException)) -> do
-          closeMaybe mSock
+        Just (Left (e :: SomeException)) ->
           pure $ Left $ T.pack (show e)
-        Nothing -> do
-          closeMaybe mSock
+        Nothing ->
           pure $ Left "Timed out waiting for guest agent"
 
 -- | Connect to a Unix domain socket with retries on EAGAIN.
@@ -259,7 +275,7 @@ closeMaybe (Just s) = closeSafe s
 -- Linux/BSD: /bin/sh -c, Windows: cmd.exe /c
 guestExec :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> IO GuestExecResult
 guestExec conns config vmId command = do
-  mResult <- withPersistentConn conns config vmId 5 $ \sock -> do
+  mResult <- withPersistentConn conns config vmId 5 15000000 $ \sock -> do
     -- First detect the guest OS to choose the right shell
     (shellPath, shellArgs) <- detectGuestShell sock
     -- Send guest-exec command
@@ -284,9 +300,16 @@ guestExec conns config vmId command = do
     Right r -> pure r
 
 -- | Ping the guest agent to check if it's available.
+-- Single attempt: the caller (usually a polling loop) retries on its own
+-- cadence, so there's no point multiplying the per-call cost with inner
+-- retries. The 15 s per-attempt budget matches the other commands and is
+-- enough to accommodate the first @guest-sync@ handshake on slow guests
+-- (FreeBSD/Gentoo qemu-ga startup can take several seconds) — a shorter
+-- budget risks timing out mid-sync, closing the socket, and losing the
+-- reply that was about to arrive.
 guestPing :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
 guestPing conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 5 $ \sock -> do
+  mResult <- withPersistentConn conns config vmId 1 15000000 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]
     resp <- recvJson sock
     case resp of
@@ -301,7 +324,7 @@ guestPing conns config vmId = do
 -- Returns True if the command was accepted, False on error.
 guestShutdown :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
 guestShutdown conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 3 $ \sock -> do
+  mResult <- withPersistentConn conns config vmId 3 15000000 $ \sock -> do
     -- guest-shutdown with mode "powerdown" triggers a clean OS shutdown
     sendJson sock $
       Aeson.object
@@ -323,7 +346,7 @@ guestShutdown conns config vmId = do
 -- Returns Nothing on failure, Just [] if no interfaces reported.
 guestNetworkGetInterfaces :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe [GuestNetIf])
 guestNetworkGetInterfaces conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 5 $ \sock -> do
+  mResult <- withPersistentConn conns config vmId 5 15000000 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
     resp <- recvJson sock
     pure $ parseGuestInterfaces resp
@@ -335,7 +358,7 @@ guestNetworkGetInterfaces conns config vmId = do
 -- Returns Nothing on failure.
 guestGetOsInfo :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe GuestOsInfo)
 guestGetOsInfo conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 5 $ \sock -> do
+  mResult <- withPersistentConn conns config vmId 5 15000000 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-get-osinfo" :: Text)]
     resp <- recvJson sock
     pure $ parseOsInfo resp

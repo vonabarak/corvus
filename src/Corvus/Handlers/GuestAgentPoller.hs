@@ -12,7 +12,7 @@ where
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad (forM_, void, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN, logWarnN)
+import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Qemu.Config (QemuConfig)
@@ -29,20 +29,22 @@ import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend, SqlPersistT)
 
 -- | Start a background polling thread for a VM's guest agent.
--- Phase 1: waits 3s, then pings every 1s until first success.
--- Phase 2: queries network interfaces and pings every the configured interval.
--- Exits when the VM's PID is cleared from the database.
+-- Called after 'waitForFirstPing' has confirmed the agent is responsive.
+-- Immediately queries guest network interfaces, then enters steady-state
+-- polling every @intervalSec@ seconds. Exits when the VM's PID is cleared
+-- from the database.
 startGuestAgentPoller :: GuestAgentConns -> Pool SqlBackend -> QemuConfig -> Int -> Int64 -> LogLevel -> IO ()
 startGuestAgentPoller conns pool config intervalSec vmId logLevel = void $ forkIO $ runFilteredLogging logLevel $ do
-  -- Initial delay: wait for VM to boot
-  liftIO $ threadDelay 3000000
   logDebugN $ "Guest agent poller starting for VM " <> tshow vmId
-  waitForAgent conns pool config intervalSec vmId
+  queryAndUpdateNetwork conns pool config vmId
+  steadyPoll conns pool config intervalSec vmId
 
 -- | Block until the guest agent responds for the first time.
--- Waits 3s initial delay, then pings every 1s.
--- Transitions VmStarting → VmRunning on success.
--- Does NOT start steady-state polling (caller should start the poller separately).
+-- Waits 3s initial delay, then pings every 1s. On success, updates the
+-- healthcheck timestamp and transitions @VmStarting@ → @VmRunning@. Returns
+-- immediately once the transition is made — the network interface query is
+-- deferred to 'startGuestAgentPoller' so @crv vm start --wait@ is not held
+-- up by a slow @guest-network-get-interfaces@ call.
 waitForFirstPing :: GuestAgentConns -> Pool SqlBackend -> QemuConfig -> Int64 -> LogLevel -> IO ()
 waitForFirstPing conns pool config vmId logLevel = runFilteredLogging logLevel $ do
   liftIO $ threadDelay 3000000
@@ -59,38 +61,12 @@ waitForFirstPing conns pool config vmId logLevel = runFilteredLogging logLevel $
             liftIO $ runSqlPool (updateHealthcheck vmId now) pool
             liftIO $ runSqlPool (transitionStartingToRunning vmId) pool
             logInfoN $ "Guest agent ready for VM " <> tshow vmId
-            queryAndUpdateNetwork conns pool config vmId
           else do
             liftIO $ threadDelay 1000000
             go
 
 --------------------------------------------------------------------------------
--- Phase 1: Wait for agent readiness
---------------------------------------------------------------------------------
-
--- | Ping every 1s until the guest agent responds.
-waitForAgent :: GuestAgentConns -> Pool SqlBackend -> QemuConfig -> Int -> Int64 -> LoggingT IO ()
-waitForAgent conns pool config intervalSec vmId = do
-  alive <- isVmAlive pool vmId
-  when alive $ do
-    pingOk <- liftIO $ guestPing conns config vmId
-    if pingOk
-      then do
-        now <- liftIO getCurrentTime
-        liftIO $ runSqlPool (updateHealthcheck vmId now) pool
-        -- Transition VmStarting → VmRunning on first successful healthcheck
-        liftIO $ runSqlPool (transitionStartingToRunning vmId) pool
-        logInfoN $ "Guest agent ready for VM " <> tshow vmId
-        -- Immediately query network interfaces on first success
-        queryAndUpdateNetwork conns pool config vmId
-        -- Enter steady-state polling
-        steadyPoll conns pool config intervalSec vmId
-      else do
-        liftIO $ threadDelay 1000000
-        waitForAgent conns pool config intervalSec vmId
-
---------------------------------------------------------------------------------
--- Phase 2: Steady-state polling (every 10s)
+-- Steady-state polling
 --------------------------------------------------------------------------------
 
 steadyPoll :: GuestAgentConns -> Pool SqlBackend -> QemuConfig -> Int -> Int64 -> LoggingT IO ()
