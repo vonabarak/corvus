@@ -403,21 +403,46 @@ sendJson :: Socket -> Value -> IO ()
 sendJson sock val = sendAll sock (BL.toStrict (Aeson.encode val) <> "\n")
 
 -- | Read a JSON response from the socket.
--- QGA sends newline-delimited JSON. Read a chunk and parse the first complete
--- JSON object. Strips leading @\\xff@ bytes (QGA framing delimiter used by
--- @guest-sync-delimited@ responses that may be left in the buffer).
+-- QGA sends newline-delimited JSON. Keep @recv@-ing and accumulating bytes
+-- until at least one @\\n@ is seen (i.e. at least one complete message has
+-- arrived), then parse the first parseable line. Strips @\\xff@ bytes (QGA
+-- framing delimiter used by @guest-sync-delimited@ responses that may be
+-- left in the buffer).
+--
+-- Looping is essential: QEMU's chardev backend forwards data from
+-- virtio-serial as it arrives and is not guaranteed to deliver a whole
+-- response in one socket write. Larger responses (e.g.
+-- @guest-network-get-interfaces@, which runs several hundred bytes) can
+-- arrive across multiple @recv@ calls. Reading only the first chunk and
+-- trying to parse it fails the JSON decode, drops the in-flight reply, and
+-- leaves the tail in the socket buffer where it desynchronises every
+-- subsequent command-response cycle.
+--
+-- Cancellation is handled by the outer @timeout@ wrapper in
+-- 'withPersistentConn'; the async exception interrupts the blocking @recv@.
 recvJson :: Socket -> IO (Maybe Value)
-recvJson sock = do
-  bs <- recv sock 65536
-  if BS.null bs
-    then pure Nothing
-    else
-      let cleaned = BS.filter (/= 0xFF) bs
-          -- Try to parse the first JSON object from newline-delimited stream.
-          -- Split on newlines and try each line until one parses.
-          lines' = filter (not . BS.null) $ BS.split (fromIntegral (fromEnum '\n') :: Word8) cleaned
-       in pure $ firstParse lines'
+recvJson sock = go BS.empty
   where
+    nlByte = fromIntegral (fromEnum '\n') :: Word8
+
+    go acc = do
+      chunk <- recv sock 65536
+      if BS.null chunk
+        then
+          if BS.null acc
+            then pure Nothing
+            else pure $ parseAcc acc
+        else
+          let acc' = acc <> chunk
+           in if BS.elem nlByte acc'
+                then pure $ parseAcc acc'
+                else go acc'
+
+    parseAcc bs =
+      let cleaned = BS.filter (/= 0xFF) bs
+          lines' = filter (not . BS.null) $ BS.split nlByte cleaned
+       in firstParse lines'
+
     firstParse [] = Nothing
     firstParse (l : ls) = case Aeson.decodeStrict l of
       Just v -> Just v
