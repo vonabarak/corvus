@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Guest Agent periodic polling.
 -- Spawns a background thread per VM that periodically pings the guest agent
@@ -10,9 +11,11 @@ module Corvus.Handlers.GuestAgentPoller
 where
 
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Exception (SomeException)
 import Control.Monad (forM_, void, when)
+import qualified Control.Monad.Catch as MC
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN)
+import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Qemu.Config (QemuConfig)
@@ -36,8 +39,22 @@ import Database.Persist.Sql (SqlBackend, SqlPersistT)
 startGuestAgentPoller :: GuestAgentConns -> Pool SqlBackend -> QemuConfig -> Int -> Int64 -> LogLevel -> IO ()
 startGuestAgentPoller conns pool config intervalSec vmId logLevel = void $ forkIO $ runFilteredLogging logLevel $ do
   logDebugN $ "Guest agent poller starting for VM " <> tshow vmId
-  queryAndUpdateNetwork conns pool config vmId
+  -- queryAndUpdateNetwork can raise (DB timeout etc.); don't let an early
+  -- exception silently kill the forked thread and skip steady-state polling.
+  safeQueryAndUpdateNetwork conns pool config vmId
   steadyPoll conns pool config intervalSec vmId
+
+-- | Call 'queryAndUpdateNetwork' and swallow any exception with a warning.
+-- Without this, one failed DB call on the first iteration would stop the
+-- whole poller thread, leaving guest IPs permanently stale.
+safeQueryAndUpdateNetwork
+  :: GuestAgentConns -> Pool SqlBackend -> QemuConfig -> Int64 -> LoggingT IO ()
+safeQueryAndUpdateNetwork conns pool config vmId = do
+  r <- MC.try (queryAndUpdateNetwork conns pool config vmId)
+  case r of
+    Right () -> pure ()
+    Left (e :: SomeException) ->
+      logWarnN $ "queryAndUpdateNetwork failed for VM " <> tshow vmId <> ": " <> T.pack (show e)
 
 -- | Block until the guest agent responds for the first time.
 -- Waits 3s initial delay, then pings every 1s. On success, updates the
@@ -80,7 +97,7 @@ steadyPoll conns pool config intervalSec vmId = do
         now <- liftIO getCurrentTime
         liftIO $ runSqlPool (updateHealthcheck vmId now) pool
         logDebugN $ "Guest agent ping OK for VM " <> tshow vmId
-        queryAndUpdateNetwork conns pool config vmId
+        safeQueryAndUpdateNetwork conns pool config vmId
       else
         logDebugN $ "Guest agent ping failed for VM " <> tshow vmId
     steadyPoll conns pool config intervalSec vmId
@@ -107,13 +124,19 @@ queryAndUpdateNetwork conns pool config vmId = do
   case mGuestIfs of
     Nothing -> logDebugN $ "Failed to get guest interfaces for VM " <> tshow vmId
     Just guestIfs -> do
-      liftIO $ runSqlPool (updateGuestNetworkData vmId guestIfs) pool
       logDebugN $
-        "Updated guest network data for VM "
+        "VM "
           <> tshow vmId
-          <> " ("
+          <> " guest agent reports "
           <> tshow (length guestIfs)
-          <> " interfaces)"
+          <> " interfaces: "
+          <> T.intercalate ", " (map describeIface guestIfs)
+      liftIO $ runSqlPool (updateGuestNetworkData vmId guestIfs) pool
+  where
+    describeIface g =
+      gniHardwareAddress g
+        <> "="
+        <> T.intercalate "|" (map (\ip -> giaAddress ip <> "/" <> tshow (giaPrefix ip)) (gniIpAddresses g))
 
 -- | Update the healthcheck timestamp on the VM.
 updateHealthcheck :: Int64 -> UTCTime -> SqlPersistT IO ()

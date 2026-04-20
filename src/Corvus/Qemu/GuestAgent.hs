@@ -31,6 +31,9 @@ module Corvus.Qemu.GuestAgent
   , guestShutdown
   , guestNetworkGetInterfaces
   , guestGetOsInfo
+
+    -- * Internal (exposed for tests)
+  , parseGuestInterfaces
   )
 where
 
@@ -50,7 +53,7 @@ import qualified Data.ByteString.Lazy as BL
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
@@ -513,30 +516,36 @@ parseExecStatus mVal = do
 
 -- | Parse the guest-network-get-interfaces response.
 -- Expected format: {"return": [{"name": "eth0", "hardware-address": "...", "ip-addresses": [...]}]}
--- On Windows, some interfaces (e.g. loopback) omit "hardware-address" entirely.
--- These are skipped since they cannot be matched to host interfaces by MAC.
+--
+-- Tolerance policy: a malformed IP entry is dropped but other addresses on the
+-- same interface are kept; an interface that fails to parse is dropped but
+-- other interfaces are kept. Losing one weird interface (e.g. a loopback with
+-- an unexpected field shape) must not blank the whole address list — some
+-- qemu-ga builds (notably FreeBSD's) emit one such entry and would otherwise
+-- cause every interface to be discarded. Interfaces without a hardware
+-- address are skipped since they can't be matched to host rows.
 parseGuestInterfaces :: Maybe Value -> Maybe [GuestNetIf]
 parseGuestInterfaces mVal = do
   val <- mVal
   AT.parseMaybe interfacesParser val
   where
     interfacesParser = AT.withObject "response" $ \obj -> do
-      ret <- obj .: "return"
-      catMaybes <$> mapM tryParseIface ret
+      ret <- obj .: "return" :: AT.Parser [Value]
+      pure $ mapMaybe (AT.parseMaybe parseIface) ret
 
-    tryParseIface = AT.withObject "interface" $ \obj -> do
+    parseIface = AT.withObject "interface" $ \obj -> do
       mHwAddr <- obj .:? "hardware-address"
       case mHwAddr of
-        Nothing -> pure Nothing -- skip interfaces without MAC (e.g. Windows loopback)
+        Nothing -> fail "no hardware-address"
         Just hwAddr -> do
-          ipAddrs <- obj .:? "ip-addresses" AT..!= []
-          parsedIps <- mapM parseIpAddr ipAddrs
-          pure $ Just GuestNetIf {gniHardwareAddress = hwAddr, gniIpAddresses = parsedIps}
+          rawIps <- obj .:? "ip-addresses" AT..!= ([] :: [Value])
+          let parsedIps = mapMaybe (AT.parseMaybe parseIpAddr) rawIps
+          pure GuestNetIf {gniHardwareAddress = hwAddr, gniIpAddresses = parsedIps}
 
     parseIpAddr = AT.withObject "ip-address" $ \obj -> do
       ipType <- obj .: "ip-address-type"
       ipAddr <- obj .: "ip-address"
-      prefix <- obj .: "prefix"
+      prefix <- obj .:? "prefix" AT..!= 0
       pure GuestIpAddress {giaType = ipType, giaAddress = ipAddr, giaPrefix = prefix}
 
 -- | Decode a base64-encoded text field from QGA response
