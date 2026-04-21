@@ -8,9 +8,9 @@ module Corvus.Types
   , runServerLogging
   , runFilteredLogging
 
-    -- * Serial Buffer Types
-  , SerialBuffer (..)
-  , SerialBufferHandle (..)
+    -- * Socket Buffer Types
+  , SocketBuffer (..)
+  , SocketBufferHandle (..)
 
     -- * Configuration
   , ServerConfig (..)
@@ -57,8 +57,10 @@ data ServerState = ServerState
   -- ^ PID of the global network namespace manager
   , ssPastaPid :: TVar (Maybe Int)
   -- ^ PID of the pasta process (for NAT)
-  , ssSerialBuffers :: TVar (Map.Map Int64 SerialBufferHandle)
+  , ssSerialBuffers :: TVar (Map.Map Int64 SocketBufferHandle)
   -- ^ Per-VM serial console ring buffers (headless VMs only)
+  , ssMonitorBuffers :: TVar (Map.Map Int64 SocketBufferHandle)
+  -- ^ Per-VM HMP monitor ring buffers (all running VMs)
   , ssGuestAgentConns :: TVar (Map.Map Int64 (MVar (Maybe Socket)))
   -- ^ Per-VM persistent guest agent connections.
   -- QEMU's chardev only supports one connection at a time (listen backlog=1).
@@ -76,6 +78,7 @@ newServerState pool qemuConfig = do
   namespacePid <- newTVarIO Nothing
   pastaPid <- newTVarIO Nothing
   serialBuffers <- newTVarIO Map.empty
+  monitorBuffers <- newTVarIO Map.empty
   gaLocks <- newTVarIO Map.empty
   pure
     ServerState
@@ -88,15 +91,17 @@ newServerState pool qemuConfig = do
       , ssNamespacePid = namespacePid
       , ssPastaPid = pastaPid
       , ssSerialBuffers = serialBuffers
+      , ssMonitorBuffers = monitorBuffers
       , ssGuestAgentConns = gaLocks
       }
 
 --------------------------------------------------------------------------------
--- Serial Buffer Types
+-- Socket Buffer Types
 --------------------------------------------------------------------------------
 
--- | Ring buffer for serial console output.
-data SerialBuffer = SerialBuffer
+-- | Ring buffer for output from a QEMU chardev Unix socket.
+-- Used for both headless serial consoles and the HMP monitor.
+data SocketBuffer = SocketBuffer
   { sbData :: !(TVar BS.ByteString)
   -- ^ Current buffer contents (truncated to capacity)
   , sbTotalWritten :: !(TVar Int64)
@@ -107,12 +112,12 @@ data SerialBuffer = SerialBuffer
   -- ^ Maximum buffer size in bytes
   }
 
--- | Handle stored in ServerState for each headless VM.
-data SerialBufferHandle = SerialBufferHandle
-  { sbhBuffer :: !SerialBuffer
+-- | Handle stored in ServerState for each live QEMU chardev buffer.
+data SocketBufferHandle = SocketBufferHandle
+  { sbhBuffer :: !SocketBuffer
   -- ^ The ring buffer
   , sbhQemuSock :: !(TVar (Maybe Socket))
-  -- ^ QEMU serial socket (for writing client input); Nothing if disconnected
+  -- ^ QEMU chardev socket (for writing client input); Nothing if disconnected
   , sbhShutdown :: !(TVar Bool)
   -- ^ Set when QEMU disconnects
   }

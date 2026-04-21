@@ -136,7 +136,11 @@ successResponses =
   , ("ReqCloudInitDelete", ["RespCloudInitOk"])
   , ("ReqSerialConsole", ["RespSerialConsoleOk"])
   , ("ReqSerialConsoleFlush", ["RespSerialConsoleFlushed"])
+  , ("ReqHmpMonitor", ["RespHmpMonitorOk"])
+  , ("ReqHmpMonitorFlush", ["RespHmpMonitorFlushed"])
   , ("ReqDiskImport", ["RespDiskCreated", "RespDiskImportStarted"])
+  , ("ReqVmViewGrant", ["RespVmViewGrant"])
+  , ("ReqVmSendCtrlAltDel", ["RespOk"])
   ]
 
 -- ---------------------------------------------------------------------------

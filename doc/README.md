@@ -134,6 +134,14 @@ crv --socket /tmp/corvus.sock vm list
 crv --tcp --host 127.0.0.1 --port 9876 vm list
 ```
 
+### Network Transparency
+
+Every `crv` command — including `vm view`, `vm monitor`, `vm exec`, `serial console`, and `apply` — runs over the daemon's RPC socket, so pointing `crv` at a daemon on another host with `--tcp --host <ip>` Just Works. The daemon relays serial and HMP I/O through the RPC connection using per-VM ring buffers; `vm view` for graphical VMs returns a short-lived SPICE host/port/password grant that `remote-viewer` on the client uses. Disk registration, import, and shared-directory paths are always interpreted on the daemon host (they refer to the daemon's filesystem).
+
+**The one exception is `crv ns`**, which enters the daemon's network namespace via `nsenter` against `/proc/<pid>/ns/*` on the local machine. It only works on the daemon host, exists for debugging virtual networks, and **should not be used in production** — it's a troubleshooting tool, not part of the management surface.
+
+The RPC socket has no built-in authentication, so binding the daemon to a non-loopback address exposes it to anyone who can reach that port. Restrict access with firewall rules, a VPN, or a reverse proxy with auth.
+
 ### Output Formats
 
 All commands support `--output json` and `--output yaml` for machine-readable output:

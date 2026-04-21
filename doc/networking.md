@@ -119,6 +119,8 @@ crv ns brctl show       # Inspect bridges
 
 Useful for debugging network configuration inside the namespace.
 
+**Local-host only.** Unlike every other `crv` subcommand, `crv ns` does not go through the RPC socket — it asks the daemon for the namespace PID via `crv status` and then calls `nsenter` directly against `/proc/<pid>/ns/*` on the caller's machine. That's only meaningful when `crv` runs on the daemon host. This is a **debugging tool, not a production interface**: don't build workflows on top of it, and expect it to fail loudly when pointed at a remote daemon.
+
 ---
 
 ## Recommended Setup: VDE Switch with TAP

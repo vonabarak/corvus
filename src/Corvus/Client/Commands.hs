@@ -173,7 +173,6 @@ runCommand opts = do
               else do
                 if vdHeadless details
                   then do
-                    let monitorSock = T.unpack (vdMonitorSocket details)
                     if isStructured fmt
                       then outputValue fmt (object ["serialSocket" .= vdSerialSocket details])
                       else do
@@ -188,7 +187,11 @@ runCommand opts = do
                                   _ <- withConnection addr $ \flushConn ->
                                     sendRequest flushConn (ReqSerialConsoleFlush (Ref vmRef))
                                   pure ()
-                            _ <- runRawTerminalSession (connSocket conn) (Just monitorSock) (Just flushAction)
+                                ctrlAltDelAction = do
+                                  _ <- withConnection addr $ \cadConn ->
+                                    sendRequest cadConn (ReqVmSendCtrlAltDel (Ref vmRef))
+                                  pure ()
+                            _ <- runRawTerminalSession (connSocket conn) SerialSession (Just ctrlAltDelAction) (Just flushAction)
                             pure ()
                           Right (RespError err) ->
                             putStrLn $ "Error: " ++ T.unpack err
@@ -199,34 +202,40 @@ runCommand opts = do
                   else handleGraphicalViewGrant opts fmt conn vmRef (vdName details)
                 pure True
       VmMonitor vmRef -> do
-        resp <- vmShow conn vmRef
-        case resp of
+        monResp <- sendRequest conn (ReqHmpMonitor (Ref vmRef))
+        case monResp of
           Left err -> do
             emitRpcError fmt err
             pure False
-          Right Nothing -> do
+          Right RespVmNotFound -> do
             emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
               putStrLn $
                 "VM '" ++ T.unpack vmRef ++ "' not found."
             pure False
-          Right (Just details) -> do
-            if vdStatus details /= VmRunning
-              then do
-                emitError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running") $ do
-                  putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
-                  putStrLn $ "Current status: " ++ T.unpack (enumToText $ vdStatus details)
-                pure False
+          Right (RespError msg) -> do
+            emitError fmt "hmp_monitor_unavailable" msg $
+              putStrLn $
+                "Error: " ++ T.unpack msg
+            pure False
+          Right RespHmpMonitorOk -> do
+            if isStructured fmt
+              then outputValue fmt (object ["hmp" .= ("relay" :: Text)])
               else do
-                let monitorSock = T.unpack (vdMonitorSocket details)
-                if isStructured fmt
-                  then outputValue fmt (object ["monitorSocket" .= vdMonitorSocket details])
-                  else do
-                    putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' HMP monitor..."
-                    putStrLn "Escape: Ctrl+]  then  q=quit  ?=help"
-                    putStrLn ""
-                    _ <- runMonitorSession monitorSock Nothing
-                    pure ()
-                pure True
+                putStrLn $ "Connecting to VM '" ++ T.unpack vmRef ++ "' HMP monitor..."
+                putStrLn "Escape: Ctrl+]  then  q=quit  f=flush  ?=help"
+                putStrLn ""
+                let flushAction = do
+                      _ <- withConnection addr $ \flushConn ->
+                        sendRequest flushConn (ReqHmpMonitorFlush (Ref vmRef))
+                      pure ()
+                _ <- runRawTerminalSession (connSocket conn) MonitorSession Nothing (Just flushAction)
+                pure ()
+            pure True
+          Right other -> do
+            emitError fmt "unexpected_response" (T.pack (show other)) $
+              putStrLn $
+                "Unexpected response: " ++ show other
+            pure False
       -- Disk commands
       DiskCreate name formatStr sizeMb mPath -> do
         case parseFormat formatStr of

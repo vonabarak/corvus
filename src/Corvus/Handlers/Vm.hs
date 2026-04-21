@@ -30,6 +30,9 @@ module Corvus.Handlers.Vm
   , handleVmCloudInit
   , handleSerialConsole
   , handleSerialConsoleFlush
+  , handleHmpMonitor
+  , handleHmpMonitorFlush
+  , handleVmSendCtrlAltDel
   , handleVmViewGrant
 
     -- * Helpers (exposed for tests)
@@ -55,7 +58,7 @@ import qualified Corvus.Model as M
 import Corvus.Model.VmState (VmAction (..), validateTransition)
 import Corvus.Protocol
 import Corvus.Qemu
-import Corvus.Qemu.SerialBuffer (flushBuffer, startSerialBufferThread)
+import Corvus.Qemu.SocketBuffer (flushBuffer, startSocketBufferThread)
 import Corvus.Qemu.SpicePort (allocateSpicePort)
 import Corvus.Types
 import qualified Data.ByteString as BS
@@ -75,6 +78,14 @@ import Database.Persist.Sql (SqlPersistT)
 import System.Exit (ExitCode (..))
 import System.IO (IOMode (ReadMode), withBinaryFile)
 import System.Process (waitForProcess)
+
+-- | Ring-buffer capacity for a headless VM's serial console scrollback (1 MiB).
+serialBufferCapacity :: Int
+serialBufferCapacity = 1048576
+
+-- | Ring-buffer capacity for a VM's HMP monitor scrollback (64 KiB).
+monitorBufferCapacity :: Int
+monitorBufferCapacity = 65536
 
 --------------------------------------------------------------------------------
 -- VM Handlers
@@ -273,10 +284,17 @@ launchQemu state vmId vm parentTaskId pool = do
                 liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
         -- Close persistent guest agent connection (QEMU is gone)
         liftIO $ closeGuestAgentConn (ssGuestAgentConns state) vmId
-      -- Start serial console buffer for headless VMs
-      when (vmHeadless vm) $
-        liftIO $
-          startSerialBufferThread (ssQemuConfig state) vmId (ssSerialBuffers state) (ssLogLevel state)
+      -- Start ring-buffered relays for QEMU's chardev sockets.
+      let cfg = ssQemuConfig state
+          logLevel = ssLogLevel state
+      -- Serial console buffer — only headless VMs expose a serial chardev.
+      when (vmHeadless vm) $ liftIO $ do
+        serialSock <- getSerialSocket cfg vmId
+        startSocketBufferThread cfg vmId serialSock (ssSerialBuffers state) serialBufferCapacity "serial" logLevel
+      -- HMP monitor buffer — runs for every VM; 64 KiB is ample for command-line scrollback.
+      liftIO $ do
+        monitorSock <- getMonitorSocket cfg vmId
+        startSocketBufferThread cfg vmId monitorSock (ssMonitorBuffers state) monitorBufferCapacity "monitor" logLevel
       pure $ RespVmStateChanged initialStatus
     VmNotFound -> pure RespVmNotFound
     VmStartError err -> do
@@ -477,6 +495,50 @@ handleSerialConsoleFlush state vmId = do
     Just handle -> do
       flushBuffer (sbhBuffer handle)
       pure RespSerialConsoleFlushed
+
+-- | Handle HMP monitor attach request.
+-- Validates that the VM is running and that a monitor buffer is registered.
+-- Headlessness doesn't matter: HMP exists for both headless and graphical VMs.
+handleHmpMonitor :: ServerState -> Int64 -> IO Response
+handleHmpMonitor state vmId = do
+  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+  case result of
+    Nothing -> pure RespVmNotFound
+    Just (_, status)
+      | status `notElem` [VmRunning, VmStarting] ->
+          pure $ RespError $ "VM is not running (status: " <> enumToText status <> ")"
+      | otherwise -> do
+          buffers <- readTVarIO (ssMonitorBuffers state)
+          case Map.lookup vmId buffers of
+            Nothing -> pure $ RespError "HMP monitor buffer not available"
+            Just _ -> pure RespHmpMonitorOk
+
+-- | Handle HMP monitor buffer flush request.
+handleHmpMonitorFlush :: ServerState -> Int64 -> IO Response
+handleHmpMonitorFlush state vmId = do
+  buffers <- readTVarIO (ssMonitorBuffers state)
+  case Map.lookup vmId buffers of
+    Nothing -> pure $ RespError "HMP monitor buffer not available"
+    Just handle -> do
+      flushBuffer (sbhBuffer handle)
+      pure RespHmpMonitorFlushed
+
+-- | Inject Ctrl+Alt+Del into a running VM via QMP. Delivered through
+-- the daemon's QMP client so it works regardless of whether the
+-- caller is on the daemon host.
+handleVmSendCtrlAltDel :: ServerState -> Int64 -> IO Response
+handleVmSendCtrlAltDel state vmId = do
+  result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+  case result of
+    Nothing -> pure RespVmNotFound
+    Just (_, status)
+      | status /= VmRunning -> pure RespVmNotRunning
+      | otherwise -> do
+          qmpResult <- qmpSendCtrlAltDel (ssQemuConfig state) vmId
+          case qmpResult of
+            QmpSuccess -> pure RespOk
+            QmpError err -> pure $ RespError $ "QMP send-key failed: " <> err
+            QmpConnectionFailed err -> pure $ RespError $ "QMP connection failed: " <> err
 
 -- | Grant a short-lived SPICE connection for a running non-headless VM.
 --

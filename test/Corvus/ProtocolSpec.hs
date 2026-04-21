@@ -97,6 +97,9 @@ instance Arbitrary Request where
       , ReqDiskRegister "reg-test" "/tmp/disk.qcow2" (Just FormatQcow2) <$> arbitrary
       , ReqTemplateUpdate <$> arbitrary <*> pure "name: t\ncpuCount: 1\nramMb: 512\ndrives: []\n"
       , ReqVmViewGrant <$> arbitrary
+      , ReqHmpMonitor <$> arbitrary
+      , ReqHmpMonitorFlush <$> arbitrary
+      , ReqVmSendCtrlAltDel <$> arbitrary
       ]
 
 spec :: Spec
@@ -112,6 +115,10 @@ spec = sequential $ do
     it "RespVmHeadless and RespVmNotRunning round-trip through encode/decode" $ do
       decodeMessage (encodeMessage RespVmHeadless) `shouldBe` Right RespVmHeadless
       decodeMessage (encodeMessage RespVmNotRunning) `shouldBe` Right RespVmNotRunning
+
+    it "RespHmpMonitorOk and RespHmpMonitorFlushed round-trip through encode/decode" $ do
+      decodeMessage (encodeMessage RespHmpMonitorOk) `shouldBe` Right RespHmpMonitorOk
+      decodeMessage (encodeMessage RespHmpMonitorFlushed) `shouldBe` Right RespHmpMonitorFlushed
 
   describe "Protocol JSON encoding" $ do
     it "StatusInfo produces valid JSON with expected fields" $ do

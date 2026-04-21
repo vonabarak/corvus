@@ -20,7 +20,7 @@ from typing import Callable, Optional
 
 import pytest
 
-PROTOCOL_VERSION = 30
+PROTOCOL_VERSION = 33
 
 # Response constructor tags (0-based declaration order in Protocol.hs).
 # Source of truth: src/Corvus/Protocol.hs — keep in sync when the order

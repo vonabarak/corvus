@@ -11,9 +11,8 @@ module Corvus.Server
   )
 where
 
-import Control.Concurrent (forkFinally, forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO, writeTVar)
+import Control.Concurrent (forkFinally)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', readTVarIO, writeTVar)
 import Control.Exception (SomeException, bracket, try)
 import Control.Monad (forM_, forever, unless, void, when)
 import Control.Monad.Catch (finally)
@@ -26,11 +25,12 @@ import Corvus.Handlers.Resolve (resolveVm)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
-import Corvus.Qemu.SerialBuffer (readBufferFrom, waitForData)
+import Corvus.Qemu.SocketBuffer (relayClient)
 import Corvus.Types
 import Data.Binary (decodeOrFail, encode)
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
+import Data.Foldable (for_)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -137,7 +137,10 @@ handleClient state sock = loop
           case (req, resp) of
             (ReqSerialConsole ref, RespSerialConsoleOk) -> do
               logInfoN "Entering serial console relay mode"
-              liftIO $ serialConsoleRelay state ref sock
+              liftIO $ bufferRelay (ssSerialBuffers state) state ref sock
+            (ReqHmpMonitor ref, RespHmpMonitorOk) -> do
+              logInfoN "Entering HMP monitor relay mode"
+              liftIO $ bufferRelay (ssMonitorBuffers state) state ref sock
             (ReqShutdown, _) -> logInfoN "Shutdown requested"
             _ -> loop
 
@@ -204,73 +207,27 @@ sendResponse sock resp = do
   sendAll sock (verBytes <> lenBytes <> payload)
 
 --------------------------------------------------------------------------------
--- Serial Console Relay
+-- Chardev Buffer Relay
 --------------------------------------------------------------------------------
 
--- | Relay raw bytes between the client socket and the VM's serial buffer.
--- Sends buffered output first, then streams live data bidirectionally.
--- Blocks until the client disconnects or the QEMU serial socket closes.
-serialConsoleRelay :: ServerState -> Ref -> Socket -> IO ()
-serialConsoleRelay state ref clientSock = do
-  -- Resolve VM ID
+-- | Look up the per-VM 'SocketBufferHandle' in the given map and
+-- hand the client socket off to 'relayClient'. Silently no-ops if the
+-- VM can't be resolved or no buffer thread is registered; the caller
+-- has already sent the @Ok@ response, so the only failure mode here
+-- is a race with VM shutdown.
+bufferRelay
+  :: TVar (Map.Map Int64 SocketBufferHandle)
+  -> ServerState
+  -> Ref
+  -> Socket
+  -> IO ()
+bufferRelay bufferMapVar state ref clientSock = do
   mVmId <- resolveVm ref (ssDbPool state)
   case mVmId of
     Left _ -> pure ()
     Right vmId -> do
-      buffers <- readTVarIO (ssSerialBuffers state)
-      case Map.lookup vmId buffers of
-        Nothing -> pure ()
-        Just handle -> do
-          let buf = sbhBuffer handle
-          -- Send buffered output to client
-          (buffered, pos) <- readBufferFrom buf 0
-          unless (BS.null buffered) $
-            sendAll clientSock buffered
-          -- Bidirectional relay
-          exitVar <- newEmptyMVar
-          -- QEMU→client: stream new data from buffer
-          _ <- forkIO $ do
-            let loop curPos = do
-                  shutdown <- readTVarIO (sbhShutdown handle)
-                  if shutdown
-                    then putMVar exitVar ()
-                    else do
-                      (newData, newPos) <- waitForData buf curPos
-                      if BS.null newData
-                        then do
-                          -- Check if shutdown happened during wait
-                          shutdown' <- readTVarIO (sbhShutdown handle)
-                          if shutdown' then putMVar exitVar () else loop newPos
-                        else do
-                          result <- try $ sendAll clientSock newData
-                          case result of
-                            Left (_ :: SomeException) -> putMVar exitVar ()
-                            Right () -> loop newPos
-            result <- try $ loop pos
-            case result of
-              Left (_ :: SomeException) -> putMVar exitVar ()
-              Right () -> pure ()
-          -- Client→QEMU: forward client input to QEMU serial socket
-          _ <- forkIO $ do
-            let loop = do
-                  chunk <- recv clientSock 4096
-                  if BS.null chunk
-                    then putMVar exitVar ()
-                    else do
-                      mQemuSock <- readTVarIO (sbhQemuSock handle)
-                      case mQemuSock of
-                        Nothing -> putMVar exitVar ()
-                        Just qSock -> do
-                          result <- try $ sendAll qSock chunk
-                          case result of
-                            Left (_ :: SomeException) -> putMVar exitVar ()
-                            Right () -> loop
-            result <- try loop
-            case result of
-              Left (_ :: SomeException) -> putMVar exitVar ()
-              Right () -> pure ()
-          -- Wait for either direction to finish
-          takeMVar exitVar
+      buffers <- readTVarIO bufferMapVar
+      for_ (Map.lookup vmId buffers) (relayClient clientSock)
 
 --------------------------------------------------------------------------------
 -- Logging Helpers

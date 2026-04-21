@@ -17,6 +17,9 @@ module Corvus.Qemu.Qmp
   , qmpSetSpicePassword
   , qmpExpireSpicePassword
 
+    -- * Input injection
+  , qmpSendCtrlAltDel
+
     -- * Hot-plug commands
   , qmpBlockdevAdd
   , qmpDeviceAddDrive
@@ -111,6 +114,28 @@ qmpExpireSpicePassword config vmId seconds = do
         "arguments": {
           "protocol": "spice",
           "time": #{ttl}
+        }
+      }
+    |]
+
+-- | Inject a Ctrl+Alt+Del key combination via QMP @send-key@. This is
+-- how 'crv vm view' delivers the escape-prefix @d@ command now that
+-- the HMP monitor socket is exclusively held by the daemon's ring
+-- buffer thread.
+qmpSendCtrlAltDel :: QemuConfig -> Int64 -> IO QmpResult
+qmpSendCtrlAltDel config vmId =
+  sendQmpCommand
+    config
+    vmId
+    [qmpQQ|
+      {
+        "execute": "send-key",
+        "arguments": {
+          "keys": [
+            { "type": "qcode", "data": "ctrl" },
+            { "type": "qcode", "data": "alt" },
+            { "type": "qcode", "data": "delete" }
+          ]
         }
       }
     |]

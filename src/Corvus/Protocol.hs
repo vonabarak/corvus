@@ -89,7 +89,7 @@ instance FromJSON Ref where
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 31
+protocolVersion = 33
 
 -- ---------------------------------------------------------------------------
 -- Request
@@ -333,6 +333,12 @@ data Request
     -- non-headless VM. The daemon rotates the SPICE password via QMP
     -- and returns reachable host/port plus the fresh password.
     ReqVmViewGrant {ref :: !Ref}
+  | -- | Attach to HMP monitor (protocol upgrade after RespHmpMonitorOk).
+    ReqHmpMonitor {ref :: !Ref}
+  | -- | Flush the HMP monitor ring buffer for a VM.
+    ReqHmpMonitorFlush {ref :: !Ref}
+  | -- | Inject Ctrl+Alt+Del into a running VM via QMP @send-key@.
+    ReqVmSendCtrlAltDel {ref :: !Ref}
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON Request where
@@ -536,6 +542,10 @@ data Response
     RespVmNotRunning
   | -- | VM has no SPICE console (headless configuration).
     RespVmHeadless
+  | -- | HMP monitor attached; connection switches to raw byte streaming.
+    RespHmpMonitorOk
+  | -- | HMP monitor buffer flushed.
+    RespHmpMonitorFlushed
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON Response where

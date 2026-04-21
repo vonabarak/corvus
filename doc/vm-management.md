@@ -127,7 +127,18 @@ The buffer persists across guest reboots (the QEMU process stays alive) and is c
 crv vm monitor my-vm   # Connect to QEMU Human Monitor Protocol
 ```
 
-Press `Ctrl+]` to disconnect. Useful for advanced QEMU debugging.
+Works for every running VM (headless or graphical) and over any RPC transport — the daemon holds the HMP chardev and relays bytes to the client through the RPC socket, the same way the headless serial console does.
+
+Escape prefix:
+
+| Sequence | Action |
+|----------|--------|
+| `Ctrl+]` `q` | Quit the monitor session |
+| `Ctrl+]` `f` | Flush the HMP scrollback ring buffer |
+| `Ctrl+]` `Ctrl+]` | Send a literal `Ctrl+]` |
+| `Ctrl+]` `?` | Show help |
+
+The daemon keeps a 64 KiB ring buffer per running VM so that reconnecting clients see the last prompt/response pair.
 
 ## Output Formats
 

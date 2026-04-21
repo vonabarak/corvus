@@ -155,7 +155,7 @@ library:
     - Corvus.Qemu.Virtiofsd
     - Corvus.Qemu.Image
     - Corvus.Qemu.GuestAgent
-    - Corvus.Qemu.SerialBuffer
+    - Corvus.Qemu.SocketBuffer
     - Corvus.Qemu.Netns
     - Corvus.Qemu.Netns.Manager
     - Corvus.Qemu.SpicePort

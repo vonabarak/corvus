@@ -16,8 +16,8 @@ module Corvus.Client.Commands.Vm
 
     -- * VM display/interaction
   , runRemoteViewer
-  , runMonitorSession
   , runRawTerminalSession
+  , RawSessionKind (..)
 
     -- * Formatters
   , vmColumns
@@ -28,7 +28,7 @@ where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, bracket, try)
+import Control.Exception (SomeException, try)
 import Control.Monad (unless, when)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
@@ -45,8 +45,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
-import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, defaultProtocol, socket)
-import qualified Network.Socket as NS
+import Network.Socket (Socket)
 import Network.Socket.ByteString (recv, sendAll)
 import System.IO (BufferMode (..), hClose, hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
 import System.IO.Temp (withSystemTempFile)
@@ -323,31 +322,13 @@ runRemoteViewer config grant = do
       pure False
     Right () -> pure True
 
--- | Connect to a Unix socket and run a raw terminal session.
--- Convenience wrapper around 'runRawTerminalSession'.
-runMonitorSession :: FilePath -> Maybe FilePath -> IO Bool
-runMonitorSession sockPath mMonitorSock = do
-  savedAttrs <- getTerminalAttributes stdInput
-  result <-
-    try $
-      bracket
-        ( do
-            sock <- socket AF_UNIX Stream defaultProtocol
-            NS.connect sock (SockAddrUnix sockPath)
-            pure sock
-        )
-        close
-        (\sock -> doRawTerminalSession savedAttrs sock mMonitorSock Nothing)
-  setTerminalAttributes stdInput savedAttrs Immediately
-  hSetBinaryMode stdin False
-  hSetBinaryMode stdout False
-  case result of
-    Left (e :: SomeException) -> do
-      putStrLn $ "\nFailed to connect: " ++ show e
-      pure False
-    Right () -> do
-      putStrLn "\nDisconnected."
-      pure True
+-- | Which kind of raw relay session is running. Controls the escape
+-- help text, the wording of the flush confirmation, and whether
+-- @Ctrl+] d@ (send Ctrl+Alt+Del via HMP) is offered at all. HMP
+-- monitor sessions hide the key entirely because "send Ctrl+Alt+Del"
+-- has no meaning at the monitor layer.
+data RawSessionKind = SerialSession | MonitorSession
+  deriving (Eq, Show)
 
 -- | Run a raw terminal session on an already-connected socket.
 -- Uses true raw terminal mode (cfmakeraw) so that serial consoles,
@@ -355,14 +336,14 @@ runMonitorSession sockPath mMonitorSock = do
 --
 -- Ctrl+] is the escape prefix:
 --   Ctrl+] q   — quit
---   Ctrl+] d   — send Ctrl+Alt+Del (requires monitor socket)
---   Ctrl+] f   — flush serial console buffer
+--   Ctrl+] d   — send Ctrl+Alt+Del (serial sessions only; requires monitor socket)
+--   Ctrl+] f   — flush ring buffer
 --   Ctrl+] ?   — show help
 --   Ctrl+] Ctrl+] — send literal Ctrl+] to the VM
-runRawTerminalSession :: Socket -> Maybe FilePath -> Maybe (IO ()) -> IO Bool
-runRawTerminalSession sock mMonitorSock mFlushAction = do
+runRawTerminalSession :: Socket -> RawSessionKind -> Maybe (IO ()) -> Maybe (IO ()) -> IO Bool
+runRawTerminalSession sock kind mCtrlAltDelAction mFlushAction = do
   savedAttrs <- getTerminalAttributes stdInput
-  result <- try $ doRawTerminalSession savedAttrs sock mMonitorSock mFlushAction
+  result <- try $ doRawTerminalSession savedAttrs sock kind mCtrlAltDelAction mFlushAction
   setTerminalAttributes stdInput savedAttrs Immediately
   hSetBinaryMode stdin False
   hSetBinaryMode stdout False
@@ -410,24 +391,6 @@ makeRaw attrs =
     )
     1 -- VMIN = 1
 
--- | Send an HMP command via a temporary connection to the monitor socket.
-sendMonitorCommand :: FilePath -> String -> IO ()
-sendMonitorCommand monSock cmd =
-  bracket
-    ( do
-        s <- socket AF_UNIX Stream defaultProtocol
-        NS.connect s (SockAddrUnix monSock)
-        pure s
-    )
-    close
-    $ \s -> do
-      -- Drain the HMP greeting/prompt
-      _ <- recv s 4096
-      sendAll s (BS.pack (map (fromIntegral . ord) (cmd ++ "\n")))
-      -- Read the response (discard it)
-      _ <- recv s 4096
-      pure ()
-
 -- | Print a status line in raw terminal mode (uses CR+LF since OPOST is off).
 rawPutStrLn :: String -> IO ()
 rawPutStrLn s = do
@@ -435,8 +398,8 @@ rawPutStrLn s = do
   hFlush stderr
 
 -- | Core raw terminal session logic. Caller must save/restore terminal attributes.
-doRawTerminalSession :: TerminalAttributes -> Socket -> Maybe FilePath -> Maybe (IO ()) -> IO ()
-doRawTerminalSession savedAttrs sock mMonitorSock mFlushAction = do
+doRawTerminalSession :: TerminalAttributes -> Socket -> RawSessionKind -> Maybe (IO ()) -> Maybe (IO ()) -> IO ()
+doRawTerminalSession savedAttrs sock kind mCtrlAltDelAction mFlushAction = do
   setTerminalAttributes stdInput (makeRaw savedAttrs) Immediately
   hSetBinaryMode stdin True
   hSetBinaryMode stdout True
@@ -480,17 +443,20 @@ doRawTerminalSession savedAttrs sock mMonitorSock mFlushAction = do
             inputLoop
           'q' -> putMVar exitVar ()
           'd' -> do
-            case mMonitorSock of
-              Just monSock -> do
-                result' <- try $ sendMonitorCommand monSock "sendkey ctrl-alt-delete"
-                case result' of
-                  Left (ex :: SomeException) ->
-                    rawPutStrLn $ "Failed to send Ctrl+Alt+Del: " ++ show ex
-                  Right () ->
-                    rawPutStrLn "Sent Ctrl+Alt+Del."
-              Nothing ->
-                rawPutStrLn "Ctrl+Alt+Del not available (no monitor socket)."
-            inputLoop
+            case kind of
+              MonitorSession -> inputLoop -- no Ctrl+Alt+Del at the HMP layer
+              SerialSession -> do
+                case mCtrlAltDelAction of
+                  Just action -> do
+                    result' <- try action
+                    case result' of
+                      Left (ex :: SomeException) ->
+                        rawPutStrLn $ "Failed to send Ctrl+Alt+Del: " ++ show ex
+                      Right () ->
+                        rawPutStrLn "Sent Ctrl+Alt+Del."
+                  Nothing ->
+                    rawPutStrLn "Ctrl+Alt+Del not available."
+                inputLoop
           'f' -> do
             case mFlushAction of
               Just flush -> do
@@ -506,8 +472,15 @@ doRawTerminalSession savedAttrs sock mMonitorSock mFlushAction = do
           '?' -> do
             rawPutStrLn "Escape commands (Ctrl+] prefix):"
             rawPutStrLn "  q         — quit"
-            rawPutStrLn "  d         — send Ctrl+Alt+Del"
-            rawPutStrLn "  f         — flush serial console buffer"
+            case kind of
+              SerialSession ->
+                rawPutStrLn "  d         — send Ctrl+Alt+Del"
+              MonitorSession -> pure ()
+            case kind of
+              SerialSession ->
+                rawPutStrLn "  f         — flush serial console buffer"
+              MonitorSession ->
+                rawPutStrLn "  f         — flush HMP monitor buffer"
             rawPutStrLn "  Ctrl+]    — send literal Ctrl+]"
             rawPutStrLn "  ?         — this help"
             inputLoop

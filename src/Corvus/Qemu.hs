@@ -7,6 +7,7 @@
 -- * "Corvus.Qemu.Qmp" - QMP protocol interaction
 -- * "Corvus.Qemu.Process" - VM process management
 -- * "Corvus.Qemu.Command" - QEMU command line generation
+-- * "Corvus.Qemu.SocketBuffer" - Ring-buffered QEMU chardev relay (serial, HMP)
 -- * "Corvus.Qemu.Virtiofsd" - Virtiofsd process management for shared directories
 -- * "Corvus.Qemu.Image" - Disk image management using qemu-img
 module Corvus.Qemu
@@ -34,6 +35,7 @@ module Corvus.Qemu
   , qmpStop
   , qmpSetSpicePassword
   , qmpExpireSpicePassword
+  , qmpSendCtrlAltDel
   , qmpBlockdevAdd
   , qmpDeviceAddDrive
   , qmpDeviceDel

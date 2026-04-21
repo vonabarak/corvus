@@ -4,6 +4,7 @@
 module Corvus.VmSpec (spec) where
 
 import Corvus.Protocol (Ref (..), Request (..), StatusInfo (..))
+import qualified Data.Text as T
 import Test.DSL.When (executeRequest)
 import Test.Prelude
 
@@ -203,6 +204,53 @@ spec = sequential $ withTestDb $ do
     testCase "fails for non-existent VM" $ do
       result <- whenVmEdit 999 (Just 2) Nothing Nothing Nothing
       then_ $ thenVmEditNotFound result
+
+  describe "hmp monitor" $ do
+    testCase "fails for a non-existent VM" $ do
+      resp <- executeRequest (ReqHmpMonitor (Ref "999"))
+      liftIO $ resp `shouldBe` RespVmNotFound
+
+    testCase "rejects a stopped VM with a not-running error" $ do
+      given $ do
+        _ <- insertVm "stopped-mon-vm" VmStopped
+        pure ()
+      resp <- executeRequest (ReqHmpMonitor (Ref "1"))
+      liftIO $ case resp of
+        RespError msg -> msg `shouldSatisfy` ("not running" `T.isInfixOf`)
+        _ -> expectationFailure $ "expected RespError, got: " <> show resp
+
+    testCase "reports buffer unavailable when no thread is registered" $ do
+      given $ do
+        _ <- insertVm "running-mon-vm" VmRunning
+        pure ()
+      -- The test harness does not spawn the buffer thread, so the
+      -- monitor-buffer map stays empty; handleHmpMonitor must reject
+      -- cleanly instead of crashing.
+      resp <- executeRequest (ReqHmpMonitor (Ref "1"))
+      liftIO $ case resp of
+        RespError msg -> msg `shouldSatisfy` ("HMP monitor buffer" `T.isInfixOf`)
+        _ -> expectationFailure $ "expected RespError, got: " <> show resp
+
+    testCase "flush reports buffer unavailable when no thread is registered" $ do
+      given $ do
+        _ <- insertVm "running-flush-vm" VmRunning
+        pure ()
+      resp <- executeRequest (ReqHmpMonitorFlush (Ref "1"))
+      liftIO $ case resp of
+        RespError msg -> msg `shouldSatisfy` ("HMP monitor buffer" `T.isInfixOf`)
+        _ -> expectationFailure $ "expected RespError, got: " <> show resp
+
+  describe "vm send ctrl+alt+del" $ do
+    testCase "fails for a non-existent VM" $ do
+      resp <- executeRequest (ReqVmSendCtrlAltDel (Ref "999"))
+      liftIO $ resp `shouldBe` RespVmNotFound
+
+    testCase "rejects a stopped VM with RespVmNotRunning" $ do
+      given $ do
+        _ <- insertVm "stopped-cad-vm" VmStopped
+        pure ()
+      resp <- executeRequest (ReqVmSendCtrlAltDel (Ref "1"))
+      liftIO $ resp `shouldBe` RespVmNotRunning
 
   describe "vm view grant" $ do
     testCase "fails for a non-existent VM" $ do

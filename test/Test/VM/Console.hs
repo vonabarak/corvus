@@ -21,8 +21,8 @@ import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVar, readTVarIO
 import Control.Exception (SomeException, bracket, try)
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Runtime (getSerialSocket)
-import Corvus.Qemu.SerialBuffer (waitForData)
-import Corvus.Types (SerialBuffer (..), SerialBufferHandle (..))
+import Corvus.Qemu.SocketBuffer (waitForData)
+import Corvus.Types (SocketBuffer (..), SocketBufferHandle (..))
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
@@ -45,17 +45,17 @@ data SerialConsole = SerialConsole
 -- A background reader thread continuously accumulates console output
 -- into a buffer so no data is lost between send/expect calls.
 --
--- If a SerialBufferHandle exists for this VM (i.e., the serial buffer thread
+-- If a SocketBufferHandle exists for this VM (i.e., the serial buffer thread
 -- is running), reads from the ring buffer instead of connecting directly to
 -- the QEMU serial socket (which only allows one client at a time).
-connectSerialConsole :: QemuConfig -> Int64 -> Maybe (Map.Map Int64 SerialBufferHandle) -> (SerialConsole -> IO a) -> IO a
+connectSerialConsole :: QemuConfig -> Int64 -> Maybe (Map.Map Int64 SocketBufferHandle) -> (SerialConsole -> IO a) -> IO a
 connectSerialConsole config vmId mBufferMap action = do
   case mBufferMap >>= Map.lookup vmId of
     Just handle -> connectViaBuffer handle action
     Nothing -> connectDirect config vmId action
 
 -- | Connect via the serial buffer handle (headless VMs with buffer thread running).
-connectViaBuffer :: SerialBufferHandle -> (SerialConsole -> IO a) -> IO a
+connectViaBuffer :: SocketBufferHandle -> (SerialConsole -> IO a) -> IO a
 connectViaBuffer handle action = do
   putStrLn "[console] Connecting via serial buffer handle"
   localBuf <- newTVarIO BS.empty
