@@ -26,9 +26,9 @@ module Corvus.Client.Commands.Vm
   )
 where
 
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkIO, killThread, threadDelay)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, finally, try)
 import Control.Monad (unless, when)
 import Corvus.Client.Config (ClientConfig (..), defaultClientConfig)
 import Corvus.Client.Connection
@@ -50,7 +50,7 @@ import Network.Socket.ByteString (recv, sendAll)
 import System.IO (BufferMode (..), hClose, hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
 import System.IO.Temp (withSystemTempFile)
 import System.Posix.Files (ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
-import System.Posix.IO (stdInput)
+import System.Posix.IO (fdWrite, stdInput, stdOutput)
 import System.Posix.Terminal
 import System.Process (callProcess)
 import Text.Printf (printf)
@@ -343,10 +343,24 @@ data RawSessionKind = SerialSession | MonitorSession
 runRawTerminalSession :: Socket -> RawSessionKind -> Maybe (IO ()) -> Maybe (IO ()) -> IO Bool
 runRawTerminalSession sock kind mCtrlAltDelAction mFlushAction = do
   savedAttrs <- getTerminalAttributes stdInput
-  result <- try $ doRawTerminalSession savedAttrs sock kind mCtrlAltDelAction mFlushAction
-  setTerminalAttributes stdInput savedAttrs Immediately
-  hSetBinaryMode stdin False
-  hSetBinaryMode stdout False
+  -- Restore in the opposite order we set up. 'hSetBuffering
+  -- LineBuffering' on a tty-backed handle invokes GHC's
+  -- setCooked/setRaw, which calls 'tcsetattr' — do that first so
+  -- our own 'setTerminalAttributes savedAttrs' gets the final say
+  -- on the flags GHC's codepath doesn't touch. A trailing CR parks
+  -- the cursor at column 0 so the shell prompt lines up cleanly.
+  let restore = do
+        hSetBinaryMode stdin False
+        hSetBinaryMode stdout False
+        hSetBuffering stdin LineBuffering
+        hSetBuffering stdout LineBuffering
+        setTerminalAttributes stdInput savedAttrs Immediately
+        _ <- fdWrite stdOutput "\r"
+        pure ()
+  result <-
+    try $
+      doRawTerminalSession savedAttrs sock kind mCtrlAltDelAction mFlushAction
+        `finally` restore
   case result of
     Left (_ :: SomeException) -> pure False
     Right () -> pure True
@@ -400,16 +414,25 @@ rawPutStrLn s = do
 -- | Core raw terminal session logic. Caller must save/restore terminal attributes.
 doRawTerminalSession :: TerminalAttributes -> Socket -> RawSessionKind -> Maybe (IO ()) -> Maybe (IO ()) -> IO ()
 doRawTerminalSession savedAttrs sock kind mCtrlAltDelAction mFlushAction = do
-  setTerminalAttributes stdInput (makeRaw savedAttrs) Immediately
+  -- Order matters. 'hSetBuffering NoBuffering' on a tty-backed
+  -- handle makes GHC snapshot the *current* termios into the
+  -- Handle so it can restore it at hClose (i.e. at process exit).
+  -- If we call 'setTerminalAttributes (makeRaw ...)' first, GHC
+  -- snapshots the raw termios and then dutifully reapplies it on
+  -- exit — leaving the user's shell with OPOST off and a
+  -- staircased tty. Do the Handle setup first, while termios is
+  -- still cooked, so the snapshot GHC keeps around is the cooked
+  -- state (or close enough).
   hSetBinaryMode stdin True
   hSetBinaryMode stdout True
   hSetBuffering stdin NoBuffering
   hSetBuffering stdout NoBuffering
+  setTerminalAttributes stdInput (makeRaw savedAttrs) Immediately
 
   exitVar <- newEmptyMVar
 
   -- Thread to read from socket and write raw bytes to stdout
-  _ <- forkIO $ do
+  socketThread <- forkIO $ do
     let loop = do
           chunk <- recv sock 4096
           if BS.null chunk
@@ -487,7 +510,7 @@ doRawTerminalSession savedAttrs sock kind mCtrlAltDelAction mFlushAction = do
           _ -> inputLoop -- unknown escape, ignore
 
   -- Run input loop, catching exceptions
-  _ <- forkIO $ do
+  inputThread <- forkIO $ do
     result' <- try inputLoop
     case result' of
       Left (_ :: SomeException) -> putMVar exitVar ()
@@ -495,3 +518,9 @@ doRawTerminalSession savedAttrs sock kind mCtrlAltDelAction mFlushAction = do
 
   -- Wait for exit signal
   takeMVar exitVar
+  -- Kill both forked threads before returning so the caller's
+  -- termios restore can't race with a straggling 'BS.putStr' or a
+  -- stdin 'getChar' re-reading the tty. 'killThread' interrupts
+  -- blocking syscalls on GHC and is a no-op for already-dead threads.
+  killThread socketThread
+  killThread inputThread

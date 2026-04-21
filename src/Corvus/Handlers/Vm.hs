@@ -87,6 +87,17 @@ serialBufferCapacity = 1048576
 monitorBufferCapacity :: Int
 monitorBufferCapacity = 65536
 
+-- | VM statuses in which a user may attach to the console, HMP monitor,
+-- or SPICE viewer. Anything non-@stopped@ where QEMU is (or should soon
+-- be) alive — deliberately excludes 'VmPaused' (no live I/O) and
+-- 'VmError' (QEMU has already died).
+viewableStatuses :: [VmStatus]
+viewableStatuses = [VmRunning, VmStarting, VmStopping]
+
+-- | True when the VM is in a state that accepts console/monitor/view attach.
+isViewable :: VmStatus -> Bool
+isViewable = (`elem` viewableStatuses)
+
 --------------------------------------------------------------------------------
 -- VM Handlers
 --------------------------------------------------------------------------------
@@ -476,7 +487,7 @@ handleSerialConsole state vmId = do
   case result of
     Nothing -> pure RespVmNotFound
     Just (vm, status)
-      | status `notElem` [VmRunning, VmStarting] ->
+      | not (isViewable status) ->
           pure $ RespError $ "VM is not running (status: " <> enumToText status <> ")"
       | not (vmHeadless vm) ->
           pure $ RespError "VM is not headless — use SPICE viewer instead"
@@ -505,7 +516,7 @@ handleHmpMonitor state vmId = do
   case result of
     Nothing -> pure RespVmNotFound
     Just (_, status)
-      | status `notElem` [VmRunning, VmStarting] ->
+      | not (isViewable status) ->
           pure $ RespError $ "VM is not running (status: " <> enumToText status <> ")"
       | otherwise -> do
           buffers <- readTVarIO (ssMonitorBuffers state)
@@ -532,7 +543,7 @@ handleVmSendCtrlAltDel state vmId = do
   case result of
     Nothing -> pure RespVmNotFound
     Just (_, status)
-      | status /= VmRunning -> pure RespVmNotRunning
+      | not (isViewable status) -> pure RespVmNotRunning
       | otherwise -> do
           qmpResult <- qmpSendCtrlAltDel (ssQemuConfig state) vmId
           case qmpResult of
@@ -556,7 +567,7 @@ handleVmViewGrant state vmId = do
     Nothing -> pure RespVmNotFound
     Just vm
       | vmHeadless vm -> pure RespVmHeadless
-      | vmStatus vm /= VmRunning -> pure RespVmNotRunning
+      | not (isViewable (vmStatus vm)) -> pure RespVmNotRunning
       | otherwise -> case vmSpicePort vm of
           Nothing -> pure $ RespError "VM has no SPICE port assigned (daemon bug)"
           Just spicePort -> do

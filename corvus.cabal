@@ -419,6 +419,7 @@ test-suite corvus-test
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec
+      Corvus.SocketBufferSpec
       Corvus.SpicePortSpec
       Corvus.SshKeySpec
       Corvus.StartupShutdownSpec

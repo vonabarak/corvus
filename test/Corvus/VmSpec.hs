@@ -271,12 +271,30 @@ spec = sequential $ withTestDb $ do
       resp <- executeRequest (ReqVmViewGrant (Ref "1"))
       liftIO $ resp `shouldBe` RespVmNotRunning
 
-    testCase "rejects a starting graphical VM with RespVmNotRunning" $ do
+    testCase "accepts a starting graphical VM (state check passes, fails later on missing spice port)" $ do
       given $ do
         _ <- insertVm "starting-vm" VmStarting
         pure ()
+      -- The test harness does not run 'handleVmStartExecute', so
+      -- 'vmSpicePort' stays NULL and the grant falls out with the
+      -- "daemon bug" error message rather than being rejected at the
+      -- state check. The point of this assertion is that a Starting
+      -- VM is no longer blocked up front.
       resp <- executeRequest (ReqVmViewGrant (Ref "1"))
-      liftIO $ resp `shouldBe` RespVmNotRunning
+      liftIO $ case resp of
+        RespError _ -> pure ()
+        RespVmNotRunning -> expectationFailure "state check still rejects VmStarting"
+        _ -> expectationFailure $ "unexpected: " <> show resp
+
+    testCase "accepts a stopping graphical VM (state check passes)" $ do
+      given $ do
+        _ <- insertVm "stopping-vm" VmStopping
+        pure ()
+      resp <- executeRequest (ReqVmViewGrant (Ref "1"))
+      liftIO $ case resp of
+        RespError _ -> pure ()
+        RespVmNotRunning -> expectationFailure "state check still rejects VmStopping"
+        _ -> expectationFailure $ "unexpected: " <> show resp
 
   describe "vm state machine" $ do
     testCase "stop fails for paused VM" $ do

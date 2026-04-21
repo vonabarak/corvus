@@ -22,6 +22,9 @@ module Corvus.Qemu.SocketBuffer
 
     -- * Client relay
   , relayClient
+
+    -- * Replay sanitisation (exposed for tests)
+  , stripTerminalQueries
   )
 where
 
@@ -96,6 +99,31 @@ waitForData sb fromPos = do
 -- | Clear the ring buffer. New writes continue from the current position.
 flushBuffer :: SocketBuffer -> IO ()
 flushBuffer sb = atomically $ writeTVar (sbData sb) BS.empty
+
+-- | Drop CSI terminal queries and their responses from a byte
+-- string: @\ESC[…n@ (DSR), @\ESC[…c@ (DA, including @\ESC[?…c@ and
+-- @\ESC[>c@), and @\ESC[…R@ (CPR reports). All of these are
+-- control-channel chatter that only makes sense between a live app
+-- and its terminal; replaying them at reconnect either triggers a
+-- stale query/response loop or renders as garbage.
+stripTerminalQueries :: BS.ByteString -> BS.ByteString
+stripTerminalQueries = BS.pack . go . BS.unpack
+  where
+    -- CSI parameter bytes: digits plus @;@ @:@ @<@ @=@ @>@ @?@.
+    isParam c = c >= 0x30 && c <= 0x3f
+    -- Intermediate bytes (rare in practice but legal in CSI): @ ! " # $ % & ' ( ) * + , - . /@.
+    isInter c = c >= 0x20 && c <= 0x2f
+
+    go [] = []
+    go (0x1b : 0x5b : rest) =
+      let (params, afterParams) = span isParam rest
+          (inters, afterInters) = span isInter afterParams
+       in case afterInters of
+            (final : rest')
+              | final `elem` [0x6e, 0x63, 0x52] -> go rest' -- drop DSR / DA / CPR
+              | otherwise -> 0x1b : 0x5b : params ++ inters ++ final : go rest'
+            [] -> 0x1b : 0x5b : params ++ inters
+    go (b : rest) = b : go rest
 
 --------------------------------------------------------------------------------
 -- Background Thread
@@ -193,10 +221,15 @@ runReader vmId bufferMap capacity qemuSock = do
 relayClient :: Socket -> SocketBufferHandle -> IO ()
 relayClient clientSock handle = do
   let buf = sbhBuffer handle
-  -- Send buffered output to client
+  -- Send buffered output to client. Strip terminal query/response
+  -- CSI sequences from the replay so the client's terminal doesn't
+  -- reply to stale queries — those replies get echoed by the VM's
+  -- TTY and show up as visible junk (e.g. ";1R;124R") at the user's
+  -- prompt. Live data after the initial replay is passed through
+  -- unchanged so real applications can still query/receive normally.
   (buffered, pos) <- readBufferFrom buf 0
   unless (BS.null buffered) $
-    sendAll clientSock buffered
+    sendAll clientSock (stripTerminalQueries buffered)
   exitVar <- newEmptyMVar
   -- QEMU → client: stream new data from the ring buffer.
   _ <- forkIO $ do
