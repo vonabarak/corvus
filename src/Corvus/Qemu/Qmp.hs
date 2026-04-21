@@ -13,6 +13,10 @@ module Corvus.Qemu.Qmp
   , qmpContinue
   , qmpStop
 
+    -- * SPICE ticket commands
+  , qmpSetSpicePassword
+  , qmpExpireSpicePassword
+
     -- * Hot-plug commands
   , qmpBlockdevAdd
   , qmpDeviceAddDrive
@@ -73,6 +77,43 @@ qmpContinue config vmId =
 qmpStop :: QemuConfig -> Int64 -> IO QmpResult
 qmpStop config vmId =
   sendQmpCommand config vmId [qmpQQ| { "execute": "stop" } |]
+
+-- | Install a fresh SPICE password on a running VM via QMP. Uses
+-- @connected: "keep"@ so an already-connected viewer is not dropped when
+-- the password rotates.
+qmpSetSpicePassword :: QemuConfig -> Int64 -> Text -> IO QmpResult
+qmpSetSpicePassword config vmId password =
+  sendQmpCommand
+    config
+    vmId
+    [qmpQQ|
+      {
+        "execute": "set_password",
+        "arguments": {
+          "protocol": "spice",
+          "password": #{password},
+          "connected": "keep"
+        }
+      }
+    |]
+
+-- | Schedule the current SPICE password to expire. Accepts a relative
+-- time in seconds (@+N@ semantics — "expire N seconds from now").
+qmpExpireSpicePassword :: QemuConfig -> Int64 -> Int -> IO QmpResult
+qmpExpireSpicePassword config vmId seconds = do
+  let ttl = T.pack ("+" ++ show seconds)
+  sendQmpCommand
+    config
+    vmId
+    [qmpQQ|
+      {
+        "execute": "expire_password",
+        "arguments": {
+          "protocol": "spice",
+          "time": #{ttl}
+        }
+      }
+    |]
 
 --------------------------------------------------------------------------------
 -- Hot-plug Commands

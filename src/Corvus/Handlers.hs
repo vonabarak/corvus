@@ -74,6 +74,7 @@ handleRequest state = \case
   ReqCloudInitGet vmRef -> withVm vmRef $ \vmId -> handleCloudInitGet state vmId
   ReqSerialConsole vmRef -> withVm vmRef $ \vmId -> handleSerialConsole state vmId
   ReqSerialConsoleFlush vmRef -> withVm vmRef $ \vmId -> handleSerialConsoleFlush state vmId
+  ReqVmViewGrant vmRef -> withVm vmRef $ \vmId -> handleVmViewGrant state vmId
   ReqTaskList limit mSub mResult inclSub -> handleTaskList state limit mSub mResult inclSub
   ReqTaskShow taskId -> handleTaskShow state taskId
   ReqTaskListChildren parentId -> handleTaskListChildren state parentId

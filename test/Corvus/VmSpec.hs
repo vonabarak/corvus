@@ -204,6 +204,32 @@ spec = sequential $ withTestDb $ do
       result <- whenVmEdit 999 (Just 2) Nothing Nothing Nothing
       then_ $ thenVmEditNotFound result
 
+  describe "vm view grant" $ do
+    testCase "fails for a non-existent VM" $ do
+      resp <- executeRequest (ReqVmViewGrant (Ref "999"))
+      liftIO $ resp `shouldBe` RespVmNotFound
+
+    testCase "rejects a headless VM with RespVmHeadless" $ do
+      given $ do
+        _ <- insertHeadlessVm "headless-vm" VmRunning
+        pure ()
+      resp <- executeRequest (ReqVmViewGrant (Ref "1"))
+      liftIO $ resp `shouldBe` RespVmHeadless
+
+    testCase "rejects a stopped graphical VM with RespVmNotRunning" $ do
+      given $ do
+        _ <- insertVm "stopped-vm" VmStopped
+        pure ()
+      resp <- executeRequest (ReqVmViewGrant (Ref "1"))
+      liftIO $ resp `shouldBe` RespVmNotRunning
+
+    testCase "rejects a starting graphical VM with RespVmNotRunning" $ do
+      given $ do
+        _ <- insertVm "starting-vm" VmStarting
+        pure ()
+      resp <- executeRequest (ReqVmViewGrant (Ref "1"))
+      liftIO $ resp `shouldBe` RespVmNotRunning
+
   describe "vm state machine" $ do
     testCase "stop fails for paused VM" $ do
       given $ do

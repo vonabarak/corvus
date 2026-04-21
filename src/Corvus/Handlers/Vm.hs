@@ -30,6 +30,10 @@ module Corvus.Handlers.Vm
   , handleVmCloudInit
   , handleSerialConsole
   , handleSerialConsoleFlush
+  , handleVmViewGrant
+
+    -- * Helpers (exposed for tests)
+  , generateSpicePassword
   )
 where
 
@@ -52,19 +56,24 @@ import Corvus.Model.VmState (VmAction (..), validateTransition)
 import Corvus.Protocol
 import Corvus.Qemu
 import Corvus.Qemu.SerialBuffer (flushBuffer, startSerialBufferThread)
+import Corvus.Qemu.SpicePort (allocateSpicePort)
 import Corvus.Types
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64.URL as B64URL
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (SqlBackend, runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
 import System.Exit (ExitCode (..))
+import System.IO (IOMode (ReadMode), withBinaryFile)
 import System.Process (waitForProcess)
 
 --------------------------------------------------------------------------------
@@ -194,14 +203,34 @@ startQemuAndMonitor state vmId vm parentTaskId = do
       _ <- liftIO $ runActionAsSubtask state (RegenerateCloudInit vmId (vmName vm)) parentTaskId
       pure ()
 
-  -- Subtask 2: Start virtiofsd processes for shared directories
-  virtiofsdResp <- liftIO $ runActionAsSubtask state (StartVirtiofsd vmId (vmName vm)) parentTaskId
-  case virtiofsdResp of
-    RespError err -> do
-      logWarnN $ "Virtiofsd failed, aborting VM start: " <> err
+  -- Allocate a SPICE TCP port for non-headless VMs. The port is recorded on
+  -- the Vm row so that 'generateQemuCommandWithSockets' picks it up when it
+  -- re-reads the row just before spawning QEMU.
+  spiceResult <-
+    if vmHeadless vm
+      then pure (Right Nothing)
+      else do
+        alloc <- liftIO $ allocateSpicePort state
+        case alloc of
+          Left err -> pure (Left err)
+          Right port -> do
+            liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmSpicePort =. Just port]) pool
+            pure (Right (Just port))
+
+  case spiceResult of
+    Left err -> do
+      logWarnN $ "SPICE port allocation failed: " <> err
       liftIO $ runSqlPool (setVmError vmId) pool
-      pure $ RespError $ "Failed to start virtiofsd: " <> err
-    _ -> launchQemu state vmId vm parentTaskId pool
+      pure $ RespError $ "Failed to allocate SPICE port: " <> err
+    Right _ -> do
+      -- Subtask 2: Start virtiofsd processes for shared directories
+      virtiofsdResp <- liftIO $ runActionAsSubtask state (StartVirtiofsd vmId (vmName vm)) parentTaskId
+      case virtiofsdResp of
+        RespError err -> do
+          logWarnN $ "Virtiofsd failed, aborting VM start: " <> err
+          liftIO $ runSqlPool (setVmError vmId) pool
+          pure $ RespError $ "Failed to start virtiofsd: " <> err
+        _ -> launchQemu state vmId vm parentTaskId pool
 
 -- | Launch QEMU and set up process monitor (called after virtiofsd succeeds)
 launchQemu :: ServerState -> Int64 -> Vm -> TaskId -> Pool SqlBackend -> LoggingT IO Response
@@ -449,6 +478,53 @@ handleSerialConsoleFlush state vmId = do
       flushBuffer (sbhBuffer handle)
       pure RespSerialConsoleFlushed
 
+-- | Grant a short-lived SPICE connection for a running non-headless VM.
+--
+-- Generates a fresh 18-byte (24-char URL-safe base64) random password,
+-- installs it via QMP @set_password@, and schedules expiry via
+-- @expire_password@ so an unused grant disappears on its own. The
+-- daemon never persists the password — it lives in QEMU's in-memory
+-- SPICE state until it expires or is rotated by the next grant.
+handleVmViewGrant :: ServerState -> Int64 -> IO Response
+handleVmViewGrant state vmId = do
+  let pool = ssDbPool state
+      cfg = ssQemuConfig state
+  mVm <- runSqlPool (get (toSqlKey vmId :: VmId)) pool
+  case mVm of
+    Nothing -> pure RespVmNotFound
+    Just vm
+      | vmHeadless vm -> pure RespVmHeadless
+      | vmStatus vm /= VmRunning -> pure RespVmNotRunning
+      | otherwise -> case vmSpicePort vm of
+          Nothing -> pure $ RespError "VM has no SPICE port assigned (daemon bug)"
+          Just spicePort -> do
+            pw <- generateSpicePassword
+            let ttl = 120
+            setResult <- qmpSetSpicePassword cfg vmId pw
+            case setResult of
+              QmpError err -> pure $ RespError $ "QMP set_password failed: " <> err
+              QmpConnectionFailed err -> pure $ RespError $ "QMP connection failed: " <> err
+              QmpSuccess -> do
+                expResult <- qmpExpireSpicePassword cfg vmId ttl
+                case expResult of
+                  QmpError err -> pure $ RespError $ "QMP expire_password failed: " <> err
+                  QmpConnectionFailed err -> pure $ RespError $ "QMP connection failed: " <> err
+                  QmpSuccess ->
+                    pure $
+                      RespVmViewGrant
+                        { host = qcSpiceBindAddress cfg
+                        , port = spicePort
+                        , password = pw
+                        , ttlSeconds = ttl
+                        }
+
+-- | Read 18 bytes from @/dev/urandom@ and encode as URL-safe base64
+-- (24 printable characters, no padding issues in SPICE tickets).
+generateSpicePassword :: IO Text
+generateSpicePassword = do
+  bytes <- withBinaryFile "/dev/urandom" ReadMode $ \h -> BS.hGet h 18
+  pure $ TE.decodeUtf8 $ B64URL.encode bytes
+
 --------------------------------------------------------------------------------
 -- Database Operations
 --------------------------------------------------------------------------------
@@ -492,20 +568,20 @@ clearVmPid vmId = do
   let key = toSqlKey vmId :: VmId
   update key [M.VmPid =. Nothing]
 
--- | Set VM status to stopped and clear PID, healthcheck, and guest network data
+-- | Set VM status to stopped and clear PID, healthcheck, SPICE port, and guest network data
 setVmStopped :: Int64 -> SqlPersistT IO ()
 setVmStopped vmId = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmStopped, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing]
+  update key [M.VmStatus =. VmStopped, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]
   updateWhere
     [M.NetworkInterfaceVmId ==. key]
     [M.NetworkInterfaceGuestIpAddresses =. Nothing]
 
--- | Set VM status to error and clear healthcheck and guest network data
+-- | Set VM status to error and clear PID, healthcheck, SPICE port, and guest network data
 setVmError :: Int64 -> SqlPersistT IO ()
 setVmError vmId = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing]
+  update key [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]
   updateWhere
     [M.NetworkInterfaceVmId ==. key]
     [M.NetworkInterfaceGuestIpAddresses =. Nothing]
@@ -549,6 +625,7 @@ createVm name cpuCount ramMb description headless guestAgent cloudInit autostart
           , vmCloudInit = cloudInit
           , vmHealthcheck = Nothing
           , vmAutostart = autostart
+          , vmSpicePort = Nothing
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -615,7 +692,6 @@ getVmDetails config vmId = do
       netIfs <- selectList [M.NetworkInterfaceVmId ==. key] []
       -- Get socket paths
       monitorSock <- liftIO $ getMonitorSocket config vmId
-      spiceSock <- liftIO $ getSpiceSocket config vmId
       serialSock <- liftIO $ getSerialSocket config vmId
       guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
       -- Build drive info by fetching disk images
@@ -646,7 +722,7 @@ getVmDetails config vmId = do
             , vdNetIfs = map toNetIfInfo netIfs
             , vdHeadless = vmHeadless vm
             , vdMonitorSocket = T.pack monitorSock
-            , vdSpiceSocket = T.pack spiceSock
+            , vdSpicePort = vmSpicePort vm
             , vdSerialSocket = T.pack serialSock
             , vdGuestAgentSocket = T.pack guestAgentSock
             , vdGuestAgent = vmGuestAgent vm

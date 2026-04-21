@@ -10,6 +10,7 @@ module Corvus.Qemu.Config
 where
 
 import Data.Maybe (fromMaybe)
+import Data.Text (Text)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
@@ -37,6 +38,17 @@ data QemuConfig = QemuConfig
   -- ^ Path to nft binary (for NAT rules)
   , qcHealthcheckInterval :: Int
   -- ^ Healthcheck ping interval in seconds (default 10)
+  , qcSpiceBindAddress :: !Text
+  -- ^ Address QEMU binds the SPICE TCP listener to. Defaults to
+  -- @127.0.0.1@ for Unix-socket daemons; for TCP daemons the CLI wires
+  -- this to match the RPC listen host so operators exposing the daemon
+  -- remotely automatically expose SPICE on the same interface.
+  , qcSpicePortMin :: !Int
+  -- ^ Low end (inclusive) of the TCP port range the SPICE allocator
+  -- draws from (default: 5900).
+  , qcSpicePortMax :: !Int
+  -- ^ High end (inclusive) of the TCP port range the SPICE allocator
+  -- draws from (default: 5999).
   }
   deriving (Eq, Show)
 
@@ -53,6 +65,9 @@ defaultQemuConfig =
     , qcPastaBinary = "pasta"
     , qcNftBinary = "nft"
     , qcHealthcheckInterval = 10
+    , qcSpiceBindAddress = "127.0.0.1"
+    , qcSpicePortMin = 5900
+    , qcSpicePortMax = 5999
     }
 
 -- | Get the effective base path for VM images

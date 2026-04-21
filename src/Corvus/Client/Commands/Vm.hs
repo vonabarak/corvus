@@ -43,11 +43,14 @@ import Data.Char (ord)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
 import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, defaultProtocol, socket)
 import qualified Network.Socket as NS
 import Network.Socket.ByteString (recv, sendAll)
-import System.IO (BufferMode (..), hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
+import System.IO (BufferMode (..), hClose, hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
+import System.IO.Temp (withSystemTempFile)
+import System.Posix.Files (ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
 import System.Posix.IO (stdInput)
 import System.Posix.Terminal
 import System.Process (callProcess)
@@ -238,7 +241,7 @@ printVmDetails vm = do
   printField "Monitor" (T.unpack (vdMonitorSocket vm))
   if vdHeadless vm
     then printField "Serial" (T.unpack (vdSerialSocket vm))
-    else printField "SPICE" (T.unpack (vdSpiceSocket vm))
+    else printField "SPICE port" (maybe "(not running)" show (vdSpicePort vm))
   printField "Guest Agent" (T.unpack (vdGuestAgentSocket vm))
 
   putStrLn ""
@@ -292,12 +295,28 @@ formatUptime secs
         ++ show ((secs `mod` 3600) `div` 60)
         ++ "m"
 
--- | Run remote-viewer to connect to SPICE
-runRemoteViewer :: ClientConfig -> FilePath -> IO Bool
-runRemoteViewer config spiceSock = do
+-- | Run remote-viewer against a SPICE TCP endpoint.
+--
+-- The password is delivered via a VirtViewer (.vv) connection file
+-- passed as the sole argument, not a URI. A URI embeds the password in
+-- argv — visible in @ps(1)@ and shell history to any local user. The
+-- temp file is 0600 and removed before returning.
+runRemoteViewer :: ClientConfig -> SpiceGrant -> IO Bool
+runRemoteViewer config grant = do
   let viewer = ccRemoteViewer config
-      uri = "spice+unix://" ++ spiceSock
-  result <- try $ callProcess viewer [uri]
+      body =
+        T.unlines
+          [ "[virt-viewer]"
+          , "type=spice"
+          , "host=" <> sgHost grant
+          , "port=" <> T.pack (show (sgPort grant))
+          , "password=" <> sgPassword grant
+          ]
+  result <- try $ withSystemTempFile "corvus-spice-.vv" $ \path handle -> do
+    hClose handle
+    setFileMode path (ownerReadMode `unionFileModes` ownerWriteMode)
+    TIO.writeFile path body
+    callProcess viewer [path]
   case result of
     Left (e :: SomeException) -> do
       putStrLn $ "Failed to run remote-viewer: " ++ show e

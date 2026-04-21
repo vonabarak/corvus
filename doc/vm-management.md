@@ -88,10 +88,16 @@ The VM must be stopped before deletion. With `--delete-disks`, all disk images a
 ### SPICE (graphical VMs)
 
 ```bash
-crv vm view my-vm     # Opens remote-viewer on the SPICE socket
+crv vm view my-vm     # Requests a short-lived SPICE grant and opens remote-viewer
 ```
 
-Requires `remote-viewer` (from `virt-viewer` package) installed on the host.
+Non-headless VMs expose SPICE over **TCP with ticketed password authentication**, so `crv vm view` works from another host. Each invocation asks the daemon for a fresh password, which is installed via QMP `set_password` and expires after 120 seconds; unused grants disappear on their own. The client writes a chmod-600 `.vv` file and passes its path to `remote-viewer` — the password never appears on the command line.
+
+The daemon picks a TCP port in the range `5900-5999` (configurable via `qcSpicePortMin` / `qcSpicePortMax`). The bind address defaults to the daemon's RPC listen host: Unix-socket daemons keep SPICE on `127.0.0.1`, TCP daemons expose it on the same interface as RPC. Use `--spice-bind ADDR` to decouple the two.
+
+Requires `remote-viewer` (from `virt-viewer` package) installed on the client host.
+
+For machine-readable output, `crv --output json vm view my-vm` emits the grant as JSON (`host`, `port`, `password`, `ttl_seconds`) and exits without launching a viewer.
 
 ### Serial Console (headless VMs)
 

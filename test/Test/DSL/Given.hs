@@ -6,6 +6,7 @@ module Test.DSL.Given
   ( -- * VM setup
     insertVm
   , insertVmFull
+  , insertHeadlessVm
   , givenVmExists
   , givenCloudInitVmExists
   , givenRunningVmExists
@@ -80,6 +81,32 @@ insertVm name status = do
           , vmCloudInit = False
           , vmHealthcheck = Nothing
           , vmAutostart = False
+          , vmSpicePort = Nothing
+          }
+  pure $ fromSqlKey key
+
+-- | Insert a headless VM with the given name and status. Used by
+-- SPICE-related tests that need to assert "no graphical console".
+insertHeadlessVm :: Text -> VmStatus -> TestM Int64
+insertHeadlessVm name status = do
+  now <- liftIO getCurrentTime
+  key <-
+    runDb $
+      insert
+        Vm
+          { vmName = name
+          , vmCreatedAt = now
+          , vmStatus = status
+          , vmCpuCount = 2
+          , vmRamMb = 4096
+          , vmDescription = Nothing
+          , vmPid = Nothing
+          , vmHeadless = True
+          , vmGuestAgent = False
+          , vmCloudInit = False
+          , vmHealthcheck = Nothing
+          , vmAutostart = False
+          , vmSpicePort = Nothing
           }
   pure $ fromSqlKey key
 
@@ -110,6 +137,7 @@ insertVmFull name status cpus ramMb desc pid = do
           , vmCloudInit = False
           , vmHealthcheck = Nothing
           , vmAutostart = False
+          , vmSpicePort = Nothing
           }
   pure $ fromSqlKey key
 
@@ -131,6 +159,7 @@ defaultVm = do
       , vmCloudInit = False
       , vmHealthcheck = Nothing
       , vmAutostart = False
+      , vmSpicePort = Nothing
       }
 
 --------------------------------------------------------------------------------
@@ -393,6 +422,7 @@ givenCloudInitVmExists name = do
           , vmCloudInit = True
           , vmHealthcheck = Nothing
           , vmAutostart = False
+          , vmSpicePort = Nothing
           }
   pure $ fromSqlKey key
 

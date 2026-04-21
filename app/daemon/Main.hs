@@ -9,7 +9,7 @@ import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN, runStdoutLoggingT)
 import Corvus.Model (migrateAll)
-import Corvus.Qemu.Config (defaultQemuConfig)
+import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Server (handleGracefulShutdown, handleStartup, runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath, newServerState, runFilteredLogging)
 import Data.ByteString.Char8 (pack)
@@ -30,6 +30,7 @@ data Options = Options
   , optPort :: Int
   , optDbUri :: String
   , optLogLevel :: LogLevel
+  , optSpiceBind :: Maybe String
   }
   deriving (Show)
 
@@ -78,6 +79,13 @@ optionsParser =
           <> value LevelInfo
           <> help "Minimum log level: debug, info, warn, error (default: info)"
       )
+    <*> optional
+      ( strOption
+          ( long "spice-bind"
+              <> metavar "ADDR"
+              <> help "Address QEMU binds SPICE to (default: mirrors --host in --tcp mode, else 127.0.0.1)"
+          )
+      )
 
 -- | Full parser with info
 optsInfo :: ParserInfo Options
@@ -108,7 +116,13 @@ main = do
     logInfoN "Migrations complete."
 
     -- Initialize server state with database pool
-    state <- liftIO $ newServerState pool defaultQemuConfig
+    let spiceBind = case optSpiceBind opts of
+          Just a -> T.pack a
+          Nothing
+            | optTcp opts -> T.pack (optHost opts)
+            | otherwise -> "127.0.0.1"
+        qemuConfig = defaultQemuConfig {qcSpiceBindAddress = spiceBind}
+    state <- liftIO $ newServerState pool qemuConfig
     let state' = state {ssLogLevel = logLevel}
 
     -- Run startup handler (clean stale state, kill orphan processes)

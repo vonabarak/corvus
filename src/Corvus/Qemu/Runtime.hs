@@ -20,7 +20,6 @@ module Corvus.Qemu.Runtime
     -- * Socket paths
   , getMonitorSocket
   , getQmpSocket
-  , getSpiceSocket
   , getSerialSocket
   , getGuestAgentSocket
   , getPidFile
@@ -108,12 +107,6 @@ getQmpSocket :: QemuConfig -> Int64 -> IO FilePath
 getQmpSocket config vmId = do
   vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "qmp.sock"
-
--- | Get path to SPICE socket for a VM
-getSpiceSocket :: QemuConfig -> Int64 -> IO FilePath
-getSpiceSocket config vmId = do
-  vmDir <- getVmRuntimeDir config vmId
-  pure $ vmDir </> "spice.sock"
 
 -- | Get path to serial console socket for a VM
 getSerialSocket :: QemuConfig -> Int64 -> IO FilePath

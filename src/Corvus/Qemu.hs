@@ -19,7 +19,6 @@ module Corvus.Qemu
   , createVmRuntimeDir
   , getVmRuntimeDir
   , getMonitorSocket
-  , getSpiceSocket
   , getSerialSocket
   , getQmpSocket
   , getGuestAgentSocket
@@ -33,6 +32,8 @@ module Corvus.Qemu
   , qmpShutdown
   , qmpContinue
   , qmpStop
+  , qmpSetSpicePassword
+  , qmpExpireSpicePassword
   , qmpBlockdevAdd
   , qmpDeviceAddDrive
   , qmpDeviceDel

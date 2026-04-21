@@ -42,6 +42,11 @@ module Corvus.Client
   , VmEditResult (..)
   , vmEdit
 
+    -- * SPICE view grants
+  , SpiceGrant (..)
+  , VmViewGrantResult (..)
+  , vmViewGrant
+
     -- * Guest execution
   , GuestExecResult (..)
   , vmExec

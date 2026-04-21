@@ -80,8 +80,9 @@ data VmDetails = VmDetails
   , vdHeadless :: !Bool
   , vdMonitorSocket :: !Text
   -- ^ Path to HMP monitor socket
-  , vdSpiceSocket :: !Text
-  -- ^ Path to SPICE socket
+  , vdSpicePort :: !(Maybe Int)
+  -- ^ TCP port QEMU is serving SPICE on (when the VM is running and
+  -- not headless). 'Nothing' for headless VMs or stopped VMs.
   , vdSerialSocket :: !Text
   -- ^ Path to serial console socket
   , vdGuestAgentSocket :: !Text

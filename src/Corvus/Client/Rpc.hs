@@ -29,6 +29,11 @@ module Corvus.Client.Rpc
   , vmEdit
   , vmCloudInit
 
+    -- * SPICE view grants
+  , SpiceGrant (..)
+  , VmViewGrantResult (..)
+  , vmViewGrant
+
     -- * Guest execution
   , GuestExecResult (..)
   , vmExec
@@ -120,6 +125,26 @@ import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInte
 import Corvus.Protocol
 import Data.Int (Int64)
 import Data.Text (Text)
+
+-- | SPICE connection grant returned by 'vmViewGrant'. Mirrors
+-- 'RespVmViewGrant' with the fields renamed so callers don't import
+-- the raw Response constructors.
+data SpiceGrant = SpiceGrant
+  { sgHost :: !Text
+  , sgPort :: !Int
+  , sgPassword :: !Text
+  , sgTtlSeconds :: !Int
+  }
+  deriving (Eq, Show)
+
+-- | Result of 'vmViewGrant'.
+data VmViewGrantResult
+  = VmViewGrantSuccess !SpiceGrant
+  | VmViewGrantNotFound
+  | VmViewGrantNotRunning
+  | VmViewGrantHeadless
+  | VmViewGrantError !Text
+  deriving (Eq, Show)
 
 -- | Result of a VM action
 data VmActionResult
@@ -247,6 +272,28 @@ vmPause conn vmRef = handleVmActionResponse <$> sendRequest conn (ReqVmPause (Re
 -- | Reset a VM (any -> stopped)
 vmReset :: Connection -> Text -> IO (Either ConnectionError VmActionResult)
 vmReset conn vmRef = handleVmActionResponse <$> sendRequest conn (ReqVmReset (Ref vmRef))
+
+-- | Request a SPICE view grant for a running non-headless VM.
+vmViewGrant :: Connection -> Text -> IO (Either ConnectionError VmViewGrantResult)
+vmViewGrant conn vmRef = do
+  result <- sendRequest conn (ReqVmViewGrant (Ref vmRef))
+  case result of
+    Left err -> pure $ Left err
+    Right (RespVmViewGrant h p pw ttl) ->
+      pure $
+        Right $
+          VmViewGrantSuccess
+            SpiceGrant
+              { sgHost = h
+              , sgPort = p
+              , sgPassword = pw
+              , sgTtlSeconds = ttl
+              }
+    Right RespVmNotFound -> pure $ Right VmViewGrantNotFound
+    Right RespVmNotRunning -> pure $ Right VmViewGrantNotRunning
+    Right RespVmHeadless -> pure $ Right VmViewGrantHeadless
+    Right (RespError msg) -> pure $ Right (VmViewGrantError msg)
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 --------------------------------------------------------------------------------
 -- VM Edit

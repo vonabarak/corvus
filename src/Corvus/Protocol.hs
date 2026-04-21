@@ -89,7 +89,7 @@ instance FromJSON Ref where
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 30
+protocolVersion = 31
 
 -- ---------------------------------------------------------------------------
 -- Request
@@ -329,6 +329,10 @@ data Request
       }
   | -- | Replace an existing template atomically with new YAML
     ReqTemplateUpdate {ref :: !Ref, yaml :: !Text}
+  | -- | Request a short-lived SPICE connection grant for a running,
+    -- non-headless VM. The daemon rotates the SPICE password via QMP
+    -- and returns reachable host/port plus the fresh password.
+    ReqVmViewGrant {ref :: !Ref}
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON Request where
@@ -521,6 +525,17 @@ data Response
     RespDiskImportStarted {taskId :: !Int64}
   | -- | Template updated successfully
     RespTemplateUpdated {id :: !Int64}
+  | -- | SPICE connection parameters with an ephemeral password.
+    RespVmViewGrant
+      { host :: !Text
+      , port :: !Int
+      , password :: !Text
+      , ttlSeconds :: !Int
+      }
+  | -- | VM is not in a state where SPICE is available (e.g. stopped).
+    RespVmNotRunning
+  | -- | VM has no SPICE console (headless configuration).
+    RespVmHeadless
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON Response where

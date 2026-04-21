@@ -17,6 +17,10 @@ module Corvus.Client.Commands
   , sshKeyColumns
   , templateVmColumns
   , printTemplateDetails
+
+    -- * SPICE view helpers (exposed for tests)
+  , resolveGrantHost
+  , grantToJson
   )
 where
 
@@ -40,7 +44,7 @@ import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (Ref (..), Request (..), Response (..), StatusInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Netns (nsExec)
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
-import Data.Aeson (object, toJSON, (.=))
+import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Char (toLower)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -192,14 +196,7 @@ runCommand opts = do
                             putStrLn $ "Unexpected response: " ++ show other
                           Left err ->
                             putStrLn $ "Error: " ++ show err
-                  else do
-                    let spiceSock = T.unpack (vdSpiceSocket details)
-                    if isStructured fmt
-                      then outputValue fmt (object ["spiceSocket" .= vdSpiceSocket details])
-                      else withIgnoredSigINT $ do
-                        putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' via SPICE..."
-                        _ <- runRemoteViewer defaultClientConfig spiceSock
-                        pure ()
+                  else handleGraphicalViewGrant opts fmt conn vmRef (vdName details)
                 pure True
       VmMonitor vmRef -> do
         resp <- vmShow conn vmRef
@@ -383,3 +380,71 @@ withIgnoredSigINT action = do
   result <- action
   _ <- installHandler sigINT oldHandler Nothing
   pure result
+
+-- | Request a SPICE grant and launch remote-viewer. For structured
+-- output ('json'/'yaml'), emit the grant and exit without spawning a
+-- viewer. Handles wildcard bind addresses by substituting the daemon
+-- host when the client is connected over TCP — a grant carrying
+-- @0.0.0.0@ is reachable via the same IP the RPC connection uses.
+handleGraphicalViewGrant :: Options -> OutputFormat -> Connection -> Text -> Text -> IO ()
+handleGraphicalViewGrant opts fmt conn vmRef vmName = do
+  result <- vmViewGrant conn vmRef
+  case result of
+    Left err -> emitRpcError fmt err
+    Right VmViewGrantNotFound ->
+      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
+        putStrLn $
+          "VM '" ++ T.unpack vmRef ++ "' not found."
+    Right VmViewGrantNotRunning ->
+      emitError fmt "vm_not_running" ("VM '" <> vmName <> "' is not running") $
+        putStrLn $
+          "Error: VM '" ++ T.unpack vmName ++ "' is not running."
+    Right VmViewGrantHeadless ->
+      emitError fmt "vm_headless" ("VM '" <> vmName <> "' has no graphical console") $
+        putStrLn $
+          "Error: VM '" ++ T.unpack vmName ++ "' has no graphical console."
+    Right (VmViewGrantError msg) ->
+      emitError fmt "grant_failed" msg $
+        putStrLn $
+          "Failed to obtain SPICE grant: " ++ T.unpack msg
+    Right (VmViewGrantSuccess grant0) -> do
+      let grant = resolveGrantHost opts grant0
+      if isStructured fmt
+        then outputValue fmt (grantToJson grant)
+        else withIgnoredSigINT $ do
+          putStrLn $
+            "Connecting to VM '"
+              ++ T.unpack vmName
+              ++ "' via SPICE at "
+              ++ T.unpack (sgHost grant)
+              ++ ":"
+              ++ show (sgPort grant)
+              ++ "..."
+          _ <- runRemoteViewer defaultClientConfig grant
+          pure ()
+
+-- | Replace wildcard SPICE hosts (@0.0.0.0@, @::@, empty) with the
+-- client's @--host@ when the client connected via TCP. A wildcard host
+-- from a Unix-socket-connected client is left intact so the operator
+-- sees an actionable error in @remote-viewer@ rather than a silent
+-- connect to 0.0.0.0.
+resolveGrantHost :: Options -> SpiceGrant -> SpiceGrant
+resolveGrantHost opts grant
+  | isWildcard (sgHost grant) && optTcp opts =
+      grant {sgHost = T.pack (optHost opts)}
+  | otherwise = grant
+  where
+    isWildcard h = h `elem` ["0.0.0.0", "::", ""]
+
+-- | JSON projection of a grant for @--output json|yaml@. Passwords
+-- appear in clear — same trade-off as emitting the SPICE socket path
+-- today — because structured output is how non-interactive callers
+-- retrieve the connection details.
+grantToJson :: SpiceGrant -> Value
+grantToJson g =
+  object
+    [ "host" .= sgHost g
+    , "port" .= sgPort g
+    , "password" .= sgPassword g
+    , "ttl_seconds" .= sgTtlSeconds g
+    ]

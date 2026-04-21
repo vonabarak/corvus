@@ -158,6 +158,7 @@ library:
     - Corvus.Qemu.SerialBuffer
     - Corvus.Qemu.Netns
     - Corvus.Qemu.Netns.Manager
+    - Corvus.Qemu.SpicePort
     - Corvus.Handlers.GuestExec
     - Corvus.Handlers.GuestAgentPoller
     - Corvus.Handlers.Apply

@@ -121,6 +121,7 @@ library
       Corvus.Qemu.SerialBuffer
       Corvus.Qemu.Netns
       Corvus.Qemu.Netns.Manager
+      Corvus.Qemu.SpicePort
       Corvus.Handlers.GuestExec
       Corvus.Handlers.GuestAgentPoller
       Corvus.Handlers.Apply
@@ -418,6 +419,7 @@ test-suite corvus-test
       Corvus.SharedDirSpec
       Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec
+      Corvus.SpicePortSpec
       Corvus.SshKeySpec
       Corvus.StartupShutdownSpec
       Corvus.SubnetSpec
@@ -425,6 +427,7 @@ test-suite corvus-test
       Corvus.TemplateIntegrationSpec
       Corvus.TemplateSpec
       Corvus.TemplateYamlSpec
+      Corvus.ViewGrantSpec
       Corvus.VirtiofsIntegrationSpec
       Corvus.VmIntegrationSpec
       Corvus.VmSpec

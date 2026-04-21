@@ -20,7 +20,7 @@ import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import Corvus.Process (StopResult (..), stopProcess)
 import Corvus.Qemu.Command (generateQemuCommandWithSockets)
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
-import Corvus.Qemu.Runtime (createVmRuntimeDir, getGuestAgentSocket, getMonitorSocket, getQmpSocket, getSerialSocket, getSpiceSocket, getVmRuntimeDir)
+import Corvus.Qemu.Runtime (createVmRuntimeDir, getGuestAgentSocket, getMonitorSocket, getQmpSocket, getSerialSocket, getVmRuntimeDir)
 import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)
@@ -81,13 +81,12 @@ startVm pool config vmId mNamespacePid = do
   -- Get socket paths
   monitorSock <- liftIO $ getMonitorSocket config vmId
   qmpSock <- liftIO $ getQmpSocket config vmId
-  spiceSock <- liftIO $ getSpiceSocket config vmId
   serialSock <- liftIO $ getSerialSocket config vmId
   guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
   vmRuntimeDir <- liftIO $ getVmRuntimeDir config vmId
 
   -- Generate command (TAP fds are created inside namespace during resolution)
-  mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir mNamespacePid) pool
+  mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir mNamespacePid) pool
   case mCmd of
     Nothing -> pure VmNotFound
     Just (binary, args) -> do

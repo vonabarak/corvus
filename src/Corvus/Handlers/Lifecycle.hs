@@ -69,7 +69,7 @@ instance Action Startup where
             _ <- killVmProcess (fromSqlKey vmKey) pid
             killVirtiofsdProcesses pool (fromSqlKey vmKey)
           Nothing -> pure ()
-      liftIO $ runSqlPool (updateWhere [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing]) pool
+      liftIO $ runSqlPool (updateWhere [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]) pool
       logInfoN "Reset stale VMs to error state"
 
       -- Kill orphaned dnsmasq processes, reset network state

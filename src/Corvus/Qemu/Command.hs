@@ -30,7 +30,6 @@ import Corvus.Qemu.Runtime
   , getMonitorSocket
   , getQmpSocket
   , getSerialSocket
-  , getSpiceSocket
   , getVmRuntimeDir
   )
 import Data.Int (Int64)
@@ -54,11 +53,10 @@ generateQemuCommandIO pool config vmId = do
   basePath <- getEffectiveBasePath config
   monitorSock <- getMonitorSocket config vmId
   qmpSock <- getQmpSocket config vmId
-  spiceSock <- getSpiceSocket config vmId
   serialSock <- getSerialSocket config vmId
   guestAgentSock <- getGuestAgentSocket config vmId
   vmRuntimeDir <- getVmRuntimeDir config vmId
-  result <- runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir Nothing) pool
+  result <- runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir Nothing) pool
   pure $ case result of
     Nothing -> Nothing
     Just (binary, args) -> Just $ unwords (binary : args)
@@ -80,7 +78,6 @@ generateQemuCommand config vmId = do
       basePath <- liftIO $ getEffectiveBasePath config
       monitorSock <- liftIO $ getMonitorSocket config vmId
       qmpSock <- liftIO $ getQmpSocket config vmId
-      spiceSock <- liftIO $ getSpiceSocket config vmId
       serialSock <- liftIO $ getSerialSocket config vmId
       guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
       vmRuntimeDir <- liftIO $ getVmRuntimeDir config vmId
@@ -94,7 +91,6 @@ generateQemuCommand config vmId = do
               basePath
               monitorSock
               qmpSock
-              spiceSock
               serialSock
               guestAgentSock
               vmRuntimeDir
@@ -121,10 +117,9 @@ generateQemuCommandWithSockets
   -> FilePath
   -> FilePath
   -> FilePath
-  -> FilePath
   -> Maybe Int
   -> SqlPersistT IO (Maybe (FilePath, [String]))
-generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir mNamespacePid = do
+generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir mNamespacePid = do
   let key = toSqlKey vmId :: VmId
   mVm <- get key
   case mVm of
@@ -145,7 +140,6 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock spiceSoc
             basePath
             monitorSock
             qmpSock
-            spiceSock
             serialSock
             guestAgentSock
             vmRuntimeDir
@@ -168,12 +162,11 @@ buildCommandWithSockets
   -> FilePath
   -> FilePath
   -> FilePath
-  -> FilePath
   -> [(Drive, Maybe DiskImage)]
   -> [NetworkInterface]
   -> [SharedDir]
   -> (FilePath, [String])
-buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spiceSock serialSock guestAgentSock vmRuntimeDir drives netIfs sharedDirs =
+buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir drives netIfs sharedDirs =
   ( qcQemuBinary
   , concatMap
       (filter (not . null))
@@ -229,6 +222,12 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
       | vmHeadless vm = serialConsoleArgs
       | otherwise = spiceArgs ++ usbRedirArgs
 
+    -- Port QEMU binds SPICE to. The allocator in Corvus.Qemu.SpicePort
+    -- writes 'vmSpicePort' during VM start; if it is somehow Nothing we
+    -- fall through to '0' so QEMU fails loudly rather than silently
+    -- producing a nonsense command line.
+    spicePort = fromMaybe 0 (vmSpicePort vm)
+
     serialConsoleArgs =
       [ "-chardev"
       , "socket,id=serial0,path=" ++ serialSock ++ ",server=on,wait=off"
@@ -240,9 +239,18 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock spi
       , "none"
       ]
 
+    -- TCP SPICE with password authentication. Omitting @password=@
+    -- leaves QEMU in ticketed mode (@disable-ticketing=off@ is the
+    -- default) with no password installed, so the listener is up but
+    -- rejects every client until QMP 'set_password' is called by
+    -- 'handleVmViewGrant'.
     spiceArgs =
       [ "-spice"
-      , "unix=on,addr=" ++ spiceSock ++ ",disable-ticketing=on"
+      , "addr="
+          ++ T.unpack qcSpiceBindAddress
+          ++ ",port="
+          ++ show spicePort
+          ++ ",disable-ticketing=off"
       , "-chardev"
       , "spicevmc,id=vdagent,name=vdagent"
       , "-device"

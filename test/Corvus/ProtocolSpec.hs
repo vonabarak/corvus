@@ -96,6 +96,7 @@ instance Arbitrary Request where
       , pure (ReqDiskImport "import-test" "https://example.com/disk.qcow2" Nothing (Just "qcow2") True)
       , ReqDiskRegister "reg-test" "/tmp/disk.qcow2" (Just FormatQcow2) <$> arbitrary
       , ReqTemplateUpdate <$> arbitrary <*> pure "name: t\ncpuCount: 1\nramMb: 512\ndrives: []\n"
+      , ReqVmViewGrant <$> arbitrary
       ]
 
 spec :: Spec
@@ -103,6 +104,14 @@ spec = sequential $ do
   describe "Protocol binary encoding" $ do
     it "Request round-trips through encode/decode" $ property $ \(req :: Request) ->
       decodeMessage (encodeMessage req) == Right req
+
+    it "RespVmViewGrant round-trips through encode/decode" $ do
+      let resp = RespVmViewGrant "10.0.0.5" 5904 "hunter2" 120
+      decodeMessage (encodeMessage resp) `shouldBe` Right resp
+
+    it "RespVmHeadless and RespVmNotRunning round-trip through encode/decode" $ do
+      decodeMessage (encodeMessage RespVmHeadless) `shouldBe` Right RespVmHeadless
+      decodeMessage (encodeMessage RespVmNotRunning) `shouldBe` Right RespVmNotRunning
 
   describe "Protocol JSON encoding" $ do
     it "StatusInfo produces valid JSON with expected fields" $ do
@@ -134,3 +143,10 @@ spec = sequential $ do
       json `shouldSatisfy` ("qcow2" `isInfixOf`)
       json `shouldSatisfy` ("writeback" `isInfixOf`)
       json `shouldSatisfy` ("discard" `isInfixOf`)
+
+    it "RespVmViewGrant JSON uses snake_case field names (ttl_seconds)" $ do
+      let resp = RespVmViewGrant "10.0.0.5" 5904 "pw" 120
+          json = BL.unpack (encode resp)
+      json `shouldSatisfy` ("vm_view_grant" `isInfixOf`)
+      json `shouldSatisfy` ("ttl_seconds" `isInfixOf`)
+      json `shouldNotSatisfy` ("ttlSeconds" `isInfixOf`)

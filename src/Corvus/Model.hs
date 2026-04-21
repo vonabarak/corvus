@@ -547,6 +547,7 @@ Vm
     cloudInit Bool default=false
     healthcheck UTCTime Maybe default=NULL
     autostart Bool default=false
+    spicePort Int Maybe default=NULL
     UniqueName name
     deriving Show Eq Generic
 

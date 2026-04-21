@@ -245,10 +245,11 @@ Graceful shutdown uses QMP `system_powerdown`. Force stop uses `SIGKILL`.
 Sockets and runtime files are stored in `$XDG_RUNTIME_DIR/corvus/<vm_id>/`:
 - `monitor.sock` -- HMP monitor socket
 - `qmp.sock` -- QMP control socket
-- `spice.sock` -- SPICE display socket
 - `serial.sock` -- Serial console socket (headless VMs)
 - `qga.sock` -- QEMU Guest Agent socket
 - `virtiofsd-<tag>.sock` -- virtiofsd sockets
+
+SPICE is served over TCP (not Unix socket) with ticketed password authentication — see [vm-management.md](vm-management.md#spice-graphical-vms).
 
 ## Limitations
 
