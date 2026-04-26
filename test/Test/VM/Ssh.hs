@@ -23,6 +23,9 @@ module Test.VM.Ssh
   , runInTestVmWith
   , waitForTestVmSsh
   , waitForTestVmSshWithKey
+
+    -- * Vsock proxy selection
+  , describeSshLocator
   )
 where
 
@@ -38,7 +41,8 @@ import System.Directory (doesFileExist, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
-import Test.VM.Types (TestVm (..))
+import Test.VM.Types (SshLocator (..), TestVm (..))
+import Test.VM.VsockProxy (VsockProxy (..), getVsockProxy)
 
 -- | SSH key pair paths
 data SshKeyPair = SshKeyPair
@@ -51,16 +55,109 @@ data SshKeyPair = SshKeyPair
 
 -- | SSH connection configuration
 data SshConfig = SshConfig
-  { sshHost :: !Text
-  -- ^ Host to connect to (usually localhost for port-forwarded VMs)
-  , sshPort :: !Int
-  -- ^ SSH port on host
+  { sshLocator :: !SshLocator
+  -- ^ Transport: TCP host/port or vsock CID
   , sshUser :: !Text
   -- ^ Username to connect as
   , sshKeyFile :: !FilePath
   -- ^ Path to private key file
   }
   deriving (Show, Eq)
+
+--------------------------------------------------------------------------------
+-- Locator description
+--------------------------------------------------------------------------------
+
+-- | Render a locator as a short string for log/error messages.
+describeSshLocator :: SshLocator -> String
+describeSshLocator (SshTcp host port) = host ++ ":" ++ show port
+describeSshLocator (SshVsock cid) = "vsock/" ++ show cid
+describeSshLocator SshDisabled = "<ssh disabled>"
+
+--------------------------------------------------------------------------------
+-- Argument builders
+--------------------------------------------------------------------------------
+
+-- | Common ssh -o options used everywhere in the test suite.
+baseSshOpts :: [String]
+baseSshOpts =
+  [ "-o"
+  , "StrictHostKeyChecking=no"
+  , "-o"
+  , "UserKnownHostsFile=/dev/null"
+  , "-o"
+  , "LogLevel=ERROR"
+  , "-o"
+  , "ConnectTimeout=10"
+  , "-o"
+  , "BatchMode=yes"
+  ]
+
+-- | Build the ssh argv tail for a given locator: transport-specific
+-- options plus the @user\@host@ argument. Caller appends any
+-- positional command. For 'SshDisabled', this is a programming
+-- error — call sites should never hand a disabled locator to ssh.
+sshArgsForIO :: SshLocator -> Text -> FilePath -> IO [String]
+sshArgsForIO locator user keyFile = case locator of
+  SshTcp host port ->
+    pure ["-i", keyFile, "-p", show port, T.unpack user ++ "@" ++ host]
+  SshVsock cid -> do
+    proxy <- getVsockProxy
+    let extraOpts = concatMap (\(k, v) -> ["-o", k ++ "=" ++ v]) (vpExtraOpts proxy)
+        proxyOpt = ["-o", "ProxyCommand=" ++ vpProxyCmd proxy cid]
+    pure $
+      proxyOpt
+        ++ extraOpts
+        ++ ["-i", keyFile, T.unpack user ++ "@" ++ vpHost proxy cid]
+  SshDisabled ->
+    fail "sshArgsForIO: SshDisabled locator (test path has no SSH access)"
+
+-- | Same as 'sshArgsForIO' but for scp, which uses @-P@ (capital P)
+-- for the TCP port. Returns the opts portion only — the caller
+-- appends source/destination paths and the @user\@host:path@ token.
+scpOptsForIO :: SshLocator -> FilePath -> IO ([String], String)
+-- ^ Returns (opts, hostToken) where hostToken is the bare
+-- @user-less@ host used when constructing @user\@host:remote@.
+scpOptsForIO locator keyFile = case locator of
+  SshTcp host port ->
+    pure
+      (
+        [ "-o"
+        , "StrictHostKeyChecking=no"
+        , "-o"
+        , "UserKnownHostsFile=/dev/null"
+        , "-o"
+        , "LogLevel=ERROR"
+        , "-i"
+        , keyFile
+        , "-P"
+        , show port
+        ]
+      , host
+      )
+  SshVsock cid -> do
+    proxy <- getVsockProxy
+    let extraOpts = concatMap (\(k, v) -> ["-o", k ++ "=" ++ v]) (vpExtraOpts proxy)
+    pure
+      ( [ "-o"
+        , "StrictHostKeyChecking=no"
+        , "-o"
+        , "UserKnownHostsFile=/dev/null"
+        , "-o"
+        , "LogLevel=ERROR"
+        , "-o"
+        , "ProxyCommand=" ++ vpProxyCmd proxy cid
+        ]
+          ++ extraOpts
+          ++ ["-i", keyFile]
+      , vpHost proxy cid
+      )
+  SshDisabled ->
+    fail "scpOptsForIO: SshDisabled locator (test path has no SSH access)"
+
+--------------------------------------------------------------------------------
+-- Key generation
+--------------------------------------------------------------------------------
 
 -- | Generate a new SSH key pair for VM access.
 -- Creates ed25519 keys in the specified directory.
@@ -111,29 +208,16 @@ cleanupSshKeyPair keyPair = do
   pubExists <- doesFileExist (skpPublicKey keyPair)
   when pubExists $ removeFile (skpPublicKey keyPair)
 
+--------------------------------------------------------------------------------
+-- ssh / scp commands
+--------------------------------------------------------------------------------
+
 -- | Run a command via SSH and return the result.
 -- Returns (exit code, stdout, stderr).
 runSshCommand :: SshConfig -> String -> IO (ExitCode, Text, Text)
 runSshCommand config cmd = do
-  let args =
-        [ "-o"
-        , "StrictHostKeyChecking=no"
-        , "-o"
-        , "UserKnownHostsFile=/dev/null"
-        , "-o"
-        , "LogLevel=ERROR"
-        , "-o"
-        , "ConnectTimeout=10"
-        , "-o"
-        , "BatchMode=yes"
-        , "-i"
-        , sshKeyFile config
-        , "-p"
-        , show (sshPort config)
-        , T.unpack (sshUser config) ++ "@" ++ T.unpack (sshHost config)
-        , cmd
-        ]
-
+  tail' <- sshArgsForIO (sshLocator config) (sshUser config) (sshKeyFile config)
+  let args = baseSshOpts ++ tail' ++ [cmd]
   (code, stdout, stderr) <- readProcessWithExitCode "ssh" args ""
   pure (code, T.pack stdout, T.pack stderr)
 
@@ -158,27 +242,9 @@ waitForSsh config = go
 -- | Copy a file to the VM using scp
 scpToVm :: SshConfig -> FilePath -> FilePath -> IO (Either Text ())
 scpToVm config localPath remotePath = do
-  let dest =
-        T.unpack (sshUser config)
-          ++ "@"
-          ++ T.unpack (sshHost config)
-          ++ ":"
-          ++ remotePath
-      args =
-        [ "-o"
-        , "StrictHostKeyChecking=no"
-        , "-o"
-        , "UserKnownHostsFile=/dev/null"
-        , "-o"
-        , "LogLevel=ERROR"
-        , "-i"
-        , sshKeyFile config
-        , "-P"
-        , show (sshPort config)
-        , localPath
-        , dest
-        ]
-
+  (opts, hostToken) <- scpOptsForIO (sshLocator config) (sshKeyFile config)
+  let dest = T.unpack (sshUser config) ++ "@" ++ hostToken ++ ":" ++ remotePath
+      args = opts ++ [localPath, dest]
   (code, _, stderr) <- readProcessWithExitCode "scp" args ""
   case code of
     ExitSuccess -> pure $ Right ()
@@ -190,27 +256,9 @@ scpToVm config localPath remotePath = do
 -- | Copy a file from the VM using scp
 scpFromVm :: SshConfig -> FilePath -> FilePath -> IO (Either Text ())
 scpFromVm config remotePath localPath = do
-  let src =
-        T.unpack (sshUser config)
-          ++ "@"
-          ++ T.unpack (sshHost config)
-          ++ ":"
-          ++ remotePath
-      args =
-        [ "-o"
-        , "StrictHostKeyChecking=no"
-        , "-o"
-        , "UserKnownHostsFile=/dev/null"
-        , "-o"
-        , "LogLevel=ERROR"
-        , "-i"
-        , sshKeyFile config
-        , "-P"
-        , show (sshPort config)
-        , src
-        , localPath
-        ]
-
+  (opts, hostToken) <- scpOptsForIO (sshLocator config) (sshKeyFile config)
+  let src = T.unpack (sshUser config) ++ "@" ++ hostToken ++ ":" ++ remotePath
+      args = opts ++ [src, localPath]
   (code, _, stderr) <- readProcessWithExitCode "scp" args ""
   case code of
     ExitSuccess -> pure $ Right ()
@@ -238,22 +286,8 @@ runInTestVm vm cmd = go (3 :: Int)
           go (n - 1)
         _ -> pure result
     runOnce = do
-      let args =
-            [ "-o"
-            , "StrictHostKeyChecking=no"
-            , "-o"
-            , "UserKnownHostsFile=/dev/null"
-            , "-o"
-            , "BatchMode=yes"
-            , "-o"
-            , "ConnectTimeout=10"
-            , "-i"
-            , tvmSshPrivateKey vm
-            , "-p"
-            , show (tvmSshPort vm)
-            , T.unpack (tvmSshUser vm) ++ "@" ++ tvmSshHost vm
-            , T.unpack cmd
-            ]
+      tail' <- sshArgsForIO (tvmSsh vm) (tvmSshUser vm) (tvmSshPrivateKey vm)
+      let args = baseSshOpts ++ tail' ++ [T.unpack cmd]
       putStrLn $ "[ssh-run] Executing: " <> T.unpack cmd
       (code, stdout, stderr) <- readProcessWithExitCode "ssh" args ""
       putStrLn $ "[ssh-run] Exit code: " <> show code
@@ -278,39 +312,28 @@ runInTestVm_ vm cmd = do
 
 -- | Run a command via SSH with explicit connection parameters.
 -- Useful when the VM was not created via the test helpers (e.g., via apply).
-runInTestVmWith :: String -> Int -> FilePath -> Text -> Text -> IO (ExitCode, Text, Text)
-runInTestVmWith host port privateKey user cmd = do
-  let args =
-        [ "-o"
-        , "StrictHostKeyChecking=no"
-        , "-o"
-        , "UserKnownHostsFile=/dev/null"
-        , "-o"
-        , "BatchMode=yes"
-        , "-o"
-        , "ConnectTimeout=10"
-        , "-i"
-        , privateKey
-        , "-p"
-        , show port
-        , T.unpack user ++ "@" ++ host
-        , T.unpack cmd
-        ]
+runInTestVmWith :: SshLocator -> FilePath -> Text -> Text -> IO (ExitCode, Text, Text)
+runInTestVmWith locator privateKey user cmd = do
+  tail' <- sshArgsForIO locator user privateKey
+  let args = baseSshOpts ++ tail' ++ [T.unpack cmd]
   putStrLn $ "[ssh-run] Executing: " <> T.unpack cmd
   (code, stdout, stderr) <- readProcessWithExitCode "ssh" args ""
   putStrLn $ "[ssh-run] Exit code: " <> show code
   pure (code, T.pack stdout, T.pack stderr)
 
--- | Wait for SSH to be available on the VM (without key)
-waitForTestVmSsh :: String -> Int -> Int -> IO ()
-waitForTestVmSsh host port = waitForTestVmSshWithKey host port "" "corvus"
+-- | Wait for SSH to be available on the VM using a default empty key
+-- and the @corvus@ user — only useful when the VM has password
+-- authentication enabled (which the test images do not). Retained
+-- for completeness; new tests should pass an explicit key.
+waitForTestVmSsh :: SshLocator -> Int -> IO ()
+waitForTestVmSsh locator = waitForTestVmSshWithKey locator "" "corvus"
 
 -- | Wait for SSH to be available on the VM using a specific key.
 -- Uses wall-clock time for accurate timeout tracking.
 -- Fails fast if SSH is up but key authentication is rejected (after a
 -- grace period for cloud-init to finish deploying keys).
-waitForTestVmSshWithKey :: String -> Int -> FilePath -> Text -> Int -> IO ()
-waitForTestVmSshWithKey host port privateKey user timeoutSec = do
+waitForTestVmSshWithKey :: SshLocator -> FilePath -> Text -> Int -> IO ()
+waitForTestVmSshWithKey locator privateKey user timeoutSec = do
   startTime <- getCurrentTime
   go startTime Nothing
   where
@@ -322,20 +345,20 @@ waitForTestVmSshWithKey host port privateKey user timeoutSec = do
       now <- getCurrentTime
       pure $ round (diffUTCTime now start)
 
+    target = describeSshLocator locator
+
     go startTime mAuthStart = do
       elapsed <- elapsedSec startTime
       if elapsed >= timeoutSec
         then
           fail $
             "Timeout waiting for SSH on "
-              <> host
-              <> ":"
-              <> show port
+              <> target
               <> " (after "
               <> show elapsed
               <> "s)"
         else do
-          result <- trySshConnection host port privateKey
+          result <- trySshConnection
           case result of
             SshOk -> pure ()
             SshAuthRejected stderr -> do
@@ -353,9 +376,7 @@ waitForTestVmSshWithKey host port privateKey user timeoutSec = do
                 then
                   fail $
                     "SSH key authentication failed on "
-                      <> host
-                      <> ":"
-                      <> show port
+                      <> target
                       <> " (server is up but key was rejected after "
                       <> show authGracePeriod
                       <> "s grace period).\n"
@@ -370,10 +391,11 @@ waitForTestVmSshWithKey host port privateKey user timeoutSec = do
               threadDelay 2000000
               go startTime Nothing
 
-    trySshConnection :: String -> Int -> FilePath -> IO SshProbeResult
-    trySshConnection sshHost sshPort keyFile = do
-      let keyArgs = if null keyFile then [] else ["-i", keyFile]
-          args =
+    trySshConnection :: IO SshProbeResult
+    trySshConnection = do
+      let keyArgs = if null privateKey then [] else ["-i", privateKey]
+      tail' <- sshTailWithoutKey locator user
+      let args =
             [ "-o"
             , "StrictHostKeyChecking=no"
             , "-o"
@@ -382,11 +404,10 @@ waitForTestVmSshWithKey host port privateKey user timeoutSec = do
             , "BatchMode=yes"
             , "-o"
             , "ConnectTimeout=3"
-            , "-p"
-            , show sshPort
             ]
               ++ keyArgs
-              ++ [T.unpack user ++ "@" ++ sshHost, "true"]
+              ++ tail'
+              ++ ["true"]
       result <- try $ readProcessWithExitCode "ssh" args ""
       case result of
         Left (_ :: SomeException) -> pure SshNotReady
@@ -394,6 +415,21 @@ waitForTestVmSshWithKey host port privateKey user timeoutSec = do
         Right (ExitFailure _, _, stderr)
           | "Permission denied" `isInfixOf` stderr -> pure $ SshAuthRejected stderr
           | otherwise -> pure SshNotReady
+
+-- | Build the trailing transport-specific opts and @user\@host@
+-- token, omitting @-i@ so the caller can decide whether to add a
+-- key. Used by the SSH probe loop in 'waitForTestVmSshWithKey'.
+sshTailWithoutKey :: SshLocator -> Text -> IO [String]
+sshTailWithoutKey locator user = case locator of
+  SshTcp host port ->
+    pure ["-p", show port, T.unpack user ++ "@" ++ host]
+  SshVsock cid -> do
+    proxy <- getVsockProxy
+    let extraOpts = concatMap (\(k, v) -> ["-o", k ++ "=" ++ v]) (vpExtraOpts proxy)
+        proxyOpt = ["-o", "ProxyCommand=" ++ vpProxyCmd proxy cid]
+    pure $ proxyOpt ++ extraOpts ++ [T.unpack user ++ "@" ++ vpHost proxy cid]
+  SshDisabled ->
+    fail "sshTailWithoutKey: SshDisabled locator"
 
 -- | SSH connection attempt result (internal)
 data SshProbeResult

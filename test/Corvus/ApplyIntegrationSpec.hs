@@ -32,6 +32,7 @@ import Test.VM.Rpc
   , stopTestVmAndWait
   )
 import Test.VM.Ssh (SshKeyPair (..), cleanupSshKeyPair, generateSshKeyPair, runInTestVmWith, waitForTestVmSshWithKey)
+import Test.VM.Types (SshLocator (..))
 
 -- | Encode a value as YAML Text
 encodeYaml :: (Yaml.ToJSON a) => a -> T.Text
@@ -178,15 +179,15 @@ spec = withTestDb $ do
             -- Start VM and wait for SSH with the deployed key
             putStrLn "[test] Starting VM and waiting for SSH (cloud-init key deployment)..."
             startTestVm daemon vmId
-            waitForTestVmSshWithKey "localhost" sshPort (skpPrivateKey kp) "corvus" 180
+            waitForTestVmSshWithKey (SshTcp "localhost" sshPort) (skpPrivateKey kp) "corvus" 180
 
             -- Verify SSH works with the deployed key
-            (code1, stdout1, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "corvus" "echo ssh-via-apply"
+            (code1, stdout1, _) <- runInTestVmWith (SshTcp "localhost" sshPort) (skpPrivateKey kp) "corvus" "echo ssh-via-apply"
             code1 `shouldBe` ExitSuccess
             T.strip stdout1 `shouldBe` "ssh-via-apply"
 
             -- Verify the SSH key is in authorized_keys
-            (code2, stdout2, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "corvus" "cat ~/.ssh/authorized_keys"
+            (code2, stdout2, _) <- runInTestVmWith (SshTcp "localhost" sshPort) (skpPrivateKey kp) "corvus" "cat ~/.ssh/authorized_keys"
             code2 `shouldBe` ExitSuccess
             T.isInfixOf "corvus-test@localhost" stdout2 `shouldBe` True
 
@@ -266,15 +267,15 @@ spec = withTestDb $ do
             -- Start VM and wait for SSH with the custom user
             putStrLn "[test] Starting VM and waiting for SSH (custom cloud-init config)..."
             startTestVm daemon vmId
-            waitForTestVmSshWithKey "localhost" sshPort (skpPrivateKey kp) "deployer" 120
+            waitForTestVmSshWithKey (SshTcp "localhost" sshPort) (skpPrivateKey kp) "deployer" 120
 
             -- Verify SSH works with the custom user
-            (code1, stdout1, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "deployer" "echo custom-apply-ok"
+            (code1, stdout1, _) <- runInTestVmWith (SshTcp "localhost" sshPort) (skpPrivateKey kp) "deployer" "echo custom-apply-ok"
             code1 `shouldBe` ExitSuccess
             T.strip stdout1 `shouldBe` "custom-apply-ok"
 
             -- Verify the custom user was created
-            (code2, stdout2, _) <- runInTestVmWith "localhost" sshPort (skpPrivateKey kp) "deployer" "whoami"
+            (code2, stdout2, _) <- runInTestVmWith (SshTcp "localhost" sshPort) (skpPrivateKey kp) "deployer" "whoami"
             code2 `shouldBe` ExitSuccess
             T.strip stdout2 `shouldBe` "deployer"
 

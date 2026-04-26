@@ -29,10 +29,19 @@ import Test.VM.Console (consoleDrain, consoleExpect, consoleSend)
 import Test.VM.Daemon (withTestDaemon)
 import Test.VM.Rpc (addVmDisk, addVmNetIf, cleanupSshKey, createTestVmWithOptions, deleteCloudInitConfig, deleteTestVm, getCloudInitConfig, setCloudInitConfig, setupVmSshKey, stopTestVmAndWait)
 import Test.VM.Ssh (SshKeyPair (..), generateSshKeyPair, runInTestVm, runInTestVmWith, waitForTestVmSshWithKey)
+import Test.VM.Types (SshLocator (..))
 
 -- | VM config for multi-OS cloud-image tests (uses cloud-init for SSH key deployment)
 multiOsConfig :: VmConfig
-multiOsConfig = cloudVmConfig {vmcWaitSshTimeout = 300}
+multiOsConfig =
+  cloudVmConfig
+    { vmcWaitSshTimeout = 300
+    , -- Cloud images (almalinux, ubuntu, debian, gentoo, freebsd, ...)
+      -- do not ship a vsock→sshd relay; the cloud-init test cycle
+      -- does not install one either (per the "guest is preconfigured"
+      -- rule). Force TCP-over-NAT for these tests.
+      vmcForceTcpSsh = True
+    }
 
 -- | Verify SSH key auth works, key is deployed, user was created,
 -- and optionally check privilege escalation and qemu-guest-agent.
@@ -117,7 +126,8 @@ spec = withTestDb $ do
               addVmNetIf daemon vmId (vmcNetworkType cfg) hostFwd Nothing
 
               -- Start VM and wait for SSH
-              let vm = TestVm vmId diskId sshPort "localhost" daemon privKey1 keyId1 "corvus"
+              let locator = SshTcp "localhost" sshPort
+                  vm = TestVm vmId diskId locator daemon privKey1 keyId1 "corvus"
               startTestVmAndWait vm 300
 
               -- Verify both keys are in authorized_keys
@@ -127,7 +137,7 @@ spec = withTestDb $ do
               keyCount `shouldSatisfy` (>= 2)
 
               -- Verify SSH works with the second key too
-              (code2, stdout2, _) <- runInTestVmWith "localhost" sshPort privKey2 "corvus" "echo key2-ok"
+              (code2, stdout2, _) <- runInTestVmWith locator privKey2 "corvus" "echo key2-ok"
               code2 `shouldBe` ExitSuccess
               T.strip stdout2 `shouldBe` "key2-ok"
 
@@ -221,21 +231,22 @@ spec = withTestDb $ do
               addVmNetIf daemon vmId (vmcNetworkType cfg) hostFwd Nothing
 
               -- Start VM and wait for SSH with custom user
-              let vm = TestVm vmId diskId sshPort "localhost" daemon privKey1 keyId1 "testadmin"
+              let locator = SshTcp "localhost" sshPort
+                  vm = TestVm vmId diskId locator daemon privKey1 keyId1 "testadmin"
               startTestVmAndWait vm 300
 
               -- Verify SSH works with the custom user
-              (code, stdout, _) <- runInTestVmWith "localhost" sshPort privKey1 "testadmin" "echo custom-ci-ok"
+              (code, stdout, _) <- runInTestVmWith locator privKey1 "testadmin" "echo custom-ci-ok"
               code `shouldBe` ExitSuccess
               T.strip stdout `shouldBe` "custom-ci-ok"
 
               -- Verify the custom user exists
-              (code2, stdout2, _) <- runInTestVmWith "localhost" sshPort privKey1 "testadmin" "whoami"
+              (code2, stdout2, _) <- runInTestVmWith locator privKey1 "testadmin" "whoami"
               code2 `shouldBe` ExitSuccess
               T.strip stdout2 `shouldBe` "testadmin"
 
               -- Verify curl was installed
-              (code3, _, _) <- runInTestVmWith "localhost" sshPort privKey1 "testadmin" "n=0; while [ $n -lt 60 ]; do s=$(cloud-init status 2>/dev/null); case \"$s\" in *done*|*error*|*disabled*) break;; esac; n=$((n+1)); sleep 2; done"
+              (code3, _, _) <- runInTestVmWith locator privKey1 "testadmin" "n=0; while [ $n -lt 60 ]; do s=$(cloud-init status 2>/dev/null); case \"$s\" in *done*|*error*|*disabled*) break;; esac; n=$((n+1)); sleep 2; done"
               code3 `shouldBe` ExitSuccess
 
               -- Cleanup

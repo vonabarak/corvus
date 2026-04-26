@@ -42,6 +42,7 @@ import System.Posix.Process (ProcessStatus, getProcessStatus)
 import System.Posix.Signals (sigTERM, signalProcess)
 import Test.Database (TestEnv (..), createTestTempDir)
 import Test.Settings (getTestLogLevel)
+import Test.VM.VsockProxy (initVsockProxy)
 
 --------------------------------------------------------------------------------
 -- Test Daemon Types
@@ -66,6 +67,11 @@ data TestDaemon = TestDaemon
 -- | Start a test daemon with the given test environment
 startTestDaemon :: TestEnv -> IO TestDaemon
 startTestDaemon env = do
+  -- Probe for systemd-ssh-proxy or socat once per session so vsock
+  -- SSH paths can build their ProxyCommand. Idempotent — re-runs in
+  -- subsequent daemons just overwrite the IORef with the same value.
+  initVsockProxy
+
   -- Create temporary directory for the daemon socket
   tempDir <- createTestTempDir
 
@@ -106,6 +112,7 @@ startTestDaemon env = do
 -- | Start a test daemon with a custom QemuConfig modifier
 startTestDaemonWithConfig :: TestEnv -> (QemuConfig -> QemuConfig) -> IO TestDaemon
 startTestDaemonWithConfig env modifyConfig = do
+  initVsockProxy
   tempDir <- createTestTempDir
 
   let socketPath = tempDir </> "daemon.sock"

@@ -548,6 +548,7 @@ Vm
     healthcheck UTCTime Maybe default=NULL
     autostart Bool default=false
     spicePort Int Maybe default=NULL
+    vsockCid Int Maybe default=NULL
     UniqueName name
     deriving Show Eq Generic
 

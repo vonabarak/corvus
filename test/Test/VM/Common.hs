@@ -42,7 +42,7 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Exception (bracket)
-import Control.Monad (forM_)
+import Control.Monad (forM_, when)
 import Corvus.Client (DiskResult (..), diskClone, diskCreateOverlay, diskDelete, diskRegister)
 import Corvus.Model (DriveFormat (..), DriveInterface (..))
 import Corvus.Types (ServerState (..))
@@ -213,12 +213,21 @@ withTestVmSshWithDisk daemon diskImageId config action = do
       -- Add additional disks
       mapM_ (\(dId, iface, ro) -> addVmDisk daemon vmId dId iface (vmcDiskCache config) (vmcDiskDiscard config) ro) (vmcAdditionalDisks config)
 
-      -- Find a free port for SSH forwarding
-      sshPort <- findFreePort
-
-      -- Add network interface with SSH port forwarding (server generates MAC)
-      let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
-      addVmNetIf daemon vmId (vmcNetworkType config) hostFwd Nothing
+      -- Choose SSH transport: vsock (default) or TCP via NAT hostfwd.
+      -- Tests that exercise networking set vmcForceTcpSsh; tests that
+      -- only need cloud-init metadata (no hostfwd) set vmcWantUserNetdev.
+      locator <-
+        if vmcForceTcpSsh config
+          then do
+            sshPort <- findFreePort
+            let hostFwd = "hostfwd=tcp::" <> T.pack (show sshPort) <> "-:22"
+            addVmNetIf daemon vmId (vmcNetworkType config) hostFwd Nothing
+            pure (SshTcp "localhost" sshPort)
+          else do
+            cid <- getVmVsockCid daemon vmId
+            when (vmcWantUserNetdev config) $
+              addVmNetIf daemon vmId (vmcNetworkType config) "" Nothing
+            pure (SshVsock cid)
 
       -- Add VDE network interface for virtual network if requested
       forM_ (vmcNetworkId config) (addVmNetIfWithNetwork daemon vmId)
@@ -233,8 +242,7 @@ withTestVmSshWithDisk daemon diskImageId config action = do
                   TestVm
                     { tvmId = vmId
                     , tvmDiskId = diskImageId
-                    , tvmSshPort = sshPort
-                    , tvmSshHost = "localhost"
+                    , tvmSsh = locator
                     , tvmDaemon = daemon
                     , tvmSshPrivateKey = privateKey
                     , tvmSshKeyId = sshKeyId
@@ -248,7 +256,7 @@ withTestVmSshWithDisk daemon diskImageId config action = do
             vmReadyTime <- getCurrentTime
             let bootSec = round (diffUTCTime vmReadyTime vmStartTime) :: Int
             putStrLn $ "[test] SSH is ready (boot to SSH: " <> show bootSec <> "s)"
-            putStrLn $ "[test] ssh " <> T.unpack (tvmSshUser vm) <> "@" <> tvmSshHost vm <> " -p " <> show (tvmSshPort vm) <> " -i " <> tvmSshPrivateKey vm
+            putStrLn $ "[test] connecting via " <> describeLocator locator <> " key " <> tvmSshPrivateKey vm
 
             -- Run the action
             action vm
@@ -313,8 +321,7 @@ withTestVmGuestExecWithDisk daemon diskImageId config action = do
             TestVm
               { tvmId = vmId
               , tvmDiskId = diskImageId
-              , tvmSshPort = 0
-              , tvmSshHost = ""
+              , tvmSsh = SshDisabled
               , tvmDaemon = daemon
               , tvmSshPrivateKey = ""
               , tvmSshKeyId = 0
@@ -383,7 +390,13 @@ withTestVmConsoleWithDisk daemon diskImageId config action = do
 startTestVmAndWait :: TestVm -> Int -> IO ()
 startTestVmAndWait vm timeoutSec = do
   startTestVm (tvmDaemon vm) (tvmId vm)
-  waitForTestVmSshWithKey (tvmSshHost vm) (tvmSshPort vm) (tvmSshPrivateKey vm) (tvmSshUser vm) timeoutSec
+  waitForTestVmSshWithKey (tvmSsh vm) (tvmSshPrivateKey vm) (tvmSshUser vm) timeoutSec
+
+-- | One-line label for the SSH transport, used in startup banners.
+describeLocator :: SshLocator -> String
+describeLocator (SshTcp host port) = "TCP " <> host <> ":" <> show port
+describeLocator (SshVsock cid) = "vsock CID " <> show cid
+describeLocator SshDisabled = "<disabled>"
 
 -- | Start a VM and wait for the guest agent to become available (sync start).
 startTestVmAndWaitGuestAgent :: TestVm -> Int -> IO ()

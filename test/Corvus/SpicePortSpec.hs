@@ -96,6 +96,7 @@ insertRunningVm name port = do
           , M.vmHealthcheck = Nothing
           , M.vmAutostart = False
           , M.vmSpicePort = Just port
+          , M.vmVsockCid = Nothing
           }
   pure ()
 

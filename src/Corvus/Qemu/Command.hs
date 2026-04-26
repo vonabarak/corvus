@@ -177,6 +177,7 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock ser
       , memoryArgs
       , ["-smp", show (vmCpuCount vm)]
       , hotplugPortArgs
+      , vsockArgs
       , guestAgentArgs
       , displayArgs
       , monitorArgs
@@ -208,6 +209,16 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock ser
       , "-device"
       , "pcie-pci-bridge,id=hotplug,bus=hotplug-rp"
       ]
+
+    -- vhost-vsock-pci device giving the guest a unique AF_VSOCK CID.
+    -- 'vmVsockCid' is allocated at VM creation; if it is somehow
+    -- 'Nothing' (legacy rows pre-migration) we omit the device.
+    vsockArgs = case vmVsockCid vm of
+      Just cid ->
+        [ "-device"
+        , "vhost-vsock-pci,guest-cid=" ++ show cid ++ ",id=vsock0"
+        ]
+      Nothing -> []
 
     guestAgentArgs =
       [ "-device"

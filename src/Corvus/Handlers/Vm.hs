@@ -60,6 +60,7 @@ import Corvus.Protocol
 import Corvus.Qemu
 import Corvus.Qemu.SocketBuffer (flushBuffer, startSocketBufferThread)
 import Corvus.Qemu.SpicePort (allocateSpicePort)
+import Corvus.Qemu.VsockCid (allocateVsockCid, isHostFree)
 import Corvus.Types
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64URL
@@ -122,8 +123,12 @@ handleVmCreate state name cpuCount ramMb description headless guestAgent cloudIn
   case validateName "VM" name of
     Left err -> pure $ RespError err
     Right () -> do
-      vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit autostart) (ssDbPool state)
-      pure $ RespVmCreated vmId
+      cidResult <- allocateVsockCid state
+      case cidResult of
+        Left err -> pure $ RespError err
+        Right cid -> do
+          vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit autostart (Just cid)) (ssDbPool state)
+          pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
 handleVmDelete :: ActionContext -> Int64 -> Bool -> IO Response
@@ -245,14 +250,56 @@ startQemuAndMonitor state vmId vm parentTaskId = do
       liftIO $ runSqlPool (setVmError vmId) pool
       pure $ RespError $ "Failed to allocate SPICE port: " <> err
     Right _ -> do
-      -- Subtask 2: Start virtiofsd processes for shared directories
-      virtiofsdResp <- liftIO $ runActionAsSubtask state (StartVirtiofsd vmId (vmName vm)) parentTaskId
-      case virtiofsdResp of
-        RespError err -> do
-          logWarnN $ "Virtiofsd failed, aborting VM start: " <> err
+      -- Re-validate the vsock CID against the live host. The CID
+      -- assigned at create time may have been claimed by another
+      -- daemon (or another QEMU outside corvus) since then; the
+      -- kernel enforces uniqueness host-wide. If the stored CID is
+      -- no longer free, allocate a fresh one and persist it.
+      cidResult <- liftIO $ ensureFreeVsockCid state vmId vm
+      case cidResult of
+        Left err -> do
+          logWarnN $ "Vsock CID re-allocation failed: " <> err
           liftIO $ runSqlPool (setVmError vmId) pool
-          pure $ RespError $ "Failed to start virtiofsd: " <> err
-        _ -> launchQemu state vmId vm parentTaskId pool
+          pure $ RespError $ "Failed to secure a free vsock CID: " <> err
+        Right _ -> do
+          -- Subtask 2: Start virtiofsd processes for shared directories
+          virtiofsdResp <- liftIO $ runActionAsSubtask state (StartVirtiofsd vmId (vmName vm)) parentTaskId
+          case virtiofsdResp of
+            RespError err -> do
+              logWarnN $ "Virtiofsd failed, aborting VM start: " <> err
+              liftIO $ runSqlPool (setVmError vmId) pool
+              pure $ RespError $ "Failed to start virtiofsd: " <> err
+            _ -> launchQemu state vmId vm parentTaskId pool
+
+-- | Re-validate the VM's stored vsock CID against the live host
+-- kernel before launching QEMU, and reallocate if necessary.
+--
+-- Two corvus daemons (or a parallel test harness) sharing a host
+-- can independently allocate the same CID from their own databases
+-- because the host probe at create time isn't atomic with persisting
+-- the value. The kernel enforces uniqueness when QEMU opens
+-- @/dev/vhost-vsock@; the loser gets EADDRINUSE and the VM lands in
+-- 'VmError'. Re-probing here closes that race in the common case
+-- (the only way to fail now is for two daemons to call this function
+-- in lockstep, which is rare in practice).
+ensureFreeVsockCid :: ServerState -> Int64 -> Vm -> IO (Either Text Int)
+ensureFreeVsockCid state vmId vm = do
+  let pool = ssDbPool state
+  case vmVsockCid vm of
+    Nothing -> reallocate pool
+    Just cid -> do
+      free <- isHostFree cid
+      if free
+        then pure (Right cid)
+        else reallocate pool
+  where
+    reallocate pool = do
+      alloc <- allocateVsockCid state
+      case alloc of
+        Left err -> pure (Left err)
+        Right newCid -> do
+          runSqlPool (update (toSqlKey vmId :: VmId) [M.VmVsockCid =. Just newCid]) pool
+          pure (Right newCid)
 
 -- | Launch QEMU and set up process monitor (called after virtiofsd succeeds)
 launchQemu :: ServerState -> Int64 -> Vm -> TaskId -> Pool SqlBackend -> LoggingT IO Response
@@ -681,8 +728,8 @@ setVmStatus vmId status = do
   update key [M.VmStatus =. status]
 
 -- | Create a new VM
-createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> Bool -> SqlPersistT IO Int64
-createVm name cpuCount ramMb description headless guestAgent cloudInit autostart = do
+createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> Bool -> Maybe Int -> SqlPersistT IO Int64
+createVm name cpuCount ramMb description headless guestAgent cloudInit autostart vsockCid = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -699,6 +746,7 @@ createVm name cpuCount ramMb description headless guestAgent cloudInit autostart
           , vmHealthcheck = Nothing
           , vmAutostart = autostart
           , vmSpicePort = Nothing
+          , vmVsockCid = vsockCid
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -796,6 +844,7 @@ getVmDetails config vmId = do
             , vdHeadless = vmHeadless vm
             , vdMonitorSocket = T.pack monitorSock
             , vdSpicePort = vmSpicePort vm
+            , vdVsockCid = vmVsockCid vm
             , vdSerialSocket = T.pack serialSock
             , vdGuestAgentSocket = T.pack guestAgentSock
             , vdGuestAgent = vmGuestAgent vm

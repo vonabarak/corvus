@@ -206,6 +206,7 @@ apk add --no-cache \
     efibootmgr \
     openssh \
     qemu-guest-agent \
+    socat \
     acpid \
     doas \
     e2fsprogs \
@@ -249,6 +250,17 @@ EOF
 echo "corvus-test" > /etc/hostname
 echo "127.0.0.1 corvus-test localhost" > /etc/hosts
 
+# -- vsock kernel modules
+# Mainline OpenSSH does not speak AF_VSOCK natively; sshd listens on
+# TCP and a small socat relay forwards AF_VSOCK:22 → 127.0.0.1:22.
+# Listing the modules in /etc/modules makes load order deterministic
+# even though udev/mdev would also auto-bind them on the virtio-vsock
+# PCI device.
+cat >> /etc/modules <<'EOF'
+vsock
+vmw_vsock_virtio_transport
+EOF
+
 # -- User setup
 
 adduser -D -s /bin/sh corvus
@@ -281,6 +293,23 @@ GA_PATH="/dev/virtio-ports/org.qemu.guest_agent.0"
 GA_METHOD="virtio-serial"
 EOF
 
+# -- vsock → sshd relay (OpenRC service)
+
+cat > /etc/init.d/vsock-sshd <<'EOF'
+#!/sbin/openrc-run
+description="Forward AF_VSOCK:22 to local sshd on 127.0.0.1:22"
+command="/usr/bin/socat"
+command_args="VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+depend() {
+    need sshd
+    after net
+}
+EOF
+chmod +x /etc/init.d/vsock-sshd
+
 # -- Enable services
 
 rc-update add devfs sysinit
@@ -299,6 +328,7 @@ rc-update add qemu-guest-agent boot
 rc-update add acpid default
 rc-update add networking default
 rc-update add sshd default
+rc-update add vsock-sshd default
 
 rc-update add mount-ro shutdown
 rc-update add killprocs shutdown
@@ -389,7 +419,12 @@ echo ""
 echo "   Test with:"
 echo "     qemu-system-x86_64 -machine q35,accel=kvm -cpu host -m 1024 \\"
 echo "       -drive file=$OUTPUT_IMAGE,if=virtio,format=qcow2 \\"
+echo "       -device vhost-vsock-pci,guest-cid=42 \\"
 echo "       -device virtio-net-pci,netdev=net0 \\"
 echo "       -netdev user,id=net0,hostfwd=tcp::2222-:22 \\"
 echo "       -nographic"
 echo "     ssh -i $OUTPUT_KEY -p 2222 corvus@localhost"
+echo "     # over vsock (systemd-ssh-proxy in ~/.ssh/config):"
+echo "     ssh -i $OUTPUT_KEY corvus@vsock/42"
+echo "     # over vsock (socat fallback):"
+echo "     ssh -i $OUTPUT_KEY -o ProxyCommand=\"socat - VSOCK-CONNECT:42:22\" corvus@vsock"

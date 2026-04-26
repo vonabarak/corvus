@@ -241,6 +241,11 @@ printVmDetails vm = do
   if vdHeadless vm
     then printField "Serial" (T.unpack (vdSerialSocket vm))
     else printField "SPICE port" (maybe "(not running)" show (vdSpicePort vm))
+  case vdVsockCid vm of
+    Nothing -> pure ()
+    Just cid -> do
+      printField "Vsock CID" (show cid)
+      printField "SSH (vsock)" $ "ssh <user>@vsock/" ++ show cid
   printField "Guest Agent" (T.unpack (vdGuestAgentSocket vm))
 
   putStrLn ""

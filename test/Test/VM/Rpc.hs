@@ -17,6 +17,9 @@ module Test.VM.Rpc
     -- * VM edit
   , editTestVm
 
+    -- * VM details
+  , getVmVsockCid
+
     -- * VM configuration
   , addVmDisk
   , addVmNetIf
@@ -174,6 +177,19 @@ deleteTestVm daemon vmId = do
   case result of
     Right (Right VmDeleted) -> pure ()
     _ -> pure ()
+
+-- | Fetch a VM's vsock CID. Fails loudly if the daemon hasn't
+-- assigned one — that's a bug, not a fall-through to TCP.
+getVmVsockCid :: TestDaemon -> Int64 -> IO Int
+getVmVsockCid daemon vmId = do
+  result <- withDaemonConnection daemon $ \conn -> vmShow conn (T.pack (show vmId))
+  case result of
+    Left err -> fail $ "Failed to connect to daemon: " <> show err
+    Right (Left err) -> fail $ "RPC error fetching VM details: " <> show err
+    Right (Right (Just details)) -> case vdVsockCid details of
+      Just cid -> pure cid
+      Nothing -> fail $ "VM " <> show vmId <> " has no vsock CID — daemon failed to allocate one"
+    Right (Right Nothing) -> fail $ "VM not found: " <> show vmId
 
 -- | Edit a VM's properties via daemon RPC
 editTestVm :: TestDaemon -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO ()

@@ -12,6 +12,7 @@ module Test.VM.Types
 
     -- * Test VM handle
   , TestVm (..)
+  , SshLocator (..)
   )
 where
 
@@ -49,6 +50,15 @@ data VmConfig = VmConfig
   -- ^ Pre-baked SSH private key path. When set, skip cloud-init key setup.
   , vmcUefi :: Bool
   -- ^ Use UEFI boot (adds OVMF firmware disks). Default: True.
+  , vmcForceTcpSsh :: Bool
+  -- ^ Force SSH over TCP (user-mode netdev + hostfwd) instead of
+  -- vsock. Default: False. Tests that exercise networking
+  -- (Apply/Network/SerialConsole) set this to True.
+  , vmcWantUserNetdev :: Bool
+  -- ^ Add a user-mode netdev for the guest's outbound networking
+  -- even when SSH goes over vsock. Default: False. Cloud-init tests
+  -- enable this so the metadata server can reach the guest, while
+  -- not adding a hostfwd.
   }
   deriving (Show, Eq)
 
@@ -76,6 +86,8 @@ instance DefaultVmConfig VmConfig where
       , vmcNetworkId = Nothing
       , vmcPrebakedSshKey = Just prebakedSshKeyPath
       , vmcUefi = True
+      , vmcForceTcpSsh = False
+      , vmcWantUserNetdev = False
       }
 
 -- | VM config for cloud-image tests (uses cloud-init for SSH key deployment).
@@ -91,16 +103,26 @@ cloudVmConfig =
 biosVmConfig :: VmConfig
 biosVmConfig = defaultVmConfig {vmcUefi = False}
 
+-- | How a test SSHes into the VM. Tests that don't need TCP-level
+-- networking use 'SshVsock'; tests that exercise NAT/bridge
+-- networking use 'SshTcp'; guest-exec-only tests use 'SshDisabled'.
+data SshLocator
+  = -- | TCP host and port (user-mode netdev + hostfwd).
+    SshTcp !String !Int
+  | -- | AF_VSOCK CID assigned to the VM.
+    SshVsock !Int
+  | -- | No SSH path (guest-exec-only test paths).
+    SshDisabled
+  deriving (Show, Eq)
+
 -- | A VM running through the test daemon with SSH access
 data TestVm = TestVm
   { tvmId :: !Int64
   -- ^ VM ID in the database
   , tvmDiskId :: !Int64
   -- ^ ID of the boot disk
-  , tvmSshPort :: !Int
-  -- ^ SSH port
-  , tvmSshHost :: !String
-  -- ^ SSH host (IP address of the VM)
+  , tvmSsh :: !SshLocator
+  -- ^ How to reach SSH on this VM
   , tvmDaemon :: !TestDaemon
   -- ^ Test daemon reference
   , tvmSshPrivateKey :: !FilePath

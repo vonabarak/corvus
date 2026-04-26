@@ -83,6 +83,10 @@ data VmDetails = VmDetails
   , vdSpicePort :: !(Maybe Int)
   -- ^ TCP port QEMU is serving SPICE on (when the VM is running and
   -- not headless). 'Nothing' for headless VMs or stopped VMs.
+  , vdVsockCid :: !(Maybe Int)
+  -- ^ AF_VSOCK CID assigned to the VM at creation, used as
+  -- @guest-cid=@ on the @vhost-vsock-pci@ device. Stable across
+  -- starts. 'Nothing' only for legacy rows that predate this field.
   , vdSerialSocket :: !Text
   -- ^ Path to serial console socket
   , vdGuestAgentSocket :: !Text

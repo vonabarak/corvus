@@ -49,6 +49,12 @@ data QemuConfig = QemuConfig
   , qcSpicePortMax :: !Int
   -- ^ High end (inclusive) of the TCP port range the SPICE allocator
   -- draws from (default: 5999).
+  , qcVsockCidMin :: !Int
+  -- ^ Low end (inclusive) of the AF_VSOCK CID range allocated to VMs
+  -- (default: 1000). CIDs 0/1/2 are reserved by the AF_VSOCK ABI.
+  , qcVsockCidMax :: !Int
+  -- ^ High end (inclusive) of the AF_VSOCK CID range allocated to VMs
+  -- (default: 1_000_000).
   }
   deriving (Eq, Show)
 
@@ -68,6 +74,8 @@ defaultQemuConfig =
     , qcSpiceBindAddress = "127.0.0.1"
     , qcSpicePortMin = 5900
     , qcSpicePortMax = 5999
+    , qcVsockCidMin = 1000
+    , qcVsockCidMax = 1000000
     }
 
 -- | Get the effective base path for VM images

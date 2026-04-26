@@ -75,6 +75,7 @@ library:
   source-dirs: src
   c-sources:
     - cbits/netns.c
+    - cbits/vsock_probe.c
   include-dirs:
     - cbits
   exposed-modules:
@@ -159,6 +160,7 @@ library:
     - Corvus.Qemu.Netns
     - Corvus.Qemu.Netns.Manager
     - Corvus.Qemu.SpicePort
+    - Corvus.Qemu.VsockCid
     - Corvus.Handlers.GuestExec
     - Corvus.Handlers.GuestAgentPoller
     - Corvus.Handlers.Apply

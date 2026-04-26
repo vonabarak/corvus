@@ -27,8 +27,8 @@ spec = withTestDb $ do
     describe "Multi-VM communication" $ do
       it "two VMs are accessible via SSH simultaneously" $ \env -> do
         withTestDaemon env $ \daemon -> do
-          withTestVmOnDaemon daemon defaultVmConfig $ \vm1 -> do
-            withTestVmOnDaemon daemon defaultVmConfig $ \vm2 -> do
+          withTestVmOnDaemon daemon defaultVmConfig {vmcForceTcpSsh = True} $ \vm1 -> do
+            withTestVmOnDaemon daemon defaultVmConfig {vmcForceTcpSsh = True} $ \vm2 -> do
               -- Verify both VMs are accessible via guest agent
               (code1, stdout1, _) <- runInTestVm vm1 "hostname"
               code1 `shouldBe` ExitSuccess
@@ -107,7 +107,7 @@ spec = withTestDb $ do
             (do nwId <- createNetwork daemon "test-bridge"; startNetwork daemon nwId; pure nwId)
             (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
             $ \nwId -> do
-              let config = defaultVmConfig {vmcNetworkId = Just nwId}
+              let config = defaultVmConfig {vmcNetworkId = Just nwId, vmcForceTcpSsh = True}
               withTestVmOnDaemon daemon config $ \vm1 -> do
                 withTestVmOnDaemon daemon config $ \vm2 -> do
                   -- Configure static IP addresses on the bridge interfaces
@@ -130,7 +130,7 @@ spec = withTestDb $ do
             (do nwId <- createNetworkWithSubnet daemon "test-dhcp" "10.99.0.0/24"; startNetwork daemon nwId; pure nwId)
             (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
             $ \nwId -> do
-              let config = defaultVmConfig {vmcNetworkId = Just nwId}
+              let config = defaultVmConfig {vmcNetworkId = Just nwId, vmcForceTcpSsh = True}
               withTestVmOnDaemon daemon config $ \vm1 -> do
                 withTestVmOnDaemon daemon config $ \vm2 -> do
                   -- Request DHCP on the managed interface (eth1)
@@ -168,7 +168,7 @@ spec = withTestDb $ do
             (do nwId <- createNetworkWithNat daemon "test-nat" "10.77.0.0/24"; startNetwork daemon nwId; pure nwId)
             (\nwId -> stopNetwork daemon nwId >> deleteNetwork daemon nwId)
             $ \nwId -> do
-              let config = defaultVmConfig {vmcNetworkId = Just nwId}
+              let config = defaultVmConfig {vmcNetworkId = Just nwId, vmcForceTcpSsh = True}
               withTestVmOnDaemon daemon config $ \vm -> do
                 -- Request DHCP on the managed interface (eth1).
                 -- Use -b to background udhcpc so it keeps the lease and routes.

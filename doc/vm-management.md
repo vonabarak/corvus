@@ -121,6 +121,49 @@ The buffer persists across guest reboots (the QEMU process stays alive) and is c
 
 **Guest setup**: the guest OS must output to the serial port. For Linux, add `console=ttyS0,115200n8` to the kernel command line and enable a serial getty (e.g., `systemctl enable serial-getty@ttyS0`). UEFI firmware menus also work over serial when no VGA device is present.
 
+### SSH over vsock
+
+Every VM is launched with a `vhost-vsock-pci` device and a unique AF_VSOCK CID. `crv vm show` prints the CID and a ready-to-paste invocation:
+
+```
+$ crv vm show my-vm
+...
+Vsock CID:      1042
+SSH (vsock):    ssh <user>@vsock/1042
+```
+
+The CID is allocated at VM-create time from the range `qcVsockCidMin..qcVsockCidMax` (default `1000..1_000_000`) and is stable across daemon restarts.
+
+**Host requirements**
+
+OpenSSH does not speak AF_VSOCK natively in the client; the connection always traverses a `ProxyCommand` helper. Two options:
+
+1. **`systemd-ssh-proxy(1)`** — bundled with systemd v256+ at `/usr/lib/systemd/systemd-ssh-proxy`. Recommended. Add to `~/.ssh/config`:
+
+   ```
+   Host vsock/*
+       ProxyCommand /usr/lib/systemd/systemd-ssh-proxy %h %p
+       ProxyUseFdpass yes
+       CheckHostIP no
+   ```
+
+   Then `ssh user@vsock/1042` works directly.
+
+2. **`socat`** — works on any host. No `ssh_config` change needed; just pass the proxy inline:
+
+   ```
+   ssh -o ProxyCommand="socat - VSOCK-CONNECT:1042:22" user@vsock
+   ```
+
+**Guest requirements**
+
+The guest must terminate AF_VSOCK on port 22. Either:
+
+- **systemd v256+ guest with `openssh-server`** — sshd is socket-activated on AF_VSOCK automatically, no extra config.
+- **Older / non-systemd guest** — run a small relay (e.g., `socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22`) as a service. The Corvus test image (`scripts/build-test-image.sh`) sets this up via an OpenRC unit `vsock-sshd`.
+
+The host kernel autoloads `vhost_vsock` when the device is added; no manual modprobe is required.
+
 ### HMP Monitor
 
 ```bash

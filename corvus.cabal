@@ -122,6 +122,7 @@ library
       Corvus.Qemu.Netns
       Corvus.Qemu.Netns.Manager
       Corvus.Qemu.SpicePort
+      Corvus.Qemu.VsockCid
       Corvus.Handlers.GuestExec
       Corvus.Handlers.GuestAgentPoller
       Corvus.Handlers.Apply
@@ -159,6 +160,7 @@ library
       cbits
   c-sources:
       cbits/netns.c
+      cbits/vsock_probe.c
   build-depends:
       aeson
     , aeson-qq
@@ -449,6 +451,7 @@ test-suite corvus-test
       Test.VM.Rpc
       Test.VM.Ssh
       Test.VM.Types
+      Test.VM.VsockProxy
       Paths_corvus
   autogen-modules:
       Paths_corvus

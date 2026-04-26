@@ -82,6 +82,7 @@ insertVm name status = do
           , vmHealthcheck = Nothing
           , vmAutostart = False
           , vmSpicePort = Nothing
+          , vmVsockCid = Nothing
           }
   pure $ fromSqlKey key
 
@@ -107,6 +108,7 @@ insertHeadlessVm name status = do
           , vmHealthcheck = Nothing
           , vmAutostart = False
           , vmSpicePort = Nothing
+          , vmVsockCid = Nothing
           }
   pure $ fromSqlKey key
 
@@ -138,6 +140,7 @@ insertVmFull name status cpus ramMb desc pid = do
           , vmHealthcheck = Nothing
           , vmAutostart = False
           , vmSpicePort = Nothing
+          , vmVsockCid = Nothing
           }
   pure $ fromSqlKey key
 
@@ -160,6 +163,7 @@ defaultVm = do
       , vmHealthcheck = Nothing
       , vmAutostart = False
       , vmSpicePort = Nothing
+      , vmVsockCid = Nothing
       }
 
 --------------------------------------------------------------------------------
@@ -423,6 +427,7 @@ givenCloudInitVmExists name = do
           , vmHealthcheck = Nothing
           , vmAutostart = False
           , vmSpicePort = Nothing
+          , vmVsockCid = Nothing
           }
   pure $ fromSqlKey key
 
