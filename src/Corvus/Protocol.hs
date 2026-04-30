@@ -41,6 +41,7 @@ module Corvus.Protocol
   , module Corvus.Protocol.Network
   , module Corvus.Protocol.CloudInit
   , module Corvus.Protocol.Apply
+  , module Corvus.Protocol.Build
   , module Corvus.Protocol.Task
 
     -- * Entity reference
@@ -52,6 +53,7 @@ where
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TaskResult, TaskSubsystem, VmStatus)
 import Corvus.Protocol.Aeson (innerOptions, requestOptions, responseOptions)
 import Corvus.Protocol.Apply
+import Corvus.Protocol.Build
 import Corvus.Protocol.CloudInit
 import Corvus.Protocol.Disk
 import Corvus.Protocol.Network
@@ -89,7 +91,7 @@ instance FromJSON Ref where
 
 -- | Current protocol version. Increment when the wire format changes.
 protocolVersion :: Word8
-protocolVersion = 33
+protocolVersion = 35
 
 -- ---------------------------------------------------------------------------
 -- Request
@@ -339,6 +341,9 @@ data Request
     ReqHmpMonitorFlush {ref :: !Ref}
   | -- | Inject Ctrl+Alt+Del into a running VM via QMP @send-key@.
     ReqVmSendCtrlAltDel {ref :: !Ref}
+  | -- | Build OS images from a YAML pipeline description.
+    -- @wait@: block until completion vs return a parent task id immediately.
+    ReqBuild {yaml :: !Text, wait :: !Bool}
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON Request where
@@ -546,6 +551,10 @@ data Response
     RespHmpMonitorOk
   | -- | HMP monitor buffer flushed.
     RespHmpMonitorFlushed
+  | -- | Build pipeline result (one entry per build in the request).
+    RespBuildResult {buildResult :: !BuildResult}
+  | -- | Build started asynchronously (parent task id, mirrors RespApplyStarted).
+    RespBuildStarted {taskId :: !Int64}
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON Response where

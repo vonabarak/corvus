@@ -60,7 +60,7 @@ import Corvus.Protocol
 import Corvus.Qemu
 import Corvus.Qemu.SocketBuffer (flushBuffer, startSocketBufferThread)
 import Corvus.Qemu.SpicePort (allocateSpicePort)
-import Corvus.Qemu.VsockCid (allocateVsockCid, isHostFree)
+import Corvus.Qemu.VsockCid (allocateVsockCid, hostHasVhostVsock, isHostFree)
 import Corvus.Types
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64URL
@@ -123,12 +123,18 @@ handleVmCreate state name cpuCount ramMb description headless guestAgent cloudIn
   case validateName "VM" name of
     Left err -> pure $ RespError err
     Right () -> do
-      cidResult <- allocateVsockCid state
-      case cidResult of
-        Left err -> pure $ RespError err
-        Right cid -> do
-          vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit autostart (Just cid)) (ssDbPool state)
+      hasVsock <- hostHasVhostVsock
+      if not hasVsock
+        then do
+          vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit autostart Nothing) (ssDbPool state)
           pure $ RespVmCreated vmId
+        else do
+          cidResult <- allocateVsockCid state
+          case cidResult of
+            Left err -> pure $ RespError err
+            Right cid -> do
+              vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit autostart (Just cid)) (ssDbPool state)
+              pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
 handleVmDelete :: ActionContext -> Int64 -> Bool -> IO Response
@@ -285,13 +291,19 @@ startQemuAndMonitor state vmId vm parentTaskId = do
 ensureFreeVsockCid :: ServerState -> Int64 -> Vm -> IO (Either Text Int)
 ensureFreeVsockCid state vmId vm = do
   let pool = ssDbPool state
-  case vmVsockCid vm of
-    Nothing -> reallocate pool
-    Just cid -> do
-      free <- isHostFree cid
-      if free
-        then pure (Right cid)
-        else reallocate pool
+  hasVsock <- hostHasVhostVsock
+  if not hasVsock
+    then -- Host has no vhost_vsock kernel module; the VM's QEMU args
+    -- skip the vhost-vsock-pci device entirely. Returning a bogus
+    -- CID is fine because the caller only inspects Left vs Right.
+      pure (Right 0)
+    else case vmVsockCid vm of
+      Nothing -> reallocate pool
+      Just cid -> do
+        free <- isHostFree cid
+        if free
+          then pure (Right cid)
+          else reallocate pool
   where
     reallocate pool = do
       alloc <- allocateVsockCid state

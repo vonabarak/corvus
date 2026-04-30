@@ -459,6 +459,7 @@ data TaskSubsystem
   | SubSnapshot
   | SubSystem
   | SubApply
+  | SubBuild
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance Binary TaskSubsystem
@@ -475,6 +476,7 @@ instance EnumText TaskSubsystem where
     , (SubSnapshot, "snapshot")
     , (SubSystem, "system")
     , (SubApply, "apply")
+    , (SubBuild, "build")
     ]
 
 instance FromJSON TaskSubsystem where

@@ -12,6 +12,7 @@ module Corvus.Client.Parser
 where
 
 import Corvus.Client.Parser.Apply (applyCommand)
+import Corvus.Client.Parser.Build (buildCommand)
 import Corvus.Client.Parser.CloudInit (cloudInitCommandParser)
 import Corvus.Client.Parser.Disk (diskCommandParser)
 import Corvus.Client.Parser.NetIf (netIfCommandParser)
@@ -113,6 +114,9 @@ commandParser =
         <> command
           "apply"
           (info applyCommand (progDesc "Apply environment from YAML config file"))
+        <> command
+          "build"
+          (info buildCommand (progDesc "Build OS images from a YAML pipeline"))
         <> command
           "completion"
           (info completionCommand (progDesc "Generate shell completion script"))

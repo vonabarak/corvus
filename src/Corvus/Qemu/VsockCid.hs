@@ -21,6 +21,7 @@
 module Corvus.Qemu.VsockCid
   ( allocateVsockCid
   , isHostFree
+  , hostHasVhostVsock
   )
 where
 
@@ -32,6 +33,7 @@ import Database.Persist (Entity (..), selectList)
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend)
 import Foreign.C.Types (CInt (..), CULLong (..))
+import System.Directory (doesPathExist)
 
 import qualified Corvus.Model as M
 import Corvus.Qemu.Config (QemuConfig (..))
@@ -55,6 +57,16 @@ allocateVsockCid state = do
     tryCids (c : cs) = do
       ok <- isHostFree c
       if ok then pure (Right c) else tryCids cs
+
+-- | Does this host even have @\/dev\/vhost-vsock@?
+--
+-- Some kernels (notably nested-virt test images) ship without
+-- @vhost_vsock@. We don't want to attach a vhost-vsock-pci device to a
+-- VM that QEMU then can't open — so callers check this before
+-- allocating a CID and store @vsockCid = Nothing@ on hosts where the
+-- kernel module is unavailable.
+hostHasVhostVsock :: IO Bool
+hostHasVhostVsock = doesPathExist "/dev/vhost-vsock"
 
 -- | Probe the host kernel for an unused guest CID.
 --

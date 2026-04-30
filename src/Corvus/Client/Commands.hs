@@ -25,6 +25,7 @@ module Corvus.Client.Commands
 where
 
 import Corvus.Client.Commands.Apply
+import Corvus.Client.Commands.Build
 import Corvus.Client.Commands.CloudInit
 import Corvus.Client.Commands.Disk
 import Corvus.Client.Commands.GuestExec
@@ -325,6 +326,8 @@ runCommand opts = do
       CloudInitDelete vmRef -> handleCloudInitDelete fmt conn vmRef
       -- Apply
       Apply path skipExisting waitOpts -> handleApply fmt conn path skipExisting waitOpts
+      -- Build
+      Build path waitOpts -> handleBuild fmt conn path waitOpts
       -- Task history
       TaskList limit mSub mResult inclSub -> handleTaskList fmt tableOpts conn limit mSub mResult inclSub
       TaskShow taskId -> handleTaskShow fmt conn taskId

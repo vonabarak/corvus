@@ -52,6 +52,7 @@ library
       Corvus.Protocol.Network
       Corvus.Protocol.CloudInit
       Corvus.Protocol.Apply
+      Corvus.Protocol.Build
       Corvus.Protocol.Task
       Corvus.Types
       Corvus.Server
@@ -88,6 +89,7 @@ library
       Corvus.Client.Parser.Template
       Corvus.Client.Parser.Network
       Corvus.Client.Parser.Apply
+      Corvus.Client.Parser.Build
       Corvus.Client.Parser.CloudInit
       Corvus.Client.Parser.Task
       Corvus.Client.Commands
@@ -107,6 +109,7 @@ library
       Corvus.Schema.CloudInit
       Corvus.Schema.Template
       Corvus.Schema.Apply
+      Corvus.Schema.Build
       Corvus.Qemu
       Corvus.Qemu.Config
       Corvus.Qemu.Runtime
@@ -126,10 +129,14 @@ library
       Corvus.Handlers.GuestExec
       Corvus.Handlers.GuestAgentPoller
       Corvus.Handlers.Apply
+      Corvus.Handlers.Build
+      Corvus.Handlers.Build.Cleanup
+      Corvus.Handlers.Build.Provenance
       Corvus.Handlers.CloudInit
       Corvus.Handlers.Lifecycle
       Corvus.Client.Commands.GuestExec
       Corvus.Client.Commands.Apply
+      Corvus.Client.Commands.Build
       Corvus.Client.Completion
   other-modules:
       Corvus.Client.Commands.Network
@@ -399,6 +406,10 @@ test-suite corvus-test
   other-modules:
       Corvus.ApplyIntegrationSpec
       Corvus.ApplySpec
+      Corvus.BuildCleanupSpec
+      Corvus.BuildIntegrationSpec
+      Corvus.BuildProvenanceSpec
+      Corvus.BuildSchemaSpec
       Corvus.ClientOutputSpec
       Corvus.CloudInitIntegrationSpec
       Corvus.CloudInitSpec

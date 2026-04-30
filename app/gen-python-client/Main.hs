@@ -19,6 +19,8 @@ module Main (main) where
 import Corvus.Protocol
   ( ApplyCreated
   , ApplyResult
+  , BuildOne
+  , BuildResult
   , CloudInitInfo
   , DiskImageInfo
   , DriveInfo
@@ -128,6 +130,7 @@ successResponses =
   , ("ReqGuestExec", ["RespGuestExecResult"])
   , ("ReqDiskImportUrl", ["RespDiskCreated", "RespDiskImportStarted"])
   , ("ReqApply", ["RespApplyResult", "RespApplyStarted"])
+  , ("ReqBuild", ["RespBuildResult", "RespBuildStarted"])
   , ("ReqTaskList", ["RespTaskList"])
   , ("ReqTaskShow", ["RespTaskInfo"])
   , ("ReqTaskListChildren", ["RespTaskList"])
@@ -393,6 +396,8 @@ innerTypes =
   , innerTypeFields (Proxy :: Proxy TaskInfo)
   , innerTypeFields (Proxy :: Proxy ApplyCreated)
   , innerTypeFields (Proxy :: Proxy ApplyResult)
+  , innerTypeFields (Proxy :: Proxy BuildOne)
+  , innerTypeFields (Proxy :: Proxy BuildResult)
   ]
 
 -- | Set of known inner type names (for 'haskellToPy' to recognise and

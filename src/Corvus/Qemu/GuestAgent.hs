@@ -27,6 +27,7 @@ module Corvus.Qemu.GuestAgent
 
     -- * Commands
   , guestExec
+  , guestExecWithStdin
   , guestPing
   , guestShutdown
   , guestNetworkGetInterfaces
@@ -56,7 +57,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
+import Data.Text.Encoding (decodeUtf8, decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Word (Word8)
 import GHC.IO.Exception (IOErrorType (..))
@@ -277,27 +278,64 @@ closeMaybe (Just s) = closeSafe s
 -- Detects the guest OS and uses the appropriate shell:
 -- Linux/BSD: /bin/sh -c, Windows: cmd.exe /c
 guestExec :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> IO GuestExecResult
-guestExec conns config vmId command = do
-  mResult <- withPersistentConn conns config vmId 5 15000000 $ \sock -> do
-    -- First detect the guest OS to choose the right shell
+guestExec conns config vmId command = guestExecImpl conns config vmId command Nothing 600
+
+-- | Like 'guestExec' but also pipes raw bytes onto the guest process's stdin
+-- and accepts a custom poll-timeout (in 100 ms ticks; 600 = ~60 s).
+-- Suited for file uploads (@printf %s | base64 -d > /path@) and for builds
+-- where individual provisioners may run for many minutes.
+guestExecWithStdin
+  :: GuestAgentConns
+  -> QemuConfig
+  -> Int64
+  -> Text
+  -- ^ command body (passed as the shell's @-c@ argument)
+  -> BS.ByteString
+  -- ^ raw stdin bytes (will be base64-encoded for QGA transport)
+  -> Int
+  -- ^ poll timeout, in 100 ms ticks
+  -> IO GuestExecResult
+guestExecWithStdin conns config vmId command stdinBs =
+  guestExecImpl conns config vmId command (Just stdinBs)
+
+guestExecImpl
+  :: GuestAgentConns
+  -> QemuConfig
+  -> Int64
+  -> Text
+  -> Maybe BS.ByteString
+  -> Int
+  -> IO GuestExecResult
+guestExecImpl conns config vmId command mStdin maxPolls = do
+  -- The persistent-connection timeout has to cover the entire polling
+  -- loop (pollStatus sleeps 100 ms between guest-exec-status calls).
+  -- A 15 s default kills long shell provisioners (apt-get install nginx
+  -- can comfortably take a minute on a cold cache); scale with the
+  -- caller's @maxPolls@ budget plus a 30 s headroom for the initial
+  -- exec dispatch and OS-detection round-trip.
+  let connTimeoutMicros = max 15000000 (maxPolls * 100000 + 30000000)
+  mResult <- withPersistentConn conns config vmId 5 connTimeoutMicros $ \sock -> do
     (shellPath, shellArgs) <- detectGuestShell sock
-    -- Send guest-exec command
-    let execCmd =
+    let stdinField = case mStdin of
+          Nothing -> []
+          Just bs -> ["input-data" .= decodeUtf8 (B64.encode bs)]
+        execCmd =
           Aeson.object
             [ "execute" .= ("guest-exec" :: Text)
             , "arguments"
                 .= Aeson.object
-                  [ "path" .= shellPath
-                  , "arg" .= (shellArgs ++ [command])
-                  , "capture-output" .= True
-                  ]
+                  ( [ "path" .= shellPath
+                    , "arg" .= (shellArgs ++ [command])
+                    , "capture-output" .= True
+                    ]
+                      ++ stdinField
+                  )
             ]
     sendJson sock execCmd
     execResp <- recvJson sock
-
     case parsePid execResp of
       Nothing -> pure $ GuestExecError $ "Failed to parse guest-exec response: " <> T.pack (show execResp)
-      Just pid -> pollStatus sock pid 0
+      Just pid -> pollStatus sock pid 0 maxPolls
   case mResult of
     Left err -> pure $ GuestExecConnectionFailed err
     Right r -> pure r
@@ -500,10 +538,12 @@ parsePid mVal = do
       ret .: "pid"
 
 -- | Poll guest-exec-status until the process exits.
--- Timeout after ~60 seconds (600 * 100ms).
-pollStatus :: Socket -> Int -> Int -> IO GuestExecResult
-pollStatus sock pid attempts
-  | attempts > 600 = pure $ GuestExecError "guest-exec timed out waiting for process to exit"
+-- @maxAttempts@ is the budget in 100 ms ticks; the previous default of 600
+-- (~60 s) is preserved by 'guestExec'. Long-running provisioner steps in
+-- builds raise this to several minutes.
+pollStatus :: Socket -> Int -> Int -> Int -> IO GuestExecResult
+pollStatus sock pid attempts maxAttempts
+  | attempts > maxAttempts = pure $ GuestExecError "guest-exec timed out waiting for process to exit"
   | otherwise = do
       let statusCmd =
             Aeson.object
@@ -518,7 +558,7 @@ pollStatus sock pid attempts
           pure $ GuestExecSuccess exitcode stdout stderr
         Just (False, _, _, _) -> do
           threadDelay 100000 -- 100ms
-          pollStatus sock pid (attempts + 1)
+          pollStatus sock pid (attempts + 1) maxAttempts
         Nothing -> pure $ GuestExecError "Failed to parse guest-exec-status response"
 
 -- | Parse guest-exec-status response.

@@ -1,0 +1,53 @@
+# Bake a Debian 12 image with nginx preinstalled.
+#
+# Prerequisite: a `debian-12-cloud` template exists with guestAgent: true
+# and a base disk that has qemu-guest-agent installed (which the upstream
+# Debian generic-cloud image does).
+#
+# Run with:
+#   crv build doc/build-examples/debian-nginx.yml
+#
+# On success, a Corvus disk named `debian-12-nginx` is registered.
+
+builds:
+  - name: debian-12-nginx
+    description: Debian 12 with NGINX preinstalled
+
+    template: debian12
+
+    target:
+      name: debian-12-nginx
+      compact: true
+
+    flavor: overlay
+
+    provisioners:
+      - shell: |
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          # Wait for cloud-init to settle so apt locks aren't held.
+          cloud-init status --wait || true
+          apt-get update
+          apt-get install -y --no-install-recommends nginx
+          systemctl enable nginx
+
+      - file:
+          # Replace with your own file path. The example file isn't
+          # bundled — this provisioner block is illustrative.
+          # from: ./files/nginx.conf
+          # to:   /etc/nginx/nginx.conf
+          # mode: "0644"
+          content: ""           # placeholder; remove this provisioner if unused
+          to: /etc/nginx/conf.d/00-corvus-noop.conf
+          mode: "0644"
+
+      - shell: |
+          # Slim the image: zero free space so the qcow2 compact step
+          # at end actually shrinks the file.
+          apt-get clean
+          rm -rf /var/lib/apt/lists/*
+          dd if=/dev/zero of=/tmp/zero bs=1M status=none || true
+          rm -f /tmp/zero
+          sync
+
+    cleanup: always

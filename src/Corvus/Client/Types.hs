@@ -194,6 +194,9 @@ data Command
 
     -- | Apply environment from YAML config file (file path, skipExisting, waitOptions)
     Apply !FilePath !Bool !WaitOptions
+  | -- | Build OS images from a YAML pipeline file. Async by default;
+    -- @--wait@ blocks until completion.
+    Build !FilePath !WaitOptions
   | -- Task history commands
 
     -- | List task history (limit, optional subsystem, optional result, includeSubtasks)

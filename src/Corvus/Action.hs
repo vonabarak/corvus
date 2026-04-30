@@ -342,6 +342,8 @@ classifyResponse = \case
   RespNetworkStopped -> (TaskSuccess, Just "Stopped")
   RespApplyResult _ -> (TaskSuccess, Nothing)
   RespApplyStarted tid -> (TaskSuccess, Just $ "Task ID " <> T.pack (show tid))
+  RespBuildResult _ -> (TaskSuccess, Nothing)
+  RespBuildStarted tid -> (TaskSuccess, Just $ "Task ID " <> T.pack (show tid))
   RespSharedDirAdded did -> (TaskSuccess, Just $ "Dir ID " <> T.pack (show did))
   RespSharedDirOk -> (TaskSuccess, Nothing)
   RespNetIfAdded nid -> (TaskSuccess, Just $ "NetIf ID " <> T.pack (show nid))

@@ -107,6 +107,10 @@ module Corvus.Client.Rpc
   , ApplyRpcResult (..)
   , applyConfig
 
+    -- * Build operations
+  , BuildRpcResult (..)
+  , runBuild
+
     -- * Cloud-init config operations
   , CloudInitResult (..)
   , cloudInitSet
@@ -927,6 +931,38 @@ applyConfig conn yaml skipExisting wait = do
     Right (RespApplyResult ar) -> pure $ Right $ ApplyOk ar
     Right (RespApplyStarted tid) -> pure $ Right $ ApplyAsync tid
     Right (RespError msg) -> pure $ Right $ ApplyFailed msg
+    Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+--------------------------------------------------------------------------------
+-- Build Operations
+--------------------------------------------------------------------------------
+
+-- | Result of a build pipeline run.
+data BuildRpcResult
+  = -- | Build completed (only emitted with @wait=True@).
+    BuildOk !BuildResult
+  | -- | Build failed.
+    BuildFailed !Text
+  | -- | Build started asynchronously (parent task id), only emitted
+    -- when @wait=False@. The build continues in the background; poll
+    -- @crv task show@ for status.
+    BuildAsync !Int64
+  deriving (Eq, Show)
+
+-- | Run a build pipeline. The @yaml@ argument has already been preprocessed
+-- by the client (any @script@ / @from@ paths inlined into @inline@ /
+-- @content@) so the daemon never needs filesystem access.
+--
+-- @wait=True@ blocks until the daemon finishes the build; @wait=False@
+-- returns 'BuildAsync' with a task id immediately.
+runBuild :: Connection -> Text -> Bool -> IO (Either ConnectionError BuildRpcResult)
+runBuild conn yaml wait = do
+  result <- sendRequest conn (ReqBuild yaml wait)
+  case result of
+    Left err -> pure $ Left err
+    Right (RespBuildResult br) -> pure $ Right $ BuildOk br
+    Right (RespBuildStarted tid) -> pure $ Right $ BuildAsync tid
+    Right (RespError msg) -> pure $ Right $ BuildFailed msg
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
 
 --------------------------------------------------------------------------------

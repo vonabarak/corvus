@@ -20,6 +20,7 @@
 
 - [Templates](templates.md) -- Define reusable VM blueprints in YAML
 - [Apply Configuration](apply-configuration.md) -- Declare entire environments in a single YAML file
+- [Image Builds](image-builds.md) -- Bake reusable disk images via a procedural pipeline
 
 ## Examples
 

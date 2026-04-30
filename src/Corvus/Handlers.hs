@@ -18,12 +18,14 @@ module Corvus.Handlers
   , module Corvus.Handlers.Network
   , module Corvus.Handlers.GuestExec
   , module Corvus.Handlers.Apply
+  , module Corvus.Handlers.Build
   , module Corvus.Handlers.CloudInit
   )
 where
 
 import Corvus.Action
 import Corvus.Handlers.Apply
+import Corvus.Handlers.Build
 import Corvus.Handlers.CloudInit
 import Corvus.Handlers.Core
 import Corvus.Handlers.Disk
@@ -222,6 +224,11 @@ handleRequest state = \case
         if wait
           then runAction state (ApplyAction config skipExisting)
           else runActionAsyncWithId state (ApplyAction config skipExisting) RespApplyStarted
+  -- Build (mirrors Apply: blocking with --wait, async otherwise).
+  ReqBuild yaml wait ->
+    if wait
+      then runAction state (BuildAction yaml)
+      else runActionAsyncWithId state (BuildAction yaml) RespBuildStarted
   where
     pool = ssDbPool state
 

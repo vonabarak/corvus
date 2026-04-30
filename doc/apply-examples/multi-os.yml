@@ -48,7 +48,7 @@ disks:
     path: BaseImages/FreeBSD/
 
   - name: gentoo-20260412-base
-    import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260412T164603Z.qcow2"
+    import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260426T153103Z.qcow2"
     format: qcow2
     path: BaseImages/Gentoo/
 
@@ -79,6 +79,12 @@ templates:
   - name: debian12
     <<: *defaults
     description: "Debian 12 (Bookworm)"
+    cloudInitConfig:
+      userData:
+        packages:
+          - qemu-guest-agent
+        runcmd:
+          - systemctl enable --now qemu-guest-agent
     drives:
       - diskImageName: debian-12-generic-base
         interface: virtio
@@ -96,6 +102,12 @@ templates:
   - name: ubuntu24
     <<: *defaults
     description: "Ubuntu 24.04 LTS"
+    cloudInitConfig:
+      userData:
+        packages:
+          - qemu-guest-agent
+        runcmd:
+          - systemctl enable --now qemu-guest-agent
     drives:
       - diskImageName: ubuntu-24.04-server-base
         interface: virtio

@@ -1,0 +1,68 @@
+# Bake an Ubuntu 24.04 image with nginx preinstalled.
+#
+# Prerequisite: an `ubuntu24` template exists with guestAgent: true and a
+# base disk that has qemu-guest-agent installed via cloud-init. The
+# companion file `ubuntu-nginx-prereqs.yml` defines such a template
+# using user-mode networking (no VDE / bridge required); apply it first:
+#
+#   crv apply doc/build-examples/ubuntu-nginx-prereqs.yml
+#   crv build doc/build-examples/ubuntu-nginx.yml
+#
+# On success, a Corvus disk named `ubuntu24-nginx` is registered.
+#
+# Notes
+# -----
+# Ubuntu cloud images don't ship qemu-guest-agent preinstalled but, unlike
+# RHEL-family images, they also don't blacklist guest-exec — so installing
+# the package via cloud-init is sufficient for the build to drive shell
+# provisioners over QGA.
+#
+# Cloud-init flags itself as "done" before its package post-handlers
+# fully release the dpkg lock, so the first shell step polls
+# /var/lib/dpkg/lock-frontend before running apt-get. Without that wait
+# the bake races cloud-init's own apt run and gets E: Could not get lock.
+
+builds:
+  - name: ubuntu24-nginx
+    description: Ubuntu 24.04 LTS with NGINX preinstalled
+
+    template: ubuntu24
+
+    target:
+      name: ubuntu24-nginx
+      compact: true
+
+    flavor: overlay
+
+    vm:
+      cpuCount: 4
+      ramMb: 4096
+
+    provisioners:
+      - shell: |
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+
+          # cloud-init reports "done" before its own apt post-handlers
+          # release the dpkg lock; wait up to 5 minutes for the lock to
+          # become free before we run our own apt invocations.
+          cloud-init status --wait || true
+          for i in $(seq 1 60); do
+            if ! fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; then
+              break
+            fi
+            echo "[bake] waiting for apt lock ($i)" >&2
+            sleep 5
+          done
+
+          apt-get update
+          apt-get install -y --no-install-recommends nginx
+          systemctl enable nginx
+
+      - shell: |
+          set -eux
+          # Slim down so the qcow2 compact pass actually shrinks the file.
+          apt-get clean
+          rm -rf /var/lib/apt/lists/*
+
+    cleanup: always
