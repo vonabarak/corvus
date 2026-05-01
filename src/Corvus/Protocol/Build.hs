@@ -1,6 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 
 -- | @crv build@ response data.
 module Corvus.Protocol.Build
@@ -24,25 +23,13 @@ data BuildOne = BuildOne
   , boError :: !(Maybe Text)
   -- ^ Error message on failure
   }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (Binary)
+  deriving (Eq, Show, Generic, Binary)
 
 -- | Aggregate result returned by a @ReqBuild@ call.
---
--- Modelled as a single-field 'data' rather than a 'newtype' so the
--- 'Binary' instance can use the @anyclass@ strategy unambiguously.
--- With a newtype + both @DeriveAnyClass@ and
--- @GeneralizedNewtypeDeriving@ enabled, GHC emits a
--- @-Wderiving-defaults@ warning *and* — observed under cabal-install
--- in Gentoo's haskell-cabal eclass — silently fails to expose the
--- module's @$tc*_closure@ symbols, breaking executables that take a
--- 'Typeable' on the type.
-{-# ANN type BuildResult ("HLint: ignore Use newtype instead of data" :: String) #-}
-data BuildResult = BuildResult
-  { brBuilds :: ![BuildOne]
+newtype BuildResult = BuildResult
+  { brBuilds :: [BuildOne]
   }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (Binary)
+  deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON BuildOne where
   toJSON = genericToJSON innerOptions
