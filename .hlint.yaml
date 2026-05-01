@@ -3,15 +3,3 @@
 # Exclude files with Template Haskell that hlint can't parse
 - arguments: [-XQuasiQuotes, -XTemplateHaskell]
 
-# 'BuildResult' is intentionally a single-field 'data' rather than a
-# newtype: with both DeriveAnyClass and GeneralizedNewtypeDeriving
-# enabled at the package level, GHC emits a -Wderiving-defaults warning
-# on a newtype with `deriving (Generic, Binary)` and — observed under
-# cabal-install in Gentoo's haskell-cabal eclass — silently fails to
-# expose the module's $tc*_closure symbols, breaking executables that
-# take a Typeable on the type. See src/Corvus/Protocol/Build.hs.
-- ignore:
-    name: "Use newtype instead of data"
-    within:
-      - Corvus.Protocol.Build
-
