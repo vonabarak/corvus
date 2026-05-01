@@ -11,54 +11,58 @@ Execute commands inside running VMs via the QEMU Guest Agent (QGA). The guest ag
 ## Commands
 
 ```bash
-crv guest-exec <vm> <command>
+crv vm exec <vm> <command>
 ```
 
-`<vm>` accepts a name or numeric ID.
+`<vm>` accepts a name or numeric ID. `<command>` is a **single argument** — quote it whenever the command contains spaces, flags, or redirections, otherwise the shell will split it into multiple tokens that the parser rejects (or, for a leading `-`, treats as a flag to `crv` itself). The daemon executes the string via `/bin/sh -c` inside the guest.
 
 ## Examples
 
 ```bash
-# Basic commands
-crv guest-exec my-vm whoami
-crv guest-exec my-vm hostname
-crv guest-exec my-vm cat /etc/os-release
+# Single-token commands (no quoting needed)
+crv vm exec my-vm whoami
+crv vm exec my-vm hostname
 
-# System information
-crv guest-exec my-vm uname -a
-crv guest-exec my-vm df -h
-crv guest-exec my-vm free -m
+# Multi-token commands MUST be quoted as one argument
+crv vm exec my-vm 'cat /etc/os-release'
+crv vm exec my-vm 'uname -a'
+crv vm exec my-vm 'df -h'
+crv vm exec my-vm 'free -m'
 
 # Service management
-crv guest-exec my-vm systemctl status nginx
-crv guest-exec my-vm systemctl restart nginx
+crv vm exec my-vm 'systemctl status nginx'
+crv vm exec my-vm 'systemctl restart nginx'
 
 # File operations
-crv guest-exec my-vm ls -la /var/log/
-crv guest-exec my-vm tail -20 /var/log/syslog
+crv vm exec my-vm 'ls -la /var/log/'
+crv vm exec my-vm 'tail -20 /var/log/syslog'
 
 # Network diagnostics
-crv guest-exec my-vm ip addr
-crv guest-exec my-vm ss -tlnp
+crv vm exec my-vm 'ip addr'
+crv vm exec my-vm 'ss -tlnp'
+
+# Pipes and redirections (interpreted by /bin/sh inside the guest)
+crv vm exec my-vm 'ps -ef | grep nginx'
+crv vm exec my-vm 'echo hello > /tmp/marker'
 
 # Windows VMs (via cmd.exe)
-crv guest-exec win-vm 'cmd.exe /c hostname'
-crv guest-exec win-vm 'powershell -Command "Get-Service"'
+crv vm exec win-vm 'cmd.exe /c hostname'
+crv vm exec win-vm 'powershell -Command "Get-Service"'
 ```
 
 ## Output
 
-The command returns exit code, stdout, and stderr:
-
-```
-Exit code: 0
-whoami output here
-```
-
-In structured output mode (`-o json`), all three are included:
+In text mode, the guest's stdout is written to `crv`'s stdout and the guest's stderr to `crv`'s stderr. `crv` exits with the guest command's exit code so it can be chained with `&&` / `||` like a local command:
 
 ```bash
-crv guest-exec my-vm hostname -o json
+crv vm exec my-vm whoami && echo "ok"
+```
+
+In structured output mode (`-o json`), exit code, stdout, and stderr are all returned in one object:
+
+```bash
+crv -o json vm exec my-vm hostname
+# {"exitcode":0,"stdout":"my-vm\n","stderr":""}
 ```
 
 ## Windows Quoting
@@ -68,7 +72,7 @@ Windows guest agent commands are executed via `cmd.exe /c`. For complex PowerShe
 ```bash
 # Encode a PowerShell script to Base64 UTF-16LE
 ENCODED=$(echo -n 'Get-Service | Where-Object {$_.Status -eq "Running"}' | iconv -t UTF-16LE | base64 -w0)
-crv guest-exec win-vm "powershell -EncodedCommand $ENCODED"
+crv vm exec win-vm "powershell -EncodedCommand $ENCODED"
 ```
 
 ## Health Checks

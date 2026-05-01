@@ -1,0 +1,223 @@
+# Bake a Gentoo image suitable as a Corvus development / test VM.
+#
+# Includes everything needed to build *and* run Corvus from source:
+#   * QEMU with KVM, SPICE, USB redirect, virtfs, passt, VDE USE flags
+#   * vde2 (vde_switch + dnsmasq for guest DHCP), nftables, virtiofsd,
+#     app-cdr/cdrtools, sys-firmware/edk2-bin
+#   * dev-db/postgresql, initialised + enabled
+#   * Haskell toolchain (GHC 9.8.4 + cabal-install) via ghcup
+#   * A `corvus` system user in groups kvm + wheel with passwordless sudo
+#
+# Prerequisite: the `gentoo-corvus-base` template from
+# doc/build-examples/gentoo-corvus-prereqs.yml (which itself reuses the
+# `gentoo-20260412-base` disk imported by multi-os.yml). That template's
+# cloud-init enables the Gentoo binhost and emerges qemu-guest-agent on
+# first boot — multi-os.yml's `gentoo20260412` template doesn't, so the
+# bake VM never opens its QGA socket and the daemon spins on
+# waitForFirstPing.
+#
+# The bake VM needs working external network (cloud-init has to reach
+# the binhost for qemu, then later steps fetch ghcup, postgres binhost
+# packages, etc.). On test hosts that's NAT/MASQUERADE for the VDE
+# subnet → external NIC, plus net.ipv4.ip_forward=1.
+#
+# NOTE on shell/timeoutSec: each `shell:` MUST be the object form
+# `shell: { inline: |, timeoutSec: N }`. With the string-shorthand
+# `shell: |` the schema parses Shell via the String branch and silently
+# discards any sibling `timeoutSec:` — leaving the step on the 10-minute
+# default, which times out big emerges mid-compile.
+#
+# Run with:
+#   crv build --wait doc/build-examples/gentoo-corvus.yml
+
+builds:
+  - name: gentoo-corvus-test
+    description: Gentoo image preloaded with everything Corvus builds against
+    template: gentoo-corvus-base
+
+    target:
+      name: gentoo-corvus-test
+      compact: true
+
+    flavor: overlay
+
+    vm:
+      cpuCount: 8
+      ramMb: 8192
+
+    provisioners:
+      # 0) Sanity check: outbound HTTPS works (else the rest of the
+      #    pipeline can't fetch portage tree / binhost). cloud-init is
+      #    already past runcmd by the time the daemon's first guest-agent
+      #    ping succeeds (qemu-guest-agent is brought up in cloud-init's
+      #    runcmd) so we don't need to wait for it explicitly here —
+      #    `cloud-init status --wait` was observed to hang on this image.
+      - shell:
+          inline: |
+            set -eux
+            curl -sSf -o /dev/null https://gentoo.org
+            uname -a
+          timeoutSec: 120
+
+      # 1) Sync portage and steer towards the official binhost so that
+      #    big builds (qemu, postgresql) come in as binaries.
+      - shell:
+          inline: |
+            set -eux
+            mkdir -p /etc/portage/package.use /etc/portage/package.accept_keywords
+            grep -q "FEATURES=.*getbinpkg" /etc/portage/make.conf 2>/dev/null || cat >> /etc/portage/make.conf <<'EOF'
+
+            # Added by gentoo-corvus.yml bake — prefer prebuilt binhost packages.
+            FEATURES="${FEATURES} getbinpkg parallel-fetch"
+            EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --jobs=4 --load-average=8 --getbinpkg --usepkg --binpkg-respect-use=y"
+            EOF
+
+            getuto || emerge -1q app-portage/getuto || true
+            getuto || true
+
+            emerge-webrsync --quiet || emerge --sync --quiet
+          timeoutSec: 1200
+
+      # 2) USE flags Corvus depends on.
+      - shell:
+          inline: |
+            set -eux
+            cat > /etc/portage/package.use/corvus <<'EOF'
+            app-emulation/qemu spice usb usbredir virtfs passt vde
+            EOF
+            : > /etc/portage/package.accept_keywords/corvus
+          timeoutSec: 60
+
+      # 3) Install system packages. The big cost is recompiling qemu
+      #    from source because the binhost binpkgs don't carry the USE
+      #    flag set Corvus needs (spice, usbredir, virtfs, passt, vde).
+      #    On 8 vCPUs that's ~30-45 min; the rest fall through binhost.
+      - shell:
+          inline: |
+            set -eux
+            emerge --noreplace \
+              app-emulation/qemu \
+              net-misc/vde \
+              net-dns/dnsmasq \
+              net-firewall/nftables \
+              app-emulation/virtiofsd \
+              app-cdr/cdrtools \
+              sys-firmware/edk2-bin \
+              dev-db/postgresql \
+              dev-vcs/git \
+              net-misc/curl \
+              app-misc/jq
+            eselect postgresql set 18 || true
+          timeoutSec: 14400
+
+      # 4) Haskell toolchain via ghcup — much faster than emerging GHC
+      #    from source, and pinning matches the corvus stack snapshot.
+      #
+      #    Two non-obvious things here:
+      #
+      #    a) GHCUP_INSTALL_BASE_PREFIX=/opt puts the toolchain in
+      #       /opt/.ghcup so non-root users (the corvus account in step 5)
+      #       can read it. Default install at /root/.ghcup lives under a
+      #       mode-700 home dir and is unreachable for corvus, even via
+      #       /usr/local/bin symlinks — discovered when verify-gentoo
+      #       failed with `sudo: unable to execute ... Permission denied`.
+      #
+      #    b) /opt/.ghcup/bin must be on PATH BEFORE invoking the install
+      #       script: ghcup's bootstrap ends with `edo cabal update
+      #       --ignore-project` (line ~1063), which uses PATH lookup, not
+      #       the absolute path. Without this, the script exits 2 right
+      #       after a successful GHC+cabal install — bit iteration 6.
+      - shell:
+          inline: |
+            set -eux
+            export GHCUP_INSTALL_BASE_PREFIX=/opt
+            export PATH="/opt/.ghcup/bin:$PATH"
+            export BOOTSTRAP_HASKELL_NONINTERACTIVE=1
+            export BOOTSTRAP_HASKELL_GHC_VERSION=9.8.4
+            export BOOTSTRAP_HASKELL_CABAL_VERSION=recommended
+            export BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1
+            export BOOTSTRAP_HASKELL_INSTALL_HLS=0
+            export BOOTSTRAP_HASKELL_VERBOSE=1
+            curl --proto '=https' --tlsv1.2 --retry 3 -fL \
+              -o /tmp/ghcup-install.sh https://get-ghcup.haskell.org
+            sh /tmp/ghcup-install.sh 2>&1 | tee /tmp/ghcup-install.log
+            install -d /usr/local/bin
+            for f in ghc ghc-9.8 ghc-9.8.4 ghci runghc runhaskell cabal ghcup; do
+              test -e /opt/.ghcup/bin/$f && ln -sf /opt/.ghcup/bin/$f /usr/local/bin/$f || true
+            done
+            ghc --version
+            cabal --version
+          timeoutSec: 1800
+
+      # 5) Create a corvus system user. The toolchain lives in /opt/.ghcup
+      #    (see step 4) which is world-readable, so we don't need to
+      #    duplicate symlinks under /home/corvus — /usr/local/bin/ghc &c
+      #    are already on every user's PATH.
+      - shell:
+          inline: |
+            set -eux
+            id corvus 2>/dev/null || useradd -m -G kvm,wheel,users -s /bin/bash corvus
+            grep -q "^%wheel ALL=(ALL) NOPASSWD:" /etc/sudoers || \
+              echo "%wheel ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          timeoutSec: 120
+
+      # 6) PostgreSQL: run the Gentoo-specific config script then enable
+      #    the systemd unit so it auto-starts on boot.
+      - shell:
+          inline: |
+            set -eux
+            emerge --config dev-db/postgresql:18 || true
+            systemctl enable postgresql-18.service
+          timeoutSec: 300
+
+      # 7) VDE switch as a systemd service so it comes up at boot.
+      - shell:
+          inline: |
+            set -eux
+            install -d /etc/systemd/system
+            cat > /etc/systemd/system/vde-switch.service <<'EOF'
+            [Unit]
+            Description=VDE virtual switch for Corvus test VMs
+            After=network-pre.target
+            Before=network.target
+            Wants=network-pre.target
+
+            [Service]
+            Type=forking
+            ExecStartPre=/bin/mkdir -p /run/vde2
+            ExecStart=/usr/bin/vde_switch \
+                --sock /run/vde2/switch.ctl \
+                --mgmt /run/vde2/switch.mgmt \
+                -tap vde0 \
+                -m 666 \
+                -group kvm \
+                --daemon \
+                --pidfile /run/vde2/vde_switch.pid
+            PIDFile=/run/vde2/vde_switch.pid
+            Restart=on-failure
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+            systemctl enable vde-switch.service
+          timeoutSec: 60
+
+      # 8) Provenance: dump the toolchain versions into the image so we
+      #    can identify what's inside without booting it.
+      - shell:
+          inline: |
+            set -eux
+            {
+              echo "image: gentoo-corvus-test"
+              echo "baked: $(date -Iseconds)"
+              echo "kernel: $(uname -r)"
+              ghc --version
+              cabal --version
+              qemu-system-x86_64 --version | head -1
+              psql --version
+              vde_switch --version 2>&1 | head -1 || true
+            } > /etc/corvus-test-info
+            cat /etc/corvus-test-info
+          timeoutSec: 60
+
+    cleanup: onSuccess
