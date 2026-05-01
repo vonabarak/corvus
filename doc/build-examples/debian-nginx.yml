@@ -23,7 +23,7 @@ builds:
 
     provisioners:
       - shell: |
-          set -euxo pipefail
+          set -eux
           export DEBIAN_FRONTEND=noninteractive
           # Wait for cloud-init to settle so apt locks aren't held.
           cloud-init status --wait || true

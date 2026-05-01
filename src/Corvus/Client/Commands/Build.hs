@@ -25,7 +25,7 @@ import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Value (..))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
-import Data.Maybe (isNothing)
+import Data.Maybe (isJust, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -89,13 +89,32 @@ handleBuild fmt conn path waitOpts = do
                   pure False
 
 -- | Print a 'BuildResult' in human form.
+--
+-- The headline distinguishes three cases (all-pass, all-fail, mixed) so a
+-- caller skimming for "did my build work?" can tell at a glance — earlier
+-- the line @Built N image(s):@ was emitted unconditionally, which read
+-- like success even when every entry below it said @FAILED@.
 printBuildResult :: BuildResult -> IO ()
 printBuildResult result = do
   let entries = brBuilds result
+      total = length entries
+      failed = length (filter (isJust . boError) entries)
+      succeeded = total - failed
   if null entries
     then putStrLn "No builds in pipeline."
     else do
-      putStrLn $ "Built " ++ show (length entries) ++ " image(s):"
+      let headline
+            | failed == 0 = "Built " ++ show total ++ " image(s):"
+            | succeeded == 0 = "Build failed (" ++ show total ++ " image(s)):"
+            | otherwise =
+                "Build partially succeeded: "
+                  ++ show succeeded
+                  ++ " ok, "
+                  ++ show failed
+                  ++ " failed of "
+                  ++ show total
+                  ++ ":"
+      putStrLn headline
       mapM_ printOne entries
   where
     printOne b = case (boArtifactDiskId b, boError b) of
