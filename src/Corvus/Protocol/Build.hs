@@ -1,8 +1,18 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE DerivingStrategies #-}
 
 -- | @crv build@ response data.
+--
+-- The two records here mirror "Corvus.Protocol.Apply" exactly in
+-- shape and deriving syntax (plain @deriving (Generic, Binary)@, no
+-- 'DerivingStrategies'). Earlier attempts using a newtype for
+-- 'BuildResult' or explicit @deriving stock@ \/ @deriving anyclass@
+-- caused cabal-install (Gentoo's haskell-cabal eclass) to drop the
+-- module's @$tc*_closure@ TypeRep symbols on the floor at link time
+-- — \"undefined reference to ...$tcBuildOne_closure\" when the
+-- @gen-python-client@ executable linked against the library. Stack
+-- builds happened to dodge this. Keeping the deriving style identical
+-- to the other Protocol/* modules avoids the issue.
 module Corvus.Protocol.Build
   ( BuildResult (..)
   , BuildOne (..)
@@ -24,25 +34,20 @@ data BuildOne = BuildOne
   , boError :: !(Maybe Text)
   -- ^ Error message on failure
   }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (Binary)
+  deriving (Eq, Show, Generic, Binary)
 
 -- | Aggregate result returned by a @ReqBuild@ call.
 --
--- Modelled as a single-field 'data' rather than a 'newtype' so the
--- 'Binary' instance can use the @anyclass@ strategy unambiguously.
--- With a newtype + both @DeriveAnyClass@ and
--- @GeneralizedNewtypeDeriving@ enabled, GHC emits a
--- @-Wderiving-defaults@ warning *and* — observed under cabal-install
--- in Gentoo's haskell-cabal eclass — silently fails to expose the
--- module's @$tc*_closure@ symbols, breaking executables that take a
--- 'Typeable' on the type.
-{-# ANN type BuildResult ("HLint: ignore Use newtype instead of data" :: String) #-}
+-- Single-field 'data' rather than a 'newtype': 'newtype' triggers a
+-- @-Wderiving-defaults@ warning under the project's combination of
+-- @DeriveAnyClass@ + @GeneralizedNewtypeDeriving@, and that warning
+-- coincided with the cabal-install link-time symbol dropout described
+-- on the module. HLint's matching \"Use newtype instead of data\"
+-- suggestion is suppressed for this module in @.hlint.yaml@.
 data BuildResult = BuildResult
   { brBuilds :: ![BuildOne]
   }
-  deriving stock (Eq, Show, Generic)
-  deriving anyclass (Binary)
+  deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON BuildOne where
   toJSON = genericToJSON innerOptions
