@@ -191,3 +191,7 @@ Always run `make format` and `make lint` after modifying Haskell source files. F
 make format
 make lint
 ```
+
+### Backwards compatibility
+
+Corvus is in early beta. Breaking changes — to YAML schemas, the binary RPC protocol, the database schema, the CLI, and anything else — are accepted without compatibility shims, deprecation paths, or transitional warnings. When renaming a field or removing a feature, change every call site outright; do not keep the old name as an alias and do not add migration code that detects and rewrites legacy inputs. Make the break clean and update the docs and examples in the same commit.
