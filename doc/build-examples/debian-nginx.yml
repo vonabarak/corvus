@@ -21,7 +21,7 @@ builds:
       name: debian-12-nginx
       compact: true
 
-    flavor: overlay
+    strategy: overlay
 
     provisioners:
       - shell: |

@@ -15,7 +15,7 @@ module Corvus.Schema.Build
   ( BuildConfig (..)
   , Build (..)
   , BuildTarget (..)
-  , BuildFlavor (..)
+  , BuildStrategy (..)
   , BuildVm (..)
   , Provisioner (..)
   , Shell (..)
@@ -49,7 +49,7 @@ data Build = Build
   , buildDescription :: Maybe Text
   , buildTemplate :: Text
   , buildTarget :: BuildTarget
-  , buildFlavor :: BuildFlavor
+  , buildStrategy :: BuildStrategy
   , buildVm :: BuildVm
   , buildProvisioners :: [Provisioner]
   , buildCleanup :: CleanupMode
@@ -63,7 +63,7 @@ instance FromJSON Build where
       <*> o .:? "description"
       <*> o .: "template"
       <*> o .: "target"
-      <*> o .:? "flavor" .!= FlavorOverlay
+      <*> o .:? "strategy" .!= BuildStrategyOverlay
       <*> o .:? "vm" .!= defaultBuildVm
       <*> o .:? "provisioners" .!= []
       <*> o .:? "cleanup" .!= CleanupAlways
@@ -84,14 +84,14 @@ instance FromJSON BuildTarget where
       <*> o .:? "sizeGb" .!= 10
       <*> o .:? "compact" .!= True
 
-data BuildFlavor = FlavorOverlay | FlavorFromScratch
+data BuildStrategy = BuildStrategyOverlay | BuildStrategyFromScratch
   deriving (Eq, Show)
 
-instance FromJSON BuildFlavor where
-  parseJSON = withText "BuildFlavor" $ \case
-    "overlay" -> pure FlavorOverlay
-    "from-scratch" -> pure FlavorFromScratch
-    other -> fail $ "unknown flavor '" <> T.unpack other <> "' (expected: overlay, from-scratch)"
+instance FromJSON BuildStrategy where
+  parseJSON = withText "BuildStrategy" $ \case
+    "overlay" -> pure BuildStrategyOverlay
+    "from-scratch" -> pure BuildStrategyFromScratch
+    other -> fail $ "unknown strategy '" <> T.unpack other <> "' (expected: overlay, from-scratch)"
 
 data BuildVm = BuildVm
   { bvmCpuCount :: Int

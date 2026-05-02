@@ -232,7 +232,7 @@ runOneBuildBody state parentTaskId sink stack startTime b = do
       bakeVmName = prefix <> sanitizeNameFragment (buildName b) <> "-vm"
       targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
       target = buildTarget b
-      flavor = buildFlavor b
+      strategy = buildStrategy b
 
   -- 1. Resolve template
   templateIdResult <- liftIO $ resolveTemplateIdOrErr state (buildTemplate b)
@@ -257,9 +257,9 @@ runOneBuildBody state parentTaskId sink stack startTime b = do
               liftIO $
                 push stack "bake-vm" $
                   cleanupBakeVm state parentTaskId vmIdLong
-              -- 3. From-scratch flavor: create empty target disk + attach
-              targetSetup <- case flavor of
-                FlavorOverlay -> do
+              -- 3. From-scratch strategy: create empty target disk + attach
+              targetSetup <- case strategy of
+                BuildStrategyOverlay -> do
                   -- Identify the artifact drive: first drive of the bake VM.
                   mDrive <-
                     liftIO $
@@ -275,9 +275,9 @@ runOneBuildBody state parentTaskId sink stack startTime b = do
                       pure $
                         Right
                           ( fromSqlKey (driveDiskImageId drv)
-                          , True -- needs flatten on overlay flavor
+                          , True -- needs flatten on overlay strategy
                           )
-                FlavorFromScratch -> do
+                BuildStrategyFromScratch -> do
                   let sizeMb = fromIntegral (btSizeGb target) * 1024
                   diskResp <-
                     liftIO $
@@ -764,7 +764,7 @@ publishArtifact
   -> Text
   -- ^ desired final name
   -> Bool
-  -- ^ flatten? (overlay flavor)
+  -- ^ flatten? (overlay strategy)
   -> Bool
   -- ^ compact?
   -> LoggingT IO (Either Text ())

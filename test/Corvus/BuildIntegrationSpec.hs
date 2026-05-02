@@ -123,7 +123,7 @@ spec = withTestDb $ do
                 , "    target:"
                 , "      name: " <> artifactName
                 , "      compact: false"
-                , "    flavor: overlay"
+                , "    strategy: overlay"
                 , "    vm: { cpuCount: 2, ramMb: 1024 }"
                 , "    provisioners:"
                 , "      - shell: |"
@@ -195,7 +195,7 @@ spec = withTestDb $ do
                 , "    target:"
                 , "      name: should-not-exist"
                 , "      compact: false"
-                , "    flavor: overlay"
+                , "    strategy: overlay"
                 , "    vm: { cpuCount: 2, ramMb: 1024 }"
                 , "    provisioners:"
                 , "      - shell: \"exit 7\""

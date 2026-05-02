@@ -38,7 +38,7 @@ builds:
       name: gentoo-corvus-test
       compact: true
 
-    flavor: overlay
+    strategy: overlay
 
     vm:
       cpuCount: 8

@@ -14,7 +14,7 @@ A build:
 5. Writes `/etc/corvus-build-info` so the artifact is self-identifying.
 6. Stops the VM gracefully.
 7. Captures the artifact: detaches the chosen drive, renames it, optionally
-   flattens (overlay flavor) and compacts.
+   flattens (overlay strategy) and compacts.
 8. Tears down the bake VM and any other ephemeral resources.
 
 The bake VM has no cloud-init ISO and no SSH keys. Provisioners run via
@@ -59,10 +59,10 @@ builds:
     target:
       name: debian-12-nginx              # registered as a Corvus disk on success
       format: qcow2                      # default: qcow2
-      sizeGb: 10                         # only used by from-scratch flavor
+      sizeGb: 10                         # only used by from-scratch strategy
       compact: true                      # qemu-img -c rewrite at end (default true)
 
-    flavor: overlay                      # overlay (default) | from-scratch
+    strategy: overlay                    # overlay (default) | from-scratch
 
     vm:
       cpuCount: 4                        # default: 4
@@ -92,7 +92,7 @@ builds:
     cleanup: always                      # always (default) | onSuccess | never
 ```
 
-## Flavors
+## Strategies
 
 ### `overlay` (default)
 

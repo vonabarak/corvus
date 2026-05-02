@@ -32,7 +32,7 @@ builds:
       name: ubuntu24-nginx
       compact: true
 
-    flavor: overlay
+    strategy: overlay
 
     vm:
       cpuCount: 4

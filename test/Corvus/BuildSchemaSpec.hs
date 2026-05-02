@@ -50,20 +50,20 @@ spec = describe "Schema.Build" $ do
           btName (buildTarget b) `shouldBe` "out"
           btFormat (buildTarget b) `shouldBe` FormatQcow2
           btCompact (buildTarget b) `shouldBe` True
-          buildFlavor b `shouldBe` FlavorOverlay
+          buildStrategy b `shouldBe` BuildStrategyOverlay
           buildCleanup b `shouldBe` CleanupAlways
           bvmCpuCount (buildVm b) `shouldBe` 4
           bvmRamMb (buildVm b) `shouldBe` 4096
         Left e -> expectationFailure e
 
-    it "rejects unknown flavor" $
+    it "rejects unknown strategy" $
       decodeBuilds
         ( BS8.unlines
             [ "builds:"
             , "  - name: x"
             , "    template: tpl"
             , "    target: { name: out }"
-            , "    flavor: maybe"
+            , "    strategy: maybe"
             ]
         )
         `shouldSatisfy` \case
