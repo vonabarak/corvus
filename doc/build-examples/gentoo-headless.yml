@@ -1,0 +1,412 @@
+# Bake a minimal headless Gentoo image, from-scratch, with a custom
+# kernel built from the operator-supplied config in this directory.
+#
+# Layout produced:
+#
+#   * GPT-labeled qcow2 (no UEFI partition; no ESP).
+#   * 1 MiB BIOS-boot partition (type ef02) holding GRUB stage 1.5.
+#   * Remainder is a single ext4 partition labelled "corvus-root".
+#   * Bootloader: sys-boot/grub:2 with grub_platforms_pc, installed in
+#     the BIOS slot of /dev/vdb. Kernel + initramfs live under /boot
+#     on the same root partition.
+#   * Headless tuning: serial getty on ttyS0, kernel cmdline routes
+#     console output to both tty0 and ttyS0 so `crv vm console` works
+#     out of the box. systemd-networkd DHCPs anything that comes up.
+#     sshd is enabled; root login is allowed and the password is empty
+#     so first-boot access is via the serial console (set a password
+#     and disable PermitEmptyPasswords once you've added an SSH key).
+#
+# Strategy is from-scratch:
+#   * The bake VM boots from the gentoo20260412 template's bootdisk.
+#   * Corvus attaches an empty 8 GiB qcow2 as a second drive (/dev/vdb).
+#   * Provisioners partition that disk, install @system + the kernel
+#     into it via `emerge --sysroot/--root`, then GRUB.
+#   * On success the second disk is detached, renamed to
+#     `gentoo-headless`, and registered as a Corvus disk.
+#
+# The kernel is built from `doc/build-examples/gentoo-kernel`, dropped
+# into the sysroot at `/etc/portage/savedconfig/sys-kernel/gentoo-kernel`.
+# `USE=savedconfig` makes the gentoo-kernel ebuild read it instead of
+# running menuconfig. Binhost binpkgs cannot match a savedconfig kernel,
+# so this single package is built from source — everything else
+# (@system, linux-firmware, grub) comes pre-built from the binhost.
+#
+# Prerequisites:
+#   crv apply doc/apply-examples/multi-os.yml
+#   crv build --wait doc/build-examples/gentoo-headless.yml
+#
+# The bake VM needs outbound network for binhost + git fetches; the
+# host must NAT/MASQUERADE the VDE subnet and have ip_forward=1 (same
+# as gentoo-corvus.yml).
+
+builds:
+  - name: gentoo-headless
+    description: Minimal headless Gentoo with custom kernel (BIOS+GPT, ext4)
+    template: gentoo20260412
+
+    target:
+      name: gentoo-headless
+      format: qcow2
+      # 40 GiB virtual size: the kernel build needs ~22 GiB of scratch
+      # in PORTAGE_TMPDIR (we redirect it onto the sysroot in step 5
+      # so the bake VM's bootdisk doesn't fill up), plus ~3 GiB for
+      # the installed system. The supplied gentoo-kernel config has
+      # many drivers enabled — slimmer configs need less. compact:
+      # true reclaims deleted clusters via `qemu-img convert -O
+      # qcow2`, so the final registered disk is ~2 GiB on the wire.
+      sizeGb: 40
+      compact: true
+
+    strategy: from-scratch
+
+    vm:
+      cpuCount: 8
+      ramMb: 8192
+
+    provisioners:
+      # 1) Bake-host prep. The cloud image's cloud-init has already
+      #    synced the portage tree and installed qemu-guest-agent (see
+      #    multi-os.yml's gentoo20260412 cloudInitConfig). We add
+      #    binhost auth and the tools we need on the host side: the
+      #    kernel/system install runs via emerge --root, grub-install
+      #    runs from the host, and sgdisk/mkfs.ext4 partition the
+      #    target disk.
+      - shell:
+          inline: |
+            set -eux
+
+            mkdir -p /etc/portage/package.use
+            cat > /etc/portage/package.use/grub <<'EOF'
+            sys-boot/grub grub_platforms_pc -mount -nls -fonts -themes
+            EOF
+
+            grep -q 'FEATURES=.*getbinpkg' /etc/portage/make.conf 2>/dev/null || cat >> /etc/portage/make.conf <<'EOF'
+
+            # Added by gentoo-headless.yml bake.
+            FEATURES="${FEATURES} getbinpkg parallel-fetch"
+            EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --jobs=4 --load-average=8 --getbinpkg --usepkg --binpkg-respect-use=y"
+            ACCEPT_LICENSE="*"
+            EOF
+
+            getuto || emerge -1q app-portage/getuto || true
+            getuto || true
+
+            emerge --noreplace \
+              sys-apps/gptfdisk \
+              sys-block/parted \
+              sys-fs/e2fsprogs \
+              sys-boot/grub:2
+          timeoutSec: 1800
+
+      # 2) Partition the empty target disk. /dev/vdb is the second
+      #    drive — the bake VM's bootdisk is /dev/vda. GPT layout with
+      #    a 1 MiB BIOS-boot partition (type ef02 for GRUB stage 1.5)
+      #    and a single ext4 root.
+      - shell:
+          inline: |
+            set -eux
+            DEV=/dev/vdb
+
+            wipefs -a "$DEV"
+            sgdisk --zap-all "$DEV"
+            sgdisk -n 1:0:+1M  -t 1:ef02 -c 1:bios "$DEV"
+            sgdisk -n 2:0:0    -t 2:8300 -c 2:root "$DEV"
+            partprobe "$DEV" || sleep 2
+
+            mkfs.ext4 -F -L corvus-root "${DEV}2"
+          timeoutSec: 120
+
+      # 3) Drop the operator-supplied kernel config onto the bake VM.
+      #    The next provisioner copies it into the sysroot once that
+      #    sysroot has /etc/portage/savedconfig/sys-kernel/ available.
+      - file:
+          from: ./gentoo-kernel
+          to: /tmp/gentoo-kernel-config
+          mode: "0644"
+
+      # 4) Mount the new root and lay down a Gentoo @system using a
+      #    stage3 tarball — the canonical "binary @system" Gentoo
+      #    ships. Doing a from-scratch `emerge @system` against the
+      #    binhost runs into changed-deps / circular-dep churn
+      #    (systemd ↔ util-linux, kbd, pam, …) because the binpkgs
+      #    don't all match the just-synced tree. Stage3 sidesteps
+      #    that: it's a self-consistent root tarball produced by the
+      #    Gentoo release engineers from the same tree we have.
+      #
+      #    After extraction we drop in our own portage repo + binhost
+      #    config + signing keys so subsequent `emerge --root` calls
+      #    (kernel, grub) can pull from the binhost cleanly.
+      - shell:
+          inline: |
+            set -eux
+            DEV=/dev/vdb
+            SYSROOT=/mnt/sysroot
+
+            mkdir -p "$SYSROOT"
+            mount "${DEV}2" "$SYSROOT"
+
+            # Pick up the latest amd64-systemd stage3 the autobuilders
+            # currently advertise. The "current-stage3-amd64-systemd"
+            # directory always points at the freshest known-good
+            # release; latest-stage3-amd64-systemd.txt is a
+            # PGP-signed plaintext file whose payload line names the
+            # tarball as a basename in that same directory.
+            STAGE_DIR=https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd
+            STAGE_NAME=$(curl -fsSL "$STAGE_DIR/latest-stage3-amd64-systemd.txt" \
+              | awk '/tar\.xz/ {print $1; exit}')
+            test -n "$STAGE_NAME"
+            curl -fL "$STAGE_DIR/$STAGE_NAME"          -o /tmp/stage3.tar.xz
+            curl -fL "$STAGE_DIR/$STAGE_NAME.DIGESTS"  -o /tmp/stage3.DIGESTS
+
+            # Verify the tarball BLAKE2B hash. The DIGESTS file is
+            # plaintext with sections introduced by "# BLAKE2B HASH"
+            # and "# SHA512 HASH" markers; each section has a "<hex>
+            # <basename>" line. We pull the BLAKE2B line whose
+            # basename ends in tar.xz (skipping CONTENTS).
+            HASH=$(awk '
+              /^# BLAKE2B HASH$/ { f = 1; next }
+              /^# /              { f = 0 }
+              f && /tar\.xz$/    { print $1; exit }
+            ' /tmp/stage3.DIGESTS)
+            test -n "$HASH"
+            echo "$HASH  /tmp/stage3.tar.xz" | b2sum -c -
+
+            tar --xattrs-include='*.*' --numeric-owner -xpf /tmp/stage3.tar.xz -C "$SYSROOT"
+            rm -f /tmp/stage3.tar.xz /tmp/stage3.DIGESTS
+
+            # Replicate make.conf so subsequent emerge --root calls
+            # see the same binhost + FEATURES tuning the bake host
+            # has.
+            install -d "$SYSROOT/etc/portage" "$SYSROOT/etc/portage/package.use"
+            install -m 0644 /etc/portage/make.conf "$SYSROOT/etc/portage/make.conf"
+
+            # Reuse the bake host's already-populated trust DB so the
+            # next emerge invocations (kernel, grub) can verify
+            # binhost signatures without re-running getuto.
+            cp -a /etc/portage/gnupg "$SYSROOT/etc/portage/gnupg"
+          timeoutSec: 1800
+
+      # 5) Build and install the kernel. `USE=savedconfig` makes the
+      #    gentoo-kernel ebuild read /etc/portage/savedconfig/...
+      #    instead of running menuconfig; we drop the operator's
+      #    config there first. Binhost cannot help here (the binpkg
+      #    config wouldn't match) so this builds from source.
+      #
+      #    Where the config files go: portage reads USE flags
+      #    (package.use) and savedconfig from $PORTAGE_CONFIGROOT,
+      #    NOT from --root. PORTAGE_CONFIGROOT defaults to / (the
+      #    bake host) and --sysroot/--root don't change it. So we
+      #    place both the package.use and the savedconfig file on the
+      #    bake host's /etc/portage and ALSO mirror them to the
+      #    sysroot — the sysroot copy is what `crv vm exec` operators
+      #    will edit later (e.g. `emerge --config gentoo-kernel`
+      #    after first boot).
+      #
+      #    Why USE=-initramfs: the kernel ebuild's postinst
+      #    regenerates the initramfs and the helper bails when ROOT
+      #    is set (it'd need a chroot, which we deliberately avoid).
+      #    The supplied kernel config has CONFIG_VIRTIO_BLK=y and
+      #    CONFIG_EXT4_FS=y built-in, so the kernel mounts the GPT
+      #    root partition by label directly without a userspace
+      #    initramfs — fine for a single-purpose VM.
+      #
+      #    PORTAGE_TMPDIR redirect: the kernel build needs ~22 GiB
+      #    of scratch. The bake VM's bootdisk is the gentoo cloud
+      #    image (~20 GiB) which is too small once stage3 is
+      #    extracted. Redirect onto the larger sysroot disk; step 8
+      #    deletes the build tree before unmount and `compact: true`
+      #    reclaims the space in the final qcow2.
+      - shell:
+          inline: |
+            set -eux
+            SYSROOT=/mnt/sysroot
+
+            # The savedconfig + package.use files have to sit on the
+            # bake host (PORTAGE_CONFIGROOT=/) for portage to actually
+            # read them; mirror to the sysroot for runtime
+            # introspection.
+            for cfgroot in / "$SYSROOT/"; do
+              install -d "${cfgroot}etc/portage/savedconfig/sys-kernel" "${cfgroot}etc/portage/package.use"
+              install -m 0644 /tmp/gentoo-kernel-config \
+                "${cfgroot}etc/portage/savedconfig/sys-kernel/gentoo-kernel"
+              cat > "${cfgroot}etc/portage/package.use/kernel" <<'EOF'
+            sys-kernel/gentoo-kernel savedconfig -initramfs
+            EOF
+            done
+
+            install -d "$SYSROOT/var/tmp/portage"
+            export PORTAGE_TMPDIR="$SYSROOT/var/tmp"
+
+            # Build the kernel from source, but still let the firmware
+            # tarball come from the binhost (it's huge and identical).
+            emerge --sysroot="$SYSROOT" --root="$SYSROOT" \
+              --usepkg=n \
+              --quiet-build \
+              sys-kernel/gentoo-kernel
+
+            emerge --sysroot="$SYSROOT" --root="$SYSROOT" \
+              --usepkg --getbinpkg --binpkg-respect-use=y \
+              --quiet-build \
+              sys-kernel/linux-firmware \
+              app-emulation/qemu-guest-agent
+          timeoutSec: 14400
+
+      # 6) Install GRUB into the sysroot, then write its stage 1.5 to
+      #    the BIOS-boot partition on /dev/vdb. `--target=i386-pc`
+      #    forces the legacy BIOS payload regardless of how the bake
+      #    host booted; `--boot-directory` points GRUB at the
+      #    sysroot's /boot so its config and modules land there.
+      #
+      #    grub.cfg is written by hand instead of via grub-mkconfig.
+      #    grub-mkconfig scans the running host's filesystems with
+      #    os-prober and embeds bake-host UUIDs / kernel paths /
+      #    theme references into the artifact's config — making the
+      #    image fail to boot on a different host. A hand-written
+      #    config is short, BIOS-only, headless-friendly, and bakes
+      #    in nothing host-specific: it loads modules itself, finds
+      #    the root partition by ext4 LABEL, and points GRUB at the
+      #    actual kernel filename we just installed (the
+      #    /boot/vmlinuz symlink could lag, so we resolve the real
+      #    name from the directory listing).
+      - shell:
+          inline: |
+            set -eux
+            SYSROOT=/mnt/sysroot
+
+            emerge --sysroot="$SYSROOT" --root="$SYSROOT" \
+              --usepkg --getbinpkg --binpkg-respect-use=y \
+              --quiet-build \
+              sys-boot/grub:2
+
+            grub-install --target=i386-pc --boot-directory="$SYSROOT/boot" /dev/vdb
+
+            # Find the freshest kernel image installed by the kernel
+            # ebuild. We can't hardcode the suffix because the
+            # operator's CONFIG_LOCALVERSION (e.g. "-corvus") changes
+            # the file name from the upstream default
+            # vmlinuz-${KV}-gentoo-dist.
+            KERNEL=$(cd "$SYSROOT/boot" && ls -1t vmlinuz-* 2>/dev/null | grep -v '\.old$' | head -1)
+            test -n "$KERNEL"
+            ln -sf "$KERNEL" "$SYSROOT/boot/vmlinuz"
+
+            install -d "$SYSROOT/boot/grub"
+            cat > "$SYSROOT/boot/grub/grub.cfg" <<EOF
+            # Generated by doc/build-examples/gentoo-headless.yml — minimal
+            # BIOS-only config. No os-prober, no themes, no host-side
+            # UUID search.
+            #
+            # GRUB itself finds the root partition by ext4 LABEL
+            # (set on /dev/vdb2 in step 2). The kernel cmdline uses a
+            # literal /dev/vda2: this image runs without an
+            # initramfs, and the kernel's built-in name_to_dev_t
+            # only recognizes /dev/<name>, PARTUUID= and PARTLABEL=
+            # for the "root=" argument — filesystem LABEL= / UUID=
+            # are user-space conventions resolved by mount(8) or
+            # dracut, neither of which has run by then.
+            #
+            # /dev/vda is virtio-blk's first disk (the only one
+            # corvus attaches in the headless template). If you
+            # rebuild against a non-virtio bus, change to
+            # /dev/sda2 / nvme0n1p2 / etc., or switch to
+            # PARTLABEL=root (sgdisk -c 2:root in step 2 sets that).
+            set timeout=2
+            set default=0
+
+            insmod part_gpt
+            insmod ext2
+            insmod search_label
+
+            serial --unit=0 --speed=115200
+            terminal_input serial console
+            terminal_output serial console
+
+            menuentry 'Gentoo Linux (custom kernel)' {
+                search --set=root --label corvus-root
+                linux /boot/$KERNEL root=/dev/vda2 rootfstype=ext4 console=tty0 console=ttyS0,115200n8
+            }
+            EOF
+          timeoutSec: 600
+
+      # 7) Configure the resulting system: fstab, hostname, machine-id
+      #    placeholder, serial getty, sshd, and a wildcard
+      #    systemd-networkd unit so DHCP comes up on whatever NIC the
+      #    operator hands the VM.
+      - shell:
+          inline: |
+            set -eux
+            SYSROOT=/mnt/sysroot
+
+            cat > "$SYSROOT/etc/fstab" <<'EOF'
+            LABEL=corvus-root  /  ext4  defaults,noatime  0 1
+            EOF
+
+            echo gentoo-headless > "$SYSROOT/etc/hostname"
+            : > "$SYSROOT/etc/machine-id"   # populated by systemd on first boot
+
+            install -d "$SYSROOT/etc/systemd/network"
+            cat > "$SYSROOT/etc/systemd/network/20-wired.network" <<'EOF'
+            [Match]
+            Name=en* eth*
+
+            [Network]
+            DHCP=yes
+            EOF
+
+            # Headless console: serial getty on ttyS0 (the kernel
+            # cmdline already routes early console there too).
+            ln -sf /lib/systemd/system/serial-getty@.service \
+              "$SYSROOT/etc/systemd/system/getty.target.wants/serial-getty@ttyS0.service" || true
+
+            # Network + ssh up on first boot.
+            ln -sf /lib/systemd/system/systemd-networkd.service \
+              "$SYSROOT/etc/systemd/system/dbus-org.freedesktop.network1.service" || true
+            install -d "$SYSROOT/etc/systemd/system/multi-user.target.wants"
+            ln -sf /lib/systemd/system/systemd-networkd.service \
+              "$SYSROOT/etc/systemd/system/multi-user.target.wants/systemd-networkd.service" || true
+            ln -sf /lib/systemd/system/systemd-resolved.service \
+              "$SYSROOT/etc/systemd/system/multi-user.target.wants/systemd-resolved.service" || true
+            ln -sf /lib/systemd/system/sshd.service \
+              "$SYSROOT/etc/systemd/system/multi-user.target.wants/sshd.service" || true
+            ln -sf /lib/systemd/system/qemu-guest-agent.service \
+              "$SYSROOT/etc/systemd/system/multi-user.target.wants/qemu-guest-agent.service" || true
+
+            # Resolved-managed /etc/resolv.conf
+            ln -sf /run/systemd/resolve/stub-resolv.conf "$SYSROOT/etc/resolv.conf" || true
+
+            # First-boot serial-only root access. The image ships with
+            # an empty root password — not for production; once an
+            # operator has logged in over the serial console, set a
+            # password and revert these lines (or add an SSH key and
+            # disable PermitRootLogin entirely).
+            sed -i 's|^root:[^:]*:|root::|' "$SYSROOT/etc/shadow"
+            sed -i 's|^#*PermitRootLogin .*|PermitRootLogin yes|;s|^#*PermitEmptyPasswords .*|PermitEmptyPasswords yes|' \
+              "$SYSROOT/etc/ssh/sshd_config"
+          timeoutSec: 120
+
+      # 8) Tear down build scratch, write provenance, then unmount
+      #    cleanly so the qcow2's last consistent state is on disk
+      #    before Corvus detaches it.
+      - shell:
+          inline: |
+            set -eux
+            SYSROOT=/mnt/sysroot
+
+            # Step 5 redirected PORTAGE_TMPDIR onto the sysroot. Wipe
+            # those build artifacts before sealing the image so the
+            # final compacted qcow2 doesn't carry ~15 GiB of obsolete
+            # bytes (compact only reclaims clusters that are zero or
+            # actually unallocated; if the kernel build files are
+            # still present they get copied into the new image).
+            rm -rf "$SYSROOT/var/tmp/portage"
+
+            cat > "$SYSROOT/etc/corvus-image-info" <<EOF
+            image: gentoo-headless
+            built: $(date -Iseconds)
+            kernel-config: gentoo-kernel (savedconfig)
+            EOF
+
+            sync
+            umount "$SYSROOT"
+          timeoutSec: 300
+
+    cleanup: onSuccess
