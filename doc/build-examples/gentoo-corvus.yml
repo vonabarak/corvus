@@ -8,13 +8,11 @@
 #   * Haskell toolchain (GHC 9.8.4 + cabal-install) via ghcup
 #   * A `corvus` system user in groups kvm + wheel with passwordless sudo
 #
-# Prerequisite: the `gentoo-corvus-base` template from
-# doc/build-examples/gentoo-corvus-prereqs.yml (which itself reuses the
-# `gentoo-20260412-base` disk imported by multi-os.yml). That template's
-# cloud-init enables the Gentoo binhost and emerges qemu-guest-agent on
-# first boot — multi-os.yml's `gentoo20260412` template doesn't, so the
-# bake VM never opens its QGA socket and the daemon spins on
-# waitForFirstPing.
+# Prerequisite: apply doc/apply-examples/multi-os.yml so that the
+# `gentoo20260412` template (and the OVMF + Gentoo base disks it
+# references) exist. That template's cloud-init syncs the portage tree
+# and emerges qemu-guest-agent on first boot, which the bake VM needs
+# before the daemon's waitForFirstPing returns.
 #
 # The bake VM needs working external network (cloud-init has to reach
 # the binhost for qemu, then later steps fetch ghcup, postgres binhost
@@ -28,12 +26,13 @@
 # default, which times out big emerges mid-compile.
 #
 # Run with:
+#   crv apply doc/apply-examples/multi-os.yml
 #   crv build --wait doc/build-examples/gentoo-corvus.yml
 
 builds:
   - name: gentoo-corvus-test
     description: Gentoo image preloaded with everything Corvus builds against
-    template: gentoo-corvus-base
+    template: gentoo20260412
 
     target:
       name: gentoo-corvus-test

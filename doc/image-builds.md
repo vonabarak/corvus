@@ -213,18 +213,24 @@ corvus_version: 0.9.0.0
 
 ## Example
 
-Two minimal overlay builds are shipped:
+Three overlay builds are shipped, all of which use templates from
+[doc/apply-examples/multi-os.yml](apply-examples/multi-os.yml). Apply
+that file once on the host (it imports the upstream cloud images,
+registers OVMF, and defines per-OS templates with VDE networking and
+qemu-guest-agent enabled), then run any of the builds below:
 
-- [doc/build-examples/ubuntu-nginx.yml](build-examples/ubuntu-nginx.yml)
-  with a self-contained prerequisites file
-  [doc/build-examples/ubuntu-nginx-prereqs.yml](build-examples/ubuntu-nginx-prereqs.yml)
-  that registers OVMF, imports the upstream Ubuntu 24.04 cloud image,
-  and creates the `ubuntu24` template using user-mode networking. This
-  is the worked example most likely to run unmodified on a fresh host.
 - [doc/build-examples/debian-nginx.yml](build-examples/debian-nginx.yml) —
-  same idea but assumes you've already created a `debian12` template
-  (e.g. from [doc/apply-examples/multi-os.yml](apply-examples/multi-os.yml),
-  which uses VDE networking and therefore requires a VDE switch on the host).
+  Debian 12 with nginx preinstalled (`debian12` template).
+- [doc/build-examples/ubuntu-nginx.yml](build-examples/ubuntu-nginx.yml) —
+  Ubuntu 24.04 LTS with nginx preinstalled (`ubuntu24` template).
+- [doc/build-examples/gentoo-corvus.yml](build-examples/gentoo-corvus.yml) —
+  Gentoo image preloaded with the full Corvus build/test toolchain
+  (`gentoo20260412` template). The bake takes ~15 minutes.
+
+All three rely on the host having a VDE switch at `/run/vde2/switch.ctl`
+(the network type used by every template in `multi-os.yml`); the bake
+VMs need outbound internet for cloud-init's package installs, so the
+host must NAT/MASQUERADE the VDE subnet and have `net.ipv4.ip_forward=1`.
 
 ## Limitations
 

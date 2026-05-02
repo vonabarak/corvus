@@ -1,11 +1,11 @@
 # Bake an Ubuntu 24.04 image with nginx preinstalled.
 #
-# Prerequisite: an `ubuntu24` template exists with guestAgent: true and a
-# base disk that has qemu-guest-agent installed via cloud-init. The
-# companion file `ubuntu-nginx-prereqs.yml` defines such a template
-# using user-mode networking (no VDE / bridge required); apply it first:
+# Prerequisite: apply doc/apply-examples/multi-os.yml so the `ubuntu24`
+# template + its `ubuntu-24.04-server-base` disk + the OVMF firmware
+# disks exist. That template installs qemu-guest-agent via cloud-init,
+# which the bake pipeline needs to drive shell provisioners over QGA.
 #
-#   crv apply doc/build-examples/ubuntu-nginx-prereqs.yml
+#   crv apply doc/apply-examples/multi-os.yml
 #   crv build doc/build-examples/ubuntu-nginx.yml
 #
 # On success, a Corvus disk named `ubuntu24-nginx` is registered.

@@ -125,6 +125,12 @@ templates:
   - name: almalinux10
     <<: *defaults
     description: "AlmaLinux 10"
+    cloudInitConfig:
+      userData:
+        packages:
+          - qemu-guest-agent
+        runcmd:
+          - systemctl enable --now qemu-guest-agent
     drives:
       - diskImageName: almalinux-10-base
         interface: virtio
@@ -166,6 +172,17 @@ templates:
   - name: gentoo20260412
     <<: *defaults
     description: "Gentoo (2026-04-05 snapshot)"
+    cloudInitConfig:
+      userData:
+        # Unlike the other distros' cloud images, Gentoo's ships with
+        # neither a portage tree at /var/db/repos/gentoo nor qemu-ga.
+        # Sync the tree, pull qemu-guest-agent from the binhost, then
+        # enable it so the daemon's waitForFirstPing succeeds (and so
+        # `crv build` can drive provisioners through QGA).
+        runcmd:
+          - emerge-webrsync --quiet
+          - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
+          - systemctl enable --now qemu-guest-agent.service
     drives:
       - diskImageName: gentoo-20260412-base
         interface: virtio
