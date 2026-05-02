@@ -18,8 +18,9 @@ import Control.Monad (forM_, forever, unless, void, when)
 import Control.Monad.Catch (finally)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
-import Corvus.Action (runAction)
+import Corvus.Action (classifyResponse, runAction)
 import Corvus.Handlers (handleRequest)
+import Corvus.Handlers.Build (BuildSink, runBuildPipeline)
 import Corvus.Handlers.Lifecycle (GracefulShutdown (..), Startup (..))
 import Corvus.Handlers.Resolve (resolveVm)
 import Corvus.Model
@@ -141,6 +142,9 @@ handleClient state sock = loop
             (ReqHmpMonitor ref, RespHmpMonitorOk) -> do
               logInfoN "Entering HMP monitor relay mode"
               liftIO $ bufferRelay (ssMonitorBuffers state) state ref sock
+            (ReqBuild yaml True, RespBuildStreamStarted) -> do
+              logInfoN "Entering build stream relay mode"
+              liftIO $ runBuildStreamRelay state sock yaml
             (ReqShutdown, _) -> logInfoN "Shutdown requested"
             _ -> loop
 
@@ -228,6 +232,98 @@ bufferRelay bufferMapVar state ref clientSock = do
     Right vmId -> do
       buffers <- readTVarIO bufferMapVar
       for_ (Map.lookup vmId buffers) (relayClient clientSock)
+
+--------------------------------------------------------------------------------
+-- Build Stream Relay
+--------------------------------------------------------------------------------
+
+-- | Run a build pipeline with live event streaming. Called from the
+-- request loop after the @--wait@ build request has been ACK'd with
+-- 'RespBuildStreamStarted'; the dispatcher hands us an exclusive socket
+-- which we own until the build (and the trailing @PipelineEnd@) has
+-- been sent. The socket is closed by the dispatcher when this returns.
+--
+-- The parent build task is created and finalised here (not via
+-- 'runAction') because @--wait@ never goes through the standard Action
+-- path: the request handler returned an upgrade ACK without running
+-- any work, so we own task lifetime end-to-end.
+runBuildStreamRelay :: ServerState -> Socket -> Text -> IO ()
+runBuildStreamRelay state sock yaml = do
+  startedAt <- getCurrentTime
+  let pool = ssDbPool state
+  taskKey <-
+    runSqlPool
+      ( insert
+          Task
+            { taskParent = Nothing
+            , taskStartedAt = startedAt
+            , taskFinishedAt = Nothing
+            , taskSubsystem = SubBuild
+            , taskEntityId = Nothing
+            , taskEntityName = Nothing
+            , taskCommand = "build"
+            , taskResult = TaskRunning
+            , taskMessage = Nothing
+            }
+      )
+      pool
+  let sink = sendBuildEvent sock
+  resp <-
+    try (runBuildPipeline state taskKey sink yaml)
+      :: IO (Either SomeException Response)
+  finishedAt <- getCurrentTime
+  case resp of
+    Right r -> do
+      finalizeBuildSink sink r
+      let (taskResult, msg) = classifyResponse r
+      runSqlPool
+        ( update
+            taskKey
+            [ TaskFinishedAt =. Just finishedAt
+            , TaskResult =. taskResult
+            , TaskMessage =. msg
+            ]
+        )
+        pool
+    Left e -> do
+      let txt = T.pack (show e)
+      sink (BuildLogLine ("internal error: " <> txt))
+      sink (PipelineEnd (BuildResult []))
+      runSqlPool
+        ( update
+            taskKey
+            [ TaskFinishedAt =. Just finishedAt
+            , TaskResult =. TaskError
+            , TaskMessage =. Just txt
+            ]
+        )
+        pool
+
+-- | Encode a 'BuildEvent' on the upgraded socket. Frames are
+-- @[8-byte big-endian length][Binary payload]@ — the same length-prefix
+-- convention as 'sendResponse' minus the protocol-version byte (which
+-- only applies to the pre-upgrade request/response phase). Errors are
+-- swallowed so a client disconnect mid-build doesn't crash the daemon.
+sendBuildEvent :: Socket -> BuildEvent -> IO ()
+sendBuildEvent sock ev = do
+  let payload = BL.toStrict (encode ev)
+      lenBytes = BL.toStrict (encode (fromIntegral (BS.length payload) :: Int64))
+  result <- try (sendAll sock (lenBytes <> payload)) :: IO (Either SomeException ())
+  case result of
+    Right () -> pure ()
+    Left _ -> pure ()
+
+-- | Always emit a terminating 'PipelineEnd' so the client's read loop
+-- knows the stream is over even when the daemon's response is an
+-- error. The 'BuildResult' carried inside reflects what the pipeline
+-- returned: a real result on success, an empty list on RespError.
+finalizeBuildSink :: BuildSink -> Response -> IO ()
+finalizeBuildSink sink resp = case resp of
+  RespBuildResult br -> sink (PipelineEnd br)
+  RespError msg -> do
+    sink (BuildLogLine ("build error: " <> msg))
+    sink (PipelineEnd (BuildResult []))
+  _ -> sink (PipelineEnd (BuildResult []))
 
 --------------------------------------------------------------------------------
 -- Logging Helpers

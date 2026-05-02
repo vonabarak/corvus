@@ -20,10 +20,16 @@ module Corvus.Handlers.Build
 
     -- * Handlers
   , handleBuildExecute
+  , runBuildPipeline
+
+    -- * Streaming sink
+  , BuildSink
+  , noOpBuildSink
   )
 where
 
 import Control.Concurrent (threadDelay)
+import Control.Exception (SomeException, try)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
@@ -38,16 +44,19 @@ import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..))
 import Corvus.Model
 import Corvus.Protocol
-import Corvus.Qemu.GuestAgent (GuestExecResult (..), guestExec, guestExecWithStdin, guestPing)
+import Corvus.Qemu.GuestAgent (GuestExecResult (..), guestExec, guestExecWithStdin, guestExecWithTail, guestPing)
 import Corvus.Qemu.Image (ImageResult (..), getImageSizeMb, rebaseImage)
 import Corvus.Schema.Build
 import Corvus.Types
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Base64 as B64
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
+import Data.Text.Encoding.Error (lenientDecode)
 import Data.Time (UTCTime, getCurrentTime)
 import qualified Data.Version as Version
 import Data.Yaml (decodeEither')
@@ -69,11 +78,39 @@ instance Action BuildAction where
   actionCommand _ = "build"
   actionExecute ctx a = handleBuildExecute (acState ctx) (acTaskId ctx) (baYaml a)
 
--- | Parse YAML, then run each build in sequence. Returns 'RespBuildResult'
--- with one entry per build (including failed ones, so partial successes are
--- visible to the caller).
+--------------------------------------------------------------------------------
+-- Streaming sink
+--------------------------------------------------------------------------------
+
+-- | Receives 'BuildEvent's as the build runs. The non-streaming code
+-- path uses 'noOpBuildSink'; @--wait@ wires this up to encode events
+-- onto the upgraded socket (see "Corvus.Server").
+type BuildSink = BuildEvent -> IO ()
+
+-- | Discard all events. Used when the operator did not request a live
+-- stream — the full build still records subtasks and per-step messages
+-- in the database, just nothing is pushed over the wire.
+noOpBuildSink :: BuildSink
+noOpBuildSink _ = pure ()
+
+--------------------------------------------------------------------------------
+-- Pipeline entry points
+--------------------------------------------------------------------------------
+
+-- | Action-driven entry point. Runs the build with no streaming sink,
+-- producing a 'RespBuildResult' (or 'RespError') the same way it
+-- always has. Used for @--wait=false@ (forked from
+-- 'runActionAsyncWithId') and for any caller that doesn't want events.
 handleBuildExecute :: ServerState -> TaskId -> Text -> IO Response
-handleBuildExecute state parentTaskId yamlContent = runServerLogging state $ do
+handleBuildExecute state parentTaskId =
+  runBuildPipeline state parentTaskId noOpBuildSink
+
+-- | Run a build pipeline, sending events to the supplied sink. Returns
+-- the same response shape as before. Per-build 'BuildEnd' events are
+-- emitted by 'runOneBuildLogged'; the caller is responsible for
+-- emitting the terminating 'PipelineEnd' once the response is in hand.
+runBuildPipeline :: ServerState -> TaskId -> BuildSink -> Text -> IO Response
+runBuildPipeline state parentTaskId sink yamlContent = runServerLogging state $ do
   case decodeEither' (TE.encodeUtf8 yamlContent) of
     Left err -> do
       let msg = T.pack (show err)
@@ -85,7 +122,7 @@ handleBuildExecute state parentTaskId yamlContent = runServerLogging state $ do
           logWarnN $ "Build config validation failed: " <> err
           pure $ RespError err
         Right () -> do
-          results <- mapM (runOneBuildLogged state parentTaskId) (bcBuilds config)
+          results <- mapM (runOneBuildLogged state parentTaskId sink) (bcBuilds config)
           pure $ RespBuildResult (BuildResult results)
 
 --------------------------------------------------------------------------------
@@ -145,13 +182,15 @@ validateProvisioner buildLbl p = case p of
 -- Single-build orchestration
 --------------------------------------------------------------------------------
 
-runOneBuildLogged :: ServerState -> TaskId -> Build -> LoggingT IO BuildOne
-runOneBuildLogged state parentTaskId b = do
+runOneBuildLogged :: ServerState -> TaskId -> BuildSink -> Build -> LoggingT IO BuildOne
+runOneBuildLogged state parentTaskId sink b = do
   logInfoN $ "Starting build: " <> buildName b
-  result <- runOneBuild state parentTaskId b
+  liftIO $ sink (BuildLogLine ("starting build: " <> buildName b))
+  result <- runOneBuild state parentTaskId sink b
   case result of
     Right diskId -> do
       logInfoN $ "Build '" <> buildName b <> "' completed; artifact disk #" <> T.pack (show diskId)
+      liftIO $ sink (BuildEnd (Right diskId))
       pure
         BuildOne
           { boName = buildName b
@@ -160,6 +199,7 @@ runOneBuildLogged state parentTaskId b = do
           }
     Left err -> do
       logWarnN $ "Build '" <> buildName b <> "' failed: " <> err
+      liftIO $ sink (BuildEnd (Left err))
       pure
         BuildOne
           { boName = buildName b
@@ -170,11 +210,11 @@ runOneBuildLogged state parentTaskId b = do
 -- | Run a single build, returning the published artifact disk id or an error.
 -- The build's @cleanup:@ mode controls whether ephemeral resources are torn
 -- down on failure. The artifact disk's destructor is detached on success.
-runOneBuild :: ServerState -> TaskId -> Build -> LoggingT IO (Either Text Int64)
-runOneBuild state parentTaskId b = do
+runOneBuild :: ServerState -> TaskId -> BuildSink -> Build -> LoggingT IO (Either Text Int64)
+runOneBuild state parentTaskId sink b = do
   startTime <- liftIO getCurrentTime
   stack <- liftIO newCleanupStack
-  outcome <- withCleanup (buildCleanup b) stack (runOneBuildBody state parentTaskId stack startTime b)
+  outcome <- withCleanup (buildCleanup b) stack (runOneBuildBody state parentTaskId sink stack startTime b)
   case outcome of
     Right inner -> pure inner
     Left ex -> pure $ Left $ "exception: " <> T.pack (show ex)
@@ -182,11 +222,12 @@ runOneBuild state parentTaskId b = do
 runOneBuildBody
   :: ServerState
   -> TaskId
+  -> BuildSink
   -> CleanupStack
   -> UTCTime
   -> Build
   -> LoggingT IO (Either Text Int64)
-runOneBuildBody state parentTaskId stack startTime b = do
+runOneBuildBody state parentTaskId sink stack startTime b = do
   let prefix = "__build_" <> T.pack (show (fromSqlKey parentTaskId)) <> "_"
       bakeVmName = prefix <> sanitizeNameFragment (buildName b) <> "-vm"
       targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
@@ -291,7 +332,7 @@ runOneBuildBody state parentTaskId stack startTime b = do
                     Left err -> pure $ Left $ "start bake VM: " <> err
                     Right () -> do
                       -- 5. Run provisioners + provenance
-                      provResult <- runProvisioners state vmIdLong b startTime
+                      provResult <- runProvisioners state parentTaskId sink vmIdLong b startTime
                       case provResult of
                         Left err -> pure $ Left err
                         Right () -> do
@@ -329,15 +370,24 @@ runOneBuildBody state parentTaskId stack startTime b = do
 -- Provisioner execution
 --------------------------------------------------------------------------------
 
+-- | Per-step output cap persisted to @task.message@. Streamed lines are
+-- forwarded to the client unbounded; only the snapshot we save to the DB
+-- is bounded.
+provisionerOutputCap :: Int
+provisionerOutputCap = 64 * 1024
+
 runProvisioners
   :: ServerState
+  -> TaskId
+  -> BuildSink
   -> Int64
   -> Build
   -> UTCTime
   -> LoggingT IO (Either Text ())
-runProvisioners state vmId b startTime = go (buildProvisioners b)
+runProvisioners state parentTaskId sink vmId b startTime =
+  go 1 (buildProvisioners b)
   where
-    go [] = do
+    go idx [] = do
       -- Implicit final step: write provenance file.
       let info =
             renderBuildInfo
@@ -345,19 +395,120 @@ runProvisioners state vmId b startTime = go (buildProvisioners b)
               startTime
               (buildTemplate b)
               (T.pack (Version.showVersion version))
-      writeProvenance state vmId info
-    go (p : ps) = do
-      r <- runProvisioner state vmId p
+      runProvisioner state parentTaskId sink vmId idx (provenanceProvisioner info)
+    go idx (p : ps) = do
+      r <- runProvisioner state parentTaskId sink vmId idx p
       case r of
         Left err -> pure $ Left err
-        Right () -> go ps
+        Right () -> go (idx + 1) ps
 
-runProvisioner :: ServerState -> Int64 -> Provisioner -> LoggingT IO (Either Text ())
-runProvisioner state vmId p = case p of
+-- | Synthesize a 'ProvFile' that writes the provenance file. Reusing
+-- the file provisioner means provenance gets the same per-step subtask
+-- + event treatment as the user's provisioners.
+provenanceProvisioner :: Text -> Provisioner
+provenanceProvisioner info =
+  ProvFile
+    FileProv
+      { fileFrom = Nothing
+      , fileContentBase64 = Just (TE.decodeUtf8 (B64.encode (TE.encodeUtf8 info)))
+      , fileTo = "/etc/corvus-build-info"
+      , fileMode = Just "0644"
+      }
+
+-- | Run a single provisioner: insert a subtask row, invoke the body,
+-- finalize the row with the result + (cropped) output, emit the
+-- bracketing 'StepStart'/'StepEnd' events.
+runProvisioner
+  :: ServerState
+  -> TaskId
+  -> BuildSink
+  -> Int64
+  -> Int
+  -> Provisioner
+  -> LoggingT IO (Either Text ())
+runProvisioner state parentTaskId sink vmId stepIdx p = do
+  let kind = provKind p
+      desc = provDesc p
+  logInfoN $ "step " <> T.pack (show stepIdx) <> " (" <> kind <> "): " <> desc
+  liftIO $ sink (StepStart stepIdx kind desc)
+  startedAt <- liftIO getCurrentTime
+  taskKey <-
+    liftIO $
+      runSqlPool
+        ( insert
+            Task
+              { taskParent = Just parentTaskId
+              , taskStartedAt = startedAt
+              , taskFinishedAt = Nothing
+              , taskSubsystem = SubBuild
+              , taskEntityId = Nothing
+              , taskEntityName = if T.null desc then Nothing else Just desc
+              , taskCommand = kind
+              , taskResult = TaskRunning
+              , taskMessage = Nothing
+              }
+        )
+        (ssDbPool state)
+  bodyResult <- liftIO $ try $ runProvisionerBody state vmId stepIdx sink p
+  finishedAt <- liftIO getCurrentTime
+  let (orchResult, taskMsg, taskResult) = case bodyResult of
+        Right (Right msg) -> (Right (), msg, TaskSuccess)
+        Right (Left (shortErr, longMsg)) -> (Left shortErr, longMsg, TaskError)
+        Left (e :: SomeException) ->
+          let txt = T.pack (show e)
+           in (Left txt, Just txt, TaskError)
+  liftIO $
+    runSqlPool
+      ( update
+          taskKey
+          [ TaskFinishedAt =. Just finishedAt
+          , TaskResult =. taskResult
+          , TaskMessage =. taskMsg
+          ]
+      )
+      (ssDbPool state)
+  case orchResult of
+    Left _ ->
+      liftIO $ cancelRemainingSubtasks (ssDbPool state) parentTaskId
+    Right _ -> pure ()
+  let endEvent = case orchResult of
+        Right _ -> StepEnd stepIdx TaskSuccess Nothing
+        Left e -> StepEnd stepIdx TaskError (Just e)
+  liftIO $ sink endEvent
+  pure orchResult
+
+-- | The body half of 'runProvisioner', isolated so subtask bookkeeping
+-- stays out of the per-kind logic. Returns:
+--
+--   @Right msg@ — success; @msg@ is persisted as the subtask's
+--   @task.message@ (typically the cropped output tail).
+--
+--   @Left (shortErr, longMsg)@ — failure; @shortErr@ propagates up to
+--   the build-level error summary, @longMsg@ is what the subtask's
+--   @task.message@ stores (cropped output tail prefixed with the exit
+--   code, etc.).
+runProvisionerBody
+  :: ServerState
+  -> Int64
+  -> Int
+  -> BuildSink
+  -> Provisioner
+  -> IO (Either (Text, Maybe Text) (Maybe Text))
+runProvisionerBody state vmId stepIdx sink p = case p of
   ProvShell sh -> case shellInline sh of
-    Nothing -> pure $ Left "shell: missing inline body (client-side bug)"
+    Nothing ->
+      pure $
+        Left
+          ( "shell: missing inline body (client-side bug)"
+          , Just "shell: missing inline body (client-side bug)"
+          )
     Just body -> do
-      let envPrefix = T.concat (map (\(k, v) -> "export " <> k <> "=" <> shellQuote v <> "; ") (shellEnv sh))
+      let envPrefix =
+            T.concat
+              ( map
+                  (\(k, v) -> "export " <> k <> "=" <> shellQuote v <> "; ")
+                  (shellEnv sh)
+              )
           workdirPrefix = case shellWorkdir sh of
             Just d -> "cd " <> shellQuote d <> " && "
             Nothing -> ""
@@ -365,25 +516,42 @@ runProvisioner state vmId p = case p of
             Just s -> max 60 (s * 10)
             Nothing -> 6000 -- 10 minutes default
           fullCmd = envPrefix <> workdirPrefix <> body
-      logInfoN "shell: running"
+      bufRef <- newIORef BS.empty
+      totalRef <- newIORef (0 :: Int)
+      let onLine line = do
+            sink (StepOutput stepIdx line)
+            accumulateLine bufRef totalRef line
       result <-
-        liftIO $
-          guestExecWithStdin
-            (ssGuestAgentConns state)
-            (ssQemuConfig state)
-            vmId
-            fullCmd
-            BS.empty
-            maxPolls
-      classifyExec "shell" result
+        guestExecWithTail
+          (ssGuestAgentConns state)
+          (ssQemuConfig state)
+          vmId
+          fullCmd
+          maxPolls
+          onLine
+      tail' <- finalizeStepBuf bufRef totalRef
+      pure $ case result of
+        GuestExecSuccess 0 _ _ -> Right tail'
+        GuestExecSuccess code _ _ ->
+          let header = "exit code " <> T.pack (show code)
+              long = case tail' of
+                Just t -> Just (header <> "\n" <> t)
+                Nothing -> Just header
+           in Left ("shell: " <> header, long)
+        GuestExecError msg ->
+          Left ("shell agent error: " <> msg, Just msg)
+        GuestExecConnectionFailed msg ->
+          Left ("shell agent connection failed: " <> msg, Just msg)
   ProvFile fp -> case fileContentBase64 fp of
-    Nothing -> pure $ Left "file: missing content (client-side bug)"
+    Nothing ->
+      pure $
+        Left
+          ( "file: missing content (client-side bug)"
+          , Just "file: missing content (client-side bug)"
+          )
     Just contentB64 -> do
       let mode = fromMaybe "0644" (fileMode fp)
           dest = shellQuote (fileTo fp)
-          -- Use printf to deliver base64 payload then base64 -d into the
-          -- target. printf vs echo because echo's -n behaviour is
-          -- shell-dependent; printf is portable.
           payload = TE.encodeUtf8 contentB64
           cmd =
             "umask 022; install -d $(dirname "
@@ -394,19 +562,109 @@ runProvisioner state vmId p = case p of
               <> mode
               <> " "
               <> dest
-      logInfoN $ "file: writing " <> fileTo fp
+      sink (StepOutput stepIdx ("writing " <> fileTo fp))
       result <-
-        liftIO $
-          guestExecWithStdin
-            (ssGuestAgentConns state)
-            (ssQemuConfig state)
-            vmId
-            cmd
-            payload
-            600
-      classifyExec "file" result
-  ProvWaitFor wf -> waitFor state vmId wf
-  ProvReboot rb -> rebootGuest state vmId (rebootTimeoutSec rb)
+        guestExecWithStdin
+          (ssGuestAgentConns state)
+          (ssQemuConfig state)
+          vmId
+          cmd
+          payload
+          600
+      pure $ classifyAtomic "file" (fileTo fp) result
+  ProvWaitFor wf -> waitForIO state stepIdx sink vmId wf
+  ProvReboot rb -> rebootGuestIO state stepIdx sink vmId (rebootTimeoutSec rb)
+
+-- | Append a streamed line to the per-step ring buffer, updating the
+-- byte-counter that lets 'finalizeStepBuf' know whether truncation
+-- happened. Inputs are encoded UTF-8 with a trailing newline so the
+-- saved tail looks like the operator's terminal.
+accumulateLine :: IORef BS.ByteString -> IORef Int -> Text -> IO ()
+accumulateLine bufRef totalRef line = do
+  let bytes = TE.encodeUtf8 line <> "\n"
+  modifyIORef' totalRef (+ BS.length bytes)
+  buf <- readIORef bufRef
+  let combined = buf <> bytes
+      cropped =
+        if BS.length combined > provisionerOutputCap
+          then BS.drop (BS.length combined - provisionerOutputCap) combined
+          else combined
+  writeIORef bufRef cropped
+
+-- | Materialize the bounded buffer as Text. If we dropped data, prepend
+-- a marker so post-mortem readers know they're seeing only the tail.
+finalizeStepBuf :: IORef BS.ByteString -> IORef Int -> IO (Maybe Text)
+finalizeStepBuf bufRef totalRef = do
+  buf <- readIORef bufRef
+  if BS.null buf
+    then pure Nothing
+    else do
+      total <- readIORef totalRef
+      let droppedKb = (total - BS.length buf) `div` 1024
+          prefix
+            | droppedKb > 0 =
+                "... [truncated, "
+                  <> T.pack (show droppedKb)
+                  <> " KiB earlier]\n"
+            | otherwise = ""
+      pure $ Just (prefix <> TE.decodeUtf8With lenientDecode buf)
+
+-- | One-shot classifier for non-streaming provisioners (file upload,
+-- provenance) where the output isn't tailed line-by-line.
+classifyAtomic
+  :: Text
+  -> Text
+  -> GuestExecResult
+  -> Either (Text, Maybe Text) (Maybe Text)
+classifyAtomic lbl entityName r = case r of
+  GuestExecSuccess 0 _ _ ->
+    Right (Just (lbl <> ": " <> entityName))
+  GuestExecSuccess code stdout stderr ->
+    let combined = joinOutputs stdout stderr
+        long =
+          "exit code "
+            <> T.pack (show code)
+            <> ( if T.null combined
+                  then ""
+                  else "\n" <> combined
+               )
+     in Left (lbl <> " exited " <> T.pack (show code), Just long)
+  GuestExecError msg -> Left (lbl <> " agent error: " <> msg, Just msg)
+  GuestExecConnectionFailed msg ->
+    Left (lbl <> " agent connection failed: " <> msg, Just msg)
+
+joinOutputs :: Text -> Text -> Text
+joinOutputs out err
+  | T.null err = out
+  | T.null out = err
+  | otherwise = out <> "\n" <> err
+
+-- | Tag a provisioner with its short kind name (used as the subtask's
+-- @command@ field and the streaming @StepStart@ event tag).
+provKind :: Provisioner -> Text
+provKind ProvShell {} = "shell"
+provKind ProvFile {} = "file"
+provKind ProvWaitFor {} = "wait-for"
+provKind ProvReboot {} = "reboot"
+
+-- | A short human description: file path for file provisioners,
+-- inline body's first line for shell, etc. Surfaced as the @StepStart@
+-- description and the subtask's @entity_name@.
+provDesc :: Provisioner -> Text
+provDesc (ProvShell sh) =
+  let firstLine = case shellInline sh of
+        Just body ->
+          let trimmed = T.strip body
+              ln = T.takeWhile (/= '\n') trimmed
+           in if T.null ln then "<empty>" else T.take 60 ln
+        Nothing -> "<no body>"
+   in firstLine
+provDesc (ProvFile fp) = fileTo fp
+provDesc (ProvWaitFor wf) = case wf of
+  WaitForPing _ -> "guest-agent ping"
+  WaitForFile p _ -> "file " <> p
+  WaitForPort port _ -> "port " <> T.pack (show port)
+provDesc (ProvReboot _) = "reboot"
 
 -- | Lightweight shell quoting: wrap in single quotes and escape any single
 -- quotes inside. Sufficient for paths and env values that don't contain
@@ -414,47 +672,25 @@ runProvisioner state vmId p = case p of
 shellQuote :: Text -> Text
 shellQuote t = "'" <> T.replace "'" "'\\''" t <> "'"
 
-classifyExec :: Text -> GuestExecResult -> LoggingT IO (Either Text ())
-classifyExec lbl r = case r of
-  GuestExecSuccess code stdout stderr ->
-    if code == 0
-      then do
-        unless (T.null stdout) $ logInfoN $ lbl <> " stdout: " <> truncateForLog stdout
-        unless (T.null stderr) $ logInfoN $ lbl <> " stderr: " <> truncateForLog stderr
-        pure $ Right ()
-      else
-        pure $
-          Left $
-            lbl <> " exited " <> T.pack (show code) <> ": " <> truncateForLog (joinOutputs stdout stderr)
-  GuestExecError msg -> pure $ Left $ lbl <> " agent error: " <> msg
-  GuestExecConnectionFailed msg -> pure $ Left $ lbl <> " agent connection failed: " <> msg
-
-joinOutputs :: Text -> Text -> Text
-joinOutputs out err
-  | T.null err = out
-  | T.null out = err
-  | otherwise = out <> " | stderr: " <> err
-
-truncateForLog :: Text -> Text
-truncateForLog t
-  | T.length t > 4096 = T.take 4096 t <> "...[truncated]"
-  | otherwise = t
-
-waitFor :: ServerState -> Int64 -> WaitFor -> LoggingT IO (Either Text ())
-waitFor state vmId w = case w of
+waitForIO
+  :: ServerState
+  -> Int
+  -> BuildSink
+  -> Int64
+  -> WaitFor
+  -> IO (Either (Text, Maybe Text) (Maybe Text))
+waitForIO state stepIdx sink vmId w = case w of
   WaitForPing timeoutSec ->
     loopUntil timeoutSec "guest-agent ping" $
-      liftIO $
-        guestPing (ssGuestAgentConns state) (ssQemuConfig state) vmId
+      guestPing (ssGuestAgentConns state) (ssQemuConfig state) vmId
   WaitForFile path timeoutSec ->
     loopUntil timeoutSec ("file " <> path) $ do
       r <-
-        liftIO $
-          guestExec
-            (ssGuestAgentConns state)
-            (ssQemuConfig state)
-            vmId
-            ("test -e " <> shellQuote path)
+        guestExec
+          (ssGuestAgentConns state)
+          (ssQemuConfig state)
+          vmId
+          ("test -e " <> shellQuote path)
       pure $ case r of
         GuestExecSuccess 0 _ _ -> True
         _ -> False
@@ -467,65 +703,52 @@ waitFor state vmId w = case w of
               <> T.pack (show port)
               <> "$'"
       r <-
-        liftIO $
-          guestExec
-            (ssGuestAgentConns state)
-            (ssQemuConfig state)
-            vmId
-            probe
+        guestExec
+          (ssGuestAgentConns state)
+          (ssQemuConfig state)
+          vmId
+          probe
       pure $ case r of
         GuestExecSuccess 0 _ _ -> True
         _ -> False
   where
-    loopUntil :: Int -> Text -> LoggingT IO Bool -> LoggingT IO (Either Text ())
     loopUntil totalSec lbl probe = go 0
       where
         go elapsed
           | elapsed >= totalSec =
-              pure $ Left $ "wait-for " <> lbl <> ": timed out after " <> T.pack (show totalSec) <> "s"
+              let err = "wait-for " <> lbl <> ": timed out after " <> T.pack (show totalSec) <> "s"
+               in pure $ Left (err, Just err)
           | otherwise = do
               ok <- probe
               if ok
-                then pure $ Right ()
+                then pure $ Right (Just (lbl <> " ok after " <> T.pack (show elapsed) <> "s"))
                 else do
-                  liftIO $ threadDelay 2000000
+                  when (elapsed `mod` 10 == 0) $
+                    sink (StepOutput stepIdx ("waiting for " <> lbl <> " (" <> T.pack (show elapsed) <> "s)"))
+                  threadDelay 2000000
                   go (elapsed + 2)
 
-rebootGuest :: ServerState -> Int64 -> Int -> LoggingT IO (Either Text ())
-rebootGuest state vmId timeoutSec = do
-  logInfoN "reboot: requesting via guest-exec"
-  -- Use guest-exec rather than guest-shutdown so the agent can come back up
-  -- afterwards (guest-shutdown 'powerdown' won't reboot).
+rebootGuestIO
+  :: ServerState
+  -> Int
+  -> BuildSink
+  -> Int64
+  -> Int
+  -> IO (Either (Text, Maybe Text) (Maybe Text))
+rebootGuestIO state stepIdx sink vmId timeoutSec = do
+  sink (StepOutput stepIdx "rebooting via guest-exec")
   result <-
-    liftIO $
-      guestExec
-        (ssGuestAgentConns state)
-        (ssQemuConfig state)
-        vmId
-        "(sleep 1; /sbin/reboot || /usr/sbin/reboot || reboot) >/dev/null 2>&1 &"
+    guestExec
+      (ssGuestAgentConns state)
+      (ssQemuConfig state)
+      vmId
+      "(sleep 1; /sbin/reboot || /usr/sbin/reboot || reboot) >/dev/null 2>&1 &"
   case result of
-    GuestExecConnectionFailed msg -> pure $ Left $ "reboot dispatch: " <> msg
+    GuestExecConnectionFailed msg ->
+      pure $ Left ("reboot dispatch: " <> msg, Just msg)
     _ -> do
-      -- Wait for the agent socket to disappear briefly, then come back.
-      -- Simpler heuristic: keep polling until ping succeeds again.
-      liftIO $ threadDelay 5000000 -- 5s grace
-      waitFor state vmId (WaitForPing timeoutSec)
-
-writeProvenance :: ServerState -> Int64 -> Text -> LoggingT IO (Either Text ())
-writeProvenance state vmId info = do
-  logInfoN "provenance: writing /etc/corvus-build-info"
-  let payload = TE.encodeUtf8 info
-      cmd = "install -d /etc && cat > /etc/corvus-build-info && chmod 0644 /etc/corvus-build-info"
-  result <-
-    liftIO $
-      guestExecWithStdin
-        (ssGuestAgentConns state)
-        (ssQemuConfig state)
-        vmId
-        cmd
-        payload
-        600
-  classifyExec "provenance" result
+      threadDelay 5000000 -- 5s grace
+      waitForIO state stepIdx sink vmId (WaitForPing timeoutSec)
 
 --------------------------------------------------------------------------------
 -- Artifact publication

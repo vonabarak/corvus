@@ -134,7 +134,7 @@ spec = withTestDb $ do
                 ]
 
         putStrLn "[test] Running crv build (this boots a VM)..."
-        buildResp <- withDaemonConnection daemon $ \conn -> runBuild conn buildYaml True
+        buildResp <- withDaemonConnection daemon $ \conn -> runBuild conn buildYaml True (\_ -> pure ())
         case buildResp of
           Right (Right (BuildOk (BuildResult [bOne]))) -> do
             boName bOne `shouldBe` "build-test"
@@ -202,7 +202,7 @@ spec = withTestDb $ do
                 , "    cleanup: always"
                 ]
 
-        buildResp <- withDaemonConnection daemon $ \conn -> runBuild conn buildYaml True
+        buildResp <- withDaemonConnection daemon $ \conn -> runBuild conn buildYaml True (\_ -> pure ())
         case buildResp of
           Right (Right (BuildOk (BuildResult [bOne]))) -> do
             boArtifactDiskId bOne `shouldBe` Nothing

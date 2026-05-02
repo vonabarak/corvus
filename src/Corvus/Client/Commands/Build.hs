@@ -19,7 +19,8 @@ import Corvus.Client.Connection
 import Corvus.Client.Output (emitError, emitResult, emitRpcError)
 import Corvus.Client.Rpc
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
-import Corvus.Protocol (BuildOne (..), BuildResult (..))
+import Corvus.Model (TaskResult (..))
+import Corvus.Protocol (BuildEvent (..), BuildOne (..), BuildResult (..))
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (Value (..))
@@ -34,6 +35,7 @@ import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 import System.Directory (doesFileExist)
 import System.FilePath (takeDirectory, (</>))
+import System.IO (BufferMode (..), hPutStrLn, hSetBuffering, stderr, stdout)
 
 -- | Top-level handler for @crv build FILE@.
 --
@@ -69,7 +71,17 @@ handleBuild fmt conn path waitOpts = do
             Right rebuilt -> do
               let yamlOut = TE.decodeUtf8 (Yaml.encode rebuilt)
                   wait = woWait waitOpts
-              resp <- runBuild conn yamlOut wait
+              -- Stream events live in human/text mode while @--wait@ is
+              -- in effect. Structured output modes (json/yaml) suppress
+              -- live output so the caller's parser sees only the final
+              -- 'BuildOk' payload.
+              let onEvent = case (wait, fmt) of
+                    (True, TextOutput) -> renderBuildEvent
+                    _ -> \_ -> pure ()
+              -- Line-buffer stdout so each StepOutput event appears
+              -- immediately rather than being held in the libc buffer.
+              hSetBuffering stdout LineBuffering
+              resp <- runBuild conn yamlOut wait onEvent
               case resp of
                 Left err -> do
                   emitRpcError fmt err
@@ -87,6 +99,47 @@ handleBuild fmt conn path waitOpts = do
                     putStrLn $
                       "Build failed: " ++ T.unpack msg
                   pure False
+
+-- | Render a streamed 'BuildEvent' to the operator's terminal.
+-- Format choices:
+--
+--   * Daemon-level progress lines get a @==>@ prefix so they stand out
+--     from per-step output.
+--   * Each step is wrapped between @---@ banners showing index, kind,
+--     and a one-line description (typically the file path or the first
+--     line of an inline shell body).
+--   * 'StepOutput' lines are tagged with the step index so output from
+--     concurrent steps could be disambiguated in future (today the
+--     daemon runs steps serially, but the tag is cheap).
+--   * Failures and errors go to stderr so @&&@ chaining still works
+--     against the caller's exit code.
+--
+-- 'PipelineEnd' is consumed silently here; the human summary printed
+-- by 'printBuildResult' (driven by the final 'BuildOk' result) renders
+-- after the relay loop unwinds.
+renderBuildEvent :: BuildEvent -> IO ()
+renderBuildEvent ev = case ev of
+  BuildLogLine t -> putStrLn $ "==> " <> T.unpack t
+  StepStart i kind desc -> do
+    let descPart = if T.null desc then "" else ": " <> T.unpack desc
+    putStrLn $ "--- step " <> show i <> " (" <> T.unpack kind <> ")" <> descPart
+  StepOutput i line -> putStrLn $ "[" <> show i <> "] " <> T.unpack line
+  StepEnd i TaskSuccess _ -> putStrLn $ "--- step " <> show i <> " ok"
+  StepEnd i TaskError mErr -> do
+    let suffix = case mErr of
+          Just e -> ": " <> T.unpack e
+          Nothing -> ""
+    hPutStrLn stderr $ "--- step " <> show i <> " FAILED" <> suffix
+  StepEnd i taskResult mMsg -> do
+    -- Cancelled / running shouldn't ordinarily appear, but render
+    -- something rather than stay silent.
+    let extra = maybe "" ((": " <>) . T.unpack) mMsg
+    putStrLn $ "--- step " <> show i <> " (" <> show taskResult <> ")" <> extra
+  BuildEnd (Right diskId) ->
+    putStrLn $ "==> built disk #" <> show diskId
+  BuildEnd (Left err) ->
+    hPutStrLn stderr $ "==> build failed: " <> T.unpack err
+  PipelineEnd _ -> pure ()
 
 -- | Print a 'BuildResult' in human form.
 --

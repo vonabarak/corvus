@@ -555,6 +555,11 @@ data Response
     RespBuildResult {buildResult :: !BuildResult}
   | -- | Build started asynchronously (parent task id, mirrors RespApplyStarted).
     RespBuildStarted {taskId :: !Int64}
+  | -- | Build accepted with @--wait@; connection switches to
+    -- 'BuildEvent' streaming on the raw socket. The daemon writes
+    -- length-prefixed events until the terminating @PipelineEnd@ and
+    -- then closes the socket.
+    RespBuildStreamStarted
   deriving (Eq, Show, Generic, Binary)
 
 instance ToJSON Response where

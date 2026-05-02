@@ -410,6 +410,7 @@ test-suite corvus-test
       Corvus.BuildIntegrationSpec
       Corvus.BuildProvenanceSpec
       Corvus.BuildSchemaSpec
+      Corvus.BuildStreamSpec
       Corvus.ClientOutputSpec
       Corvus.CloudInitIntegrationSpec
       Corvus.CloudInitSpec

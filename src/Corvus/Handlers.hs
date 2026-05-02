@@ -224,10 +224,15 @@ handleRequest state = \case
         if wait
           then runAction state (ApplyAction config skipExisting)
           else runActionAsyncWithId state (ApplyAction config skipExisting) RespApplyStarted
-  -- Build (mirrors Apply: blocking with --wait, async otherwise).
+  -- Build: with @--wait@ the daemon upgrades the connection to a
+  -- 'BuildEvent' stream (see "Corvus.Server"), so we just acknowledge
+  -- the request here without doing any work — the actual pipeline runs
+  -- after Server.hs hands the socket to 'runBuildStreamRelay'.
+  -- Without @--wait@ the build is forked through the standard async
+  -- 'Action' machinery and returns a parent task id immediately.
   ReqBuild yaml wait ->
     if wait
-      then runAction state (BuildAction yaml)
+      then pure RespBuildStreamStarted
       else runActionAsyncWithId state (BuildAction yaml) RespBuildStarted
   where
     pool = ssDbPool state

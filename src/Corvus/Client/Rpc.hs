@@ -124,11 +124,18 @@ module Corvus.Client.Rpc
   )
 where
 
+import Control.Exception (SomeException, try)
 import Corvus.Client.Connection
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TaskResult, TaskSubsystem, VmStatus)
 import Corvus.Protocol
+import Data.Binary (decodeOrFail, encode)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BL
 import Data.Int (Int64)
 import Data.Text (Text)
+import qualified Data.Text as T
+import Network.Socket (Socket)
+import Network.Socket.ByteString (recv)
 
 -- | SPICE connection grant returned by 'vmViewGrant'. Mirrors
 -- 'RespVmViewGrant' with the fields renamed so callers don't import
@@ -953,17 +960,86 @@ data BuildRpcResult
 -- by the client (any @script@ / @from@ paths inlined into @inline@ /
 -- @content@) so the daemon never needs filesystem access.
 --
--- @wait=True@ blocks until the daemon finishes the build; @wait=False@
--- returns 'BuildAsync' with a task id immediately.
-runBuild :: Connection -> Text -> Bool -> IO (Either ConnectionError BuildRpcResult)
-runBuild conn yaml wait = do
+-- @wait=True@ blocks until the daemon finishes the build, streaming
+-- 'BuildEvent's via @onEvent@ as they arrive (the daemon upgrades the
+-- connection to a length-prefixed event stream after acknowledging the
+-- request with 'RespBuildStreamStarted'). @wait=False@ returns
+-- 'BuildAsync' with a task id immediately and @onEvent@ is never
+-- called.
+runBuild
+  :: Connection
+  -> Text
+  -> Bool
+  -> (BuildEvent -> IO ())
+  -> IO (Either ConnectionError BuildRpcResult)
+runBuild conn yaml wait onEvent = do
   result <- sendRequest conn (ReqBuild yaml wait)
   case result of
     Left err -> pure $ Left err
-    Right (RespBuildResult br) -> pure $ Right $ BuildOk br
+    Right RespBuildStreamStarted -> streamBuildEvents (connSocket conn) onEvent
     Right (RespBuildStarted tid) -> pure $ Right $ BuildAsync tid
     Right (RespError msg) -> pure $ Right $ BuildFailed msg
+    Right (RespBuildResult br) ->
+      -- Older daemons that pre-date the streaming protocol still answer
+      -- with the aggregate result inline. Treat that as a non-streaming
+      -- success.
+      pure $ Right $ BuildOk br
     Right _ -> pure $ Left $ DecodeFailed "Unexpected response"
+
+-- | Read 'BuildEvent's from the upgraded socket, invoking @onEvent@ for
+-- each, until the terminating 'PipelineEnd' arrives. Any decode error
+-- or socket close before 'PipelineEnd' is reported as a connection
+-- error.
+streamBuildEvents
+  :: Socket
+  -> (BuildEvent -> IO ())
+  -> IO (Either ConnectionError BuildRpcResult)
+streamBuildEvents sock onEvent = loop
+  where
+    loop = do
+      mEv <- readBuildEvent sock
+      case mEv of
+        Left err -> pure $ Left err
+        Right ev -> do
+          handlerResult <- try (onEvent ev) :: IO (Either SomeException ())
+          case handlerResult of
+            Left e ->
+              pure $
+                Left $
+                  DecodeFailed
+                    ("event handler failed: " <> T.pack (show e))
+            Right () -> case ev of
+              PipelineEnd br -> pure $ Right $ BuildOk br
+              _ -> loop
+
+readBuildEvent :: Socket -> IO (Either ConnectionError BuildEvent)
+readBuildEvent sock = do
+  mLen <- recvExactClient sock 8
+  case mLen of
+    Nothing -> pure $ Left $ DecodeFailed "stream closed before PipelineEnd"
+    Just lenBs -> case decodeOrFail (BL.fromStrict lenBs) of
+      Left _ -> pure $ Left $ DecodeFailed "invalid event length prefix"
+      Right (_, _, len) -> do
+        mPayload <- recvExactClient sock (fromIntegral (len :: Int64))
+        case mPayload of
+          Nothing -> pure $ Left $ DecodeFailed "stream closed mid-event"
+          Just payload -> case decodeOrFail (BL.fromStrict payload) of
+            Left (_, _, msg) -> pure $ Left $ DecodeFailed (T.pack msg)
+            Right (_, _, ev) -> pure $ Right ev
+
+-- | Read exactly @n@ bytes from a socket, looping until satisfied.
+-- Mirrors the server-side 'Corvus.Server.recvExact' but lives here so
+-- the streaming reader doesn't depend on the server module.
+recvExactClient :: Socket -> Int -> IO (Maybe BS.ByteString)
+recvExactClient sock = go BS.empty
+  where
+    go acc remaining
+      | remaining <= 0 = pure (Just acc)
+      | otherwise = do
+          chunk <- recv sock remaining
+          if BS.null chunk
+            then pure Nothing
+            else go (acc <> chunk) (remaining - BS.length chunk)
 
 --------------------------------------------------------------------------------
 -- Task History Operations
