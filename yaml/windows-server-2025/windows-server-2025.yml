@@ -2,22 +2,20 @@
 # Windows Server 2025 evaluation image, built unattended.
 #
 # Bakes a Windows Server 2025 image with qemu-guest-agent and
-# cloudbase-init pre-installed. Equivalent to the legacy script at
-# scripts/build-windows-test-image.sh but expressed declaratively
-# through `crv build`.
+# cloudbase-init pre-installed.
 #
 # Prerequisites:
-#   1. Apply doc/apply-examples/windows-installer.yml first to register
-#      the install ISOs and define the windows-server-2025-installer
-#      template.
+#   1. Apply windows-installer.yml in this directory first — it
+#      downloads the Microsoft evaluation ISO + VirtIO-Win drivers ISO
+#      and defines the `windows-server-2025-installer` template.
 #   2. The bake host must NAT the bridged subnet (cloudbase-init is
 #      downloaded from the public internet during FirstLogonCommands).
 #
 # Usage:
-#   crv apply doc/apply-examples/windows-installer.yml
-#   crv build doc/build-examples/windows-server-2025.yml --wait
+#   crv apply yaml/windows-server-2025/windows-installer.yml
+#   crv build yaml/windows-server-2025/windows-server-2025.yml --wait
 #
-# Expect 20–40 minutes wall time. The bake VM is headless; if you
+# Expect 45–55 minutes wall time. The bake VM is headless; if you
 # want to watch the install graphically, swap headless: false in the
 # template and connect via SPICE.
 

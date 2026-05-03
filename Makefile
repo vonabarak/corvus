@@ -101,15 +101,11 @@ test-image-alpine:
 
 # Build the Windows Server 2025 test image.
 #
-# Requires the Microsoft evaluation ISO and the VirtIO-Win drivers ISO
-# to be cached on the daemon host before running:
-#
-#   ~/.test-images/windows-server-2025-eval.iso  (~8 GiB)
-#   ~/.test-images/virtio-win.iso                (~750 MiB)
-#
-# The autounattend.xml floppy is materialised per-build by `crv build`
-# from yaml/windows-server-2025/autounattend.xml — edit it freely; no
-# manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM.
+# `crv apply` downloads the Microsoft evaluation ISO (~8 GiB) and the
+# VirtIO-Win drivers ISO (~750 MiB) on first run; later applies are
+# no-ops. The autounattend.xml floppy is materialised per-build by
+# `crv build` from yaml/windows-server-2025/autounattend.xml — edit
+# it freely; no manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM.
 test-image-windows:
 	crv apply yaml/windows-server-2025/windows-installer.yml --skip-existing
 	crv build yaml/windows-server-2025/windows-server-2025.yml --wait

@@ -1,14 +1,19 @@
 ---
 # Windows Server 2025 installer template.
 #
-# Pairs with doc/build-examples/windows-server-2025.yml.
+# Pairs with windows-server-2025.yml in this directory.
 #
-# Before applying:
-#   - Cache the Windows Server 2025 evaluation ISO at
-#     ~/.test-images/windows-server-2025-eval.iso
-#     (https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025)
-#   - Cache the VirtIO-Win drivers ISO at ~/.test-images/virtio-win.iso
-#     (https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso)
+# Apply downloads the Windows Server 2025 evaluation ISO (~8 GiB) and
+# the VirtIO-Win drivers ISO (~750 MiB) on first run; subsequent
+# applies are no-ops because Corvus deduplicates by URL. Expect the
+# initial apply to take a while on a slow connection.
+#
+# Note: fedorapeople.org's stable-virtio link 301-redirects to
+# https://fedorapeople.org:3923/...; the daemon host needs outbound
+# TCP to port 3923 (some restrictive networks/firewalls block it).
+# If your environment can't reach port 3923, swap the
+# `import:` line for a `register:` pointing at a pre-downloaded
+# virtio-win.iso.
 #
 # The autounattend.xml floppy is built automatically by `crv build`
 # from `floppy.from:` in the build YAML — no out-of-band mkfs.fat.
@@ -29,13 +34,15 @@ disks:
     register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
     format: qcow2
 
-  # ── Install media + autounattend.img (pre-cached on host) ─────────
+  # ── Install media (downloaded on first apply) ────────────────────
   - name: windows-server-2025-iso
-    register: "/home/corvus/.test-images/windows-server-2025-eval.iso"
+    import: "https://software-static.download.prss.microsoft.com/dbazure/998969d5-f34g-4e03-ac9d-1f9786c66749/26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
     format: raw
+    path: ISOs/Windows/
   - name: virtio-win-iso
-    register: "/home/corvus/.test-images/virtio-win.iso"
+    import: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
     format: raw
+    path: ISOs/VirtIO/
 
 templates:
   - name: windows-server-2025-installer
