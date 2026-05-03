@@ -75,16 +75,44 @@ test:
 lint:
 	hlint src app test
 
-# Build all test images
+# Build all test images via `crv build`
 test-image: test-image-alpine test-image-windows
 
-# Build the custom Alpine test image (requires root for qemu-nbd + mount)
+# Build the minimal Alpine integration-test image.
+#
+# Steps:
+#   1. Generate the SSH keypair under .test-images/ if it doesn't exist
+#      (the integration tests expect the private key at a stable path).
+#   2. Stage the public key next to the build YAML so the build's
+#      `file: from: ./corvus-test-key.pub` provisioner finds it.
+#   3. Apply the multi-OS template library (provides the `debian12`
+#      bake VM template — it bootstraps Alpine via apk-tools-static
+#      from inside the bake VM, so it doesn't need any pre-cached ISO).
+#   4. Run `crv build`. The artifact is registered as a Corvus disk
+#      named `corvus-test`.
 test-image-alpine:
-	doas scripts/build-test-image.sh --force
+	mkdir -p .test-images
+	test -f .test-images/corvus-test-key || \
+	  ssh-keygen -t ed25519 -f .test-images/corvus-test-key -N '' -C corvus-test
+	cp .test-images/corvus-test-key.pub yaml/alpine-test/corvus-test-key.pub
+	crv apply yaml/multi-os/multi-os.yml --skip-existing
+	crv build yaml/alpine-test/alpine-test.yml --wait
+	rm -f yaml/alpine-test/corvus-test-key.pub
 
-# Build the Windows Server 2025 test image (downloads ~8 GB, takes 15-30 min)
+# Build the Windows Server 2025 test image.
+#
+# Requires the Microsoft evaluation ISO and the VirtIO-Win drivers ISO
+# to be cached on the daemon host before running:
+#
+#   ~/.test-images/windows-server-2025-eval.iso  (~8 GiB)
+#   ~/.test-images/virtio-win.iso                (~750 MiB)
+#
+# The autounattend.xml floppy is materialised per-build by `crv build`
+# from yaml/windows-server-2025/autounattend.xml — edit it freely; no
+# manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM.
 test-image-windows:
-	scripts/build-windows-test-image.sh --force
+	crv apply yaml/windows-server-2025/windows-installer.yml --skip-existing
+	crv build yaml/windows-server-2025/windows-server-2025.yml --wait
 
 # Format the code using fourmolu
 format:

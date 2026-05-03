@@ -1,0 +1,278 @@
+---
+# Minimal Alpine Linux test image for Corvus integration tests.
+#
+# Replaces the legacy `scripts/build-test-image.sh` shell script with
+# a declarative `crv build`. Same output: a 512 MiB qcow2 with BIOS +
+# UEFI boot, serial + graphical console, sshd (TCP and AF_VSOCK),
+# doas, and qemu-guest-agent.
+#
+# Prerequisites:
+#   * Apply yaml/multi-os/multi-os.yml first (provides the `debian12`
+#     bake VM template — the from-scratch build runs apk-tools-static
+#     plus chroot inside a Debian bake VM with a network connection).
+#   * Generate the SSH keypair to embed into the image. The Makefile
+#     target wires this up; manual:
+#
+#       mkdir -p .test-images
+#       ssh-keygen -t ed25519 -f .test-images/corvus-test-key -N '' \
+#         -C corvus-test
+#       cp .test-images/corvus-test-key.pub yaml/alpine-test/
+#
+#     The keypair is intentionally checked-in-by-convention to
+#     `.test-images/` so integration tests can find the private key
+#     at a stable path.
+#
+# Usage:
+#   crv apply yaml/multi-os/multi-os.yml --skip-existing
+#   crv build yaml/alpine-test/alpine-test.yml --wait
+#
+# Bake takes ~5–7 min. Result: a Corvus disk named `corvus-test`.
+
+builds:
+  - name: corvus-test
+    description: "Alpine Linux test image (BIOS+UEFI, sshd, qemu-ga, vsock-sshd)"
+    template: debian12
+
+    target:
+      name: corvus-test
+      format: qcow2
+      sizeGb: 1
+      compact: true
+
+    strategy: from-scratch
+
+    vm:
+      cpuCount: 4
+      ramMb: 2048
+
+    cleanup: onSuccess
+
+    provisioners:
+      # ── 1. Host-side tooling on the bake VM ──────────────────────────
+      - shell: |
+          set -eux
+          apt-get update -y
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            gdisk dosfstools e2fsprogs wget mtools ca-certificates parted
+
+      # ── 2. Partition the target disk (BIOS boot + ESP + root) ────────
+      - shell: |
+          set -eux
+          sgdisk --zap-all /dev/vdb
+          sgdisk --new=1:2048:+1M --typecode=1:ef02 --change-name=1:"BIOS boot"  /dev/vdb
+          sgdisk --new=2:0:+64M    --typecode=2:ef00 --change-name=2:"EFI System" /dev/vdb
+          sgdisk --new=3:0:0       --typecode=3:8300 --change-name=3:"Linux root" /dev/vdb
+          partprobe /dev/vdb
+          # Wait for the kernel to surface the new partition nodes
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            [ -b /dev/vdb1 ] && [ -b /dev/vdb2 ] && [ -b /dev/vdb3 ] && break
+            sleep 1
+          done
+          mkfs.vfat -F32 -n EFI /dev/vdb2
+          mkfs.ext4 -L root -q /dev/vdb3
+
+      # ── 3. Bootstrap Alpine via apk-tools-static ─────────────────────
+      - shell: |
+          set -eux
+          mkdir -p /mnt/target
+          mount /dev/vdb3 /mnt/target
+          mkdir -p /mnt/target/boot/efi
+          mount /dev/vdb2 /mnt/target/boot/efi
+
+          ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine
+          ALPINE_VERSION=v3.21
+          ALPINE_ARCH=x86_64
+          REPO_URL="$ALPINE_MIRROR/$ALPINE_VERSION/main/$ALPINE_ARCH"
+
+          mkdir -p /tmp/apk-static
+          cd /tmp/apk-static
+          wget -q "$REPO_URL/APKINDEX.tar.gz"
+          APK_PKG=$(tar -xzf APKINDEX.tar.gz -O APKINDEX 2>/dev/null \
+            | awk '/^P:apk-tools-static/{f=1} f && /^V:/{print "apk-tools-static-" substr($0,3) ".apk"; exit}')
+          [ -n "$APK_PKG" ] || { echo "apk-tools-static not in APKINDEX"; exit 1; }
+          wget -q "$REPO_URL/$APK_PKG"
+          tar -xzf "$APK_PKG"
+
+          mkdir -p /mnt/target/etc/apk
+          cat > /mnt/target/etc/apk/repositories <<EOF
+          $ALPINE_MIRROR/$ALPINE_VERSION/main
+          $ALPINE_MIRROR/$ALPINE_VERSION/community
+          EOF
+
+          /tmp/apk-static/sbin/apk.static \
+            --root /mnt/target --initdb --allow-untrusted \
+            --repositories-file /mnt/target/etc/apk/repositories \
+            add alpine-base
+
+      # ── 4. Configure the system inside a chroot ──────────────────────
+      - shell: |
+          set -eux
+          mount --bind /dev    /mnt/target/dev
+          mount --bind /dev/pts /mnt/target/dev/pts
+          mount -t proc proc   /mnt/target/proc
+          mount -t sysfs sys   /mnt/target/sys
+          cp /etc/resolv.conf  /mnt/target/etc/resolv.conf
+
+          chroot /mnt/target /bin/sh -e <<'CHROOT'
+          set -eux
+
+          apk add --no-cache \
+            linux-lts \
+            linux-firmware-none \
+            grub grub-bios grub-efi \
+            efibootmgr \
+            openssh \
+            qemu-guest-agent \
+            socat \
+            acpid \
+            doas \
+            e2fsprogs \
+            pciutils \
+            lshw \
+            blkid \
+            mkinitfs
+
+          cat > /etc/fstab <<EOF
+          LABEL=root  /          ext4  defaults,noatime  0 1
+          LABEL=EFI   /boot/efi  vfat  defaults          0 2
+          EOF
+
+          cat > /etc/default/grub <<EOF
+          GRUB_TIMEOUT=0
+          GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+          GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200n8"
+          GRUB_TERMINAL="console serial"
+          GRUB_SERIAL_COMMAND="serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1"
+          GRUB_DISABLE_OS_PROBER=true
+          EOF
+
+          echo 'ttyS0::respawn:/sbin/getty -L ttyS0 115200 vt100' >> /etc/inittab
+
+          cat > /etc/network/interfaces <<EOF
+          auto lo
+          iface lo inet loopback
+
+          auto eth0
+          iface eth0 inet dhcp
+          EOF
+
+          echo "corvus-test" > /etc/hostname
+          echo "127.0.0.1 corvus-test localhost" > /etc/hosts
+
+          # vsock kernel modules
+          # Mainline OpenSSH does not speak AF_VSOCK natively; sshd
+          # listens on TCP and a small socat relay forwards
+          # AF_VSOCK:22 → 127.0.0.1:22.
+          cat >> /etc/modules <<EOF
+          vsock
+          vmw_vsock_virtio_transport
+          EOF
+
+          adduser -D -s /bin/sh corvus
+          echo 'corvus:corvus' | chpasswd
+          mkdir -p /home/corvus/.ssh
+          chmod 700 /home/corvus/.ssh
+          chown corvus:corvus /home/corvus/.ssh
+
+          mkdir -p /etc/doas.d
+          echo 'permit nopass corvus' > /etc/doas.d/corvus.conf
+          chmod 400 /etc/doas.d/corvus.conf
+
+          ssh-keygen -A
+          sed -i \
+            -e 's/^#*PermitRootLogin.*/PermitRootLogin no/' \
+            -e 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' \
+            -e 's/^#*PubkeyAuthentication.*/PubkeyAuthentication yes/' \
+            /etc/ssh/sshd_config
+
+          mkdir -p /etc/conf.d
+          cat > /etc/conf.d/qemu-guest-agent <<EOF
+          GA_PATH="/dev/virtio-ports/org.qemu.guest_agent.0"
+          GA_METHOD="virtio-serial"
+          EOF
+
+          cat > /etc/init.d/vsock-sshd <<'INIT'
+          #!/sbin/openrc-run
+          description="Forward AF_VSOCK:22 to local sshd on 127.0.0.1:22"
+          command="/usr/bin/socat"
+          command_args="VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22"
+          command_background=true
+          pidfile="/run/${RC_SVCNAME}.pid"
+
+          depend() {
+              need sshd
+              after net
+          }
+          INIT
+          chmod +x /etc/init.d/vsock-sshd
+
+          rc-update add devfs sysinit
+          rc-update add dmesg sysinit
+          rc-update add mdev sysinit
+          rc-update add hwdrivers sysinit
+
+          rc-update add hwclock boot
+          rc-update add modules boot
+          rc-update add sysctl boot
+          rc-update add hostname boot
+          rc-update add bootmisc boot
+          rc-update add syslog boot
+          rc-update add qemu-guest-agent boot
+
+          rc-update add acpid default
+          rc-update add networking default
+          rc-update add sshd default
+          rc-update add vsock-sshd default
+
+          rc-update add mount-ro shutdown
+          rc-update add killprocs shutdown
+          rc-update add savecache shutdown
+
+          echo 'features="ata base ext4 keymap kms scsi usb virtio"' > /etc/mkinitfs/mkinitfs.conf
+          KERNEL_VERSION=$(ls /lib/modules/ | head -1)
+          mkinitfs "$KERNEL_VERSION"
+          CHROOT
+
+      # ── 5. Install GRUB (BIOS + UEFI) and write a static grub.cfg ────
+      - shell: |
+          set -eux
+          # BIOS bootloader: writes core.img into the BIOS-boot partition.
+          chroot /mnt/target grub-install --target=i386-pc --boot-directory=/boot /dev/vdb
+          # UEFI bootloader: removable-media path (BOOT/BOOTX64.EFI) so
+          # the firmware finds it without an OVMF NVRAM entry.
+          chroot /mnt/target grub-install --target=x86_64-efi \
+            --efi-directory=/boot/efi --boot-directory=/boot \
+            --no-nvram --removable
+          cat > /mnt/target/boot/grub/grub.cfg <<'GRUB_CFG'
+          set timeout=0
+
+          serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1
+          terminal_input serial console
+          terminal_output serial console
+
+          menuentry "Alpine Linux" {
+              linux /boot/vmlinuz-lts root=LABEL=root modules=ext4 quiet console=tty0 console=ttyS0,115200n8
+              initrd /boot/initramfs-lts
+          }
+          GRUB_CFG
+
+      # ── 6. Inject the test SSH public key as authorized_keys ─────────
+      - file:
+          from: ./corvus-test-key.pub
+          to: /mnt/target/home/corvus/.ssh/authorized_keys
+          mode: "0600"
+
+      - shell: |
+          set -eux
+          chroot /mnt/target chown corvus:corvus /home/corvus/.ssh/authorized_keys
+
+      # ── 7. Unmount everything before publish ─────────────────────────
+      - shell: |
+          set -eux
+          sync
+          umount /mnt/target/dev/pts
+          umount /mnt/target/dev
+          umount /mnt/target/proc
+          umount /mnt/target/sys
+          umount /mnt/target/boot/efi
+          umount /mnt/target

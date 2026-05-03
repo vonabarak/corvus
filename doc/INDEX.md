@@ -24,7 +24,17 @@
 
 ## Examples
 
-- [doc/apply-examples/example-apply.yml](apply-examples/example-apply.yml) -- Full environment with UEFI, networking, templates
-- [doc/apply-examples/multi-os.yml](apply-examples/multi-os.yml) -- Multi-OS template library
-- [doc/apply-examples/test-images.yml](apply-examples/test-images.yml) -- Local test images (Alpine + Windows)
+YAML configurations live under [yaml/](../yaml/), with one subdirectory per
+self-contained scenario (each containing the apply YAML, build YAML, and
+any companion files like kernel configs or autounattend answer files):
+
+- [yaml/example-apply/](../yaml/example-apply/) -- Full environment with UEFI, networking, templates
+- [yaml/multi-os/](../yaml/multi-os/) -- Multi-OS template library (shared prereq for several builds)
+- [yaml/test-images/](../yaml/test-images/) -- Local test image VMs (Alpine + Windows)
+- [yaml/alpine-test/](../yaml/alpine-test/) -- Build the minimal Alpine integration-test image
+- [yaml/windows-server-2025/](../yaml/windows-server-2025/) -- Build a Windows Server 2025 image
+- [yaml/gentoo-headless/](../yaml/gentoo-headless/) -- Build a minimal headless Gentoo image
+- [yaml/gentoo-corvus/](../yaml/gentoo-corvus/) -- Build a Gentoo image with the Corvus toolchain
+- [yaml/debian-nginx/](../yaml/debian-nginx/) -- Bake nginx onto a Debian 12 base
+- [yaml/ubuntu-nginx/](../yaml/ubuntu-nginx/) -- Bake nginx onto an Ubuntu 24.04 base
 - [doc/template-example.yml](template-example.yml) -- Standalone template file

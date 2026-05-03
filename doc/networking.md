@@ -132,7 +132,7 @@ This setup:
 - Does not require root privileges to start VMs or attach network interfaces — only the initial VDE switch setup needs root (one-time systemd service).
 - Is not isolated inside a namespace like Corvus managed networks, so host processes can reach VM IPs directly.
 
-This is the network configuration assumed by the [multi-os.yml](apply-examples/multi-os.yml) and [test-images.yml](apply-examples/test-images.yml) example apply configurations.
+This is the network configuration assumed by the [multi-os.yml](../yaml/multi-os/multi-os.yml) and [test-images.yml](../yaml/test-images/test-images.yml) example apply configurations.
 
 ### 1. Install VDE
 

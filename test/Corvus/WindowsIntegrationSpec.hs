@@ -6,7 +6,7 @@
 --
 -- Requirements:
 --   - Pre-built Windows test image at .test-images/windows-server-eval.qcow2
---     (build with: scripts/build-windows-test-image.sh)
+--     (build with: make test-image-windows)
 --   - UEFI firmware (OVMF)
 --   - QEMU with KVM support
 --   - PostgreSQL for test database
@@ -59,7 +59,7 @@ withWindowsImage action = do
       pendingWith $
         "Windows test image not found at "
           ++ imagePath
-          ++ ". Build with: scripts/build-windows-test-image.sh"
+          ++ ". Build with: make test-image-windows"
     else action imagePath
 
 spec :: Spec

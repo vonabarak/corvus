@@ -214,7 +214,11 @@ make test-image-alpine       # Alpine Linux only
 make test-image-windows      # Windows Server 2025 only (downloads evaluation ISO)
 ```
 
-The Alpine image is a cloud-init-enabled qcow2 built via QEMU. The Windows image is built from a Microsoft evaluation ISO with cloudbase-init and VirtIO drivers pre-installed. These are the same images referenced by `doc/apply-examples/test-images.yml`.
+Both images are built declaratively via `crv build` — see
+[yaml/alpine-test/](../yaml/alpine-test/) and
+[yaml/windows-server-2025/](../yaml/windows-server-2025/). The
+artifacts are the same images referenced by
+[yaml/test-images/test-images.yml](../yaml/test-images/test-images.yml).
 
 ### Running Locally
 

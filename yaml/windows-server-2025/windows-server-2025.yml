@@ -66,12 +66,8 @@ builds:
     # Edit `windows-autounattend.xml` and re-run `crv build` — no
     # out-of-band `mkfs.fat`/`mcopy`.
     #
-    # `filename:` overrides the default (basename of `from`); Windows
-    # Setup specifically looks for `autounattend.xml` at the root of
-    # any removable media, regardless of the source file's name.
     floppy:
-      from: ../../scripts/windows-autounattend.xml
-      filename: autounattend.xml
+      from: ./autounattend.xml
 
     # No QGA-based provisioners: autounattend.xml does it all.
     provisioners: []

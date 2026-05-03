@@ -130,8 +130,8 @@ The template for an `installer` build typically has
 40 GiB blank disk via `strategy: create` as its first drive, and the
 vendor install ISO + any driver ISO as `media: cdrom` drives. The
 floppy itself is per-build content, not part of the template. See
-[doc/build-examples/windows-server-2025.yml](build-examples/windows-server-2025.yml)
-and its paired [doc/apply-examples/windows-installer.yml](apply-examples/windows-installer.yml)
+[yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml)
+and its paired [yaml/windows-server-2025/windows-installer.yml](../yaml/windows-server-2025/windows-installer.yml)
 for a worked Windows Server 2025 example.
 
 ### `overlay` (default)
@@ -253,34 +253,43 @@ corvus_version: 0.9.0.0
 
 ## Example
 
-Several builds are shipped:
+Several builds are shipped under [yaml/](../yaml/), grouped by topic
+(each subdirectory has the build YAML, its prerequisite apply YAML
+when applicable, and any companion files like kernel configs or
+answer files):
 
 Overlay builds (use templates from
-[doc/apply-examples/multi-os.yml](apply-examples/multi-os.yml); apply
+[yaml/multi-os/multi-os.yml](../yaml/multi-os/multi-os.yml); apply
 once before building):
 
-- [doc/build-examples/debian-nginx.yml](build-examples/debian-nginx.yml) —
+- [yaml/debian-nginx/debian-nginx.yml](../yaml/debian-nginx/debian-nginx.yml) —
   Debian 12 with nginx preinstalled (`debian12` template).
-- [doc/build-examples/ubuntu-nginx.yml](build-examples/ubuntu-nginx.yml) —
+- [yaml/ubuntu-nginx/ubuntu-nginx.yml](../yaml/ubuntu-nginx/ubuntu-nginx.yml) —
   Ubuntu 24.04 LTS with nginx preinstalled (`ubuntu24` template).
-- [doc/build-examples/gentoo-corvus.yml](build-examples/gentoo-corvus.yml) —
+- [yaml/gentoo-corvus/gentoo-corvus.yml](../yaml/gentoo-corvus/gentoo-corvus.yml) —
   Gentoo image preloaded with the full Corvus build/test toolchain
   (`gentoo20260412` template). The bake takes ~15 minutes.
 
-From-scratch build:
+From-scratch builds:
 
-- [doc/build-examples/gentoo-headless.yml](build-examples/gentoo-headless.yml) —
+- [yaml/gentoo-headless/gentoo-headless.yml](../yaml/gentoo-headless/gentoo-headless.yml) —
   minimal headless Gentoo on an empty target disk, custom kernel
-  (BIOS-boot GPT), built by emerging into a sysroot.
+  (BIOS-boot GPT), built by emerging into a sysroot. Bundles the
+  kernel `.config` next to the YAML.
+- [yaml/alpine-test/alpine-test.yml](../yaml/alpine-test/alpine-test.yml) —
+  the integration-test Alpine image (BIOS+UEFI, sshd, qemu-ga,
+  vsock-sshd), bootstrapped with `apk-tools-static` inside a Debian
+  bake VM.
 
 Installer build (uses
-[doc/apply-examples/windows-installer.yml](apply-examples/windows-installer.yml);
-needs the Windows Server 2025 ISO + virtio-win ISO + an autounattend
-floppy pre-cached at `~/.test-images/`):
+[yaml/windows-server-2025/windows-installer.yml](../yaml/windows-server-2025/windows-installer.yml);
+needs the Windows Server 2025 ISO + virtio-win ISO pre-cached at
+`~/.test-images/` on the daemon host):
 
-- [doc/build-examples/windows-server-2025.yml](build-examples/windows-server-2025.yml) —
+- [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml) —
   Windows Server 2025 with qemu-guest-agent + cloudbase-init,
-  installed unattended via `autounattend.xml` on a floppy.
+  installed unattended via the bundled `autounattend.xml` on a
+  floppy that the build materialises automatically.
 
 All builds rely on the host having a VDE switch at `/run/vde2/switch.ctl`
 (the network type used by every template); the bake VMs need outbound

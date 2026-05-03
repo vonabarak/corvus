@@ -160,7 +160,7 @@ OpenSSH does not speak AF_VSOCK natively in the client; the connection always tr
 The guest must terminate AF_VSOCK on port 22. Either:
 
 - **systemd v256+ guest with `openssh-server`** — sshd is socket-activated on AF_VSOCK automatically, no extra config.
-- **Older / non-systemd guest** — run a small relay (e.g., `socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22`) as a service. The Corvus test image (`scripts/build-test-image.sh`) sets this up via an OpenRC unit `vsock-sshd`.
+- **Older / non-systemd guest** — run a small relay (e.g., `socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22`) as a service. The Corvus Alpine test image (built by [yaml/alpine-test/alpine-test.yml](../yaml/alpine-test/alpine-test.yml)) sets this up via an OpenRC unit `vsock-sshd`.
 
 The host kernel autoloads `vhost_vsock` when the device is added; no manual modprobe is required.
 
