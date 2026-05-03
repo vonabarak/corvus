@@ -39,10 +39,12 @@ disks:
     import: "https://software-static.download.prss.microsoft.com/dbazure/998969d5-f34g-4e03-ac9d-1f9786c66749/26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
     format: raw
     path: ISOs/Windows/
+    md5: 13794bbbdb2557830a429d0a29b98e6c
   - name: virtio-win-iso
     import: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
     format: raw
     path: ISOs/VirtIO/
+    md5: 9e650d0e7c6e017a91ca299c8f7ed766
 
 templates:
   - name: windows-server-2025-installer

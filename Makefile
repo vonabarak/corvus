@@ -95,7 +95,7 @@ test-image-alpine:
 	test -f .test-images/corvus-test-key || \
 	  ssh-keygen -t ed25519 -f .test-images/corvus-test-key -N '' -C corvus-test
 	cp .test-images/corvus-test-key.pub yaml/alpine-test/corvus-test-key.pub
-	crv apply yaml/multi-os/multi-os.yml --skip-existing
+	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
 	crv build yaml/alpine-test/alpine-test.yml --wait
 	rm -f yaml/alpine-test/corvus-test-key.pub
 	# Symlink the registered artifact into .test-images/ so the
@@ -113,7 +113,7 @@ test-image-alpine:
 # `crv build` from yaml/windows-server-2025/autounattend.xml — edit
 # it freely; no manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM.
 test-image-windows:
-	crv apply yaml/windows-server-2025/windows-installer.yml --skip-existing
+	crv apply yaml/windows-server-2025/windows-installer.yml --skip-existing --wait
 	crv build yaml/windows-server-2025/windows-server-2025.yml --wait
 	mkdir -p .test-images
 	@artifact=$$(crv -o yaml disk show windows-server-2025-eval \

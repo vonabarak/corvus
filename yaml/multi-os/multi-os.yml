@@ -31,26 +31,31 @@ disks:
     import: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
     format: qcow2
     path: BaseImages/Debian/
+    md5: 178d60602f4a4db34b3cea710a577cff
 
   - name: ubuntu-24.04-server-base
     import: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
     format: qcow2
     path: BaseImages/Ubuntu/
+    md5: 43a22d3a1533fd0c70b9f4e8c406cf98
 
   - name: almalinux-10-base
     import: "https://repo.almalinux.org/almalinux/10/cloud/x86_64_v2/images/AlmaLinux-10-GenericCloud-10.1-20251125.0.x86_64_v2.qcow2"
     format: qcow2
     path: BaseImages/Almalinux/
+    md5: 9e449eca3f05709becad8b60be2c31bd
 
   - name: freebsd-14-base
     import: "https://download.freebsd.org/releases/VM-IMAGES/14.4-RELEASE/amd64/Latest/FreeBSD-14.4-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz"
     format: qcow2
     path: BaseImages/FreeBSD/
+    md5: ba70095c3764013d536f3bb02d6689c5
 
   - name: gentoo-20260412-base
     import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260426T153103Z.qcow2"
     format: qcow2
     path: BaseImages/Gentoo/
+    md5: b24f9629589a903157306426557f1c36
 
 # ── YAML anchors for shared template settings ──────────────────────────
 # Anchors defined on ignored top-level keys (only sshKeys, disks,
