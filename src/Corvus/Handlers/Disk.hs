@@ -437,19 +437,33 @@ handleDiskResize state diskId newSizeMb = runServerLogging state $ do
                 ImageNotFound -> pure RespDiskNotFound
                 ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
 
--- | List all disk images
+-- | List all disk images. The 'diiFilePath' field is rewritten to an
+-- absolute path so clients (Makefile, integration scripts) can use it
+-- directly without knowing the daemon's disk base.
 handleDiskList :: ServerState -> IO Response
 handleDiskList state = do
   disks <- runSqlPool listDiskImages (ssDbPool state)
-  pure $ RespDiskList disks
+  basePath <- getEffectiveBasePath (ssQemuConfig state)
+  pure $ RespDiskList (map (absolutizeDiskFilePath basePath) disks)
 
--- | Show disk image details
+-- | Show disk image details. As with 'handleDiskList', 'diiFilePath'
+-- in the response is absolute.
 handleDiskShow :: ServerState -> Int64 -> IO Response
 handleDiskShow state diskId = do
   mInfo <- runSqlPool (getDiskImageInfo diskId) (ssDbPool state)
   case mInfo of
     Nothing -> pure RespDiskNotFound
-    Just info -> pure $ RespDiskInfo info
+    Just info -> do
+      basePath <- getEffectiveBasePath (ssQemuConfig state)
+      pure $ RespDiskInfo (absolutizeDiskFilePath basePath info)
+
+-- | Promote 'diiFilePath' to an absolute path. The DB stores paths
+-- relative to the daemon's base; clients need the absolute form.
+absolutizeDiskFilePath :: FilePath -> DiskImageInfo -> DiskImageInfo
+absolutizeDiskFilePath basePath info =
+  let raw = T.unpack (diiFilePath info)
+      absPath = if "/" `isPrefixOf` raw then raw else basePath </> raw
+   in info {diiFilePath = T.pack absPath}
 
 --------------------------------------------------------------------------------
 -- Action Types

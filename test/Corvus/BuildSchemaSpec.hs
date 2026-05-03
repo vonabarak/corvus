@@ -270,6 +270,22 @@ spec = describe "Schema.Build" $ do
             Nothing -> expectationFailure "floppy parsed as Nothing"
         Left e -> expectationFailure e
 
+    it "parses target.path" $ do
+      let yaml =
+            BS8.unlines
+              [ "builds:"
+              , "  - name: x"
+              , "    template: t"
+              , "    target:"
+              , "      name: o"
+              , "      path: alpine-test/"
+              ]
+      case decodeBuilds yaml of
+        Right c -> do
+          let [b] = bcBuilds c
+          btPath (buildTarget b) `shouldBe` Just "alpine-test/"
+        Left e -> expectationFailure e
+
     it "leaves buildFloppy=Nothing when no floppy: key is present" $ do
       let yaml =
             BS8.unlines

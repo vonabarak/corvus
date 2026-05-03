@@ -61,6 +61,7 @@ builds:
       format: qcow2                      # default: qcow2
       sizeGb: 10                         # only used by from-scratch strategy
       compact: true                      # qemu-img -c rewrite at end (default true)
+      path: builds/debian/               # optional, see below
 
     strategy: overlay                    # overlay (default) | from-scratch
 
@@ -91,6 +92,31 @@ builds:
 
     cleanup: always                      # always (default) | onSuccess | never
 ```
+
+### `target.path`
+
+Optional. Controls the on-disk location of the published artifact.
+Same semantics as `path:` on `apply` YAML's `disks:` entries:
+
+| `path:` value | Resulting file location |
+|---|---|
+| omitted | `<basePath>/<name>.<ext>` |
+| `subdir/` (trailing `/`) | `<basePath>/subdir/<name>.<ext>` |
+| `subdir/file.qcow2` | `<basePath>/subdir/file.qcow2` |
+| `/abs/dir/` | `/abs/dir/<name>.<ext>` (absolute) |
+| `/abs/file.qcow2` | `/abs/file.qcow2` (absolute) |
+
+Without `path:`, the artifact is moved out of the bake VM's
+ephemeral runtime directory into the disk-base root. With `path:`,
+it goes wherever you say, including absolute paths on different
+filesystems (the daemon falls back to `copy + delete` if the
+in-place rename crosses a filesystem boundary).
+
+The `<ext>` is derived from `target.format` (`qcow2`, `raw`, …).
+
+`crv disk show <name>` reports the absolute path the artifact ended
+up at, so callers (`make` recipes, integration scripts) can resolve
+the location without knowing the daemon's disk base.
 
 ## Strategies
 

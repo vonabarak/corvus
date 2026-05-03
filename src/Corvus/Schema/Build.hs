@@ -76,11 +76,26 @@ instance FromJSON Build where
       <*> o .:? "waitForShutdownSec" .!= 3600
       <*> o .:? "floppy"
 
+-- | The artifact disk produced by a build.
+--
+-- The optional 'btPath' field controls where the published qcow2
+-- file lives on disk; it has the same semantics as the @path:@
+-- field on @apply@ YAML's @disks:@ entries:
+--
+--   * 'Nothing'  — file lands at @\<basePath\>\/\<name\>.\<ext\>@.
+--   * @Just \"\/abs\"@ — absolute path, used verbatim.
+--   * @Just \"rel\"@ — relative to the daemon's disk base.
+--   * Trailing @\/@ ⇒ directory; @\<name\>.\<ext\>@ is appended.
+--
+-- See @Corvus.Handlers.Disk.Path.resolveDiskFilePathPure@ for the
+-- exact rules. With no path, the file is moved out of the bake VM's
+-- ephemeral runtime directory into the disk base on publish.
 data BuildTarget = BuildTarget
   { btName :: Text
   , btFormat :: DriveFormat
   , btSizeGb :: Int
   , btCompact :: Bool
+  , btPath :: Maybe Text
   }
   deriving (Show)
 
@@ -91,6 +106,7 @@ instance FromJSON BuildTarget where
       <*> o .:? "format" .!= FormatQcow2
       <*> o .:? "sizeGb" .!= 10
       <*> o .:? "compact" .!= True
+      <*> o .:? "path"
 
 data BuildStrategy
   = BuildStrategyOverlay

@@ -131,7 +131,6 @@ library
       Corvus.Handlers.Apply
       Corvus.Handlers.Build
       Corvus.Handlers.Build.Cleanup
-      Corvus.Handlers.Build.Floppy
       Corvus.Handlers.Build.Provenance
       Corvus.Handlers.CloudInit
       Corvus.Handlers.Lifecycle
@@ -141,6 +140,7 @@ library
       Corvus.Client.Completion
   other-modules:
       Corvus.Client.Commands.Network
+      Corvus.Handlers.Build.Floppy
       Corvus.Handlers.Network
       Corvus.Handlers.Resolve
       Corvus.Qemu.QmpQQ

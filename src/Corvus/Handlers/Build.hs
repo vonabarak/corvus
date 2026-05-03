@@ -39,7 +39,7 @@ import Corvus.Handlers.Build.Floppy (buildFloppyImage)
 import Corvus.Handlers.Build.Provenance (renderBuildInfo)
 import Corvus.Handlers.Disk (DiskCreate (..), DiskDelete (..), DiskRebase (..))
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
-import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskPath)
+import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..))
@@ -67,7 +67,8 @@ import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 import Paths_corvus (version)
-import System.FilePath ((</>))
+import System.Directory (copyFile, createDirectoryIfMissing, removeDirectory, removeFile, renameFile)
+import System.FilePath (takeDirectory, (</>))
 
 --------------------------------------------------------------------------------
 -- Top-level Action
@@ -405,16 +406,15 @@ runOneBuildBody state parentTaskId sink stack startTime b = do
                                 case classifyStopResp stopResp of
                                   Left err -> pure $ Left $ "stop bake VM: " <> err
                                   Right () -> do
-                                    -- 7. Detach artifact, rename, optional flatten + compact
+                                    -- 7. Detach artifact, rename, optional flatten + compact, relocate
                                     publishResult <-
                                       publishArtifact
                                         state
                                         parentTaskId
                                         vmIdLong
                                         artifactDiskId
-                                        (btName target)
+                                        target
                                         needFlatten
-                                        (btCompact target)
                                     case publishResult of
                                       Left err -> pure $ Left err
                                       Right () ->
@@ -563,9 +563,8 @@ runInstallerPhase state parentTaskId sink vmId artifactDiskId target needFlatten
           parentTaskId
           vmId
           artifactDiskId
-          (btName target)
+          target
           needFlatten
-          (btCompact target)
       case publishResult of
         Left err -> pure $ Left err
         Right () -> pure $ Right artifactDiskId
@@ -1012,14 +1011,12 @@ publishArtifact
   -- ^ bake VM ID (so we can detach the artifact drive)
   -> Int64
   -- ^ artifact disk ID
-  -> Text
-  -- ^ desired final name
+  -> BuildTarget
+  -- ^ target spec (name, format, compact, path, …)
   -> Bool
   -- ^ flatten? (overlay strategy)
-  -> Bool
-  -- ^ compact?
   -> LoggingT IO (Either Text ())
-publishArtifact state parentTaskId vmId diskId finalName needFlatten compact = do
+publishArtifact state parentTaskId vmId diskId target needFlatten = do
   -- 1. Detach the drive so VmDelete doesn't take the disk down with it.
   detachResp <-
     liftIO $
@@ -1030,7 +1027,7 @@ publishArtifact state parentTaskId vmId diskId finalName needFlatten compact = d
     _ -> logWarnN "detach artifact drive: unexpected response"
   -- 2. Rename the disk in-DB.
   renameRes <-
-    liftIO $ renameDiskByName state diskId finalName
+    liftIO $ renameDiskByName state diskId (btName target)
   case renameRes of
     Left err -> pure $ Left $ "rename artifact: " <> err
     Right () -> do
@@ -1053,8 +1050,68 @@ publishArtifact state parentTaskId vmId diskId finalName needFlatten compact = d
         Left err -> pure $ Left err
         Right () -> do
           -- 4. Compact if asked.
-          when compact $ compactDisk state diskId
-          pure $ Right ()
+          when (btCompact target) $ compactDisk state diskId
+          -- 5. Relocate to the target's `path:` if set, else to
+          --    `<basePath>/<name>.<ext>` (out of the bake VM's dir).
+          relocateArtifact state diskId target
+
+-- | Move the artifact qcow2 from wherever the bake VM left it to
+-- the location implied by `BuildTarget` ('btPath' / 'btName' /
+-- 'btFormat'), then update the 'DiskImage' row's 'filePath' so
+-- subsequent lookups resolve to the new location.
+--
+-- A no-op when the resolved destination matches the current path.
+-- Falls back to @copy + delete@ if `renameFile` raises (typically
+-- @EXDEV@ — the destination is on a different filesystem from the
+-- daemon's disk base; happens with absolute `path:` values).
+--
+-- The bake-VM's now-empty parent directory is removed best-effort;
+-- failures are swallowed (the standard cleanup pass picks up the
+-- slack if siblings remain).
+relocateArtifact :: ServerState -> Int64 -> BuildTarget -> LoggingT IO (Either Text ())
+relocateArtifact state diskId target = do
+  basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+  case mDisk of
+    Nothing -> pure $ Left "relocate: disk vanished from DB"
+    Just disk -> do
+      current <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+      let ext = T.unpack (enumToText (btFormat target))
+          fileName = T.unpack (btName target) <> "." <> ext
+          desired = resolveDiskFilePathPure basePath (btPath target) fileName
+      if current == desired
+        then pure $ Right ()
+        else do
+          logInfoN $ "relocating artifact: " <> T.pack current <> " -> " <> T.pack desired
+          liftIO $ createDirectoryIfMissing True (takeDirectory desired)
+          moveRes <- liftIO (try (renameFile current desired) :: IO (Either IOError ()))
+          case moveRes of
+            Right () -> finalize basePath current desired
+            Left _ -> do
+              -- EXDEV (cross-device) or similar: copy then delete.
+              copyRes <-
+                liftIO
+                  ( try
+                      (copyFile current desired >> removeFile current) ::
+                      IO (Either IOError ())
+                  )
+              case copyRes of
+                Left e -> pure $ Left $ "relocate failed: " <> T.pack (show e)
+                Right () -> finalize basePath current desired
+  where
+    finalize basePath oldPath newPath = do
+      liftIO $
+        runSqlPool
+          ( update
+              (toSqlKey diskId :: DiskImageId)
+              [DiskImageFilePath =. makeRelativeToBase basePath newPath]
+          )
+          (ssDbPool state)
+      -- Best-effort: drop the now-empty bake-VM directory.
+      _ <-
+        liftIO
+          (try (removeDirectory (takeDirectory oldPath)) :: IO (Either SomeException ()))
+      pure $ Right ()
 
 renameDiskByName :: ServerState -> Int64 -> Text -> IO (Either Text ())
 renameDiskByName state diskId newName = do

@@ -38,6 +38,10 @@ builds:
       format: qcow2
       sizeGb: 1
       compact: true
+      # Place the artifact under `<basePath>/alpine-test/` for tidy
+      # organisation; the Makefile's `test-image-alpine` target then
+      # symlinks it into `.test-images/` for the integration tests.
+      path: alpine-test/
 
     strategy: from-scratch
 

@@ -49,7 +49,7 @@ templates:
     description: "Windows Server 2025 unattended installer (bake-only)"
     cpuCount: 4
     ramMb: 4096
-    headless: true
+    headless: false
     cloudInit: false
     # The installer ISO drives the entire bake; QGA is installed late
     # by FirstLogonCommands. We don't wait for it — the build's

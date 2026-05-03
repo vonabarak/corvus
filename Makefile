@@ -98,6 +98,12 @@ test-image-alpine:
 	crv apply yaml/multi-os/multi-os.yml --skip-existing
 	crv build yaml/alpine-test/alpine-test.yml --wait
 	rm -f yaml/alpine-test/corvus-test-key.pub
+	# Symlink the registered artifact into .test-images/ so the
+	# integration-test harness (test/Test/VM/Image.hs) finds it.
+	@artifact=$$(crv -o yaml disk show corvus-test \
+	             | awk '/^file_path:/ {print $$2; exit}'); \
+	  ln -sf "$$artifact" .test-images/corvus-test.qcow2; \
+	  echo "linked .test-images/corvus-test.qcow2 -> $$artifact"
 
 # Build the Windows Server 2025 test image.
 #
@@ -109,6 +115,11 @@ test-image-alpine:
 test-image-windows:
 	crv apply yaml/windows-server-2025/windows-installer.yml --skip-existing
 	crv build yaml/windows-server-2025/windows-server-2025.yml --wait
+	mkdir -p .test-images
+	@artifact=$$(crv -o yaml disk show windows-server-2025-eval \
+	             | awk '/^file_path:/ {print $$2; exit}'); \
+	  ln -sf "$$artifact" .test-images/windows-server-eval.qcow2; \
+	  echo "linked .test-images/windows-server-eval.qcow2 -> $$artifact"
 
 # Format the code using fourmolu
 format:
