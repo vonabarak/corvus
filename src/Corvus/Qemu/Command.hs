@@ -317,6 +317,17 @@ driveArgs basePath (idx, (drive, mDiskImage)) = case mDiskImage of
             , if driveReadOnly drive then Just "readonly=on" else Nothing
             ]
       ]
+    -- Floppy: only file+format+if=floppy. cache/discard/media don't apply.
+    InterfaceFloppy ->
+      [ "-drive"
+      , intercalate "," $
+          catMaybes
+            [ Just $ "file=" ++ filePath diskImage
+            , Just $ "format=" ++ T.unpack (enumToText $ diskImageFormat diskImage)
+            , Just "if=floppy"
+            , if driveReadOnly drive then Just "readonly=on" else Nothing
+            ]
+      ]
     -- Regular drives
     _ ->
       [ "-drive"

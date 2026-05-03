@@ -54,6 +54,34 @@ spec = describe "Schema.Build" $ do
           buildCleanup b `shouldBe` CleanupAlways
           bvmCpuCount (buildVm b) `shouldBe` 4
           bvmRamMb (buildVm b) `shouldBe` 4096
+          buildBootKeys b `shouldBe` []
+          buildWaitForShutdownSec b `shouldBe` 3600
+        Left e -> expectationFailure e
+
+    it "parses installer strategy with bootKeys + waitForShutdownSec" $ do
+      let yaml =
+            BS8.unlines
+              [ "builds:"
+              , "  - name: win"
+              , "    template: tpl"
+              , "    target: { name: out }"
+              , "    strategy: installer"
+              , "    waitForShutdownSec: 1800"
+              , "    bootKeys:"
+              , "      - keys: ret"
+              , "        delaySec: 3"
+              , "        repeat: 5"
+              , "        intervalSec: 1"
+              , "      - keys: esc"
+              ]
+      case decodeBuilds yaml of
+        Right c -> do
+          let [b] = bcBuilds c
+          buildStrategy b `shouldBe` BuildStrategyInstaller
+          buildWaitForShutdownSec b `shouldBe` 1800
+          map bkKeys (buildBootKeys b) `shouldBe` ["ret", "esc"]
+          map bkDelaySec (buildBootKeys b) `shouldBe` [3, 0]
+          map bkRepeat (buildBootKeys b) `shouldBe` [5, 1]
         Left e -> expectationFailure e
 
     it "rejects unknown strategy" $

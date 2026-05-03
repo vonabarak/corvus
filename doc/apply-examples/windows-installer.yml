@@ -1,0 +1,98 @@
+---
+# Windows Server 2025 installer template.
+#
+# Pairs with doc/build-examples/windows-server-2025.yml.
+#
+# Before applying:
+#   - Cache the Windows Server 2025 evaluation ISO at
+#     ~/.test-images/windows-server-2025-eval.iso
+#     (https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025)
+#   - Cache the VirtIO-Win drivers ISO at ~/.test-images/virtio-win.iso
+#     (https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso)
+#   - Build the autounattend floppy at ~/.test-images/autounattend.img:
+#       dd if=/dev/zero of=autounattend.img bs=1440k count=1
+#       mkfs.fat autounattend.img
+#       mcopy -i autounattend.img scripts/windows-autounattend.xml ::autounattend.xml
+#
+# The build then runs the bake VM headless, lets the autounattend.xml
+# install Windows + qemu-ga + cloudbase-init, waits for the guest to
+# shut itself down (final step of FirstLogonCommands is `shutdown /s
+# /t 30 /f`), and registers the artifact disk as
+# `windows-server-2025-eval`.
+
+disks:
+  # ── UEFI firmware (already present on most cloud images, but
+  #    redeclared here so this file stands alone if applied first) ───
+  - name: ovmf-code
+    register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
+    format: qcow2
+  - name: ovmf-vars
+    register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
+    format: qcow2
+
+  # ── Install media + autounattend.img (pre-cached on host) ─────────
+  - name: windows-server-2025-iso
+    register: "/home/corvus/.test-images/windows-server-2025-eval.iso"
+    format: raw
+  - name: virtio-win-iso
+    register: "/home/corvus/.test-images/virtio-win.iso"
+    format: raw
+  - name: windows-autounattend
+    register: "/home/corvus/.test-images/autounattend.img"
+    format: raw
+
+templates:
+  - name: windows-server-2025-installer
+    description: "Windows Server 2025 unattended installer (bake-only)"
+    cpuCount: 4
+    ramMb: 4096
+    headless: true
+    cloudInit: false
+    # The installer ISO drives the entire bake; QGA is installed late
+    # by FirstLogonCommands. We don't wait for it — the build's
+    # `installer` strategy waits for guest-initiated shutdown instead.
+    guestAgent: false
+    drives:
+      # The artifact: a fresh blank 40 GiB qcow2. The build's
+      # `installer` strategy treats the bake VM's first drive as the
+      # artifact, detaches it after the guest powers off, and
+      # registers it under the build's target.name.
+      - interface: virtio
+        media: disk
+        strategy: create
+        format: qcow2
+        sizeMb: 40960
+        cacheType: writeback
+      # UEFI firmware
+      - diskImageName: ovmf-code
+        interface: pflash
+        readOnly: true
+        strategy: direct
+      - diskImageName: ovmf-vars
+        interface: pflash
+        strategy: clone
+      # Windows install ISO — Windows mounts as D:
+      - diskImageName: windows-server-2025-iso
+        interface: ide
+        media: cdrom
+        readOnly: true
+        strategy: direct
+      # VirtIO-Win drivers + qemu-ga MSI — Windows mounts as E:.
+      # The autounattend.xml's DriverPaths and qemu-ga MSI install
+      # paths reference E:\ explicitly, so the order must be Windows
+      # ISO before VirtIO ISO.
+      - diskImageName: virtio-win-iso
+        interface: ide
+        media: cdrom
+        readOnly: true
+        strategy: direct
+      # Autounattend floppy — Windows finds it at A: on first boot
+      # of the install ISO and reads /autounattend.xml automatically.
+      - diskImageName: windows-autounattend
+        interface: floppy
+        readOnly: true
+        strategy: direct
+    networkInterfaces:
+      # Outbound internet for cloudbase-init MSI download.
+      - type: vde
+        hostDevice: /run/vde2/switch.ctl

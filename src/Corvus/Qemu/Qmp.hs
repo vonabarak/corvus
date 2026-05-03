@@ -19,6 +19,7 @@ module Corvus.Qemu.Qmp
 
     -- * Input injection
   , qmpSendCtrlAltDel
+  , qmpSendKey
 
     -- * Hot-plug commands
   , qmpBlockdevAdd
@@ -140,6 +141,28 @@ qmpSendCtrlAltDel config vmId =
       }
     |]
 
+-- | Send a sequence of QEMU @qcode@ keys to the VM as a single chord
+-- (all pressed and released together). For the @crv build@ installer
+-- strategy this is used to dismiss the "Press any key to boot from CD"
+-- prompt at UEFI firmware time. Use one call per key press; the QEMU
+-- @qcode@ vocabulary covers @ret@, @esc@, @spc@, @tab@, @up@/@down@,
+-- the alphanumerics, etc.
+qmpSendKey :: QemuConfig -> Int64 -> Text -> IO QmpResult
+qmpSendKey config vmId qcode =
+  sendQmpCommand
+    config
+    vmId
+    [qmpQQ|
+      {
+        "execute": "send-key",
+        "arguments": {
+          "keys": [
+            { "type": "qcode", "data": #{qcode} }
+          ]
+        }
+      }
+    |]
+
 --------------------------------------------------------------------------------
 -- Hot-plug Commands
 --------------------------------------------------------------------------------
@@ -216,6 +239,7 @@ interfaceToDriver InterfaceScsi = "scsi-hd"
 interfaceToDriver InterfaceSata = "ide-hd"
 interfaceToDriver InterfaceNvme = "nvme"
 interfaceToDriver InterfacePflash = "pflash"
+interfaceToDriver InterfaceFloppy = "floppy"
 
 -- | Remove a device (for hot-unplug)
 qmpDeviceDel

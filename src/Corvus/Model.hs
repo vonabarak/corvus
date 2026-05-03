@@ -203,6 +203,7 @@ data DriveInterface
   | InterfaceSata
   | InterfaceNvme
   | InterfacePflash
+  | InterfaceFloppy
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance Binary DriveInterface
@@ -216,6 +217,7 @@ instance EnumText DriveInterface where
     , (InterfaceSata, "sata")
     , (InterfaceNvme, "nvme")
     , (InterfacePflash, "pflash")
+    , (InterfaceFloppy, "floppy")
     ]
 
 instance FromJSON DriveInterface where

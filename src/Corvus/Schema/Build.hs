@@ -23,6 +23,7 @@ module Corvus.Schema.Build
   , WaitFor (..)
   , Reboot (..)
   , CleanupMode (..)
+  , BootKey (..)
   )
 where
 
@@ -53,6 +54,8 @@ data Build = Build
   , buildVm :: BuildVm
   , buildProvisioners :: [Provisioner]
   , buildCleanup :: CleanupMode
+  , buildBootKeys :: [BootKey]
+  , buildWaitForShutdownSec :: Int
   }
   deriving (Show)
 
@@ -67,6 +70,8 @@ instance FromJSON Build where
       <*> o .:? "vm" .!= defaultBuildVm
       <*> o .:? "provisioners" .!= []
       <*> o .:? "cleanup" .!= CleanupAlways
+      <*> o .:? "bootKeys" .!= []
+      <*> o .:? "waitForShutdownSec" .!= 3600
 
 data BuildTarget = BuildTarget
   { btName :: Text
@@ -84,14 +89,18 @@ instance FromJSON BuildTarget where
       <*> o .:? "sizeGb" .!= 10
       <*> o .:? "compact" .!= True
 
-data BuildStrategy = BuildStrategyOverlay | BuildStrategyFromScratch
+data BuildStrategy
+  = BuildStrategyOverlay
+  | BuildStrategyFromScratch
+  | BuildStrategyInstaller
   deriving (Eq, Show)
 
 instance FromJSON BuildStrategy where
   parseJSON = withText "BuildStrategy" $ \case
     "overlay" -> pure BuildStrategyOverlay
     "from-scratch" -> pure BuildStrategyFromScratch
-    other -> fail $ "unknown strategy '" <> T.unpack other <> "' (expected: overlay, from-scratch)"
+    "installer" -> pure BuildStrategyInstaller
+    other -> fail $ "unknown strategy '" <> T.unpack other <> "' (expected: overlay, from-scratch, installer)"
 
 data BuildVm = BuildVm
   { bvmCpuCount :: Int
@@ -239,3 +248,28 @@ instance FromJSON CleanupMode where
     "onSuccess" -> pure CleanupOnSuccess
     "never" -> pure CleanupNever
     other -> fail $ "unknown cleanup mode '" <> T.unpack other <> "' (expected: always, onSuccess, never)"
+
+-- | A scripted key press at bake-VM start, used by the @installer@
+-- strategy to dismiss firmware prompts (e.g. UEFI's "Press any key to
+-- boot from CD"). Sent via QMP @send-key@ shortly after the bake VM
+-- starts, before any cloud-init or guest agent activity.
+--
+-- @keys@ is a QEMU @qcode@ string (@ret@, @esc@, @spc@, @tab@, @up@,
+-- @down@, an alphanumeric, etc.). The press is repeated @repeat@
+-- times with @intervalSec@ seconds between presses, after waiting
+-- @delaySec@ seconds from VM start.
+data BootKey = BootKey
+  { bkKeys :: Text
+  , bkDelaySec :: Int
+  , bkRepeat :: Int
+  , bkIntervalSec :: Int
+  }
+  deriving (Eq, Show)
+
+instance FromJSON BootKey where
+  parseJSON = withObject "BootKey" $ \o ->
+    BootKey
+      <$> o .: "keys"
+      <*> o .:? "delaySec" .!= 0
+      <*> o .:? "repeat" .!= 1
+      <*> o .:? "intervalSec" .!= 1

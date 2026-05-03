@@ -94,6 +94,36 @@ builds:
 
 ## Strategies
 
+### `installer`
+
+For OSes whose vendor installer ships only as a bootable ISO with its
+own unattended-install mechanism (Windows answer file, Alpine
+`setup-alpine -e`, FreeBSD `bsdinstall script`). Corvus does not
+drive provisioners over QGA — it just starts the bake VM, optionally
+sends a few keystrokes via QMP `send-key` to dismiss firmware
+prompts, and waits for the guest to power itself off. The bake VM's
+first drive is captured as the artifact.
+
+```yaml
+strategy: installer
+bootKeys:
+  - keys: ret              # QEMU qcode (ret, esc, spc, tab, …)
+    delaySec: 3
+    repeat: 6
+    intervalSec: 1
+waitForShutdownSec: 3600   # max wall-clock seconds to wait
+provisioners: []           # not used for installer
+```
+
+The template for an `installer` build typically has
+`guestAgent: false` (the build does not depend on QGA), a fresh
+40 GiB blank disk via `strategy: create` as its first drive, the
+vendor install ISO + any driver ISO as `media: cdrom` drives, and
+optionally an autounattend / kickstart floppy via the `floppy`
+interface. See [doc/build-examples/windows-server-2025.yml](build-examples/windows-server-2025.yml)
+and its paired [doc/apply-examples/windows-installer.yml](apply-examples/windows-installer.yml)
+for a worked Windows Server 2025 example.
+
 ### `overlay` (default)
 
 The bake VM boots from the disks the template defines (typically a
@@ -213,11 +243,11 @@ corvus_version: 0.9.0.0
 
 ## Example
 
-Three overlay builds are shipped, all of which use templates from
-[doc/apply-examples/multi-os.yml](apply-examples/multi-os.yml). Apply
-that file once on the host (it imports the upstream cloud images,
-registers OVMF, and defines per-OS templates with VDE networking and
-qemu-guest-agent enabled), then run any of the builds below:
+Several builds are shipped:
+
+Overlay builds (use templates from
+[doc/apply-examples/multi-os.yml](apply-examples/multi-os.yml); apply
+once before building):
 
 - [doc/build-examples/debian-nginx.yml](build-examples/debian-nginx.yml) —
   Debian 12 with nginx preinstalled (`debian12` template).
@@ -227,15 +257,31 @@ qemu-guest-agent enabled), then run any of the builds below:
   Gentoo image preloaded with the full Corvus build/test toolchain
   (`gentoo20260412` template). The bake takes ~15 minutes.
 
-All three rely on the host having a VDE switch at `/run/vde2/switch.ctl`
-(the network type used by every template in `multi-os.yml`); the bake
-VMs need outbound internet for cloud-init's package installs, so the
-host must NAT/MASQUERADE the VDE subnet and have `net.ipv4.ip_forward=1`.
+From-scratch build:
+
+- [doc/build-examples/gentoo-headless.yml](build-examples/gentoo-headless.yml) —
+  minimal headless Gentoo on an empty target disk, custom kernel
+  (BIOS-boot GPT), built by emerging into a sysroot.
+
+Installer build (uses
+[doc/apply-examples/windows-installer.yml](apply-examples/windows-installer.yml);
+needs the Windows Server 2025 ISO + virtio-win ISO + an autounattend
+floppy pre-cached at `~/.test-images/`):
+
+- [doc/build-examples/windows-server-2025.yml](build-examples/windows-server-2025.yml) —
+  Windows Server 2025 with qemu-guest-agent + cloudbase-init,
+  installed unattended via `autounattend.xml` on a floppy.
+
+All builds rely on the host having a VDE switch at `/run/vde2/switch.ctl`
+(the network type used by every template); the bake VMs need outbound
+internet, so the host must NAT/MASQUERADE the VDE subnet and have
+`net.ipv4.ip_forward=1`.
 
 ## Limitations
 
-- Base templates must have `guestAgent: true` and a base image with
-  qemu-guest-agent installed.
+- Overlay and from-scratch templates must have `guestAgent: true` and a base
+  image with qemu-guest-agent installed. The `installer` strategy does
+  not require QGA.
 - The bake VM has no networking semantics declared by the build YAML;
   whatever the template configures applies. Networking can be helpful
   inside provisioners (e.g. `apt-get update`); make sure the template

@@ -46,6 +46,7 @@ import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.GuestAgent (GuestExecResult (..), guestExec, guestExecWithStdin, guestExecWithTail, guestPing)
 import Corvus.Qemu.Image (ImageResult (..), getImageSizeMb, rebaseImage)
+import Corvus.Qemu.Qmp (QmpResult (..), qmpSendKey)
 import Corvus.Schema.Build
 import Corvus.Types
 import qualified Data.ByteString as BS
@@ -239,7 +240,11 @@ runOneBuildBody state parentTaskId sink stack startTime b = do
   case templateIdResult of
     Left err -> pure $ Left err
     Right (templateId, hasGuestAgent) ->
-      if not hasGuestAgent
+      -- The installer strategy boots a vendor installer ISO and waits for
+      -- the guest to shut itself down; QGA isn't available until the
+      -- installer reaches first-logon. The other strategies drive
+      -- provisioners over QGA and cannot proceed without it.
+      if strategy /= BuildStrategyInstaller && not hasGuestAgent
         then
           pure $
             Left $
@@ -277,6 +282,23 @@ runOneBuildBody state parentTaskId sink stack startTime b = do
                           ( fromSqlKey (driveDiskImageId drv)
                           , True -- needs flatten on overlay strategy
                           )
+                BuildStrategyInstaller -> do
+                  -- Installer's artifact is the bake VM's first drive
+                  -- (a fresh blank disk created by the template's first
+                  -- drive having strategy: create). No flatten needed —
+                  -- there is no backing chain to collapse.
+                  mDrive <-
+                    liftIO $
+                      runSqlPool
+                        ( selectFirst
+                            [DriveVmId ==. toSqlKey vmIdLong]
+                            [Asc DriveId]
+                        )
+                        (ssDbPool state)
+                  case mDrive of
+                    Nothing -> pure $ Left "instantiated bake VM has no drives"
+                    Just (Entity _ drv) ->
+                      pure $ Right (fromSqlKey (driveDiskImageId drv), False)
                 BuildStrategyFromScratch -> do
                   let sizeMb = fromIntegral (btSizeGb target) * 1024
                   diskResp <-
@@ -322,49 +344,156 @@ runOneBuildBody state parentTaskId sink stack startTime b = do
               case targetSetup of
                 Left err -> pure $ Left err
                 Right (artifactDiskId, needFlatten) -> do
-                  -- 4. Start the bake VM. VmStart blocks until the guest
-                  --    agent first-pings, so on success we know provisioners
-                  --    can run.
+                  -- 4. Start the bake VM. For QGA-driven strategies this
+                  --    blocks until the guest agent first-pings; for the
+                  --    installer strategy the template has guestAgent:false
+                  --    so VmStart returns as soon as QEMU is up.
                   startResp <-
                     liftIO $
                       runActionAsSubtask state (VmStart vmIdLong) parentTaskId
                   case classifyStartResp startResp of
                     Left err -> pure $ Left $ "start bake VM: " <> err
-                    Right () -> do
-                      -- 5. Run provisioners + provenance
-                      provResult <- runProvisioners state parentTaskId sink vmIdLong b startTime
-                      case provResult of
-                        Left err -> pure $ Left err
-                        Right () -> do
-                          -- 6. Stop the VM gracefully
-                          stopResp <-
-                            liftIO $
-                              runActionAsSubtask state (VmStop vmIdLong) parentTaskId
-                          case classifyStopResp stopResp of
-                            Left err -> pure $ Left $ "stop bake VM: " <> err
-                            Right () -> do
-                              -- 7. Detach artifact, rename, optional flatten + compact
-                              publishResult <-
-                                publishArtifact
-                                  state
-                                  parentTaskId
-                                  vmIdLong
-                                  artifactDiskId
-                                  (btName target)
-                                  needFlatten
-                                  (btCompact target)
-                              case publishResult of
-                                Left err -> pure $ Left err
-                                Right () ->
-                                  -- The artifact has been detached from the
-                                  -- bake VM and renamed. The remaining
-                                  -- cleanup pass will VmDelete the bake VM
-                                  -- with deleteDisks=true; the artifact is
-                                  -- no longer attached so it survives.
-                                  pure $ Right artifactDiskId
+                    Right () -> case strategy of
+                      BuildStrategyInstaller ->
+                        runInstallerPhase
+                          state
+                          parentTaskId
+                          sink
+                          vmIdLong
+                          artifactDiskId
+                          target
+                          needFlatten
+                          b
+                      _ -> do
+                        -- 5. Run provisioners + provenance
+                        provResult <- runProvisioners state parentTaskId sink vmIdLong b startTime
+                        case provResult of
+                          Left err -> pure $ Left err
+                          Right () -> do
+                            -- 6. Stop the VM gracefully
+                            stopResp <-
+                              liftIO $
+                                runActionAsSubtask state (VmStop vmIdLong) parentTaskId
+                            case classifyStopResp stopResp of
+                              Left err -> pure $ Left $ "stop bake VM: " <> err
+                              Right () -> do
+                                -- 7. Detach artifact, rename, optional flatten + compact
+                                publishResult <-
+                                  publishArtifact
+                                    state
+                                    parentTaskId
+                                    vmIdLong
+                                    artifactDiskId
+                                    (btName target)
+                                    needFlatten
+                                    (btCompact target)
+                                case publishResult of
+                                  Left err -> pure $ Left err
+                                  Right () ->
+                                    -- The artifact has been detached from the
+                                    -- bake VM and renamed. The remaining
+                                    -- cleanup pass will VmDelete the bake VM
+                                    -- with deleteDisks=true; the artifact is
+                                    -- no longer attached so it survives.
+                                    pure $ Right artifactDiskId
             RespError err -> pure $ Left $ "instantiate template: " <> err
             other ->
               pure $ Left $ "instantiate template: unexpected response: " <> T.pack (show other)
+
+--------------------------------------------------------------------------------
+-- Installer-strategy phase
+--------------------------------------------------------------------------------
+
+-- | The installer strategy's middle: dispatch boot keys, wait for the
+-- guest to power itself off, then publish the artifact. No QGA, no
+-- provisioners — the autounattend (or equivalent vendor mechanism) on
+-- a floppy/CD inside the bake VM drives everything.
+runInstallerPhase
+  :: ServerState
+  -> TaskId
+  -> BuildSink
+  -> Int64
+  -> Int64
+  -> BuildTarget
+  -> Bool
+  -> Build
+  -> LoggingT IO (Either Text Int64)
+runInstallerPhase state parentTaskId sink vmId artifactDiskId target needFlatten b = do
+  logInfoN $ "installer: bake VM " <> T.pack (show vmId) <> " started"
+  liftIO $ sink (BuildLogLine "installer: bake VM started")
+  -- Fire boot-time keystrokes (e.g. dismiss UEFI's "Press any key").
+  runBootKeys state vmId (buildBootKeys b) sink
+  let waitMsg =
+        "installer: waiting up to "
+          <> T.pack (show (buildWaitForShutdownSec b))
+          <> "s for guest-initiated shutdown"
+  logInfoN waitMsg
+  liftIO $ sink (BuildLogLine waitMsg)
+  shutdownResult <- liftIO $ waitForBakeVmShutdown state vmId (buildWaitForShutdownSec b)
+  case shutdownResult of
+    Left err -> pure $ Left $ "installer: " <> err
+    Right () -> do
+      logInfoN "installer: guest shut down; publishing artifact"
+      liftIO $ sink (BuildLogLine "installer: guest shut down; publishing artifact")
+      publishResult <-
+        publishArtifact
+          state
+          parentTaskId
+          vmId
+          artifactDiskId
+          (btName target)
+          needFlatten
+          (btCompact target)
+      case publishResult of
+        Left err -> pure $ Left err
+        Right () -> pure $ Right artifactDiskId
+
+-- | Sleep, then send each boot-key chord via QMP. Errors are logged
+-- (the bake VM may not have its QMP socket up yet on the very first
+-- key, or the user's @delaySec@ may be too small) but never fatal —
+-- a missed keystroke usually just means the firmware default-booted
+-- correctly anyway.
+runBootKeys :: ServerState -> Int64 -> [BootKey] -> BuildSink -> LoggingT IO ()
+runBootKeys state vmId keys sink = mapM_ fire keys
+  where
+    fire bk = do
+      liftIO $ threadDelay (bkDelaySec bk * 1000000)
+      let presses = max 1 (bkRepeat bk)
+          interval = max 0 (bkIntervalSec bk) * 1000000
+          msg = "installer: sending key '" <> bkKeys bk <> "' x" <> T.pack (show presses)
+      logInfoN msg
+      liftIO $ sink (BuildLogLine msg)
+      mapM_
+        ( \i -> do
+            res <- liftIO $ qmpSendKey (ssQemuConfig state) vmId (bkKeys bk)
+            case res of
+              QmpSuccess -> pure ()
+              other -> do
+                let warnMsg = "installer: send-key failed: " <> T.pack (show other)
+                logWarnN warnMsg
+                liftIO $ sink (BuildLogLine warnMsg)
+            liftIO $ when (i < presses) (threadDelay interval)
+        )
+        [1 .. presses]
+
+-- | Poll until the bake VM's status moves to 'VmStopped' or 'VmError',
+-- or the timeout elapses. Polls once per second; the existing process
+-- monitor thread (forked at VmStart) writes the status update.
+waitForBakeVmShutdown :: ServerState -> Int64 -> Int -> IO (Either Text ())
+waitForBakeVmShutdown state vmId timeoutSec = go (max 1 timeoutSec)
+  where
+    go 0 = pure $ Left "timed out waiting for guest shutdown"
+    go remaining = do
+      mStatus <- runSqlPool (statusOf vmId) (ssDbPool state)
+      case mStatus of
+        Just VmStopped -> pure $ Right ()
+        Just VmError -> pure $ Left "bake VM entered error state"
+        _ -> do
+          threadDelay 1000000
+          go (remaining - 1)
+    statusOf vid = do
+      mVm <- get (toSqlKey vid :: VmId)
+      pure (vmStatus <$> mVm)
 
 --------------------------------------------------------------------------------
 -- Provisioner execution
