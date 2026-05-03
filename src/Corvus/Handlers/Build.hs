@@ -1092,8 +1092,8 @@ relocateArtifact state diskId target = do
               copyRes <-
                 liftIO
                   ( try
-                      (copyFile current desired >> removeFile current) ::
-                      IO (Either IOError ())
+                      (copyFile current desired >> removeFile current)
+                      :: IO (Either IOError ())
                   )
               case copyRes of
                 Left e -> pure $ Left $ "relocate failed: " <> T.pack (show e)

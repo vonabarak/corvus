@@ -47,6 +47,7 @@ import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
 import Corvus.Schema.Template (TemplateYaml (..))
 import Corvus.Types
 import Corvus.Utils.Network (generateMacAddress)
+import Data.Char (isDigit)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust)
@@ -153,7 +154,18 @@ validateConfig config = do
                     else
                       if hasBacking && not hasRegister
                         then Left $ "Disk '" <> adName d <> "': 'backing' can only be used with 'register'"
-                        else Right ()
+                        else case adMd5 d of
+                          Nothing -> Right ()
+                          Just h
+                            | not hasImport ->
+                                Left $ "Disk '" <> adName d <> "': 'md5' can only be used with 'import'"
+                            | not (isValidMd5 h) ->
+                                Left $ "Disk '" <> adName d <> "': 'md5' must be 32 hex characters"
+                            | otherwise -> Right ()
+
+    isValidMd5 :: Text -> Bool
+    isValidMd5 h =
+      T.length h == 32 && T.all (\c -> isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) h
 
 -- | Resolve effective cloudInit value for a VM.
 -- If explicitly set, use that. Otherwise, auto-enable when sshKeys are present.
@@ -494,7 +506,7 @@ instance Action ApplyDiskCreate where
         state = acState ctx
      in case (adImport d, adOverlay d, adClone d, adRegister d) of
           (Just importPath, _, _, _) ->
-            actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)))
+            actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)) (adMd5 d))
           (_, _, _, Just registerPath)
             | isHttpUrl registerPath -> pure $ RespError $ "Disk '" <> adName d <> "': register requires a local path, not a URL"
             | otherwise -> do

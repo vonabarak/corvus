@@ -25,6 +25,9 @@ module Corvus.Qemu.Image
   , downloadImage
   , decompressXz
 
+    -- * Hashing
+  , md5HashFile
+
     -- * URL utilities
   , isHttpUrl
   , detectFormatFromUrl
@@ -43,6 +46,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Corvus.Model (DriveFormat (..), EnumText (..))
 import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:), (.:?))
+import Data.Char (isDigit)
 import qualified Data.ByteString.Char8 as BS8
 import Data.Int (Int64)
 import Data.List (isSuffixOf)
@@ -455,6 +459,31 @@ decompressXz xzPath = do
       pure $ Right finalPath
     Right (ExitFailure n, _, stderr) ->
       pure $ Left $ "xz decompression failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
+
+--------------------------------------------------------------------------------
+-- Hashing
+--------------------------------------------------------------------------------
+
+-- | Compute the MD5 hash of a file, shelling out to @md5sum@.
+-- Returns the hash as a lowercase 32-character hex string. Errors
+-- if @md5sum@ is missing, the file isn't readable, or the output
+-- isn't well-formed (something other than 32 hex chars).
+md5HashFile :: FilePath -> IO (Either Text Text)
+md5HashFile path = do
+  result <- try $ readProcessWithExitCode "md5sum" [path] ""
+  case result of
+    Left (_ :: SomeException) ->
+      pure $ Left "md5sum command not found"
+    Right (ExitSuccess, out, _) ->
+      let h = takeWhile (/= ' ') out
+       in if length h == 32 && all isMd5HexDigit h
+            then pure $ Right (T.toLower (T.pack h))
+            else pure $ Left $ "md5sum returned malformed output: " <> T.pack (show out)
+    Right (ExitFailure n, _, stderr) ->
+      pure $ Left $ "md5sum failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
+  where
+    isMd5HexDigit c =
+      isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 
 --------------------------------------------------------------------------------
 -- URL Utilities

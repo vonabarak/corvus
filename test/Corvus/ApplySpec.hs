@@ -287,6 +287,32 @@ spec = sequential $ do
           RespError msg -> "'backing' can only be used with 'register'" `T.isInfixOf` msg
           _ -> False
 
+      testCase "fails on disk with md5 but no import strategy" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: bad-md5
+                  register: /some/path.qcow2
+                  md5: 0123456789abcdef0123456789abcdef
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "'md5' can only be used with 'import'" `T.isInfixOf` msg
+          _ -> False
+
+      testCase "fails on disk with malformed md5" $ do
+        when_ $
+          whenApply
+            [yaml|
+              disks:
+                - name: bad-md5-shape
+                  import: https://example.com/img.qcow2
+                  md5: not-a-real-hash
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> "must be 32 hex characters" `T.isInfixOf` msg
+          _ -> False
+
       testCase "fails on VM with sshKeys but cloudInit false" $ do
         when_ $
           whenApply

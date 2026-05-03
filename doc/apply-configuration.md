@@ -90,6 +90,7 @@ disks:
     sizeMb: <integer>         # Size in MB (for create; optional resize hint for overlay).
     path: <string>            # Optional destination path for import/overlay/clone/create output file.
     backing: <string>         # Optional backing disk name (only valid with `register`, for overlays).
+    md5: <string>             # Optional 32-hex MD5 (only valid with `import`); see below.
 ```
 
 Exactly one creation strategy must be specified:
@@ -114,6 +115,36 @@ The `import` field copies a file to the managed images directory and registers i
 The `format` field is optional — it is auto-detected from the file extension or URL. Supported formats: `qcow2`, `raw`, `vmdk`, `vdi`, `vpc` (VHD), `vhdx`.
 
 The optional `path` field controls where the imported file is placed (see [Custom Path](#custom-path)). Without it, the file is placed in the base images directory with a name derived from the disk name and format extension.
+
+#### MD5 verification
+
+The optional `md5` field carries a 32-hex MD5 of the **final on-disk
+file** — for `.xz` URLs that's the decompressed result, not the
+archive — so the same hash applies regardless of upstream
+compression. When set:
+
+- After a successful download (and decompression, if applicable) the
+  daemon computes the file's MD5 and compares it. On mismatch, the
+  artifact is deleted and the download is retried; up to **3 total
+  attempts** are made before failing.
+- If the destination file already exists from a previous apply, the
+  daemon hashes it without re-downloading. Match → skip the
+  download. Mismatch → fail with a "refusing to overwrite" error;
+  the existing file is **not** deleted, so the operator can
+  investigate.
+- Without `md5`, the existing-file behaviour stays as before
+  ("Destination file already exists" — no clobber). This is the safe
+  default.
+
+`md5` is only valid alongside `import`.
+
+```yaml
+disks:
+  - name: debian-12-generic-base
+    import: "https://cloud.debian.org/.../debian-12-generic-amd64.qcow2"
+    format: qcow2
+    md5: "5526fc1a86b8af0e72eb71d6831f8d9d"
+```
 
 ### Register
 
