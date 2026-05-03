@@ -131,6 +131,7 @@ library
       Corvus.Handlers.Apply
       Corvus.Handlers.Build
       Corvus.Handlers.Build.Cleanup
+      Corvus.Handlers.Build.Floppy
       Corvus.Handlers.Build.Provenance
       Corvus.Handlers.CloudInit
       Corvus.Handlers.Lifecycle

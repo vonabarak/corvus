@@ -245,3 +245,39 @@ spec = describe "Schema.Build" $ do
         `shouldSatisfy` \case
           Left _ -> True
           _ -> False
+
+  describe "Floppy" $ do
+    it "parses the post-preprocess form (contentBase64 + filename)" $ do
+      let yaml =
+            BS8.unlines
+              [ "builds:"
+              , "  - name: x"
+              , "    template: t"
+              , "    target: { name: o }"
+              , "    strategy: installer"
+              , "    floppy:"
+              , "      contentBase64: ZXhhbXBsZQo="
+              , "      filename: autounattend.xml"
+              ]
+      case decodeBuilds yaml of
+        Right c -> do
+          let [b] = bcBuilds c
+          case buildFloppy b of
+            Just f -> do
+              floppyContentBase64 f `shouldBe` Just "ZXhhbXBsZQo="
+              floppyFilename f `shouldBe` Just "autounattend.xml"
+              floppyFrom f `shouldBe` Nothing
+            Nothing -> expectationFailure "floppy parsed as Nothing"
+        Left e -> expectationFailure e
+
+    it "leaves buildFloppy=Nothing when no floppy: key is present" $ do
+      let yaml =
+            BS8.unlines
+              [ "builds:"
+              , "  - name: x"
+              , "    template: t"
+              , "    target: { name: o }"
+              ]
+      case decodeBuilds yaml of
+        Right c -> buildFloppy (head (bcBuilds c)) `shouldBe` Nothing
+        Left e -> expectationFailure e

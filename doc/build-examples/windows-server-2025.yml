@@ -59,6 +59,20 @@ builds:
     # `shutdown /s /t 30 /f`, so the guest powers off cleanly.
     waitForShutdownSec: 3600
 
+    # Floppy holding the autounattend.xml answer file. The path is
+    # relative to this YAML file's directory; the client reads the
+    # file, base64-encodes its bytes, and the daemon wraps it in a
+    # 1.44 MB FAT12 image attached to the bake VM as `if=floppy`.
+    # Edit `windows-autounattend.xml` and re-run `crv build` — no
+    # out-of-band `mkfs.fat`/`mcopy`.
+    #
+    # `filename:` overrides the default (basename of `from`); Windows
+    # Setup specifically looks for `autounattend.xml` at the root of
+    # any removable media, regardless of the source file's name.
+    floppy:
+      from: ../../scripts/windows-autounattend.xml
+      filename: autounattend.xml
+
     # No QGA-based provisioners: autounattend.xml does it all.
     provisioners: []
 

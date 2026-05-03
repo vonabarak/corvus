@@ -34,7 +34,7 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
 import System.Directory (doesFileExist)
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (BufferMode (..), hPutStrLn, hSetBuffering, stderr, stdout)
 
 -- | Top-level handler for @crv build FILE@.
@@ -198,11 +198,14 @@ preprocessRoot baseDir = walkBuilds
       _ -> pure (Object o)
     walkBuilds v = pure v
 
-    walkBuild (Object o) = case KM.lookup "provisioners" o of
-      Just (Array ps) -> do
-        ps' <- mapM walkProv (V.toList ps)
-        pure $ Object (KM.insert "provisioners" (Array (V.fromList ps')) o)
-      _ -> pure (Object o)
+    walkBuild (Object o) = do
+      o1 <- case KM.lookup "provisioners" o of
+        Just (Array ps) -> do
+          ps' <- mapM walkProv (V.toList ps)
+          pure $ KM.insert "provisioners" (Array (V.fromList ps')) o
+        _ -> pure o
+      o2 <- adjustField "floppy" rewriteFloppy o1
+      pure (Object o2)
     walkBuild v = pure v
 
     walkProv (Object o) = do
@@ -239,6 +242,29 @@ preprocessRoot baseDir = walkBuilds
         pure (Object withContent)
       _ -> pure (Object o)
     rewriteFile other = pure other
+
+    -- Inline a build's autounattend / kickstart floppy. The client
+    -- reads the source file, base64-encodes its raw bytes, and rewrites
+    -- @floppy.from@ into @floppy.contentBase64@. The default
+    -- @floppy.filename@ (the entry name on the FAT12 floppy itself) is
+    -- the basename of the source path; the daemon then wraps the
+    -- content into a 1.44 MB FAT12 image and attaches it to the bake VM.
+    rewriteFloppy :: Value -> IO Value
+    rewriteFloppy (Object o) = case KM.lookup "from" o of
+      Just (String relPath) -> do
+        bytes <- readFromFile (T.unpack relPath)
+        let basename = T.pack (takeFileName (T.unpack relPath))
+            withFilename = case KM.lookup "filename" o of
+              Just _ -> o
+              Nothing -> KM.insert "filename" (String basename) o
+            withContent =
+              KM.insert
+                "contentBase64"
+                (String (TE.decodeUtf8 (B64.encode bytes)))
+                (KM.delete "from" withFilename)
+        pure (Object withContent)
+      _ -> pure (Object o)
+    rewriteFloppy other = pure other
 
     readScript rel = do
       let p = if isAbsolute rel then rel else baseDir </> rel

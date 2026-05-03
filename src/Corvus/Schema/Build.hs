@@ -24,6 +24,7 @@ module Corvus.Schema.Build
   , Reboot (..)
   , CleanupMode (..)
   , BootKey (..)
+  , Floppy (..)
   )
 where
 
@@ -56,6 +57,7 @@ data Build = Build
   , buildCleanup :: CleanupMode
   , buildBootKeys :: [BootKey]
   , buildWaitForShutdownSec :: Int
+  , buildFloppy :: Maybe Floppy
   }
   deriving (Show)
 
@@ -72,6 +74,7 @@ instance FromJSON Build where
       <*> o .:? "cleanup" .!= CleanupAlways
       <*> o .:? "bootKeys" .!= []
       <*> o .:? "waitForShutdownSec" .!= 3600
+      <*> o .:? "floppy"
 
 data BuildTarget = BuildTarget
   { btName :: Text
@@ -273,3 +276,28 @@ instance FromJSON BootKey where
       <*> o .:? "delaySec" .!= 0
       <*> o .:? "repeat" .!= 1
       <*> o .:? "intervalSec" .!= 1
+
+-- | An autounattend / kickstart / preseed floppy attached to the bake VM.
+--
+-- The client preprocesses the YAML before sending: a non-Nothing
+-- 'floppyFrom' becomes a non-Nothing 'floppyContentBase64' carrying the
+-- base64-encoded raw file bytes. The daemon never reads the operator's
+-- filesystem; it sees only @contentBase64@. The daemon then wraps the
+-- bytes in a 1.44 MB FAT12 floppy image (single file at the floppy
+-- root), attaches it to the bake VM as @if=floppy@, and lets the
+-- vendor installer find it.
+--
+-- A non-Nothing 'floppyFrom' on the daemon-side parse is a client bug.
+data Floppy = Floppy
+  { floppyFrom :: Maybe FilePath
+  , floppyContentBase64 :: Maybe Text
+  , floppyFilename :: Maybe Text
+  }
+  deriving (Eq, Show)
+
+instance FromJSON Floppy where
+  parseJSON = withObject "Floppy" $ \o ->
+    Floppy
+      <$> o .:? "from"
+      <*> o .:? "contentBase64"
+      <*> o .:? "filename"

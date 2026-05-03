@@ -35,15 +35,17 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Action
 import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, push, withCleanup)
+import Corvus.Handlers.Build.Floppy (buildFloppyImage)
 import Corvus.Handlers.Build.Provenance (renderBuildInfo)
 import Corvus.Handlers.Disk (DiskCreate (..), DiskDelete (..), DiskRebase (..))
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
-import Corvus.Handlers.Disk.Path (resolveDiskPath)
+import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskPath)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..))
 import Corvus.Model
 import Corvus.Protocol
+import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Qemu.GuestAgent (GuestExecResult (..), guestExec, guestExecWithStdin, guestExecWithTail, guestPing)
 import Corvus.Qemu.Image (ImageResult (..), getImageSizeMb, rebaseImage)
 import Corvus.Qemu.Qmp (QmpResult (..), qmpSendKey)
@@ -65,6 +67,7 @@ import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 import Paths_corvus (version)
+import System.FilePath ((</>))
 
 --------------------------------------------------------------------------------
 -- Top-level Action
@@ -149,6 +152,21 @@ validateBuild b = do
   validateName "Build" (buildName b)
   validateName "Target disk" (btName (buildTarget b))
   mapM_ (validateProvisioner (buildName b)) (buildProvisioners b)
+  validateFloppy (buildName b) (buildFloppy b)
+
+validateFloppy :: Text -> Maybe Floppy -> Either Text ()
+validateFloppy _ Nothing = Right ()
+validateFloppy buildLbl (Just f) = case (floppyFrom f, floppyContentBase64 f) of
+  (Nothing, Just _) -> Right ()
+  (Just _, Nothing) ->
+    Left $
+      "Build '"
+        <> buildLbl
+        <> "': floppy.from must be inlined by the client as floppy.contentBase64 before sending"
+  (Just _, Just _) ->
+    Left $ "Build '" <> buildLbl <> "': floppy may not have both from and contentBase64"
+  (Nothing, Nothing) ->
+    Left $ "Build '" <> buildLbl <> "': floppy needs either from or contentBase64"
 
 validateProvisioner :: Text -> Provisioner -> Either Text ()
 validateProvisioner buildLbl p = case p of
@@ -344,61 +362,165 @@ runOneBuildBody state parentTaskId sink stack startTime b = do
               case targetSetup of
                 Left err -> pure $ Left err
                 Right (artifactDiskId, needFlatten) -> do
-                  -- 4. Start the bake VM. For QGA-driven strategies this
-                  --    blocks until the guest agent first-pings; for the
-                  --    installer strategy the template has guestAgent:false
-                  --    so VmStart returns as soon as QEMU is up.
-                  startResp <-
-                    liftIO $
-                      runActionAsSubtask state (VmStart vmIdLong) parentTaskId
-                  case classifyStartResp startResp of
-                    Left err -> pure $ Left $ "start bake VM: " <> err
-                    Right () -> case strategy of
-                      BuildStrategyInstaller ->
-                        runInstallerPhase
-                          state
-                          parentTaskId
-                          sink
-                          vmIdLong
-                          artifactDiskId
-                          target
-                          needFlatten
-                          b
-                      _ -> do
-                        -- 5. Run provisioners + provenance
-                        provResult <- runProvisioners state parentTaskId sink vmIdLong b startTime
-                        case provResult of
-                          Left err -> pure $ Left err
-                          Right () -> do
-                            -- 6. Stop the VM gracefully
-                            stopResp <-
-                              liftIO $
-                                runActionAsSubtask state (VmStop vmIdLong) parentTaskId
-                            case classifyStopResp stopResp of
-                              Left err -> pure $ Left $ "stop bake VM: " <> err
+                  -- 3.5. Build + attach the autounattend / kickstart
+                  --      floppy if the build supplied one. Done after
+                  --      template instantiation so its drive entry is
+                  --      part of the bake VM's hardware before VmStart
+                  --      generates the QEMU command line.
+                  floppyResult <-
+                    attachBuildFloppy state parentTaskId stack vmIdLong prefix b
+                  case floppyResult of
+                    Left err -> pure $ Left err
+                    Right () -> do
+                      -- 4. Start the bake VM. For QGA-driven strategies this
+                      --    blocks until the guest agent first-pings; for the
+                      --    installer strategy the template has guestAgent:false
+                      --    so VmStart returns as soon as QEMU is up.
+                      startResp <-
+                        liftIO $
+                          runActionAsSubtask state (VmStart vmIdLong) parentTaskId
+                      case classifyStartResp startResp of
+                        Left err -> pure $ Left $ "start bake VM: " <> err
+                        Right () -> case strategy of
+                          BuildStrategyInstaller ->
+                            runInstallerPhase
+                              state
+                              parentTaskId
+                              sink
+                              vmIdLong
+                              artifactDiskId
+                              target
+                              needFlatten
+                              b
+                          _ -> do
+                            -- 5. Run provisioners + provenance
+                            provResult <- runProvisioners state parentTaskId sink vmIdLong b startTime
+                            case provResult of
+                              Left err -> pure $ Left err
                               Right () -> do
-                                -- 7. Detach artifact, rename, optional flatten + compact
-                                publishResult <-
-                                  publishArtifact
-                                    state
-                                    parentTaskId
-                                    vmIdLong
-                                    artifactDiskId
-                                    (btName target)
-                                    needFlatten
-                                    (btCompact target)
-                                case publishResult of
-                                  Left err -> pure $ Left err
-                                  Right () ->
-                                    -- The artifact has been detached from the
-                                    -- bake VM and renamed. The remaining
-                                    -- cleanup pass will VmDelete the bake VM
-                                    -- with deleteDisks=true; the artifact is
-                                    -- no longer attached so it survives.
-                                    pure $ Right artifactDiskId
+                                -- 6. Stop the VM gracefully
+                                stopResp <-
+                                  liftIO $
+                                    runActionAsSubtask state (VmStop vmIdLong) parentTaskId
+                                case classifyStopResp stopResp of
+                                  Left err -> pure $ Left $ "stop bake VM: " <> err
+                                  Right () -> do
+                                    -- 7. Detach artifact, rename, optional flatten + compact
+                                    publishResult <-
+                                      publishArtifact
+                                        state
+                                        parentTaskId
+                                        vmIdLong
+                                        artifactDiskId
+                                        (btName target)
+                                        needFlatten
+                                        (btCompact target)
+                                    case publishResult of
+                                      Left err -> pure $ Left err
+                                      Right () ->
+                                        -- The artifact has been detached from the
+                                        -- bake VM and renamed. The remaining
+                                        -- cleanup pass will VmDelete the bake VM
+                                        -- with deleteDisks=true; the artifact is
+                                        -- no longer attached so it survives.
+                                        pure $ Right artifactDiskId
             RespError err -> pure $ Left $ "instantiate template: " <> err
             other ->
               pure $ Left $ "instantiate template: unexpected response: " <> T.pack (show other)
+
+--------------------------------------------------------------------------------
+-- Build floppy attachment
+--------------------------------------------------------------------------------
+
+-- | If the build supplies a 'Floppy', materialise the FAT12 image,
+-- register a 'DiskImage' for it, and attach it to the bake VM via
+-- 'DiskAttach' as @if=floppy,readonly=on@. The disk's name uses the
+-- @__build_<taskId>_*@ prefix so the standard ephemeral cleanup path
+-- ('collectEphemeralDiskIds') drops it on success or failure.
+--
+-- A 'Nothing' floppy is a no-op (returns @Right ()@), so this can be
+-- called unconditionally.
+attachBuildFloppy
+  :: ServerState
+  -> TaskId
+  -> CleanupStack
+  -> Int64
+  -- ^ bake VM id
+  -> Text
+  -- ^ ephemeral name prefix (matches 'runOneBuildBody')
+  -> Build
+  -> LoggingT IO (Either Text ())
+attachBuildFloppy state parentTaskId stack vmIdLong prefix b = case buildFloppy b of
+  Nothing -> pure $ Right ()
+  Just f -> case floppyContentBase64 f of
+    Nothing ->
+      pure $
+        Left $
+          "build '" <> buildName b <> "': floppy missing contentBase64 (client preprocessing bug)"
+    Just b64 -> case B64.decode (TE.encodeUtf8 b64) of
+      Left e ->
+        pure $
+          Left $
+            "build '" <> buildName b <> "': floppy contentBase64 not valid base64: " <> T.pack e
+      Right bytes -> do
+        let filename = fromMaybe "autounattend.xml" (floppyFilename f)
+            diskName = prefix <> sanitizeNameFragment (buildName b) <> "-floppy"
+        basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+        let imgPath = basePath </> T.unpack diskName <> ".img"
+            storedPath = makeRelativeToBase basePath imgPath
+        logInfoN $
+          "build floppy: writing FAT12 image at "
+            <> T.pack imgPath
+            <> " (file="
+            <> filename
+            <> ", "
+            <> T.pack (show (BS.length bytes))
+            <> " bytes)"
+        imgRes <- liftIO $ buildFloppyImage imgPath filename bytes
+        case imgRes of
+          Left err -> pure $ Left $ "build floppy: " <> err
+          Right () -> do
+            now <- liftIO getCurrentTime
+            diskKey <-
+              liftIO $
+                runSqlPool
+                  ( insert
+                      DiskImage
+                        { diskImageName = diskName
+                        , diskImageFilePath = storedPath
+                        , diskImageFormat = FormatRaw
+                        , diskImageSizeMb = Just 2
+                        , diskImageCreatedAt = now
+                        , diskImageBackingImageId = Nothing
+                        }
+                  )
+                  (ssDbPool state)
+            let diskIdLong = fromSqlKey diskKey
+            -- Attach as floppy. If the bake VM rejects the attach we
+            -- still want the DiskImage row dropped, hence the cleanup
+            -- destructor here rather than only on success.
+            liftIO $
+              push stack "build-floppy" $ do
+                _ <- runActionAsSubtask state (DiskDelete diskIdLong) parentTaskId
+                pure ()
+            attachResp <-
+              liftIO $
+                runActionAsSubtask
+                  state
+                  ( DiskAttach
+                      vmIdLong
+                      diskIdLong
+                      InterfaceFloppy
+                      Nothing
+                      True -- readOnly
+                      False
+                      CacheNone
+                  )
+                  parentTaskId
+            case attachResp of
+              RespDiskAttached _ -> pure $ Right ()
+              RespError err -> pure $ Left $ "attach build floppy: " <> err
+              _ -> pure $ Left "attach build floppy: unexpected response"
 
 --------------------------------------------------------------------------------
 -- Installer-strategy phase

@@ -9,10 +9,9 @@
 #     (https://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2025)
 #   - Cache the VirtIO-Win drivers ISO at ~/.test-images/virtio-win.iso
 #     (https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso)
-#   - Build the autounattend floppy at ~/.test-images/autounattend.img:
-#       dd if=/dev/zero of=autounattend.img bs=1440k count=1
-#       mkfs.fat autounattend.img
-#       mcopy -i autounattend.img scripts/windows-autounattend.xml ::autounattend.xml
+#
+# The autounattend.xml floppy is built automatically by `crv build`
+# from `floppy.from:` in the build YAML — no out-of-band mkfs.fat.
 #
 # The build then runs the bake VM headless, lets the autounattend.xml
 # install Windows + qemu-ga + cloudbase-init, waits for the guest to
@@ -36,9 +35,6 @@ disks:
     format: raw
   - name: virtio-win-iso
     register: "/home/corvus/.test-images/virtio-win.iso"
-    format: raw
-  - name: windows-autounattend
-    register: "/home/corvus/.test-images/autounattend.img"
     format: raw
 
 templates:
@@ -86,12 +82,10 @@ templates:
         media: cdrom
         readOnly: true
         strategy: direct
-      # Autounattend floppy — Windows finds it at A: on first boot
-      # of the install ISO and reads /autounattend.xml automatically.
-      - diskImageName: windows-autounattend
-        interface: floppy
-        readOnly: true
-        strategy: direct
+      # The autounattend.xml floppy is materialised per-build by
+      # `crv build` from the build YAML's `floppy.from:` field, then
+      # attached as `if=floppy` (Windows finds it at A: on first boot
+      # of the install ISO and reads /autounattend.xml automatically).
     networkInterfaces:
       # Outbound internet for cloudbase-init MSI download.
       - type: vde

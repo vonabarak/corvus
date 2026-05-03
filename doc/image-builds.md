@@ -112,15 +112,25 @@ bootKeys:
     repeat: 6
     intervalSec: 1
 waitForShutdownSec: 3600   # max wall-clock seconds to wait
+floppy:
+  from: ./windows-autounattend.xml   # client reads + inlines
+  filename: autounattend.xml         # optional, default: basename of from
 provisioners: []           # not used for installer
 ```
 
+`floppy.from` (path relative to this YAML's directory) is read by the
+client, base64-inlined, and turned into a 1.44 MB FAT12 floppy by
+the daemon — so editing the answer file and re-running `crv build`
+just works, no out-of-band `mkfs.fat`/`mcopy`. The daemon writes the
+image to a `__build_<taskId>_*-floppy.img` file under the disk dir
+and tears it down with the rest of the bake VM's ephemerals.
+
 The template for an `installer` build typically has
 `guestAgent: false` (the build does not depend on QGA), a fresh
-40 GiB blank disk via `strategy: create` as its first drive, the
-vendor install ISO + any driver ISO as `media: cdrom` drives, and
-optionally an autounattend / kickstart floppy via the `floppy`
-interface. See [doc/build-examples/windows-server-2025.yml](build-examples/windows-server-2025.yml)
+40 GiB blank disk via `strategy: create` as its first drive, and the
+vendor install ISO + any driver ISO as `media: cdrom` drives. The
+floppy itself is per-build content, not part of the template. See
+[doc/build-examples/windows-server-2025.yml](build-examples/windows-server-2025.yml)
 and its paired [doc/apply-examples/windows-installer.yml](apply-examples/windows-installer.yml)
 for a worked Windows Server 2025 example.
 
