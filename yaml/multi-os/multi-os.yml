@@ -174,7 +174,7 @@ templates:
     sshKeys:
       - name: corvus
 
-  - name: gentoo20260412
+  - name: gentoo
     <<: *defaults
     description: "Gentoo (2026-04-05 snapshot)"
     cloudInitConfig:
