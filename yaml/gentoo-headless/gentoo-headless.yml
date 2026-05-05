@@ -16,18 +16,17 @@ builds:
       cpuCount: 8
       ramMb: 8192
 
-    # Hoisted preamble + shared env. The preamble runs first in every
-    # `shell:` step, so `set -e` propagates into the env exports and
-    # the body. SYSROOT is exported once instead of being redeclared
-    # in each step.
     shellDefaults:
       preamble: "set -eux"
       env:
         SYSROOT: /mnt/sysroot
+        DEV: /dev/vdb
 
     provisioners:
       # 1) Bake-host prep.
       - shell:
+          env:
+            SYSROOT: /
           inline: |
             # Wait until outbound DNS works before touching the network.
             for i in $(seq 1 60); do
@@ -54,21 +53,27 @@ builds:
             getuto || emerge -1q app-portage/getuto || true
             getuto || true
 
-            emerge --noreplace \
+            emerge --noreplace -vt \
               sys-apps/gptfdisk \
               sys-block/parted \
               sys-fs/e2fsprogs \
               sys-boot/grub:2
           timeoutSec: 1800
 
-      # 2) Partition the empty target disk. /dev/vdb is the second
+      # 2) Copy kernel config onto the bake VM.
+      #    Step 5 copies it to $SYSROOT/usr/src/linux/.config and
+      #    builds gentoo-sources against it.
+      - file:
+          from: ./gentoo-kernel
+          to: /tmp/gentoo-kernel-config
+          mode: "0644"
+
+      # 3) Partition the empty target disk. /dev/vdb is the second
       #    drive — the bake VM's bootdisk is /dev/vda. GPT layout with
       #    a 1 MiB BIOS-boot partition (type ef02 for GRUB stage 1.5)
       #    and a single ext4 root.
       - shell:
           inline: |
-            DEV=/dev/vdb
-
             wipefs -a "$DEV"
             sgdisk --zap-all "$DEV"
             sgdisk -n 1:0:+1M  -t 1:ef02 -c 1:bios "$DEV"
@@ -78,20 +83,9 @@ builds:
             mkfs.ext4 -F -L corvus-root "${DEV}2"
           timeoutSec: 120
 
-      # 3) Copy kernel config onto the bake VM.
-      #    Step 5 copies it to $SYSROOT/usr/src/linux/.config and
-      #    builds gentoo-sources against it.
-      - file:
-          from: ./gentoo-kernel
-          to: /tmp/gentoo-kernel-config
-          mode: "0644"
-
-      # 4) Mount the new root and lay down a Gentoo @system using a
-      #    stage3 tarball.
+      # 4) Mount the new root and lay down a Gentoo @system using a stage3 tarball.
       - shell:
           inline: |
-            DEV=/dev/vdb
-
             mkdir -p "$SYSROOT"
             mount "${DEV}2" "$SYSROOT"
 
@@ -130,9 +124,7 @@ builds:
       # 5) Build and install the kernel from sys-kernel/gentoo-sources.
       - shell:
           inline: |
-
-            emerge --usepkg --getbinpkg --binpkg-respect-use=y \
-              sys-kernel/gentoo-sources
+            SYSROOT="/" emerge -vt sys-kernel/gentoo-sources
 
             KSRC=$(ls -1d /usr/src/linux-*-gentoo 2>/dev/null | sort -V | tail -1)
             test -n "$KSRC" -a -d "$KSRC" \
@@ -160,18 +152,19 @@ builds:
       # 6) Install runtime packages
       - shell:
           inline: |
-
-            emerge --sysroot="$SYSROOT" --root="$SYSROOT" \
-              --usepkg --getbinpkg --binpkg-respect-use=y \
+            emerge --sysroot="$SYSROOT" --root="$SYSROOT" -vt \
               app-emulation/qemu-guest-agent \
               app-emulation/cloud-init \
-              app-admin/sudo
+              mail-mta/msmtp \
+              app-admin/sudo \
+              net-fs/nfs-utils \
+              app-editors/vim \
+              app-shells/bash-completion
           timeoutSec: 1800
 
       # 7) Install GRUB into the sysroot.
       - shell:
           inline: |
-
             grub-install --target=i386-pc --boot-directory="$SYSROOT/boot" /dev/vdb
 
             KERNEL=$(cd "$SYSROOT/boot" && ls -1t vmlinuz-* 2>/dev/null | grep -v '\.old$' | head -1)
@@ -193,7 +186,7 @@ builds:
 
             menuentry 'Gentoo Linux (custom kernel)' {
                 search --set=root --label corvus-root
-                linux /boot/$KERNEL root=/dev/vda2 rootfstype=ext4 console=tty0 console=ttyS0,115200n8 cloud-init=enabled ds=nocloud
+                linux /boot/$KERNEL root=/dev/vda2 rootfstype=ext4 console=tty0 console=ttyS0,115200n8
             }
             EOF
           timeoutSec: 600
@@ -204,7 +197,6 @@ builds:
       #    operator hands the VM.
       - shell:
           inline: |
-
             cat > "$SYSROOT/etc/fstab" <<'EOF'
             LABEL=corvus-root  /  ext4  defaults,noatime  0 1
             EOF
@@ -258,11 +250,9 @@ builds:
       #    before Corvus detaches it.
       - shell:
           inline: |
-
             cat > "$SYSROOT/etc/corvus-image-info" <<EOF
             image: gentoo-headless
             built: $(date -Iseconds)
-            kernel-config: gentoo-kernel (savedconfig)
             EOF
 
             sync
