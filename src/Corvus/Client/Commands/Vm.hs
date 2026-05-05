@@ -245,7 +245,7 @@ printVmDetails vm = do
     Nothing -> pure ()
     Just cid -> do
       printField "Vsock CID" (show cid)
-      printField "SSH (vsock)" $ "ssh <user>@vsock/" ++ show cid
+      printField "SSH (vsock)" $ "ssh <user>@vsock%" ++ show cid
   printField "Guest Agent" (T.unpack (vdGuestAgentSocket vm))
 
   putStrLn ""

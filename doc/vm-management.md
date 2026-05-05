@@ -129,7 +129,7 @@ Every VM is launched with a `vhost-vsock-pci` device and a unique AF_VSOCK CID. 
 $ crv vm show my-vm
 ...
 Vsock CID:      1042
-SSH (vsock):    ssh <user>@vsock/1042
+SSH (vsock):    ssh <user>@vsock%1042
 ```
 
 The CID is allocated at VM-create time from the range `qcVsockCidMin..qcVsockCidMax` (default `1000..1_000_000`) and is stable across daemon restarts.
@@ -138,16 +138,24 @@ The CID is allocated at VM-create time from the range `qcVsockCidMin..qcVsockCid
 
 OpenSSH does not speak AF_VSOCK natively in the client; the connection always traverses a `ProxyCommand` helper. Two options:
 
-1. **`systemd-ssh-proxy(1)`** — bundled with systemd v256+ at `/usr/lib/systemd/systemd-ssh-proxy`. Recommended. Add to `~/.ssh/config`:
+1. **`systemd-ssh-proxy(1)`** — bundled with systemd v256+ at `/usr/lib/systemd/systemd-ssh-proxy`. Recommended.
+
+   On distros that ship the matching systemd-ssh package, no setup is needed: a system-wide `ssh_config` drop-in (`/etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf`) registers the `vsock/*` and `vsock%*` host patterns globally, so
 
    ```
-   Host vsock/*
+   ssh user@vsock%1042
+   ```
+
+   just works. The `vsock%CID` form is the modern syntax (recent OpenSSH + systemd-ssh-proxy v257+); the older `vsock/CID` form reads as a path component to some tooling, so the percent form is preferred.
+
+   If your distro doesn't ship the drop-in, add the same lines to `~/.ssh/config`:
+
+   ```
+   Host vsock%*
        ProxyCommand /usr/lib/systemd/systemd-ssh-proxy %h %p
        ProxyUseFdpass yes
        CheckHostIP no
    ```
-
-   Then `ssh user@vsock/1042` works directly.
 
 2. **`socat`** — works on any host. No `ssh_config` change needed; just pass the proxy inline:
 
