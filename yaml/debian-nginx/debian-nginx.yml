@@ -23,10 +23,13 @@ builds:
 
     strategy: overlay
 
+    shellDefaults:
+      preamble: "set -eux"
+      env:
+        DEBIAN_FRONTEND: noninteractive
+
     provisioners:
       - shell: |
-          set -eux
-          export DEBIAN_FRONTEND=noninteractive
           # Wait for cloud-init to settle so apt locks aren't held.
           cloud-init status --wait || true
           apt-get update

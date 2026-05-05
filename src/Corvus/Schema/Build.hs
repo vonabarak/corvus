@@ -17,6 +17,8 @@ module Corvus.Schema.Build
   , BuildTarget (..)
   , BuildStrategy (..)
   , BuildVm (..)
+  , ShellDefaults (..)
+  , emptyShellDefaults
   , Provisioner (..)
   , Shell (..)
   , FileProv (..)
@@ -53,6 +55,7 @@ data Build = Build
   , buildTarget :: BuildTarget
   , buildStrategy :: BuildStrategy
   , buildVm :: BuildVm
+  , buildShellDefaults :: ShellDefaults
   , buildProvisioners :: [Provisioner]
   , buildCleanup :: CleanupMode
   , buildBootKeys :: [BootKey]
@@ -70,11 +73,42 @@ instance FromJSON Build where
       <*> o .: "target"
       <*> o .:? "strategy" .!= BuildStrategyOverlay
       <*> o .:? "vm" .!= defaultBuildVm
+      <*> o .:? "shellDefaults" .!= emptyShellDefaults
       <*> o .:? "provisioners" .!= []
       <*> o .:? "cleanup" .!= CleanupAlways
       <*> o .:? "bootKeys" .!= []
       <*> o .:? "waitForShutdownSec" .!= 3600
       <*> o .:? "floppy"
+
+-- | Build-level defaults applied to every 'ProvShell' step.
+--
+--   * 'sdPreamble' — literal shell text prepended verbatim before the
+--     env exports and the step's body. Typical use: @set -eux@ once at
+--     build level instead of in every step. Multi-line is fine.
+--   * 'sdEnv' — KV pairs exported before the step's own 'shellEnv'.
+--     A step that re-declares the same key wins (operator override).
+data ShellDefaults = ShellDefaults
+  { sdPreamble :: Maybe Text
+  , sdEnv :: [(Text, Text)]
+  }
+  deriving (Show)
+
+emptyShellDefaults :: ShellDefaults
+emptyShellDefaults = ShellDefaults Nothing []
+
+instance FromJSON ShellDefaults where
+  parseJSON = withObject "ShellDefaults" $ \o -> do
+    mPreamble <- o .:? "preamble"
+    mEnvVal <- o .:? "env" :: Yaml.Parser (Maybe Value)
+    envList <- case mEnvVal of
+      Nothing -> pure []
+      Just (Object km) -> traverse asTextPair (KM.toList km)
+      Just other -> typeMismatch "shellDefaults.env (object of strings)" other
+    pure (ShellDefaults mPreamble envList)
+    where
+      asTextPair (k, String t) = pure (Key.toText k, t)
+      asTextPair (k, other) =
+        typeMismatch ("shellDefaults.env." <> T.unpack (Key.toText k) <> " (string)") other
 
 -- | The artifact disk produced by a build.
 --

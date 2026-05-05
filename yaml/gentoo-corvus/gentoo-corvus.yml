@@ -44,6 +44,12 @@ builds:
       cpuCount: 8
       ramMb: 8192
 
+    # Hoisted preamble: every shell step runs `set -eux` once,
+    # courtesy of this block, so the per-step boilerplate stays out
+    # of the way.
+    shellDefaults:
+      preamble: "set -eux"
+
     provisioners:
       # 0) Sanity check: outbound HTTPS works (else the rest of the
       #    pipeline can't fetch portage tree / binhost). cloud-init is
@@ -53,7 +59,6 @@ builds:
       #    `cloud-init status --wait` was observed to hang on this image.
       - shell:
           inline: |
-            set -eux
             curl -sSf -o /dev/null https://gentoo.org
             uname -a
           timeoutSec: 120
@@ -62,7 +67,6 @@ builds:
       #    big builds (qemu, postgresql) come in as binaries.
       - shell:
           inline: |
-            set -eux
             mkdir -p /etc/portage/package.use /etc/portage/package.accept_keywords
             grep -q "FEATURES=.*getbinpkg" /etc/portage/make.conf 2>/dev/null || cat >> /etc/portage/make.conf <<'EOF'
 
@@ -80,7 +84,6 @@ builds:
       # 2) USE flags Corvus depends on.
       - shell:
           inline: |
-            set -eux
             cat > /etc/portage/package.use/corvus <<'EOF'
             app-emulation/qemu spice usb usbredir virtfs passt vde
             EOF
@@ -93,7 +96,6 @@ builds:
       #    On 8 vCPUs that's ~30-45 min; the rest fall through binhost.
       - shell:
           inline: |
-            set -eux
             emerge --noreplace \
               app-emulation/qemu \
               net-misc/vde \
@@ -128,7 +130,6 @@ builds:
       #       after a successful GHC+cabal install — bit iteration 6.
       - shell:
           inline: |
-            set -eux
             export GHCUP_INSTALL_BASE_PREFIX=/opt
             export PATH="/opt/.ghcup/bin:$PATH"
             export BOOTSTRAP_HASKELL_NONINTERACTIVE=1
@@ -154,7 +155,6 @@ builds:
       #    are already on every user's PATH.
       - shell:
           inline: |
-            set -eux
             id corvus 2>/dev/null || useradd -m -G kvm,wheel,users -s /bin/bash corvus
             grep -q "^%wheel ALL=(ALL) NOPASSWD:" /etc/sudoers || \
               echo "%wheel ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
@@ -164,7 +164,6 @@ builds:
       #    the systemd unit so it auto-starts on boot.
       - shell:
           inline: |
-            set -eux
             emerge --config dev-db/postgresql:18 || true
             systemctl enable postgresql-18.service
           timeoutSec: 300
@@ -172,7 +171,6 @@ builds:
       # 7) VDE switch as a systemd service so it comes up at boot.
       - shell:
           inline: |
-            set -eux
             install -d /etc/systemd/system
             cat > /etc/systemd/system/vde-switch.service <<'EOF'
             [Unit]
@@ -205,7 +203,6 @@ builds:
       #    can identify what's inside without booting it.
       - shell:
           inline: |
-            set -eux
             {
               echo "image: gentoo-corvus-test"
               echo "baked: $(date -Iseconds)"

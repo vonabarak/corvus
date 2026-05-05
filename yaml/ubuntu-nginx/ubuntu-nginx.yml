@@ -38,11 +38,13 @@ builds:
       cpuCount: 4
       ramMb: 4096
 
+    shellDefaults:
+      preamble: "set -eux"
+      env:
+        DEBIAN_FRONTEND: noninteractive
+
     provisioners:
       - shell: |
-          set -eux
-          export DEBIAN_FRONTEND=noninteractive
-
           # cloud-init reports "done" before its own apt post-handlers
           # release the dpkg lock; wait up to 5 minutes for the lock to
           # become free before we run our own apt invocations.
@@ -60,7 +62,6 @@ builds:
           systemctl enable nginx
 
       - shell: |
-          set -eux
           # Slim down so the qcow2 compact pass actually shrinks the file.
           apt-get clean
           rm -rf /var/lib/apt/lists/*

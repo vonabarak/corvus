@@ -183,6 +183,36 @@ detached, optionally compacted, and registered as the artifact.
 Use this for stripped-down golden images or images that don't share
 content with any existing template (custom kernels, embedded OSes).
 
+## `shellDefaults`
+
+Build-level defaults applied to every `shell:` provisioner. Hoists
+boilerplate (`set -eux`, shared env vars) out of every step:
+
+```yaml
+shellDefaults:
+  preamble: |             # literal shell, prepended verbatim to every step's body
+    set -eux
+  env:                    # exported before per-step `env:`; step env wins on a clash
+    SYSROOT: /mnt/sysroot
+    DEBIAN_FRONTEND: noninteractive
+```
+
+Composition order for a `shell:` step's command:
+
+1. `shellDefaults.preamble` — runs first so `set -e` propagates into the env exports.
+2. `shellDefaults.env` — exported.
+3. The step's own `shell.env` — exported AFTER defaults, so a step can override a shared key by re-declaring it.
+4. The step's `shell.workdir` — `cd` if set.
+5. The step's `inline:` body.
+
+To opt a single step out of the preamble's effect (e.g. a script that
+intentionally tolerates failures), prepend `set +e` at the top of its
+`inline:`. There's no per-step opt-out flag.
+
+`shellDefaults` does not apply to non-shell provisioners (`file`,
+`wait-for`, `reboot`) or to commands run inside heredoc'd sub-shells
+like `chroot ... <<'EOF'` — those are separate shell instances.
+
 ## Provisioner kinds
 
 ### `shell`

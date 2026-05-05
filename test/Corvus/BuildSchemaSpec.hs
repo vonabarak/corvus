@@ -9,6 +9,7 @@
 -- are rejected.
 module Corvus.BuildSchemaSpec (spec) where
 
+import Corvus.Handlers.Build (buildShellCommand)
 import Corvus.Model (DriveFormat (..))
 import Corvus.Schema.Build
 import qualified Data.ByteString.Char8 as BS8
@@ -297,3 +298,127 @@ spec = describe "Schema.Build" $ do
       case decodeBuilds yaml of
         Right c -> buildFloppy (head (bcBuilds c)) `shouldBe` Nothing
         Left e -> expectationFailure e
+
+  describe "ShellDefaults" $ do
+    let parseSd yaml = case decodeBuilds yaml of
+          Right c -> Right (buildShellDefaults (head (bcBuilds c)))
+          Left e -> Left e
+        wrap inner =
+          BS8.unlines
+            ( [ "builds:"
+              , "  - name: x"
+              , "    template: t"
+              , "    target: { name: o }"
+              ]
+                ++ inner
+            )
+
+    it "defaults to empty when shellDefaults is absent" $ do
+      case parseSd (wrap []) of
+        Right sd -> do
+          sdPreamble sd `shouldBe` Nothing
+          sdEnv sd `shouldBe` []
+        Left e -> expectationFailure e
+
+    it "parses shellDefaults with only preamble" $ do
+      let yaml =
+            wrap
+              [ "    shellDefaults:"
+              , "      preamble: |"
+              , "        set -eux"
+              ]
+      case parseSd yaml of
+        Right sd -> do
+          sdPreamble sd `shouldBe` Just "set -eux\n"
+          sdEnv sd `shouldBe` []
+        Left e -> expectationFailure e
+
+    it "parses shellDefaults with only env" $ do
+      let yaml =
+            wrap
+              [ "    shellDefaults:"
+              , "      env:"
+              , "        SYSROOT: /mnt/sysroot"
+              ]
+      case parseSd yaml of
+        Right sd -> do
+          sdPreamble sd `shouldBe` Nothing
+          sdEnv sd `shouldBe` [("SYSROOT", "/mnt/sysroot")]
+        Left e -> expectationFailure e
+
+    it "parses shellDefaults with both preamble and env" $ do
+      let yaml =
+            wrap
+              [ "    shellDefaults:"
+              , "      preamble: \"set -eux\""
+              , "      env:"
+              , "        SYSROOT: /mnt/sysroot"
+              ]
+      case parseSd yaml of
+        Right sd -> do
+          sdPreamble sd `shouldBe` Just "set -eux"
+          sdEnv sd `shouldBe` [("SYSROOT", "/mnt/sysroot")]
+        Left e -> expectationFailure e
+
+    it "rejects non-string env values" $
+      decodeBuilds
+        ( wrap
+            [ "    shellDefaults:"
+            , "      env:"
+            , "        FOO: 1"
+            ]
+        )
+        `shouldSatisfy` \case
+          Left _ -> True
+          _ -> False
+
+  describe "buildShellCommand" $ do
+    let bareShell =
+          Shell
+            { shellInline = Just "true"
+            , shellScript = Nothing
+            , shellWorkdir = Nothing
+            , shellEnv = []
+            , shellTimeoutSec = Nothing
+            }
+
+    it "returns the body unchanged when defaults + step are empty" $
+      buildShellCommand emptyShellDefaults bareShell "echo hi"
+        `shouldBe` "echo hi"
+
+    it "prepends sdPreamble before the body" $
+      buildShellCommand
+        emptyShellDefaults {sdPreamble = Just "set -eux"}
+        bareShell
+        "echo hi"
+        `shouldBe` "set -eux\necho hi"
+
+    it "exports sdEnv before the body" $
+      buildShellCommand
+        emptyShellDefaults {sdEnv = [("SYSROOT", "/mnt/sysroot")]}
+        bareShell
+        "echo hi"
+        `shouldBe` "export SYSROOT='/mnt/sysroot'\necho hi"
+
+    it "orders preamble before sdEnv before stepEnv before workdir before body" $
+      let sd =
+            ShellDefaults
+              { sdPreamble = Just "set -eux"
+              , sdEnv = [("SHARED", "1")]
+              }
+          sh = bareShell {shellEnv = [("STEP", "2")], shellWorkdir = Just "/tmp"}
+       in buildShellCommand sd sh "echo hi"
+            `shouldBe` "set -eux\nexport SHARED='1'\nexport STEP='2'\ncd '/tmp'\necho hi"
+
+    it "lets the step override a defaults env key (later export wins in shell)" $
+      let sd = emptyShellDefaults {sdEnv = [("X", "default")]}
+          sh = bareShell {shellEnv = [("X", "step")]}
+       in buildShellCommand sd sh "echo $X"
+            `shouldBe` "export X='default'\nexport X='step'\necho $X"
+
+    it "single-quotes env values that contain spaces" $
+      buildShellCommand
+        emptyShellDefaults {sdEnv = [("MSG", "hello world")]}
+        bareShell
+        "echo $MSG"
+        `shouldBe` "export MSG='hello world'\necho $MSG"

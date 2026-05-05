@@ -16,12 +16,19 @@ builds:
       cpuCount: 8
       ramMb: 8192
 
+    # Hoisted preamble + shared env. The preamble runs first in every
+    # `shell:` step, so `set -e` propagates into the env exports and
+    # the body. SYSROOT is exported once instead of being redeclared
+    # in each step.
+    shellDefaults:
+      preamble: "set -eux"
+      env:
+        SYSROOT: /mnt/sysroot
+
     provisioners:
-      # 1) Bake-host prep. 
+      # 1) Bake-host prep.
       - shell:
           inline: |
-            set -eux
-
             # Wait until outbound DNS works before touching the network.
             for i in $(seq 1 60); do
               getent hosts distfiles.gentoo.org >/dev/null && break
@@ -39,9 +46,8 @@ builds:
 
             grep -q 'FEATURES=.*getbinpkg' /etc/portage/make.conf 2>/dev/null || cat >> /etc/portage/make.conf <<'EOF'
 
-            # Added by gentoo-headless.yml bake.
             FEATURES="${FEATURES} getbinpkg parallel-fetch"
-            EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --jobs=4 --load-average=8 --getbinpkg --usepkg --binpkg-respect-use=y"
+            EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y"
             ACCEPT_LICENSE="*"
             EOF
 
@@ -61,7 +67,6 @@ builds:
       #    and a single ext4 root.
       - shell:
           inline: |
-            set -eux
             DEV=/dev/vdb
 
             wipefs -a "$DEV"
@@ -85,9 +90,7 @@ builds:
       #    stage3 tarball.
       - shell:
           inline: |
-            set -eux
             DEV=/dev/vdb
-            SYSROOT=/mnt/sysroot
 
             mkdir -p "$SYSROOT"
             mount "${DEV}2" "$SYSROOT"
@@ -111,7 +114,15 @@ builds:
             rm -f /tmp/stage3.tar.xz /tmp/stage3.DIGESTS
 
             install -d "$SYSROOT/etc/portage" "$SYSROOT/etc/portage/package.use"
-            install -m 0644 /etc/portage/make.conf "$SYSROOT/etc/portage/make.conf"
+
+            # Append the same binhost knobs to the sysroot's stage3
+            grep -q 'FEATURES=.*getbinpkg' "$SYSROOT/etc/portage/make.conf" 2>/dev/null \
+              || cat >> "$SYSROOT/etc/portage/make.conf" <<'EOF'
+
+            FEATURES="${FEATURES} getbinpkg parallel-fetch"
+            EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y"
+            ACCEPT_LICENSE="*"
+            EOF
 
             cp -a /etc/portage/gnupg "$SYSROOT/etc/portage/gnupg"
           timeoutSec: 1800
@@ -119,8 +130,6 @@ builds:
       # 5) Build and install the kernel from sys-kernel/gentoo-sources.
       - shell:
           inline: |
-            set -eux
-            SYSROOT=/mnt/sysroot
 
             emerge --usepkg --getbinpkg --binpkg-respect-use=y \
               sys-kernel/gentoo-sources
@@ -146,19 +155,22 @@ builds:
               "$SYSROOT/boot/System.map-$KVER"
             install -m 0644 "$KSRC/.config" \
               "$SYSROOT/boot/config-$KVER"
+          timeoutSec: 14400
+
+      # 6) Install runtime packages
+      - shell:
+          inline: |
 
             emerge --sysroot="$SYSROOT" --root="$SYSROOT" \
               --usepkg --getbinpkg --binpkg-respect-use=y \
               app-emulation/qemu-guest-agent \
               app-emulation/cloud-init \
               app-admin/sudo
-          timeoutSec: 14400
+          timeoutSec: 1800
 
-      # 6) Install GRUB into the sysroot.
+      # 7) Install GRUB into the sysroot.
       - shell:
           inline: |
-            set -eux
-            SYSROOT=/mnt/sysroot
 
             grub-install --target=i386-pc --boot-directory="$SYSROOT/boot" /dev/vdb
 
@@ -186,14 +198,12 @@ builds:
             EOF
           timeoutSec: 600
 
-      # 7) Configure the resulting system: fstab, hostname, machine-id
+      # 8) Configure the resulting system: fstab, hostname, machine-id
       #    placeholder, serial getty, sshd, and a wildcard
       #    systemd-networkd unit so DHCP comes up on whatever NIC the
       #    operator hands the VM.
       - shell:
           inline: |
-            set -eux
-            SYSROOT=/mnt/sysroot
 
             cat > "$SYSROOT/etc/fstab" <<'EOF'
             LABEL=corvus-root  /  ext4  defaults,noatime  0 1
@@ -243,13 +253,11 @@ builds:
             ln -sf /run/systemd/resolve/stub-resolv.conf "$SYSROOT/etc/resolv.conf" || true
           timeoutSec: 120
 
-      # 8) Tear down build scratch, write provenance, then unmount
+      # 9) Tear down build scratch, write provenance, then unmount
       #    cleanly so the qcow2's last consistent state is on disk
       #    before Corvus detaches it.
       - shell:
           inline: |
-            set -eux
-            SYSROOT=/mnt/sysroot
 
             cat > "$SYSROOT/etc/corvus-image-info" <<EOF
             image: gentoo-headless

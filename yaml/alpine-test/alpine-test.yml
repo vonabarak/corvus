@@ -51,17 +51,20 @@ builds:
 
     cleanup: onSuccess
 
+    # Hoisted preamble: every shell step inherits `set -eux` so each
+    # individual step can lead with the actual work.
+    shellDefaults:
+      preamble: "set -eux"
+
     provisioners:
       # ── 1. Host-side tooling on the bake VM ──────────────────────────
       - shell: |
-          set -eux
           apt-get update -y
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
             gdisk dosfstools e2fsprogs wget mtools ca-certificates parted
 
       # ── 2. Partition the target disk (BIOS boot + ESP + root) ────────
       - shell: |
-          set -eux
           sgdisk --zap-all /dev/vdb
           sgdisk --new=1:2048:+1M --typecode=1:ef02 --change-name=1:"BIOS boot"  /dev/vdb
           sgdisk --new=2:0:+64M    --typecode=2:ef00 --change-name=2:"EFI System" /dev/vdb
@@ -77,7 +80,6 @@ builds:
 
       # ── 3. Bootstrap Alpine via apk-tools-static ─────────────────────
       - shell: |
-          set -eux
           mkdir -p /mnt/target
           mount /dev/vdb3 /mnt/target
           mkdir -p /mnt/target/boot/efi
@@ -110,7 +112,6 @@ builds:
 
       # ── 4. Configure the system inside a chroot ──────────────────────
       - shell: |
-          set -eux
           mount --bind /dev    /mnt/target/dev
           mount --bind /dev/pts /mnt/target/dev/pts
           mount -t proc proc   /mnt/target/proc
@@ -239,7 +240,6 @@ builds:
 
       # ── 5. Install GRUB (BIOS + UEFI) and write a static grub.cfg ────
       - shell: |
-          set -eux
           # BIOS bootloader: writes core.img into the BIOS-boot partition.
           chroot /mnt/target grub-install --target=i386-pc --boot-directory=/boot /dev/vdb
           # UEFI bootloader: removable-media path (BOOT/BOOTX64.EFI) so
@@ -267,12 +267,10 @@ builds:
           mode: "0600"
 
       - shell: |
-          set -eux
           chroot /mnt/target chown corvus:corvus /home/corvus/.ssh/authorized_keys
 
       # ── 7. Unmount everything before publish ─────────────────────────
       - shell: |
-          set -eux
           sync
           umount /mnt/target/dev/pts
           umount /mnt/target/dev

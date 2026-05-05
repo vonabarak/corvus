@@ -25,6 +25,9 @@ module Corvus.Handlers.Build
     -- * Streaming sink
   , BuildSink
   , noOpBuildSink
+
+    -- * Shell command assembly (exported for tests)
+  , buildShellCommand
   )
 where
 
@@ -637,6 +640,7 @@ runProvisioners
 runProvisioners state parentTaskId sink vmId b startTime =
   go 1 (buildProvisioners b)
   where
+    sd = buildShellDefaults b
     go idx [] = do
       -- Implicit final step: write provenance file.
       let info =
@@ -645,9 +649,9 @@ runProvisioners state parentTaskId sink vmId b startTime =
               startTime
               (buildTemplate b)
               (T.pack (Version.showVersion version))
-      runProvisioner state parentTaskId sink vmId idx (provenanceProvisioner info)
+      runProvisioner state parentTaskId sink vmId sd idx (provenanceProvisioner info)
     go idx (p : ps) = do
-      r <- runProvisioner state parentTaskId sink vmId idx p
+      r <- runProvisioner state parentTaskId sink vmId sd idx p
       case r of
         Left err -> pure $ Left err
         Right () -> go (idx + 1) ps
@@ -673,10 +677,11 @@ runProvisioner
   -> TaskId
   -> BuildSink
   -> Int64
+  -> ShellDefaults
   -> Int
   -> Provisioner
   -> LoggingT IO (Either Text ())
-runProvisioner state parentTaskId sink vmId stepIdx p = do
+runProvisioner state parentTaskId sink vmId sd stepIdx p = do
   let kind = provKind p
       desc = provDesc p
   logInfoN $ "step " <> T.pack (show stepIdx) <> " (" <> kind <> "): " <> desc
@@ -699,7 +704,7 @@ runProvisioner state parentTaskId sink vmId stepIdx p = do
               }
         )
         (ssDbPool state)
-  bodyResult <- liftIO $ try $ runProvisionerBody state vmId stepIdx sink p
+  bodyResult <- liftIO $ try $ runProvisionerBody state vmId sd stepIdx sink p
   finishedAt <- liftIO getCurrentTime
   let (orchResult, taskMsg, taskResult) = case bodyResult of
         Right (Right msg) -> (Right (), msg, TaskSuccess)
@@ -740,11 +745,12 @@ runProvisioner state parentTaskId sink vmId stepIdx p = do
 runProvisionerBody
   :: ServerState
   -> Int64
+  -> ShellDefaults
   -> Int
   -> BuildSink
   -> Provisioner
   -> IO (Either (Text, Maybe Text) (Maybe Text))
-runProvisionerBody state vmId stepIdx sink p = case p of
+runProvisionerBody state vmId sd stepIdx sink p = case p of
   ProvShell sh -> case shellInline sh of
     Nothing ->
       pure $
@@ -753,19 +759,10 @@ runProvisionerBody state vmId stepIdx sink p = case p of
           , Just "shell: missing inline body (client-side bug)"
           )
     Just body -> do
-      let envPrefix =
-            T.concat
-              ( map
-                  (\(k, v) -> "export " <> k <> "=" <> shellQuote v <> "; ")
-                  (shellEnv sh)
-              )
-          workdirPrefix = case shellWorkdir sh of
-            Just d -> "cd " <> shellQuote d <> " && "
-            Nothing -> ""
-          maxPolls = case shellTimeoutSec sh of
+      let maxPolls = case shellTimeoutSec sh of
             Just s -> max 60 (s * 10)
             Nothing -> 6000 -- 10 minutes default
-          fullCmd = envPrefix <> workdirPrefix <> body
+          fullCmd = buildShellCommand sd sh body
       bufRef <- newIORef BS.empty
       totalRef <- newIORef (0 :: Int)
       let onLine line = do
@@ -921,6 +918,39 @@ provDesc (ProvReboot _) = "reboot"
 -- newlines.
 shellQuote :: Text -> Text
 shellQuote t = "'" <> T.replace "'" "'\\''" t <> "'"
+
+-- | Assemble the shell command sent to the guest agent for a shell
+-- provisioner. Pure; lifted out of 'runProvisionerBody' so the
+-- concatenation order is unit-testable.
+--
+-- The pieces are joined with newlines (not @;@) so a multi-line
+-- preamble (e.g. @set -eux@ followed by a function definition) and
+-- a body that uses @#@ comments or backslash line-continuations
+-- both parse correctly.
+--
+-- Order:
+--
+--   1. 'sdPreamble' — runs first so @set -e@ propagates into env exports.
+--   2. 'sdEnv'      — build-level defaults env, exported.
+--   3. 'shellEnv'   — per-step env, exported AFTER defaults so the
+--      step can override defaults by re-declaring the same key.
+--   4. 'shellWorkdir' — @cd@, if set.
+--   5. body         — the operator's @inline@ text.
+buildShellCommand :: ShellDefaults -> Shell -> Text -> Text
+buildShellCommand sd sh body =
+  preambleBlock <> defaultsEnvBlock <> stepEnvBlock <> workdirBlock <> body
+  where
+    preambleBlock = case sdPreamble sd of
+      Just p -> p <> "\n"
+      Nothing -> ""
+    defaultsEnvBlock = renderEnv (sdEnv sd)
+    stepEnvBlock = renderEnv (shellEnv sh)
+    workdirBlock = case shellWorkdir sh of
+      Just d -> "cd " <> shellQuote d <> "\n"
+      Nothing -> ""
+    renderEnv =
+      T.concat
+        . map (\(k, v) -> "export " <> k <> "=" <> shellQuote v <> "\n")
 
 waitForIO
   :: ServerState
