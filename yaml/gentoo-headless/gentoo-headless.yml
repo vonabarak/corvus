@@ -1,15 +1,70 @@
 pipeline:
+  - apply:
+      ifExists: skip
+
+      sshKeys:
+        - name: corvus
+          publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
+
+      disks:
+        - name: ovmf-code
+          register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
+          format: qcow2
+
+        - name: ovmf-vars
+          register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
+          format: qcow2
+
+        - name: gentoo-base-cloud
+          import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260503T164604Z.qcow2"
+          format: qcow2
+          path: BaseImages/Gentoo/
+          md5: 53bc978c9220e8c2781ec5a324c91dc5
+
+      templates:
+        - name: gentoo-cloud
+          cpuCount: 8
+          ramMb: 8192
+          cloudInit: true
+          guestAgent: true
+          description: "Gentoo (2026-04-05 snapshot)"
+          cloudInitConfig:
+            userData:
+              runcmd:
+                - emerge-webrsync --quiet
+                - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
+                - systemctl enable --now qemu-guest-agent.service
+          drives:
+            - diskImageName: gentoo-base-cloud
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - diskImageName: ovmf-code
+              interface: pflash
+              readOnly: true
+              strategy: direct
+            - diskImageName: ovmf-vars
+              interface: pflash
+              strategy: clone
+          networkInterfaces:
+            - type: vde
+              hostDevice: /run/vde2/switch.ctl
+          sshKeys:
+            - name: corvus
+
   - build:
       name: gentoo-headless
       description: Minimal headless Gentoo with custom kernel (BIOS+GPT, ext4)
-      template: gentoo
+      template: gentoo-cloud
 
       target:
-        name: gentoo-base-headless1
+        name: gentoo-base-headless
         format: qcow2
         sizeGb: 20
         path: BaseImages/Gentoo/
         compact: true
+        ifExists: skip
 
       strategy: from-scratch
 
@@ -259,5 +314,204 @@ pipeline:
               sync
               umount "$SYSROOT"
             timeoutSec: 300
+
+      cleanup: onSuccess
+
+  - apply:
+      ifExists: skip
+      templates:
+        - name: gentoo-headless
+          cpuCount: 8
+          ramMb: 8192
+          cloudInit: true
+          guestAgent: true
+          description: "Gentoo (custom image for headless VMs)"
+          drives:
+            - diskImageName: gentoo-base-headless
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+              sizeMb: 40960
+          networkInterfaces:
+            - type: vde
+              hostDevice: /run/vde2/switch.ctl
+          sshKeys:
+            - name: corvus
+
+  - build:
+      name: gentoo-corvus-test
+      description: Gentoo image preloaded with everything Corvus builds against
+      template: gentoo-headless
+
+      target:
+        name: gentoo-corvus-test
+        compact: true
+
+      strategy: overlay
+
+      vm:
+        cpuCount: 8
+        ramMb: 8192
+
+      shellDefaults:
+        preamble: "set -eux"
+
+      provisioners:
+        - shell:
+            inline: |
+              for i in $(seq 1 60); do
+                getent hosts distfiles.gentoo.org >/dev/null && break
+                sleep 2
+              done
+              getent hosts distfiles.gentoo.org >/dev/null \
+                || { echo "network never came up after 120s" >&2; exit 1; }
+            timeoutSec: 130
+
+        - shell:
+            inline: |
+              mkdir -p /var/cache/distfiles /var/db/repos /mnt/corvus
+
+              cat >> /etc/fstab <<'EOF'
+              192.168.88.1:/data/portage/distfiles /var/cache/distfiles nfs rw 0 0
+              192.168.88.1:/var/db/repos /var/db/repos nfs ro 0 0
+              192.168.88.1:/home/bobr/Work/corvus /mnt/corvus nfs rw 0 0
+              EOF
+
+              systemctl daemon-reload
+              mount -a
+            timeoutSec: 60
+
+        - shell:
+            inline: |
+              cat > /etc/portage/package.use/corvus <<'EOF'
+              app-emulation/qemu spice usb usbredir virtfs passt vde
+              EOF
+              
+              cat > /etc/portage/package.accept_keywords/corvus <<'EOF'
+              app-emulation/corvus **
+              dev-haskell/* ~amd64
+              dev-lang/ghc ~amd64
+              EOF
+
+              cat > /etc/portage/repos.conf <<'EOF'
+              [vonabarak]
+              location = /var/db/repos/vonabarak
+              sync-type = git
+              sync-uri = https://github.com/vonabarak/gentoo.git
+
+              [haskell]
+              location = /var/db/repos/haskell
+              sync-type = git
+              sync-uri = https://github.com/gentoo-haskell/gentoo-haskell.git
+              EOF
+            timeoutSec: 60
+
+        - shell:
+            inline: |
+              emerge --noreplace \
+                app-emulation/qemu \
+                net-misc/vde \
+                net-dns/dnsmasq \
+                net-firewall/nftables \
+                app-emulation/virtiofsd \
+                app-cdr/cdrtools \
+                sys-firmware/edk2-bin \
+                dev-db/postgresql \
+                dev-vcs/git \
+                net-misc/curl \
+                app-misc/jq \
+                app-emulation/corvus
+            timeoutSec: 14400
+
+        # 4) Haskell toolchain via ghcup — much faster than emerging GHC
+        #    from source, and pinning matches the corvus stack snapshot.
+        #
+        #    Two non-obvious things here:
+        #
+        #    a) GHCUP_INSTALL_BASE_PREFIX=/opt puts the toolchain in
+        #       /opt/.ghcup so non-root users (the corvus account in step 5)
+        #       can read it. Default install at /root/.ghcup lives under a
+        #       mode-700 home dir and is unreachable for corvus, even via
+        #       /usr/local/bin symlinks — discovered when verify-gentoo
+        #       failed with `sudo: unable to execute ... Permission denied`.
+        #
+        #    b) /opt/.ghcup/bin must be on PATH BEFORE invoking the install
+        #       script: ghcup's bootstrap ends with `edo cabal update
+        #       --ignore-project` (line ~1063), which uses PATH lookup, not
+        #       the absolute path. Without this, the script exits 2 right
+        #       after a successful GHC+cabal install — bit iteration 6.
+        # - shell:
+        #     inline: |
+        #       export GHCUP_INSTALL_BASE_PREFIX=/opt
+        #       export PATH="/opt/.ghcup/bin:$PATH"
+        #       export BOOTSTRAP_HASKELL_NONINTERACTIVE=1
+        #       export BOOTSTRAP_HASKELL_GHC_VERSION=9.8.4
+        #       export BOOTSTRAP_HASKELL_CABAL_VERSION=recommended
+        #       export BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1
+        #       export BOOTSTRAP_HASKELL_INSTALL_HLS=0
+        #       export BOOTSTRAP_HASKELL_VERBOSE=1
+        #       curl --proto '=https' --tlsv1.2 --retry 3 -fL \
+        #         -o /tmp/ghcup-install.sh https://get-ghcup.haskell.org
+        #       sh /tmp/ghcup-install.sh 2>&1 | tee /tmp/ghcup-install.log
+        #       install -d /usr/local/bin
+        #       for f in ghc ghc-9.8 ghc-9.8.4 ghci runghc runhaskell cabal ghcup; do
+        #         test -e /opt/.ghcup/bin/$f && ln -sf /opt/.ghcup/bin/$f /usr/local/bin/$f || true
+        #       done
+        #       ghc --version
+        #       cabal --version
+        #     timeoutSec: 1800
+
+        - shell:
+            inline: |
+              eselect postgresql set 18 || true
+              emerge --config dev-db/postgresql:18 || true
+              systemctl enable postgresql-18.service
+            timeoutSec: 300
+
+        - shell:
+            inline: |
+              install -d /etc/systemd/system
+              cat > /etc/systemd/system/vde-switch.service <<'EOF'
+              [Unit]
+              Description=VDE virtual switch for Corvus test VMs
+              After=network-pre.target
+              Before=network.target
+              Wants=network-pre.target
+
+              [Service]
+              Type=forking
+              ExecStartPre=/bin/mkdir -p /run/vde2
+              ExecStart=/usr/bin/vde_switch \
+                  --sock /run/vde2/switch.ctl \
+                  --mgmt /run/vde2/switch.mgmt \
+                  -tap vde0 \
+                  -m 666 \
+                  -group kvm \
+                  --daemon \
+                  --pidfile /run/vde2/vde_switch.pid
+              PIDFile=/run/vde2/vde_switch.pid
+              Restart=on-failure
+
+              [Install]
+              WantedBy=multi-user.target
+              EOF
+              systemctl enable vde-switch.service
+            timeoutSec: 60
+
+        - shell:
+            inline: |
+              {
+                echo "image: gentoo-corvus-test"
+                echo "baked: $(date -Iseconds)"
+                echo "kernel: $(uname -r)"
+                ghc --version
+                cabal --version
+                qemu-system-x86_64 --version | head -1
+                psql --version
+                vde_switch --version 2>&1 | head -1 || true
+              } > /etc/corvus-test-info
+              cat /etc/corvus-test-info
+            timeoutSec: 60
 
       cleanup: onSuccess
