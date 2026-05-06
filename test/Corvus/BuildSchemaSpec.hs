@@ -523,6 +523,14 @@ spec = describe "Schema.Build" $ do
             , shellEnv = []
             , shellTimeoutSec = Nothing
             }
+        -- Auto-injected env (Corvus + shellDefaults.env) is wrapped in
+        -- a POSIX save/restore of @set -x@ so a user preamble like
+        -- @set -eux@ doesn't flood the build log with two trace lines
+        -- per Corvus variable. The wrapper is a no-op when @-x@ wasn't
+        -- on. The exact strings live here as test constants so the
+        -- buildShellCommand expectations below stay readable.
+        xtraceOff = "{ __corvus_xs=$-; set +x; } 2>/dev/null\n"
+        xtraceOn = "{ case $__corvus_xs in *x*) set -x;; esac; unset __corvus_xs; } 2>/dev/null\n"
 
     it "returns the body unchanged when defaults + corvus + step are empty" $
       buildShellCommand emptyShellDefaults [] bareShell "echo hi"
@@ -536,13 +544,13 @@ spec = describe "Schema.Build" $ do
         "echo hi"
         `shouldBe` "set -eux\necho hi"
 
-    it "exports sdEnv before the body" $
+    it "exports sdEnv before the body, wrapped in xtrace save/restore" $
       buildShellCommand
         emptyShellDefaults {sdEnv = [("SYSROOT", "/mnt/sysroot")]}
         []
         bareShell
         "echo hi"
-        `shouldBe` "export SYSROOT='/mnt/sysroot'\necho hi"
+        `shouldBe` xtraceOff <> "export SYSROOT='/mnt/sysroot'\n" <> xtraceOn <> "echo hi"
 
     it "exports the corvusEnv layer between preamble and shellDefaults env" $
       buildShellCommand
@@ -550,9 +558,13 @@ spec = describe "Schema.Build" $ do
         [("CORVUS_VERSION", "0.9.0.0")]
         bareShell
         "echo hi"
-        `shouldBe` "set -eux\nexport CORVUS_VERSION='0.9.0.0'\nexport SD='sd'\necho hi"
+        `shouldBe` "set -eux\n"
+          <> xtraceOff
+          <> "export CORVUS_VERSION='0.9.0.0'\nexport SD='sd'\n"
+          <> xtraceOn
+          <> "echo hi"
 
-    it "orders preamble → corvus → sdEnv → stepEnv → workdir → body" $
+    it "orders preamble → (auto env wrapped) → stepEnv → workdir → body" $
       let sd =
             ShellDefaults
               { sdPreamble = Just "set -eux"
@@ -560,13 +572,25 @@ spec = describe "Schema.Build" $ do
               }
           sh = bareShell {shellEnv = [("STEP", "2")], shellWorkdir = Just "/tmp"}
        in buildShellCommand sd [("CORVUS_VERSION", "v")] sh "echo hi"
-            `shouldBe` "set -eux\nexport CORVUS_VERSION='v'\nexport SHARED='1'\nexport STEP='2'\ncd '/tmp'\necho hi"
+            `shouldBe` "set -eux\n"
+              <> xtraceOff
+              <> "export CORVUS_VERSION='v'\nexport SHARED='1'\n"
+              <> xtraceOn
+              <> "export STEP='2'\ncd '/tmp'\necho hi"
+
+    it "leaves step env outside the xtrace wrapper" $
+      let sh = bareShell {shellEnv = [("STEP_VAR", "v")]}
+       in buildShellCommand emptyShellDefaults [] sh "echo $STEP_VAR"
+            `shouldBe` "export STEP_VAR='v'\necho $STEP_VAR"
 
     it "lets the step override a defaults env key (later export wins in shell)" $
       let sd = emptyShellDefaults {sdEnv = [("X", "default")]}
           sh = bareShell {shellEnv = [("X", "step")]}
        in buildShellCommand sd [] sh "echo $X"
-            `shouldBe` "export X='default'\nexport X='step'\necho $X"
+            `shouldBe` xtraceOff
+              <> "export X='default'\n"
+              <> xtraceOn
+              <> "export X='step'\necho $X"
 
     it "lets shellDefaults.env override a CORVUS_* var" $
       buildShellCommand
@@ -574,7 +598,10 @@ spec = describe "Schema.Build" $ do
         [("CORVUS_VERSION", "real")]
         bareShell
         "echo $CORVUS_VERSION"
-        `shouldBe` "export CORVUS_VERSION='real'\nexport CORVUS_VERSION='override'\necho $CORVUS_VERSION"
+        `shouldBe` xtraceOff
+          <> "export CORVUS_VERSION='real'\nexport CORVUS_VERSION='override'\n"
+          <> xtraceOn
+          <> "echo $CORVUS_VERSION"
 
     it "single-quotes env values that contain spaces" $
       buildShellCommand
@@ -582,4 +609,7 @@ spec = describe "Schema.Build" $ do
         []
         bareShell
         "echo $MSG"
-        `shouldBe` "export MSG='hello world'\necho $MSG"
+        `shouldBe` xtraceOff
+          <> "export MSG='hello world'\n"
+          <> xtraceOn
+          <> "echo $MSG"

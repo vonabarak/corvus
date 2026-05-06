@@ -185,28 +185,39 @@ printBuildResult result = do
 -- YAML preprocessing
 --------------------------------------------------------------------------------
 
--- | Walk the parsed YAML root looking for @builds[].provisioners[].shell@
--- and @builds[].provisioners[].file@ entries; for each one with a
--- file-path reference, read the file and embed it inline.
+-- | Walk the parsed YAML root looking for
+-- @pipeline[].build.provisioners[].shell@ and
+-- @pipeline[].build.provisioners[].file@ entries; for each one with a
+-- file-path reference, read the file and embed it inline. Apply
+-- pipeline steps don't have provisioners or floppies, so they're
+-- skipped untouched.
 preprocessRoot :: FilePath -> Value -> IO Value
-preprocessRoot baseDir = walkBuilds
+preprocessRoot baseDir = walkPipeline
   where
-    walkBuilds (Object o) = case KM.lookup "builds" o of
-      Just (Array bs) -> do
-        bs' <- mapM walkBuild (V.toList bs)
-        pure $ Object (KM.insert "builds" (Array (V.fromList bs')) o)
+    walkPipeline (Object o) = case KM.lookup "pipeline" o of
+      Just (Array steps) -> do
+        steps' <- mapM walkStep (V.toList steps)
+        pure $ Object (KM.insert "pipeline" (Array (V.fromList steps')) o)
       _ -> pure (Object o)
-    walkBuilds v = pure v
+    walkPipeline v = pure v
 
-    walkBuild (Object o) = do
-      o1 <- case KM.lookup "provisioners" o of
+    -- A pipeline step is an object with exactly one of @build:@ or
+    -- @apply:@. Only build: carries provisioners and an optional
+    -- floppy that the client preprocesses.
+    walkStep (Object o) = do
+      o' <- adjustField "build" rewriteBuild o
+      pure (Object o')
+    walkStep v = pure v
+
+    rewriteBuild (Object bo) = do
+      bo1 <- case KM.lookup "provisioners" bo of
         Just (Array ps) -> do
           ps' <- mapM walkProv (V.toList ps)
-          pure $ KM.insert "provisioners" (Array (V.fromList ps')) o
-        _ -> pure o
-      o2 <- adjustField "floppy" rewriteFloppy o1
-      pure (Object o2)
-    walkBuild v = pure v
+          pure $ KM.insert "provisioners" (Array (V.fromList ps')) bo
+        _ -> pure bo
+      bo2 <- adjustField "floppy" rewriteFloppy bo1
+      pure (Object bo2)
+    rewriteBuild v = pure v
 
     walkProv (Object o) = do
       o1 <- adjustField "shell" rewriteShell o

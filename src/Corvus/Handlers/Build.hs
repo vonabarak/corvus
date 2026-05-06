@@ -1034,11 +1034,17 @@ shellQuote t = "'" <> T.replace "'" "'\\''" t <> "'"
 --      step can override defaults by re-declaring the same key.
 --   5. 'shellWorkdir' — @cd@, if set.
 --   6. body         — the operator's @inline@ text.
+--
+-- The auto-injected env (Corvus + 'sdEnv') is wrapped in a @set +x@
+-- save/restore so that a user preamble like @set -eux@ doesn't flood
+-- the build log with two lines per Corvus variable. The wrapper is
+-- POSIX (no bash-isms) and a no-op when @-x@ wasn't on. Per-step
+-- @env:@ is left outside the wrapper — operators wrote those vars
+-- themselves, so seeing them traced is appropriate.
 buildShellCommand :: ShellDefaults -> [(Text, Text)] -> Shell -> Text -> Text
 buildShellCommand sd corvusEnv sh body =
   preambleBlock
-    <> corvusEnvBlock
-    <> defaultsEnvBlock
+    <> autoEnvBlock
     <> stepEnvBlock
     <> workdirBlock
     <> body
@@ -1046,8 +1052,13 @@ buildShellCommand sd corvusEnv sh body =
     preambleBlock = case sdPreamble sd of
       Just p -> p <> "\n"
       Nothing -> ""
-    corvusEnvBlock = renderEnv corvusEnv
-    defaultsEnvBlock = renderEnv (sdEnv sd)
+    autoEnv = renderEnv corvusEnv <> renderEnv (sdEnv sd)
+    autoEnvBlock
+      | T.null autoEnv = ""
+      | otherwise =
+          "{ __corvus_xs=$-; set +x; } 2>/dev/null\n"
+            <> autoEnv
+            <> "{ case $__corvus_xs in *x*) set -x;; esac; unset __corvus_xs; } 2>/dev/null\n"
     stepEnvBlock = renderEnv (shellEnv sh)
     workdirBlock = case shellWorkdir sh of
       Just d -> "cd " <> shellQuote d <> "\n"
