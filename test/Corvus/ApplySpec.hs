@@ -7,9 +7,12 @@ module Corvus.ApplySpec (spec) where
 import Corvus.Client.Rpc (CloudInitResult (..))
 import Corvus.Model (CloudInit (..), CloudInitId, Unique (..))
 import Corvus.Protocol (ApplyCreated (..), ApplyResult (..), CloudInitInfo (..), Response (..))
+import Corvus.Schema.Apply (ApplyConfig (..), IfExists (..))
 import Corvus.Utils.Yaml (yaml)
+import qualified Data.ByteString.Char8 as BS8
 import Data.Maybe (isJust)
 import qualified Data.Text as T
+import qualified Data.Yaml as Yaml
 import Database.Persist (Entity (..), getBy)
 import Database.Persist.Sql (toSqlKey)
 import Test.DSL.Core (runDb)
@@ -17,6 +20,29 @@ import Test.Prelude
 
 spec :: Spec
 spec = sequential $ do
+  describe "ApplyConfig.ifExists" $ do
+    let decode bs = Yaml.decodeEither' bs :: Either Yaml.ParseException ApplyConfig
+
+    it "defaults to IfExistsError when ifExists is absent" $ do
+      case decode "{}" of
+        Right c -> acIfExists c `shouldBe` IfExistsError
+        Left e -> expectationFailure (show e)
+
+    it "parses ifExists: skip" $ do
+      case decode (BS8.unlines ["ifExists: skip"]) of
+        Right c -> acIfExists c `shouldBe` IfExistsSkip
+        Left e -> expectationFailure (show e)
+
+    it "parses ifExists: overwrite at the schema layer (validation rejects later)" $ do
+      case decode (BS8.unlines ["ifExists: overwrite"]) of
+        Right c -> acIfExists c `shouldBe` IfExistsOverwrite
+        Left e -> expectationFailure (show e)
+
+    it "rejects unknown ifExists values" $ do
+      decode (BS8.unlines ["ifExists: maybe"]) `shouldSatisfy` \case
+        Left _ -> True
+        _ -> False
+
   describe "apply YAML parsing" $ do
     withTestDb $ do
       testCase "rejects invalid YAML" $ do
@@ -217,6 +243,43 @@ spec = sequential $ do
               && null (arDisks r)
               && null (arNetworks r)
               && null (arVms r)
+          _ -> False
+
+      testCase "ifExists: skip lets a re-apply succeed without --skip-existing" $ do
+        when_ $
+          whenApply
+            [yaml|
+              ifExists: skip
+              sshKeys:
+                - name: skip-key
+                  publicKey: ssh-ed25519 AAAA skipkey
+            |]
+        then_ $ responseIs $ \case
+          RespApplyResult _ -> True
+          _ -> False
+        when_ $
+          whenApply
+            [yaml|
+              ifExists: skip
+              sshKeys:
+                - name: skip-key
+                  publicKey: ssh-ed25519 AAAA skipkey
+            |]
+        then_ $ responseIs $ \case
+          RespApplyResult r -> length (arSshKeys r) == 1
+          _ -> False
+
+      testCase "ifExists: overwrite is rejected for apply" $ do
+        when_ $
+          whenApply
+            [yaml|
+              ifExists: overwrite
+              sshKeys:
+                - name: ow-key
+                  publicKey: ssh-ed25519 AAAA owkey
+            |]
+        then_ $ responseIs $ \case
+          RespError msg -> T.isInfixOf "overwrite" msg
           _ -> False
 
       testCase "returns created resource IDs" $ do

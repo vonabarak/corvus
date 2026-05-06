@@ -12,17 +12,32 @@ crv apply <file.yml> -o json        # Output result as JSON
 
 **`--skip-existing` / `-s`**: When set, resources that already exist in the database (matched by name) are silently skipped and their IDs are reused for dependent references. Without this flag, attempting to create a resource with a duplicate name is an error. This is useful for re-applying a configuration after a partial failure or for incrementally adding resources to an existing environment.
 
+The same behaviour can be enabled from inside the YAML via the top-level `ifExists:` field — see [`ifExists`](#ifexists) below. The CLI flag is still useful as a one-off override; if either the flag is set OR the YAML says `ifExists: skip`, skip-existing is in effect. There is no way to force skip off from the CLI when the YAML enables it (edit the YAML if you need that).
+
 ## File Structure
 
-A configuration file has five top-level sections, all optional:
+A configuration file has five top-level sections, all optional, plus an `ifExists:` policy field:
 
 ```yaml
+ifExists:   error   # error (default) | skip — see "ifExists" below
 sshKeys:    [...]   # SSH public keys for cloud-init injection
 disks:      [...]   # Disk images (import, register, create, overlay, or clone)
 networks:   [...]   # Virtual networks (bridge/TAP in daemon namespace)
 vms:        [...]   # Virtual machines with drives, NICs, shared dirs
 templates:  [...]   # VM templates (same schema as `crv template create`)
 ```
+
+### `ifExists`
+
+Controls what apply does when a resource it would create already exists in the database (matched by name). YAML-level equivalent of `--skip-existing`.
+
+| Value | Behaviour |
+|---|---|
+| `error` (default) | Duplicate name is a hard error — apply aborts. |
+| `skip` | Existing resources are silently treated as success and their IDs are reused for dependent references. Same as `--skip-existing`. |
+| `overwrite` | **Rejected at validation time.** Apply does not delete registered templates / disks / networks / VMs to re-create them; doing so would clobber unrelated state (running VMs, attached disks). The build YAML's `target.ifExists: overwrite` exists for the build-artifact-disk case only. |
+
+The CLI flag and the YAML field are OR'd: if either says skip, skip wins. This is what lets a build pipeline's inline `apply:` step opt into skip-existing — `crv build` has no `--skip-existing` of its own, so the YAML's `ifExists:` is the only knob there.
 
 Resources are created in the order listed above. Within each section, items are processed sequentially — later items can reference earlier ones by name (e.g., an overlay disk can reference a base image defined earlier in the same file). Templates are created last and may reference SSH keys and disks defined earlier in the file.
 

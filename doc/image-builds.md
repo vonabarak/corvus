@@ -70,7 +70,7 @@ pipeline:
         sizeGb: 10                         # only used by from-scratch strategy
         compact: true                      # qemu-img -c rewrite at end (default true)
         path: builds/debian/               # optional, see below
-        overwrite: false                   # default false; see "target.overwrite"
+        ifExists: error                    # error (default) | skip | overwrite — see below
 
       strategy: overlay                    # overlay (default) | from-scratch | installer
 
@@ -124,27 +124,36 @@ A pipeline step has exactly one of `build:` or `apply:`. Steps run in
 order; if a step fails the pipeline aborts and any prior successful
 steps stay applied (no rollback).
 
-### `target.overwrite`
+### `target.ifExists`
 
-Default `false` — a build whose `target.name` is already taken by an
-existing disk fails before the bake VM starts (the original disk is
-left intact).
+Controls what the daemon does when a disk with the same `target.name`
+is already registered at the moment the build is about to start. The
+check happens **before** the bake VM is created, so a wrong policy
+never wastes a bake.
 
-With `overwrite: true` the daemon deletes any existing disk with the
-same name as part of artifact publication, so `crv build` becomes
-idempotent across re-runs:
+| Value | Behaviour |
+|---|---|
+| `error` (default) | Fail immediately with `target '<name>' already exists; use ifExists: skip or overwrite to allow`. No bake VM is created. |
+| `skip` | Return success without baking. The existing disk is treated as the artifact and its id is reported in the build result. Lets a re-run of a partially-failed pipeline walk past already-completed builds. |
+| `overwrite` | Verify the existing disk is not attached to any VM (fails with the attached-VM names if it is), then proceed to bake. The actual deletion happens at publish time so a mid-bake failure preserves the existing artifact. |
 
 ```yaml
 target:
   name: debian-12-nginx
-  overwrite: true
+  ifExists: skip
 ```
 
-The overwrite is **refused** if the existing disk is currently
-attached to one or more VMs — the error message names the attached
-VMs so the operator can detach (or delete those VMs) explicitly.
-There is no auto-detach mode; this avoids silently yanking a disk
-out from under a running or stopped VM.
+`overwrite` always **refuses** to delete a disk that is currently
+attached to any VM; the operator must detach (or delete those VMs)
+explicitly. This avoids silently yanking a disk out from under a
+running or stopped VM. There is no auto-detach mode.
+
+The same field name `ifExists:` exists at the top level of an `apply:`
+document (see [apply-configuration](apply-configuration.md)), where it
+acts as the YAML equivalent of `crv apply --skip-existing`. Apply
+accepts `error` and `skip` only; `overwrite` is rejected. This means
+a pipeline `apply:` step inside `crv build` (which has no
+`--skip-existing` flag) can opt into skip-existing via the YAML.
 
 ### `target.path`
 

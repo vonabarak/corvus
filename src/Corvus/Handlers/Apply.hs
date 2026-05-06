@@ -42,6 +42,7 @@ import Corvus.Schema.Apply
   , ApplySharedDir (..)
   , ApplySshKey (..)
   , ApplyVm (..)
+  , IfExists (..)
   )
 import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
 import Corvus.Schema.Template (TemplateYaml (..))
@@ -84,10 +85,16 @@ handleApplyValidate state yamlContent = runServerLogging state $ do
 -- | Execute apply with subtask tracking.
 -- Called by dispatchApply with the parent task ID.
 -- Each resource creation is dispatched as an Action subtask via runActionAsSubtask.
+--
+-- The effective skip-existing policy is the OR of the CLI flag (which
+-- forces skip when present) and the YAML's @ifExists: skip@. Absent
+-- on both means @ifExists: error@ — the default — and any duplicate
+-- resource fails the apply.
 handleApplyExecute :: ServerState -> ApplyConfig -> Bool -> TaskId -> IO Response
-handleApplyExecute state config skipExisting parentTaskId = runServerLogging state $ do
+handleApplyExecute state config cliSkipExisting parentTaskId = runServerLogging state $ do
   logInfoN "Applying environment configuration..."
-  result <- liftIO $ executeApply state config skipExisting parentTaskId
+  let effectiveSkip = cliSkipExisting || acIfExists config == IfExistsSkip
+  result <- liftIO $ executeApply state config effectiveSkip parentTaskId
   case result of
     Left err -> do
       logWarnN $ "Apply failed: " <> err
@@ -102,6 +109,13 @@ handleApplyExecute state config skipExisting parentTaskId = runServerLogging sta
 
 validateConfig :: ApplyConfig -> Either Text ()
 validateConfig config = do
+  -- 'IfExistsOverwrite' is build-only: deleting a registered
+  -- template/disk/network/VM during apply would clobber unrelated
+  -- state (running VMs, attached disks, …). Reject up front.
+  case acIfExists config of
+    IfExistsOverwrite ->
+      Left "apply: ifExists: overwrite not supported (use 'error' or 'skip')"
+    _ -> Right ()
   checkDuplicates "SSH key" $ map askName (acSshKeys config)
   checkDuplicates "disk" $ map adName (acDisks config)
   checkDuplicates "network" $ map anName (acNetworks config)

@@ -31,11 +31,12 @@ module Corvus.Schema.Build
   , CleanupMode (..)
   , BootKey (..)
   , Floppy (..)
+  , IfExists (..)
   )
 where
 
 import Corvus.Model (DriveFormat (..))
-import Corvus.Schema.Apply (ApplyConfig)
+import Corvus.Schema.Apply (ApplyConfig, IfExists (..))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (typeMismatch)
@@ -150,18 +151,25 @@ instance FromJSON ShellDefaults where
 -- exact rules. With no path, the file is moved out of the bake VM's
 -- ephemeral runtime directory into the disk base on publish.
 --
--- 'btOverwrite' controls collision behaviour: by default a build
--- whose target name is already taken fails before the bake VM starts.
--- With @overwrite: true@ the daemon deletes the existing disk first —
--- but only if it is not currently attached to any VM; an attached
--- target always errors regardless of the flag.
+-- 'btIfExists' controls collision behaviour at the start of the
+-- build (the check happens before the bake VM is created):
+--
+--   * 'IfExistsError' (default) — fail immediately if the target
+--     name is already taken.
+--   * 'IfExistsSkip' — treat the existing disk as the artifact and
+--     return success without booting a bake VM. Lets a re-run of a
+--     partially-failed pipeline walk past already-completed builds.
+--   * 'IfExistsOverwrite' — delete the existing disk before
+--     publishing the new artifact, but only if the disk is not
+--     currently attached to any VM. An attached target always
+--     errors regardless of the policy.
 data BuildTarget = BuildTarget
   { btName :: Text
   , btFormat :: DriveFormat
   , btSizeGb :: Int
   , btCompact :: Bool
   , btPath :: Maybe Text
-  , btOverwrite :: Bool
+  , btIfExists :: IfExists
   }
   deriving (Show)
 
@@ -173,7 +181,7 @@ instance FromJSON BuildTarget where
       <*> o .:? "sizeGb" .!= 10
       <*> o .:? "compact" .!= True
       <*> o .:? "path"
-      <*> o .:? "overwrite" .!= False
+      <*> o .:? "ifExists" .!= IfExistsError
 
 data BuildStrategy
   = BuildStrategyOverlay

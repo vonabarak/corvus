@@ -138,7 +138,7 @@ spec = describe "Schema.Build" $ do
           btName (buildTarget b) `shouldBe` "out"
           btFormat (buildTarget b) `shouldBe` FormatQcow2
           btCompact (buildTarget b) `shouldBe` True
-          btOverwrite (buildTarget b) `shouldBe` False
+          btIfExists (buildTarget b) `shouldBe` IfExistsError
           buildStrategy b `shouldBe` BuildStrategyOverlay
           buildCleanup b `shouldBe` CleanupAlways
           bvmCpuCount (buildVm b) `shouldBe` 4
@@ -202,21 +202,47 @@ spec = describe "Schema.Build" $ do
           Left _ -> True
           _ -> False
 
-  describe "BuildTarget overwrite" $ do
-    it "parses target.overwrite: true" $ do
+  describe "BuildTarget ifExists" $ do
+    let parseIfExists yaml = case decodePipeline yaml of
+          Right c -> Right (btIfExists (buildTarget (firstBuild c)))
+          Left e -> Left e
+        wrapTarget v =
+          BS8.unlines
+            [ "pipeline:"
+            , "  - build:"
+            , "      name: x"
+            , "      template: t"
+            , "      target:"
+            , "        name: o"
+            , "        ifExists: " <> v
+            ]
+
+    it "defaults to IfExistsError when ifExists is absent" $ do
       let yaml =
             BS8.unlines
               [ "pipeline:"
               , "  - build:"
               , "      name: x"
               , "      template: t"
-              , "      target:"
-              , "        name: o"
-              , "        overwrite: true"
+              , "      target: { name: o }"
               ]
       case decodePipeline yaml of
-        Right c -> btOverwrite (buildTarget (firstBuild c)) `shouldBe` True
+        Right c -> btIfExists (buildTarget (firstBuild c)) `shouldBe` IfExistsError
         Left e -> expectationFailure e
+
+    it "parses ifExists: error" $
+      parseIfExists (wrapTarget "error") `shouldBe` Right IfExistsError
+
+    it "parses ifExists: skip" $
+      parseIfExists (wrapTarget "skip") `shouldBe` Right IfExistsSkip
+
+    it "parses ifExists: overwrite" $
+      parseIfExists (wrapTarget "overwrite") `shouldBe` Right IfExistsOverwrite
+
+    it "rejects unknown ifExists values" $
+      decodePipeline (wrapTarget "maybe") `shouldSatisfy` \case
+        Left _ -> True
+        _ -> False
 
   describe "Provisioner: shell" $ do
     it "accepts shell as a bare string (sets inline)" $ do

@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | YAML input schema for @crv apply@ declarative environment configs.
@@ -15,6 +16,7 @@ module Corvus.Schema.Apply
   , ApplyDrive (..)
   , ApplyNetIf (..)
   , ApplySharedDir (..)
+  , IfExists (..)
   )
 where
 
@@ -22,7 +24,38 @@ import Corvus.Model
 import Corvus.Schema.CloudInit (CloudInitConfigYaml)
 import Corvus.Schema.Template (TemplateYaml)
 import Data.Text (Text)
-import Data.Yaml (FromJSON (..), withObject, (.!=), (.:), (.:?))
+import qualified Data.Text as T
+import Data.Yaml (FromJSON (..), withObject, withText, (.!=), (.:), (.:?))
+
+-- | Policy applied when a target (an apply resource, or a build's
+-- artifact disk) already exists at the time the operation would
+-- create it.
+--
+--   * 'IfExistsError' (default) — fail loudly. Forces the operator
+--     to choose explicitly between skip and overwrite.
+--   * 'IfExistsSkip' — treat existing targets as success and move
+--     on. Lets a partially-failed pipeline be re-run without
+--     redoing already-completed work.
+--   * 'IfExistsOverwrite' — delete the existing target first
+--     (build-only; apply rejects this at validation time, since
+--     deleting a registered template/disk/network/VM is invasive
+--     and would clobber unrelated state).
+data IfExists
+  = IfExistsError
+  | IfExistsSkip
+  | IfExistsOverwrite
+  deriving (Eq, Show)
+
+instance FromJSON IfExists where
+  parseJSON = withText "ifExists" $ \case
+    "error" -> pure IfExistsError
+    "skip" -> pure IfExistsSkip
+    "overwrite" -> pure IfExistsOverwrite
+    other ->
+      fail $
+        "unknown ifExists value '"
+          <> T.unpack other
+          <> "' (expected: error, skip, overwrite)"
 
 data ApplyConfig = ApplyConfig
   { acSshKeys :: [ApplySshKey]
@@ -30,6 +63,12 @@ data ApplyConfig = ApplyConfig
   , acNetworks :: [ApplyNetwork]
   , acVms :: [ApplyVm]
   , acTemplates :: [TemplateYaml]
+  , acIfExists :: IfExists
+  -- ^ YAML equivalent of the @--skip-existing@ CLI flag, plus the
+  -- 'IfExistsError' default. The CLI flag, when present, forces
+  -- 'IfExistsSkip' regardless of the YAML; absent, the YAML wins.
+  -- Apply does not accept 'IfExistsOverwrite' — rejected at
+  -- 'validateConfig' time.
   }
   deriving (Show)
 
@@ -41,6 +80,7 @@ instance FromJSON ApplyConfig where
       <*> o .:? "networks" .!= []
       <*> o .:? "vms" .!= []
       <*> o .:? "templates" .!= []
+      <*> o .:? "ifExists" .!= IfExistsError
 
 data ApplySshKey = ApplySshKey
   { askName :: Text

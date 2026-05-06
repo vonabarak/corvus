@@ -311,6 +311,33 @@ runOneBuildBody state parentTaskId sink stack startTime b = do
       target = buildTarget b
       strategy = buildStrategy b
 
+  -- 0. Pre-bake target.ifExists check. Decide all three policies before
+  --    spinning up the bake VM so we never bake just to discover at
+  --    publish time that the target name was a problem.
+  preBake <- checkIfExistsPreBake state target
+  case preBake of
+    Left err -> pure $ Left err
+    Right (Just existingId) -> pure $ Right existingId
+    Right Nothing -> runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b
+
+-- | The original 'runOneBuildBody'. Renamed so the pre-bake
+-- ifExists check can short-circuit cleanly without nesting the
+-- whole bake pipeline inside another @case@.
+runOneBuildBodyAfterPreBake
+  :: ServerState
+  -> TaskId
+  -> BuildSink
+  -> CleanupStack
+  -> UTCTime
+  -> Build
+  -> LoggingT IO (Either Text Int64)
+runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
+  let prefix = "__build_" <> T.pack (show (fromSqlKey parentTaskId)) <> "_"
+      bakeVmName = prefix <> sanitizeNameFragment (buildName b) <> "-vm"
+      targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
+      target = buildTarget b
+      strategy = buildStrategy b
+
   -- 1. Resolve template
   templateIdResult <- liftIO $ resolveTemplateIdOrErr state (buildTemplate b)
   case templateIdResult of
@@ -1132,12 +1159,11 @@ publishArtifact state parentTaskId vmId diskId target needFlatten = do
     RespDiskOk -> pure ()
     RespError err -> logWarnN $ "detach artifact drive: " <> err
     _ -> logWarnN "detach artifact drive: unexpected response"
-  -- 2. Honour target.overwrite by clearing any existing disk that
-  --    occupies the target name. Refuses to overwrite a disk that is
-  --    currently attached to one or more VMs — the operator must
-  --    detach (or delete those VMs) explicitly so we never silently
-  --    yank a disk out from under a running or stopped VM.
-  overwriteResult <- maybeOverwriteExistingTarget state parentTaskId target
+  -- 2. For ifExists: overwrite, delete the now-stale existing disk
+  --    so the freshly baked artifact can take its name. The pre-bake
+  --    check already verified the disk wasn't attached; this still
+  --    refuses if a new VM has attached during the bake.
+  overwriteResult <- deleteOverwriteTargetIfNeeded state parentTaskId target
   case overwriteResult of
     Left err -> pure $ Left err
     Right () -> publishArtifactCore state parentTaskId diskId target needFlatten
@@ -1238,18 +1264,70 @@ relocateArtifact state diskId target = do
           (try (removeDirectory (takeDirectory oldPath)) :: IO (Either SomeException ()))
       pure $ Right ()
 
--- | When @target.overwrite: true@ and the target name is already
--- claimed by another disk, delete that disk so the build can take
--- the name. Refuses (returns 'Left') if the existing disk is attached
--- to any VM — naming the attached VMs in the error so the operator
--- can act. A no-op when @overwrite@ is false or the name is free.
-maybeOverwriteExistingTarget
+-- | Decide what to do at the very top of a build, before the bake
+-- VM is created, based on the target's 'btIfExists' policy and
+-- whether a disk with the target name already exists.
+--
+--   * @Right Nothing@ — proceed to bake.
+--   * @Right (Just diskId)@ — skip the bake; this disk is the
+--     existing artifact and is returned as the build's success
+--     result. Only happens with @ifExists: skip@.
+--   * @Left err@ — fail-fast. Either @ifExists: error@ and the name
+--     is taken, or @ifExists: overwrite@ and the existing disk is
+--     attached to one or more VMs (delete-then-rebake would yank
+--     the disk out from under those VMs, which we refuse).
+--
+-- For @ifExists: overwrite@ this only validates that the deletion
+-- can later proceed safely; the actual deletion is deferred to
+-- 'deleteOverwriteTargetIfNeeded' at publish time, so a mid-bake
+-- failure preserves the existing artifact.
+checkIfExistsPreBake
+  :: ServerState
+  -> BuildTarget
+  -> LoggingT IO (Either Text (Maybe Int64))
+checkIfExistsPreBake state target = do
+  let pool = ssDbPool state
+      name = btName target
+  mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName name)) pool
+  case (btIfExists target, mExisting) of
+    (_, Nothing) -> pure $ Right Nothing
+    (IfExistsError, Just _) ->
+      pure $
+        Left $
+          "target '"
+            <> name
+            <> "' already exists; use ifExists: skip or overwrite to allow"
+    (IfExistsSkip, Just (Entity existingId _)) -> do
+      logInfoN $ "target '" <> name <> "' exists; skipping bake (ifExists: skip)"
+      pure $ Right (Just (fromSqlKey existingId))
+    (IfExistsOverwrite, Just (Entity existingId _)) -> do
+      attachedVms <- liftIO $ runSqlPool (vmsAttachedToDisk existingId) pool
+      if null attachedVms
+        then pure $ Right Nothing
+        else
+          pure $
+            Left $
+              "target.ifExists: overwrite refused — disk '"
+                <> name
+                <> "' is attached to VM(s): "
+                <> T.intercalate ", " attachedVms
+                <> "; detach or delete those VMs first."
+
+-- | At publish time, if the target's policy is 'IfExistsOverwrite'
+-- and the existing disk is still there, delete it so the freshly
+-- baked artifact can take the name. The pre-bake check has already
+-- verified the disk is not attached; if a new VM has attached
+-- during the bake, this still fails loudly.
+--
+-- For 'IfExistsError' and 'IfExistsSkip' this is a no-op — those
+-- cases are decided pre-bake and never reach publish.
+deleteOverwriteTargetIfNeeded
   :: ServerState
   -> TaskId
   -> BuildTarget
   -> LoggingT IO (Either Text ())
-maybeOverwriteExistingTarget state parentTaskId target
-  | not (btOverwrite target) = pure $ Right ()
+deleteOverwriteTargetIfNeeded state parentTaskId target
+  | btIfExists target /= IfExistsOverwrite = pure $ Right ()
   | otherwise = do
       let pool = ssDbPool state
       mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName (btName target))) pool
@@ -1259,19 +1337,19 @@ maybeOverwriteExistingTarget state parentTaskId target
           attachedVms <- liftIO $ runSqlPool (vmsAttachedToDisk existingId) pool
           if null attachedVms
             then do
-              logInfoN $ "target.overwrite: deleting existing disk '" <> btName target <> "'"
+              logInfoN $ "target.ifExists: deleting existing disk '" <> btName target <> "' (overwrite)"
               resp <-
                 liftIO $
                   runActionAsSubtask state (DiskDelete (fromSqlKey existingId)) parentTaskId
               case resp of
                 RespDiskOk -> pure $ Right ()
                 RespError err ->
-                  pure $ Left $ "target.overwrite: delete existing disk: " <> err
-                _ -> pure $ Left "target.overwrite: delete existing disk: unexpected response"
+                  pure $ Left $ "target.ifExists: delete existing disk: " <> err
+                _ -> pure $ Left "target.ifExists: delete existing disk: unexpected response"
             else
               pure $
                 Left $
-                  "target.overwrite: disk '"
+                  "target.ifExists: disk '"
                     <> btName target
                     <> "' is attached to VM(s): "
                     <> T.intercalate ", " attachedVms
