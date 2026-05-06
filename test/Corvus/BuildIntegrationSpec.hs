@@ -8,9 +8,8 @@
 -- resulting artifact disk:
 --
 --   * is registered in the daemon under the requested name,
---   * is no longer attached to the (deleted) bake VM,
---   * actually contains the marker file the provisioner wrote, and
---   * has a populated @\/etc\/corvus-build-info@.
+--   * is no longer attached to the (deleted) bake VM, and
+--   * actually contains the marker file the provisioner wrote.
 --
 -- Run with: stack test --test-arguments="--match BuildIntegration"
 module Corvus.BuildIntegrationSpec (spec) where
@@ -117,20 +116,22 @@ spec = withTestDb $ do
             artifactName = "build-test-artifact"
             buildYaml =
               T.unlines
-                [ "builds:"
-                , "  - name: build-test"
-                , "    template: build-test-tpl"
-                , "    target:"
-                , "      name: " <> artifactName
-                , "      compact: false"
-                , "    strategy: overlay"
-                , "    vm: { cpuCount: 2, ramMb: 1024 }"
-                , "    provisioners:"
-                , "      - shell: |"
-                , "          set -eux"
-                , "          mkdir -p /var/lib/corvus-test"
-                , "          echo bake-marker > /var/lib/corvus-test/marker"
-                , "    cleanup: always"
+                [ "pipeline:"
+                , "  - build:"
+                , "      name: build-test"
+                , "      template: build-test-tpl"
+                , "      target:"
+                , "        name: " <> artifactName
+                , "        compact: false"
+                , "      strategy: overlay"
+                , "      vm: { cpuCount: 2, ramMb: 1024 }"
+                , "      provisioners:"
+                , "        - shell: |"
+                , "            set -eux"
+                , "            mkdir -p /var/lib/corvus-test"
+                , "            echo bake-marker > /var/lib/corvus-test/marker"
+                , "            echo \"$CORVUS_VERSION\" > /var/lib/corvus-test/version"
+                , "      cleanup: always"
                 ]
 
         putStrLn "[test] Running crv build (this boots a VM)..."
@@ -189,17 +190,18 @@ spec = withTestDb $ do
 
         let buildYaml =
               T.unlines
-                [ "builds:"
-                , "  - name: failing-build"
-                , "    template: build-fail-tpl"
-                , "    target:"
-                , "      name: should-not-exist"
-                , "      compact: false"
-                , "    strategy: overlay"
-                , "    vm: { cpuCount: 2, ramMb: 1024 }"
-                , "    provisioners:"
-                , "      - shell: \"exit 7\""
-                , "    cleanup: always"
+                [ "pipeline:"
+                , "  - build:"
+                , "      name: failing-build"
+                , "      template: build-fail-tpl"
+                , "      target:"
+                , "        name: should-not-exist"
+                , "        compact: false"
+                , "      strategy: overlay"
+                , "      vm: { cpuCount: 2, ramMb: 1024 }"
+                , "      provisioners:"
+                , "        - shell: \"exit 7\""
+                , "      cleanup: always"
                 ]
 
         buildResp <- withDaemonConnection daemon $ \conn -> runBuild conn buildYaml True (\_ -> pure ())
@@ -256,11 +258,11 @@ verifyArtifactDisk daemon artifactDiskId = do
   markerCode `shouldBe` ExitSuccess
   T.strip markerOut `shouldBe` "bake-marker"
 
-  (infoCode, infoOut, _) <-
-    runViaGuestAgent daemon newVmId "cat /etc/corvus-build-info"
-  infoCode `shouldBe` ExitSuccess
-  T.isInfixOf "build_name: build-test" infoOut `shouldBe` True
-  T.isInfixOf "source_template: build-test-tpl" infoOut `shouldBe` True
+  (versionCode, versionOut, _) <-
+    runViaGuestAgent daemon newVmId "cat /var/lib/corvus-test/version"
+  versionCode `shouldBe` ExitSuccess
+  -- CORVUS_VERSION exposes the daemon's own version (e.g. "0.9.0.0").
+  T.strip versionOut `shouldSatisfy` (not . T.null)
 
   stopTestVmAndWait daemon newVmId 30
 

@@ -1,18 +1,22 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- | YAML input schema for @crv build@ image-bake configurations.
+-- | YAML input schema for @crv build@ pipeline configurations.
 --
--- A 'BuildConfig' is a list of 'Build's. Each build instantiates a named
--- template, runs an ordered list of provisioners inside the resulting VM,
--- then captures one of its disks as a registered Corvus disk image.
+-- A 'PipelineConfig' is an ordered list of 'PipelineStep's. Each step is
+-- either a 'PipelineBuild' (instantiate a template, run provisioners, capture
+-- the resulting disk as a registered Corvus image) or a 'PipelineApply'
+-- (a full @crv apply@ document inlined here so a single YAML can chain
+-- "bake an artifact" with "register it as a template" and then "bake the
+-- next image on top of that template").
 --
 -- The client preprocesses the YAML before sending: any provisioner that
 -- references a host file (@shell.script@, @file.from@) is read off the
 -- operator's filesystem and inlined as @shell.inline@ / @file.content@ so
 -- the daemon never needs access to the client's working directory.
 module Corvus.Schema.Build
-  ( BuildConfig (..)
+  ( PipelineConfig (..)
+  , PipelineStep (..)
   , Build (..)
   , BuildTarget (..)
   , BuildStrategy (..)
@@ -31,6 +35,7 @@ module Corvus.Schema.Build
 where
 
 import Corvus.Model (DriveFormat (..))
+import Corvus.Schema.Apply (ApplyConfig)
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
 import Data.Aeson.Types (typeMismatch)
@@ -39,14 +44,34 @@ import qualified Data.Text as T
 import Data.Yaml (FromJSON (..), Value (..), withObject, withText, (.!=), (.:), (.:?))
 import qualified Data.Yaml as Yaml
 
-newtype BuildConfig = BuildConfig
-  { bcBuilds :: [Build]
+-- | Top-level pipeline document: a single key @pipeline:@ holding an
+-- ordered list of 'PipelineStep's. Each step is processed in order; a
+-- failing step aborts the pipeline (prior successful steps stay applied).
+newtype PipelineConfig = PipelineConfig
+  { pcSteps :: [PipelineStep]
   }
   deriving (Show)
 
-instance FromJSON BuildConfig where
-  parseJSON = withObject "BuildConfig" $ \o ->
-    BuildConfig <$> o .:? "builds" .!= []
+instance FromJSON PipelineConfig where
+  parseJSON = withObject "PipelineConfig" $ \o ->
+    PipelineConfig <$> o .:? "pipeline" .!= []
+
+-- | One step in a pipeline, discriminated by the field name (@build:@
+-- vs @apply:@). Mirrors how 'Provisioner' uses field-name tagging.
+data PipelineStep
+  = PipelineBuild Build
+  | PipelineApply ApplyConfig
+  deriving (Show)
+
+instance FromJSON PipelineStep where
+  parseJSON = withObject "pipeline step" $ \o -> do
+    mBuild <- o .:? "build"
+    mApply <- o .:? "apply"
+    case (mBuild, mApply) of
+      (Just b, Nothing) -> pure (PipelineBuild b)
+      (Nothing, Just a) -> pure (PipelineApply a)
+      (Just _, Just _) -> fail "pipeline step has both 'build' and 'apply' — use one per list item"
+      (Nothing, Nothing) -> fail "pipeline step needs 'build' or 'apply'"
 
 data Build = Build
   { buildName :: Text
@@ -124,12 +149,19 @@ instance FromJSON ShellDefaults where
 -- See @Corvus.Handlers.Disk.Path.resolveDiskFilePathPure@ for the
 -- exact rules. With no path, the file is moved out of the bake VM's
 -- ephemeral runtime directory into the disk base on publish.
+--
+-- 'btOverwrite' controls collision behaviour: by default a build
+-- whose target name is already taken fails before the bake VM starts.
+-- With @overwrite: true@ the daemon deletes the existing disk first —
+-- but only if it is not currently attached to any VM; an attached
+-- target always errors regardless of the flag.
 data BuildTarget = BuildTarget
   { btName :: Text
   , btFormat :: DriveFormat
   , btSizeGb :: Int
   , btCompact :: Bool
   , btPath :: Maybe Text
+  , btOverwrite :: Bool
   }
   deriving (Show)
 
@@ -141,6 +173,7 @@ instance FromJSON BuildTarget where
       <*> o .:? "sizeGb" .!= 10
       <*> o .:? "compact" .!= True
       <*> o .:? "path"
+      <*> o .:? "overwrite" .!= False
 
 data BuildStrategy
   = BuildStrategyOverlay

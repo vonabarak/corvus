@@ -12,11 +12,11 @@ disks:
     format: qcow2
 
   - name: alpine-test-base
-    register: "/home/bobr/Work/corvus/.test-images/corvus-test.qcow2"
+    register: "alpine-test/corvus-test.qcow2"
     format: qcow2
 
   - name: windows-server-2025-base
-    register: "/home/bobr/Work/corvus/.test-images/windows-server-eval.qcow2"
+    register: "windows-server-2025/windows-server-eval.qcow2"
     format: qcow2
 
   - name: windows-server-2025

@@ -37,15 +37,15 @@ import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Action
+import Corvus.Handlers.Apply (ApplyAction (..))
 import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, push, withCleanup)
 import Corvus.Handlers.Build.Floppy (buildFloppyImage)
-import Corvus.Handlers.Build.Provenance (renderBuildInfo)
 import Corvus.Handlers.Disk (DiskCreate (..), DiskDelete (..), DiskRebase (..))
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
-import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..))
+import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..), getVmDetails)
 import Corvus.Model
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
@@ -54,8 +54,10 @@ import Corvus.Qemu.Image (ImageResult (..), getImageSizeMb, rebaseImage)
 import Corvus.Qemu.Qmp (QmpResult (..), qmpSendKey)
 import Corvus.Schema.Build
 import Corvus.Types
+import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Lazy as LBS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -114,42 +116,94 @@ handleBuildExecute state parentTaskId =
   runBuildPipeline state parentTaskId noOpBuildSink
 
 -- | Run a build pipeline, sending events to the supplied sink. Returns
--- the same response shape as before. Per-build 'BuildEnd' events are
--- emitted by 'runOneBuildLogged'; the caller is responsible for
+-- the same response shape as before. Per-step 'BuildEnd' events are
+-- emitted by 'runPipelineStep'; the caller is responsible for
 -- emitting the terminating 'PipelineEnd' once the response is in hand.
 runBuildPipeline :: ServerState -> TaskId -> BuildSink -> Text -> IO Response
 runBuildPipeline state parentTaskId sink yamlContent = runServerLogging state $ do
   case decodeEither' (TE.encodeUtf8 yamlContent) of
     Left err -> do
       let msg = T.pack (show err)
-      logWarnN $ "Failed to parse build YAML: " <> msg
+      logWarnN $ "Failed to parse pipeline YAML: " <> msg
       pure $ RespError msg
-    Right (config :: BuildConfig) ->
+    Right (config :: PipelineConfig) ->
       case validateConfig config of
         Left err -> do
-          logWarnN $ "Build config validation failed: " <> err
+          logWarnN $ "Pipeline config validation failed: " <> err
           pure $ RespError err
         Right () -> do
-          results <- mapM (runOneBuildLogged state parentTaskId sink) (bcBuilds config)
+          results <- runPipelineSteps state parentTaskId sink (pcSteps config)
           pure $ RespBuildResult (BuildResult results)
+
+-- | Iterate over pipeline steps in order. A step that fails aborts the
+-- pipeline (no rollback of prior successful steps); the per-step
+-- result is appended either way so the caller sees how far we got.
+runPipelineSteps
+  :: ServerState
+  -> TaskId
+  -> BuildSink
+  -> [PipelineStep]
+  -> LoggingT IO [BuildOne]
+runPipelineSteps _ _ _ [] = pure []
+runPipelineSteps state parentTaskId sink (s : rest) = do
+  one <- runPipelineStep state parentTaskId sink s
+  case boError one of
+    Just _ -> pure [one]
+    Nothing -> (one :) <$> runPipelineSteps state parentTaskId sink rest
+
+-- | Dispatch a single 'PipelineStep' to the build orchestrator or the
+-- apply handler, then collapse the result into 'BuildOne' shape so a
+-- pipeline with mixed steps still produces a uniform 'BuildResult'.
+runPipelineStep :: ServerState -> TaskId -> BuildSink -> PipelineStep -> LoggingT IO BuildOne
+runPipelineStep state parentTaskId sink step = case step of
+  PipelineBuild b -> runOneBuildLogged state parentTaskId sink b
+  PipelineApply cfg -> do
+    logInfoN "Applying environment configuration (pipeline step)"
+    liftIO $ sink (BuildLogLine "applying environment configuration")
+    resp <- liftIO $ runActionAsSubtask state (ApplyAction cfg False) parentTaskId
+    let one = case resp of
+          RespApplyResult _ ->
+            BuildOne {boName = "apply", boArtifactDiskId = Nothing, boError = Nothing}
+          RespError err ->
+            BuildOne {boName = "apply", boArtifactDiskId = Nothing, boError = Just err}
+          other ->
+            BuildOne
+              { boName = "apply"
+              , boArtifactDiskId = Nothing
+              , boError = Just $ "apply: unexpected response: " <> T.pack (show other)
+              }
+    case boError one of
+      Just err -> do
+        logWarnN $ "apply step failed: " <> err
+        liftIO $ sink (BuildEnd (Left err))
+      Nothing -> do
+        logInfoN "apply step completed"
+        liftIO $ sink (BuildEnd (Right 0))
+    pure one
 
 --------------------------------------------------------------------------------
 -- Validation
 --------------------------------------------------------------------------------
 
-validateConfig :: BuildConfig -> Either Text ()
+validateConfig :: PipelineConfig -> Either Text ()
 validateConfig cfg = do
-  let names = map buildName (bcBuilds cfg)
+  let names = [buildName b | PipelineBuild b <- pcSteps cfg]
   case findDuplicate names of
     Just d -> Left $ "Duplicate build name: " <> d
     Nothing -> pure ()
-  mapM_ validateBuild (bcBuilds cfg)
+  mapM_ validateStep (pcSteps cfg)
   where
     findDuplicate :: [Text] -> Maybe Text
     findDuplicate [] = Nothing
     findDuplicate (x : xs)
       | x `elem` xs = Just x
       | otherwise = findDuplicate xs
+
+    validateStep (PipelineBuild b) = validateBuild b
+    -- Apply documents are validated inside the apply handler when the
+    -- step actually runs; pre-running validation would duplicate that
+    -- logic and risk drift.
+    validateStep (PipelineApply _) = Right ()
 
 validateBuild :: Build -> Either Text ()
 validateBuild b = do
@@ -637,37 +691,49 @@ runProvisioners
   -> Build
   -> UTCTime
   -> LoggingT IO (Either Text ())
-runProvisioners state parentTaskId sink vmId b startTime =
+runProvisioners state parentTaskId sink vmId b _startTime = do
+  cEnv <- liftIO $ buildCorvusEnv state b vmId parentTaskId
+  let sd = buildShellDefaults b
+      go _ [] = pure $ Right ()
+      go idx (p : ps) = do
+        r <- runProvisioner state parentTaskId sink vmId sd cEnv idx p
+        case r of
+          Left err -> pure $ Left err
+          Right () -> go (idx + 1) ps
   go 1 (buildProvisioners b)
-  where
-    sd = buildShellDefaults b
-    go idx [] = do
-      -- Implicit final step: write provenance file.
-      let info =
-            renderBuildInfo
-              (buildName b)
-              startTime
-              (buildTemplate b)
-              (T.pack (Version.showVersion version))
-      runProvisioner state parentTaskId sink vmId sd idx (provenanceProvisioner info)
-    go idx (p : ps) = do
-      r <- runProvisioner state parentTaskId sink vmId sd idx p
-      case r of
-        Left err -> pure $ Left err
-        Right () -> go (idx + 1) ps
 
--- | Synthesize a 'ProvFile' that writes the provenance file. Reusing
--- the file provisioner means provenance gets the same per-step subtask
--- + event treatment as the user's provisioners.
-provenanceProvisioner :: Text -> Provisioner
-provenanceProvisioner info =
-  ProvFile
-    FileProv
-      { fileFrom = Nothing
-      , fileContentBase64 = Just (TE.decodeUtf8 (B64.encode (TE.encodeUtf8 info)))
-      , fileTo = "/etc/corvus-build-info"
-      , fileMode = Just "0644"
-      }
+-- | Predefined environment variables exposed to every shell provisioner.
+-- Names are stable; values are read from the current 'Build', the bake
+-- VM record, and the running daemon. Steps that need different values
+-- override by re-declaring the same key in 'shellDefaults.env' or the
+-- step's own @env:@ — later @export@ wins in the assembled command.
+buildCorvusEnv :: ServerState -> Build -> Int64 -> TaskId -> IO [(Text, Text)]
+buildCorvusEnv state b vmId parentTaskId = do
+  mDetails <- runSqlPool (getVmDetails (ssQemuConfig state) vmId) (ssDbPool state)
+  let bakeJson = case mDetails of
+        Just d -> TE.decodeUtf8 (LBS.toStrict (Aeson.encode d))
+        Nothing -> "null"
+      bakeName = maybe "" vdName mDetails
+      vsockEntry = case mDetails >>= vdVsockCid of
+        Just cid -> [("CORVUS_BAKEVM_VSOCK_CID", T.pack (show cid))]
+        Nothing -> []
+  pure $
+    [ ("CORVUS_VERSION", T.pack (Version.showVersion version))
+    , ("CORVUS_BUILD_NAME", buildName b)
+    , ("CORVUS_BUILD_TARGET", btName (buildTarget b))
+    , ("CORVUS_BUILD_TEMPLATE", buildTemplate b)
+    , ("CORVUS_BUILD_STRATEGY", strategyName (buildStrategy b))
+    , ("CORVUS_BUILD_TASK_ID", T.pack (show (fromSqlKey parentTaskId)))
+    , ("CORVUS_BAKEVM_ID", T.pack (show vmId))
+    , ("CORVUS_BAKEVM_NAME", bakeName)
+    , ("CORVUS_BAKEVM", bakeJson)
+    ]
+      ++ vsockEntry
+
+strategyName :: BuildStrategy -> Text
+strategyName BuildStrategyOverlay = "overlay"
+strategyName BuildStrategyFromScratch = "from-scratch"
+strategyName BuildStrategyInstaller = "installer"
 
 -- | Run a single provisioner: insert a subtask row, invoke the body,
 -- finalize the row with the result + (cropped) output, emit the
@@ -678,10 +744,11 @@ runProvisioner
   -> BuildSink
   -> Int64
   -> ShellDefaults
+  -> [(Text, Text)]
   -> Int
   -> Provisioner
   -> LoggingT IO (Either Text ())
-runProvisioner state parentTaskId sink vmId sd stepIdx p = do
+runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
   let kind = provKind p
       desc = provDesc p
   logInfoN $ "step " <> T.pack (show stepIdx) <> " (" <> kind <> "): " <> desc
@@ -704,7 +771,7 @@ runProvisioner state parentTaskId sink vmId sd stepIdx p = do
               }
         )
         (ssDbPool state)
-  bodyResult <- liftIO $ try $ runProvisionerBody state vmId sd stepIdx sink p
+  bodyResult <- liftIO $ try $ runProvisionerBody state vmId sd cEnv stepIdx sink p
   finishedAt <- liftIO getCurrentTime
   let (orchResult, taskMsg, taskResult) = case bodyResult of
         Right (Right msg) -> (Right (), msg, TaskSuccess)
@@ -746,11 +813,12 @@ runProvisionerBody
   :: ServerState
   -> Int64
   -> ShellDefaults
+  -> [(Text, Text)]
   -> Int
   -> BuildSink
   -> Provisioner
   -> IO (Either (Text, Maybe Text) (Maybe Text))
-runProvisionerBody state vmId sd stepIdx sink p = case p of
+runProvisionerBody state vmId sd cEnv stepIdx sink p = case p of
   ProvShell sh -> case shellInline sh of
     Nothing ->
       pure $
@@ -762,7 +830,7 @@ runProvisionerBody state vmId sd stepIdx sink p = case p of
       let maxPolls = case shellTimeoutSec sh of
             Just s -> max 60 (s * 10)
             Nothing -> 6000 -- 10 minutes default
-          fullCmd = buildShellCommand sd sh body
+          fullCmd = buildShellCommand sd cEnv sh body
       bufRef <- newIORef BS.empty
       totalRef <- newIORef (0 :: Int)
       let onLine line = do
@@ -931,18 +999,27 @@ shellQuote t = "'" <> T.replace "'" "'\\''" t <> "'"
 -- Order:
 --
 --   1. 'sdPreamble' — runs first so @set -e@ propagates into env exports.
---   2. 'sdEnv'      — build-level defaults env, exported.
---   3. 'shellEnv'   — per-step env, exported AFTER defaults so the
+--   2. corvusEnv    — predefined @CORVUS_*@ vars (build name, version,
+--      bake VM identity, …) exported BEFORE user-defined env so steps
+--      and 'shellDefaults.env' can override by re-declaring the same key.
+--   3. 'sdEnv'      — build-level defaults env, exported.
+--   4. 'shellEnv'   — per-step env, exported AFTER defaults so the
 --      step can override defaults by re-declaring the same key.
---   4. 'shellWorkdir' — @cd@, if set.
---   5. body         — the operator's @inline@ text.
-buildShellCommand :: ShellDefaults -> Shell -> Text -> Text
-buildShellCommand sd sh body =
-  preambleBlock <> defaultsEnvBlock <> stepEnvBlock <> workdirBlock <> body
+--   5. 'shellWorkdir' — @cd@, if set.
+--   6. body         — the operator's @inline@ text.
+buildShellCommand :: ShellDefaults -> [(Text, Text)] -> Shell -> Text -> Text
+buildShellCommand sd corvusEnv sh body =
+  preambleBlock
+    <> corvusEnvBlock
+    <> defaultsEnvBlock
+    <> stepEnvBlock
+    <> workdirBlock
+    <> body
   where
     preambleBlock = case sdPreamble sd of
       Just p -> p <> "\n"
       Nothing -> ""
+    corvusEnvBlock = renderEnv corvusEnv
     defaultsEnvBlock = renderEnv (sdEnv sd)
     stepEnvBlock = renderEnv (shellEnv sh)
     workdirBlock = case shellWorkdir sh of
@@ -1055,7 +1132,25 @@ publishArtifact state parentTaskId vmId diskId target needFlatten = do
     RespDiskOk -> pure ()
     RespError err -> logWarnN $ "detach artifact drive: " <> err
     _ -> logWarnN "detach artifact drive: unexpected response"
-  -- 2. Rename the disk in-DB.
+  -- 2. Honour target.overwrite by clearing any existing disk that
+  --    occupies the target name. Refuses to overwrite a disk that is
+  --    currently attached to one or more VMs — the operator must
+  --    detach (or delete those VMs) explicitly so we never silently
+  --    yank a disk out from under a running or stopped VM.
+  overwriteResult <- maybeOverwriteExistingTarget state parentTaskId target
+  case overwriteResult of
+    Left err -> pure $ Left err
+    Right () -> publishArtifactCore state parentTaskId diskId target needFlatten
+
+publishArtifactCore
+  :: ServerState
+  -> TaskId
+  -> Int64
+  -> BuildTarget
+  -> Bool
+  -> LoggingT IO (Either Text ())
+publishArtifactCore state parentTaskId diskId target needFlatten = do
+  -- Rename the disk in-DB.
   renameRes <-
     liftIO $ renameDiskByName state diskId (btName target)
   case renameRes of
@@ -1142,6 +1237,54 @@ relocateArtifact state diskId target = do
         liftIO
           (try (removeDirectory (takeDirectory oldPath)) :: IO (Either SomeException ()))
       pure $ Right ()
+
+-- | When @target.overwrite: true@ and the target name is already
+-- claimed by another disk, delete that disk so the build can take
+-- the name. Refuses (returns 'Left') if the existing disk is attached
+-- to any VM — naming the attached VMs in the error so the operator
+-- can act. A no-op when @overwrite@ is false or the name is free.
+maybeOverwriteExistingTarget
+  :: ServerState
+  -> TaskId
+  -> BuildTarget
+  -> LoggingT IO (Either Text ())
+maybeOverwriteExistingTarget state parentTaskId target
+  | not (btOverwrite target) = pure $ Right ()
+  | otherwise = do
+      let pool = ssDbPool state
+      mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName (btName target))) pool
+      case mExisting of
+        Nothing -> pure $ Right ()
+        Just (Entity existingId _) -> do
+          attachedVms <- liftIO $ runSqlPool (vmsAttachedToDisk existingId) pool
+          if null attachedVms
+            then do
+              logInfoN $ "target.overwrite: deleting existing disk '" <> btName target <> "'"
+              resp <-
+                liftIO $
+                  runActionAsSubtask state (DiskDelete (fromSqlKey existingId)) parentTaskId
+              case resp of
+                RespDiskOk -> pure $ Right ()
+                RespError err ->
+                  pure $ Left $ "target.overwrite: delete existing disk: " <> err
+                _ -> pure $ Left "target.overwrite: delete existing disk: unexpected response"
+            else
+              pure $
+                Left $
+                  "target.overwrite: disk '"
+                    <> btName target
+                    <> "' is attached to VM(s): "
+                    <> T.intercalate ", " attachedVms
+                    <> "; detach or delete those VMs first."
+
+-- | Names of every VM that has the given disk attached. Used by the
+-- overwrite check to refuse silently yanking a disk out of a VM.
+vmsAttachedToDisk :: DiskImageId -> SqlPersistT IO [Text]
+vmsAttachedToDisk diskId = do
+  drives <- selectList [DriveDiskImageId ==. diskId] []
+  let vmIds = map (driveVmId . entityVal) drives
+  vms <- mapM get vmIds
+  pure [vmName v | Just v <- vms]
 
 renameDiskByName :: ServerState -> Int64 -> Text -> IO (Either Text ())
 renameDiskByName state diskId newName = do

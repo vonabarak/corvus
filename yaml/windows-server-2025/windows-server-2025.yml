@@ -19,62 +19,63 @@
 # want to watch the install graphically, swap headless: false in the
 # template and connect via SPICE.
 
-builds:
-  - name: windows-server-2025
-    description: "Windows Server 2025 with qemu-guest-agent + cloudbase-init"
-    template: windows-server-2025-installer
+pipeline:
+  - build:
+      name: windows-server-2025
+      description: "Windows Server 2025 with qemu-guest-agent + cloudbase-init"
+      template: windows-server-2025-installer
 
-    target:
-      name: windows-server-2025-eval
-      format: qcow2
-      sizeGb: 40
-      compact: true
-      # Place the artifact under `<basePath>/windows-server-2025/`
-      # for tidy organisation; the Makefile's `test-image-windows`
-      # target then symlinks it into `.test-images/` for the
-      # integration tests.
-      path: windows-server-2025/
+      target:
+        name: windows-server-2025-eval
+        format: qcow2
+        sizeGb: 40
+        compact: true
+        # Place the artifact under `<basePath>/windows-server-2025/`
+        # for tidy organisation; the Makefile's `test-image-windows`
+        # target then symlinks it into `.test-images/` for the
+        # integration tests.
+        path: windows-server-2025/
 
-    # The installer strategy:
-    #   * does not require guestAgent: true on the template
-    #   * does not run any provisioners (autounattend.xml drives the
-    #     entire install)
-    #   * waits for the guest to power itself off, then captures the
-    #     first drive as the artifact.
-    strategy: installer
+      # The installer strategy:
+      #   * does not require guestAgent: true on the template
+      #   * does not run any provisioners (autounattend.xml drives the
+      #     entire install)
+      #   * waits for the guest to power itself off, then captures the
+      #     first drive as the artifact.
+      strategy: installer
 
-    vm:
-      cpuCount: 4
-      ramMb: 4096
+      vm:
+        cpuCount: 4
+        ramMb: 4096
 
-    # Dismiss UEFI's "Press any key to boot from CD or DVD..." prompt.
-    # OVMF prints this once on first boot of the Windows installer
-    # ISO; if no key is received within ~5 seconds it falls through
-    # to the (empty) boot disk and hangs in the EFI shell.
-    bootKeys:
-      - keys: ret
-        delaySec: 3
-        repeat: 6
-        intervalSec: 1
+      # Dismiss UEFI's "Press any key to boot from CD or DVD..." prompt.
+      # OVMF prints this once on first boot of the Windows installer
+      # ISO; if no key is received within ~5 seconds it falls through
+      # to the (empty) boot disk and hangs in the EFI shell.
+      bootKeys:
+        - keys: ret
+          delaySec: 3
+          repeat: 6
+          intervalSec: 1
 
-    # 60 minutes; Windows install + cloudbase-init MSI typically
-    # takes 20–35 min on KVM. The autounattend's last command is
-    # `shutdown /s /t 30 /f`, so the guest powers off cleanly.
-    waitForShutdownSec: 3600
+      # 60 minutes; Windows install + cloudbase-init MSI typically
+      # takes 20–35 min on KVM. The autounattend's last command is
+      # `shutdown /s /t 30 /f`, so the guest powers off cleanly.
+      waitForShutdownSec: 3600
 
-    # Floppy holding the autounattend.xml answer file. The path is
-    # relative to this YAML file's directory; the client reads the
-    # file, base64-encodes its bytes, and the daemon wraps it in a
-    # 1.44 MB FAT12 image attached to the bake VM as `if=floppy`.
-    # Edit `windows-autounattend.xml` and re-run `crv build` — no
-    # out-of-band `mkfs.fat`/`mcopy`.
-    #
-    floppy:
-      from: ./autounattend.xml
+      # Floppy holding the autounattend.xml answer file. The path is
+      # relative to this YAML file's directory; the client reads the
+      # file, base64-encodes its bytes, and the daemon wraps it in a
+      # 1.44 MB FAT12 image attached to the bake VM as `if=floppy`.
+      # Edit `windows-autounattend.xml` and re-run `crv build` — no
+      # out-of-band `mkfs.fat`/`mcopy`.
+      #
+      floppy:
+        from: ./autounattend.xml
 
-    # No QGA-based provisioners: autounattend.xml does it all.
-    provisioners: []
+      # No QGA-based provisioners: autounattend.xml does it all.
+      provisioners: []
 
-    # On failure leave the bake VM alive so the operator can connect
-    # via SPICE and inspect Windows install logs at C:\Windows\Panther\.
-    cleanup: onSuccess
+      # On failure leave the bake VM alive so the operator can connect
+      # via SPICE and inspect Windows install logs at C:\Windows\Panther\.
+      cleanup: onSuccess

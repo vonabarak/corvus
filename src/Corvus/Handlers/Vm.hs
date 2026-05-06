@@ -37,6 +37,9 @@ module Corvus.Handlers.Vm
 
     -- * Helpers (exposed for tests)
   , generateSpicePassword
+
+    -- * In-daemon helpers used by other handlers
+  , getVmDetails
   )
 where
 
@@ -813,7 +816,9 @@ listVms = do
         , viAutostart = vmAutostart vm
         }
 
--- | Get full VM details
+-- | Get full VM details. Re-exported so 'Corvus.Handlers.Build' can
+-- read the bake VM and expose its identity to provisioner shell steps
+-- (see @CORVUS_BAKEVM*@ environment variables).
 getVmDetails :: QemuConfig -> Int64 -> SqlPersistT IO (Maybe VmDetails)
 getVmDetails config vmId = do
   let key = toSqlKey vmId :: VmId

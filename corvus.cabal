@@ -131,7 +131,6 @@ library
       Corvus.Handlers.Apply
       Corvus.Handlers.Build
       Corvus.Handlers.Build.Cleanup
-      Corvus.Handlers.Build.Provenance
       Corvus.Handlers.CloudInit
       Corvus.Handlers.Lifecycle
       Corvus.Client.Commands.GuestExec
@@ -409,7 +408,6 @@ test-suite corvus-test
       Corvus.ApplySpec
       Corvus.BuildCleanupSpec
       Corvus.BuildIntegrationSpec
-      Corvus.BuildProvenanceSpec
       Corvus.BuildSchemaSpec
       Corvus.BuildStreamSpec
       Corvus.ClientOutputSpec

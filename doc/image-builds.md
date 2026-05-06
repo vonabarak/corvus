@@ -1,21 +1,28 @@
 # Image Builds (`crv build`)
 
-`crv build` bakes reusable OS disk images from a procedural YAML
-pipeline. It is a separate feature from `crv apply`: apply describes
-declarative state and converges to it, build runs an ordered set of
-steps and produces a single artifact (a registered Corvus disk).
+`crv build` runs a YAML **pipeline**: an ordered list of steps that
+either bake a reusable OS disk image (`build:`) or apply a declarative
+config (`apply:`). The two kinds can be freely mixed in a single
+file — typical use is *bake* → *register-as-template* → *bake again on
+top of that template*.
 
-A build:
+A `build:` step:
 
 1. Instantiates a named template into an ephemeral "bake" VM.
 2. Optionally attaches an empty target disk (for `from-scratch`).
 3. Starts the bake VM, waits for the guest agent.
 4. Runs each provisioner inside the running VM (via `qemu-guest-agent`).
-5. Writes `/etc/corvus-build-info` so the artifact is self-identifying.
-6. Stops the VM gracefully.
-7. Captures the artifact: detaches the chosen drive, renames it, optionally
+5. Stops the VM gracefully.
+6. Captures the artifact: detaches the chosen drive, renames it, optionally
    flattens (overlay strategy) and compacts.
-8. Tears down the bake VM and any other ephemeral resources.
+7. Tears down the bake VM and any other ephemeral resources.
+
+An `apply:` step embeds the full
+[`crv apply` schema](apply-configuration.md) and runs through the same
+handler — registering SSH keys, disks, networks, VMs, and templates
+into the daemon's database. Apply steps are most useful between two
+build steps when the second one needs a template that wraps the first
+one's artifact.
 
 The bake VM has no cloud-init ISO and no SSH keys. Provisioners run via
 `qemu-guest-agent`'s `guest-exec`, so the operator's identity and keys
@@ -50,48 +57,94 @@ client's filesystem.
 ## Schema
 
 ```yaml
-builds:
-  - name: debian-12-nginx                # required, unique within the file
-    description: Debian 12 with NGINX    # optional, free text
+pipeline:
+  - build:
+      name: debian-12-nginx                # required, unique within the file
+      description: Debian 12 with NGINX    # optional, free text
 
-    template: debian-12-cloud            # required: name of an existing template
+      template: debian-12-cloud            # required: name of an existing template
 
-    target:
-      name: debian-12-nginx              # registered as a Corvus disk on success
-      format: qcow2                      # default: qcow2
-      sizeGb: 10                         # only used by from-scratch strategy
-      compact: true                      # qemu-img -c rewrite at end (default true)
-      path: builds/debian/               # optional, see below
+      target:
+        name: debian-12-nginx              # registered as a Corvus disk on success
+        format: qcow2                      # default: qcow2
+        sizeGb: 10                         # only used by from-scratch strategy
+        compact: true                      # qemu-img -c rewrite at end (default true)
+        path: builds/debian/               # optional, see below
+        overwrite: false                   # default false; see "target.overwrite"
 
-    strategy: overlay                    # overlay (default) | from-scratch
+      strategy: overlay                    # overlay (default) | from-scratch | installer
 
-    vm:
-      cpuCount: 4                        # default: 4
-      ramMb: 4096                        # default: 4096
+      vm:
+        cpuCount: 4                        # default: 4
+        ramMb: 4096                        # default: 4096
 
-    provisioners:                        # ordered, run in the started VM
-      - shell: |
-          set -euxo pipefail
-          apt-get update
-          apt-get install -y nginx
+      shellDefaults:
+        preamble: "set -eux"
+        env:
+          SYSROOT: /mnt/sysroot
+          DEV: /dev/vdb
 
-      - shell:
-          script: ./scripts/harden.sh    # client reads + inlines
-          env: { DEBIAN_FRONTEND: noninteractive }
-          workdir: /tmp
-          timeoutSec: 1800
+      provisioners:                        # ordered, run in the started VM
+        - shell: |
+            set -euxo pipefail
+            apt-get update
+            apt-get install -y nginx
 
-      - file:
-          from: ./files/nginx.conf       # client reads + inlines
-          to:   /etc/nginx/nginx.conf
-          mode: "0644"
+        - shell:
+            script: ./scripts/harden.sh    # client reads + inlines
+            env: { DEBIAN_FRONTEND: noninteractive }
+            workdir: /tmp
+            timeoutSec: 1800
 
-      - wait-for: { file: /var/lib/cloud/instance/boot-finished, timeoutSec: 300 }
+        - file:
+            from: ./files/nginx.conf       # client reads + inlines
+            to:   /etc/nginx/nginx.conf
+            mode: "0644"
 
-      - reboot: { timeoutSec: 300 }
+        - wait-for: { file: /var/lib/cloud/instance/boot-finished, timeoutSec: 300 }
 
-    cleanup: always                      # always (default) | onSuccess | never
+        - reboot: { timeoutSec: 300 }
+
+      cleanup: always                      # always (default) | onSuccess | never
+
+  - apply:                                 # full crv apply document, inlined
+      templates:
+        - name: debian-12-nginx
+          cpuCount: 2
+          ramMb: 2048
+          guestAgent: true
+          headless: true
+          drives:
+            - diskImageName: debian-12-nginx
+              interface: virtio
+              strategy: overlay
 ```
+
+A pipeline step has exactly one of `build:` or `apply:`. Steps run in
+order; if a step fails the pipeline aborts and any prior successful
+steps stay applied (no rollback).
+
+### `target.overwrite`
+
+Default `false` — a build whose `target.name` is already taken by an
+existing disk fails before the bake VM starts (the original disk is
+left intact).
+
+With `overwrite: true` the daemon deletes any existing disk with the
+same name as part of artifact publication, so `crv build` becomes
+idempotent across re-runs:
+
+```yaml
+target:
+  name: debian-12-nginx
+  overwrite: true
+```
+
+The overwrite is **refused** if the existing disk is currently
+attached to one or more VMs — the error message names the attached
+VMs so the operator can detach (or delete those VMs) explicitly.
+There is no auto-detach mode; this avoids silently yanking a disk
+out from under a running or stopped VM.
 
 ### `target.path`
 
@@ -295,16 +348,54 @@ Stranded ephemeral resources are named with the prefix
 `__build_<task-id>_…` so they're greppable via `crv vm list` /
 `crv disk list`.
 
-## Provenance
+## Predefined provisioner env
 
-Every artifact gets a `/etc/corvus-build-info` file written by the
-final implicit provisioner step:
+Every `shell:` provisioner runs with a set of `CORVUS_*` environment
+variables exported by the daemon — useful for tagging artifacts,
+manual provenance, conditional logic on the build's strategy, or
+making host-side scripts reachable via vsock from inside the bake VM.
 
-```
-build_name: debian-12-nginx
-build_date: 2026-04-30T15:21:09Z
-source_template: debian-12-cloud
-corvus_version: 0.9.0.0
+| Variable | Source |
+|---|---|
+| `CORVUS_VERSION` | the daemon's own version (e.g. `0.9.0.0`) |
+| `CORVUS_BUILD_NAME` | the current `build.name` |
+| `CORVUS_BUILD_TARGET` | the current `build.target.name` |
+| `CORVUS_BUILD_TEMPLATE` | the current `build.template` |
+| `CORVUS_BUILD_STRATEGY` | `overlay` / `from-scratch` / `installer` |
+| `CORVUS_BUILD_TASK_ID` | the parent task id (handy for log correlation) |
+| `CORVUS_BAKEVM_ID` | the bake VM's id |
+| `CORVUS_BAKEVM_NAME` | the bake VM's name (`__build_<task>_<sanitized>-vm`) |
+| `CORVUS_BAKEVM_VSOCK_CID` | bake VM's vsock CID, when allocated |
+| `CORVUS_BAKEVM` | full `crv vm show -o json` output for the bake VM, single-line JSON |
+
+The composition order in the assembled shell command is:
+
+1. `shellDefaults.preamble`
+2. `CORVUS_*` exports — predefined; injected before user env so step env can override
+3. `shellDefaults.env` exports
+4. The step's own `shell.env` exports
+5. The step's `shell.workdir` (`cd …`)
+6. The step's `inline:` body
+
+Later `export`s win in shell, so to override a `CORVUS_*` variable
+just re-declare it in `shellDefaults.env` or the step's `env:`.
+
+### Manual provenance file
+
+Earlier versions of Corvus wrote `/etc/corvus-build-info` automatically
+as the final provisioner step. That implicit step has been removed —
+operators who want it (or a different layout) can add a one-liner step
+that uses the predefined env:
+
+```yaml
+- shell:
+    inline: |
+      cat > /etc/corvus-build-info <<EOF
+      build_name:      $CORVUS_BUILD_NAME
+      build_date:      $(date -Iseconds)
+      source_template: $CORVUS_BUILD_TEMPLATE
+      corvus_version:  $CORVUS_VERSION
+      EOF
 ```
 
 ## Example
@@ -363,6 +454,7 @@ internet, so the host must NAT/MASQUERADE the VDE subnet and have
   attaches a NIC if needed.
 - File uploads larger than ~16 MiB should use a tarball + `shell`
   extract.
-- Builds are run sequentially in the order they appear in the YAML.
+- Pipeline steps run sequentially; a failing step aborts the pipeline.
+  Prior successful steps are not rolled back.
 - No `via: ssh` for `shell` (QGA only).
 - No `ansible:` provisioner kind (use `shell` for now).

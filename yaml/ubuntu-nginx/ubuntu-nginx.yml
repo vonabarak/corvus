@@ -22,48 +22,49 @@
 # /var/lib/dpkg/lock-frontend before running apt-get. Without that wait
 # the bake races cloud-init's own apt run and gets E: Could not get lock.
 
-builds:
-  - name: ubuntu24-nginx
-    description: Ubuntu 24.04 LTS with NGINX preinstalled
-
-    template: ubuntu24
-
-    target:
+pipeline:
+  - build:
       name: ubuntu24-nginx
-      compact: true
+      description: Ubuntu 24.04 LTS with NGINX preinstalled
 
-    strategy: overlay
+      template: ubuntu24
 
-    vm:
-      cpuCount: 4
-      ramMb: 4096
+      target:
+        name: ubuntu24-nginx
+        compact: true
 
-    shellDefaults:
-      preamble: "set -eux"
-      env:
-        DEBIAN_FRONTEND: noninteractive
+      strategy: overlay
 
-    provisioners:
-      - shell: |
-          # cloud-init reports "done" before its own apt post-handlers
-          # release the dpkg lock; wait up to 5 minutes for the lock to
-          # become free before we run our own apt invocations.
-          cloud-init status --wait || true
-          for i in $(seq 1 60); do
-            if ! fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; then
-              break
-            fi
-            echo "[bake] waiting for apt lock ($i)" >&2
-            sleep 5
-          done
+      vm:
+        cpuCount: 4
+        ramMb: 4096
 
-          apt-get update
-          apt-get install -y --no-install-recommends nginx
-          systemctl enable nginx
+      shellDefaults:
+        preamble: "set -eux"
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
-      - shell: |
-          # Slim down so the qcow2 compact pass actually shrinks the file.
-          apt-get clean
-          rm -rf /var/lib/apt/lists/*
+      provisioners:
+        - shell: |
+            # cloud-init reports "done" before its own apt post-handlers
+            # release the dpkg lock; wait up to 5 minutes for the lock to
+            # become free before we run our own apt invocations.
+            cloud-init status --wait || true
+            for i in $(seq 1 60); do
+              if ! fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock >/dev/null 2>&1; then
+                break
+              fi
+              echo "[bake] waiting for apt lock ($i)" >&2
+              sleep 5
+            done
 
-    cleanup: always
+            apt-get update
+            apt-get install -y --no-install-recommends nginx
+            systemctl enable nginx
+
+        - shell: |
+            # Slim down so the qcow2 compact pass actually shrinks the file.
+            apt-get clean
+            rm -rf /var/lib/apt/lists/*
+
+      cleanup: always

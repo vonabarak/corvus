@@ -11,48 +11,49 @@
 #
 # On success, a Corvus disk named `debian-12-nginx` is registered.
 
-builds:
-  - name: debian-12-nginx
-    description: Debian 12 with NGINX preinstalled
-
-    template: debian12
-
-    target:
+pipeline:
+  - build:
       name: debian-12-nginx
-      compact: true
+      description: Debian 12 with NGINX preinstalled
 
-    strategy: overlay
+      template: debian12
 
-    shellDefaults:
-      preamble: "set -eux"
-      env:
-        DEBIAN_FRONTEND: noninteractive
+      target:
+        name: debian-12-nginx
+        compact: true
 
-    provisioners:
-      - shell: |
-          # Wait for cloud-init to settle so apt locks aren't held.
-          cloud-init status --wait || true
-          apt-get update
-          apt-get install -y --no-install-recommends nginx
-          systemctl enable nginx
+      strategy: overlay
 
-      - file:
-          # Replace with your own file path. The example file isn't
-          # bundled — this provisioner block is illustrative.
-          # from: ./files/nginx.conf
-          # to:   /etc/nginx/nginx.conf
-          # mode: "0644"
-          content: ""           # placeholder; remove this provisioner if unused
-          to: /etc/nginx/conf.d/00-corvus-noop.conf
-          mode: "0644"
+      shellDefaults:
+        preamble: "set -eux"
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
-      - shell: |
-          # Slim the image: zero free space so the qcow2 compact step
-          # at end actually shrinks the file.
-          apt-get clean
-          rm -rf /var/lib/apt/lists/*
-          dd if=/dev/zero of=/tmp/zero bs=1M status=none || true
-          rm -f /tmp/zero
-          sync
+      provisioners:
+        - shell: |
+            # Wait for cloud-init to settle so apt locks aren't held.
+            cloud-init status --wait || true
+            apt-get update
+            apt-get install -y --no-install-recommends nginx
+            systemctl enable nginx
 
-    cleanup: always
+        - file:
+            # Replace with your own file path. The example file isn't
+            # bundled — this provisioner block is illustrative.
+            # from: ./files/nginx.conf
+            # to:   /etc/nginx/nginx.conf
+            # mode: "0644"
+            content: ""           # placeholder; remove this provisioner if unused
+            to: /etc/nginx/conf.d/00-corvus-noop.conf
+            mode: "0644"
+
+        - shell: |
+            # Slim the image: zero free space so the qcow2 compact step
+            # at end actually shrinks the file.
+            apt-get clean
+            rm -rf /var/lib/apt/lists/*
+            dd if=/dev/zero of=/tmp/zero bs=1M status=none || true
+            rm -f /tmp/zero
+            sync
+
+      cleanup: always
