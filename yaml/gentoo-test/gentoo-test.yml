@@ -172,6 +172,7 @@ pipeline:
               FEATURES="${FEATURES} getbinpkg parallel-fetch"
               EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y"
               ACCEPT_LICENSE="*"
+              USE="bash-completion"
               EOF
 
               cp -a /etc/portage/gnupg "$SYSROOT/etc/portage/gnupg"
@@ -374,6 +375,7 @@ pipeline:
 
               cat >> /etc/fstab <<'EOF'
               192.168.88.1:/data/portage/distfiles /var/cache/distfiles nfs rw 0 0
+              192.168.88.1:/data/portage/binpkgs /var/cache/binpkgs nfs ro 0 0
               192.168.88.1:/var/db/repos /var/db/repos nfs ro 0 0
               192.168.88.1:/home/bobr/Work/corvus /mnt/corvus nfs rw 0 0
               EOF
@@ -409,7 +411,7 @@ pipeline:
 
         - shell:
             inline: |
-              emerge --noreplace \
+              emerge --noreplace --usepkg \
                 app-emulation/qemu \
                 net-misc/vde \
                 net-dns/dnsmasq \
@@ -424,49 +426,22 @@ pipeline:
                 app-emulation/corvus
             timeoutSec: 14400
 
-        # 4) Haskell toolchain via ghcup — much faster than emerging GHC
-        #    from source, and pinning matches the corvus stack snapshot.
-        #
-        #    Two non-obvious things here:
-        #
-        #    a) GHCUP_INSTALL_BASE_PREFIX=/opt puts the toolchain in
-        #       /opt/.ghcup so non-root users (the corvus account in step 5)
-        #       can read it. Default install at /root/.ghcup lives under a
-        #       mode-700 home dir and is unreachable for corvus, even via
-        #       /usr/local/bin symlinks — discovered when verify-gentoo
-        #       failed with `sudo: unable to execute ... Permission denied`.
-        #
-        #    b) /opt/.ghcup/bin must be on PATH BEFORE invoking the install
-        #       script: ghcup's bootstrap ends with `edo cabal update
-        #       --ignore-project` (line ~1063), which uses PATH lookup, not
-        #       the absolute path. Without this, the script exits 2 right
-        #       after a successful GHC+cabal install — bit iteration 6.
-        # - shell:
-        #     inline: |
-        #       export GHCUP_INSTALL_BASE_PREFIX=/opt
-        #       export PATH="/opt/.ghcup/bin:$PATH"
-        #       export BOOTSTRAP_HASKELL_NONINTERACTIVE=1
-        #       export BOOTSTRAP_HASKELL_GHC_VERSION=9.8.4
-        #       export BOOTSTRAP_HASKELL_CABAL_VERSION=recommended
-        #       export BOOTSTRAP_HASKELL_INSTALL_NO_STACK=1
-        #       export BOOTSTRAP_HASKELL_INSTALL_HLS=0
-        #       export BOOTSTRAP_HASKELL_VERBOSE=1
-        #       curl --proto '=https' --tlsv1.2 --retry 3 -fL \
-        #         -o /tmp/ghcup-install.sh https://get-ghcup.haskell.org
-        #       sh /tmp/ghcup-install.sh 2>&1 | tee /tmp/ghcup-install.log
-        #       install -d /usr/local/bin
-        #       for f in ghc ghc-9.8 ghc-9.8.4 ghci runghc runhaskell cabal ghcup; do
-        #         test -e /opt/.ghcup/bin/$f && ln -sf /opt/.ghcup/bin/$f /usr/local/bin/$f || true
-        #       done
-        #       ghc --version
-        #       cabal --version
-        #     timeoutSec: 1800
-
         - shell:
             inline: |
               eselect postgresql set 18 || true
               emerge --config dev-db/postgresql:18 || true
               systemctl enable postgresql-18.service
+              
+              systemctl start postgresql-18.service
+              for i in $(seq 1 30); do
+                sudo -u postgres psql -c '\q' 2>/dev/null && break
+                sleep 1
+              done
+              
+              sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+              CREATE USER corvus SUPERUSER;
+              CREATE DATABASE corvus OWNER corvus;
+              SQL
             timeoutSec: 300
 
         - shell:
@@ -497,7 +472,63 @@ pipeline:
               WantedBy=multi-user.target
               EOF
               systemctl enable vde-switch.service
+
+              install -d /etc/systemd/network
+              cat > /etc/systemd/network/30-vde0.network <<'EOF'
+              [Match]
+              Name=vde0
+
+              [Network]
+              Address=192.168.92.1/24
+              ConfigureWithoutCarrier=yes
+              EOF
+
+              install -d /etc/sysctl.d
+              cat > /etc/sysctl.d/30-corvus-vde-forward.conf <<'EOF'
+              net.ipv4.ip_forward = 1
+              EOF
+
+              cat > /etc/nftables.conf <<'EOF'
+              #!/usr/sbin/nft -f
+              flush ruleset
+
+              table ip nat {
+                  chain postrouting {
+                      type nat hook postrouting priority srcnat
+                      policy accept
+                      ip saddr 192.168.92.0/24 oifname != "vde0" masquerade
+                  }
+              }
+              EOF
+
+              cat > /etc/dnsmasq.conf <<'EOF'
+              interface=vde0
+              bind-dynamic
+              dhcp-range=192.168.92.10,192.168.92.200,12h
+              dhcp-option=option:router,192.168.92.1
+              dhcp-option=option:dns-server,192.168.92.1
+              domain-needed
+              bogus-priv
+              EOF
+
+              install -d /etc/systemd/system/dnsmasq.service.d
+              cat > /etc/systemd/system/dnsmasq.service.d/wait-vde.conf <<'EOF'
+              [Unit]
+              After=vde-switch.service systemd-networkd.service
+              Wants=systemd-networkd.service
+              EOF
+
+              systemctl enable nftables.service dnsmasq.service
             timeoutSec: 60
+
+        - shell:
+            inline: |
+              install -d /etc/cloud/cloud.cfg.d
+              cat > /etc/cloud/cloud.cfg.d/91_corvus_kvm.cfg <<'EOF'
+              runcmd:
+                - getent group kvm >/dev/null && id corvus >/dev/null 2>&1 && usermod -aG kvm corvus || true
+              EOF
+            timeoutSec: 30
 
         - shell:
             inline: |
@@ -506,7 +537,6 @@ pipeline:
                 echo "baked: $(date -Iseconds)"
                 echo "kernel: $(uname -r)"
                 ghc --version
-                cabal --version
                 qemu-system-x86_64 --version | head -1
                 psql --version
                 vde_switch --version 2>&1 | head -1 || true
@@ -515,3 +545,24 @@ pipeline:
             timeoutSec: 60
 
       cleanup: onSuccess
+
+  - apply:
+      ifExists: skip
+      vms:
+        - name: gentoo-corvus-test
+          cpuCount: 8
+          ramMb: 8192
+          cloudInit: true
+          guestAgent: true
+          headless: true
+          description: "Test VM for Corvus"
+          drives:
+            - disk: gentoo-corvus-test
+              interface: virtio
+              cacheType: writeback
+              discard: true
+          networkInterfaces:
+            - type: vde
+              hostDevice: /run/vde2/switch.ctl
+          sshKeys:
+            - corvus
