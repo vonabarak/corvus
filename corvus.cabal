@@ -137,6 +137,20 @@ library
       Corvus.Client.Commands.Apply
       Corvus.Client.Commands.Build
       Corvus.Client.Completion
+      Corvus.Wire
+      Corvus.Wire.Errors
+      Corvus.Wire.Time
+      Corvus.Wire.Enums
+      Corvus.Wire.Common
+      Corvus.Wire.CloudInit
+      Corvus.Wire.Disk
+      Corvus.Wire.Network
+      Corvus.Wire.SshKey
+      Corvus.Wire.SharedDir
+      Corvus.Wire.Vm
+      Corvus.Wire.Task
+      Corvus.Wire.Apply
+      Corvus.Wire.Template
   other-modules:
       Corvus.Client.Commands.Network
       Corvus.Handlers.Build.Floppy
@@ -474,6 +488,7 @@ test-suite corvus-test
       Corvus.VmSpec
       Corvus.VmTransitionSpec
       Corvus.WindowsIntegrationSpec
+      Corvus.WireSpec
       SpecHook
       Test.Database
       Test.DSL.Core

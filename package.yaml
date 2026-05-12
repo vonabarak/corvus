@@ -178,6 +178,20 @@ library:
     - Corvus.Client.Commands.Apply
     - Corvus.Client.Commands.Build
     - Corvus.Client.Completion
+    - Corvus.Wire
+    - Corvus.Wire.Errors
+    - Corvus.Wire.Time
+    - Corvus.Wire.Enums
+    - Corvus.Wire.Common
+    - Corvus.Wire.CloudInit
+    - Corvus.Wire.Disk
+    - Corvus.Wire.Network
+    - Corvus.Wire.SshKey
+    - Corvus.Wire.SharedDir
+    - Corvus.Wire.Vm
+    - Corvus.Wire.Task
+    - Corvus.Wire.Apply
+    - Corvus.Wire.Template
 
 # Python extension module. hpack has no native support for foreign-library
 # stanzas, so we emit one via `verbatim`. The produced .so is dlopened by
