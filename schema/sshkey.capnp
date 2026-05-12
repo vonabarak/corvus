@@ -1,6 +1,6 @@
 @0xa6341bd086aa89f6;
 
-using Corvus = import "corvus.capnp";
+using Common = import "common.capnp";
 
 # ---------------------------------------------------------------------
 # Info structs
@@ -34,7 +34,7 @@ struct SshKeyCreateParams {
 
 interface SshKeyManager {
   list   @0 () -> (keys :List(SshKeyInfo));
-  get    @1 (ref :Corvus.EntityRef) -> (key :SshKey);
+  get    @1 (ref :Common.EntityRef) -> (key :SshKey);
   create @2 (params :SshKeyCreateParams) -> (key :SshKey);
 }
 

@@ -1,6 +1,6 @@
 @0xec449e11027b2949;
 
-using Corvus = import "corvus.capnp";
+using Common = import "common.capnp";
 using Enums = import "enums.capnp";
 
 # ---------------------------------------------------------------------
@@ -49,17 +49,17 @@ struct DiskRegisterParams {
 
 struct DiskCreateOverlayParams {
   name           @0 :Text;
-  backingDiskRef @1 :Corvus.EntityRef;
+  backingDiskRef @1 :Common.EntityRef;
 }
 
 struct DiskCloneParams {
-  sourceRef @0 :Corvus.EntityRef;
+  sourceRef @0 :Common.EntityRef;
   newName   @1 :Text;
 }
 
 struct DiskRebaseParams {
-  diskRef           @0 :Corvus.EntityRef;
-  newBackingDiskRef @1 :Corvus.EntityRef;
+  diskRef           @0 :Common.EntityRef;
+  newBackingDiskRef @1 :Common.EntityRef;
 }
 
 struct DiskImportUrlParams {
@@ -81,7 +81,7 @@ struct DiskImportParams {
 
 interface DiskManager {
   list          @0 () -> (disks :List(DiskImageInfo));
-  get           @1 (ref :Corvus.EntityRef) -> (disk :Disk);
+  get           @1 (ref :Common.EntityRef) -> (disk :Disk);
   create        @2 (params :DiskCreateParams) -> (disk :Disk);
   register      @3 (params :DiskRegisterParams) -> (disk :Disk);
   createOverlay @4 (params :DiskCreateOverlayParams) -> (disk :Disk);
@@ -100,7 +100,7 @@ interface Disk {
   # Snapshots scoped to this disk image.
   snapshotCreate    @4 (name :Text) -> (snapshot :Snapshot);
   snapshotList      @5 () -> (snapshots :List(SnapshotInfo));
-  snapshotGet       @6 (ref :Corvus.EntityRef) -> (snapshot :Snapshot);
+  snapshotGet       @6 (ref :Common.EntityRef) -> (snapshot :Snapshot);
 }
 
 interface Snapshot {

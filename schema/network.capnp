@@ -1,6 +1,6 @@
 @0xe996a8e112b41e28;
 
-using Corvus = import "corvus.capnp";
+using Common = import "common.capnp";
 
 # ---------------------------------------------------------------------
 # Info structs
@@ -49,7 +49,7 @@ struct NetworkEditParams {
 
 interface NetworkManager {
   list    @0 () -> (networks :List(NetworkInfo));
-  get     @1 (ref :Corvus.EntityRef) -> (network :Network);
+  get     @1 (ref :Common.EntityRef) -> (network :Network);
   create  @2 (params :NetworkCreateParams) -> (network :Network);
 }
 

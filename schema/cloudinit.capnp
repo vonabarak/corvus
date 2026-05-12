@@ -1,6 +1,6 @@
 @0xeb6a435f11477f84;
 
-using Corvus = import "corvus.capnp";
+using Common = import "common.capnp";
 
 # ---------------------------------------------------------------------
 # Info struct
@@ -19,7 +19,7 @@ struct CloudInitInfo {
 # ---------------------------------------------------------------------
 
 struct CloudInitSetParams {
-  vmRef          @0 :Corvus.EntityRef;
+  vmRef          @0 :Common.EntityRef;
   config         @1 :CloudInitInfo;
 }
 
@@ -30,6 +30,6 @@ struct CloudInitSetParams {
 
 interface CloudInitManager {
   set    @0 (params :CloudInitSetParams) -> ();
-  get    @1 (vmRef :Corvus.EntityRef) -> (config :CloudInitInfo);
-  delete @2 (vmRef :Corvus.EntityRef) -> ();
+  get    @1 (vmRef :Common.EntityRef) -> (config :CloudInitInfo);
+  delete @2 (vmRef :Common.EntityRef) -> ();
 }

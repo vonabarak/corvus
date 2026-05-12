@@ -143,6 +143,28 @@ library
       Corvus.Handlers.Network
       Corvus.Handlers.Resolve
       Corvus.Qemu.QmpQQ
+      Capnp.Gen.ById.X9b1373e2334a09e9
+      Capnp.Gen.ById.X9bd452a518ed3917
+      Capnp.Gen.ById.Xa6341bd086aa89f6
+      Capnp.Gen.ById.Xa7366eabdb0b1db4
+      Capnp.Gen.ById.Xbf9b09f64c0dd40d
+      Capnp.Gen.ById.Xc6b684f81a734396
+      Capnp.Gen.ById.Xd3867de7dfe678c7
+      Capnp.Gen.ById.Xd6cec0faa39e02dc
+      Capnp.Gen.ById.Xe996a8e112b41e28
+      Capnp.Gen.ById.Xeb6a435f11477f84
+      Capnp.Gen.ById.Xec449e11027b2949
+      Capnp.Gen.Cloudinit
+      Capnp.Gen.Common
+      Capnp.Gen.Corvus
+      Capnp.Gen.Disk
+      Capnp.Gen.Enums
+      Capnp.Gen.Network
+      Capnp.Gen.Sshkey
+      Capnp.Gen.Streams
+      Capnp.Gen.Task
+      Capnp.Gen.Template
+      Capnp.Gen.Vm
       Paths_corvus
   autogen-modules:
       Paths_corvus

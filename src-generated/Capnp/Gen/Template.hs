@@ -29,9 +29,9 @@ import qualified Capnp.GenHelpers as GH
 import qualified Capnp.Classes as C
 import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
+import qualified Capnp.Gen.ById.X9b1373e2334a09e9
 import qualified Capnp.Gen.ById.Xa7366eabdb0b1db4
 import qualified Capnp.Gen.ById.Xbf9b09f64c0dd40d
-import qualified Capnp.Gen.ById.Xc6b684f81a734396
 import qualified Capnp.Gen.ById.Xeb6a435f11477f84
 import qualified Prelude as Std_
 import qualified Data.Word as Std_
@@ -450,7 +450,7 @@ instance (C.AllocateList TemplateManager'get'params) where
 instance (C.EstimateListAlloc TemplateManager'get'params (C.Parsed TemplateManager'get'params))
 data instance C.Parsed TemplateManager'get'params
     = TemplateManager'get'params 
-        {ref :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {ref :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateManager'get'params))
 deriving instance (Std_.Eq (C.Parsed TemplateManager'get'params))
@@ -461,7 +461,7 @@ instance (C.Marshal TemplateManager'get'params (C.Parsed TemplateManager'get'par
         (GH.encodeField #ref ref raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "ref" GH.Slot TemplateManager'get'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "ref" GH.Slot TemplateManager'get'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data TemplateManager'get'results 
 type instance (R.ReprFor TemplateManager'get'results) = (R.Ptr (Std_.Just R.Struct))

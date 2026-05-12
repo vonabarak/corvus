@@ -29,8 +29,8 @@ import qualified Capnp.GenHelpers as GH
 import qualified Capnp.Classes as C
 import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
+import qualified Capnp.Gen.ById.X9b1373e2334a09e9
 import qualified Capnp.Gen.ById.Xbf9b09f64c0dd40d
-import qualified Capnp.Gen.ById.Xc6b684f81a734396
 import qualified Prelude as Std_
 import qualified Data.Word as Std_
 import qualified Data.Int as Std_
@@ -283,7 +283,7 @@ instance (C.EstimateListAlloc DiskCreateOverlayParams (C.Parsed DiskCreateOverla
 data instance C.Parsed DiskCreateOverlayParams
     = DiskCreateOverlayParams 
         {name :: (RP.Parsed Basics.Text)
-        ,backingDiskRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        ,backingDiskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskCreateOverlayParams))
 deriving instance (Std_.Eq (C.Parsed DiskCreateOverlayParams))
@@ -298,7 +298,7 @@ instance (C.Marshal DiskCreateOverlayParams (C.Parsed DiskCreateOverlayParams)) 
         )
 instance (GH.HasField "name" GH.Slot DiskCreateOverlayParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "backingDiskRef" GH.Slot DiskCreateOverlayParams Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "backingDiskRef" GH.Slot DiskCreateOverlayParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 1)
 data DiskCloneParams 
 type instance (R.ReprFor DiskCloneParams) = (R.Ptr (Std_.Just R.Struct))
@@ -317,7 +317,7 @@ instance (C.AllocateList DiskCloneParams) where
 instance (C.EstimateListAlloc DiskCloneParams (C.Parsed DiskCloneParams))
 data instance C.Parsed DiskCloneParams
     = DiskCloneParams 
-        {sourceRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)
+        {sourceRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
         ,newName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskCloneParams))
@@ -331,7 +331,7 @@ instance (C.Marshal DiskCloneParams (C.Parsed DiskCloneParams)) where
         (GH.encodeField #newName newName raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "sourceRef" GH.Slot DiskCloneParams Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "sourceRef" GH.Slot DiskCloneParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "newName" GH.Slot DiskCloneParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
@@ -352,8 +352,8 @@ instance (C.AllocateList DiskRebaseParams) where
 instance (C.EstimateListAlloc DiskRebaseParams (C.Parsed DiskRebaseParams))
 data instance C.Parsed DiskRebaseParams
     = DiskRebaseParams 
-        {diskRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)
-        ,newBackingDiskRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {diskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
+        ,newBackingDiskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskRebaseParams))
 deriving instance (Std_.Eq (C.Parsed DiskRebaseParams))
@@ -366,9 +366,9 @@ instance (C.Marshal DiskRebaseParams (C.Parsed DiskRebaseParams)) where
         (GH.encodeField #newBackingDiskRef newBackingDiskRef raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "diskRef" GH.Slot DiskRebaseParams Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "diskRef" GH.Slot DiskRebaseParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "newBackingDiskRef" GH.Slot DiskRebaseParams Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "newBackingDiskRef" GH.Slot DiskRebaseParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 1)
 data DiskImportUrlParams 
 type instance (R.ReprFor DiskImportUrlParams) = (R.Ptr (Std_.Just R.Struct))
@@ -583,7 +583,7 @@ instance (C.AllocateList DiskManager'get'params) where
 instance (C.EstimateListAlloc DiskManager'get'params (C.Parsed DiskManager'get'params))
 data instance C.Parsed DiskManager'get'params
     = DiskManager'get'params 
-        {ref :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {ref :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskManager'get'params))
 deriving instance (Std_.Eq (C.Parsed DiskManager'get'params))
@@ -594,7 +594,7 @@ instance (C.Marshal DiskManager'get'params (C.Parsed DiskManager'get'params)) wh
         (GH.encodeField #ref ref raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "ref" GH.Slot DiskManager'get'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "ref" GH.Slot DiskManager'get'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data DiskManager'get'results 
 type instance (R.ReprFor DiskManager'get'results) = (R.Ptr (Std_.Just R.Struct))
@@ -1434,7 +1434,7 @@ instance (C.AllocateList Disk'snapshotGet'params) where
 instance (C.EstimateListAlloc Disk'snapshotGet'params (C.Parsed Disk'snapshotGet'params))
 data instance C.Parsed Disk'snapshotGet'params
     = Disk'snapshotGet'params 
-        {ref :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {ref :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Disk'snapshotGet'params))
 deriving instance (Std_.Eq (C.Parsed Disk'snapshotGet'params))
@@ -1445,7 +1445,7 @@ instance (C.Marshal Disk'snapshotGet'params (C.Parsed Disk'snapshotGet'params)) 
         (GH.encodeField #ref ref raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "ref" GH.Slot Disk'snapshotGet'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "ref" GH.Slot Disk'snapshotGet'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data Disk'snapshotGet'results 
 type instance (R.ReprFor Disk'snapshotGet'results) = (R.Ptr (Std_.Just R.Struct))

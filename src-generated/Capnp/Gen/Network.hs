@@ -29,7 +29,7 @@ import qualified Capnp.GenHelpers as GH
 import qualified Capnp.Classes as C
 import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
-import qualified Capnp.Gen.ById.Xc6b684f81a734396
+import qualified Capnp.Gen.ById.X9b1373e2334a09e9
 import qualified Prelude as Std_
 import qualified Data.Word as Std_
 import qualified Data.Int as Std_
@@ -327,7 +327,7 @@ instance (C.AllocateList NetworkManager'get'params) where
 instance (C.EstimateListAlloc NetworkManager'get'params (C.Parsed NetworkManager'get'params))
 data instance C.Parsed NetworkManager'get'params
     = NetworkManager'get'params 
-        {ref :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {ref :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetworkManager'get'params))
 deriving instance (Std_.Eq (C.Parsed NetworkManager'get'params))
@@ -338,7 +338,7 @@ instance (C.Marshal NetworkManager'get'params (C.Parsed NetworkManager'get'param
         (GH.encodeField #ref ref raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "ref" GH.Slot NetworkManager'get'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "ref" GH.Slot NetworkManager'get'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data NetworkManager'get'results 
 type instance (R.ReprFor NetworkManager'get'results) = (R.Ptr (Std_.Just R.Struct))

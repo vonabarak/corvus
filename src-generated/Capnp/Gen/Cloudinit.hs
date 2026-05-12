@@ -29,7 +29,7 @@ import qualified Capnp.GenHelpers as GH
 import qualified Capnp.Classes as C
 import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
-import qualified Capnp.Gen.ById.Xc6b684f81a734396
+import qualified Capnp.Gen.ById.X9b1373e2334a09e9
 import qualified Prelude as Std_
 import qualified Data.Word as Std_
 import qualified Data.Int as Std_
@@ -101,7 +101,7 @@ instance (C.AllocateList CloudInitSetParams) where
 instance (C.EstimateListAlloc CloudInitSetParams (C.Parsed CloudInitSetParams))
 data instance C.Parsed CloudInitSetParams
     = CloudInitSetParams 
-        {vmRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)
+        {vmRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
         ,config :: (RP.Parsed CloudInitInfo)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed CloudInitSetParams))
@@ -115,7 +115,7 @@ instance (C.Marshal CloudInitSetParams (C.Parsed CloudInitSetParams)) where
         (GH.encodeField #config config raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "vmRef" GH.Slot CloudInitSetParams Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "vmRef" GH.Slot CloudInitSetParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "config" GH.Slot CloudInitSetParams CloudInitInfo) where
     fieldByLabel  = (GH.ptrField 1)
@@ -217,7 +217,7 @@ instance (C.AllocateList CloudInitManager'get'params) where
 instance (C.EstimateListAlloc CloudInitManager'get'params (C.Parsed CloudInitManager'get'params))
 data instance C.Parsed CloudInitManager'get'params
     = CloudInitManager'get'params 
-        {vmRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {vmRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed CloudInitManager'get'params))
 deriving instance (Std_.Eq (C.Parsed CloudInitManager'get'params))
@@ -228,7 +228,7 @@ instance (C.Marshal CloudInitManager'get'params (C.Parsed CloudInitManager'get'p
         (GH.encodeField #vmRef vmRef raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "vmRef" GH.Slot CloudInitManager'get'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "vmRef" GH.Slot CloudInitManager'get'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data CloudInitManager'get'results 
 type instance (R.ReprFor CloudInitManager'get'results) = (R.Ptr (Std_.Just R.Struct))
@@ -277,7 +277,7 @@ instance (C.AllocateList CloudInitManager'delete'params) where
 instance (C.EstimateListAlloc CloudInitManager'delete'params (C.Parsed CloudInitManager'delete'params))
 data instance C.Parsed CloudInitManager'delete'params
     = CloudInitManager'delete'params 
-        {vmRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {vmRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed CloudInitManager'delete'params))
 deriving instance (Std_.Eq (C.Parsed CloudInitManager'delete'params))
@@ -288,7 +288,7 @@ instance (C.Marshal CloudInitManager'delete'params (C.Parsed CloudInitManager'de
         (GH.encodeField #vmRef vmRef raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "vmRef" GH.Slot CloudInitManager'delete'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "vmRef" GH.Slot CloudInitManager'delete'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data CloudInitManager'delete'results 
 type instance (R.ReprFor CloudInitManager'delete'results) = (R.Ptr (Std_.Just R.Struct))

@@ -29,10 +29,10 @@ import qualified Capnp.GenHelpers as GH
 import qualified Capnp.Classes as C
 import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
+import qualified Capnp.Gen.ById.X9b1373e2334a09e9
 import qualified Capnp.Gen.ById.X9bd452a518ed3917
 import qualified Capnp.Gen.ById.Xa6341bd086aa89f6
 import qualified Capnp.Gen.ById.Xbf9b09f64c0dd40d
-import qualified Capnp.Gen.ById.Xc6b684f81a734396
 import qualified Capnp.Gen.ById.Xeb6a435f11477f84
 import qualified Capnp.Gen.ById.Xec449e11027b2949
 import qualified Prelude as Std_
@@ -461,7 +461,7 @@ data instance C.Parsed VmCreateParams
         ,autostart :: (RP.Parsed Std_.Bool)
         ,drives :: (RP.Parsed (R.List DriveAttachParams))
         ,netIfs :: (RP.Parsed (R.List NetIfAddParams))
-        ,sshKeys :: (RP.Parsed (R.List Capnp.Gen.ById.Xc6b684f81a734396.EntityRef))
+        ,sshKeys :: (RP.Parsed (R.List Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef))
         ,cloudInitConfig :: (RP.Parsed Capnp.Gen.ById.Xeb6a435f11477f84.CloudInitInfo)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmCreateParams))
@@ -515,7 +515,7 @@ instance (GH.HasField "drives" GH.Slot VmCreateParams (R.List DriveAttachParams)
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "netIfs" GH.Slot VmCreateParams (R.List NetIfAddParams)) where
     fieldByLabel  = (GH.ptrField 3)
-instance (GH.HasField "sshKeys" GH.Slot VmCreateParams (R.List Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)) where
+instance (GH.HasField "sshKeys" GH.Slot VmCreateParams (R.List Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)) where
     fieldByLabel  = (GH.ptrField 4)
 instance (GH.HasField "cloudInitConfig" GH.Slot VmCreateParams Capnp.Gen.ById.Xeb6a435f11477f84.CloudInitInfo) where
     fieldByLabel  = (GH.ptrField 5)
@@ -641,7 +641,7 @@ instance (C.AllocateList DriveAttachParams) where
 instance (C.EstimateListAlloc DriveAttachParams (C.Parsed DriveAttachParams))
 data instance C.Parsed DriveAttachParams
     = DriveAttachParams 
-        {diskRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)
+        {diskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
         ,interface :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveInterface)
         ,media :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveMedia)
         ,readOnly :: (RP.Parsed Std_.Bool)
@@ -667,7 +667,7 @@ instance (C.Marshal DriveAttachParams (C.Parsed DriveAttachParams)) where
         (GH.encodeField #discard discard raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "diskRef" GH.Slot DriveAttachParams Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "diskRef" GH.Slot DriveAttachParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "interface" GH.Slot DriveAttachParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveInterface) where
     fieldByLabel  = (GH.dataField 0 0 16 0)
@@ -699,7 +699,7 @@ data instance C.Parsed NetIfAddParams
         {type_ :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetInterfaceType)
         ,hostDevice :: (RP.Parsed Basics.Text)
         ,macAddress :: (RP.Parsed Basics.Text)
-        ,networkRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        ,networkRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetIfAddParams))
 deriving instance (Std_.Eq (C.Parsed NetIfAddParams))
@@ -722,7 +722,7 @@ instance (GH.HasField "hostDevice" GH.Slot NetIfAddParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "macAddress" GH.Slot NetIfAddParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-instance (GH.HasField "networkRef" GH.Slot NetIfAddParams Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "networkRef" GH.Slot NetIfAddParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 2)
 data SharedDirAddParams 
 type instance (R.ReprFor SharedDirAddParams) = (R.Ptr (Std_.Just R.Struct))
@@ -907,7 +907,7 @@ instance (C.AllocateList VmManager'get'params) where
 instance (C.EstimateListAlloc VmManager'get'params (C.Parsed VmManager'get'params))
 data instance C.Parsed VmManager'get'params
     = VmManager'get'params 
-        {ref :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {ref :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmManager'get'params))
 deriving instance (Std_.Eq (C.Parsed VmManager'get'params))
@@ -918,7 +918,7 @@ instance (C.Marshal VmManager'get'params (C.Parsed VmManager'get'params)) where
         (GH.encodeField #ref ref raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "ref" GH.Slot VmManager'get'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "ref" GH.Slot VmManager'get'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data VmManager'get'results 
 type instance (R.ReprFor VmManager'get'results) = (R.Ptr (Std_.Just R.Struct))
@@ -1663,7 +1663,7 @@ instance (C.AllocateList Vm'viewGrant'results) where
 instance (C.EstimateListAlloc Vm'viewGrant'results (C.Parsed Vm'viewGrant'results))
 data instance C.Parsed Vm'viewGrant'results
     = Vm'viewGrant'results 
-        {grant :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.ViewGrant)}
+        {grant :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.ViewGrant)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'viewGrant'results))
 deriving instance (Std_.Eq (C.Parsed Vm'viewGrant'results))
@@ -1674,7 +1674,7 @@ instance (C.Marshal Vm'viewGrant'results (C.Parsed Vm'viewGrant'results)) where
         (GH.encodeField #grant grant raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "grant" GH.Slot Vm'viewGrant'results Capnp.Gen.ById.Xc6b684f81a734396.ViewGrant) where
+instance (GH.HasField "grant" GH.Slot Vm'viewGrant'results Capnp.Gen.ById.X9b1373e2334a09e9.ViewGrant) where
     fieldByLabel  = (GH.ptrField 0)
 data Vm'guestExec'params 
 type instance (R.ReprFor Vm'guestExec'params) = (R.Ptr (Std_.Just R.Struct))
@@ -2653,7 +2653,7 @@ instance (C.AllocateList Vm'snapshotGet'params) where
 instance (C.EstimateListAlloc Vm'snapshotGet'params (C.Parsed Vm'snapshotGet'params))
 data instance C.Parsed Vm'snapshotGet'params
     = Vm'snapshotGet'params 
-        {ref :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {ref :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'snapshotGet'params))
 deriving instance (Std_.Eq (C.Parsed Vm'snapshotGet'params))
@@ -2664,7 +2664,7 @@ instance (C.Marshal Vm'snapshotGet'params (C.Parsed Vm'snapshotGet'params)) wher
         (GH.encodeField #ref ref raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "ref" GH.Slot Vm'snapshotGet'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "ref" GH.Slot Vm'snapshotGet'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data Vm'snapshotGet'results 
 type instance (R.ReprFor Vm'snapshotGet'results) = (R.Ptr (Std_.Just R.Struct))
@@ -2713,7 +2713,7 @@ instance (C.AllocateList Vm'attachSshKey'params) where
 instance (C.EstimateListAlloc Vm'attachSshKey'params (C.Parsed Vm'attachSshKey'params))
 data instance C.Parsed Vm'attachSshKey'params
     = Vm'attachSshKey'params 
-        {keyRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {keyRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'attachSshKey'params))
 deriving instance (Std_.Eq (C.Parsed Vm'attachSshKey'params))
@@ -2724,7 +2724,7 @@ instance (C.Marshal Vm'attachSshKey'params (C.Parsed Vm'attachSshKey'params)) wh
         (GH.encodeField #keyRef keyRef raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "keyRef" GH.Slot Vm'attachSshKey'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "keyRef" GH.Slot Vm'attachSshKey'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data Vm'attachSshKey'results 
 type instance (R.ReprFor Vm'attachSshKey'results) = (R.Ptr (Std_.Just R.Struct))
@@ -2768,7 +2768,7 @@ instance (C.AllocateList Vm'detachSshKey'params) where
 instance (C.EstimateListAlloc Vm'detachSshKey'params (C.Parsed Vm'detachSshKey'params))
 data instance C.Parsed Vm'detachSshKey'params
     = Vm'detachSshKey'params 
-        {keyRef :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {keyRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'detachSshKey'params))
 deriving instance (Std_.Eq (C.Parsed Vm'detachSshKey'params))
@@ -2779,7 +2779,7 @@ instance (C.Marshal Vm'detachSshKey'params (C.Parsed Vm'detachSshKey'params)) wh
         (GH.encodeField #keyRef keyRef raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "keyRef" GH.Slot Vm'detachSshKey'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "keyRef" GH.Slot Vm'detachSshKey'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data Vm'detachSshKey'results 
 type instance (R.ReprFor Vm'detachSshKey'results) = (R.Ptr (Std_.Just R.Struct))

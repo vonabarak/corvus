@@ -29,7 +29,7 @@ import qualified Capnp.GenHelpers as GH
 import qualified Capnp.Classes as C
 import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
-import qualified Capnp.Gen.ById.Xc6b684f81a734396
+import qualified Capnp.Gen.ById.X9b1373e2334a09e9
 import qualified Prelude as Std_
 import qualified Data.Word as Std_
 import qualified Data.Int as Std_
@@ -252,7 +252,7 @@ instance (C.AllocateList SshKeyManager'get'params) where
 instance (C.EstimateListAlloc SshKeyManager'get'params (C.Parsed SshKeyManager'get'params))
 data instance C.Parsed SshKeyManager'get'params
     = SshKeyManager'get'params 
-        {ref :: (RP.Parsed Capnp.Gen.ById.Xc6b684f81a734396.EntityRef)}
+        {ref :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed SshKeyManager'get'params))
 deriving instance (Std_.Eq (C.Parsed SshKeyManager'get'params))
@@ -263,7 +263,7 @@ instance (C.Marshal SshKeyManager'get'params (C.Parsed SshKeyManager'get'params)
         (GH.encodeField #ref ref raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "ref" GH.Slot SshKeyManager'get'params Capnp.Gen.ById.Xc6b684f81a734396.EntityRef) where
+instance (GH.HasField "ref" GH.Slot SshKeyManager'get'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 data SshKeyManager'get'results 
 type instance (R.ReprFor SshKeyManager'get'results) = (R.Ptr (Std_.Just R.Struct))

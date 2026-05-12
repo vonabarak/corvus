@@ -1,6 +1,6 @@
 @0xd6cec0faa39e02dc;
 
-using Corvus = import "corvus.capnp";
+using Common = import "common.capnp";
 using Enums = import "enums.capnp";
 using Vm = import "vm.capnp";
 using CloudInit = import "cloudinit.capnp";
@@ -68,7 +68,7 @@ struct TemplateDetails {
 
 interface TemplateManager {
   list   @0 () -> (templates :List(TemplateVmInfo));
-  get    @1 (ref :Corvus.EntityRef) -> (template :Template);
+  get    @1 (ref :Common.EntityRef) -> (template :Template);
   create @2 (yaml :Text) -> (template :Template);
 }
 

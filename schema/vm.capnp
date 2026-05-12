@@ -1,6 +1,6 @@
 @0xa7366eabdb0b1db4;
 
-using Corvus = import "corvus.capnp";
+using Common = import "common.capnp";
 using Enums = import "enums.capnp";
 using Streams = import "streams.capnp";
 using CloudInit = import "cloudinit.capnp";
@@ -96,7 +96,7 @@ struct VmCreateParams {
   autostart       @7  :Bool;
   drives          @8  :List(DriveAttachParams);
   netIfs          @9  :List(NetIfAddParams);
-  sshKeys         @10 :List(Corvus.EntityRef);
+  sshKeys         @10 :List(Common.EntityRef);
   cloudInitConfig @11 :CloudInit.CloudInitInfo;
 }
 
@@ -122,7 +122,7 @@ struct VmEditParams {
 }
 
 struct DriveAttachParams {
-  diskRef    @0 :Corvus.EntityRef;
+  diskRef    @0 :Common.EntityRef;
   interface  @1 :Enums.DriveInterface;
   media      @2 :Enums.DriveMedia;
   readOnly   @3 :Bool;
@@ -134,7 +134,7 @@ struct NetIfAddParams {
   type         @0 :Enums.NetInterfaceType;
   hostDevice   @1 :Text;   # empty == auto
   macAddress   @2 :Text;   # empty == generate
-  networkRef   @3 :Corvus.EntityRef;  # for `managed` type; else id=0 or name=""
+  networkRef   @3 :Common.EntityRef;  # for `managed` type; else id=0 or name=""
 }
 
 struct SharedDirAddParams {
@@ -156,7 +156,7 @@ struct GuestExecResult {
 
 interface VmManager {
   list   @0 () -> (vms :List(VmInfo));
-  get    @1 (ref :Corvus.EntityRef) -> (vm :Vm);
+  get    @1 (ref :Common.EntityRef) -> (vm :Vm);
   create @2 (params :VmCreateParams) -> (vm :Vm);
 }
 
@@ -169,7 +169,7 @@ interface Vm {
   edit           @5  (params :VmEditParams) -> ();
   delete         @6  (deleteDisks :Bool) -> ();
   cloudInit      @7  () -> (config :CloudInit.CloudInitInfo);
-  viewGrant      @8  () -> (grant :Corvus.ViewGrant);
+  viewGrant      @8  () -> (grant :Common.ViewGrant);
   guestExec      @9  (command :Text) -> (result :GuestExecResult);
   sendCtrlAltDel @10 () -> ();
 
@@ -203,10 +203,10 @@ interface Vm {
   # Snapshots — return Snapshot cap for further ops.
   snapshotCreate   @24 (name :Text) -> (snapshot :Disk.Snapshot);
   snapshotList     @25 () -> (snapshots :List(Disk.SnapshotInfo));
-  snapshotGet      @26 (ref :Corvus.EntityRef) -> (snapshot :Disk.Snapshot);
+  snapshotGet      @26 (ref :Common.EntityRef) -> (snapshot :Disk.Snapshot);
 
   # SSH key attachment
-  attachSshKey @27 (keyRef :Corvus.EntityRef) -> ();
-  detachSshKey @28 (keyRef :Corvus.EntityRef) -> ();
+  attachSshKey @27 (keyRef :Common.EntityRef) -> ();
+  detachSshKey @28 (keyRef :Common.EntityRef) -> ();
   listSshKeys  @29 () -> (keys :List(SshKey.SshKeyInfo));
 }

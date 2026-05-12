@@ -1,6 +1,5 @@
 @0xd3867de7dfe678c7;
 
-using Corvus = import "corvus.capnp";
 using Enums = import "enums.capnp";
 using Streams = import "streams.capnp";
 
