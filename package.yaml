@@ -54,6 +54,7 @@ dependencies:
   - temporary
   - ansi-terminal
   - gitrev
+  - capnp
 
 default-extensions:
   - OverloadedStrings
@@ -72,7 +73,9 @@ default-extensions:
   - TemplateHaskell
 
 library:
-  source-dirs: src
+  source-dirs:
+    - src
+    - src-generated   # Cap'n Proto schema-generated modules; regenerate with `make capnp`
   c-sources:
     - cbits/netns.c
     - cbits/vsock_probe.c

@@ -3,10 +3,31 @@ resolver: lts-23.28
 packages:
   - .
 
-# ginger (Jinja2 for Haskell) is used by app/gen-python-client to render
-# the Python client. Not in LTS-23.28, so we pull the latest from Hackage.
+# Cap'n Proto Haskell binding. Upstream zenhack/haskell-capnp 0.18.0.0
+# is unmaintained since 2023-06; the vendor/ copy carries two changes:
+#   1. lib/Capnp/GenHelpers/Rpc.hs: add DuplicateRecordFields pragma
+#      so it compiles under GHC 9.8.
+#   2. capnp.cabal: bump upper bounds on bytestring/text/primitive/
+#      template-haskell/ghc-prim/containers/network/hashable so the
+#      package works against Stackage LTS-23.28 without needing
+#      `allow-newer: true` (which mis-registers multi-sub-library
+#      packages like attoparsec on Stack 3.7.1 — see
+#      github.com/commercialhaskell/stack/issues/6447).
+#
+# lifetimes is also vendored: only its transformers upper bound
+# (^>=0.5.6) needs bumping to allow LTS-23.28's transformers-0.6.1.0.
+#
+# zenhack-prelude has no upper-bound conflicts (only depends on base)
+# and is fine straight from Hackage.
+#
+# ginger (Jinja2 for Haskell) is used by app/gen-python-client.
 extra-deps:
   - ginger-0.10.6.0@sha256:047825338228f493135781d9a01481033c82ab3b02963e87ff4c5d465be94688,3188
+  - ./vendor/haskell-capnp/capnp
+  - ./vendor/lifetimes
+  - monad-stm-0.1.0.2
+  - supervisors-0.2.1.0
+  - zenhack-prelude-0.1.1.0
 
 system-ghc: true
 install-ghc: false

@@ -1,0 +1,111 @@
+@0xec449e11027b2949;
+
+using Corvus = import "corvus.capnp";
+using Enums = import "enums.capnp";
+
+# ---------------------------------------------------------------------
+# Info structs
+# ---------------------------------------------------------------------
+
+struct DiskImageInfo {
+  id              @0 :Int64;
+  name            @1 :Text;
+  filePath        @2 :Text;
+  format          @3 :Enums.DriveFormat;
+  sizeMb          @4 :Int64;            # 0 == unknown
+  createdAt       @5 :Int64;            # POSIX nanoseconds
+  attachedTo      @6 :List(DiskAttachment);
+  backingImageId  @7 :Int64;            # 0 == none
+  backingImageName @8 :Text;            # empty == none
+}
+
+struct DiskAttachment {
+  vmId   @0 :Int64;
+  vmName @1 :Text;
+}
+
+struct SnapshotInfo {
+  id         @0 :Int64;
+  name       @1 :Text;
+  createdAt  @2 :Int64;   # POSIX nanoseconds
+  sizeMb     @3 :Int64;   # 0 == unknown
+}
+
+# ---------------------------------------------------------------------
+# Parameter structs
+# ---------------------------------------------------------------------
+
+struct DiskCreateParams {
+  name    @0 :Text;
+  sizeMb  @1 :Int64;
+  format  @2 :Enums.DriveFormat;
+}
+
+struct DiskRegisterParams {
+  name     @0 :Text;
+  filePath @1 :Text;
+  format   @2 :Enums.DriveFormat;
+}
+
+struct DiskCreateOverlayParams {
+  name           @0 :Text;
+  backingDiskRef @1 :Corvus.EntityRef;
+}
+
+struct DiskCloneParams {
+  sourceRef @0 :Corvus.EntityRef;
+  newName   @1 :Text;
+}
+
+struct DiskRebaseParams {
+  diskRef           @0 :Corvus.EntityRef;
+  newBackingDiskRef @1 :Corvus.EntityRef;
+}
+
+struct DiskImportUrlParams {
+  name   @0 :Text;
+  url    @1 :Text;
+  format @2 :Enums.DriveFormat;
+  sizeMb @3 :Int64;   # 0 == no resize after import
+}
+
+struct DiskImportParams {
+  name    @0 :Text;
+  srcPath @1 :Text;
+  format  @2 :Enums.DriveFormat;
+}
+
+# ---------------------------------------------------------------------
+# Manager + resource capabilities
+# ---------------------------------------------------------------------
+
+interface DiskManager {
+  list          @0 () -> (disks :List(DiskImageInfo));
+  get           @1 (ref :Corvus.EntityRef) -> (disk :Disk);
+  create        @2 (params :DiskCreateParams) -> (disk :Disk);
+  register      @3 (params :DiskRegisterParams) -> (disk :Disk);
+  createOverlay @4 (params :DiskCreateOverlayParams) -> (disk :Disk);
+  clone         @5 (params :DiskCloneParams) -> (disk :Disk);
+  rebase        @6 (params :DiskRebaseParams) -> ();
+  importUrl     @7 (params :DiskImportUrlParams) -> (taskId :Int64);
+  import        @8 (params :DiskImportParams) -> (disk :Disk);
+}
+
+interface Disk {
+  show     @0 () -> (info :DiskImageInfo);
+  delete   @1 () -> ();
+  refresh  @2 () -> (info :DiskImageInfo);
+  resize   @3 (newSizeMb :Int64) -> ();
+
+  # Snapshots scoped to this disk image.
+  snapshotCreate    @4 (name :Text) -> (snapshot :Snapshot);
+  snapshotList      @5 () -> (snapshots :List(SnapshotInfo));
+  snapshotGet       @6 (ref :Corvus.EntityRef) -> (snapshot :Snapshot);
+}
+
+interface Snapshot {
+  show     @0 () -> (info :SnapshotInfo);
+  delete   @1 () -> ();
+  rollback @2 () -> ();
+  merge    @3 () -> ();
+}

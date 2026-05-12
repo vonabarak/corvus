@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format python-codegen python-lib python-test
+.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format python-codegen python-lib python-test capnp
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -18,6 +18,21 @@ all: build
 # Build the project
 build:
 	stack build
+
+# Regenerate src-generated/Capnp/Gen/*.hs from schema/*.capnp.
+# The capnp CLI invokes the `capnpc-haskell` plugin shipped with the
+# capnp Haskell library; `stack exec` puts it on PATH after a build.
+# Run this after editing any schema/*.capnp file and commit the result.
+capnp:
+	@command -v capnp >/dev/null 2>&1 || { \
+	  echo "error: capnp compiler not on PATH (install dev-libs/capnproto)" >&2; \
+	  exit 1; \
+	}
+	stack build capnp
+	rm -rf src-generated
+	mkdir -p src-generated
+	stack exec --no-ghc-package-path -- env PATH="$$(stack path --compiler-bin):$$(stack path --local-install-root)/bin:$$PATH" \
+	  capnp compile -ohaskell:src-generated --src-prefix=schema $$(ls schema/*.capnp)
 
 # Install binaries to ~/.local/bin/ and setup systemd user service
 install:

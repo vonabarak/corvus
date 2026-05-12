@@ -1,0 +1,626 @@
+{-# OPTIONS_GHC -Wno-unused-imports #-}
+
+-- |
+-- Module: Capnp.Tutorial
+-- Description: Tutorial for the Haskell Cap'N Proto library.
+--
+-- This module provides a tutorial on the overall usage of the library. Note that
+-- it does not aim to provide a thorough introduction to capnproto itself; see
+-- <https://capnproto.org> for general information.
+--
+-- Each of the example programs described here can also be found in the @examples/@
+-- subdirectory in the source repository.
+module Capnp.Tutorial
+  ( -- * Overview
+    -- $overview
+
+    -- * Setup
+    -- $setup
+
+    -- * Serialization
+    -- $serialization
+
+    -- ** High Level API
+    -- $highlevel
+
+    -- *** Example
+    -- $highlevel-example
+
+    -- *** Code Generation Rules
+    -- $highlevel-codegen-rules
+
+    -- ** Low Level API
+    -- $lowlevel
+
+    -- *** Example
+    -- $lowlevel-example
+
+    -- *** Write Support
+    -- $lowlevel-write
+
+    -- * RPC
+    -- $rpc
+  )
+where
+
+-- So haddock references work:
+
+import qualified Data.ByteString as BS
+import qualified Data.Text as T
+import System.IO (stdout)
+
+-- $overview
+--
+-- This module provides an overview of the capnp library.
+
+-- $setup
+--
+-- In order to generate code from schema files, you will first need to make
+-- sure the @capnp@ and @capnpc-haskell@ binaries are in your @$PATH@. The
+-- former ships with the capnproto reference implementation; see
+-- <https://capnproto.org/install.html>. The latter is included with this
+-- library; to install it you can run the command:
+--
+-- > cabal install capnp --installdir=$DIR
+--
+-- which will compile the package and create the @capnpc-haskell@ executable
+-- at @$DIR/capnpc-haskell@.
+
+-- $serialization
+--
+-- The serialization API is roughly divided into two parts: a low level API
+-- and a high level API. The high level API eschews some of the benefits of
+-- the wire format in favor of a more convenient interface.
+
+-- $highlevel
+--
+-- The high level API exposes capnproto values as regular algebraic data
+-- types.
+--
+-- On the plus side:
+--
+-- * This makes it easier to work with capnproto values using idiomatic
+--   Haskell code
+-- * Because we have to parse the data up-front we can *validate* the data
+--   up front, so (unlike the low level API), you will not have to deal with
+--   errors while traversing the message.
+--
+-- Both of these factors make the high level API generally more pleasant
+-- to work with and less error-prone than the low level API.
+--
+-- The downside is that you can't take advantage of some of the novel
+-- properties of the wire format. In particular:
+--
+-- * It is slower, as there is a marshalling step involved, and it uses more
+--   memory.
+-- * You can't mmap a file and read in only part of it.
+-- * You can't modify a message in-place.
+
+-- $highlevel-example
+--
+-- As a running example, we'll use the following schema (borrowed from the
+-- C++ implementation's documentation):
+--
+-- > # addressbook.capnp
+-- > @0xcd6db6afb4a0cf5c;
+-- >
+-- > struct Person {
+-- >   id @0 :UInt32;
+-- >   name @1 :Text;
+-- >   email @2 :Text;
+-- >   phones @3 :List(PhoneNumber);
+-- >
+-- >   struct PhoneNumber {
+-- >     number @0 :Text;
+-- >     type @1 :Type;
+-- >
+-- >     enum Type {
+-- >       mobile @0;
+-- >       home @1;
+-- >       work @2;
+-- >     }
+-- >   }
+-- >
+-- >   employment :union {
+-- >     unemployed @4 :Void;
+-- >     employer @5 :Text;
+-- >     school @6 :Text;
+-- >     selfEmployed @7 :Void;
+-- >     # We assume that a person is only one of these.
+-- >   }
+-- > }
+-- >
+-- > struct AddressBook {
+-- >   people @0 :List(Person);
+-- > }
+--
+-- Once the @capnp@ and @capnpc-haskell@ executables are installed and in
+-- your @$PATH@ (see the Setup section above), you can generate code for
+-- this schema by running:
+--
+-- > capnp compile -ohaskell addressbook.capnp
+--
+-- This will create the following files relative to the current directory:
+--
+-- * Capnp\/Gen\/Addressbook.hs
+-- * Capnp\/Gen\/ById\/Xcd6db6afb4a0cf5c.hs
+--
+-- The module under @ById@ is an implementation detail.
+--
+-- The generated moule will export declarations like the following (cleaned up
+-- and abbreviated for readability):
+--
+-- > import qualified Capnp.Repr as R
+-- > import qualified Capnp.Classes as C
+-- > import qualified Capnp.Repr.Parsed as RP
+-- > import GHC.Generics (Generic)
+-- >
+-- > data Person
+-- >
+-- > type instance (R.ReprFor Person) = R.Ptr (Just R.Struct)
+-- >
+-- > instance (C.TypedStruct Person) where { ... }
+-- > instance (C.Allocate Person) where { ... }
+-- >
+-- > data instance C.Parsed Person
+-- >     = Person
+-- >         { id :: Word32
+-- >         , name :: RP.Parsed Basics.Text
+-- >         , email :: RP.Parsed Basics.Text
+-- >         , phones :: RP.Parsed (R.List Person'PhoneNumber)
+-- >         , employment :: RP.Parsed Person'employment
+-- >         }
+-- >     deriving(Generic, Show, EQ)
+-- >
+-- > instance HasField "id" Slot Person Std_.Word32 where { ... }
+-- > instance HasField "name" Slot Person Basics.Text where { ... }
+-- > instance HasField "email" Slot Person Basics.Text where { ... }
+-- > instance HasField "phones" Slot Person (R.List Person'PhoneNumber) where { ... }
+-- > instance HasField "employment" Group Person Person'employment where { ... }
+--
+-- > data Person'employment
+-- >
+-- > type instance R.ReprFor Person'employment = R.Ptr (Std_.Just R.Struct)
+-- > instance C.TypedStruct Person'employment where { ... }
+-- > instance C.Allocate Person'employment where { ... }
+--
+-- > data instance C.Parsed Person'employment
+-- >     = Person'employment'
+-- >         { union' :: C.Parsed (GH.Which Person'employment)
+-- >         }
+-- >     deriving(Generic, Show, Eq)
+-- >
+-- > instance (GH.HasUnion Person'employment) where
+-- >     unionField = ...
+-- >     data RawWhich mut_ Person'employment
+-- >         = RW_Person'employment'unemployed (R.Raw mut_ ())
+-- >         | RW_Person'employment'employer (R.Raw mut_ Basics.Text)
+-- >         | RW_Person'employment'school (R.Raw mut_ Basics.Text)
+-- >         | RW_Person'employment'selfEmployed (R.Raw mut_ ())
+-- >         | RW_Person'employment'unknown' Word16
+-- >     data Which Person'employment
+-- >
+-- > instance GH.HasVariant "unemployed" GH.Slot Person'employment () where { ... }
+-- > instance GH.HasVariant "employer" GH.Slot Person'employment Basics.Text where { ... }
+-- > instance GH.HasVariant "school" GH.Slot Person'employment Basics.Text where { ... }
+-- > instance GH.HasVariant "selfEmployed" GH.Slot Person'employment () where { ... }
+-- >
+-- > data instance C.Parsed (Which Person'employment)
+-- >     = Person'employment'unemployed
+-- >     | Person'employment'employer (RP.Parsed Basics.Text)
+-- >     | Person'employment'school (RP.Parsed Basics.Text)
+-- >     | Person'employment'selfEmployed
+-- >     | Person'employment'unknown' Std_.Word16
+-- >     deriving(Generic, Show, Eq)
+-- >
+-- > instance C.Parse (GH.Which Person'employment) (C.Parsed (GH.Which Person'employment)) where
+-- >     ...
+-- >
+-- > data Person'PhoneNumber
+-- >
+-- > type instance R.ReprFor Person'PhoneNumber = R.Ptr (Std_.Just R.Struct)
+-- >
+-- > ...
+-- >
+-- > data Person'PhoneNumber'Type
+-- >     = Person'PhoneNumber'Type'mobile
+-- >     | Person'PhoneNumber'Type'home
+-- >     | Person'PhoneNumber'Type'work
+-- >     | Person'PhoneNumber'Type'unknown' Std_.Word16
+-- >     deriving(Generic, Eq, Show)
+-- >
+-- > type instance R.ReprFor Person'PhoneNumber'Type = R.Data R.Sz16
+-- >
+-- > instance Enum Person'PhoneNumber'Type where { ... }
+-- >
+-- > ...
+--
+-- Note that we use the single quote character as a namespace separator for
+-- namespaces within a single capnproto schema.
+--
+-- So, we see that capnpc-haskell generates:
+--
+-- * For each struct type or group:
+--   * An uninhabited type corresponding to that type
+--   * An instance of the 'R.ReprFor' type family, marking the type as having
+--     a struct as its representation.
+--   * An instance of 'HasField' for each field in the struct.
+--   * An instance of the 'C.Parsed' data family, which is an idiomatic Haskell
+--     ADT corresponding to the structure of the capnproto type.
+--     * If the struct has an anonymous union, some instances related to this,
+--       including a data family instance for @'Parsed' ('Which' a)@, which
+--       is an ADT representation of the union. Note that there is an @unknown'@
+--       variant, which is used for variants found on the wire that are not known
+--       to the schema (usually because the value was constructed using a newer
+--       version of the schema).
+-- * For each enum:
+--   * An ADT corresponding to that enum. There is no uninhabited type, and no
+--     'C.Parsed' data family instance; the type itself serves as both. As with
+--     unions, there is an @unknown'@ variant for unrecognized variants.
+--   * An instance of 'R.ReprFor', recording the wire representation of the enum
+--     (always 16-bit).
+--
+-- Some additional things are generated for interfaces, but we cover those
+-- in the RPC section below.
+--
+-- The module "Capnp" exposes the most frequently used
+-- functionality from the capnp package. We can write an address book
+-- message to standard output using the high-level API like so:
+--
+-- > -- Note that DuplicateRecordFields is usually needed, as the generated
+-- > -- code relys on it to resolve collisions in capnproto struct field
+-- > -- names:
+-- > {-# LANGUAGE DuplicateRecordFields #-}
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- >
+-- > module Examples.Serialization.HighLevel.Write (main) where
+-- >
+-- > -- Note that Capnp re-exports `def`, as a convienence
+-- > import Capnp (def, putParsed)
+-- > import Capnp.Gen.Addressbook
+-- >
+-- > main :: IO ()
+-- > main =
+-- >   putParsed
+-- >     AddressBook
+-- >       { people =
+-- >           [ Person
+-- >               { id = 123,
+-- >                 name = "Alice",
+-- >                 email = "alice@example.com",
+-- >                 phones =
+-- >                   [ def
+-- >                       { number = "555-1212",
+-- >                         type_ = Person'PhoneNumber'Type'mobile
+-- >                       }
+-- >                   ],
+-- >                 employment = Person'employment' $ Person'employment'school "MIT"
+-- >               },
+-- >             Person
+-- >               { id = 456,
+-- >                 name = "Bob",
+-- >                 email = "bob@example.com",
+-- >                 phones =
+-- >                   [ def
+-- >                       { number = "555-4567",
+-- >                         type_ = Person'PhoneNumber'Type'home
+-- >                       },
+-- >                     def
+-- >                       { number = "555-7654",
+-- >                         type_ = Person'PhoneNumber'Type'work
+-- >                       }
+-- >                   ],
+-- >                 employment = Person'employment' Person'employment'selfEmployed
+-- >               }
+-- >           ]
+-- >       }
+--
+-- 'putValue' is equivalent to @'hPutValue' 'stdout'@; 'hPutValue' may be used
+-- to write to an arbitrary handle.
+--
+-- We can use 'getParsed' (or alternately 'hGetParsed') to read in a message:
+--
+-- > -- ...
+-- >
+-- > {-# LANGUAGE TypeApplications #-}
+-- > import Capnp (getParsed, defaultLimit)
+-- >
+-- > -- ...
+-- >
+-- > main = do
+-- >     value <- getParsed @AddressBook defaultLimit
+-- >     print value
+--
+-- Note the use of @TypeApplications@; there are a number of interfaces in the
+-- library which dispatch on return types, and depending on how they are
+-- used you may have to give GHC a hint for type inference to succeed.
+--
+-- The type of 'getParsed' is:
+--
+-- @'getParsed' :: (R.IsStruct a, Parse a pa) => WordCount -> IO pa
+--
+-- ...and so it may be used to read in any struct type.
+--
+-- 'defaultLimit' is a default value for the traversal limit, which acts to
+-- prevent denial of service vulnerabilities; See the documentation in
+-- "Capnp.TraversalLimit" for more information. 'getValue' uses this
+-- argument both to catch values that would cause excessive resource usage,
+-- and to simply limit the overall size of the incoming message. The
+-- default is approximately 64 MiB.
+--
+-- If an error occurs, an exception will be thrown of type 'Error' from the
+-- "Capnp.Errors" module.
+
+-- $lowlevel
+--
+-- The low level API exposes a much more imperative interface than the
+-- high-level API. Instead of algebraic data types, There is an opaque
+-- wrapper type 'R.Raw':
+--
+-- @
+-- newtype Raw (mut :: Mutability) a = ...
+-- @
+--
+-- which accepts as type parameters the mutability of the underlying message,
+-- and a phantom type indicating the capnproto type. This second type parameter
+-- will be instantiated with the (for structs, uninhabited) type generated by
+-- the schema compiler plugin. The accessors in "Capnp.Accessors"
+-- (re-exported by "Capnp") are used to read and write the fields.
+-- This API is much closer in spirit to that of the C++ reference implementation.
+--
+-- Because the low level interfaces do not parse and validate the message
+-- up front, accesses to the message can result in errors. Furthermore, the
+-- traversal limit needs to be tracked to avoid denial of service attacks.
+--
+-- Because of this, access to the message must occur inside of a monad
+-- which is an instance of `MonadThrow` from the exceptions package, and
+-- `MonadLimit`, which is defined in "Capnp.TraversalLimit". We define
+-- a monad transformer `LimitT` for the latter.
+
+-- $lowlevel-example
+--
+-- We'll use the same schema as above for our example. The snippet below prints
+-- the names of each person in the address book:
+--
+-- > {-# LANGUAGE OverloadedLabels #-}
+-- > {-# LANGUAGE TypeApplications #-}
+-- >
+-- > module Examples.Serialization.LowLevel.Read (main) where
+-- >
+-- > import Capnp.Gen.Addressbook
+-- > import qualified Capnp as C
+-- > import Control.Monad (forM_)
+-- > import Control.Monad.Trans (lift)
+-- > import Data.Function ((&))
+-- > import qualified Data.Text as T
+-- >
+-- > main :: IO ()
+-- > main = do
+-- >   addressbook <- C.getRaw @AddressBook C.defaultLimit
+-- >   C.evalLimitT C.defaultLimit $ do
+-- >     people <- C.readField #people addressbook
+-- >     forM_ [0 .. C.length people - 1] $ \i -> do
+-- >       people
+-- >         & C.index i
+-- >         >>= C.parseField #name
+-- >         >>= lift . putStrLn . T.unpack
+
+-- $lowlevel-write
+--
+-- Writing messages using the low-level API has a similarly imperative feel.
+-- The below constructs the same message as in our high-level example above:
+--
+-- > {-# LANGUAGE DataKinds #-}
+-- > {-# LANGUAGE OverloadedLabels #-}
+-- > {-# LANGUAGE TypeApplications #-}
+-- >
+-- > module Examples.Serialization.LowLevel.Write (main) where
+-- >
+-- > import Capnp.Gen.Addressbook
+-- > import qualified Capnp as C
+-- > import Data.Function ((&))
+-- > import qualified Data.Text as T
+-- >
+-- > main :: IO ()
+-- > main =
+-- >   let Right msg = C.createPure C.defaultLimit buildMsg
+-- >    in C.putMsg msg
+-- >
+-- > buildMsg :: C.PureBuilder s (C.Message ('C.Mut s))
+-- > buildMsg = do
+-- >   -- newMessage allocates a new, initially empty, mutable message. It
+-- >   -- takes an optional size hint:
+-- >   msg <- C.newMessage Nothing
+-- >
+-- >   -- newRoot allocates a new struct as the root object of the message.
+-- >   -- The unit argument is a hint to the allocator to determine the size
+-- >   -- of the object; for types whose size is not fixed (e.g. untyped structs,
+-- >   -- lists), this may be something more meaningful.
+-- >   addressbook <- C.newRoot @AddressBook () msg
+-- >
+-- >   -- newField can be used to allocate the value of a field, for pointer
+-- >   -- types like lists. The number is the allocation hint, as used by newRoot.
+-- >   -- We can use the OverloadedLabels extension to pass in fields by name.
+-- >   people <- C.newField #people 2 addressbook
+-- >
+-- >   -- Index gets an object at a specified location in a list. Cap'N Proto
+-- >   -- lists are flat arrays, and in the case of structs the structs are
+-- >   -- unboxed, so there is no need to allocate each element:
+-- >   alice <- C.index 0 people
+-- >
+-- >   -- encodeField takes the parsed form of a value and marshals it into
+-- >   -- the specified field. For basic types like integers & booleans, this
+-- >   -- is almost always what you want. For larger values, you may want to
+-- >   -- use newField as above, or separately create the value and use setField,
+-- >   -- as shown below.
+-- >   C.encodeField #id 123 alice
+-- >   C.encodeField #name (T.pack "Alice") alice
+-- >   C.encodeField #email (T.pack "alice@example.com") alice
+-- >
+-- >   -- We would probably use newField here, but to demonstrate, we can allocate
+-- >   -- the value separately with new, and then set it with setField.
+-- >   phones <- C.new @(C.List Person'PhoneNumber) 1 msg
+-- >   C.setField #phones phones alice
+-- >
+-- >   mobilePhone <- C.index 0 phones
+-- >   -- It is sometimes more ergonomic to use (&) from Data.Function. You might
+-- >   -- ask why not just make the container the first argument, but it works
+-- >   -- out better this way for the read examples.
+-- >   mobilePhone & C.encodeField #number (T.pack "555-1212")
+-- >   mobilePhone & C.encodeField #type_ Person'PhoneNumber'Type'mobile
+-- >
+-- >   -- Since named unions act like unnamed unions inside a group, we first have
+-- >   -- to get the group field:
+-- >   employment <- C.readField #employment alice
+-- >
+-- >   -- Then, we can use encodeVariant to set both the tag of the union and the
+-- >   -- value:
+-- >   employment & C.encodeVariant #school (T.pack "MIT")
+-- >
+-- >   bob <- C.index 1 people
+-- >   bob & C.encodeField #id 456
+-- >   bob & C.encodeField #name (T.pack "Bob")
+-- >   bob & C.encodeField #email (T.pack "bob@example.com")
+-- >
+-- >   phones <- bob & C.newField #phones 2
+-- >   homePhone <- phones & C.index 0
+-- >   homePhone & C.encodeField #number (T.pack "555-4567")
+-- >   homePhone & C.encodeField #type_ Person'PhoneNumber'Type'home
+-- >   workPhone <- phones & C.index 1
+-- >   workPhone & C.encodeField #number (T.pack "555-7654")
+-- >   workPhone & C.encodeField #type_ Person'PhoneNumber'Type'work
+-- >   employment <- bob & C.readField #employment
+-- >   employment & C.encodeVariant #selfEmployed () -- Note the (), since selfEmploy is Void.
+-- >   pure msg
+
+-- $rpc
+--
+-- This package supports level 1 Cap'n Proto RPC. The tuotrial will demonstrate the most
+-- basic features of the RPC system with example: an echo server & client. For a larger
+-- example which demos more of the protocol's capabilities, see the calculator example
+-- in the source repository's @examples/@ directory.
+--
+-- Note that capnproto does not have a notion of "clients" and "servers" in the
+-- traditional networking sense; the two sides of a connection are symmetric. In
+-- capnproto terminology, a "client" is a handle for calling methods, and a "server"
+-- is an object that handles methods -- but there may be many of either or both of
+-- these on each side of a connection.
+--
+-- Given the schema:
+--
+-- > @0xd0a87f36fa0182f5;
+-- >
+-- > interface Echo {
+-- >   echo @0 (query :Text) -> (reply :Text);
+-- > }
+--
+-- The code generator generates a few things of interest:
+--
+-- * An unihabited type @Echo@, with its @'R.ReprFor'@ instance indicating that it
+--   is a capability.
+-- * A type class for servers implementing the interface.
+--
+-- To provide an implementation of the @Echo@ interface, you need an instance of the
+-- @Echo'server_@ type class. Each type class method is a handler for one of the
+-- Cap'n Proto interface's rpc methods. The handler has this type:
+--
+-- > type MethodHandler p r
+-- >     = R.Raw 'Const p
+-- >     -> Fulfiller (R.Raw 'Const r)
+-- >     -> IO ()
+--
+-- ...where @p@ and @r@ are the phantom types for the parameter and return values.
+-- To break this down, it's a function which accepts the raw (unparsed) form of the
+-- parameters, and a 'Fulfiller' that can be used to respond to the request, either
+-- with a result or an exception.
+--
+-- Much of the time you will use higher level helpers such as 'handleParsed' or
+-- 'handleRaw' to construct these, which can be more ergonomic and less error
+-- prone. In particular, they prevent you from forgetting to use the 'Fulfiller'.
+--
+-- Once you have an instance of the server class, the 'Capnp.export' function
+-- is used to convert such an instance into a handle to the object that can be
+-- passed around.
+--
+-- Here is an an echo (networking) server using this interface:
+--
+-- >
+-- > {-# LANGUAGE MultiParamTypeClasses #-}
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- > {-# LANGUAGE TypeApplications #-}
+-- >
+-- > module Examples.Rpc.EchoServer (main) where
+-- >
+-- > import Capnp (SomeServer, def, defaultLimit, export, handleParsed)
+-- > import Capnp.Gen.Echo
+-- > import Capnp.Rpc (ConnConfig (..), handleConn, socketTransport, toClient)
+-- > import Network.Simple.TCP (serve)
+-- > import Supervisors (withSupervisor)
+-- >
+-- > data MyEchoServer = MyEchoServer
+-- >
+-- > instance SomeServer MyEchoServer
+-- >
+-- > instance Echo'server_ MyEchoServer where
+-- >   echo'echo MyEchoServer = handleParsed $ \params ->
+-- >     pure def {reply = query params}
+-- >
+-- > main :: IO ()
+-- > main =
+-- >   withSupervisor $ \sup -> do
+-- >     boot <- export @Echo sup MyEchoServer
+-- >     serve "localhost" "4000" $ \(sock, _addr) ->
+-- >       handleConn
+-- >         (socketTransport sock defaultLimit)
+-- >         def
+-- >           { debugMode = True,
+-- >             bootstrap = Just (toClient boot)
+-- >           }
+--
+-- For RPC clients, there is a 'Client' type exported by "Capnp", which is
+-- parametrized over a phantom type indicating the type of the remote capability.
+-- So a @'Client' Echo@ allows you to call methods on an @Echo@ interface.
+--
+-- Actually invoking methods uses the functions in "Capnp.Repr.Methods",
+-- re-exported by "Capnp". 'callP', 'callB', and 'callR' provide different
+-- ways of supplying arguments to a call, but all are intended to be used with
+-- the OverloadedLabels extension for specifying the method name.
+--
+-- Pipelining onto a field can be done with the 'pipe' function.
+-- 'waitPipeline' blocks until the result is available.
+--
+-- Here is an an echo client using this interface:
+
+-- > {-# LANGUAGE OverloadedLabels #-}
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- >
+-- > module Examples.Rpc.EchoClient (main) where
+-- >
+-- > import qualified Capnp as C
+-- > import Capnp.Gen.Echo
+-- > import Capnp.Rpc
+-- >   ( ConnConfig (..),
+-- >     fromClient,
+-- >     requestBootstrap,
+-- >     socketTransport,
+-- >     withConn,
+-- >   )
+-- > import Data.Function ((&))
+-- > import Data.Functor ((<&>))
+-- > import Network.Simple.TCP (connect)
+-- >
+-- > main :: IO ()
+-- > main = connect "localhost" "4000" $ \(sock, _addr) ->
+-- >   withConn
+-- >     (socketTransport sock C.defaultLimit)
+-- >     (C.def {debugMode = True})
+-- >     $ \conn -> do
+-- >       client <- requestBootstrap conn
+-- >       let echoClient :: C.Client Echo
+-- >           echoClient = fromClient client
+-- >       echoClient
+-- >         & C.callP #echo C.def {query = "Hello, World!"}
+-- >         <&> C.pipe #reply
+-- >         >>= C.waitPipeline
+-- >         >>= C.evalLimitT C.defaultLimit . C.parse
+-- >         >>= print

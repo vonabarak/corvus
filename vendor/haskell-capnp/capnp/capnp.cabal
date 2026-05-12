@@ -1,0 +1,190 @@
+cabal-version:            2.2
+name:                     capnp
+version:                  0.18.0.0
+category:                 Data, Serialization, Network, Rpc
+copyright:                2016-2023 haskell-capnp contributors (see CONTRIBUTORS file).
+author:                   Ian Denhardt
+maintainer:               ian@zenhack.net
+license:                  MIT
+license-file:             LICENSE.md
+homepage:                 https://codeberg.org/zenhack/haskell-capnp
+bug-reports:              https://codeberg.org/zenhack/haskell-capnp/issues
+synopsis:                 Cap'n Proto for Haskell
+description:
+  A native Haskell implementation of the Cap'N Proto cerialization format and
+  RPC protocol.
+  .
+  The library implements serialization and level 1 RPC.
+  .
+  The "Capnp.Tutorial" module is the best place to start reading; the
+  reference documentation can seem bewildering without that context.
+build-type:               Simple
+-- extra-source-files trimmed for vendored layout: the originals
+-- live above the package dir in the upstream repo. The library
+-- builds without them.
+extra-source-files:
+    LICENSE.md
+
+--------------------------------------------------------------------------------
+
+source-repository head
+    type:                 git
+    branch:               master
+    location:             https://codeberg.org/zenhack/haskell-capnp.git
+
+--------------------------------------------------------------------------------
+
+common shared-opts
+  -- Upper bounds bumped from the upstream 0.18.0.0 release (Jun 2023)
+  -- so the package compiles against Stackage LTS-23.28 (GHC 9.8.4)
+  -- without the `allow-newer: true` Stack toggle, which would break
+  -- multi-sub-library packages like attoparsec. None of the bumps
+  -- require source-level changes beyond the DuplicateRecordFields
+  -- pragma in lib/Capnp/GenHelpers/Rpc.hs.
+  build-depends:
+        base                              >= 4.14  && < 5
+      , bytes                             >= 0.15.4 && <0.18
+      , bytestring                        >= 0.10 && <0.13
+      , containers                        >= 0.5.9 && <0.8
+      , data-default                      ^>= 0.7.1
+      , exceptions                        ^>= 0.10.0
+      , ghc-prim                          >= 0.6.1 && <0.12
+      , mtl                               >= 2.2.2 && <2.4
+      , primitive                         >= 0.6.3 && <0.10
+      , safe-exceptions                   ^>= 0.1.7
+      , text                              >= 1.2 && < 2.2
+      , transformers                      >= 0.5.2 && <0.7
+      , vector                            >= 0.12.0 && <0.14
+      , monad-stm                         ^>= 0.1
+  ghc-options:
+    -Wall
+
+    -- This warning is triggered by normal use of NamedFieldPuns, so it's a no-go
+    -- for us:
+    -Wno-name-shadowing
+
+    -- I(zenhack) find it rather odd that orphan instances are flagged when the
+    -- class and the type are in different modules but, the same *package*. We do
+    -- this in a number of places in the capnp package, so we disable this
+    -- warning. It's not super easy to write a package-level orphan by accident,
+    -- so we're not losing much.
+    -Wno-orphans
+  default-language:     Haskell2010
+
+--------------------------------------------------------------------------------
+
+-- main runtime library.
+library
+    import: shared-opts
+    hs-source-dirs:
+      lib
+      -- generated code:
+      gen/lib
+    exposed-modules:
+        Capnp.Address
+      , Capnp.Bits
+      , Capnp.Canonicalize
+      , Capnp
+      , Capnp.Accessors
+      , Capnp.Basics
+      , Capnp.Classes
+      , Capnp.Constraints
+      , Capnp.Rpc.Common
+      , Capnp.Rpc.Membrane
+      , Capnp.Rpc.Revoke
+      , Capnp.Rpc.Server
+      , Capnp.Convert
+      , Capnp.Errors
+      , Capnp.Fields
+      , Capnp.GenHelpers
+      , Capnp.GenHelpers.Rpc
+      , Capnp.IO
+      , Capnp.Message
+      , Capnp.Mutability
+      , Capnp.Pointer
+      , Capnp.Untyped
+      , Capnp.Repr
+      , Capnp.Repr.Methods
+      , Capnp.Repr.Parsed
+      , Capnp.TraversalLimit
+      , Capnp.Rpc
+      , Capnp.Rpc.Promise
+      , Capnp.Rpc.Untyped
+      , Capnp.Rpc.Errors
+      , Capnp.Rpc.Transport
+      , Capnp.Tutorial
+
+      , Data.Mutable
+
+      , Capnp.Gen
+      , Capnp.Gen.Capnp
+
+      -- BEGIN GENERATED SCHEMA MODULES
+      , Capnp.Gen.Capnp.Cxx
+      , Capnp.Gen.Capnp.Compat.Json
+      , Capnp.Gen.Capnp.Persistent
+      , Capnp.Gen.Capnp.Rpc
+      , Capnp.Gen.Capnp.RpcTwoparty
+      , Capnp.Gen.Capnp.Schema
+      , Capnp.Gen.Capnp.Stream
+
+      , Capnp.Gen.ById.Xbdf87d7bb8304e81
+      , Capnp.Gen.ById.X8ef99297a43a5e34
+      , Capnp.Gen.ById.Xb8630836983feed7
+      , Capnp.Gen.ById.Xb312981b2552a250
+      , Capnp.Gen.ById.Xa184c7885cdaf2a1
+      , Capnp.Gen.ById.Xa93fc509624c72d9
+      , Capnp.Gen.ById.X86c366a91393f3f8
+      -- END GENERATED SCHEMA MODULES
+    other-modules:
+        Internal.AppendVec
+      , Internal.SnocList
+      , Internal.Rc
+      , Internal.TCloseQ
+      , Internal.BuildPure
+      , Internal.STE
+      , Internal.Rpc.Breaker
+      , Internal.Rpc.Export
+    -- other-extensions:
+    build-depends:
+        hashable                          >= 1.2.7 && <1.6
+      , data-default-instances-vector     ^>= 0.0.1
+      , stm                               ^>= 2.5.0
+      , stm-containers                    >= 1.1.0 && <1.3
+      , list-t                            ^>= 1.0.2
+      , focus                             ^>= 1.0.1
+      , async                             ^>= 2.2.1
+      , network-simple                    ^>= 0.4
+      , network                           >= 3 && <3.3
+      , supervisors                       ^>= 0.2.1
+      , lifetimes                         ^>= 0.2
+      , pretty-show                       >= 1.9.5 && <1.11
+      , template-haskell                  >=2.18 && <2.23
+
+--------------------------------------------------------------------------------
+
+-- code generator plugin
+executable capnpc-haskell
+  import: shared-opts
+  hs-source-dirs:       cmd/capnpc-haskell
+  main-is: Main.hs
+  other-modules:
+      IR.Name
+    , IR.AbstractOp
+    , IR.Common
+    , IR.Stage1
+    , IR.Flat
+    , IR.Haskell
+    , Trans.CgrToStage1
+    , Trans.Stage1ToFlat
+    , Trans.FlatToAbstractOp
+    , Trans.ToHaskellCommon
+    , Trans.AbstractOpToHaskell
+    , Trans.HaskellToText
+    , Check
+  build-depends:
+      capnp
+    , wl-pprint-text ^>= 1.2
+    , filepath >= 1.4.2 && < 1.6
+    , directory ^>= 1.3.0
+    , bifunctors >= 5.5.8 && <5.7

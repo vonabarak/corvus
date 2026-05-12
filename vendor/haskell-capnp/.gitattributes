@@ -1,0 +1,3 @@
+# Mark generated output as such for GitHub diffs:
+/gen/ linguist-generated=true
+/examples/gen/ linguist-generated=true

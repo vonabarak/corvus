@@ -148,6 +148,7 @@ library
       Paths_corvus
   hs-source-dirs:
       src
+      src-generated
   default-extensions:
       OverloadedStrings
       DeriveGeneric
@@ -177,6 +178,7 @@ library
     , base64-bytestring
     , binary
     , bytestring
+    , capnp
     , containers
     , directory
     , esqueleto
@@ -239,6 +241,7 @@ executable corvus
     , base64-bytestring
     , binary
     , bytestring
+    , capnp
     , containers
     , corvus
     , directory
@@ -302,6 +305,7 @@ executable crv
     , base64-bytestring
     , binary
     , bytestring
+    , capnp
     , containers
     , corvus
     , directory
@@ -365,6 +369,7 @@ executable gen-python-client
     , base64-bytestring
     , binary
     , bytestring
+    , capnp
     , containers
     , corvus
     , directory
@@ -494,6 +499,7 @@ test-suite corvus-test
     , base64-bytestring
     , binary
     , bytestring
+    , capnp
     , containers
     , corvus
     , directory
