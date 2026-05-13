@@ -7,6 +7,11 @@ module Corvus.Handlers
   ( -- * Request handling
     handleRequest
 
+    -- * Task history (defined locally; exposed for the Rpc layer)
+  , handleTaskList
+  , handleTaskShow
+  , handleTaskListChildren
+
     -- * Re-exports from submodules
   , module Corvus.Handlers.Core
   , module Corvus.Handlers.Vm

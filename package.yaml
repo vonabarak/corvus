@@ -55,6 +55,8 @@ dependencies:
   - ansi-terminal
   - gitrev
   - capnp
+  - supervisors
+  - data-default
 
 default-extensions:
   - OverloadedStrings
@@ -192,6 +194,30 @@ library:
     - Corvus.Wire.Task
     - Corvus.Wire.Apply
     - Corvus.Wire.Template
+    - Corvus.Rpc.Server
+    - Corvus.Rpc.Common
+    - Corvus.Rpc.Daemon
+    - Corvus.Rpc.Vm
+    - Corvus.Rpc.Disk
+    - Corvus.Rpc.Network
+    - Corvus.Rpc.SshKey
+    - Corvus.Rpc.Template
+    - Corvus.Rpc.Task
+    - Corvus.Rpc.CloudInit
+    # Cap'n Proto generated modules (auto-generated from schema/*.capnp).
+    # Only the umbrella per-schema-file modules are exposed; the
+    # ById/* internal modules stay private to the corvus library.
+    - Capnp.Gen.Corvus
+    - Capnp.Gen.Common
+    - Capnp.Gen.Enums
+    - Capnp.Gen.Streams
+    - Capnp.Gen.Vm
+    - Capnp.Gen.Disk
+    - Capnp.Gen.Network
+    - Capnp.Gen.Sshkey
+    - Capnp.Gen.Template
+    - Capnp.Gen.Task
+    - Capnp.Gen.Cloudinit
 
 # Python extension module. hpack has no native support for foreign-library
 # stanzas, so we emit one via `verbatim`. The produced .so is dlopened by

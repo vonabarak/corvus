@@ -10,6 +10,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN, runStdoutLoggingT)
 import Corvus.Model (migrateAll)
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
+import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Server (handleGracefulShutdown, handleStartup, runServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath, newServerState, runFilteredLogging)
 import Data.ByteString.Char8 (pack)
@@ -145,14 +146,27 @@ main = do
 
     logInfoN $ "Starting corvus daemon on " <> formatListenAddr listenAddr
 
-    -- Start the server in a separate thread
+    -- Start the legacy Data.Binary server in a separate thread
     serverThread <- liftIO $ async $ runServer state' listenAddr
+
+    -- Start the Cap'n Proto RPC server on a parallel address. Unix
+    -- sockets get a sibling @<path>.capnp@; TCP listeners use the
+    -- next port up.
+    let capnpAddr = case listenAddr of
+          UnixAddress p -> UnixAddress (p <> ".capnp")
+          TcpAddress h p -> TcpAddress h (p + 1)
+    logInfoN $ "Starting Cap'n Proto RPC server on " <> formatListenAddr capnpAddr
+    case capnpAddr of
+      UnixAddress path -> liftIO $ createDirectoryIfMissing True (takeDirectory path)
+      TcpAddress _ _ -> pure ()
+    capnpThread <- liftIO $ async $ runCapnpServer state' capnpAddr
 
     -- Wait for shutdown signal
     liftIO $ waitForShutdown state'
 
     logInfoN "Shutting down..."
     liftIO $ cancel serverThread
+    liftIO $ cancel capnpThread
 
     -- Run graceful shutdown handler (stop VMs, networks)
     liftIO $ handleGracefulShutdown state'

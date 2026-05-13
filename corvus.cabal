@@ -151,6 +151,27 @@ library
       Corvus.Wire.Task
       Corvus.Wire.Apply
       Corvus.Wire.Template
+      Corvus.Rpc.Server
+      Corvus.Rpc.Common
+      Corvus.Rpc.Daemon
+      Corvus.Rpc.Vm
+      Corvus.Rpc.Disk
+      Corvus.Rpc.Network
+      Corvus.Rpc.SshKey
+      Corvus.Rpc.Template
+      Corvus.Rpc.Task
+      Corvus.Rpc.CloudInit
+      Capnp.Gen.Corvus
+      Capnp.Gen.Common
+      Capnp.Gen.Enums
+      Capnp.Gen.Streams
+      Capnp.Gen.Vm
+      Capnp.Gen.Disk
+      Capnp.Gen.Network
+      Capnp.Gen.Sshkey
+      Capnp.Gen.Template
+      Capnp.Gen.Task
+      Capnp.Gen.Cloudinit
   other-modules:
       Corvus.Client.Commands.Network
       Corvus.Handlers.Build.Floppy
@@ -168,17 +189,6 @@ library
       Capnp.Gen.ById.Xe996a8e112b41e28
       Capnp.Gen.ById.Xeb6a435f11477f84
       Capnp.Gen.ById.Xec449e11027b2949
-      Capnp.Gen.Cloudinit
-      Capnp.Gen.Common
-      Capnp.Gen.Corvus
-      Capnp.Gen.Disk
-      Capnp.Gen.Enums
-      Capnp.Gen.Network
-      Capnp.Gen.Sshkey
-      Capnp.Gen.Streams
-      Capnp.Gen.Task
-      Capnp.Gen.Template
-      Capnp.Gen.Vm
       Paths_corvus
   autogen-modules:
       Paths_corvus
@@ -216,6 +226,7 @@ library
     , bytestring
     , capnp
     , containers
+    , data-default
     , directory
     , esqueleto
     , exceptions
@@ -234,6 +245,7 @@ library
     , random
     , resource-pool
     , stm
+    , supervisors
     , template-haskell
     , temporary
     , text
@@ -280,6 +292,7 @@ executable corvus
     , capnp
     , containers
     , corvus
+    , data-default
     , directory
     , esqueleto
     , exceptions
@@ -298,6 +311,7 @@ executable corvus
     , random
     , resource-pool
     , stm
+    , supervisors
     , template-haskell
     , temporary
     , text
@@ -344,6 +358,7 @@ executable crv
     , capnp
     , containers
     , corvus
+    , data-default
     , directory
     , esqueleto
     , exceptions
@@ -362,6 +377,7 @@ executable crv
     , random
     , resource-pool
     , stm
+    , supervisors
     , template-haskell
     , temporary
     , text
@@ -408,6 +424,7 @@ executable gen-python-client
     , capnp
     , containers
     , corvus
+    , data-default
     , directory
     , esqueleto
     , exceptions
@@ -428,6 +445,7 @@ executable gen-python-client
     , random
     , resource-pool
     , stm
+    , supervisors
     , template-haskell
     , temporary
     , text
@@ -451,6 +469,7 @@ test-suite corvus-test
       Corvus.BuildIntegrationSpec
       Corvus.BuildSchemaSpec
       Corvus.BuildStreamSpec
+      Corvus.CapnpServerSpec
       Corvus.ClientOutputSpec
       Corvus.CloudInitIntegrationSpec
       Corvus.CloudInitSpec
@@ -539,6 +558,7 @@ test-suite corvus-test
     , capnp
     , containers
     , corvus
+    , data-default
     , directory
     , esqueleto
     , exceptions
@@ -561,6 +581,7 @@ test-suite corvus-test
     , resource-pool
     , silently
     , stm
+    , supervisors
     , template-haskell
     , temporary
     , text
