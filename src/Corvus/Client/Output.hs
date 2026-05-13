@@ -55,7 +55,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Yaml
 import System.Console.ANSI (getTerminalSize, hSupportsANSI)
-import System.IO (stdout)
+import System.IO (hIsTerminalDevice, stdout)
 import Text.Printf (printf)
 
 -- | Whether the output format is structured (json/yaml) vs text
@@ -190,11 +190,18 @@ tableOptsFromOptions opts =
     }
 
 -- | Print a table to stdout using the current terminal width.
--- Queries 'getTerminalSize' when 'toFitWidth' is true; falls back to 120 cols.
+-- Queries 'getTerminalSize' when 'toFitWidth' is true and stdout
+-- is a real terminal; falls back to 120 cols otherwise. We guard
+-- the query on 'hIsTerminalDevice' because
+-- @System.Console.ANSI.getTerminalSize@ probes via a cursor
+-- escape sequence and reads the reply off 'stdin' — on a
+-- non-interactive @ssh@ session that read blocks forever and
+-- eventually fails with @hWaitForInput: end of file@.
 printTable :: TableOpts -> [Column a] -> [a] -> IO ()
 printTable opts cols rows = do
+  isTty <- hIsTerminalDevice stdout
   termWidth <-
-    if toFitWidth opts && toTruncate opts
+    if toFitWidth opts && toTruncate opts && isTty
       then do
         mSize <- getTerminalSize
         pure $ case mSize of

@@ -269,14 +269,12 @@ instance CGDisk.Disk'server_ DiskCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "disk'snapshotList: unexpected response"
 
-  disk'snapshotGet (DiskCap st _ eid) =
+  disk'snapshotGet (DiskCap st sup eid) =
     handleParsed $ \CGDisk.Disk'snapshotGet'params {..} -> do
       ref' <- capnpRefToRef ref
       sid <- failOnLeft =<< resolveSnapshot ref' eid (ssDbPool st)
-      -- Snapshots don't have a manager pool, so we hand back a
-      -- cap directly. The cap stays alive for the duration of the
-      -- client session.
-      throwFailed (T.pack ("disk'snapshotGet stub returns id " <> show sid))
+      client <- export @CGDisk.Snapshot sup (SnapshotCap st eid sid)
+      pure CGDisk.Disk'snapshotGet'results {CGDisk.snapshot = client}
 
   disk'refresh (DiskCap st _ eid) = handleParsed $ \_ -> do
     resp <- runAction st (DiskRefresh eid)
@@ -307,7 +305,17 @@ data SnapshotCap = SnapshotCap
 instance SomeServer SnapshotCap
 
 instance CGDisk.Snapshot'server_ SnapshotCap where
-  snapshot'show _ = methodUnimplemented
+  snapshot'show (SnapshotCap st diskId sid) = handleParsed $ \_ -> do
+    resp <- handleSnapshotList st diskId
+    case resp of
+      RespSnapshotList snaps ->
+        case filter ((== sid) . P.sniId) snaps of
+          (s : _) ->
+            pure CGDisk.Snapshot'show'results {CGDisk.info = toCapnpSnapshotInfo s}
+          [] -> throwFailed "Snapshot not found"
+      RespDiskNotFound -> throwFailed "Disk not found"
+      RespError msg -> throwFailed msg
+      _ -> throwFailed "snapshot'show: unexpected response"
   snapshot'delete (SnapshotCap st diskId sid) = handleParsed $ \_ -> do
     resp <- runAction st (SnapshotDelete {sdelDiskId = diskId, sdelSnapRef = P.Ref (T.pack (show sid))})
     case resp of

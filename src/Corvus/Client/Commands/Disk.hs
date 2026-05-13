@@ -326,24 +326,18 @@ handleDiskAttach fmt conn vmRef diskRef iface media readOnly discard cache = do
 -- clear error since the schema no longer accepts a disk-name lookup
 -- here.
 handleDiskDetach :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
-handleDiskDetach fmt conn vmRef diskRef = case readMaybeInt64 (T.unpack diskRef) of
-  Nothing -> do
-    emitError
-      fmt
-      "bad_id"
-      ("disk detach requires a numeric drive ID; got '" <> diskRef <> "'")
-      (putStrLn ("Error: disk detach requires a numeric drive ID; got '" ++ T.unpack diskRef ++ "'."))
-    pure False
-  Just driveId -> do
-    r <- try (CR.rpcDiskDetach conn (entityRefFromText vmRef) driveId) :: IO (Either SomeException ())
-    case r of
-      Right () -> do
-        emitOk fmt $ putStrLn "Disk detached."
-        pure True
-      Left e -> do
-        emitError fmt "rpc_error" (T.pack (show e)) $
-          putStrLn ("Error: " ++ show e)
-        pure False
+handleDiskDetach fmt conn vmRef diskRef = do
+  r <-
+    try (CR.rpcDiskDetachByDisk conn (entityRefFromText vmRef) (entityRefFromText diskRef))
+      :: IO (Either SomeException ())
+  case r of
+    Right () -> do
+      emitOk fmt $ putStrLn "Disk detached."
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
+      pure False
 
 --------------------------------------------------------------------------------
 -- Snapshot Command Handlers

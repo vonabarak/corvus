@@ -86,6 +86,7 @@ module Corvus.Client.Capnp.Rpc
   , rpcDiskResize
   , rpcDiskAttach
   , rpcDiskDetach
+  , rpcDiskDetachByDisk
 
     -- * Snapshot operations (per-disk)
   , rpcSnapshotList
@@ -170,6 +171,7 @@ import Corvus.Wire.Apply (fromCapnpApplyResult)
 import Corvus.Wire.Build (fromCapnpBuildEvent)
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Corvus.Wire.Common (EntityRef, ViewGrant (..), fromCapnpStatusInfo, fromCapnpViewGrant, toCapnpEntityRef)
+import qualified Corvus.Wire.Common as WC
 import qualified Corvus.Wire.Disk as WDisk
 import Corvus.Wire.Enums
   ( toCapnpCacheType
@@ -882,6 +884,21 @@ rpcDiskDetach conn vmRef driveId = do
   vmClient <- getVmClient conn vmRef
   _ <- callOn #detachDisk CGVm.Vm'detachDisk'params {CGVm.driveId = driveId} vmClient
   pure ()
+
+-- | Detach a disk by name or numeric reference. Walks the VM's
+-- drive list to find the drive whose backing disk image matches
+-- @diskRef@ (matching the name when @diskRef@ is symbolic, or the
+-- disk id when @diskRef@ is numeric), then issues the detach.
+-- Throws an exception when no drive matches.
+rpcDiskDetachByDisk :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
+rpcDiskDetachByDisk conn vmRef diskRef = do
+  details <- rpcVmShow conn vmRef
+  let matches d = case diskRef of
+        WC.RefById did -> PV.diDiskImageId d == did
+        WC.RefByName name -> PV.diDiskImageName d == name
+  case filter matches (PV.vdDrives details) of
+    (drive : _) -> rpcDiskDetach conn vmRef (PV.diId drive)
+    [] -> fail ("no drive on VM with disk " <> show diskRef)
 
 -- =====================================================================
 -- Snapshot wrappers (per-disk)
