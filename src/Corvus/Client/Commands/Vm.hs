@@ -37,8 +37,9 @@ module Corvus.Client.Commands.Vm
   )
 where
 
-import Control.Concurrent (threadDelay)
-import Control.Exception (SomeException, try)
+import Control.Concurrent (forkIO, killThread, threadDelay)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar)
+import Control.Exception (SomeException, finally, try)
 import Control.Monad (unless, when)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
@@ -48,11 +49,14 @@ import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (DriveInfo (..), NetIfInfo (..), VmDetails (..), VmInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
+import qualified Data.ByteString as BS
+import Data.Char (ord)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
-import Network.Socket (Socket)
-import System.IO (hFlush, hPutStr, stderr)
+import System.IO (BufferMode (..), hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
+import System.Posix.IO (fdWrite, stdInput, stdOutput)
+import System.Posix.Terminal
 
 -- ---------------------------------------------------------------------
 -- Helpers
@@ -177,21 +181,76 @@ handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mA
     (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart)
 
 -- ---------------------------------------------------------------------
--- Streaming stubs (Phase 6 will wire Cap'n Proto sinks)
+-- Raw terminal session over Cap'n Proto ByteSink caps (Phase 6b/c/f)
 -- ---------------------------------------------------------------------
 
--- | Which kind of raw relay session is running. Retained as a
--- placeholder so call sites in 'Corvus.Client.Commands' still
--- type-check; the actual relay is unimplemented in Phase 5.
+-- | Which kind of raw relay session is running. Controls the
+-- escape-help text, the wording of the flush confirmation, and
+-- whether @Ctrl+] d@ (send Ctrl+Alt+Del via HMP) is offered at
+-- all. HMP monitor sessions hide the key entirely because "send
+-- Ctrl+Alt+Del" has no meaning at the monitor layer.
 data RawSessionKind = SerialSession | MonitorSession
   deriving (Eq, Show)
 
--- | Stubbed serial / HMP terminal session. Returns False so the
--- caller exits non-zero. Phase 6 wires this over a ByteSink cap.
-runRawTerminalSession :: Socket -> RawSessionKind -> Maybe (IO ()) -> Maybe (IO ()) -> IO Bool
-runRawTerminalSession _ _ _ _ = do
-  putStrLn "error: serial console / HMP monitor require Cap'n Proto streaming (Phase 6, not yet implemented)"
-  pure False
+-- | Run an interactive raw-terminal session against a pair of
+-- 'writeInput' / 'endInput' closures returned by
+-- 'CR.rpcVmSerialConsole' or 'CR.rpcVmHmpMonitor'. Output from
+-- the daemon arrives on a separate path (the caller wires the
+-- sink's @onChunk@ callback directly to 'stdout'); this function
+-- handles only the input side and the user's escape sequences.
+--
+-- Returns when either:
+--
+--   * The user types @Ctrl+] q@ (escape prefix then @q@), or
+--   * the caller puts @()@ on @endSignal@ (typically from the
+--     output sink's @onEnd@ callback when the daemon closes the
+--     relay).
+--
+-- Termios manipulation mirrors @cfmakeraw(3)@ so UEFI menus and
+-- bracketed-paste applications work; the terminal is restored on
+-- every exit path.
+runRawTerminalSession
+  :: (BS.ByteString -> IO ())
+  -- ^ Forward a chunk of stdin to the daemon's input sink.
+  -> IO ()
+  -- ^ Close the daemon's input sink. Invoked once before the
+  -- terminal is restored.
+  -> MVar ()
+  -- ^ External exit signal; the caller @putMVar@s once if the
+  -- daemon closes its output sink (VM exit, agent disconnect).
+  -> RawSessionKind
+  -> Maybe (IO ())
+  -- ^ Optional @Ctrl+] d@ action (send Ctrl+Alt+Del). Only
+  -- offered for 'SerialSession'; @Nothing@ for HMP.
+  -> Maybe (IO ())
+  -- ^ Optional @Ctrl+] f@ action (flush ring buffer).
+  -> IO Bool
+runRawTerminalSession writeInput endInput endSignal kind mCtrlAltDelAction mFlushAction = do
+  savedAttrs <- getTerminalAttributes stdInput
+  let restore = do
+        hSetBinaryMode stdin False
+        hSetBinaryMode stdout False
+        hSetBuffering stdin LineBuffering
+        hSetBuffering stdout LineBuffering
+        setTerminalAttributes stdInput savedAttrs Immediately
+        _ <- fdWrite stdOutput "\r"
+        pure ()
+  let cleanup = do
+        _ <- try endInput :: IO (Either SomeException ())
+        restore
+  result <-
+    try $
+      doRawTerminalSession
+        savedAttrs
+        writeInput
+        endSignal
+        kind
+        mCtrlAltDelAction
+        mFlushAction
+        `finally` cleanup
+  case result of
+    Left (_ :: SomeException) -> pure False
+    Right () -> pure True
 
 -- | Stubbed remote-viewer launcher.
 --
@@ -204,6 +263,131 @@ runRemoteViewer :: a -> b -> IO Bool
 runRemoteViewer _ _ = do
   putStrLn "error: SPICE remote-viewer launch is not yet wired through Cap'n Proto (Phase 6)"
   pure False
+
+--------------------------------------------------------------------------------
+-- Raw Terminal Internals
+--------------------------------------------------------------------------------
+
+-- | cfmakeraw equivalent: disable all input/output processing.
+makeRaw :: TerminalAttributes -> TerminalAttributes
+makeRaw attrs =
+  withMinInput
+    ( withTime
+        ( withBits
+            ( foldl
+                withoutMode
+                attrs
+                [ MapCRtoLF
+                , MapLFtoCR
+                , IgnoreCR
+                , IgnoreBreak
+                , InterruptOnBreak
+                , MarkParityErrors
+                , StripHighBit
+                , StartStopInput
+                , ProcessOutput
+                , EnableEcho
+                , EchoLF
+                , ProcessInput
+                , KeyboardInterrupts
+                , ExtendedFunctions
+                , EnableParity
+                ]
+            )
+            8 -- CS8
+        )
+        0 -- VTIME = 0
+    )
+    1 -- VMIN = 1
+
+-- | Print a status line in raw terminal mode (uses CR+LF since OPOST is off).
+rawPutStrLn :: String -> IO ()
+rawPutStrLn s = do
+  hPutStr stderr ("\r\n" ++ s ++ "\r\n")
+  hFlush stderr
+
+doRawTerminalSession
+  :: TerminalAttributes
+  -> (BS.ByteString -> IO ())
+  -> MVar ()
+  -> RawSessionKind
+  -> Maybe (IO ())
+  -> Maybe (IO ())
+  -> IO ()
+doRawTerminalSession savedAttrs writeInput endSignal kind mCtrlAltDelAction mFlushAction = do
+  hSetBinaryMode stdin True
+  hSetBinaryMode stdout True
+  hSetBuffering stdin NoBuffering
+  hSetBuffering stdout NoBuffering
+  setTerminalAttributes stdInput (makeRaw savedAttrs) Immediately
+
+  exitVar <- newEmptyMVar
+
+  -- Mirror the external 'endSignal' onto the local exit MVar.
+  endWatcher <- forkIO $ do
+    takeMVar endSignal
+    _ <- tryPutMVar exitVar ()
+    pure ()
+
+  let inputLoop = do
+        c <- getChar
+        if ord c == 29 -- Ctrl+]
+          then handleEscape
+          else do
+            writeInput (BS.singleton (fromIntegral (ord c)))
+            inputLoop
+
+      handleEscape = do
+        e <- getChar
+        case e of
+          _ | ord e == 29 -> do
+            writeInput (BS.singleton 29)
+            inputLoop
+          'q' -> putMVar exitVar ()
+          'd' -> do
+            case kind of
+              MonitorSession -> inputLoop
+              SerialSession -> do
+                case mCtrlAltDelAction of
+                  Just action -> do
+                    r' <- try action :: IO (Either SomeException ())
+                    case r' of
+                      Left ex -> rawPutStrLn ("Failed to send Ctrl+Alt+Del: " <> show ex)
+                      Right () -> rawPutStrLn "Sent Ctrl+Alt+Del."
+                  Nothing -> rawPutStrLn "Ctrl+Alt+Del not available."
+                inputLoop
+          'f' -> do
+            case mFlushAction of
+              Just flush -> do
+                r' <- try flush :: IO (Either SomeException ())
+                case r' of
+                  Left ex -> rawPutStrLn ("Failed to flush buffer: " <> show ex)
+                  Right () -> rawPutStrLn "Buffer flushed."
+              Nothing -> rawPutStrLn "Flush not available."
+            inputLoop
+          '?' -> do
+            rawPutStrLn "Escape commands (Ctrl+] prefix):"
+            rawPutStrLn "  q         — quit"
+            case kind of
+              SerialSession -> rawPutStrLn "  d         — send Ctrl+Alt+Del"
+              MonitorSession -> pure ()
+            case kind of
+              SerialSession -> rawPutStrLn "  f         — flush serial console buffer"
+              MonitorSession -> rawPutStrLn "  f         — flush HMP monitor buffer"
+            rawPutStrLn "  Ctrl+]    — send literal Ctrl+]"
+            rawPutStrLn "  ?         — this help"
+            inputLoop
+          _ -> inputLoop
+
+  inputThread <- forkIO $ do
+    r' <- try inputLoop :: IO (Either SomeException ())
+    case r' of
+      Left _ -> putMVar exitVar ()
+      Right () -> pure ()
+
+  takeMVar exitVar
+  killThread inputThread
+  killThread endWatcher
 
 -- ---------------------------------------------------------------------
 -- Display

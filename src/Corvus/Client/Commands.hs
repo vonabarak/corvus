@@ -25,7 +25,9 @@ module Corvus.Client.Commands
   )
 where
 
+import Control.Concurrent.MVar (newEmptyMVar, tryPutMVar)
 import Control.Exception (SomeException, try)
+import Control.Monad (void)
 import Corvus.Client.Capnp.Connection (CapnpConnection, withCapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Apply
@@ -48,6 +50,7 @@ import Corvus.Qemu.Netns (nsExec)
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (Value, object, toJSON, (.=))
+import qualified Data.ByteString as BS
 import Data.Char (toLower)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -56,7 +59,7 @@ import Data.Time (getCurrentTime)
 import Options.Applicative.BashCompletion (bashCompletionScript, fishCompletionScript, zshCompletionScript)
 import System.Environment (lookupEnv)
 import System.Exit (exitFailure, exitSuccess)
-import System.IO (hPutStrLn, stderr)
+import System.IO (hFlush, hPutStrLn, stderr, stdout)
 import System.Posix.Signals (Handler (..), installHandler, sigINT)
 
 -- | Get the listen address from options
@@ -151,13 +154,7 @@ runCommand opts = do
       VmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi mAs -> handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mCi mAs
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> handleVmView opts fmt conn vmRef
-      VmMonitor _ -> do
-        emitError
-          fmt
-          "not_implemented"
-          "HMP monitor requires Cap'n Proto streaming (Phase 6, not yet implemented)"
-          (putStrLn "Error: HMP monitor is not yet wired over Cap'n Proto streaming (Phase 6).")
-        pure False
+      VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef
       -- Disk commands
       DiskCreate name formatStr sizeMb mPath -> do
         case parseFormat formatStr of
@@ -341,14 +338,68 @@ handleVmView opts fmt conn vmRef = do
           pure False
         else
           if vdHeadless details
-            then do
-              emitError
-                fmt
-                "not_implemented"
-                "serial console relay requires Cap'n Proto streaming (Phase 6, not yet implemented)"
-                (putStrLn "Error: serial console relay is not yet wired over Cap'n Proto.")
-              pure False
+            then runSerialConsoleSession fmt conn vmRef
             else handleGraphicalViewGrant opts fmt conn vmRef (vdName details)
+
+-- | Open the serial console for a headless VM. Wires the
+-- bidirectional 'ByteSink' pair returned by 'CR.rpcVmSerialConsole'
+-- to a raw-terminal session: server-pushed chunks go straight to
+-- stdout, stdin bytes (less @Ctrl+]@-prefixed escape sequences)
+-- flow back to the daemon.
+runSerialConsoleSession :: OutputFormat -> CapnpConnection -> Text -> IO Bool
+runSerialConsoleSession fmt conn vmRef = do
+  endSignal <- newEmptyMVar
+  let ref = entityRefFromText vmRef
+      onOutput chunk = BS.putStr chunk >> hFlush stdout
+      onEnd = void (tryPutMVar endSignal ())
+  attached <-
+    try (CR.rpcVmSerialConsole conn ref onOutput onEnd)
+      :: IO (Either SomeException (BS.ByteString -> IO (), IO ()))
+  case attached of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error attaching serial console: " <> show e)
+      pure False
+    Right (writeInput, endInput) -> do
+      let ctrlAltDelAction = Just (CR.rpcVmSendCtrlAltDel conn ref)
+          -- Buffer flush isn't yet exposed via a Capnp wrapper —
+          -- Ctrl+] f reports "Flush not available." until Phase 6g.
+          flushAction = Nothing
+      runRawTerminalSession
+        writeInput
+        endInput
+        endSignal
+        SerialSession
+        ctrlAltDelAction
+        flushAction
+
+-- | Open the HMP (QEMU monitor) console for a running VM. Mirrors
+-- 'runSerialConsoleSession' but rides the per-VM monitor buffer
+-- instead, and the @Ctrl+] d@ key is suppressed by passing
+-- 'Nothing' for the Ctrl+Alt+Del action (no meaning at the HMP
+-- layer).
+runHmpMonitorSession :: OutputFormat -> CapnpConnection -> Text -> IO Bool
+runHmpMonitorSession fmt conn vmRef = do
+  endSignal <- newEmptyMVar
+  let ref = entityRefFromText vmRef
+      onOutput chunk = BS.putStr chunk >> hFlush stdout
+      onEnd = void (tryPutMVar endSignal ())
+  attached <-
+    try (CR.rpcVmHmpMonitor conn ref onOutput onEnd)
+      :: IO (Either SomeException (BS.ByteString -> IO (), IO ()))
+  case attached of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error attaching HMP monitor: " <> show e)
+      pure False
+    Right (writeInput, endInput) ->
+      runRawTerminalSession
+        writeInput
+        endInput
+        endSignal
+        MonitorSession
+        Nothing
+        Nothing
 
 -- | Request a SPICE grant. For structured output emit the grant; for
 -- text output print the connection info but do not auto-launch
