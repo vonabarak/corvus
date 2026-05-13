@@ -19,6 +19,7 @@ import Corvus.Action (runAction)
 import Corvus.Handlers.Resolve (resolveSshKey)
 import Corvus.Handlers.SshKey (SshKeyCreate (..), SshKeyDelete (..), handleSshKeyList)
 import Corvus.Protocol (Response (..))
+import qualified Corvus.Protocol.SshKey as P
 import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.SshKey (toCapnpSshKeyInfo)
@@ -70,7 +71,19 @@ data SshKeyCap = SshKeyCap
 instance SomeServer SshKeyCap
 
 instance CGSsh.SshKey'server_ SshKeyCap where
-  sshKey'show _ = methodUnimplemented
+  sshKey'show (SshKeyCap st kid) = handleParsed $ \_ -> do
+    -- The legacy protocol has no `ssh-key show` request, so look
+    -- the key up by walking the list. SSH-key inventories are
+    -- small enough in practice that the cost is negligible.
+    resp <- handleSshKeyList st
+    case resp of
+      RespSshKeyList keys ->
+        case [k | k <- keys, P.skiId k == kid] of
+          [k] -> pure CGSsh.SshKey'show'results {CGSsh.info = toCapnpSshKeyInfo k}
+          _ -> throwFailed "SSH key not found"
+      RespError msg -> throwFailed msg
+      _ -> throwFailed "sshKey'show: unexpected response"
+
   sshKey'delete (SshKeyCap st eid) = handleParsed $ \_ -> do
     resp <- runAction st (SshKeyDelete eid)
     case resp of

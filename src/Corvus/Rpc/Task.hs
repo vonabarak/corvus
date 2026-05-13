@@ -15,7 +15,7 @@ import Capnp (export)
 import qualified Capnp.Gen.Task as CGT
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
-import Corvus.Handlers (handleTaskList, handleTaskShow)
+import Corvus.Handlers (handleTaskList, handleTaskListChildren, handleTaskShow)
 import Corvus.Protocol (Response (..))
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Enums (fromCapnpTaskResult, fromCapnpTaskSubsystem)
@@ -60,7 +60,15 @@ instance CGT.TaskManager'server_ TaskManagerCap where
     client <- export @CGT.Task sup (TaskCap st taskId)
     pure CGT.TaskManager'get'results {CGT.task = client}
 
-  taskManager'listChildren _ = methodUnimplemented
+  taskManager'listChildren (TaskManagerCap st _) =
+    handleParsed $ \CGT.TaskManager'listChildren'params {..} -> do
+      resp <- handleTaskListChildren st parentId
+      case resp of
+        RespTaskList tasks ->
+          pure CGT.TaskManager'listChildren'results {CGT.tasks = map toCapnpTaskInfo tasks}
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "taskManager'listChildren: unexpected response"
+
   taskManager'subscribe _ = methodUnimplemented
 
 data TaskCap = TaskCap
