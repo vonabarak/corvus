@@ -1,6 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | TaskManager + Task cap implementations.
@@ -12,16 +13,20 @@ module Corvus.Rpc.Task
 where
 
 import Capnp (export)
+import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGT
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
+import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Control.Concurrent.STM (atomically, modifyTVar')
 import Corvus.Handlers (handleTaskList, handleTaskListChildren, handleTaskShow)
 import Corvus.Protocol (Response (..))
+import Corvus.Rpc.Streams (EmptyHandle (..))
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Enums (fromCapnpTaskResult, fromCapnpTaskSubsystem)
 import Corvus.Wire.Errors (showWireError)
 import Corvus.Wire.Task (toCapnpTaskInfo)
 import Data.Int (Int64)
+import qualified Data.Map.Strict as Map
 import Supervisors (Supervisor)
 
 data TaskManagerCap = TaskManagerCap
@@ -69,7 +74,17 @@ instance CGT.TaskManager'server_ TaskManagerCap where
         RespError msg -> throwFailed msg
         _ -> throwFailed "taskManager'listChildren: unexpected response"
 
-  taskManager'subscribe _ = methodUnimplemented
+  -- Register a 'TaskProgressSink' against the given task id.
+  -- The Action runtime pushes a @finished@ event when the task
+  -- completes; subscribers added after the task has already
+  -- finished will never receive an event.
+  taskManager'subscribe (TaskManagerCap st sup) =
+    handleParsed $ \CGT.TaskManager'subscribe'params {CGT.taskId = tid, CGT.sink = sinkClient} -> do
+      atomically $
+        modifyTVar' (ssTaskProgressSubs st) $
+          Map.insertWith (++) tid [sinkClient]
+      handle <- export @CGS.Handle sup EmptyHandle
+      pure CGT.TaskManager'subscribe'results {CGT.handle = handle}
 
 data TaskCap = TaskCap
   { _tkState :: !ServerState

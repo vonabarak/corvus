@@ -41,6 +41,10 @@ module Corvus.Client.Capnp.Rpc
   , rpcVmSubscribeGuestAgent
   , GuestAgentStatusEvent (..)
 
+    -- * Task progress subscription (Phase 6e)
+  , rpcTaskSubscribe
+  , TaskProgressEvent (..)
+
     -- * Resource read methods
   , rpcVmList
   , rpcVmShow
@@ -187,6 +191,7 @@ import Data.Function ((&))
 import Data.Int (Int64)
 import qualified Data.Maybe
 import Data.Text (Text)
+import qualified Data.Text as T
 
 -- ---------------------------------------------------------------------
 -- Internal helpers
@@ -1348,6 +1353,73 @@ rpcVmSubscribeGuestAgent conn vmRef onStatus = do
       #subscribeGuestAgent
       CGVm.Vm'subscribeGuestAgent'params {CGVm.sink = sinkClient}
       vmClient
+  pure handle
+
+-- =====================================================================
+-- Task progress subscription (Phase 6e)
+-- =====================================================================
+
+-- | Plain Haskell view of a 'CGS.TaskProgressEvent'. The union
+-- variant is preserved as a sum type; @progress@ events aren't
+-- emitted by the current daemon (Phase 6e ships only the terminal
+-- @finished@ event), but the type covers the full schema so
+-- future progress-emitting actions don't break the API.
+data TaskProgressEvent
+  = -- | taskId, command, subsystem (as text)
+    TpeStarted !Int64 !Text !Text
+  | -- | taskId, completed, total, label
+    TpeProgress !Int64 !Int64 !Int64 !Text
+  | -- | taskId, result (as text), message
+    TpeFinished !Int64 !Text !Text
+  | TpeUnknown !Int64
+  deriving (Eq, Show)
+
+newtype ClientTaskProgressSink = ClientTaskProgressSink
+  { ctpsOnEvent :: TaskProgressEvent -> IO ()
+  }
+
+instance SomeServer ClientTaskProgressSink
+
+instance CGS.TaskProgressSink'server_ ClientTaskProgressSink where
+  taskProgressSink'push (ClientTaskProgressSink onEv) =
+    handleParsed $ \CGS.TaskProgressSink'push'params {CGS.event = e} -> do
+      let CGS.TaskProgressEvent {CGS.taskId = tid, CGS.union' = u} = e
+          decoded = case u of
+            CGS.TaskProgressEvent'started
+              CGS.TaskProgressEvent'started' {CGS.command = c, CGS.subsystem = ss} ->
+                TpeStarted tid c (T.pack (show ss))
+            CGS.TaskProgressEvent'progress
+              CGS.TaskProgressEvent'progress' {CGS.completed = co, CGS.total = to, CGS.label = lbl} ->
+                TpeProgress tid co to lbl
+            CGS.TaskProgressEvent'finished
+              CGS.TaskProgressEvent'finished' {CGS.result = r, CGS.message = m} ->
+                TpeFinished tid (T.pack (show r)) m
+            CGS.TaskProgressEvent'unknown' _ -> TpeUnknown tid
+      _ <- try (onEv decoded) :: IO (Either SomeException ())
+      pure CGS.TaskProgressSink'push'results
+
+-- | Subscribe to progress events for a specific task. The daemon
+-- pushes a terminal @finished@ event when the task completes;
+-- starting / progress events are reserved for future use. Drop
+-- the returned 'CGS.Handle' to stop receiving events.
+rpcTaskSubscribe
+  :: CapnpConnection
+  -> Int64
+  -- ^ Task id to watch.
+  -> (TaskProgressEvent -> IO ())
+  -> IO (C.Client CGS.Handle)
+rpcTaskSubscribe conn tid onEvent = do
+  CGCorvus.Daemon'tasks'results {CGCorvus.mgr = mgr} <-
+    callOn #tasks CGCorvus.Daemon'tasks'params (ccDaemon conn)
+  sinkClient <-
+    export @CGS.TaskProgressSink
+      (ccSupervisor conn)
+      (ClientTaskProgressSink onEvent)
+  CGTask.TaskManager'subscribe'results {CGTask.handle} <-
+    callOn
+      #subscribe
+      CGTask.TaskManager'subscribe'params {CGTask.taskId = tid, CGTask.sink = sinkClient}
+      mgr
   pure handle
 
 -- =====================================================================

@@ -74,6 +74,11 @@ data ServerState = ServerState
   -- guest-agent poller pushes a 'GuestAgentStatus' to each sink
   -- after every poll cycle; dead sinks are pruned on the next
   -- push attempt.
+  , ssTaskProgressSubs :: TVar (Map.Map Int64 [C.Client CGS.TaskProgressSink])
+  -- ^ Per-task-id 'taskManager.subscribe' subscriber lists.
+  -- The Action runtime pushes a 'TaskProgressEvent' to each
+  -- sink at task transitions (started / finished); dead sinks
+  -- are pruned on the next push attempt.
   }
 
 -- | Create a new server state
@@ -88,6 +93,7 @@ newServerState pool qemuConfig = do
   monitorBuffers <- newTVarIO Map.empty
   gaLocks <- newTVarIO Map.empty
   gaSubs <- newTVarIO Map.empty
+  taskSubs <- newTVarIO Map.empty
   pure
     ServerState
       { ssStartTime = startTime
@@ -102,6 +108,7 @@ newServerState pool qemuConfig = do
       , ssMonitorBuffers = monitorBuffers
       , ssGuestAgentConns = gaLocks
       , ssGuestAgentSubs = gaSubs
+      , ssTaskProgressSubs = taskSubs
       }
 
 --------------------------------------------------------------------------------

@@ -1,4 +1,7 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -27,15 +30,29 @@ module Corvus.Action
     -- * Response classification (used by runners)
   , classifyResponse
   , extractEntityFromResponse
+
+    -- * Task progress fan-out
+  , pushTaskFinished
   )
 where
 
+import qualified Capnp as C
+import qualified Capnp.Gen.Streams as CGS
 import Control.Concurrent (forkIO)
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (SomeException, try)
+import qualified Control.Monad.Catch as MC
 import Corvus.Model
+import qualified Corvus.Model as M
 import Corvus.Protocol
+import Corvus.Rpc.Streams (callSink)
 import Corvus.Types
+import Corvus.Wire.Enums (toCapnpTaskResult)
+import Data.Foldable (for_)
+import Data.Function ((&))
 import Data.Int (Int64)
+import qualified Data.Map.Strict as Map
+import qualified Data.Maybe
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -227,18 +244,21 @@ runAndFinalizeResult state ctx action = do
             ]
         )
         pool
+      pushTaskFinished state (fromSqlKey taskKey) taskResult message
       pure $ Right response
     Left (err :: SomeException) -> do
+      let errMsg = T.pack (show err)
       runSqlPool
         ( update
             taskKey
             [ TaskFinishedAt =. Just finishTime
             , TaskResult =. TaskError
-            , TaskMessage =. Just (T.pack $ show err)
+            , TaskMessage =. Just errMsg
             ]
         )
         pool
-      let errResp = RespError $ "Internal error: " <> T.pack (show err)
+      pushTaskFinished state (fromSqlKey taskKey) TaskError (Just errMsg)
+      let errResp = RespError $ "Internal error: " <> errMsg
       pure $ Left errResp
 
 -- | Like runAndFinalize but discards the return value (for forkIO).
@@ -370,3 +390,41 @@ extractEntityFromResponse = \case
   RespTemplateInstantiated vid -> (Just (fromIntegral vid), Nothing)
   RespDiskAttached did -> (Just (fromIntegral did), Nothing)
   _ -> (Nothing, Nothing)
+
+--------------------------------------------------------------------------------
+-- Task progress fan-out (Phase 6e)
+--------------------------------------------------------------------------------
+
+-- | Push a @finished@ 'TaskProgressEvent' to every client that
+-- subscribed to this task id via @TaskManager.subscribe@. Dead
+-- sinks (cap dropped on the client side) are pruned. No-op when
+-- the subscriber list is empty, which is the common case.
+pushTaskFinished :: ServerState -> Int64 -> M.TaskResult -> Maybe Text -> IO ()
+pushTaskFinished state tid result mMsg = do
+  subs <- readTVarIO (ssTaskProgressSubs state)
+  let sinks = Map.findWithDefault [] tid subs
+  case sinks of
+    [] -> pure ()
+    _ -> do
+      let ev :: C.Parsed CGS.TaskProgressEvent
+          ev =
+            CGS.TaskProgressEvent
+              { CGS.taskId = tid
+              , CGS.union' =
+                  CGS.TaskProgressEvent'finished
+                    CGS.TaskProgressEvent'finished'
+                      { CGS.result = toCapnpTaskResult result
+                      , CGS.message = Data.Maybe.fromMaybe T.empty mMsg
+                      }
+              }
+          params = CGS.TaskProgressSink'push'params {CGS.event = ev}
+      alive <- traverse (tryPush params) sinks
+      atomically $
+        modifyTVar' (ssTaskProgressSubs state) $
+          Map.insert tid (map fst (filter snd (zip sinks alive)))
+  where
+    tryPush params sink = do
+      r <- MC.try (callSink #push params sink) :: IO (Either SomeException ())
+      pure $ case r of
+        Right () -> True
+        Left _ -> False

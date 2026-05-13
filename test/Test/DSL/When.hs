@@ -159,6 +159,7 @@ createTestServerState pool basePath = do
   monitorBuffers <- newTVarIO mempty
   gaLocks <- newTVarIO mempty
   gaSubs <- newTVarIO mempty
+  taskSubs <- newTVarIO mempty
   logLevel <- getTestLogLevel
   pure
     ServerState
@@ -174,6 +175,7 @@ createTestServerState pool basePath = do
       , ssMonitorBuffers = monitorBuffers
       , ssGuestAgentConns = gaLocks
       , ssGuestAgentSubs = gaSubs
+      , ssTaskProgressSubs = taskSubs
       }
 
 -- | Build a fresh test-server state for the current 'TestM'.
