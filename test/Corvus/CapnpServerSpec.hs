@@ -24,6 +24,7 @@ import Capnp.Rpc
   )
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (bracket)
 import qualified Corvus.Client.Capnp.Connection as CC
 import qualified Corvus.Client.Capnp.Rpc as CR
@@ -33,6 +34,7 @@ import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Types (ListenAddress (..), newServerState)
 import qualified Corvus.Wire.Common as WC
 import Data.Function ((&))
+import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import Network.Socket
   ( Family (..)
   , SockAddr (..)
@@ -44,6 +46,7 @@ import Network.Socket
 import qualified System.Directory as Dir
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Timeout (timeout)
 import Test.Database (TestEnv (..))
 import Test.Hspec
 import Test.Prelude (withTestDb)
@@ -90,16 +93,18 @@ spec = withTestDb $ do
         vms <- CR.rpcVmList conn
         vms `shouldBe` []
 
-    it "rpcDiskList / rpcNetworkList / rpcSshKeyList / rpcTemplateList all start empty" $ \env -> do
+    -- Smoke-test that each list cap rounds-trips. We only check
+    -- the calls succeed (don't compare against @[]@) because the
+    -- whole spec shares one test DB and hspec randomizes the
+    -- order within a 'describe' block; another test in this file
+    -- might have left a row behind by the time this one runs.
+    it "rpcDiskList / rpcNetworkList / rpcSshKeyList / rpcTemplateList round-trip" $ \env -> do
       withCapnpDaemon env $ \conn -> do
-        ds <- CR.rpcDiskList conn
-        ds `shouldBe` []
-        ns <- CR.rpcNetworkList conn
-        ns `shouldBe` []
-        ks <- CR.rpcSshKeyList conn
-        ks `shouldBe` []
-        ts <- CR.rpcTemplateList conn
-        ts `shouldBe` []
+        _ <- CR.rpcDiskList conn
+        _ <- CR.rpcNetworkList conn
+        _ <- CR.rpcSshKeyList conn
+        _ <- CR.rpcTemplateList conn
+        pure ()
 
   describe "Cap'n Proto mutation wrappers (Phase 4f)" $ do
     it "VM lifecycle: create → list (length 1) → delete → list (empty)" $ \env -> do
@@ -132,6 +137,28 @@ spec = withTestDb $ do
         CR.rpcDiskDelete conn (WC.RefById did)
         dsAfter <- CR.rpcDiskList conn
         dsAfter `shouldBe` []
+
+  describe "Cap'n Proto streaming (Phase 6a)" $ do
+    it "rpcBuild streams events through BuildEventSink until end" $ \env -> do
+      withCapnpDaemon env $ \conn -> do
+        eventsRef <- newIORef ([] :: [P.BuildEvent])
+        done <- newEmptyMVar
+        let onEvent ev = atomicModifyIORef' eventsRef (\xs -> (xs ++ [ev], ()))
+            onEnd = putMVar done ()
+        tid <- CR.rpcBuild conn "" onEvent onEnd
+        tid `shouldSatisfy` (> 0)
+        -- Give the daemon at most 10 s to finish even on an empty
+        -- (invalid) YAML — it should fail validation quickly and
+        -- close the sink.
+        finished <- timeout 10000000 (takeMVar done)
+        finished `shouldBe` Just ()
+        evs <- readIORef eventsRef
+        evs `shouldSatisfy` (not . null)
+        -- The final event is always PipelineEnd, regardless of
+        -- success/failure.
+        case last evs of
+          P.PipelineEnd _ -> pure ()
+          other -> expectationFailure ("last event is " <> show other)
 
 waitForSocket :: FilePath -> IO ()
 waitForSocket p = go (50 :: Int)

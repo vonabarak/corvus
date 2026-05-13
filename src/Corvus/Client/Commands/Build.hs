@@ -1,36 +1,103 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Build command handler for the Corvus client.
 --
--- The legacy 'BuildEvent' stream (length-prefixed 'Data.Binary' frames
--- riding an upgraded socket) is gone. Cap'n Proto streaming via a
--- @BuildEventSink@ cap lands in Phase 6; until then @crv build@
--- prints a clean "streaming not yet implemented" error and returns
--- with a non-zero exit code.
+-- @crv build FILE@ uploads a YAML pipeline to the daemon and
+-- (with @--wait@) streams each 'BuildEvent' to stdout via the
+-- Cap'n Proto @BuildEventSink@ cap.
 module Corvus.Client.Commands.Build
   ( handleBuild
   )
 where
 
+import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar)
+import Control.Exception (SomeException, try)
+import Control.Monad (when)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
-import Corvus.Client.Output (emitError)
-import Corvus.Client.Types (OutputFormat, WaitOptions)
+import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Output (emitError, emitOkWith, isStructured)
+import Corvus.Client.Types (OutputFormat, WaitOptions (..))
+import Corvus.Model (EnumText (..), TaskResult (..))
+import Corvus.Protocol.Build (BuildEvent (..), BuildOne (..), BuildResult (..))
+import Data.Aeson (toJSON)
+import Data.Int (Int64)
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 
 -- | Top-level handler for @crv build FILE@.
 --
--- Phase 5 stub. Both the async and @--wait@ paths require either:
---
--- * a Cap'n Proto async @Daemon.build@ method that returns a parent
---   task id, or
--- * a @BuildEventSink@ streaming cap.
---
--- Neither is wired yet; emit a clean error and return failure so
--- automated callers can detect the gap. Phase 6 lifts this stub.
+-- With @--wait@: streams 'BuildEvent's in real time and blocks until
+-- the daemon closes the sink. Without @--wait@: kicks off the build
+-- and returns immediately with the parent task id.
 handleBuild :: OutputFormat -> CapnpConnection -> FilePath -> WaitOptions -> IO Bool
-handleBuild fmt _conn _path _waitOpts = do
-  emitError
-    fmt
-    "not_implemented"
-    "crv build requires Cap'n Proto streaming (Phase 6, not yet implemented)"
-    (putStrLn "Build is not yet wired over Cap'n Proto; see Phase 6 of the migration plan.")
-  pure False
+handleBuild fmt conn path waitOpts = do
+  contentResult <- try (TIO.readFile path) :: IO (Either SomeException T.Text)
+  case contentResult of
+    Left e -> do
+      emitError fmt "io_error" (T.pack (show e)) $
+        putStrLn ("Error reading " <> path <> ": " <> show e)
+      pure False
+    Right yaml -> runBuild fmt conn yaml (woWait waitOpts)
+
+runBuild :: OutputFormat -> CapnpConnection -> T.Text -> Bool -> IO Bool
+runBuild fmt conn yaml wait = do
+  done <- newEmptyMVar :: IO (MVar ())
+  -- Aggregate state surfaced after the stream ends: did any
+  -- top-level step fail, and the final per-build summary.
+  successVar <- newEmptyMVar :: IO (MVar Bool)
+  let onEvent ev = when wait (renderEvent ev)
+      onEnd = do
+        _ <- tryPutMVar successVar True
+        putMVar done ()
+  r <- try (CR.rpcBuild conn yaml onEvent onEnd) :: IO (Either SomeException Int64)
+  case r of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error invoking build: " <> show e)
+      pure False
+    Right tid -> do
+      if wait
+        then do
+          takeMVar done
+          _ <- takeMVar successVar
+          pure True
+        else do
+          emitOkWith fmt [("taskId", toJSON tid)] $
+            putStrLn ("Build started; task id: " <> show tid)
+          pure True
+  where
+    -- Render one BuildEvent to stdout. Mirrors the pre-Phase-5
+    -- legacy renderer: a one-line summary per event.
+    renderEvent ev = case ev of
+      BuildLogLine t ->
+        TIO.putStrLn t
+      StepStart idx kind msg ->
+        TIO.putStrLn ("[step " <> T.pack (show idx) <> " " <> kind <> "] " <> msg)
+      StepOutput _ line ->
+        TIO.putStrLn line
+      StepEnd idx result mMsg ->
+        TIO.putStrLn
+          ( "[step "
+              <> T.pack (show idx)
+              <> " "
+              <> enumToText result
+              <> "] "
+              <> maybe "" (" - " <>) mMsg
+          )
+      BuildEnd (Left err) ->
+        TIO.putStrLn ("Build error: " <> err)
+      BuildEnd (Right diskId) ->
+        TIO.putStrLn ("Build artifact disk id: " <> T.pack (show diskId))
+      PipelineEnd (BuildResult builds) -> do
+        TIO.putStrLn "Pipeline finished:"
+        mapM_ renderOne builds
+    renderOne bo = do
+      let prefix = "  - " <> boName bo
+      case (boArtifactDiskId bo, boError bo) of
+        (Just did, _) ->
+          TIO.putStrLn (prefix <> " -> disk " <> T.pack (show did))
+        (_, Just err) ->
+          TIO.putStrLn (prefix <> " FAILED: " <> err)
+        _ ->
+          TIO.putStrLn (prefix <> " (no result)")

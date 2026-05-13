@@ -179,6 +179,7 @@ library:
     - Corvus.Wire.Vm
     - Corvus.Wire.Task
     - Corvus.Wire.Apply
+    - Corvus.Wire.Build
     - Corvus.Wire.Template
     - Corvus.Rpc.Server
     - Corvus.Rpc.Common

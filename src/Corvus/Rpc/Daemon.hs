@@ -1,4 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -15,21 +17,29 @@ module Corvus.Rpc.Daemon
 where
 
 import Capnp (export)
+import qualified Capnp as C
 import qualified Capnp.Gen.Cloudinit as CGCI
 import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Network as CGNet
 import qualified Capnp.Gen.Sshkey as CGSsh
+import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGTask
 import qualified Capnp.Gen.Template as CGTmpl
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
-import Corvus.Action (runAction, runActionAsyncWithId)
+import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Control.Concurrent.Async (async)
+import Control.Exception (SomeException, try)
+import Control.Monad (void)
+import Corvus.Action (classifyResponse, runAction, runActionAsyncWithId)
 import Corvus.Handlers.Apply (ApplyAction (..), handleApplyValidate)
+import Corvus.Handlers.Build (BuildSink, runBuildPipeline)
 import Corvus.Handlers.Core (handlePing, handleShutdown, handleStatus)
+import Corvus.Model
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol.Apply as PA
+import qualified Corvus.Protocol.Build as PB
 import Corvus.Rpc.CloudInit (newCloudInitManagerCap)
 import Corvus.Rpc.Disk (newDiskManagerCap)
 import Corvus.Rpc.Network (newNetworkManagerCap)
@@ -39,7 +49,14 @@ import Corvus.Rpc.Template (newTemplateManagerCap)
 import Corvus.Rpc.Vm (newVmManagerCap)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Apply (toCapnpApplyResult)
+import Corvus.Wire.Build (toCapnpBuildEvent)
 import Corvus.Wire.Common (toCapnpStatusInfo)
+import Data.Function ((&))
+import qualified Data.Text as T
+import Data.Time (getCurrentTime)
+import Database.Persist (insert, update, (=.))
+import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Sql (fromSqlKey)
 import Supervisors (Supervisor)
 
 -- | The root Daemon cap, parameterised over the shared server state
@@ -144,9 +161,98 @@ instance CGCorvus.Daemon'server_ DaemonCap where
                 RespError msg -> throwFailed msg
                 _ -> throwFailed "apply (async): unexpected response"
 
-  -- Build streaming over BuildEventSink is Phase 6; the schema
-  -- method here is still unimplemented in Phase 5.
-  daemon'build _ = methodUnimplemented
+  -- Build streaming. The client passes a 'BuildEventSink' cap; we
+  -- create the parent task synchronously, then kick the pipeline
+  -- off on an async that pushes each 'BuildEvent' through
+  -- @sink.push@ and terminates with @sink.end@.
+  daemon'build (DaemonCap st _) =
+    handleParsed $ \CGCorvus.Daemon'build'params {CGCorvus.yaml = yamlText, CGCorvus.sink = sinkClient} -> do
+      startedAt <- getCurrentTime
+      let pool = ssDbPool st
+      taskKey <-
+        runSqlPool
+          ( insert
+              Task
+                { taskParent = Nothing
+                , taskStartedAt = startedAt
+                , taskFinishedAt = Nothing
+                , taskSubsystem = SubBuild
+                , taskEntityId = Nothing
+                , taskEntityName = Nothing
+                , taskCommand = "build"
+                , taskResult = TaskRunning
+                , taskMessage = Nothing
+                }
+          )
+          pool
+      let tid = fromSqlKey taskKey
+          pushEvent ev = do
+            let cev = toCapnpBuildEvent ev
+                params = CGS.BuildEventSink'push'params {CGS.event = cev}
+            _ <- try (callSink #push params sinkClient) :: IO (Either SomeException ())
+            pure ()
+          finalize ev = do
+            pushEvent ev
+            _ <-
+              try (callSink #end CGS.BuildEventSink'end'params sinkClient)
+                :: IO (Either SomeException ())
+            pure ()
+      void $ async $ do
+        let sink :: BuildSink
+            sink = pushEvent
+        resp <- try (runBuildPipeline st taskKey sink yamlText) :: IO (Either SomeException Response)
+        finishedAt <- getCurrentTime
+        case resp of
+          Right r -> do
+            let (taskRes, taskMsg) = classifyResponse r
+            runSqlPool
+              ( update
+                  taskKey
+                  [ TaskFinishedAt =. Just finishedAt
+                  , TaskResult =. taskRes
+                  , TaskMessage =. taskMsg
+                  ]
+              )
+              pool
+            case r of
+              RespBuildResult br -> finalize (PB.PipelineEnd br)
+              RespError msg -> do
+                pushEvent (PB.BuildLogLine ("build error: " <> msg))
+                finalize (PB.PipelineEnd (PB.BuildResult []))
+              _ -> finalize (PB.PipelineEnd (PB.BuildResult []))
+          Left e -> do
+            let txt = T.pack (show e)
+            runSqlPool
+              ( update
+                  taskKey
+                  [ TaskFinishedAt =. Just finishedAt
+                  , TaskResult =. TaskError
+                  , TaskMessage =. Just txt
+                  ]
+              )
+              pool
+            pushEvent (PB.BuildLogLine ("internal error: " <> txt))
+            finalize (PB.PipelineEnd (PB.BuildResult []))
+      pure CGCorvus.Daemon'build'results {CGCorvus.taskId = tid}
+
+-- | Call a method on a non-bootstrap cap. Mirrors the @callOn@
+-- helper on the client side; lives here too because the daemon
+-- needs to call back through caps it has been handed (e.g.
+-- a 'BuildEventSink').
+callSink
+  :: ( C.IsCap iface
+     , C.IsStruct params
+     , C.IsStruct results
+     , C.Parse params (C.Parsed params)
+     , C.Parse results (C.Parsed results)
+     )
+  => C.Method iface params results
+  -> C.Parsed params
+  -> C.Client iface
+  -> IO ()
+callSink method p client = do
+  _ <- (client & C.callP method p) >>= C.waitPipeline
+  pure ()
 
 -- | Empty 'ApplyResult', used as the value of the @result@ field in
 -- async apply replies (where the actual creation list is delivered

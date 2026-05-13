@@ -57,6 +57,7 @@ import Network.Socket
   , socket
   )
 import qualified Network.Socket as NS
+import Supervisors (Supervisor, withSupervisor)
 
 -- | A live Cap'n Proto client session. Holds the open socket plus
 -- the bootstrap 'Daemon' client cap; closes both via
@@ -65,14 +66,17 @@ data CapnpConnection = CapnpConnection
   { ccDaemon :: !(C.Client CGCorvus.Daemon)
   -- ^ Bootstrap cap. Use as the entry point for everything else
   -- (e.g. @C.callP \#vms def ccDaemon@).
+  , ccSupervisor :: !Supervisor
+  -- ^ Supervisor that owns any client-side caps the caller exports
+  -- (e.g. 'BuildEventSink' for streaming builds, 'ByteSink' for
+  -- the serial console). Lives for the lifetime of the connection.
   , ccClose :: !(IO ())
-  -- ^ Tear-down action. Closes the underlying socket and cancels
-  -- the connection handler thread.
+  -- ^ Tear-down action. Closes the underlying socket, cancels the
+  -- connection handler thread, and releases the supervisor.
   , ccSocket :: !Socket
-  -- ^ Raw socket. Retained for transitional code that does
-  -- protocol-upgrades (serial console, HMP monitor); Phase 6
-  -- replaces those with proper Cap'n Proto streaming sinks and
-  -- the field can be removed.
+  -- ^ Raw socket. Retained for transitional code paths during the
+  -- Phase 6 streaming rollout; replaced once every protocol upgrade
+  -- has a Cap'n Proto sink.
   }
 
 -- | Connection-level errors. Maps roughly onto the legacy
@@ -144,17 +148,25 @@ openCapnpConnection addr = do
     Right sock -> attachVat sock
 
 -- | Attach a Cap'n Proto vat to the open socket and request the
--- bootstrap cap. Runs the vat's I/O loop on a background async so
--- the caller's thread is free to issue RPC calls.
+-- bootstrap cap. Runs the vat's I/O loop on one background async,
+-- and a long-lived 'Supervisor' (used to export client-side caps
+-- like 'BuildEventSink' / 'ByteSink' for the streaming flows) on
+-- another. Both are torn down via 'ccClose'.
 attachVat :: Socket -> IO (Either CapnpConnectionError CapnpConnection)
 attachVat sock = do
   let transport = socketTransport sock C.defaultLimit
       cfg = Def.def {debugMode = False}
-  -- We need the bootstrap cap synchronously after acquireConn.
-  -- Use a one-shot MVar to hand the Client out from inside the
-  -- handleConn callback.
+  -- We need the bootstrap cap and the supervisor synchronously
+  -- after spawning their async loops. Hand them out via one-shot
+  -- MVars and use a paired stop MVar to release each.
   bootBox <- newEmptyMVar :: IO (MVar (Either CapnpConnectionError (C.Client CGCorvus.Daemon)))
   stopBox <- newEmptyMVar :: IO (MVar ())
+  supBox <- newEmptyMVar :: IO (MVar Supervisor)
+  supStopBox <- newEmptyMVar :: IO (MVar ())
+  supThread <- async $ withSupervisor $ \sup -> do
+    putMVar supBox sup
+    takeMVar supStopBox
+  sup <- takeMVar supBox
   hConn <- async $ do
     r <- try $ withConn transport cfg $ \conn -> do
       bootResult <- try $ do
@@ -181,6 +193,8 @@ attachVat sock = do
   case bootResult of
     Left err -> do
       cancel hConn
+      _ <- try (putMVar supStopBox ()) :: IO (Either SomeException ())
+      cancel supThread
       close sock
       pure (Left err)
     Right daemon ->
@@ -188,11 +202,14 @@ attachVat sock = do
         ( Right
             CapnpConnection
               { ccDaemon = daemon
+              , ccSupervisor = sup
               , ccClose = do
-                  -- Signal the handler to release its block, then
-                  -- cancel + close the socket.
+                  -- Signal both handlers to release their blocks,
+                  -- then cancel everything and close the socket.
                   _ <- try (putMVar stopBox ()) :: IO (Either SomeException ())
+                  _ <- try (putMVar supStopBox ()) :: IO (Either SomeException ())
                   cancel hConn
+                  cancel supThread
                   close sock
               , ccSocket = sock
               }

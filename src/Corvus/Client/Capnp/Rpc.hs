@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Cap'n Proto-backed client RPC wrappers.
 --
@@ -29,6 +30,7 @@ module Corvus.Client.Capnp.Rpc
   , rpcStatus
   , rpcShutdown
   , rpcApply
+  , rpcBuild
 
     -- * Resource read methods
   , rpcVmList
@@ -115,6 +117,7 @@ module Corvus.Client.Capnp.Rpc
   )
 where
 
+import Capnp (export)
 import qualified Capnp as C
 import qualified Capnp.Gen.Cloudinit as CGCI
 import qualified Capnp.Gen.Common as CGCommon
@@ -123,9 +126,12 @@ import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Network as CGNet
 import qualified Capnp.Gen.Sshkey as CGSsh
+import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGTask
 import qualified Capnp.Gen.Template as CGTmpl
 import qualified Capnp.Gen.Vm as CGVm
+import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Model
   ( CacheType
@@ -137,6 +143,7 @@ import Corvus.Model
   )
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.Apply as PA
+import Corvus.Protocol.Build (BuildEvent)
 import qualified Corvus.Protocol.CloudInit as PCI
 import qualified Corvus.Protocol.Disk as PD
 import qualified Corvus.Protocol.Network as PN
@@ -146,6 +153,7 @@ import qualified Corvus.Protocol.Task as PT
 import qualified Corvus.Protocol.Template as PTm
 import qualified Corvus.Protocol.Vm as PV
 import Corvus.Wire.Apply (fromCapnpApplyResult)
+import Corvus.Wire.Build (fromCapnpBuildEvent)
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Corvus.Wire.Common (EntityRef, ViewGrant (..), fromCapnpStatusInfo, fromCapnpViewGrant, toCapnpEntityRef)
 import qualified Corvus.Wire.Disk as WDisk
@@ -1104,6 +1112,59 @@ rpcApply conn yaml skipExisting wait = do
         }
       (ccDaemon conn)
   pure (fromCapnpApplyResult r, tid)
+
+-- =====================================================================
+-- Build (streaming)
+-- =====================================================================
+
+-- | Client-side @BuildEventSink@ implementation. The daemon calls
+-- 'push' for each 'BuildEvent' emitted by the pipeline and 'end'
+-- once when the pipeline finishes; both forward to the IO actions
+-- the caller supplied.
+data ClientBuildEventSink = ClientBuildEventSink
+  { cbsOnEvent :: BuildEvent -> IO ()
+  , cbsOnEnd :: IO ()
+  }
+
+instance SomeServer ClientBuildEventSink
+
+instance CGS.BuildEventSink'server_ ClientBuildEventSink where
+  buildEventSink'push (ClientBuildEventSink onEv _) =
+    handleParsed $ \CGS.BuildEventSink'push'params {CGS.event = cev} -> do
+      case fromCapnpBuildEvent cev of
+        Right ev -> do
+          _ <- try (onEv ev) :: IO (Either SomeException ())
+          pure ()
+        Left _ -> pure ()
+      pure CGS.BuildEventSink'push'results
+
+  buildEventSink'end (ClientBuildEventSink _ onEnd) =
+    handleParsed $ \_ -> do
+      _ <- try onEnd :: IO (Either SomeException ())
+      pure CGS.BuildEventSink'end'results
+
+-- | Run a build pipeline on the daemon, streaming each emitted
+-- 'BuildEvent' through @onEvent@. Returns the parent task id as
+-- soon as the daemon has created it; @onEvent@ continues to fire
+-- on the connection's supervisor threads until the daemon calls
+-- @end@ on the sink, at which point @onEnd@ is invoked once.
+--
+-- The caller is expected to block (e.g. on an MVar populated by
+-- @onEnd@) if it wants to wait for completion.
+rpcBuild
+  :: CapnpConnection
+  -> Text
+  -> (BuildEvent -> IO ())
+  -> IO ()
+  -> IO Int64
+rpcBuild conn yaml onEvent onEnd = do
+  sinkClient <- export @CGS.BuildEventSink (ccSupervisor conn) (ClientBuildEventSink onEvent onEnd)
+  CGCorvus.Daemon'build'results {CGCorvus.taskId = tid} <-
+    callOn
+      #build
+      CGCorvus.Daemon'build'params {CGCorvus.yaml = yaml, CGCorvus.sink = sinkClient}
+      (ccDaemon conn)
+  pure tid
 
 -- =====================================================================
 -- Cloud-init manager
