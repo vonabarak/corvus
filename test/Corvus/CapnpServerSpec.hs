@@ -14,6 +14,7 @@ module Corvus.CapnpServerSpec (spec) where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Corvus as CGCorvus
+import qualified Capnp.Gen.Enums as CapnpEnums
 import Capnp.Rpc
   ( ConnConfig (..)
   , fromClient
@@ -30,6 +31,7 @@ import qualified Corvus.Protocol as P
 import qualified Corvus.Qemu.Config as Q
 import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Types (ListenAddress (..), newServerState)
+import qualified Corvus.Wire.Common as WC
 import Data.Function ((&))
 import Network.Socket
   ( Family (..)
@@ -98,6 +100,38 @@ spec = withTestDb $ do
         ks `shouldBe` []
         ts <- CR.rpcTemplateList conn
         ts `shouldBe` []
+
+  describe "Cap'n Proto mutation wrappers (Phase 4f)" $ do
+    it "VM lifecycle: create → list (length 1) → delete → list (empty)" $ \env -> do
+      withCapnpDaemon env $ \conn -> do
+        vid <- CR.rpcVmCreate conn "spec-vm" 1 1024 Nothing True False False False
+        vms <- CR.rpcVmList conn
+        length vms `shouldBe` 1
+        CR.rpcVmDelete conn (WC.RefById vid) False
+        vmsAfter <- CR.rpcVmList conn
+        vmsAfter `shouldBe` []
+
+    it "SSH key lifecycle: create → list → delete → list (empty)" $ \env -> do
+      withCapnpDaemon env $ \conn -> do
+        kid <-
+          CR.rpcSshKeyCreate
+            conn
+            "spec-key"
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE0123456789abcdef test@example"
+        keys <- CR.rpcSshKeyList conn
+        length keys `shouldBe` 1
+        CR.rpcSshKeyDelete conn (WC.RefById kid)
+        keysAfter <- CR.rpcSshKeyList conn
+        keysAfter `shouldBe` []
+
+    it "Disk lifecycle: create → list → delete → list (empty)" $ \env -> do
+      withCapnpDaemon env $ \conn -> do
+        did <- CR.rpcDiskCreate conn "spec-disk" 10 CapnpEnums.DriveFormat'qcow2
+        ds <- CR.rpcDiskList conn
+        length ds `shouldBe` 1
+        CR.rpcDiskDelete conn (WC.RefById did)
+        dsAfter <- CR.rpcDiskList conn
+        dsAfter `shouldBe` []
 
 waitForSocket :: FilePath -> IO ()
 waitForSocket p = go (50 :: Int)
