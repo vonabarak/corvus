@@ -162,6 +162,7 @@ library
       Corvus.Rpc.Task
       Corvus.Rpc.CloudInit
       Corvus.Client.Capnp.Connection
+      Corvus.Client.Capnp.Rpc
       Capnp.Gen.Corvus
       Capnp.Gen.Common
       Capnp.Gen.Enums

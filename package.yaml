@@ -205,6 +205,7 @@ library:
     - Corvus.Rpc.Task
     - Corvus.Rpc.CloudInit
     - Corvus.Client.Capnp.Connection
+    - Corvus.Client.Capnp.Rpc
     # Cap'n Proto generated modules (auto-generated from schema/*.capnp).
     # Only the umbrella per-schema-file modules are exposed; the
     # ById/* internal modules stay private to the corvus library.
