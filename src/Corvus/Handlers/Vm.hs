@@ -196,16 +196,35 @@ handleVmStartExecute state vmId parentTaskId = do
           resp <- startQemuAndMonitor state vmId vm parentTaskId
           case resp of
             RespVmStateChanged _ -> do
-              -- Wait for guest agent if enabled (blocking)
+              -- Wait for guest agent if enabled (blocking). The
+              -- wait exits early when the VM loses its PID,
+              -- which is also how the monitor thread signals a
+              -- QEMU crash (e.g. memory allocation failure).
               when (vmGuestAgent vm) $ do
                 logInfoN $ "Waiting for guest agent on VM " <> T.pack (show vmId)
                 liftIO $ waitForFirstPing state vmId
-              -- Start steady-state poller for ongoing healthchecks
-              when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
-                liftIO $
-                  startGuestAgentPoller state (qcHealthcheckInterval $ ssQemuConfig state) vmId
-              -- Return final status (Running, since we waited for agent)
-              pure $ RespVmStateChanged VmRunning
+              -- Re-read the VM's status. If it's already 'error'
+              -- (monitor thread saw QEMU exit non-zero) or
+              -- 'stopped' (something else cleared the PID),
+              -- surface that as a typed RespError rather than
+              -- pretending the VM is running — the caller's next
+              -- step (typically a guest-exec) would otherwise
+              -- get a confusing "shell agent connection failed".
+              mFresh <- liftIO $ runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
+              case mFresh of
+                Just vmFresh
+                  | vmStatus vmFresh == VmError ->
+                      pure $ RespError $ "VM " <> T.pack (show vmId) <> " exited with error during boot"
+                  | vmStatus vmFresh `notElem` [VmRunning, VmStarting] ->
+                      pure $
+                        RespError $
+                          "VM " <> T.pack (show vmId) <> " is no longer running (status: " <> enumToText (vmStatus vmFresh) <> ")"
+                _ -> do
+                  -- Start steady-state poller for ongoing healthchecks
+                  when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
+                    liftIO $
+                      startGuestAgentPoller state (qcHealthcheckInterval $ ssQemuConfig state) vmId
+                  pure $ RespVmStateChanged VmRunning
             _ -> pure resp
 
 -- | Resume a paused VM via QMP continue
