@@ -231,13 +231,20 @@ stack exec crv -- vm list
 
 ### Communication Protocol
 
-Client and daemon communicate over TCP or Unix socket using a binary protocol:
+Client and daemon communicate over TCP or Unix socket using
+[Cap'n Proto](https://capnproto.org/) RPC. The wire schema lives in
+[`schema/`](../schema/) and is the source of truth; see
+[`doc/rpc-protocol.md`](rpc-protocol.md) for a full tour of the
+capability tree (Daemon → managers → resources), the streaming
+sinks (`ByteSink`, `BuildEventSink`, `GuestAgentStatusSink`,
+`TaskProgressSink`), and a pycapnp client example.
 
-1. **Version byte**: protocol version (for compatibility checks)
-2. **Length prefix**: 8-byte big-endian integer
-3. **Payload**: Binary-encoded request/response via `Data.Binary`
-
-Most commands follow a simple request/response pattern. The serial console (`crv vm view` on headless VMs) is an exception: after the initial `ReqSerialConsole` / `RespSerialConsoleOk` handshake, the connection switches to **raw byte streaming** — the framed binary protocol is abandoned and both sides relay bytes directly between the client terminal and the VM's serial socket. The connection stays in streaming mode until the client disconnects (via the `Ctrl+]` escape sequence).
+Streaming flows use Cap'n Proto sinks rather than a protocol-upgrade
+escape hatch: `crv vm view` on a headless VM, `crv vm monitor`,
+and `crv build --wait` each hand the daemon a sink cap, the daemon
+pushes events through it, and the client closes the relay by
+dropping the sink (typically via the `Ctrl+]` escape sequence on
+interactive consoles).
 
 ### Process Management
 

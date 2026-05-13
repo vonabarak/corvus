@@ -7,21 +7,34 @@ QEMU/KVM virtual machine management daemon with a CLI client, written in Haskell
 ### Executables
 
 - **`corvus`** — daemon that manages VM lifecycle, listens on TCP or Unix socket
-- **`crv`** — CLI client that communicates with the daemon via binary RPC
+- **`crv`** — CLI client that communicates with the daemon via Cap'n Proto RPC
 
 ### Communication
 
-Binary RPC protocol (`Data.Binary`) over TCP or Unix socket. Request/response types defined in `src/Corvus/Protocol.hs`.
+Cap'n Proto RPC over TCP or Unix socket. The wire schema is the source of truth and
+lives under [`schema/`](schema/) (regenerate Haskell bindings with `make capnp`).
+The daemon's bootstrap cap is `Daemon` (`schema/corvus.capnp`); every subsystem
+hangs off it as a manager → resource cap hierarchy. Streaming flows (serial
+console, HMP monitor, build events, guest-agent status, task progress) use the
+sink caps in `schema/streams.capnp`. See [`doc/rpc-protocol.md`](doc/rpc-protocol.md)
+for a full tour and a pycapnp client example.
+
+`src/Corvus/Protocol.hs` and `src/Corvus/Protocol/*.hs` retain the **internal** DTOs
+(VmInfo, DiskImageInfo, …) that handlers return and that the Wire layer converts
+into the Cap'n Proto structs in `Capnp.Gen.*`.
 
 ### Module Layout
 
 ```
 src/Corvus/
-├── Protocol.hs          # Binary RPC message types (Request/Response)
-├── Types.hs             # Server state, config, listen addresses
-├── Server.hs            # Socket listener, request dispatch
+├── Protocol.hs          # Internal handler-return DTOs (VmInfo, DiskImageInfo, …)
+├── Types.hs             # Server state, config, listen addresses, subscriber TVars
+├── Server.hs            # Startup + graceful-shutdown helpers (the Cap'n Proto listener lives in Rpc/Server.hs)
 ├── Model.hs             # Persistent ORM schema, enums, migrations
-├── Handlers.hs          # Central request dispatcher
+├── Handlers.hs          # Read-only task helpers (the legacy big-Request dispatcher is gone post-Cap'n-Proto)
+├── Rpc/                 # Cap'n Proto cap implementations (Daemon, Vm, Disk, Network, SshKey, Template, Task, CloudInit, Streams)
+├── Wire/                # Haskell ↔ Cap'n Proto struct converters (Common, Vm, Disk, Build, Task, Enums, …)
+├── Client/Capnp/        # Client-side Cap'n Proto session (Connection, Rpc wrappers, sink server impls)
 ├── CloudInit.hs         # Cloud-init NoCloud ISO generation + SSH key injection
 ├── Handlers/
 │   ├── Core.hs          # Ping, status, shutdown

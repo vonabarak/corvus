@@ -22,6 +22,11 @@
 - [Apply Configuration](apply-configuration.md) -- Declare entire environments in a single YAML file
 - [Image Builds](image-builds.md) -- Bake reusable disk images via a procedural pipeline
 
+## Protocol & Integrations
+
+- [RPC Protocol](rpc-protocol.md) -- Cap'n Proto schema overview, capability tree, streaming sinks, pycapnp client example
+- [Integration Test Coverage (pre-Cap'n Proto snapshot)](integration-tests-pre-capnp.md) -- Catalogue of the integration tests pending re-implementation on the new wire
+
 ## Examples
 
 YAML configurations live under [yaml/](../yaml/), with one subdirectory per
