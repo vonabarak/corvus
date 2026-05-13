@@ -362,21 +362,16 @@ test-suite corvus-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Corvus.ApplyIntegrationSpec
       Corvus.ApplySpec
       Corvus.BuildCleanupSpec
-      Corvus.BuildIntegrationSpec
       Corvus.BuildSchemaSpec
       Corvus.BuildStreamSpec
       Corvus.CapnpServerSpec
       Corvus.ClientOutputSpec
-      Corvus.CloudInitIntegrationSpec
       Corvus.CloudInitSpec
       Corvus.CoreSpec
-      Corvus.DiskIntegrationSpec
       Corvus.DiskSpec
       Corvus.EmitSpec
-      Corvus.GuestAgentPollerIntegrationSpec
       Corvus.GuestAgentSpec
       Corvus.GuestExecSpec
       Corvus.ImageSpec
@@ -385,9 +380,7 @@ test-suite corvus-test
       Corvus.NetworkSpec
       Corvus.ProcessSpec
       Corvus.QmpSpec
-      Corvus.SerialConsoleIntegrationSpec
       Corvus.SharedDirSpec
-      Corvus.SnapshotIntegrationSpec
       Corvus.SnapshotSpec
       Corvus.SocketBufferSpec
       Corvus.SpicePortSpec
@@ -395,15 +388,11 @@ test-suite corvus-test
       Corvus.StartupShutdownSpec
       Corvus.SubnetSpec
       Corvus.TaskRecordingSpec
-      Corvus.TemplateIntegrationSpec
       Corvus.TemplateSpec
       Corvus.TemplateYamlSpec
       Corvus.ViewGrantSpec
-      Corvus.VirtiofsIntegrationSpec
-      Corvus.VmIntegrationSpec
       Corvus.VmSpec
       Corvus.VmTransitionSpec
-      Corvus.WindowsIntegrationSpec
       Corvus.WireSpec
       SpecHook
       Test.Database
