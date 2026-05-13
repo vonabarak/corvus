@@ -127,6 +127,7 @@ library
       Corvus.Wire.Template
       Corvus.Rpc.Server
       Corvus.Rpc.Common
+      Corvus.Rpc.Streams
       Corvus.Rpc.Daemon
       Corvus.Rpc.Vm
       Corvus.Rpc.Disk

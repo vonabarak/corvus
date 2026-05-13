@@ -1,5 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -31,6 +32,10 @@ module Corvus.Client.Capnp.Rpc
   , rpcShutdown
   , rpcApply
   , rpcBuild
+
+    -- * VM streaming (Phase 6b)
+  , rpcVmSerialConsole
+  , rpcVmHmpMonitor
 
     -- * Resource read methods
   , rpcVmList
@@ -132,6 +137,7 @@ import qualified Capnp.Gen.Template as CGTmpl
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc.Server (SomeServer, handleParsed)
 import Control.Exception (SomeException, try)
+import qualified Control.Monad
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
 import Corvus.Model
   ( CacheType
@@ -172,6 +178,7 @@ import qualified Corvus.Wire.SshKey as WSsh
 import qualified Corvus.Wire.Task as WTask
 import qualified Corvus.Wire.Template as WTmpl
 import qualified Corvus.Wire.Vm as WVm
+import qualified Data.ByteString as BS
 import Data.Function ((&))
 import Data.Int (Int64)
 import qualified Data.Maybe
@@ -1165,6 +1172,110 @@ rpcBuild conn yaml onEvent onEnd = do
       CGCorvus.Daemon'build'params {CGCorvus.yaml = yaml, CGCorvus.sink = sinkClient}
       (ccDaemon conn)
   pure tid
+
+-- =====================================================================
+-- VM streaming (Phase 6b)
+-- =====================================================================
+
+-- | Client-side 'ByteSink' implementation. The daemon calls 'write'
+-- once per chunk of QEMU output; 'end' is invoked when the daemon
+-- closes the relay (e.g. QEMU exited).
+data ClientByteSink = ClientByteSink
+  { cbsOnWrite :: BS.ByteString -> IO ()
+  , cbsOnEnd :: IO ()
+  }
+
+instance SomeServer ClientByteSink
+
+instance CGS.ByteSink'server_ ClientByteSink where
+  byteSink'write (ClientByteSink onWrite _) =
+    handleParsed $ \CGS.ByteSink'write'params {CGS.chunk = chunk} -> do
+      _ <- try (onWrite chunk) :: IO (Either SomeException ())
+      pure CGS.ByteSink'write'results
+  byteSink'end (ClientByteSink _ onEnd) =
+    handleParsed $ \_ -> do
+      _ <- try onEnd :: IO (Either SomeException ())
+      pure CGS.ByteSink'end'results
+
+-- | Internal helper: factor the @ByteSink-in -> input cap-out@
+-- dance shared by 'rpcVmSerialConsole' and 'rpcVmHmpMonitor'.
+-- Returns a tuple of @(writeInput, endInput)@: call @writeInput@
+-- to forward a chunk of client input to QEMU, call @endInput@ when
+-- you're done.
+streamByteSinkMethod
+  :: ( C.IsCap iface
+     , C.IsStruct params
+     , C.IsStruct results
+     , C.Parse params (C.Parsed params)
+     , C.Parse results (C.Parsed results)
+     )
+  => CapnpConnection
+  -> C.Client iface
+  -> C.Method iface params results
+  -> (C.Client CGS.ByteSink -> C.Parsed params)
+  -- ^ Build the @params@ struct from the (just-exported) client
+  -- output sink.
+  -> (C.Parsed results -> C.Client CGS.ByteSink)
+  -- ^ Extract the server-supplied input sink from the @results@.
+  -> (BS.ByteString -> IO ())
+  -- ^ Output callback: invoked with every chunk QEMU sent.
+  -> IO ()
+  -- ^ End callback: invoked once when the daemon closes the sink.
+  -> IO (BS.ByteString -> IO (), IO ())
+streamByteSinkMethod conn iface method mkParams getInput onOut onEnd = do
+  outSink <- export @CGS.ByteSink (ccSupervisor conn) (ClientByteSink onOut onEnd)
+  results <- callOn method (mkParams outSink) iface
+  let input = getInput results
+      writeInput chunk =
+        Control.Monad.void $
+          callOn
+            #write
+            CGS.ByteSink'write'params {CGS.chunk = chunk}
+            input
+      endInput =
+        Control.Monad.void (callOn #end CGS.ByteSink'end'params input)
+  pure (writeInput, endInput)
+
+-- | Attach to a VM's serial console. Returns @(writeInput, end)@:
+-- call @writeInput@ to forward client keystrokes to QEMU, call
+-- @end@ when the client side closes the session. @onOutput@ fires
+-- on every chunk of serial output from QEMU; @onEnd@ fires once
+-- when the daemon closes its side of the relay (e.g. VM exits).
+rpcVmSerialConsole
+  :: CapnpConnection
+  -> EntityRef
+  -> (BS.ByteString -> IO ())
+  -> IO ()
+  -> IO (BS.ByteString -> IO (), IO ())
+rpcVmSerialConsole conn vmRef onOutput onEnd = do
+  vmClient <- getVmClient conn vmRef
+  streamByteSinkMethod
+    conn
+    vmClient
+    #serialConsole
+    (\sink -> CGVm.Vm'serialConsole'params {CGVm.sink = sink})
+    (\CGVm.Vm'serialConsole'results {CGVm.input} -> input)
+    onOutput
+    onEnd
+
+-- | Attach to a VM's HMP monitor. Same shape as
+-- 'rpcVmSerialConsole'.
+rpcVmHmpMonitor
+  :: CapnpConnection
+  -> EntityRef
+  -> (BS.ByteString -> IO ())
+  -> IO ()
+  -> IO (BS.ByteString -> IO (), IO ())
+rpcVmHmpMonitor conn vmRef onOutput onEnd = do
+  vmClient <- getVmClient conn vmRef
+  streamByteSinkMethod
+    conn
+    vmClient
+    #hmpMonitor
+    (\sink -> CGVm.Vm'hmpMonitor'params {CGVm.sink = sink})
+    (\CGVm.Vm'hmpMonitor'results {CGVm.input} -> input)
+    onOutput
+    onEnd
 
 -- =====================================================================
 -- Cloud-init manager

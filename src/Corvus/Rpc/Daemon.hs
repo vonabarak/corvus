@@ -44,6 +44,7 @@ import Corvus.Rpc.CloudInit (newCloudInitManagerCap)
 import Corvus.Rpc.Disk (newDiskManagerCap)
 import Corvus.Rpc.Network (newNetworkManagerCap)
 import Corvus.Rpc.SshKey (newSshKeyManagerCap)
+import Corvus.Rpc.Streams (callSink)
 import Corvus.Rpc.Task (newTaskManagerCap)
 import Corvus.Rpc.Template (newTemplateManagerCap)
 import Corvus.Rpc.Vm (newVmManagerCap)
@@ -234,25 +235,6 @@ instance CGCorvus.Daemon'server_ DaemonCap where
             pushEvent (PB.BuildLogLine ("internal error: " <> txt))
             finalize (PB.PipelineEnd (PB.BuildResult []))
       pure CGCorvus.Daemon'build'results {CGCorvus.taskId = tid}
-
--- | Call a method on a non-bootstrap cap. Mirrors the @callOn@
--- helper on the client side; lives here too because the daemon
--- needs to call back through caps it has been handed (e.g.
--- a 'BuildEventSink').
-callSink
-  :: ( C.IsCap iface
-     , C.IsStruct params
-     , C.IsStruct results
-     , C.Parse params (C.Parsed params)
-     , C.Parse results (C.Parsed results)
-     )
-  => C.Method iface params results
-  -> C.Parsed params
-  -> C.Client iface
-  -> IO ()
-callSink method p client = do
-  _ <- (client & C.callP method p) >>= C.waitPipeline
-  pure ()
 
 -- | Empty 'ApplyResult', used as the value of the @result@ field in
 -- async apply replies (where the actual creation list is delivered

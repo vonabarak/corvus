@@ -25,9 +25,11 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Common as CGCommon
 import qualified Capnp.Gen.Enums as CGE
+import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
+import Control.Concurrent.STM (readTVarIO)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.GuestExec (GuestExec (..))
@@ -56,6 +58,7 @@ import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.CloudInit as PCI
 import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
+import Corvus.Rpc.Streams (runByteSinkRelay)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (toCapnpCloudInitInfo)
 import Corvus.Wire.Common (ViewGrant (..), toCapnpViewGrant)
@@ -71,6 +74,7 @@ import Corvus.Wire.SharedDir (toCapnpSharedDirInfo)
 import Corvus.Wire.SshKey (toCapnpSshKeyInfo)
 import Corvus.Wire.Vm (toCapnpNetIfInfo, toCapnpVmDetails, toCapnpVmInfo)
 import Data.Int (Int64)
+import qualified Data.Map.Strict as Map
 import qualified Data.Maybe
 import qualified Data.Text as T
 import Database.Persist (get)
@@ -266,11 +270,34 @@ instance CGVm.Vm'server_ VmCap where
       _ -> throwFailed "vm'sendCtrlAltDel: unexpected response"
 
   -- -------------------------------------------------------------------
-  -- Streaming methods (deferred to Phase 6)
+  -- Streaming methods
   -- -------------------------------------------------------------------
 
-  vm'serialConsole _ = methodUnimplemented
-  vm'hmpMonitor _ = methodUnimplemented
+  -- Bidirectional serial-console relay. The client passes its
+  -- 'ByteSink' (where QEMU's output goes); the daemon pushes the
+  -- ring-buffer contents through it and returns an input
+  -- 'ByteSink' the client can write into to forward bytes to
+  -- QEMU.
+  vm'serialConsole (VmCap st sup eid) =
+    handleParsed $ \CGVm.Vm'serialConsole'params {CGVm.sink = sinkClient} -> do
+      buffers <- readTVarIO (ssSerialBuffers st)
+      case Map.lookup eid buffers of
+        Nothing -> throwFailed "Serial console buffer not available"
+        Just sbh -> do
+          inputCap <- runByteSinkRelay sup sbh sinkClient
+          pure CGVm.Vm'serialConsole'results {CGVm.input = inputCap}
+
+  -- HMP monitor: identical shape to serialConsole but rides the
+  -- per-VM monitor buffer.
+  vm'hmpMonitor (VmCap st sup eid) =
+    handleParsed $ \CGVm.Vm'hmpMonitor'params {CGVm.sink = sinkClient} -> do
+      buffers <- readTVarIO (ssMonitorBuffers st)
+      case Map.lookup eid buffers of
+        Nothing -> throwFailed "HMP monitor buffer not available"
+        Just sbh -> do
+          inputCap <- runByteSinkRelay sup sbh sinkClient
+          pure CGVm.Vm'hmpMonitor'results {CGVm.input = inputCap}
+
   vm'subscribeGuestAgent _ = methodUnimplemented
 
   vm'serialConsoleFlush (VmCap st _ eid) = handleParsed $ \_ -> do
