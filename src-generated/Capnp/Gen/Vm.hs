@@ -498,9 +498,9 @@ instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
 instance (GH.HasField "name" GH.Slot VmCreateParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "cpuCount" GH.Slot VmCreateParams Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 0 32 0)
+    fieldByLabel  = (GH.dataField 0 0 32 1)
 instance (GH.HasField "ramMb" GH.Slot VmCreateParams Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 0 32 0)
+    fieldByLabel  = (GH.dataField 32 0 32 1024)
 instance (GH.HasField "description" GH.Slot VmCreateParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "headless" GH.Slot VmCreateParams Std_.Bool) where
@@ -676,7 +676,7 @@ instance (GH.HasField "media" GH.Slot DriveAttachParams Capnp.Gen.ById.Xbf9b09f6
 instance (GH.HasField "readOnly" GH.Slot DriveAttachParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 32 0 1 0)
 instance (GH.HasField "cacheType" GH.Slot DriveAttachParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.CacheType) where
-    fieldByLabel  = (GH.dataField 48 0 16 0)
+    fieldByLabel  = (GH.dataField 48 0 16 1)
 instance (GH.HasField "discard" GH.Slot DriveAttachParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 33 0 1 0)
 data NetIfAddParams 
@@ -766,7 +766,7 @@ instance (GH.HasField "path" GH.Slot SharedDirAddParams Basics.Text) where
 instance (GH.HasField "tag" GH.Slot SharedDirAddParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "cache" GH.Slot SharedDirAddParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.SharedDirCache) where
-    fieldByLabel  = (GH.dataField 0 0 16 0)
+    fieldByLabel  = (GH.dataField 0 0 16 1)
 instance (GH.HasField "readOnly" GH.Slot SharedDirAddParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 0 1 0)
 data GuestExecResult 

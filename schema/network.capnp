@@ -23,11 +23,13 @@ struct NetworkInfo {
 # ---------------------------------------------------------------------
 
 struct NetworkCreateParams {
+  # `name` and `subnet` are mandatory; the toggles default off to
+  # match `crv network create`.
   name      @0 :Text;
   subnet    @1 :Text;
-  dhcp      @2 :Bool;
-  nat       @3 :Bool;
-  autostart @4 :Bool;
+  dhcp      @2 :Bool = false;
+  nat       @3 :Bool = false;
+  autostart @4 :Bool = false;
 }
 
 struct NetworkEditParams {
@@ -56,7 +58,8 @@ interface NetworkManager {
 interface Network {
   show   @0 () -> (info :NetworkInfo);
   start  @1 () -> ();
-  stop   @2 (force :Bool) -> ();
+  # `force` defaults to false to match `crv network stop`.
+  stop   @2 (force :Bool = false) -> ();
   edit   @3 (params :NetworkEditParams) -> ();
   delete @4 () -> ();
 }

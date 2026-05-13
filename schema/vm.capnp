@@ -86,14 +86,17 @@ struct SharedDirInfo {
 # ---------------------------------------------------------------------
 
 struct VmCreateParams {
+  # `name` is the only mandatory field. The remaining defaults
+  # mirror the `crv vm create` CLI defaults so callers can omit
+  # any field they don't care about.
   name            @0  :Text;
-  cpuCount        @1  :Int32;
-  ramMb           @2  :Int32;
-  description     @3  :Text;     # empty == none
-  headless        @4  :Bool;
-  guestAgent      @5  :Bool;
-  cloudInit       @6  :Bool;
-  autostart       @7  :Bool;
+  cpuCount        @1  :Int32 = 1;
+  ramMb           @2  :Int32 = 1024;
+  description     @3  :Text;        # empty == none
+  headless        @4  :Bool = false;
+  guestAgent      @5  :Bool = false;
+  cloudInit       @6  :Bool = false;
+  autostart       @7  :Bool = false;
   drives          @8  :List(DriveAttachParams);
   netIfs          @9  :List(NetIfAddParams);
   sshKeys         @10 :List(Common.EntityRef);
@@ -122,26 +125,34 @@ struct VmEditParams {
 }
 
 struct DriveAttachParams {
+  # Defaults mirror `crv disk attach`: virtio interface, no media
+  # override (treats as plain `disk`), writeback cache, no discard,
+  # read-write.
   diskRef    @0 :Common.EntityRef;
-  interface  @1 :Enums.DriveInterface;
-  media      @2 :Enums.DriveMedia;
-  readOnly   @3 :Bool;
-  cacheType  @4 :Enums.CacheType;
-  discard    @5 :Bool;
+  interface  @1 :Enums.DriveInterface = virtio;
+  media      @2 :Enums.DriveMedia = disk;
+  readOnly   @3 :Bool = false;
+  cacheType  @4 :Enums.CacheType = writeback;
+  discard    @5 :Bool = false;
 }
 
 struct NetIfAddParams {
-  type         @0 :Enums.NetInterfaceType;
-  hostDevice   @1 :Text;   # empty == auto
-  macAddress   @2 :Text;   # empty == generate
-  networkRef   @3 :Common.EntityRef;  # for `managed` type; else id=0 or name=""
+  # Defaults mirror `crv net-if add`: a `user` (SLIRP) interface
+  # with no host device, no MAC pin (the daemon picks one), no
+  # managed-network binding.
+  type         @0 :Enums.NetInterfaceType = user;
+  hostDevice   @1 :Text;     # empty == auto
+  macAddress   @2 :Text;     # empty == generate
+  networkRef   @3 :Common.EntityRef;  # id=0 / name="" == no managed network
 }
 
 struct SharedDirAddParams {
+  # `path` and `tag` are mandatory; cache defaults to `auto` to
+  # match `crv shared-dir add` and read-only is opt-in.
   path      @0 :Text;
   tag       @1 :Text;
-  cache     @2 :Enums.SharedDirCache;
-  readOnly  @3 :Bool;
+  cache     @2 :Enums.SharedDirCache = auto;
+  readOnly  @3 :Bool = false;
 }
 
 struct GuestExecResult {
@@ -162,12 +173,14 @@ interface VmManager {
 
 interface Vm {
   show           @0  () -> (details :VmDetails);
-  start          @1  (wait :Bool) -> (status :Enums.VmStatus);
-  stop           @2  (wait :Bool) -> (status :Enums.VmStatus);
+  # Inline-param defaults mirror the CLI: start/stop return
+  # immediately by default; `delete` does not cascade to disks.
+  start          @1  (wait :Bool = false) -> (status :Enums.VmStatus);
+  stop           @2  (wait :Bool = false) -> (status :Enums.VmStatus);
   pause          @3  () -> (status :Enums.VmStatus);
   reset          @4  () -> (status :Enums.VmStatus);
   edit           @5  (params :VmEditParams) -> ();
-  delete         @6  (deleteDisks :Bool) -> ();
+  delete         @6  (deleteDisks :Bool = false) -> ();
   cloudInit      @7  () -> (config :CloudInit.CloudInitInfo);
   viewGrant      @8  () -> (grant :Common.ViewGrant);
   guestExec      @9  (command :Text) -> (result :GuestExecResult);

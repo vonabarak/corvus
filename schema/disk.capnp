@@ -36,15 +36,21 @@ struct SnapshotInfo {
 # ---------------------------------------------------------------------
 
 struct DiskCreateParams {
+  # `name` and `sizeMb` are mandatory; `format` defaults to qcow2
+  # to match `crv disk create`.
   name    @0 :Text;
   sizeMb  @1 :Int64;
-  format  @2 :Enums.DriveFormat;
+  format  @2 :Enums.DriveFormat = qcow2;
 }
 
 struct DiskRegisterParams {
+  # `format` is left as the schema default (qcow2). Pass an explicit
+  # value when registering raw / vmdk / ... files; the daemon does
+  # NOT auto-detect at the wire level (the CLI's auto-detection is
+  # a client-side convenience).
   name     @0 :Text;
   filePath @1 :Text;
-  format   @2 :Enums.DriveFormat;
+  format   @2 :Enums.DriveFormat = qcow2;
 }
 
 struct DiskCreateOverlayParams {
@@ -65,14 +71,14 @@ struct DiskRebaseParams {
 struct DiskImportUrlParams {
   name   @0 :Text;
   url    @1 :Text;
-  format @2 :Enums.DriveFormat;
-  sizeMb @3 :Int64;   # 0 == no resize after import
+  format @2 :Enums.DriveFormat = qcow2;
+  sizeMb @3 :Int64;                         # 0 == no resize after import
 }
 
 struct DiskImportParams {
   name    @0 :Text;
   srcPath @1 :Text;
-  format  @2 :Enums.DriveFormat;
+  format  @2 :Enums.DriveFormat = qcow2;
 }
 
 # ---------------------------------------------------------------------

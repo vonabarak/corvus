@@ -43,7 +43,8 @@ interface Daemon {
   # Declarative environment application. `wait` returns once the
   # synchronous portion of apply is done; long-running steps are
   # tracked via the returned task id.
-  apply @10 (yaml :Text, skipExisting :Bool, wait :Bool)
+  # `skipExisting` and `wait` default off to match `crv apply`.
+  apply @10 (yaml :Text, skipExisting :Bool = false, wait :Bool = false)
            -> (result :ApplyResult, taskId :Int64);
 
   # Build pipeline. The client passes a `BuildEventSink`; the daemon
