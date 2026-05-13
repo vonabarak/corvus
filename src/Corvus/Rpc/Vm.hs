@@ -29,7 +29,7 @@ import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
-import Control.Concurrent.STM (readTVarIO)
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.GuestExec (GuestExec (..))
@@ -58,7 +58,7 @@ import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.CloudInit as PCI
 import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
-import Corvus.Rpc.Streams (runByteSinkRelay)
+import Corvus.Rpc.Streams (EmptyHandle (..), runByteSinkRelay)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (toCapnpCloudInitInfo)
 import Corvus.Wire.Common (ViewGrant (..), toCapnpViewGrant)
@@ -298,7 +298,17 @@ instance CGVm.Vm'server_ VmCap where
           inputCap <- runByteSinkRelay sup sbh sinkClient
           pure CGVm.Vm'hmpMonitor'results {CGVm.input = inputCap}
 
-  vm'subscribeGuestAgent _ = methodUnimplemented
+  -- Register a 'GuestAgentStatusSink' against the per-VM
+  -- subscriber list. Returns an empty 'Handle' cap; when the
+  -- client drops it (or the sink itself), the next push attempt
+  -- raises and the subscriber is pruned from the list.
+  vm'subscribeGuestAgent (VmCap st sup eid) =
+    handleParsed $ \CGVm.Vm'subscribeGuestAgent'params {CGVm.sink = sinkClient} -> do
+      atomically $
+        modifyTVar' (ssGuestAgentSubs st) $
+          Map.insertWith (++) eid [sinkClient]
+      handle <- export @CGS.Handle sup EmptyHandle
+      pure CGVm.Vm'subscribeGuestAgent'results {CGVm.handle = handle}
 
   vm'serialConsoleFlush (VmCap st _ eid) = handleParsed $ \_ -> do
     _ <- handleSerialConsoleFlush st eid

@@ -19,6 +19,9 @@ module Corvus.Rpc.Streams
     -- * Server-side ByteSink (client → daemon direction)
   , QemuByteSink (..)
 
+    -- * Subscription handle
+  , EmptyHandle (..)
+
     -- * Internal helper: call a method on a peer cap
   , callSink
   )
@@ -101,6 +104,22 @@ instance CGS.ByteSink'server_ QemuByteSink where
       mRelay <- readTVarIO relayVar
       for_ mRelay cancel
       pure CGS.ByteSink'end'results
+
+-- ---------------------------------------------------------------------
+-- Subscription handle (empty cap)
+-- ---------------------------------------------------------------------
+
+-- | Placeholder 'Handle' cap returned by every @subscribe@-style
+-- method. The 'Handle' schema has no methods; clients use this
+-- cap purely as a lifetime token: when they drop it, the server's
+-- next push to the corresponding sink fails and the subscriber is
+-- pruned. We re-export it from a single module so every
+-- subscription endpoint shares one implementation.
+data EmptyHandle = EmptyHandle
+
+instance SomeServer EmptyHandle
+
+instance CGS.Handle'server_ EmptyHandle
 
 -- ---------------------------------------------------------------------
 -- Bidirectional relay setup

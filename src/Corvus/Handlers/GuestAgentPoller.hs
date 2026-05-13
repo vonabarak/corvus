@@ -1,3 +1,6 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -7,10 +10,14 @@
 module Corvus.Handlers.GuestAgentPoller
   ( startGuestAgentPoller
   , waitForFirstPing
+  , pushGuestAgentStatus
   )
 where
 
+import qualified Capnp as C
+import qualified Capnp.Gen.Streams as CGS
 import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Control.Exception (SomeException)
 import Control.Monad (forM_, void, when)
 import qualified Control.Monad.Catch as MC
@@ -20,13 +27,16 @@ import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.GuestAgent (GuestAgentConns, GuestIpAddress (..), GuestNetIf (..), guestNetworkGetInterfaces, guestPing)
-import Corvus.Types (runFilteredLogging)
+import Corvus.Rpc.Streams (callSink)
+import Corvus.Types (ServerState (..), runFilteredLogging)
 import Data.Int (Int64)
 import Data.List (find)
+import qualified Data.Map.Strict as Map
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Time (UTCTime, getCurrentTime)
+import Data.Time (UTCTime, getCurrentTime, nominalDiffTimeToSeconds)
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend, SqlPersistT)
@@ -36,13 +46,14 @@ import Database.Persist.Sql (SqlBackend, SqlPersistT)
 -- Immediately queries guest network interfaces, then enters steady-state
 -- polling every @intervalSec@ seconds. Exits when the VM's PID is cleared
 -- from the database.
-startGuestAgentPoller :: GuestAgentConns -> Pool SqlBackend -> QemuConfig -> Int -> Int64 -> LogLevel -> IO ()
-startGuestAgentPoller conns pool config intervalSec vmId logLevel = void $ forkIO $ runFilteredLogging logLevel $ do
-  logDebugN $ "Guest agent poller starting for VM " <> tshow vmId
-  -- queryAndUpdateNetwork can raise (DB timeout etc.); don't let an early
-  -- exception silently kill the forked thread and skip steady-state polling.
-  safeQueryAndUpdateNetwork conns pool config vmId
-  steadyPoll conns pool config intervalSec vmId
+startGuestAgentPoller :: ServerState -> Int -> Int64 -> IO ()
+startGuestAgentPoller state intervalSec vmId =
+  void $ forkIO $ runFilteredLogging (ssLogLevel state) $ do
+    logDebugN $ "Guest agent poller starting for VM " <> tshow vmId
+    -- queryAndUpdateNetwork can raise (DB timeout etc.); don't let an early
+    -- exception silently kill the forked thread and skip steady-state polling.
+    safeQueryAndUpdateNetwork (ssGuestAgentConns state) (ssDbPool state) (ssQemuConfig state) vmId
+    steadyPoll state intervalSec vmId
 
 -- | Call 'queryAndUpdateNetwork' and swallow any exception with a warning.
 -- Without this, one failed DB call on the first iteration would stop the
@@ -62,16 +73,20 @@ safeQueryAndUpdateNetwork conns pool config vmId = do
 -- immediately once the transition is made — the network interface query is
 -- deferred to 'startGuestAgentPoller' so @crv vm start --wait@ is not held
 -- up by a slow @guest-network-get-interfaces@ call.
-waitForFirstPing :: GuestAgentConns -> Pool SqlBackend -> QemuConfig -> Int64 -> LogLevel -> IO ()
-waitForFirstPing conns pool config vmId logLevel = runFilteredLogging logLevel $ do
+waitForFirstPing :: ServerState -> Int64 -> IO ()
+waitForFirstPing state vmId = runFilteredLogging (ssLogLevel state) $ do
   liftIO $ threadDelay 3000000
   logDebugN $ "Waiting for first guest agent ping for VM " <> tshow vmId
   go
   where
+    pool = ssDbPool state
+    conns = ssGuestAgentConns state
+    config = ssQemuConfig state
     go = do
       alive <- isVmAlive pool vmId
       when alive $ do
         pingOk <- liftIO $ guestPing conns config vmId
+        liftIO $ pushGuestAgentStatus state vmId pingOk
         if pingOk
           then do
             now <- liftIO getCurrentTime
@@ -86,12 +101,13 @@ waitForFirstPing conns pool config vmId logLevel = runFilteredLogging logLevel $
 -- Steady-state polling
 --------------------------------------------------------------------------------
 
-steadyPoll :: GuestAgentConns -> Pool SqlBackend -> QemuConfig -> Int -> Int64 -> LoggingT IO ()
-steadyPoll conns pool config intervalSec vmId = do
+steadyPoll :: ServerState -> Int -> Int64 -> LoggingT IO ()
+steadyPoll state intervalSec vmId = do
   liftIO $ threadDelay (intervalSec * 1000000)
   alive <- isVmAlive pool vmId
   when alive $ do
     pingOk <- liftIO $ guestPing conns config vmId
+    liftIO $ pushGuestAgentStatus state vmId pingOk
     if pingOk
       then do
         now <- liftIO getCurrentTime
@@ -100,7 +116,11 @@ steadyPoll conns pool config intervalSec vmId = do
         safeQueryAndUpdateNetwork conns pool config vmId
       else
         logDebugN $ "Guest agent ping failed for VM " <> tshow vmId
-    steadyPoll conns pool config intervalSec vmId
+    steadyPoll state intervalSec vmId
+  where
+    pool = ssDbPool state
+    conns = ssGuestAgentConns state
+    config = ssQemuConfig state
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -179,3 +199,46 @@ transitionStartingToRunning vmId = do
 -- | Show helper for Text conversion.
 tshow :: (Show a) => a -> Text
 tshow = T.pack . show
+
+--------------------------------------------------------------------------------
+-- Subscriber fan-out
+--------------------------------------------------------------------------------
+
+-- | Push a 'GuestAgentStatus' to every subscriber currently
+-- registered for this VM via @vm.subscribeGuestAgent@. Subscribers
+-- whose @push@ call raises an exception (cap dropped on the
+-- client side) are removed from the list — this keeps the
+-- subscriber set self-pruning without a separate Handle-drop hook.
+pushGuestAgentStatus :: ServerState -> Int64 -> Bool -> IO ()
+pushGuestAgentStatus state vmId reachable = do
+  subs <- readTVarIO (ssGuestAgentSubs state)
+  let sinks = Map.findWithDefault [] vmId subs
+  case sinks of
+    [] -> pure ()
+    _ -> do
+      now <- getCurrentTime
+      mVm <- runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
+      let nanos t = floor (nominalDiffTimeToSeconds (utcTimeToPOSIXSeconds t) * 1e9) :: Int64
+          lastHc =
+            maybe 0 nanos $
+              if reachable then Just now else vmHealthcheck =<< mVm
+          status :: C.Parsed CGS.GuestAgentStatus
+          status =
+            CGS.GuestAgentStatus
+              { CGS.vmId = vmId
+              , CGS.lastHealthcheck = lastHc
+              , CGS.enabled = maybe False vmGuestAgent mVm
+              , CGS.reachable = reachable
+              , CGS.message = T.empty
+              }
+          params = CGS.GuestAgentStatusSink'push'params {CGS.status = status}
+      alive <- traverse (tryPush params) sinks
+      atomically $
+        modifyTVar' (ssGuestAgentSubs state) $
+          Map.insert vmId (map fst (filter snd (zip sinks alive)))
+  where
+    tryPush params sink = do
+      r <- MC.try (callSink #push params sink) :: IO (Either SomeException ())
+      pure $ case r of
+        Right () -> True
+        Left _ -> False

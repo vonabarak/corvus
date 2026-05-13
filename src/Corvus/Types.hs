@@ -22,6 +22,8 @@ module Corvus.Types
   )
 where
 
+import qualified Capnp as C
+import qualified Capnp.Gen.Streams as CGS
 import Control.Concurrent.MVar (MVar)
 import Control.Concurrent.STM (TMVar, TVar, newTVarIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
@@ -67,6 +69,11 @@ data ServerState = ServerState
   -- The MVar serializes access and holds the socket between operations.
   -- Nothing = not connected (will connect on next use).
   -- Just sock = persistent connection ready for commands.
+  , ssGuestAgentSubs :: TVar (Map.Map Int64 [C.Client CGS.GuestAgentStatusSink])
+  -- ^ Per-VM 'vm.subscribeGuestAgent' subscriber lists. The
+  -- guest-agent poller pushes a 'GuestAgentStatus' to each sink
+  -- after every poll cycle; dead sinks are pruned on the next
+  -- push attempt.
   }
 
 -- | Create a new server state
@@ -80,6 +87,7 @@ newServerState pool qemuConfig = do
   serialBuffers <- newTVarIO Map.empty
   monitorBuffers <- newTVarIO Map.empty
   gaLocks <- newTVarIO Map.empty
+  gaSubs <- newTVarIO Map.empty
   pure
     ServerState
       { ssStartTime = startTime
@@ -93,6 +101,7 @@ newServerState pool qemuConfig = do
       , ssSerialBuffers = serialBuffers
       , ssMonitorBuffers = monitorBuffers
       , ssGuestAgentConns = gaLocks
+      , ssGuestAgentSubs = gaSubs
       }
 
 --------------------------------------------------------------------------------

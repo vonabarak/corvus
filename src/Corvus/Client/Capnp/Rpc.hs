@@ -37,6 +37,10 @@ module Corvus.Client.Capnp.Rpc
   , rpcVmSerialConsole
   , rpcVmHmpMonitor
 
+    -- * Guest-agent subscription (Phase 6d)
+  , rpcVmSubscribeGuestAgent
+  , GuestAgentStatusEvent (..)
+
     -- * Resource read methods
   , rpcVmList
   , rpcVmShow
@@ -1276,6 +1280,75 @@ rpcVmHmpMonitor conn vmRef onOutput onEnd = do
     (\CGVm.Vm'hmpMonitor'results {CGVm.input} -> input)
     onOutput
     onEnd
+
+-- =====================================================================
+-- Guest-agent subscription (Phase 6d)
+-- =====================================================================
+
+-- | Plain Haskell view of the Cap'n Proto @GuestAgentStatus@ struct.
+-- One of these is delivered to the callback for every poll cycle on
+-- a subscribed VM.
+data GuestAgentStatusEvent = GuestAgentStatusEvent
+  { gaseVmId :: !Int64
+  , gaseLastHealthcheck :: !Int64
+  -- ^ POSIX nanoseconds; @0@ when the agent has never been reached.
+  , gaseEnabled :: !Bool
+  , gaseReachable :: !Bool
+  , gaseMessage :: !Text
+  }
+  deriving (Eq, Show)
+
+newtype ClientGuestAgentSink = ClientGuestAgentSink
+  { cgasOnStatus :: GuestAgentStatusEvent -> IO ()
+  }
+
+instance SomeServer ClientGuestAgentSink
+
+instance CGS.GuestAgentStatusSink'server_ ClientGuestAgentSink where
+  guestAgentStatusSink'push (ClientGuestAgentSink onStatus) =
+    handleParsed $ \CGS.GuestAgentStatusSink'push'params {CGS.status = s} -> do
+      let CGS.GuestAgentStatus
+            { CGS.vmId = vid
+            , CGS.lastHealthcheck = lhc
+            , CGS.enabled = en
+            , CGS.reachable = rc
+            } = s
+          msg = case s of
+            CGS.GuestAgentStatus {CGS.message = m} -> m
+          ev =
+            GuestAgentStatusEvent
+              { gaseVmId = vid
+              , gaseLastHealthcheck = lhc
+              , gaseEnabled = en
+              , gaseReachable = rc
+              , gaseMessage = msg
+              }
+      _ <- try (onStatus ev) :: IO (Either SomeException ())
+      pure CGS.GuestAgentStatusSink'push'results
+
+-- | Subscribe to guest-agent status updates for a VM. The returned
+-- 'C.Client' 'CGS.Handle' is the subscription lifetime token —
+-- drop it (or let it get GC'd) and the daemon prunes the
+-- subscriber on its next push attempt. @onStatus@ fires once per
+-- daemon poll cycle (default: every few seconds) for as long as
+-- the subscription is alive.
+rpcVmSubscribeGuestAgent
+  :: CapnpConnection
+  -> EntityRef
+  -> (GuestAgentStatusEvent -> IO ())
+  -> IO (C.Client CGS.Handle)
+rpcVmSubscribeGuestAgent conn vmRef onStatus = do
+  vmClient <- getVmClient conn vmRef
+  sinkClient <-
+    export @CGS.GuestAgentStatusSink
+      (ccSupervisor conn)
+      (ClientGuestAgentSink onStatus)
+  CGVm.Vm'subscribeGuestAgent'results {CGVm.handle} <-
+    callOn
+      #subscribeGuestAgent
+      CGVm.Vm'subscribeGuestAgent'params {CGVm.sink = sinkClient}
+      vmClient
+  pure handle
 
 -- =====================================================================
 -- Cloud-init manager

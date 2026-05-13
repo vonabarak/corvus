@@ -199,11 +199,11 @@ handleVmStartExecute state vmId parentTaskId = do
               -- Wait for guest agent if enabled (blocking)
               when (vmGuestAgent vm) $ do
                 logInfoN $ "Waiting for guest agent on VM " <> T.pack (show vmId)
-                liftIO $ waitForFirstPing (ssGuestAgentConns state) (ssDbPool state) (ssQemuConfig state) vmId (ssLogLevel state)
+                liftIO $ waitForFirstPing state vmId
               -- Start steady-state poller for ongoing healthchecks
               when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
                 liftIO $
-                  startGuestAgentPoller (ssGuestAgentConns state) (ssDbPool state) (ssQemuConfig state) (qcHealthcheckInterval $ ssQemuConfig state) vmId (ssLogLevel state)
+                  startGuestAgentPoller state (qcHealthcheckInterval $ ssQemuConfig state) vmId
               -- Return final status (Running, since we waited for agent)
               pure $ RespVmStateChanged VmRunning
             _ -> pure resp
