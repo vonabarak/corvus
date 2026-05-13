@@ -90,23 +90,15 @@ where
 
 import Data.Aeson (FromJSON (..), ToJSON (..), Value (..))
 import qualified Data.Aeson.Types as AT
-import Data.Binary (Binary)
-import qualified Data.Binary as Bin
 import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime)
-import Data.Time.Clock.POSIX (posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
 import Database.Persist
 import Database.Persist.Sql (PersistFieldSql (..), SqlType (..), fromSqlKey, toSqlKey)
 import Database.Persist.TH
 import GHC.Generics (Generic)
-
--- Orphan instance for UTCTime serialization
-instance Binary UTCTime where
-  put t = Bin.put (realToFrac (utcTimeToPOSIXSeconds t) :: Double)
-  get = posixSecondsToUTCTime . realToFrac <$> (Bin.get :: Bin.Get Double)
 
 --------------------------------------------------------------------------------
 -- EnumText type class - shared interface for all text-serializable enums
@@ -166,8 +158,6 @@ data VmStatus
   | VmError
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
-instance Binary VmStatus
-
 instance EnumText VmStatus where
   enumTypeName = "VmStatus"
   enumMapping =
@@ -205,8 +195,6 @@ data DriveInterface
   | InterfacePflash
   | InterfaceFloppy
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
-
-instance Binary DriveInterface
 
 instance EnumText DriveInterface where
   enumTypeName = "DriveInterface"
@@ -246,8 +234,6 @@ data DriveFormat
   | FormatVhdx
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
-instance Binary DriveFormat
-
 instance EnumText DriveFormat where
   enumTypeName = "DriveFormat"
   enumMapping =
@@ -284,8 +270,6 @@ data CacheType
   | CacheUnsafe
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
-instance Binary CacheType
-
 instance EnumText CacheType where
   enumTypeName = "CacheType"
   enumMapping =
@@ -317,8 +301,6 @@ data DriveMedia
   = MediaDisk
   | MediaCdrom
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
-
-instance Binary DriveMedia
 
 instance EnumText DriveMedia where
   enumTypeName = "DriveMedia"
@@ -352,8 +334,6 @@ data NetInterfaceType
   | NetVde
   | NetManaged
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
-
-instance Binary NetInterfaceType
 
 instance EnumText NetInterfaceType where
   enumTypeName = "NetInterfaceType"
@@ -389,8 +369,6 @@ data SharedDirCache
   | CacheNever
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
-instance Binary SharedDirCache
-
 instance EnumText SharedDirCache where
   enumTypeName = "SharedDirCache"
   enumMapping =
@@ -422,8 +400,6 @@ data TemplateCloneStrategy
   | StrategyDirect
   | StrategyCreate
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
-
-instance Binary TemplateCloneStrategy
 
 instance EnumText TemplateCloneStrategy where
   enumTypeName = "TemplateCloneStrategy"
@@ -464,8 +440,6 @@ data TaskSubsystem
   | SubBuild
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
-instance Binary TaskSubsystem
-
 instance EnumText TaskSubsystem where
   enumTypeName = "TaskSubsystem"
   enumMapping =
@@ -505,8 +479,6 @@ data TaskResult
   | TaskNotStarted
   | TaskCancelled
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
-
-instance Binary TaskResult
 
 instance EnumText TaskResult where
   enumTypeName = "TaskResult"
@@ -697,101 +669,3 @@ TemplateCloudInit
     UniqueTemplateCloudInitVm templateId
     deriving Show Eq Generic
 |]
-
--- Binary instances for entities (for network serialization)
-instance Binary Vm
-
-instance Binary DiskImage
-
-instance Binary Snapshot
-
-instance Binary Drive
-
-instance Binary Network
-
-instance Binary NetworkInterface
-
-instance Binary SharedDir
-
-instance Binary SshKey
-
-instance Binary VmSshKey
-
-instance Binary TemplateVm
-
-instance Binary TemplateDrive
-
-instance Binary TemplateNetworkInterface
-
-instance Binary TemplateSshKey
-
-instance Binary Task
-
-instance Binary CloudInit
-
-instance Binary TemplateCloudInit
-
--- Binary instances for keys
-instance Binary (Key Vm) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key DiskImage) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key Snapshot) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key Drive) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key Network) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key NetworkInterface) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key SharedDir) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key SshKey) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key VmSshKey) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key TemplateVm) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key TemplateDrive) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key TemplateNetworkInterface) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key TemplateSshKey) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key Task) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key CloudInit) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get
-
-instance Binary (Key TemplateCloudInit) where
-  put = Bin.put . fromSqlKey
-  get = toSqlKey <$> Bin.get

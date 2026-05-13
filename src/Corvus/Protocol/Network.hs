@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | Virtual network response data.
@@ -7,12 +6,8 @@ module Corvus.Protocol.Network
   )
 where
 
-import Corvus.Model ()
-
--- for orphan Binary UTCTime instance
-import Corvus.Protocol.Aeson (innerOptions)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -30,7 +25,7 @@ data NetworkInfo = NetworkInfo
   , nwiCreatedAt :: !UTCTime
   , nwiAutostart :: !Bool
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON NetworkInfo where
   toJSON = genericToJSON innerOptions

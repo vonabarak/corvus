@@ -30,7 +30,6 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Read (decimal, signed)
-import Data.Word (Word32)
 
 -- ---------------------------------------------------------------------
 -- Entity references
@@ -76,7 +75,7 @@ toCapnpStatusInfo P.StatusInfo {..} =
     { CGCommon.uptimeSeconds = fromIntegral siUptime
     , CGCommon.connections = fromIntegral siConnections
     , CGCommon.version = siVersion
-    , CGCommon.protocolVersion = fromIntegral siProtocolVersion :: Word32
+    , CGCommon.protocolVersion = fromIntegral siProtocolVersion
     , CGCommon.namespacePid = maybe 0 fromIntegral siNamespacePid
     }
 

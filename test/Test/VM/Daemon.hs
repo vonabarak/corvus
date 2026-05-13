@@ -24,12 +24,12 @@ import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Control.Exception (SomeException, bracket, catch, try)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-import Corvus.Client.Connection (Connection, ConnectionError, withConnection)
+import Corvus.Client.Capnp.Connection (CapnpConnection, CapnpConnectionError, withCapnpConnection)
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Qemu.Netns (startNamespace)
 import qualified Corvus.Qemu.Netns
 import Corvus.Qemu.Netns.Manager (enableIpForwarding, setupNatTable, startPasta, stopPasta, teardownNatTable)
-import Corvus.Server (runServer)
+import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Types (ListenAddress (..), ServerState (..), newServerState)
 import qualified Data.Text as T
 import Data.UUID (toText)
@@ -96,7 +96,7 @@ startTestDaemon env = do
   startTestNamespace state'
 
   -- Start the server in a background thread
-  serverThread <- async $ runServer state' listenAddr
+  serverThread <- async $ runCapnpServer state' listenAddr
 
   -- Wait for the socket to be available
   waitForSocket socketPath
@@ -130,7 +130,7 @@ startTestDaemonWithConfig env modifyConfig = do
 
   startTestNamespace state'
 
-  serverThread <- async $ runServer state' listenAddr
+  serverThread <- async $ runCapnpServer state' listenAddr
 
   waitForSocket socketPath
 
@@ -174,18 +174,18 @@ withTestDaemonConfig env modifyConfig = bracket (startTestDaemonWithConfig env m
 -- RPC Client Helpers
 --------------------------------------------------------------------------------
 
--- | Run an action with a connection to the test daemon.
--- Retries up to 3 times on transient connection failures (resource exhausted)
--- which can occur when many tests run in parallel.
+-- | Run an action with a Cap'n Proto connection to the test daemon.
+-- Retries up to 3 times on transient connection failures (resource
+-- exhausted) which can occur when many tests run in parallel.
 withDaemonConnection
   :: TestDaemon
-  -> (Connection -> IO a)
-  -> IO (Either ConnectionError a)
+  -> (CapnpConnection -> IO a)
+  -> IO (Either CapnpConnectionError a)
 withDaemonConnection daemon action = go (3 :: Int)
   where
-    go 0 = withConnection (UnixAddress (tdSocketPath daemon)) action
+    go 0 = withCapnpConnection (UnixAddress (tdSocketPath daemon)) action
     go n = do
-      result <- withConnection (UnixAddress (tdSocketPath daemon)) action
+      result <- withCapnpConnection (UnixAddress (tdSocketPath daemon)) action
       case result of
         Left _ -> do
           threadDelay 200000 -- 200ms backoff

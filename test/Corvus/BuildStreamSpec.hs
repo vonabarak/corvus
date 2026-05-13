@@ -1,56 +1,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Unit tests for the build-streaming primitives:
+-- | Unit tests for build-pipeline helpers.
 --
---   * 'BuildEvent' Binary round-trip — every constructor decodes back
---     to the value the daemon serialised. If this regresses, the
---     wire format silently drifts and the client renders garbled
---     events.
---   * 'splitLines' boundary cases for the QGA log-tail line splitter
---     used by 'guestExecWithTail'.
+-- The 'BuildEvent' Binary round-trip tests are gone — Phase 5 ripped
+-- the 'Data.Binary' wire out; build events will be streamed via a
+-- 'BuildEventSink' Cap'n Proto cap in Phase 6.
 module Corvus.BuildStreamSpec (spec) where
 
-import Corvus.Model (TaskResult (..))
-import Corvus.Protocol
-  ( BuildEvent (..)
-  , BuildOne (..)
-  , BuildResult (..)
-  )
 import Corvus.Qemu.GuestAgent (splitLines)
-import Data.Binary (decode, encode)
 import qualified Data.ByteString as BS
 import Test.Hspec
 
-roundtrip :: BuildEvent -> Expectation
-roundtrip ev = decode (encode ev) `shouldBe` ev
-
 spec :: Spec
-spec = do
-  describe "BuildEvent Binary round-trip" $ do
-    it "BuildLogLine" $
-      roundtrip (BuildLogLine "starting build: gentoo-corvus-test")
-    it "StepStart" $
-      roundtrip (StepStart 7 "shell" "set -eux; emerge --noreplace ...")
-    it "StepOutput with multibyte UTF-8" $
-      roundtrip (StepOutput 2 "héllo \x1f600 wörld")
-    it "StepEnd success" $
-      roundtrip (StepEnd 3 TaskSuccess Nothing)
-    it "StepEnd error with message" $
-      roundtrip (StepEnd 4 TaskError (Just "exit code 2"))
-    it "BuildEnd success" $
-      roundtrip (BuildEnd (Right 42))
-    it "BuildEnd failure" $
-      roundtrip (BuildEnd (Left "shell: exit code 1"))
-    it "PipelineEnd" $
-      roundtrip
-        ( PipelineEnd
-            ( BuildResult
-                [ BuildOne "ok-build" (Just 100) Nothing
-                , BuildOne "fail-build" Nothing (Just "shell: exit code 1")
-                ]
-            )
-        )
-
+spec =
   describe "splitLines (QGA tail buffer)" $ do
     it "splits a single newline-terminated line" $
       splitLines "hello\n" `shouldBe` (["hello"], "")

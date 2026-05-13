@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | VM template response data.
@@ -16,10 +15,9 @@ module Corvus.Protocol.Template
 where
 
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, TemplateCloneStrategy)
-import Corvus.Protocol.Aeson (innerOptions)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -36,7 +34,7 @@ data TemplateVmInfo = TemplateVmInfo
   , tviGuestAgent :: !Bool
   , tviAutostart :: !Bool
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Template drive info for details view
 data TemplateDriveInfo = TemplateDriveInfo
@@ -51,21 +49,21 @@ data TemplateDriveInfo = TemplateDriveInfo
   , tvdiSizeMb :: !(Maybe Int)
   , tvdiFormat :: !(Maybe DriveFormat)
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Template network interface info
 data TemplateNetIfInfo = TemplateNetIfInfo
   { tvniType :: !NetInterfaceType
   , tvniHostDevice :: !(Maybe Text)
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Template SSH key info
 data TemplateSshKeyInfo = TemplateSshKeyInfo
   { tvskiId :: !Int64
   , tvskiName :: !Text
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Template VM full details
 data TemplateDetails = TemplateDetails
@@ -84,7 +82,7 @@ data TemplateDetails = TemplateDetails
   , tvdNetIfs :: ![TemplateNetIfInfo]
   , tvdSshKeys :: ![TemplateSshKeyInfo]
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON TemplateVmInfo where
   toJSON = genericToJSON innerOptions

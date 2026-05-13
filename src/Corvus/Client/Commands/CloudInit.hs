@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Cloud-init config command handlers for the Corvus client.
 module Corvus.Client.Commands.CloudInit
@@ -11,13 +12,15 @@ module Corvus.Client.Commands.CloudInit
   )
 where
 
-import Corvus.Client.Connection (Connection)
+import Control.Exception (SomeException, try)
+import Corvus.Client.Capnp.Connection (CapnpConnection)
+import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Editor (editInEditor)
-import Corvus.Client.Output (emitError, emitOk, emitResult, emitRpcError)
-import Corvus.Client.Rpc (CloudInitResult (..), VmEditResult (..), cloudInitDelete, cloudInitGet, cloudInitSet, vmCloudInit)
-import Corvus.Client.Types (OutputFormat (..))
+import Corvus.Client.Output (emitError, emitOk, emitResult)
+import Corvus.Client.Types (OutputFormat)
 import Corvus.Protocol (CloudInitInfo (..))
 import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
+import Corvus.Wire.Common (entityRefFromText)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -25,31 +28,24 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Yaml
 import System.Directory (doesFileExist)
 
--- | Handle cloud-init generate command (regenerate ISO)
-handleCloudInitGenerate :: OutputFormat -> Connection -> Text -> IO Bool
+-- | Handle cloud-init generate command (regenerate ISO).
+--
+-- The Vm cap's 'cloudInit' method regenerates the ISO and returns
+-- the current config; success → "ok".
+handleCloudInitGenerate :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleCloudInitGenerate fmt conn vmRef = do
-  resp <- vmCloudInit conn vmRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right VmEdited -> do
+  r <- try @SomeException (CR.rpcVmCloudInit conn (entityRefFromText vmRef))
+  case r of
+    Right _ -> do
       emitOk fmt $ putStrLn "Cloud-init ISO generated."
       pure True
-    Right (VmEditError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right VmEditNotFound -> do
-      emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
-      pure False
-    Right VmEditMustBeStopped -> do
-      emitError fmt "vm_running" "VM must be stopped" $ putStrLn "VM must be stopped"
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle cloud-init set command.
--- When a file path is given, parse it as a CloudInitConfigYaml.
--- When no file is given, open $EDITOR on a skeleton.
-handleCloudInitSet :: OutputFormat -> Connection -> Text -> Maybe FilePath -> IO Bool
+handleCloudInitSet :: OutputFormat -> CapnpConnection -> Text -> Maybe FilePath -> IO Bool
 handleCloudInitSet fmt conn vmRef mPath = case mPath of
   Just path -> do
     exists <- doesFileExist path
@@ -70,18 +66,16 @@ handleCloudInitSet fmt conn vmRef mPath = case mPath of
         pure False
       Right content -> sendCloudInitConfig fmt conn vmRef content
 
--- | Handle cloud-init edit command: fetch → edit in $EDITOR → update.
-handleCloudInitEdit :: OutputFormat -> Connection -> Text -> IO Bool
+-- | Handle cloud-init edit command: fetch → edit → update.
+handleCloudInitEdit :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleCloudInitEdit fmt conn vmRef = do
-  showResp <- cloudInitGet conn vmRef
-  case showResp of
-    Left err -> do
-      emitRpcError fmt err
+  r <- try @SomeException (CR.rpcCloudInitGet conn (entityRefFromText vmRef))
+  case r of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
-    Right CloudInitNotFound -> do
-      emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
-      pure False
-    Right (CloudInitConfig mConfig) -> do
+    Right mConfig -> do
       let initial = maybe skeletonCloudInitYaml cloudInitInfoToYaml mConfig
       edited <- editInEditor initial
       case edited of
@@ -93,22 +87,17 @@ handleCloudInitEdit fmt conn vmRef = do
               emitOk fmt $ putStrLn "No changes; cloud-init config left untouched."
               pure True
           | otherwise -> sendCloudInitConfig fmt conn vmRef content
-    Right (CloudInitError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right _ -> do
-      putStrLn "Unexpected response"
-      pure False
 
 -- | Handle cloud-init show command
-handleCloudInitShow :: OutputFormat -> Connection -> Text -> IO Bool
+handleCloudInitShow :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleCloudInitShow fmt conn vmRef = do
-  resp <- cloudInitGet conn vmRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
+  r <- try @SomeException (CR.rpcCloudInitGet conn (entityRefFromText vmRef))
+  case r of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
-    Right (CloudInitConfig mConfig) -> do
+    Right mConfig -> do
       emitResult fmt mConfig $ case mConfig of
         Nothing -> putStrLn "Using default cloud-init configuration."
         Just ci -> do
@@ -128,35 +117,18 @@ handleCloudInitShow fmt conn vmRef = do
               putStrLn "----------------------"
             Nothing -> pure ()
       pure True
-    Right CloudInitNotFound -> do
-      emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
-      pure False
-    Right (CloudInitError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right _ -> do
-      putStrLn "Unexpected response"
-      pure False
 
 -- | Handle cloud-init delete command
-handleCloudInitDelete :: OutputFormat -> Connection -> Text -> IO Bool
+handleCloudInitDelete :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleCloudInitDelete fmt conn vmRef = do
-  resp <- cloudInitDelete conn vmRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right CloudInitOk -> do
+  r <- try (CR.rpcCloudInitDelete conn (entityRefFromText vmRef)) :: IO (Either SomeException ())
+  case r of
+    Right () -> do
       emitResult fmt ("ok" :: Text) $ putStrLn "Cloud-init config deleted. Using defaults."
       pure True
-    Right CloudInitNotFound -> do
-      emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
-      pure False
-    Right (CloudInitError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right _ -> do
-      putStrLn "Unexpected response"
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 --------------------------------------------------------------------------------
@@ -164,7 +136,7 @@ handleCloudInitDelete fmt conn vmRef = do
 --------------------------------------------------------------------------------
 
 -- | Parse YAML content as CloudInitConfigYaml and send to server.
-sendCloudInitConfig :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+sendCloudInitConfig :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
 sendCloudInitConfig fmt conn vmRef content =
   case Yaml.decodeEither' (TE.encodeUtf8 content) of
     Left err -> do
@@ -172,22 +144,23 @@ sendCloudInitConfig fmt conn vmRef content =
       emitError fmt "parse_error" msg $ putStrLn $ "Error parsing YAML: " ++ T.unpack msg
       pure False
     Right (cic :: CloudInitConfigYaml) -> do
-      resp <- cloudInitSet conn vmRef (cicyUserData cic) (cicyNetworkConfig cic) (cicyInjectSshKeys cic)
-      case resp of
-        Left err -> do
-          emitRpcError fmt err
-          pure False
-        Right CloudInitOk -> do
+      r <-
+        try
+          ( CR.rpcCloudInitSet
+              conn
+              (entityRefFromText vmRef)
+              (cicyUserData cic)
+              (cicyNetworkConfig cic)
+              (cicyInjectSshKeys cic)
+          )
+          :: IO (Either SomeException ())
+      case r of
+        Right () -> do
           emitResult fmt ("ok" :: Text) $ putStrLn "Cloud-init config updated."
           pure True
-        Right CloudInitNotFound -> do
-          emitError fmt "not_found" "VM not found" $ putStrLn "VM not found"
-          pure False
-        Right (CloudInitError msg) -> do
-          emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-          pure False
-        Right _ -> do
-          putStrLn "Unexpected response"
+        Left e -> do
+          emitError fmt "rpc_error" (T.pack (show e)) $
+            putStrLn ("Error: " ++ show e)
           pure False
 
 -- | Convert a CloudInitInfo (from the server) back to YAML text for editing.

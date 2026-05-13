@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | Task history response data.
@@ -8,9 +7,8 @@ module Corvus.Protocol.Task
 where
 
 import Corvus.Model (TaskResult, TaskSubsystem)
-import Corvus.Protocol.Aeson (innerOptions)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -29,7 +27,7 @@ data TaskInfo = TaskInfo
   , tiResult :: !TaskResult
   , tiMessage :: !(Maybe Text)
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON TaskInfo where
   toJSON = genericToJSON innerOptions

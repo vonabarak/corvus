@@ -1,4 +1,3 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -16,8 +15,8 @@ module Corvus.Client.Completion
 where
 
 import Control.Exception (SomeException, try)
-import Corvus.Client.Connection (Connection, ConnectionError, withConnection)
-import Corvus.Client.Rpc
+import qualified Corvus.Client.Capnp.Connection as CC
+import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Protocol (DiskImageInfo (..), NetworkInfo (..), SshKeyInfo (..), TemplateVmInfo (..), VmInfo (..))
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import qualified Data.Text as T
@@ -27,7 +26,6 @@ import System.Environment (lookupEnv)
 import Text.Read (readMaybe)
 
 -- | Determine daemon address for completion context.
--- Checks CORVUS_SOCKET, then CORVUS_HOST+CORVUS_PORT, then default socket path.
 getCompletionAddress :: IO ListenAddress
 getCompletionAddress = do
   mSocket <- lookupEnv "CORVUS_SOCKET"
@@ -41,49 +39,40 @@ getCompletionAddress = do
         _ -> UnixAddress <$> getDefaultSocketPath
 
 -- | Query daemon for entity names, returning [] on any failure.
-fetchNames :: (Connection -> IO (Either ConnectionError a)) -> (a -> [String]) -> IO [String]
+fetchNames :: forall a. (CC.CapnpConnection -> IO [a]) -> (a -> String) -> IO [String]
 fetchNames query extract = do
   addr <- getCompletionAddress
-  result <- try $ withConnection addr $ \conn -> do
-    resp <- query conn
-    pure $ case resp of
+  result <- try $ CC.withCapnpConnection addr $ \conn -> do
+    r <- try (query conn) :: IO (Either SomeException [a])
+    pure $ case r of
+      Right xs -> map extract xs
       Left _ -> []
-      Right a -> extract a
   case result of
     Right (Right names) -> pure names
     Right (Left _) -> pure []
     Left (_ :: SomeException) -> pure []
 
--- | Completer for VM names.
 vmCompleter :: Completer
 vmCompleter =
   listIOCompleter $
-    fetchNames vmList (map (T.unpack . viName))
+    fetchNames CR.rpcVmList (T.unpack . viName)
 
--- | Completer for disk image names.
 diskCompleter :: Completer
-diskCompleter = listIOCompleter $
-  fetchNames diskList $ \case
-    DiskListResult disks -> map (T.unpack . diiName) disks
-    _ -> []
+diskCompleter =
+  listIOCompleter $
+    fetchNames CR.rpcDiskList (T.unpack . diiName)
 
--- | Completer for virtual network names.
 networkCompleter :: Completer
-networkCompleter = listIOCompleter $
-  fetchNames networkList $ \case
-    NetworkListResult networks -> map (T.unpack . nwiName) networks
-    _ -> []
+networkCompleter =
+  listIOCompleter $
+    fetchNames CR.rpcNetworkList (T.unpack . nwiName)
 
--- | Completer for SSH key names.
 sshKeyCompleter :: Completer
-sshKeyCompleter = listIOCompleter $
-  fetchNames sshKeyList $ \case
-    SshKeyListResult keys -> map (T.unpack . skiName) keys
-    _ -> []
+sshKeyCompleter =
+  listIOCompleter $
+    fetchNames CR.rpcSshKeyList (T.unpack . skiName)
 
--- | Completer for template names.
 templateCompleter :: Completer
-templateCompleter = listIOCompleter $
-  fetchNames templateList $ \case
-    TemplateListResult templates -> map (T.unpack . tviName) templates
-    _ -> []
+templateCompleter =
+  listIOCompleter $
+    fetchNames CR.rpcTemplateList (T.unpack . tviName)

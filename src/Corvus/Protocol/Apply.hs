@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | @crv apply@ response data.
@@ -8,9 +7,8 @@ module Corvus.Protocol.Apply
   )
 where
 
-import Corvus.Protocol.Aeson (innerOptions)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -20,7 +18,7 @@ data ApplyCreated = ApplyCreated
   { acName :: !Text
   , acId :: !Int64
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Summary of resources created by an apply operation
 data ApplyResult = ApplyResult
@@ -30,7 +28,7 @@ data ApplyResult = ApplyResult
   , arVms :: ![ApplyCreated]
   , arTemplates :: ![ApplyCreated]
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON ApplyCreated where
   toJSON = genericToJSON innerOptions

@@ -1,15 +1,9 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Cap'n Proto RPC listener.
+-- | Cap'n Proto RPC listener — the daemon's sole wire endpoint.
 --
--- Runs alongside the existing 'Data.Binary' listener in
--- "Corvus.Server" — see Phase 3 of the migration plan. The two
--- sockets share the same 'ServerState'; only the wire format
--- differs.
---
--- The Unix socket path is @\$XDG_RUNTIME_DIR\/corvus\/corvus.capnp.sock@
+-- The Unix socket path is @\$XDG_RUNTIME_DIR\/corvus\/corvus.sock@
 -- by default; a host\/port can be passed for TCP. Each accepted
 -- connection gets its own 'handleConn' loop with the 'Daemon' cap
 -- as the bootstrap interface.
@@ -52,14 +46,10 @@ import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath (takeDirectory)
 import System.IO.Error (IOError)
 
--- | Default path for the Cap'n Proto Unix socket. Sits next to the
--- legacy @corvus.sock@ in the XDG runtime dir.
+-- | Default path for the Cap'n Proto Unix socket: the canonical
+-- daemon socket in the XDG runtime dir.
 defaultCapnpSocketPath :: IO FilePath
-defaultCapnpSocketPath = do
-  legacy <- getDefaultSocketPath
-  -- Replace the final .sock with .capnp.sock so both sockets live in
-  -- the same directory.
-  pure $ legacy <> ".capnp"
+defaultCapnpSocketPath = getDefaultSocketPath
 
 -- | Run the Cap'n Proto RPC server on the given address.
 -- Blocks the calling thread; spawns a fresh handler per connection.

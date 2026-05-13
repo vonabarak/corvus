@@ -52,7 +52,9 @@ handleStatus state = do
         { siUptime = uptimeSecs
         , siConnections = connCount
         , siVersion = versionString
-        , siProtocolVersion = protocolVersion
+        , -- 1 = Cap'n Proto wire (Phase 5+). The legacy
+          -- 'Data.Binary' protocolVersion is gone.
+          siProtocolVersion = 1
         , siNamespacePid = nsPid
         }
 

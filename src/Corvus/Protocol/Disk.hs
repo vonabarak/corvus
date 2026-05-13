@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | Disk and snapshot response data.
@@ -9,9 +8,8 @@ module Corvus.Protocol.Disk
 where
 
 import Corvus.Model (DriveFormat)
-import Corvus.Protocol.Aeson (innerOptions)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -32,7 +30,7 @@ data DiskImageInfo = DiskImageInfo
   , diiBackingImageName :: !(Maybe Text)
   -- ^ Backing image name (if this is an overlay)
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Snapshot info
 data SnapshotInfo = SnapshotInfo
@@ -41,7 +39,7 @@ data SnapshotInfo = SnapshotInfo
   , sniCreatedAt :: !UTCTime
   , sniSizeMb :: !(Maybe Int)
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON DiskImageInfo where
   toJSON = genericToJSON innerOptions

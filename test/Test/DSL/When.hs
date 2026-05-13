@@ -1,5 +1,10 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | DSL primitives for command execution (When phase).
--- Provides functions to invoke handlers and capture responses.
+-- Invokes the daemon's 'Action' types directly against a freshly
+-- created 'ServerState'. This bypasses the Cap'n Proto wire entirely
+-- — the test DSL exercises the business logic; end-to-end wire
+-- coverage lives in 'Corvus.CapnpServerSpec'.
 module Test.DSL.When
   ( -- * VM commands
     vmList
@@ -88,7 +93,6 @@ module Test.DSL.When
   , whenCloudInitDelete
 
     -- * Low-level
-  , executeRequest
   , createTestServerState
   )
 where
@@ -96,15 +100,39 @@ where
 import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
-import Corvus.Client.Connection (Connection (..), ConnectionError)
-import Corvus.Client.Rpc (CloudInitResult (..), DiskResult (..), GuestExecResult (..), NetIfResult (..), NetworkResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), TemplateResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
-import qualified Corvus.Client.Rpc as Rpc
-import Corvus.Handlers (handleRequest)
+import Corvus.Action (runAction, runActionAsync)
+import Corvus.Handlers
+import Corvus.Handlers.Apply (ApplyAction (..), handleApplyValidate)
+import Corvus.Handlers.Build ()
+import Corvus.Handlers.CloudInit (CloudInitDelete (..), CloudInitSet (..), handleCloudInitGet)
+import Corvus.Handlers.Disk
+  ( DiskClone (..)
+  , DiskCreate (..)
+  , DiskCreateOverlay (..)
+  , DiskDelete (..)
+  , DiskRefresh (..)
+  , DiskRegister (..)
+  , DiskResize (..)
+  , handleDiskList
+  , handleDiskShow
+  )
+import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
+import Corvus.Handlers.Disk.Import (DiskImportAction (..))
+import Corvus.Handlers.Disk.Rebase (DiskRebase (..))
+import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), SnapshotMerge (..), SnapshotRollback (..), handleSnapshotList)
+import Corvus.Handlers.GuestExec (GuestExec (..))
+import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfRemove (..), handleNetIfList)
+import Corvus.Handlers.Network (NetworkCreate (..), NetworkDelete (..), handleNetworkList, handleNetworkShow)
+import Corvus.Handlers.Resolve
+import Corvus.Handlers.SharedDir (SharedDirAdd (..), SharedDirRemove (..), handleSharedDirList)
+import Corvus.Handlers.SshKey (SshKeyAttach (..), SshKeyCreate (..), SshKeyDelete (..), SshKeyDetach (..), handleSshKeyList, handleSshKeyListForVm)
+import Corvus.Handlers.Template (TemplateCreate (..), TemplateDelete (..), TemplateInstantiate (..), TemplateUpdate (..), handleTemplateList, handleTemplateShow)
+import Corvus.Handlers.Vm (VmDelete (..), VmEdit (..), VmPause (..), VmReset (..), VmStart (..), VmStop (..), handleVmList, handleVmShow)
+import qualified Corvus.Handlers.Vm as VmHandlers
 import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache)
-import Corvus.Protocol (Request (..), Response (..), VmDetails (..), VmInfo (..))
+import Corvus.Protocol (Ref (..), Response (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Types (ServerState (..))
-import Data.IORef (writeIORef)
 import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)
@@ -114,21 +142,6 @@ import Database.Persist.Postgresql (SqlBackend)
 import Test.DSL.Core (TestM, getDbPool, getTempDir, setLastResponse)
 import qualified Test.Database as DB
 import Test.Settings (getTestLogLevel)
-
---------------------------------------------------------------------------------
--- Direct Connection
---------------------------------------------------------------------------------
-
--- | Create a Connection that calls handleRequest directly
-directConnection :: ServerState -> DB.TestEnv -> Connection
-directConnection state env =
-  Connection
-    { connSendRequest = \req -> do
-        resp <- handleRequest state req
-        writeIORef (DB.teLastResponse env) (Just resp)
-        pure (Right resp)
-    , connClose = pure ()
-    }
 
 --------------------------------------------------------------------------------
 -- Server State
@@ -161,364 +174,301 @@ createTestServerState pool basePath = do
       , ssGuestAgentConns = gaLocks
       }
 
---------------------------------------------------------------------------------
--- Low-level Request Execution
---------------------------------------------------------------------------------
-
--- | Execute a request and return the response
-executeRequest :: Request -> TestM Response
-executeRequest req = do
+-- | Build a fresh test-server state for the current 'TestM'.
+withState :: (ServerState -> IO Response) -> TestM Response
+withState body = do
   pool <- getDbPool
   tempDir <- getTempDir
-  env <- asks id
   state <- liftIO $ createTestServerState pool tempDir
-  let conn = directConnection state env
-  resp <- liftIO $ handleRequest state req
+  resp <- liftIO (body state)
   setLastResponse resp
   pure resp
 
--- | Execute an RPC call and return the result
-executeRpc :: (Connection -> IO (Either ConnectionError a)) -> TestM a
-executeRpc rpcCall = do
-  pool <- getDbPool
-  tempDir <- getTempDir
-  env <- asks id
-  state <- liftIO $ createTestServerState pool tempDir
-  let conn = directConnection state env
-  result <- liftIO $ rpcCall conn
-  case result of
-    Left err -> error $ "Direct RPC failed: " <> show err
-    Right a -> pure a
+--------------------------------------------------------------------------------
+-- Reference helpers
+--------------------------------------------------------------------------------
 
--- | Convert an Int64 database ID to a Text ref for RPC calls
-toRef :: Int64 -> Text
-toRef = T.pack . show
+toRef :: Int64 -> Ref
+toRef = Ref . T.pack . show
+
+-- | Resolve a 'Ref' to a 'VmId', failing the test on miss.
+resolveVmId :: ServerState -> Ref -> IO Int64
+resolveVmId st r = do
+  e <- resolveVm r (ssDbPool st)
+  case e of
+    Right vid -> pure vid
+    Left _ -> error ("Test.DSL.When.resolveVmId: VM not found for " <> show r)
+
+resolveDiskId :: ServerState -> Ref -> IO Int64
+resolveDiskId st r = do
+  e <- resolveDisk r (ssDbPool st)
+  case e of
+    Right d -> pure d
+    Left _ -> error ("Test.DSL.When.resolveDiskId: disk not found for " <> show r)
 
 --------------------------------------------------------------------------------
 -- VM Commands
 --------------------------------------------------------------------------------
 
--- | List all VMs
 vmList :: TestM [VmInfo]
-vmList = executeRpc Rpc.vmList
+vmList = do
+  resp <- withState handleVmList
+  case resp of
+    RespVmList vs -> pure vs
+    _ -> error ("vmList: unexpected " <> show resp)
 
--- | Show VM details
 vmShow :: Int64 -> TestM (Maybe VmDetails)
-vmShow vmId = executeRpc (`Rpc.vmShow` toRef vmId)
+vmShow vmId = do
+  resp <- withState (`handleVmShow` vmId)
+  case resp of
+    RespVmDetails d -> pure (Just d)
+    RespVmNotFound -> pure Nothing
+    _ -> error ("vmShow: unexpected " <> show resp)
 
--- | Start a VM (no wait)
-vmStart :: Int64 -> TestM VmActionResult
-vmStart vmId = executeRpc (\conn -> Rpc.vmStart conn (toRef vmId) False)
+vmStart :: Int64 -> TestM Response
+vmStart vmId = withState (\st -> runAction st (VmStart vmId))
 
--- | Stop a VM (no wait)
-vmStop :: Int64 -> TestM VmActionResult
-vmStop vmId = executeRpc (\conn -> Rpc.vmStop conn (toRef vmId) False)
+vmStop :: Int64 -> TestM Response
+vmStop vmId = withState (\st -> runAction st (VmStop vmId))
 
--- | Pause a VM
-vmPause :: Int64 -> TestM VmActionResult
-vmPause vmId = executeRpc (`Rpc.vmPause` toRef vmId)
+vmPause :: Int64 -> TestM Response
+vmPause vmId = withState (\st -> runAction st (VmPause vmId))
 
--- | Reset a VM
-vmReset :: Int64 -> TestM VmActionResult
-vmReset vmId = executeRpc (`Rpc.vmReset` toRef vmId)
+vmReset :: Int64 -> TestM Response
+vmReset vmId = withState (\st -> runAction st (VmReset vmId))
 
 --------------------------------------------------------------------------------
 -- Disk Commands
 --------------------------------------------------------------------------------
 
--- | Create a disk image
-diskCreate :: Text -> DriveFormat -> Int64 -> TestM DiskResult
+diskCreate :: Text -> DriveFormat -> Int64 -> TestM Response
 diskCreate name format sizeMb =
-  executeRpc (\conn -> Rpc.diskCreate conn name format sizeMb Nothing)
+  withState (\st -> runAction st (DiskCreate name format sizeMb Nothing))
 
--- | Create an overlay disk image backed by an existing disk
-diskCreateOverlay :: Text -> Int64 -> Maybe Text -> TestM DiskResult
-diskCreateOverlay name baseDiskId optDirPath =
-  executeRpc (\conn -> Rpc.diskCreateOverlay conn name (toRef baseDiskId) optDirPath)
+diskCreateOverlay :: Text -> Int64 -> Maybe Text -> TestM Response
+diskCreateOverlay name baseDiskId mPath =
+  withState (\st -> runAction st (DiskCreateOverlay name baseDiskId Nothing mPath))
 
--- | Register an existing disk image file
-diskRegister :: Text -> Text -> DriveFormat -> TestM DiskResult
+diskRegister :: Text -> Text -> DriveFormat -> TestM Response
 diskRegister name filePath format =
-  executeRpc (\conn -> Rpc.diskRegister conn name filePath (Just format) Nothing)
+  withState (\st -> runAction st (DiskRegister name filePath (Just format) Nothing))
 
--- | Register an existing disk image file with an explicit backing image reference
--- (name or numeric ID).
-diskRegisterWithBacking :: Text -> Text -> DriveFormat -> Text -> TestM DiskResult
+diskRegisterWithBacking :: Text -> Text -> DriveFormat -> Text -> TestM Response
 diskRegisterWithBacking name filePath format backingRef =
-  executeRpc (\conn -> Rpc.diskRegister conn name filePath (Just format) (Just backingRef))
+  withState $ \st -> do
+    backingId <- resolveDiskId st (Ref backingRef)
+    runAction st (DiskRegister name filePath (Just format) (Just backingId))
 
--- | Clone a disk image
-diskClone :: Text -> Int64 -> Maybe Text -> TestM DiskResult
-diskClone name baseDiskId optionalPath =
-  executeRpc (\conn -> Rpc.diskClone conn name (toRef baseDiskId) optionalPath)
+diskClone :: Text -> Int64 -> Maybe Text -> TestM Response
+diskClone name baseDiskId mPath =
+  withState (\st -> runAction st (DiskClone name baseDiskId Nothing mPath))
 
--- | Rebase an overlay to a different backing or flatten
-diskRebase :: Int64 -> Maybe Int64 -> Bool -> TestM DiskResult
+diskRebase :: Int64 -> Maybe Int64 -> Bool -> TestM Response
 diskRebase diskId mNewBackingId unsafe =
-  executeRpc (\conn -> Rpc.diskRebase conn (toRef diskId) (fmap toRef mNewBackingId) unsafe)
+  withState (\st -> runAction st (DiskRebase diskId mNewBackingId unsafe))
 
--- | Import a disk image (copy or download to destination)
-diskImport :: Text -> Text -> Maybe Text -> Maybe Text -> Bool -> TestM DiskResult
-diskImport name source mPath mFormat wait =
-  executeRpc (\conn -> Rpc.diskImport conn name source mPath mFormat wait)
+diskImport :: Text -> Text -> Maybe Text -> Maybe Text -> Bool -> TestM Response
+diskImport name source mPath mFormat _wait =
+  withState (\st -> runAction st (DiskImportAction name source mPath mFormat Nothing))
 
--- | Delete a disk image
-diskDelete :: Int64 -> TestM DiskResult
-diskDelete diskId = executeRpc (`Rpc.diskDelete` toRef diskId)
+diskDelete :: Int64 -> TestM Response
+diskDelete diskId = withState (\st -> runAction st (DiskDelete diskId))
 
--- | Resize a disk image
-diskResize :: Int64 -> Int64 -> TestM DiskResult
+diskResize :: Int64 -> Int64 -> TestM Response
 diskResize diskId newSizeMb =
-  executeRpc (\conn -> Rpc.diskResize conn (toRef diskId) newSizeMb)
+  withState (\st -> runAction st (DiskResize diskId newSizeMb))
 
--- | List all disk images
-diskList :: TestM DiskResult
-diskList = executeRpc Rpc.diskList
+diskList :: TestM Response
+diskList = withState handleDiskList
 
--- | Show disk image details
-diskShow :: Int64 -> TestM DiskResult
-diskShow diskId = executeRpc (`Rpc.diskShow` toRef diskId)
+diskShow :: Int64 -> TestM Response
+diskShow diskId = withState (`handleDiskShow` diskId)
 
--- | Attach a disk to a VM
-diskAttach :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM DiskResult
+diskAttach :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM Response
 diskAttach vmId diskId interface media =
-  executeRpc (\conn -> Rpc.diskAttach conn (toRef vmId) (toRef diskId) interface media False False CacheWriteback)
+  withState (\st -> runAction st (DiskAttach vmId diskId interface media False False CacheWriteback))
 
--- | Attach a disk to a VM in read-only mode
-diskAttachReadOnly :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM DiskResult
+diskAttachReadOnly :: Int64 -> Int64 -> DriveInterface -> Maybe DriveMedia -> TestM Response
 diskAttachReadOnly vmId diskId interface media =
-  executeRpc (\conn -> Rpc.diskAttach conn (toRef vmId) (toRef diskId) interface media True False CacheNone)
+  withState (\st -> runAction st (DiskAttach vmId diskId interface media True False CacheNone))
 
--- | Detach a drive from a VM
-diskDetach :: Int64 -> Int64 -> TestM DiskResult
-diskDetach vmId driveId = executeRpc (\conn -> Rpc.diskDetach conn (toRef vmId) (toRef driveId))
+diskDetach :: Int64 -> Int64 -> TestM Response
+diskDetach vmId diskId =
+  withState (\st -> runAction st (DiskDetachByDisk vmId diskId))
 
 --------------------------------------------------------------------------------
 -- Snapshot Commands
 --------------------------------------------------------------------------------
 
--- | Create a snapshot
-snapshotCreate :: Int64 -> Text -> TestM SnapshotResult
+snapshotCreate :: Int64 -> Text -> TestM Response
 snapshotCreate diskId name =
-  executeRpc (\conn -> Rpc.snapshotCreate conn (toRef diskId) name)
+  withState (\st -> runAction st (SnapshotCreate diskId name))
 
--- | Delete a snapshot
-snapshotDelete :: Int64 -> Int64 -> TestM SnapshotResult
+snapshotDelete :: Int64 -> Int64 -> TestM Response
 snapshotDelete diskId snapshotId =
-  executeRpc (\conn -> Rpc.snapshotDelete conn (toRef diskId) (toRef snapshotId))
+  withState (\st -> runAction st (SnapshotDelete diskId (toRef snapshotId)))
 
--- | Rollback to a snapshot
-snapshotRollback :: Int64 -> Int64 -> TestM SnapshotResult
+snapshotRollback :: Int64 -> Int64 -> TestM Response
 snapshotRollback diskId snapshotId =
-  executeRpc (\conn -> Rpc.snapshotRollback conn (toRef diskId) (toRef snapshotId))
+  withState (\st -> runAction st (SnapshotRollback diskId (toRef snapshotId)))
 
--- | Merge a snapshot
-snapshotMerge :: Int64 -> Int64 -> TestM SnapshotResult
+snapshotMerge :: Int64 -> Int64 -> TestM Response
 snapshotMerge diskId snapshotId =
-  executeRpc (\conn -> Rpc.snapshotMerge conn (toRef diskId) (toRef snapshotId))
+  withState (\st -> runAction st (SnapshotMerge diskId (toRef snapshotId)))
 
--- | List snapshots for a disk
-snapshotList :: Int64 -> TestM SnapshotResult
-snapshotList diskId = executeRpc (`Rpc.snapshotList` toRef diskId)
+snapshotList :: Int64 -> TestM Response
+snapshotList diskId = withState (`handleSnapshotList` diskId)
 
 --------------------------------------------------------------------------------
 -- Shared Directory Commands
 --------------------------------------------------------------------------------
 
--- | Add a shared directory to a VM
-whenSharedDirAdd :: Int64 -> Text -> Text -> SharedDirCache -> Bool -> TestM SharedDirResult
+whenSharedDirAdd :: Int64 -> Text -> Text -> SharedDirCache -> Bool -> TestM Response
 whenSharedDirAdd vmId path tag cache readOnly =
-  executeRpc (\conn -> Rpc.sharedDirAdd conn (toRef vmId) path tag cache readOnly)
+  withState (\st -> runAction st (SharedDirAdd vmId path tag cache readOnly))
 
--- | Remove a shared directory from a VM
-whenSharedDirRemove :: Int64 -> Int64 -> TestM SharedDirResult
+whenSharedDirRemove :: Int64 -> Int64 -> TestM Response
 whenSharedDirRemove vmId sharedDirId =
-  executeRpc (\conn -> Rpc.sharedDirRemove conn (toRef vmId) (toRef sharedDirId))
+  withState (\st -> runAction st (SharedDirRemove vmId sharedDirId))
 
--- | List shared directories for a VM
-whenSharedDirList :: Int64 -> TestM SharedDirResult
-whenSharedDirList vmId = executeRpc (`Rpc.sharedDirList` toRef vmId)
+whenSharedDirList :: Int64 -> TestM Response
+whenSharedDirList vmId = withState (`handleSharedDirList` vmId)
 
 --------------------------------------------------------------------------------
 -- Network Interface Commands
 --------------------------------------------------------------------------------
 
--- | Add a network interface to a VM
-whenNetIfAdd :: Int64 -> NetInterfaceType -> Text -> Maybe Text -> TestM NetIfResult
+whenNetIfAdd :: Int64 -> NetInterfaceType -> Text -> Maybe Text -> TestM Response
 whenNetIfAdd vmId ifaceType hostDevice mac =
-  executeRpc (\conn -> Rpc.netIfAdd conn (toRef vmId) ifaceType hostDevice mac Nothing)
+  withState (\st -> runAction st (NetIfAdd vmId ifaceType hostDevice mac Nothing))
 
--- | Remove a network interface from a VM
-whenNetIfRemove :: Int64 -> Int64 -> TestM NetIfResult
+whenNetIfRemove :: Int64 -> Int64 -> TestM Response
 whenNetIfRemove vmId netIfId =
-  executeRpc (\conn -> Rpc.netIfRemove conn (toRef vmId) netIfId)
+  withState (\st -> runAction st (NetIfRemove vmId netIfId))
 
--- | List network interfaces for a VM
-whenNetIfList :: Int64 -> TestM NetIfResult
-whenNetIfList vmId = executeRpc (`Rpc.netIfList` toRef vmId)
+whenNetIfList :: Int64 -> TestM Response
+whenNetIfList vmId = withState (`handleNetIfList` vmId)
 
 --------------------------------------------------------------------------------
 -- SSH Key Commands
 --------------------------------------------------------------------------------
 
--- | Create a new SSH key
-whenSshKeyCreate :: Text -> Text -> TestM SshKeyResult
+whenSshKeyCreate :: Text -> Text -> TestM Response
 whenSshKeyCreate name publicKey =
-  executeRpc (\conn -> Rpc.sshKeyCreate conn name publicKey)
+  withState (\st -> runAction st (SshKeyCreate name publicKey))
 
--- | Delete an SSH key
-whenSshKeyDelete :: Int64 -> TestM SshKeyResult
-whenSshKeyDelete keyId = executeRpc (`Rpc.sshKeyDelete` toRef keyId)
+whenSshKeyDelete :: Int64 -> TestM Response
+whenSshKeyDelete keyId = withState (\st -> runAction st (SshKeyDelete keyId))
 
--- | List all SSH keys
-whenSshKeyList :: TestM SshKeyResult
-whenSshKeyList = executeRpc Rpc.sshKeyList
+whenSshKeyList :: TestM Response
+whenSshKeyList = withState handleSshKeyList
 
--- | Attach an SSH key to a VM
-whenSshKeyAttach :: Int64 -> Int64 -> TestM SshKeyResult
-whenSshKeyAttach vmId keyId =
-  executeRpc (\conn -> Rpc.sshKeyAttach conn (toRef vmId) (toRef keyId))
+whenSshKeyAttach :: Int64 -> Int64 -> TestM Response
+whenSshKeyAttach vmId keyId = withState (\st -> runAction st (SshKeyAttach vmId keyId))
 
--- | Detach an SSH key from a VM
-whenSshKeyDetach :: Int64 -> Int64 -> TestM SshKeyResult
-whenSshKeyDetach vmId keyId =
-  executeRpc (\conn -> Rpc.sshKeyDetach conn (toRef vmId) (toRef keyId))
+whenSshKeyDetach :: Int64 -> Int64 -> TestM Response
+whenSshKeyDetach vmId keyId = withState (\st -> runAction st (SshKeyDetach vmId keyId))
 
--- | List SSH keys for a VM
-whenSshKeyListForVm :: Int64 -> TestM SshKeyResult
-whenSshKeyListForVm vmId = executeRpc (`Rpc.sshKeyListForVm` toRef vmId)
+whenSshKeyListForVm :: Int64 -> TestM Response
+whenSshKeyListForVm vmId = withState (`handleSshKeyListForVm` vmId)
 
 --------------------------------------------------------------------------------
--- VM Edit Commands
+-- VM Edit / Create / Delete
 --------------------------------------------------------------------------------
 
--- | Edit VM properties
-whenVmEdit :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> TestM VmEditResult
+whenVmEdit :: Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> TestM Response
 whenVmEdit vmId mCpus mRam mDesc mHeadless =
-  executeRpc (\conn -> Rpc.vmEdit conn (toRef vmId) mCpus mRam mDesc mHeadless Nothing Nothing Nothing)
+  withState (\st -> runAction st (VmEdit vmId mCpus mRam mDesc mHeadless Nothing Nothing Nothing))
 
---------------------------------------------------------------------------------
--- VM Create/Delete Commands
---------------------------------------------------------------------------------
-
--- | Create a new VM
-whenVmCreate :: Text -> Int -> Int -> Maybe Text -> TestM VmCreateResult
+whenVmCreate :: Text -> Int -> Int -> Maybe Text -> TestM Response
 whenVmCreate name cpuCount ramMb description =
-  executeRpc (\conn -> Rpc.vmCreate conn name cpuCount ramMb description False False False False)
+  withState (\st -> runAction st (VmHandlers.VmCreate name cpuCount ramMb description False False False False))
 
--- | Delete a VM
-whenVmDelete :: Int64 -> TestM VmDeleteResult
-whenVmDelete vmId = executeRpc (\c -> Rpc.vmDelete c (toRef vmId) False)
+whenVmDelete :: Int64 -> TestM Response
+whenVmDelete vmId =
+  withState (\st -> runAction st (VmDelete vmId False))
 
 --------------------------------------------------------------------------------
 -- Core Commands
 --------------------------------------------------------------------------------
 
--- | Send a ping request
 whenPing :: TestM Response
-whenPing = executeRequest ReqPing
+whenPing = withState (const handlePing)
 
--- | Get daemon status
 whenStatus :: TestM Response
-whenStatus = executeRequest ReqStatus
+whenStatus = withState handleStatus
 
--- | Request daemon shutdown
 whenShutdown :: TestM Response
-whenShutdown = executeRequest ReqShutdown
+whenShutdown = withState handleShutdown
 
 --------------------------------------------------------------------------------
--- Apply Commands
+-- Apply
 --------------------------------------------------------------------------------
 
--- | Apply environment from YAML content
 whenApply :: Text -> TestM Response
-whenApply yaml = executeRequest (ReqApply yaml False True)
+whenApply yaml = withState $ \st -> do
+  validated <- handleApplyValidate st yaml
+  case validated of
+    Left err -> pure err
+    Right cfg -> runAction st (ApplyAction cfg False)
 
 --------------------------------------------------------------------------------
 -- Network Commands
 --------------------------------------------------------------------------------
 
--- | Create a network
-whenNetworkCreate :: Text -> Text -> TestM NetworkResult
+whenNetworkCreate :: Text -> Text -> TestM Response
 whenNetworkCreate name subnet =
-  executeRpc (\conn -> Rpc.networkCreate conn name subnet False False False)
+  withState (\st -> runAction st (NetworkCreate name subnet False False False))
 
--- | Create a network with DHCP enabled
-whenNetworkCreateWithDhcp :: Text -> Text -> TestM NetworkResult
-whenNetworkCreateWithDhcp name subnet =
-  executeRpc (\conn -> Rpc.networkCreate conn name subnet True False False)
-
--- | Delete a network
-whenNetworkDelete :: Int64 -> TestM NetworkResult
+whenNetworkDelete :: Int64 -> TestM Response
 whenNetworkDelete nwId =
-  executeRpc (\conn -> Rpc.networkDelete conn (toRef nwId))
+  withState (\st -> runAction st (NetworkDelete nwId))
 
--- | List all networks
-whenNetworkList :: TestM NetworkResult
-whenNetworkList = executeRpc Rpc.networkList
+whenNetworkList :: TestM Response
+whenNetworkList = withState handleNetworkList
 
--- | Show network details
-whenNetworkShow :: Int64 -> TestM NetworkResult
-whenNetworkShow nwId =
-  executeRpc (\conn -> Rpc.networkShow conn (toRef nwId))
+whenNetworkShow :: Int64 -> TestM Response
+whenNetworkShow nwId = withState (`handleNetworkShow` nwId)
 
 --------------------------------------------------------------------------------
 -- Template Commands
 --------------------------------------------------------------------------------
 
--- | Create a template from YAML
-whenTemplateCreate :: Text -> TestM TemplateResult
-whenTemplateCreate tplYaml =
-  executeRpc (`Rpc.templateCreate` tplYaml)
+whenTemplateCreate :: Text -> TestM Response
+whenTemplateCreate yaml = withState (\st -> runAction st (TemplateCreate yaml))
 
--- | Delete a template
-whenTemplateDelete :: Int64 -> TestM TemplateResult
-whenTemplateDelete tplId =
-  executeRpc (\conn -> Rpc.templateDelete conn (toRef tplId))
+whenTemplateDelete :: Int64 -> TestM Response
+whenTemplateDelete tplId = withState (\st -> runAction st (TemplateDelete tplId))
 
--- | List all templates
-whenTemplateList :: TestM TemplateResult
-whenTemplateList = executeRpc Rpc.templateList
+whenTemplateList :: TestM Response
+whenTemplateList = withState handleTemplateList
 
--- | Show template details
-whenTemplateShow :: Int64 -> TestM TemplateResult
-whenTemplateShow tplId =
-  executeRpc (\conn -> Rpc.templateShow conn (toRef tplId))
+whenTemplateShow :: Int64 -> TestM Response
+whenTemplateShow tplId = withState (`handleTemplateShow` tplId)
 
--- | Update a template atomically from new YAML
-whenTemplateUpdate :: Int64 -> Text -> TestM TemplateResult
-whenTemplateUpdate tplId newYaml =
-  executeRpc (\conn -> Rpc.templateUpdate conn (toRef tplId) newYaml)
+whenTemplateUpdate :: Int64 -> Text -> TestM Response
+whenTemplateUpdate tplId yaml = withState (\st -> runAction st (TemplateUpdate tplId yaml))
 
--- | Instantiate a VM from a template
-whenTemplateInstantiate :: Int64 -> Text -> TestM TemplateResult
-whenTemplateInstantiate tplId vmName =
-  executeRpc (\conn -> Rpc.templateInstantiate conn (toRef tplId) vmName)
+whenTemplateInstantiate :: Int64 -> Text -> TestM Response
+whenTemplateInstantiate tplId name = withState (\st -> runAction st (TemplateInstantiate tplId name))
 
 --------------------------------------------------------------------------------
--- Guest Exec Commands
+-- Guest Exec
 --------------------------------------------------------------------------------
 
--- | Execute a command in a VM via guest agent
-whenGuestExec :: Int64 -> Text -> TestM GuestExecResult
-whenGuestExec vmId cmd =
-  executeRpc (\conn -> Rpc.vmExec conn (toRef vmId) cmd)
+whenGuestExec :: Int64 -> Text -> TestM Response
+whenGuestExec vmId cmd = withState (\st -> runAction st (GuestExec vmId cmd))
 
 --------------------------------------------------------------------------------
 -- Cloud-init Config Commands
 --------------------------------------------------------------------------------
 
--- | Set cloud-init config for a VM
-whenCloudInitSet :: Int64 -> Maybe Text -> Maybe Text -> Bool -> TestM CloudInitResult
+whenCloudInitSet :: Int64 -> Maybe Text -> Maybe Text -> Bool -> TestM Response
 whenCloudInitSet vmId mUserData mNetworkConfig injectSshKeys =
-  executeRpc (\conn -> Rpc.cloudInitSet conn (toRef vmId) mUserData mNetworkConfig injectSshKeys)
+  withState (\st -> runAction st (CloudInitSet vmId mUserData mNetworkConfig injectSshKeys))
 
--- | Get cloud-init config for a VM
-whenCloudInitGet :: Int64 -> TestM CloudInitResult
-whenCloudInitGet vmId =
-  executeRpc (\conn -> Rpc.cloudInitGet conn (toRef vmId))
+whenCloudInitGet :: Int64 -> TestM Response
+whenCloudInitGet vmId = withState (`handleCloudInitGet` vmId)
 
--- | Delete cloud-init config for a VM
-whenCloudInitDelete :: Int64 -> TestM CloudInitResult
-whenCloudInitDelete vmId =
-  executeRpc (\conn -> Rpc.cloudInitDelete conn (toRef vmId))
+whenCloudInitDelete :: Int64 -> TestM Response
+whenCloudInitDelete vmId = withState (\st -> runAction st (CloudInitDelete vmId))

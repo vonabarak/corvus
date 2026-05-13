@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | Cloud-init response data returned by the daemon.
@@ -11,9 +10,8 @@ module Corvus.Protocol.CloudInit
   )
 where
 
-import Corvus.Protocol.Aeson (innerOptions)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
@@ -23,7 +21,7 @@ data CloudInitInfo = CloudInitInfo
   , ciiNetworkConfig :: !(Maybe Text)
   , ciiInjectSshKeys :: !Bool
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON CloudInitInfo where
   toJSON = genericToJSON innerOptions

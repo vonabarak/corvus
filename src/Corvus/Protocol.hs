@@ -1,33 +1,24 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NoFieldSelectors #-}
 {-# OPTIONS_GHC -Wno-ambiguous-fields #-}
 
--- | Request / Response sum types for the Corvus RPC protocol.
+-- | Daemon-internal Response sum type plus the leaf info records.
 --
--- Constructors use record syntax so both the binary wire format and the
--- JSON projection (for the Python bridge) can be derived from a single
--- type. 'Data.Binary' only cares about field *order*; 'Aeson' only cares
--- about field *names*; both coexist.
+-- The 'Response' sum is still useful inside the daemon: handlers
+-- return it from @Action@ instances, and the Cap'n Proto cap glue in
+-- @Corvus.Rpc.*@ pattern-matches on it to decide what to push onto
+-- the wire (struct return / typed exception). It is no longer
+-- serialised — the legacy 'Data.Binary' wire is gone.
 --
--- 'DuplicateRecordFields' lets the same field name appear in multiple
--- constructors (e.g. @ref@, @name@) and in both the 'Request' and
--- 'Response' types. Existing callers pattern-match positionally and
--- continue to work unchanged.
+-- 'Ref' likewise survives as the daemon-internal "name or id" handle
+-- consumed by @Corvus.Handlers.Resolve@. Clients now send a
+-- 'Corvus.Wire.Common.EntityRef' union; the Cap'n Proto glue in
+-- 'Corvus.Rpc.Common.capnpRefToRef' translates that into a 'Ref'.
 module Corvus.Protocol
-  ( -- * Message wrapper
-    Request (..)
-  , Response (..)
-
-    -- * Protocol version
-  , protocolVersion
-
-    -- * Message encoding/decoding
-  , encodeMessage
-  , decodeMessage
+  ( -- * Server-side response sum
+    Response (..)
 
     -- * Daemon status
   , StatusInfo (..)
@@ -50,25 +41,21 @@ module Corvus.Protocol
   )
 where
 
-import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TaskResult, TaskSubsystem, VmStatus)
-import Corvus.Protocol.Aeson (innerOptions, requestOptions, responseOptions)
+import Corvus.Model (VmStatus)
 import Corvus.Protocol.Apply
 import Corvus.Protocol.Build
 import Corvus.Protocol.CloudInit
 import Corvus.Protocol.Disk
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Corvus.Protocol.Network
 import Corvus.Protocol.SharedDir
 import Corvus.Protocol.SshKey
 import Corvus.Protocol.Task
 import Corvus.Protocol.Template
 import Corvus.Protocol.Vm
-import Data.Aeson (FromJSON (..), ToJSON (..), genericParseJSON, genericToJSON)
-import Data.Binary (Binary, decodeOrFail, encode)
-import Data.ByteString.Lazy (ByteString)
-import qualified Data.ByteString.Lazy as BL
+import Data.Aeson (FromJSON (..), ToJSON (..), genericToJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
-import Data.Word (Word8)
 import GHC.Generics (Generic)
 
 -- | A reference to an entity by name or numeric ID.
@@ -76,7 +63,6 @@ import GHC.Generics (Generic)
 -- Otherwise it is treated as a name lookup via the entity's unique constraint.
 newtype Ref = Ref Text
   deriving stock (Eq, Show, Generic)
-  deriving newtype (Binary)
 
 -- | Unwrap a 'Ref' to its underlying 'Text'. Defined explicitly because
 -- 'NoFieldSelectors' in this module suppresses auto-generated selectors.
@@ -88,269 +74,6 @@ instance ToJSON Ref where
 
 instance FromJSON Ref where
   parseJSON v = Ref <$> parseJSON v
-
--- | Current protocol version. Increment when the wire format changes.
-protocolVersion :: Word8
-protocolVersion = 35
-
--- ---------------------------------------------------------------------------
--- Request
--- ---------------------------------------------------------------------------
-
--- | Client requests.
---
--- Each non-nullary constructor uses record syntax. Field order matches the
--- previous positional declarations so 'Data.Binary' wire encoding stays
--- unchanged. Field *names* exist purely for JSON serialisation and for
--- code generation of the Python client; existing callers pattern-match
--- positionally and continue to work unmodified.
-data Request
-  = ReqPing
-  | ReqStatus
-  | ReqShutdown
-  | ReqVmList
-  | -- | Show VM
-    ReqVmShow {ref :: !Ref}
-  | -- | Create VM
-    ReqVmCreate
-      { name :: !Text
-      , cpuCount :: !Int
-      , ramMb :: !Int
-      , description :: !(Maybe Text)
-      , headless :: !Bool
-      , guestAgent :: !Bool
-      , cloudInit :: !Bool
-      , autostart :: !Bool
-      }
-  | -- | Delete VM
-    ReqVmDelete {ref :: !Ref, deleteDisks :: !Bool}
-  | -- | Start VM (stopped/paused → running). @wait@ blocks until complete.
-    ReqVmStart {ref :: !Ref, wait :: !Bool}
-  | -- | Stop VM (running → stopped). @wait@ blocks until complete.
-    ReqVmStop {ref :: !Ref, wait :: !Bool}
-  | -- | Pause VM (running → paused)
-    ReqVmPause {ref :: !Ref}
-  | -- | Reset VM (any → stopped)
-    ReqVmReset {ref :: !Ref}
-  | -- | Create disk image
-    ReqDiskCreate
-      { name :: !Text
-      , format :: !DriveFormat
-      , sizeMb :: !Int64
-      , path :: !(Maybe Text)
-      }
-  | -- | Register an existing on-disk image file
-    ReqDiskRegister
-      { name :: !Text
-      , filePath :: !Text
-      , formatHint :: !(Maybe DriveFormat)
-      , backing :: !(Maybe Ref)
-      }
-  | -- | Create overlay disk image
-    ReqDiskCreateOverlay
-      { name :: !Text
-      , base :: !Ref
-      , path :: !(Maybe Text)
-      }
-  | -- | Refresh disk image size from qemu-img info
-    ReqDiskRefresh {ref :: !Ref}
-  | -- | Delete disk image
-    ReqDiskDelete {ref :: !Ref}
-  | -- | Resize disk image
-    ReqDiskResize {ref :: !Ref, newSizeMb :: !Int64}
-  | -- | List all disk images
-    ReqDiskList
-  | -- | Show disk image details
-    ReqDiskShow {ref :: !Ref}
-  | -- | Clone disk image
-    ReqDiskClone
-      { name :: !Text
-      , base :: !Ref
-      , path :: !(Maybe Text)
-      }
-  | -- | Rebase overlay to new backing or flatten
-    ReqDiskRebase
-      { ref :: !Ref
-      , backing :: !(Maybe Ref)
-      , unsafe :: !Bool
-      }
-  | -- | Create snapshot (qcow2 only)
-    ReqSnapshotCreate {ref :: !Ref, name :: !Text}
-  | -- | Delete snapshot
-    ReqSnapshotDelete {ref :: !Ref, snapshotRef :: !Ref}
-  | -- | Rollback to snapshot
-    ReqSnapshotRollback {ref :: !Ref, snapshotRef :: !Ref}
-  | -- | Merge snapshot
-    ReqSnapshotMerge {ref :: !Ref, snapshotRef :: !Ref}
-  | -- | List snapshots
-    ReqSnapshotList {ref :: !Ref}
-  | -- | Attach disk to VM
-    ReqDiskAttach
-      { vmRef :: !Ref
-      , diskRef :: !Ref
-      , interface :: !DriveInterface
-      , media :: !(Maybe DriveMedia)
-      , readOnly :: !Bool
-      , discard :: !Bool
-      , diskCache :: !CacheType
-      }
-  | -- | Detach disk from VM
-    ReqDiskDetach {vmRef :: !Ref, diskRef :: !Ref}
-  | -- | Add shared directory to VM
-    ReqSharedDirAdd
-      { ref :: !Ref
-      , hostPath :: !Text
-      , tag :: !Text
-      , dirCache :: !SharedDirCache
-      , readOnly :: !Bool
-      }
-  | -- | Remove shared directory from VM
-    ReqSharedDirRemove {ref :: !Ref, sharedDirRef :: !Ref}
-  | -- | List shared directories for VM
-    ReqSharedDirList {ref :: !Ref}
-  | -- | Add network interface to VM
-    ReqNetIfAdd
-      { ref :: !Ref
-      , interfaceType :: !NetInterfaceType
-      , hostDevice :: !Text
-      , macAddress :: !(Maybe Text)
-      , network :: !(Maybe Ref)
-      }
-  | -- | Remove network interface from VM
-    ReqNetIfRemove {ref :: !Ref, netIfId :: !Int64}
-  | -- | List network interfaces for VM
-    ReqNetIfList {ref :: !Ref}
-  | -- | Create SSH key
-    ReqSshKeyCreate {name :: !Text, publicKey :: !Text}
-  | -- | Delete SSH key
-    ReqSshKeyDelete {ref :: !Ref}
-  | -- | List all SSH keys
-    ReqSshKeyList
-  | -- | Attach SSH key to VM
-    ReqSshKeyAttach {vmRef :: !Ref, keyRef :: !Ref}
-  | -- | Detach SSH key from VM
-    ReqSshKeyDetach {vmRef :: !Ref, keyRef :: !Ref}
-  | -- | List SSH keys for VM
-    ReqSshKeyListForVm {ref :: !Ref}
-  | -- | Create template from YAML
-    ReqTemplateCreate {yaml :: !Text}
-  | -- | Delete template
-    ReqTemplateDelete {ref :: !Ref}
-  | -- | List all templates
-    ReqTemplateList
-  | -- | Show template details
-    ReqTemplateShow {ref :: !Ref}
-  | -- | Instantiate template
-    ReqTemplateInstantiate {ref :: !Ref, name :: !Text}
-  | -- | Edit VM properties (each Maybe is applied only if Just).
-    ReqVmEdit
-      { ref :: !Ref
-      , newCpuCount :: !(Maybe Int)
-      , newRamMb :: !(Maybe Int)
-      , newDescription :: !(Maybe Text)
-      , newHeadless :: !(Maybe Bool)
-      , newGuestAgent :: !(Maybe Bool)
-      , newCloudInit :: !(Maybe Bool)
-      , newAutostart :: !(Maybe Bool)
-      }
-  | -- | Regenerate cloud-init ISO for a VM
-    ReqVmCloudInit {ref :: !Ref}
-  | -- | Create virtual network
-    ReqNetworkCreate
-      { name :: !Text
-      , subnet :: !Text
-      , dhcp :: !Bool
-      , nat :: !Bool
-      , autostart :: !Bool
-      }
-  | -- | Delete network
-    ReqNetworkDelete {ref :: !Ref}
-  | -- | Start network
-    ReqNetworkStart {ref :: !Ref}
-  | -- | Stop network
-    ReqNetworkStop {ref :: !Ref, force :: !Bool}
-  | -- | List all networks
-    ReqNetworkList
-  | -- | Show network details
-    ReqNetworkShow {ref :: !Ref}
-  | -- | Edit network (each Maybe applied only if Just)
-    ReqNetworkEdit
-      { ref :: !Ref
-      , newSubnet :: !(Maybe Text)
-      , newDhcp :: !(Maybe Bool)
-      , newNat :: !(Maybe Bool)
-      , newAutostart :: !(Maybe Bool)
-      }
-  | -- | Execute command in guest via qemu-guest-agent
-    ReqGuestExec {ref :: !Ref, command :: !Text}
-  | -- | Import disk image from URL
-    ReqDiskImportUrl
-      { name :: !Text
-      , url :: !Text
-      , formatText :: !(Maybe Text)
-      }
-  | -- | Apply environment from YAML config
-    ReqApply
-      { yaml :: !Text
-      , skipExisting :: !Bool
-      , wait :: !Bool
-      }
-  | -- | List task history
-    ReqTaskList
-      { limit :: !Int
-      , subsystem :: !(Maybe TaskSubsystem)
-      , result :: !(Maybe TaskResult)
-      , includeSubtasks :: !Bool
-      }
-  | -- | Show single task details
-    ReqTaskShow {taskId :: !Int64}
-  | -- | List subtasks of a parent task
-    ReqTaskListChildren {parentId :: !Int64}
-  | -- | Set/update cloud-init config for a VM
-    ReqCloudInitSet
-      { ref :: !Ref
-      , userData :: !(Maybe Text)
-      , networkConfig :: !(Maybe Text)
-      , injectSshKeys :: !Bool
-      }
-  | -- | Get cloud-init config for a VM
-    ReqCloudInitGet {ref :: !Ref}
-  | -- | Delete custom cloud-init config for a VM
-    ReqCloudInitDelete {ref :: !Ref}
-  | -- | Attach to serial console (protocol upgrade after RespSerialConsoleOk).
-    ReqSerialConsole {ref :: !Ref}
-  | -- | Flush the serial console ring buffer for a VM
-    ReqSerialConsoleFlush {ref :: !Ref}
-  | -- | Import disk image from source (local path or URL) with copy.
-    ReqDiskImport
-      { name :: !Text
-      , source :: !Text
-      , path :: !(Maybe Text)
-      , formatText :: !(Maybe Text)
-      , wait :: !Bool
-      }
-  | -- | Replace an existing template atomically with new YAML
-    ReqTemplateUpdate {ref :: !Ref, yaml :: !Text}
-  | -- | Request a short-lived SPICE connection grant for a running,
-    -- non-headless VM. The daemon rotates the SPICE password via QMP
-    -- and returns reachable host/port plus the fresh password.
-    ReqVmViewGrant {ref :: !Ref}
-  | -- | Attach to HMP monitor (protocol upgrade after RespHmpMonitorOk).
-    ReqHmpMonitor {ref :: !Ref}
-  | -- | Flush the HMP monitor ring buffer for a VM.
-    ReqHmpMonitorFlush {ref :: !Ref}
-  | -- | Inject Ctrl+Alt+Del into a running VM via QMP @send-key@.
-    ReqVmSendCtrlAltDel {ref :: !Ref}
-  | -- | Build OS images from a YAML pipeline description.
-    -- @wait@: block until completion vs return a parent task id immediately.
-    ReqBuild {yaml :: !Text, wait :: !Bool}
-  deriving (Eq, Show, Generic, Binary)
-
-instance ToJSON Request where
-  toJSON = genericToJSON requestOptions
-
-instance FromJSON Request where
-  parseJSON = genericParseJSON requestOptions
 
 -- ---------------------------------------------------------------------------
 -- Status
@@ -367,12 +90,12 @@ data StatusInfo = StatusInfo
   -- ^ Number of active connections
   , siVersion :: !Text
   -- ^ Daemon version (package version + short git commit hash)
-  , siProtocolVersion :: !Word8
-  -- ^ Binary RPC protocol version
+  , siProtocolVersion :: !Int
+  -- ^ RPC protocol version (Cap'n Proto schema generation number)
   , siNamespacePid :: !(Maybe Int)
   -- ^ PID of the network namespace manager
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON StatusInfo where
   toJSON = genericToJSON innerOptions
@@ -381,11 +104,12 @@ instance ToJSON StatusInfo where
 -- Response
 -- ---------------------------------------------------------------------------
 
--- | Server responses.
+-- | Daemon-internal response sum.
 --
--- Record syntax throughout (except nullary constructors). Field order
--- preserves the original positional declarations so 'Data.Binary'
--- continues to produce byte-identical output.
+-- Each constructor's record syntax exists for clarity at construction
+-- sites — fields are not serialised. The Cap'n Proto cap layer
+-- (@Corvus.Rpc.*@) pattern-matches on these to decide which struct
+-- field to populate or which exception to throw.
 data Response
   = RespPong
   | RespStatus {info :: !StatusInfo}
@@ -522,7 +246,7 @@ data Response
     RespCloudInitConfig {config :: !(Maybe CloudInitInfo)}
   | -- | Cloud-init config operation successful
     RespCloudInitOk
-  | -- | Serial console attached; connection switches to raw byte streaming
+  | -- | Serial console attached (post-upgrade)
     RespSerialConsoleOk
   | -- | Serial console buffer flushed
     RespSerialConsoleFlushed
@@ -547,7 +271,7 @@ data Response
     RespVmNotRunning
   | -- | VM has no SPICE console (headless configuration).
     RespVmHeadless
-  | -- | HMP monitor attached; connection switches to raw byte streaming.
+  | -- | HMP monitor attached (post-upgrade).
     RespHmpMonitorOk
   | -- | HMP monitor buffer flushed.
     RespHmpMonitorFlushed
@@ -555,46 +279,7 @@ data Response
     RespBuildResult {buildResult :: !BuildResult}
   | -- | Build started asynchronously (parent task id, mirrors RespApplyStarted).
     RespBuildStarted {taskId :: !Int64}
-  | -- | Build accepted with @--wait@; connection switches to
-    -- 'BuildEvent' streaming on the raw socket. The daemon writes
-    -- length-prefixed events until the terminating @PipelineEnd@ and
-    -- then closes the socket.
+  | -- | Build accepted with @--wait@; events stream over a separate
+    -- 'BuildEventSink' cap (Phase 6).
     RespBuildStreamStarted
-  deriving (Eq, Show, Generic, Binary)
-
-instance ToJSON Response where
-  toJSON = genericToJSON responseOptions
-
--- Note: 'FromJSON Response' is not derived because most inner record
--- types currently only have 'ToJSON' (they flow server→client only).
--- When / if round-trip Response tests are added, derive 'FromJSON' on
--- those inner types first.
-
--- ---------------------------------------------------------------------------
--- Wire encoding
--- ---------------------------------------------------------------------------
-
--- | Encode a message with protocol version and length prefix.
--- Wire format: [1 byte version][8 bytes length (big-endian)][payload]
-encodeMessage :: (Binary a) => a -> ByteString
-encodeMessage msg =
-  let payload = encode msg
-      len = fromIntegral (BL.length payload) :: Int64
-   in encode protocolVersion <> encode len <> payload
-
--- | Decode a versioned, length-prefixed message.
--- Returns Left on version mismatch or decoding failure.
-decodeMessage :: (Binary a) => ByteString -> Either String a
-decodeMessage bs =
-  case decodeOrFail bs of
-    Left (_, _, err) -> Left $ "version decode error: " <> err
-    Right (rest1, _, ver) ->
-      if (ver :: Word8) /= protocolVersion
-        then Left $ "protocol version mismatch: expected " <> show protocolVersion <> ", got " <> show ver
-        else case decodeOrFail rest1 of
-          Left (_, _, err) -> Left $ "length decode error: " <> err
-          Right (rest2, _, len) ->
-            let payload = BL.take (fromIntegral (len :: Int64)) rest2
-             in case decodeOrFail payload of
-                  Left (_, _, err) -> Left err
-                  Right (_, _, msg) -> Right msg
+  deriving (Eq, Show, Generic)

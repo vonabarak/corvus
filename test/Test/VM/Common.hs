@@ -43,9 +43,10 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Exception (bracket)
 import Control.Monad (forM_, when)
-import Corvus.Client (DiskResult (..), diskClone, diskCreateOverlay, diskDelete, diskRegister)
+import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Model (DriveFormat (..), DriveInterface (..))
 import Corvus.Types (ServerState (..))
+import Corvus.Wire.Common (entityRefFromText)
 import Data.Int (Int64)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
@@ -110,46 +111,39 @@ withTestDiskSetup daemon config callback = do
 
   -- Register base image with daemon
   resBase <- withDaemonConnection daemon $ \conn ->
-    diskRegister conn baseName (T.pack localBasePath) (Just FormatQcow2) Nothing
+    CR.rpcDiskRegister conn baseName (T.pack localBasePath) FormatQcow2
   baseDiskId <- case resBase of
-    Right (Right (DiskCreated dId)) -> pure dId
-    Right (Left err) -> fail $ "Failed to register base disk: " <> show err
-    Right (Right other) -> fail $ "Unexpected response registering base disk: " <> show other
-    Left err -> fail $ "Connection error registering base disk: " <> show err
+    Right d -> pure d
+    Left err -> fail $ "Failed to register base disk: " <> show err
 
   -- Create overlay via daemon
   resOverlay <- withDaemonConnection daemon $ \conn ->
-    diskCreateOverlay conn overlayName (T.pack (show baseDiskId)) Nothing
+    CR.rpcDiskCreateOverlay conn overlayName (entityRefFromText (T.pack (show baseDiskId)))
   overlayDiskId <- case resOverlay of
-    Right (Right (DiskCreated dId)) -> pure dId
-    Right (Left err) -> fail $ "Failed to create overlay: " <> show err
-    Right (Right other) -> fail $ "Unexpected response creating overlay: " <> show other
-    Left err -> fail $ "Connection error creating overlay: " <> show err
+    Right d -> pure d
+    Left err -> fail $ "Failed to create overlay: " <> show err
 
   if useUefi
     then do
       -- Register OVMF firmware disks
       resOvmfCode <- withDaemonConnection daemon $ \conn ->
-        diskRegister conn ovmfCodeName "/usr/share/edk2/OvmfX64/OVMF_CODE.fd" (Just FormatRaw) Nothing
+        CR.rpcDiskRegister conn ovmfCodeName "/usr/share/edk2/OvmfX64/OVMF_CODE.fd" FormatRaw
       ovmfCodeId <- case resOvmfCode of
-        Right (Right (DiskCreated dId)) -> pure dId
-        Right (Left err) -> fail $ "Failed to register OVMF_CODE disk: " <> show err
-        _ -> fail "Unexpected response registering OVMF_CODE"
+        Right d -> pure d
+        Left err -> fail $ "Failed to register OVMF_CODE disk: " <> show err
 
       resOvmfVarsTemplate <- withDaemonConnection daemon $ \conn ->
-        diskRegister conn ovmfVarsTemplateName "/usr/share/edk2/OvmfX64/OVMF_VARS.fd" (Just FormatRaw) Nothing
+        CR.rpcDiskRegister conn ovmfVarsTemplateName "/usr/share/edk2/OvmfX64/OVMF_VARS.fd" FormatRaw
       ovmfVarsTemplateId <- case resOvmfVarsTemplate of
-        Right (Right (DiskCreated dId)) -> pure dId
-        Right (Left err) -> fail $ "Failed to register OVMF_VARS template disk: " <> show err
-        _ -> fail "Unexpected response registering OVMF_VARS template"
+        Right d -> pure d
+        Left err -> fail $ "Failed to register OVMF_VARS template disk: " <> show err
 
       -- Clone OVMF vars for this test
       resOvmfVars <- withDaemonConnection daemon $ \conn ->
-        diskClone conn ovmfVarsName (T.pack (show ovmfVarsTemplateId)) (Just (ovmfVarsName <> ".fd"))
+        CR.rpcDiskClone conn (entityRefFromText (T.pack (show ovmfVarsTemplateId))) ovmfVarsName
       ovmfVarsId <- case resOvmfVars of
-        Right (Right (DiskCreated dId)) -> pure dId
-        Right (Left err) -> fail $ "Failed to clone OVMF_VARS: " <> show err
-        _ -> fail "Unexpected response cloning OVMF_VARS"
+        Right d -> pure d
+        Left err -> fail $ "Failed to clone OVMF_VARS: " <> show err
 
       let configWithOvmf =
             config
@@ -162,8 +156,8 @@ withTestDiskSetup daemon config callback = do
       bracket
         (pure ())
         ( \_ -> do
-            _ <- withDaemonConnection daemon $ \conn -> diskDelete conn (T.pack (show overlayDiskId))
-            _ <- withDaemonConnection daemon $ \conn -> diskDelete conn (T.pack (show ovmfVarsId))
+            _ <- withDaemonConnection daemon $ \conn -> CR.rpcDiskDelete conn (entityRefFromText (T.pack (show overlayDiskId)))
+            _ <- withDaemonConnection daemon $ \conn -> CR.rpcDiskDelete conn (entityRefFromText (T.pack (show ovmfVarsId)))
             pure ()
         )
         (\_ -> callback overlayDiskId configWithOvmf)
@@ -171,7 +165,7 @@ withTestDiskSetup daemon config callback = do
       bracket
         (pure ())
         ( \_ -> do
-            _ <- withDaemonConnection daemon $ \conn -> diskDelete conn (T.pack (show overlayDiskId))
+            _ <- withDaemonConnection daemon $ \conn -> CR.rpcDiskDelete conn (entityRefFromText (T.pack (show overlayDiskId)))
             pure ()
         )
         (\_ -> callback overlayDiskId config)

@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Template command handlers for the Corvus client.
 module Corvus.Client.Commands.Template
@@ -16,15 +18,17 @@ module Corvus.Client.Commands.Template
   )
 where
 
+import Control.Exception (SomeException, try)
 import Control.Monad (forM_)
+import Corvus.Client.Capnp.Connection (CapnpConnection)
+import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
-import Corvus.Client.Connection
 import Corvus.Client.Editor (editInEditor)
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printField, printTable, tableFormat)
-import Corvus.Client.Rpc
-import Corvus.Client.Types (OutputFormat (..))
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printField, printTable, tableFormat)
+import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..))
 import Corvus.Protocol (TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
+import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -33,11 +37,8 @@ import Data.Time (defaultTimeLocale, formatTime)
 import System.Directory (doesFileExist)
 import Text.Printf (printf)
 
--- | Handle template create command.
--- When a file path is given, read it and send to the server.
--- When no file is given, open $EDITOR on a skeleton template and use the
--- edited contents.
-handleTemplateCreate :: OutputFormat -> Connection -> Maybe FilePath -> IO Bool
+-- | Handle template create command
+handleTemplateCreate :: OutputFormat -> CapnpConnection -> Maybe FilePath -> IO Bool
 handleTemplateCreate fmt conn mPath = case mPath of
   Just path -> do
     exists <- doesFileExist path
@@ -58,42 +59,30 @@ handleTemplateCreate fmt conn mPath = case mPath of
         pure False
       Right content -> sendCreate fmt conn content
 
--- | Send a create RPC and render the response.
-sendCreate :: OutputFormat -> Connection -> Text -> IO Bool
+sendCreate :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 sendCreate fmt conn content = do
-  resp <- templateCreate conn content
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (TemplateCreated tid) -> do
+  r <- try @SomeException (CR.rpcTemplateCreate conn content)
+  case r of
+    Right tid -> do
       emitOkWith fmt [("id", toJSON tid)] $
         putStrLn $
           "Template created with ID: " ++ show tid
       pure True
-    Right (TemplateError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
--- | Handle template edit command: fetch → edit in $EDITOR → update.
-handleTemplateEdit :: OutputFormat -> Connection -> Text -> IO Bool
+-- | Handle template edit command: fetch → edit → update.
+handleTemplateEdit :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleTemplateEdit fmt conn tRef = do
-  showResp <- templateShow conn tRef
-  case showResp of
-    Left err -> do
-      emitRpcError fmt err
+  r <- try @SomeException (CR.rpcTemplateShow conn (entityRefFromText tRef))
+  case r of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
-    Right TemplateNotFound -> do
-      emitError fmt "not_found" ("Template '" <> tRef <> "' not found") $
-        putStrLn $
-          "Template '" ++ T.unpack tRef ++ "' not found."
-      pure False
-    Right (TemplateDetailsResult details) -> do
+    Right details -> do
       let initial = templateDetailsToYaml details
       edited <- editInEditor initial
       case edited of
@@ -105,124 +94,71 @@ handleTemplateEdit fmt conn tRef = do
               emitOk fmt $ putStrLn "No changes; template left untouched."
               pure True
           | otherwise -> do
-              updateResp <- templateUpdate conn tRef content
-              case updateResp of
-                Left err -> do
-                  emitRpcError fmt err
-                  pure False
-                Right (TemplateUpdated tid) -> do
-                  emitOkWith fmt [("id", toJSON tid)] $
-                    putStrLn $
-                      "Template updated with ID: " ++ show tid
+              ur <- try (CR.rpcTemplateUpdate conn (entityRefFromText tRef) content) :: IO (Either SomeException ())
+              case ur of
+                Right () -> do
+                  emitOk fmt $ putStrLn $ "Template '" ++ T.unpack tRef ++ "' updated."
                   pure True
-                Right (TemplateError msg) -> do
-                  emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
+                Left e -> do
+                  emitError fmt "rpc_error" (T.pack (show e)) $
+                    putStrLn ("Error: " ++ show e)
                   pure False
-                Right TemplateNotFound -> do
-                  emitError fmt "not_found" ("Template '" <> tRef <> "' not found") $
-                    putStrLn $
-                      "Template '" ++ T.unpack tRef ++ "' not found."
-                  pure False
-                Right other -> do
-                  emitError fmt "unexpected" (T.pack $ show other) $
-                    putStrLn $
-                      "Unexpected response: " ++ show other
-                  pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
-      pure False
 
 -- | Handle template delete command
-handleTemplateDelete :: OutputFormat -> Connection -> Text -> IO Bool
+handleTemplateDelete :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleTemplateDelete fmt conn tid = do
-  resp <- templateDelete conn tid
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right TemplateDeleted -> do
+  r <- try (CR.rpcTemplateDelete conn (entityRefFromText tid)) :: IO (Either SomeException ())
+  case r of
+    Right () -> do
       emitOk fmt $ putStrLn "Template deleted."
       pure True
-    Right TemplateNotFound -> do
-      emitError fmt "not_found" "Template not found" $ putStrLn "Template not found."
-      pure False
-    Right (TemplateError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle template list command
-handleTemplateList :: OutputFormat -> TableOpts -> Connection -> IO Bool
+handleTemplateList :: OutputFormat -> TableOpts -> CapnpConnection -> IO Bool
 handleTemplateList fmt tableOpts conn = do
-  resp <- templateList conn
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (TemplateListResult templates) -> do
+  r <- try @SomeException (CR.rpcTemplateList conn)
+  case r of
+    Right templates -> do
       emitResult fmt templates $
         if null templates
           then putStrLn "No templates found."
           else printTable tableOpts templateVmColumns templates
       pure True
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle template show command
-handleTemplateShow :: OutputFormat -> Connection -> Text -> IO Bool
+handleTemplateShow :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleTemplateShow fmt conn tid = do
-  resp <- templateShow conn tid
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (TemplateDetailsResult details) -> do
+  r <- try @SomeException (CR.rpcTemplateShow conn (entityRefFromText tid))
+  case r of
+    Right details -> do
       emitResult fmt details $ printTemplateDetails details
       pure True
-    Right TemplateNotFound -> do
-      emitError fmt "not_found" "Template not found" $ putStrLn "Template not found."
-      pure False
-    Right (TemplateError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle template instantiate command
-handleTemplateInstantiate :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleTemplateInstantiate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
 handleTemplateInstantiate fmt conn tid name = do
-  resp <- templateInstantiate conn tid name
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (TemplateInstantiated vmId) -> do
+  r <- try @SomeException (CR.rpcTemplateInstantiate conn (entityRefFromText tid) name)
+  case r of
+    Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $
         putStrLn $
           "VM instantiated with ID: " ++ show vmId
       pure True
-    Right TemplateNotFound -> do
-      emitError fmt "not_found" "Template not found" $ putStrLn "Template not found."
-      pure False
-    Right (TemplateError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 --------------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Command execution for the Corvus client.
 -- This module dispatches CLI commands to domain-specific handler modules.
@@ -24,6 +25,9 @@ module Corvus.Client.Commands
   )
 where
 
+import Control.Exception (SomeException, try)
+import Corvus.Client.Capnp.Connection (CapnpConnection, withCapnpConnection)
+import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Apply
 import Corvus.Client.Commands.Build
 import Corvus.Client.Commands.CloudInit
@@ -36,15 +40,13 @@ import Corvus.Client.Commands.SshKey
 import Corvus.Client.Commands.Task
 import Corvus.Client.Commands.Template
 import Corvus.Client.Commands.Vm
-import Corvus.Client.Config (defaultClientConfig)
-import Corvus.Client.Connection
 import Corvus.Client.Output
-import Corvus.Client.Rpc
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), VmStatus (..))
-import Corvus.Protocol (Ref (..), Request (..), Response (..), StatusInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Protocol (StatusInfo (..), VmDetails (..))
 import Corvus.Qemu.Netns (nsExec)
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
+import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (Value, object, toJSON, (.=))
 import Data.Char (toLower)
 import Data.Maybe (fromMaybe)
@@ -56,7 +58,6 @@ import System.Environment (lookupEnv)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hPutStrLn, stderr)
 import System.Posix.Signals (Handler (..), installHandler, sigINT)
-import Text.Printf (printf)
 
 -- | Get the listen address from options
 getListenAddress :: Options -> IO ListenAddress
@@ -71,28 +72,25 @@ runCommand :: Options -> IO ()
 runCommand opts = do
   let fmt = optOutput opts
       tableOpts = tableOptsFromOptions opts
-  -- Handle completion command before establishing daemon connection
   case optCommand opts of
     Completion shell -> handleCompletion shell
     _ -> pure ()
   addr <- getListenAddress opts
-  connResult <- withConnection addr $ \conn ->
+  connResult <- withCapnpConnection addr $ \conn ->
     case optCommand opts of
       Ping -> do
-        resp <- sendPing conn
-        case resp of
-          Left err -> do
-            emitRpcError fmt err
-            pure False
+        r <- try (CR.rpcPing conn) :: IO (Either SomeException ())
+        case r of
           Right () -> do
             emitOk fmt $ putStrLn "pong"
             pure True
-      Status -> do
-        resp <- getStatus conn
-        case resp of
-          Left err -> do
-            emitRpcError fmt err
+          Left e -> do
+            emitError fmt "rpc_error" (T.pack (show e)) $
+              putStrLn ("Error: " ++ show e)
             pure False
+      Status -> do
+        r <- try (CR.rpcStatus conn) :: IO (Either SomeException StatusInfo)
+        case r of
           Right st@StatusInfo {..} -> do
             emitResult fmt st $ do
               putStrLn $ "Uptime:           " ++ formatUptime siUptime
@@ -103,25 +101,23 @@ runCommand opts = do
                 Nothing -> putStrLn "Namespace:        not running"
                 Just pid -> putStrLn $ "Namespace:        PID " ++ show pid
             pure True
-      Shutdown -> do
-        resp <- requestShutdown conn
-        case resp of
-          Left err -> do
-            emitRpcError fmt err
+          Left e -> do
+            emitError fmt "rpc_error" (T.pack (show e)) $
+              putStrLn ("Error: " ++ show e)
             pure False
-          Right True -> do
+      Shutdown -> do
+        r <- try (CR.rpcShutdown conn) :: IO (Either SomeException ())
+        case r of
+          Right () -> do
             emitOk fmt $ putStrLn "Shutdown acknowledged"
             pure True
-          Right False -> do
-            emitError fmt "shutdown_rejected" "Shutdown not acknowledged" $
-              putStrLn "Shutdown not acknowledged"
+          Left e -> do
+            emitError fmt "rpc_error" (T.pack (show e)) $
+              putStrLn ("Error: " ++ show e)
             pure False
       VmList -> do
-        resp <- vmList conn
-        case resp of
-          Left err -> do
-            emitRpcError fmt err
-            pure False
+        r <- try @SomeException (CR.rpcVmList conn)
+        case r of
           Right vms -> do
             emitResult fmt vms $
               if null vms
@@ -130,113 +126,38 @@ runCommand opts = do
                   now <- getCurrentTime
                   printTable tableOpts (vmColumns now) vms
             pure True
+          Left e -> do
+            emitError fmt "rpc_error" (T.pack (show e)) $
+              putStrLn ("Error: " ++ show e)
+            pure False
       VmShow vmRef -> do
-        resp <- vmShow conn vmRef
-        case resp of
-          Left err -> do
-            emitRpcError fmt err
-            pure False
-          Right Nothing -> do
-            emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
-              putStrLn $
-                "VM '" ++ T.unpack vmRef ++ "' not found."
-            pure False
-          Right (Just details) -> do
+        r <- try (CR.rpcVmShow conn (entityRefFromText vmRef)) :: IO (Either SomeException VmDetails)
+        case r of
+          Right details -> do
             emitResult fmt details $ printVmDetails details
             pure True
+          Left e -> do
+            emitError fmt "rpc_error" (T.pack (show e)) $
+              putStrLn ("Error: " ++ show e)
+            pure False
       VmCreate name cpuCount ramMb mDesc headless ga ci as -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga ci as
       VmDelete vmRef deleteDisks -> handleVmDelete fmt conn vmRef deleteDisks
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
-      VmPause vmRef -> handleVmAction fmt "pause" vmRef (vmPause conn vmRef)
-      VmReset vmRef -> handleVmAction fmt "reset" vmRef (vmReset conn vmRef)
+      VmPause vmRef ->
+        handleVmAction fmt "pause" vmRef (CR.rpcVmPause conn (entityRefFromText vmRef))
+      VmReset vmRef ->
+        handleVmAction fmt "reset" vmRef (CR.rpcVmReset conn (entityRefFromText vmRef))
       VmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi mAs -> handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mCi mAs
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
-      VmView vmRef -> do
-        resp <- vmShow conn vmRef
-        case resp of
-          Left err -> do
-            emitRpcError fmt err
-            pure False
-          Right Nothing -> do
-            emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
-              putStrLn $
-                "VM '" ++ T.unpack vmRef ++ "' not found."
-            pure False
-          Right (Just details) -> do
-            let st = vdStatus details
-            if st `notElem` [VmRunning, VmStarting, VmStopping]
-              then do
-                emitError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running") $ do
-                  putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
-                  putStrLn $ "Current status: " ++ T.unpack (enumToText st)
-                pure False
-              else do
-                if vdHeadless details
-                  then do
-                    if isStructured fmt
-                      then outputValue fmt (object ["serialSocket" .= vdSerialSocket details])
-                      else do
-                        -- Attach to serial console via daemon RPC (buffered)
-                        serialResp <- sendRequest conn (ReqSerialConsole (Ref vmRef))
-                        case serialResp of
-                          Right RespSerialConsoleOk -> do
-                            putStrLn $ "Connecting to VM '" ++ T.unpack (vdName details) ++ "' serial console..."
-                            putStrLn "Escape: Ctrl+]  then  q=quit  d=Ctrl+Alt+Del  f=flush  ?=help"
-                            putStrLn ""
-                            let flushAction = do
-                                  _ <- withConnection addr $ \flushConn ->
-                                    sendRequest flushConn (ReqSerialConsoleFlush (Ref vmRef))
-                                  pure ()
-                                ctrlAltDelAction = do
-                                  _ <- withConnection addr $ \cadConn ->
-                                    sendRequest cadConn (ReqVmSendCtrlAltDel (Ref vmRef))
-                                  pure ()
-                            _ <- runRawTerminalSession (connSocket conn) SerialSession (Just ctrlAltDelAction) (Just flushAction)
-                            pure ()
-                          Right (RespError err) ->
-                            putStrLn $ "Error: " ++ T.unpack err
-                          Right other ->
-                            putStrLn $ "Unexpected response: " ++ show other
-                          Left err ->
-                            putStrLn $ "Error: " ++ show err
-                  else handleGraphicalViewGrant opts fmt conn vmRef (vdName details)
-                pure True
-      VmMonitor vmRef -> do
-        monResp <- sendRequest conn (ReqHmpMonitor (Ref vmRef))
-        case monResp of
-          Left err -> do
-            emitRpcError fmt err
-            pure False
-          Right RespVmNotFound -> do
-            emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
-              putStrLn $
-                "VM '" ++ T.unpack vmRef ++ "' not found."
-            pure False
-          Right (RespError msg) -> do
-            emitError fmt "hmp_monitor_unavailable" msg $
-              putStrLn $
-                "Error: " ++ T.unpack msg
-            pure False
-          Right RespHmpMonitorOk -> do
-            if isStructured fmt
-              then outputValue fmt (object ["hmp" .= ("relay" :: Text)])
-              else do
-                putStrLn $ "Connecting to VM '" ++ T.unpack vmRef ++ "' HMP monitor..."
-                putStrLn "Escape: Ctrl+]  then  q=quit  f=flush  ?=help"
-                putStrLn ""
-                let flushAction = do
-                      _ <- withConnection addr $ \flushConn ->
-                        sendRequest flushConn (ReqHmpMonitorFlush (Ref vmRef))
-                      pure ()
-                _ <- runRawTerminalSession (connSocket conn) MonitorSession Nothing (Just flushAction)
-                pure ()
-            pure True
-          Right other -> do
-            emitError fmt "unexpected_response" (T.pack (show other)) $
-              putStrLn $
-                "Unexpected response: " ++ show other
-            pure False
+      VmView vmRef -> handleVmView opts fmt conn vmRef
+      VmMonitor _ -> do
+        emitError
+          fmt
+          "not_implemented"
+          "HMP monitor requires Cap'n Proto streaming (Phase 6, not yet implemented)"
+          (putStrLn "Error: HMP monitor is not yet wired over Cap'n Proto streaming (Phase 6).")
+        pure False
       -- Disk commands
       DiskCreate name formatStr sizeMb mPath -> do
         case parseFormat formatStr of
@@ -347,12 +268,13 @@ runCommand opts = do
     Right False -> exitFailure
 
 -- | Handle namespace exec: fetch namespace PID from daemon, then run command locally via FFI.
-handleNamespaceExec :: OutputFormat -> Connection -> [String] -> IO Bool
+handleNamespaceExec :: OutputFormat -> CapnpConnection -> [String] -> IO Bool
 handleNamespaceExec fmt conn cmdArgs = do
-  resp <- getStatus conn
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
+  r <- try (CR.rpcStatus conn) :: IO (Either SomeException StatusInfo)
+  case r of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
     Right StatusInfo {siNamespacePid = mNsPid} -> case mNsPid of
       Nothing -> do
@@ -373,7 +295,6 @@ handleNamespaceExec fmt conn cmdArgs = do
             pure False
 
 -- | Handle the completion command by generating a shell completion script.
--- This exits immediately without connecting to the daemon.
 handleCompletion :: Text -> IO ()
 handleCompletion shell = do
   let progName = "crv"
@@ -385,7 +306,6 @@ handleCompletion shell = do
   exitSuccess
 
 -- | Run an action with SIGINT ignored, restoring the previous handler afterwards.
--- This lets Ctrl+C pass through to the child process (VM) instead of killing the client.
 withIgnoredSigINT :: IO a -> IO a
 withIgnoredSigINT action = do
   oldHandler <- installHandler sigINT Ignore Nothing
@@ -393,70 +313,90 @@ withIgnoredSigINT action = do
   _ <- installHandler sigINT oldHandler Nothing
   pure result
 
--- | Request a SPICE grant and launch remote-viewer. For structured
--- output ('json'/'yaml'), emit the grant and exit without spawning a
--- viewer. Handles wildcard bind addresses by substituting the daemon
--- host when the client is connected over TCP — a grant carrying
--- @0.0.0.0@ is reachable via the same IP the RPC connection uses.
-handleGraphicalViewGrant :: Options -> OutputFormat -> Connection -> Text -> Text -> IO ()
+-- | Handle the @crv vm view@ command for both serial-console (headless)
+-- and SPICE (graphical) VMs.
+--
+-- For headless VMs, the serial console relay requires Cap'n Proto
+-- streaming (Phase 6); we return a typed error for now.
+-- The SPICE flow asks the daemon for a short-lived password grant via
+-- 'CR.rpcVmViewGrant' and either prints it (structured output) or
+-- launches @remote-viewer@ (text output) — wired to 'runRemoteViewer'
+-- once Phase 6 lands the launcher properly. For now, structured
+-- output works; text output prints the grant as a heads-up.
+handleVmView :: Options -> OutputFormat -> CapnpConnection -> Text -> IO Bool
+handleVmView opts fmt conn vmRef = do
+  r <- try (CR.rpcVmShow conn (entityRefFromText vmRef)) :: IO (Either SomeException VmDetails)
+  case r of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
+      pure False
+    Right details -> do
+      let st = vdStatus details
+      if st `notElem` [VmRunning, VmStarting, VmStopping]
+        then do
+          emitError fmt "vm_not_running" ("VM '" <> vdName details <> "' is not running") $ do
+            putStrLn $ "Error: VM '" ++ T.unpack (vdName details) ++ "' is not running."
+            putStrLn $ "Current status: " ++ T.unpack (enumToText st)
+          pure False
+        else
+          if vdHeadless details
+            then do
+              emitError
+                fmt
+                "not_implemented"
+                "serial console relay requires Cap'n Proto streaming (Phase 6, not yet implemented)"
+                (putStrLn "Error: serial console relay is not yet wired over Cap'n Proto.")
+              pure False
+            else handleGraphicalViewGrant opts fmt conn vmRef (vdName details)
+
+-- | Request a SPICE grant. For structured output emit the grant; for
+-- text output print the connection info but do not auto-launch
+-- remote-viewer (Phase 6 will wire the launcher cleanly).
+handleGraphicalViewGrant :: Options -> OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
 handleGraphicalViewGrant opts fmt conn vmRef vmName = do
-  result <- vmViewGrant conn vmRef
+  result <- try (CR.rpcVmViewGrant conn (entityRefFromText vmRef)) :: IO (Either SomeException ViewGrant)
   case result of
-    Left err -> emitRpcError fmt err
-    Right VmViewGrantNotFound ->
-      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
-        putStrLn $
-          "VM '" ++ T.unpack vmRef ++ "' not found."
-    Right VmViewGrantNotRunning ->
-      emitError fmt "vm_not_running" ("VM '" <> vmName <> "' is not running") $
-        putStrLn $
-          "Error: VM '" ++ T.unpack vmName ++ "' is not running."
-    Right VmViewGrantHeadless ->
-      emitError fmt "vm_headless" ("VM '" <> vmName <> "' has no graphical console") $
-        putStrLn $
-          "Error: VM '" ++ T.unpack vmName ++ "' has no graphical console."
-    Right (VmViewGrantError msg) ->
-      emitError fmt "grant_failed" msg $
-        putStrLn $
-          "Failed to obtain SPICE grant: " ++ T.unpack msg
-    Right (VmViewGrantSuccess grant0) -> do
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Failed to obtain SPICE grant: " ++ show e)
+      pure False
+    Right grant0 -> do
       let grant = resolveGrantHost opts grant0
       if isStructured fmt
-        then outputValue fmt (grantToJson grant)
-        else withIgnoredSigINT $ do
+        then do
+          outputValue fmt (grantToJson grant)
+          pure True
+        else do
           putStrLn $
-            "Connecting to VM '"
+            "VM '"
               ++ T.unpack vmName
-              ++ "' via SPICE at "
-              ++ T.unpack (sgHost grant)
+              ++ "' is reachable via SPICE at "
+              ++ T.unpack (vgHost grant)
               ++ ":"
-              ++ show (sgPort grant)
-              ++ "..."
-          _ <- runRemoteViewer defaultClientConfig grant
-          pure ()
+              ++ show (vgPort grant)
+              ++ " (ttl "
+              ++ show (vgTtlSeconds grant)
+              ++ "s)"
+          putStrLn "Note: remote-viewer auto-launch will return in Phase 6."
+          pure True
 
--- | Replace wildcard SPICE hosts (@0.0.0.0@, @::@, empty) with the
--- client's @--host@ when the client connected via TCP. A wildcard host
--- from a Unix-socket-connected client is left intact so the operator
--- sees an actionable error in @remote-viewer@ rather than a silent
--- connect to 0.0.0.0.
-resolveGrantHost :: Options -> SpiceGrant -> SpiceGrant
+-- | Replace wildcard SPICE hosts with the client's @--host@ when
+-- the client is connected via TCP.
+resolveGrantHost :: Options -> ViewGrant -> ViewGrant
 resolveGrantHost opts grant
-  | isWildcard (sgHost grant) && optTcp opts =
-      grant {sgHost = T.pack (optHost opts)}
+  | isWildcard (vgHost grant) && optTcp opts =
+      grant {vgHost = T.pack (optHost opts)}
   | otherwise = grant
   where
     isWildcard h = h `elem` ["0.0.0.0", "::", ""]
 
--- | JSON projection of a grant for @--output json|yaml@. Passwords
--- appear in clear — same trade-off as emitting the SPICE socket path
--- today — because structured output is how non-interactive callers
--- retrieve the connection details.
-grantToJson :: SpiceGrant -> Value
+-- | JSON projection of a grant for @--output json|yaml@.
+grantToJson :: ViewGrant -> Value
 grantToJson g =
   object
-    [ "host" .= sgHost g
-    , "port" .= sgPort g
-    , "password" .= sgPassword g
-    , "ttl_seconds" .= sgTtlSeconds g
+    [ "host" .= vgHost g
+    , "port" .= vgPort g
+    , "password" .= vgPassword g
+    , "ttl_seconds" .= vgTtlSeconds g
     ]

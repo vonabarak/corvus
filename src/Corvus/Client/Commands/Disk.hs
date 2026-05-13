@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Disk and snapshot command handlers for the Corvus client.
 module Corvus.Client.Commands.Disk
@@ -37,40 +38,35 @@ module Corvus.Client.Commands.Disk
   )
 where
 
-import Control.Monad (unless, when)
-import Corvus.Client.Connection
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, isStructured, printField, printTable)
-import Corvus.Client.Rpc
-import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
-import Corvus.Model (CacheType, DriveFormat (..), DriveInterface, DriveMedia, EnumText (..))
+import Control.Exception (SomeException, try)
+import Corvus.Client.Capnp.Connection (CapnpConnection)
+import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printField, printTable)
+import Corvus.Client.Types (OutputFormat, WaitOptions (..))
+import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
 import Corvus.Protocol (DiskImageInfo (..), SnapshotInfo (..))
+import Corvus.Wire.Common (entityRefFromText)
+import Corvus.Wire.Enums (toCapnpDriveFormat)
 import Data.Aeson (toJSON)
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (defaultTimeLocale, formatTime)
-import System.Directory (canonicalizePath, doesFileExist)
-import System.Environment (lookupEnv)
-import System.FilePath (makeRelative, (</>))
+import System.Directory (doesFileExist)
 
 --------------------------------------------------------------------------------
 -- Parsers
 --------------------------------------------------------------------------------
 
--- | Parse format string to DriveFormat
 parseFormat :: Text -> Either Text DriveFormat
 parseFormat = enumFromText
 
--- | Parse interface string to DriveInterface
 parseInterface :: Text -> Either Text DriveInterface
 parseInterface = enumFromText
 
--- | Parse cache type string to CacheType
 parseCacheType :: Text -> Either Text CacheType
 parseCacheType = enumFromText
 
--- | Parse media string to DriveMedia
 parseMedia :: Text -> Either Text DriveMedia
 parseMedia = enumFromText
 
@@ -78,58 +74,46 @@ parseMedia = enumFromText
 -- Disk Command Handlers
 --------------------------------------------------------------------------------
 
--- | Handle disk create command
-handleDiskCreate :: OutputFormat -> Connection -> Text -> DriveFormat -> Int64 -> Maybe Text -> IO Bool
-handleDiskCreate fmt conn name format sizeMb mPath = do
-  resp <- diskCreate conn name format sizeMb mPath
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (DiskCreated diskId) -> do
+-- | Handle disk create command. The Cap'n Proto schema's
+-- @DiskManager.create@ does not accept a custom @path@ — the daemon
+-- always allocates a path under the configured base. We accept the
+-- legacy @mPath@ argument and silently ignore it for backwards
+-- compatibility with the CLI parser; an explicit path will be
+-- reintroduced when @DiskCreateParams@ gains a @path@ field.
+handleDiskCreate :: OutputFormat -> CapnpConnection -> Text -> DriveFormat -> Int64 -> Maybe Text -> IO Bool
+handleDiskCreate fmt conn name format sizeMb _mPath = do
+  r <- try @SomeException (CR.rpcDiskCreate conn name sizeMb (toCapnpDriveFormat format))
+  case r of
+    Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
         putStrLn $
           "Disk image created with ID: " ++ show diskId
       pure True
-    Right (DiskError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error creating disk: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error creating disk: " ++ show e)
       pure False
 
 -- | Handle disk overlay command
-handleDiskCreateOverlay :: OutputFormat -> Connection -> Text -> Text -> Maybe Text -> IO Bool
-handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath = do
-  resp <- diskCreateOverlay conn name baseDiskRef optDirPath
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (DiskCreated diskId) -> do
+handleDiskCreateOverlay :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> IO Bool
+handleDiskCreateOverlay fmt conn name baseDiskRef _optDirPath = do
+  r <- try @SomeException (CR.rpcDiskCreateOverlay conn name (entityRefFromText baseDiskRef))
+  case r of
+    Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
         putStrLn $
           "Overlay created with ID: " ++ show diskId
       pure True
-    Right DiskNotFound -> do
-      emitError fmt "not_found" ("Base disk '" <> baseDiskRef <> "' not found") $
-        putStrLn $
-          "Base disk '" ++ T.unpack baseDiskRef ++ "' not found."
-      pure False
-    Right (DiskError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error creating overlay: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error creating overlay: " ++ show e)
       pure False
 
--- | Handle disk register command (registers local file in DB without copying)
-handleDiskRegister :: OutputFormat -> Connection -> Text -> FilePath -> Maybe Text -> Maybe Text -> IO Bool
-handleDiskRegister fmt conn name path mFormatStr mBackingRef = do
+-- | Handle disk register command (registers local file in DB without
+-- copying). The format must be supplied since the Cap'n Proto schema
+-- doesn't carry the auto-detect path yet.
+handleDiskRegister :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Maybe Text -> Maybe Text -> IO Bool
+handleDiskRegister fmt conn name path mFormatStr _mBackingRef = do
   exists <- doesFileExist path
   if not exists
     then do
@@ -137,283 +121,173 @@ handleDiskRegister fmt conn name path mFormatStr mBackingRef = do
         putStrLn $
           "Error: File not found: " ++ path
       pure False
-    else do
-      let mFormat = case mFormatStr of
-            Just f -> case parseFormat f of
-              Right fmt' -> Just (Just fmt')
-              Left _err -> Nothing
-            Nothing -> Just Nothing -- no format specified, let server auto-detect
-      case mFormat of
-        Nothing -> do
-          let err = "Unknown format: " <> fromMaybe "" mFormatStr
-          emitError fmt "invalid_format" err $ putStrLn $ "Error: " ++ T.unpack err
+    else case mFormatStr >>= eitherToMaybe . parseFormat of
+      Nothing -> do
+        emitError
+          fmt
+          "invalid_format"
+          "--format must be supplied (Cap'n Proto schema mandates it)"
+          (putStrLn "Error: --format must be supplied for disk register.")
+        pure False
+      Just fmt' -> do
+        r <- try @SomeException (CR.rpcDiskRegister conn name (T.pack path) fmt')
+        case r of
+          Right diskId -> do
+            emitOkWith fmt [("id", toJSON diskId)] $
+              putStrLn $
+                "Disk image registered with ID: " ++ show diskId
+            pure True
+          Left e -> do
+            emitError fmt "rpc_error" (T.pack (show e)) $
+              putStrLn ("Error registering disk: " ++ show e)
+            pure False
+
+-- | Handle disk import command. The Cap'n Proto schema currently
+-- only supports synchronous import from a local source; URL imports
+-- and @--wait@ are not threaded through the wrapper. The legacy
+-- 'WaitOptions' / format arguments are accepted to keep the CLI
+-- parser happy.
+handleDiskImport :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Maybe Text -> WaitOptions -> IO Bool
+handleDiskImport fmt conn name source _mPath mFormatStr _waitOpts = do
+  case mFormatStr >>= eitherToMaybe . parseFormat of
+    Nothing -> do
+      emitError
+        fmt
+        "invalid_format"
+        "--format must be supplied (Cap'n Proto schema mandates it)"
+        (putStrLn "Error: --format must be supplied for disk import.")
+      pure False
+    Just fmt' -> do
+      r <- try @SomeException (CR.rpcDiskImport conn name source fmt')
+      case r of
+        Right diskId -> do
+          emitOkWith fmt [("id", toJSON diskId)] $
+            putStrLn $
+              "Disk image imported with ID: " ++ show diskId
+          pure True
+        Left e -> do
+          emitError fmt "rpc_error" (T.pack (show e)) $
+            putStrLn ("Error importing disk: " ++ show e)
           pure False
-        Just mFmt -> do
-          absPath <- canonicalizePath path
-          basePath <- getBaseImagesPath
-          let storedPath =
-                if basePath `isPrefixOfPath` absPath
-                  then makeRelative basePath absPath
-                  else absPath
-          resp <- diskRegister conn name (T.pack storedPath) mFmt mBackingRef
-          case resp of
-            Left err -> do
-              emitRpcError fmt err
-              pure False
-            Right (DiskCreated diskId) -> do
-              emitOkWith fmt [("id", toJSON diskId)] $ do
-                putStrLn $ "Disk image registered with ID: " ++ show diskId
-                if storedPath /= absPath
-                  then putStrLn $ "Stored as relative path: " ++ storedPath
-                  else putStrLn $ "Stored as absolute path: " ++ storedPath
-              pure True
-            Right (DiskError msg) -> do
-              emitError fmt "error" msg $ putStrLn $ "Error registering disk: " ++ T.unpack msg
-              pure False
-            Right other -> do
-              emitError fmt "unexpected" (T.pack $ show other) $
-                putStrLn $
-                  "Unexpected response: " ++ show other
-              pure False
-  where
-    isPrefixOfPath :: FilePath -> FilePath -> Bool
-    isPrefixOfPath prefix path' =
-      let prefixWithSlash = if last prefix == '/' then prefix else prefix ++ "/"
-       in prefixWithSlash == take (length prefixWithSlash) path' || prefix == path'
-
--- | Handle disk import command (copies local file or downloads URL to destination)
-handleDiskImport :: OutputFormat -> Connection -> Text -> Text -> Maybe Text -> Maybe Text -> WaitOptions -> IO Bool
-handleDiskImport fmt conn name source mPath mFormatStr waitOpts = do
-  let wait = woWait waitOpts
-  unless (isStructured fmt) $
-    when wait $
-      putStrLn $
-        "Importing disk image '" ++ T.unpack name ++ "' and waiting for completion..."
-  resp <- diskImport conn name source mPath mFormatStr wait
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (DiskCreated diskId) -> do
-      emitOkWith fmt [("id", toJSON diskId)] $
-        putStrLn $
-          "Disk image imported with ID: " ++ show diskId
-      pure True
-    Right (DiskImportStarted taskId) -> do
-      emitOkWith fmt [("taskId", toJSON taskId)] $ do
-        putStrLn $ "Import started (task ID: " ++ show taskId ++ ")"
-        putStrLn $ "Use 'crv task wait " ++ show taskId ++ "' to wait for completion."
-      pure True
-    Right (DiskError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error importing disk: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
-      pure False
-
--- | Get base images path ($HOME/VMs by default)
-getBaseImagesPath :: IO FilePath
-getBaseImagesPath = do
-  mHome <- lookupEnv "HOME"
-  pure $ fromMaybe "/var/lib/qemu" mHome </> "VMs"
 
 -- | Handle disk delete command
-handleDiskDelete :: OutputFormat -> Connection -> Text -> IO Bool
+handleDiskDelete :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleDiskDelete fmt conn diskRef = do
-  resp <- diskDelete conn diskRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right DiskOk -> do
+  r <- try (CR.rpcDiskDelete conn (entityRefFromText diskRef)) :: IO (Either SomeException ())
+  case r of
+    Right () -> do
       emitOk fmt $ putStrLn "Disk image deleted."
       pure True
-    Right DiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right (DiskInUse vmPairs) -> do
-      let vmNames = T.intercalate ", " (map snd vmPairs)
-      emitError fmt "in_use" ("Disk is attached to VMs: " <> vmNames) $ do
-        putStrLn $ "Disk is attached to VMs: " ++ T.unpack vmNames
-        putStrLn "Detach the disk first before deleting."
-      pure False
-    Right (DiskHasOverlays overlayPairs) -> do
-      let overlayNames = T.intercalate ", " (map snd overlayPairs)
-      emitError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> overlayNames) $ do
-        putStrLn $ "Disk is used as backing image for overlays: " ++ T.unpack overlayNames
-        putStrLn "Delete the overlay disks first."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle disk resize command
-handleDiskResize :: OutputFormat -> Connection -> Text -> Int64 -> IO Bool
+handleDiskResize :: OutputFormat -> CapnpConnection -> Text -> Int64 -> IO Bool
 handleDiskResize fmt conn diskRef newSizeMb = do
-  resp <- diskResize conn diskRef newSizeMb
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right DiskOk -> do
+  r <- try (CR.rpcDiskResize conn (entityRefFromText diskRef) newSizeMb) :: IO (Either SomeException ())
+  case r of
+    Right () -> do
       emitOk fmt $ putStrLn $ "Disk resized to " ++ show newSizeMb ++ " MB."
       pure True
-    Right DiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right VmMustBeStopped -> do
-      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
-        putStrLn "Cannot resize disk while VM is running. Stop the VM first."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle disk list command
-handleDiskList :: OutputFormat -> TableOpts -> Connection -> IO Bool
+handleDiskList :: OutputFormat -> TableOpts -> CapnpConnection -> IO Bool
 handleDiskList fmt tableOpts conn = do
-  resp <- diskList conn
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (DiskListResult disks) -> do
+  r <- try @SomeException (CR.rpcDiskList conn)
+  case r of
+    Right disks -> do
       emitResult fmt disks $
         if null disks
           then putStrLn "No disk images found."
           else printTable tableOpts diskColumns disks
       pure True
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle disk show command
-handleDiskShow :: OutputFormat -> Connection -> Text -> IO Bool
+handleDiskShow :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleDiskShow fmt conn diskRef = do
-  resp <- diskShow conn diskRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (DiskInfo info) -> do
+  r <- try @SomeException (CR.rpcDiskShow conn (entityRefFromText diskRef))
+  case r of
+    Right info -> do
       emitResult fmt info $ printDiskDetails info
       pure True
-    Right DiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle disk clone command
-handleDiskClone :: OutputFormat -> Connection -> Text -> Text -> Maybe Text -> IO Bool
-handleDiskClone fmt conn name baseDiskRef optionalPath = do
-  resp <- diskClone conn name baseDiskRef optionalPath
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (DiskCreated diskId) -> do
+handleDiskClone :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> IO Bool
+handleDiskClone fmt conn name baseDiskRef _optionalPath = do
+  r <- try @SomeException (CR.rpcDiskClone conn (entityRefFromText baseDiskRef) name)
+  case r of
+    Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
         putStrLn $
           "Disk cloned successfully. New disk ID: " ++ show diskId
       pure True
-    Right DiskNotFound -> do
-      emitError fmt "not_found" ("Base disk '" <> baseDiskRef <> "' not found") $
-        putStrLn $
-          "Base disk '" ++ T.unpack baseDiskRef ++ "' not found."
-      pure False
-    Right VmMustBeStopped -> do
-      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
-        putStrLn "Error: Disk is attached to a running VM. Please stop the VM before cloning."
-      pure False
-    Right (DiskError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error cloning disk: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error cloning disk: " ++ show e)
       pure False
 
--- | Handle disk rebase command
-handleDiskRebase :: OutputFormat -> Connection -> Text -> Maybe Text -> Bool -> IO Bool
-handleDiskRebase fmt conn diskRef mNewBacking unsafe = do
-  resp <- diskRebase conn diskRef mNewBacking unsafe
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right DiskOk -> do
-      let msg = case mNewBacking of
-            Nothing -> "Disk flattened (backing merged into overlay)."
-            Just _ -> "Disk rebased to new backing image."
-      emitOk fmt $ putStrLn msg
-      pure True
-    Right DiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right VmMustBeStopped -> do
-      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
-        putStrLn "Error: Disk is attached to a running VM. Please stop the VM first."
-      pure False
-    Right (FormatNotSupported msg) -> do
-      emitError fmt "format_not_supported" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right (DiskError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
-      pure False
+-- | Handle disk rebase command. The Cap'n Proto schema currently
+-- requires a new backing reference (flatten/unsafe are not threaded
+-- through the wrapper yet); accept the legacy 'unsafe' argument as a
+-- no-op for backwards compatibility.
+handleDiskRebase :: OutputFormat -> CapnpConnection -> Text -> Maybe Text -> Bool -> IO Bool
+handleDiskRebase fmt conn diskRef mNewBacking _unsafe = case mNewBacking of
+  Nothing -> do
+    emitError
+      fmt
+      "not_implemented"
+      "disk rebase --flatten requires Cap'n Proto schema support (Phase 6, not yet implemented)"
+      (putStrLn "Error: --flatten not yet supported over Cap'n Proto.")
+    pure False
+  Just newBacking -> do
+    r <-
+      try
+        ( CR.rpcDiskRebase
+            conn
+            (entityRefFromText diskRef)
+            (entityRefFromText newBacking)
+        )
+        :: IO (Either SomeException ())
+    case r of
+      Right () -> do
+        emitOk fmt $ putStrLn "Disk rebased to new backing image."
+        pure True
+      Left e -> do
+        emitError fmt "rpc_error" (T.pack (show e)) $
+          putStrLn ("Error: " ++ show e)
+        pure False
 
 -- | Handle disk refresh command
-handleDiskRefresh :: OutputFormat -> Connection -> Text -> IO Bool
+handleDiskRefresh :: OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleDiskRefresh fmt conn diskRef = do
-  resp <- diskRefresh conn diskRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right DiskOk -> do
+  r <- try @SomeException (CR.rpcDiskRefresh conn (entityRefFromText diskRef))
+  case r of
+    Right _ -> do
       emitOk fmt $ putStrLn "Disk size refreshed"
       pure True
-    Right DiskNotFound -> do
-      emitError fmt "not_found" "Disk not found" $ putStrLn "Disk not found"
-      pure False
-    Right (DiskError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "error" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle disk attach command
 handleDiskAttach
   :: OutputFormat
-  -> Connection
+  -> CapnpConnection
   -> Text
   -> Text
   -> DriveInterface
@@ -423,222 +297,130 @@ handleDiskAttach
   -> CacheType
   -> IO Bool
 handleDiskAttach fmt conn vmRef diskRef iface media readOnly discard cache = do
-  resp <- diskAttach conn vmRef diskRef iface media readOnly discard cache
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (DriveAttached driveId) -> do
+  r <-
+    try @SomeException
+      ( CR.rpcDiskAttach
+          conn
+          (entityRefFromText vmRef)
+          (entityRefFromText diskRef)
+          iface
+          media
+          readOnly
+          discard
+          cache
+      )
+  case r of
+    Right driveId -> do
       emitOkWith fmt [("id", toJSON driveId)] $
         putStrLn $
           "Disk attached. Drive ID: " ++ show driveId
       pure True
-    Right DiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right DiskVmNotFound -> do
-      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
-        putStrLn $
-          "VM '" ++ T.unpack vmRef ++ "' not found."
-      pure False
-    Right (DiskHasOverlays overlayPairs) -> do
-      let overlayNames = T.intercalate ", " (map snd overlayPairs)
-      emitError fmt "has_overlays" ("Disk is used as backing image for overlays: " <> overlayNames) $ do
-        putStrLn $ "Error: Disk is used as backing image for overlays: " ++ T.unpack overlayNames
-        putStrLn "Base images must be attached in read-only mode using --read-only."
-      pure False
-    Right (DiskError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error attaching disk: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error attaching disk: " ++ show e)
       pure False
 
--- | Handle disk detach command
-handleDiskDetach :: OutputFormat -> Connection -> Text -> Text -> IO Bool
-handleDiskDetach fmt conn vmRef diskRef = do
-  resp <- diskDetach conn vmRef diskRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right DiskOk -> do
-      emitOk fmt $ putStrLn "Disk detached."
-      pure True
-    Right DriveNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found on VM") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found on VM."
-      pure False
-    Right DiskVmNotFound -> do
-      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
-        putStrLn $
-          "VM '" ++ T.unpack vmRef ++ "' not found."
-      pure False
-    Right (DiskError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Error detaching disk: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
-      pure False
+-- | Handle disk detach command. The Cap'n Proto Vm cap's
+-- detachDisk takes a drive id (Int64). We treat 'diskRef' as the
+-- drive id when it parses as an integer, otherwise we fail with a
+-- clear error since the schema no longer accepts a disk-name lookup
+-- here.
+handleDiskDetach :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleDiskDetach fmt conn vmRef diskRef = case readMaybeInt64 (T.unpack diskRef) of
+  Nothing -> do
+    emitError
+      fmt
+      "bad_id"
+      ("disk detach requires a numeric drive ID; got '" <> diskRef <> "'")
+      (putStrLn ("Error: disk detach requires a numeric drive ID; got '" ++ T.unpack diskRef ++ "'."))
+    pure False
+  Just driveId -> do
+    r <- try (CR.rpcDiskDetach conn (entityRefFromText vmRef) driveId) :: IO (Either SomeException ())
+    case r of
+      Right () -> do
+        emitOk fmt $ putStrLn "Disk detached."
+        pure True
+      Left e -> do
+        emitError fmt "rpc_error" (T.pack (show e)) $
+          putStrLn ("Error: " ++ show e)
+        pure False
 
 --------------------------------------------------------------------------------
 -- Snapshot Command Handlers
 --------------------------------------------------------------------------------
 
--- | Handle snapshot create command
-handleSnapshotCreate :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSnapshotCreate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
 handleSnapshotCreate fmt conn diskRef name = do
-  resp <- snapshotCreate conn diskRef name
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (SnapshotCreated snapId) -> do
+  r <- try @SomeException (CR.rpcSnapshotCreate conn (entityRefFromText diskRef) name)
+  case r of
+    Right snapId -> do
       emitOkWith fmt [("id", toJSON snapId)] $
         putStrLn $
           "Snapshot created with ID: " ++ show snapId
       pure True
-    Right SnapshotDiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right (SnapshotFormatNotSupported msg) -> do
-      emitError fmt "format_not_supported" msg $ putStrLn $ "Error: " ++ T.unpack msg
-      pure False
-    Right SnapshotVmMustBeStopped -> do
-      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
-        putStrLn "Cannot create snapshot while VM is running. Stop the VM first."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
--- | Handle snapshot delete command
-handleSnapshotDelete :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSnapshotDelete :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
 handleSnapshotDelete fmt conn diskRef snapshotRef = do
-  resp <- snapshotDelete conn diskRef snapshotRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right SnapshotOk -> do
+  r <-
+    try
+      (CR.rpcSnapshotDelete conn (entityRefFromText diskRef) (entityRefFromText snapshotRef))
+      :: IO (Either SomeException ())
+  case r of
+    Right () -> do
       emitOk fmt $ putStrLn "Snapshot deleted."
       pure True
-    Right SnapshotNotFound -> do
-      emitError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found") $
-        putStrLn $
-          "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
-      pure False
-    Right SnapshotDiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right SnapshotVmMustBeStopped -> do
-      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
-        putStrLn "Cannot delete snapshot while VM is running. Stop the VM first."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
--- | Handle snapshot rollback command
-handleSnapshotRollback :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSnapshotRollback :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
 handleSnapshotRollback fmt conn diskRef snapshotRef = do
-  resp <- snapshotRollback conn diskRef snapshotRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right SnapshotOk -> do
+  r <-
+    try
+      (CR.rpcSnapshotRollback conn (entityRefFromText diskRef) (entityRefFromText snapshotRef))
+      :: IO (Either SomeException ())
+  case r of
+    Right () -> do
       emitOk fmt $ putStrLn "Rollback complete."
       pure True
-    Right SnapshotNotFound -> do
-      emitError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found") $
-        putStrLn $
-          "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
-      pure False
-    Right SnapshotDiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right SnapshotVmMustBeStopped -> do
-      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
-        putStrLn "Cannot rollback while VM is running. Stop the VM first."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
--- | Handle snapshot merge command
-handleSnapshotMerge :: OutputFormat -> Connection -> Text -> Text -> IO Bool
+handleSnapshotMerge :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
 handleSnapshotMerge fmt conn diskRef snapshotRef = do
-  resp <- snapshotMerge conn diskRef snapshotRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right SnapshotOk -> do
+  r <-
+    try
+      (CR.rpcSnapshotMerge conn (entityRefFromText diskRef) (entityRefFromText snapshotRef))
+      :: IO (Either SomeException ())
+  case r of
+    Right () -> do
       emitOk fmt $ putStrLn "Snapshot merged."
       pure True
-    Right SnapshotNotFound -> do
-      emitError fmt "not_found" ("Snapshot '" <> snapshotRef <> "' not found") $
-        putStrLn $
-          "Snapshot '" ++ T.unpack snapshotRef ++ "' not found."
-      pure False
-    Right SnapshotDiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right SnapshotVmMustBeStopped -> do
-      emitError fmt "vm_must_be_stopped" "VM must be stopped for this operation" $
-        putStrLn "Cannot merge while VM is running. Stop the VM first."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
--- | Handle snapshot list command
-handleSnapshotList :: OutputFormat -> TableOpts -> Connection -> Text -> IO Bool
+handleSnapshotList :: OutputFormat -> TableOpts -> CapnpConnection -> Text -> IO Bool
 handleSnapshotList fmt tableOpts conn diskRef = do
-  resp <- snapshotList conn diskRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (SnapshotListResult snaps) -> do
+  r <- try @SomeException (CR.rpcSnapshotList conn (entityRefFromText diskRef))
+  case r of
+    Right snaps -> do
       emitResult fmt snaps $
         if null snaps
           then putStrLn "No snapshots found."
           else printTable tableOpts snapshotColumns snaps
       pure True
-    Right SnapshotDiskNotFound -> do
-      emitError fmt "not_found" ("Disk '" <> diskRef <> "' not found") $
-        putStrLn $
-          "Disk '" ++ T.unpack diskRef ++ "' not found."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 --------------------------------------------------------------------------------
@@ -674,7 +456,6 @@ printDiskDetails d = do
     Just backingName ->
       printField "Backing" (T.unpack backingName ++ " (ID: " ++ maybe "?" show (diiBackingImageId d) ++ ")")
 
--- | Print snapshot info in table format
 -- | Column definitions for the @disk snapshot list@ table.
 snapshotColumns :: [Column SnapshotInfo]
 snapshotColumns =
@@ -683,3 +464,16 @@ snapshotColumns =
   , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . sniCreatedAt)
   , Column "SIZE_MB" RightAlign (maybe "-" show . sniSizeMb)
   ]
+
+--------------------------------------------------------------------------------
+-- Helpers
+--------------------------------------------------------------------------------
+
+eitherToMaybe :: Either a b -> Maybe b
+eitherToMaybe (Right x) = Just x
+eitherToMaybe (Left _) = Nothing
+
+readMaybeInt64 :: String -> Maybe Int64
+readMaybeInt64 s = case reads s of
+  [(n, "")] -> Just n
+  _ -> Nothing

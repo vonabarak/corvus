@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | Shared directory (virtiofs) response data.
@@ -8,9 +7,8 @@ module Corvus.Protocol.SharedDir
 where
 
 import Corvus.Model (SharedDirCache)
-import Corvus.Protocol.Aeson (innerOptions)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -25,7 +23,7 @@ data SharedDirInfo = SharedDirInfo
   , sdiPid :: !(Maybe Int)
   -- ^ virtiofsd PID if running
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON SharedDirInfo where
   toJSON = genericToJSON innerOptions

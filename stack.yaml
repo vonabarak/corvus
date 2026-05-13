@@ -19,18 +19,21 @@ packages:
 #
 # zenhack-prelude has no upper-bound conflicts (only depends on base)
 # and is fine straight from Hackage.
-#
-# ginger (Jinja2 for Haskell) is used by app/gen-python-client.
 extra-deps:
-  - ginger-0.10.6.0@sha256:047825338228f493135781d9a01481033c82ab3b02963e87ff4c5d465be94688,3188
   - ./vendor/haskell-capnp/capnp
   - ./vendor/lifetimes
   - monad-stm-0.1.0.2
   - supervisors-0.2.1.0
   - zenhack-prelude-0.1.1.0
+  # NB: kept as an extra-dep purely to preserve the LTS snapshot
+  # hash (ginger pulled in attoparsec, conduit-extra etc. — drop it
+  # and Stack 3.7.1 rebuilds the snapshot without attoparsec, which
+  # then breaks conduit-extra's @attoparsec ==0.14.4@ pin).
+  - ginger-0.10.6.0@sha256:047825338228f493135781d9a01481033c82ab3b02963e87ff4c5d465be94688,3188
 
-system-ghc: true
+system-ghc: false
 install-ghc: false
+compiler: ghc-9.8.4
 
 # NOTE on hpack compatibility: stack 3.7.1 bundles hpack 0.38.1, but
 # systems with a newer hpack (0.39+) will rewrite corvus.cabal on every

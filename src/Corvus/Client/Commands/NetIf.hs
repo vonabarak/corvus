@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Network interface command handlers for the Corvus client.
 module Corvus.Client.Commands.NetIf
@@ -12,12 +14,14 @@ module Corvus.Client.Commands.NetIf
   )
 where
 
-import Corvus.Client.Connection
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
-import Corvus.Client.Rpc
-import Corvus.Client.Types (OutputFormat (..))
+import Control.Exception (SomeException, try)
+import Corvus.Client.Capnp.Connection (CapnpConnection)
+import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printTable)
+import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), NetInterfaceType)
 import Corvus.Protocol (NetIfInfo (..))
+import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -28,82 +32,48 @@ parseNetInterfaceType :: Text -> Either Text NetInterfaceType
 parseNetInterfaceType = enumFromText
 
 -- | Handle network interface add command
-handleNetIfAdd :: OutputFormat -> Connection -> Text -> NetInterfaceType -> Text -> Maybe Text -> Maybe Text -> IO Bool
+handleNetIfAdd :: OutputFormat -> CapnpConnection -> Text -> NetInterfaceType -> Text -> Maybe Text -> Maybe Text -> IO Bool
 handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef = do
-  resp <- netIfAdd conn vmRef ifaceType hostDevice macAddress mNetworkRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (NetIfAdded netIfId) -> do
-      emitOkWith fmt [("id", toJSON netIfId)] $
+  let mNetEnt = fmap entityRefFromText mNetworkRef
+  r <- try @SomeException (CR.rpcNetIfAdd conn (entityRefFromText vmRef) ifaceType hostDevice macAddress mNetEnt)
+  case r of
+    Right nid -> do
+      emitOkWith fmt [("id", toJSON nid)] $
         putStrLn $
-          "Network interface added with ID: " ++ show netIfId
+          "Network interface added with ID: " ++ show nid
       pure True
-    Right NetIfVmNotFound -> do
-      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
-        putStrLn $
-          "VM '" ++ T.unpack vmRef ++ "' not found."
-      pure False
-    Right (NetIfError msg) -> do
-      emitError fmt "error" msg $ putStrLn $ "Failed to add network interface: " ++ T.unpack msg
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Failed to add network interface: " ++ show e)
       pure False
 
 -- | Handle network interface remove command
-handleNetIfRemove :: OutputFormat -> Connection -> Text -> Int64 -> IO Bool
+handleNetIfRemove :: OutputFormat -> CapnpConnection -> Text -> Int64 -> IO Bool
 handleNetIfRemove fmt conn vmRef netIfId = do
-  resp <- netIfRemove conn vmRef netIfId
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right NetIfOk -> do
+  r <- try (CR.rpcNetIfRemove conn (entityRefFromText vmRef) netIfId) :: IO (Either SomeException ())
+  case r of
+    Right () -> do
       emitOk fmt $ putStrLn "Network interface removed."
       pure True
-    Right NetIfNotFound -> do
-      emitError fmt "not_found" "Network interface not found" $
-        putStrLn $
-          "Network interface with ID " ++ show netIfId ++ " not found."
-      pure False
-    Right NetIfVmNotFound -> do
-      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
-        putStrLn $
-          "VM '" ++ T.unpack vmRef ++ "' not found."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Handle network interface list command
-handleNetIfList :: OutputFormat -> TableOpts -> Connection -> Text -> IO Bool
+handleNetIfList :: OutputFormat -> TableOpts -> CapnpConnection -> Text -> IO Bool
 handleNetIfList fmt tableOpts conn vmRef = do
-  resp <- netIfList conn vmRef
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
-    Right (NetIfListResult netIfs) -> do
+  r <- try @SomeException (CR.rpcNetIfList conn (entityRefFromText vmRef))
+  case r of
+    Right netIfs -> do
       emitResult fmt netIfs $
         if null netIfs
           then putStrLn "No network interfaces found for this VM."
           else printTable tableOpts netIfColumns netIfs
       pure True
-    Right NetIfVmNotFound -> do
-      emitError fmt "not_found" ("VM '" <> vmRef <> "' not found") $
-        putStrLn $
-          "VM '" ++ T.unpack vmRef ++ "' not found."
-      pure False
-    Right other -> do
-      emitError fmt "unexpected" (T.pack $ show other) $
-        putStrLn $
-          "Unexpected response: " ++ show other
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
 
 -- | Column definitions for the @net-if list@ table.

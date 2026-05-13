@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Cap'n Proto-backed client RPC wrappers.
@@ -27,6 +28,7 @@ module Corvus.Client.Capnp.Rpc
     rpcPing
   , rpcStatus
   , rpcShutdown
+  , rpcApply
 
     -- * Resource read methods
   , rpcVmList
@@ -36,10 +38,12 @@ module Corvus.Client.Capnp.Rpc
   , rpcNetworkList
   , rpcNetworkShow
   , rpcSshKeyList
+  , rpcSshKeyListForVm
   , rpcTemplateList
   , rpcTemplateShow
   , rpcTaskList
   , rpcTaskShow
+  , rpcTaskListChildren
 
     -- * VM lifecycle
   , rpcVmCreate
@@ -48,30 +52,72 @@ module Corvus.Client.Capnp.Rpc
   , rpcVmPause
   , rpcVmReset
   , rpcVmDelete
+  , rpcVmEdit
+  , rpcVmCloudInit
+  , rpcVmViewGrant
+  , rpcVmSendCtrlAltDel
+  , rpcGuestExec
 
     -- * Disk lifecycle
   , rpcDiskCreate
+  , rpcDiskCreateOverlay
+  , rpcDiskRegister
+  , rpcDiskRefresh
+  , rpcDiskImportUrl
+  , rpcDiskImport
+  , rpcDiskClone
+  , rpcDiskRebase
   , rpcDiskDelete
   , rpcDiskResize
+  , rpcDiskAttach
+  , rpcDiskDetach
+
+    -- * Snapshot operations (per-disk)
+  , rpcSnapshotList
+  , rpcSnapshotCreate
+  , rpcSnapshotDelete
+  , rpcSnapshotRollback
+  , rpcSnapshotMerge
+
+    -- * Shared directory
+  , rpcSharedDirAdd
+  , rpcSharedDirRemove
+  , rpcSharedDirList
+
+    -- * Network interface (per-VM)
+  , rpcNetIfAdd
+  , rpcNetIfRemove
+  , rpcNetIfList
 
     -- * Network lifecycle
   , rpcNetworkCreate
   , rpcNetworkStart
   , rpcNetworkStop
   , rpcNetworkDelete
+  , rpcNetworkEdit
 
     -- * SSH key lifecycle
   , rpcSshKeyCreate
   , rpcSshKeyDelete
+  , rpcSshKeyAttach
+  , rpcSshKeyDetach
 
     -- * Template lifecycle
   , rpcTemplateCreate
+  , rpcTemplateUpdate
   , rpcTemplateDelete
+  , rpcTemplateInstantiate
+
+    -- * Cloud-init
+  , rpcCloudInitSet
+  , rpcCloudInitGet
+  , rpcCloudInitDelete
   )
 where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Cloudinit as CGCI
+import qualified Capnp.Gen.Common as CGCommon
 import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Enums as CGE
@@ -81,17 +127,39 @@ import qualified Capnp.Gen.Task as CGTask
 import qualified Capnp.Gen.Template as CGTmpl
 import qualified Capnp.Gen.Vm as CGVm
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
+import Corvus.Model
+  ( CacheType
+  , DriveFormat
+  , DriveInterface
+  , DriveMedia (..)
+  , NetInterfaceType
+  , SharedDirCache
+  )
 import qualified Corvus.Protocol as P
+import qualified Corvus.Protocol.Apply as PA
+import qualified Corvus.Protocol.CloudInit as PCI
 import qualified Corvus.Protocol.Disk as PD
 import qualified Corvus.Protocol.Network as PN
+import qualified Corvus.Protocol.SharedDir as PSd
 import qualified Corvus.Protocol.SshKey as PSk
 import qualified Corvus.Protocol.Task as PT
 import qualified Corvus.Protocol.Template as PTm
 import qualified Corvus.Protocol.Vm as PV
-import Corvus.Wire.Common (EntityRef, fromCapnpStatusInfo, toCapnpEntityRef)
+import Corvus.Wire.Apply (fromCapnpApplyResult)
+import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
+import Corvus.Wire.Common (EntityRef, ViewGrant (..), fromCapnpStatusInfo, fromCapnpViewGrant, toCapnpEntityRef)
 import qualified Corvus.Wire.Disk as WDisk
+import Corvus.Wire.Enums
+  ( toCapnpCacheType
+  , toCapnpDriveFormat
+  , toCapnpDriveInterface
+  , toCapnpDriveMedia
+  , toCapnpNetInterfaceType
+  , toCapnpSharedDirCache
+  )
 import Corvus.Wire.Errors (WireError, showWireError)
 import qualified Corvus.Wire.Network as WNet
+import qualified Corvus.Wire.SharedDir as WSd
 import qualified Corvus.Wire.SshKey as WSsh
 import qualified Corvus.Wire.Task as WTask
 import qualified Corvus.Wire.Template as WTmpl
@@ -539,3 +607,577 @@ emptyCloudInitParsed =
     , CGCI.networkConfig = ""
     , CGCI.injectSshKeys = False
     }
+
+-- ---------------------------------------------------------------------
+-- Empty-EntityRef placeholder for "no network reference" etc.
+-- ---------------------------------------------------------------------
+
+emptyCapnpEntityRef :: C.Parsed CGCommon.EntityRef
+emptyCapnpEntityRef =
+  CGCommon.EntityRef {CGCommon.union' = CGCommon.EntityRef'id 0}
+
+-- =====================================================================
+-- VM additional wrappers
+-- =====================================================================
+
+rpcVmEdit
+  :: CapnpConnection
+  -> EntityRef
+  -> Maybe Int
+  -- ^ new cpus
+  -> Maybe Int
+  -- ^ new ram (MB)
+  -> Maybe Text
+  -- ^ new description
+  -> Maybe Bool
+  -- ^ new headless
+  -> Maybe Bool
+  -- ^ new guest agent
+  -> Maybe Bool
+  -- ^ new cloud-init
+  -> Maybe Bool
+  -- ^ new autostart
+  -> IO ()
+rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mCi mAs = do
+  vmClient <- getVmClient conn ref
+  let p =
+        CGVm.VmEditParams
+          { CGVm.hasName = False
+          , CGVm.name = ""
+          , CGVm.hasCpuCount = Data.Maybe.isJust mCpus
+          , CGVm.cpuCount = maybe 0 fromIntegral mCpus
+          , CGVm.hasRamMb = Data.Maybe.isJust mRam
+          , CGVm.ramMb = maybe 0 fromIntegral mRam
+          , CGVm.hasDescription = Data.Maybe.isJust mDesc
+          , CGVm.description = Data.Maybe.fromMaybe "" mDesc
+          , CGVm.hasHeadless = Data.Maybe.isJust mHeadless
+          , CGVm.headless = Data.Maybe.fromMaybe False mHeadless
+          , CGVm.hasGuestAgent = Data.Maybe.isJust mGa
+          , CGVm.guestAgent = Data.Maybe.fromMaybe False mGa
+          , CGVm.hasCloudInit = Data.Maybe.isJust mCi
+          , CGVm.cloudInit = Data.Maybe.fromMaybe False mCi
+          , CGVm.hasAutostart = Data.Maybe.isJust mAs
+          , CGVm.autostart = Data.Maybe.fromMaybe False mAs
+          }
+  _ <- callOn #edit CGVm.Vm'edit'params {CGVm.params = p} vmClient
+  pure ()
+
+rpcVmCloudInit :: CapnpConnection -> EntityRef -> IO (Maybe PCI.CloudInitInfo)
+rpcVmCloudInit conn ref = do
+  vmClient <- getVmClient conn ref
+  CGVm.Vm'cloudInit'results {CGVm.config = cfg} <-
+    callOn #cloudInit CGVm.Vm'cloudInit'params vmClient
+  -- The schema always returns a struct; we interpret "no per-VM custom
+  -- config" as the zero default (hasUserData = hasNetworkConfig = False,
+  -- injectSshKeys = False). Anything else is "custom".
+  let parsed = fromCapnpCloudInitInfo cfg
+  case parsed of
+    PCI.CloudInitInfo {PCI.ciiUserData = Nothing, PCI.ciiNetworkConfig = Nothing, PCI.ciiInjectSshKeys = False} ->
+      pure Nothing
+    other -> pure (Just other)
+
+rpcVmViewGrant :: CapnpConnection -> EntityRef -> IO ViewGrant
+rpcVmViewGrant conn ref = do
+  vmClient <- getVmClient conn ref
+  CGVm.Vm'viewGrant'results {CGVm.grant = g} <-
+    callOn #viewGrant CGVm.Vm'viewGrant'params vmClient
+  pure (fromCapnpViewGrant g)
+
+rpcVmSendCtrlAltDel :: CapnpConnection -> EntityRef -> IO ()
+rpcVmSendCtrlAltDel conn ref = do
+  vmClient <- getVmClient conn ref
+  _ <- callOn #sendCtrlAltDel CGVm.Vm'sendCtrlAltDel'params vmClient
+  pure ()
+
+-- | Guest agent exec: returns (exit code, stdout, stderr).
+rpcGuestExec :: CapnpConnection -> EntityRef -> Text -> IO (Int, Text, Text)
+rpcGuestExec conn ref cmd = do
+  vmClient <- getVmClient conn ref
+  CGVm.Vm'guestExec'results {CGVm.result = CGVm.GuestExecResult {..}} <-
+    callOn #guestExec CGVm.Vm'guestExec'params {CGVm.command = cmd} vmClient
+  pure (fromIntegral exitCode, stdout, stderr)
+
+-- =====================================================================
+-- Disk additional wrappers
+-- =====================================================================
+
+rpcDiskCreateOverlay :: CapnpConnection -> Text -> EntityRef -> IO Int64
+rpcDiskCreateOverlay conn name baseRef = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  let inner =
+        CGDisk.DiskCreateOverlayParams
+          { CGDisk.name = name
+          , CGDisk.backingDiskRef = toCapnpEntityRef baseRef
+          }
+  CGDisk.DiskManager'createOverlay'results {CGDisk.disk = dClient} <-
+    callOn #createOverlay CGDisk.DiskManager'createOverlay'params {CGDisk.params = inner} mgr
+  CGDisk.Disk'show'results {CGDisk.info = info} <-
+    callOn #show CGDisk.Disk'show'params dClient
+  case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
+
+rpcDiskRegister
+  :: CapnpConnection
+  -> Text
+  -> Text
+  -> DriveFormat
+  -> IO Int64
+rpcDiskRegister conn name filePath fmt = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  let p =
+        CGDisk.DiskRegisterParams
+          { CGDisk.name = name
+          , CGDisk.filePath = filePath
+          , CGDisk.format = capnpDriveFormat fmt
+          }
+  CGDisk.DiskManager'register'results {CGDisk.disk = dClient} <-
+    callOn #register CGDisk.DiskManager'register'params {CGDisk.params = p} mgr
+  CGDisk.Disk'show'results {CGDisk.info = info} <-
+    callOn #show CGDisk.Disk'show'params dClient
+  case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
+
+rpcDiskRefresh :: CapnpConnection -> EntityRef -> IO PD.DiskImageInfo
+rpcDiskRefresh conn ref = do
+  dClient <- getDiskClient conn ref
+  CGDisk.Disk'refresh'results {CGDisk.info = info} <-
+    callOn #refresh CGDisk.Disk'refresh'params dClient
+  failOnWire (WDisk.fromCapnpDiskImageInfo info)
+
+-- | Import a disk from a URL asynchronously. Returns the parent
+-- task id; poll @crv task show@ for progress.
+rpcDiskImportUrl
+  :: CapnpConnection
+  -> Text
+  -- ^ name
+  -> Text
+  -- ^ url
+  -> DriveFormat
+  -- ^ format
+  -> IO Int64
+rpcDiskImportUrl conn name url fmt = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  let p =
+        CGDisk.DiskImportUrlParams
+          { CGDisk.name = name
+          , CGDisk.url = url
+          , CGDisk.format = capnpDriveFormat fmt
+          , CGDisk.sizeMb = 0
+          }
+  CGDisk.DiskManager'importUrl'results {CGDisk.taskId = tid} <-
+    callOn #importUrl CGDisk.DiskManager'importUrl'params {CGDisk.params = p} mgr
+  pure tid
+
+-- | Import a disk synchronously from a local source path.
+rpcDiskImport
+  :: CapnpConnection
+  -> Text
+  -- ^ name
+  -> Text
+  -- ^ srcPath
+  -> DriveFormat
+  -- ^ format
+  -> IO Int64
+rpcDiskImport conn name srcPath fmt = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  let p =
+        CGDisk.DiskImportParams
+          { CGDisk.name = name
+          , CGDisk.srcPath = srcPath
+          , CGDisk.format = capnpDriveFormat fmt
+          }
+  CGDisk.DiskManager'import'results {CGDisk.disk = dClient} <-
+    callOn #import_ CGDisk.DiskManager'import'params {CGDisk.params = p} mgr
+  CGDisk.Disk'show'results {CGDisk.info = info} <-
+    callOn #show CGDisk.Disk'show'params dClient
+  case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
+
+rpcDiskClone :: CapnpConnection -> EntityRef -> Text -> IO Int64
+rpcDiskClone conn srcRef newName = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  let p =
+        CGDisk.DiskCloneParams
+          { CGDisk.sourceRef = toCapnpEntityRef srcRef
+          , CGDisk.newName = newName
+          }
+  CGDisk.DiskManager'clone'results {CGDisk.disk = dClient} <-
+    callOn #clone CGDisk.DiskManager'clone'params {CGDisk.params = p} mgr
+  CGDisk.Disk'show'results {CGDisk.info = info} <-
+    callOn #show CGDisk.Disk'show'params dClient
+  case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
+
+rpcDiskRebase :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
+rpcDiskRebase conn diskRef newBackingRef = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  let p =
+        CGDisk.DiskRebaseParams
+          { CGDisk.diskRef = toCapnpEntityRef diskRef
+          , CGDisk.newBackingDiskRef = toCapnpEntityRef newBackingRef
+          }
+  _ <- callOn #rebase CGDisk.DiskManager'rebase'params {CGDisk.params = p} mgr
+  pure ()
+
+-- | Attach a disk to a VM. Returns the new drive (attachment) id.
+rpcDiskAttach
+  :: CapnpConnection
+  -> EntityRef
+  -- ^ VM
+  -> EntityRef
+  -- ^ disk
+  -> DriveInterface
+  -> Maybe DriveMedia
+  -- ^ media override (Nothing → @disk@)
+  -> Bool
+  -- ^ read-only
+  -> Bool
+  -- ^ discard
+  -> CacheType
+  -> IO Int64
+rpcDiskAttach conn vmRef diskRef iface mMedia readOnly discard cache = do
+  vmClient <- getVmClient conn vmRef
+  let mediaWire = toCapnpDriveMedia (Data.Maybe.fromMaybe MediaDisk mMedia)
+      p =
+        CGVm.DriveAttachParams
+          { CGVm.diskRef = toCapnpEntityRef diskRef
+          , CGVm.interface = toCapnpDriveInterface iface
+          , CGVm.media = mediaWire
+          , CGVm.readOnly = readOnly
+          , CGVm.cacheType = toCapnpCacheType cache
+          , CGVm.discard = discard
+          }
+  CGVm.Vm'attachDisk'results {CGVm.driveId = did} <-
+    callOn #attachDisk CGVm.Vm'attachDisk'params {CGVm.params = p} vmClient
+  pure did
+
+rpcDiskDetach :: CapnpConnection -> EntityRef -> Int64 -> IO ()
+rpcDiskDetach conn vmRef driveId = do
+  vmClient <- getVmClient conn vmRef
+  _ <- callOn #detachDisk CGVm.Vm'detachDisk'params {CGVm.driveId = driveId} vmClient
+  pure ()
+
+-- =====================================================================
+-- Snapshot wrappers (per-disk)
+-- =====================================================================
+
+rpcSnapshotList :: CapnpConnection -> EntityRef -> IO [PD.SnapshotInfo]
+rpcSnapshotList conn diskRef = do
+  dClient <- getDiskClient conn diskRef
+  CGDisk.Disk'snapshotList'results {CGDisk.snapshots = ss} <-
+    callOn #snapshotList CGDisk.Disk'snapshotList'params dClient
+  pure (map WDisk.fromCapnpSnapshotInfo ss)
+
+rpcSnapshotCreate :: CapnpConnection -> EntityRef -> Text -> IO Int64
+rpcSnapshotCreate conn diskRef name = do
+  dClient <- getDiskClient conn diskRef
+  CGDisk.Disk'snapshotCreate'results {CGDisk.snapshot = sClient} <-
+    callOn #snapshotCreate CGDisk.Disk'snapshotCreate'params {CGDisk.name = name} dClient
+  -- Snapshot doesn't expose @show@; the Snapshot cap proves the
+  -- creation succeeded.
+  _ <- pure sClient
+  pure 0
+
+rpcSnapshotDelete :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
+rpcSnapshotDelete conn diskRef snapRef = do
+  sClient <- getSnapshotClient conn diskRef snapRef
+  _ <- callOn #delete CGDisk.Snapshot'delete'params sClient
+  pure ()
+
+rpcSnapshotRollback :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
+rpcSnapshotRollback conn diskRef snapRef = do
+  sClient <- getSnapshotClient conn diskRef snapRef
+  _ <- callOn #rollback CGDisk.Snapshot'rollback'params sClient
+  pure ()
+
+rpcSnapshotMerge :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
+rpcSnapshotMerge conn diskRef snapRef = do
+  sClient <- getSnapshotClient conn diskRef snapRef
+  _ <- callOn #merge CGDisk.Snapshot'merge'params sClient
+  pure ()
+
+getSnapshotClient :: CapnpConnection -> EntityRef -> EntityRef -> IO (C.Client CGDisk.Snapshot)
+getSnapshotClient conn diskRef snapRef = do
+  dClient <- getDiskClient conn diskRef
+  CGDisk.Disk'snapshotGet'results {CGDisk.snapshot = sClient} <-
+    callOn #snapshotGet CGDisk.Disk'snapshotGet'params {CGDisk.ref = toCapnpEntityRef snapRef} dClient
+  pure sClient
+
+-- =====================================================================
+-- Shared directory wrappers
+-- =====================================================================
+
+rpcSharedDirAdd
+  :: CapnpConnection
+  -> EntityRef
+  -> Text
+  -- ^ host path
+  -> Text
+  -- ^ tag
+  -> SharedDirCache
+  -> Bool
+  -- ^ read-only
+  -> IO Int64
+rpcSharedDirAdd conn vmRef path tag cache readOnly = do
+  vmClient <- getVmClient conn vmRef
+  let p =
+        CGVm.SharedDirAddParams
+          { CGVm.path = path
+          , CGVm.tag = tag
+          , CGVm.cache = toCapnpSharedDirCache cache
+          , CGVm.readOnly = readOnly
+          }
+  CGVm.Vm'addSharedDir'results {CGVm.sharedDirId = sid} <-
+    callOn #addSharedDir CGVm.Vm'addSharedDir'params {CGVm.params = p} vmClient
+  pure sid
+
+rpcSharedDirRemove :: CapnpConnection -> EntityRef -> Int64 -> IO ()
+rpcSharedDirRemove conn vmRef sharedDirId = do
+  vmClient <- getVmClient conn vmRef
+  _ <-
+    callOn
+      #removeSharedDir
+      CGVm.Vm'removeSharedDir'params {CGVm.sharedDirId = sharedDirId}
+      vmClient
+  pure ()
+
+rpcSharedDirList :: CapnpConnection -> EntityRef -> IO [PSd.SharedDirInfo]
+rpcSharedDirList conn vmRef = do
+  vmClient <- getVmClient conn vmRef
+  CGVm.Vm'listSharedDirs'results {CGVm.sharedDirs = sds} <-
+    callOn #listSharedDirs CGVm.Vm'listSharedDirs'params vmClient
+  traverse (failOnWire . WSd.fromCapnpSharedDirInfo) sds
+
+-- =====================================================================
+-- Network interface wrappers (per-VM)
+-- =====================================================================
+
+rpcNetIfAdd
+  :: CapnpConnection
+  -> EntityRef
+  -> NetInterfaceType
+  -> Text
+  -- ^ host device (\"\" → auto)
+  -> Maybe Text
+  -- ^ MAC pin (Nothing → daemon picks)
+  -> Maybe EntityRef
+  -- ^ managed network
+  -> IO Int64
+rpcNetIfAdd conn vmRef ifaceType hostDevice macAddress mNetwork = do
+  vmClient <- getVmClient conn vmRef
+  let p =
+        CGVm.NetIfAddParams
+          { CGVm.type_ = toCapnpNetInterfaceType ifaceType
+          , CGVm.hostDevice = hostDevice
+          , CGVm.macAddress = Data.Maybe.fromMaybe "" macAddress
+          , CGVm.networkRef = maybe emptyCapnpEntityRef toCapnpEntityRef mNetwork
+          }
+  CGVm.Vm'addNetIf'results {CGVm.netIfId = nid} <-
+    callOn #addNetIf CGVm.Vm'addNetIf'params {CGVm.params = p} vmClient
+  pure nid
+
+rpcNetIfRemove :: CapnpConnection -> EntityRef -> Int64 -> IO ()
+rpcNetIfRemove conn vmRef netIfId = do
+  vmClient <- getVmClient conn vmRef
+  _ <-
+    callOn
+      #removeNetIf
+      CGVm.Vm'removeNetIf'params {CGVm.netIfId = netIfId}
+      vmClient
+  pure ()
+
+rpcNetIfList :: CapnpConnection -> EntityRef -> IO [PV.NetIfInfo]
+rpcNetIfList conn vmRef = do
+  vmClient <- getVmClient conn vmRef
+  CGVm.Vm'listNetIfs'results {CGVm.netIfs = nis} <-
+    callOn #listNetIfs CGVm.Vm'listNetIfs'params vmClient
+  traverse (failOnWire . WVm.fromCapnpNetIfInfo) nis
+
+-- =====================================================================
+-- Network edit
+-- =====================================================================
+
+rpcNetworkEdit
+  :: CapnpConnection
+  -> EntityRef
+  -> Maybe Text
+  -- ^ subnet
+  -> Maybe Bool
+  -- ^ dhcp
+  -> Maybe Bool
+  -- ^ nat
+  -> Maybe Bool
+  -- ^ autostart
+  -> IO ()
+rpcNetworkEdit conn ref mSubnet mDhcp mNat mAs = do
+  nClient <- getNetworkClient conn ref
+  let p =
+        CGNet.NetworkEditParams
+          { CGNet.hasName = False
+          , CGNet.name = ""
+          , CGNet.hasSubnet = Data.Maybe.isJust mSubnet
+          , CGNet.subnet = Data.Maybe.fromMaybe "" mSubnet
+          , CGNet.hasDhcp = Data.Maybe.isJust mDhcp
+          , CGNet.dhcp = Data.Maybe.fromMaybe False mDhcp
+          , CGNet.hasNat = Data.Maybe.isJust mNat
+          , CGNet.nat = Data.Maybe.fromMaybe False mNat
+          , CGNet.hasAutostart = Data.Maybe.isJust mAs
+          , CGNet.autostart = Data.Maybe.fromMaybe False mAs
+          }
+  _ <- callOn #edit CGNet.Network'edit'params {CGNet.params = p} nClient
+  pure ()
+
+-- =====================================================================
+-- SSH key attach / detach / list-for-vm
+-- =====================================================================
+
+rpcSshKeyAttach :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
+rpcSshKeyAttach conn vmRef keyRef = do
+  vmClient <- getVmClient conn vmRef
+  _ <-
+    callOn
+      #attachSshKey
+      CGVm.Vm'attachSshKey'params {CGVm.keyRef = toCapnpEntityRef keyRef}
+      vmClient
+  pure ()
+
+rpcSshKeyDetach :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
+rpcSshKeyDetach conn vmRef keyRef = do
+  vmClient <- getVmClient conn vmRef
+  _ <-
+    callOn
+      #detachSshKey
+      CGVm.Vm'detachSshKey'params {CGVm.keyRef = toCapnpEntityRef keyRef}
+      vmClient
+  pure ()
+
+rpcSshKeyListForVm :: CapnpConnection -> EntityRef -> IO [PSk.SshKeyInfo]
+rpcSshKeyListForVm conn vmRef = do
+  vmClient <- getVmClient conn vmRef
+  CGVm.Vm'listSshKeys'results {CGVm.keys = ks} <-
+    callOn #listSshKeys CGVm.Vm'listSshKeys'params vmClient
+  pure (map WSsh.fromCapnpSshKeyInfo ks)
+
+-- =====================================================================
+-- Template additional wrappers
+-- =====================================================================
+
+rpcTemplateUpdate :: CapnpConnection -> EntityRef -> Text -> IO ()
+rpcTemplateUpdate conn ref yaml = do
+  CGCorvus.Daemon'templates'results {CGCorvus.mgr = mgr} <-
+    callOn #templates CGCorvus.Daemon'templates'params (ccDaemon conn)
+  CGTmpl.TemplateManager'get'results {CGTmpl.template = tClient} <-
+    callOn #get CGTmpl.TemplateManager'get'params {CGTmpl.ref = toCapnpEntityRef ref} mgr
+  _ <- callOn #update CGTmpl.Template'update'params {CGTmpl.yaml = yaml} tClient
+  pure ()
+
+rpcTemplateInstantiate :: CapnpConnection -> EntityRef -> Text -> IO Int64
+rpcTemplateInstantiate conn ref vmName = do
+  CGCorvus.Daemon'templates'results {CGCorvus.mgr = mgr} <-
+    callOn #templates CGCorvus.Daemon'templates'params (ccDaemon conn)
+  CGTmpl.TemplateManager'get'results {CGTmpl.template = tClient} <-
+    callOn #get CGTmpl.TemplateManager'get'params {CGTmpl.ref = toCapnpEntityRef ref} mgr
+  CGTmpl.Template'instantiate'results {CGTmpl.vm = vmClient} <-
+    callOn #instantiate CGTmpl.Template'instantiate'params {CGTmpl.name = vmName} tClient
+  CGVm.Vm'show'results {CGVm.details = det} <-
+    callOn #show CGVm.Vm'show'params vmClient
+  case det of CGVm.VmDetails {CGVm.id = vid} -> pure vid
+
+-- =====================================================================
+-- Apply
+-- =====================================================================
+
+-- | Apply a declarative YAML environment. Returns the populated
+-- result (when @wait=True@) or just the parent task id (when
+-- @wait=False@).
+rpcApply :: CapnpConnection -> Text -> Bool -> Bool -> IO (PA.ApplyResult, Int64)
+rpcApply conn yaml skipExisting wait = do
+  CGCorvus.Daemon'apply'results {CGCorvus.result = r, CGCorvus.taskId = tid} <-
+    callOn
+      #apply
+      CGCorvus.Daemon'apply'params
+        { CGCorvus.yaml = yaml
+        , CGCorvus.skipExisting = skipExisting
+        , CGCorvus.wait = wait
+        }
+      (ccDaemon conn)
+  pure (fromCapnpApplyResult r, tid)
+
+-- =====================================================================
+-- Cloud-init manager
+-- =====================================================================
+
+rpcCloudInitSet
+  :: CapnpConnection
+  -> EntityRef
+  -> Maybe Text
+  -- ^ user-data
+  -> Maybe Text
+  -- ^ network-config
+  -> Bool
+  -- ^ inject SSH keys
+  -> IO ()
+rpcCloudInitSet conn vmRef mUserData mNetworkConfig injectKeys = do
+  CGCorvus.Daemon'cloudInit'results {CGCorvus.mgr = mgr} <-
+    callOn #cloudInit CGCorvus.Daemon'cloudInit'params (ccDaemon conn)
+  let info =
+        PCI.CloudInitInfo
+          { PCI.ciiUserData = mUserData
+          , PCI.ciiNetworkConfig = mNetworkConfig
+          , PCI.ciiInjectSshKeys = injectKeys
+          }
+      p =
+        CGCI.CloudInitSetParams
+          { CGCI.vmRef = toCapnpEntityRef vmRef
+          , CGCI.config = toCapnpCloudInitInfo info
+          }
+  _ <- callOn #set CGCI.CloudInitManager'set'params {CGCI.params = p} mgr
+  pure ()
+
+rpcCloudInitGet :: CapnpConnection -> EntityRef -> IO (Maybe PCI.CloudInitInfo)
+rpcCloudInitGet conn vmRef = do
+  CGCorvus.Daemon'cloudInit'results {CGCorvus.mgr = mgr} <-
+    callOn #cloudInit CGCorvus.Daemon'cloudInit'params (ccDaemon conn)
+  CGCI.CloudInitManager'get'results {CGCI.config = cfg} <-
+    callOn
+      #get
+      CGCI.CloudInitManager'get'params {CGCI.vmRef = toCapnpEntityRef vmRef}
+      mgr
+  let parsed = fromCapnpCloudInitInfo cfg
+  case parsed of
+    PCI.CloudInitInfo {PCI.ciiUserData = Nothing, PCI.ciiNetworkConfig = Nothing, PCI.ciiInjectSshKeys = False} ->
+      pure Nothing
+    other -> pure (Just other)
+
+rpcCloudInitDelete :: CapnpConnection -> EntityRef -> IO ()
+rpcCloudInitDelete conn vmRef = do
+  CGCorvus.Daemon'cloudInit'results {CGCorvus.mgr = mgr} <-
+    callOn #cloudInit CGCorvus.Daemon'cloudInit'params (ccDaemon conn)
+  _ <-
+    callOn
+      #delete
+      CGCI.CloudInitManager'delete'params {CGCI.vmRef = toCapnpEntityRef vmRef}
+      mgr
+  pure ()
+
+-- =====================================================================
+-- Task additional wrappers
+-- =====================================================================
+
+rpcTaskListChildren :: CapnpConnection -> Int64 -> IO [PT.TaskInfo]
+rpcTaskListChildren conn parentId = do
+  CGCorvus.Daemon'tasks'results {CGCorvus.mgr = mgr} <-
+    callOn #tasks CGCorvus.Daemon'tasks'params (ccDaemon conn)
+  CGTask.TaskManager'listChildren'results {CGTask.tasks = ts} <-
+    callOn #listChildren CGTask.TaskManager'listChildren'params {CGTask.parentId = parentId} mgr
+  traverse (failOnWire . WTask.fromCapnpTaskInfo) ts
+
+-- ---------------------------------------------------------------------
+-- Local enum coercions
+-- ---------------------------------------------------------------------
+
+-- | Mirror 'Corvus.Wire.Enums.toCapnpDriveFormat'.
+capnpDriveFormat :: DriveFormat -> CGE.DriveFormat
+capnpDriveFormat = toCapnpDriveFormat

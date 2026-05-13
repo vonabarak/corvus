@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | VM subsystem response data.
@@ -15,10 +14,9 @@ module Corvus.Protocol.Vm
 where
 
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, VmStatus)
-import Corvus.Protocol.Aeson (innerOptions)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -37,7 +35,7 @@ data VmInfo = VmInfo
   , viHealthcheck :: !(Maybe UTCTime)
   , viAutostart :: !Bool
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Drive info for details view
 data DriveInfo = DriveInfo
@@ -52,7 +50,7 @@ data DriveInfo = DriveInfo
   , diCacheType :: !CacheType
   , diDiscard :: !Bool
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Network interface info for details view
 data NetIfInfo = NetIfInfo
@@ -64,7 +62,7 @@ data NetIfInfo = NetIfInfo
   , niNetworkName :: !(Maybe Text)
   , niGuestIpAddresses :: !(Maybe Text)
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Full VM details
 data VmDetails = VmDetails
@@ -102,7 +100,7 @@ data VmDetails = VmDetails
   , vdAutostart :: !Bool
   -- ^ Whether this VM autostarts when the daemon starts
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON VmInfo where
   toJSON = genericToJSON innerOptions

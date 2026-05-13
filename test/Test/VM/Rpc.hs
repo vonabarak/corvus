@@ -1,8 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
--- | RPC call wrappers for the Corvus daemon.
--- This module provides functions to create, configure, and manage VMs
--- via RPC calls to a running daemon.
+-- | RPC call wrappers for the Corvus daemon used by integration
+-- tests.
+--
+-- Rewritten in Phase 5 to drive the daemon over Cap'n Proto via
+-- 'Corvus.Client.Capnp.Rpc'. The legacy fine-grained result sums
+-- ('VmActionResult', 'DiskResult', ...) are gone — every helper now
+-- uses 'try @SomeException' around the cap call and surfaces failures
+-- via 'fail'.
 module Test.VM.Rpc
   ( -- * VM lifecycle
     createTestVm
@@ -62,14 +68,16 @@ module Test.VM.Rpc
 where
 
 import Control.Concurrent (threadDelay)
+import Control.Exception (SomeException, try)
 import Control.Monad (when)
-import Corvus.Client
-import Corvus.Client.Rpc (CloudInitResult (..), GuestExecResult (..), NetIfResult (..), NetworkResult (..), cloudInitDelete, cloudInitGet, cloudInitSet, networkCreate, networkDelete, networkShow, networkStart, networkStop, taskList, taskListChildren, taskShow, vmExec)
+import qualified Corvus.Client.Capnp.Connection as CC
+import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Model
-import Corvus.Protocol (NetIfInfo (..), NetworkInfo (..), TaskInfo (..), VmDetails (..))
+import Corvus.Protocol (CloudInitInfo, NetIfInfo, NetworkInfo, TaskInfo, VmDetails (..))
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Qemu.Runtime (getQmpSocket)
 import Corvus.Types (ServerState (..))
+import Corvus.Wire.Common (EntityRef, entityRefFromText)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -82,341 +90,216 @@ import Test.VM.Ssh (SshKeyPair (..), generateSshKeyPair)
 import Test.VM.Types (TestVm (..))
 
 --------------------------------------------------------------------------------
+-- Helpers
+--------------------------------------------------------------------------------
+
+-- | Run a Cap'n Proto call against the daemon, failing on either a
+-- transport error or a server-side exception.
+withDaemonRpc :: (CC.CapnpConnection -> IO a) -> TestDaemon -> IO a
+withDaemonRpc action daemon = do
+  r <- withDaemonConnection daemon action
+  case r of
+    Right a -> pure a
+    Left e -> fail $ "Test.VM.Rpc.withDaemonRpc: " <> show e
+
+vmRef :: Int64 -> EntityRef
+vmRef = entityRefFromText . T.pack . show
+
+--------------------------------------------------------------------------------
 -- VM Lifecycle
 --------------------------------------------------------------------------------
 
--- | Create a VM via daemon RPC
 createTestVm :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Int64
 createTestVm daemon name cpus ram mDesc headless =
   createTestVmFull daemon name cpus ram mDesc headless False
 
--- | Create a VM with guest agent via daemon RPC
 createTestVmWithGuestAgent :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> IO Int64
 createTestVmWithGuestAgent daemon name cpus ram mDesc headless =
   createTestVmFull daemon name cpus ram mDesc headless True
 
--- | Create a VM via daemon RPC (full version with all fields)
 createTestVmFull :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> IO Int64
 createTestVmFull daemon name cpus ram mDesc headless guestAgent =
   createTestVmWithOptions daemon name cpus ram mDesc headless guestAgent False
 
--- | Create a VM via daemon RPC with all options including cloud-init
 createTestVmWithOptions :: TestDaemon -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> IO Int64
-createTestVmWithOptions daemon name cpus ram mDesc headless guestAgent cloudInit = do
-  result <- withDaemonConnection daemon $ \conn ->
-    vmCreate conn name cpus ram mDesc headless guestAgent cloudInit False
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error creating VM: " <> show err
-    Right (Right (VmCreated vmId)) -> pure vmId
-    Right (Right other) -> fail $ "Unexpected response creating VM: " <> show other
+createTestVmWithOptions daemon name cpus ram mDesc headless guestAgent cloudInit =
+  withDaemonRpc (\conn -> CR.rpcVmCreate conn name cpus ram mDesc headless guestAgent cloudInit False) daemon
 
--- | Start a VM via daemon RPC (async — returns immediately)
 startTestVm :: TestDaemon -> Int64 -> IO ()
-startTestVm daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    vmStart conn (T.pack (show vmId)) False
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error starting VM: " <> show err
-    Right (Right (VmActionSuccess _)) -> pure ()
-    Right (Right other) -> fail $ "Failed to start VM: " <> show other
+startTestVm daemon vmId =
+  withDaemonRpc (\conn -> CR.rpcVmStart conn (vmRef vmId) False) daemon
 
--- | Start a VM via daemon RPC (sync — blocks until VmRunning, including guest agent)
 startTestVmSync :: TestDaemon -> Int64 -> IO ()
-startTestVmSync daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    vmStart conn (T.pack (show vmId)) True
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error starting VM: " <> show err
-    Right (Right (VmActionSuccess _)) -> pure ()
-    Right (Right other) -> fail $ "Failed to start VM: " <> show other
+startTestVmSync daemon vmId =
+  withDaemonRpc (\conn -> CR.rpcVmStart conn (vmRef vmId) True) daemon
 
--- | Stop a VM via daemon RPC
 stopTestVm :: TestDaemon -> Int64 -> IO ()
-stopTestVm daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    vmStop conn (T.pack (show vmId)) False
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error stopping VM: " <> show err
-    Right (Right _) -> pure ()
+stopTestVm daemon vmId =
+  withDaemonRpc (\conn -> CR.rpcVmStop conn (vmRef vmId) False) daemon
 
--- | Stop a VM and wait for it to reach VmStopped status via polling.
--- Also waits for the QEMU process to fully exit so disk locks are released.
--- Fails if VM does not stop within timeout.
 stopTestVmAndWait :: TestDaemon -> Int64 -> Int -> IO ()
 stopTestVmAndWait daemon vmId timeoutSec = do
   stopTestVm daemon vmId
-  -- Poll for status
   let go 0 = do
-        -- Force stop if graceful shutdown failed
-        _ <- withDaemonConnection daemon $ \conn -> vmReset conn (T.pack (show vmId))
+        _ <- try (withDaemonRpc (\conn -> CR.rpcVmReset conn (vmRef vmId)) daemon) :: IO (Either SomeException ())
         pure ()
       go n = do
-        res <- withDaemonConnection daemon $ \conn -> vmShow conn (T.pack (show vmId))
+        res <- try (withDaemonRpc (\conn -> CR.rpcVmShow conn (vmRef vmId)) daemon) :: IO (Either SomeException VmDetails)
         case res of
-          Right (Right (Just details)) ->
-            if vdStatus details == VmStopped
-              then pure ()
-              else threadDelay 1000000 >> go (n - 1)
+          Right details
+            | vdStatus details == VmStopped -> pure ()
+            | otherwise -> threadDelay 1000000 >> go (n - 1)
           _ -> threadDelay 1000000 >> go (n - 1)
   go timeoutSec
-  -- Wait for the QEMU process to fully exit and release file locks.
-  -- The daemon sets VmStopped after waitForProcess returns, but there's a
-  -- brief window where the process has exited but the OS hasn't released
-  -- all file locks yet. The QMP socket disappearing confirms full cleanup.
   waitForQemuExit (ssQemuConfig (tdState daemon)) vmId
 
--- | Delete a VM via daemon RPC (best-effort cleanup, ignores errors)
 deleteTestVm :: TestDaemon -> Int64 -> IO ()
 deleteTestVm daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    vmDelete conn (T.pack (show vmId)) False
-  case result of
-    Right (Right VmDeleted) -> pure ()
-    _ -> pure ()
+  r <- try (withDaemonRpc (\conn -> CR.rpcVmDelete conn (vmRef vmId) False) daemon) :: IO (Either SomeException ())
+  case r of
+    Right () -> pure ()
+    Left _ -> pure ()
 
--- | Fetch a VM's vsock CID. Fails loudly if the daemon hasn't
--- assigned one — that's a bug, not a fall-through to TCP.
 getVmVsockCid :: TestDaemon -> Int64 -> IO Int
 getVmVsockCid daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn -> vmShow conn (T.pack (show vmId))
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error fetching VM details: " <> show err
-    Right (Right (Just details)) -> case vdVsockCid details of
-      Just cid -> pure cid
-      Nothing -> fail $ "VM " <> show vmId <> " has no vsock CID — daemon failed to allocate one"
-    Right (Right Nothing) -> fail $ "VM not found: " <> show vmId
+  details <- withDaemonRpc (\conn -> CR.rpcVmShow conn (vmRef vmId)) daemon
+  case vdVsockCid details of
+    Just cid -> pure cid
+    Nothing -> fail $ "VM " <> show vmId <> " has no vsock CID — daemon failed to allocate one"
 
--- | Edit a VM's properties via daemon RPC
 editTestVm :: TestDaemon -> Int64 -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> IO ()
-editTestVm daemon vmId mCpus mRam mDesc mHeadless = do
-  result <- withDaemonConnection daemon $ \conn ->
-    vmEdit conn (T.pack (show vmId)) mCpus mRam mDesc mHeadless Nothing Nothing Nothing
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error editing VM: " <> show err
-    Right (Right VmEdited) -> pure ()
-    Right (Right other) -> fail $ "Failed to edit VM: " <> show other
+editTestVm daemon vmId mCpus mRam mDesc mHeadless =
+  withDaemonRpc (\conn -> CR.rpcVmEdit conn (vmRef vmId) mCpus mRam mDesc mHeadless Nothing Nothing Nothing) daemon
 
 --------------------------------------------------------------------------------
 -- VM Configuration
 --------------------------------------------------------------------------------
 
--- | Add a disk to a VM
 addVmDisk :: TestDaemon -> Int64 -> Int64 -> DriveInterface -> CacheType -> Bool -> Bool -> IO ()
 addVmDisk daemon vmId diskImageId iface cache discard ro = do
-  result <- withDaemonConnection daemon $ \conn ->
-    diskAttach conn (T.pack (show vmId)) (T.pack (show diskImageId)) iface Nothing ro discard cache
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error attaching disk: " <> show err
-    Right (Right (DriveAttached _)) -> pure ()
-    Right (Right other) -> fail $ "Failed to attach disk: " <> show other
+  _ <-
+    withDaemonRpc
+      ( \conn ->
+          CR.rpcDiskAttach
+            conn
+            (vmRef vmId)
+            (vmRef diskImageId)
+            iface
+            Nothing
+            ro
+            discard
+            cache
+      )
+      daemon
+  pure ()
 
--- | Add a network interface to a VM
 addVmNetIf :: TestDaemon -> Int64 -> NetInterfaceType -> Text -> Maybe Text -> IO ()
 addVmNetIf daemon vmId ifaceType hostDevice mac = do
-  result <- withDaemonConnection daemon $ \conn ->
-    netIfAdd conn (T.pack (show vmId)) ifaceType hostDevice mac Nothing
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error adding network interface: " <> show err
-    Right (Right (NetIfAdded _)) -> pure ()
-    Right (Right other) -> fail $ "Failed to add network interface: " <> show other
+  _ <-
+    withDaemonRpc
+      (\conn -> CR.rpcNetIfAdd conn (vmRef vmId) ifaceType hostDevice mac Nothing)
+      daemon
+  pure ()
 
--- | Remove a network interface from a VM
 removeVmNetIf :: TestDaemon -> Int64 -> Int64 -> IO ()
-removeVmNetIf daemon vmId netIfId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    netIfRemove conn (T.pack (show vmId)) netIfId
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error removing network interface: " <> show err
-    Right (Right _) -> pure ()
+removeVmNetIf daemon vmId netIfId =
+  withDaemonRpc (\conn -> CR.rpcNetIfRemove conn (vmRef vmId) netIfId) daemon
 
--- | List network interfaces for a VM
 listVmNetIfs :: TestDaemon -> Int64 -> IO [NetIfInfo]
-listVmNetIfs daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    netIfList conn (T.pack (show vmId))
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error listing network interfaces: " <> show err
-    Right (Right (NetIfListResult netIfs)) -> pure netIfs
-    Right (Right other) -> fail $ "Unexpected response listing network interfaces: " <> show other
+listVmNetIfs daemon vmId =
+  withDaemonRpc (\conn -> CR.rpcNetIfList conn (vmRef vmId)) daemon
 
--- | Add a shared directory to a VM
 addVmSharedDir :: TestDaemon -> Int64 -> Text -> Text -> SharedDirCache -> IO ()
 addVmSharedDir daemon vmId path tag cache = do
-  result <- withDaemonConnection daemon $ \conn ->
-    sharedDirAdd conn (T.pack (show vmId)) path tag cache False
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error adding shared directory: " <> show err
-    Right (Right (SharedDirAdded _)) -> pure ()
-    Right (Right other) -> fail $ "Failed to add shared directory: " <> show other
+  _ <-
+    withDaemonRpc
+      (\conn -> CR.rpcSharedDirAdd conn (vmRef vmId) path tag cache False)
+      daemon
+  pure ()
 
 --------------------------------------------------------------------------------
 -- SSH Key Management
 --------------------------------------------------------------------------------
 
--- | Set up SSH key for VM access.
--- Creates a new SSH key pair, registers it with the daemon, and attaches to the VM.
--- Returns the key ID and key pair paths for cleanup.
 setupVmSshKey :: TestDaemon -> Int64 -> FilePath -> IO (Int64, FilePath, FilePath)
 setupVmSshKey daemon vmId tmpDir = do
-  -- Generate SSH key pair
   keyPairResult <- generateSshKeyPair tmpDir
   (privateKey, publicKey) <- case keyPairResult of
     Left err -> fail $ "Failed to generate SSH key pair: " <> T.unpack err
     Right keyPair -> pure (skpPrivateKey keyPair, skpPublicKey keyPair)
   putStrLn $ "[test] SSH private key: " <> privateKey
 
-  -- Read the public key content
   pubKeyContent <- T.pack <$> readFile publicKey
 
-  -- Create the SSH key in the daemon with a unique name
   keyUuid <- nextRandom
   let keyName = "test-key-" <> T.take 8 (toText keyUuid)
   keyId <- createSshKey daemon keyName pubKeyContent
 
-  -- Attach the key to the VM
   attachSshKey daemon vmId keyId
 
   pure (keyId, privateKey, publicKey)
 
--- | Create an SSH key via daemon RPC
 createSshKey :: TestDaemon -> Text -> Text -> IO Int64
-createSshKey daemon name publicKey = do
-  result <- withDaemonConnection daemon $ \conn ->
-    sshKeyCreate conn name publicKey
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error creating SSH key: " <> show err
-    Right (Right (SshKeyCreated keyId)) -> pure keyId
-    Right (Right other) -> fail $ "Unexpected response creating SSH key: " <> show other
+createSshKey daemon name publicKey =
+  withDaemonRpc (\conn -> CR.rpcSshKeyCreate conn name publicKey) daemon
 
--- | Attach an SSH key to a VM via daemon RPC
 attachSshKey :: TestDaemon -> Int64 -> Int64 -> IO ()
-attachSshKey daemon vmId keyId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    sshKeyAttach conn (T.pack (show vmId)) (T.pack (show keyId))
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error attaching SSH key: " <> show err
-    Right (Right SshKeyOk) -> pure ()
-    Right (Right other) -> fail $ "Unexpected response attaching SSH key: " <> show other
+attachSshKey daemon vmId keyId =
+  withDaemonRpc (\conn -> CR.rpcSshKeyAttach conn (vmRef vmId) (vmRef keyId)) daemon
 
--- | Delete an SSH key via daemon RPC
 cleanupSshKey :: TestDaemon -> Int64 -> IO ()
 cleanupSshKey daemon keyId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    sshKeyDelete conn (T.pack (show keyId))
-  case result of
-    Left _ -> pure () -- Ignore errors during cleanup
-    Right _ -> pure ()
+  r <- try (withDaemonRpc (\conn -> CR.rpcSshKeyDelete conn (vmRef keyId)) daemon) :: IO (Either SomeException ())
+  case r of
+    Right () -> pure ()
+    Left _ -> pure ()
 
 --------------------------------------------------------------------------------
 -- Virtual Network Management
 --------------------------------------------------------------------------------
 
--- | Create a virtual network via daemon RPC (no subnet, no DHCP)
 createNetwork :: TestDaemon -> Text -> IO Int64
-createNetwork daemon name = do
-  result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name "" False False False
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "Connection error creating network: " <> show err
-    Right (Right (NetworkCreated nwId)) -> pure nwId
-    Right (Right (NetworkError msg)) -> fail $ "Failed to create network: " <> T.unpack msg
-    Right (Right other) -> fail $ "Unexpected response creating network: " <> show other
+createNetwork daemon name =
+  withDaemonRpc (\conn -> CR.rpcNetworkCreate conn name "" False False False) daemon
 
--- | Create a virtual network with a subnet and DHCP via daemon RPC
 createNetworkWithSubnet :: TestDaemon -> Text -> Text -> IO Int64
-createNetworkWithSubnet daemon name subnet = do
-  result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name subnet True False False
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "Connection error creating network: " <> show err
-    Right (Right (NetworkCreated nwId)) -> pure nwId
-    Right (Right (NetworkError msg)) -> fail $ "Failed to create network: " <> T.unpack msg
-    Right (Right other) -> fail $ "Unexpected response creating network: " <> show other
+createNetworkWithSubnet daemon name subnet =
+  withDaemonRpc (\conn -> CR.rpcNetworkCreate conn name subnet True False False) daemon
 
--- | Create a virtual network with subnet, DHCP, and NAT via daemon RPC
 createNetworkWithNat :: TestDaemon -> Text -> Text -> IO Int64
-createNetworkWithNat daemon name subnet = do
-  result <- withDaemonConnection daemon $ \conn ->
-    networkCreate conn name subnet True True False
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "Connection error creating network: " <> show err
-    Right (Right (NetworkCreated nwId)) -> pure nwId
-    Right (Right (NetworkError msg)) -> fail $ "Failed to create network: " <> T.unpack msg
-    Right (Right other) -> fail $ "Unexpected response creating network: " <> show other
+createNetworkWithNat daemon name subnet =
+  withDaemonRpc (\conn -> CR.rpcNetworkCreate conn name subnet True True False) daemon
 
--- | Delete a virtual network via daemon RPC
 deleteNetwork :: TestDaemon -> Int64 -> IO ()
 deleteNetwork daemon nwId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    networkDelete conn (T.pack (show nwId))
-  case result of
-    Right (Right NetworkDeleted) -> pure ()
-    _ -> pure () -- Best-effort cleanup
+  r <- try (withDaemonRpc (\conn -> CR.rpcNetworkDelete conn (vmRef nwId)) daemon) :: IO (Either SomeException ())
+  case r of
+    Right () -> pure ()
+    Left _ -> pure ()
 
--- | Start a virtual network via daemon RPC
 startNetwork :: TestDaemon -> Int64 -> IO ()
-startNetwork daemon nwId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    networkStart conn (T.pack (show nwId))
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "Connection error starting network: " <> show err
-    Right (Right NetworkStarted) -> pure ()
-    Right (Right NetworkAlreadyRunning) -> pure ()
-    Right (Right (NetworkError msg)) -> fail $ "Failed to start network: " <> T.unpack msg
-    Right (Right other) -> fail $ "Unexpected response starting network: " <> show other
+startNetwork daemon nwId =
+  withDaemonRpc (\conn -> CR.rpcNetworkStart conn (vmRef nwId)) daemon
 
--- | Stop a virtual network via daemon RPC
 stopNetwork :: TestDaemon -> Int64 -> IO ()
 stopNetwork daemon nwId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    networkStop conn (T.pack (show nwId)) True -- force stop
-  case result of
-    Right (Right NetworkStopped) -> pure ()
-    _ -> pure () -- Best-effort cleanup
+  r <- try (withDaemonRpc (\conn -> CR.rpcNetworkStop conn (vmRef nwId) True) daemon) :: IO (Either SomeException ())
+  case r of
+    Right () -> pure ()
+    Left _ -> pure ()
 
--- | Show virtual network details via daemon RPC
 showNetwork :: TestDaemon -> Int64 -> IO NetworkInfo
-showNetwork daemon nwId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    networkShow conn (T.pack (show nwId))
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "Connection error showing network: " <> show err
-    Right (Right (NetworkDetails info)) -> pure info
-    Right (Right NetworkNotFound) -> fail $ "Network not found: " <> show nwId
-    Right (Right (NetworkError msg)) -> fail $ "Failed to show network: " <> T.unpack msg
-    Right (Right other) -> fail $ "Unexpected response showing network: " <> show other
+showNetwork daemon nwId =
+  withDaemonRpc (\conn -> CR.rpcNetworkShow conn (vmRef nwId)) daemon
 
--- | Add a network interface to a VM connected to a virtual network
 addVmNetIfWithNetwork :: TestDaemon -> Int64 -> Int64 -> IO ()
 addVmNetIfWithNetwork daemon vmId nwId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    netIfAdd conn (T.pack (show vmId)) NetManaged "" Nothing (Just (T.pack (show nwId)))
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "RPC error adding network interface: " <> show err
-    Right (Right (NetIfAdded _)) -> pure ()
-    Right (Right other) -> fail $ "Failed to add network interface: " <> show other
+  _ <-
+    withDaemonRpc
+      (\conn -> CR.rpcNetIfAdd conn (vmRef vmId) NetManaged "" Nothing (Just (vmRef nwId)))
+      daemon
+  pure ()
 
--- | Wait for the QEMU process to fully exit by checking the QMP socket.
--- When QEMU exits, the socket file is removed by the OS.
 waitForQemuExit :: QemuConfig -> Int64 -> IO ()
 waitForQemuExit config vmId = do
   qmpSock <- getQmpSocket config vmId
@@ -426,40 +309,25 @@ waitForQemuExit config vmId = do
     go sock n = do
       alive <- doesFileExist sock
       when alive $ do
-        threadDelay 100000 -- 100ms
+        threadDelay 100000
         go sock (n - 1)
 
 --------------------------------------------------------------------------------
 -- Guest Execution
 --------------------------------------------------------------------------------
 
--- | Run a command inside a test VM via the QEMU guest agent.
--- Convenience wrapper that takes a TestVm, matching the runInTestVm interface.
 runInVm :: TestVm -> Text -> IO (ExitCode, Text, Text)
 runInVm vm = runViaGuestAgent (tvmDaemon vm) (tvmId vm)
 
--- | Run a command via guest agent, failing on non-zero exit code.
--- Convenience wrapper that takes a TestVm, matching the runInTestVm_ interface.
 runInVm_ :: TestVm -> Text -> IO ()
 runInVm_ vm = runViaGuestAgent_ (tvmDaemon vm) (tvmId vm)
 
--- | Run a command inside a test VM via the QEMU guest agent.
--- Returns (ExitCode, stdout, stderr) similar to runInTestVm.
 runViaGuestAgent :: TestDaemon -> Int64 -> Text -> IO (ExitCode, Text, Text)
 runViaGuestAgent daemon vmId command = do
-  result <- withDaemonConnection daemon $ \conn ->
-    vmExec conn (T.pack (show vmId)) command
-  case result of
-    Left err -> fail $ "Failed to connect to daemon: " <> show err
-    Right (Left err) -> fail $ "Connection error executing guest command: " <> show err
-    Right (Right (GuestExecOk exitcode stdout stderr)) ->
-      pure (if exitcode == 0 then ExitSuccess else ExitFailure exitcode, stdout, stderr)
-    Right (Right GuestExecVmNotFound) -> fail "VM not found for guest-exec"
-    Right (Right GuestExecNotEnabled) -> fail "Guest agent not enabled on VM"
-    Right (Right (GuestExecInvalidState _ msg)) -> fail $ "Guest-exec invalid state: " <> T.unpack msg
-    Right (Right (GuestExecAgentError msg)) -> fail $ "Guest agent error: " <> T.unpack msg
+  (exitcode, stdout, stderr) <-
+    withDaemonRpc (\conn -> CR.rpcGuestExec conn (vmRef vmId) command) daemon
+  pure (if exitcode == 0 then ExitSuccess else ExitFailure exitcode, stdout, stderr)
 
--- | Run a command inside a test VM via the QEMU guest agent, failing on non-zero exit code.
 runViaGuestAgent_ :: TestDaemon -> Int64 -> Text -> IO ()
 runViaGuestAgent_ daemon vmId command = do
   (code, _, stderr) <- runViaGuestAgent daemon vmId command
@@ -472,62 +340,37 @@ runViaGuestAgent_ daemon vmId command = do
 -- Cloud-Init Config Management
 --------------------------------------------------------------------------------
 
--- | Set custom cloud-init config for a VM
 setCloudInitConfig :: TestDaemon -> Int64 -> Maybe Text -> Maybe Text -> Bool -> IO ()
-setCloudInitConfig daemon vmId mUserData mNetworkConfig injectKeys = do
-  result <- withDaemonConnection daemon $ \conn ->
-    cloudInitSet conn (T.pack (show vmId)) mUserData mNetworkConfig injectKeys
-  case result of
-    Right (Right CloudInitOk) -> pure ()
-    Right (Right (CloudInitError msg)) -> fail $ "Cloud-init config set error: " <> T.unpack msg
-    Right (Right CloudInitNotFound) -> fail "VM not found for cloud-init config set"
-    other -> fail $ "Failed to set cloud-init config: " <> show other
+setCloudInitConfig daemon vmId mUserData mNetworkConfig injectKeys =
+  withDaemonRpc
+    (\conn -> CR.rpcCloudInitSet conn (vmRef vmId) mUserData mNetworkConfig injectKeys)
+    daemon
 
--- | Get cloud-init config for a VM
-getCloudInitConfig :: TestDaemon -> Int64 -> IO CloudInitResult
-getCloudInitConfig daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    cloudInitGet conn (T.pack (show vmId))
-  case result of
-    Right (Right r) -> pure r
-    other -> fail $ "Failed to get cloud-init config: " <> show other
+getCloudInitConfig :: TestDaemon -> Int64 -> IO (Maybe CloudInitInfo)
+getCloudInitConfig daemon vmId =
+  withDaemonRpc (\conn -> CR.rpcCloudInitGet conn (vmRef vmId)) daemon
 
--- | Delete cloud-init config for a VM
 deleteCloudInitConfig :: TestDaemon -> Int64 -> IO ()
-deleteCloudInitConfig daemon vmId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    cloudInitDelete conn (T.pack (show vmId))
-  case result of
-    Right (Right CloudInitOk) -> pure ()
-    other -> fail $ "Failed to delete cloud-init config: " <> show other
+deleteCloudInitConfig daemon vmId =
+  withDaemonRpc (\conn -> CR.rpcCloudInitDelete conn (vmRef vmId)) daemon
 
 --------------------------------------------------------------------------------
 -- Task History Queries
 --------------------------------------------------------------------------------
 
--- | List tasks via daemon RPC
+-- | List tasks. Subsystem and result filters are currently dropped on
+-- the wire — re-add them when the Cap'n Proto schema gains them again.
 listTasks :: TestDaemon -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> Bool -> IO [TaskInfo]
-listTasks daemon limit mSub mResult includeSubtasks = do
-  result <- withDaemonConnection daemon $ \conn ->
-    taskList conn limit mSub mResult includeSubtasks
-  case result of
-    Right (Right tasks) -> pure tasks
-    other -> fail $ "Failed to list tasks: " <> show other
+listTasks daemon limit _mSub _mResult _includeSubtasks =
+  withDaemonRpc (`CR.rpcTaskList` limit) daemon
 
--- | Show a single task via daemon RPC
 showTask :: TestDaemon -> Int64 -> IO (Maybe TaskInfo)
 showTask daemon taskId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    taskShow conn taskId
-  case result of
-    Right (Right mTask) -> pure mTask
-    other -> fail $ "Failed to show task: " <> show other
+  r <- try (withDaemonRpc (`CR.rpcTaskShow` taskId) daemon) :: IO (Either SomeException TaskInfo)
+  case r of
+    Right info -> pure (Just info)
+    Left _ -> pure Nothing
 
--- | List subtasks of a parent task via daemon RPC
 listSubtasks :: TestDaemon -> Int64 -> IO [TaskInfo]
-listSubtasks daemon parentId = do
-  result <- withDaemonConnection daemon $ \conn ->
-    taskListChildren conn parentId
-  case result of
-    Right (Right tasks) -> pure tasks
-    other -> fail $ "Failed to list subtasks: " <> show other
+listSubtasks daemon parentId =
+  withDaemonRpc (`CR.rpcTaskListChildren` parentId) daemon

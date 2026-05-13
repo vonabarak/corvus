@@ -5,13 +5,6 @@
 
 packages:
 - completed:
-    hackage: ginger-0.10.6.0@sha256:047825338228f493135781d9a01481033c82ab3b02963e87ff4c5d465be94688,3188
-    pantry-tree:
-      sha256: d0cbd8cb0e47c00f307b34a0f51b1f2e08f39f85258831fb4aec954ed85db4af
-      size: 1430
-  original:
-    hackage: ginger-0.10.6.0@sha256:047825338228f493135781d9a01481033c82ab3b02963e87ff4c5d465be94688,3188
-- completed:
     hackage: monad-stm-0.1.0.2@sha256:68c509a631cbb2f49c3e8b37527d281e6fdafbedac63a4c6fa69c98f4e0b2506,1732
     pantry-tree:
       sha256: b9766739e8a87b3a8d34350673e49927fa4fcde5710b573d748b2d0cd5892cea
@@ -32,6 +25,13 @@ packages:
       size: 256
   original:
     hackage: zenhack-prelude-0.1.1.0
+- completed:
+    hackage: ginger-0.10.6.0@sha256:047825338228f493135781d9a01481033c82ab3b02963e87ff4c5d465be94688,3188
+    pantry-tree:
+      sha256: d0cbd8cb0e47c00f307b34a0f51b1f2e08f39f85258831fb4aec954ed85db4af
+      size: 1430
+  original:
+    hackage: ginger-0.10.6.0@sha256:047825338228f493135781d9a01481033c82ab3b02963e87ff4c5d465be94688,3188
 snapshots:
 - completed:
     sha256: 7e724f347d5969cb5e8dde9f9aae30996e3231c29d1dafd45f21f1700d4c4fcb

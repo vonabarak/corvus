@@ -85,13 +85,11 @@ data CapnpConnectionError
 
 instance Exception CapnpConnectionError
 
--- | Default Cap'n Proto Unix socket path. Sits next to the legacy
--- @corvus.sock@ in the XDG runtime dir. Mirrors
--- 'Corvus.Rpc.Server.defaultCapnpSocketPath' so both ends agree.
+-- | Default Cap'n Proto Unix socket path: the canonical Corvus
+-- socket in the XDG runtime dir. The daemon owns this socket
+-- end-to-end now that the legacy 'Data.Binary' listener is gone.
 defaultCapnpAddress :: IO ListenAddress
-defaultCapnpAddress = do
-  legacy <- getDefaultSocketPath
-  pure (UnixAddress (legacy <> ".capnp"))
+defaultCapnpAddress = UnixAddress <$> getDefaultSocketPath
 
 -- ---------------------------------------------------------------------
 -- Bracketed connect

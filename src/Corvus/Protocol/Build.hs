@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | @crv build@ response data.
@@ -10,9 +9,8 @@ module Corvus.Protocol.Build
 where
 
 import Corvus.Model (TaskResult)
-import Corvus.Protocol.Aeson (innerOptions)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
 import GHC.Generics (Generic)
@@ -25,13 +23,13 @@ data BuildOne = BuildOne
   , boError :: !(Maybe Text)
   -- ^ Error message on failure
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 -- | Aggregate result returned by a @ReqBuild@ call.
 newtype BuildResult = BuildResult
   { brBuilds :: [BuildOne]
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON BuildOne where
   toJSON = genericToJSON innerOptions
@@ -39,13 +37,12 @@ instance ToJSON BuildOne where
 instance ToJSON BuildResult where
   toJSON = genericToJSON innerOptions
 
--- | Streaming events emitted on the upgraded socket after the daemon
--- replies with @RespBuildStreamStarted@. Frames use the same
--- length-prefixed binary framing as ordinary protocol messages — see
--- 'Corvus.Protocol.encodeMessage'.
+-- | Streaming events emitted by the build pipeline. Originally a
+-- length-prefixed binary stream; Phase 6 will deliver these via a
+-- @BuildEventSink@ Cap'n Proto cap. The Haskell ADT is still useful
+-- for the in-process pipeline → sink shim.
 --
--- The stream terminates with exactly one @PipelineEnd@; the daemon
--- closes the socket immediately afterwards.
+-- The stream terminates with exactly one @PipelineEnd@.
 data BuildEvent
   = -- | Daemon-level progress note (e.g. \"instantiating template\").
     BuildLogLine !Text
@@ -67,7 +64,7 @@ data BuildEvent
   | -- | Aggregate pipeline result, identical in shape to the response
     -- the non-streaming path returns. Always the last event.
     PipelineEnd !BuildResult
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON BuildEvent where
   toJSON = genericToJSON innerOptions

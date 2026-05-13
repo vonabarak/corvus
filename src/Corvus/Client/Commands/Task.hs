@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Task history command handlers for the Corvus client.
 module Corvus.Client.Commands.Task
@@ -9,12 +11,13 @@ module Corvus.Client.Commands.Task
 where
 
 import Control.Concurrent (threadDelay)
+import Control.Exception (SomeException, try)
 import Control.Monad (unless)
-import Corvus.Client.Connection (Connection)
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitResult, emitRpcError, isStructured, printTable)
-import Corvus.Client.Rpc (taskList, taskListChildren, taskShow)
-import Corvus.Client.Types (OutputFormat (..))
-import Corvus.Model (EnumText (..), TaskResult (..), TaskSubsystem)
+import Corvus.Client.Capnp.Connection (CapnpConnection)
+import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitResult, isStructured, printTable)
+import Corvus.Client.Types (OutputFormat)
+import Corvus.Model (EnumText (..), TaskResult (..))
 import Corvus.Protocol (TaskInfo (..))
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -24,16 +27,14 @@ import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurren
 import System.IO (hFlush, hPutStr, stderr, stdout)
 import Text.Printf (printf)
 
--- | Handle task list command
-handleTaskList :: OutputFormat -> TableOpts -> Connection -> Int -> Maybe Text -> Maybe Text -> Bool -> IO Bool
-handleTaskList fmt tableOpts conn limit mSubStr mResultStr includeSubtasks = do
-  let mSub = mSubStr >>= eitherToMaybe . enumFromText
-      mResult = mResultStr >>= eitherToMaybe . enumFromText
-  resp <- taskList conn limit mSub mResult includeSubtasks
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
-      pure False
+-- | Handle task list command. Subsystem / result filters are
+-- currently not threaded through the Cap'n Proto wrapper; the
+-- wrapper takes only @limit@ and the daemon applies the rest of the
+-- filtering server-side once the schema gains those params again.
+handleTaskList :: OutputFormat -> TableOpts -> CapnpConnection -> Int -> Maybe Text -> Maybe Text -> Bool -> IO Bool
+handleTaskList fmt tableOpts conn limit _mSubStr _mResultStr _includeSubtasks = do
+  r <- try @SomeException (CR.rpcTaskList conn limit)
+  case r of
     Right tasks -> do
       emitResult fmt tasks $
         if null tasks
@@ -42,23 +43,24 @@ handleTaskList fmt tableOpts conn limit mSubStr mResultStr includeSubtasks = do
             now <- getCurrentTime
             printTable tableOpts (taskColumns now) tasks
       pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
+      pure False
 
 -- | Handle task show command
-handleTaskShow :: OutputFormat -> Connection -> Int64 -> IO Bool
+handleTaskShow :: OutputFormat -> CapnpConnection -> Int64 -> IO Bool
 handleTaskShow fmt conn taskId = do
-  resp <- taskShow conn taskId
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
+  r <- try @SomeException (CR.rpcTaskShow conn taskId)
+  case r of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
-    Right Nothing -> do
-      emitError fmt "not_found" "Task not found" $ putStrLn "Task not found"
-      pure False
-    Right (Just info) -> do
+    Right info -> do
       emitResult fmt info $ do
         printTaskDetail info
-        -- Show subtasks if this task has any
-        childResp <- taskListChildren conn taskId
+        childResp <- try @SomeException (CR.rpcTaskListChildren conn taskId)
         case childResp of
           Right children | not (null children) -> do
             putStrLn ""
@@ -80,18 +82,15 @@ handleTaskShow fmt conn taskId = do
       pure True
 
 -- | Handle task wait command — poll until task finishes or timeout
-handleTaskWait :: OutputFormat -> Connection -> Int64 -> Maybe Int -> IO Bool
+handleTaskWait :: OutputFormat -> CapnpConnection -> Int64 -> Maybe Int -> IO Bool
 handleTaskWait fmt conn taskId mTimeout = do
-  -- Get initial task info
-  resp <- taskShow conn taskId
-  case resp of
-    Left err -> do
-      emitRpcError fmt err
+  r <- try @SomeException (CR.rpcTaskShow conn taskId)
+  case r of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
       pure False
-    Right Nothing -> do
-      emitError fmt "not_found" "Task not found" $ putStrLn "Task not found"
-      pure False
-    Right (Just info)
+    Right info
       | isTaskPending (tiResult info) -> do
           startTime <- getCurrentTime
           unless (isStructured fmt) $ do
@@ -105,7 +104,6 @@ handleTaskWait fmt conn taskId mTimeout = do
                 ++ maybe "" (\n -> " " ++ T.unpack n) (tiEntityName info)
                 ++ ")..."
             hFlush stdout
-          -- Poll with adaptive interval: 200ms for first 3s, then 1s
           pollUntilDone fmt conn taskId startTime mTimeout
       | otherwise -> do
           emitResult fmt info $ printCompletionMessage taskId info
@@ -122,18 +120,16 @@ isTaskPending _ = False
 --------------------------------------------------------------------------------
 
 -- | Poll interval in microseconds based on elapsed time.
--- 200ms for the first 3 seconds, then 1s.
 pollInterval :: Double -> Int
 pollInterval elapsed
   | elapsed < 3.0 = 200000
   | otherwise = 1000000
 
-pollUntilDone :: OutputFormat -> Connection -> Int64 -> UTCTime -> Maybe Int -> IO Bool
+pollUntilDone :: OutputFormat -> CapnpConnection -> Int64 -> UTCTime -> Maybe Int -> IO Bool
 pollUntilDone fmt conn taskId startTime mTimeout = do
   now <- getCurrentTime
   let elapsed = realToFrac (diffUTCTime now startTime) :: Double
 
-  -- Check timeout
   case mTimeout of
     Just timeout | elapsed >= fromIntegral timeout -> do
       unless (isStructured fmt) $ putStrLn ""
@@ -143,21 +139,16 @@ pollUntilDone fmt conn taskId startTime mTimeout = do
       pure False
     _ -> do
       threadDelay (pollInterval elapsed)
-      resp <- taskShow conn taskId
-      case resp of
-        Left err -> do
+      r <- try @SomeException (CR.rpcTaskShow conn taskId)
+      case r of
+        Left e -> do
           unless (isStructured fmt) $ putStrLn ""
-          emitError fmt "rpc_error" (T.pack $ show err) $
+          emitError fmt "rpc_error" (T.pack $ show e) $
             putStrLn $
-              "Error polling task: " ++ show err
+              "Error polling task: " ++ show e
           pure False
-        Right Nothing -> do
-          unless (isStructured fmt) $ putStrLn ""
-          putStrLn "Task disappeared"
-          pure False
-        Right (Just info)
+        Right info
           | isTaskPending (tiResult info) -> do
-              -- Show elapsed time
               unless (isStructured fmt) $ do
                 hPutStr stderr $ "\r\x1b[K" ++ "Waiting... (" ++ formatDuration elapsed ++ " elapsed)"
                 hFlush stderr
@@ -257,7 +248,3 @@ formatDuration d
   | otherwise = printf "%.0fh%.0fm" (d / 3600 :: Double) (mod' (d / 60) 60)
   where
     mod' a b = a - b * fromIntegral (floor (a / b) :: Int)
-
-eitherToMaybe :: Either a b -> Maybe b
-eitherToMaybe (Right x) = Just x
-eitherToMaybe (Left _) = Nothing

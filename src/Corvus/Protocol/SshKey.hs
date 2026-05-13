@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 
 -- | SSH key response data.
@@ -7,12 +6,8 @@ module Corvus.Protocol.SshKey
   )
 where
 
-import Corvus.Model ()
-
--- for orphan Binary UTCTime instance
-import Corvus.Protocol.Aeson (innerOptions)
+import Corvus.Protocol.JsonOptions (innerOptions)
 import Data.Aeson (ToJSON (..), genericToJSON)
-import Data.Binary (Binary)
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time (UTCTime)
@@ -27,7 +22,7 @@ data SshKeyInfo = SshKeyInfo
   , skiAttachedVms :: ![(Int64, Text)]
   -- ^ VM (ID, name) pairs this key is attached to
   }
-  deriving (Eq, Show, Generic, Binary)
+  deriving (Eq, Show, Generic)
 
 instance ToJSON SshKeyInfo where
   toJSON = genericToJSON innerOptions

@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Apply command handler for the Corvus client.
 -- Reads a YAML config file and sends it to the daemon for processing.
@@ -7,19 +9,19 @@ module Corvus.Client.Commands.Apply
   )
 where
 
+import Control.Exception (SomeException, try)
 import Control.Monad (unless)
-import Corvus.Client.Connection
-import Corvus.Client.Output (emitError, emitResult, emitRpcError)
-import Corvus.Client.Rpc
-import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
+import Corvus.Client.Capnp.Connection (CapnpConnection)
+import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Output (emitError, emitResult)
+import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Protocol (ApplyCreated (..), ApplyResult (..))
-import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import System.Directory (doesFileExist)
 
 -- | Handle apply command: read YAML file and send to daemon
-handleApply :: OutputFormat -> Connection -> FilePath -> Bool -> WaitOptions -> IO Bool
+handleApply :: OutputFormat -> CapnpConnection -> FilePath -> Bool -> WaitOptions -> IO Bool
 handleApply fmt conn path skipExisting waitOpts = do
   exists <- doesFileExist path
   if not exists
@@ -31,22 +33,22 @@ handleApply fmt conn path skipExisting waitOpts = do
     else do
       content <- TIO.readFile path
       let wait = woWait waitOpts
-      resp <- applyConfig conn content skipExisting wait
-      case resp of
-        Left err -> do
-          emitRpcError fmt err
+      r <- try @SomeException (CR.rpcApply conn content skipExisting wait)
+      case r of
+        Right (result, taskId) ->
+          if wait
+            then do
+              emitResult fmt result $ printApplyResult result
+              pure True
+            else do
+              emitResult fmt (T.pack $ show taskId) $
+                putStrLn $
+                  "Apply started (task ID: " ++ show taskId ++ ")"
+              pure True
+        Left e -> do
+          emitError fmt "rpc_error" (T.pack (show e)) $
+            putStrLn ("Apply failed: " ++ show e)
           pure False
-        Right (ApplyOk result) -> do
-          emitResult fmt result $ printApplyResult result
-          pure True
-        Right (ApplyFailed msg) -> do
-          emitError fmt "apply_failed" msg $ putStrLn $ "Apply failed: " ++ T.unpack msg
-          pure False
-        Right (ApplyAsync taskId) -> do
-          emitResult fmt (T.pack $ show taskId) $
-            putStrLn $
-              "Apply started (task ID: " ++ show taskId ++ ")"
-          pure True
 
 -- | Print apply result in human-readable format
 printApplyResult :: ApplyResult -> IO ()

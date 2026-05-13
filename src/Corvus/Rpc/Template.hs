@@ -18,19 +18,22 @@ where
 
 import Capnp (export)
 import qualified Capnp.Gen.Template as CGT
+import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
+import Capnp.Rpc.Server (SomeServer, handleParsed)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Resolve (resolveTemplate)
 import Corvus.Handlers.Template
   ( TemplateCreate (..)
   , TemplateDelete (..)
+  , TemplateInstantiate (..)
   , TemplateUpdate (..)
   , handleTemplateList
   , handleTemplateShow
   )
 import Corvus.Protocol (Response (..))
 import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
+import Corvus.Rpc.Vm (VmCap (..))
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Template (toCapnpTemplateDetails, toCapnpTemplateVmInfo)
 import Data.Int (Int64)
@@ -111,8 +114,13 @@ instance CGT.Template'server_ TemplateCap where
         RespError msg -> throwFailed msg
         _ -> throwFailed "template'update: unexpected response"
 
-  -- Instantiating a template forks a parent task that creates
-  -- multiple resources; the cap returns the new VM cap. That
-  -- pattern needs the task-progress sink to land cleanly, so it
-  -- ships with Phase 6.
-  template'instantiate _ = methodUnimplemented
+  template'instantiate (TemplateCap st sup eid) =
+    handleParsed $ \CGT.Template'instantiate'params {..} -> do
+      resp <- runAction st (TemplateInstantiate {tiTemplateId = eid, tiName = name})
+      case resp of
+        RespTemplateInstantiated newVmId -> do
+          client <- export @CGVm.Vm sup (VmCap st sup newVmId)
+          pure CGT.Template'instantiate'results {CGT.vm = client}
+        RespTemplateNotFound -> throwFailed "Template not found"
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "template'instantiate: unexpected response"

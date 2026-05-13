@@ -1,7 +1,14 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | DSL primitives for assertions (Then phase).
--- Provides functions to verify database state and responses.
+--
+-- The legacy result sums ('VmActionResult', 'DiskResult', ...) are
+-- gone in Phase 5; what remains here are the Response-shaped
+-- assertions and the database-state assertions. The
+-- result-sum-shaped @then*@ helpers used by the old test suite were
+-- dropped along with their types — call sites either use
+-- 'responseIs' directly or assert on database state.
 module Test.DSL.Then
   ( -- * Response assertions
     responseIs
@@ -16,46 +23,6 @@ module Test.DSL.Then
   , responseIsDiskHasOverlays
   , responseIsSnapshotCreated
   , responseIsSnapshotNotFound
-
-    -- * Shared directory response assertions
-  , thenSharedDirListIsEmpty
-  , thenSharedDirListHasCount
-  , thenSharedDirAdded
-  , thenSharedDirOk
-  , thenSharedDirNotFound
-  , thenSharedDirError
-  , thenVmNotFound
-
-    -- * Network interface response assertions
-  , thenNetIfAdded
-  , thenNetIfOk
-  , thenNetIfNotFound
-  , thenNetIfVmNotFound
-  , thenNetIfListHasCount
-  , thenNetIfListIsEmpty
-  , thenNetIfError
-
-    -- * SSH key response assertions
-  , thenSshKeyCreated
-  , thenSshKeyOk
-  , thenSshKeyNotFound
-  , thenSshKeyVmNotFound
-  , thenSshKeyInUse
-  , thenSshKeyListHasCount
-  , thenSshKeyListIsEmpty
-  , thenSshKeyError
-
-    -- * VM edit response assertions
-  , thenVmEdited
-  , thenVmEditNotFound
-  , thenVmEditMustBeStopped
-
-    -- * VM create/delete response assertions
-  , thenVmCreated
-  , thenVmCreateError
-  , thenVmDeleted
-  , thenVmDeleteNotFound
-  , thenVmDeleteRunning
 
     -- * Database state assertions
   , vmExists
@@ -93,7 +60,6 @@ where
 
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-import Corvus.Client.Rpc (DiskResult (..), NetIfResult (..), SharedDirResult (..), SnapshotResult (..), SshKeyResult (..), VmActionResult (..), VmCreateResult (..), VmDeleteResult (..), VmEditResult (..))
 import Corvus.Model
 import Corvus.Protocol
 import Data.Int (Int64)
@@ -109,16 +75,17 @@ import Test.Hspec.Expectations (shouldBe, shouldSatisfy)
 -- Response Assertions
 --------------------------------------------------------------------------------
 
--- | Assert that the last response matches a predicate
 responseIs :: (Response -> Bool) -> TestM ()
 responseIs predicate = do
   mResp <- getLastResponse
   case mResp of
     Nothing -> liftIO $ fail "No response captured"
     Just resp ->
-      liftIO $ resp `shouldSatisfy` predicate
+      unless (predicate resp) $
+        liftIO $
+          fail $
+            "Response did not match predicate. Got: " <> show resp
 
--- | Assert that the last response matches an expected value
 responseMatches :: Response -> TestM ()
 responseMatches expected = do
   mResp <- getLastResponse
@@ -126,7 +93,6 @@ responseMatches expected = do
     Nothing -> liftIO $ fail "No response captured"
     Just resp -> liftIO $ resp `shouldBe` expected
 
--- | Assert response indicates success (generic)
 responseIsSuccess :: TestM ()
 responseIsSuccess = responseIs isSuccessResponse
   where
@@ -144,452 +110,196 @@ responseIsSuccess = responseIs isSuccessResponse
     isSuccessResponse RespSnapshotOk = True
     isSuccessResponse _ = False
 
--- | Assert response is VM not found
 responseIsVmNotFound :: TestM ()
-responseIsVmNotFound = responseMatches RespVmNotFound
+responseIsVmNotFound = responseIs (== RespVmNotFound)
 
--- | Assert response is VM state changed
-responseIsVmStateChanged :: TestM ()
-responseIsVmStateChanged = responseIs isStateChanged
-  where
-    isStateChanged (RespVmStateChanged _) = True
-    isStateChanged _ = False
+responseIsVmStateChanged :: VmStatus -> TestM ()
+responseIsVmStateChanged status = responseIs (== RespVmStateChanged status)
 
--- | Assert response is invalid transition
 responseIsInvalidTransition :: TestM ()
-responseIsInvalidTransition = responseIs isInvalidTransition
-  where
-    isInvalidTransition (RespInvalidTransition _ _) = True
-    isInvalidTransition _ = False
+responseIsInvalidTransition = responseIs $ \case
+  RespInvalidTransition _ _ -> True
+  _ -> False
 
--- | Assert response is disk created
 responseIsDiskCreated :: TestM ()
-responseIsDiskCreated = responseIs isDiskCreated
-  where
-    isDiskCreated (RespDiskCreated _) = True
-    isDiskCreated _ = False
+responseIsDiskCreated = responseIs $ \case
+  RespDiskCreated _ -> True
+  _ -> False
 
--- | Assert response is disk not found
 responseIsDiskNotFound :: TestM ()
-responseIsDiskNotFound = responseMatches RespDiskNotFound
+responseIsDiskNotFound = responseIs (== RespDiskNotFound)
 
--- | Assert response is disk in use
 responseIsDiskInUse :: TestM ()
-responseIsDiskInUse = responseIs isDiskInUse
-  where
-    isDiskInUse (RespDiskInUse _) = True
-    isDiskInUse _ = False
+responseIsDiskInUse = responseIs $ \case
+  RespDiskInUse _ -> True
+  _ -> False
 
--- | Assert response is disk has overlays
 responseIsDiskHasOverlays :: TestM ()
-responseIsDiskHasOverlays = responseIs isDiskHasOverlays
-  where
-    isDiskHasOverlays (RespDiskHasOverlays _) = True
-    isDiskHasOverlays _ = False
+responseIsDiskHasOverlays = responseIs $ \case
+  RespDiskHasOverlays _ -> True
+  _ -> False
 
--- | Assert response is snapshot created
 responseIsSnapshotCreated :: TestM ()
-responseIsSnapshotCreated = responseIs isSnapshotCreated
-  where
-    isSnapshotCreated (RespSnapshotCreated _) = True
-    isSnapshotCreated _ = False
+responseIsSnapshotCreated = responseIs $ \case
+  RespSnapshotCreated _ -> True
+  _ -> False
 
--- | Assert response is snapshot not found
 responseIsSnapshotNotFound :: TestM ()
-responseIsSnapshotNotFound = responseMatches RespSnapshotNotFound
+responseIsSnapshotNotFound = responseIs (== RespSnapshotNotFound)
 
 --------------------------------------------------------------------------------
--- VM Database Assertions
+-- Database State Assertions
 --------------------------------------------------------------------------------
 
--- | Assert that a VM exists in the database
 vmExists :: Int64 -> TestM ()
 vmExists vmId = do
-  mVm <- runDb $ get (toSqlKey vmId :: Key Vm)
+  mVm <- runDb $ get (toSqlKey vmId :: VmId)
   liftIO $ mVm `shouldSatisfy` isJust
 
--- | Assert that a VM does not exist in the database
 vmNotExists :: Int64 -> TestM ()
 vmNotExists vmId = do
-  mVm <- runDb $ get (toSqlKey vmId :: Key Vm)
+  mVm <- runDb $ get (toSqlKey vmId :: VmId)
   liftIO $ mVm `shouldSatisfy` isNothing
 
--- | Assert that a VM has a specific status
-vmHasStatus :: Int64 -> VmStatus -> TestM ()
-vmHasStatus vmId expectedStatus = do
-  mVm <- runDb $ get (toSqlKey vmId :: Key Vm)
-  case mVm of
-    Nothing -> liftIO $ fail $ "VM " ++ show vmId ++ " not found"
-    Just vm -> liftIO $ vmStatus vm `shouldBe` expectedStatus
-
--- | Assert that a VM has a PID (is running)
-vmHasPid :: Int64 -> TestM ()
-vmHasPid vmId = do
-  mVm <- runDb $ get (toSqlKey vmId :: Key Vm)
-  case mVm of
-    Nothing -> liftIO $ fail $ "VM " ++ show vmId ++ " not found"
-    Just vm -> liftIO $ vmPid vm `shouldSatisfy` isJust
-
--- | Assert the total number of VMs in the database
-vmCount :: Int -> TestM ()
-vmCount expected = do
-  vms <- runDb $ selectList ([] :: [Filter Vm]) []
-  liftIO $ length vms `shouldBe` expected
-
---------------------------------------------------------------------------------
--- Disk Image Database Assertions
---------------------------------------------------------------------------------
-
--- | Assert that a disk image exists
-diskImageExists :: Int64 -> TestM ()
-diskImageExists diskId = do
-  mDisk <- runDb $ get (toSqlKey diskId :: Key DiskImage)
-  liftIO $ mDisk `shouldSatisfy` isJust
-
--- | Assert that a disk image does not exist
-diskImageNotExists :: Int64 -> TestM ()
-diskImageNotExists diskId = do
-  mDisk <- runDb $ get (toSqlKey diskId :: Key DiskImage)
-  liftIO $ mDisk `shouldSatisfy` isNothing
-
--- | Assert that a disk image has a specific file path
 diskImageHasPath :: Int64 -> Text -> TestM ()
 diskImageHasPath diskId expectedPath = do
-  mDisk <- runDb $ get (toSqlKey diskId :: Key DiskImage)
+  mDisk <- runDb $ get (toSqlKey diskId :: DiskImageId)
   case mDisk of
-    Nothing -> liftIO $ fail $ "Disk image " ++ show diskId ++ " not found"
-    Just disk -> liftIO $ diskImageFilePath disk `shouldBe` expectedPath
+    Nothing -> liftIO $ fail $ "Disk image not found: " <> show diskId
+    Just d -> liftIO $ diskImageFilePath d `shouldBe` expectedPath
 
--- | Assert that a disk image has a specific backing image (or none)
-diskImageHasBacking :: Int64 -> Maybe Int64 -> TestM ()
+vmHasStatus :: Int64 -> VmStatus -> TestM ()
+vmHasStatus vmId expectedStatus = do
+  mVm <- runDb $ get (toSqlKey vmId :: VmId)
+  case mVm of
+    Nothing -> liftIO $ fail $ "VM not found: " <> show vmId
+    Just vm -> liftIO $ vmStatus vm `shouldBe` expectedStatus
+
+vmHasPid :: Int64 -> Maybe Int -> TestM ()
+vmHasPid vmId expectedPid = do
+  mVm <- runDb $ get (toSqlKey vmId :: VmId)
+  case mVm of
+    Nothing -> liftIO $ fail $ "VM not found: " <> show vmId
+    Just vm -> liftIO $ vmPid vm `shouldBe` expectedPid
+
+vmCount :: Int -> TestM ()
+vmCount expectedCount = do
+  cnt <- runDb $ count ([] :: [Filter Vm])
+  liftIO $ cnt `shouldBe` expectedCount
+
+diskImageExists :: Int64 -> TestM ()
+diskImageExists diskId = do
+  mDisk <- runDb $ get (toSqlKey diskId :: DiskImageId)
+  liftIO $ mDisk `shouldSatisfy` isJust
+
+diskImageNotExists :: Int64 -> TestM ()
+diskImageNotExists diskId = do
+  mDisk <- runDb $ get (toSqlKey diskId :: DiskImageId)
+  liftIO $ mDisk `shouldSatisfy` isNothing
+
+diskImageHasBacking :: Int64 -> Int64 -> TestM ()
 diskImageHasBacking diskId expectedBackingId = do
-  mDisk <- runDb $ get (toSqlKey diskId :: Key DiskImage)
+  mDisk <- runDb $ get (toSqlKey diskId :: DiskImageId)
   case mDisk of
-    Nothing -> liftIO $ fail $ "Disk image " ++ show diskId ++ " not found"
-    Just disk -> liftIO $ fmap fromSqlKey (diskImageBackingImageId disk) `shouldBe` expectedBackingId
+    Nothing -> liftIO $ fail $ "Disk image not found: " <> show diskId
+    Just d -> liftIO $ fmap fromSqlKey (diskImageBackingImageId d) `shouldBe` Just expectedBackingId
 
--- | Assert the total number of disk images
 diskImageCount :: Int -> TestM ()
-diskImageCount expected = do
-  disks <- runDb $ selectList ([] :: [Filter DiskImage]) []
-  liftIO $ length disks `shouldBe` expected
+diskImageCount expectedCount = do
+  cnt <- runDb $ count ([] :: [Filter DiskImage])
+  liftIO $ cnt `shouldBe` expectedCount
 
---------------------------------------------------------------------------------
--- Drive Database Assertions
---------------------------------------------------------------------------------
-
--- | Assert that a drive exists
 driveExists :: Int64 -> TestM ()
 driveExists driveId = do
-  mDrive <- runDb $ get (toSqlKey driveId :: Key Drive)
+  mDrive <- runDb $ get (toSqlKey driveId :: DriveId)
   liftIO $ mDrive `shouldSatisfy` isJust
 
--- | Assert that a drive does not exist
 driveNotExists :: Int64 -> TestM ()
 driveNotExists driveId = do
-  mDrive <- runDb $ get (toSqlKey driveId :: Key Drive)
+  mDrive <- runDb $ get (toSqlKey driveId :: DriveId)
   liftIO $ mDrive `shouldSatisfy` isNothing
 
--- | Assert that a drive exists for a specific VM
 driveExistsForVm :: Int64 -> Int64 -> TestM ()
 driveExistsForVm vmId diskImageId = do
-  drives <-
-    runDb $
-      selectList
-        [ DriveVmId ==. toSqlKey vmId
-        , DriveDiskImageId ==. toSqlKey diskImageId
-        ]
-        []
-  liftIO $ drives `shouldSatisfy` (not . null)
+  let vmKey = toSqlKey vmId :: VmId
+      diskKey = toSqlKey diskImageId :: DiskImageId
+  drives <- runDb $ selectList [DriveVmId ==. vmKey, DriveDiskImageId ==. diskKey] []
+  liftIO $ length drives `shouldSatisfy` (> 0)
 
--- | Assert the number of drives for a VM
 driveCountForVm :: Int64 -> Int -> TestM ()
-driveCountForVm vmId expected = do
-  drives <- runDb $ selectList [DriveVmId ==. toSqlKey vmId] []
-  liftIO $ length drives `shouldBe` expected
+driveCountForVm vmId expectedCount = do
+  let vmKey = toSqlKey vmId :: VmId
+  cnt <- runDb $ count [DriveVmId ==. vmKey]
+  liftIO $ cnt `shouldBe` expectedCount
 
---------------------------------------------------------------------------------
--- Snapshot Database Assertions
---------------------------------------------------------------------------------
-
--- | Assert that a snapshot exists
 snapshotExists :: Int64 -> TestM ()
 snapshotExists snapshotId = do
-  mSnapshot <- runDb $ get (toSqlKey snapshotId :: Key Snapshot)
+  mSnapshot <- runDb $ get (toSqlKey snapshotId :: SnapshotId)
   liftIO $ mSnapshot `shouldSatisfy` isJust
 
--- | Assert that a snapshot does not exist
 snapshotNotExists :: Int64 -> TestM ()
 snapshotNotExists snapshotId = do
-  mSnapshot <- runDb $ get (toSqlKey snapshotId :: Key Snapshot)
+  mSnapshot <- runDb $ get (toSqlKey snapshotId :: SnapshotId)
   liftIO $ mSnapshot `shouldSatisfy` isNothing
 
--- | Assert the number of snapshots for a disk
 snapshotCountForDisk :: Int64 -> Int -> TestM ()
-snapshotCountForDisk diskId expected = do
-  snapshots <-
-    runDb $
-      selectList [SnapshotDiskImageId ==. toSqlKey diskId] []
-  liftIO $ length snapshots `shouldBe` expected
+snapshotCountForDisk diskId expectedCount = do
+  let diskKey = toSqlKey diskId :: DiskImageId
+  cnt <- runDb $ count [SnapshotDiskImageId ==. diskKey]
+  liftIO $ cnt `shouldBe` expectedCount
+
+--------------------------------------------------------------------------------
+-- Task Assertions
+--------------------------------------------------------------------------------
+
+taskCount :: Int -> TestM ()
+taskCount expectedCount = do
+  cnt <- runDb $ count ([] :: [Filter Task])
+  liftIO $ cnt `shouldBe` expectedCount
+
+taskExists :: Int64 -> TestM ()
+taskExists taskId = do
+  mTask <- runDb $ get (toSqlKey taskId :: TaskId)
+  liftIO $ mTask `shouldSatisfy` isJust
+
+taskNotExists :: Int64 -> TestM ()
+taskNotExists taskId = do
+  mTask <- runDb $ get (toSqlKey taskId :: TaskId)
+  liftIO $ mTask `shouldSatisfy` isNothing
+
+subtaskCount :: Int64 -> Int -> TestM ()
+subtaskCount parentId expectedCount = do
+  let parentKey = toSqlKey parentId :: TaskId
+  cnt <- runDb $ count [TaskParent ==. Just parentKey]
+  liftIO $ cnt `shouldBe` expectedCount
+
+subtaskExists :: Int64 -> TestM ()
+subtaskExists parentId = do
+  let parentKey = toSqlKey parentId :: TaskId
+  ts <- runDb $ selectList [TaskParent ==. Just parentKey] []
+  liftIO $ length ts `shouldSatisfy` (> 0)
+
+getLastTask :: TestM (Maybe (Entity Task))
+getLastTask = do
+  rs <- runDb $ selectList ([] :: [Filter Task]) [Desc TaskStartedAt, LimitTo 1]
+  pure $ case rs of
+    (t : _) -> Just t
+    [] -> Nothing
 
 --------------------------------------------------------------------------------
 -- General Assertions
 --------------------------------------------------------------------------------
 
--- | Assert that a boolean value is true
 shouldBeTrue :: Bool -> TestM ()
-shouldBeTrue value = liftIO $ value `shouldBe` True
+shouldBeTrue b = liftIO $ b `shouldBe` True
 
--- | Assert that a boolean value is false
 shouldBeFalse :: Bool -> TestM ()
-shouldBeFalse value = liftIO $ value `shouldBe` False
+shouldBeFalse b = liftIO $ b `shouldBe` False
 
--- | Assert equality
-shouldEqual :: (Show a, Eq a) => a -> a -> TestM ()
-shouldEqual actual expected = liftIO $ actual `shouldBe` expected
+shouldEqual :: (Eq a, Show a) => a -> a -> TestM ()
+shouldEqual a b = liftIO $ a `shouldBe` b
 
---------------------------------------------------------------------------------
--- Shared Directory Response Assertions
---------------------------------------------------------------------------------
-
--- | Assert shared directory list is empty
-thenSharedDirListIsEmpty :: SharedDirResult -> TestM ()
-thenSharedDirListIsEmpty (SharedDirListResult []) = pure ()
-thenSharedDirListIsEmpty other = liftIO $ fail $ "Expected empty shared dir list, got: " <> show other
-
--- | Assert shared directory list has expected count
-thenSharedDirListHasCount :: SharedDirResult -> Int -> TestM ()
-thenSharedDirListHasCount (SharedDirListResult dirs) expected =
-  liftIO $ length dirs `shouldBe` expected
-thenSharedDirListHasCount other _ =
-  liftIO $ fail $ "Expected shared dir list, got: " <> show other
-
--- | Assert shared directory was added
-thenSharedDirAdded :: SharedDirResult -> TestM ()
-thenSharedDirAdded (SharedDirAdded _) = pure ()
-thenSharedDirAdded other =
-  liftIO $ fail $ "Expected shared dir added, got: " <> show other
-
--- | Assert shared directory operation was successful
-thenSharedDirOk :: SharedDirResult -> TestM ()
-thenSharedDirOk SharedDirOk = pure ()
-thenSharedDirOk other =
-  liftIO $ fail $ "Expected shared dir ok, got: " <> show other
-
--- | Assert shared directory not found
-thenSharedDirNotFound :: SharedDirResult -> TestM ()
-thenSharedDirNotFound SharedDirNotFound = pure ()
-thenSharedDirNotFound other =
-  liftIO $ fail $ "Expected shared dir not found, got: " <> show other
-
--- | Assert shared directory error with message
-thenSharedDirError :: SharedDirResult -> Text -> TestM ()
-thenSharedDirError (SharedDirError msg) expected =
-  liftIO $ msg `shouldSatisfy` T.isInfixOf expected
-thenSharedDirError other _ =
-  liftIO $ fail $ "Expected shared dir error, got: " <> show other
-
--- | Assert VM not found (generic result)
-thenVmNotFound :: (Show a) => a -> TestM ()
-thenVmNotFound result = case show result of
-  s | "VmNotFound" `T.isInfixOf` T.pack s -> pure ()
-  _ -> liftIO $ fail $ "Expected VM not found, got: " <> show result
-
---------------------------------------------------------------------------------
--- Network Interface Response Assertions
---------------------------------------------------------------------------------
-
--- | Assert network interface was added
-thenNetIfAdded :: NetIfResult -> TestM ()
-thenNetIfAdded (NetIfAdded _) = pure ()
-thenNetIfAdded other =
-  liftIO $ fail $ "Expected net-if added, got: " <> show other
-
--- | Assert network interface operation was successful
-thenNetIfOk :: NetIfResult -> TestM ()
-thenNetIfOk NetIfOk = pure ()
-thenNetIfOk other =
-  liftIO $ fail $ "Expected net-if ok, got: " <> show other
-
--- | Assert network interface not found
-thenNetIfNotFound :: NetIfResult -> TestM ()
-thenNetIfNotFound NetIfNotFound = pure ()
-thenNetIfNotFound other =
-  liftIO $ fail $ "Expected net-if not found, got: " <> show other
-
--- | Assert VM not found for network interface operation
-thenNetIfVmNotFound :: NetIfResult -> TestM ()
-thenNetIfVmNotFound NetIfVmNotFound = pure ()
-thenNetIfVmNotFound other =
-  liftIO $ fail $ "Expected net-if VM not found, got: " <> show other
-
--- | Assert network interface list has expected count
-thenNetIfListHasCount :: NetIfResult -> Int -> TestM ()
-thenNetIfListHasCount (NetIfListResult netIfs) expected =
-  liftIO $ length netIfs `shouldBe` expected
-thenNetIfListHasCount other _ =
-  liftIO $ fail $ "Expected net-if list, got: " <> show other
-
--- | Assert network interface list is empty
-thenNetIfListIsEmpty :: NetIfResult -> TestM ()
-thenNetIfListIsEmpty (NetIfListResult []) = pure ()
-thenNetIfListIsEmpty other = liftIO $ fail $ "Expected empty net-if list, got: " <> show other
-
--- | Assert network interface error with message
-thenNetIfError :: NetIfResult -> Text -> TestM ()
-thenNetIfError (NetIfError msg) expected =
-  liftIO $ msg `shouldSatisfy` T.isInfixOf expected
-thenNetIfError other _ =
-  liftIO $ fail $ "Expected net-if error, got: " <> show other
-
---------------------------------------------------------------------------------
--- SSH Key Response Assertions
---------------------------------------------------------------------------------
-
--- | Assert SSH key was created
-thenSshKeyCreated :: SshKeyResult -> TestM ()
-thenSshKeyCreated (SshKeyCreated _) = pure ()
-thenSshKeyCreated other =
-  liftIO $ fail $ "Expected ssh-key created, got: " <> show other
-
--- | Assert SSH key operation was successful
-thenSshKeyOk :: SshKeyResult -> TestM ()
-thenSshKeyOk SshKeyOk = pure ()
-thenSshKeyOk other =
-  liftIO $ fail $ "Expected ssh-key ok, got: " <> show other
-
--- | Assert SSH key not found
-thenSshKeyNotFound :: SshKeyResult -> TestM ()
-thenSshKeyNotFound SshKeyNotFound = pure ()
-thenSshKeyNotFound other =
-  liftIO $ fail $ "Expected ssh-key not found, got: " <> show other
-
--- | Assert VM not found for SSH key operation
-thenSshKeyVmNotFound :: SshKeyResult -> TestM ()
-thenSshKeyVmNotFound SshKeyVmNotFound = pure ()
-thenSshKeyVmNotFound other =
-  liftIO $ fail $ "Expected ssh-key VM not found, got: " <> show other
-
--- | Assert SSH key is in use
-thenSshKeyInUse :: SshKeyResult -> TestM ()
-thenSshKeyInUse (SshKeyInUse _) = pure ()
-thenSshKeyInUse other =
-  liftIO $ fail $ "Expected ssh-key in use, got: " <> show other
-
--- | Assert SSH key list has expected count
-thenSshKeyListHasCount :: SshKeyResult -> Int -> TestM ()
-thenSshKeyListHasCount (SshKeyListResult keys) expected =
-  liftIO $ length keys `shouldBe` expected
-thenSshKeyListHasCount other _ =
-  liftIO $ fail $ "Expected ssh-key list, got: " <> show other
-
--- | Assert SSH key list is empty
-thenSshKeyListIsEmpty :: SshKeyResult -> TestM ()
-thenSshKeyListIsEmpty (SshKeyListResult []) = pure ()
-thenSshKeyListIsEmpty other = liftIO $ fail $ "Expected empty ssh-key list, got: " <> show other
-
--- | Assert SSH key error with message
-thenSshKeyError :: SshKeyResult -> Text -> TestM ()
-thenSshKeyError (SshKeyError msg) expected =
-  liftIO $ msg `shouldSatisfy` T.isInfixOf expected
-thenSshKeyError other _ =
-  liftIO $ fail $ "Expected ssh-key error, got: " <> show other
-
---------------------------------------------------------------------------------
--- VM Edit Response Assertions
---------------------------------------------------------------------------------
-
--- | Assert VM was edited
-thenVmEdited :: VmEditResult -> TestM ()
-thenVmEdited VmEdited = pure ()
-thenVmEdited other =
-  liftIO $ fail $ "Expected VM edited, got: " <> show other
-
--- | Assert VM edit not found
-thenVmEditNotFound :: VmEditResult -> TestM ()
-thenVmEditNotFound VmEditNotFound = pure ()
-thenVmEditNotFound other =
-  liftIO $ fail $ "Expected VM edit not found, got: " <> show other
-
--- | Assert VM edit must be stopped
-thenVmEditMustBeStopped :: VmEditResult -> TestM ()
-thenVmEditMustBeStopped VmEditMustBeStopped = pure ()
-thenVmEditMustBeStopped other =
-  liftIO $ fail $ "Expected VM edit must be stopped, got: " <> show other
-
---------------------------------------------------------------------------------
--- VM Create/Delete Response Assertions
---------------------------------------------------------------------------------
-
--- | Assert VM was created
-thenVmCreated :: VmCreateResult -> TestM ()
-thenVmCreated (VmCreated _) = pure ()
-thenVmCreated other =
-  liftIO $ fail $ "Expected VM created, got: " <> show other
-
--- | Assert VM create error
-thenVmCreateError :: VmCreateResult -> TestM ()
-thenVmCreateError (VmCreateError _) = pure ()
-thenVmCreateError other =
-  liftIO $ fail $ "Expected VM create error, got: " <> show other
-
--- | Assert VM was deleted
-thenVmDeleted :: VmDeleteResult -> TestM ()
-thenVmDeleted VmDeleted = pure ()
-thenVmDeleted other =
-  liftIO $ fail $ "Expected VM deleted, got: " <> show other
-
--- | Assert VM delete not found
-thenVmDeleteNotFound :: VmDeleteResult -> TestM ()
-thenVmDeleteNotFound VmDeleteNotFound = pure ()
-thenVmDeleteNotFound other =
-  liftIO $ fail $ "Expected VM delete not found, got: " <> show other
-
--- | Assert VM delete running
-thenVmDeleteRunning :: VmDeleteResult -> TestM ()
-thenVmDeleteRunning VmDeleteRunning = pure ()
-thenVmDeleteRunning other =
-  liftIO $ fail $ "Expected VM delete running, got: " <> show other
-
---------------------------------------------------------------------------------
--- Task Database Assertions
---------------------------------------------------------------------------------
-
--- | Assert total number of tasks in the DB
-taskCount :: Int -> TestM ()
-taskCount expected = do
-  tasks <- runDb $ selectList ([] :: [Filter Task]) []
-  liftIO $ length tasks `shouldBe` expected
-
--- | Assert a task exists with the given subsystem, command, and result
-taskExists :: TaskSubsystem -> Text -> TaskResult -> TestM ()
-taskExists sub cmd result = do
-  tasks <- runDb $ selectList [TaskSubsystem ==. sub, TaskCommand ==. cmd, TaskResult ==. result] []
-  liftIO $ tasks `shouldSatisfy` (not . null)
-
--- | Assert no task exists with the given subsystem, command, and result
-taskNotExists :: TaskSubsystem -> Text -> TaskResult -> TestM ()
-taskNotExists sub cmd result = do
-  tasks <- runDb $ selectList [TaskSubsystem ==. sub, TaskCommand ==. cmd, TaskResult ==. result] []
-  liftIO $ tasks `shouldSatisfy` null
-
--- | Assert number of subtasks under a parent task ID
-subtaskCount :: Int64 -> Int -> TestM ()
-subtaskCount parentId expected = do
-  tasks <- runDb $ selectList [TaskParent ==. Just (toSqlKey parentId)] []
-  liftIO $ length tasks `shouldBe` expected
-
--- | Assert a subtask exists under a parent with given subsystem, command, result
-subtaskExists :: Int64 -> TaskSubsystem -> Text -> TaskResult -> TestM ()
-subtaskExists parentId sub cmd result = do
-  tasks <- runDb $ selectList [TaskParent ==. Just (toSqlKey parentId), TaskSubsystem ==. sub, TaskCommand ==. cmd, TaskResult ==. result] []
-  liftIO $ tasks `shouldSatisfy` (not . null)
-
--- | Get the most recent task (by ID) matching subsystem and command.
--- Fails if no such task exists.
-getLastTask :: TaskSubsystem -> Text -> TestM (Entity Task)
-getLastTask sub cmd = do
-  tasks <- runDb $ selectList [TaskSubsystem ==. sub, TaskCommand ==. cmd] [Desc TaskId, LimitTo 1]
-  case tasks of
-    (t : _) -> pure t
-    [] -> liftIO $ fail $ "No task found with subsystem=" <> show sub <> " command=" <> T.unpack cmd
+-- Silence unused-import warnings while we still pin a couple of Util
+-- imports for downstream test specs.
+_t :: T.Text
+_t = T.empty
