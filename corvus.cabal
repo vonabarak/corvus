@@ -161,6 +161,7 @@ library
       Corvus.Rpc.Template
       Corvus.Rpc.Task
       Corvus.Rpc.CloudInit
+      Corvus.Client.Capnp.Connection
       Capnp.Gen.Corvus
       Capnp.Gen.Common
       Capnp.Gen.Enums
