@@ -112,54 +112,90 @@ available"`, validation messages, etc. Pure result responses
 (state transitions, ids of newly-created entities) stay as
 struct returns.
 
-## Example: Python client (pycapnp)
+## Python client
+
+Corvus ships a Python package at [`python/corvus_client/`](../python/corvus_client/)
+that wraps the schema via [pycapnp](https://capnproto.github.io/pycapnp/).
+For most Python use cases, that package is what you want — see
+[`python/README.md`](../python/README.md) for the full reference.
+
+Quick sync example:
+
+```python
+# pip install -e ./python
+from corvus_client import Client
+
+with Client(unix_socket="/run/user/1000/corvus/corvus.sock") as c:
+    info = c.status()
+    print(f"Corvus {info.version}, up {info.uptime_seconds}s")
+    for vm in c.vms.list():
+        print(f"  [{vm.id}] {vm.name} -- {vm.status}")
+```
+
+Async equivalent:
+
+```python
+import asyncio, capnp
+from corvus_client import AsyncClient
+
+async def main():
+    async with capnp.kj_loop():
+        async with AsyncClient(unix_socket="/run/user/1000/corvus/corvus.sock") as c:
+            info = await c.status()
+            print(f"Corvus {info.version}, up {info.uptime_seconds}s")
+            for vm in await c.vms.list():
+                print(f"  [{vm.id}] {vm.name} -- {vm.status}")
+
+asyncio.run(main())
+```
+
+### Raw pycapnp (other languages / advanced cases)
+
+The schema can also be driven directly from any pycapnp client without
+the helper package. pycapnp 2.x is async-first; under
+`capnp.kj_loop()`, every cap method returns an awaitable promise.
 
 ```python
 # pip install pycapnp
 import asyncio
 import capnp
 
-# Load the schemas. Point this at the checked-out schema/ dir.
 SCHEMA = "/path/to/corvus/schema"
 common = capnp.load(f"{SCHEMA}/common.capnp")
 vm     = capnp.load(f"{SCHEMA}/vm.capnp",     imports=[SCHEMA])
 corvus = capnp.load(f"{SCHEMA}/corvus.capnp", imports=[SCHEMA])
 
 async def main():
-    # Default Unix socket lives next to the runtime dir; see
-    # `corvus --help` for overrides.
-    reader, writer = await asyncio.open_unix_connection(
-        "/run/user/1000/corvus.sock"
-    )
-    client = capnp.TwoPartyClient(reader, writer)
-    daemon = client.bootstrap().cast_as(corvus.Daemon)
+    async with capnp.kj_loop():
+        stream = await capnp.AsyncIoStream.create_unix_connection(
+            "/run/user/1000/corvus/corvus.sock"
+        )
+        client = capnp.TwoPartyClient(stream)
+        daemon = client.bootstrap().cast_as(corvus.Daemon)
 
-    # Sanity check.
-    info = (await daemon.status().a_wait()).info
-    print(f"Corvus {info.version}, up {info.uptime}s")
+        info = (await daemon.status()).info
+        print(f"Corvus {info.version}, up {info.uptimeSeconds}s")
 
-    # List VMs.
-    mgr = (await daemon.vms().a_wait()).mgr
-    vms = (await mgr.list().a_wait()).vms
-    for v in vms:
-        print(f"  [{v.id}] {v.name} -- {v.status}")
+        mgr = (await daemon.vms()).mgr
+        vms = (await mgr.list()).vms
+        for v in vms:
+            print(f"  [{v.id}] {v.name} -- {v.status}")
 
-    # Walk to a specific VM and start it.
-    if vms:
-        ref = common.EntityRef.new_message()
-        ref.id = vms[0].id
-        h = (await mgr.get(ref=ref).a_wait()).vm
-        await h.start(wait=True).a_wait()
-        print(f"started {vms[0].name}")
+        if vms:
+            ref = common.EntityRef.new_message()
+            ref.id = vms[0].id
+            h = (await mgr.get(ref=ref)).vm
+            await h.start(wait=True)
+            print(f"started {vms[0].name}")
 
 asyncio.run(main())
 ```
 
-### Build streaming example
+### Build streaming (raw pycapnp)
 
 ```python
 class BuildEventSinkImpl(streams.BuildEventSink.Server):
-    async def push(self, event, **_):
+    async def push(self, event, _context):
         which = event.which()
         if which == "logLine":
             print(event.logLine)
@@ -168,31 +204,35 @@ class BuildEventSinkImpl(streams.BuildEventSink.Server):
             print(f"[step {s.stepIndex} {s.name}] {s.command}")
         elif which == "buildEnd":
             be = event.buildEnd
-            print("✓" if be.success else f"✗ {be.errorMessage}")
-        # ... handle the other variants
+            print("ok" if be.success else f"FAIL: {be.errorMessage}")
 
-    async def end(self, **_):
+    async def end(self, _context):
         pass
 
 sink = BuildEventSinkImpl()
-yaml = open("pipeline.yml").read()
-task_id = (await daemon.build(yaml=yaml, sink=sink).a_wait()).taskId
-print(f"Build started; task id {task_id}")
-# Hold the connection open until the daemon calls sink.end().
+yaml_text = open("pipeline.yml").read()
+resp = await daemon.build(yaml=yaml_text, sink=sink)
+print(f"Build started; task id {resp.taskId}")
+# The daemon calls sink.push(...) repeatedly, then sink.end().
 ```
 
-### Guest-agent subscription example
+The `corvus_client` package handles this for you: see
+`AsyncClient.build_stream(yaml_path)` and the YAML preprocessing
+helper that inlines `shell.script` / `file.from` / `floppy.from`
+references before sending.
+
+### Guest-agent subscription (raw pycapnp)
 
 ```python
 class GAStatusSinkImpl(streams.GuestAgentStatusSink.Server):
-    async def push(self, status, **_):
+    async def push(self, status, _context):
         print(f"vm {status.vmId}: reachable={status.reachable}, "
               f"last_hc_nanos={status.lastHealthcheck}")
 
-mgr = (await daemon.vms().a_wait()).mgr
+mgr = (await daemon.vms()).mgr
 ref = common.EntityRef.new_message(); ref.name = "web-1"
-vm_cap = (await mgr.get(ref=ref).a_wait()).vm
-handle = (await vm_cap.subscribeGuestAgent(sink=GAStatusSinkImpl()).a_wait()).handle
+vm_cap = (await mgr.get(ref=ref)).vm
+handle = (await vm_cap.subscribeGuestAgent(sink=GAStatusSinkImpl())).handle
 # Keep `handle` alive for as long as you want to receive events;
 # dropping it (or closing the connection) unsubscribes.
 ```
@@ -202,8 +242,9 @@ handle = (await vm_cap.subscribeGuestAgent(sink=GAStatusSinkImpl()).a_wait()).ha
 The Haskell side is regenerated with `make capnp`, which runs
 `stack exec capnp compile -ohaskell …` against the whole
 `schema/` directory and drops the modules into `src-generated/`.
-Add the new module to `package.yaml`'s exposed list before
-shipping.
+The same target syncs the schemas into `python/corvus_client/schema/`
+so the Python package ships the same contract. Add any new Haskell
+module to `package.yaml`'s exposed list before shipping.
 
 For Python bindings, `pycapnp` reads the `.capnp` files at runtime
 (`capnp.load`), so no codegen step is required.

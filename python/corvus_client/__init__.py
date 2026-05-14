@@ -1,12 +1,16 @@
-"""Corvus client — Haskell-backed native extension."""
+"""Corvus client — pure-Python pycapnp implementation.
+
+The package layout:
+  - corvus_client.Client       — sync API (wraps the async core on a background loop)
+  - corvus_client.AsyncClient  — async API (asyncio + pycapnp.kj_loop)
+  - corvus_client.entity_ref   — helper to build EntityRef union values
+  - corvus_client.exceptions   — typed exception hierarchy
+"""
 from __future__ import annotations
 
-import atexit
-
-from . import _corvus  # noqa: F401
-# Client is auto-generated from the Haskell Request type. Running
-# `make python-codegen` refreshes _generated.py after any protocol edit.
-from ._generated import Client
+from ._async.client import AsyncClient
+from ._entityref import entity_ref
+from ._sync.client import Client
 from .exceptions import (
     BadEnvelope,
     ConnectError,
@@ -38,10 +42,10 @@ from .exceptions import (
     VmRunning,
 )
 
-atexit.register(_corvus._shutdown)
-
 __all__ = [
+    "AsyncClient",
     "Client",
+    "entity_ref",
     "CorvusError",
     "ConnectError",
     "ProtocolError",
@@ -71,4 +75,4 @@ __all__ = [
     "GuestAgentNotEnabled",
     "GuestAgentError",
 ]
-__version__ = "0.1.0"
+__version__ = "0.2.0"

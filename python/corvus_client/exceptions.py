@@ -1,12 +1,27 @@
-"""Corvus client exception hierarchy.
+"""Corvus client exception hierarchy and KjException translation.
 
-Known "err" kinds and Response discriminator tags from the native bridge
-map one-to-one to classes here. Unknown kinds fall back to CorvusError
-so a new daemon-side error kind doesn't crash the client.
+The Corvus daemon emits Cap'n Proto exceptions via `Capnp.Rpc.throwFailed
+"<message>"`. pycapnp surfaces these as `capnp.KjException` with a
+`.description` field. We pattern-match the message against a small list
+of canonical strings and raise typed Python exceptions; anything we
+don't recognize becomes a plain `CorvusError` so a new daemon-side
+message doesn't crash the client.
+
+This is a temporary translation layer. If/when the daemon adopts
+structured exception codes on the wire (see `src/Corvus/Wire/Errors.hs`),
+this module shrinks to a dict lookup.
 """
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, Awaitable, Callable, Optional, TypeVar
+
+import capnp
+
+
+# ---------------------------------------------------------------------------
+# Hierarchy
+# ---------------------------------------------------------------------------
 
 
 class CorvusError(Exception):
@@ -130,110 +145,99 @@ class GuestAgentError(CorvusError):
     """Guest agent communication failed."""
 
 
-_KIND_TO_CLASS = {
-    "connect": ConnectError,
-    "protocol": ProtocolError,
-    "server": ServerError,
-    "bad_envelope": BadEnvelope,
-    "vm_not_found": VmNotFound,
-    "vm_running": VmRunning,
-    "vm_must_be_stopped": VmMustBeStopped,
-    "task_not_found": TaskNotFound,
-    "disk_not_found": DiskNotFound,
-    "disk_in_use": DiskInUse,
-    "disk_has_overlays": DiskHasOverlays,
-    "drive_not_found": DriveNotFound,
-    "format_not_supported": FormatNotSupported,
-    "network_not_found": NetworkNotFound,
-    "network_in_use": NetworkInUse,
-    "network_already_running": NetworkAlreadyRunning,
-    "network_not_running": NetworkNotRunning,
-    "network_error": NetworkError,
-    "netif_not_found": NetIfNotFound,
-    "snapshot_not_found": SnapshotNotFound,
-    "ssh_key_not_found": SshKeyNotFound,
-    "ssh_key_in_use": SshKeyInUse,
-    "shared_dir_not_found": SharedDirNotFound,
-    "template_not_found": TemplateNotFound,
-    "guest_agent_not_enabled": GuestAgentNotEnabled,
-    "guest_agent_error": GuestAgentError,
-}
-
-
-def from_err(kind: str, details: Any) -> CorvusError:
-    """Translate a structured {"kind":..., "details":...} dict to an exception."""
-    if kind == "invalid_transition":
-        return InvalidTransition(
-            status=details.get("status", "unknown") if isinstance(details, dict) else "unknown",
-            reason=details.get("reason", "") if isinstance(details, dict) else "",
-        )
-    cls = _KIND_TO_CLASS.get(kind, CorvusError)
-    message = _extract_message(kind, details)
-    return cls(message, details)
-
-
-def _extract_message(kind: str, details: Any) -> str:
-    if isinstance(details, dict):
-        msg = details.get("message")
-        if isinstance(msg, str):
-            return msg
-    return kind
-
-
 # ---------------------------------------------------------------------------
-# Response-tag → exception mapping
+# Message → exception mapping
+# ---------------------------------------------------------------------------
+
+# Regex-match table: case-sensitive, ordered most-specific first.
 #
-# Several Response variants carry error-shaped information in the success
-# channel (the daemon returns them as normal responses, not as RespError).
-# We translate those into the right Python exception at the Client layer.
+# The daemon emits either a static message ("Disk not found") or a
+# decorated form from Corvus.Handlers.Resolve ("Disk '<name>' not found",
+# "Disk #42 not found"). The patterns below match both shapes.
+_MESSAGE_TABLE = (
+    # In-use / state errors first (specific phrases).
+    (re.compile(r"^Disk has overlays$"), DiskHasOverlays),
+    (re.compile(r"^Disk in use\b"), DiskInUse),
+    (re.compile(r"^Drive not found"), DriveNotFound),
+    (re.compile(r"^Guest agent not enabled"), GuestAgentNotEnabled),
+    (re.compile(r"^Net-if not found"), NetIfNotFound),
+    (re.compile(r"^Network already running"), NetworkAlreadyRunning),
+    (re.compile(r"^Network in use\b"), NetworkInUse),
+    (re.compile(r"^Network not running"), NetworkNotRunning),
+    (re.compile(r"^SSH key in use\b"), SshKeyInUse),
+    (re.compile(r"^Serial console buffer not available"), GuestAgentError),
+    (re.compile(r"^HMP monitor buffer not available"), GuestAgentError),
+    (re.compile(r"^VM has no SPICE display"), VmRunning),
+    (re.compile(r"^VM not running"), VmRunning),
+    # Not-found patterns. Match either the static message or the
+    # Resolve-helper decorated form ("Type '<name>' not found",
+    # "Type #<id> not found").
+    (re.compile(r"^VM\b.*\bnot found"), VmNotFound),
+    (re.compile(r"^Disk\b.*\bnot found"), DiskNotFound),
+    (re.compile(r"^Snapshot\b.*\bnot found"), SnapshotNotFound),
+    (re.compile(r"^Network\b.*\bnot found"), NetworkNotFound),
+    (re.compile(r"^SSH key\b.*\bnot found"), SshKeyNotFound),
+    (re.compile(r"^Template\b.*\bnot found"), TemplateNotFound),
+    (re.compile(r"^Task\b.*\bnot found"), TaskNotFound),
+    (re.compile(r"^Shared directory\b.*\bnot found"), SharedDirNotFound),
+)
+
+# Match `(remote):0: failed: remote exception: <message>` envelopes that
+# pycapnp wraps around the daemon's throwFailed strings.
+_REMOTE_EXC_RE = re.compile(r"remote exception:\s*(.*)$", re.DOTALL)
+
+
+def _bare_message(description: str) -> str:
+    """Strip pycapnp's envelope so substring matches see just the daemon msg."""
+    m = _REMOTE_EXC_RE.search(description)
+    return m.group(1).strip() if m else description.strip()
+
+
+def translate_kj_exception(exc: capnp.KjException) -> CorvusError:
+    """Map a `capnp.KjException` to a typed Python exception."""
+    description = getattr(exc, "description", None) or str(exc)
+    body = _bare_message(description)
+    for pattern, cls in _MESSAGE_TABLE:
+        if pattern.search(body):
+            return cls(body, details=description)
+    return ServerError(body, details=description)
+
+
+# ---------------------------------------------------------------------------
+# Decorators that wrap pycapnp calls and translate errors
 # ---------------------------------------------------------------------------
 
-_TAG_TO_CLASS = {
-    "vm_not_found": VmNotFound,
-    "vm_running": VmRunning,
-    "vm_must_be_stopped": VmMustBeStopped,
-    "disk_not_found": DiskNotFound,
-    "drive_not_found": DriveNotFound,
-    "snapshot_not_found": SnapshotNotFound,
-    "shared_dir_not_found": SharedDirNotFound,
-    "net_if_not_found": NetIfNotFound,
-    "ssh_key_not_found": SshKeyNotFound,
-    "template_not_found": TemplateNotFound,
-    "network_not_found": NetworkNotFound,
-    "network_in_use": NetworkInUse,
-    "network_already_running": NetworkAlreadyRunning,
-    "network_not_running": NetworkNotRunning,
-    "task_not_found": TaskNotFound,
-    "guest_agent_not_enabled": GuestAgentNotEnabled,
-}
+T = TypeVar("T")
 
 
-def from_response_tag(tag: str, payload: dict) -> CorvusError | None:
-    """Map a Response discriminator tag to an exception, or None if the tag
-    is a non-error success response."""
-    if tag == "error":
-        return ServerError(payload.get("message", "server error"), payload)
-    if tag == "network_error":
-        return NetworkError(payload.get("message", "network error"), payload)
-    if tag == "guest_agent_error":
-        return GuestAgentError(payload.get("message", "guest agent error"), payload)
-    if tag == "format_not_supported":
-        return FormatNotSupported(payload.get("message", "format not supported"), payload)
-    if tag == "invalid_transition":
-        return InvalidTransition(
-            status=payload.get("status", "unknown"),
-            reason=payload.get("reason", ""),
-        )
-    if tag == "disk_in_use":
-        vms = payload.get("attached_vms", [])
-        return DiskInUse(f"disk attached to {len(vms)} VM(s)", vms)
-    if tag == "disk_has_overlays":
-        overlays = payload.get("overlays", [])
-        return DiskHasOverlays(f"disk has {len(overlays)} overlay(s)", overlays)
-    if tag == "ssh_key_in_use":
-        vms = payload.get("used_by_vms", [])
-        return SshKeyInUse(f"key used by {len(vms)} VM(s)", vms)
-    cls = _TAG_TO_CLASS.get(tag)
-    if cls is None:
-        return None
-    return cls(tag)
+def translate_async(
+    fn: Callable[..., Awaitable[T]],
+) -> Callable[..., Awaitable[T]]:
+    """Async-method decorator: translate `KjException` → typed exception."""
+
+    async def wrapped(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except capnp.KjException as e:
+            raise translate_kj_exception(e) from None
+
+    wrapped.__wrapped__ = fn  # type: ignore[attr-defined]
+    wrapped.__name__ = getattr(fn, "__name__", "wrapped")
+    return wrapped
+
+
+def translate_errors(cls):
+    """Class decorator: wrap every async public method to translate errors.
+
+    Applied to each Async* class so callers see typed
+    `CorvusError` subclasses instead of raw `capnp.KjException`.
+    """
+    import asyncio as _asyncio
+    import inspect
+
+    for name, attr in list(vars(cls).items()):
+        if name.startswith("_"):
+            continue
+        if inspect.iscoroutinefunction(attr):
+            setattr(cls, name, translate_async(attr))
+    return cls

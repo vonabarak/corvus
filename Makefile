@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format capnp
+.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format capnp python-schema-sync python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -33,6 +33,20 @@ capnp:
 	mkdir -p src-generated
 	stack exec --no-ghc-package-path -- env PATH="$$(stack path --compiler-bin):$$(stack path --local-install-root)/bin:$$PATH" \
 	  capnp compile -ohaskell:src-generated --src-prefix=schema $$(ls schema/*.capnp)
+	$(MAKE) python-schema-sync
+
+# Mirror schema/*.capnp into python/corvus_client/schema/ so the Python
+# client (which loads schemas at runtime via pycapnp) sees the same
+# contract as the daemon. Run automatically as part of `make capnp`.
+python-schema-sync:
+	mkdir -p python/corvus_client/schema
+	cp schema/*.capnp python/corvus_client/schema/
+
+# Run the Python client's test suite against a real corvus daemon
+# spawned per-test on a temp Unix socket. Depends on `install` so
+# a fresh daemon binary is on $PATH.
+python-test: install python-schema-sync
+	cd python && .venv-corvus-py/bin/pytest tests -v
 
 # Install binaries to ~/.local/bin/ and setup systemd user service
 install:

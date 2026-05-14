@@ -1,248 +1,169 @@
-"""Test fixtures — a mock Corvus daemon speaking the binary protocol.
+"""Per-test Corvus daemon fixture.
 
-The mock is deliberately dumb: it accepts a connection, drains one request
-frame, and replies with pre-configured bytes. Each test passes the exact
-response payload it wants the daemon to emit via the `response` parameter
-of the `mock_daemon` fixture.
+Each test that needs RPC access pulls the `daemon_socket` fixture, which:
 
-Binary encoders in this file mirror the Data.Binary instances on the
-Haskell side (see src/Corvus/Protocol.hs and src/Corvus/Model.hs). Tag
-numbers match the 0-based declaration order of the sum type constructors.
+1. Creates a uniquely-named PostgreSQL database (`corvus_test_py_<rand>`).
+2. Spawns `corvus` on a per-test temp Unix socket, pointing at that DB.
+3. Waits for the socket to appear (or the process to die).
+4. Yields the socket path.
+5. On teardown: terminates the daemon, drops the database.
+
+PostgreSQL connection: defaults to a local Unix-socket connection as the
+current user. Override via `$CORVUS_PY_TEST_PG_USER`, `$CORVUS_PY_TEST_PG_HOST`.
+
+The fixture is `module`-scoped so a single daemon serves all tests in a
+module — fast enough for the size of our suite, and isolates state
+between test files.
 """
 from __future__ import annotations
 
 import os
+import secrets
+import shutil
+import signal
 import socket
-import struct
-import tempfile
-import threading
-from typing import Callable, Optional
+import subprocess
+import time
+from pathlib import Path
+from typing import Iterator
 
 import pytest
 
-PROTOCOL_VERSION = 33
 
-# Response constructor tags (0-based declaration order in Protocol.hs).
-# Source of truth: src/Corvus/Protocol.hs — keep in sync when the order
-# of constructors changes.
-RESP_PONG = 0
-RESP_STATUS = 1
-RESP_ERROR = 3
-RESP_VM_NOT_FOUND = 6
-RESP_VM_CREATED = 7
-RESP_INVALID_TRANSITION = 11
-RESP_DISK_LIST = 12
-RESP_DISK_CREATED = 14
-RESP_SSH_KEY_IN_USE = 39
-RESP_NETWORK_NOT_FOUND = 53
-
-# VmStatus tags (declaration order in Model.hs).
-VM_STOPPED = 0
-VM_STARTING = 1
-VM_RUNNING = 2
-VM_STOPPING = 3
-VM_PAUSED = 4
-VM_ERROR = 5
+def _pg_user() -> str:
+    # `corvus` is the project's convention for the Postgres role used by
+    # integration tests; it owns every `corvus_test_*` database in dev
+    # environments. Override via env if your local setup is different.
+    return os.environ.get("CORVUS_PY_TEST_PG_USER", "corvus")
 
 
-# --- Binary primitives ------------------------------------------------------
+def _pg_host() -> str:
+    return os.environ.get("CORVUS_PY_TEST_PG_HOST", "localhost")
 
 
-def enc_bool(b: bool) -> bytes:
-    return b"\x01" if b else b"\x00"
+def _pg_admin_db() -> str:
+    return os.environ.get("CORVUS_PY_TEST_PG_ADMIN_DB", "postgres")
 
 
-def enc_word8(n: int) -> bytes:
-    return bytes([n])
+def _corvus_binary() -> str:
+    override = os.environ.get("CORVUS_BIN")
+    if override:
+        return override
+    # Prefer the user-installed binary (~/.local/bin/corvus) over any
+    # system package: a system /usr/bin/corvus is typically older and
+    # may speak a stale wire protocol.
+    local = Path.home() / ".local/bin/corvus"
+    if local.is_file() and os.access(local, os.X_OK):
+        return str(local)
+    found = shutil.which("corvus")
+    if not found:
+        raise RuntimeError("`corvus` not on PATH (set $CORVUS_BIN or `make install`)")
+    return found
 
 
-def enc_int(n: int) -> bytes:
-    # Data.Binary encodes Haskell `Int` as Int64 big-endian signed.
-    return struct.pack(">q", n)
+def _psql(args: list[str], *, db: str | None = None) -> None:
+    cmd = ["psql", "-h", _pg_host(), "-U", _pg_user(), "-d", db or _pg_admin_db(), "-v", "ON_ERROR_STOP=1"]
+    cmd.extend(args)
+    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
 
-def enc_int64(n: int) -> bytes:
-    return struct.pack(">q", n)
+def _create_db(name: str) -> None:
+    _psql(["-c", f'CREATE DATABASE "{name}"'])
 
 
-def enc_text(s: str) -> bytes:
-    data = s.encode("utf-8")
-    return struct.pack(">q", len(data)) + data
+def _drop_db(name: str) -> None:
+    # Terminate any lingering connections first.
+    subprocess.run(
+        [
+            "psql", "-h", _pg_host(), "-U", _pg_user(),
+            "-d", _pg_admin_db(), "-c",
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+            f"WHERE datname = '{name}' AND pid <> pg_backend_pid()",
+        ],
+        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    subprocess.run(
+        [
+            "psql", "-h", _pg_host(), "-U", _pg_user(),
+            "-d", _pg_admin_db(), "-c", f'DROP DATABASE IF EXISTS "{name}"',
+        ],
+        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
 
 
-def enc_maybe(inner: Optional[bytes]) -> bytes:
-    return b"\x00" if inner is None else b"\x01" + inner
-
-
-def frame(payload: bytes) -> bytes:
-    return struct.pack(">BQ", PROTOCOL_VERSION, len(payload)) + payload
-
-
-# --- Response builders ------------------------------------------------------
-
-
-def resp_pong() -> bytes:
-    return frame(bytes([RESP_PONG]))
-
-
-def resp_error(message: str) -> bytes:
-    return frame(bytes([RESP_ERROR]) + enc_text(message))
-
-
-def resp_vm_not_found() -> bytes:
-    return frame(bytes([RESP_VM_NOT_FOUND]))
-
-
-def resp_invalid_transition(status_tag: int, reason: str) -> bytes:
-    return frame(bytes([RESP_INVALID_TRANSITION]) + enc_word8(status_tag) + enc_text(reason))
-
-
-def resp_status(
-    uptime: int,
-    connections: int,
-    version: str,
-    protocol_version: int,
-    namespace_pid: Optional[int],
-) -> bytes:
-    # RespStatus fields in declaration order: uptime, connections, version,
-    # protocolVersion (Word8), namespacePid (Maybe Int).
-    body = bytes([RESP_STATUS])
-    body += enc_int(uptime)
-    body += enc_int(connections)
-    body += enc_text(version)
-    body += enc_word8(protocol_version)
-    body += enc_maybe(enc_int(namespace_pid) if namespace_pid is not None else None)
-    return frame(body)
-
-
-def resp_vm_created(vm_id: int) -> bytes:
-    return frame(bytes([RESP_VM_CREATED]) + enc_int64(vm_id))
-
-
-def resp_disk_created(disk_id: int) -> bytes:
-    return frame(bytes([RESP_DISK_CREATED]) + enc_int64(disk_id))
-
-
-def resp_network_not_found() -> bytes:
-    return frame(bytes([RESP_NETWORK_NOT_FOUND]))
-
-
-def resp_ssh_key_in_use(vms: list[tuple[int, str]]) -> bytes:
-    body = bytes([RESP_SSH_KEY_IN_USE]) + enc_int64(len(vms))
-    for vm_id, name in vms:
-        body += enc_int64(vm_id) + enc_text(name)
-    return frame(body)
-
-
-def resp_unknown_tag() -> bytes:
-    """Emit a response with a tag no Haskell decoder recognises."""
-    return frame(bytes([250]))
-
-
-def resp_raw(payload: bytes) -> bytes:
-    """Frame an arbitrary payload (escape hatch for ad-hoc tests)."""
-    return frame(payload)
-
-
-# --- Mock daemon -----------------------------------------------------------
-
-
-class MockDaemon:
-    """Mock Corvus daemon.
-
-    The `response` argument can be either:
-    - a single `bytes` value: replies with the same bytes to every request
-      on a single connection (loops until the client disconnects);
-    - a list of `bytes`: replies with the N-th element for the N-th
-      request; cycles if the client sends more than len(list) requests.
-
-    Designed around the persistent-connection client: one accept(),
-    many requests served on that socket.
-    """
-
-    def __init__(self, response) -> None:
-        if isinstance(response, (bytes, bytearray)):
-            self.responses = [bytes(response)]
-        else:
-            self.responses = [bytes(r) for r in response]
-        self.request_count = 0
-        self._sockdir = tempfile.mkdtemp(prefix="corvus-mock-")
-        self.path = os.path.join(self._sockdir, "s")
-        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._sock.bind(self.path)
-        self._sock.listen(4)
-        self._stop = False
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def _run(self) -> None:
-        self._sock.settimeout(0.5)
-        while not self._stop:
+def _wait_for_socket(sock_path: Path, proc: subprocess.Popen, timeout: float = 15.0) -> None:
+    """Poll until the daemon's socket is connectable or the process dies."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
             try:
-                conn, _ = self._sock.accept()
-            except socket.timeout:
-                continue
+                _, err = proc.communicate(timeout=1)
+            except Exception:
+                err = b""
+            raise RuntimeError(
+                f"corvus daemon exited (code {proc.returncode}) before socket: "
+                f"{err.decode(errors='replace')[-800:]}"
+            )
+        if sock_path.exists():
+            try:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(0.5)
+                s.connect(str(sock_path))
+                s.close()
+                return
             except OSError:
-                return
+                pass
+        time.sleep(0.1)
+    raise RuntimeError(f"timed out waiting for corvus socket at {sock_path}")
+
+
+@pytest.fixture(scope="module")
+def daemon_socket(tmp_path_factory) -> Iterator[Path]:
+    suffix = secrets.token_hex(4)
+    db_name = f"corvus_test_py_{suffix}"
+    sock_dir = tmp_path_factory.mktemp(f"corvus-{suffix}")
+    sock = sock_dir / "corvus.sock"
+    # The daemon writes disk images under $HOME/VMs (see
+    # `Corvus.Qemu.Config.getEffectiveBasePath`). Point HOME at a temp
+    # directory so each fixture run starts with empty disk storage and
+    # can't collide with the user's daemon or earlier test runs.
+    fake_home = sock_dir / "home"
+    fake_home.mkdir()
+
+    user = _pg_user()
+    host = _pg_host()
+    db_url = f"postgresql://{user}@{host}/{db_name}"
+
+    log_file = sock_dir / "corvus.log"
+    _create_db(db_name)
+    proc: subprocess.Popen | None = None
+    try:
+        env = os.environ.copy()
+        # Keep XDG_RUNTIME_DIR set so QEMU socket paths the daemon picks
+        # for any spawned VMs land in a temp area, not in the user's runtime.
+        env["XDG_RUNTIME_DIR"] = str(sock_dir)
+        # Isolate $HOME/VMs (disk storage) per fixture run.
+        env["HOME"] = str(fake_home)
+        with open(log_file, "wb") as logf:
+            proc = subprocess.Popen(
+                [
+                    _corvus_binary(),
+                    "--socket", str(sock),
+                    "--database", db_url,
+                    "--log-level", "warn",
+                ],
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+            _wait_for_socket(sock, proc)
+            yield sock
+    finally:
+        if proc and proc.poll() is None:
+            proc.send_signal(signal.SIGTERM)
             try:
-                self._handle(conn)
-            finally:
-                try:
-                    conn.close()
-                except OSError:
-                    pass
-
-    def _handle(self, conn: socket.socket) -> None:
-        while True:
-            hdr = _recv_exact(conn, 9)
-            if hdr is None:
-                return
-            _, length = struct.unpack(">BQ", hdr)
-            _ = _recv_exact(conn, length)  # drain request body
-            resp = self.responses[self.request_count % len(self.responses)]
-            self.request_count += 1
-            try:
-                conn.sendall(resp)
-            except OSError:
-                return
-
-    def close(self) -> None:
-        self._stop = True
-        try:
-            self._sock.close()
-        except OSError:
-            pass
-        self._thread.join(timeout=2)
-        try:
-            os.unlink(self.path)
-        except OSError:
-            pass
-        try:
-            os.rmdir(self._sockdir)
-        except OSError:
-            pass
-
-
-def _recv_exact(conn: socket.socket, n: int) -> Optional[bytes]:
-    buf = bytearray()
-    while len(buf) < n:
-        chunk = conn.recv(n - len(buf))
-        if not chunk:
-            return None
-        buf.extend(chunk)
-    return bytes(buf)
-
-
-@pytest.fixture
-def mock_factory() -> Callable[[bytes], MockDaemon]:
-    """Factory fixture; creates a daemon and ensures cleanup."""
-    daemons: list[MockDaemon] = []
-
-    def _mk(response: bytes) -> MockDaemon:
-        d = MockDaemon(response)
-        daemons.append(d)
-        return d
-
-    yield _mk
-    for d in daemons:
-        d.close()
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        _drop_db(db_name)

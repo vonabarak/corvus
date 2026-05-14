@@ -1,0 +1,193 @@
+"""Async Disk manager + Disk + Snapshot wrappers."""
+from __future__ import annotations
+
+from typing import Optional, Union
+
+from .. import _schema
+from .._entityref import entity_ref
+from ..exceptions import translate_errors
+from . import _convert as conv
+
+
+@translate_errors
+class AsyncDiskManager:
+    def __init__(self, daemon):
+        self._daemon = daemon
+        self._mgr = None
+
+    async def _ensure(self):
+        if self._mgr is None:
+            self._mgr = (await self._daemon.disks()).mgr
+        return self._mgr
+
+    async def list(self):
+        mgr = await self._ensure()
+        resp = await mgr.list()
+        return [conv.disk_image_info(d) for d in resp.disks]
+
+    async def get(self, ref: Union[int, str], *, by_name: bool = False) -> "AsyncDisk":
+        mgr = await self._ensure()
+        resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
+        return AsyncDisk(resp.disk)
+
+    async def create(
+        self,
+        name: str,
+        size_mb: int,
+        *,
+        format: Optional[str] = None,
+    ) -> "AsyncDisk":
+        mgr = await self._ensure()
+        params = _schema.disk.DiskCreateParams.new_message()
+        params.name = name
+        params.sizeMb = size_mb
+        if format is not None:
+            params.format = format
+        resp = await mgr.create(params=params)
+        return AsyncDisk(resp.disk)
+
+    async def register(
+        self,
+        name: str,
+        file_path: str,
+        *,
+        format: Optional[str] = None,
+    ) -> "AsyncDisk":
+        mgr = await self._ensure()
+        params = _schema.disk.DiskRegisterParams.new_message()
+        params.name = name
+        params.filePath = file_path
+        if format is not None:
+            params.format = format
+        resp = await mgr.register(params=params)
+        return AsyncDisk(resp.disk)
+
+    async def create_overlay(
+        self,
+        name: str,
+        backing_disk_ref: Union[int, str],
+    ) -> "AsyncDisk":
+        mgr = await self._ensure()
+        params = _schema.disk.DiskCreateOverlayParams.new_message()
+        params.name = name
+        params.backingDiskRef = entity_ref(backing_disk_ref)
+        resp = await mgr.createOverlay(params=params)
+        return AsyncDisk(resp.disk)
+
+    async def clone(
+        self,
+        source_ref: Union[int, str],
+        new_name: str,
+    ) -> "AsyncDisk":
+        mgr = await self._ensure()
+        params = _schema.disk.DiskCloneParams.new_message()
+        params.sourceRef = entity_ref(source_ref)
+        params.newName = new_name
+        resp = await mgr.clone(params=params)
+        return AsyncDisk(resp.disk)
+
+    async def rebase(
+        self,
+        disk_ref: Union[int, str],
+        new_backing_disk_ref: Union[int, str],
+    ) -> None:
+        mgr = await self._ensure()
+        params = _schema.disk.DiskRebaseParams.new_message()
+        params.diskRef = entity_ref(disk_ref)
+        params.newBackingDiskRef = entity_ref(new_backing_disk_ref)
+        await mgr.rebase(params=params)
+
+    async def import_url(
+        self,
+        name: str,
+        url: str,
+        *,
+        format: Optional[str] = None,
+        size_mb: Optional[int] = None,
+    ) -> int:
+        """Returns the task id; the disk is created asynchronously."""
+        mgr = await self._ensure()
+        params = _schema.disk.DiskImportUrlParams.new_message()
+        params.name = name
+        params.url = url
+        if format is not None:
+            params.format = format
+        if size_mb is not None:
+            params.sizeMb = size_mb
+        resp = await mgr.importUrl(params=params)
+        return resp.taskId
+
+    async def import_(
+        self,
+        name: str,
+        src_path: str,
+        *,
+        format: Optional[str] = None,
+    ) -> "AsyncDisk":
+        mgr = await self._ensure()
+        params = _schema.disk.DiskImportParams.new_message()
+        params.name = name
+        params.srcPath = src_path
+        if format is not None:
+            params.format = format
+        # `import` is a Python keyword; pycapnp uses the schema name verbatim
+        # as a method on the cap, so we call it through getattr.
+        resp = await getattr(mgr, "import")(params=params)
+        return AsyncDisk(resp.disk)
+
+
+@translate_errors
+class AsyncDisk:
+    def __init__(self, cap):
+        self._cap = cap
+
+    async def show(self):
+        resp = await self._cap.show()
+        return conv.disk_image_info(resp.info)
+
+    async def delete(self) -> None:
+        await self._cap.delete()
+
+    async def refresh(self):
+        resp = await self._cap.refresh()
+        return conv.disk_image_info(resp.info)
+
+    async def resize(self, new_size_mb: int) -> None:
+        await self._cap.resize(newSizeMb=new_size_mb)
+
+    async def snapshot_create(self, name: str) -> "AsyncSnapshot":
+        # `name` collides with pycapnp's internal `_send(name, ...)`
+        # method-name kwarg, so build the request explicitly.
+        req = self._cap.snapshotCreate_request()
+        req.name = name
+        resp = await req.send()
+        return AsyncSnapshot(resp.snapshot)
+
+    async def snapshot_list(self):
+        resp = await self._cap.snapshotList()
+        return [conv.snapshot_info(s) for s in resp.snapshots]
+
+    async def snapshot_get(
+        self, ref: Union[int, str], *, by_name: bool = False
+    ) -> "AsyncSnapshot":
+        resp = await self._cap.snapshotGet(ref=entity_ref(ref, by_name=by_name))
+        return AsyncSnapshot(resp.snapshot)
+
+
+@translate_errors
+class AsyncSnapshot:
+    def __init__(self, cap):
+        self._cap = cap
+
+    async def show(self):
+        resp = await self._cap.show()
+        return conv.snapshot_info(resp.info)
+
+    async def delete(self) -> None:
+        await self._cap.delete()
+
+    async def rollback(self) -> None:
+        await self._cap.rollback()
+
+    async def merge(self) -> None:
+        await self._cap.merge()

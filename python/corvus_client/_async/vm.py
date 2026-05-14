@@ -1,0 +1,379 @@
+"""Async VM manager and resource cap wrappers.
+
+Mirrors the schema in `schema/vm.capnp`. Streaming endpoints
+(`serialConsole`, `hmpMonitor`, `subscribeGuestAgent`) live in
+`corvus_client._async.streams` to keep this module focused on
+request/response wrappers.
+"""
+from __future__ import annotations
+
+from typing import Optional, Union
+
+from .. import _schema
+from .._entityref import entity_ref
+from ..exceptions import translate_errors
+from . import _convert as conv
+
+
+def _set_optional(builder, has_field: str, value_field: str, value):
+    """Helper for `VmEditParams`-style `hasX` / `X` pairs."""
+    if value is not None:
+        setattr(builder, has_field, True)
+        setattr(builder, value_field, value)
+
+
+def _build_drive_attach(d: dict):
+    """Construct a `DriveAttachParams` message from a plain dict.
+
+    Accepted keys: disk_ref (required), interface, media, read_only,
+    cache_type, discard. Schema defaults apply for unset fields.
+    """
+    p = _schema.vm.DriveAttachParams.new_message()
+    p.diskRef = entity_ref(d["disk_ref"])
+    if "interface" in d:
+        p.interface = d["interface"]
+    if "media" in d:
+        p.media = d["media"]
+    if "read_only" in d:
+        p.readOnly = d["read_only"]
+    if "cache_type" in d:
+        p.cacheType = d["cache_type"]
+    if "discard" in d:
+        p.discard = d["discard"]
+    return p
+
+
+def _build_net_if_add(n: dict):
+    """Construct a `NetIfAddParams` message from a plain dict."""
+    p = _schema.vm.NetIfAddParams.new_message()
+    if "type" in n:
+        p.type = n["type"]
+    if "host_device" in n:
+        p.hostDevice = n["host_device"]
+    if "mac_address" in n:
+        p.macAddress = n["mac_address"]
+    if "network_ref" in n:
+        p.networkRef = entity_ref(n["network_ref"])
+    return p
+
+
+def _build_cloud_init_config(c: dict):
+    p = _schema.cloudinit.CloudInitInfo.new_message()
+    if "user_data" in c and c["user_data"] is not None:
+        p.hasUserData = True
+        p.userData = c["user_data"]
+    if "network_config" in c and c["network_config"] is not None:
+        p.hasNetworkConfig = True
+        p.networkConfig = c["network_config"]
+    if "inject_ssh_keys" in c:
+        p.injectSshKeys = c["inject_ssh_keys"]
+    return p
+
+
+@translate_errors
+class AsyncVmManager:
+    """Wrapper for the `VmManager` cap returned by `Daemon.vms()`."""
+
+    def __init__(self, daemon):
+        self._daemon = daemon
+        self._mgr = None
+
+    async def _ensure(self):
+        if self._mgr is None:
+            self._mgr = (await self._daemon.vms()).mgr
+        return self._mgr
+
+    async def list(self):
+        mgr = await self._ensure()
+        resp = await mgr.list()
+        return [conv.vm_info(v) for v in resp.vms]
+
+    async def get(self, ref: Union[int, str], *, by_name: bool = False) -> "AsyncVm":
+        mgr = await self._ensure()
+        resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
+        return AsyncVm(resp.vm)
+
+    async def create(
+        self,
+        name: str,
+        *,
+        cpu_count: int = 1,
+        ram_mb: int = 1024,
+        description: Optional[str] = None,
+        headless: bool = False,
+        guest_agent: bool = False,
+        cloud_init: bool = False,
+        autostart: bool = False,
+        drives: Optional[list[dict]] = None,
+        net_ifs: Optional[list[dict]] = None,
+        ssh_keys: Optional[list[Union[int, str]]] = None,
+        cloud_init_config: Optional[dict] = None,
+    ) -> "AsyncVm":
+        mgr = await self._ensure()
+        params = _schema.vm.VmCreateParams.new_message()
+        params.name = name
+        params.cpuCount = cpu_count
+        params.ramMb = ram_mb
+        if description is not None:
+            params.description = description
+        params.headless = headless
+        params.guestAgent = guest_agent
+        params.cloudInit = cloud_init
+        params.autostart = autostart
+        if drives:
+            drives_b = params.init("drives", len(drives))
+            for i, d in enumerate(drives):
+                drives_b[i] = _build_drive_attach(d)
+        if net_ifs:
+            net_ifs_b = params.init("netIfs", len(net_ifs))
+            for i, n in enumerate(net_ifs):
+                net_ifs_b[i] = _build_net_if_add(n)
+        if ssh_keys:
+            keys_b = params.init("sshKeys", len(ssh_keys))
+            for i, k in enumerate(ssh_keys):
+                keys_b[i] = entity_ref(k)
+        if cloud_init_config:
+            params.cloudInitConfig = _build_cloud_init_config(cloud_init_config)
+        resp = await mgr.create(params=params)
+        return AsyncVm(resp.vm)
+
+
+@translate_errors
+class AsyncVm:
+    """Wrapper for the `Vm` resource cap."""
+
+    def __init__(self, cap):
+        self._cap = cap
+
+    # ---- queries ----------------------------------------------------------
+
+    async def show(self):
+        resp = await self._cap.show()
+        return conv.vm_details(resp.details)
+
+    # ---- lifecycle --------------------------------------------------------
+
+    async def start(self, *, wait: bool = False) -> str:
+        resp = await self._cap.start(wait=wait)
+        return str(resp.status)
+
+    async def stop(self, *, wait: bool = False) -> str:
+        resp = await self._cap.stop(wait=wait)
+        return str(resp.status)
+
+    async def pause(self) -> str:
+        resp = await self._cap.pause()
+        return str(resp.status)
+
+    async def reset(self) -> str:
+        resp = await self._cap.reset()
+        return str(resp.status)
+
+    async def edit(
+        self,
+        *,
+        name: Optional[str] = None,
+        cpu_count: Optional[int] = None,
+        ram_mb: Optional[int] = None,
+        description: Optional[str] = None,
+        headless: Optional[bool] = None,
+        guest_agent: Optional[bool] = None,
+        cloud_init: Optional[bool] = None,
+        autostart: Optional[bool] = None,
+    ) -> None:
+        params = _schema.vm.VmEditParams.new_message()
+        _set_optional(params, "hasName", "name", name)
+        _set_optional(params, "hasCpuCount", "cpuCount", cpu_count)
+        _set_optional(params, "hasRamMb", "ramMb", ram_mb)
+        _set_optional(params, "hasDescription", "description", description)
+        _set_optional(params, "hasHeadless", "headless", headless)
+        _set_optional(params, "hasGuestAgent", "guestAgent", guest_agent)
+        _set_optional(params, "hasCloudInit", "cloudInit", cloud_init)
+        _set_optional(params, "hasAutostart", "autostart", autostart)
+        await self._cap.edit(params=params)
+
+    async def delete(self, *, delete_disks: bool = False) -> None:
+        await self._cap.delete(deleteDisks=delete_disks)
+
+    # ---- cloud-init / view / guest exec / hotkeys -------------------------
+
+    async def cloud_init(self):
+        resp = await self._cap.cloudInit()
+        return conv.cloud_init_info(resp.config)
+
+    async def view_grant(self):
+        resp = await self._cap.viewGrant()
+        return conv.view_grant(resp.grant)
+
+    async def guest_exec(self, command: str):
+        resp = await self._cap.guestExec(command=command)
+        return conv.guest_exec_result(resp.result)
+
+    async def send_ctrl_alt_del(self) -> None:
+        await self._cap.sendCtrlAltDel()
+
+    # ---- console flush ----------------------------------------------------
+
+    async def serial_console_flush(self) -> None:
+        await self._cap.serialConsoleFlush()
+
+    async def hmp_monitor_flush(self) -> None:
+        await self._cap.hmpMonitorFlush()
+
+    # ---- streaming endpoints ---------------------------------------------
+
+    async def serial_console(self):
+        """Open a bidirectional serial console.
+
+        Returns a `ByteStream`; use `read()` for daemon-to-client bytes
+        and `write(chunk)` for client-to-daemon. Call `close()` when done.
+        """
+        from .streams import open_byte_stream
+
+        return await open_byte_stream(self._cap.serialConsole)
+
+    async def hmp_monitor(self):
+        """Open a bidirectional HMP monitor session (returns a `ByteStream`)."""
+        from .streams import open_byte_stream
+
+        return await open_byte_stream(self._cap.hmpMonitor)
+
+    async def subscribe_guest_agent(self, on_event):
+        """Subscribe to guest-agent state push events.
+
+        `on_event` is an async callable invoked with each
+        `GuestAgentStatus`. The returned `GuestAgentSubscription` keeps
+        the subscription alive; drop or close it to unsubscribe.
+        """
+        from .streams import subscribe_guest_agent
+
+        return await subscribe_guest_agent(self._cap, on_event)
+
+    # ---- drives -----------------------------------------------------------
+
+    async def attach_disk(
+        self,
+        disk_ref: Union[int, str],
+        *,
+        interface: Optional[str] = None,
+        media: Optional[str] = None,
+        read_only: bool = False,
+        cache_type: Optional[str] = None,
+        discard: bool = False,
+    ) -> int:
+        params = _schema.vm.DriveAttachParams.new_message()
+        params.diskRef = entity_ref(disk_ref)
+        if interface is not None:
+            params.interface = interface
+        if media is not None:
+            params.media = media
+        params.readOnly = read_only
+        if cache_type is not None:
+            params.cacheType = cache_type
+        params.discard = discard
+        resp = await self._cap.attachDisk(params=params)
+        return resp.driveId
+
+    async def detach_disk(self, drive_id: int) -> None:
+        await self._cap.detachDisk(driveId=drive_id)
+
+    async def detach_disk_by_name(self, disk_name: str) -> None:
+        """Resolve a disk name to its drive id via show(), then detach.
+
+        Mirrors `Corvus.Client.Capnp.Rpc.rpcDiskDetachByDisk`: the schema
+        method takes a drive id, but `crv disk detach` accepts a disk
+        name as a convenience. This helper does the lookup client-side.
+        """
+        details = await self.show()
+        for d in details.drives:
+            if d.disk_image_name == disk_name:
+                await self.detach_disk(d.id)
+                return
+        raise ValueError(f"VM has no drive backed by disk {disk_name!r}")
+
+    # ---- network interfaces ----------------------------------------------
+
+    async def add_net_if(
+        self,
+        *,
+        type: Optional[str] = None,
+        host_device: Optional[str] = None,
+        mac_address: Optional[str] = None,
+        network_ref: Optional[Union[int, str]] = None,
+    ) -> int:
+        params = _schema.vm.NetIfAddParams.new_message()
+        if type is not None:
+            params.type = type
+        if host_device is not None:
+            params.hostDevice = host_device
+        if mac_address is not None:
+            params.macAddress = mac_address
+        if network_ref is not None:
+            params.networkRef = entity_ref(network_ref)
+        resp = await self._cap.addNetIf(params=params)
+        return resp.netIfId
+
+    async def remove_net_if(self, net_if_id: int) -> None:
+        await self._cap.removeNetIf(netIfId=net_if_id)
+
+    async def list_net_ifs(self):
+        resp = await self._cap.listNetIfs()
+        return [conv.net_if_info(n) for n in resp.netIfs]
+
+    # ---- shared dirs ------------------------------------------------------
+
+    async def add_shared_dir(
+        self,
+        path: str,
+        tag: str,
+        *,
+        cache: Optional[str] = None,
+        read_only: bool = False,
+    ) -> int:
+        params = _schema.vm.SharedDirAddParams.new_message()
+        params.path = path
+        params.tag = tag
+        if cache is not None:
+            params.cache = cache
+        params.readOnly = read_only
+        resp = await self._cap.addSharedDir(params=params)
+        return resp.sharedDirId
+
+    async def remove_shared_dir(self, shared_dir_id: int) -> None:
+        await self._cap.removeSharedDir(sharedDirId=shared_dir_id)
+
+    async def list_shared_dirs(self):
+        resp = await self._cap.listSharedDirs()
+        return [conv.shared_dir_info(s) for s in resp.sharedDirs]
+
+    # ---- snapshots --------------------------------------------------------
+
+    async def snapshot_create(self, name: str):
+        from .disk import AsyncSnapshot
+
+        req = self._cap.snapshotCreate_request()
+        req.name = name
+        resp = await req.send()
+        return AsyncSnapshot(resp.snapshot)
+
+    async def snapshot_list(self):
+        resp = await self._cap.snapshotList()
+        return [conv.snapshot_info(s) for s in resp.snapshots]
+
+    async def snapshot_get(self, ref: Union[int, str], *, by_name: bool = False):
+        from .disk import AsyncSnapshot
+
+        resp = await self._cap.snapshotGet(ref=entity_ref(ref, by_name=by_name))
+        return AsyncSnapshot(resp.snapshot)
+
+    # ---- ssh keys ---------------------------------------------------------
+
+    async def attach_ssh_key(self, key_ref: Union[int, str]) -> None:
+        await self._cap.attachSshKey(keyRef=entity_ref(key_ref))
+
+    async def detach_ssh_key(self, key_ref: Union[int, str]) -> None:
+        await self._cap.detachSshKey(keyRef=entity_ref(key_ref))
+
+    async def list_ssh_keys(self):
+        resp = await self._cap.listSshKeys()
+        return [conv.ssh_key_info(k) for k in resp.keys]
