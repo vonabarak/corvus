@@ -156,29 +156,24 @@ test-image: test-image-alpine test-image-windows
 # Build the minimal Alpine integration-test image.
 #
 # Steps:
-#   1. Generate the SSH keypair under .test-images/ if it doesn't exist
-#      (the integration tests expect the private key at a stable path).
+#   1. Generate the SSH keypair under ~/VMs/BaseImages/Alpine/ if it
+#      doesn't exist (the keypair lives next to the baked image at a
+#      stable host-side path).
 #   2. Stage the public key next to the build YAML so the build's
 #      `file: from: ./corvus-test-key.pub` provisioner finds it.
 #   3. Apply the multi-OS template library (provides the `debian12`
 #      bake VM template — it bootstraps Alpine via apk-tools-static
 #      from inside the bake VM, so it doesn't need any pre-cached ISO).
 #   4. Run `crv build`. The artifact is registered as a Corvus disk
-#      named `corvus-test`.
+#      named `corvus-test` at ~/VMs/BaseImages/Alpine/corvus-test.qcow2.
 test-image-alpine:
-	mkdir -p .test-images
-	test -f .test-images/corvus-test-key || \
-	  ssh-keygen -t ed25519 -f .test-images/corvus-test-key -N '' -C corvus-test
-	cp .test-images/corvus-test-key.pub yaml/alpine-test/corvus-test-key.pub
+	mkdir -p $(HOME)/VMs/BaseImages/Alpine
+	test -f $(HOME)/VMs/BaseImages/Alpine/corvus-test-key || \
+	  ssh-keygen -t ed25519 -f $(HOME)/VMs/BaseImages/Alpine/corvus-test-key -N '' -C corvus-test
+	cp $(HOME)/VMs/BaseImages/Alpine/corvus-test-key.pub yaml/alpine-test/corvus-test-key.pub
 	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
 	crv build yaml/alpine-test/alpine-test.yml --wait
 	rm -f yaml/alpine-test/corvus-test-key.pub
-	# Symlink the registered artifact into .test-images/ so the
-	# integration-test harness (test/Test/VM/Image.hs) finds it.
-	@artifact=$$(crv -o yaml disk show corvus-test \
-	             | awk '/^file_path:/ {print $$2; exit}'); \
-	  ln -sf "$$artifact" .test-images/corvus-test.qcow2; \
-	  echo "linked .test-images/corvus-test.qcow2 -> $$artifact"
 
 # Build the Windows Server 2025 test image.
 #
@@ -187,14 +182,10 @@ test-image-alpine:
 # no-ops. The autounattend.xml floppy is materialised per-build by
 # `crv build` from yaml/windows-server-2025/autounattend.xml — edit
 # it freely; no manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM.
+# The artifact lands at ~/VMs/BaseImages/WindowsServer2025/.
 test-image-windows:
 	crv apply yaml/windows-server-2025/windows-installer.yml --skip-existing --wait
 	crv build yaml/windows-server-2025/windows-server-2025.yml --wait
-	mkdir -p .test-images
-	@artifact=$$(crv -o yaml disk show windows-server-2025-eval \
-	             | awk '/^file_path:/ {print $$2; exit}'); \
-	  ln -sf "$$artifact" .test-images/windows-server-eval.qcow2; \
-	  echo "linked .test-images/windows-server-eval.qcow2 -> $$artifact"
 
 # Format the code using fourmolu
 format:

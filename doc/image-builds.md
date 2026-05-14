@@ -439,8 +439,8 @@ From-scratch builds:
 
 Installer build (uses
 [yaml/windows-server-2025/windows-installer.yml](../yaml/windows-server-2025/windows-installer.yml);
-needs the Windows Server 2025 ISO + virtio-win ISO pre-cached at
-`~/.test-images/` on the daemon host):
+the apply downloads the Windows Server 2025 ISO + virtio-win ISO into
+`~/VMs/BaseImages/WindowsServer2025/` on first run):
 
 - [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml) —
   Windows Server 2025 with qemu-guest-agent + cloudbase-init,

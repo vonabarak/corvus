@@ -169,6 +169,9 @@ pipeline:
             inline: |
               install -d -m 0755 /opt/corvus/bin
               install -d -m 0755 /mnt/corvus
+              # /root/VMs/BaseImages is the inner-daemon basePath mount
+              # for the harness's host-side ~/VMs/BaseImages share.
+              install -d -m 0755 /root/VMs/BaseImages
             timeoutSec: 10
 
         # systemd unit files. We use `file:` provisioners so the units
@@ -180,6 +183,10 @@ pipeline:
         - file:
             from: ./systemd/mnt-corvus.mount
             to: /etc/systemd/system/mnt-corvus.mount
+            mode: "0644"
+        - file:
+            from: ./systemd/root-VMs-BaseImages.mount
+            to: /etc/systemd/system/root-VMs-BaseImages.mount
             mode: "0644"
         - file:
             from: ./systemd/corvus-test.service
@@ -198,6 +205,7 @@ pipeline:
               # `systemctl status` lists them.
               systemctl enable opt-corvus-bin.mount
               systemctl enable mnt-corvus.mount
+              systemctl enable root-VMs-BaseImages.mount
               # corvus-test.service starts the inner daemon as soon as
               # /opt/corvus/bin is mounted (i.e. the harness's virtiofs
               # share is attached) and Postgres is up.

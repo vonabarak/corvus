@@ -34,6 +34,7 @@ import yaml as _yaml
 
 from corvus_client import Client
 
+from .base_images import BASE_IMAGES_TAG, HOST_BASE_IMAGES_DIR
 from .host_binary import HostBinary, REPO_ROOT
 from .images import ImageReady
 from .inner import open_client
@@ -179,6 +180,22 @@ class Topology:
                 "readOnly": True,
             }
         ]
+        # Always attach the host's BaseImages dir. The image's
+        # root-VMs-BaseImages.mount auto-mounts it under
+        # /root/VMs/BaseImages, so tests can register pre-baked images
+        # without touching the guest. Tolerate a missing host dir
+        # (developers may not have run `make test-image-*` yet) — the
+        # daemon doesn't fault if the share is absent, and the
+        # `base_images` fixture surfaces a clear error per-test.
+        if HOST_BASE_IMAGES_DIR.is_dir():
+            shared_dirs.append(
+                {
+                    "path": str(HOST_BASE_IMAGES_DIR),
+                    "tag": BASE_IMAGES_TAG,
+                    "cache": "auto",
+                    "readOnly": True,
+                }
+            )
         if self.attach_source:
             shared_dirs.append(
                 {

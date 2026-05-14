@@ -23,6 +23,7 @@ from corvus_test_harness import (
     HostBinary,
     ImageReady,
     Topology,
+    base_images as _base_images,
     check_nested_kvm,
     check_outer_version,
 )
@@ -89,3 +90,33 @@ def single_vm(topology: Topology):
 def single_client(single_vm):
     """Pycapnp Client to the single VM's inner daemon. Blocks until ready."""
     return single_vm.client()
+
+
+@pytest.fixture
+def base_images(crv: Crv, single_vm, single_client) -> dict[str, str]:
+    """Register the pre-baked images under `~/VMs/BaseImages` with the
+    inner daemon.
+
+    Returns a `{short_name: disk_name}` dict. Short names come from the
+    image's parent directory (lowercased), so a typical layout yields
+    keys like `alpine`, `windowsserver2025`, `debian`, `ubuntu`,
+    `almalinux`, `freebsd`. Tests reference the disk via the returned
+    name:
+
+        def test_overlay(single_client, base_images):
+            base = base_images["alpine"]
+            overlay = single_client.disks.create_overlay("scratch", base)
+            ...
+
+    Skips the test cleanly if no images are present on the host (e.g.
+    a developer who hasn't run `make test-image-*` yet).
+    """
+    registered = _base_images.register_all(
+        single_client, crv, single_vm.outer_name
+    )
+    if not registered:
+        pytest.skip(
+            f"no base images under {_base_images.HOST_BASE_IMAGES_DIR}; "
+            "run `make test-image-alpine` (and friends) first."
+        )
+    return registered

@@ -213,6 +213,22 @@ class Crv:
             args.append("--delete-disks")
         return self.run(*args, timeout=120)
 
+    def vm_exec(
+        self,
+        name_or_id: str | int,
+        command: str,
+        *,
+        timeout_sec: float = 30.0,
+    ) -> dict[str, Any]:
+        """Run a shell command inside the VM via the QEMU guest agent.
+
+        Returns the parsed envelope: `{exit_code, stdout, stderr}` (the
+        daemon's GuestExecResult shape). Used by tests to drive in-guest
+        one-shots (mounting virtiofs shares, probing systemd units) that
+        the inner Corvus daemon itself doesn't expose.
+        """
+        return self.run("vm", "exec", str(name_or_id), command, timeout=timeout_sec)
+
     # ---- shared-dir ------------------------------------------------------
 
     def shared_dir_add(

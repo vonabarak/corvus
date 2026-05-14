@@ -12,13 +12,12 @@ where
 import Test.VM.Types (prebakedImageName)
 
 import Control.Exception (try)
-import Control.Monad (unless, when)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Directory
   ( createDirectoryIfMissing
   , doesFileExist
-  , getCurrentDirectory
+  , getHomeDirectory
   , removeFile
   )
 import System.Exit (ExitCode (..))
@@ -26,23 +25,25 @@ import System.FilePath ((</>))
 import System.Process (readProcessWithExitCode)
 import Test.Settings
 
--- | Get the cache directory path
+-- | Cache directory for downloaded base images. Per-OS subdirectories
+--   under @~/VMs/BaseImages/@ keep cloud-image downloads alongside the
+--   `crv build` artifacts (alpine, windows, multi-os).
 getCacheDir :: ImageConfig -> IO FilePath
-getCacheDir config = do
-  projectRoot <- getCurrentDirectory
-  let cacheDir = projectRoot </> ".test-images"
+getCacheDir _config = do
+  home <- getHomeDirectory
+  let cacheDir = home </> "VMs" </> "BaseImages"
   createDirectoryIfMissing True cacheDir
   pure cacheDir
 
 -- | Ensure the base image is downloaded and cached.
 -- Returns the path to the cached image.
 -- Handles .xz compressed images by decompressing after download.
--- For "corvus-test", returns the local pre-baked image path (no download).
+-- For "corvus-test", returns the locally-baked Alpine image (no download).
 ensureBaseImage :: Text -> IO (Either Text FilePath)
 ensureBaseImage osName
   | osName == prebakedImageName = do
-      projectRoot <- getCurrentDirectory
-      let imagePath = projectRoot </> ".test-images" </> "corvus-test.qcow2"
+      home <- getHomeDirectory
+      let imagePath = home </> "VMs" </> "BaseImages" </> "Alpine" </> "corvus-test.qcow2"
       exists <- doesFileExist imagePath
       if exists
         then pure $ Right imagePath
@@ -51,7 +52,7 @@ ensureBaseImage osName
             Left $
               "Pre-baked test image not found: "
                 <> T.pack imagePath
-                <> ". Run 'make test-image' to build it."
+                <> ". Run 'make test-image-alpine' to build it."
   | otherwise = case getImageConfig osName of
       Nothing -> pure $ Left $ "Unsupported OS: " <> osName
       Just config -> do

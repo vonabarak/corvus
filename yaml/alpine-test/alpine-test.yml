@@ -13,14 +13,13 @@
 #   * Generate the SSH keypair to embed into the image. The Makefile
 #     target wires this up; manual:
 #
-#       mkdir -p .test-images
-#       ssh-keygen -t ed25519 -f .test-images/corvus-test-key -N '' \
+#       mkdir -p ~/VMs/BaseImages/Alpine
+#       ssh-keygen -t ed25519 -f ~/VMs/BaseImages/Alpine/corvus-test-key -N '' \
 #         -C corvus-test
-#       cp .test-images/corvus-test-key.pub yaml/alpine-test/
+#       cp ~/VMs/BaseImages/Alpine/corvus-test-key.pub yaml/alpine-test/
 #
-#     The keypair is intentionally checked-in-by-convention to
-#     `.test-images/` so integration tests can find the private key
-#     at a stable path.
+#     The keypair lives next to the baked image at a stable host-side
+#     path so the integration-test harness can find the private key.
 #
 # Usage:
 #   crv apply yaml/multi-os/multi-os.yml --skip-existing
@@ -39,10 +38,11 @@ pipeline:
         format: qcow2
         sizeGb: 1
         compact: true
-        # Place the artifact under `<basePath>/alpine-test/` for tidy
-        # organisation; the Makefile's `test-image-alpine` target then
-        # symlinks it into `.test-images/` for the integration tests.
-        path: alpine-test/
+        # Place the artifact under `<basePath>/BaseImages/Alpine/`
+        # alongside the multi-os/ base images. The integration-test
+        # harness virtiofs-mounts ~/VMs/BaseImages into the test VM
+        # and registers everything it finds with the inner daemon.
+        path: BaseImages/Alpine/
 
       strategy: from-scratch
 

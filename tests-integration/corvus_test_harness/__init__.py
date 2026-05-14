@@ -10,10 +10,12 @@ blocks they're composed from:
 - `transport.VsockTcpRelay` — bridges host TCP ↔ guest VSOCK
 - `inner.client`         — opens a pycapnp Client against the inner daemon
 - `topology.Topology`    — declarative multi-VM scenarios for tests
+- `base_images`          — register pre-baked disks with the inner daemon
 - `ssh.GuestShell`       — SSH/exec into a VM for low-level work
 - `version`              — outer-version + nested-KVM sanity checks
 """
 
+from . import base_images
 from .host_binary import HostBinary
 from .images import ImageReady
 from .inner import open_client
@@ -34,6 +36,7 @@ __all__ = [
     "TestVm",
     "Topology",
     "VsockTcpRelay",
+    "base_images",
     "check_nested_kvm",
     "check_outer_version",
     "open_client",

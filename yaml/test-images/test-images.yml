@@ -12,28 +12,28 @@ disks:
     format: qcow2
 
   - name: alpine-test-base
-    register: "alpine-test/corvus-test.qcow2"
+    register: "BaseImages/Alpine/corvus-test.qcow2"
     format: qcow2
 
   - name: windows-server-2025-base
-    register: "windows-server-2025/windows-server-eval.qcow2"
+    register: "BaseImages/WindowsServer2025/windows-server-2025-eval.qcow2"
     format: qcow2
 
   - name: windows-server-2025
     overlay: windows-server-2025-base
-    path: windows-server-2025/
+    path: BaseImages/WindowsServer2025/
 
   - name: alpine-test
     overlay: alpine-test-base
-    path: alpine-test/
+    path: BaseImages/Alpine/
 
   - name: alpine-test-ovmf-vars
     clone: ovmf-vars
-    path: alpine-test/
+    path: BaseImages/Alpine/
 
   - name: windows-server-2025-ovmf-vars
     clone: ovmf-vars
-    path: windows-server-2025/
+    path: BaseImages/WindowsServer2025/
 
 vms:
   - name: alpine-test

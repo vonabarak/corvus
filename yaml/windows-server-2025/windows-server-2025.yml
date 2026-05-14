@@ -30,11 +30,11 @@ pipeline:
         format: qcow2
         sizeGb: 40
         compact: true
-        # Place the artifact under `<basePath>/windows-server-2025/`
-        # for tidy organisation; the Makefile's `test-image-windows`
-        # target then symlinks it into `.test-images/` for the
-        # integration tests.
-        path: windows-server-2025/
+        # Place the artifact under `<basePath>/BaseImages/WindowsServer2025/`
+        # alongside the other base images. The integration-test harness
+        # virtiofs-mounts ~/VMs/BaseImages into the test VM and registers
+        # everything it finds with the inner daemon.
+        path: BaseImages/WindowsServer2025/
 
       # The installer strategy:
       #   * does not require guestAgent: true on the template
