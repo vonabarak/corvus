@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Optional, Union
 
+from ._resource import LoopBoundResource
+
 
 class SyncVmManager:
     def __init__(self, async_mgr, runloop):
@@ -19,7 +21,7 @@ class SyncVmManager:
         return SyncVm(self._rl.run(self._a.create(name, **kwargs)), self._rl)
 
 
-class SyncVm:
+class SyncVm(LoopBoundResource):
     def __init__(self, async_vm, runloop):
         self._a = async_vm
         self._rl = runloop

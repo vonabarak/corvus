@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Union
 
+from ._resource import LoopBoundResource
+
 
 class SyncSshKeyManager:
     def __init__(self, async_mgr, runloop):
@@ -19,7 +21,7 @@ class SyncSshKeyManager:
         return SyncSshKey(self._rl.run(self._a.create(name, public_key)), self._rl)
 
 
-class SyncSshKey:
+class SyncSshKey(LoopBoundResource):
     def __init__(self, async_key, runloop):
         self._a = async_key
         self._rl = runloop

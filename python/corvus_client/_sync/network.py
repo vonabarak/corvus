@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Union
 
+from ._resource import LoopBoundResource
+
 
 class SyncNetworkManager:
     def __init__(self, async_mgr, runloop):
@@ -19,7 +21,7 @@ class SyncNetworkManager:
         return SyncNetwork(self._rl.run(self._a.create(name, subnet, **kwargs)), self._rl)
 
 
-class SyncNetwork:
+class SyncNetwork(LoopBoundResource):
     def __init__(self, async_net, runloop):
         self._a = async_net
         self._rl = runloop

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Union
 
+from ._resource import LoopBoundResource
+
 
 class SyncTemplateManager:
     def __init__(self, async_mgr, runloop):
@@ -19,7 +21,7 @@ class SyncTemplateManager:
         return SyncTemplate(self._rl.run(self._a.create(yaml)), self._rl)
 
 
-class SyncTemplate:
+class SyncTemplate(LoopBoundResource):
     def __init__(self, async_tpl, runloop):
         self._a = async_tpl
         self._rl = runloop

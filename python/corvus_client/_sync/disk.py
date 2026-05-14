@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Optional, Union
 
+from ._resource import LoopBoundResource
+
 
 class SyncDiskManager:
     def __init__(self, async_mgr, runloop):
@@ -47,7 +49,7 @@ class SyncDiskManager:
         return SyncDisk(self._rl.run(self._a.import_(name, src_path, format=format)), self._rl)
 
 
-class SyncDisk:
+class SyncDisk(LoopBoundResource):
     def __init__(self, async_disk, runloop):
         self._a = async_disk
         self._rl = runloop
@@ -74,7 +76,7 @@ class SyncDisk:
         return SyncSnapshot(self._rl.run(self._a.snapshot_get(ref, by_name=by_name)), self._rl)
 
 
-class SyncSnapshot:
+class SyncSnapshot(LoopBoundResource):
     def __init__(self, async_snap, runloop):
         self._a = async_snap
         self._rl = runloop

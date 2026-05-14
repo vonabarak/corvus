@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from ._resource import LoopBoundResource
+
 
 class SyncTaskManager:
     def __init__(self, async_mgr, runloop):
@@ -30,7 +32,7 @@ class SyncTaskManager:
         return self._rl.run(self._a.list_children(parent_id))
 
 
-class SyncTask:
+class SyncTask(LoopBoundResource):
     def __init__(self, async_task, runloop):
         self._a = async_task
         self._rl = runloop
