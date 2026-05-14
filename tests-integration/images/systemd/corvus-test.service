@@ -1,0 +1,33 @@
+[Unit]
+Description=Corvus daemon (integration-test target)
+# The binary lives on virtiofs (mounted at /opt/corvus/bin by
+# opt-corvus-bin.mount). Postgres must be reachable.
+# `RequiresMountsFor` makes systemd auto-pull the mount unit AND
+# fail this service cleanly with a clear journal message if the
+# mount itself failed — better than the old `ConditionPathExists`
+# silently skipping the service.
+After=network-online.target postgresql-18.service opt-corvus-bin.mount
+Wants=network-online.target postgresql-18.service
+Requires=opt-corvus-bin.mount
+RequiresMountsFor=/opt/corvus/bin
+
+[Service]
+Type=simple
+# Run as root so the inner Corvus can do rootful networking (TAP on
+# real interfaces, bridges, etc.) — the entire point of testing
+# under nested KVM rather than user-namespace.
+User=root
+Group=root
+Environment=XDG_RUNTIME_DIR=/run/corvus-test
+ExecStartPre=/bin/mkdir -p /run/corvus-test
+ExecStart=/opt/corvus/bin/corvus \
+    --tcp \
+    --host 0.0.0.0 \
+    --port 9876 \
+    --database postgresql://corvus@/corvus \
+    --log-level info
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

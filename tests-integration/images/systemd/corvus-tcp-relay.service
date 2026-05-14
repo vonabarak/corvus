@@ -1,0 +1,18 @@
+[Unit]
+Description=VSOCK-to-TCP relay for the inner Corvus daemon
+# The relay only needs to run when the test daemon is up; ordering is
+# best-effort. The relay tolerates an initially-absent TCP listener
+# (socat retries on the FORK-side connect failure).
+After=corvus-test.service
+Wants=corvus-test.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat \
+    VSOCK-LISTEN:9876,reuseaddr,fork \
+    TCP:127.0.0.1:9876
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

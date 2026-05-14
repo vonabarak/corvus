@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format capnp python-schema-sync python-test
+.PHONY: all build install install-run uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format capnp python-schema-sync python-test integration-tests-py integration-test-py integration-clean-py
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -48,14 +48,60 @@ python-schema-sync:
 python-test: install python-schema-sync
 	cd python && .venv-corvus-py/bin/pytest tests -v
 
-# Install binaries to ~/.local/bin/ and setup systemd user service
+# Run the integration test suite (nested VMs; rootful inner Corvus;
+# multi-node). Depends on `build` so the inner-side binary is fresh,
+# and on `install` so `crv` is on PATH for the outer driver. The first
+# session run will `crv apply` the integration-test image YAML, which
+# takes 30-60 min if the upstream gentoo-base-headless isn't already
+# in the daemon's disk store. Requires nested-KVM enabled on the host.
+integration-tests-py: build install
+	test -d tests-integration/.venv || python3 -m venv tests-integration/.venv
+	tests-integration/.venv/bin/pip install -q -e ./python -e ./tests-integration
+	tests-integration/.venv/bin/pytest tests-integration/tests -v
+
+# Run a single integration test (or a subset). MATCH is passed to
+# pytest's `-k` filter; it can be a test name, a substring, or a
+# boolean expression over test names. Examples:
+#   make integration-test-py MATCH=test_inner_daemon_reachable
+#   make integration-test-py MATCH="lifecycle and not edit"
+integration-test-py: build install
+	@test -n "$(MATCH)" || { echo "usage: make integration-test-py MATCH=<pytest -k expr>" >&2; exit 2; }
+	test -d tests-integration/.venv || python3 -m venv tests-integration/.venv
+	tests-integration/.venv/bin/pip install -e ./python -e ./tests-integration
+	tests-integration/.venv/bin/pytest tests-integration/tests -v -k "$(MATCH)"
+
+# Sweep orphan integration-test VMs left behind by aborted test runs.
+# pycapnp 2.x sometimes triggers SIGABRT on inner-daemon disconnects,
+# which kills pytest before fixture teardown — VMs stay around. Names
+# always start with `corvus-it-`; this target lists them and deletes
+# each with --delete-disks (overlay rootfs goes too).
+integration-clean-py:
+	@names=$$(crv -o json vm list 2>/dev/null | jq -r '.[].name | select(startswith("corvus-it-"))'); \
+	if [ -z "$$names" ]; then echo "no corvus-it-* VMs"; exit 0; fi; \
+	echo "$$names" | while read -r n; do \
+	  echo "deleting $$n"; \
+	  crv vm reset "$$n" 2>/dev/null || true; \
+	  crv vm delete --delete-disks "$$n" || true; \
+	done
+
+# Install binaries to ~/.local/bin/, drop the systemd unit file in
+# place, and install shell completions. Does NOT enable, start, or
+# restart the daemon — use `make install-run` for that. Splitting it
+# this way lets you upgrade the binaries without bouncing a daemon
+# that may be mid-task (build, apply, etc.).
 install:
 	stack install
+
+# Install binaries (as `install` does), then enable + restart the
+# corvus systemd user service. Use this when you want a freshly built
+# daemon running immediately.
+install-run: install
 	mkdir -p $(HOME)/.config/systemd/user/
 	cp corvus.service $(HOME)/.config/systemd/user/
 	systemctl --user daemon-reload
 	systemctl --user enable corvus.service
 	systemctl --user restart corvus.service
+
 	# Shell completions
 	mkdir -p $(HOME)/.local/share/bash-completion/completions
 	crv completion bash > $(HOME)/.local/share/bash-completion/completions/crv

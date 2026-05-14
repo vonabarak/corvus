@@ -1,0 +1,20 @@
+[Unit]
+Description=Mount the host's Corvus source tree over virtiofs
+DefaultDependencies=no
+ConditionVirtualization=|kvm
+ConditionVirtualization=|qemu
+After=local-fs-pre.target
+Before=local-fs.target
+
+[Mount]
+# Optional share; tests that need access to the source tree (schemas,
+# fixtures, build pipelines) opt into it by passing
+# `attach_source=True` to Topology.add(). nofail keeps boot succeeding
+# when the harness doesn't attach this share.
+What=corvus_src
+Where=/mnt/corvus
+Type=virtiofs
+Options=ro,nofail,_netdev
+
+[Install]
+WantedBy=local-fs.target

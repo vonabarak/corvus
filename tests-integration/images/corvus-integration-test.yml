@@ -1,0 +1,241 @@
+pipeline:
+  - build:
+      name: corvus-integration-test
+      description: Corvus integration-test target; runs the freshly built daemon over vsock
+      template: gentoo-headless
+
+      target:
+        name: corvus-integration-test
+        format: qcow2
+        compact: true
+        path: BaseImages/Gentoo/
+        ifExists: skip
+
+      strategy: overlay
+
+      vm:
+        cpuCount: 8
+        ramMb: 8192
+
+      shellDefaults:
+        preamble: "set -eux"
+
+      provisioners:
+        - shell:
+            inline: |
+              for i in $(seq 1 60); do
+                getent hosts distfiles.gentoo.org >/dev/null && break
+                sleep 2
+              done
+              getent hosts distfiles.gentoo.org >/dev/null \
+                || { echo "network never came up after 120s" >&2; exit 1; }
+            timeoutSec: 130
+
+        - shell:
+            inline: |
+              mkdir -p /var/cache/distfiles /var/db/repos /var/cache/binpkgs
+              mount -oro 192.168.88.1:/data/portage/distfiles /var/cache/distfiles
+              mount -oro 192.168.88.1:/data/portage/binpkgs /var/cache/binpkgs 
+              mount -oro 192.168.88.1:/var/db/repos /var/db/repos
+            timeoutSec: 60
+
+        - shell:
+            inline: |
+              cat > /etc/portage/package.use/corvus <<'EOF'
+              app-emulation/qemu spice usb usbredir virtfs passt vde
+              dev-db/postgresql python uuid xml
+              EOF
+
+              emerge --noreplace --usepkg \
+                net-misc/socat \
+                app-emulation/qemu \
+                net-misc/vde \
+                net-dns/dnsmasq \
+                net-firewall/nftables \
+                app-emulation/virtiofsd \
+                app-cdr/cdrtools \
+                sys-firmware/edk2-bin \
+                dev-db/postgresql \
+                dev-vcs/git \
+                net-misc/curl \
+                sys-process/htop \
+                app-misc/jq
+            timeoutSec: 14400
+        - shell:
+            inline: |
+              install -d /etc/systemd/system
+              cat > /etc/systemd/system/vde-switch.service <<'EOF'
+              [Unit]
+              Description=VDE virtual switch for Corvus test VMs
+              After=network-pre.target
+              Before=network.target
+              Wants=network-pre.target
+
+              [Service]
+              Type=forking
+              ExecStartPre=/bin/mkdir -p /run/vde2
+              ExecStart=/usr/bin/vde_switch \
+                  --sock /run/vde2/switch.ctl \
+                  --mgmt /run/vde2/switch.mgmt \
+                  -tap vde0 \
+                  -m 666 \
+                  -group kvm \
+                  --daemon \
+                  --pidfile /run/vde2/vde_switch.pid
+              PIDFile=/run/vde2/vde_switch.pid
+              Restart=on-failure
+
+              [Install]
+              WantedBy=multi-user.target
+              EOF
+              systemctl enable vde-switch.service
+
+              install -d /etc/systemd/network
+              cat > /etc/systemd/network/30-vde0.network <<'EOF'
+              [Match]
+              Name=vde0
+
+              [Network]
+              Address=192.168.92.1/24
+              ConfigureWithoutCarrier=yes
+              EOF
+
+              install -d /etc/sysctl.d
+              cat > /etc/sysctl.d/30-corvus-vde-forward.conf <<'EOF'
+              net.ipv4.ip_forward = 1
+              EOF
+
+              cat > /etc/nftables.conf <<'EOF'
+              #!/usr/sbin/nft -f
+              flush ruleset
+
+              table ip nat {
+                  chain postrouting {
+                      type nat hook postrouting priority srcnat
+                      policy accept
+                      ip saddr 192.168.92.0/24 oifname != "vde0" masquerade
+                  }
+              }
+              EOF
+
+              cat > /etc/dnsmasq.conf <<'EOF'
+              interface=vde0
+              bind-dynamic
+              dhcp-range=192.168.92.10,192.168.92.200,12h
+              dhcp-option=option:router,192.168.92.1
+              dhcp-option=option:dns-server,192.168.92.1
+              domain-needed
+              bogus-priv
+              EOF
+
+              install -d /etc/systemd/system/dnsmasq.service.d
+              cat > /etc/systemd/system/dnsmasq.service.d/wait-vde.conf <<'EOF'
+              [Unit]
+              After=vde-switch.service systemd-networkd.service
+              Wants=systemd-networkd.service
+              EOF
+
+              systemctl enable nftables.service dnsmasq.service
+            timeoutSec: 60
+
+        # Bring Postgres up; create the `corvus` SUPERUSER + database
+        # that the inner daemon will use. Mirrors what gentoo-test.yml's
+        # 2nd-stage overlay already does, but idempotent so it works
+        # whether or not the parent image already did it.
+        - shell:
+            inline: |
+              eselect postgresql set 18 || true
+              if [ ! -d /var/lib/postgresql/18/data ]; then
+                emerge --config dev-db/postgresql:18 || true
+              fi
+              systemctl enable postgresql-18.service
+              systemctl start postgresql-18.service
+              for i in $(seq 1 30); do
+                sudo -u postgres psql -c '\q' 2>/dev/null && break
+                sleep 1
+              done
+              sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL' || true
+              CREATE USER corvus SUPERUSER;
+              CREATE DATABASE corvus OWNER corvus;
+              SQL
+            timeoutSec: 600
+
+        # Mount points for the virtiofs shares the harness wires up at
+        # `crv vm create` time. The systemd .mount unit's filename must
+        # match `systemd-escape -p <path>`; for `/opt/corvus/bin`
+        # that's `opt-corvus-bin.mount` (no literal hyphens in the
+        # path → no `\x2d` escaping needed).
+        - shell:
+            inline: |
+              install -d -m 0755 /opt/corvus/bin
+              install -d -m 0755 /mnt/corvus
+            timeoutSec: 10
+
+        # systemd unit files. We use `file:` provisioners so the units
+        # are version-controlled in tests-integration/images/systemd/.
+        - file:
+            from: ./systemd/opt-corvus-bin.mount
+            to: /etc/systemd/system/opt-corvus-bin.mount
+            mode: "0644"
+        - file:
+            from: ./systemd/mnt-corvus.mount
+            to: /etc/systemd/system/mnt-corvus.mount
+            mode: "0644"
+        - file:
+            from: ./systemd/corvus-test.service
+            to: /etc/systemd/system/corvus-test.service
+            mode: "0644"
+        - file:
+            from: ./systemd/corvus-tcp-relay.service
+            to: /etc/systemd/system/corvus-tcp-relay.service
+            mode: "0644"
+
+        - shell:
+            inline: |
+              systemctl daemon-reload
+              # The mount units are pulled in by their respective service
+              # units (RequiresMountsFor=); we still enable them so a
+              # `systemctl status` lists them.
+              systemctl enable opt-corvus-bin.mount
+              systemctl enable mnt-corvus.mount
+              # corvus-test.service starts the inner daemon as soon as
+              # /opt/corvus/bin is mounted (i.e. the harness's virtiofs
+              # share is attached) and Postgres is up.
+              systemctl enable corvus-test.service
+              # corvus-tcp-relay.service translates host vsock connects
+              # to the daemon's TCP listener.
+              systemctl enable corvus-tcp-relay.service
+            timeoutSec: 30
+
+        # Nested-KVM sanity check on the built image. If the kernel
+        # config lacks nested-KVM, fail loudly here so the failure is
+        # attributable to the image, not to an obscure test crash.
+        - shell:
+            inline: |
+              cfg=/boot/config-$(uname -r)
+              test -f "$cfg" || { echo "kernel config not found at $cfg" >&2; exit 1; }
+              grep -qE '^CONFIG_KVM_INTEL=[ym]|^CONFIG_KVM_AMD=[ym]' "$cfg" \
+                || { echo "kernel lacks KVM_INTEL/KVM_AMD" >&2; exit 1; }
+              # Nested KVM is enabled at runtime via module parameter
+              # (kvm_intel.nested=1 / kvm_amd.nested=1) on most kernels;
+              # the build-time check above is necessary, not sufficient.
+              # The harness re-checks the runtime parameter on the host
+              # before the session starts.
+            timeoutSec: 30
+
+        # Provenance file the harness reads to verify it's running the
+        # right image.
+        - shell:
+            inline: |
+              {
+                echo "image: corvus-integration-test"
+                echo "built: $(date -Iseconds)"
+                echo "kernel: $(uname -r)"
+                qemu-system-x86_64 --version | head -1
+                psql --version
+                socat -V 2>&1 | head -1
+              } > /etc/corvus-image-info
+              cat /etc/corvus-image-info
+            timeoutSec: 30
+
+      cleanup: onSuccess

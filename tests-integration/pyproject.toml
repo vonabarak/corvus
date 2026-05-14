@@ -1,0 +1,31 @@
+[project]
+name = "corvus-test-harness"
+version = "0.1.0"
+description = "Integration-test harness for Corvus — spawns nested VMs, drives inner daemons via pycapnp."
+requires-python = ">=3.10"
+dependencies = [
+    # The inner-side client is the production package from this repo;
+    # install with `pip install -e ../python` alongside.
+    "corvus-client",
+    "pytest>=8",
+    "pytest-timeout>=2.3",
+    "pytest-xdist>=3.6",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["corvus_test_harness"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+# Each test creates VMs whose first boot can take a couple of minutes
+# on cold cache; default test timeout is generous.
+timeout = 600
+markers = [
+    "slow: tests that take more than a minute (boot cycle, image build)",
+    "rootful: tests that exercise root-only paths inside the inner VM",
+]

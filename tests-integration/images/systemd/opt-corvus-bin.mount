@@ -1,0 +1,19 @@
+[Unit]
+Description=Mount the host's stack-install bin dir over virtiofs
+# Filename `opt-corvus-bin.mount` matches `systemd-escape -p /opt/corvus/bin`;
+# the path has no literal hyphens, so the unit name maps cleanly to the
+# mount point.
+ConditionVirtualization=|kvm
+ConditionVirtualization=|qemu
+
+[Mount]
+# `corvus_host` is the virtiofs tag the test harness attaches via
+# the `sharedDirs` block in the per-VM apply YAML (see
+# corvus_test_harness.topology.Topology.add).
+What=corvus_host
+Where=/opt/corvus/bin
+Type=virtiofs
+Options=ro
+
+[Install]
+WantedBy=local-fs.target

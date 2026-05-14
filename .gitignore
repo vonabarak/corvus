@@ -14,3 +14,9 @@ python/corvus_client/_corvus.abi3.so
 python/corvus_client/_generated.py
 python/**/__pycache__/
 python/.pytest_cache/
+python/**/*.egg-info/
+# Integration test suite build artefacts
+tests-integration/.venv*/
+tests-integration/.pytest_cache/
+tests-integration/**/__pycache__/
+tests-integration/**/*.egg-info/
