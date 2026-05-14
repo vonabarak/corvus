@@ -325,6 +325,7 @@ pipeline:
           ramMb: 8192
           cloudInit: true
           guestAgent: true
+          headless: true
           description: "Gentoo (custom image for headless VMs)"
           drives:
             - diskImageName: gentoo-base-headless
@@ -393,6 +394,7 @@ pipeline:
               app-emulation/corvus **
               dev-haskell/* ~amd64
               dev-lang/ghc ~amd64
+              dev-util/ghcup-bin ~amd64
               EOF
 
               cat > /etc/portage/repos.conf <<'EOF'
@@ -422,7 +424,9 @@ pipeline:
                 dev-vcs/git \
                 net-misc/curl \
                 app-misc/jq \
-                app-emulation/corvus
+                dev-util/ghcup-bin \
+                app-editors/vim \
+                app-emulation/corvus --onlydeps
             timeoutSec: 14400
 
         - shell:
