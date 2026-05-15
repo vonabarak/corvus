@@ -62,8 +62,8 @@ import Corvus.Model.VmState (VmAction (..), validateTransition)
 import Corvus.Protocol
 import Corvus.Qemu
 import Corvus.Qemu.SocketBuffer (flushBuffer, startSocketBufferThread)
-import Corvus.Qemu.SpicePort (allocateSpicePort)
-import Corvus.Qemu.VsockCid (allocateVsockCid, hostHasVhostVsock, isHostFree)
+import Corvus.Qemu.SpicePort (withAllocatedSpicePort)
+import Corvus.Qemu.VsockCid (hostHasVhostVsock, isHostFree, withAllocatedVsockCid)
 import Corvus.Types
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64URL
@@ -132,12 +132,16 @@ handleVmCreate state name cpuCount ramMb description headless guestAgent cloudIn
           vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit autostart Nothing) (ssDbPool state)
           pure $ RespVmCreated vmId
         else do
-          cidResult <- allocateVsockCid state
-          case cidResult of
+          -- Allocate + persist the CID atomically (under ssVsockCidLock)
+          -- so concurrent vm.create / vm.start handlers never pick the
+          -- same CID and race at QEMU bind time.
+          result <- withAllocatedVsockCid state $ \cid ->
+            runSqlPool
+              (createVm name cpuCount ramMb description headless guestAgent cloudInit autostart (Just cid))
+              (ssDbPool state)
+          case result of
             Left err -> pure $ RespError err
-            Right cid -> do
-              vmId <- runSqlPool (createVm name cpuCount ramMb description headless guestAgent cloudInit autostart (Just cid)) (ssDbPool state)
-              pure $ RespVmCreated vmId
+            Right vmId -> pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
 handleVmDelete :: ActionContext -> Int64 -> Bool -> IO Response
@@ -260,17 +264,20 @@ startQemuAndMonitor state vmId vm parentTaskId = do
 
   -- Allocate a SPICE TCP port for non-headless VMs. The port is recorded on
   -- the Vm row so that 'generateQemuCommandWithSockets' picks it up when it
-  -- re-reads the row just before spawning QEMU.
+  -- re-reads the row just before spawning QEMU. Allocate + persist runs
+  -- atomically under 'ssSpicePortLock' so two concurrent starts can't
+  -- pick the same port.
   spiceResult <-
     if vmHeadless vm
       then pure (Right Nothing)
       else do
-        alloc <- liftIO $ allocateSpicePort state
+        alloc <- liftIO $
+          withAllocatedSpicePort state $ \port -> do
+            runSqlPool (update (toSqlKey vmId :: VmId) [M.VmSpicePort =. Just port]) pool
+            pure port
         case alloc of
           Left err -> pure (Left err)
-          Right port -> do
-            liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmSpicePort =. Just port]) pool
-            pure (Right (Just port))
+          Right port -> pure (Right (Just port))
 
   case spiceResult of
     Left err -> do
@@ -327,13 +334,10 @@ ensureFreeVsockCid state vmId vm = do
           then pure (Right cid)
           else reallocate pool
   where
-    reallocate pool = do
-      alloc <- allocateVsockCid state
-      case alloc of
-        Left err -> pure (Left err)
-        Right newCid -> do
-          runSqlPool (update (toSqlKey vmId :: VmId) [M.VmVsockCid =. Just newCid]) pool
-          pure (Right newCid)
+    reallocate pool =
+      withAllocatedVsockCid state $ \newCid -> do
+        runSqlPool (update (toSqlKey vmId :: VmId) [M.VmVsockCid =. Just newCid]) pool
+        pure newCid
 
 -- | Launch QEMU and set up process monitor (called after virtiofsd succeeds)
 launchQemu :: ServerState -> Int64 -> Vm -> TaskId -> Pool SqlBackend -> LoggingT IO Response

@@ -24,7 +24,7 @@ where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
-import Control.Concurrent.MVar (MVar)
+import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Concurrent.STM (TMVar, TVar, newTVarIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
 import Corvus.Qemu.Config (QemuConfig)
@@ -79,6 +79,19 @@ data ServerState = ServerState
   -- The Action runtime pushes a 'TaskProgressEvent' to each
   -- sink at task transitions (started / finished); dead sinks
   -- are pruned on the next push attempt.
+  , ssVsockCidLock :: !(MVar ())
+  -- ^ Serialises VSOCK CID allocation across concurrent VM
+  -- create/start handlers. The allocator reads the DB, picks a
+  -- candidate, probes the host kernel, then the caller persists
+  -- the result — all of that has to be atomic within the daemon
+  -- or two parallel handlers race onto the same CID and one
+  -- QEMU process fails with EADDRINUSE. See
+  -- 'Corvus.Qemu.VsockCid.withAllocatedVsockCid'.
+  , ssSpicePortLock :: !(MVar ())
+  -- ^ Serialises SPICE TCP-port allocation. Same shape as
+  -- 'ssVsockCidLock': allocator + caller persist need to be
+  -- atomic so two parallel VM starts don't pick the same port.
+  -- See 'Corvus.Qemu.SpicePort.withAllocatedSpicePort'.
   }
 
 -- | Create a new server state
@@ -94,6 +107,8 @@ newServerState pool qemuConfig = do
   gaLocks <- newTVarIO Map.empty
   gaSubs <- newTVarIO Map.empty
   taskSubs <- newTVarIO Map.empty
+  vsockLock <- newMVar ()
+  spiceLock <- newMVar ()
   pure
     ServerState
       { ssStartTime = startTime
@@ -109,6 +124,8 @@ newServerState pool qemuConfig = do
       , ssGuestAgentConns = gaLocks
       , ssGuestAgentSubs = gaSubs
       , ssTaskProgressSubs = taskSubs
+      , ssVsockCidLock = vsockLock
+      , ssSpicePortLock = spiceLock
       }
 
 --------------------------------------------------------------------------------

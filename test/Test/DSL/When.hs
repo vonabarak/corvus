@@ -97,6 +97,7 @@ module Test.DSL.When
   )
 where
 
+import Control.Concurrent.MVar (newMVar)
 import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
@@ -160,6 +161,8 @@ createTestServerState pool basePath = do
   gaLocks <- newTVarIO mempty
   gaSubs <- newTVarIO mempty
   taskSubs <- newTVarIO mempty
+  vsockLock <- newMVar ()
+  spiceLock <- newMVar ()
   logLevel <- getTestLogLevel
   pure
     ServerState
@@ -176,6 +179,8 @@ createTestServerState pool basePath = do
       , ssGuestAgentConns = gaLocks
       , ssGuestAgentSubs = gaSubs
       , ssTaskProgressSubs = taskSubs
+      , ssVsockCidLock = vsockLock
+      , ssSpicePortLock = spiceLock
       }
 
 -- | Build a fresh test-server state for the current 'TestM'.

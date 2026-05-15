@@ -57,7 +57,7 @@ python-test: install python-schema-sync
 integration-tests-py: build install
 	test -d tests-integration/.venv || python3 -m venv tests-integration/.venv
 	tests-integration/.venv/bin/pip install -q -e ./python -e ./tests-integration
-	tests-integration/.venv/bin/pytest tests-integration/tests -v
+	tests-integration/.venv/bin/pytest tests-integration/tests -v -n auto
 
 # Run a single integration test (or a subset). MATCH is passed to
 # pytest's `-k` filter; it can be a test name, a substring, or a
@@ -109,6 +109,8 @@ install-run: install
 	crv completion zsh > $(HOME)/.local/share/zsh/site-functions/_crv
 	mkdir -p $(HOME)/.config/fish/completions
 	crv completion fish > $(HOME)/.config/fish/completions/crv.fish
+
+	crv status
 
 # Uninstall binaries, systemd service, and shell completions
 uninstall:

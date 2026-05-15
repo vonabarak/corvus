@@ -9,16 +9,19 @@
 -- the chance of colliding with anything else on the machine.
 module Corvus.SpicePortSpec (spec) where
 
+import Control.Concurrent.Async (replicateConcurrently)
 import Control.Exception (bracket)
 import Control.Monad.IO.Class (liftIO)
 import qualified Corvus.Model as M
 import Corvus.Qemu.Config (QemuConfig (..))
-import Corvus.Qemu.SpicePort (allocateSpicePort)
+import Corvus.Qemu.SpicePort (allocateSpicePort, withAllocatedSpicePort)
 import Corvus.Types (ServerState (..))
+import Data.List (nub, sort)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist (insert)
+import Database.Persist.Postgresql (runSqlPool)
 import qualified Network.Socket as NS
 import Test.DSL.Core (getDbPool, getTempDir, runDb)
 import Test.DSL.When (createTestServerState)
@@ -55,6 +58,50 @@ spec = sequential $ withTestDb $ do
       liftIO $ case result of
         Left msg -> msg `shouldSatisfy` ("no free SPICE port" `T.isPrefixOf`)
         Right p -> expectationFailure ("unexpected success: " <> show p)
+
+  describe "withAllocatedSpicePort" $ do
+    testCase "concurrent allocate+persist all yield distinct ports" $ do
+      -- 16 parallel allocators against a 32-port range. The MVar lock
+      -- inside withAllocatedSpicePort plus the in-callback DB write
+      -- means every later allocator sees the earlier insert, so they
+      -- must all pick disjoint ports.
+      let n = 16 :: Int
+          lo = 55950
+          hi = 55981
+      state <- mkState lo hi
+      let pool = ssDbPool state
+      results <- liftIO $ replicateConcurrently n $ do
+        e <- withAllocatedSpicePort state $ \port -> do
+          now <- getCurrentTime
+          _ <-
+            runSqlPool
+              ( insert
+                  M.Vm
+                    { M.vmName = "conc-port-" <> T.pack (show port)
+                    , M.vmCreatedAt = now
+                    , M.vmStatus = M.VmRunning
+                    , M.vmCpuCount = 1
+                    , M.vmRamMb = 128
+                    , M.vmDescription = Nothing
+                    , M.vmPid = Nothing
+                    , M.vmHeadless = False
+                    , M.vmGuestAgent = False
+                    , M.vmCloudInit = False
+                    , M.vmHealthcheck = Nothing
+                    , M.vmAutostart = False
+                    , M.vmSpicePort = Just port
+                    , M.vmVsockCid = Nothing
+                    }
+              )
+              pool
+          pure port
+        case e of
+          Right p -> pure p
+          Left err -> error ("allocator failed: " <> T.unpack err)
+      liftIO $ do
+        length results `shouldBe` n
+        length (nub results) `shouldBe` n
+        sort results `shouldSatisfy` all (\p -> p >= lo && p <= hi)
 
 -- | Build a 'ServerState' whose @QemuConfig@ advertises @127.0.0.1@
 -- and the supplied inclusive port range. Everything else is inherited

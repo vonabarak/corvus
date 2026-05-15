@@ -20,11 +20,13 @@
 -- losing VM dropping into 'VmError'.
 module Corvus.Qemu.VsockCid
   ( allocateVsockCid
+  , withAllocatedVsockCid
   , isHostFree
   , hostHasVhostVsock
   )
 where
 
+import Control.Concurrent.MVar (withMVar)
 import Data.Maybe (mapMaybe)
 import Data.Pool (Pool)
 import qualified Data.Set as Set
@@ -44,6 +46,11 @@ foreign import ccall unsafe "corvus_vsock_cid_available"
 
 -- | Allocate a free AF_VSOCK CID. Returns 'Left' with an
 -- operator-facing message when the configured range is exhausted.
+--
+-- Callers that persist the result should prefer
+-- 'withAllocatedVsockCid' — bare 'allocateVsockCid' is racey because
+-- the read-filter-probe step is not atomic with the caller's later
+-- persist step, so two parallel handlers can pick the same CID.
 allocateVsockCid :: ServerState -> IO (Either Text Int)
 allocateVsockCid state = do
   let cfg = ssQemuConfig state
@@ -57,6 +64,27 @@ allocateVsockCid state = do
     tryCids (c : cs) = do
       ok <- isHostFree c
       if ok then pure (Right c) else tryCids cs
+
+-- | Allocate a CID and persist it atomically.
+--
+-- Holds 'ssVsockCidLock' across the allocator (DB read + kernel
+-- probe) AND the caller's @persist@ action, so concurrent callers
+-- within the same daemon always see each other's writes when
+-- choosing candidates. The host-side probe ('isHostFree') still
+-- protects against the cross-daemon case where two corvus processes
+-- on one host could otherwise both pick the same CID.
+withAllocatedVsockCid
+  :: ServerState
+  -> (Int -> IO a)
+  -- ^ Persist the freshly allocated CID. Runs while the lock is
+  -- held; its return value flows back to the caller.
+  -> IO (Either Text a)
+withAllocatedVsockCid state persist =
+  withMVar (ssVsockCidLock state) $ \_ -> do
+    eCid <- allocateVsockCid state
+    case eCid of
+      Left err -> pure (Left err)
+      Right cid -> Right <$> persist cid
 
 -- | Does this host even have @\/dev\/vhost-vsock@?
 --

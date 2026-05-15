@@ -12,9 +12,11 @@
 -- error.
 module Corvus.Qemu.SpicePort
   ( allocateSpicePort
+  , withAllocatedSpicePort
   )
 where
 
+import Control.Concurrent.MVar (withMVar)
 import Control.Exception (SomeException, bracket, try)
 import Data.Maybe (mapMaybe)
 import Data.Pool (Pool)
@@ -35,6 +37,12 @@ import qualified Network.Socket as NS
 -- operator-facing message when the configured range is exhausted, or
 -- when no candidate port can be bound (for instance because the bind
 -- address is bogus).
+--
+-- Callers that persist the result should prefer
+-- 'withAllocatedSpicePort' — bare 'allocateSpicePort' is racey
+-- because the read-filter-bind step is not atomic with the caller's
+-- later persist step, so two parallel VM-start handlers can pick the
+-- same port.
 allocateSpicePort :: ServerState -> IO (Either Text Int)
 allocateSpicePort state = do
   let cfg = ssQemuConfig state
@@ -50,6 +58,27 @@ allocateSpicePort state = do
     tryPorts bindAddr (p : ps) = do
       bindable <- canBind bindAddr p
       if bindable then pure (Right p) else tryPorts bindAddr ps
+
+-- | Allocate a SPICE port and persist it atomically.
+--
+-- Holds 'ssSpicePortLock' across the allocator (DB read + test-bind)
+-- AND the caller's @persist@ action, so concurrent callers within
+-- the same daemon always see each other's writes when choosing
+-- candidates. The test-bind probe still protects against the
+-- cross-daemon case where two corvus processes on one host could
+-- otherwise both pick the same port.
+withAllocatedSpicePort
+  :: ServerState
+  -> (Int -> IO a)
+  -- ^ Persist the freshly allocated port. Runs while the lock is
+  -- held; its return value flows back to the caller.
+  -> IO (Either Text a)
+withAllocatedSpicePort state persist =
+  withMVar (ssSpicePortLock state) $ \_ -> do
+    ePort <- allocateSpicePort state
+    case ePort of
+      Left err -> pure (Left err)
+      Right p -> Right <$> persist p
 
 -- | Collect ports already assigned to other VMs. The daemon clears
 -- @spicePort@ when a VM stops, so anything we read here is held by a
