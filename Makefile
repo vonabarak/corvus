@@ -110,6 +110,7 @@ install-run: install
 	mkdir -p $(HOME)/.config/fish/completions
 	crv completion fish > $(HOME)/.config/fish/completions/crv.fish
 
+	sleep 1
 	crv status
 
 # Uninstall binaries, systemd service, and shell completions
