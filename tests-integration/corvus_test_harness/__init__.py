@@ -30,6 +30,7 @@ from .images import ImageReady
 from .inner import open_client
 from .inner_vm import InnerVm, InnerVmSsh, InnerVmUefi
 from .outer import Crv
+from .spice import SpiceLinkInfo, probe_spice_link
 from .ssh import HOST_ALPINE_KEY_PATH, GuestShell, InnerGuestShell, SshResult
 from .topology import Topology, TestVm
 from .transport import VsockTcpRelay
@@ -52,6 +53,7 @@ __all__ = [
     "IntegrationTestCase",
     "NestedKvmStatus",
     "SingleVmCase",
+    "SpiceLinkInfo",
     "SshResult",
     "TestVm",
     "ThreeVmsCase",
@@ -62,4 +64,5 @@ __all__ = [
     "check_nested_kvm",
     "check_outer_version",
     "open_client",
+    "probe_spice_link",
 ]

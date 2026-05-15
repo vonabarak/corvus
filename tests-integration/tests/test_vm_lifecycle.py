@@ -20,7 +20,14 @@ import time
 import pytest
 
 from corvus_client import VmNotFound
-from corvus_test_harness import InnerVm, InnerVmSsh, InnerVmUefi, SingleVmCase
+from corvus_test_harness import (
+    HOST_ALPINE_KEY_PATH,
+    InnerVm,
+    InnerVmSsh,
+    InnerVmUefi,
+    SingleVmCase,
+    probe_spice_link,
+)
 
 
 pytestmark = pytest.mark.slow
@@ -317,7 +324,10 @@ class TestVmLifecycle(SingleVmCase):
 
     def test_non_headless_vm_has_display_adapter(self):
         """Non-headless VMs get `-vga …` and the kernel sees a
-        graphics adapter."""
+        graphics adapter; QEMU also exposes a SPICE TCP listener on
+        the outer VM's @127.0.0.1@. We probe both: lshw inside the
+        guest, and a SPICE link handshake against the listener from
+        inside the outer VM."""
 
         class _GfxOn(InnerVmSsh):
             headless = False
@@ -330,6 +340,26 @@ class TestVmLifecycle(SingleVmCase):
             assert any(
                 k in out for k in ("vga", "qxl", "virtio gpu", "display")
             ), f"no display adapter visible in lshw output: {r.stdout!r}"
+
+            # SPICE liveness: a non-headless VM must have a
+            # spice_port allocated, and qemu must be speaking the
+            # SPICE link protocol on it. The probe runs from inside
+            # the outer VM via SSH (qemu binds 127.0.0.1 of the
+            # outer VM, unreachable from the host) and parses the
+            # 16-byte SpiceLinkHeader the server returns.
+            details = inner.vm.show()
+            assert details.spice_port is not None and details.spice_port > 0, (
+                f"non-headless VM has no SPICE port: {details!r}"
+            )
+            info = probe_spice_link(
+                outer_cid=self.vms[0].cid,
+                spice_port=details.spice_port,
+                host_key_path=HOST_ALPINE_KEY_PATH,
+            )
+            # SPICE_MAGIC + version are mirrored from
+            # spice-protocol's spice/protocol.h.
+            assert info.magic == b"REDQ", info
+            assert info.major == 2, info
 
     def test_cpu_and_ram_edit_round_trip(self):
         """Boot, read nproc + MemTotal, stop, edit cpu_count+ram_mb,
