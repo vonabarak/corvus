@@ -198,6 +198,19 @@ pipeline:
             GA_METHOD="virtio-serial"
             EOF
 
+            # ACPI power-button handler. Without this, `acpid` reports
+            # the event but no script handles it, and a `system_powerdown`
+            # QMP command (the daemon's fallback when guest-agent is off)
+            # leaves the guest running. acpid event files use a regex
+            # over the event line; "button/power.*" matches both PBTN
+            # and PWRF wakeups across QEMU/SeaBIOS/OVMF variants.
+            mkdir -p /etc/acpi.d
+            cat > /etc/acpi.d/powerbtn-default.sh <<'ACPI'
+            event=button/power.*
+            action=/sbin/poweroff
+            ACPI
+            chmod 0644 /etc/acpi.d/powerbtn-default.sh
+
             cat > /etc/init.d/vsock-sshd <<'INIT'
             #!/sbin/openrc-run
             description="Forward AF_VSOCK:22 to local sshd on 127.0.0.1:22"

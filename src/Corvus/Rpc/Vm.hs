@@ -30,7 +30,7 @@ import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Corvus.Action (runAction)
+import Corvus.Action (runAction, runActionAsync)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.GuestExec (GuestExec (..))
 import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfRemove (..), handleNetIfList)
@@ -157,12 +157,18 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'show: unexpected response"
 
-  vm'start (VmCap st _ eid) = handleParsed $ \CGVm.Vm'start'params {} -> do
-    resp <- runAction st (VmStart eid)
+  vm'start (VmCap st _ eid) = handleParsed $ \CGVm.Vm'start'params {wait = wait'} -> do
+    resp <-
+      if wait'
+        then runAction st (VmStart eid)
+        else runActionAsync st (VmStart eid) (RespVmStateChanged M.VmStarting)
     pure CGVm.Vm'start'results {CGVm.status = toStatusOrThrow resp}
 
-  vm'stop (VmCap st _ eid) = handleParsed $ \CGVm.Vm'stop'params {} -> do
-    resp <- runAction st (VmStop eid)
+  vm'stop (VmCap st _ eid) = handleParsed $ \CGVm.Vm'stop'params {wait = wait'} -> do
+    resp <-
+      if wait'
+        then runAction st (VmStop eid)
+        else runActionAsync st (VmStop eid) (RespVmStateChanged M.VmStopping)
     pure CGVm.Vm'stop'results {CGVm.status = toStatusOrThrow resp}
 
   vm'pause (VmCap st _ eid) = handleParsed $ \_ -> do

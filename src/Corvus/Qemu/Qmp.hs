@@ -296,13 +296,37 @@ sendQmpCommand config vmId cmd = do
     _ <- recv sock 4096
     -- Send qmp_capabilities to enter command mode
     sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
-    _ <- recv sock 4096
+    _ <- drainUntilReply sock BS.empty
     -- Send the actual command
     sendAll sock cmd
-    recv sock 4096
+    drainUntilReply sock BS.empty
   pure $ case result of
     Left (e :: SomeException) -> QmpConnectionFailed $ T.pack $ show e
     Right response -> classifyQmpResponse response
+
+-- | Read from the QMP socket until the accumulated buffer contains a
+-- command reply (either @"return"@ or @"error"@). Async events get
+-- folded into the accumulator and stay there for the classifier to
+-- ignore.
+--
+-- A single 'recv' call is not robust: QEMU emits state-change events
+-- (e.g. @RESUME@ after @cont@, @STOP@ after @stop@) BEFORE the
+-- command's @{"return": {}}@, and the kernel may surface them in
+-- separate reads — so a naive @recv 4096@ can return only the event
+-- with no @"return"@ substring, leaving 'classifyQmpResponse' to
+-- wrongly decide the command failed. Reading until we actually see
+-- a reply payload fixes it.
+drainUntilReply :: Socket -> BS.ByteString -> IO BS.ByteString
+drainUntilReply sock acc = do
+  chunk <- recv sock 4096
+  if BS.null chunk
+    then pure acc
+    else do
+      let combined = acc <> chunk
+      if BS.isInfixOf "\"return\"" combined
+        || BS.isInfixOf "\"error\"" combined
+        then pure combined
+        else drainUntilReply sock combined
 
 -- | Classify a raw QMP response payload as success or error.
 --

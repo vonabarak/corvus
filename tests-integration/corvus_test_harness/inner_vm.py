@@ -144,8 +144,18 @@ class InnerVm:
         # Idempotent, best-effort cleanup. Mirror of
         # `Topology.finalize` (`topology.py:111`).
         if self.vm is not None:
+            # Use `reset` rather than `stop` for teardown: it's a
+            # hard kill (`Handlers/Vm.hs:handleVmReset` SIGTERMs
+            # qemu and synchronously sets status=stopped) and works
+            # from any state — paused, stopping, error, even an
+            # already-stopped VM. `stop` would hang for up to 5 min
+            # on a VM that ignored ACPI shutdown (e.g. one without
+            # qemu-guest-agent that we tried to stop before its
+            # acpid had loaded). Tests that want to exercise the
+            # graceful shutdown path call `vm.stop` themselves; the
+            # __exit__ just guarantees the VM goes away.
             try:
-                self.vm.stop(wait=True)
+                self.vm.reset()
             except Exception:
                 pass
             try:
@@ -248,3 +258,53 @@ class InnerVmSsh(InnerVm):
     def run(self, command: str, **kw) -> "SshResult":
         """Run a shell command in the guest over the open SSH session."""
         return self.shell.run(command, **kw)
+
+
+class InnerVmUefi(InnerVmSsh):
+    """`InnerVmSsh` that boots in UEFI mode via OVMF pflash drives.
+
+    Each VM gets its own per-VM overlay on the registered OVMF
+    `code` and `vars` disks. The shared `ovmf-code` / `ovmf-vars`
+    registrations point at system files under `/usr/share/edk2/`
+    and are **never** deleted — `disks.delete` would unlink the
+    underlying file. The overlays are owned by the daemon (live
+    under its `basePath`) and are reaped by `delete_disks=True`
+    on VM teardown.
+
+    The same daemon-side overlay-refcount protection that's already
+    in `handleDiskDelete` (returns `RespDiskHasOverlays` when a
+    disk has live overlays) means even an accidental
+    `disks.delete("ovmf-code")` while a UEFI VM is running fails
+    loudly instead of nuking the system file.
+    """
+
+    OVMF_CODE_PATH = "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
+    OVMF_VARS_PATH = "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
+
+    def _prepare(self) -> None:
+        # Idempotent registration of the system OVMF files. Other
+        # UEFI tests in the same class reuse these — no copy, just
+        # a database row pointing at the existing qcow2.
+        for name, path in (
+            ("ovmf-code", self.OVMF_CODE_PATH),
+            ("ovmf-vars", self.OVMF_VARS_PATH),
+        ):
+            try:
+                self.client.disks.get(name)
+            except Exception:
+                self.client.disks.register(name, path, format="qcow2")
+
+        self._code_overlay = f"{self.name}-ovmf-code"
+        self._vars_overlay = f"{self.name}-ovmf-vars"
+        self.client.disks.create_overlay(self._code_overlay, "ovmf-code")
+        self.client.disks.create_overlay(self._vars_overlay, "ovmf-vars")
+
+    def _drives(self) -> list[dict]:
+        return super()._drives() + [
+            {
+                "disk_ref": self._code_overlay,
+                "interface": "pflash",
+                "read_only": True,
+            },
+            {"disk_ref": self._vars_overlay, "interface": "pflash"},
+        ]
