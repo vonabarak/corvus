@@ -213,12 +213,24 @@ T = TypeVar("T")
 def translate_async(
     fn: Callable[..., Awaitable[T]],
 ) -> Callable[..., Awaitable[T]]:
-    """Async-method decorator: translate `KjException` → typed exception."""
+    """Async-method decorator: translate `KjException` → typed exception.
+
+    Also invalidates a cached manager cap (`self._mgr`) on failure.
+    Empirically, a cap-method on a cached pycapnp manager cap leaves
+    the cap wedged after the call raises (e.g. `vms.get(nonexistent)
+    → VmNotFound`): subsequent calls on the same cached cap deadlock.
+    Clearing the cache forces the next access to re-fetch a fresh cap
+    via the daemon. The same does NOT apply to resource caps
+    (`self._cap` on `AsyncVm` etc.) — those are tied to a specific
+    entity and silently re-fetching would change identity.
+    """
 
     async def wrapped(*args, **kwargs):
         try:
             return await fn(*args, **kwargs)
         except capnp.KjException as e:
+            if args and hasattr(args[0], "_mgr"):
+                args[0]._mgr = None
             raise translate_kj_exception(e) from None
 
     wrapped.__wrapped__ = fn  # type: ignore[attr-defined]

@@ -13,9 +13,13 @@ from __future__ import annotations
 
 import pytest
 
+from corvus_test_harness import SingleVmCase
+
+
 pytestmark = pytest.mark.slow
 
 
-@pytest.mark.skip(reason="TODO: port SerialConsoleIntegrationSpec")
-def test_serial_console_replay(single_client):
-    raise NotImplementedError
+class TestSerialConsole(SingleVmCase):
+    @pytest.mark.skip(reason="TODO: port SerialConsoleIntegrationSpec")
+    def test_serial_console_replay(self):
+        raise NotImplementedError

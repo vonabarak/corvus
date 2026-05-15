@@ -11,11 +11,19 @@ blocks they're composed from:
 - `inner.client`         — opens a pycapnp Client against the inner daemon
 - `topology.Topology`    — declarative multi-VM scenarios for tests
 - `base_images`          — register pre-baked disks with the inner daemon
+- `cases.{Single,Two,Three}VmCase` — class-based test bases with
+                           class-scoped VMs
 - `ssh.GuestShell`       — SSH/exec into a VM for low-level work
 - `version`              — outer-version + nested-KVM sanity checks
 """
 
 from . import base_images
+from .cases import (
+    IntegrationTestCase,
+    SingleVmCase,
+    ThreeVmsCase,
+    TwoVmsCase,
+)
 from .host_binary import HostBinary
 from .images import ImageReady
 from .inner import open_client
@@ -32,9 +40,13 @@ __all__ = [
     "Crv",
     "HostBinary",
     "ImageReady",
+    "IntegrationTestCase",
     "NestedKvmStatus",
+    "SingleVmCase",
     "TestVm",
+    "ThreeVmsCase",
     "Topology",
+    "TwoVmsCase",
     "VsockTcpRelay",
     "base_images",
     "check_nested_kvm",

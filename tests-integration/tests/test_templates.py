@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import pytest
 
+from corvus_test_harness import SingleVmCase
+
+
 pytestmark = pytest.mark.slow
 
 
-@pytest.mark.skip(reason="TODO: port TemplateIntegrationSpec")
-def test_template_create_and_instantiate(single_client):
-    raise NotImplementedError
+class TestTemplates(SingleVmCase):
+    @pytest.mark.skip(reason="TODO: port TemplateIntegrationSpec")
+    def test_template_create_and_instantiate(self):
+        raise NotImplementedError

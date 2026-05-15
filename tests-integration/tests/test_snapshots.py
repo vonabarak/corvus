@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import pytest
 
+from corvus_test_harness import SingleVmCase
+
+
 pytestmark = pytest.mark.slow
 
 
-@pytest.mark.skip(reason="TODO: port SnapshotIntegrationSpec coverage")
-def test_snapshot_create_rollback_merge(single_client):
-    raise NotImplementedError
+class TestSnapshots(SingleVmCase):
+    @pytest.mark.skip(reason="TODO: port SnapshotIntegrationSpec coverage")
+    def test_snapshot_create_rollback_merge(self):
+        raise NotImplementedError

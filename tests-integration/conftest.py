@@ -1,4 +1,4 @@
-"""Shared fixtures for the Corvus integration suite.
+"""Shared fixtures + pytest hooks for the Corvus integration suite.
 
 Fixture lifecycle:
 
@@ -6,13 +6,26 @@ Fixture lifecycle:
               integration-test image applied, host binary located.
               These are global preconditions; failure aborts the run.
 
-  function  — per-test `Topology` context manager. Default builds
-              one VM; tests that need more call `topology.add(...)`
-              explicitly. Teardown deletes all VMs + relays.
+  class     — `IntegrationTestCase` subclasses (see
+              `corvus_test_harness.cases`) own a class-scoped Topology;
+              the autouse fixture lives on the base class itself.
 
-A pair of convenience fixtures wrap the common single-VM case:
-  `single_vm`        — a single ready VM (with daemon up)
-  `single_client`    — the pycapnp `Client` for the single VM
+There are no function-scoped fixtures: every test method derives its
+VM(s) from the class fixture by inheriting from `SingleVmCase`,
+`TwoVmsCase`, or `ThreeVmsCase`.
+
+The hooks below enforce the suite-wide behaviour:
+
+  * Tests within a class run in source-line order (the pytest default,
+    re-asserted defensively so xdist worker-side ordering can't drift).
+  * The first failed/errored method in a class marks every subsequent
+    method as skipped — the cascade hides the real bug less.
+  * If the class fixture itself fails to set up, every method skips
+    with a single coherent reason; the partially-booted topology is
+    left alive for inspection.
+  * With `pytest-xdist`'s `--dist=loadscope` (default in
+    `pyproject.toml`), each class lands on a single worker for the
+    full duration. Tests within a class never run in parallel.
 """
 from __future__ import annotations
 
@@ -22,11 +35,10 @@ from corvus_test_harness import (
     Crv,
     HostBinary,
     ImageReady,
-    Topology,
-    base_images as _base_images,
     check_nested_kvm,
     check_outer_version,
 )
+from corvus_test_harness.cases import IntegrationTestCase, state_for
 
 
 # ---------------------------------------------------------------------------
@@ -69,54 +81,98 @@ def image_ready(crv: Crv, outer_version) -> ImageReady:
 
 
 # ---------------------------------------------------------------------------
-# Per-test topology
+# Pytest hooks: ordering, skip-on-fail, class-affinity
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def topology(crv: Crv, image_ready: ImageReady, host_binary: HostBinary):
-    """A fresh `Topology` per test. Tests call `.add(...)` to spawn VMs."""
-    with Topology(crv, image_ready, host_binary) as t:
-        yield t
+def _is_class_based(item: pytest.Item) -> bool:
+    """True if `item` belongs to an IntegrationTestCase subclass."""
+    cls = getattr(item, "cls", None)
+    return isinstance(cls, type) and issubclass(cls, IntegrationTestCase)
 
 
-@pytest.fixture
-def single_vm(topology: Topology):
-    """One VM, named `single`. Daemon may not be ready until `.client()` is called."""
-    return topology.add("single")
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Re-assert source-line order within each IntegrationTestCase class.
 
-
-@pytest.fixture
-def single_client(single_vm):
-    """Pycapnp Client to the single VM's inner daemon. Blocks until ready."""
-    return single_vm.client()
-
-
-@pytest.fixture
-def base_images(crv: Crv, single_vm, single_client) -> dict[str, str]:
-    """Register the pre-baked images under `~/VMs/BaseImages` with the
-    inner daemon.
-
-    Returns a `{short_name: disk_name}` dict. Short names come from the
-    image's parent directory (lowercased), so a typical layout yields
-    keys like `alpine`, `windowsserver2025`, `debian`, `ubuntu`,
-    `almalinux`, `freebsd`. Tests reference the disk via the returned
-    name:
-
-        def test_overlay(single_client, base_images):
-            base = base_images["alpine"]
-            overlay = single_client.disks.create_overlay("scratch", base)
-            ...
-
-    Skips the test cleanly if no images are present on the host (e.g.
-    a developer who hasn't run `make test-image-*` yet).
+    Pytest's default *is* source-line order, but enforcing it here keeps
+    the suite robust against external plugins (or xdist worker-side
+    behaviour) that might otherwise reshuffle. We run with `tryfirst`
+    so subsequent reorderings (e.g. `--lf`) win for non-class tests
+    while class tests keep their declared sequence.
     """
-    registered = _base_images.register_all(
-        single_client, crv, single_vm.outer_name
-    )
-    if not registered:
+    # Group items by their class while preserving the inter-class order
+    # pytest already picked. Standalone (non-class) items stay where
+    # they are.
+    indexed: list[tuple[int, pytest.Item]] = list(enumerate(items))
+    by_class: dict[type, list[tuple[int, pytest.Item]]] = {}
+    for idx, item in indexed:
+        if not _is_class_based(item):
+            continue
+        by_class.setdefault(item.cls, []).append((idx, item))
+
+    for cls, group in by_class.items():
+        # Sort by source-line number of the underlying function. Items
+        # already share a file (one class lives in one file), so name
+        # alone would also work — but lineno is the property the user
+        # actually wants.
+        def _lineno(pair: tuple[int, pytest.Item]) -> int:
+            _, it = pair
+            obj = getattr(it, "function", None)
+            if obj is None:
+                return 0
+            code = getattr(obj, "__code__", None)
+            return getattr(code, "co_firstlineno", 0)
+
+        group_sorted = sorted(group, key=_lineno)
+        # Splice the sorted methods back into items[] at the original
+        # positions, in their new order.
+        positions = [orig_idx for orig_idx, _ in group]
+        for pos, (_, new_item) in zip(positions, group_sorted):
+            items[pos] = new_item
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item: pytest.Item, call):
+    """Record the first failing/erroring method on its class state.
+
+    We watch all three phases (setup / call / teardown). Tests that
+    `pytest.skip(...)` themselves don't flip the cascade — only true
+    failures do (we check `report.failed`, not `outcome != 'passed'`).
+    """
+    outcome = yield
+    if not _is_class_based(item):
+        return
+    report = outcome.get_result()
+    if not report.failed:
+        return
+    state = state_for(item.cls)
+    if state.first_failure is None:
+        state.first_failure = item.name
+
+
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Skip every class method after the first failure in the class.
+
+    Also handles the case where the class-scoped autouse fixture itself
+    failed: its handler in `IntegrationTestCase._class_topology` sets
+    `state.setup_failed = True` and returns without raising; we surface
+    that here as a uniform skip per method.
+    """
+    if not _is_class_based(item):
+        return
+    state = state_for(item.cls)
+    if state.setup_failed:
         pytest.skip(
-            f"no base images under {_base_images.HOST_BASE_IMAGES_DIR}; "
-            "run `make test-image-alpine` (and friends) first."
+            f"class fixture setup failed for {item.cls.__qualname__} — "
+            "see prior stderr for the topology / VM bring-up error"
         )
-    return registered
+    if state.first_failure is not None and state.first_failure != item.name:
+        pytest.skip(
+            f"previous test in class failed ({state.first_failure}); "
+            "skipping the rest"
+        )

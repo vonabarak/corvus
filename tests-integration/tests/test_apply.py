@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import pytest
 
+from corvus_test_harness import SingleVmCase
+
+
 pytestmark = pytest.mark.slow
 
 
-@pytest.mark.skip(reason="TODO: port ApplyIntegrationSpec")
-def test_apply_creates_disks_and_networks(single_client):
-    raise NotImplementedError
+class TestApply(SingleVmCase):
+    @pytest.mark.skip(reason="TODO: port ApplyIntegrationSpec")
+    def test_apply_creates_disks_and_networks(self):
+        raise NotImplementedError

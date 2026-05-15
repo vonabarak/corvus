@@ -16,9 +16,13 @@ from __future__ import annotations
 
 import pytest
 
+from corvus_test_harness import SingleVmCase
+
+
 pytestmark = pytest.mark.slow
 
 
-@pytest.mark.skip(reason="TODO: port DiskIntegrationSpec coverage from doc/integration-tests-pre-capnp.md")
-def test_disk_create_and_delete(single_client):
-    raise NotImplementedError
+class TestDisk(SingleVmCase):
+    @pytest.mark.skip(reason="TODO: port DiskIntegrationSpec coverage from doc/integration-tests-pre-capnp.md")
+    def test_disk_create_and_delete(self):
+        raise NotImplementedError

@@ -14,9 +14,13 @@ from __future__ import annotations
 
 import pytest
 
+from corvus_test_harness import SingleVmCase
+
+
 pytestmark = pytest.mark.slow
 
 
-@pytest.mark.skip(reason="TODO: port BuildIntegrationSpec; requires doubly-nested KVM")
-def test_build_minimal_pipeline_streams_events(single_client):
-    raise NotImplementedError
+class TestBuildPipeline(SingleVmCase):
+    @pytest.mark.skip(reason="TODO: port BuildIntegrationSpec; requires doubly-nested KVM")
+    def test_build_minimal_pipeline_streams_events(self):
+        raise NotImplementedError

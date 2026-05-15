@@ -9,9 +9,13 @@ from __future__ import annotations
 
 import pytest
 
+from corvus_test_harness import SingleVmCase
+
+
 pytestmark = pytest.mark.slow
 
 
-@pytest.mark.skip(reason="TODO: port guest-exec coverage; needs inner OS image with QGA")
-def test_guest_exec_echo(single_client):
-    raise NotImplementedError
+class TestGuestExec(SingleVmCase):
+    @pytest.mark.skip(reason="TODO: port guest-exec coverage; needs inner OS image with QGA")
+    def test_guest_exec_echo(self):
+        raise NotImplementedError

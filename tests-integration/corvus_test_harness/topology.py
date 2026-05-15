@@ -101,6 +101,27 @@ class Topology:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        # Treat any exception inside the with-block as "tests failed,
+        # leak the VMs for inspection". Callers that need to distinguish
+        # "with-block raised" from "test method later failed" should
+        # construct a Topology manually and drive `finalize` themselves
+        # (see corvus_test_harness.cases.IntegrationTestCase).
+        self.finalize(leak_on_failure=exc_type is not None)
+
+    def finalize(self, *, leak_on_failure: bool) -> None:
+        """Tear down clients, relays, and VMs.
+
+        On `leak_on_failure=True` the VMs are left running and a
+        cleanup-by-hand hint is printed to stderr — useful when the
+        caller (a test method, a class fixture) wants to inspect a
+        failed run rather than lose the state to teardown.
+
+        Idempotent: subsequent calls are no-ops.
+        """
+        if getattr(self, "_finalized", False):
+            return
+        self._finalized = True
+
         # Tear down in reverse: clients first (cap drops), then relays,
         # then VMs. ExitStack handles the relays; we close clients and
         # delete VMs manually since both depend on Topology state.
@@ -111,20 +132,14 @@ class Topology:
                 except Exception:
                     pass
         # Drop relays (popped by stack.__exit__).
-        self._stack.__exit__(exc_type, exc, tb)
+        self._stack.__exit__(None, None, None)
 
-        # VM cleanup policy:
-        #   - test passed → stop + delete every VM strictly; surface any
-        #     cleanup failure so leaks don't accumulate silently.
-        #   - test failed → leave VMs in place for inspection; print
-        #     their names so the developer can poke at them, and how to
-        #     clean up by hand.
-        if exc_type is not None:
+        if leak_on_failure:
             if self._vms:
                 names = " ".join(vm.outer_name for vm in self._vms)
                 print(
-                    f"[harness] test failed; leaving {len(self._vms)} VM(s) "
-                    f"for inspection: {names}\n"
+                    f"[harness] leaving {len(self._vms)} VM(s) "
+                    f"alive for inspection: {names}\n"
                     f"[harness] clean up manually with: "
                     f"for n in {names}; do crv vm delete --delete-disks $n; done"
                 )
