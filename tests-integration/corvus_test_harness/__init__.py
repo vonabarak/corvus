@@ -28,6 +28,7 @@ from .cases import (
 from .host_binary import HostBinary
 from .images import ImageReady
 from .inner import open_client
+from .inner_vm import InnerVm, InnerVmSsh
 from .outer import Crv
 from .ssh import HOST_ALPINE_KEY_PATH, GuestShell, InnerGuestShell, SshResult
 from .topology import Topology, TestVm
@@ -45,6 +46,8 @@ __all__ = [
     "HostBinary",
     "ImageReady",
     "InnerGuestShell",
+    "InnerVm",
+    "InnerVmSsh",
     "IntegrationTestCase",
     "NestedKvmStatus",
     "SingleVmCase",
