@@ -250,6 +250,30 @@ class TestVmLifecycle(SingleVmCase):
             assert r.exit_code == 0
             assert r.stdout.strip() == ""
 
+            # QGA healthcheck: `last_healthcheck` is set by the
+            # poller after the first ping (the same ping that
+            # flips status `starting` → `running`), and refreshed
+            # every `qcHealthcheckInterval` seconds. We poll until
+            # the timestamp advances; if it never does, the
+            # steady-state poller never came up.
+            hc0 = inner.vm.show().last_healthcheck
+            assert hc0 is not None, (
+                "last_healthcheck is None after wait_for_qga — "
+                "first-ping path didn't update the DB"
+            )
+            deadline = time.monotonic() + 30.0
+            hc1 = hc0
+            while time.monotonic() < deadline:
+                time.sleep(2.0)
+                hc1 = inner.vm.show().last_healthcheck
+                if hc1 is not None and hc1 > hc0:
+                    break
+            assert hc1 > hc0, (
+                f"last_healthcheck didn't advance within 30s; "
+                f"before={hc0!r}, after={hc1!r} — steady-state "
+                f"poller isn't running"
+            )
+
     def test_start_async_with_guest_agent(self):
         """`vm.start(wait=False)` returns at status=`starting`; the
         VM flips to `running` once the daemon catches the first
