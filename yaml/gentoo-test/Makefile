@@ -10,6 +10,7 @@ LATEST_TXT := $(GENTOO_AUTOBUILDS)/current-di-amd64-cloudinit/latest-di-amd64-cl
 all: build
 
 build: update-image
+	crv build gentoo-headless.yml --wait
 	crv build gentoo-test.yml --wait
 
 clean:
@@ -20,7 +21,7 @@ clean:
 
 # Pull the current cloud-init image filename from the upstream
 # `latest-di-amd64-cloudinit.txt` and rewrite the dated qcow2
-# name in gentoo-test.yml. The file is PGP-signed text with a
+# name in gentoo-headless.yml. The file is PGP-signed text with a
 # few `#`-prefixed header lines; the line that ends in
 # `.qcow2 <size>` is the one we want. We also drop the `md5:`
 # field because Gentoo's DIGESTS sidecar only publishes
@@ -36,6 +37,6 @@ update-image:
 	  exit 1; \
 	fi; \
 	echo "Latest Gentoo cloud-init image: $$latest"; \
-	sed -i -E "s|di-amd64-cloudinit-[0-9TZ]+\.qcow2|$$latest|g" gentoo-test.yml; \
-	sed -i -E '/^[[:space:]]*md5:[[:space:]]*[0-9a-f]{32}[[:space:]]*$$/d' gentoo-test.yml; \
-	echo "Updated gentoo-test.yml"
+	sed -i -E "s|di-amd64-cloudinit-[0-9TZ]+\.qcow2|$$latest|g" gentoo-headless.yml; \
+	sed -i -E '/^[[:space:]]*md5:[[:space:]]*[0-9a-f]{32}[[:space:]]*$$/d' gentoo-headless.yml; \
+	echo "Updated gentoo-headless.yml"

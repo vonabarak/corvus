@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-run uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-alpine test-image-windows lint format capnp python-schema-sync python-test integration-tests-py integration-test-py integration-clean-py
+.PHONY: all build install install-run uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-key test-image-alpine test-image-integration test-image-windows lint format capnp python-schema-sync python-test integration-tests-py integration-test-py integration-clean-py
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -153,29 +153,60 @@ lint:
 	hlint src app test
 
 # Build all test images via `crv build`
-test-image: test-image-alpine test-image-windows
+test-image: test-image-integration test-image-alpine test-image-windows
+
+# Generate the SSH keypair the integration-test images embed.
+#
+# Both the Alpine test image and the Gentoo integration-test image
+# inject the same `corvus-test-key.pub` into authorized_keys at bake
+# time, so the host-side SSH tunnel can reach the inner Alpine VM
+# through the outer Gentoo VM with a single keypair. Idempotent:
+# subsequent runs no-op if the key already exists.
+test-image-key:
+	mkdir -p tests-integration/keys
+	test -f tests-integration/keys/corvus-test-key || \
+	  ssh-keygen -t ed25519 -f tests-integration/keys/corvus-test-key -N '' -C corvus-test
 
 # Build the minimal Alpine integration-test image.
 #
 # Steps:
-#   1. Generate the SSH keypair under ~/VMs/BaseImages/Alpine/ if it
-#      doesn't exist (the keypair lives next to the baked image at a
-#      stable host-side path).
-#   2. Stage the public key next to the build YAML so the build's
-#      `file: from: ./corvus-test-key.pub` provisioner finds it.
-#   3. Apply the multi-OS template library (provides the `debian12`
+#   1. Make sure the shared SSH keypair exists at
+#      tests-integration/keys/corvus-test-key{,.pub}.
+#   2. Apply the multi-OS template library (provides the `debian12`
 #      bake VM template — it bootstraps Alpine via apk-tools-static
 #      from inside the bake VM, so it doesn't need any pre-cached ISO).
-#   4. Run `crv build`. The artifact is registered as a Corvus disk
-#      named `corvus-test` at ~/VMs/BaseImages/Alpine/corvus-test.qcow2.
-test-image-alpine:
-	mkdir -p $(HOME)/VMs/BaseImages/Alpine
-	test -f $(HOME)/VMs/BaseImages/Alpine/corvus-test-key || \
-	  ssh-keygen -t ed25519 -f $(HOME)/VMs/BaseImages/Alpine/corvus-test-key -N '' -C corvus-test
-	cp $(HOME)/VMs/BaseImages/Alpine/corvus-test-key.pub yaml/alpine-test/corvus-test-key.pub
+#   3. Run `crv build`. The artifact is registered as a Corvus disk
+#      named `corvus-test` under the daemon's BaseImages tree at
+#      `BaseImages/Alpine/corvus-test.qcow2`. The build's `file:` step
+#      reads the pubkey directly out of `tests-integration/keys/`.
+test-image-alpine: test-image-key
+	crv disk delete corvus-test || true
 	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
 	crv build yaml/alpine-test/alpine-test.yml --wait
-	rm -f yaml/alpine-test/corvus-test-key.pub
+
+# Build the Gentoo integration-test image (the harness's outer VM).
+#
+# Steps:
+#   1. Make sure the shared SSH keypair exists at
+#      tests-integration/keys/corvus-test-key{,.pub} — the image
+#      bakes its public half into /home/corvus/.ssh/authorized_keys.
+#   2. Drop any prior `corvus-integration-test` disk so the build
+#      always rebakes (the YAML changes we land here only take
+#      effect after a fresh bake).
+#   3. Run yaml/gentoo-test/gentoo-headless.yml — registers the
+#      OVMF + gentoo-base-cloud disks and bakes both the
+#      `gentoo-cloud` and `gentoo-headless` templates the
+#      integration-test build is an overlay on. First-run cost is
+#      the headless bake itself (~30-60 min: kernel + stage3 +
+#      emerges); later runs no-op via `ifExists: skip`.
+#   4. Run `crv build` on tests-integration/images/corvus-integration-test.yml.
+#      The artifact is registered as a Corvus disk named
+#      `corvus-integration-test`. The pytest harness's `ImageReady.ensure()`
+#      reuses it instead of baking a fresh one on first run.
+test-image-integration: test-image-key
+	crv disk delete corvus-integration-test || true
+	crv build yaml/gentoo-test/gentoo-headless.yml --wait
+	crv build tests-integration/images/corvus-integration-test.yml --wait
 
 # Build the Windows Server 2025 test image.
 #

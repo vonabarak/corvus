@@ -13,7 +13,8 @@ blocks they're composed from:
 - `base_images`          — register pre-baked disks with the inner daemon
 - `cases.{Single,Two,Three}VmCase` — class-based test bases with
                            class-scoped VMs
-- `ssh.GuestShell`       — SSH/exec into a VM for low-level work
+- `ssh.GuestShell`       — single-leg host→outer SSH over VSOCK
+- `ssh.InnerGuestShell`  — host→outer→inner SSH tunnel for doubly-nested VMs
 - `version`              — outer-version + nested-KVM sanity checks
 """
 
@@ -28,6 +29,7 @@ from .host_binary import HostBinary
 from .images import ImageReady
 from .inner import open_client
 from .outer import Crv
+from .ssh import HOST_ALPINE_KEY_PATH, GuestShell, InnerGuestShell, SshResult
 from .topology import Topology, TestVm
 from .transport import VsockTcpRelay
 from .version import (
@@ -38,11 +40,15 @@ from .version import (
 
 __all__ = [
     "Crv",
+    "GuestShell",
+    "HOST_ALPINE_KEY_PATH",
     "HostBinary",
     "ImageReady",
+    "InnerGuestShell",
     "IntegrationTestCase",
     "NestedKvmStatus",
     "SingleVmCase",
+    "SshResult",
     "TestVm",
     "ThreeVmsCase",
     "Topology",

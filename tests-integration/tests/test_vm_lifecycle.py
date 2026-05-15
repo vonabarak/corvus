@@ -170,3 +170,79 @@ class TestVmLifecycle(SingleVmCase):
         assert details.ram_mb == 512
         assert details.description == "from python integration tests"
         vm.delete()
+
+    def test_alpine_inner_vm_boots_runs_ssh_commands_and_shuts_down(self):
+        """Full inner-VM lifecycle with SSH-driven assertions.
+
+        Creates an inner VM whose disk is an overlay on the registered
+        Alpine base image, starts it (nested KVM + qemu-guest-agent),
+        waits for sshd, runs a few sanity commands over a multiplexed
+        SSH connection, then gracefully shuts the VM down via
+        `vm.stop()` and removes its disk.
+        """
+        images = self.register_base_images()
+        alpine_disk = images.get("alpine")
+        if alpine_disk is None:
+            pytest.skip(
+                "Alpine base image not registered — "
+                "run `make test-image-alpine` to build it"
+            )
+
+        overlay_name = "alpine-ssh-target"
+        self.client.disks.create_overlay(overlay_name, alpine_disk)
+        try:
+            vm = self.client.vms.create(
+                overlay_name,
+                cpu_count=1,
+                ram_mb=512,
+                headless=True,
+                guest_agent=True,
+            )
+            try:
+                # Attach the overlay after create. The `drives=` kwarg
+                # on `vms.create` exists in the schema but no Python
+                # test exercises it and the daemon's QEMU command
+                # comes out empty — likely a pycapnp list-element
+                # struct-assignment quirk in `_build_drive_attach`.
+                vm.attach_disk(overlay_name, interface="virtio")
+                vm.start(wait=True)
+
+                try:
+                    shell_ctx = self.inner_ssh(vm)
+                except RuntimeError as e:
+                    pytest.skip(str(e))
+
+                with shell_ctx as shell:
+                    shell.wait_ready(timeout_sec=90)
+
+                    r = shell.run("uname -s")
+                    assert r.exit_code == 0
+                    assert r.stdout.strip() == "Linux"
+
+                    r = shell.run("cat /etc/os-release")
+                    assert "Alpine Linux" in r.stdout
+
+                    r = shell.run("hostname")
+                    assert "corvus-test" in r.stdout
+
+                    # Multiplex sanity: many commands should reuse the
+                    # ControlMaster connection and complete quickly.
+                    for _ in range(5):
+                        r = shell.run("true")
+                        assert r.exit_code == 0
+
+            finally:
+                try:
+                    vm.stop(wait=True)
+                except Exception:
+                    pass
+                # delete_disks=True so the overlay we created is removed
+                # alongside the VM record.
+                vm.delete(delete_disks=True)
+        finally:
+            # Belt-and-suspenders: if vm.create raised before vm.delete
+            # could clean up, the overlay is still in the inner daemon.
+            try:
+                self.client.disks.get(overlay_name).delete()
+            except Exception:
+                pass

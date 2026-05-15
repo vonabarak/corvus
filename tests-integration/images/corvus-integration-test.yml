@@ -213,6 +213,59 @@ pipeline:
               # corvus-tcp-relay.service translates host vsock connects
               # to the daemon's TCP listener.
               systemctl enable corvus-tcp-relay.service
+              # sshd accepts incoming SSH (including over VSOCK via
+              # systemd's built-in socket-activated proxy); the corvus
+              # user's authorized_keys is set up below.
+              systemctl enable sshd.service
+            timeoutSec: 30
+
+        # ── SSH access for the host-side test harness ────────────────────
+        # The harness drives the inner Alpine VM via a two-leg SSH
+        # tunnel: host → outer Gentoo VM (this image) → inner Alpine VM.
+        # Both legs use the same keypair in tests-integration/keys/, so
+        # one authorized_keys file in /home/corvus is enough.
+        - shell:
+            inline: |
+              if ! id corvus >/dev/null 2>&1; then
+                useradd -m -s /bin/bash -G wheel corvus
+              fi
+              install -d -m 0700 -o corvus -g corvus /home/corvus/.ssh
+              # Allow passwordless sudo for the wheel group so tests can
+              # exercise root-only paths without prompting.
+              install -d -m 0750 /etc/sudoers.d
+              echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel-nopasswd
+              chmod 0440 /etc/sudoers.d/wheel-nopasswd
+            timeoutSec: 30
+
+        # Bake the harness's public key into the corvus user's
+        # authorized_keys. Path is relative to this YAML's directory;
+        # `crv build`'s client-side preprocessor handles `..` segments
+        # (src/Corvus/Client/Commands/Build.hs:readFromFile).
+        - file:
+            from: ../keys/corvus-test-key.pub
+            to: /home/corvus/.ssh/authorized_keys
+            mode: "0600"
+
+        - shell:
+            inline: |
+              chown corvus:corvus /home/corvus/.ssh/authorized_keys
+            timeoutSec: 10
+
+        # ── Strip cloud-init from the boot path ──────────────────────────
+        # The outer VM doesn't need cloud-init at apply time — the SSH
+        # key is baked into the image above. Masking the units saves a
+        # few seconds of boot per test class (cloud-init's "find a
+        # datasource and time out" path is the dominant cost when no
+        # NoCloud ISO is attached).
+        - shell:
+            inline: |
+              systemctl mask \
+                cloud-init.target \
+                cloud-init-main.service \
+                cloud-init-local.service \
+                cloud-config.service \
+                cloud-final.service \
+                cloud-init-hotplugd.socket
             timeoutSec: 30
 
         # Nested-KVM sanity check on the built image. If the kernel

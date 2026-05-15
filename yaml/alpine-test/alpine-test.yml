@@ -10,18 +10,19 @@
 #   * Apply yaml/multi-os/multi-os.yml first (provides the `debian12`
 #     bake VM template — the from-scratch build runs apk-tools-static
 #     plus chroot inside a Debian bake VM with a network connection).
-#   * Generate the SSH keypair to embed into the image. The Makefile
-#     target wires this up; manual:
+#   * Generate the SSH keypair to embed into the image. `make
+#     test-image-key` does this; manual equivalent:
 #
-#       mkdir -p ~/VMs/BaseImages/Alpine
-#       ssh-keygen -t ed25519 -f ~/VMs/BaseImages/Alpine/corvus-test-key -N '' \
-#         -C corvus-test
-#       cp ~/VMs/BaseImages/Alpine/corvus-test-key.pub yaml/alpine-test/
+#       mkdir -p tests-integration/keys
+#       ssh-keygen -t ed25519 -f tests-integration/keys/corvus-test-key \
+#         -N '' -C corvus-test
 #
-#     The keypair lives next to the baked image at a stable host-side
-#     path so the integration-test harness can find the private key.
+#     The keypair lives in the project tree (gitignored) and is
+#     shared with the Gentoo integration-test image so one key
+#     authorises both the outer and inner halves of the SSH tunnel.
 #
 # Usage:
+#   make test-image-key
 #   crv apply yaml/multi-os/multi-os.yml --skip-existing
 #   crv build yaml/alpine-test/alpine-test.yml --wait
 #
@@ -262,8 +263,10 @@ pipeline:
             GRUB_CFG
 
         # ── 6. Inject the test SSH public key as authorized_keys ─────────
+        # Path is relative to this YAML's directory; `crv build`'s
+        # client-side preprocessor handles `..` segments.
         - file:
-            from: ./corvus-test-key.pub
+            from: ../../tests-integration/keys/corvus-test-key.pub
             to: /mnt/target/home/corvus/.ssh/authorized_keys
             mode: "0600"
 

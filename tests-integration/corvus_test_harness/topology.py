@@ -250,7 +250,13 @@ class Topology:
                     "name": outer_name,
                     "cpuCount": cpu_count,
                     "ramMb": ram_mb,
-                    "cloudInit": True,
+                    # The integration-test image bakes the harness's
+                    # SSH key into /home/corvus/.ssh/authorized_keys at
+                    # build time, so we don't need cloud-init at apply
+                    # time. Disabling it saves a few seconds of boot
+                    # per class (cloud-init would otherwise spin for a
+                    # bit before deciding there's no datasource).
+                    "cloudInit": False,
                     "guestAgent": True,
                     "headless": True,
                     "description": f"Corvus integration test VM ({short_name})",
@@ -269,7 +275,6 @@ class Topology:
                         }
                     ],
                     "sharedDirs": shared_dirs,
-                    "sshKeys": ["corvus"],
                 }
             ],
         }

@@ -28,11 +28,13 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import pytest
 
 from . import base_images as _base_images
+from .ssh import HOST_ALPINE_KEY_PATH, InnerGuestShell
 from .topology import Topology
 
 if TYPE_CHECKING:
@@ -192,9 +194,47 @@ class IntegrationTestCase:
             return state.base_images_cache
         first = self.vms[0]
         state.base_images_cache = _base_images.register_all(
-            first.client(), first.crv, first.outer_name
+            first.client(), self.topology.crv, first.outer_name
         )
         return state.base_images_cache
+
+    def inner_ssh(
+        self,
+        inner_vm,
+        *,
+        outer_index: int = 0,
+        host_key_path: Path = HOST_ALPINE_KEY_PATH,
+    ) -> InnerGuestShell:
+        """Build an SSH transport to an inner VM created via the inner
+        daemon.
+
+        The inner VM must already be started and have a VSOCK CID
+        allocated. Raises if `vsock_cid` is None (usually means the
+        outer VM kernel is missing `/dev/vhost-vsock`; tests should
+        catch and skip) or the host-side private key file is missing
+        (presence on the host means the same file is virtiofs-mounted
+        and available inside the outer VM too).
+
+        The returned shell must be `close()`d or used as a context
+        manager so the outer-side ControlMaster is torn down.
+        """
+        details = inner_vm.show()
+        if details.vsock_cid is None:
+            raise RuntimeError(
+                f"inner VM {details.name!r} has no vsock CID — host "
+                "kernel may be missing /dev/vhost-vsock"
+            )
+        if not host_key_path.exists():
+            raise RuntimeError(
+                f"SSH private key not found at {host_key_path} — "
+                "run `make test-image-alpine` to generate it"
+            )
+        outer = self.vms[outer_index]
+        return InnerGuestShell(
+            outer_cid=outer.cid,
+            inner_cid=details.vsock_cid,
+            host_key_path=host_key_path,
+        )
 
 
 class SingleVmCase(IntegrationTestCase):

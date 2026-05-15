@@ -1,0 +1,341 @@
+pipeline:
+  - apply:
+      ifExists: skip
+
+      sshKeys:
+        - name: corvus
+          publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
+
+      disks:
+        - name: ovmf-code
+          register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
+          format: qcow2
+
+        - name: ovmf-vars
+          register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
+          format: qcow2
+
+        - name: gentoo-base-cloud
+          import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260510T170106Z.qcow2"
+          format: qcow2
+          path: BaseImages/Gentoo/
+
+      templates:
+        - name: gentoo-cloud
+          cpuCount: 8
+          ramMb: 8192
+          cloudInit: true
+          guestAgent: true
+          description: "Gentoo (2026-04-05 snapshot)"
+          cloudInitConfig:
+            userData:
+              runcmd:
+                - emerge-webrsync --quiet
+                - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
+                - systemctl enable --now qemu-guest-agent.service
+          drives:
+            - diskImageName: gentoo-base-cloud
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - diskImageName: ovmf-code
+              interface: pflash
+              readOnly: true
+              strategy: direct
+            - diskImageName: ovmf-vars
+              interface: pflash
+              strategy: clone
+          networkInterfaces:
+            - type: vde
+              hostDevice: /run/vde2/switch.ctl
+          sshKeys:
+            - name: corvus
+
+  - build:
+      name: gentoo-headless
+      description: Minimal headless Gentoo with custom kernel (BIOS+GPT, ext4)
+      template: gentoo-cloud
+
+      target:
+        name: gentoo-base-headless
+        format: qcow2
+        sizeGb: 20
+        path: BaseImages/Gentoo/
+        compact: true
+        ifExists: skip
+
+      strategy: from-scratch
+
+      vm:
+        cpuCount: 8
+        ramMb: 8192
+
+      shellDefaults:
+        preamble: "set -eux"
+        env:
+          SYSROOT: /mnt/sysroot
+          DEV: /dev/vdb
+
+      provisioners:
+        # 1) Bake-host prep.
+        - shell:
+            env:
+              SYSROOT: /
+            inline: |
+              # Wait until outbound DNS works before touching the network.
+              for i in $(seq 1 60); do
+                getent hosts distfiles.gentoo.org >/dev/null && break
+                sleep 2
+              done
+              getent hosts distfiles.gentoo.org >/dev/null \
+                || { echo "network never came up after 120s" >&2; exit 1; }
+
+              emerge-webrsync
+
+              mkdir -p /etc/portage/package.use
+              cat > /etc/portage/package.use/grub <<'EOF'
+              sys-boot/grub grub_platforms_pc -mount -nls -fonts -themes
+              EOF
+
+              grep -q 'FEATURES=.*getbinpkg' /etc/portage/make.conf 2>/dev/null || cat >> /etc/portage/make.conf <<'EOF'
+
+              FEATURES="${FEATURES} getbinpkg parallel-fetch"
+              EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y"
+              ACCEPT_LICENSE="*"
+              EOF
+
+              getuto || emerge -1q app-portage/getuto || true
+              getuto || true
+
+              emerge --noreplace -vt \
+                sys-apps/gptfdisk \
+                sys-block/parted \
+                sys-fs/e2fsprogs \
+                sys-boot/grub:2
+            timeoutSec: 1800
+
+        # 2) Copy kernel config onto the bake VM.
+        #    Step 5 copies it to $SYSROOT/usr/src/linux/.config and
+        #    builds gentoo-sources against it.
+        - file:
+            from: ./gentoo-kernel
+            to: /tmp/gentoo-kernel-config
+            mode: "0644"
+
+        # 3) Partition the empty target disk. /dev/vdb is the second
+        #    drive — the bake VM's bootdisk is /dev/vda. GPT layout with
+        #    a 1 MiB BIOS-boot partition (type ef02 for GRUB stage 1.5)
+        #    and a single ext4 root.
+        - shell:
+            inline: |
+              wipefs -a "$DEV"
+              sgdisk --zap-all "$DEV"
+              sgdisk -n 1:0:+1M  -t 1:ef02 -c 1:bios "$DEV"
+              sgdisk -n 2:0:0    -t 2:8300 -c 2:root "$DEV"
+              partprobe "$DEV" || sleep 2
+
+              mkfs.ext4 -F -L corvus-root "${DEV}2"
+            timeoutSec: 120
+
+        # 4) Mount the new root and lay down a Gentoo @system using a stage3 tarball.
+        - shell:
+            inline: |
+              mkdir -p "$SYSROOT"
+              mount "${DEV}2" "$SYSROOT"
+
+              STAGE_DIR=https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd
+              STAGE_NAME=$(curl -fsSL "$STAGE_DIR/latest-stage3-amd64-systemd.txt" \
+                | awk '/tar\.xz/ {print $1; exit}')
+              test -n "$STAGE_NAME"
+              curl -fL "$STAGE_DIR/$STAGE_NAME"          -o /tmp/stage3.tar.xz
+              curl -fL "$STAGE_DIR/$STAGE_NAME.DIGESTS"  -o /tmp/stage3.DIGESTS
+
+              HASH=$(awk '
+                /^# BLAKE2B HASH$/ { f = 1; next }
+                /^# /              { f = 0 }
+                f && /tar\.xz$/    { print $1; exit }
+              ' /tmp/stage3.DIGESTS)
+              test -n "$HASH"
+              echo "$HASH  /tmp/stage3.tar.xz" | b2sum -c -
+
+              tar --xattrs-include='*.*' --numeric-owner -xpf /tmp/stage3.tar.xz -C "$SYSROOT"
+              rm -f /tmp/stage3.tar.xz /tmp/stage3.DIGESTS
+
+              install -d "$SYSROOT/etc/portage" "$SYSROOT/etc/portage/package.use"
+
+              # Append the same binhost knobs to the sysroot's stage3
+              grep -q 'FEATURES=.*getbinpkg' "$SYSROOT/etc/portage/make.conf" 2>/dev/null \
+                || cat >> "$SYSROOT/etc/portage/make.conf" <<'EOF'
+
+              FEATURES="${FEATURES} getbinpkg parallel-fetch"
+              EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y"
+              ACCEPT_LICENSE="*"
+              USE="bash-completion"
+              EOF
+
+              cp -a /etc/portage/gnupg "$SYSROOT/etc/portage/gnupg"
+            timeoutSec: 1800
+
+        # 5) Build and install the kernel from sys-kernel/gentoo-sources.
+        - shell:
+            inline: |
+              SYSROOT="/" emerge -vt sys-kernel/gentoo-sources
+
+              KSRC=$(ls -1d /usr/src/linux-*-gentoo 2>/dev/null | sort -V | tail -1)
+              test -n "$KSRC" -a -d "$KSRC" \
+                || { echo "no gentoo-sources install at /usr/src/linux-*-gentoo"; ls /usr/src/; exit 1; }
+
+              install -m 0644 /tmp/gentoo-kernel-config "$KSRC/.config"
+              make -C "$KSRC" -j"$(nproc)" \
+                ARCH=x86_64 olddefconfig
+
+              make -C "$KSRC" -j"$(nproc)" ARCH=x86_64 bzImage modules
+              make -C "$KSRC" -j"$(nproc)" ARCH=x86_64 \
+                INSTALL_MOD_PATH="$SYSROOT" modules_install
+
+              KVER=$(make -C "$KSRC" -s ARCH=x86_64 kernelrelease)
+              test -n "$KVER"
+              install -d "$SYSROOT/boot"
+              install -m 0644 "$KSRC/arch/x86/boot/bzImage" \
+                "$SYSROOT/boot/vmlinuz-$KVER"
+              install -m 0644 "$KSRC/System.map" \
+                "$SYSROOT/boot/System.map-$KVER"
+              install -m 0644 "$KSRC/.config" \
+                "$SYSROOT/boot/config-$KVER"
+            timeoutSec: 14400
+
+        # 6) Install runtime packages
+        - shell:
+            inline: |
+              emerge --sysroot="$SYSROOT" --root="$SYSROOT" -vt \
+                app-emulation/qemu-guest-agent \
+                app-emulation/cloud-init \
+                mail-mta/msmtp \
+                app-admin/sudo \
+                net-fs/nfs-utils \
+                app-editors/vim \
+                app-shells/bash-completion
+            timeoutSec: 1800
+
+        # 7) Install GRUB into the sysroot.
+        - shell:
+            inline: |
+              grub-install --target=i386-pc --boot-directory="$SYSROOT/boot" /dev/vdb
+
+              KERNEL=$(cd "$SYSROOT/boot" && ls -1t vmlinuz-* 2>/dev/null | grep -v '\.old$' | head -1)
+              test -n "$KERNEL"
+              ln -sf "$KERNEL" "$SYSROOT/boot/vmlinuz"
+
+              install -d "$SYSROOT/boot/grub"
+              cat > "$SYSROOT/boot/grub/grub.cfg" <<EOF
+              set timeout=0
+              set default=0
+
+              insmod part_gpt
+              insmod ext2
+              insmod search_label
+
+              serial --unit=0 --speed=115200
+              terminal_input serial console
+              terminal_output serial console
+
+              menuentry 'Gentoo Linux (custom kernel)' {
+                  search --set=root --label corvus-root
+                  linux /boot/$KERNEL root=/dev/vda2 rootfstype=ext4 console=tty0 console=ttyS0,115200n8
+              }
+              EOF
+            timeoutSec: 600
+
+        # 8) Configure the resulting system: fstab, hostname, machine-id
+        #    placeholder, serial getty, sshd, and a wildcard
+        #    systemd-networkd unit so DHCP comes up on whatever NIC the
+        #    operator hands the VM.
+        - shell:
+            inline: |
+              cat > "$SYSROOT/etc/fstab" <<'EOF'
+              LABEL=corvus-root  /  ext4  defaults,noatime  0 1
+              EOF
+
+              echo gentoo-headless > "$SYSROOT/etc/hostname"
+              : > "$SYSROOT/etc/machine-id"   # populated by systemd on first boot
+
+              install -d "$SYSROOT/etc/systemd/network"
+              cat > "$SYSROOT/etc/systemd/network/20-wired.network" <<'EOF'
+              [Match]
+              Name=en* eth*
+
+              [Network]
+              DHCP=yes
+              EOF
+
+              systemctl --root="$SYSROOT" enable \
+                systemd-networkd.service \
+                systemd-resolved.service \
+                sshd.service \
+                qemu-guest-agent.service \
+                serial-getty@ttyS0.service \
+                cloud-init.target \
+                cloud-init-main.service \
+                cloud-init-local.service \
+                cloud-config.service \
+                cloud-final.service \
+                cloud-init-hotplugd.socket
+
+              # Pin cloud-init's datasource to NoCloud and skip
+              # ds-identify's auto-detection. Corvus's apply YAML
+              # always supplies cloud-init data via a NoCloud cidata
+              # ISO (see Handlers/CloudInit.hs); ds-identify can race
+              # the IDE CDROM enumeration on early boot and tell the
+              # cloud-init generator "no datasource", which writes
+              # /run/cloud-init/cloud-init.disabled and you end up
+              # with `cloud-init status` reporting "disabled-by-
+              # generator". Pinning datasource_list bypasses the
+              # generator's veto.
+              install -d "$SYSROOT/etc/cloud/cloud.cfg.d"
+              cat > "$SYSROOT/etc/cloud/cloud.cfg.d/90_corvus_nocloud.cfg" <<'EOF'
+              datasource_list: [ NoCloud, None ]
+              EOF
+
+              # Resolved-managed /etc/resolv.conf
+              ln -sf /run/systemd/resolve/stub-resolv.conf "$SYSROOT/etc/resolv.conf" || true
+            timeoutSec: 120
+
+        # 9) Tear down build scratch, write provenance, then unmount
+        #    cleanly so the qcow2's last consistent state is on disk
+        #    before Corvus detaches it.
+        - shell:
+            inline: |
+              cat > "$SYSROOT/etc/corvus-image-info" <<EOF
+              image: gentoo-headless
+              built: $(date -Iseconds)
+              EOF
+
+              sync
+              umount "$SYSROOT"
+            timeoutSec: 300
+
+      cleanup: onSuccess
+
+  - apply:
+      ifExists: skip
+      templates:
+        - name: gentoo-headless
+          cpuCount: 8
+          ramMb: 8192
+          cloudInit: true
+          guestAgent: true
+          headless: true
+          description: "Gentoo (custom image for headless VMs)"
+          drives:
+            - diskImageName: gentoo-base-headless
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+              sizeMb: 40960
+          networkInterfaces:
+            - type: vde
+              hostDevice: /run/vde2/switch.ctl
+          sshKeys:
+            - name: corvus
