@@ -22,54 +22,6 @@ def _set_optional(builder, has_field: str, value_field: str, value):
         setattr(builder, value_field, value)
 
 
-def _build_drive_attach(d: dict):
-    """Construct a `DriveAttachParams` message from a plain dict.
-
-    Accepted keys: disk_ref (required), interface, media, read_only,
-    cache_type, discard. Schema defaults apply for unset fields.
-    """
-    p = _schema.vm.DriveAttachParams.new_message()
-    p.diskRef = entity_ref(d["disk_ref"])
-    if "interface" in d:
-        p.interface = d["interface"]
-    if "media" in d:
-        p.media = d["media"]
-    if "read_only" in d:
-        p.readOnly = d["read_only"]
-    if "cache_type" in d:
-        p.cacheType = d["cache_type"]
-    if "discard" in d:
-        p.discard = d["discard"]
-    return p
-
-
-def _build_net_if_add(n: dict):
-    """Construct a `NetIfAddParams` message from a plain dict."""
-    p = _schema.vm.NetIfAddParams.new_message()
-    if "type" in n:
-        p.type = n["type"]
-    if "host_device" in n:
-        p.hostDevice = n["host_device"]
-    if "mac_address" in n:
-        p.macAddress = n["mac_address"]
-    if "network_ref" in n:
-        p.networkRef = entity_ref(n["network_ref"])
-    return p
-
-
-def _build_cloud_init_config(c: dict):
-    p = _schema.cloudinit.CloudInitInfo.new_message()
-    if "user_data" in c and c["user_data"] is not None:
-        p.hasUserData = True
-        p.userData = c["user_data"]
-    if "network_config" in c and c["network_config"] is not None:
-        p.hasNetworkConfig = True
-        p.networkConfig = c["network_config"]
-    if "inject_ssh_keys" in c:
-        p.injectSshKeys = c["inject_ssh_keys"]
-    return p
-
-
 @translate_errors
 class AsyncVmManager:
     """Wrapper for the `VmManager` cap returned by `Daemon.vms()`."""
@@ -104,11 +56,15 @@ class AsyncVmManager:
         guest_agent: bool = False,
         cloud_init: bool = False,
         autostart: bool = False,
-        drives: Optional[list[dict]] = None,
-        net_ifs: Optional[list[dict]] = None,
-        ssh_keys: Optional[list[Union[int, str]]] = None,
-        cloud_init_config: Optional[dict] = None,
     ) -> "AsyncVm":
+        """Create a bare VM record.
+
+        Attach drives, network interfaces, SSH keys, and cloud-init
+        configuration with the corresponding `AsyncVm` methods after
+        create (`attach_disk`, `add_net_if`, `attach_ssh_key`,
+        `set_cloud_init`). For one-shot bulk creation with all of
+        those wired up, use the apply pipeline (`crv apply`).
+        """
         mgr = await self._ensure()
         params = _schema.vm.VmCreateParams.new_message()
         params.name = name
@@ -120,20 +76,6 @@ class AsyncVmManager:
         params.guestAgent = guest_agent
         params.cloudInit = cloud_init
         params.autostart = autostart
-        if drives:
-            drives_b = params.init("drives", len(drives))
-            for i, d in enumerate(drives):
-                drives_b[i] = _build_drive_attach(d)
-        if net_ifs:
-            net_ifs_b = params.init("netIfs", len(net_ifs))
-            for i, n in enumerate(net_ifs):
-                net_ifs_b[i] = _build_net_if_add(n)
-        if ssh_keys:
-            keys_b = params.init("sshKeys", len(ssh_keys))
-            for i, k in enumerate(ssh_keys):
-                keys_b[i] = entity_ref(k)
-        if cloud_init_config:
-            params.cloudInitConfig = _build_cloud_init_config(cloud_init_config)
         resp = await mgr.create(params=params)
         return AsyncVm(resp.vm)
 

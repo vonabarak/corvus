@@ -2,12 +2,12 @@
 
 A test method that needs a booted inner VM otherwise has to chain
 ~25 lines of `register_base_images` lookup → `disks.create_overlay`
-→ `vms.create` → `vm.attach_disk` (the `drives=` kwarg on
-`vms.create` has a pycapnp list-element copy quirk that leaves
-QEMU without a `-drive`) → `vm.start(wait=True)` → use the VM →
-`vm.stop` → `vm.delete(delete_disks=True)` → belt-and-suspenders
-disk cleanup. Multiplied across many tests that's a lot of
-boilerplate.
+→ `vms.create` → `vm.attach_disk` (`vms.create` only creates the
+bare VM record; drives, network interfaces, SSH keys, and
+cloud-init are attached afterward) → `vm.start(wait=True)` → use
+the VM → `vm.stop` → `vm.delete(delete_disks=True)` → belt-and-
+suspenders disk cleanup. Multiplied across many tests that's a
+lot of boilerplate.
 
 Two classes live here:
 
@@ -128,12 +128,9 @@ class InnerVm:
                 headless=self.headless,
                 guest_agent=self.guest_agent,
             )
-            # Attach drives after create. `vms.create(drives=…)` exists
-            # in the schema but a pycapnp list-element copy quirk in
-            # `_build_drive_attach`
-            # (`python/corvus_client/_async/vm.py:25`) leaves QEMU with
-            # no `-drive`; `attach_disk` is the path the existing python
-            # test suite covers.
+            # `vms.create` produces a bare VM record; drives, network
+            # interfaces, SSH keys, and cloud-init are attached
+            # afterward via the per-resource cap methods.
             for drive in self._drives():
                 self.vm.attach_disk(**drive)
             self.vm.start(wait=self.wait_for_qga)

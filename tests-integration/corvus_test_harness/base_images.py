@@ -19,9 +19,9 @@ Tests then refer to the images by short name:
 
     def test_overlay_on_alpine(single_client, base_images):
         disk = base_images["alpine"]
-        vm = single_client.vms.create(
-            "scratch", drives=[{"disk_ref": disk, "interface": "virtio"}],
-        )
+        single_client.disks.create_overlay("scratch-overlay", disk)
+        vm = single_client.vms.create("scratch")
+        vm.attach_disk("scratch-overlay", interface="virtio")
 """
 from __future__ import annotations
 

@@ -413,10 +413,6 @@ rpcVmCreate conn name cpus ram desc headless ga ci autostart = do
           , CGVm.guestAgent = ga
           , CGVm.cloudInit = ci
           , CGVm.autostart = autostart
-          , CGVm.drives = []
-          , CGVm.netIfs = []
-          , CGVm.sshKeys = []
-          , CGVm.cloudInitConfig = emptyCloudInitParsed
           }
   CGVm.VmManager'create'results {CGVm.vm = vmClient} <-
     callOn #create CGVm.VmManager'create'params {CGVm.params = inner} mgr
@@ -621,19 +617,6 @@ getNetworkClient conn ref = do
   pure nClient
 
 -- =====================================================================
--- Cloud-init payload helpers
--- =====================================================================
-
-emptyCloudInitParsed :: C.Parsed CGCI.CloudInitInfo
-emptyCloudInitParsed =
-  CGCI.CloudInitInfo
-    { CGCI.hasUserData = False
-    , CGCI.userData = ""
-    , CGCI.hasNetworkConfig = False
-    , CGCI.networkConfig = ""
-    , CGCI.injectSshKeys = False
-    }
-
 -- ---------------------------------------------------------------------
 -- Empty-EntityRef placeholder for "no network reference" etc.
 -- ---------------------------------------------------------------------

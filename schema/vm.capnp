@@ -89,6 +89,12 @@ struct VmCreateParams {
   # `name` is the only mandatory field. The remaining defaults
   # mirror the `crv vm create` CLI defaults so callers can omit
   # any field they don't care about.
+  #
+  # `vmManager.create` creates a bare VM record; attach drives,
+  # network interfaces, SSH keys, and cloud-init separately
+  # (vm.attachDisk, vm.addNetIf, vm.attachSshKey, vm.setCloudInit).
+  # For bulk creation with all of those wired up in one call, use
+  # the apply pipeline.
   name            @0  :Text;
   cpuCount        @1  :Int32 = 1;
   ramMb           @2  :Int32 = 1024;
@@ -97,10 +103,6 @@ struct VmCreateParams {
   guestAgent      @5  :Bool = false;
   cloudInit       @6  :Bool = false;
   autostart       @7  :Bool = false;
-  drives          @8  :List(DriveAttachParams);
-  netIfs          @9  :List(NetIfAddParams);
-  sshKeys         @10 :List(Common.EntityRef);
-  cloudInitConfig @11 :CloudInit.CloudInitInfo;
 }
 
 struct VmEditParams {
