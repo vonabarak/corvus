@@ -43,20 +43,25 @@ import Control.Exception (SomeException, finally, try)
 import Control.Monad (unless, when)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Config (ClientConfig (..))
 import Corvus.Client.Output (Align (..), Column (..), emitError, emitOk, emitOkWith, isStructured, printField)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (DriveInfo (..), NetIfInfo (..), VmDetails (..), VmInfo (..))
-import Corvus.Wire.Common (entityRefFromText)
+import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (toJSON)
 import qualified Data.ByteString as BS
 import Data.Char (ord)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
-import System.IO (BufferMode (..), hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
+import System.IO (BufferMode (..), hClose, hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
+import System.IO.Temp (withSystemTempFile)
+import System.Posix.Files (ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
 import System.Posix.IO (fdWrite, stdInput, stdOutput)
 import System.Posix.Terminal
+import System.Process (callProcess)
 
 -- ---------------------------------------------------------------------
 -- Helpers
@@ -252,17 +257,36 @@ runRawTerminalSession writeInput endInput endSignal kind mCtrlAltDelAction mFlus
     Left (_ :: SomeException) -> pure False
     Right () -> pure True
 
--- | Stubbed remote-viewer launcher.
+-- | Launch @remote-viewer@ against a SPICE TCP endpoint.
 --
--- 'CR.rpcVmViewGrant' is wired; this helper was the launcher that
--- materialised the .vv file and ran @remote-viewer@. With the
--- legacy ConnectionError-shaped grant type retired, the caller
--- (Corvus.Client.Commands) now hits CR.rpcVmViewGrant directly. We
--- keep an export here for backwards-compatible call sites.
-runRemoteViewer :: a -> b -> IO Bool
-runRemoteViewer _ _ = do
-  putStrLn "error: SPICE remote-viewer launch is not yet wired through Cap'n Proto (Phase 6)"
-  pure False
+-- The short-lived password from 'CR.rpcVmViewGrant' is delivered via
+-- a VirtViewer @.vv@ connection file (@[virt-viewer]@ INI section),
+-- passed as @remote-viewer@'s sole argument. We deliberately avoid
+-- @spice://USER:PASS\@HOST:PORT@-style URIs: that puts the password
+-- in argv, visible to any local user via @ps(1)@ or shell history.
+-- The temp file is created @0600@ inside the system tempdir and is
+-- removed by 'withSystemTempFile' as soon as @remote-viewer@ exits.
+runRemoteViewer :: ClientConfig -> ViewGrant -> IO Bool
+runRemoteViewer config grant = do
+  let viewer = ccRemoteViewer config
+      body =
+        T.unlines
+          [ "[virt-viewer]"
+          , "type=spice"
+          , "host=" <> vgHost grant
+          , "port=" <> T.pack (show (vgPort grant))
+          , "password=" <> vgPassword grant
+          ]
+  result <- try $ withSystemTempFile "corvus-spice-.vv" $ \path handle -> do
+    hClose handle
+    setFileMode path (ownerReadMode `unionFileModes` ownerWriteMode)
+    TIO.writeFile path body
+    callProcess viewer [path]
+  case result of
+    Left (e :: SomeException) -> do
+      putStrLn $ "Failed to run remote-viewer: " ++ show e
+      pure False
+    Right () -> pure True
 
 --------------------------------------------------------------------------------
 -- Raw Terminal Internals

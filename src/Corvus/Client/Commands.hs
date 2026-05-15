@@ -42,6 +42,7 @@ import Corvus.Client.Commands.SshKey
 import Corvus.Client.Commands.Task
 import Corvus.Client.Commands.Template
 import Corvus.Client.Commands.Vm
+import Corvus.Client.Config (defaultClientConfig)
 import Corvus.Client.Output
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), VmStatus (..))
@@ -313,13 +314,12 @@ withIgnoredSigINT action = do
 -- | Handle the @crv vm view@ command for both serial-console (headless)
 -- and SPICE (graphical) VMs.
 --
--- For headless VMs, the serial console relay requires Cap'n Proto
--- streaming (Phase 6); we return a typed error for now.
--- The SPICE flow asks the daemon for a short-lived password grant via
--- 'CR.rpcVmViewGrant' and either prints it (structured output) or
--- launches @remote-viewer@ (text output) — wired to 'runRemoteViewer'
--- once Phase 6 lands the launcher properly. For now, structured
--- output works; text output prints the grant as a heads-up.
+-- For headless VMs, the serial console relay rides
+-- 'runSerialConsoleSession'. For graphical VMs,
+-- 'handleGraphicalViewGrant' asks the daemon for a short-lived
+-- password grant via 'CR.rpcVmViewGrant' and either emits it as
+-- structured output or hands it to 'runRemoteViewer', which writes
+-- a 0600 @.vv@ file and execs @remote-viewer@.
 handleVmView :: Options -> OutputFormat -> CapnpConnection -> Text -> IO Bool
 handleVmView opts fmt conn vmRef = do
   r <- try (CR.rpcVmShow conn (entityRefFromText vmRef)) :: IO (Either SomeException VmDetails)
@@ -401,9 +401,13 @@ runHmpMonitorSession fmt conn vmRef = do
         Nothing
         Nothing
 
--- | Request a SPICE grant. For structured output emit the grant; for
--- text output print the connection info but do not auto-launch
--- remote-viewer (Phase 6 will wire the launcher cleanly).
+-- | Request a SPICE grant. For structured output emit the grant
+-- (host, port, password, ttl) as JSON/YAML and exit; for text output
+-- print a short banner with the endpoint and TTL and hand the grant
+-- to 'runRemoteViewer', which materialises a @.vv@ file and execs
+-- @remote-viewer@. The password is never printed to the terminal —
+-- the user sees only @host:port@ — and never lands in @argv@, so
+-- @ps(1)@ can't leak it.
 handleGraphicalViewGrant :: Options -> OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
 handleGraphicalViewGrant opts fmt conn vmRef vmName = do
   result <- try (CR.rpcVmViewGrant conn (entityRefFromText vmRef)) :: IO (Either SomeException ViewGrant)
@@ -429,8 +433,7 @@ handleGraphicalViewGrant opts fmt conn vmRef vmName = do
               ++ " (ttl "
               ++ show (vgTtlSeconds grant)
               ++ "s)"
-          putStrLn "Note: remote-viewer auto-launch will return in Phase 6."
-          pure True
+          runRemoteViewer defaultClientConfig grant
 
 -- | Replace wildcard SPICE hosts with the client's @--host@ when
 -- the client is connected via TCP.
