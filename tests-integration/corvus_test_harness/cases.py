@@ -101,7 +101,9 @@ class IntegrationTestCase:
         state = state_for(cls)
         topology: Optional[Topology] = None
         try:
-            topology = Topology(crv, image_ready, host_binary).__enter__()
+            topology = Topology(
+                crv, image_ready, host_binary, class_name=cls.__name__
+            ).__enter__()
             for short_name in cls.NODES:
                 topology.add(short_name)
             # Eagerly open clients so the first test method doesn't pay

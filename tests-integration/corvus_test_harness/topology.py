@@ -110,12 +110,17 @@ class Topology:
         image: ImageReady,
         host_binary: HostBinary,
         *,
+        class_name: str,
         run_id: Optional[str] = None,
         attach_source: bool = False,
     ) -> None:
         self.crv = crv
         self.image = image
         self.host_binary = host_binary
+        # Test class name (e.g. "TestVmLifecycle") embedded into every
+        # node name so `crv vm list` on the outer daemon shows which
+        # test class owns which node.
+        self.class_name = class_name
         # 8-char hex run id keeps node names short. Tests can also
         # pass an explicit `run_id` to make logs grep-friendly.
         self.run_id = run_id or secrets.token_hex(4)
@@ -213,7 +218,9 @@ class Topology:
         `extra_shared_dirs` is a list of `(host_path, tag, read_only)`
         tuples; each becomes an additional sharedDir on the node.
         """
-        node_name = f"{RESOURCE_PREFIX}-{self.run_id}-{short_name}"
+        node_name = (
+            f"{RESOURCE_PREFIX}-{self.class_name}-{self.run_id}-{short_name}"
+        )
         overlay_name = f"{node_name}-rootfs"
 
         shared_dirs: list[dict] = [
