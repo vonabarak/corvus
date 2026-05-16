@@ -154,7 +154,13 @@ lint:
 	hlint src app test
 
 # Build all test images via `crv build`
-test-image: test-image-integration test-image-alpine test-image-windows
+test-image: test-image-integration test-image-alpine test-image-multi-os test-image-windows
+
+# Fetch the multi-OS cloud images (Debian, Ubuntu, AlmaLinux, FreeBSD,
+# Alpine) used by the cloud-init integration test class. Idempotent:
+# `crv apply --skip-existing` no-ops once the disks are registered.
+test-image-multi-os:
+	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
 
 # Generate the SSH keypair the integration-test images embed.
 #

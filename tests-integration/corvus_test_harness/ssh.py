@@ -136,9 +136,12 @@ class VmShell:
         self,
         *,
         node_cid: int,
-        vm_cid: int,
         host_key_path: Path,
+        vm_cid: Optional[int] = None,
+        vm_tcp_port: Optional[int] = None,
         user: str = "corvus",
+        node_user: str = "corvus",
+        node_key_path: Optional[Path] = None,
         node_port: int = 22,
         vm_port: int = 22,
         control_dir: Optional[Path] = None,
@@ -147,10 +150,30 @@ class VmShell:
             raise RuntimeError("`ssh` not on PATH")
         if not shutil.which("socat"):
             raise RuntimeError("`socat` not on PATH; required for VSOCK SSH")
+        if (vm_cid is None) == (vm_tcp_port is None):
+            raise ValueError(
+                "VmShell needs exactly one of `vm_cid` (VSOCK transport) "
+                "or `vm_tcp_port` (node-side TCP hostfwd transport)"
+            )
         self.node_cid = node_cid
         self.vm_cid = vm_cid
+        self.vm_tcp_port = vm_tcp_port
+        # SSH "hostname" label used for ControlPath cache + Permission
+        # Denied messages. The actual transport is the ProxyCommand;
+        # this just disambiguates concurrent shells.
+        self._target_label = (
+            f"vsock-{vm_cid}" if vm_cid is not None else f"tcp-{vm_tcp_port}"
+        )
         self.host_key_path = Path(host_key_path)
+        # The node-hop key may differ from the vm-leg key. For the
+        # baked Alpine VSOCK tests they're the same (`HOST_ALPINE_KEY_PATH`,
+        # baked into both the node and the Alpine vm at image-build
+        # time). For cloud-init tests they MUST differ: the node still
+        # only trusts the harness's baked key, while the vm trusts a
+        # freshly generated per-VM key injected by cloud-init.
+        self.node_key_path = Path(node_key_path or HOST_ALPINE_KEY_PATH)
         self.user = user
+        self.node_user = node_user
         self.node_port = node_port
         self.vm_port = vm_port
         # Own a private tempdir for the control socket so concurrent
@@ -161,7 +184,13 @@ class VmShell:
         self.control_dir = Path(
             control_dir or tempfile.mkdtemp(prefix="corvus-it-ssh-")
         )
-        self.control_path = self.control_dir / f"vm-{vm_cid}.sock"
+        # Single control socket per VmShell instance, named by whichever
+        # of the two transports we're using — keeps concurrent shells
+        # over different transports from clobbering each other.
+        socket_tag = (
+            f"vm-{vm_cid}" if vm_cid is not None else f"tcp-{vm_tcp_port}"
+        )
+        self.control_path = self.control_dir / f"{socket_tag}.sock"
         self._closed = False
 
     # ---- public API --------------------------------------------------------
@@ -228,7 +257,7 @@ class VmShell:
                 ):
                     raise RuntimeError(
                         f"SSH key {self.host_key_path} rejected by VM "
-                        f"(cid {self.vm_cid}): {result.stderr.strip()}"
+                        f"({self._target_label}): {result.stderr.strip()}"
                     )
                 last_err = (
                     f"exit {result.exit_code}; "
@@ -236,7 +265,7 @@ class VmShell:
                 )
             if time.monotonic() >= deadline:
                 raise TimeoutError(
-                    f"VM SSH (cid {self.vm_cid}) not ready after "
+                    f"VM SSH ({self._target_label}) not ready after "
                     f"{timeout_sec}s; last error: {last_err}"
                 )
             time.sleep(poll_sec)
@@ -254,7 +283,7 @@ class VmShell:
                     "ssh",
                     "-O", "exit",
                     "-o", f"ControlPath={self.control_path}",
-                    f"{self.user}@vsock-{self.vm_cid}",
+                    f"{self.user}@{self._target_label}",
                 ],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
@@ -277,23 +306,28 @@ class VmShell:
     @property
     def _vm_proxy_command(self) -> str:
         """ProxyCommand for the VM-side SSH: a shell-quoted SSH-to-node
-        invocation whose remote command runs
-        `socat - VSOCK-CONNECT:<vm_cid>:22` on the node. The node-hop
-        SSH's stdin/stdout becomes the transport stream for the VM
-        SSH.
+        invocation whose remote command runs either
+        `socat - VSOCK-CONNECT:<vm_cid>:22` (VSOCK transport) or
+        `socat - TCP:127.0.0.1:<vm_tcp_port>` (node-side hostfwd
+        transport). The node-hop SSH's stdin/stdout becomes the
+        transport stream for the VM SSH.
         """
         node_proxy = (
             f"socat - VSOCK-CONNECT:{self.node_cid}:{self.node_port}"
         )
+        if self.vm_tcp_port is not None:
+            inner = f"socat - TCP:127.0.0.1:{self.vm_tcp_port}"
+        else:
+            inner = f"socat - VSOCK-CONNECT:{self.vm_cid}:{self.vm_port}"
         node_argv = [
             "ssh",
-            "-i", str(self.host_key_path),
+            "-i", str(self.node_key_path),
             "-o", "StrictHostKeyChecking=no",
             "-o", "UserKnownHostsFile=/dev/null",
             "-o", "BatchMode=yes",
             "-o", f"ProxyCommand={node_proxy}",
-            f"{self.user}@vsock-{self.node_cid}",
-            f"socat - VSOCK-CONNECT:{self.vm_cid}:{self.vm_port}",
+            f"{self.node_user}@vsock-{self.node_cid}",
+            inner,
         ]
         return shlex.join(node_argv)
 
@@ -314,7 +348,7 @@ class VmShell:
             "-o", f"ControlPath={self.control_path}",
             "-o", "ControlPersist=300",
             "-o", f"ProxyCommand={self._vm_proxy_command}",
-            f"{self.user}@vsock-{self.vm_cid}",
+            f"{self.user}@{self._target_label}",
         ]
         if command is not None:
             argv.append(command)

@@ -35,6 +35,10 @@ from __future__ import annotations
 
 import re
 import secrets
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import pytest
@@ -89,11 +93,16 @@ class Vm:
     ram_mb: int = 1024
     headless: bool = True
     guest_agent: bool = True
+    cloud_init: bool = False
     # When True, `__enter__` blocks until the inner daemon reports the
     # first QGA ping. False = return as soon as `vm.start` is accepted
     # (the subclass's `_post_start` is then responsible for whatever
     # readiness gate the test needs).
     wait_for_qga: bool = True
+    # Default user the SSH wrapper authenticates as. Subclasses override
+    # for cloud-init images whose default user differs (Ubuntu → ubuntu,
+    # Debian → debian, AlmaLinux → almalinux, …).
+    ssh_user: str = "corvus"
 
     def __init__(
         self,
@@ -106,6 +115,9 @@ class Vm:
         self.name: str = name or self._derive_name()
         self.cap = None
         self._overlay_created = False
+        # Names of SSH keys this VM registered with the inner daemon
+        # (so cleanup can drop them on __exit__).
+        self._registered_ssh_keys: list[str] = []
 
     # ---- public API --------------------------------------------------------
 
@@ -131,6 +143,7 @@ class Vm:
                 ram_mb=self.ram_mb,
                 headless=self.headless,
                 guest_agent=self.guest_agent,
+                cloud_init=self.cloud_init,
             )
             # `vms.create` produces a bare VM record; drives, network
             # interfaces, SSH keys, cloud-init, and virtiofs shared
@@ -138,8 +151,17 @@ class Vm:
             # cap methods.
             for drive in self._drives():
                 self.cap.attach_disk(**drive)
+            for net_if in self._net_ifs():
+                self.cap.add_net_if(**net_if)
             for shared in self._shared_dirs():
                 self.cap.add_shared_dir(**shared)
+            for key_name, public_key in self._ssh_keys_to_attach():
+                self.client.ssh_keys.create(key_name, public_key)
+                self._registered_ssh_keys.append(key_name)
+                self.cap.attach_ssh_key(key_name)
+            ci_cfg = self._cloud_init_config()
+            if ci_cfg is not None:
+                self.client.cloud_init.set(self.cap.show().id, **ci_cfg)
             self.cap.start(wait=self.wait_for_qga)
             self._post_start()
         except BaseException:
@@ -179,6 +201,12 @@ class Vm:
             except Exception:
                 pass
             self._overlay_created = False
+        for key_name in self._registered_ssh_keys:
+            try:
+                self.client.ssh_keys.get(key_name).delete()
+            except Exception:
+                pass
+        self._registered_ssh_keys.clear()
 
     # ---- subclass hooks ----------------------------------------------------
 
@@ -193,6 +221,13 @@ class Vm:
         UEFI subclass appends pflash entries for OVMF code+vars."""
         return [{"disk_ref": self.name, "interface": "virtio"}]
 
+    def _net_ifs(self) -> list[dict]:
+        """Return the list of `vm.add_net_if` kwarg dicts to call
+        after drives are attached. Default empty (VM boots with no
+        NIC; SSH happens over VSOCK). Cloud-init tests override to
+        add a user-mode NIC with a host-port forward."""
+        return []
+
     def _shared_dirs(self) -> list[dict]:
         """Return the list of `vm.add_shared_dir` kwarg dicts to call
         after the drives are attached and before `vm.start`. Default
@@ -205,6 +240,20 @@ class Vm:
     def _post_start(self) -> None:
         """Run after `vm.start`. Default no-op (QGA first-ping has
         already landed if `wait_for_qga`)."""
+
+    def _ssh_keys_to_attach(self) -> list[tuple[str, str]]:
+        """Return `(key_name, public_key)` pairs to register with the
+        inner daemon and attach to this VM. Default empty. Cloud-init
+        subclasses override to inject a generated keypair (or several)
+        so the daemon's NoCloud datasource places them in the guest's
+        authorized_keys at first boot."""
+        return []
+
+    def _cloud_init_config(self) -> Optional[dict]:
+        """Return a dict of kwargs for `client.cloud_init.set()`
+        (`user_data`, `network_config`, `inject_ssh_keys`), or `None`
+        to skip the call. Default `None`."""
+        return None
 
     # ---- internals ---------------------------------------------------------
 
@@ -252,12 +301,26 @@ class VmSsh(Vm):
 
     def _post_start(self) -> None:
         try:
-            self.shell = self.case.vm_shell(self.cap)
+            self.shell = self.case.vm_shell(
+                self.cap,
+                host_key_path=self._ssh_private_key_path(),
+                user=self.ssh_user,
+            )
         except RuntimeError as e:
             # Missing key / no vsock_cid — surface as a skip so the
             # test doesn't fail noisily on an unsupported host.
             pytest.skip(str(e))
         self.shell.wait_ready(timeout_sec=self.ssh_ready_timeout_sec)
+
+    def _ssh_private_key_path(self) -> Path:
+        """Path to the private SSH key the wrapper authenticates with.
+
+        Default: the harness's baked test key
+        (`tests-integration/keys/corvus-test-key`). Cloud-init
+        subclasses override to point at a per-VM generated key.
+        """
+        from .ssh import HOST_ALPINE_KEY_PATH
+        return HOST_ALPINE_KEY_PATH
 
     def __exit__(self, exc_type, exc, tb) -> None:
         # Drop the ControlMaster before tearing down the VM so the
@@ -324,3 +387,136 @@ class VmUefi(VmSsh):
             },
             {"disk_ref": self._vars_overlay, "interface": "pflash"},
         ]
+
+
+class VmCloudInit(VmSsh):
+    """A VM whose SSH access is established only via cloud-init key
+    injection (no baked authorized_keys).
+
+    Reaches the guest over QEMU user-mode networking with a
+    host-port forward — `-netdev user,hostfwd=tcp:127.0.0.1:<port>-:22`
+    — rather than via AF_VSOCK, because upstream cloud images don't
+    ship a VSOCK SSH listener and we don't want to bolt one on per
+    distro. The node-side port forward is reachable from the host's
+    second SSH leg (after the host→node VSOCK hop) as
+    `socat - TCP:127.0.0.1:<port>`.
+
+    Generates an ed25519 keypair in a per-VM tempdir, registers it
+    with the inner daemon, attaches it to the VM, and calls
+    `client.cloud_init.set(vm_id, inject_ssh_keys=True)` before
+    `vm.start`. The daemon's default NoCloud user-data creates a
+    `corvus` user with `sudo: ALL=(ALL) NOPASSWD:ALL` and seeds it
+    with the attached SSH keys (see
+    `Corvus/CloudInit.hs::defaultCloudInitConfig`), so all
+    distro tests SSH in as `corvus`.
+
+    Subclasses MUST set:
+
+      * `base_image_key` — which disk in `register_base_images()` to
+        overlay (e.g. `"alpine-3-21-base"`, `"gentoo-base-headless"`).
+
+    Subclasses MAY override:
+
+      * `_cloud_init_config()` — to supply custom `user_data` /
+        `network_config` (replaces the daemon's default user-data).
+      * `_ssh_keys_to_attach()` — to attach more than one keypair (see
+        `test_multiple_ssh_keys`).
+      * `ssh_user` — when the custom user-data creates a non-default
+        user.
+    """
+
+    cloud_init = True
+    # Daemon's `defaultCloudInitConfig.ciUser` is "corvus".
+    ssh_user: str = "corvus"
+    # Upstream cloud images vary wildly in whether qemu-guest-agent
+    # is pre-installed and enabled (Debian/Ubuntu: yes; Alpine: no;
+    # FreeBSD: no). Don't ask the daemon to gate on QGA — fall back
+    # to "VM is ready when sshd answers", which works across all
+    # distros uniformly.
+    guest_agent: bool = False
+    wait_for_qga: bool = False
+    # Cloud-init at first boot is much slower than just booting an
+    # already-baked image: it has to install packages, restart sshd,
+    # etc. 5 min covers the slowest distros (FreeBSD).
+    ssh_ready_timeout_sec: float = 300.0
+
+    def __init__(
+        self,
+        case: "IntegrationTestCase",
+        *,
+        name: Optional[str] = None,
+    ) -> None:
+        super().__init__(case, name=name)
+        self._key_dir = Path(tempfile.mkdtemp(prefix="corvus-ci-key-"))
+        self._priv_key_path = self._key_dir / "id_ed25519"
+        self._pub_key_path = self._key_dir / "id_ed25519.pub"
+        self._generate_keypair()
+        # Public-key text (single line, with comment) that the daemon
+        # records and that the guest's ~/.ssh/authorized_keys should
+        # end up containing.
+        self.public_key = self._pub_key_path.read_text().strip()
+        # Extra (name, pubkey) pairs the subclass wants attached in
+        # addition to the primary key. `_ssh_keys_to_attach` returns
+        # the primary key + these.
+        self.extra_keys: list[tuple[str, str]] = []
+        # Host-side port on the node for the SSH hostfwd. Random in a
+        # high range so concurrent (or leaked, prior-run) hostfwds
+        # don't collide.
+        self._tcp_port = 30000 + secrets.randbelow(20000)
+
+    def _generate_keypair(self) -> None:
+        subprocess.run(
+            [
+                "ssh-keygen", "-t", "ed25519",
+                "-f", str(self._priv_key_path),
+                "-N", "",
+                "-C", f"corvus-ci-{self.name}",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        self._priv_key_path.chmod(0o600)
+
+    def _ssh_private_key_path(self) -> Path:
+        return self._priv_key_path
+
+    def _primary_key_name(self) -> str:
+        # Daemon-side name must be unique per active key; the VM name
+        # already is, so reuse it as a stable per-VM identifier.
+        return f"{self.name}-ed25519"
+
+    def _ssh_keys_to_attach(self) -> list[tuple[str, str]]:
+        return [(self._primary_key_name(), self.public_key)] + self.extra_keys
+
+    def _net_ifs(self) -> list[dict]:
+        # User-mode (SLIRP) network with a hostfwd that maps a unique
+        # node-side TCP port to the guest's sshd. The daemon's
+        # `Qemu/Command.hs::netdevArgs` accepts SLIRP options via
+        # `hostDevice`, so `hostfwd=tcp:127.0.0.1:<port>-:22`
+        # becomes `-netdev user,id=…,hostfwd=tcp:127.0.0.1:<port>-:22`.
+        return [{
+            "type": "user",
+            "host_device": f"hostfwd=tcp:127.0.0.1:{self._tcp_port}-:22",
+        }]
+
+    def _cloud_init_config(self) -> dict:
+        return {"inject_ssh_keys": True}
+
+    def _post_start(self) -> None:
+        try:
+            self.shell = self.case.vm_shell(
+                self.cap,
+                host_key_path=self._ssh_private_key_path(),
+                user=self.ssh_user,
+                vm_tcp_port=self._tcp_port,
+            )
+        except RuntimeError as e:
+            pytest.skip(str(e))
+        self.shell.wait_ready(timeout_sec=self.ssh_ready_timeout_sec)
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        try:
+            super().__exit__(exc_type, exc, tb)
+        finally:
+            shutil.rmtree(self._key_dir, ignore_errors=True)

@@ -51,6 +51,11 @@ disks:
     path: BaseImages/FreeBSD/
     # md5: ba70095c3764013d536f3bb02d6689c5
 
+  - name: alpine-3.21-base
+    import: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2"
+    format: qcow2
+    path: BaseImages/AlpineCloud/
+
 # ── YAML anchors for shared template settings ──────────────────────────
 # Anchors defined on ignored top-level keys (only sshKeys, disks,
 # networks, vms, templates are recognized by the parser).

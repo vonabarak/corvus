@@ -39,7 +39,7 @@ from .version import (
     check_nested_kvm,
     check_outer_version,
 )
-from .vm import Vm, VmSsh, VmUefi
+from .vm import Vm, VmCloudInit, VmSsh, VmUefi
 
 __all__ = [
     "Crv",
@@ -57,6 +57,7 @@ __all__ = [
     "Topology",
     "TwoNodesCase",
     "Vm",
+    "VmCloudInit",
     "VmShell",
     "VmSsh",
     "VmUefi",

@@ -65,12 +65,19 @@ class BaseImage:
 
 
 def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
-    """Walk the host's BaseImages tree and return the first image found
-    per OS subdirectory, keyed by a sanitised directory name.
+    """Walk the host's BaseImages tree and return every image found.
 
-    Subdirectories with no recognisable image file are skipped silently.
-    Returns an empty dict if `host_dir` itself doesn't exist (developer
-    hasn't run `make test-image-*` yet).
+    Each image is exposed under its sanitised filename stem (e.g.
+    `gentoo-base-headless`, `almalinux-10-base`). When a directory
+    contains multiple images, the alphabetically-first one ALSO gets
+    the sanitised dir-name as an alias (e.g. `gentoo`, `almalinux`) —
+    so existing tests that say `images.get("alpine")` keep working
+    while new tests can address sibling files by stem.
+
+    Files ending in `.bak.qcow2` are skipped (backup snapshots).
+    Subdirectories with no recognisable image file are skipped
+    silently. Returns an empty dict if `host_dir` itself doesn't
+    exist (developer hasn't run `make test-image-*` yet).
     """
     if not host_dir.is_dir():
         return {}
@@ -78,19 +85,35 @@ def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
     for subdir in sorted(host_dir.iterdir()):
         if not subdir.is_dir():
             continue
-        image = next(_image_files(subdir), None)
-        if image is None:
+        files = list(_image_files(subdir))
+        if not files:
             continue
-        key = _sanitize_name(subdir.name)
-        guest_path = GUEST_BASE_IMAGES_PATH / subdir.name / image.name
-        images[key] = BaseImage(name=key, guest_path=guest_path, host_path=image)
+        dir_key = _sanitize_name(subdir.name)
+        for i, image_file in enumerate(files):
+            stem_key = _sanitize_name(image_file.stem)
+            # The disk-name registered with the inner daemon is the
+            # filename stem — unique per file.
+            guest_path = GUEST_BASE_IMAGES_PATH / subdir.name / image_file.name
+            base = BaseImage(
+                name=stem_key, guest_path=guest_path, host_path=image_file
+            )
+            images[stem_key] = base
+            # Backwards-compat alias: the dir-name key resolves to the
+            # first file in the directory (alphabetical sort order).
+            if i == 0 and dir_key not in images:
+                images[dir_key] = base
     return images
 
 
 def _image_files(d: Path) -> Iterator[Path]:
     for f in sorted(d.iterdir()):
-        if f.is_file() and f.suffix.lower() in _IMAGE_SUFFIXES:
-            yield f
+        if not f.is_file():
+            continue
+        if f.suffix.lower() not in _IMAGE_SUFFIXES:
+            continue
+        if f.name.lower().endswith(".bak.qcow2"):
+            continue
+        yield f
 
 
 def _sanitize_name(raw: str) -> str:

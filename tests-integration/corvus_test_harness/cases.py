@@ -209,37 +209,53 @@ class IntegrationTestCase:
         *,
         node_index: int = 0,
         host_key_path: Path = HOST_ALPINE_KEY_PATH,
+        user: str = "corvus",
+        vm_tcp_port: Optional[int] = None,
     ) -> VmShell:
         """Build an SSH transport to a vm created by the inner daemon.
 
         `vm` is the pycapnp `Vm` capability returned by
-        `client.vms.create` / `client.vms.get`. It must already be
-        started and have a VSOCK CID allocated. Raises if `vsock_cid`
-        is None (usually means the node kernel is missing
-        `/dev/vhost-vsock`; tests should catch and skip) or the
-        host-side private key file is missing (presence on the host
-        means the same file is virtiofs-mounted and available inside
-        the node too).
+        `client.vms.create` / `client.vms.get`. Two transports are
+        supported:
 
+        * **VSOCK** (default): the vm must already be started and have
+          a VSOCK CID allocated. Raises if `vsock_cid` is None
+          (usually means the node kernel is missing
+          `/dev/vhost-vsock`; tests should catch and skip).
+        * **node-side TCP hostfwd** (`vm_tcp_port=<port>`): the vm has
+          a SLIRP user-mode NIC with `hostfwd=tcp:127.0.0.1:<port>-:22`
+          and the inner SSH leg connects to `127.0.0.1:<port>` on the
+          node. No vsock_cid required — useful for cloud-init images
+          that don't ship a VSOCK sshd.
+
+        Raises also if the host-side private key file is missing.
         The returned shell must be `close()`d or used as a context
         manager so the node-side ControlMaster is torn down.
         """
-        details = vm.show()
-        if details.vsock_cid is None:
-            raise RuntimeError(
-                f"VM {details.name!r} has no vsock CID — node kernel "
-                "may be missing /dev/vhost-vsock"
-            )
         if not host_key_path.exists():
             raise RuntimeError(
                 f"SSH private key not found at {host_key_path} — "
                 "run `make test-image-alpine` to generate it"
             )
         node = self.nodes[node_index]
+        if vm_tcp_port is not None:
+            return VmShell(
+                node_cid=node.cid,
+                vm_tcp_port=vm_tcp_port,
+                host_key_path=host_key_path,
+                user=user,
+            )
+        details = vm.show()
+        if details.vsock_cid is None:
+            raise RuntimeError(
+                f"VM {details.name!r} has no vsock CID — node kernel "
+                "may be missing /dev/vhost-vsock"
+            )
         return VmShell(
             node_cid=node.cid,
             vm_cid=details.vsock_cid,
             host_key_path=host_key_path,
+            user=user,
         )
 
 
