@@ -162,22 +162,30 @@ instance CGVm.Vm'server_ VmCap where
       if wait'
         then runAction st (VmStart eid)
         else runActionAsync st (VmStart eid) (RespVmStateChanged M.VmStarting)
-    pure CGVm.Vm'start'results {CGVm.status = toStatusOrThrow resp}
+    case resp of
+      RespError msg -> throwFailed msg
+      _ -> pure CGVm.Vm'start'results {CGVm.status = toStatusOrThrow resp}
 
   vm'stop (VmCap st _ eid) = handleParsed $ \CGVm.Vm'stop'params {wait = wait'} -> do
     resp <-
       if wait'
         then runAction st (VmStop eid)
         else runActionAsync st (VmStop eid) (RespVmStateChanged M.VmStopping)
-    pure CGVm.Vm'stop'results {CGVm.status = toStatusOrThrow resp}
+    case resp of
+      RespError msg -> throwFailed msg
+      _ -> pure CGVm.Vm'stop'results {CGVm.status = toStatusOrThrow resp}
 
   vm'pause (VmCap st _ eid) = handleParsed $ \_ -> do
     resp <- runAction st (VmPause eid)
-    pure CGVm.Vm'pause'results {CGVm.status = toStatusOrThrow resp}
+    case resp of
+      RespError msg -> throwFailed msg
+      _ -> pure CGVm.Vm'pause'results {CGVm.status = toStatusOrThrow resp}
 
   vm'reset (VmCap st _ eid) = handleParsed $ \_ -> do
     resp <- runAction st (VmReset eid)
-    pure CGVm.Vm'reset'results {CGVm.status = toStatusOrThrow resp}
+    case resp of
+      RespError msg -> throwFailed msg
+      _ -> pure CGVm.Vm'reset'results {CGVm.status = toStatusOrThrow resp}
 
   vm'edit (VmCap st _ eid) =
     handleParsed $ \CGVm.Vm'edit'params {params = CGVm.VmEditParams {..}} -> do
