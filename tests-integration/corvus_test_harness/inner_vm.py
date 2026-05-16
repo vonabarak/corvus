@@ -129,10 +129,13 @@ class InnerVm:
                 guest_agent=self.guest_agent,
             )
             # `vms.create` produces a bare VM record; drives, network
-            # interfaces, SSH keys, and cloud-init are attached
-            # afterward via the per-resource cap methods.
+            # interfaces, SSH keys, cloud-init, and virtiofs shared
+            # directories are attached afterward via the per-resource
+            # cap methods.
             for drive in self._drives():
                 self.vm.attach_disk(**drive)
+            for shared in self._shared_dirs():
+                self.vm.add_shared_dir(**shared)
             self.vm.start(wait=self.wait_for_qga)
             self._post_start()
         except BaseException:
@@ -185,6 +188,15 @@ class InnerVm:
         after VM create. Default: one virtio drive on the overlay.
         UEFI subclass appends pflash entries for OVMF code+vars."""
         return [{"disk_ref": self.name, "interface": "virtio"}]
+
+    def _shared_dirs(self) -> list[dict]:
+        """Return the list of `vm.add_shared_dir` kwarg dicts to call
+        after the drives are attached and before `vm.start`. Default
+        empty. Tests that need virtiofs override this — typically with
+        an inline subclass that captures host-side temp paths via
+        closure. Each dict accepts `path`, `tag`, plus optional
+        `cache` and `read_only`."""
+        return []
 
     def _post_start(self) -> None:
         """Run after `vm.start`. Default no-op (QGA first-ping has

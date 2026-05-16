@@ -45,10 +45,15 @@ Roll-up by spec:
 | SerialConsoleIntegrationSpec | 0 | 0 | 7 | 7 |
 | SnapshotIntegrationSpec | 6 | 1 | 0 | 7 |
 | TemplateIntegrationSpec | 0 | 0 | 2 | 2 |
-| VirtiofsIntegrationSpec | 0 | 0 | 2 | 2 |
+| VirtiofsIntegrationSpec | 2 | 0 | 0 | 2 |
 | VmIntegrationSpec | 7 | 1 | 1 | 9 |
 | WindowsIntegrationSpec | 0 | 0 | 2 | 2 |
-| **total** | **24** | **3** | **41** | **68** |
+| **total** | **26** | **3** | **39** | **68** |
+
+VirtiofsIntegrationSpec also picked up two **new** Python-side
+assertions with no pre-capnp counterpart (two-simultaneous-shares,
+read-only-share); they're documented under that section's "New
+coverage" subheading but don't count toward this roll-up.
 
 ---
 
@@ -585,16 +590,20 @@ with `vmcSharedDir`/`vmcUefi = False`/`vmcWaitSshTimeout = 300`,
 
 ### describe "Virtiofs integration"
 
-  - [ ] **it "can access shared directory from VM via virtiofs"** — host creates
+  - [x] **it "can access shared directory from VM via virtiofs"** — host creates
     `<sysTmp>/virtiofs-test-<uuid8>/testfile.txt` containing `UUID:<uuid>`.
     Boots an Alpine BIOS VM with that directory mounted. Guest runs
     `doas mkdir -p /mnt/share`, `doas mount -t virtiofs share /mnt/share`,
     then `cat /mnt/share/testfile.txt` — asserts output equals the host
     content. Writes `WRITTEN-BY-GUEST:<uuid8>` from the guest to
     `/mnt/share/guest-file.txt`, then reads the file on the host and asserts
-    the content matches (bidirectional sharing works).
+    the content matches (bidirectional sharing works).  
+    *→ `test_virtiofs.py::TestVirtiofs::test_virtiofs_bidirectional`.
+    Host-side files live on the OUTER Gentoo VM (the inner daemon's
+    filesystem) under `/tmp/virtiofs-bidi-<rand>/`; the harness uses a
+    VSOCK `GuestShell` to stage and verify them.*
 
-  - [ ] **it "VM start fails when shared directory does not exist"** — creates a VM
+  - [x] **it "VM start fails when shared directory does not exist"** — creates a VM
     manually with one shared dir pointing at
     `/tmp/nonexistent-dir-that-does-not-exist-12345`. Calls `vmStart` with
     wait=True and expects any failure path (`Left _`, `Right (Left _)`, or
@@ -602,7 +611,29 @@ with `vmcSharedDir`/`vmcUefi = False`/`vmcWaitSshTimeout = 300`,
     `listTasks 50 Nothing Nothing True`, finds the `start` task for this VM
     (matched by command, `SubVm` subsystem, and entityId), enumerates its
     subtasks via `listSubtasks`, finds the `start-virtiofsd` subtask, and
-    asserts `tiResult == TaskError`.
+    asserts `tiResult == TaskError`.  
+    *→ `test_virtiofs.py::TestVirtiofs::test_shared_dir_missing_path_fails`.
+    Builds the VM by hand (rather than through `InnerVm`) so the
+    failed-start cleanup doesn't tear the entity id out from under
+    the subsequent `tasks.list_children` walk.*
+
+#### New coverage (no pre-capnp counterpart)
+
+The Python port adds two assertions not present in the original Hspec
+suite — these don't count toward the per-spec roll-up since they're
+net-new, not ports:
+
+  - **two simultaneous shared directories** — two `add_shared_dir`
+    calls with distinct tags both appear on `vm.show().shared_dirs`,
+    mount cleanly inside the guest with their respective tags, and
+    writes through each end up only in the matching host directory.  
+    *→ `test_virtiofs.py::TestVirtiofs::test_two_shared_dirs_both_mountable`*
+
+  - **read-only shared directory** — `add_shared_dir(read_only=True)`
+    surfaces as `read_only=True` on `vm.show()`. Inside the guest the
+    mount reads OK but every write attempt exits non-zero, and the
+    host directory stays unchanged.  
+    *→ `test_virtiofs.py::TestVirtiofs::test_shared_dir_read_only_blocks_writes`*
 
 ---
 
