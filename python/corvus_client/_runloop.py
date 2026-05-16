@@ -150,6 +150,29 @@ class _RawFuture:
         self._lock.release()
 
     def set_exception(self, exc: BaseException) -> None:
+        # Strip the cross-thread reference chain. The exception was
+        # raised on the runloop thread; its `__traceback__` chains
+        # through `Capnp.lib.capnp` C-bridge frames, and its
+        # `__context__` typically holds the original `capnp.KjException`
+        # captured by `@translate_errors`. All of those can transitively
+        # hold pycapnp wrappers whose C++ destructors require kj_loop
+        # alive on the calling thread.
+        #
+        # The main thread will eventually catch this exception
+        # (`except Exception:`), exit the handler, and decref the
+        # exception to zero — at which point its traceback and chained
+        # exceptions dealloc on the **main** thread, abort()ing pycapnp.
+        #
+        # Releasing those references here, while still on the runloop
+        # thread, lets them dealloc safely (kj_loop is alive on this
+        # thread). The main thread receives a "bare" exception: same
+        # type, same args, same `__dict__` — but no cross-thread refs.
+        # Python re-installs a fresh `__traceback__` for the
+        # main-thread frames at the next `raise`, so the user-visible
+        # traceback still points at the call site.
+        exc.__traceback__ = None
+        exc.__context__ = None
+        exc.__cause__ = None
         self._exception = exc
         self._lock.release()
 
