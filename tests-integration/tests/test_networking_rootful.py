@@ -1,9 +1,9 @@
 """Rootful networking scenarios — new ground; impossible under the
 unprivileged outer Corvus.
 
-The inner daemon runs as root inside a nested VM, so it can do:
+The inner daemon runs as root inside a node, so it can do:
   - real TAP devices attached to real interfaces
-  - bridges that span the inner VM's NICs
+  - bridges that span the vm's NICs
   - pasta NAT inside an explicit network namespace owned by inner Corvus
 
 These tests prove the rootful code paths work; they were untestable
@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import pytest
 
-from corvus_test_harness import SingleVmCase
+from corvus_test_harness import SingleNodeCase
 
 
 pytestmark = [pytest.mark.slow, pytest.mark.rootful]
 
 
-class TestNetworkingRootful(SingleVmCase):
+class TestNetworkingRootful(SingleNodeCase):
     @pytest.mark.skip(reason="TODO: design rootful network test once the feature lands")
     def test_tap_interface_creation(self):
         """Inner daemon creates a TAP on a real-looking interface in the VM."""

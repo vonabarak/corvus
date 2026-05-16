@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import pytest
 
-from corvus_test_harness import SingleVmCase
+from corvus_test_harness import SingleNodeCase
 
 
 pytestmark = pytest.mark.slow
 
 
-class TestCloudInit(SingleVmCase):
-    @pytest.mark.skip(reason="TODO: port CloudInitIntegrationSpec; requires inner-side OS images")
+class TestCloudInit(SingleNodeCase):
+    @pytest.mark.skip(reason="TODO: port CloudInitIntegrationSpec; requires node-side OS images")
     def test_cloud_init_ssh_key_deployment_alpine(self):
         raise NotImplementedError

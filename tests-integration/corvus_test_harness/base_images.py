@@ -101,8 +101,8 @@ def _sanitize_name(raw: str) -> str:
     return cleaned or "image"
 
 
-def ensure_mounted(crv: Crv, vm_name: str) -> None:
-    """Ensure the BaseImages virtiofs share is mounted inside `vm_name`.
+def ensure_mounted(crv: Crv, node_name: str) -> None:
+    """Ensure the BaseImages virtiofs share is mounted inside the node.
 
     The image's `root-VMs-BaseImages.mount` should mount it at boot, but
     images baked before that unit existed need a one-shot manual mount.
@@ -114,27 +114,28 @@ def ensure_mounted(crv: Crv, vm_name: str) -> None:
         "mountpoint -q /root/VMs/BaseImages || "
         f"mount -t virtiofs {BASE_IMAGES_TAG} /root/VMs/BaseImages"
     )
-    crv.vm_exec(vm_name, script, timeout_sec=30.0)
+    crv.vm_exec(node_name, script, timeout_sec=30.0)
 
 
 def register_all(
     client: Client,
     crv: Crv,
-    vm_name: str,
+    node_name: str,
     *,
     host_dir: Path = HOST_BASE_IMAGES_DIR,
 ) -> dict[str, str]:
     """Mount the share + register every discovered image with `client`.
 
     Returns a dict mapping short OS key → registered disk name. The
-    inner daemon keeps the registration for the lifetime of its VM,
-    so subsequent calls in the same test are cheap no-ops (we treat an
-    existing same-named disk as already registered).
+    inner daemon (running on the node) keeps the registration for the
+    lifetime of the node, so subsequent calls in the same test are
+    cheap no-ops (we treat an existing same-named disk as already
+    registered).
     """
     images = discover(host_dir)
     if not images:
         return {}
-    ensure_mounted(crv, vm_name)
+    ensure_mounted(crv, node_name)
     registered: dict[str, str] = {}
     for key, image in images.items():
         try:

@@ -1,7 +1,7 @@
 """Disk subsystem against the inner daemon.
 
 Mirrors DiskIntegrationSpec (see doc/integration-tests-pre-capnp.md).
-The inner daemon's `basePath` is private to the outer-VM filesystem,
+The inner daemon's `basePath` is private to the node's filesystem,
 so each test creates and deletes its own qcow2s without any host-side
 filesystem hacks (the pre-capnp `withSystemTempDirectory` + `HOME`
 swap is gone).
@@ -13,7 +13,7 @@ import secrets
 import pytest
 
 from corvus_client import VmMustBeStopped
-from corvus_test_harness import InnerVm, InnerVmSsh, SingleVmCase
+from corvus_test_harness import Vm, VmSsh, SingleNodeCase
 
 
 pytestmark = pytest.mark.slow
@@ -24,11 +24,11 @@ def _uniq(stem: str) -> str:
     return f"{stem}-{secrets.token_hex(3)}"
 
 
-class TestDisk(SingleVmCase):
+class TestDisk(SingleNodeCase):
     """Disk CRUD + clone + overlay + rebase + import + hot-plug + resize.
 
-    All tests share one outer Gentoo VM + one inner daemon via
-    `SingleVmCase`. Each test creates its own disks under a unique
+    All tests share one node + one inner daemon via
+    `SingleNodeCase`. Each test creates its own disks under a unique
     name; teardown deletes them (best-effort) so a class run leaves
     no orphans even on intermediate failures.
     """
@@ -96,16 +96,16 @@ class TestDisk(SingleVmCase):
 
     def test_clone_rejects_running_vm(self):
         """Cloning a disk attached to a running VM must fail with
-        `VmMustBeStopped`. The disk is the inner Alpine VM's overlay,
+        `VmMustBeStopped`. The disk is the Alpine vm's overlay,
         which is attached and busy for the lifetime of the `with`."""
-        with InnerVm(self) as inner:
+        with Vm(self) as vm:
             with pytest.raises(VmMustBeStopped):
-                self.client.disks.clone(inner.name, _uniq("clone-while-running"))
+                self.client.disks.clone(vm.name, _uniq("clone-while-running"))
 
     def test_clone_to_custom_path(self):
         """`disks.clone(..., path=...)` writes the clone to an
         explicit filesystem location. The path is in the daemon's
-        view (i.e. inside the outer Gentoo VM); we don't ssh in to
+        view (i.e. inside the node); we don't ssh in to
         stat the file from the host. Instead we verify the daemon
         records the custom path in `file_path` on the new disk."""
         src_name = _uniq("clone-cp-src")
@@ -272,36 +272,36 @@ class TestDisk(SingleVmCase):
         data_disk = _uniq("hotplug-data")
         self.client.disks.create(data_disk, size_mb=32, format="qcow2")
         try:
-            with InnerVmSsh(self) as inner:
-                before = self._guest_vd_count(inner)
-                drive_id = inner.vm.attach_disk(data_disk, interface="virtio")
+            with VmSsh(self) as vm:
+                before = self._guest_vd_count(vm)
+                drive_id = vm.cap.attach_disk(data_disk, interface="virtio")
                 try:
                     # Daemon records the drive.
-                    drives = inner.vm.show().drives
+                    drives = vm.cap.show().drives
                     assert any(d.id == drive_id for d in drives), drives
                     # Guest kernel sees a new /dev/vd*.
-                    self._wait_vd_count(inner, before + 1)
+                    self._wait_vd_count(vm, before + 1)
 
-                    inner.vm.detach_disk(drive_id)
-                    self._wait_vd_count(inner, before)
+                    vm.cap.detach_disk(drive_id)
+                    self._wait_vd_count(vm, before)
                     # Daemon updated its drive list.
-                    drives = inner.vm.show().drives
+                    drives = vm.cap.show().drives
                     assert not any(d.id == drive_id for d in drives), drives
 
                     # Re-attach: succeeds → the qcow2 lock was released
                     # by the detach. Drive ID is fresh.
-                    new_drive_id = inner.vm.attach_disk(
+                    new_drive_id = vm.cap.attach_disk(
                         data_disk, interface="virtio"
                     )
                     assert new_drive_id != drive_id
-                    self._wait_vd_count(inner, before + 1)
-                    inner.vm.detach_disk(new_drive_id)
+                    self._wait_vd_count(vm, before + 1)
+                    vm.cap.detach_disk(new_drive_id)
                 finally:
                     # Defence-in-depth: if assertions raised mid-flight,
                     # peel the drive off so the disk delete below
                     # doesn't trip 'Disk in use'.
                     try:
-                        inner.vm.detach_disk_by_name(data_disk)
+                        vm.cap.detach_disk_by_name(data_disk)
                     except Exception:
                         pass
         finally:
@@ -313,18 +313,18 @@ class TestDisk(SingleVmCase):
         data_disk = _uniq("hotplug-ro")
         self.client.disks.create(data_disk, size_mb=16, format="qcow2")
         try:
-            with InnerVmSsh(self) as inner:
-                drive_id = inner.vm.attach_disk(
+            with VmSsh(self) as vm:
+                drive_id = vm.cap.attach_disk(
                     data_disk, interface="virtio", read_only=True
                 )
                 try:
-                    drives = inner.vm.show().drives
+                    drives = vm.cap.show().drives
                     matching = [d for d in drives if d.id == drive_id]
                     assert matching, drives
                     assert matching[0].read_only is True
                 finally:
                     try:
-                        inner.vm.detach_disk(drive_id)
+                        vm.cap.detach_disk(drive_id)
                     except Exception:
                         pass
         finally:
@@ -346,14 +346,14 @@ class TestDisk(SingleVmCase):
 
     # ---- helpers -----------------------------------------------------------
 
-    def _guest_vd_count(self, inner: "InnerVmSsh") -> int:
+    def _guest_vd_count(self, vm: "VmSsh") -> int:
         """Count of /dev/vd* block devices the guest kernel exposes."""
-        out = inner.run("ls /dev/vd* 2>/dev/null | wc -l").stdout.strip()
+        out = vm.run("ls /dev/vd* 2>/dev/null | wc -l").stdout.strip()
         return int(out or "0")
 
     def _wait_vd_count(
         self,
-        inner: "InnerVmSsh",
+        vm: "VmSsh",
         target: int,
         *,
         timeout_sec: float = 10.0,
@@ -365,7 +365,7 @@ class TestDisk(SingleVmCase):
         deadline = time.monotonic() + timeout_sec
         last = -1
         while time.monotonic() < deadline:
-            last = self._guest_vd_count(inner)
+            last = self._guest_vd_count(vm)
             if last == target:
                 return
             time.sleep(0.5)

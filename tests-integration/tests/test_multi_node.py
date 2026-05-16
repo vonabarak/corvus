@@ -2,7 +2,7 @@
 contending over shared state. Impossible under the single-process
 outer deployment.
 
-The `TwoVmsCase` base brings up both VMs class-scoped; each method
+The `TwoNodesCase` base brings up both VMs class-scoped; each method
 shares the same pair. The two inner daemons see independent databases
 (Postgres lives inside each VM) but can be wired to a shared network
 for cross-node connectivity tests.
@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import pytest
 
-from corvus_test_harness import TwoVmsCase
+from corvus_test_harness import TwoNodesCase
 
 
 pytestmark = pytest.mark.slow
 
 
-class TestTwoIndependentDaemons(TwoVmsCase):
+class TestTwoIndependentDaemons(TwoNodesCase):
     def test_status_on_both(self):
         """Two inner daemons start, both answer status() independently."""
         info_a = self.client_alpha.status()
@@ -30,6 +30,6 @@ class TestTwoIndependentDaemons(TwoVmsCase):
 
 
 @pytest.mark.skip(reason="TODO: design once shared-network across VMs is wired up")
-class TestTwoNodesOnSharedNetwork(TwoVmsCase):
+class TestTwoNodesOnSharedNetwork(TwoNodesCase):
     def test_shared_network(self):
         raise NotImplementedError

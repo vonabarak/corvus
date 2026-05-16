@@ -1,10 +1,10 @@
 """SPICE protocol probe used by the integration tests.
 
-The daemon binds QEMU's SPICE listener on the outer VM's
+The daemon binds QEMU's SPICE listener on the node's
 @127.0.0.1:<spice_port>@ (see [src/Corvus/Qemu/Command.hs] —
 @addr=...,port=<port>,disable-ticketing=off@). The host can't
 reach that address directly, so the probe runs from inside the
-outer VM via an SSH-relayed Python script and the host parses the
+node via an SSH-relayed Python script and the host parses the
 raw reply bytes.
 
 The probe sends a @SpiceLinkMess@ for the MAIN channel and reads
@@ -102,25 +102,25 @@ def parse_link_reply_header(buf: bytes) -> SpiceLinkInfo:
 
 def probe_spice_link(
     *,
-    outer_cid: int,
+    node_cid: int,
     spice_port: int,
     host_key_path: Path,
     user: str = "corvus",
-    outer_port: int = 22,
+    node_port: int = 22,
     timeout_sec: float = 10.0,
 ) -> SpiceLinkInfo:
     """Open a TCP connection to @127.0.0.1:spice_port@ inside the
-    outer VM, send a SPICE MAIN-channel link frame, and parse the
-    reply header.
+    node, send a SPICE MAIN-channel link frame, and parse the reply
+    header.
 
-    The transport is `ssh corvus@vsock-<outer_cid> -- python3 -c
+    The transport is `ssh corvus@vsock-<node_cid> -- python3 -c
     '<script>'`. The script base64-decodes the link frame from its
     argv, connects, sends, reads 16 bytes, and prints the hex of
     what it got — keeps the binary payload out of the shell
     quoting/encoding path.
 
     Raises @RuntimeError@ on any failure: SSH error, TCP connect
-    refused inside the outer VM, short read, or bad magic.
+    refused inside the node, short read, or bad magic.
     """
     if not shutil.which("ssh"):
         raise RuntimeError("`ssh` not on PATH")
@@ -134,7 +134,7 @@ def probe_spice_link(
 
     payload_b64 = base64.b64encode(build_link_frame()).decode("ascii")
 
-    # Script runs on the outer Gentoo VM (python3 is in @system):
+    # Script runs on the node (Gentoo; python3 is in @system):
     # connects to qemu's SPICE listener on 127.0.0.1, sends the link
     # frame, reads up to 16 bytes (the SpiceLinkHeader), prints the
     # hex on stdout. We don't read the full SpiceLinkReply body — the
@@ -143,7 +143,7 @@ def probe_spice_link(
     #
     # The script is shipped to python3 via @exec(base64.b64decode(...))@
     # to sidestep shell-quoting of the multi-line program.
-    inner_script = (
+    node_script = (
         f"import base64, socket, sys\n"
         f"p = base64.b64decode('{payload_b64}')\n"
         f"s = socket.create_connection(('127.0.0.1', {spice_port}), "
@@ -156,7 +156,7 @@ def probe_spice_link(
         f"    buf += chunk\n"
         f"sys.stdout.write(buf.hex())\n"
     )
-    script_b64 = base64.b64encode(inner_script.encode("ascii")).decode("ascii")
+    script_b64 = base64.b64encode(node_script.encode("ascii")).decode("ascii")
     bootstrap = (
         f"import base64; exec(base64.b64decode('{script_b64}'))"
     )
@@ -167,7 +167,7 @@ def probe_spice_link(
     # bootstrap's `;` would split it across multiple shell commands.
     remote_cmd = f"python3 -c {shlex.quote(bootstrap)}"
 
-    proxy_cmd = f"socat - VSOCK-CONNECT:{outer_cid}:{outer_port}"
+    proxy_cmd = f"socat - VSOCK-CONNECT:{node_cid}:{node_port}"
     argv = [
         "ssh",
         "-i", str(host_key_path),
@@ -175,7 +175,7 @@ def probe_spice_link(
         "-o", "UserKnownHostsFile=/dev/null",
         "-o", "BatchMode=yes",
         "-o", f"ProxyCommand={proxy_cmd}",
-        f"{user}@vsock-{outer_cid}",
+        f"{user}@vsock-{node_cid}",
         remote_cmd,
     ]
     proc = subprocess.run(

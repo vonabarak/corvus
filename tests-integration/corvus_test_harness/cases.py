@@ -1,23 +1,23 @@
 """Class-based integration test bases.
 
-Real test classes inherit from `SingleVmCase`, `TwoVmsCase`, or
-`ThreeVmsCase` and get a class-scoped `Topology` for free. The class
-fixture brings up one VM per name in `VMS`, exposes each as
-`self.vm[_short_name]` and `self.client[_short_name]`, and tears
-everything down at class scope. The pytest hooks in
-`tests-integration/conftest.py` add ordering + skip-on-first-failure +
-xdist class-affinity on top.
+Real test classes inherit from `SingleNodeCase`, `TwoNodesCase`, or
+`ThreeNodesCase` and get a class-scoped `Topology` for free. The
+class fixture brings up one node per name in `NODES`, exposes each
+as `self.node[_short_name]` and `self.client[_short_name]`, and
+tears everything down at class scope. The pytest hooks in
+`tests-integration/conftest.py` add ordering + skip-on-first-failure
++ xdist class-affinity on top.
 
 Example:
 
-    class TestVmLifecycle(SingleVmCase):
+    class TestVmLifecycle(SingleNodeCase):
         def test_reachable(self):
             assert self.client.status().protocol_version > 0
 
-        def test_create_inner_vm(self):
-            inner = self.client.vms.create("nested", cpu_count=1, ram_mb=128)
-            assert inner.show().name == "nested"
-            inner.delete()
+        def test_create_vm(self):
+            vm = self.client.vms.create("nested", cpu_count=1, ram_mb=128)
+            assert vm.show().name == "nested"
+            vm.delete()
 
 The state for a given class is held in a module-level dict keyed by the
 concrete subclass type — not on the class body itself — so inheritance
@@ -26,6 +26,7 @@ accidentally. Hooks in conftest.py read and write that registry.
 """
 from __future__ import annotations
 
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,13 +35,13 @@ from typing import TYPE_CHECKING, Optional
 import pytest
 
 from . import base_images as _base_images
-from .ssh import HOST_ALPINE_KEY_PATH, InnerGuestShell
+from .ssh import HOST_ALPINE_KEY_PATH, NodeShell, VmShell
 from .topology import Topology
 
 if TYPE_CHECKING:
     from corvus_client import Client
 
-    from .topology import TestVm
+    from .topology import TestNode
 
 
 @dataclass
@@ -68,22 +69,23 @@ def state_for(cls: type) -> _ClassState:
 
 
 class IntegrationTestCase:
-    """Common machinery for class-scoped VM tests.
+    """Common machinery for class-scoped node tests.
 
-    Subclasses set `VMS` to a tuple of short names. The class fixture
-    boots one VM per name in declaration order. Subclasses get
-    `self.vms` (list[TestVm]) and `self.clients` (list[Client]); the
-    concrete N-VM bases below add named accessors on top.
+    Subclasses set `NODES` to a tuple of short names. The class
+    fixture boots one node per name in declaration order.
+    Subclasses get `self.nodes` (list[TestNode]) and `self.clients`
+    (list[Client]); the concrete N-node bases below add named
+    accessors on top.
     """
 
-    # Tuple of short VM names. Subclasses MUST override with a
+    # Tuple of short node names. Subclasses MUST override with a
     # non-empty tuple — `IntegrationTestCase` itself isn't a runnable
     # test class.
-    VMS: tuple[str, ...] = ()
+    NODES: tuple[str, ...] = ()
 
     @pytest.fixture(scope="class", autouse=True)
     def _class_topology(self, request, crv, image_ready, host_binary):
-        """Bring up the class-scoped Topology + VMs.
+        """Bring up the class-scoped Topology + nodes.
 
         Setup failure is recorded on the class state so the
         `pytest_runtest_setup` hook can skip every method with a
@@ -92,29 +94,29 @@ class IntegrationTestCase:
         and inspect the systemd journal.
         """
         cls = request.cls
-        assert cls.VMS, (
-            f"{cls.__name__} must set VMS to a non-empty tuple of "
-            "short VM names (or inherit from SingleVmCase / TwoVmsCase / "
-            "ThreeVmsCase)."
+        assert cls.NODES, (
+            f"{cls.__name__} must set NODES to a non-empty tuple of "
+            "short node names (or inherit from SingleNodeCase / "
+            "TwoNodesCase / ThreeNodesCase)."
         )
         state = state_for(cls)
         topology: Optional[Topology] = None
         try:
             topology = Topology(crv, image_ready, host_binary).__enter__()
-            for short_name in cls.VMS:
+            for short_name in cls.NODES:
                 topology.add(short_name)
             # Eagerly open clients so the first test method doesn't pay
             # the daemon-readiness probe in addition to its own
-            # assertions. Status of every VM lands in stderr — useful
+            # assertions. Status of every node lands in stderr — useful
             # when running with `pytest -s` and a class has multiple
-            # VMs (so you can tell which one is slow).
+            # nodes (so you can tell which one is slow).
             sys.stderr.write(
                 f"[harness] booting class topology for "
-                f"{cls.__qualname__} ({len(cls.VMS)} VM(s))\n"
+                f"{cls.__qualname__} ({len(cls.NODES)} node(s))\n"
             )
             sys.stderr.flush()
-            for vm in topology.vms:
-                vm.client()  # blocks until inner daemon is up
+            for node in topology.nodes:
+                node.client()  # blocks until inner daemon is up
             state.topology = topology
         except BaseException:
             state.setup_failed = True
@@ -172,132 +174,196 @@ class IntegrationTestCase:
         return t
 
     @property
-    def vms(self) -> list["TestVm"]:
-        return self.topology.vms
+    def nodes(self) -> list["TestNode"]:
+        return self.topology.nodes
 
     @property
     def clients(self) -> list["Client"]:
-        return [vm.client() for vm in self.topology.vms]
+        return [node.client() for node in self.topology.nodes]
 
     # ---- Convenience helpers -----------------------------------------------
 
     def register_base_images(self) -> dict[str, str]:
-        """Register the host's pre-baked images with the FIRST VM's
+        """Register the host's pre-baked images with the FIRST node's
         inner daemon. Cached per-class — subsequent calls return the
         same dict without re-registering.
 
-        For multi-VM scenarios where every daemon needs the same
-        catalogue, call `base_images.register_all` per VM directly.
+        For multi-node scenarios where every daemon needs the same
+        catalogue, call `base_images.register_all` per node directly.
         """
         state = state_for(type(self))
         if state.base_images_cache is not None:
             return state.base_images_cache
-        first = self.vms[0]
+        first = self.nodes[0]
         state.base_images_cache = _base_images.register_all(
-            first.client(), self.topology.crv, first.outer_name
+            first.client(), self.topology.crv, first.name
         )
         return state.base_images_cache
 
-    def inner_ssh(
-        self,
-        inner_vm,
-        *,
-        outer_index: int = 0,
-        host_key_path: Path = HOST_ALPINE_KEY_PATH,
-    ) -> InnerGuestShell:
-        """Build an SSH transport to an inner VM created via the inner
-        daemon.
+    # ---- Node-side shell ---------------------------------------------------
 
-        The inner VM must already be started and have a VSOCK CID
-        allocated. Raises if `vsock_cid` is None (usually means the
-        outer VM kernel is missing `/dev/vhost-vsock`; tests should
-        catch and skip) or the host-side private key file is missing
-        (presence on the host means the same file is virtiofs-mounted
-        and available inside the outer VM too).
+    def node_shell(
+        self,
+        node_index: int = 0,
+        *,
+        user: str = "corvus",
+        host_key_path: Path = HOST_ALPINE_KEY_PATH,
+    ) -> NodeShell:
+        """Open a single-leg VSOCK SSH transport to one of the
+        topology's nodes — i.e. one of the orchestrator Gentoo VMs
+        that hosts an inner Corvus daemon.
+
+        Each call returns a fresh `NodeShell` (a frozen dataclass).
+        Reuse the returned object for multiple `.run(...)` calls in
+        the same test; for one-shot use, prefer the `run_on_node`
+        wrapper below.
+
+          shell = self.node_shell()
+          shell.run("mkdir -p /tmp/foo")
+          shell.run("echo bar > /tmp/foo/baz")
+
+        `node_index` selects the node by position in `self.NODES`;
+        defaults to 0 (the first / only node). Multi-node cases
+        (`TwoNodesCase`, `ThreeNodesCase`) pass 0/1/2 explicitly.
+        """
+        if not host_key_path.exists():
+            raise RuntimeError(
+                f"SSH private key not found at {host_key_path} — "
+                "run `make test-image-key` to generate it"
+            )
+        node = self.nodes[node_index]
+        return NodeShell(
+            cid=node.cid,
+            user=user,
+            key_path=host_key_path,
+        )
+
+    def run_on_node(
+        self,
+        command: str,
+        *,
+        node_index: int = 0,
+        user: str = "corvus",
+        host_key_path: Path = HOST_ALPINE_KEY_PATH,
+        timeout_sec: float = 60.0,
+        check: bool = True,
+    ) -> subprocess.CompletedProcess:
+        """One-shot wrapper around `node_shell(...).run(...)`. Returns
+        the raw `subprocess.CompletedProcess`; `stdout`/`stderr` are
+        bytes (decode with `.stdout.decode()`). Set `check=False` to
+        let non-zero exits return normally instead of raising.
+
+          out = self.run_on_node("hostname").stdout.decode().strip()
+        """
+        return self.node_shell(
+            node_index=node_index,
+            user=user,
+            host_key_path=host_key_path,
+        ).run(command, timeout_sec=timeout_sec, check=check)
+
+    # ---- VM-side shell -----------------------------------------------------
+
+    def vm_shell(
+        self,
+        vm,
+        *,
+        node_index: int = 0,
+        host_key_path: Path = HOST_ALPINE_KEY_PATH,
+    ) -> VmShell:
+        """Build an SSH transport to a vm created by the inner daemon.
+
+        `vm` is the pycapnp `Vm` capability returned by
+        `client.vms.create` / `client.vms.get`. It must already be
+        started and have a VSOCK CID allocated. Raises if `vsock_cid`
+        is None (usually means the node kernel is missing
+        `/dev/vhost-vsock`; tests should catch and skip) or the
+        host-side private key file is missing (presence on the host
+        means the same file is virtiofs-mounted and available inside
+        the node too).
 
         The returned shell must be `close()`d or used as a context
-        manager so the outer-side ControlMaster is torn down.
+        manager so the node-side ControlMaster is torn down.
         """
-        details = inner_vm.show()
+        details = vm.show()
         if details.vsock_cid is None:
             raise RuntimeError(
-                f"inner VM {details.name!r} has no vsock CID — host "
-                "kernel may be missing /dev/vhost-vsock"
+                f"VM {details.name!r} has no vsock CID — node kernel "
+                "may be missing /dev/vhost-vsock"
             )
         if not host_key_path.exists():
             raise RuntimeError(
                 f"SSH private key not found at {host_key_path} — "
                 "run `make test-image-alpine` to generate it"
             )
-        outer = self.vms[outer_index]
-        return InnerGuestShell(
-            outer_cid=outer.cid,
-            inner_cid=details.vsock_cid,
+        node = self.nodes[node_index]
+        return VmShell(
+            node_cid=node.cid,
+            vm_cid=details.vsock_cid,
             host_key_path=host_key_path,
         )
 
 
-class SingleVmCase(IntegrationTestCase):
-    """One VM. Use `self.vm` / `self.client`."""
+class SingleNodeCase(IntegrationTestCase):
+    """One node. Use `self.node` / `self.client`."""
 
-    VMS = ("single",)
+    NODES = ("single",)
 
     @property
-    def vm(self) -> "TestVm":
-        return self.vms[0]
+    def node(self) -> "TestNode":
+        return self.nodes[0]
 
     @property
     def client(self) -> "Client":
-        return self.vm.client()
+        return self.node.client()
 
 
-class TwoVmsCase(IntegrationTestCase):
-    """Two VMs. Use `self.vm_alpha`/`self.vm_beta` and matching `client_*`."""
+class TwoNodesCase(IntegrationTestCase):
+    """Two nodes. Use `self.node_alpha`/`self.node_beta` and matching `client_*`."""
 
-    VMS = ("alpha", "beta")
-
-    @property
-    def vm_alpha(self) -> "TestVm":
-        return self.vms[0]
+    NODES = ("alpha", "beta")
 
     @property
-    def vm_beta(self) -> "TestVm":
-        return self.vms[1]
+    def node_alpha(self) -> "TestNode":
+        return self.nodes[0]
 
     @property
-    def client_alpha(self) -> "Client":
-        return self.vm_alpha.client()
-
-    @property
-    def client_beta(self) -> "Client":
-        return self.vm_beta.client()
-
-
-class ThreeVmsCase(IntegrationTestCase):
-    """Three VMs. Use `self.vm_alpha`/`beta`/`gamma` and matching `client_*`."""
-
-    VMS = ("alpha", "beta", "gamma")
-
-    @property
-    def vm_alpha(self) -> "TestVm":
-        return self.vms[0]
-
-    @property
-    def vm_beta(self) -> "TestVm":
-        return self.vms[1]
-
-    @property
-    def vm_gamma(self) -> "TestVm":
-        return self.vms[2]
+    def node_beta(self) -> "TestNode":
+        return self.nodes[1]
 
     @property
     def client_alpha(self) -> "Client":
-        return self.vm_alpha.client()
+        return self.node_alpha.client()
 
     @property
     def client_beta(self) -> "Client":
-        return self.vm_beta.client()
+        return self.node_beta.client()
+
+
+class ThreeNodesCase(IntegrationTestCase):
+    """Three nodes. Use `self.node_alpha`/`beta`/`gamma` and matching `client_*`."""
+
+    NODES = ("alpha", "beta", "gamma")
+
+    @property
+    def node_alpha(self) -> "TestNode":
+        return self.nodes[0]
+
+    @property
+    def node_beta(self) -> "TestNode":
+        return self.nodes[1]
+
+    @property
+    def node_gamma(self) -> "TestNode":
+        return self.nodes[2]
+
+    @property
+    def client_alpha(self) -> "Client":
+        return self.node_alpha.client()
+
+    @property
+    def client_beta(self) -> "Client":
+        return self.node_beta.client()
 
     @property
     def client_gamma(self) -> "Client":
-        return self.vm_gamma.client()
+        return self.node_gamma.client()

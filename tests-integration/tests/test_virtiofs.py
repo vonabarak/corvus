@@ -9,10 +9,10 @@ Ports the pre-capnp `VirtiofsIntegrationSpec` (see
   * **Read-only shared directory** — confirms the daemon honours
     `read_only=True` and the guest cannot write through the mount.
 
-All tests stage their host-side directories inside the OUTER Gentoo
-VM (the inner daemon's filesystem). We reach the outer VM via the
-single-leg VSOCK `GuestShell`; the inner Alpine guest mounts via
-virtiofs and reads/writes from there.
+All tests stage their host-side directories on the node (the
+inner daemon's filesystem) via `self.node_shell()` /
+`self.run_on_node()`; the Alpine guest mounts via virtiofs and
+reads/writes from there.
 """
 from __future__ import annotations
 
@@ -20,13 +20,7 @@ import secrets
 
 import pytest
 
-from corvus_test_harness import (
-    HOST_ALPINE_KEY_PATH,
-    GuestShell,
-    InnerVm,
-    InnerVmSsh,
-    SingleVmCase,
-)
+from corvus_test_harness import VmSsh, SingleNodeCase
 
 
 pytestmark = pytest.mark.slow
@@ -36,72 +30,54 @@ def _uniq(stem: str) -> str:
     return f"{stem}-{secrets.token_hex(3)}"
 
 
-class TestVirtiofs(SingleVmCase):
-    """Virtiofs sharing between the outer Gentoo VM (which hosts the
-    inner daemon's filesystem) and the inner Alpine VM.
+class TestVirtiofs(SingleNodeCase):
+    """Virtiofs sharing between the node (hosting the inner daemon's
+    filesystem) and the Alpine vm.
 
-    Each test SSHes into the outer VM via VSOCK to stage / cleanup
-    its host-side directories, then drives the inner guest over the
-    nested SSH tunnel."""
-
-    def _outer(self) -> "GuestShell":
-        """Single-leg VSOCK SSH to the outer Gentoo VM.
-
-        The outer Gentoo image embeds the same `corvus-test-key`
-        public half as the Alpine inner image (see
-        `yaml/gentoo-test/gentoo-test.yml` and the harness's
-        `HOST_ALPINE_KEY_PATH` notes), so one keypair authorises
-        both legs.
-        """
-        return GuestShell(
-            cid=self.vms[0].cid,
-            user="corvus",
-            key_path=HOST_ALPINE_KEY_PATH,
-        )
+    Each test stages its host-side directories on the node via the
+    base class's `node_shell()` / `run_on_node()` helpers, then drives
+    the guest over the nested SSH tunnel from `VmSsh`."""
 
     # ---- port: bidirectional read+write -----------------------------------
 
     def test_virtiofs_bidirectional(self):
-        """Host (outer-VM) writes a file under a shared dir; guest
-        reads it through virtiofs. Guest writes under the same dir;
-        host reads it back. Round-trip both ways through the same
-        tag."""
-        outer = self._outer()
+        """Host (node) writes a file under a shared dir; guest reads
+        it through virtiofs. Guest writes under the same dir; host
+        reads it back. Round-trip both ways through the same tag."""
+        node = self.node_shell()
         host_uuid = secrets.token_hex(6)
         outer_path = f"/tmp/virtiofs-bidi-{secrets.token_hex(4)}"
-        outer.run(f"mkdir -p {outer_path}", check=True)
-        outer.run(
-            f"echo UUID:{host_uuid} > {outer_path}/testfile.txt", check=True
-        )
+        node.run(f"mkdir -p {outer_path}")
+        node.run(f"echo UUID:{host_uuid} > {outer_path}/testfile.txt")
         try:
-            class _Bidi(InnerVmSsh):
+            class _Bidi(VmSsh):
                 def _shared_dirs(_self):
                     return [{"path": outer_path, "tag": "share"}]
 
-            with _Bidi(self) as inner:
+            with _Bidi(self) as vm:
                 # Mount inside guest. doas is configured for corvus
                 # (see Alpine image YAML); the mount type is
                 # `virtiofs` and the source is the shared-dir tag.
-                inner.run("doas mkdir -p /mnt/share")
-                inner.run("doas mount -t virtiofs share /mnt/share")
+                vm.run("doas mkdir -p /mnt/share")
+                vm.run("doas mount -t virtiofs share /mnt/share")
 
                 # Read host content through the mount.
-                r = inner.run("cat /mnt/share/testfile.txt")
+                r = vm.run("cat /mnt/share/testfile.txt")
                 assert r.stdout.strip() == f"UUID:{host_uuid}", r
 
                 # Write guest content to the mount.
                 guest_marker = f"WRITTEN-BY-GUEST:{secrets.token_hex(4)}"
-                inner.run(
+                vm.run(
                     f"doas sh -c 'echo {guest_marker} > /mnt/share/guest-file.txt'"
                 )
 
-            # After the with block: VM is torn down by InnerVmSsh.
+            # After the with block: VM is torn down by VmSsh.
             # The guest write should have been persisted on the
-            # outer-side directory.
-            r = outer.run(f"cat {outer_path}/guest-file.txt", check=True)
+            # node's directory.
+            r = node.run(f"cat {outer_path}/guest-file.txt")
             assert r.stdout.decode().strip() == guest_marker
         finally:
-            outer.run(f"rm -rf {outer_path}", check=False)
+            node.run(f"rm -rf {outer_path}", check=False)
 
     # ---- port: missing-path error surfaces via subtask --------------------
 
@@ -110,7 +86,7 @@ class TestVirtiofs(SingleVmCase):
         cause `vm.start` to fail; the daemon records the failure as
         a `start-virtiofsd` subtask with `result == "error"` under
         the parent `start` task. Cleanup is done by hand because we
-        can't go through the InnerVm context manager (its `__enter__`
+        can't go through the Vm context manager (its `__enter__`
         would tear the VM down on the start failure and we'd lose
         the entity id we need for the task lookup)."""
         images = self.register_base_images()
@@ -182,57 +158,57 @@ class TestVirtiofs(SingleVmCase):
         appear on `vm.show().shared_dirs`, both should be mountable
         inside the guest with their respective tags, and writes
         through each should land in the correct host directory."""
-        outer = self._outer()
+        node = self.node_shell()
         token_a = secrets.token_hex(4)
         token_b = secrets.token_hex(4)
         path_a = f"/tmp/virtiofs-a-{token_a}"
         path_b = f"/tmp/virtiofs-b-{token_b}"
-        outer.run(f"mkdir -p {path_a} {path_b}", check=True)
-        outer.run(f"echo SHARE-A:{token_a} > {path_a}/file.txt", check=True)
-        outer.run(f"echo SHARE-B:{token_b} > {path_b}/file.txt", check=True)
+        node.run(f"mkdir -p {path_a} {path_b}")
+        node.run(f"echo SHARE-A:{token_a} > {path_a}/file.txt")
+        node.run(f"echo SHARE-B:{token_b} > {path_b}/file.txt")
         try:
-            class _Two(InnerVmSsh):
+            class _Two(VmSsh):
                 def _shared_dirs(_self):
                     return [
                         {"path": path_a, "tag": "share-a"},
                         {"path": path_b, "tag": "share-b"},
                     ]
 
-            with _Two(self) as inner:
+            with _Two(self) as vm:
                 # Daemon records both shared dirs distinctly.
-                tags = {s.tag for s in inner.vm.show().shared_dirs}
+                tags = {s.tag for s in vm.cap.show().shared_dirs}
                 assert tags == {"share-a", "share-b"}, (
                     f"shared_dirs roster wrong: {tags!r}"
                 )
 
                 # Mount both inside the guest.
-                inner.run("doas mkdir -p /mnt/a /mnt/b")
-                inner.run("doas mount -t virtiofs share-a /mnt/a")
-                inner.run("doas mount -t virtiofs share-b /mnt/b")
+                vm.run("doas mkdir -p /mnt/a /mnt/b")
+                vm.run("doas mount -t virtiofs share-a /mnt/a")
+                vm.run("doas mount -t virtiofs share-b /mnt/b")
 
                 # Each side reads ONLY its own host content (i.e.
                 # the tags aren't crossed over and the mounts are
                 # genuinely independent).
-                ra = inner.run("cat /mnt/a/file.txt").stdout.strip()
-                rb = inner.run("cat /mnt/b/file.txt").stdout.strip()
+                ra = vm.run("cat /mnt/a/file.txt").stdout.strip()
+                rb = vm.run("cat /mnt/b/file.txt").stdout.strip()
                 assert ra == f"SHARE-A:{token_a}", ra
                 assert rb == f"SHARE-B:{token_b}", rb
 
                 # Guest writes flow back through the right tag.
                 guest_a = f"GUEST-INTO-A:{secrets.token_hex(3)}"
                 guest_b = f"GUEST-INTO-B:{secrets.token_hex(3)}"
-                inner.run(f"doas sh -c 'echo {guest_a} > /mnt/a/from-guest.txt'")
-                inner.run(f"doas sh -c 'echo {guest_b} > /mnt/b/from-guest.txt'")
+                vm.run(f"doas sh -c 'echo {guest_a} > /mnt/a/from-guest.txt'")
+                vm.run(f"doas sh -c 'echo {guest_b} > /mnt/b/from-guest.txt'")
 
             # After teardown, host sees each write only in its own dir.
-            assert outer.run(
-                f"cat {path_a}/from-guest.txt", check=True
+            assert node.run(
+                f"cat {path_a}/from-guest.txt"
             ).stdout.decode().strip() == guest_a
-            assert outer.run(
-                f"cat {path_b}/from-guest.txt", check=True
+            assert node.run(
+                f"cat {path_b}/from-guest.txt"
             ).stdout.decode().strip() == guest_b
             # And NOT cross-pollinated: file from B doesn't appear in A's dir.
-            cross = outer.run(
+            cross = node.run(
                 f"test -e {path_a}/from-guest-b-by-mistake.txt; echo $?",
                 check=False,
             )
@@ -240,7 +216,7 @@ class TestVirtiofs(SingleVmCase):
             # `test -e` returns 1 from $?.
             assert cross.stdout.decode().strip() == "1"
         finally:
-            outer.run(f"rm -rf {path_a} {path_b}", check=False)
+            node.run(f"rm -rf {path_a} {path_b}", check=False)
 
     # ---- new: read-only shared dir blocks writes --------------------------
 
@@ -248,40 +224,40 @@ class TestVirtiofs(SingleVmCase):
         """`add_shared_dir(..., read_only=True)` exposes the host
         directory to the guest as read-only. Reads must work; writes
         must fail (EROFS / "Read-only file system")."""
-        outer = self._outer()
+        node = self.node_shell()
         token = secrets.token_hex(4)
         ro_path = f"/tmp/virtiofs-ro-{token}"
-        outer.run(f"mkdir -p {ro_path}", check=True)
-        outer.run(f"echo READ-ONLY:{token} > {ro_path}/file.txt", check=True)
+        node.run(f"mkdir -p {ro_path}")
+        node.run(f"echo READ-ONLY:{token} > {ro_path}/file.txt")
         try:
-            class _Ro(InnerVmSsh):
+            class _Ro(VmSsh):
                 def _shared_dirs(_self):
                     return [
                         {"path": ro_path, "tag": "ro", "read_only": True},
                     ]
 
-            with _Ro(self) as inner:
+            with _Ro(self) as vm:
                 # Daemon recorded the read-only flag.
-                rec = [s for s in inner.vm.show().shared_dirs if s.tag == "ro"]
+                rec = [s for s in vm.cap.show().shared_dirs if s.tag == "ro"]
                 assert rec and rec[0].read_only is True, rec
 
-                inner.run("doas mkdir -p /mnt/ro")
-                inner.run("doas mount -t virtiofs ro /mnt/ro")
+                vm.run("doas mkdir -p /mnt/ro")
+                vm.run("doas mount -t virtiofs ro /mnt/ro")
 
                 # Reads succeed and see host content.
-                assert inner.run(
+                assert vm.run(
                     "cat /mnt/ro/file.txt"
                 ).stdout.strip() == f"READ-ONLY:{token}"
 
                 # Writes must fail. We don't care WHICH error — EROFS,
                 # permission, etc. — only that the shell command exits
                 # non-zero AND the file isn't created on the host.
-                w = inner.run(
+                w = vm.run(
                     "doas sh -c 'echo nope > /mnt/ro/wrote-me.txt' "
                     "2>&1; echo EXIT=$?",
                     check=False,
                 )
-                # The `EXIT=N` tail tells us how the inner doas exited;
+                # The `EXIT=N` tail tells us how the vm-side doas exited;
                 # 0 would be a regression. Anything non-zero (most
                 # commonly "Read-only file system") is correct.
                 exit_line = [
@@ -293,7 +269,7 @@ class TestVirtiofs(SingleVmCase):
                 )
 
                 # Host confirms the file was never created.
-                host_check = outer.run(
+                host_check = node.run(
                     f"test -e {ro_path}/wrote-me.txt; echo $?",
                     check=False,
                 )
@@ -302,4 +278,4 @@ class TestVirtiofs(SingleVmCase):
                     "read_only=True — daemon didn't honour the flag"
                 )
         finally:
-            outer.run(f"rm -rf {ro_path}", check=False)
+            node.run(f"rm -rf {ro_path}", check=False)

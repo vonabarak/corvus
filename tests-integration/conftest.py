@@ -11,8 +11,8 @@ Fixture lifecycle:
               the autouse fixture lives on the base class itself.
 
 There are no function-scoped fixtures: every test method derives its
-VM(s) from the class fixture by inheriting from `SingleVmCase`,
-`TwoVmsCase`, or `ThreeVmsCase`.
+node(s) from the class fixture by inheriting from `SingleNodeCase`,
+`TwoNodesCase`, or `ThreeNodesCase`.
 
 The hooks below enforce the suite-wide behaviour:
 

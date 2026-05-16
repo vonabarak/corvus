@@ -7,8 +7,8 @@ merge, delete); VM-scoped snapshot caps are still stubbed and not
 needed here.
 
 Most state-mutating tests bracket a stop / snapshot or stop / rollback
-cycle inside one `InnerVm`, opening a fresh SSH session per boot — the
-ControlMaster InnerVmSsh keeps alive cannot span a stop/start.
+cycle inside one `Vm`, opening a fresh SSH session per boot — the
+ControlMaster VmSsh keeps alive cannot span a stop/start.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import secrets
 import pytest
 
 from corvus_client import VmMustBeStopped
-from corvus_test_harness import InnerVm, SingleVmCase
+from corvus_test_harness import Vm, SingleNodeCase
 
 
 pytestmark = pytest.mark.slow
@@ -27,7 +27,7 @@ def _uniq(stem: str) -> str:
     return f"{stem}-{secrets.token_hex(3)}"
 
 
-class TestSnapshots(SingleVmCase):
+class TestSnapshots(SingleNodeCase):
     """Disk-scoped snapshot CRUD + rollback + merge against the inner
     daemon. Each test creates and tears down its own resources."""
 
@@ -105,8 +105,8 @@ class TestSnapshots(SingleVmCase):
         """Snapshot operations against a disk attached to a running VM
         must fail with `VmMustBeStopped` — the daemon refuses to take
         a `qemu-img snapshot` on a busy qcow2."""
-        with InnerVm(self) as inner:
-            disk = self.client.disks.get(inner.name)
+        with Vm(self) as vm:
+            disk = self.client.disks.get(vm.name)
             with pytest.raises(VmMustBeStopped):
                 disk.snapshot_create("while-running")
 
@@ -118,22 +118,22 @@ class TestSnapshots(SingleVmCase):
         marker is back. Standard "snapshot a known-good state" flow."""
         token = secrets.token_hex(6)
         path = "/home/corvus/snapshot-marker.txt"
-        with InnerVm(self) as inner:
-            disk = self.client.disks.get(inner.name)
+        with Vm(self) as vm:
+            disk = self.client.disks.get(vm.name)
 
             # Phase 1: write the marker.
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 shell.run(f"echo {token} > {path}")
                 got = shell.run(f"cat {path}").stdout.strip()
                 assert got == token
 
-            inner.vm.stop(wait=True)
+            vm.cap.stop(wait=True)
             disk.snapshot_create("good")
-            inner.vm.start(wait=True)
+            vm.cap.start(wait=True)
 
             # Phase 2: delete the marker, confirm gone.
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 shell.run(f"rm {path}")
                 missing = shell.run(
@@ -141,12 +141,12 @@ class TestSnapshots(SingleVmCase):
                 ).stdout.strip()
                 assert missing == "MISSING"
 
-            inner.vm.stop(wait=True)
+            vm.cap.stop(wait=True)
             disk.snapshot_get("good", by_name=True).rollback()
-            inner.vm.start(wait=True)
+            vm.cap.start(wait=True)
 
             # Phase 3: rollback restored it.
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 restored = shell.run(f"cat {path}").stdout.strip()
                 assert restored == token
@@ -156,34 +156,34 @@ class TestSnapshots(SingleVmCase):
         the FIRST snapshot must restore the value at that time, not
         the second."""
         path = "/home/corvus/snap-history.txt"
-        with InnerVm(self) as inner:
-            disk = self.client.disks.get(inner.name)
+        with Vm(self) as vm:
+            disk = self.client.disks.get(vm.name)
 
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 shell.run(f"echo 1 > {path}")
 
-            inner.vm.stop(wait=True)
+            vm.cap.stop(wait=True)
             disk.snapshot_create("state-1")
-            inner.vm.start(wait=True)
+            vm.cap.start(wait=True)
 
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 shell.run(f"echo 2 > {path}")
 
-            inner.vm.stop(wait=True)
+            vm.cap.stop(wait=True)
             disk.snapshot_create("state-2")
-            inner.vm.start(wait=True)
+            vm.cap.start(wait=True)
 
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 shell.run(f"echo 3 > {path}")
 
-            inner.vm.stop(wait=True)
+            vm.cap.stop(wait=True)
             disk.snapshot_get("state-1", by_name=True).rollback()
-            inner.vm.start(wait=True)
+            vm.cap.start(wait=True)
 
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 got = shell.run(f"cat {path}").stdout.strip()
                 assert got == "1", (
@@ -197,23 +197,23 @@ class TestSnapshots(SingleVmCase):
         image is the parent + child deltas), and the snapshot count
         drops by exactly one."""
         path = "/home/corvus/snap-merge.txt"
-        with InnerVm(self) as inner:
-            disk = self.client.disks.get(inner.name)
+        with Vm(self) as vm:
+            disk = self.client.disks.get(vm.name)
 
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 shell.run(f"echo initial > {path}")
 
-            inner.vm.stop(wait=True)
+            vm.cap.stop(wait=True)
             snap = disk.snapshot_create("to-merge")
             count_before = len(disk.snapshot_list())
-            inner.vm.start(wait=True)
+            vm.cap.start(wait=True)
 
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 shell.run(f"echo modified > {path}")
 
-            inner.vm.stop(wait=True)
+            vm.cap.stop(wait=True)
             snap.merge()
             count_after = len(disk.snapshot_list())
             assert count_after == count_before - 1, (
@@ -224,9 +224,9 @@ class TestSnapshots(SingleVmCase):
             assert not any(
                 s.name == "to-merge" for s in disk.snapshot_list()
             )
-            inner.vm.start(wait=True)
+            vm.cap.start(wait=True)
 
-            with self.inner_ssh(inner.vm) as shell:
+            with self.vm_shell(vm.cap) as shell:
                 shell.wait_ready(timeout_sec=90)
                 got = shell.run(f"cat {path}").stdout.strip()
                 # Merge keeps the LATEST disk state — the writes after

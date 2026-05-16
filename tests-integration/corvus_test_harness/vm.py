@@ -1,6 +1,6 @@
-"""Context managers that wrap the inner-VM lifecycle for tests.
+"""Context managers that wrap the vm lifecycle for tests.
 
-A test method that needs a booted inner VM otherwise has to chain
+A test method that needs a booted VM otherwise has to chain
 ~25 lines of `register_base_images` lookup → `disks.create_overlay`
 → `vms.create` → `vm.attach_disk` (`vms.create` only creates the
 bare VM record; drives, network interfaces, SSH keys, and
@@ -11,12 +11,12 @@ lot of boilerplate.
 
 Two classes live here:
 
-* `InnerVm` — the lifecycle. Defaults to "Alpine, BIOS, headless,
+* `Vm` — the lifecycle. Defaults to "Alpine, BIOS, headless,
   qemu-guest-agent, block on QGA first ping" and tears the VM down
   on exit. Knows nothing about SSH.
-* `InnerVmSsh` — `InnerVm` plus an open SSH session. Yields a
-  `.run(cmd)` shortcut so the body of a `with` block can drive the
-  guest with one-liner commands.
+* `VmSsh` — `Vm` plus an open SSH session. Yields a `.run(cmd)`
+  shortcut so the body of a `with` block can drive the guest with
+  one-liner commands.
 
 Subclasses adjust:
 
@@ -25,7 +25,11 @@ Subclasses adjust:
   * `_prepare()` — register extra disks (e.g. OVMF) before VM
     create.
   * `_post_start()` — extra work after `vm.start` (this is where
-    `InnerVmSsh` opens its session).
+    `VmSsh` opens its session).
+
+The wrapper exposes the underlying pycapnp `SyncVm` capability as
+`.cap` (not `.vm`, which would collide with the local variable
+name in `with ... as vm:` bodies).
 """
 from __future__ import annotations
 
@@ -37,31 +41,31 @@ import pytest
 
 if TYPE_CHECKING:
     from .cases import IntegrationTestCase
-    from .ssh import InnerGuestShell, SshResult
+    from .ssh import SshResult, VmShell
 
 
-class InnerVm:
-    """Context manager: create + start + cleanup one inner VM.
+class Vm:
+    """Context manager: create + start + cleanup one VM.
 
     Usage:
 
-        with InnerVm(self) as inner:
-            # inner.vm is the pycapnp Vm cap; QGA first-ping has
-            # already landed.
-            details = inner.vm.show()
+        with Vm(self) as vm:
+            # vm.cap is the pycapnp Vm capability; QGA first-ping
+            # has already landed.
+            details = vm.cap.show()
             assert details.cpu_count == 2
 
     Subclass to customise. The relevant overrides:
 
-        class DebianInnerVm(InnerVm):
+        class DebianVm(Vm):
             base_image_key = "debian"
 
-        class UefiInnerVm(InnerVm):
+        class UefiVm(Vm):
             def _prepare(self):
                 # ovmf-code / ovmf-vars must be registered with the
                 # inner daemon before we attach them as pflash. The
-                # outer Gentoo VM has the qcow2s available at the
-                # standard edk2 path.
+                # node has the qcow2s available at the standard
+                # edk2 path.
                 for name, path in [
                     ("ovmf-code", "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"),
                     ("ovmf-vars", "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"),
@@ -100,12 +104,12 @@ class InnerVm:
         self.case = case
         self.client = case.client
         self.name: str = name or self._derive_name()
-        self.vm = None
+        self.cap = None
         self._overlay_created = False
 
     # ---- public API --------------------------------------------------------
 
-    def __enter__(self) -> "InnerVm":
+    def __enter__(self) -> "Vm":
         images = self.case.register_base_images()
         base_disk = images.get(self.base_image_key)
         if base_disk is None:
@@ -121,7 +125,7 @@ class InnerVm:
         try:
             self.client.disks.create_overlay(self.name, base_disk)
             self._overlay_created = True
-            self.vm = self.client.vms.create(
+            self.cap = self.client.vms.create(
                 self.name,
                 cpu_count=self.cpu_count,
                 ram_mb=self.ram_mb,
@@ -133,10 +137,10 @@ class InnerVm:
             # directories are attached afterward via the per-resource
             # cap methods.
             for drive in self._drives():
-                self.vm.attach_disk(**drive)
+                self.cap.attach_disk(**drive)
             for shared in self._shared_dirs():
-                self.vm.add_shared_dir(**shared)
-            self.vm.start(wait=self.wait_for_qga)
+                self.cap.add_shared_dir(**shared)
+            self.cap.start(wait=self.wait_for_qga)
             self._post_start()
         except BaseException:
             self.__exit__(None, None, None)
@@ -146,7 +150,7 @@ class InnerVm:
     def __exit__(self, exc_type, exc, tb) -> None:
         # Idempotent, best-effort cleanup. Mirror of
         # `Topology.finalize` (`topology.py:111`).
-        if self.vm is not None:
+        if self.cap is not None:
             # Use `reset` rather than `stop` for teardown: it's a
             # hard kill (`Handlers/Vm.hs:handleVmReset` SIGTERMs
             # qemu and synchronously sets status=stopped) and works
@@ -158,14 +162,14 @@ class InnerVm:
             # graceful shutdown path call `vm.stop` themselves; the
             # __exit__ just guarantees the VM goes away.
             try:
-                self.vm.reset()
+                self.cap.reset()
             except Exception:
                 pass
             try:
-                self.vm.delete(delete_disks=True)
+                self.cap.delete(delete_disks=True)
             except Exception:
                 pass
-            self.vm = None
+            self.cap = None
         if self._overlay_created:
             # If vm.delete ran with delete_disks=True the overlay is
             # gone; if it didn't (e.g. vm.create raised before we got
@@ -193,7 +197,7 @@ class InnerVm:
         """Return the list of `vm.add_shared_dir` kwarg dicts to call
         after the drives are attached and before `vm.start`. Default
         empty. Tests that need virtiofs override this — typically with
-        an inline subclass that captures host-side temp paths via
+        an inline subclass that captures node-side temp paths via
         closure. Each dict accepts `path`, `tag`, plus optional
         `cache` and `read_only`."""
         return []
@@ -208,26 +212,26 @@ class InnerVm:
         cls = type(self).__name__
         # CamelCase → camel-case, drop a leading dash. The random
         # suffix keeps the inner daemon's DB inspectable when a test
-        # leaks ("inner-vm-3f1a2c") without colliding across runs.
+        # leaks ("vm-3f1a2c") without colliding across runs.
         slug = re.sub(r"(?<!^)([A-Z])", r"-\1", cls).lower()
         return f"{slug}-{secrets.token_hex(3)}"
 
 
-class InnerVmSsh(InnerVm):
-    """`InnerVm` plus an open SSH session to the guest.
+class VmSsh(Vm):
+    """`Vm` plus an open SSH session to the guest.
 
-    On `__enter__`, after the VM boots, calls `case.inner_ssh()` and
+    On `__enter__`, after the VM boots, calls `case.vm_shell()` and
     blocks on `wait_ready()` so sshd is answering by the time the
-    `with` body runs. The shell is accessible as `inner.shell`; the
-    `inner.run(cmd)` shortcut forwards to it.
+    `with` body runs. The shell is accessible as `vm.shell`; the
+    `vm.run(cmd)` shortcut forwards to it.
 
-        with InnerVmSsh(self) as inner:
-            r = inner.run("uname -s")
+        with VmSsh(self) as vm:
+            r = vm.run("uname -s")
             assert r.exit_code == 0 and r.stdout.strip() == "Linux"
 
-    Skips cleanly (and tears the VM down) when the inner VM has no
-    VSOCK CID or the host-side SSH private key isn't present —
-    `inner_ssh()` raises `RuntimeError` with a clear message in
+    Skips cleanly (and tears the VM down) when the VM has no VSOCK
+    CID or the host-side SSH private key isn't present —
+    `vm_shell()` raises `RuntimeError` with a clear message in
     those cases.
     """
 
@@ -244,11 +248,11 @@ class InnerVmSsh(InnerVm):
         name: Optional[str] = None,
     ) -> None:
         super().__init__(case, name=name)
-        self.shell: Optional["InnerGuestShell"] = None
+        self.shell: Optional["VmShell"] = None
 
     def _post_start(self) -> None:
         try:
-            self.shell = self.case.inner_ssh(self.vm)
+            self.shell = self.case.vm_shell(self.cap)
         except RuntimeError as e:
             # Missing key / no vsock_cid — surface as a skip so the
             # test doesn't fail noisily on an unsupported host.
@@ -257,7 +261,7 @@ class InnerVmSsh(InnerVm):
 
     def __exit__(self, exc_type, exc, tb) -> None:
         # Drop the ControlMaster before tearing down the VM so the
-        # inner sshd session closes cleanly; the base class then
+        # vm-side sshd session closes cleanly; the base class then
         # stops + deletes the VM.
         if self.shell is not None:
             try:
@@ -272,8 +276,8 @@ class InnerVmSsh(InnerVm):
         return self.shell.run(command, **kw)
 
 
-class InnerVmUefi(InnerVmSsh):
-    """`InnerVmSsh` that boots in UEFI mode via OVMF pflash drives.
+class VmUefi(VmSsh):
+    """`VmSsh` that boots in UEFI mode via OVMF pflash drives.
 
     Each VM gets its own per-VM overlay on the registered OVMF
     `code` and `vars` disks. The shared `ovmf-code` / `ovmf-vars`

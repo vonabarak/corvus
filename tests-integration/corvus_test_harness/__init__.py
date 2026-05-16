@@ -4,61 +4,62 @@ Public entry points are the pytest fixtures defined in
 `tests-integration/conftest.py`; this package holds the building
 blocks they're composed from:
 
-- `outer.Crv`            — drives the outer-Corvus daemon via the `crv` CLI
+- `outer.Crv`            — drives the outer Corvus daemon via the `crv` CLI
 - `images.ImageReady`    — ensures the integration-test image is applied
 - `host_binary.HostBinary` — validates the freshly compiled inner binary
-- `transport.VsockTcpRelay` — bridges host TCP ↔ guest VSOCK
-- `inner.client`         — opens a pycapnp Client against the inner daemon
-- `topology.Topology`    — declarative multi-VM scenarios for tests
-- `base_images`          — register pre-baked disks with the inner daemon
-- `cases.{Single,Two,Three}VmCase` — class-based test bases with
-                           class-scoped VMs
-- `ssh.GuestShell`       — single-leg host→outer SSH over VSOCK
-- `ssh.InnerGuestShell`  — host→outer→inner SSH tunnel for doubly-nested VMs
-- `version`              — outer-version + nested-KVM sanity checks
+- `transport.VsockTcpRelay` — bridges host TCP ↔ node VSOCK
+- `inner.client`         — opens a pycapnp Client against a node's inner daemon
+- `topology.Topology`    — declarative multi-node scenarios for tests
+- `base_images`          — register pre-baked disks with a node's inner daemon
+- `cases.{Single,Two,Three}NodeCase` — class-based test bases with
+                           class-scoped nodes
+- `ssh.NodeShell`        — single-leg host→node SSH over VSOCK
+- `ssh.VmShell`          — host→node→vm SSH tunnel for vms
+- `vm.{Vm,VmSsh,VmUefi}` — context managers for the vm lifecycle
+- `version`              — outer-daemon-version + nested-KVM sanity checks
 """
 
 from . import base_images
 from .cases import (
     IntegrationTestCase,
-    SingleVmCase,
-    ThreeVmsCase,
-    TwoVmsCase,
+    SingleNodeCase,
+    ThreeNodesCase,
+    TwoNodesCase,
 )
 from .host_binary import HostBinary
 from .images import ImageReady
 from .inner import open_client
-from .inner_vm import InnerVm, InnerVmSsh, InnerVmUefi
 from .outer import Crv
 from .spice import SpiceLinkInfo, probe_spice_link
-from .ssh import HOST_ALPINE_KEY_PATH, GuestShell, InnerGuestShell, SshResult
-from .topology import Topology, TestVm
+from .ssh import HOST_ALPINE_KEY_PATH, NodeShell, SshResult, VmShell
+from .topology import TestNode, Topology
 from .transport import VsockTcpRelay
 from .version import (
     NestedKvmStatus,
     check_nested_kvm,
     check_outer_version,
 )
+from .vm import Vm, VmSsh, VmUefi
 
 __all__ = [
     "Crv",
-    "GuestShell",
     "HOST_ALPINE_KEY_PATH",
     "HostBinary",
     "ImageReady",
-    "InnerGuestShell",
-    "InnerVm",
-    "InnerVmSsh",
-    "InnerVmUefi",
     "IntegrationTestCase",
     "NestedKvmStatus",
-    "SingleVmCase",
+    "NodeShell",
+    "SingleNodeCase",
     "SpiceLinkInfo",
     "SshResult",
-    "TestVm",
-    "ThreeVmsCase",
+    "TestNode",
+    "ThreeNodesCase",
     "Topology",
-    "TwoVmsCase",
+    "TwoNodesCase",
+    "Vm",
+    "VmShell",
+    "VmSsh",
+    "VmUefi",
     "VsockTcpRelay",
     "base_images",
     "check_nested_kvm",
