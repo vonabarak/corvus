@@ -143,12 +143,16 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
     handleParsed $ \CGDisk.DiskManager'clone'params {params = CGDisk.DiskCloneParams {..}} -> do
       srcRef' <- capnpRefToRef sourceRef
       srcId <- failOnLeft =<< resolveDisk srcRef' (ssDbPool st)
-      let act =
+      -- Empty `path` means "let the daemon pick the default
+      -- location"; non-empty is forwarded verbatim (the handler
+      -- accepts both relative-to-basePath and absolute paths).
+      let mPath = if T.null path then Nothing else Just path
+          act =
             DiskClone
               { dclName = newName
               , dclBaseDiskId = srcId
               , dclResizeMb = Nothing
-              , dclPath = Nothing
+              , dclPath = mPath
               }
       resp <- runAction st act
       case resp of
@@ -177,6 +181,25 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         RespVmMustBeStopped -> throwFailed "VM must be stopped"
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'rebase: unexpected response"
+
+  diskManager'flatten (DiskManagerCap st _) =
+    handleParsed $ \CGDisk.DiskManager'flatten'params {..} -> do
+      diskRef' <- capnpRefToRef diskRef
+      diskId' <- failOnLeft =<< resolveDisk diskRef' (ssDbPool st)
+      -- @drbNewBackingId = Nothing@ is the flatten signal in the
+      -- daemon's @DiskRebase@ action (`Handlers/Disk/Rebase.hs`).
+      let act =
+            DiskRebase
+              { drbDiskId = diskId'
+              , drbNewBackingId = Nothing
+              , drbUnsafe = False
+              }
+      resp <- runAction st act
+      case resp of
+        RespDiskOk -> pure CGDisk.DiskManager'flatten'results
+        RespVmMustBeStopped -> throwFailed "VM must be stopped"
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "diskManager'flatten: unexpected response"
 
   diskManager'importUrl (DiskManagerCap st _) =
     handleParsed $ \CGDisk.DiskManager'importUrl'params {params = CGDisk.DiskImportUrlParams {..}} -> do

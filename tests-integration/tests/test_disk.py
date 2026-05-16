@@ -102,6 +102,47 @@ class TestDisk(SingleVmCase):
             with pytest.raises(VmMustBeStopped):
                 self.client.disks.clone(inner.name, _uniq("clone-while-running"))
 
+    def test_clone_to_custom_path(self):
+        """`disks.clone(..., path=...)` writes the clone to an
+        explicit filesystem location. The path is in the daemon's
+        view (i.e. inside the outer Gentoo VM); we don't ssh in to
+        stat the file from the host. Instead we verify the daemon
+        records the custom path in `file_path` on the new disk."""
+        src_name = _uniq("clone-cp-src")
+        clone_name = _uniq("clone-cp-dst")
+        # Relative path → resolved against the inner daemon's
+        # basePath. Pre-capnp used absolute /tmp paths; relative
+        # keeps us in the daemon's namespace and avoids leaking
+        # state into the VM's /tmp.
+        custom_rel = f"{clone_name}-at-custom.qcow2"
+        self.client.disks.create(src_name, size_mb=8, format="qcow2")
+        try:
+            clone = self.client.disks.clone(
+                src_name, clone_name, path=custom_rel
+            )
+            try:
+                info = clone.show()
+                assert info.name == clone_name
+                # The daemon records the actual on-disk path. With
+                # a relative path it resolves to
+                # `<basePath>/<custom_rel>`; the file_path the
+                # daemon reports must end in our custom suffix —
+                # NOT the default `<basePath>/<clone_name>.qcow2`.
+                assert info.file_path.endswith(custom_rel), (
+                    f"clone landed at default location, not custom path: "
+                    f"{info.file_path!r}"
+                )
+                # Sanity: the path is distinct from what the
+                # default would have been.
+                assert not info.file_path.endswith(f"{clone_name}.qcow2"), (
+                    f"file_path matches the default location, not the custom one: "
+                    f"{info.file_path!r}"
+                )
+            finally:
+                clone.delete()
+        finally:
+            self._delete_silent(src_name)
+
     # ---- overlay ------------------------------------------------------------
 
     def test_create_overlay_has_backing(self):
@@ -145,6 +186,37 @@ class TestDisk(SingleVmCase):
         finally:
             self._delete_silent(base_a)
             self._delete_silent(base_b)
+
+    def test_rebase_flatten_drops_backing(self):
+        """`disks.flatten(overlay)` consolidates the overlay's delta
+        with its backing image(s) into a single standalone qcow2.
+        Afterwards `disk.show()` must report no backing image."""
+        base_name = _uniq("flatten-base")
+        overlay_name = _uniq("flatten-top")
+        base = self.client.disks.create(base_name, size_mb=8, format="qcow2")
+        try:
+            overlay = self.client.disks.create_overlay(overlay_name, base_name)
+            try:
+                # Sanity: overlay starts with a backing pointer.
+                info = overlay.show()
+                assert info.backing_image_id == base.show().id
+                assert info.backing_image_name == base_name
+
+                self.client.disks.flatten(overlay_name)
+
+                info = overlay.show()
+                assert info.backing_image_id is None, (
+                    f"flatten left a backing pointer: {info!r}"
+                )
+                assert info.backing_image_name is None, (
+                    f"flatten left a backing name: {info!r}"
+                )
+                # Same disk id, same name — only the backing fields changed.
+                assert info.name == overlay_name
+            finally:
+                overlay.delete()
+        finally:
+            self._delete_silent(base_name)
 
     # ---- import -------------------------------------------------------------
 

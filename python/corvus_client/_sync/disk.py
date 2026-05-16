@@ -29,11 +29,17 @@ class SyncDiskManager:
             self._rl,
         )
 
-    def clone(self, source_ref, new_name: str):
-        return SyncDisk(self._rl.run(self._a.clone(source_ref, new_name)), self._rl)
+    def clone(self, source_ref, new_name: str, *, path: Optional[str] = None):
+        return SyncDisk(
+            self._rl.run(self._a.clone(source_ref, new_name, path=path)),
+            self._rl,
+        )
 
     def rebase(self, disk_ref, new_backing_disk_ref):
         return self._rl.run(self._a.rebase(disk_ref, new_backing_disk_ref))
+
+    def flatten(self, disk_ref):
+        return self._rl.run(self._a.flatten(disk_ref))
 
     def import_url(
         self,

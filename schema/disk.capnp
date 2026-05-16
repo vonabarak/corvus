@@ -61,6 +61,12 @@ struct DiskCreateOverlayParams {
 struct DiskCloneParams {
   sourceRef @0 :Common.EntityRef;
   newName   @1 :Text;
+  # Optional destination path. Empty string → daemon picks the
+  # default location (`<basePath>/<newName>.<ext>`). Non-empty →
+  # written verbatim through `qemu-img convert` to this path
+  # (relative paths resolve against the daemon's basePath; absolute
+  # paths are honoured as-is).
+  path      @2 :Text;
 }
 
 struct DiskRebaseParams {
@@ -95,6 +101,11 @@ interface DiskManager {
   rebase        @6 (params :DiskRebaseParams) -> ();
   importUrl     @7 (params :DiskImportUrlParams) -> (taskId :Int64);
   import        @8 (params :DiskImportParams) -> (disk :Disk);
+  # Flatten an overlay: consolidates its delta with all backing
+  # images into a single standalone qcow2 with no backing image.
+  # The disk record stays at the same id; only its `backingImage*`
+  # fields go to null. VM must be stopped.
+  flatten       @9 (diskRef :Common.EntityRef) -> ();
 }
 
 interface Disk {

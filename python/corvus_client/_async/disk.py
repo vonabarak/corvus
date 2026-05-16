@@ -78,11 +78,23 @@ class AsyncDiskManager:
         self,
         source_ref: Union[int, str],
         new_name: str,
+        *,
+        path: Optional[str] = None,
     ) -> "AsyncDisk":
+        """Clone an existing disk to a new disk record.
+
+        `path` is the destination on the daemon's filesystem; leave
+        `None` (the default) and the daemon writes to
+        `<basePath>/<new_name>.<ext>`. Relative paths are resolved
+        against the daemon's basePath; absolute paths are honoured
+        as-is.
+        """
         mgr = await self._ensure()
         params = _schema.disk.DiskCloneParams.new_message()
         params.sourceRef = entity_ref(source_ref)
         params.newName = new_name
+        if path is not None:
+            params.path = path
         resp = await mgr.clone(params=params)
         return AsyncDisk(resp.disk)
 
@@ -96,6 +108,15 @@ class AsyncDiskManager:
         params.diskRef = entity_ref(disk_ref)
         params.newBackingDiskRef = entity_ref(new_backing_disk_ref)
         await mgr.rebase(params=params)
+
+    async def flatten(self, disk_ref: Union[int, str]) -> None:
+        """Flatten an overlay disk: consolidate its delta with its
+        backing image(s) into a standalone qcow2. The disk record
+        keeps its id; only its `backing_image_*` fields go to
+        None. VM must be stopped.
+        """
+        mgr = await self._ensure()
+        await mgr.flatten(diskRef=entity_ref(disk_ref))
 
     async def import_url(
         self,
