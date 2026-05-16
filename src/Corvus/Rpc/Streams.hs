@@ -29,11 +29,12 @@ where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
-import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVarIO, writeTVar)
 import Control.Exception (SomeException, try)
 import Corvus.Qemu.SocketBuffer (readBufferFrom, waitForData)
+import Corvus.Rpc.Common (handleParsed)
 import Corvus.Types (SocketBufferHandle (..))
 import qualified Data.ByteString as BS
 import Data.Foldable (for_)

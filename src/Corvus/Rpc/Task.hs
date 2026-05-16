@@ -16,10 +16,11 @@ import Capnp (export)
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGT
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.STM (atomically, modifyTVar')
 import Corvus.Handlers (handleTaskList, handleTaskListChildren, handleTaskShow)
 import Corvus.Protocol (Response (..))
+import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (EmptyHandle (..))
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Enums (fromCapnpTaskResult, fromCapnpTaskSubsystem)

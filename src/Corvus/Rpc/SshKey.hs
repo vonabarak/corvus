@@ -14,13 +14,13 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Sshkey as CGSsh
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
+import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Resolve (resolveSshKey)
 import Corvus.Handlers.SshKey (SshKeyCreate (..), SshKeyDelete (..), handleSshKeyList)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol.SshKey as P
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
+import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.SshKey (toCapnpSshKeyInfo)
 import Data.Int (Int64)

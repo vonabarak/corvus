@@ -28,7 +28,7 @@ import qualified Capnp.Gen.Task as CGTask
 import qualified Capnp.Gen.Template as CGTmpl
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.Async (async)
 import Control.Exception (SomeException, try)
 import Control.Monad (void)
@@ -41,6 +41,7 @@ import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol.Apply as PA
 import qualified Corvus.Protocol.Build as PB
 import Corvus.Rpc.CloudInit (newCloudInitManagerCap)
+import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Disk (newDiskManagerCap)
 import Corvus.Rpc.Network (newNetworkManagerCap)
 import Corvus.Rpc.SshKey (newSshKeyManagerCap)

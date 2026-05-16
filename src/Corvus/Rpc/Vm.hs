@@ -28,7 +28,7 @@ import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
+import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Corvus.Action (runAction, runActionAsync)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
@@ -57,7 +57,7 @@ import qualified Corvus.Model as M
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.CloudInit as PCI
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
+import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
 import Corvus.Rpc.Streams (EmptyHandle (..), runByteSinkRelay)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (toCapnpCloudInitInfo)

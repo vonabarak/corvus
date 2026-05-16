@@ -15,13 +15,13 @@ where
 
 import qualified Capnp.Gen.Cloudinit as CGCI
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Capnp.Rpc.Server (SomeServer)
 import Corvus.Action (runAction)
 import Corvus.Handlers.CloudInit (CloudInitDelete (..), CloudInitSet (..), handleCloudInitGet)
 import Corvus.Handlers.Resolve (resolveVm)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol.CloudInit as P
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
+import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Data.Maybe (fromMaybe)

@@ -20,7 +20,7 @@ import Capnp (export)
 import qualified Capnp.Gen.Template as CGT
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Capnp.Rpc.Server (SomeServer)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Resolve (resolveTemplate)
 import Corvus.Handlers.Template
@@ -32,7 +32,7 @@ import Corvus.Handlers.Template
   , handleTemplateShow
   )
 import Corvus.Protocol (Response (..))
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
+import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
 import Corvus.Rpc.Vm (VmCap (..))
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Template (toCapnpTemplateDetails, toCapnpTemplateVmInfo)

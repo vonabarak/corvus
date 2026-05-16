@@ -20,7 +20,7 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Disk as CGDisk
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed, methodUnimplemented)
+import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Corvus.Action (runAction, runActionAsyncWithId)
 import Corvus.Handlers.Disk
   ( DiskClone (..)
@@ -46,7 +46,7 @@ import Corvus.Handlers.Disk.Snapshot
 import Corvus.Handlers.Resolve (resolveDisk, resolveSnapshot)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
+import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Disk (toCapnpDiskImageInfo, toCapnpSnapshotInfo)
 import Corvus.Wire.Enums (fromCapnpDriveFormat)

@@ -14,7 +14,7 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Network as CGNet
 import Capnp.Rpc (throwFailed)
-import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Capnp.Rpc.Server (SomeServer)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Network
   ( NetworkCreate (..)
@@ -27,7 +27,7 @@ import Corvus.Handlers.Network
   )
 import Corvus.Handlers.Resolve (resolveNetwork)
 import Corvus.Protocol (Response (..))
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft)
+import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Network (toCapnpNetworkInfo)
 import Data.Int (Int64)
