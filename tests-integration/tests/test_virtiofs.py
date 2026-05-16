@@ -10,9 +10,8 @@ Ports the pre-capnp `VirtiofsIntegrationSpec` (see
     `read_only=True` and the guest cannot write through the mount.
 
 All tests stage their host-side directories on the node (the
-inner daemon's filesystem) via `self.node_shell()` /
-`self.run_on_node()`; the Alpine guest mounts via virtiofs and
-reads/writes from there.
+inner daemon's filesystem) via `self.node.run(...)`; the Alpine
+guest mounts via virtiofs and reads/writes from there.
 """
 from __future__ import annotations
 
@@ -34,9 +33,9 @@ class TestVirtiofs(SingleNodeCase):
     """Virtiofs sharing between the node (hosting the inner daemon's
     filesystem) and the Alpine vm.
 
-    Each test stages its host-side directories on the node via the
-    base class's `node_shell()` / `run_on_node()` helpers, then drives
-    the guest over the nested SSH tunnel from `VmSsh`."""
+    Each test stages its host-side directories on the node via
+    `self.node.run(...)`, then drives the guest over the nested SSH
+    tunnel from `VmSsh`."""
 
     # ---- port: bidirectional read+write -----------------------------------
 
@@ -44,11 +43,10 @@ class TestVirtiofs(SingleNodeCase):
         """Host (node) writes a file under a shared dir; guest reads
         it through virtiofs. Guest writes under the same dir; host
         reads it back. Round-trip both ways through the same tag."""
-        node = self.node_shell()
         host_uuid = secrets.token_hex(6)
         outer_path = f"/tmp/virtiofs-bidi-{secrets.token_hex(4)}"
-        node.run(f"mkdir -p {outer_path}")
-        node.run(f"echo UUID:{host_uuid} > {outer_path}/testfile.txt")
+        self.node.run(f"mkdir -p {outer_path}")
+        self.node.run(f"echo UUID:{host_uuid} > {outer_path}/testfile.txt")
         try:
             class _Bidi(VmSsh):
                 def _shared_dirs(_self):
@@ -74,10 +72,10 @@ class TestVirtiofs(SingleNodeCase):
             # After the with block: VM is torn down by VmSsh.
             # The guest write should have been persisted on the
             # node's directory.
-            r = node.run(f"cat {outer_path}/guest-file.txt")
+            r = self.node.run(f"cat {outer_path}/guest-file.txt")
             assert r.stdout.decode().strip() == guest_marker
         finally:
-            node.run(f"rm -rf {outer_path}", check=False)
+            self.node.run(f"rm -rf {outer_path}", check=False)
 
     # ---- port: missing-path error surfaces via subtask --------------------
 
@@ -158,14 +156,13 @@ class TestVirtiofs(SingleNodeCase):
         appear on `vm.show().shared_dirs`, both should be mountable
         inside the guest with their respective tags, and writes
         through each should land in the correct host directory."""
-        node = self.node_shell()
         token_a = secrets.token_hex(4)
         token_b = secrets.token_hex(4)
         path_a = f"/tmp/virtiofs-a-{token_a}"
         path_b = f"/tmp/virtiofs-b-{token_b}"
-        node.run(f"mkdir -p {path_a} {path_b}")
-        node.run(f"echo SHARE-A:{token_a} > {path_a}/file.txt")
-        node.run(f"echo SHARE-B:{token_b} > {path_b}/file.txt")
+        self.node.run(f"mkdir -p {path_a} {path_b}")
+        self.node.run(f"echo SHARE-A:{token_a} > {path_a}/file.txt")
+        self.node.run(f"echo SHARE-B:{token_b} > {path_b}/file.txt")
         try:
             class _Two(VmSsh):
                 def _shared_dirs(_self):
@@ -201,14 +198,14 @@ class TestVirtiofs(SingleNodeCase):
                 vm.run(f"doas sh -c 'echo {guest_b} > /mnt/b/from-guest.txt'")
 
             # After teardown, host sees each write only in its own dir.
-            assert node.run(
+            assert self.node.run(
                 f"cat {path_a}/from-guest.txt"
             ).stdout.decode().strip() == guest_a
-            assert node.run(
+            assert self.node.run(
                 f"cat {path_b}/from-guest.txt"
             ).stdout.decode().strip() == guest_b
             # And NOT cross-pollinated: file from B doesn't appear in A's dir.
-            cross = node.run(
+            cross = self.node.run(
                 f"test -e {path_a}/from-guest-b-by-mistake.txt; echo $?",
                 check=False,
             )
@@ -216,7 +213,7 @@ class TestVirtiofs(SingleNodeCase):
             # `test -e` returns 1 from $?.
             assert cross.stdout.decode().strip() == "1"
         finally:
-            node.run(f"rm -rf {path_a} {path_b}", check=False)
+            self.node.run(f"rm -rf {path_a} {path_b}", check=False)
 
     # ---- new: read-only shared dir blocks writes --------------------------
 
@@ -224,11 +221,10 @@ class TestVirtiofs(SingleNodeCase):
         """`add_shared_dir(..., read_only=True)` exposes the host
         directory to the guest as read-only. Reads must work; writes
         must fail (EROFS / "Read-only file system")."""
-        node = self.node_shell()
         token = secrets.token_hex(4)
         ro_path = f"/tmp/virtiofs-ro-{token}"
-        node.run(f"mkdir -p {ro_path}")
-        node.run(f"echo READ-ONLY:{token} > {ro_path}/file.txt")
+        self.node.run(f"mkdir -p {ro_path}")
+        self.node.run(f"echo READ-ONLY:{token} > {ro_path}/file.txt")
         try:
             class _Ro(VmSsh):
                 def _shared_dirs(_self):
@@ -269,7 +265,7 @@ class TestVirtiofs(SingleNodeCase):
                 )
 
                 # Host confirms the file was never created.
-                host_check = node.run(
+                host_check = self.node.run(
                     f"test -e {ro_path}/wrote-me.txt; echo $?",
                     check=False,
                 )
@@ -278,4 +274,4 @@ class TestVirtiofs(SingleNodeCase):
                     "read_only=True — daemon didn't honour the flag"
                 )
         finally:
-            node.run(f"rm -rf {ro_path}", check=False)
+            self.node.run(f"rm -rf {ro_path}", check=False)

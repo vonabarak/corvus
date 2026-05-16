@@ -26,6 +26,7 @@ the inner daemon running on it.
 from __future__ import annotations
 
 import secrets
+import subprocess
 import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ from .host_binary import HostBinary, REPO_ROOT
 from .images import ImageReady
 from .inner import open_client
 from .outer import Crv, CrvError
+from .ssh import HOST_ALPINE_KEY_PATH, NodeShell
 from .transport import VsockTcpRelay
 
 
@@ -74,6 +76,29 @@ class TestNode:
         if self._client is None:
             self._client = open_client(self.relay)
         return self._client
+
+    def run(
+        self,
+        command: str,
+        *,
+        timeout_sec: float = 60.0,
+        check: bool = True,
+        user: str = "corvus",
+    ) -> subprocess.CompletedProcess:
+        """Run `command` on this node via SSH-over-VSOCK.
+
+        Returns the raw `subprocess.CompletedProcess`; stdout/stderr
+        are bytes (decode with `.stdout.decode()`). Set `check=False`
+        to let non-zero exits return normally instead of raising.
+        """
+        if not HOST_ALPINE_KEY_PATH.exists():
+            raise RuntimeError(
+                f"SSH private key not found at {HOST_ALPINE_KEY_PATH} — "
+                "run `make test-image-key` to generate it"
+            )
+        return NodeShell(
+            cid=self.cid, user=user, key_path=HOST_ALPINE_KEY_PATH
+        ).run(command, timeout_sec=timeout_sec, check=check)
 
 
 class Topology:

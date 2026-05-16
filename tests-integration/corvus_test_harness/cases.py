@@ -26,16 +26,15 @@ accidentally. Hooks in conftest.py read and write that registry.
 """
 from __future__ import annotations
 
-import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import pytest
 
 from . import base_images as _base_images
-from .ssh import HOST_ALPINE_KEY_PATH, NodeShell, VmShell
+from .ssh import HOST_ALPINE_KEY_PATH, VmShell
 from .topology import Topology
 
 if TYPE_CHECKING:
@@ -199,67 +198,6 @@ class IntegrationTestCase:
             first.client(), self.topology.crv, first.name
         )
         return state.base_images_cache
-
-    # ---- Node-side shell ---------------------------------------------------
-
-    def node_shell(
-        self,
-        node_index: int = 0,
-        *,
-        user: str = "corvus",
-        host_key_path: Path = HOST_ALPINE_KEY_PATH,
-    ) -> NodeShell:
-        """Open a single-leg VSOCK SSH transport to one of the
-        topology's nodes — i.e. one of the orchestrator Gentoo VMs
-        that hosts an inner Corvus daemon.
-
-        Each call returns a fresh `NodeShell` (a frozen dataclass).
-        Reuse the returned object for multiple `.run(...)` calls in
-        the same test; for one-shot use, prefer the `run_on_node`
-        wrapper below.
-
-          shell = self.node_shell()
-          shell.run("mkdir -p /tmp/foo")
-          shell.run("echo bar > /tmp/foo/baz")
-
-        `node_index` selects the node by position in `self.NODES`;
-        defaults to 0 (the first / only node). Multi-node cases
-        (`TwoNodesCase`, `ThreeNodesCase`) pass 0/1/2 explicitly.
-        """
-        if not host_key_path.exists():
-            raise RuntimeError(
-                f"SSH private key not found at {host_key_path} — "
-                "run `make test-image-key` to generate it"
-            )
-        node = self.nodes[node_index]
-        return NodeShell(
-            cid=node.cid,
-            user=user,
-            key_path=host_key_path,
-        )
-
-    def run_on_node(
-        self,
-        command: str,
-        *,
-        node_index: int = 0,
-        user: str = "corvus",
-        host_key_path: Path = HOST_ALPINE_KEY_PATH,
-        timeout_sec: float = 60.0,
-        check: bool = True,
-    ) -> subprocess.CompletedProcess:
-        """One-shot wrapper around `node_shell(...).run(...)`. Returns
-        the raw `subprocess.CompletedProcess`; `stdout`/`stderr` are
-        bytes (decode with `.stdout.decode()`). Set `check=False` to
-        let non-zero exits return normally instead of raising.
-
-          out = self.run_on_node("hostname").stdout.decode().strip()
-        """
-        return self.node_shell(
-            node_index=node_index,
-            user=user,
-            host_key_path=host_key_path,
-        ).run(command, timeout_sec=timeout_sec, check=check)
 
     # ---- VM-side shell -----------------------------------------------------
 
