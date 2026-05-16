@@ -169,6 +169,7 @@ _MESSAGE_TABLE = (
     (re.compile(r"^HMP monitor buffer not available"), GuestAgentError),
     (re.compile(r"^VM has no SPICE display"), VmRunning),
     (re.compile(r"^VM not running"), VmRunning),
+    (re.compile(r"^VM must be stopped"), VmMustBeStopped),
     # Not-found patterns. Match either the static message or the
     # Resolve-helper decorated form ("Type '<name>' not found",
     # "Type #<id> not found").

@@ -1,28 +1,302 @@
 """Disk subsystem against the inner daemon.
 
-Mirrors the deleted DiskIntegrationSpec scope:
-  - create / register / clone
-  - overlay (createOverlay) + rebase
-  - import (local path) + import-url
-  - hot attach/detach (rw + ro variants)
-  - refresh after out-of-band qemu-img write
-  - resize
-
-Tests run against the inner daemon (root inside the test VM), so disk
-files live under the VM's `/var/lib/corvus` (or the inner equivalent),
-not the host. Each test cleans up the inner-side disks it creates.
+Mirrors DiskIntegrationSpec (see doc/integration-tests-pre-capnp.md).
+The inner daemon's `basePath` is private to the outer-VM filesystem,
+so each test creates and deletes its own qcow2s without any host-side
+filesystem hacks (the pre-capnp `withSystemTempDirectory` + `HOME`
+swap is gone).
 """
 from __future__ import annotations
 
+import secrets
+
 import pytest
 
-from corvus_test_harness import SingleVmCase
+from corvus_client import VmMustBeStopped
+from corvus_test_harness import InnerVm, InnerVmSsh, SingleVmCase
 
 
 pytestmark = pytest.mark.slow
 
 
+def _uniq(stem: str) -> str:
+    """6-hex-char suffix to keep concurrent runs / leak hunts trivial."""
+    return f"{stem}-{secrets.token_hex(3)}"
+
+
 class TestDisk(SingleVmCase):
-    @pytest.mark.skip(reason="TODO: port DiskIntegrationSpec coverage from doc/integration-tests-pre-capnp.md")
+    """Disk CRUD + clone + overlay + rebase + import + hot-plug + resize.
+
+    All tests share one outer Gentoo VM + one inner daemon via
+    `SingleVmCase`. Each test creates its own disks under a unique
+    name; teardown deletes them (best-effort) so a class run leaves
+    no orphans even on intermediate failures.
+    """
+
+    def _delete_silent(self, name: str) -> None:
+        try:
+            self.client.disks.get(name).delete()
+        except Exception:
+            pass
+
+    # ---- create / show / delete --------------------------------------------
+
     def test_disk_create_and_delete(self):
-        raise NotImplementedError
+        name = _uniq("crud")
+        disk = self.client.disks.create(name, size_mb=16, format="qcow2")
+        try:
+            info = disk.show()
+            assert info.name == name
+            assert info.format == "qcow2"
+            assert info.size_mb == 16
+            assert info.backing_image_id is None
+            # Listed by the manager.
+            assert any(d.name == name for d in self.client.disks.list())
+        finally:
+            disk.delete()
+        # After delete, the disk is gone.
+        names = {d.name for d in self.client.disks.list()}
+        assert name not in names
+
+    # ---- clone --------------------------------------------------------------
+
+    def test_clone_preserves_size_and_format(self):
+        src_name = _uniq("clone-src")
+        clone_name = _uniq("clone-dst")
+        self.client.disks.create(src_name, size_mb=8, format="qcow2")
+        try:
+            clone = self.client.disks.clone(src_name, clone_name)
+            try:
+                info = clone.show()
+                assert info.name == clone_name
+                assert info.format == "qcow2"
+                # qcow2 is sparse, so the daemon reports the virtual
+                # size — exactly equal to the source's.
+                assert info.size_mb == 8
+                assert info.backing_image_id is None
+            finally:
+                clone.delete()
+        finally:
+            self._delete_silent(src_name)
+
+    def test_clone_preserves_snapshots(self):
+        src_name = _uniq("clone-snap-src")
+        clone_name = _uniq("clone-snap-dst")
+        src = self.client.disks.create(src_name, size_mb=8, format="qcow2")
+        try:
+            src.snapshot_create("snap1")
+            clone = self.client.disks.clone(src_name, clone_name)
+            try:
+                snaps = clone.snapshot_list()
+                assert [s.name for s in snaps] == ["snap1"]
+            finally:
+                clone.delete()
+        finally:
+            self._delete_silent(src_name)
+
+    def test_clone_rejects_running_vm(self):
+        """Cloning a disk attached to a running VM must fail with
+        `VmMustBeStopped`. The disk is the inner Alpine VM's overlay,
+        which is attached and busy for the lifetime of the `with`."""
+        with InnerVm(self) as inner:
+            with pytest.raises(VmMustBeStopped):
+                self.client.disks.clone(inner.name, _uniq("clone-while-running"))
+
+    # ---- overlay ------------------------------------------------------------
+
+    def test_create_overlay_has_backing(self):
+        base_name = _uniq("ov-base")
+        overlay_name = _uniq("ov-top")
+        base = self.client.disks.create(base_name, size_mb=8, format="qcow2")
+        try:
+            overlay = self.client.disks.create_overlay(overlay_name, base_name)
+            try:
+                info = overlay.show()
+                assert info.name == overlay_name
+                assert info.backing_image_id == base.show().id
+                assert info.backing_image_name == base_name
+                # Overlay inherits the base's virtual size.
+                assert info.size_mb == 8
+            finally:
+                overlay.delete()
+        finally:
+            self._delete_silent(base_name)
+
+    # ---- rebase -------------------------------------------------------------
+
+    def test_rebase_to_other_base(self):
+        """Rebase an overlay from baseA to baseB and confirm the
+        backing pointer follows. Both bases are independent 8 MB qcow2s
+        so the rebase is `qemu-img rebase`-fast."""
+        base_a = _uniq("rebase-a")
+        base_b = _uniq("rebase-b")
+        overlay = _uniq("rebase-top")
+        a = self.client.disks.create(base_a, size_mb=8, format="qcow2")
+        b = self.client.disks.create(base_b, size_mb=8, format="qcow2")
+        try:
+            ov = self.client.disks.create_overlay(overlay, base_a)
+            try:
+                assert ov.show().backing_image_name == base_a
+                self.client.disks.rebase(overlay, base_b)
+                assert ov.show().backing_image_name == base_b
+                assert ov.show().backing_image_id == b.show().id
+            finally:
+                ov.delete()
+        finally:
+            self._delete_silent(base_a)
+            self._delete_silent(base_b)
+
+    # ---- import -------------------------------------------------------------
+
+    def test_import_local_file_copies(self):
+        """Register a daemon-owned file, then `import_` it under a new
+        name pointing at the registered file's on-disk path. The import
+        copies (canonicalised dest != src), and we get a fresh disk
+        record with a distinct file."""
+        src_name = _uniq("import-src")
+        copy_name = _uniq("import-copy")
+        src = self.client.disks.create(src_name, size_mb=4, format="qcow2")
+        try:
+            src_path = src.show().file_path
+            copy = self.client.disks.import_(copy_name, src_path, format="qcow2")
+            try:
+                info = copy.show()
+                assert info.name == copy_name
+                assert info.format == "qcow2"
+                # New disk lives at a different path than the source.
+                assert info.file_path != src_path
+            finally:
+                copy.delete()
+        finally:
+            self._delete_silent(src_name)
+
+    def test_import_same_path_rejected(self):
+        """If the import name resolves to the same canonical path as
+        the source file, the daemon refuses with a 'Source and
+        destination paths are the same' error (Handlers/Disk/Import.hs:145)."""
+        name = _uniq("import-collide")
+        disk = self.client.disks.create(name, size_mb=4, format="qcow2")
+        try:
+            src_path = disk.show().file_path
+            with pytest.raises(Exception, match="(?i)same"):
+                # Re-importing under the same name targets the same
+                # `<basePath>/<name>.qcow2` destination — canonicalised
+                # source and dest collide.
+                self.client.disks.import_(name, src_path, format="qcow2")
+        finally:
+            disk.delete()
+
+    # ---- hot-plug attach / detach -------------------------------------------
+
+    def test_hot_attach_detach_reattach(self):
+        """Boot an Alpine guest, create a fresh data disk, attach it
+        over virtio, see the kernel pick up `/dev/vd*`, detach,
+        re-attach (regression check that the qcow2 lock is released
+        cleanly), and finally clean up.
+
+        The bookkeeping the daemon does is asserted via `vm.show()`'s
+        `drives` list; the guest-visible effect is asserted via SSH.
+        """
+        data_disk = _uniq("hotplug-data")
+        self.client.disks.create(data_disk, size_mb=32, format="qcow2")
+        try:
+            with InnerVmSsh(self) as inner:
+                before = self._guest_vd_count(inner)
+                drive_id = inner.vm.attach_disk(data_disk, interface="virtio")
+                try:
+                    # Daemon records the drive.
+                    drives = inner.vm.show().drives
+                    assert any(d.id == drive_id for d in drives), drives
+                    # Guest kernel sees a new /dev/vd*.
+                    self._wait_vd_count(inner, before + 1)
+
+                    inner.vm.detach_disk(drive_id)
+                    self._wait_vd_count(inner, before)
+                    # Daemon updated its drive list.
+                    drives = inner.vm.show().drives
+                    assert not any(d.id == drive_id for d in drives), drives
+
+                    # Re-attach: succeeds → the qcow2 lock was released
+                    # by the detach. Drive ID is fresh.
+                    new_drive_id = inner.vm.attach_disk(
+                        data_disk, interface="virtio"
+                    )
+                    assert new_drive_id != drive_id
+                    self._wait_vd_count(inner, before + 1)
+                    inner.vm.detach_disk(new_drive_id)
+                finally:
+                    # Defence-in-depth: if assertions raised mid-flight,
+                    # peel the drive off so the disk delete below
+                    # doesn't trip 'Disk in use'.
+                    try:
+                        inner.vm.detach_disk_by_name(data_disk)
+                    except Exception:
+                        pass
+        finally:
+            self._delete_silent(data_disk)
+
+    def test_hot_attach_read_only(self):
+        """`attach_disk(..., read_only=True)` surfaces as `read_only=True`
+        on the matching drive in `vm.show()`."""
+        data_disk = _uniq("hotplug-ro")
+        self.client.disks.create(data_disk, size_mb=16, format="qcow2")
+        try:
+            with InnerVmSsh(self) as inner:
+                drive_id = inner.vm.attach_disk(
+                    data_disk, interface="virtio", read_only=True
+                )
+                try:
+                    drives = inner.vm.show().drives
+                    matching = [d for d in drives if d.id == drive_id]
+                    assert matching, drives
+                    assert matching[0].read_only is True
+                finally:
+                    try:
+                        inner.vm.detach_disk(drive_id)
+                    except Exception:
+                        pass
+        finally:
+            self._delete_silent(data_disk)
+
+    # ---- resize -------------------------------------------------------------
+
+    def test_resize_grows_disk(self):
+        name = _uniq("resize")
+        disk = self.client.disks.create(name, size_mb=8, format="qcow2")
+        try:
+            assert disk.show().size_mb == 8
+            disk.resize(16)
+            # `resize` only widens; show should reflect the new virtual
+            # size synchronously after the cap returns.
+            assert disk.show().size_mb == 16
+        finally:
+            disk.delete()
+
+    # ---- helpers -----------------------------------------------------------
+
+    def _guest_vd_count(self, inner: "InnerVmSsh") -> int:
+        """Count of /dev/vd* block devices the guest kernel exposes."""
+        out = inner.run("ls /dev/vd* 2>/dev/null | wc -l").stdout.strip()
+        return int(out or "0")
+
+    def _wait_vd_count(
+        self,
+        inner: "InnerVmSsh",
+        target: int,
+        *,
+        timeout_sec: float = 10.0,
+    ) -> None:
+        """Block briefly for udev to settle after a hot-(de)attach;
+        the kernel surfaces the new virtio-blk device within a second
+        or two but we leave slack for busy nested-KVM hosts."""
+        import time
+        deadline = time.monotonic() + timeout_sec
+        last = -1
+        while time.monotonic() < deadline:
+            last = self._guest_vd_count(inner)
+            if last == target:
+                return
+            time.sleep(0.5)
+        raise AssertionError(
+            f"guest /dev/vd* count stuck at {last}, expected {target}"
+        )

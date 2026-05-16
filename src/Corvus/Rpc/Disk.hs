@@ -155,6 +155,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         RespDiskCreated newId -> do
           client <- export @CGDisk.Disk sup (DiskCap st sup newId)
           pure CGDisk.DiskManager'clone'results {CGDisk.disk = client}
+        RespVmMustBeStopped -> throwFailed "VM must be stopped"
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'clone: unexpected response"
 
@@ -173,6 +174,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
       resp <- runAction st act
       case resp of
         RespDiskOk -> pure CGDisk.DiskManager'rebase'results
+        RespVmMustBeStopped -> throwFailed "VM must be stopped"
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'rebase: unexpected response"
 
@@ -246,6 +248,7 @@ instance CGDisk.Disk'server_ DiskCap where
     case resp of
       RespDiskOk -> pure CGDisk.Disk'resize'results
       RespDiskNotFound -> throwFailed "Disk not found"
+      RespVmMustBeStopped -> throwFailed "VM must be stopped"
       RespError msg -> throwFailed msg
       _ -> throwFailed "disk'resize: unexpected response"
 
@@ -257,6 +260,7 @@ instance CGDisk.Disk'server_ DiskCap where
           client <- export @CGDisk.Snapshot sup (SnapshotCap st eid sid)
           pure CGDisk.Disk'snapshotCreate'results {CGDisk.snapshot = client}
         RespDiskNotFound -> throwFailed "Disk not found"
+        RespVmMustBeStopped -> throwFailed "VM must be stopped"
         RespError msg -> throwFailed msg
         _ -> throwFailed "disk'snapshotCreate: unexpected response"
 
@@ -328,6 +332,7 @@ instance CGDisk.Snapshot'server_ SnapshotCap where
     case resp of
       RespSnapshotOk -> pure CGDisk.Snapshot'rollback'results
       RespSnapshotNotFound -> throwFailed "Snapshot not found"
+      RespVmMustBeStopped -> throwFailed "VM must be stopped"
       RespError msg -> throwFailed msg
       _ -> throwFailed "snapshot'rollback: unexpected response"
   snapshot'merge (SnapshotCap st diskId sid) = handleParsed $ \_ -> do
@@ -335,6 +340,7 @@ instance CGDisk.Snapshot'server_ SnapshotCap where
     case resp of
       RespSnapshotOk -> pure CGDisk.Snapshot'merge'results
       RespSnapshotNotFound -> throwFailed "Snapshot not found"
+      RespVmMustBeStopped -> throwFailed "VM must be stopped"
       RespError msg -> throwFailed msg
       _ -> throwFailed "snapshot'merge: unexpected response"
 
