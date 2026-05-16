@@ -118,15 +118,23 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
       -- Get socket path
       socketPath <- liftIO $ getVirtiofsdSocket config vmId (sharedDirTag dir)
 
-      -- Build command
+      -- Build command. The `--readonly` flag (modern Rust
+      -- virtiofsd) tells the daemon to refuse every write op at the
+      -- FUSE layer regardless of guest mount flags — the previous
+      -- implementation persisted `sharedDirReadOnly` in the DB but
+      -- never forwarded it to virtiofsd, so the guest could write
+      -- through anyway.
       let binary = qcVirtiofsdBinary config
           cacheArg = T.unpack $ enumToText (sharedDirCache dir)
-          args =
+          baseArgs =
             [ "--socket-path=" ++ socketPath
             , "--shared-dir=" ++ T.unpack (sharedDirPath dir)
             , "--cache=" ++ cacheArg
             , "--sandbox=none"
             ]
+          args
+            | sharedDirReadOnly dir = baseArgs ++ ["--readonly"]
+            | otherwise = baseArgs
 
       logDebugN $
         "Starting virtiofsd for tag '"
