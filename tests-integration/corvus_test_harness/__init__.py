@@ -39,7 +39,7 @@ from .version import (
     check_nested_kvm,
     check_outer_version,
 )
-from .vm import Vm, VmCloudInit, VmSsh, VmUefi
+from .vm import Vm, VmCloudInit, VmSsh, VmUefi, VmWindows
 
 __all__ = [
     "Crv",
@@ -61,6 +61,7 @@ __all__ = [
     "VmShell",
     "VmSsh",
     "VmUefi",
+    "VmWindows",
     "VsockTcpRelay",
     "base_images",
     "check_nested_kvm",

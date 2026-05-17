@@ -389,6 +389,69 @@ class VmUefi(VmSsh):
         ]
 
 
+class VmWindows(Vm):
+    """A Windows Server VM, driven via QGA `guest_exec` (no SSH).
+
+    The harness's baked Windows image (`windows-server-2025-eval`)
+    boots UEFI, runs qemu-guest-agent + cloudbase-init, and has the
+    virtio-fs Windows driver + WinFSP installed at bake time (see
+    `yaml/windows-server-2025/autounattend.xml`). Tests drive the
+    guest via `vm.cap.guest_exec("cmd.exe /c …")` or
+    `"powershell -Command …"`; the daemon auto-wraps non-prefixed
+    commands in `cmd.exe /c`.
+
+    Subclasses MAY override `_cloud_init_config()` to supply a custom
+    `#ps1_sysnative` user-data script — the daemon writes it
+    verbatim into the NoCloud ISO when the user-data starts with `#`
+    (see `Corvus/CloudInit.hs::isRawUserDataScript`).
+    """
+
+    base_image_key = "windows-server-2025-eval"
+    cpu_count = 4
+    ram_mb = 4096
+    headless = False
+    guest_agent = True
+    cloud_init = True
+    # `start(wait=True)` blocks on the daemon's QGA first-ping.
+    # Windows boots much slower than Linux under nested-KVM, but the
+    # daemon has its own internal timeout for that phase — we trust
+    # it here. If the daemon ever needs a callable timeout knob the
+    # right fix is on the daemon side, not in the harness.
+    wait_for_qga = True
+
+    OVMF_CODE_PATH = "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
+    OVMF_VARS_PATH = "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
+
+    def _prepare(self) -> None:
+        # Idempotent registration of the system OVMF files, mirroring
+        # `VmUefi._prepare`. Kept inline rather than via inheritance
+        # because `VmUefi` extends `VmSsh`, which would drag in the
+        # SSH machinery we don't want for a QGA-only Windows VM.
+        for name, path in (
+            ("ovmf-code", self.OVMF_CODE_PATH),
+            ("ovmf-vars", self.OVMF_VARS_PATH),
+        ):
+            try:
+                self.client.disks.get(name)
+            except Exception:
+                self.client.disks.register(name, path, format="qcow2")
+
+        self._code_overlay = f"{self.name}-ovmf-code"
+        self._vars_overlay = f"{self.name}-ovmf-vars"
+        self.client.disks.create_overlay(self._code_overlay, "ovmf-code")
+        self.client.disks.create_overlay(self._vars_overlay, "ovmf-vars")
+
+    def _drives(self) -> list[dict]:
+        return super()._drives() + [
+            {
+                "disk_ref": self._code_overlay,
+                "interface": "pflash",
+                "read_only": True,
+            },
+            {"disk_ref": self._vars_overlay, "interface": "pflash"},
+        ]
+
+
 class VmCloudInit(VmSsh):
     """A VM whose SSH access is established only via cloud-init key
     injection (no baked authorized_keys).
