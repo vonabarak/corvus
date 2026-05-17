@@ -39,6 +39,30 @@ def _mem_total_kb(shell) -> int:
     return int(out.strip())
 
 
+def _drain_serial_until(stream, needle: bytes, *, timeout: float) -> bytes:
+    """Read from a `serial_console()` stream until `needle` appears.
+
+    Mirrors `test_serial_console.py::_drain_until`. Kept inline
+    here rather than promoted to a shared helper — one duplicate
+    is cheaper than wiring a new harness symbol for a single
+    consumer.
+    """
+    deadline = time.monotonic() + timeout
+    buf = bytearray()
+    while time.monotonic() < deadline:
+        chunk = stream.read(timeout=1.0)
+        if chunk is None:
+            break  # EOF
+        if chunk:
+            buf.extend(chunk)
+            if needle in buf:
+                return bytes(buf)
+    raise AssertionError(
+        f"timed out waiting for {needle!r} after {timeout}s; "
+        f"tail={bytes(buf[-512:])!r}"
+    )
+
+
 class TestVmLifecycle(SingleNodeCase):
     """All methods share one inner daemon. Each creates + deletes its
     own vms under unique names, so the methods are mutually
@@ -214,14 +238,22 @@ class TestVmLifecycle(SingleNodeCase):
 
         The default `VmSsh` boots a **headless, BIOS** Alpine
         VM (the `headless=True` default and no OVMF drives attached
-        — see `VmUefi` for the UEFI variant and the
-        `_GfxOn` subclass in `test_non_headless_vm_has_display_adapter`
-        for the non-headless variant). `VmSsh` handles the
-        create/attach/start/wait-for-sshd sequence and the matching
-        teardown; the body just runs commands and checks the guest
-        is the image we expect.
+        — see `VmUefi` for the UEFI variant and the `_GfxOn`
+        subclass in `test_headless_swap_cycle` for the non-headless
+        variant). `VmSsh` handles the create/attach/start/wait-for-sshd
+        sequence and the matching teardown; the body just runs
+        commands and checks the guest is the image we expect.
+
+        A user-mode NIC is attached so the QGA-poller has a NIC
+        to report guest IPs against — VSOCK alone doesn't surface
+        in `guest-network-get-interfaces` output.
         """
-        with VmSsh(self) as vm:
+
+        class _VmSshWithUserNic(VmSsh):
+            def _net_ifs(self):
+                return [{"type": "user"}]
+
+        with _VmSshWithUserNic(self) as vm:
             r = vm.run("uname -s")
             assert r.exit_code == 0
             assert r.stdout.strip() == "Linux"
@@ -281,6 +313,27 @@ class TestVmLifecycle(SingleNodeCase):
                 f"poller isn't running"
             )
 
+            # Guest-IP advertisement: the poller's secondary job.
+            # The user NIC eth0 is set up by Alpine's DHCP client at
+            # boot; the poller calls `guest-network-get-interfaces`
+            # and propagates the CIDR address back to the daemon
+            # within a couple of healthcheck cycles.
+            deadline = time.monotonic() + 30.0
+            guest_ips = None
+            while time.monotonic() < deadline:
+                for nif in vm.cap.list_net_ifs():
+                    if nif.guest_ip_addresses and "/" in nif.guest_ip_addresses:
+                        guest_ips = nif.guest_ip_addresses
+                        break
+                if guest_ips:
+                    break
+                time.sleep(2.0)
+            assert guest_ips, (
+                "QGA poller never reported guest_ip_addresses within "
+                "30s — guest-network-get-interfaces path didn't reach "
+                "the daemon"
+            )
+
     def test_start_async_with_guest_agent(self):
         """`vm.start(wait=False)` returns at status=`starting`; the
         VM flips to `running` once the daemon catches the first
@@ -322,12 +375,21 @@ class TestVmLifecycle(SingleNodeCase):
             assert r.exit_code == 0
             assert "Boot" in r.stdout
 
-    def test_non_headless_vm_has_display_adapter(self):
-        """Non-headless VMs get `-vga …` and the kernel sees a
-        graphics adapter; QEMU also exposes a SPICE TCP listener on
-        the node's @127.0.0.1@. We probe both: lshw inside the guest,
-        and a SPICE link handshake against the listener from inside
-        the node."""
+    def test_headless_swap_cycle(self):
+        """Headless ↔ non-headless edit cycle on the same VM.
+
+        Non-headless half: VM gets `-vga …`, the kernel sees a
+        graphics adapter (`lshw -class display`), and QEMU exposes
+        a SPICE TCP listener on the node's @127.0.0.1@. We probe
+        both: lshw inside the guest, and a SPICE link handshake
+        against the listener from inside the node.
+
+        Headless half: stop, edit `headless: true`, restart, and
+        re-verify — no display adapter visible to the guest, no
+        SPICE port allocated by the daemon, and the serial console
+        buffer comes up (only headless VMs get a serial chardev —
+        see `Handlers/Vm.hs:386-389`).
+        """
 
         class _GfxOn(VmSsh):
             headless = False
@@ -360,6 +422,31 @@ class TestVmLifecycle(SingleNodeCase):
             # spice-protocol's spice/protocol.h.
             assert info.magic == b"REDQ", info
             assert info.major == 2, info
+
+            # --- swap to headless ---------------------------------
+            vm.cap.stop(wait=True)
+            vm.cap.edit(headless=True)
+            vm.cap.start(wait=True)
+
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                r = shell.run("lshw -class display")
+                assert r.exit_code == 0
+                assert r.stdout.strip() == "", (
+                    f"display adapter visible after headless swap: "
+                    f"{r.stdout!r}"
+                )
+            details = vm.cap.show()
+            assert details.spice_port is None, (
+                f"headless VM should have no spice_port; got {details!r}"
+            )
+            # Serial console buffer is wired up only for headless
+            # VMs; reach login: through the daemon's ring buffer.
+            with vm.cap.serial_console() as stream:
+                data = _drain_serial_until(
+                    stream, b"login:", timeout=60.0
+                )
+                assert b"login:" in data
 
     def test_cpu_and_ram_edit_round_trip(self):
         """Boot, read nproc + MemTotal, stop, edit cpu_count+ram_mb,
@@ -394,9 +481,10 @@ class TestVmLifecycle(SingleNodeCase):
                 mem_kb = _mem_total_kb(shell)
                 assert mem_kb >= 0.85 * 2 * 1024 * 1024
 
-    def test_pause_resume_and_reset(self):
-        """Combined exercise of `vm.pause()`, resume via
-        `vm.start()`, and `vm.reset()`.
+    def test_pause_resume_reset_stop(self):
+        """Combined exercise of all four VM lifecycle actions:
+        `vm.pause()`, resume via `vm.start()`, `vm.reset()`, and
+        graceful `vm.stop(wait=True)`.
 
         Daemon semantics worth knowing:
 
@@ -412,6 +500,11 @@ class TestVmLifecycle(SingleNodeCase):
             start it again and check the kernel's
             `/proc/sys/kernel/random/boot_id` (regenerated on
             every boot) differs from the pre-reset value.
+          * `vm.stop(wait=True)` is the GRACEFUL path — QMP
+            `system_powerdown` sends ACPI to the guest, which
+            Alpine's acpid handles by initiating a clean
+            shutdown. Distinct from `vm.reset()`'s SIGKILL'd
+            QEMU.
         """
         with VmSsh(self) as vm:
             with self.vm_shell(vm.cap) as shell:
@@ -444,3 +537,12 @@ class TestVmLifecycle(SingleNodeCase):
                     f"boot_id unchanged across reset+restart: "
                     f"before={boot_id_1!r}, after={boot_id_2!r}"
                 )
+
+            # --- graceful ACPI shutdown ---------------------------
+            # `vm.stop(wait=True)` asks QEMU to send ACPI
+            # power-down via QMP and blocks until the guest powers
+            # itself off. Test image bakes both QGA and acpid so
+            # this is reliable; on an image without acpid this
+            # would hang until the daemon's 5-min timeout.
+            vm.cap.stop(wait=True)
+            assert vm.cap.show().status == "stopped"

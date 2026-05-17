@@ -244,3 +244,39 @@ class TestSerialConsole(SingleNodeCase):
         assert "d=Ctrl+Alt+Del" in text, text
         assert "f=flush" in text, text
         assert "?=help" in text, text
+
+    def test_serial_console_login(self):
+        """Log in as `corvus` over the serial console.
+
+        Uses the test image's password-based login (corvus:corvus,
+        baked at `yaml/alpine-test/alpine-test.yml:179` via
+        `chpasswd`). Sends username + password through the
+        bidirectional `serial_console()` stream, then issues
+        `whoami` and reads the response from the same stream.
+        Image-agnostic w.r.t. cloud-init — the standard `Vm`
+        Alpine image is enough.
+        """
+        with Vm(self) as vm:
+            with vm.cap.serial_console() as stream:
+                # 1. Wait for the getty `login:` prompt. The boot
+                #    output may have already scrolled past it — the
+                #    ring buffer replay carries it.
+                _drain_until(stream, b"login:", timeout=60.0)
+                # 2. Send the username. CR is what real terminals
+                #    send for ENTER.
+                stream.write(b"corvus\r")
+                _drain_until(stream, b"Password:", timeout=10.0)
+                # 3. Password. Local echo is off so we don't expect
+                #    the bytes back; we expect a shell prompt next.
+                stream.write(b"corvus\r")
+                # 4. Shell prompt. Alpine /bin/sh prints `$ ` for an
+                #    unprivileged user. If the password was wrong
+                #    we'd see `Login incorrect` and a fresh `login:`.
+                data = _drain_until(stream, b"$ ", timeout=15.0)
+                assert b"Login incorrect" not in data, (
+                    f"login rejected; tail={data[-256:]!r}"
+                )
+                # 5. Smoke: `whoami` echoes through the shell.
+                stream.write(b"whoami\r")
+                data = _drain_until(stream, b"corvus", timeout=10.0)
+                assert b"corvus" in data
