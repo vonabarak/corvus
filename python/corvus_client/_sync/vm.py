@@ -1,9 +1,48 @@
 """Sync mirrors for the async Vm wrappers."""
 from __future__ import annotations
 
+import asyncio
 from typing import Optional, Union
 
 from ._resource import LoopBoundResource
+
+
+class SyncByteStream:
+    """Sync wrapper around `_async/streams.py::ByteStream`.
+
+    Daemon→client bytes arrive via `read(timeout=…)` — returns `None`
+    on EOF, `b""` when the timeout slice elapses with no data, and a
+    non-empty chunk otherwise. Client→daemon bytes go through
+    `write(chunk)`. `close()` signals end-of-input. Each call hops to
+    the runloop thread.
+    """
+
+    def __init__(self, async_stream, runloop):
+        self._a = async_stream
+        self._rl = runloop
+
+    def read(self, *, timeout: Optional[float] = None) -> Optional[bytes]:
+        async def _go():
+            if timeout is None:
+                return await self._a.read()
+            try:
+                return await asyncio.wait_for(self._a.read(), timeout)
+            except asyncio.TimeoutError:
+                return b""
+
+        return self._rl.run(_go())
+
+    def write(self, chunk: bytes) -> None:
+        self._rl.run(self._a.write(chunk))
+
+    def close(self) -> None:
+        self._rl.run(self._a.close())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
 
 
 class SyncGuestAgentSubscription:
@@ -82,6 +121,17 @@ class SyncVm(LoopBoundResource):
 
     def send_ctrl_alt_del(self):
         return self._rl.run(self._a.send_ctrl_alt_del())
+
+    def serial_console(self) -> SyncByteStream:
+        """Open a bidirectional serial console stream.
+
+        Returns a `SyncByteStream`; daemon→client bytes via `read()`,
+        client→daemon via `write(chunk)`. Use as a context manager
+        (closes the input side on exit) or call `close()` manually.
+        Raises `ServerError` if the VM is stopped or non-headless.
+        """
+        async_stream = self._rl.run(self._a.serial_console())
+        return SyncByteStream(async_stream, self._rl)
 
     def serial_console_flush(self):
         return self._rl.run(self._a.serial_console_flush())
