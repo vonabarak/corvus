@@ -22,14 +22,14 @@ the section rather than repeated per test.
 Each `it` bullet carries a GitHub-flavoured task-list marker:
 
 - `[x]` — ported to the new pycapnp-based integration suite under
-  [`tests-integration/`](../tests-integration/). The pointer line names the
+  [`integration_tests/`](../integration_tests/). The pointer line names the
   current Python test method.
 - `[~]` — partially ported. The original assertions are split across
   several Python tests, or some sub-assertions are missing / dropped
   (usually because the post-capnp schema deliberately doesn't expose
   the feature, e.g. clone-to-custom-path).
 - `[ ]` — not yet ported. The pre-capnp stub file in
-  [`tests-integration/tests/`](../tests-integration/tests/) is still
+  [`integration_tests/tests/`](../integration_tests/tests/) is still
   carrying a `pytest.skip(reason="TODO: port ...")` placeholder.
 
 Roll-up by spec:

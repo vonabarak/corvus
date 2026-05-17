@@ -195,13 +195,13 @@ crv shutdown         # Request daemon shutdown
 ### Building and Testing
 
 ```bash
-make build                   # Build
-make all-tests               # Run all tests
-make unit-tests              # Unit tests only
-make integration-tests       # Integration tests (requires QEMU/KVM)
-make test MATCH="pattern"    # Run specific tests
-make lint                    # HLint
-make format                  # Fourmolu
+make build                                # Build
+make unit-tests                           # Haskell unit tests
+make unit-tests MATCH="pattern"           # Filtered unit tests
+make integration-tests                    # Pytest integration suite (requires nested KVM)
+make integration-tests MATCH="pattern"    # Filtered integration tests
+make lint                                 # HLint
+make format                               # Fourmolu
 ```
 
 ### Test Images
@@ -209,8 +209,9 @@ make format                  # Fourmolu
 Integration tests require VM images. Build them with:
 
 ```bash
-make test-image              # Build both Alpine Linux and Windows Server images
-make test-image-alpine       # Alpine Linux only
+make test-image              # Build all test images (node + vm + multi-os + windows)
+make test-image-vm           # Alpine Linux inner-VM image only
+make test-image-node         # Gentoo outer-node image only
 make test-image-windows      # Windows Server 2025 only (downloads evaluation ISO)
 ```
 

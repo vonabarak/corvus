@@ -1,11 +1,11 @@
 pipeline:
   - build:
-      name: corvus-integration-test
+      name: corvus-test-node
       description: Corvus integration-test target; runs the freshly built daemon over vsock
       template: gentoo-headless
 
       target:
-        name: corvus-integration-test
+        name: corvus-test-node
         format: qcow2
         compact: true
         path: BaseImages/Gentoo/
@@ -175,7 +175,7 @@ pipeline:
             timeoutSec: 10
 
         # systemd unit files. We use `file:` provisioners so the units
-        # are version-controlled in tests-integration/images/systemd/.
+        # are version-controlled in yaml/corvus-test-node/systemd/.
         - file:
             from: ./systemd/opt-corvus-bin.mount
             to: /etc/systemd/system/opt-corvus-bin.mount
@@ -219,10 +219,40 @@ pipeline:
               systemctl enable sshd.service
             timeoutSec: 30
 
+        # ── Debug aids for SSH-in inspection ─────────────────────────────
+        # When a test leaks a node for inspection (the harness prints a
+        # `for n in <name>; do crv vm delete ...` hint), SSHing in
+        # should put a usable `crv` and a few diagnostic shortcuts
+        # within reach.
+        - shell:
+            inline: |
+              install -d -m 0755 /etc/profile.d
+              cat > /etc/profile.d/50-corvus.sh <<'EOF'
+              # Test-node debug aliases — see yaml/corvus-test-node/
+              alias crv='/opt/corvus/bin/crv --tcp'
+              alias crv-log='journalctl -u corvus-test -f --since "5 min ago"'
+              alias crv-status='systemctl status --no-pager corvus-test'
+              alias crv-psql='psql -U corvus corvus'
+              # Show every corvus-spawned process (qemu, virtiofsd, dnsmasq).
+              alias crv-procs='pgrep -af "[c]orvus|[q]emu-system|[v]irtiofsd|[d]nsmasq" | sort'
+              EOF
+              chmod 0644 /etc/profile.d/50-corvus.sh
+
+              cat > /etc/motd <<'EOF'
+              ── Corvus integration-test outer node ───────────────────────
+                crv               — host's crv pointed at the inner daemon
+                crv-log           — tail the inner daemon's journal
+                crv-status        — service state
+                crv-psql          — connect to the inner Postgres
+                crv-procs         — list daemon-spawned helpers
+                sudo journalctl -u virtiofsd@\* -f   — virtiofs daemon logs
+              EOF
+            timeoutSec: 10
+
         # ── SSH access for the host-side test harness ────────────────────
         # The harness drives the inner Alpine VM via a two-leg SSH
         # tunnel: host → outer Gentoo VM (this image) → inner Alpine VM.
-        # Both legs use the same keypair in tests-integration/keys/, so
+        # Both legs use the same keypair in integration_tests/keys/, so
         # one authorized_keys file in /home/corvus is enough.
         - shell:
             inline: |
@@ -242,7 +272,7 @@ pipeline:
         # `crv build`'s client-side preprocessor handles `..` segments
         # (src/Corvus/Client/Commands/Build.hs:readFromFile).
         - file:
-            from: ../keys/corvus-test-key.pub
+            from: ../../integration_tests/keys/corvus-test-key.pub
             to: /home/corvus/.ssh/authorized_keys
             mode: "0600"
 
@@ -289,7 +319,7 @@ pipeline:
         - shell:
             inline: |
               {
-                echo "image: corvus-integration-test"
+                echo "image: corvus-test-node"
                 echo "built: $(date -Iseconds)"
                 echo "kernel: $(uname -r)"
                 qemu-system-x86_64 --version | head -1

@@ -316,7 +316,7 @@ class VmSsh(Vm):
         """Path to the private SSH key the wrapper authenticates with.
 
         Default: the harness's baked test key
-        (`tests-integration/keys/corvus-test-key`). Cloud-init
+        (`integration_tests/keys/corvus-test-key`). Cloud-init
         subclasses override to point at a per-VM generated key.
         """
         from .ssh import HOST_ALPINE_KEY_PATH

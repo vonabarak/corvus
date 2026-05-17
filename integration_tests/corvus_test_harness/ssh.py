@@ -21,7 +21,7 @@ Both rely on the integration-test images: they ship sshd plus a small
 `socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22` relay (Alpine)
 or systemd's built-in VSOCK SSH socket activation (Gentoo). Both the
 Gentoo node image and the Alpine VM image embed the public half of
-`tests-integration/keys/corvus-test-key` into `corvus@`'s
+`integration_tests/keys/corvus-test-key` into `corvus@`'s
 authorized_keys at bake time, so one keypair authorises both legs of
 the tunnel.
 """

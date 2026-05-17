@@ -120,26 +120,18 @@ test/
 │   ├── Prelude.hs       # Re-exports, test utilities
 │   ├── Database.hs      # Test database setup/teardown
 │   ├── Settings.hs      # Test configuration
-│   ├── DSL/
-│   │   ├── Core.hs      # TestM monad, testCase, runDb
-│   │   ├── Given.hs     # Setup primitives (insert VMs, disks, keys, etc.)
-│   │   ├── When.hs      # Action primitives (RPC calls via daemon)
-│   │   └── Then.hs      # Assertion primitives
-│   └── VM/
-│       ├── Common.hs    # withTestVm* helpers (SSH, console, guest exec)
-│       ├── Daemon.hs    # Daemon process lifecycle for integration tests
-│       ├── Rpc.hs       # Test RPC helpers (create/start/stop VMs, guest agent)
-│       ├── Image.hs     # Test image download/management
-│       ├── Ssh.hs       # SSH connection helpers
-│       ├── Console.hs   # Serial console helpers
-│       └── Types.hs     # Test VM configuration types
+│   └── DSL/
+│       ├── Core.hs      # TestM monad, testCase, runDb
+│       ├── Given.hs     # Setup primitives (insert VMs, disks, keys, etc.)
+│       ├── When.hs      # Action primitives (RPC calls via daemon)
+│       └── Then.hs      # Assertion primitives
 └── Corvus/
-    ├── *Spec.hs                   # Unit tests
-    ├── *IntegrationSpec.hs        # Integration tests (require QEMU/KVM)
-    └── NetworkIntegrationSpec.hs  # Virtual networking + namespace tests
+    └── *Spec.hs         # Unit tests (Hspec, no QEMU / no daemon process)
 ```
 
-Tests use a custom BDD DSL (`Test.DSL.*`) with `testCase`, `given`, `when_`, `then_`.
+Integration tests live in `integration_tests/` (pytest); `test/` is
+Haskell unit tests only. Tests use a custom BDD DSL (`Test.DSL.*`)
+with `testCase`, `given`, `when_`, `then_`.
 
 ## Build System
 
@@ -153,9 +145,9 @@ Stack + Hpack (`package.yaml` → `corvus.cabal`), LTS-23.28 resolver.
 | `make install` | Install binaries to `~/.local/bin/` + systemd user service |
 | `make format` | Fourmolu formatting (in-place) |
 | `make lint` | HLint static analysis |
-| `make unit-tests` | Tests excluding integration |
-| `make integration-tests` | Integration tests only (requires QEMU/KVM) |
-| `make all-tests` | Full test suite |
+| `make unit-tests` | Haskell unit tests (the full Haskell suite — no integration tests left here) |
+| `make integration-tests` | Pytest integration suite under `integration_tests/`; accepts `MATCH=<pytest -k expr>` |
+| `make all-tests` | Alias for `make unit-tests` |
 
 ### Build Dependencies
 

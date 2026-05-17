@@ -1,7 +1,7 @@
 """Test harness for Corvus integration tests.
 
 Public entry points are the pytest fixtures defined in
-`tests-integration/conftest.py`; this package holds the building
+`integration_tests/conftest.py`; this package holds the building
 blocks they're composed from:
 
 - `outer.Crv`            — drives the outer Corvus daemon via the `crv` CLI

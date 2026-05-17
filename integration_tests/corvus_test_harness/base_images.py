@@ -1,7 +1,7 @@
 """Register pre-baked OS images with the inner Corvus daemon.
 
 The test image's `root-VMs-BaseImages.mount` (baked in
-[`tests-integration/images/systemd/`](../images/systemd/)) virtiofs-mounts
+[`yaml/corvus-test-node/systemd/`](../../yaml/corvus-test-node/systemd/)) virtiofs-mounts
 the host's `~/VMs/BaseImages` at `/root/VMs/BaseImages` inside the test
 VM. This module:
 
@@ -41,7 +41,7 @@ from .outer import Crv
 HOST_BASE_IMAGES_DIR = Path(os.path.expanduser("~/VMs/BaseImages"))
 
 # In-guest mount point. Matches `root-VMs-BaseImages.mount` in
-# tests-integration/images/systemd/.
+# yaml/corvus-test-node/systemd/.
 GUEST_BASE_IMAGES_PATH = Path("/root/VMs/BaseImages")
 
 # Virtiofs tag wired up in `Topology.add` and the systemd mount unit.

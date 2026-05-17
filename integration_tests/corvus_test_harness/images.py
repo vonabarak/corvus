@@ -7,7 +7,7 @@ here is just to:
   1. Detect whether the base disk the suite needs is already registered
      in the outer daemon (fast path).
   2. If not, run `crv build` on
-     [tests-integration/images/corvus-integration-test.yml](../images/corvus-integration-test.yml)
+     [yaml/corvus-test-node/corvus-test-node.yml](../../yaml/corvus-test-node/corvus-test-node.yml)
      (a `pipeline:`-rooted document — apply + build steps) and wait
      for the bake to finish.
 
@@ -28,10 +28,15 @@ from typing import Optional
 from .outer import Crv, CrvError
 
 # The base disk name must match the `target.name` in the YAML.
-DISK_NAME = "corvus-integration-test"
+DISK_NAME = "corvus-test-node"
 
-# The YAML file relative to the harness package root.
-DEFAULT_YAML = Path(__file__).resolve().parent.parent / "images" / "corvus-integration-test.yml"
+# The YAML file relative to the repo root.
+DEFAULT_YAML = (
+    Path(__file__).resolve().parents[2]
+    / "yaml"
+    / "corvus-test-node"
+    / "corvus-test-node.yml"
+)
 
 
 @dataclass(frozen=True)

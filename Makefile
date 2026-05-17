@@ -1,16 +1,12 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-run uninstall cleanup unit-tests integration-tests all-tests test test-image test-image-key test-image-alpine test-image-integration test-image-windows lint format capnp python-schema-sync python-test integration-tests-py integration-test-py integration-clean-py
+.PHONY: all build install install-run uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
 
-# Number of parallel test jobs (override with: make integration-tests JOBS=8)
+# Number of parallel test jobs (override with: make unit-tests JOBS=8)
 JOBS ?= 6
-
-# Auto-retry failed integration tests at JOBS=1 (override with: RETRY=false)
-RETRY ?= true
-RETRY_FLAG := $(if $(filter false,$(RETRY)),--no-retry,)
 
 # Default target: build
 all: build
@@ -48,34 +44,31 @@ python-schema-sync:
 python-test: install python-schema-sync
 	cd python && .venv-corvus-py/bin/pytest tests -v
 
-# Run the integration test suite (nested VMs; rootful inner Corvus;
-# multi-node). Depends on `build` so the inner-side binary is fresh,
-# and on `install` so `crv` is on PATH for the outer driver. The first
-# session run will `crv apply` the integration-test image YAML, which
-# takes 30-60 min if the upstream gentoo-base-headless isn't already
-# in the daemon's disk store. Requires nested-KVM enabled on the host.
-integration-tests-py: build install
-	test -d tests-integration/.venv || python3 -m venv tests-integration/.venv
-	tests-integration/.venv/bin/pip install -q -e ./python -e ./tests-integration
-	tests-integration/.venv/bin/pytest tests-integration/tests -v -n auto
-
-# Run a single integration test (or a subset). MATCH is passed to
-# pytest's `-k` filter; it can be a test name, a substring, or a
-# boolean expression over test names. Examples:
-#   make integration-test-py MATCH=test_inner_daemon_reachable
-#   make integration-test-py MATCH="lifecycle and not edit"
-integration-test-py: build install
-	@test -n "$(MATCH)" || { echo "usage: make integration-test-py MATCH=<pytest -k expr>" >&2; exit 2; }
-	test -d tests-integration/.venv || python3 -m venv tests-integration/.venv
-	tests-integration/.venv/bin/pip install -e ./python -e ./tests-integration
-	tests-integration/.venv/bin/pytest tests-integration/tests -v -k "$(MATCH)"
+# Run the pytest integration test suite (nested VMs; rootful inner
+# Corvus; multi-node). Depends on `build` so the inner-side binary
+# is fresh, and on `install` so `crv` is on PATH for the outer
+# driver. The first session run will `crv build` the integration-
+# test image YAML (~30-60 min cold). Requires nested-KVM on the host.
+#
+# No arguments: runs the whole suite in parallel (-n auto).
+# MATCH=<expr>: runs the pytest -k filter (substring or boolean expr).
+#
+# Examples:
+#   make integration-tests
+#   make integration-tests MATCH=test_apply
+#   make integration-tests MATCH="lifecycle and not edit"
+integration-tests: build install
+	test -d integration_tests/.venv || python3 -m venv integration_tests/.venv
+	integration_tests/.venv/bin/pip install -q -e ./python -e ./integration_tests
+	integration_tests/.venv/bin/pytest integration_tests/tests -v \
+	  $(if $(MATCH),-k "$(MATCH)",-n auto)
 
 # Sweep orphan integration-test VMs left behind by aborted test runs.
 # pycapnp 2.x sometimes triggers SIGABRT on inner-daemon disconnects,
 # which kills pytest before fixture teardown — VMs stay around. Names
 # always start with `corvus-it-`; this target lists them and deletes
 # each with --delete-disks (overlay rootfs goes too).
-integration-clean-py:
+integration-tests-clean:
 	@names=$$(crv -o json vm list 2>/dev/null | jq -r '.[].name | select(startswith("corvus-it-"))'); \
 	if [ -z "$$names" ]; then echo "no corvus-it-* VMs"; exit 0; fi; \
 	echo "$$names" | while read -r n; do \
@@ -83,6 +76,113 @@ integration-clean-py:
 	  crv vm reset "$$n" 2>/dev/null || true; \
 	  crv vm delete --delete-disks "$$n" || true; \
 	done
+
+# Run the Haskell unit-test suite. Integration tests have moved to
+# pytest under integration_tests/ (see `make integration-tests`);
+# the Haskell test/ tree is unit-tests-only now.
+#
+# No arguments: runs the whole suite.
+# MATCH=<expr>: runs only tests whose name matches <expr>.
+#
+# Examples:
+#   make unit-tests
+#   make unit-tests MATCH=SnapshotSpec
+#   make unit-tests MATCH="cloud-init: persists"
+#
+# Uses script(1) to provide a pseudo-terminal, preventing hangs when piping output.
+unit-tests:
+	script -qec 'stack test --test-arguments "--jobs=$(JOBS)$(if $(MATCH), --match \"$(MATCH)\",)"' /dev/null
+
+# Build all test images via `crv build`
+test-image: test-image-node test-image-vm test-image-multi-os test-image-windows
+
+# Fetch the multi-OS cloud images (Debian, Ubuntu, AlmaLinux, FreeBSD,
+# Alpine) used by the cloud-init integration test class. Idempotent:
+# `crv apply --skip-existing` no-ops once the disks are registered.
+test-image-multi-os:
+	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
+
+# Generate the SSH keypair the integration-test images embed.
+#
+# Both the Alpine test image and the Gentoo integration-test image
+# inject the same `corvus-test-key.pub` into authorized_keys at bake
+# time, so the host-side SSH tunnel can reach the inner Alpine VM
+# through the outer Gentoo VM with a single keypair. Idempotent:
+# subsequent runs no-op if the key already exists.
+test-image-key:
+	mkdir -p integration_tests/keys
+	test -f integration_tests/keys/corvus-test-key || \
+	  ssh-keygen -t ed25519 -f integration_tests/keys/corvus-test-key -N '' -C corvus-test
+
+# Build the minimal Alpine test-VM image (the inner VM the harness
+# boots inside the outer test node).
+#
+# Steps:
+#   1. Make sure the shared SSH keypair exists at
+#      integration_tests/keys/corvus-test-key{,.pub}.
+#   2. Apply the multi-OS template library (provides the `debian12`
+#      bake VM template — it bootstraps Alpine via apk-tools-static
+#      from inside the bake VM, so it doesn't need any pre-cached ISO).
+#   3. Run `crv build`. The artifact is registered as a Corvus disk
+#      named `corvus-test-vm` under the daemon's BaseImages tree at
+#      `BaseImages/Alpine/corvus-test-vm.qcow2`. The build's `file:` step
+#      reads the pubkey directly out of `integration_tests/keys/`.
+test-image-vm: test-image-key
+	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
+	crv build yaml/corvus-test-vm/corvus-test-vm.yml --wait
+test-image-vm-clean:
+	crv disk delete corvus-test-vm || true
+
+# Build the Gentoo test-node image (the harness's outer VM).
+#
+# Steps:
+#   1. Make sure the shared SSH keypair exists at
+#      integration_tests/keys/corvus-test-key{,.pub} — the image
+#      bakes its public half into /home/corvus/.ssh/authorized_keys.
+#   2. Drop any prior `corvus-test-node` disk so the build always
+#      rebakes (the YAML changes we land here only take effect
+#      after a fresh bake).
+#   3. Run yaml/gentoo-test/gentoo-headless.yml — registers the
+#      OVMF + gentoo-base-cloud disks and bakes both the
+#      `gentoo-cloud` and `gentoo-headless` templates the
+#      test-node build is an overlay on. First-run cost is
+#      the headless bake itself (~30-60 min: kernel + stage3 +
+#      emerges); later runs no-op via `ifExists: skip`.
+#   4. Run `crv build` on yaml/corvus-test-node/corvus-test-node.yml.
+#      The artifact is registered as a Corvus disk named
+#      `corvus-test-node`. The pytest harness's `ImageReady.ensure()`
+#      reuses it instead of baking a fresh one on first run.
+test-image-node: test-image-key
+	crv build yaml/gentoo-test/gentoo-headless.yml --wait
+	crv build yaml/corvus-test-node/corvus-test-node.yml --wait
+test-image-node-clean:
+	crv disk delete corvus-test-node || true
+
+# Build the Windows Server 2025 test image.
+#
+# windows-server-2025.yml is a self-contained pipeline: its first
+# `apply` step downloads the Microsoft evaluation ISO (~8 GiB) and the
+# VirtIO-Win drivers ISO (~750 MiB) on first run (later runs are
+# no-ops via `ifExists: skip`), the `build` step drives the autounattend
+# install end-to-end, and a final `apply` registers a convenience
+# `windows-server-2025` runtime template that overlays the baked image.
+# The autounattend.xml floppy is materialised per-build by `crv build`
+# from yaml/windows-server-2025/autounattend.xml — edit it freely; no
+# manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM. The artifact
+# lands at ~/VMs/BaseImages/WindowsServer2025/.
+test-image-windows:
+	crv build yaml/windows-server-2025/windows-server-2025.yml --wait
+test-image-windows-clean:
+	crv disk delete windows-server-2025-eval || true
+	crv template delete windows-server-2025 || true
+
+# Run linter on src, app and test directories
+lint:
+	hlint src app test
+
+# Format the code using fourmolu
+format:
+	fourmolu --mode inplace $(shell find src app test -name '*.hs')
 
 # Install binaries to ~/.local/bin/, drop the systemd unit file in
 # place, and install shell completions. Does NOT enable, start, or
@@ -129,112 +229,3 @@ uninstall:
 cleanup:
 	stack clean
 	rm -rf .test-cache
-
-# Run only unit tests (excluding those with "Integration" in their name)
-# Uses script(1) to provide a pseudo-terminal, preventing hangs when piping output.
-unit-tests:
-	script -qec 'stack test --test-arguments "--skip Integration"' /dev/null
-
-# Run only integration tests (those with "Integration" in their name).
-# By default, failed tests are retried at JOBS=1 — tests are considered failed
-# only if the retry also fails. Disable with: make integration-tests RETRY=false.
-integration-tests:
-	script -qec 'scripts/run-tests-with-retry.sh $(RETRY_FLAG) --match Integration --jobs=$(JOBS)' /dev/null
-
-# Run all tests
-all-tests:
-	script -qec 'stack test --test-arguments "--jobs=$(JOBS)"' /dev/null
-
-# Run specific tests (e.g., make test MATCH="test name")
-test:
-	script -qec 'stack test --test-arguments "--match \"$(MATCH)\" --jobs=$(JOBS)"' /dev/null
-
-# Run linter on src, app and test directories
-lint:
-	hlint src app test
-
-# Build all test images via `crv build`
-test-image: test-image-integration test-image-alpine test-image-multi-os test-image-windows
-
-# Fetch the multi-OS cloud images (Debian, Ubuntu, AlmaLinux, FreeBSD,
-# Alpine) used by the cloud-init integration test class. Idempotent:
-# `crv apply --skip-existing` no-ops once the disks are registered.
-test-image-multi-os:
-	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
-
-# Generate the SSH keypair the integration-test images embed.
-#
-# Both the Alpine test image and the Gentoo integration-test image
-# inject the same `corvus-test-key.pub` into authorized_keys at bake
-# time, so the host-side SSH tunnel can reach the inner Alpine VM
-# through the outer Gentoo VM with a single keypair. Idempotent:
-# subsequent runs no-op if the key already exists.
-test-image-key:
-	mkdir -p tests-integration/keys
-	test -f tests-integration/keys/corvus-test-key || \
-	  ssh-keygen -t ed25519 -f tests-integration/keys/corvus-test-key -N '' -C corvus-test
-
-# Build the minimal Alpine integration-test image.
-#
-# Steps:
-#   1. Make sure the shared SSH keypair exists at
-#      tests-integration/keys/corvus-test-key{,.pub}.
-#   2. Apply the multi-OS template library (provides the `debian12`
-#      bake VM template — it bootstraps Alpine via apk-tools-static
-#      from inside the bake VM, so it doesn't need any pre-cached ISO).
-#   3. Run `crv build`. The artifact is registered as a Corvus disk
-#      named `corvus-test` under the daemon's BaseImages tree at
-#      `BaseImages/Alpine/corvus-test.qcow2`. The build's `file:` step
-#      reads the pubkey directly out of `tests-integration/keys/`.
-test-image-alpine: test-image-key
-	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
-	crv build yaml/alpine-test/alpine-test.yml --wait
-test-image-alpine-clean:
-	crv disk delete corvus-test || true
-
-# Build the Gentoo integration-test image (the harness's outer VM).
-#
-# Steps:
-#   1. Make sure the shared SSH keypair exists at
-#      tests-integration/keys/corvus-test-key{,.pub} — the image
-#      bakes its public half into /home/corvus/.ssh/authorized_keys.
-#   2. Drop any prior `corvus-integration-test` disk so the build
-#      always rebakes (the YAML changes we land here only take
-#      effect after a fresh bake).
-#   3. Run yaml/gentoo-test/gentoo-headless.yml — registers the
-#      OVMF + gentoo-base-cloud disks and bakes both the
-#      `gentoo-cloud` and `gentoo-headless` templates the
-#      integration-test build is an overlay on. First-run cost is
-#      the headless bake itself (~30-60 min: kernel + stage3 +
-#      emerges); later runs no-op via `ifExists: skip`.
-#   4. Run `crv build` on tests-integration/images/corvus-integration-test.yml.
-#      The artifact is registered as a Corvus disk named
-#      `corvus-integration-test`. The pytest harness's `ImageReady.ensure()`
-#      reuses it instead of baking a fresh one on first run.
-test-image-integration: test-image-key
-	crv build yaml/gentoo-test/gentoo-headless.yml --wait
-	crv build tests-integration/images/corvus-integration-test.yml --wait
-test-image-integration-clean:
-	crv disk delete corvus-integration-test || true
-
-# Build the Windows Server 2025 test image.
-#
-# windows-server-2025.yml is a self-contained pipeline: its first
-# `apply` step downloads the Microsoft evaluation ISO (~8 GiB) and the
-# VirtIO-Win drivers ISO (~750 MiB) on first run (later runs are
-# no-ops via `ifExists: skip`), the `build` step drives the autounattend
-# install end-to-end, and a final `apply` registers a convenience
-# `windows-server-2025` runtime template that overlays the baked image.
-# The autounattend.xml floppy is materialised per-build by `crv build`
-# from yaml/windows-server-2025/autounattend.xml — edit it freely; no
-# manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM. The artifact
-# lands at ~/VMs/BaseImages/WindowsServer2025/.
-test-image-windows:
-	crv build yaml/windows-server-2025/windows-server-2025.yml --wait
-test-image-windows-clean:
-	crv disk delete windows-server-2025-eval || true
-	crv template delete windows-server-2025 || true
-
-# Format the code using fourmolu
-format:
-	fourmolu --mode inplace $(shell find src app test -name '*.hs')

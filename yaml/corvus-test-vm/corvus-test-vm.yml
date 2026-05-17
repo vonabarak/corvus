@@ -13,8 +13,8 @@
 #   * Generate the SSH keypair to embed into the image. `make
 #     test-image-key` does this; manual equivalent:
 #
-#       mkdir -p tests-integration/keys
-#       ssh-keygen -t ed25519 -f tests-integration/keys/corvus-test-key \
+#       mkdir -p integration_tests/keys
+#       ssh-keygen -t ed25519 -f integration_tests/keys/corvus-test-key \
 #         -N '' -C corvus-test
 #
 #     The keypair lives in the project tree (gitignored) and is
@@ -26,16 +26,16 @@
 #   crv apply yaml/multi-os/multi-os.yml --skip-existing
 #   crv build yaml/alpine-test/alpine-test.yml --wait
 #
-# Bake takes ~5–7 min. Result: a Corvus disk named `corvus-test`.
+# Bake takes ~5–7 min. Result: a Corvus disk named `corvus-test-vm`.
 
 pipeline:
   - build:
-      name: corvus-test
+      name: corvus-test-vm
       description: "Alpine Linux test image (BIOS+UEFI, sshd, qemu-ga, vsock-sshd)"
       template: debian12
 
       target:
-        name: corvus-test
+        name: corvus-test-vm
         format: qcow2
         sizeGb: 1
         compact: true
@@ -163,8 +163,8 @@ pipeline:
             iface eth0 inet dhcp
             EOF
 
-            echo "corvus-test" > /etc/hostname
-            echo "127.0.0.1 corvus-test localhost" > /etc/hosts
+            echo "corvus-test-vm" > /etc/hostname
+            echo "127.0.0.1 corvus-test-vm localhost" > /etc/hosts
 
             # vsock kernel modules
             # Mainline OpenSSH does not speak AF_VSOCK natively; sshd
@@ -279,7 +279,7 @@ pipeline:
         # Path is relative to this YAML's directory; `crv build`'s
         # client-side preprocessor handles `..` segments.
         - file:
-            from: ../../tests-integration/keys/corvus-test-key.pub
+            from: ../../integration_tests/keys/corvus-test-key.pub
             to: /mnt/target/home/corvus/.ssh/authorized_keys
             mode: "0600"
 

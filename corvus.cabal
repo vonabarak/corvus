@@ -378,7 +378,6 @@ test-suite corvus-test
       Corvus.GuestExecSpec
       Corvus.ImageSpec
       Corvus.NetIfSpec
-      Corvus.NetworkIntegrationSpec
       Corvus.NetworkSpec
       Corvus.ProcessSpec
       Corvus.QmpSpec
@@ -405,14 +404,6 @@ test-suite corvus-test
       Test.DSL.When
       Test.Prelude
       Test.Settings
-      Test.VM.Common
-      Test.VM.Console
-      Test.VM.Daemon
-      Test.VM.Image
-      Test.VM.Rpc
-      Test.VM.Ssh
-      Test.VM.Types
-      Test.VM.VsockProxy
       Paths_corvus
   autogen-modules:
       Paths_corvus

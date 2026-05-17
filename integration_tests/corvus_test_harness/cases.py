@@ -5,7 +5,7 @@ Real test classes inherit from `SingleNodeCase`, `TwoNodesCase`, or
 class fixture brings up one node per name in `NODES`, exposes each
 as `self.node[_short_name]` and `self.client[_short_name]`, and
 tears everything down at class scope. The pytest hooks in
-`tests-integration/conftest.py` add ordering + skip-on-first-failure
+`integration_tests/conftest.py` add ordering + skip-on-first-failure
 + xdist class-affinity on top.
 
 Example:

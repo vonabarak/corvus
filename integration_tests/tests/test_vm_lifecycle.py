@@ -262,7 +262,7 @@ class TestVmLifecycle(SingleNodeCase):
             assert "Alpine Linux" in r.stdout
 
             r = vm.run("hostname")
-            assert "corvus-test" in r.stdout
+            assert "corvus-test-vm" in r.stdout
 
             # Multiplex sanity: many commands should reuse the
             # ControlMaster connection and complete quickly.

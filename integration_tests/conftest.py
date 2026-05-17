@@ -58,7 +58,7 @@ def _nested_kvm_ok():
     if not status.available:
         pytest.skip(
             f"nested KVM unavailable on this host: {status.reason}. "
-            "Integration tests require it; see tests-integration/README.md."
+            "Integration tests require it; see integration_tests/README.md."
         )
 
 

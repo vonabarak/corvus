@@ -31,13 +31,13 @@ A nested VM gives us root, real KVM, and isolation.
 - A built host binary: `stack build` (the harness reads
   `stack path --local-install-root`).
 - The integration-test image, built once on first session run:
-  `crv apply tests-integration/images/corvus-integration-test.yml --wait`
+  `crv build yaml/corvus-test-node/corvus-test-node.yml --wait`
   takes 30-60 min cold (kernel + stage3 + emerges).
 
 ## Running
 
 ```
-cd tests-integration
+cd integration_tests
 python -m venv .venv
 .venv/bin/pip install -e ../python -e .
 .venv/bin/pytest tests/test_vm_lifecycle.py -v
@@ -52,7 +52,7 @@ selects the new-feature tests. `-n 4` parallelises via pytest-xdist
 ```
 Host                  outer Corvus           Inner test VM
   pytest -------> [crv CLI] ----------> creates VM (template
-   |                                     "corvus-integration-test-vm")
+   |                                     "corvus-test-node-vm")
    |  pycapnp                                 |
    |   |                                      | virtiofs:
    |   |       socat host TCP ↔ VSOCK          |   /opt/corvus/bin
@@ -69,7 +69,7 @@ source change: `stack build` then re-run the tests; no image rebuild.
 ## File layout
 
 ```
-tests-integration/
+integration_tests/
 ├── conftest.py                  # session/module/function fixtures
 ├── pyproject.toml
 ├── corvus_test_harness/         # building blocks the fixtures compose
@@ -82,9 +82,6 @@ tests-integration/
 │   ├── ssh.py                   # SSH-into-guest for low-level checks
 │   ├── postgres.py              # in-VM Postgres readiness
 │   └── version.py               # outer version + nested-KVM checks
-├── images/
-│   ├── corvus-integration-test.yml   # `crv build` pipeline
-│   └── systemd/                      # unit files dropped into the image
 └── tests/
     └── test_*.py
 ```
