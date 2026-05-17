@@ -23,13 +23,17 @@ Uses the `SyncByteStream` wrapper around `serialConsole` (added in
 """
 from __future__ import annotations
 
+import os
+import pty
 import secrets
+import select
+import subprocess
 import time
 
 import pytest
 
 from corvus_client import ServerError
-from corvus_client.exceptions import GuestAgentError
+from corvus_client.exceptions import VmRunning
 from corvus_test_harness import SingleNodeCase, Vm
 
 
@@ -95,47 +99,52 @@ class TestSerialConsole(SingleNodeCase):
                 )
                 assert marker.encode() in data
 
-            # ── Phase D: in-guest reboot survives.
-            # `vm.cap.reset()` is a misleading name — it hard-kills
-            # QEMU (see `Handlers/Vm.hs::handleVmReset:509-535`), so we
-            # can't use it to test buffer survival across a reboot.
-            # Issue `reboot -f` inside the guest instead: the kernel
-            # restarts, QEMU stays alive, the daemon's buffer thread
-            # keeps reading from the same serial chardev.
-            # Flush first so the next "login:" we observe is from the
-            # post-reboot kernel, not leftover replay.
+            # ── Phase D: flush actually empties the ring buffer.
+            # `serial_console_flush` is the same daemon call that
+            # `Ctrl+] f` triggers from `crv vm view`. After flushing,
+            # a fresh reconnect must not see the Phase-B marker —
+            # otherwise the keybinding has no observable effect.
             vm.cap.serial_console_flush()
+            with vm.cap.serial_console() as stream_post_flush:
+                early = stream_post_flush.read(timeout=2.0) or b""
+                assert marker.encode() not in early, early
+
+            # ── Phase E: in-guest reboot survives.
+            # `vm.cap.reset()` is misleadingly named — it hard-kills
+            # QEMU (see `Handlers/Vm.hs::handleVmReset:509-535`), so
+            # it can't prove the buffer survives a real reboot.
+            # Issue `reboot -f` inside the guest: kernel restarts,
+            # QEMU stays alive, the daemon's buffer thread keeps
+            # reading from the same serial chardev.
             try:
                 vm.cap.guest_exec("/sbin/reboot -f")
             except ServerError:
                 # `reboot -f` kills init while QGA is mid-exec; the
-                # QGA→daemon communication can timeout or error out.
-                # That's expected — we only care about the side-effect.
+                # QGA→daemon path may timeout. We only care about
+                # the side-effect.
                 pass
             with vm.cap.serial_console() as stream3:
                 data = _drain_until(stream3, LOGIN_PROMPT, timeout=120.0)
                 assert LOGIN_PROMPT in data
 
-            # ── Phase E: stop the VM; the buffer is torn down.
-            # `handleVmStop` removes the buffer handle from
-            # `ssSerialBuffers`, so a subsequent `serial_console` call
-            # raises `GuestAgentError("Serial console buffer not
-            # available")` — the cap method in `Rpc/Vm.hs::vm'serialConsole`
-            # only consults the buffer map and emits this single
-            # error for any non-running or non-headless VM.
+            # ── Phase F: stop the VM; the cap rejects with
+            # "VM is not running (status: stopped)" — the rich
+            # message restored by routing `vm'serialConsole` through
+            # `handleSerialConsole`.
             vm.cap.stop(wait=True)
-            with pytest.raises(GuestAgentError) as excinfo:
+            with pytest.raises(VmRunning) as excinfo:
                 vm.cap.serial_console()
-            assert "buffer not available" in str(excinfo.value)
+            msg = str(excinfo.value)
+            assert "not running" in msg, msg
+            assert "stopped" in msg, msg
 
     def test_rejects_non_headless_vm(self):
         """Daemon refuses serial console for graphical VMs.
 
-        Non-headless VMs get a SPICE port and no serial buffer thread
-        (see `Handlers/Vm.hs:386` — the buffer thread is started only
-        for headless VMs). `vm'serialConsole` finds no buffer in
-        `ssSerialBuffers` and raises "Serial console buffer not
-        available", surfaced client-side as `GuestAgentError`.
+        The cap method routes through `handleSerialConsole`, whose
+        headlessness check emits "VM is not headless — use SPICE
+        viewer instead" before the buffer lookup. The Python client
+        classifies the message as `VmRunning` (see exceptions table).
         """
 
         class _GraphicalVm(Vm):
@@ -144,16 +153,15 @@ class TestSerialConsole(SingleNodeCase):
             wait_for_qga = True  # gate __enter__ on QGA so the VM is up
 
         with _GraphicalVm(self) as vm:
-            with pytest.raises(GuestAgentError) as excinfo:
+            with pytest.raises(VmRunning) as excinfo:
                 vm.cap.serial_console()
-            assert "buffer not available" in str(excinfo.value)
+            assert "not headless" in str(excinfo.value)
 
     def test_rejects_stopped_vm(self):
         """Daemon refuses serial console for stopped VMs.
 
-        A bare VM record with no QEMU process has no serial buffer in
-        `ssSerialBuffers` — `vm'serialConsole` raises "Serial console
-        buffer not available", surfaced as `GuestAgentError`.
+        `handleSerialConsole` rejects on status before reaching the
+        buffer map — error reads "VM is not running (status: stopped)".
         """
         name = f"corvus-it-serial-stopped-{secrets.token_hex(4)}"
         vm_cap = self.client.vms.create(
@@ -165,8 +173,74 @@ class TestSerialConsole(SingleNodeCase):
             cloud_init=False,
         )
         try:
-            with pytest.raises(GuestAgentError) as excinfo:
+            with pytest.raises(VmRunning) as excinfo:
                 vm_cap.serial_console()
-            assert "buffer not available" in str(excinfo.value)
+            msg = str(excinfo.value)
+            assert "not running" in msg, msg
+            assert "stopped" in msg, msg
         finally:
             vm_cap.delete(delete_disks=False)
+
+    def test_view_session_banner(self):
+        """`crv vm view` prints connection banner + keybinding help.
+
+        Pure client-side stdout; only an end-to-end subprocess test
+        observes it. Drive the host `crv` binary against the outer
+        daemon's orchestrator-node VM (a real headless VM that lives
+        for the duration of the test class). Attach for ~2 s, send
+        `Ctrl+] q` to exit cleanly, assert banner text.
+        """
+        crv = self.topology.crv.binary
+        node_name = self.topology._nodes[0].name
+        master, slave = pty.openpty()
+        proc = subprocess.Popen(
+            [crv, "vm", "view", node_name],
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            close_fds=True,
+        )
+        os.close(slave)
+        captured = bytearray()
+        deadline = time.monotonic() + 5.0
+        try:
+            # Pull stdout until we see the banner (or timeout).
+            while time.monotonic() < deadline:
+                rl, _, _ = select.select([master], [], [], 0.2)
+                if not rl:
+                    continue
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError:
+                    break
+                if not chunk:
+                    break
+                captured.extend(chunk)
+                if b"f=flush" in captured:
+                    break
+            # Ctrl+] q exits the raw-mode loop cleanly.
+            try:
+                os.write(master, b"\x1dq")
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        finally:
+            try:
+                os.close(master)
+            except OSError:
+                pass
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+        text = captured.decode("utf-8", errors="replace")
+        assert "serial console" in text, text
+        assert "Escape: Ctrl+]" in text, text
+        assert "q=quit" in text, text
+        assert "d=Ctrl+Alt+Del" in text, text
+        assert "f=flush" in text, text
+        assert "?=help" in text, text
