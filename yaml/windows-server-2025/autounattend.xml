@@ -134,9 +134,68 @@
           <CommandLine>powershell -Command "Add-Content -Path 'C:\Program Files\Cloudbase Solutions\Cloudbase-Init\conf\cloudbase-init.conf' -Value @('metadata_services=cloudbaseinit.metadata.services.nocloudservice.NoCloudConfigDriveService','first_logon_behaviour=no')"</CommandLine>
           <Order>7</Order>
         </SynchronousCommand>
+        <!-- WinFSP — user-mode file system framework that the virtio-fs
+             Windows driver depends on. Pinned to v2.1 (the current
+             stable as of 2025-05). -->
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>powershell -Command "Invoke-WebRequest -Uri 'https://github.com/winfsp/winfsp/releases/download/v2.1/winfsp-2.1.25156.msi' -OutFile 'C:\Windows\Temp\winfsp.msi'"</CommandLine>
+          <Order>8</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>powershell -Command "Start-Process msiexec -ArgumentList '/i','C:\Windows\Temp\winfsp.msi','/qn' -Wait"</CommandLine>
+          <Order>9</Order>
+        </SynchronousCommand>
+        <!-- virtio-fs guest driver — already on E:\ (the virtio-win
+             ISO is still mounted during install). The 2k25 variant
+             matches Windows Server 2025. `pnputil /add-driver`
+             registers the kernel driver in the driver store so
+             Windows binds it when the virtio-fs PCI device shows
+             up; on its own it does NOT create the VirtioFsSvc
+             user-mode service — that requires running virtiofs.exe
+             with `-i`. -->
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>powershell -Command "pnputil /add-driver E:\viofs\2k25\amd64\viofs.inf /install"</CommandLine>
+          <Order>10</Order>
+        </SynchronousCommand>
+        <!-- Copy the user-mode viofs binary to a persistent location.
+             `virtiofs.exe -i` will register a Windows service whose
+             ImagePath is the path of the binary that ran the install,
+             so it has to live somewhere that survives a reboot — E:\
+             is the virtio-win ISO and won't be present at next boot. -->
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c mkdir "C:\Program Files\Virtio-FS"</CommandLine>
+          <Order>11</Order>
+        </SynchronousCommand>
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>cmd /c copy /Y E:\viofs\2k25\amd64\virtiofs.exe "C:\Program Files\Virtio-FS\virtiofs.exe"</CommandLine>
+          <Order>12</Order>
+        </SynchronousCommand>
+        <!-- Register the VirtioFsSvc Windows service. The naive way is
+             `virtiofs.exe -i`, but that command both REGISTERS and
+             STARTS the service in one step, and the service then
+             blocks waiting for the virtio-fs PCI device — which isn't
+             attached during the bake, so the SynchronousCommand
+             never returns and the bake hangs forever on the splash
+             "The VirtIO-FS service will start and wait for the device".
+             Use PowerShell's `New-Service` instead: it only creates
+             the SCM entry (no service start), and `-StartupType
+             Automatic` ensures it starts on the *next* boot — by
+             which time the harness has attached the virtio-fs device.
+             Pre-encoded as -EncodedCommand to dodge the cmd.exe/
+             autounattend quote-escaping mess around the space in
+             "Program Files". Decodes to:
+               New-Service -Name VirtioFsSvc
+                           -BinaryPathName '"C:\Program Files\Virtio-FS\virtiofs.exe"'
+                           -StartupType Automatic
+                           -DisplayName 'VirtIO-FS Service'
+        -->
+        <SynchronousCommand wcm:action="add">
+          <CommandLine>powershell -EncodedCommand TgBlAHcALQBTAGUAcgB2AGkAYwBlACAALQBOAGEAbQBlACAAVgBpAHIAdABpAG8ARgBzAFMAdgBjACAALQBCAGkAbgBhAHIAeQBQAGEAdABoAE4AYQBtAGUAIAAnACIAQwA6AFwAUAByAG8AZwByAGEAbQAgAEYAaQBsAGUAcwBcAFYAaQByAHQAaQBvAC0ARgBTAFwAdgBpAHIAdABpAG8AZgBzAC4AZQB4AGUAIgAnACAALQBTAHQAYQByAHQAdQBwAFQAeQBwAGUAIABBAHUAdABvAG0AYQB0AGkAYwAgAC0ARABpAHMAcABsAGEAeQBOAGEAbQBlACAAJwBWAGkAcgB0AEkATwAtAEYAUwAgAFMAZQByAHYAaQBjAGUAJwA=</CommandLine>
+          <Order>13</Order>
+        </SynchronousCommand>
         <SynchronousCommand wcm:action="add">
           <CommandLine>shutdown /s /t 30 /f</CommandLine>
-          <Order>8</Order>
+          <Order>14</Order>
         </SynchronousCommand>
       </FirstLogonCommands>
       <OOBE>

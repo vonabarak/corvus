@@ -187,9 +187,10 @@ test-image-key:
 #      `BaseImages/Alpine/corvus-test.qcow2`. The build's `file:` step
 #      reads the pubkey directly out of `tests-integration/keys/`.
 test-image-alpine: test-image-key
-	crv disk delete corvus-test || true
 	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
 	crv build yaml/alpine-test/alpine-test.yml --wait
+test-image-alpine-clean:
+	crv disk delete corvus-test || true
 
 # Build the Gentoo integration-test image (the harness's outer VM).
 #
@@ -211,21 +212,28 @@ test-image-alpine: test-image-key
 #      `corvus-integration-test`. The pytest harness's `ImageReady.ensure()`
 #      reuses it instead of baking a fresh one on first run.
 test-image-integration: test-image-key
-	crv disk delete corvus-integration-test || true
 	crv build yaml/gentoo-test/gentoo-headless.yml --wait
 	crv build tests-integration/images/corvus-integration-test.yml --wait
+test-image-integration-clean:
+	crv disk delete corvus-integration-test || true
 
 # Build the Windows Server 2025 test image.
 #
-# `crv apply` downloads the Microsoft evaluation ISO (~8 GiB) and the
-# VirtIO-Win drivers ISO (~750 MiB) on first run; later applies are
-# no-ops. The autounattend.xml floppy is materialised per-build by
-# `crv build` from yaml/windows-server-2025/autounattend.xml — edit
-# it freely; no manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM.
-# The artifact lands at ~/VMs/BaseImages/WindowsServer2025/.
+# windows-server-2025.yml is a self-contained pipeline: its first
+# `apply` step downloads the Microsoft evaluation ISO (~8 GiB) and the
+# VirtIO-Win drivers ISO (~750 MiB) on first run (later runs are
+# no-ops via `ifExists: skip`), the `build` step drives the autounattend
+# install end-to-end, and a final `apply` registers a convenience
+# `windows-server-2025` runtime template that overlays the baked image.
+# The autounattend.xml floppy is materialised per-build by `crv build`
+# from yaml/windows-server-2025/autounattend.xml — edit it freely; no
+# manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM. The artifact
+# lands at ~/VMs/BaseImages/WindowsServer2025/.
 test-image-windows:
-	crv apply yaml/windows-server-2025/windows-installer.yml --skip-existing --wait
 	crv build yaml/windows-server-2025/windows-server-2025.yml --wait
+test-image-windows-clean:
+	crv disk delete windows-server-2025-eval || true
+	crv template delete windows-server-2025 || true
 
 # Format the code using fourmolu
 format:

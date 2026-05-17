@@ -219,8 +219,9 @@ The template for an `installer` build typically has
 vendor install ISO + any driver ISO as `media: cdrom` drives. The
 floppy itself is per-build content, not part of the template. See
 [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml)
-and its paired [yaml/windows-server-2025/windows-installer.yml](../yaml/windows-server-2025/windows-installer.yml)
-for a worked Windows Server 2025 example.
+for a worked Windows Server 2025 example — a self-contained
+three-step pipeline (apply ISOs + bake-template → build → apply
+runtime-template).
 
 ### `overlay` (default)
 
@@ -437,15 +438,18 @@ From-scratch builds:
   vsock-sshd), bootstrapped with `apk-tools-static` inside a Debian
   bake VM.
 
-Installer build (uses
-[yaml/windows-server-2025/windows-installer.yml](../yaml/windows-server-2025/windows-installer.yml);
-the apply downloads the Windows Server 2025 ISO + virtio-win ISO into
-`~/VMs/BaseImages/WindowsServer2025/` on first run):
+Installer build:
 
 - [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml) —
   Windows Server 2025 with qemu-guest-agent + cloudbase-init,
   installed unattended via the bundled `autounattend.xml` on a
-  floppy that the build materialises automatically.
+  floppy that the build materialises automatically. Self-contained
+  pipeline: the first `apply` step downloads the Windows Server 2025
+  evaluation ISO + virtio-win drivers ISO (~9 GiB total) into
+  `~/VMs/BaseImages/WindowsServer2025/` on first run, the `build`
+  step drives the install, and a final `apply` registers a
+  `windows-server-2025` runtime template that overlays the baked
+  image for convenient manual testing.
 
 All builds rely on the host having a VDE switch at `/run/vde2/switch.ctl`
 (the network type used by every template); the bake VMs need outbound

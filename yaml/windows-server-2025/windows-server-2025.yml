@@ -1,31 +1,126 @@
 ---
-# Windows Server 2025 evaluation image, built unattended.
+# Windows Server 2025 evaluation image — self-contained build pipeline.
 #
-# Bakes a Windows Server 2025 image with qemu-guest-agent and
-# cloudbase-init pre-installed.
+# Bakes a Windows Server 2025 image with qemu-guest-agent, cloudbase-init,
+# WinFSP and the virtio-fs guest driver pre-installed. Three pipeline
+# steps:
 #
-# Prerequisites:
-#   1. Apply windows-installer.yml in this directory first — it
-#      downloads the Microsoft evaluation ISO + VirtIO-Win drivers ISO
-#      and defines the `windows-server-2025-installer` template.
-#   2. The bake host must NAT the bridged subnet (cloudbase-init is
-#      downloaded from the public internet during FirstLogonCommands).
+#   1. apply: register the Microsoft eval ISO, the virtio-win ISO, the
+#      OVMF firmware disks, and the bake-only `windows-server-2025-
+#      installer` template.
+#   2. build: drive the autounattend-based install end-to-end; produces
+#      the registered disk `windows-server-2025-eval` under
+#      BaseImages/WindowsServer2025/.
+#   3. apply: register a runtime-friendly `windows-server-2025` template
+#      that overlays the baked image; convenient for manual smoke tests
+#      of the artefact.
+#
+# Requirements:
+#   * The bake host must NAT the bridged subnet — cloudbase-init and
+#     WinFSP MSIs are downloaded from the public internet during
+#     FirstLogonCommands.
 #
 # Usage:
-#   crv apply yaml/windows-server-2025/windows-installer.yml
 #   crv build yaml/windows-server-2025/windows-server-2025.yml --wait
 #
-# Expect 45–55 minutes wall time. The bake VM is headless; if you
-# want to watch the install graphically, swap headless: false in the
-# template and connect via SPICE.
+# Expect 45–55 minutes wall time. The bake VM is graphical by default;
+# connect via SPICE if you want to watch the install live, or flip
+# `headless: true` on the installer template to suppress the window.
+
+_ovmf_code_drive: &ovmf_code
+  diskImageName: ovmf-code
+  interface: pflash
+  readOnly: true
+  strategy: direct
+
+_ovmf_vars_drive: &ovmf_vars
+  diskImageName: ovmf-vars
+  interface: pflash
+  strategy: clone
 
 pipeline:
+  - apply:
+      ifExists: skip
+      disks:
+        # ── UEFI firmware (already present on most cloud images, but
+        #    redeclared here so this file stands alone if applied first) ──
+        - name: ovmf-code
+          register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
+          format: qcow2
+        - name: ovmf-vars
+          register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
+          format: qcow2
+
+        # ── Install media (downloaded on first apply) ──────────────────
+        - name: windows-server-2025-iso
+          import: "https://software-static.download.prss.microsoft.com/dbazure/998969d5-f34g-4e03-ac9d-1f9786c66749/26100.32230.260111-0550.lt_release_svc_refresh_SERVER_EVAL_x64FRE_en-us.iso"
+          format: raw
+          path: ISOs/Windows/
+          md5: 13794bbbdb2557830a429d0a29b98e6c
+        - name: virtio-win-iso
+          import: "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso"
+          format: raw
+          path: ISOs/VirtIO/
+          md5: 9e650d0e7c6e017a91ca299c8f7ed766
+
+      templates:
+        - name: windows-server-2025-installer
+          description: "Windows Server 2025 unattended installer (bake-only)"
+          cpuCount: 4
+          ramMb: 4096
+          headless: false
+          cloudInit: false
+          # The installer ISO drives the entire bake; QGA is installed
+          # late by FirstLogonCommands. We don't wait for it — the
+          # build's `installer` strategy waits for guest-initiated
+          # shutdown instead.
+          guestAgent: false
+          drives:
+            # The artifact: a fresh blank 40 GiB qcow2. The build's
+            # `installer` strategy treats the bake VM's first drive as
+            # the artifact, detaches it after the guest powers off, and
+            # registers it under the build's target.name.
+            - interface: virtio
+              media: disk
+              strategy: create
+              format: qcow2
+              sizeMb: 40960
+              cacheType: writeback
+            # UEFI firmware
+            - *ovmf_code
+            - *ovmf_vars
+            # Windows install ISO — Windows mounts as D:
+            - diskImageName: windows-server-2025-iso
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
+            # VirtIO-Win drivers + qemu-ga MSI — Windows mounts as E:.
+            # The autounattend.xml's DriverPaths and qemu-ga MSI install
+            # paths reference E:\ explicitly, so the order must be
+            # Windows ISO before VirtIO ISO.
+            - diskImageName: virtio-win-iso
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
+            # The autounattend.xml floppy is materialised per-build by
+            # `crv build` from the build YAML's `floppy.from:` field,
+            # then attached as `if=floppy` (Windows finds it at A: on
+            # first boot of the install ISO and reads /autounattend.xml
+            # automatically).
+          networkInterfaces:
+            # Outbound internet for cloudbase-init MSI download.
+            - type: vde
+              hostDevice: /run/vde2/switch.ctl
+
   - build:
       name: windows-server-2025
       description: "Windows Server 2025 with qemu-guest-agent + cloudbase-init"
       template: windows-server-2025-installer
 
       target:
+        ifExists: skip
         name: windows-server-2025-eval
         format: qcow2
         sizeGb: 40
@@ -79,3 +174,30 @@ pipeline:
       # On failure leave the bake VM alive so the operator can connect
       # via SPICE and inspect Windows install logs at C:\Windows\Panther\.
       cleanup: onSuccess
+
+  - apply:
+      ifExists: skip
+      templates:
+        - name: windows-server-2025
+          cpuCount: 8
+          ramMb: 8192
+          cloudInit: true
+          guestAgent: true
+          headless: false
+          description: "Windows Server 2025 (custom image with CloudInit and VirtioFS)"
+          drives:
+            # UEFI firmware
+            - *ovmf_code
+            - *ovmf_vars
+            # System disk
+            - diskImageName: windows-server-2025-eval
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+              sizeMb: 40960
+          networkInterfaces:
+            - type: vde
+              hostDevice: /run/vde2/switch.ctl
+          sshKeys:
+            - name: corvus
