@@ -789,18 +789,54 @@ createVm name cpuCount ramMb description headless guestAgent cloudInit autostart
   key <- insert vm
   pure $ fromSqlKey key
 
--- | Get disk IDs attached to this VM that are not attached to any other VM.
+-- | Get disk IDs attached to this VM that are eligible for cleanup
+-- under @vm.delete --delete-disks@.
+--
+-- A disk qualifies when:
+--
+--   * It is attached to this VM through at least one writable drive
+--     (i.e. some @Drive@ with @driveReadOnly = False@). Read-only
+--     attachments are typically shared infrastructure — installer
+--     ISOs, OVMF firmware, base images shared across templates —
+--     that the VM didn't author and that other workloads may still
+--     need; deleting them would also unlink the underlying file.
+--
+--   * No other VM has a drive referencing it. Disks shared across
+--     VMs are kept; the user can drop them explicitly via
+--     @disk delete@.
+--
+--   * No template references it. A @TemplateDrive@ can reference a
+--     disk either by id (@diskImageId@) or by name (@diskName@, used
+--     when the apply pipeline registers a template ahead of the
+--     disk's creation); both forms count as "in use".
 getExclusiveDisks :: Int64 -> SqlPersistT IO [Int64]
 getExclusiveDisks vmId = do
   let key = toSqlKey vmId :: VmId
   drives <- selectList [M.DriveVmId ==. key] []
-  let diskKeys = map (driveDiskImageId . entityVal) drives
-  filterM (fmap not . isSharedDisk vmId) (map fromSqlKey diskKeys)
+  let writableDiskKeys =
+        map (driveDiskImageId . entityVal) $
+          filter (not . driveReadOnly . entityVal) drives
+  notShared <- filterM (fmap not . isSharedDisk vmId) (map fromSqlKey writableDiskKeys)
+  filterM (fmap not . isUsedByTemplate) notShared
   where
     isSharedDisk :: Int64 -> Int64 -> SqlPersistT IO Bool
     isSharedDisk thisVmId diskId = do
       otherDrives <- selectList [M.DriveDiskImageId ==. toSqlKey diskId, M.DriveVmId !=. toSqlKey thisVmId] [LimitTo 1]
       pure $ not (null otherDrives)
+
+    isUsedByTemplate :: Int64 -> SqlPersistT IO Bool
+    isUsedByTemplate diskId = do
+      let diskKey = toSqlKey diskId :: DiskImageId
+      byId <- selectList [M.TemplateDriveDiskImageId ==. Just diskKey] [LimitTo 1]
+      if not (null byId)
+        then pure True
+        else do
+          mDisk <- get diskKey
+          case mDisk of
+            Nothing -> pure False
+            Just disk -> do
+              byName <- selectList [M.TemplateDriveDiskName ==. Just (diskImageName disk)] [LimitTo 1]
+              pure $ not (null byName)
 
 -- | Delete a VM and all associated resources
 deleteVm :: Int64 -> SqlPersistT IO ()
