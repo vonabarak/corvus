@@ -6,6 +6,27 @@ from typing import Optional, Union
 from ._resource import LoopBoundResource
 
 
+class SyncGuestAgentSubscription:
+    """Sync mirror of `AsyncGuestAgentSubscription` from `_async/streams.py`.
+
+    Held by callers to keep a subscription alive; `close()` (or
+    garbage collection) tears down the daemon-side subscriber slot.
+    """
+
+    def __init__(self, async_sub, runloop):
+        self._a = async_sub
+        self._rl = runloop
+
+    def close(self) -> None:
+        self._rl.run(self._a.close())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+
 class SyncVmManager:
     def __init__(self, async_mgr, runloop):
         self._a = async_mgr
@@ -67,6 +88,25 @@ class SyncVm(LoopBoundResource):
 
     def hmp_monitor_flush(self):
         return self._rl.run(self._a.hmp_monitor_flush())
+
+    def subscribe_guest_agent(self, on_event):
+        """Subscribe to guest-agent push events from the daemon.
+
+        `on_event` is a **sync** callable invoked once per
+        `GuestAgentStatus` push. It runs on the runloop thread, not
+        the caller's thread, so the body must use thread-safe
+        primitives (`queue.Queue`, `threading.Lock`, …) if it shares
+        state with the caller.
+
+        Returns a `SyncGuestAgentSubscription`; call `close()` (or
+        let it go out of scope) to unsubscribe.
+        """
+
+        async def _bridge(ev):
+            on_event(ev)
+
+        async_sub = self._rl.run(self._a.subscribe_guest_agent(_bridge))
+        return SyncGuestAgentSubscription(async_sub, self._rl)
 
     # drives
     def attach_disk(self, disk_ref, **kwargs):
