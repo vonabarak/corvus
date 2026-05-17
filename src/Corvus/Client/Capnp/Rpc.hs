@@ -71,6 +71,8 @@ module Corvus.Client.Capnp.Rpc
   , rpcVmCloudInit
   , rpcVmViewGrant
   , rpcVmSendCtrlAltDel
+  , rpcVmSerialConsoleFlush
+  , rpcVmHmpMonitorFlush
   , rpcGuestExec
 
     -- * Disk lifecycle
@@ -696,6 +698,23 @@ rpcVmSendCtrlAltDel :: CapnpConnection -> EntityRef -> IO ()
 rpcVmSendCtrlAltDel conn ref = do
   vmClient <- getVmClient conn ref
   _ <- callOn #sendCtrlAltDel CGVm.Vm'sendCtrlAltDel'params vmClient
+  pure ()
+
+-- | Clear the daemon-side serial-console ring buffer for this VM.
+-- Wired to the @Ctrl+] f@ keybinding in 'runRawTerminalSession'.
+rpcVmSerialConsoleFlush :: CapnpConnection -> EntityRef -> IO ()
+rpcVmSerialConsoleFlush conn ref = do
+  vmClient <- getVmClient conn ref
+  _ <- callOn #serialConsoleFlush CGVm.Vm'serialConsoleFlush'params vmClient
+  pure ()
+
+-- | Clear the daemon-side HMP-monitor ring buffer for this VM.
+-- Wired to the @Ctrl+] f@ keybinding in 'runRawTerminalSession'
+-- for HMP sessions.
+rpcVmHmpMonitorFlush :: CapnpConnection -> EntityRef -> IO ()
+rpcVmHmpMonitorFlush conn ref = do
+  vmClient <- getVmClient conn ref
+  _ <- callOn #hmpMonitorFlush CGVm.Vm'hmpMonitorFlush'params vmClient
   pure ()
 
 -- | Guest agent exec: returns (exit code, stdout, stderr).

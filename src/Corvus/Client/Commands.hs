@@ -338,7 +338,7 @@ handleVmView opts fmt conn vmRef = do
           pure False
         else
           if vdHeadless details
-            then runSerialConsoleSession fmt conn vmRef
+            then runSerialConsoleSession fmt conn vmRef (vdName details)
             else handleGraphicalViewGrant opts fmt conn vmRef (vdName details)
 
 -- | Open the serial console for a headless VM. Wires the
@@ -346,8 +346,8 @@ handleVmView opts fmt conn vmRef = do
 -- to a raw-terminal session: server-pushed chunks go straight to
 -- stdout, stdin bytes (less @Ctrl+]@-prefixed escape sequences)
 -- flow back to the daemon.
-runSerialConsoleSession :: OutputFormat -> CapnpConnection -> Text -> IO Bool
-runSerialConsoleSession fmt conn vmRef = do
+runSerialConsoleSession :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+runSerialConsoleSession fmt conn vmRef vmName = do
   endSignal <- newEmptyMVar
   let ref = entityRefFromText vmRef
       onOutput chunk = BS.putStr chunk >> hFlush stdout
@@ -361,10 +361,11 @@ runSerialConsoleSession fmt conn vmRef = do
         putStrLn ("Error attaching serial console: " <> show e)
       pure False
     Right (writeInput, endInput) -> do
+      putStrLn . T.unpack $ "Connecting to VM '" <> vmName <> "' serial console..."
+      putStrLn "Escape: Ctrl+]  then  q=quit  d=Ctrl+Alt+Del  f=flush  ?=help"
+      putStrLn ""
       let ctrlAltDelAction = Just (CR.rpcVmSendCtrlAltDel conn ref)
-          -- Buffer flush isn't yet exposed via a Capnp wrapper —
-          -- Ctrl+] f reports "Flush not available." until Phase 6g.
-          flushAction = Nothing
+          flushAction = Just (CR.rpcVmSerialConsoleFlush conn ref)
       runRawTerminalSession
         writeInput
         endInput
@@ -392,14 +393,17 @@ runHmpMonitorSession fmt conn vmRef = do
       emitError fmt "rpc_error" (T.pack (show e)) $
         putStrLn ("Error attaching HMP monitor: " <> show e)
       pure False
-    Right (writeInput, endInput) ->
+    Right (writeInput, endInput) -> do
+      putStrLn . T.unpack $ "Connecting to VM '" <> vmRef <> "' HMP monitor..."
+      putStrLn "Escape: Ctrl+]  then  q=quit  f=flush  ?=help"
+      putStrLn ""
       runRawTerminalSession
         writeInput
         endInput
         endSignal
         MonitorSession
         Nothing
-        Nothing
+        (Just (CR.rpcVmHmpMonitorFlush conn ref))
 
 -- | Request a SPICE grant. For structured output emit the grant
 -- (host, port, password, ttl) as JSON/YAML and exit; for text output

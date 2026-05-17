@@ -168,6 +168,8 @@ _MESSAGE_TABLE = (
     (re.compile(r"^Serial console buffer not available"), GuestAgentError),
     (re.compile(r"^HMP monitor buffer not available"), GuestAgentError),
     (re.compile(r"^VM has no SPICE display"), VmRunning),
+    (re.compile(r"^VM is not running"), VmRunning),
+    (re.compile(r"^VM is not headless"), VmRunning),
     (re.compile(r"^VM not running"), VmRunning),
     (re.compile(r"^VM must be stopped"), VmMustBeStopped),
     # Not-found patterns. Match either the static message or the

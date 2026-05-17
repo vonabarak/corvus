@@ -45,7 +45,9 @@ import Corvus.Handlers.Vm
   , VmReset (..)
   , VmStart (..)
   , VmStop (..)
+  , handleHmpMonitor
   , handleHmpMonitorFlush
+  , handleSerialConsole
   , handleSerialConsoleFlush
   , handleVmCloudInit
   , handleVmList
@@ -294,23 +296,39 @@ instance CGVm.Vm'server_ VmCap where
   -- QEMU.
   vm'serialConsole (VmCap st sup eid) =
     handleParsed $ \CGVm.Vm'serialConsole'params {CGVm.sink = sinkClient} -> do
-      buffers <- readTVarIO (ssSerialBuffers st)
-      case Map.lookup eid buffers of
-        Nothing -> throwFailed "Serial console buffer not available"
-        Just sbh -> do
-          inputCap <- runByteSinkRelay sup sbh sinkClient
-          pure CGVm.Vm'serialConsole'results {CGVm.input = inputCap}
+      -- Route through `handleSerialConsole` so rejections preserve
+      -- the rich pre-Cap'n-Proto messages ("VM is not running ...",
+      -- "VM is not headless ...") instead of collapsing into the
+      -- generic "buffer not available".
+      resp <- handleSerialConsole st eid
+      case resp of
+        RespVmNotFound -> throwFailed "VM not found"
+        RespError msg -> throwFailed msg
+        RespSerialConsoleOk -> do
+          buffers <- readTVarIO (ssSerialBuffers st)
+          case Map.lookup eid buffers of
+            Nothing -> throwFailed "Serial console buffer not available"
+            Just sbh -> do
+              inputCap <- runByteSinkRelay sup sbh sinkClient
+              pure CGVm.Vm'serialConsole'results {CGVm.input = inputCap}
+        _ -> throwFailed "Unexpected serial console response"
 
   -- HMP monitor: identical shape to serialConsole but rides the
-  -- per-VM monitor buffer.
+  -- per-VM monitor buffer. Same validator-first dispatch.
   vm'hmpMonitor (VmCap st sup eid) =
     handleParsed $ \CGVm.Vm'hmpMonitor'params {CGVm.sink = sinkClient} -> do
-      buffers <- readTVarIO (ssMonitorBuffers st)
-      case Map.lookup eid buffers of
-        Nothing -> throwFailed "HMP monitor buffer not available"
-        Just sbh -> do
-          inputCap <- runByteSinkRelay sup sbh sinkClient
-          pure CGVm.Vm'hmpMonitor'results {CGVm.input = inputCap}
+      resp <- handleHmpMonitor st eid
+      case resp of
+        RespVmNotFound -> throwFailed "VM not found"
+        RespError msg -> throwFailed msg
+        RespHmpMonitorOk -> do
+          buffers <- readTVarIO (ssMonitorBuffers st)
+          case Map.lookup eid buffers of
+            Nothing -> throwFailed "HMP monitor buffer not available"
+            Just sbh -> do
+              inputCap <- runByteSinkRelay sup sbh sinkClient
+              pure CGVm.Vm'hmpMonitor'results {CGVm.input = inputCap}
+        _ -> throwFailed "Unexpected HMP monitor response"
 
   -- Register a 'GuestAgentStatusSink' against the per-VM
   -- subscriber list. Returns an empty 'Handle' cap; when the
