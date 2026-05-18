@@ -123,7 +123,6 @@ pipeline:
         ifExists: skip
         name: windows-server-2025-eval
         format: qcow2
-        sizeGb: 40
         compact: true
         # Place the artifact under `<basePath>/BaseImages/WindowsServer2025/`
         # alongside the other base images. The integration-test harness
@@ -199,5 +198,3 @@ pipeline:
           networkInterfaces:
             - type: vde
               hostDevice: /run/vde2/switch.ctl
-          sshKeys:
-            - name: corvus
