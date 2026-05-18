@@ -206,6 +206,14 @@ library:
     - Corvus.Netd.Tap
     - Corvus.Netd.Caps.NetAgent
     - Corvus.Netd.Caps.Session
+    # corvus-nodeagent (per-host privileged agent)
+    - Corvus.NodeAgentClient
+    - Corvus.NodeAgentClient.Spec
+    - Corvus.Node.Server
+    - Corvus.Node.Ledger
+    - Corvus.Node.Cleanup
+    - Corvus.Node.Caps.NodeAgent
+    - Corvus.Node.Caps.Session
     # Cap'n Proto generated modules (auto-generated from schema/*.capnp).
     # Only the umbrella per-schema-file modules are exposed; the
     # ById/* internal modules stay private to the corvus library.
@@ -221,6 +229,7 @@ library:
     - Capnp.Gen.Task
     - Capnp.Gen.Cloudinit
     - Capnp.Gen.Netagent
+    - Capnp.Gen.Nodeagent
 
 executables:
   corvus:
@@ -245,6 +254,16 @@ executables:
   corvus-netd:
     main: Main.hs
     source-dirs: app/netd
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
+    dependencies:
+      - corvus
+
+  corvus-nodeagent:
+    main: Main.hs
+    source-dirs: app/nodeagent
     ghc-options:
       - -threaded
       - -rtsopts

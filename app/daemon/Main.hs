@@ -12,6 +12,7 @@ import Corvus.Model (migrateAll)
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as Spec
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Server (handleGracefulShutdown, handleStartup)
@@ -41,6 +42,9 @@ data Options = Options
   , optNetdHost :: String
   , optNetdPort :: Int
   , optNoNetd :: Bool
+  , optNodeAgentHost :: String
+  , optNodeAgentPort :: Int
+  , optNoNodeAgent :: Bool
   }
   deriving (Show)
 
@@ -114,6 +118,25 @@ optionsParser =
     <*> switch
       ( long "no-netd"
           <> help "Skip dialling corvus-netd at startup (legacy user-ns path)"
+      )
+    <*> strOption
+      ( long "node-agent-host"
+          <> metavar "HOST"
+          <> value (fst NOA.defaultNodeAgentAddress)
+          <> showDefault
+          <> help "Hostname or IP of the per-host corvus-nodeagent"
+      )
+    <*> option
+      auto
+      ( long "node-agent-port"
+          <> metavar "PORT"
+          <> value (snd NOA.defaultNodeAgentAddress)
+          <> showDefault
+          <> help "TCP port of the per-host corvus-nodeagent"
+      )
+    <*> switch
+      ( long "no-node-agent"
+          <> help "Skip dialling corvus-nodeagent at startup (Phase 1: agent is unused)"
       )
 
 -- | Full parser with info
@@ -191,12 +214,23 @@ main = do
         else
           liftIO $ async $ runNetdConnection state' opts
 
+    -- Same dance for corvus-nodeagent. Phase 1: the connection
+    -- is opened and held but no handlers use it yet.
+    nodeAgentThread <-
+      if optNoNodeAgent opts
+        then do
+          logInfoN "Starting without corvus-nodeagent (--no-node-agent)"
+          liftIO $ async $ pure ()
+        else
+          liftIO $ async $ runNodeAgentConnection state' opts
+
     -- Wait for shutdown signal
     liftIO $ waitForShutdown state'
 
     logInfoN "Shutting down..."
     liftIO $ cancel capnpThread
     liftIO $ cancel netdThread
+    liftIO $ cancel nodeAgentThread
 
     -- Run graceful shutdown handler (stop VMs, networks)
     liftIO $ handleGracefulShutdown state'
@@ -332,3 +366,58 @@ blockUntilShutdown state = do
   unless shouldStop $ do
     threadDelay 200000
     blockUntilShutdown state
+
+-- | Hold a connection to corvus-nodeagent for the daemon's
+-- lifetime. Mirror of 'runNetdConnection'.
+--
+-- Phase 1: the cap is opened, exercised once via 'sessionPing'
+-- to prove the path is live, and stashed in 'ssNodeAgent' for
+-- later phases. No re-apply step yet — nothing in the DB cares
+-- about the node agent.
+--
+-- Reconnect loop: on dial / session-open failure, sleep 5 s and
+-- retry until shutdown.
+runNodeAgentConnection :: ServerState -> Options -> IO ()
+runNodeAgentConnection state opts = do
+  uid <- getRealUserID
+  let owner = T.pack (show uid)
+  loop owner
+  where
+    loop owner = do
+      result <-
+        NOA.withNodeAgentClient
+          (optNodeAgentHost opts)
+          (optNodeAgentPort opts)
+          owner
+          (onConnect owner)
+      shouldStop <- readTVarIO (ssShutdownFlag state)
+      if shouldStop
+        then pure ()
+        else do
+          case result of
+            Right () -> pure ()
+            Left _ -> threadDelay 5000000
+          loop owner
+
+    onConnect _owner (Left e) = do
+      runFilteredLogging (ssLogLevel state) $
+        logWarnN
+          ("nodeagent dial failed: " <> T.pack (show e) <> "; retrying in 5s")
+      pure (Left ())
+    onConnect _owner (Right noac) = do
+      -- Liveness probe: prove the session cap really is live
+      -- before declaring the agent reachable.
+      pingResult <- NOA.sessionPing noac
+      case pingResult of
+        Left e -> do
+          runFilteredLogging (ssLogLevel state) $
+            logWarnN
+              ("nodeagent session ping failed: " <> T.pack (show e))
+          pure (Left ())
+        Right () -> do
+          runFilteredLogging (ssLogLevel state) $
+            logInfoN ("nodeagent dial succeeded, owner=" <> NOA.nacOwner noac)
+          atomically $ writeTVar (ssNodeAgent state) (Just noac)
+          blockUntilShutdown state
+          atomically $ writeTVar (ssNodeAgent state) Nothing
+          pure (Right ())

@@ -28,6 +28,7 @@ import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Concurrent.STM (TMVar, TVar, newTVarIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
 import Corvus.NetAgentClient (NetAgentClient)
+import Corvus.NodeAgentClient (NodeAgentClient)
 import Corvus.Qemu.Config (QemuConfig)
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
@@ -62,6 +63,11 @@ data ServerState = ServerState
   -- agent is reachable; cleared if the connection drops.
   -- Network / NetIf handlers consult this TVar and hard-error
   -- with @netd unavailable@ when it's 'Nothing'.
+  , ssNodeAgent :: TVar (Maybe NodeAgentClient)
+  -- ^ Link to the per-host @corvus-nodeagent@. Same pattern as
+  -- 'ssNetAgent'. Phase 1 ships the connection only; later
+  -- phases route disk / VM / console operations through this
+  -- handle.
   , ssSerialBuffers :: TVar (Map.Map Int64 SocketBufferHandle)
   -- ^ Per-VM serial console ring buffers (headless VMs only)
   , ssMonitorBuffers :: TVar (Map.Map Int64 SocketBufferHandle)
@@ -104,6 +110,7 @@ newServerState pool qemuConfig = do
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
   netAgent <- newTVarIO Nothing
+  nodeAgent <- newTVarIO Nothing
   serialBuffers <- newTVarIO Map.empty
   monitorBuffers <- newTVarIO Map.empty
   gaLocks <- newTVarIO Map.empty
@@ -120,6 +127,7 @@ newServerState pool qemuConfig = do
       , ssQemuConfig = qemuConfig
       , ssLogLevel = LevelInfo
       , ssNetAgent = netAgent
+      , ssNodeAgent = nodeAgent
       , ssSerialBuffers = serialBuffers
       , ssMonitorBuffers = monitorBuffers
       , ssGuestAgentConns = gaLocks

@@ -151,6 +151,13 @@ library
       Corvus.Netd.Tap
       Corvus.Netd.Caps.NetAgent
       Corvus.Netd.Caps.Session
+      Corvus.NodeAgentClient
+      Corvus.NodeAgentClient.Spec
+      Corvus.Node.Server
+      Corvus.Node.Ledger
+      Corvus.Node.Cleanup
+      Corvus.Node.Caps.NodeAgent
+      Corvus.Node.Caps.Session
       Capnp.Gen.Corvus
       Capnp.Gen.Common
       Capnp.Gen.Enums
@@ -163,6 +170,7 @@ library
       Capnp.Gen.Task
       Capnp.Gen.Cloudinit
       Capnp.Gen.Netagent
+      Capnp.Gen.Nodeagent
   other-modules:
       Corvus.Client.Commands.Network
       Corvus.Handlers.Build.Floppy
@@ -171,6 +179,7 @@ library
       Capnp.Gen.ById.X9bd452a518ed3917
       Capnp.Gen.ById.Xa6341bd086aa89f6
       Capnp.Gen.ById.Xa7366eabdb0b1db4
+      Capnp.Gen.ById.Xbc08f7ad74ba3f78
       Capnp.Gen.ById.Xbf9b09f64c0dd40d
       Capnp.Gen.ById.Xc6b684f81a734396
       Capnp.Gen.ById.Xd3867de7dfe678c7
@@ -317,6 +326,71 @@ executable corvus-netd
       Paths_corvus
   hs-source-dirs:
       app/netd
+  default-extensions:
+      OverloadedStrings
+      DeriveGeneric
+      DeriveAnyClass
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      StandaloneDeriving
+      TypeFamilies
+      GADTs
+      UndecidableInstances
+      DataKinds
+      FlexibleInstances
+      MultiParamTypeClasses
+      QuasiQuotes
+      TemplateHaskell
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , aeson-qq
+    , ansi-terminal
+    , async
+    , base >=4.7 && <5
+    , base64-bytestring
+    , bytestring
+    , capnp
+    , containers
+    , corvus
+    , data-default
+    , directory
+    , esqueleto
+    , exceptions
+    , filepath
+    , fourmolu
+    , gitrev
+    , haskell-src-meta
+    , monad-logger
+    , mtl
+    , network
+    , network-simple
+    , optparse-applicative
+    , persistent
+    , persistent-postgresql
+    , process
+    , random
+    , resource-pool
+    , stm
+    , supervisors
+    , template-haskell
+    , temporary
+    , text
+    , time
+    , unix
+    , unliftio-core
+    , vector
+    , yaml
+  default-language: Haskell2010
+
+executable corvus-nodeagent
+  main-is: Main.hs
+  other-modules:
+      Paths_corvus
+  autogen-modules:
+      Paths_corvus
+  hs-source-dirs:
+      app/nodeagent
   default-extensions:
       OverloadedStrings
       DeriveGeneric

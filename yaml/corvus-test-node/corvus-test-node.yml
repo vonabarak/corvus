@@ -194,6 +194,10 @@ pipeline:
             to: /etc/systemd/system/corvus-netd.service
             mode: "0644"
         - file:
+            from: ./systemd/corvus-nodeagent.service
+            to: /etc/systemd/system/corvus-nodeagent.service
+            mode: "0644"
+        - file:
             from: ./systemd/corvus-tcp-relay.service
             to: /etc/systemd/system/corvus-tcp-relay.service
             mode: "0644"
@@ -211,6 +215,12 @@ pipeline:
               # as root; the unprivileged corvus daemon dials it over
               # 127.0.0.1:9877.
               systemctl enable corvus-netd.service
+              # corvus-nodeagent.service runs the per-host node agent
+              # (QEMU/virtiofsd supervision, disk I/O, console buffers)
+              # as root; the unprivileged corvus daemon dials it over
+              # 127.0.0.1:9878. Phase 1 stub — the binary runs but no
+              # handlers route through it yet.
+              systemctl enable corvus-nodeagent.service
               # corvus-test.service starts the inner daemon as soon as
               # /opt/corvus/bin is mounted (i.e. the harness's virtiofs
               # share is attached), Postgres is up, and the netd agent

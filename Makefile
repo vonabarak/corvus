@@ -223,19 +223,27 @@ install-run: install
 install-system: install
 	install -d /usr/local/bin
 	install -m 0755 $(HOME)/.local/bin/corvus-netd /usr/local/bin/corvus-netd
+	install -m 0755 $(HOME)/.local/bin/corvus-nodeagent /usr/local/bin/corvus-nodeagent
 	install -d /etc/systemd/system
 	install -m 0644 systemd/corvus-netd.service /etc/systemd/system/corvus-netd.service
+	install -m 0644 systemd/corvus-nodeagent.service /etc/systemd/system/corvus-nodeagent.service
 	systemctl daemon-reload
 	systemctl enable corvus-netd.service
 	systemctl restart corvus-netd.service
+	systemctl enable corvus-nodeagent.service
+	systemctl restart corvus-nodeagent.service
 
-# Stop, disable, and remove the system-wide agent.
+# Stop, disable, and remove the system-wide agents.
 uninstall-system:
 	-systemctl stop corvus-netd.service
 	-systemctl disable corvus-netd.service
+	-systemctl stop corvus-nodeagent.service
+	-systemctl disable corvus-nodeagent.service
 	rm -f /etc/systemd/system/corvus-netd.service
+	rm -f /etc/systemd/system/corvus-nodeagent.service
 	-systemctl daemon-reload
 	rm -f /usr/local/bin/corvus-netd
+	rm -f /usr/local/bin/corvus-nodeagent
 
 # Uninstall binaries, systemd service, and shell completions
 uninstall:

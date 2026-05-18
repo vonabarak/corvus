@@ -1,0 +1,19 @@
+[Unit]
+Description=Corvus per-host node agent
+After=network-pre.target
+Before=network.target
+Wants=network-pre.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/corvus-nodeagent --log-level info
+Restart=on-failure
+RestartSec=5
+
+# Phase 1 stub: the agent doesn't yet own any host state (no QEMU,
+# no virtiofsd, no qemu-img). Sandbox stays permissive until Phase
+# 2/3 land — those add filesystem writes (BaseImages, runtime dirs)
+# and process spawning, both of which need careful policy.
+
+[Install]
+WantedBy=multi-user.target

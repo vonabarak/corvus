@@ -155,6 +155,7 @@ createTestServerState pool basePath = do
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
   netAgent <- newTVarIO Nothing
+  nodeAgent <- newTVarIO Nothing
   serialBuffers <- newTVarIO mempty
   monitorBuffers <- newTVarIO mempty
   gaLocks <- newTVarIO mempty
@@ -172,6 +173,7 @@ createTestServerState pool basePath = do
       , ssQemuConfig = defaultQemuConfig {qcBasePath = Just basePath}
       , ssLogLevel = logLevel
       , ssNetAgent = netAgent
+      , ssNodeAgent = nodeAgent
       , ssSerialBuffers = serialBuffers
       , ssMonitorBuffers = monitorBuffers
       , ssGuestAgentConns = gaLocks
