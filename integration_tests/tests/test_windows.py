@@ -326,7 +326,7 @@ class TestWindows(SingleNodeCase):
                     f"cloudbase-init.log tail probe: {log_tail}"
                 )
 
-    @pytest.mark.xfail(
+    @pytest.mark.skip(
         reason=(
             "Windows + virtio-fs is blocked by two firmware-side bugs: "
             "(1) the share doesn't bind on first boot under nested-KVM "
@@ -335,10 +335,10 @@ class TestWindows(SingleNodeCase):
             "handshake between inner qemu and virtiofsd appears to fail "
             "silently); (2) the natural workaround — power-cycle the VM "
             "to re-do the handshake — trips TianoCore edk2#12441 "
-            "(OVMF hangs on reboot with virtio-fs attached). Leave the "
-            "test in place to track when either upstream fix lands."
-        ),
-        strict=True,
+            "(OVMF hangs on reboot with virtio-fs attached). Skip until "
+            "either upstream fix lands — the test takes ~25 min and "
+            "doesn't currently verify anything end-to-end."
+        )
     )
     @pytest.mark.timeout(1500)
     def test_shared_directory(self):
