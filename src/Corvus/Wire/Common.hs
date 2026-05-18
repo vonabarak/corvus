@@ -76,7 +76,6 @@ toCapnpStatusInfo P.StatusInfo {..} =
     , CGCommon.connections = fromIntegral siConnections
     , CGCommon.version = siVersion
     , CGCommon.protocolVersion = fromIntegral siProtocolVersion
-    , CGCommon.namespacePid = maybe 0 fromIntegral siNamespacePid
     }
 
 fromCapnpStatusInfo :: C.Parsed CGCommon.StatusInfo -> P.StatusInfo
@@ -86,8 +85,6 @@ fromCapnpStatusInfo CGCommon.StatusInfo {..} =
     , P.siConnections = fromIntegral connections
     , P.siVersion = version
     , P.siProtocolVersion = fromIntegral protocolVersion
-    , P.siNamespacePid =
-        if namespacePid == 0 then Nothing else Just (fromIntegral namespacePid)
     }
 
 -- ---------------------------------------------------------------------

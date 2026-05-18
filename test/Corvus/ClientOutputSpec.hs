@@ -35,7 +35,7 @@ spec = sequential $ do
   describe "JSON serialization of Protocol types" $ do
     describe "StatusInfo" $ do
       it "serializes with correct field names" $ do
-        let info = StatusInfo 3600 5 "1.0.0-abcdef12" 29 (Just 12345)
+        let info = StatusInfo 3600 5 "1.0.0-abcdef12" 29
             val = toJSON info
         val
           `shouldBe` object
@@ -43,7 +43,6 @@ spec = sequential $ do
             , "connections" .= (5 :: Int)
             , "version" .= ("1.0.0-abcdef12" :: String)
             , "protocol_version" .= (29 :: Int)
-            , "namespace_pid" .= Just (12345 :: Int)
             ]
 
     describe "VmInfo" $ do

@@ -1,6 +1,6 @@
 # Networking
 
-Corvus supports several networking modes for VMs. Virtual networks run inside an unprivileged user namespace created by the daemon — no root access is required.
+Corvus supports several networking modes for VMs. Virtual networks are owned by a privileged system agent (`corvus-netd`); the user-facing daemon expresses intent over Cap'n Proto and the agent reconciles kernel state.
 
 ## Virtual Networks
 
@@ -37,9 +37,9 @@ crv network create lab-net --subnet 10.0.1.0/24 --dhcp --nat --autostart
 
 ### Network Lifecycle
 
-1. `crv network start` creates a bridge and TAP devices inside the daemon's network namespace, starts dnsmasq if DHCP is enabled.
-2. VMs with `managed` interfaces connect via TAP devices on this bridge.
-3. `crv network stop` tears down the bridge and stops dnsmasq. Running VMs using this network must be stopped first.
+1. `crv network start` asks `corvus-netd` to create the bridge (in the host root netns), apply nftables NAT/firewall rules if `--nat` is set, and start dnsmasq if `--dhcp` is set. All of that is a single declarative `applyNetwork` RPC.
+2. VMs with `managed` interfaces get a persistent TAP attached to the bridge at VM start time (`applyTap`); the kernel grants the daemon's uid reopen rights to the TAP, and QEMU opens it from the host process world.
+3. `crv network stop` asks the agent to delete the bridge, dnsmasq, and firewall rules in one step. Running VMs using this network must be stopped first.
 
 ## Network Interfaces
 
@@ -58,7 +58,7 @@ crv net-if remove <vm> <netif_id>       # Remove a network interface
 | Type | Description | `--host-device` |
 |------|-------------|-----------------|
 | `user` | QEMU user-mode networking with built-in NAT | Optional: QEMU netdev options (e.g., `hostfwd=...`) |
-| `managed` | Daemon-managed bridge/TAP in network namespace | Auto (set via `--network`) |
+| `managed` | Bridge + TAP owned by `corvus-netd` (host root netns) | Auto (set via `--network`) |
 | `tap` | Pre-configured TAP device on host | Required: TAP device name |
 | `bridge` | Pre-configured bridge on host | Required: bridge name |
 | `vde` | External VDE virtual switch | Required: VDE socket path |
@@ -72,7 +72,7 @@ crv net-if add my-vm --type user
 crv net-if add my-vm -t user -d "hostfwd=tcp::2222-:22"                     # SSH forwarding
 crv net-if add my-vm -t user -d "hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80"  # Multi-port
 
-# Managed virtual network (daemon creates bridge + TAP)
+# Managed virtual network (corvus-netd creates bridge + TAP)
 crv net-if add my-vm --network my-net
 
 # TAP device (pre-configured on host)
@@ -103,34 +103,31 @@ Examples:
 - `hostfwd=tcp::8080-:80` — forward host port 8080 to guest HTTP
 - Multiple rules are comma-separated
 
-### Namespace Architecture
+### Agent Architecture
 
-The daemon creates a single shared user+network+UTS namespace at startup (no root required). All bridges, dnsmasq instances, and QEMU processes for managed networks run inside this namespace.
+`corvus-netd` runs as a separate system service (root, `CAP_NET_ADMIN`); the user-facing `corvus` daemon runs unprivileged. The two communicate over Cap'n Proto on `127.0.0.1:9877` (no authentication in v1; the security boundary is the host).
 
-The namespace is created by a C helper (`cbits/netns.c`) that forks from the Haskell process, calls `unshare(2)` in the single-threaded child, brings up loopback, and waits. Haskell code manages bridges and dnsmasq via `nsenter` from outside.
+The agent is **stateless** and **declarative**:
 
-### Namespace Exec
+- Daemon expresses intent via `applyNetwork(NetworkSpec)` / `applyTap(TapSpec)` — both are idempotent reconcilers (create-if-missing, update-if-changed, no-op-if-same).
+- Agent never persists anything to disk. Its in-memory ledger is repopulated from incoming `apply*` calls.
+- Every kernel resource the agent owns is name-tagged: `corvus-br*` (bridges), `corvus-tap*` (TAPs), `corvus_fw` (nft table), and dnsmasq processes are identified by `--interface=corvus-br*` in their argv.
+- On startup and on `SIGTERM`/`SIGINT`, the agent runs a cleanup pass that deletes every resource matching those tags. A daemon reconnecting after an agent restart re-applies all its running networks from the DB, idempotently.
 
-```bash
-crv ns                  # Open a shell inside the daemon's namespace
-crv ns ip addr          # Run a command inside the namespace
-crv ns brctl show       # Inspect bridges
-```
+Bridges and TAPs live in the **host root netns** (libvirt-style), so `ip link`, `tcpdump`, `ss`, and host monitoring agents all see them natively.
 
-Useful for debugging network configuration inside the namespace.
-
-**Local-host only.** Unlike every other `crv` subcommand, `crv ns` does not go through the RPC socket — it asks the daemon for the namespace PID via `crv status` and then calls `nsenter` directly against `/proc/<pid>/ns/*` on the caller's machine. That's only meaningful when `crv` runs on the daemon host. This is a **debugging tool, not a production interface**: don't build workflows on top of it, and expect it to fail loudly when pointed at a remote daemon.
+For debugging the agent directly, use `corvus-netd` on a test host and the standard kernel introspection tools (`ip`, `nft`, `ps`) — no special CLI is needed.
 
 ---
 
 ## Recommended Setup: VDE Switch with TAP
 
-For full bidirectional TCP connectivity between the host and VMs — without requiring root to run VMs and without the network namespace isolation of Corvus managed networks — the recommended approach is a **VDE virtual switch** connected to a **TAP device** on the host.
+For full bidirectional TCP connectivity between the host and VMs — as an alternative to running `corvus-netd` — a **VDE virtual switch** connected to a **TAP device** on the host is another option.
 
 This setup:
 - Gives VMs routable IP addresses reachable from the host (unlike QEMU user-mode networking, which only supports port forwarding).
-- Does not require root privileges to start VMs or attach network interfaces — only the initial VDE switch setup needs root (one-time systemd service).
-- Is not isolated inside a namespace like Corvus managed networks, so host processes can reach VM IPs directly.
+- Does not require running the privileged agent — only the initial VDE switch setup needs root (one-time systemd service).
+- Is useful when a single `corvus-netd` deployment is impractical (e.g. for one-off VMs on a developer workstation).
 
 This is the network configuration assumed by the [multi-os.yml](../yaml/multi-os/multi-os.yml) and [test-images.yml](../yaml/test-images/test-images.yml) example apply configurations.
 

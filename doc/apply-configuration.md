@@ -22,7 +22,7 @@ A configuration file has five top-level sections, all optional, plus an `ifExist
 ifExists:   error   # error (default) | skip — see "ifExists" below
 sshKeys:    [...]   # SSH public keys for cloud-init injection
 disks:      [...]   # Disk images (import, register, create, overlay, or clone)
-networks:   [...]   # Virtual networks (bridge/TAP in daemon namespace)
+networks:   [...]   # Virtual networks (bridge + TAP managed by corvus-netd)
 vms:        [...]   # Virtual machines with drives, NICs, shared dirs
 templates:  [...]   # VM templates (same schema as `crv template create`)
 ```
@@ -290,9 +290,9 @@ networks:
     nat: <boolean>            # Optional. Default: false. Enable NAT to host network.
 ```
 
-Creates a virtual network using bridge/TAP devices inside the daemon's network namespace. The network must be started separately with `crv network start <name>` after apply completes — apply only creates the database record.
+Creates a virtual network managed by the privileged `corvus-netd` agent. The network must be started separately with `crv network start <name>` after apply completes — apply only creates the database record.
 
-When started, the daemon creates a bridge interface in its namespace. If `dhcp` is enabled, it starts dnsmasq on the bridge to provide DHCP and DNS for connected VMs. If `nat` is enabled, nftables MASQUERADE rules are added so VMs can reach the internet through the host via pasta.
+When started, the daemon asks the agent to apply the network. The agent creates the bridge in the host root netns. If `dhcp` is enabled, it starts dnsmasq on the bridge. If `nat` is enabled, an nftables MASQUERADE rule is added in the agent's `inet corvus_fw` table.
 
 Both `dhcp` and `nat` require a `subnet` to be specified. A network without a subnet creates a bridge-only L2 network (VMs can communicate with each other using static IPs).
 
@@ -398,13 +398,13 @@ When `network` is specified, the interface type is automatically set to `managed
 | Value | Description | `hostDevice` |
 |-------|-------------|--------------|
 | `user` | QEMU user-mode networking (built-in NAT, no host device needed). Default when `type` and `network` are both omitted. | Optional: QEMU netdev options (e.g. `hostfwd=tcp::2222-:22`). |
-| `managed` | Managed virtual network (bridge/TAP in daemon namespace). Set automatically when `network` is specified. | Not used (daemon manages TAP fd). |
+| `managed` | Managed virtual network (bridge + TAP owned by `corvus-netd`). Set automatically when `network` is specified. | Not used (`corvus-netd` owns the TAP). |
 | `tap` | TAP device (requires pre-configured host device). | Required: TAP device name (e.g. `tap0`). |
 | `bridge` | Bridge device (requires pre-configured host bridge). | Required: bridge name (e.g. `br0`). |
 | `vde` | External VDE virtual switch. | Required: VDE socket path (e.g. `/var/run/vde.ctl`). |
 | `macvtap` | MACVTAP device. | Not used (fd passing). |
 
-For `managed` interfaces, the daemon creates a TAP device inside its network namespace and passes the file descriptor to QEMU. The VM's NIC is automatically connected to the network's bridge.
+For `managed` interfaces, the daemon asks `corvus-netd` to create the TAP with the daemon's uid/gid as its owner; QEMU then opens it by name from the host process world. The VM's NIC is automatically connected to the network's bridge.
 
 A MAC address is generated automatically for each interface unless `mac` is specified. Use explicit MAC addresses when you need reproducible network configurations or specific addressing.
 
@@ -420,7 +420,7 @@ A MAC address is generated automatically for each interface unless `mac` is spec
       - type: user
         hostDevice: "hostfwd=tcp::2222-:22,hostfwd=tcp::8080-:80"
 
-      # Managed virtual network (daemon handles bridge/TAP in namespace)
+      # Managed virtual network (corvus-netd owns bridge + TAP)
       # Requires a network defined in the 'networks' section or pre-existing in DB
       - network: lab-net
 

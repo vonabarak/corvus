@@ -47,21 +47,17 @@ import Corvus.Client.Output
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (StatusInfo (..), VmDetails (..))
-import Corvus.Qemu.Netns (nsExec)
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (Value, object, toJSON, (.=))
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Options.Applicative.BashCompletion (bashCompletionScript, fishCompletionScript, zshCompletionScript)
-import System.Environment (lookupEnv)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hFlush, hPutStrLn, stderr, stdout)
-import System.Posix.Signals (Handler (..), installHandler, sigINT)
 
 -- | Get the listen address from options
 getListenAddress :: Options -> IO ListenAddress
@@ -101,9 +97,6 @@ runCommand opts = do
               putStrLn $ "Connections:      " ++ show siConnections
               putStrLn $ "Version:          " ++ T.unpack siVersion
               putStrLn $ "Protocol version: " ++ show siProtocolVersion
-              case siNamespacePid of
-                Nothing -> putStrLn "Namespace:        not running"
-                Just pid -> putStrLn $ "Namespace:        PID " ++ show pid
             pure True
           Left e -> do
             emitError fmt "rpc_error" (T.pack (show e)) $
@@ -251,8 +244,6 @@ runCommand opts = do
       TaskList limit mSub mResult inclSub -> handleTaskList fmt tableOpts conn limit mSub mResult inclSub
       TaskShow taskId -> handleTaskShow fmt conn taskId
       TaskWait taskId mTimeout -> handleTaskWait fmt conn taskId mTimeout
-      -- Namespace exec
-      NamespaceExec cmdArgs -> handleNamespaceExec fmt conn cmdArgs
       -- Completion (handled above, but needed for exhaustive pattern match)
       Completion _ -> pure True
 
@@ -265,33 +256,6 @@ runCommand opts = do
     Right True -> exitSuccess
     Right False -> exitFailure
 
--- | Handle namespace exec: fetch namespace PID from daemon, then run command locally via FFI.
-handleNamespaceExec :: OutputFormat -> CapnpConnection -> [String] -> IO Bool
-handleNamespaceExec fmt conn cmdArgs = do
-  r <- try (CR.rpcStatus conn) :: IO (Either SomeException StatusInfo)
-  case r of
-    Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
-        putStrLn ("Error: " ++ show e)
-      pure False
-    Right StatusInfo {siNamespacePid = mNsPid} -> case mNsPid of
-      Nothing -> do
-        emitError fmt "no_namespace" "Network namespace is not running" $
-          putStrLn "Error: network namespace is not running"
-        pure False
-      Just nsPid -> do
-        args <- case cmdArgs of
-          [] -> do
-            mShell <- lookupEnv "SHELL"
-            pure [fromMaybe "/bin/sh" mShell]
-          as -> pure as
-        result <- withIgnoredSigINT $ nsExec nsPid args
-        case result of
-          Right () -> pure True
-          Left err -> do
-            emitError fmt "ns_exec_error" err $ putStrLn $ "Error: " ++ T.unpack err
-            pure False
-
 -- | Handle the completion command by generating a shell completion script.
 handleCompletion :: Text -> IO ()
 handleCompletion shell = do
@@ -302,14 +266,6 @@ handleCompletion shell = do
     "fish" -> putStr (fishCompletionScript progName progName)
     _ -> hPutStrLn stderr ("Unknown shell: " <> T.unpack shell <> " (use bash, zsh, or fish)")
   exitSuccess
-
--- | Run an action with SIGINT ignored, restoring the previous handler afterwards.
-withIgnoredSigINT :: IO a -> IO a
-withIgnoredSigINT action = do
-  oldHandler <- installHandler sigINT Ignore Nothing
-  result <- action
-  _ <- installHandler sigINT oldHandler Nothing
-  pure result
 
 -- | Handle the @crv vm view@ command for both serial-console (headless)
 -- and SPICE (graphical) VMs.

@@ -66,7 +66,6 @@ library:
     - src
     - src-generated   # Cap'n Proto schema-generated modules; regenerate with `make capnp`
   c-sources:
-    - cbits/netns.c
     - cbits/vsock_probe.c
   include-dirs:
     - cbits
@@ -151,8 +150,6 @@ library:
     - Corvus.Qemu.Image
     - Corvus.Qemu.GuestAgent
     - Corvus.Qemu.SocketBuffer
-    - Corvus.Qemu.Netns
-    - Corvus.Qemu.Netns.Manager
     - Corvus.Qemu.SpicePort
     - Corvus.Qemu.VsockCid
     - Corvus.Handlers.GuestExec

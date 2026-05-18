@@ -45,7 +45,6 @@ handleStatus state = do
   now <- getCurrentTime
   let uptimeSecs = floor $ diffUTCTime now (ssStartTime state)
   connCount <- readTVarIO (ssConnectionCount state)
-  nsPid <- readTVarIO (ssNamespacePid state)
   pure $
     RespStatus
       StatusInfo
@@ -55,7 +54,6 @@ handleStatus state = do
         , -- 1 = Cap'n Proto wire (Phase 5+). The legacy
           -- 'Data.Binary' protocolVersion is gone.
           siProtocolVersion = 1
-        , siNamespacePid = nsPid
         }
 
 -- | Handle shutdown request

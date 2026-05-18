@@ -45,7 +45,7 @@ src/Corvus/
 │   ├── SshKey.hs        # SSH key management (cloud-init gated)
 │   ├── CloudInit.hs     # Custom cloud-init config CRUD (set/get/delete)
 │   ├── NetIf.hs         # Network interface configuration, MAC generation
-│   ├── Network.hs       # Virtual network management (bridge/TAP in namespace)
+│   ├── Network.hs       # Virtual network management (delegates to corvus-netd)
 │   ├── SharedDir.hs     # Virtiofs shared directories
 │   ├── GuestExec.hs     # QEMU guest agent command execution
 │   └── GuestAgentPoller.hs  # Periodic guest agent health/network polling
@@ -58,9 +58,6 @@ src/Corvus/
 │   ├── Command.hs       # QEMU command-line builder
 │   ├── Image.hs         # qemu-img wrapper (create, resize, snapshot, clone, download)
 │   ├── GuestAgent.hs    # QGA protocol client (exec, ping, network-get-interfaces)
-│   ├── Netns.hs         # Haskell FFI to C namespace creator (startNamespace)
-│   ├── Netns/
-│   │   └── Manager.hs   # Bridge/dnsmasq management via nsenter
 │   └── Virtiofsd.hs     # virtiofsd process management
 ├── Client/
 │   ├── Connection.hs    # Socket management, binary protocol
@@ -88,11 +85,12 @@ src/Corvus/
 └── Utils/
     ├── Yaml.hs          # YAML parsing with quasi-quoters (yamlQQ, yaml)
     └── Subnet.hs        # Subnet utilities for virtual networks
-
-cbits/
-├── netns.h              # C namespace manager header
-└── netns.c              # C namespace manager (fork, unshare, loopback, signal wait)
 ```
+
+The privileged network agent lives under `src/Corvus/Netd/` and ships
+as the separate `corvus-netd` executable in `app/netd/`. The daemon
+talks to it over Cap'n Proto using the client shim in
+`src/Corvus/NetAgentClient.hs` (helpers in `NetAgentClient/Spec.hs`).
 
 ### Key Patterns
 
@@ -101,7 +99,7 @@ cbits/
 - **Logging**: `MonadLogger` (LoggingT transformer)
 - **VM state machine**: Enforced in `Model.VmState.validateTransition` (pure, directly unit-testable) — stopped → starting (if guest agent) or running → stopping → stopped. VMs with guest agent go through `starting` state until first healthcheck ping succeeds. Reset always returns to stopped.
 - **Task tracking**: Every mutating request is recorded in the `task` table via `withTask` wrapper in `Handlers.hs`. Read-only requests (list, show, ping) are skipped. Startup and shutdown are also recorded as tasks.
-- **Network namespaces**: A single shared user+network+UTS namespace is created at daemon startup (no root required). The C helper (`cbits/netns.c`) forks from the Haskell process, calls `unshare(2)` in the single-threaded child, brings up loopback, and waits. `unshare(CLONE_NEWUSER)` requires a single-threaded process — the fork **must** happen in C, not via GHC's `forkProcess`, because GHC's threaded RTS keeps multiple OS threads alive after fork. All bridges, dnsmasq instances, and QEMU processes are managed inside this namespace via `nsenter` from Haskell.
+- **Networking via `corvus-netd`**: The daemon runs unprivileged. All privileged networking (bridge creation, TAP allocation, nftables, dnsmasq supervision) is delegated to a system-wide `corvus-netd` agent that runs as root and listens on `127.0.0.1:9877`. The daemon expresses intent declaratively via `applyNetwork` / `applyTap`; the agent reconciles kernel state and is stateless across restarts (resources are tagged `corvus-br*` / `corvus-tap*` / `corvus_fw`; the agent's startup and shutdown cleanup passes match those prefixes). Bridges and TAPs live in the host root netns — libvirt-style — so `tcpdump`, `ss`, `ip link` from the host all see them.
 
 ### Database Entities
 
@@ -152,12 +150,12 @@ Stack + Hpack (`package.yaml` → `corvus.cabal`), LTS-23.28 resolver.
 
 ### Build Dependencies
 
-No external C libraries required. The C namespace manager (`cbits/netns.c`) uses only Linux kernel interfaces (`unshare`, `signalfd`, `capget`/`capset`).
+No external C libraries required.
 
 ### Integration Test Notes
 
 - Integration tests require QEMU/KVM access.
-- Virtual networking tests (`NetworkIntegrationSpec`) run unprivileged using user namespaces — no root or doas required. The kernel must have `CONFIG_USER_NS=y` (check with `unshare --user echo ok`).
+- Networking tests drive a `corvus-netd` instance (the privileged agent), which needs `CAP_NET_ADMIN`; the netd smoke test launches it via `systemd-run` on the test node and tunnels Cap'n Proto over SSH so the pytest process itself stays unprivileged.
 - Log level during tests is controlled by `CORVUS_TEST_LOG_LEVEL` env var (default: `info`). Use `CORVUS_TEST_LOG_LEVEL=debug` for verbose output.
 
 ## Documentation
@@ -170,7 +168,7 @@ User-facing documentation lives in `doc/`. See `doc/INDEX.md` for the full list.
 | `doc/vm-management.md` | VM lifecycle, state machine, serial console |
 | `doc/disk-management.md` | Disk CRUD, overlays, clones, rebase, attach/detach |
 | `doc/snapshots.md` | qcow2 snapshot operations |
-| `doc/networking.md` | Virtual networks, network interfaces, namespace exec |
+| `doc/networking.md` | Virtual networks, network interfaces, `corvus-netd` agent |
 | `doc/ssh-keys.md` | SSH key management |
 | `doc/cloud-init.md` | Cloud-init ISO generation, SSH key injection, Windows support |
 | `doc/shared-directories.md` | virtiofs shared directories |

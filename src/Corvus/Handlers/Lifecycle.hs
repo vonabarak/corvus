@@ -2,10 +2,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Daemon lifecycle handlers: startup and graceful shutdown.
--- Phase 3: networks are managed by the corvus-netd agent. The
--- legacy 'StartNamespaceAction' / 'StartPastaAction' /
--- 'SetupNatInfra' subtasks are gone; the agent owns all that
--- kernel state.
+-- Networks are managed by the corvus-netd agent — the daemon's
+-- role here is restricted to draining stale DB state and asking
+-- the agent to (re)apply / tear down running networks.
 module Corvus.Handlers.Lifecycle
   ( -- * Action types
     Startup (..)
@@ -25,7 +24,6 @@ import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as Spec
 import Corvus.Protocol
-import Corvus.Qemu.Netns.Manager (stopDnsmasq)
 import Corvus.Qemu.Process (killVmProcess)
 import Corvus.Qemu.Virtiofsd (killVirtiofsdProcesses)
 import Corvus.Types
@@ -69,15 +67,14 @@ instance Action Startup where
       liftIO $ runSqlPool (updateWhere [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]) pool
       logInfoN "Reset stale VMs to error state"
 
-      -- Kill orphaned dnsmasq processes, reset network state
-      staleNetworks <- liftIO $ runSqlPool (selectList ([M.NetworkRunning ==. True] ||. [M.NetworkDnsmasqPid !=. Nothing]) []) pool
-      liftIO $ forM_ staleNetworks $ \(Entity _nwKey nw) ->
-        forM_ (networkDnsmasqPid nw) stopDnsmasq
+      -- Reset stale network DB rows. The agent runs its own
+      -- startup cleanup so any kernel resources from a prior
+      -- corvus-netd process are already gone; we just clear the
+      -- daemon's idea that they are still up.
       liftIO $ runSqlPool (updateWhere [M.NetworkRunning ==. True] [M.NetworkRunning =. False, M.NetworkDnsmasqPid =. Nothing]) pool
       logInfoN "Reset stale network state"
 
-      -- Phase 3: networks are managed by corvus-netd. The
-      -- connect-and-hold async in app/daemon/Main.hs writes
+      -- The connect-and-hold async in app/daemon/Main.hs writes
       -- ssNetAgent when the agent is reachable; we just log here.
       mAgent <- liftIO $ readTVarIO (ssNetAgent state)
       case mAgent of

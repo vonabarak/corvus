@@ -3,17 +3,11 @@
 
 -- | Shared lifecycle helpers for external processes spawned by Corvus.
 --
--- Subsystems that spawn processes (QEMU itself, virtiofsd, dnsmasq, pasta,
--- etc.) all have the same three concerns: wait for the process to become
--- ready, stop it gracefully rather than @SIGKILL@-ing it, and check whether
--- a PID is still alive. This module provides those primitives so each
--- subsystem doesn't reinvent them (often with different — and worse —
--- semantics).
---
--- Spawning itself is intentionally /not/ abstracted: callers use
--- @createProcess@, @nsSpawn@, or host-with-ns-target spawns depending on
--- where the process needs to live. Forcing a common spawn API would paper
--- over real differences between those worlds.
+-- Subsystems that spawn processes (QEMU itself, virtiofsd, etc.) all have
+-- the same three concerns: wait for the process to become ready, stop it
+-- gracefully rather than @SIGKILL@-ing it, and check whether a PID is
+-- still alive. This module provides those primitives so each subsystem
+-- doesn't reinvent them (often with different — and worse — semantics).
 module Corvus.Process
   ( -- * Readiness checks
     waitForSocketFile
@@ -140,8 +134,8 @@ data StopResult
 -- is reported as the earliest stage that could have caused it.
 --
 -- The graceful hook is skipped when 'Nothing' is passed. For processes
--- without a control channel (virtiofsd, dnsmasq, pasta), pass @Nothing@
--- and a small @termWaitSec@.
+-- without a control channel (virtiofsd, etc.), pass @Nothing@ and a
+-- small @termWaitSec@.
 stopProcess
   :: (MonadIO m, MonadLogger m)
   => Text

@@ -21,7 +21,6 @@ struct StatusInfo {
   connections     @1 :Int32;
   version         @2 :Text;
   protocolVersion @3 :UInt32;
-  namespacePid    @4 :Int64;  # 0 when no shared namespace is active
 }
 
 # Returned by `Vm.viewGrant` — short-lived SPICE access credentials.

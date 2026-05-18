@@ -30,12 +30,6 @@ data QemuConfig = QemuConfig
   -- ^ Path to virtiofsd binary
   , qcSharedMemSize :: Maybe String
   -- ^ Shared memory size for virtiofs (e.g. "4G"), Nothing uses VM RAM
-  , qcDnsmasqBinary :: FilePath
-  -- ^ Path to dnsmasq binary
-  , qcPastaBinary :: FilePath
-  -- ^ Path to pasta binary (for NAT)
-  , qcNftBinary :: FilePath
-  -- ^ Path to nft binary (for NAT rules)
   , qcHealthcheckInterval :: Int
   -- ^ Healthcheck ping interval in seconds (default 10)
   , qcSpiceBindAddress :: !Text
@@ -67,9 +61,6 @@ defaultQemuConfig =
     , qcRuntimeDir = Nothing -- Will use $XDG_RUNTIME_DIR/corvus at runtime
     , qcVirtiofsdBinary = "/usr/libexec/virtiofsd"
     , qcSharedMemSize = Nothing -- Will use VM RAM size
-    , qcDnsmasqBinary = "dnsmasq"
-    , qcPastaBinary = "pasta"
-    , qcNftBinary = "nft"
     , qcHealthcheckInterval = 10
     , qcSpiceBindAddress = "127.0.0.1"
     , qcSpicePortMin = 5900

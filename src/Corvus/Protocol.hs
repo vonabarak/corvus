@@ -92,8 +92,6 @@ data StatusInfo = StatusInfo
   -- ^ Daemon version (package version + short git commit hash)
   , siProtocolVersion :: !Int
   -- ^ RPC protocol version (Cap'n Proto schema generation number)
-  , siNamespacePid :: !(Maybe Int)
-  -- ^ PID of the network namespace manager
   }
   deriving (Eq, Show, Generic)
 

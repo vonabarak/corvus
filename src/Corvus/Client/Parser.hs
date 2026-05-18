@@ -55,18 +55,6 @@ completionCommand =
           <> completeWith ["bash", "zsh", "fish"]
       )
 
--- | Parser for namespace exec command
-namespaceExecCommand :: Parser Command
-namespaceExecCommand =
-  NamespaceExec
-    <$> many
-      ( argument
-          str
-          ( metavar "COMMAND..."
-              <> help "Command to run (default: $SHELL or /bin/sh)"
-          )
-      )
-
 --------------------------------------------------------------------------------
 -- Top-level dispatch
 --------------------------------------------------------------------------------
@@ -123,9 +111,6 @@ commandParser =
         <> command
           "task"
           (info taskCommandParser (progDesc "Task history commands"))
-        <> command
-          "ns"
-          (info namespaceExecCommand (progDesc "Run command in network namespace (default: interactive shell)"))
     )
 
 -- | Parser for global options

@@ -154,8 +154,6 @@ createTestServerState pool basePath = do
   startTime <- getCurrentTime
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
-  namespacePid <- newTVarIO Nothing
-  pastaPid <- newTVarIO Nothing
   netAgent <- newTVarIO Nothing
   serialBuffers <- newTVarIO mempty
   monitorBuffers <- newTVarIO mempty
@@ -173,8 +171,6 @@ createTestServerState pool basePath = do
       , ssDbPool = pool
       , ssQemuConfig = defaultQemuConfig {qcBasePath = Just basePath}
       , ssLogLevel = logLevel
-      , ssNamespacePid = namespacePid
-      , ssPastaPid = pastaPid
       , ssNetAgent = netAgent
       , ssSerialBuffers = serialBuffers
       , ssMonitorBuffers = monitorBuffers

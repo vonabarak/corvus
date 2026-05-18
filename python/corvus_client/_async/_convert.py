@@ -1,10 +1,9 @@
 """Cap'n Proto struct → Python dataclass converters.
 
 pycapnp surfaces struct fields as attribute access on a reader object;
-enums come back as their lowercased schema name (str). For sentinel
-fields (e.g. `namespacePid: Int64 = 0` meaning "no namespace"), we
-collapse the sentinel to `None`. Timestamps (POSIX nanoseconds) become
-`datetime` with UTC tzinfo.
+enums come back as their lowercased schema name (str). Sentinel
+integer fields (`0` ⇒ "absent") are collapsed to `None`. Timestamps
+(POSIX nanoseconds) become `datetime` with UTC tzinfo.
 """
 from __future__ import annotations
 
@@ -40,7 +39,6 @@ def status_info(r) -> t.StatusInfo:
         connections=r.connections,
         version=r.version,
         protocol_version=r.protocolVersion,
-        namespace_pid=_nz_int(r.namespacePid),
     )
 
 

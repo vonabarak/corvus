@@ -1,9 +1,7 @@
 """Output dataclasses for the Corvus client.
 
 Each capability method that returns a struct produces an instance of one
-of these. Fields use Python conventions (PEP 8 snake_case) and apply the
-"sentinel-to-None" mapping spelled out in the schema comments (e.g.
-`namespacePid: Int64 = 0` ⇒ `namespace_pid: Optional[int] = None`).
+of these. Fields use Python conventions (PEP 8 snake_case).
 
 Timestamps reach the wire as POSIX nanoseconds (Int64). We expose them
 as `datetime.datetime` with UTC tzinfo; the conversion lives in
@@ -27,7 +25,6 @@ class StatusInfo:
     connections: int
     version: str
     protocol_version: int
-    namespace_pid: Optional[int] = None
 
 
 @dataclass(frozen=True)

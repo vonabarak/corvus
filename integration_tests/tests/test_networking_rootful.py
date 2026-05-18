@@ -1,13 +1,11 @@
-"""Rootful networking scenarios — new ground; impossible under the
-unprivileged outer Corvus.
+"""Rootful networking scenarios driven by the privileged corvus-netd
+agent on the test node.
 
-The inner daemon runs as root inside a node, so it can do:
-  - real TAP devices attached to real interfaces
-  - bridges that span the vm's NICs
-  - pasta NAT inside an explicit network namespace owned by inner Corvus
-
-These tests prove the rootful code paths work; they were untestable
-under the outer's user-namespace deployment.
+Bridges and TAPs live in the host root netns (libvirt-style); the
+daemon owns intent and the agent owns kernel state. These tests prove
+that the inner daemon's request → agent → kernel pipeline works for
+features that were untestable under the prior unprivileged user-ns
+deployment.
 """
 from __future__ import annotations
 
@@ -23,8 +21,4 @@ class TestNetworkingRootful(SingleNodeCase):
     @pytest.mark.skip(reason="TODO: design rootful network test once the feature lands")
     def test_tap_interface_creation(self):
         """Inner daemon creates a TAP on a real-looking interface in the VM."""
-        raise NotImplementedError
-
-    @pytest.mark.skip(reason="TODO: pasta NAT exercise inside the inner daemon's netns")
-    def test_pasta_nat_in_inner_netns(self):
         raise NotImplementedError
