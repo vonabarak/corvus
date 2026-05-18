@@ -33,6 +33,7 @@ import Control.Concurrent.STM (atomically)
 import qualified Control.Exception as E
 import Control.Monad (unless, void, when)
 import Corvus.Netd.Caps.Bridge (BridgeCap (..), newBridgeCap)
+import Corvus.Netd.Caps.NatRule (newNatRuleCap)
 import Corvus.Netd.Caps.Tap (newTapCap)
 import Corvus.Netd.IpLink
   ( IpLinkError (..)
@@ -45,6 +46,7 @@ import Corvus.Netd.IpLink
   , tapDel
   )
 import qualified Corvus.Netd.Ledger as L
+import qualified Corvus.Netd.Nftables as Nft
 import qualified Corvus.Netd.Sysctl as Sys
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
@@ -256,6 +258,48 @@ instance CGN.Session'server_ SessionCap where
           cap <- newTapCap (scOwner sess) name 0 0 "" (scLedger sess)
           client <- export @CGN.Tap (scSup sess) cap
           pure CGN.Session'claimTap'results {CGN.tap = client}
+
+  -- ----- installNat -------------------------------------------------------
+  session'installNat sess =
+    handleParsed $ \CGN.Session'installNat'params {CGN.params = p} -> do
+      let CGN.NatParams
+            { CGN.bridge = _bridgeClient
+            , CGN.uplinkIf = uplinkIf
+            , CGN.subnet = subnet
+            } = p
+      -- Phase 2 doesn't actually need the bridge cap for NAT — the
+      -- masquerade rule keys off subnet + uplink only. We accept
+      -- the cap argument (per the schema) but ignore it. A later
+      -- slice that wires bridge-aware FORWARD policy will use it.
+      when (T.null subnet) $ throwFailed "installNat: subnet must be non-empty"
+      -- Idempotent base-table install. Cheap if it already exists.
+      Nft.ensureBaseTable >>= \case
+        Right () -> pure ()
+        Left e -> throwFailed ("installNat:ensure-table: " <> Nft.neStderr e)
+      created <- getCurrentTime
+      handle <-
+        Nft.addMasquerade subnet uplinkIf >>= \case
+          Right h -> pure h
+          Left e -> throwFailed ("installNat:add-rule: " <> Nft.neStderr e)
+      let ruleKey = T.pack (show handle)
+          teardown = do
+            res <- Nft.deleteRule handle
+            case res of
+              Right () -> pure ()
+              Left e -> E.throwIO e
+      atomically $
+        L.record
+          (scLedger sess)
+          L.Resource
+            { L.rOwner = scOwner sess
+            , L.rKind = L.KNat
+            , L.rName = ruleKey
+            , L.rCreated = created
+            , L.rTeardown = teardown
+            }
+      cap <- newNatRuleCap (scOwner sess) ruleKey (scLedger sess)
+      client <- export @CGN.NatRule (scSup sess) cap
+      pure CGN.Session'installNat'results {CGN.nat = client}
 
   -- ----- setIpForwarding --------------------------------------------------
   session'setIpForwarding _ =

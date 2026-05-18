@@ -287,7 +287,7 @@ class TestNetdSmoke(SingleNodeCase):
         # Phase 2 advertises the features its Session can actually
         # service.  Subsequent slices add "tap", "nat", "dnsmasq",
         # "events" — each addition rewrites this assertion.
-        assert set(info.capabilities) == {"bridge", "tap", "ip-forwarding"}
+        assert set(info.capabilities) == {"bridge", "tap", "nat", "ip-forwarding"}
 
     def test_session_returns_cap(self, netd_endpoint):
         host, port = netd_endpoint
@@ -497,6 +497,79 @@ class TestNetdSmoke(SingleNodeCase):
             # Belt-and-braces against partial failures.
             node.run(
                 f"sudo ip tuntap del dev {tap_name} mode tap 2>/dev/null || true",
+                check=False,
+            )
+            node.run(
+                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+                check=False,
+            )
+
+    def test_install_nat_inserts_masquerade_rule(self, netd_endpoint):
+        """`installNat` lands a masquerade rule in `inet corvus_fw`.
+
+        Checks the rule is in `nft list table inet corvus_fw` while
+        the NatRule cap is alive, and is gone after destroy().
+        Captures `inet corvus_fw` state in stdout so a failure
+        prints the table for diagnosis.
+        """
+        host, port = netd_endpoint
+        bridge_name = "crv-it-br-n"
+        subnet = "10.197.0.0/24"
+        node = self.node
+
+        async def body(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            br = (
+                await sess.createBridge(
+                    params={
+                        "name": bridge_name,
+                        "cidr": "10.197.0.1/24",
+                        "mtu": 1500,
+                    }
+                )
+            ).bridge
+            nat = (
+                await sess.installNat(
+                    params={
+                        "bridge": br,
+                        "uplinkIf": "",  # match any oifname
+                        "subnet": subnet,
+                    }
+                )
+            ).nat
+
+            table = await asyncio.to_thread(
+                node.run, "sudo nft list table inet corvus_fw"
+            )
+            assert subnet.encode() in table.stdout, (
+                f"masquerade rule for {subnet} not found:\n"
+                f"{table.stdout.decode(errors='replace')}"
+            )
+            assert b"masquerade" in table.stdout
+
+            await nat.destroy()
+
+            gone = await asyncio.to_thread(
+                node.run, "sudo nft list table inet corvus_fw"
+            )
+            assert subnet.encode() not in gone.stdout, (
+                f"rule for {subnet} still present after destroy():\n"
+                f"{gone.stdout.decode(errors='replace')}"
+            )
+            _ = br  # held until body exits
+
+        try:
+            _run_on_node_loop(
+                node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
+            )
+        finally:
+            # Flush the table on the node so a later test class
+            # doesn't see leftover rules.  `delete table` removes
+            # the table and everything inside it; tolerant of the
+            # table being absent.
+            node.run(
+                "sudo nft delete table inet corvus_fw 2>/dev/null || true",
                 check=False,
             )
             node.run(
