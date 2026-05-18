@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-run uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
+.PHONY: all build install install-run install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -213,6 +213,30 @@ install-run: install
 	sleep 1
 	crv status
 
+# Install the system-wide privileged network agent (corvus-netd).
+# Requires root: copies the binary to /usr/local/bin/, drops the
+# system systemd unit in place, reloads, enables, and starts it.
+#
+# Run after `make install` so the binary is built and present in
+# ~/.local/bin. The system unit copies it into /usr/local/bin so
+# system systemd can find it regardless of the invoking user's home.
+install-system: install
+	install -d /usr/local/bin
+	install -m 0755 $(HOME)/.local/bin/corvus-netd /usr/local/bin/corvus-netd
+	install -d /etc/systemd/system
+	install -m 0644 systemd/corvus-netd.service /etc/systemd/system/corvus-netd.service
+	systemctl daemon-reload
+	systemctl enable corvus-netd.service
+	systemctl restart corvus-netd.service
+
+# Stop, disable, and remove the system-wide agent.
+uninstall-system:
+	-systemctl stop corvus-netd.service
+	-systemctl disable corvus-netd.service
+	rm -f /etc/systemd/system/corvus-netd.service
+	-systemctl daemon-reload
+	rm -f /usr/local/bin/corvus-netd
+
 # Uninstall binaries, systemd service, and shell completions
 uninstall:
 	-systemctl --user stop corvus.service
@@ -221,6 +245,7 @@ uninstall:
 	-systemctl --user daemon-reload
 	rm -f $(HOME)/.local/bin/corvus
 	rm -f $(HOME)/.local/bin/crv
+	rm -f $(HOME)/.local/bin/corvus-netd
 	rm -f $(HOME)/.local/share/bash-completion/completions/crv
 	rm -f $(HOME)/.local/share/zsh/site-functions/_crv
 	rm -f $(HOME)/.config/fish/completions/crv.fish

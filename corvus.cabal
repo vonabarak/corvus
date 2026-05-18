@@ -138,6 +138,9 @@ library
       Corvus.Rpc.CloudInit
       Corvus.Client.Capnp.Connection
       Corvus.Client.Capnp.Rpc
+      Corvus.Netd.Server
+      Corvus.Netd.Caps.NetAgent
+      Corvus.Netd.Caps.Session
       Capnp.Gen.Corvus
       Capnp.Gen.Common
       Capnp.Gen.Enums
@@ -149,6 +152,7 @@ library
       Capnp.Gen.Template
       Capnp.Gen.Task
       Capnp.Gen.Cloudinit
+      Capnp.Gen.Netagent
   other-modules:
       Corvus.Client.Commands.Network
       Corvus.Handlers.Build.Floppy
@@ -161,6 +165,7 @@ library
       Capnp.Gen.ById.Xc6b684f81a734396
       Capnp.Gen.ById.Xd3867de7dfe678c7
       Capnp.Gen.ById.Xd6cec0faa39e02dc
+      Capnp.Gen.ById.Xdc412029c77dfa4a
       Capnp.Gen.ById.Xe996a8e112b41e28
       Capnp.Gen.ById.Xeb6a435f11477f84
       Capnp.Gen.ById.Xec449e11027b2949
@@ -238,6 +243,71 @@ executable corvus
       Paths_corvus
   hs-source-dirs:
       app/daemon
+  default-extensions:
+      OverloadedStrings
+      DeriveGeneric
+      DeriveAnyClass
+      DerivingStrategies
+      GeneralizedNewtypeDeriving
+      StandaloneDeriving
+      TypeFamilies
+      GADTs
+      UndecidableInstances
+      DataKinds
+      FlexibleInstances
+      MultiParamTypeClasses
+      QuasiQuotes
+      TemplateHaskell
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , aeson-qq
+    , ansi-terminal
+    , async
+    , base >=4.7 && <5
+    , base64-bytestring
+    , bytestring
+    , capnp
+    , containers
+    , corvus
+    , data-default
+    , directory
+    , esqueleto
+    , exceptions
+    , filepath
+    , fourmolu
+    , gitrev
+    , haskell-src-meta
+    , monad-logger
+    , mtl
+    , network
+    , network-simple
+    , optparse-applicative
+    , persistent
+    , persistent-postgresql
+    , process
+    , random
+    , resource-pool
+    , stm
+    , supervisors
+    , template-haskell
+    , temporary
+    , text
+    , time
+    , unix
+    , unliftio-core
+    , vector
+    , yaml
+  default-language: Haskell2010
+
+executable corvus-netd
+  main-is: Main.hs
+  other-modules:
+      Paths_corvus
+  autogen-modules:
+      Paths_corvus
+  hs-source-dirs:
+      app/netd
   default-extensions:
       OverloadedStrings
       DeriveGeneric

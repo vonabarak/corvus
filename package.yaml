@@ -194,6 +194,9 @@ library:
     - Corvus.Rpc.CloudInit
     - Corvus.Client.Capnp.Connection
     - Corvus.Client.Capnp.Rpc
+    - Corvus.Netd.Server
+    - Corvus.Netd.Caps.NetAgent
+    - Corvus.Netd.Caps.Session
     # Cap'n Proto generated modules (auto-generated from schema/*.capnp).
     # Only the umbrella per-schema-file modules are exposed; the
     # ById/* internal modules stay private to the corvus library.
@@ -208,6 +211,7 @@ library:
     - Capnp.Gen.Template
     - Capnp.Gen.Task
     - Capnp.Gen.Cloudinit
+    - Capnp.Gen.Netagent
 
 executables:
   corvus:
@@ -226,6 +230,16 @@ executables:
     ghc-options:
       - -threaded
       - -rtsopts
+    dependencies:
+      - corvus
+
+  corvus-netd:
+    main: Main.hs
+    source-dirs: app/netd
+    ghc-options:
+      - -threaded
+      - -rtsopts
+      - -with-rtsopts=-N
     dependencies:
       - corvus
 
