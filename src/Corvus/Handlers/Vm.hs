@@ -49,6 +49,7 @@ import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, readMVar)
 import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (filterM, unless, when)
+import qualified Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
@@ -59,6 +60,8 @@ import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
 import qualified Corvus.Model as M
 import Corvus.Model.VmState (VmAction (..), validateTransition)
+import qualified Corvus.NetAgentClient as NA
+import qualified Corvus.NetAgentClient.Spec as Spec
 import Corvus.Protocol
 import Corvus.Qemu
 import Corvus.Qemu.SocketBuffer (flushBuffer, startSocketBufferThread)
@@ -69,7 +72,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64URL
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -344,12 +347,33 @@ launchQemu :: ServerState -> Int64 -> Vm -> TaskId -> Pool SqlBackend -> Logging
 launchQemu state vmId vm parentTaskId pool = do
   -- Subtask 3: Launch QEMU
   hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
-  mNsPid <-
+  mAgent <-
     if hasManagedNic
-      then liftIO $ readTVarIO (ssNamespacePid state)
+      then liftIO $ readTVarIO (ssNetAgent state)
       else pure Nothing
+  -- Phase 3: no fallback. A VM that needs managed networking
+  -- and has no agent gets a hard error here, before QEMU even
+  -- spawns.
+  if hasManagedNic && isNothing mAgent
+    then do
+      logWarnN $ "VM " <> T.pack (show vmId) <> " needs managed NIC but netd is unavailable"
+      pure $ RespError "netd unavailable; cannot start VM with managed network"
+    else launchQemuWith state vmId vm parentTaskId pool mAgent
+
+-- | Spawn QEMU and wire up the post-launch supervisors. Split
+-- out so the early hard-error guard above doesn't have to
+-- duplicate it.
+launchQemuWith
+  :: ServerState
+  -> Int64
+  -> Vm
+  -> TaskId
+  -> Pool SqlBackend
+  -> Maybe NA.NetAgentClient
+  -> LoggingT IO Response
+launchQemuWith state vmId vm parentTaskId pool mAgent = do
   resultVar <- liftIO newEmptyMVar
-  _ <- liftIO $ runActionAsSubtask state (LaunchQemu vmId (vmName vm) mNsPid resultVar) parentTaskId
+  _ <- liftIO $ runActionAsSubtask state (LaunchQemu vmId (vmName vm) mAgent resultVar) parentTaskId
   result <- liftIO $ readMVar resultVar
   case result of
     VmStarted pid ph mStderr -> do
@@ -380,6 +404,11 @@ launchQemu state vmId vm parentTaskId pool = do
                 liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
         -- Close persistent guest agent connection (QEMU is gone)
         liftIO $ closeGuestAgentConn (ssGuestAgentConns state) vmId
+        -- Tell the agent it can drop the VM's managed TAPs.
+        -- Best-effort: a failure here is logged but not raised,
+        -- because the kernel state is already a fait accompli
+        -- (QEMU has exited; the TAP either survives or doesn't).
+        liftIO $ releaseManagedTaps state vmId
       -- Start ring-buffered relays for QEMU's chardev sockets.
       let cfg = ssQemuConfig state
           logLevel = ssLogLevel state
@@ -996,6 +1025,33 @@ hasManagedNetworkInterface vmId = do
   cnt <- count [M.NetworkInterfaceVmId ==. vmKey, M.NetworkInterfaceNetworkId !=. Nothing]
   pure $ cnt > 0
 
+-- | Tell the agent to drop every managed TAP attached to the
+-- given VM. Used by the post-QEMU-exit supervisor thread.
+-- Best-effort: errors are logged via the agent client, not
+-- propagated to the caller — the VM is gone either way.
+releaseManagedTaps :: ServerState -> Int64 -> IO ()
+releaseManagedTaps state vmId = do
+  mAgent <- readTVarIO (ssNetAgent state)
+  case mAgent of
+    Nothing -> pure ()
+    Just nac -> do
+      let vmKey = toSqlKey vmId :: VmId
+      ifaces <-
+        runSqlPool
+          ( selectList
+              [ M.NetworkInterfaceVmId ==. vmKey
+              , M.NetworkInterfaceNetworkId !=. Nothing
+              ]
+              []
+          )
+          (ssDbPool state)
+      mapM_
+        ( \(Entity ifaceKey _) ->
+            let tapName = Spec.corvusTapName (fromSqlKey ifaceKey)
+             in Control.Monad.void (NA.deleteTap nac tapName)
+        )
+        ifaces
+
 -- | Check if all networks referenced by a VM's network interfaces are running.
 -- Returns Just networkName if a stopped network is found, Nothing if all are running.
 checkNetworksRunning :: Int64 -> SqlPersistT IO (Maybe Text)
@@ -1155,7 +1211,7 @@ instance Action StartVirtiofsd where
 data LaunchQemu = LaunchQemu
   { lqVmId :: Int64
   , lqVmName :: Text
-  , lqNsPid :: Maybe Int
+  , lqAgent :: Maybe NA.NetAgentClient
   , lqResultVar :: MVar StartVmResult
   }
 
@@ -1166,7 +1222,7 @@ instance Action LaunchQemu where
   actionEntityId = Just . fromIntegral . lqVmId
   actionExecute ctx a = do
     let state = acState ctx
-    r <- runServerLogging state $ startVm (ssDbPool state) (ssQemuConfig state) (lqVmId a) (lqNsPid a)
+    r <- runServerLogging state $ startVm (ssDbPool state) (ssQemuConfig state) (lqVmId a) (lqAgent a)
     putMVar (lqResultVar a) r
     pure $ case r of
       VmStarted {} -> RespOk

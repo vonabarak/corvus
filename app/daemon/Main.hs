@@ -5,18 +5,22 @@ module Main where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
-import Control.Monad (unless)
+import Control.Monad (forM_, unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN, logWarnN)
 import Corvus.Model (migrateAll)
+import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
+import qualified Corvus.NetAgentClient.Spec as Spec
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Server (handleGracefulShutdown, handleStartup)
 import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath, newServerState, runFilteredLogging)
 import Data.ByteString.Char8 (pack)
 import qualified Data.Text as T
+import Database.Persist (Entity (..), selectList, (==.))
 import Database.Persist.Postgresql (createPostgresqlPool, runMigration, runSqlPool)
+import Database.Persist.Sql (fromSqlKey)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitSuccess)
@@ -274,10 +278,51 @@ runNetdConnection state opts = do
       runFilteredLogging (ssLogLevel state) $
         logInfoN ("netd dial succeeded, owner=" <> NA.nacOwner nac)
       atomically $ writeTVar (ssNetAgent state) (Just nac)
+      -- Reapply intent: walk the DB for `running=true` networks
+      -- and call NA.applyNetwork on each. Idempotent on the
+      -- agent side. Same shape for VMs' TAPs would also belong
+      -- here, but VM autostart runs through the usual VmStart
+      -- handler, which already plumbs the agent.
+      reapplyRunningNetworks state nac
       -- Hold the connection open until shutdown is requested.
       blockUntilShutdown state
       atomically $ writeTVar (ssNetAgent state) Nothing
       pure (Right ())
+
+-- | On (re)connect: re-apply every network the DB says should
+-- be running. The agent is stateless, so this rebuilds its
+-- kernel-side ledger to match the daemon's intent.
+reapplyRunningNetworks :: ServerState -> NA.NetAgentClient -> IO ()
+reapplyRunningNetworks state nac = do
+  nets <-
+    runSqlPool
+      (selectList [M.NetworkRunning ==. True] [])
+      (ssDbPool state)
+  forM_ nets $ \(Entity nwKey nw) ->
+    case Spec.networkToSpec (fromSqlKey nwKey) nw of
+      Left err ->
+        runFilteredLogging (ssLogLevel state) $
+          logWarnN
+            ( "re-apply skip network "
+                <> T.pack (show (fromSqlKey nwKey))
+                <> ": "
+                <> err
+            )
+      Right spec -> do
+        result <- NA.applyNetwork nac spec
+        case result of
+          Right _ ->
+            runFilteredLogging (ssLogLevel state) $
+              logInfoN
+                ("re-applied network " <> M.networkName nw)
+          Left e ->
+            runFilteredLogging (ssLogLevel state) $
+              logWarnN
+                ( "re-apply failed for "
+                    <> M.networkName nw
+                    <> ": "
+                    <> T.pack (show e)
+                )
 
 -- | Spin until 'ssShutdownFlag' flips. Lets the netd-connection
 -- thread block the bracket so the TCP socket stays open.

@@ -156,6 +156,7 @@ createTestServerState pool basePath = do
   shutdownFlag <- newTVarIO False
   namespacePid <- newTVarIO Nothing
   pastaPid <- newTVarIO Nothing
+  netAgent <- newTVarIO Nothing
   serialBuffers <- newTVarIO mempty
   monitorBuffers <- newTVarIO mempty
   gaLocks <- newTVarIO mempty
@@ -174,6 +175,7 @@ createTestServerState pool basePath = do
       , ssLogLevel = logLevel
       , ssNamespacePid = namespacePid
       , ssPastaPid = pastaPid
+      , ssNetAgent = netAgent
       , ssSerialBuffers = serialBuffers
       , ssMonitorBuffers = monitorBuffers
       , ssGuestAgentConns = gaLocks

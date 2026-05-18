@@ -139,6 +139,7 @@ library
       Corvus.Client.Capnp.Connection
       Corvus.Client.Capnp.Rpc
       Corvus.NetAgentClient
+      Corvus.NetAgentClient.Spec
       Corvus.Netd.Server
       Corvus.Netd.Ledger
       Corvus.Netd.IpLink

@@ -17,6 +17,7 @@ where
 import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
+import qualified Corvus.NetAgentClient as NA
 import Corvus.Process (StopResult (..), stopProcess)
 import Corvus.Qemu.Command (generateQemuCommandWithSockets)
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
@@ -67,11 +68,18 @@ data KillResult
 -- Returns immediately with PID and ProcessHandle (QEMU runs in foreground).
 -- The caller is responsible for waiting on the process handle.
 --
--- When mNamespacePid is Just, TAP file descriptors are created inside the
--- namespace for managed network interfaces. QEMU itself always runs in the
--- host namespace (so user-mode networking, SPICE, etc. remain accessible).
-startVm :: (MonadIO m, MonadLogger m) => Pool SqlBackend -> QemuConfig -> Int64 -> Maybe Int -> m StartVmResult
-startVm pool config vmId mNamespacePid = do
+-- When @mAgent@ is 'Just', the corvus-netd agent allocates a
+-- persistent TAP per managed network interface (idempotent: an
+-- existing TAP with the matching name is a no-op). QEMU always
+-- runs in the host process world.
+startVm
+  :: (MonadIO m, MonadLogger m)
+  => Pool SqlBackend
+  -> QemuConfig
+  -> Int64
+  -> Maybe NA.NetAgentClient
+  -> m StartVmResult
+startVm pool config vmId mAgent = do
   -- Create runtime directory
   _ <- liftIO $ createVmRuntimeDir config vmId
 
@@ -85,8 +93,8 @@ startVm pool config vmId mNamespacePid = do
   guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
   vmRuntimeDir <- liftIO $ getVmRuntimeDir config vmId
 
-  -- Generate command (TAP fds are created inside namespace during resolution)
-  mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir mNamespacePid) pool
+  -- Generate command (TAPs are applied via the agent during resolution).
+  mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir mAgent) pool
   case mCmd of
     Nothing -> pure VmNotFound
     Just (binary, args) -> do

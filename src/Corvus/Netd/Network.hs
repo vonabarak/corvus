@@ -43,7 +43,6 @@ where
 import Control.Concurrent.STM (atomically)
 import qualified Control.Exception as E
 import Control.Monad (unless, void, when, (<=<))
-import Data.Foldable (for_)
 import Corvus.Netd.Cleanup (corvusBridgePrefix)
 import qualified Corvus.Netd.Dnsmasq as Dn
 import Corvus.Netd.IpLink
@@ -58,6 +57,7 @@ import Corvus.Netd.IpLink
 import qualified Corvus.Netd.Ledger as L
 import Corvus.Netd.Nftables (NftError (..), RuleHandle)
 import qualified Corvus.Netd.Nftables as Nft
+import Data.Foldable (for_)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Data.Word (Word32)

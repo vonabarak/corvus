@@ -19,14 +19,14 @@ where
 
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Model
+import qualified Corvus.NetAgentClient as NA
+import qualified Corvus.NetAgentClient.Spec as Spec
 import Corvus.Qemu.Config
   ( QemuConfig (..)
   , getEffectiveBasePath
   )
-import Corvus.Qemu.Netns (nsCreateTap)
 import Corvus.Qemu.Runtime
-  ( getBridgeName
-  , getGuestAgentSocket
+  ( getGuestAgentSocket
   , getMonitorSocket
   , getQmpSocket
   , getSerialSocket
@@ -81,8 +81,9 @@ generateQemuCommand config vmId = do
       serialSock <- liftIO $ getSerialSocket config vmId
       guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
       vmRuntimeDir <- liftIO $ getVmRuntimeDir config vmId
-      -- Resolve managed network interfaces (no namespace PID for IO-only path)
-      resolvedNetIfs <- liftIO $ mapM (resolveNetIfDevice Nothing . entityVal) netIfs
+      -- Resolve managed network interfaces (preview path: no agent
+      -- → managed interfaces' hostDevice stays empty).
+      resolvedNetIfs <- liftIO $ mapM (resolveNetIfDevice Nothing) netIfs
       let (binary, args) =
             buildCommandWithSockets
               config
@@ -106,8 +107,11 @@ fetchDriveWithImage (Entity _ drive) = do
   mDiskImage <- get diskImageKey
   pure (drive, mDiskImage)
 
--- | Generate QEMU command with socket paths (returns binary and args separately)
--- mNamespacePid is passed to create TAP fds for managed network interfaces.
+-- | Generate QEMU command with socket paths (returns binary and args separately).
+-- @mAgent@ is the @corvus-netd@ client used to allocate persistent
+-- TAP devices for managed network interfaces; pass 'Nothing' for
+-- preview-only paths (the managed interfaces' hostDevice stays
+-- empty and QEMU would refuse to start with that argv).
 generateQemuCommandWithSockets
   :: QemuConfig
   -> Int64
@@ -117,9 +121,9 @@ generateQemuCommandWithSockets
   -> FilePath
   -> FilePath
   -> FilePath
-  -> Maybe Int
+  -> Maybe NA.NetAgentClient
   -> SqlPersistT IO (Maybe (FilePath, [String]))
-generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir mNamespacePid = do
+generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir mAgent = do
   let key = toSqlKey vmId :: VmId
   mVm <- get key
   case mVm of
@@ -129,8 +133,11 @@ generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock serialSo
       driveWithImages <- mapM fetchDriveWithImage drives
       netIfs <- selectList [NetworkInterfaceVmId ==. key] []
       sharedDirs <- selectList [SharedDirVmId ==. key] []
-      -- Create TAP fds for managed network interfaces (in namespace)
-      resolvedNetIfs <- liftIO $ mapM (resolveNetIfDevice mNamespacePid . entityVal) netIfs
+      -- For each managed network interface, ask the agent to
+      -- (idempotently) apply a TAP and substitute the resulting
+      -- ifname into hostDevice. Non-managed interfaces fall
+      -- through unchanged.
+      resolvedNetIfs <- liftIO $ mapM (resolveNetIfDevice mAgent) netIfs
       pure $
         Just $
           buildCommandWithSockets
@@ -385,8 +392,10 @@ netArgs (idx, netIf) =
       NetVde ->
         ["-netdev", "vde,id=" ++ netId ++ ",sock=" ++ hostDev]
       NetManaged ->
-        -- hostDev contains the TAP fd number (created by nsCreateTap)
-        ["-netdev", "tap,id=" ++ netId ++ ",fd=" ++ hostDev]
+        -- hostDev is the persistent TAP ifname the agent allocated
+        -- and TUNSETOWNER'd to the daemon's uid. QEMU re-opens
+        -- /dev/net/tun by ifname; no fd passing required.
+        ["-netdev", "tap,id=" ++ netId ++ ",ifname=" ++ hostDev ++ ",script=no,downscript=no"]
 
     deviceArgs =
       ["-device", "virtio-net-pci,netdev=" ++ netId ++ ",mac=" ++ T.unpack (networkInterfaceMacAddress netIf)]
@@ -414,15 +423,37 @@ sharedDirArgs vmRuntimeDir (idx, dir) =
 -- Network Device Resolution
 --------------------------------------------------------------------------------
 
--- | Resolve managed network interfaces: create TAP device in namespace
--- and substitute the fd number into hostDevice.
--- For non-managed interfaces, this is a no-op.
-resolveNetIfDevice :: Maybe Int -> NetworkInterface -> IO NetworkInterface
-resolveNetIfDevice mNsPid netIf = case (networkInterfaceNetworkId netIf, mNsPid) of
-  (Just nwKey, Just nsPid) -> do
-    let bridge = getBridgeName (fromSqlKey nwKey)
-    result <- nsCreateTap nsPid bridge
-    case result of
-      Right fd -> pure $ netIf {networkInterfaceHostDevice = T.pack (show fd)}
-      Left _ -> pure netIf -- fallback: leave hostDevice as-is
-  _ -> pure netIf
+-- | Resolve managed network interfaces: ask the agent to apply a
+-- persistent TAP attached to the network's bridge and substitute
+-- the ifname into hostDevice. For non-managed interfaces (and
+-- preview paths where @mAgent@ is 'Nothing'), this is a no-op.
+--
+-- The TAP name is deterministic from the interface DB id (via
+-- 'Corvus.NetAgentClient.Spec.corvusTapName'), so repeated calls
+-- are idempotent on the agent side: the second 'applyTap' sees a
+-- name-match in its ledger and no-ops.
+resolveNetIfDevice
+  :: Maybe NA.NetAgentClient -> Entity NetworkInterface -> IO NetworkInterface
+resolveNetIfDevice mAgent (Entity ifaceKey netIf) =
+  case (networkInterfaceNetworkId netIf, mAgent) of
+    (Just nwKey, Just nac) -> do
+      let bridge = Spec.corvusBridgeName (fromSqlKey nwKey)
+          tapName = Spec.corvusTapName (fromSqlKey ifaceKey)
+          spec =
+            NA.TapSpec
+              { NA.tsName = tapName
+              , NA.tsBridge = bridge
+              , NA.tsUid = 0 -- daemon's uid is plumbed via the agent
+              , NA.tsGid = 0 -- session; 0 for now (root-owned TAP, root daemon)
+              }
+      result <- NA.applyTap nac spec
+      case result of
+        Right _ ->
+          pure (netIf {networkInterfaceHostDevice = tapName})
+        Left _ ->
+          -- Best-effort: leave hostDevice empty so QEMU's argv is
+          -- malformed (script=no,downscript=no,ifname=) and the
+          -- launch fails with a visible error. Phase 3.x can plumb
+          -- the failure back into VM start more gracefully.
+          pure netIf
+    _ -> pure netIf
