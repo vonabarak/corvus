@@ -14,6 +14,7 @@ module Corvus.Netd.Caps.DnsmasqHandle
   ( DnsmasqHandleCap (..)
   , newDnsmasqHandleCap
   , destroyDnsmasqHandleCap
+  , orphanDnsmasqHandleCap
   )
 where
 
@@ -25,6 +26,7 @@ import Control.Monad.Logger (logInfoN, logWarnN, runStderrLoggingT)
 import qualified Corvus.Netd.Ledger as L
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
+import Data.Time (getCurrentTime)
 import Data.Typeable (Typeable, cast)
 import Data.Word (Word32)
 import System.Posix.Types (CPid (..))
@@ -76,10 +78,23 @@ destroyDnsmasqHandleCap dhc = do
 instance SomeServer DnsmasqHandleCap where
   shutdown dhc = do
     runStderrLoggingT $
-      logInfoN ("[netd] dnsmasq shutdown: " <> dhcName dhc)
-    destroyDnsmasqHandleCap dhc
+      logInfoN ("[netd] dnsmasq cap-drop → orphan: " <> dhcName dhc)
+    orphanDnsmasqHandleCap dhc
 
   unwrap = cast
+
+-- | Cap-drop path. Same orphan-window pattern as the other caps.
+-- A reconnecting daemon can't re-claim dnsmasq (no claimDnsmasq
+-- method in v1), but the orphan window still gives the daemon
+-- the chance to call 'stop()' via a fresh session before the
+-- sweeper reaps the process.
+orphanDnsmasqHandleCap :: DnsmasqHandleCap -> IO ()
+orphanDnsmasqHandleCap dhc = do
+  now <- getCurrentTime
+  _ <-
+    atomically $
+      L.markOrphan (dhcLedger dhc) (dhcOwner dhc) L.KDnsmasq (dhcName dhc) now
+  pure ()
 
 instance CGN.DnsmasqHandle'server_ DnsmasqHandleCap where
   dnsmasqHandle'pid dhc =

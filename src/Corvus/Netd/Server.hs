@@ -25,6 +25,7 @@ module Corvus.Netd.Server
   ( runNetdServer
   , defaultNetdHost
   , defaultNetdPort
+  , defaultOrphanGrace
   )
 where
 
@@ -37,15 +38,19 @@ import Capnp.Rpc
   , toClient
   )
 import Capnp.TraversalLimit (defaultLimit)
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM (STM, atomically)
-import Control.Monad (void)
+import qualified Control.Exception as E
+import Control.Monad (forever, void)
+import Control.Monad.Logger (logInfoN, logWarnN, runStderrLoggingT)
 import Corvus.Netd.Caps.NetAgent (newNetAgentCap)
 import qualified Corvus.Netd.Events as Ev
 import qualified Corvus.Netd.IpMonitor as Mon
 import qualified Corvus.Netd.Ledger as L
 import qualified Data.Default as Def
+import Data.Foldable (for_)
 import qualified Data.Text as T
+import Data.Time (NominalDiffTime, getCurrentTime)
 import qualified Network.Simple.TCP as TCP
 import Supervisors (withSupervisor)
 
@@ -55,12 +60,25 @@ defaultNetdHost = "127.0.0.1"
 defaultNetdPort :: Int
 defaultNetdPort = 9877
 
+-- | Default orphan-grace window in seconds — 60s per the plan.
+-- Tests override via the @--orphan-grace@ flag.
+defaultOrphanGrace :: NominalDiffTime
+defaultOrphanGrace = 60
+
+-- | How often the sweeper wakes up and scans for expired
+-- orphans. 1s is a fine resolution: shorter than the default
+-- grace, fast enough to be observable in integration tests,
+-- and rare enough that the STM scan is negligible.
+sweeperInterval :: Int
+sweeperInterval = 1000000 -- microseconds = 1s
+
 -- | Run the agent's Cap'n Proto server on the given host/port.
 -- Allocates process-wide state (ledger + subscriber registry),
--- forks the rtnetlink-style watcher, and then accepts TCP
--- connections with per-connection cap supervisors.
-runNetdServer :: String -> Int -> IO ()
-runNetdServer host port = do
+-- forks the rtnetlink-style watcher and the orphan sweeper,
+-- and then accepts TCP connections with per-connection cap
+-- supervisors.
+runNetdServer :: String -> Int -> NominalDiffTime -> IO ()
+runNetdServer host port grace = do
   ledger <- L.newLedger
   subs <- Ev.newSubscribers
   -- Start the ip-monitor watcher. Each delete event is filtered
@@ -77,6 +95,30 @@ runNetdServer host port = do
         Nothing -> pure ()
         Just (kind, name) ->
           Ev.dispatchVanished subs (kindText kind) name
+  -- Orphan sweeper: every `sweeperInterval`, reap entries whose
+  -- orphan timestamp is older than `grace`. Teardowns run
+  -- OUTSIDE the STM transaction — they fork kernel ops
+  -- (`ip link del`, `nft delete rule`, `kill dnsmasq`) that
+  -- mustn't be retried.
+  void . forkIO . forever $ do
+    threadDelay sweeperInterval
+    now <- getCurrentTime
+    expired <- atomically $ L.reapExpired ledger now grace
+    for_ expired $ \r -> do
+      runStderrLoggingT $
+        logInfoN
+          ("[netd] sweeper reaping " <> T.pack (show (L.rKind r)) <> " " <> L.rName r)
+      result <- E.try @E.SomeException (L.rTeardown r)
+      case result of
+        Right () -> pure ()
+        Left e ->
+          runStderrLoggingT $
+            logWarnN
+              ( "[netd] sweeper teardown failed ("
+                  <> L.rName r
+                  <> "): "
+                  <> T.pack (show e)
+              )
   TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
     withSupervisor $ \sup -> do
       netAgentCap <- newNetAgentCap sup ledger subs

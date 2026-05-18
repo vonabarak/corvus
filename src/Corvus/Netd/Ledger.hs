@@ -36,13 +36,25 @@ module Corvus.Netd.Ledger
   , Corvus.Netd.Ledger.lookup
   , list
   , listAll
+
+    -- * Orphan-window machinery
+  , markOrphan
+  , revive
+  , reapExpired
   )
 where
 
-import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVarIO, readTVar)
+import Control.Concurrent.STM
+  ( STM
+  , TVar
+  , modifyTVar'
+  , newTVarIO
+  , readTVar
+  , writeTVar
+  )
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import Data.Time (UTCTime)
+import Data.Time (NominalDiffTime, UTCTime, diffUTCTime)
 
 -- | Resource kinds the ledger distinguishes. Stored as the second
 -- component of the lookup key, so a bridge named "default" doesn't
@@ -67,6 +79,10 @@ data Resource = Resource
   , rKind :: !Kind
   , rName :: !T.Text
   , rCreated :: !UTCTime
+  , rOrphanedAt :: !(Maybe UTCTime)
+  -- ^ When non-'Nothing', the resource's owning cap has been
+  -- dropped and the sweeper will reap the entry once
+  -- @now - t >= grace@. 'revive' clears this back to 'Nothing'.
   , rTeardown :: !(IO ())
   }
 
@@ -119,3 +135,51 @@ list (Ledger var) owner kind = do
 -- session-scoped method.
 listAll :: Ledger -> STM [Resource]
 listAll (Ledger var) = Map.elems <$> readTVar var
+
+-- ---------------------------------------------------------------------------
+-- Orphan window
+
+-- | Mark a resource as orphaned at the given instant. The
+-- resource stays in the ledger and in the kernel; the sweeper
+-- reaps it later. Returns 'True' if the entry existed (and was
+-- updated); 'False' if there was nothing to orphan. No-op if
+-- the entry is already orphaned.
+markOrphan :: Ledger -> T.Text -> Kind -> T.Text -> UTCTime -> STM Bool
+markOrphan (Ledger var) owner kind name now = do
+  m <- readTVar var
+  let key = (owner, kind, name)
+  case Map.lookup key m of
+    Nothing -> pure False
+    Just r ->
+      case rOrphanedAt r of
+        Just _ -> pure True
+        Nothing -> do
+          writeTVar var (Map.insert key (r {rOrphanedAt = Just now}) m)
+          pure True
+
+-- | Clear an orphan flag so the sweeper won't reap the resource.
+-- Returns the (now-live) resource, or 'Nothing' if absent.
+revive :: Ledger -> T.Text -> Kind -> T.Text -> STM (Maybe Resource)
+revive (Ledger var) owner kind name = do
+  m <- readTVar var
+  let key = (owner, kind, name)
+  case Map.lookup key m of
+    Nothing -> pure Nothing
+    Just r -> do
+      let r' = r {rOrphanedAt = Nothing}
+      writeTVar var (Map.insert key r' m)
+      pure (Just r')
+
+-- | Atomically remove every orphan whose 'rOrphanedAt' is at
+-- least @grace@ seconds in the past. Returns the removed
+-- entries so the caller can run their teardown actions outside
+-- the STM transaction (kernel mutations don't belong in STM).
+reapExpired :: Ledger -> UTCTime -> NominalDiffTime -> STM [Resource]
+reapExpired (Ledger var) now grace = do
+  m <- readTVar var
+  let (expired, kept) = Map.partition isExpired m
+      isExpired r = case rOrphanedAt r of
+        Just t -> diffUTCTime now t >= grace
+        Nothing -> False
+  writeTVar var kept
+  pure (Map.elems expired)

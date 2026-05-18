@@ -122,6 +122,7 @@ instance CGN.Session'server_ SessionCap where
             , L.rKind = L.KBridge
             , L.rName = name
             , L.rCreated = created
+            , L.rOrphanedAt = Nothing
             , L.rTeardown = teardown
             }
       cap <-
@@ -160,9 +161,12 @@ instance CGN.Session'server_ SessionCap where
   -- ----- claimBridge ------------------------------------------------------
   session'claimBridge sess =
     handleParsed $ \CGN.Session'claimBridge'params {CGN.name = name} -> do
+      -- `revive` clears any orphan flag the prior cap-drop set,
+      -- so the sweeper won't reap this resource out from under
+      -- the freshly-exported cap.
       mExisting <-
         atomically $
-          L.lookup (scLedger sess) (scOwner sess) L.KBridge name
+          L.revive (scLedger sess) (scOwner sess) L.KBridge name
       case mExisting of
         Nothing ->
           throwFailed $ "claimBridge: no bridge named " <> name <> " for this owner"
@@ -234,6 +238,7 @@ instance CGN.Session'server_ SessionCap where
             , L.rKind = L.KTap
             , L.rName = name
             , L.rCreated = created
+            , L.rOrphanedAt = Nothing
             , L.rTeardown = teardown
             }
       cap <-
@@ -252,7 +257,7 @@ instance CGN.Session'server_ SessionCap where
     handleParsed $ \CGN.Session'claimTap'params {CGN.name = name} -> do
       mExisting <-
         atomically $
-          L.lookup (scLedger sess) (scOwner sess) L.KTap name
+          L.revive (scLedger sess) (scOwner sess) L.KTap name
       case mExisting of
         Nothing ->
           throwFailed $ "claimTap: no tap named " <> name <> " for this owner"
@@ -301,6 +306,7 @@ instance CGN.Session'server_ SessionCap where
             , L.rKind = L.KNat
             , L.rName = ruleKey
             , L.rCreated = created
+            , L.rOrphanedAt = Nothing
             , L.rTeardown = teardown
             }
       cap <- newNatRuleCap (scOwner sess) ruleKey (scLedger sess)
@@ -357,6 +363,7 @@ instance CGN.Session'server_ SessionCap where
             , L.rKind = L.KDnsmasq
             , L.rName = ledgerName
             , L.rCreated = created
+            , L.rOrphanedAt = Nothing
             , L.rTeardown = teardown
             }
       cap <-

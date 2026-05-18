@@ -28,6 +28,7 @@ module Corvus.Netd.Caps.Tap
   ( TapCap (..)
   , newTapCap
   , destroyTapCap
+  , orphanTapCap
   , tapInfo
   )
 where
@@ -41,6 +42,7 @@ import Corvus.Netd.IpLink (IpLinkError (..))
 import qualified Corvus.Netd.Ledger as L
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
+import Data.Time (getCurrentTime)
 import Data.Typeable (Typeable, cast)
 import Data.Word (Word32)
 
@@ -121,10 +123,23 @@ tapInfo tc =
 
 instance SomeServer TapCap where
   shutdown tc = do
-    runStderrLoggingT $ logInfoN ("[netd] tap shutdown: " <> tcName tc)
-    destroyTapCap tc
+    runStderrLoggingT $
+      logInfoN ("[netd] tap cap-drop → orphan: " <> tcName tc)
+    orphanTapCap tc
 
   unwrap = cast
+
+-- | Cap-drop path: mark the TAP as orphan so a reconnecting
+-- daemon can re-adopt it via 'claimTap' within the orphan grace
+-- window. The sweeper in 'Corvus.Netd.Server' reaps expired
+-- orphans (running @ip tuntap del@ via the recorded teardown).
+orphanTapCap :: TapCap -> IO ()
+orphanTapCap tc = do
+  now <- getCurrentTime
+  _ <-
+    atomically $
+      L.markOrphan (tcLedger tc) (tcOwner tc) L.KTap (tcName tc) now
+  pure ()
 
 instance CGN.Tap'server_ TapCap where
   tap'info tc =

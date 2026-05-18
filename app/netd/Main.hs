@@ -2,16 +2,21 @@
 
 -- | Entry point for `corvus-netd`, the privileged network agent.
 --
--- Phase 1: listens on TCP 127.0.0.1:9877, exports a NetAgent
--- bootstrap cap. `ping`, `version`, and `session(owner)` work
--- end-to-end; the privileged methods on Session are stubs that
--- return @methodUnimplemented@ until Phase 2.
+-- See `Corvus.Netd.Server` for what the agent actually does.
+-- This module is the CLI shell: parse flags, configure logging,
+-- hand off.
 module Main where
 
 import Control.Monad.Logger (LogLevel (..), logInfoN)
-import Corvus.Netd.Server (defaultNetdHost, defaultNetdPort, runNetdServer)
+import Corvus.Netd.Server
+  ( defaultNetdHost
+  , defaultNetdPort
+  , defaultOrphanGrace
+  , runNetdServer
+  )
 import Corvus.Types (runFilteredLogging)
 import qualified Data.Text as T
+import Data.Time (NominalDiffTime)
 import Options.Applicative
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 
@@ -19,6 +24,7 @@ data Options = Options
   { optHost :: String
   , optPort :: Int
   , optLogLevel :: LogLevel
+  , optOrphanGrace :: NominalDiffTime
   }
   deriving (Show)
 
@@ -58,6 +64,17 @@ optionsParser =
           <> showDefault
           <> help "Log level (debug|info|warn|error)"
       )
+    <*> option
+      (fromInteger <$> auto)
+      ( long "orphan-grace"
+          <> metavar "SECONDS"
+          <> value defaultOrphanGrace
+          <> showDefault
+          <> help
+            "Seconds to hold orphaned resources before sweeping. \
+            \Lower for integration tests; default 60s gives a reconnecting \
+            \daemon a chance to claim its prior resources."
+      )
 
 main :: IO ()
 main = do
@@ -77,4 +94,4 @@ main = do
         <> T.pack (optHost opts)
         <> ":"
         <> T.pack (show (optPort opts))
-  runNetdServer (optHost opts) (optPort opts)
+  runNetdServer (optHost opts) (optPort opts) (optOrphanGrace opts)

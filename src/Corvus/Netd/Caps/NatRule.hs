@@ -19,6 +19,7 @@ module Corvus.Netd.Caps.NatRule
   ( NatRuleCap (..)
   , newNatRuleCap
   , destroyNatRuleCap
+  , orphanNatRuleCap
   )
 where
 
@@ -31,6 +32,7 @@ import qualified Corvus.Netd.Ledger as L
 import Corvus.Netd.Nftables (NftError (..))
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
+import Data.Time (getCurrentTime)
 import Data.Typeable (Typeable, cast)
 
 -- | Server-side state for one NAT rule resource. The ledger entry
@@ -78,10 +80,25 @@ destroyNatRuleCap nrc = do
 
 instance SomeServer NatRuleCap where
   shutdown nrc = do
-    runStderrLoggingT $ logInfoN ("[netd] nat-rule shutdown: " <> nrcRuleKey nrc)
-    destroyNatRuleCap nrc
+    runStderrLoggingT $
+      logInfoN ("[netd] nat-rule cap-drop → orphan: " <> nrcRuleKey nrc)
+    orphanNatRuleCap nrc
 
   unwrap = cast
+
+-- | Cap-drop path. Same orphan-window pattern as bridge/TAP.
+orphanNatRuleCap :: NatRuleCap -> IO ()
+orphanNatRuleCap nrc = do
+  now <- getCurrentTime
+  _ <-
+    atomically $
+      L.markOrphan
+        (nrcLedger nrc)
+        (nrcOwner nrc)
+        L.KNat
+        (nrcRuleKey nrc)
+        now
+  pure ()
 
 instance CGN.NatRule'server_ NatRuleCap where
   natRule'destroy nrc =

@@ -93,7 +93,12 @@ def _start_netd_on_node(node) -> None:
         f"sudo systemd-run --quiet --unit={NETD_TRANSIENT_UNIT} "
         f"  --property=Type=simple --property=Restart=no "
         f"  {NETD_BINARY_ON_NODE} "
-        f"  --host 127.0.0.1 --port {NETD_NODE_PORT} --log-level debug; "
+        f"  --host 127.0.0.1 --port {NETD_NODE_PORT} --log-level debug "
+        # Short orphan-grace so the sweep-after-grace test
+        # doesn't have to wait 60s. Cap-drop tests still see
+        # a brief orphan window, which exercises the lazy
+        # teardown path that matches Phase 3 daemon behavior.
+        f"  --orphan-grace=2; "
         # Wait up to 5s for the socket to be listening.
         f"for i in $(seq 1 50); do "
         f"  ss -ltn 2>/dev/null | grep -q ':{NETD_NODE_PORT} ' && exit 0; "
@@ -659,6 +664,118 @@ class TestNetdSmoke(SingleNodeCase):
                 f"sudo pkill -f 'dnsmasq.*--interface={bridge_name}' 2>/dev/null || true",
                 check=False,
             )
+            node.run(
+                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+                check=False,
+            )
+
+    def test_orphan_then_claim_resurrects_bridge(self, netd_endpoint):
+        """Cap drop → orphan; claimBridge within grace re-adopts.
+
+        Demonstrates the Phase 2 reconnection story: a daemon's
+        TCP session drops without explicit destroy(), but its
+        bridges persist in the kernel for the grace window. A new
+        session can `claimBridge` to re-adopt them, then either
+        explicitly `destroy()` or just let the next cap-drop
+        orphan them again.
+        """
+        host, port = netd_endpoint
+        bridge_name = "crv-it-br-o"
+        node = self.node
+
+        async def step1_create(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            await sess.createBridge(
+                params={
+                    "name": bridge_name,
+                    "cidr": "10.194.0.1/24",
+                    "mtu": 1500,
+                }
+            )
+            # body exits → the cap is GC'd → orphan flag set.
+
+        async def step2_claim_and_destroy(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            # Positional arg: pycapnp's stub clashes if you pass
+            # `name=` as kwarg (`name` is an internal pycapnp field
+            # on the call descriptor).
+            br = (await sess.claimBridge(bridge_name)).bridge
+            # Kernel still has the bridge — within grace window.
+            link = await asyncio.to_thread(
+                node.run, f"ip link show {bridge_name}", check=False
+            )
+            assert link.returncode == 0, (
+                f"bridge {bridge_name} reaped before claim "
+                "— orphan grace too short?"
+            )
+            # Explicit destroy now, in this session's lifetime.
+            await br.destroy()
+            gone = await asyncio.to_thread(
+                node.run, f"ip link show {bridge_name}", check=False
+            )
+            assert gone.returncode != 0
+
+        try:
+            _run_on_node_loop(
+                node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, step1_create),
+            )
+            # Brief pause to let the per-connection supervisor unwind
+            # and fire `shutdown` on the bridge cap. The orphan flag
+            # gets set during shutdown, NOT at the TCP-close boundary.
+            import time as _time
+
+            _time.sleep(0.3)
+            _run_on_node_loop(
+                node,
+                lambda: _with_client(
+                    host, port, NETAGENT_SCHEMA, step2_claim_and_destroy
+                ),
+            )
+        finally:
+            node.run(
+                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+                check=False,
+            )
+
+    def test_orphan_expires_after_grace(self, netd_endpoint):
+        """Cap drop → orphan; after grace, sweeper reaps it.
+
+        Asserts the sweeper actually runs the teardown when the
+        orphan ages past `--orphan-grace`. Uses the harness's
+        2-second grace + an extra 2-second wait to give the
+        1-second sweeper interval room.
+        """
+        host, port = netd_endpoint
+        bridge_name = "crv-it-br-x"
+        node = self.node
+
+        async def body(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            await sess.createBridge(
+                params={
+                    "name": bridge_name,
+                    "cidr": "10.193.0.1/24",
+                    "mtu": 1500,
+                }
+            )
+
+        try:
+            _run_on_node_loop(
+                node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
+            )
+            # Wait past grace+sweeper. Harness grace is 2s; sweeper
+            # ticks every 1s; a 4-second wait is safely past both.
+            import time as _time
+
+            _time.sleep(4.0)
+            gone = node.run(f"ip link show {bridge_name}", check=False)
+            assert gone.returncode != 0, (
+                f"bridge {bridge_name} still present after orphan-grace + sweep:\n"
+                f"{gone.stdout.decode(errors='replace')}"
+            )
+        finally:
             node.run(
                 f"sudo ip link del {bridge_name} 2>/dev/null || true",
                 check=False,

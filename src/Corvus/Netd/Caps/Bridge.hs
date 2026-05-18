@@ -24,6 +24,7 @@ module Corvus.Netd.Caps.Bridge
   ( BridgeCap (..)
   , newBridgeCap
   , destroyBridgeCap
+  , orphanBridgeCap
   , bridgeInfo
   )
 where
@@ -43,7 +44,7 @@ import Corvus.Netd.IpLink
 import qualified Corvus.Netd.Ledger as L
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
-import Data.Time (UTCTime)
+import Data.Time (UTCTime, getCurrentTime)
 import Data.Typeable (Typeable, cast)
 import Data.Word (Word32)
 
@@ -90,6 +91,11 @@ newBridgeCap owner name cidr mtu created ledger =
 -- Idempotent: a second call after success is a no-op. Logs and
 -- swallows 'IpLinkError' so the cap shutdown path can't crash the
 -- agent on a stale @ip link del@.
+--
+-- This is the "user explicitly said destroy" path. The cap-drop
+-- ('shutdown') path goes through 'orphanBridgeCap' instead so a
+-- reconnecting daemon can revive the resource via 'claimBridge'
+-- within the orphan grace window.
 destroyBridgeCap :: BridgeCap -> IO ()
 destroyBridgeCap bc = do
   mResource <-
@@ -109,6 +115,18 @@ destroyBridgeCap bc = do
                   <> "): "
                   <> ileStderr e
               )
+
+-- | Cap-drop path: mark the bridge as orphan so a reconnecting
+-- daemon can re-adopt it via 'claimBridge'. The sweeper thread
+-- in 'Corvus.Netd.Server' reaps orphans whose age exceeds the
+-- grace window. No kernel mutation here; the bridge stays up.
+orphanBridgeCap :: BridgeCap -> IO ()
+orphanBridgeCap bc = do
+  now <- getCurrentTime
+  _ <-
+    atomically $
+      L.markOrphan (bcLedger bc) (bcOwner bc) L.KBridge (bcName bc) now
+  pure ()
 
 -- | Canonical 'BridgeCap' → 'BridgeInfo' projection. Kept here
 -- rather than in 'Corvus.Netd.Caps.Session' so a future
@@ -131,8 +149,9 @@ bridgeInfo bc =
 
 instance SomeServer BridgeCap where
   shutdown bc = do
-    runStderrLoggingT $ logInfoN ("[netd] bridge shutdown: " <> bcName bc)
-    destroyBridgeCap bc
+    runStderrLoggingT $
+      logInfoN ("[netd] bridge cap-drop → orphan: " <> bcName bc)
+    orphanBridgeCap bc
 
   -- Make this cap recoverable via 'Capnp.Rpc.unwrapServer' so
   -- cross-cap references (e.g. TapParams.bridge :Bridge) can pull
