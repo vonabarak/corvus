@@ -1,7 +1,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Guest command execution handler.
+--
 -- Executes commands inside running VMs via the QEMU Guest Agent.
+-- Routes through @nodeAgent.vmGuestExec@: the agent owns the
+-- QGA socket and the per-VM connection cache; the daemon just
+-- validates state and dispatches the request.
 module Corvus.Handlers.GuestExec
   ( -- * Action types
     GuestExec (..)
@@ -13,14 +17,18 @@ where
 
 import Corvus.Action
 
+import Control.Concurrent.STM (readTVarIO)
 import Corvus.Model (VmStatus (..))
 import Corvus.Model hiding (VmStatus)
-import Corvus.Node.GuestAgent (GuestExecResult (..), guestExec)
+import qualified Corvus.Node.VmSpec as VS
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
-import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Types
+import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT, toSqlKey)
@@ -39,14 +47,35 @@ handleGuestExec state vmId command = do
           if not ga
             then pure RespGuestAgentNotEnabled
             else do
-              result <- guestExec (ssGuestAgentConns state) (ssQemuConfig state) vmId command
-              case result of
-                GuestExecSuccess exitcode stdout stderr ->
-                  pure $ RespGuestExecResult exitcode stdout stderr
-                GuestExecError err ->
-                  pure $ RespGuestAgentError err
-                GuestExecConnectionFailed err ->
-                  pure $ RespGuestAgentError $ "Connection failed: " <> err
+              mAgent <- readTVarIO (ssNodeAgent state)
+              case mAgent of
+                Nothing -> pure $ RespGuestAgentError "nodeagent unavailable"
+                Just nac -> do
+                  let req =
+                        VS.VmGuestExecReq
+                          { VS.vgeVmId = vmId
+                          , -- Daemon historically sent the whole command
+                            -- as one shell-style line; preserve that by
+                            -- using /bin/sh -c.
+                            VS.vgePath = "/bin/sh"
+                          , VS.vgeArgs = ["-c", command]
+                          , VS.vgeCaptureOutput = True
+                          , VS.vgeInputData = BS.empty
+                          , VS.vgeTimeoutSec = 0
+                          }
+                  r <- NOA.vmGuestExec nac req
+                  case r of
+                    Left e ->
+                      pure $ RespGuestAgentError ("vmGuestExec: " <> T.pack (show e))
+                    Right info
+                      | VS.vgiHasExit info ->
+                          pure $
+                            RespGuestExecResult
+                              (fromIntegral (VS.vgiExitCode info))
+                              (TE.decodeUtf8 (VS.vgiStdout info))
+                              (TE.decodeUtf8 (VS.vgiStderr info))
+                      | otherwise ->
+                          pure $ RespGuestAgentError "guest-exec timeout / no exit"
 
 -- | Get VM status and guestAgent flag
 getVmForExec :: Int64 -> SqlPersistT IO (Maybe (VmStatus, Bool))

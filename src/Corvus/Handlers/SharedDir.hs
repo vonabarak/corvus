@@ -20,7 +20,6 @@ import Corvus.Action
 import Control.Monad.Logger (logDebugN, logInfoN)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
-import Corvus.Node.Virtiofsd (startVirtiofsdProcesses)
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Types
@@ -78,14 +77,18 @@ handleSharedDirAdd state vmId path tag cache readOnly =
 
               runServerLogging state $ logInfoN $ "Shared directory added with ID: " <> T.pack (show dirIdInt)
 
-              -- If VM is running, start virtiofsd for this directory
+              -- Adding a shared dir to a running VM no longer spawns
+              -- virtiofsd on the fly: the agent decides whether to
+              -- spawn virtiofsd helpers based on the 'VmSpec' passed
+              -- to 'vmStart'. The new shared dir takes effect on the
+              -- next VM start. Log a hint so the user knows.
               case vmStatus vm of
-                VmRunning -> do
-                  runServerLogging state $ logInfoN "VM is running, starting virtiofsd..."
-                  _ <-
-                    runServerLogging state $
-                      startVirtiofsdProcesses state vmId
-                  pure () -- Log result but continue
+                VmRunning ->
+                  runServerLogging state $
+                    logInfoN $
+                      "VM "
+                        <> T.pack (show vmId)
+                        <> " is running; the new shared directory will take effect on next start"
                 _ -> pure ()
 
               pure $ RespSharedDirAdded dirIdInt

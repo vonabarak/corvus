@@ -145,9 +145,7 @@ library:
     - Corvus.Node.Qmp
     - Corvus.Utils.Yaml
     - Corvus.Utils.Network
-    - Corvus.Node.Process
     - Corvus.Node.Command
-    - Corvus.Node.Virtiofsd
     - Corvus.Node.Image
     - Corvus.Node.GuestAgent
     - Corvus.Node.SocketBuffer

@@ -12,8 +12,6 @@ module Corvus.Handlers.Vm
   , VmEdit (..)
   , VmPause (..)
   , VmReset (..)
-  , StartVirtiofsd (..)
-  , LaunchQemu (..)
 
     -- * Handlers
   , handleVmList
@@ -68,6 +66,7 @@ import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
 import Corvus.Node.SpicePort (withAllocatedSpicePort)
 import Corvus.Node.VsockCid (hostHasVhostVsock, isHostFree, withAllocatedVsockCid)
 import qualified Corvus.NodeAgentClient as NOA
+import qualified Corvus.NodeAgentClient.Spec as NSpec
 import Corvus.Protocol
 import Corvus.Qemu
 import Corvus.Types
@@ -192,6 +191,12 @@ handleVmStartValidate state vmId = do
 
 -- | Execute VM start to completion (blocks until VmRunning).
 -- Used with --wait flag or in withTaskAsync.
+--
+-- The agent's @vmStart@ blocks internally for the first QGA
+-- ping when @waitForGuestAgentMs > 0@ — by the time the RPC
+-- returns successfully, the VM is fully booted and the guest
+-- agent is reachable. So there's no longer a separate
+-- @waitForFirstPing@ step in the daemon.
 handleVmStartExecute :: ServerState -> Int64 -> TaskId -> IO Response
 handleVmStartExecute state vmId parentTaskId = do
   validated <- handleVmStartValidate state vmId
@@ -204,61 +209,60 @@ handleVmStartExecute state vmId parentTaskId = do
           resp <- startQemuAndMonitor state vmId vm parentTaskId
           case resp of
             RespVmStateChanged _ -> do
-              -- Wait for guest agent if enabled (blocking). The
-              -- wait exits early when the VM loses its PID,
-              -- which is also how the monitor thread signals a
-              -- QEMU crash (e.g. memory allocation failure).
-              when (vmGuestAgent vm) $ do
-                logInfoN $ "Waiting for guest agent on VM " <> T.pack (show vmId)
-                liftIO $ waitForFirstPing state vmId
-              -- Re-read the VM's status. If it's already 'error'
-              -- (monitor thread saw QEMU exit non-zero) or
-              -- 'stopped' (something else cleared the PID),
-              -- surface that as a typed RespError rather than
-              -- pretending the VM is running — the caller's next
-              -- step (typically a guest-exec) would otherwise
-              -- get a confusing "shell agent connection failed".
-              mFresh <- liftIO $ runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
-              case mFresh of
-                Just vmFresh
-                  | vmStatus vmFresh == VmError ->
-                      pure $ RespError $ "VM " <> T.pack (show vmId) <> " exited with error during boot"
-                  | vmStatus vmFresh `notElem` [VmRunning, VmStarting] ->
-                      pure $
-                        RespError $
-                          "VM " <> T.pack (show vmId) <> " is no longer running (status: " <> enumToText (vmStatus vmFresh) <> ")"
-                _ -> do
-                  -- Start steady-state poller for ongoing healthchecks
-                  when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
-                    liftIO $
-                      startGuestAgentPoller state (qcHealthcheckInterval $ ssQemuConfig state) vmId
-                  pure $ RespVmStateChanged VmRunning
+              -- Start steady-state poller for ongoing healthchecks.
+              -- (Slice C replaces this with the agent's status
+              -- subscription; until then, the daemon-side poller
+              -- continues to refresh Vm.healthcheck and
+              -- NetworkInterface.guestIpAddresses.)
+              when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
+                liftIO $
+                  startGuestAgentPoller state (qcHealthcheckInterval $ ssQemuConfig state) vmId
+              pure $ RespVmStateChanged VmRunning
             _ -> pure resp
 
--- | Resume a paused VM via QMP continue
+-- | Resume a paused VM via @vmResume@ (agent issues QMP @cont@).
 resumeFromPaused :: ServerState -> Int64 -> LoggingT IO Response
 resumeFromPaused state vmId = do
-  qmpResult <- liftIO $ qmpContinue (ssQemuConfig state) vmId
-  case qmpResult of
-    QmpSuccess -> do
-      logInfoN $ "VM " <> T.pack (show vmId) <> " resumed"
-      liftIO $ runSqlPool (setVmStatus vmId VmRunning) (ssDbPool state)
-      pure $ RespVmStateChanged VmRunning
-    QmpError err -> do
-      logWarnN $ "QMP error resuming VM " <> T.pack (show vmId) <> ": " <> err
-      pure $ RespInvalidTransition VmPaused $ "QMP error: " <> err
-    QmpConnectionFailed err -> do
-      logWarnN $ "QMP connection failed for VM " <> T.pack (show vmId) <> ": " <> err
-      pure $ RespInvalidTransition VmPaused $ "QMP connection failed: " <> err
+  mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+  case mAgent of
+    Nothing -> do
+      logWarnN $ "nodeagent unavailable; cannot resume VM " <> T.pack (show vmId)
+      pure $ RespInvalidTransition VmPaused "nodeagent unavailable"
+    Just nac -> do
+      r <- liftIO $ NOA.vmResume nac vmId
+      case r of
+        Left e -> do
+          logWarnN $ "vmResume failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
+          pure $ RespInvalidTransition VmPaused ("vmResume: " <> T.pack (show e))
+        Right () -> do
+          logInfoN $ "VM " <> T.pack (show vmId) <> " resumed"
+          liftIO $ runSqlPool (setVmStatus vmId VmRunning) (ssDbPool state)
+          pure $ RespVmStateChanged VmRunning
 
--- | Start QEMU process, set initial status, fork process monitor thread.
--- Returns the initial state change response. Does NOT wait for guest agent.
--- Each major step (cloud-init, virtiofsd, QEMU launch) is tracked as a subtask.
+-- | Start QEMU + virtiofsd via the agent, set status, fork the
+-- monitor thread, hook up the chardev ring buffers.
+--
+-- After the refactor, the agent handles the QGA first-ping wait
+-- itself (driven by @VmSpec.waitForGuestAgentMs@), spawns
+-- virtiofsd internally if the spec carries shared dirs, and
+-- spawns QEMU. So this function shrinks to:
+--
+--   1. Cloud-init ISO regen (still daemon-side, calls into the
+--      agent's @cloudInitGenerateIso@).
+--   2. SPICE port allocation (daemon owns @ssSpicePortLock@ and
+--      persists 'Vm.spicePort').
+--   3. Vsock CID re-validation (daemon owns @ssVsockCidLock@).
+--   4. 'Spec.assembleVmSpec' — walk the DB, resolve managed
+--      NICs through netd, pack into 'VmSpec'.
+--   5. 'NOA.vmStart' — one RPC, the agent does everything else
+--      (including blocking for first QGA ping).
+--   6. 'attachVmMonitor' to watch for QEMU exit.
+--   7. Wire up the chardev ring buffers.
 startQemuAndMonitor :: ServerState -> Int64 -> Vm -> TaskId -> LoggingT IO Response
 startQemuAndMonitor state vmId vm parentTaskId = do
   let pool = ssDbPool state
 
-  -- Subtask 1: Generate cloud-init ISO if enabled and not yet attached
+  -- 1. Cloud-init ISO regeneration.
   when (vmCloudInit vm) $ do
     hasCloudInitDisk <- liftIO $ runSqlPool (hasCloudInitIso vmId) pool
     unless hasCloudInitDisk $ do
@@ -266,11 +270,7 @@ startQemuAndMonitor state vmId vm parentTaskId = do
       _ <- liftIO $ runActionAsSubtask state (RegenerateCloudInit vmId (vmName vm)) parentTaskId
       pure ()
 
-  -- Allocate a SPICE TCP port for non-headless VMs. The port is recorded on
-  -- the Vm row so that 'generateQemuCommandWithSockets' picks it up when it
-  -- re-reads the row just before spawning QEMU. Allocate + persist runs
-  -- atomically under 'ssSpicePortLock' so two concurrent starts can't
-  -- pick the same port.
+  -- 2. SPICE port allocation + persist.
   spiceResult <-
     if vmHeadless vm
       then pure (Right Nothing)
@@ -289,26 +289,82 @@ startQemuAndMonitor state vmId vm parentTaskId = do
       liftIO $ runSqlPool (setVmError vmId) pool
       pure $ RespError $ "Failed to allocate SPICE port: " <> err
     Right _ -> do
-      -- Re-validate the vsock CID against the live host. The CID
-      -- assigned at create time may have been claimed by another
-      -- daemon (or another QEMU outside corvus) since then; the
-      -- kernel enforces uniqueness host-wide. If the stored CID is
-      -- no longer free, allocate a fresh one and persist it.
+      -- 3. CID re-validation.
       cidResult <- liftIO $ ensureFreeVsockCid state vmId vm
       case cidResult of
         Left err -> do
           logWarnN $ "Vsock CID re-allocation failed: " <> err
           liftIO $ runSqlPool (setVmError vmId) pool
           pure $ RespError $ "Failed to secure a free vsock CID: " <> err
-        Right _ -> do
-          -- Subtask 2: Start virtiofsd processes for shared directories
-          virtiofsdResp <- liftIO $ runActionAsSubtask state (StartVirtiofsd vmId (vmName vm)) parentTaskId
-          case virtiofsdResp of
-            RespError err -> do
-              logWarnN $ "Virtiofsd failed, aborting VM start: " <> err
+        Right _ -> launchVmViaAgent state vmId vm pool
+
+-- | Assemble 'VmSpec' from DB rows and call 'NOA.vmStart'.
+launchVmViaAgent
+  :: ServerState
+  -> Int64
+  -> Vm
+  -> Pool SqlBackend
+  -> LoggingT IO Response
+launchVmViaAgent state vmId vm pool = do
+  -- Managed NICs need the netd cap so 'assembleVmSpec' can
+  -- pre-allocate persistent TAPs. If the VM has none, we don't
+  -- care whether netd is up.
+  hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
+  mNetAgent <- liftIO $ readTVarIO (ssNetAgent state)
+  when (hasManagedNic && isNothing mNetAgent) $
+    logWarnN $
+      "VM "
+        <> T.pack (show vmId)
+        <> " needs managed NIC but netd is unavailable"
+  let netAgentForSpec = if hasManagedNic then mNetAgent else Nothing
+  -- Wait-for-first-ping timeout. Reuse the healthcheck interval
+  -- as a coarse boot deadline; fall back to 60 s when the
+  -- interval is zero (healthcheck disabled).
+  let cfg = ssQemuConfig state
+      waitMs =
+        if vmGuestAgent vm
+          then
+            let interval = qcHealthcheckInterval cfg
+             in if interval > 0
+                  then fromIntegral (interval * 1000) :: Word32
+                  else 60000
+          else 0
+
+  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
+  case mSpec of
+    Nothing -> do
+      logWarnN $ "VM " <> T.pack (show vmId) <> " disappeared from DB during start"
+      pure RespVmNotFound
+    Just spec -> do
+      mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+      case mAgent of
+        Nothing -> do
+          logWarnN "nodeagent unavailable; cannot start VM"
+          liftIO $ runSqlPool (setVmError vmId) pool
+          pure $ RespError "nodeagent unavailable"
+        Just nac -> do
+          r <- liftIO $ NOA.vmStart nac spec
+          case r of
+            Left e -> do
+              logWarnN $ "vmStart failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
               liftIO $ runSqlPool (setVmError vmId) pool
-              pure $ RespError $ "Failed to start virtiofsd: " <> err
-            _ -> launchQemu state vmId vm parentTaskId pool
+              pure $ RespInvalidTransition VmError $ "vmStart: " <> T.pack (show e)
+            Right info -> do
+              let pid = fromIntegral (NOA.vriQemuPid info) :: Int
+              -- With vmStart blocking for first ping when guestAgent
+              -- is set, by the time we get here the VM really is
+              -- VmRunning. Skip the legacy VmStarting transition.
+              liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) (ssDbPool state)
+              liftIO $ attachVmMonitor state vmId
+              -- Wire up chardev ring buffers.
+              let logLevel = ssLogLevel state
+              when (vmHeadless vm) $ liftIO $ do
+                serialSock <- getSerialSocket cfg vmId
+                startSocketBufferThread cfg vmId serialSock (ssSerialBuffers state) serialBufferCapacity "serial" logLevel
+              liftIO $ do
+                monitorSock <- getMonitorSocket cfg vmId
+                startSocketBufferThread cfg vmId monitorSock (ssMonitorBuffers state) monitorBufferCapacity "monitor" logLevel
+              pure $ RespVmStateChanged VmRunning
 
 -- | Re-validate the VM's stored vsock CID against the live host
 -- kernel before launching QEMU, and reallocate if necessary.
@@ -343,65 +399,6 @@ ensureFreeVsockCid state vmId vm = do
         runSqlPool (update (toSqlKey vmId :: VmId) [M.VmVsockCid =. Just newCid]) pool
         pure newCid
 
--- | Launch QEMU and set up process monitor (called after virtiofsd succeeds)
-launchQemu :: ServerState -> Int64 -> Vm -> TaskId -> Pool SqlBackend -> LoggingT IO Response
-launchQemu state vmId vm parentTaskId pool = do
-  -- Subtask 3: Launch QEMU
-  hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
-  mAgent <-
-    if hasManagedNic
-      then liftIO $ readTVarIO (ssNetAgent state)
-      else pure Nothing
-  -- Phase 3: no fallback. A VM that needs managed networking
-  -- and has no agent gets a hard error here, before QEMU even
-  -- spawns.
-  if hasManagedNic && isNothing mAgent
-    then do
-      logWarnN $ "VM " <> T.pack (show vmId) <> " needs managed NIC but netd is unavailable"
-      pure $ RespError "netd unavailable; cannot start VM with managed network"
-    else launchQemuWith state vmId vm parentTaskId pool mAgent
-
--- | Spawn QEMU and wire up the post-launch supervisors. Split
--- out so the early hard-error guard above doesn't have to
--- duplicate it.
-launchQemuWith
-  :: ServerState
-  -> Int64
-  -> Vm
-  -> TaskId
-  -> Pool SqlBackend
-  -> Maybe NA.NetAgentClient
-  -> LoggingT IO Response
-launchQemuWith state vmId vm parentTaskId pool mAgent = do
-  resultVar <- liftIO newEmptyMVar
-  _ <- liftIO $ runActionAsSubtask state (LaunchQemu vmId (vmName vm) mAgent resultVar) parentTaskId
-  result <- liftIO $ readMVar resultVar
-  case result of
-    VmStarted pid -> do
-      let initialStatus = if vmGuestAgent vm then VmStarting else VmRunning
-      liftIO $ runSqlPool (setVmStarted vmId initialStatus pid) (ssDbPool state)
-      -- Fork process monitor thread (polls the agent for liveness;
-      -- the agent owns the ProcessHandle and waitpid()s the child
-      -- internally, so we just observe whether the PID is still alive).
-      liftIO $ attachVmMonitor state vmId pid
-      -- Start ring-buffered relays for QEMU's chardev sockets.
-      let cfg = ssQemuConfig state
-          logLevel = ssLogLevel state
-      -- Serial console buffer — only headless VMs expose a serial chardev.
-      when (vmHeadless vm) $ liftIO $ do
-        serialSock <- getSerialSocket cfg vmId
-        startSocketBufferThread cfg vmId serialSock (ssSerialBuffers state) serialBufferCapacity "serial" logLevel
-      -- HMP monitor buffer — runs for every VM; 64 KiB is ample for command-line scrollback.
-      liftIO $ do
-        monitorSock <- getMonitorSocket cfg vmId
-        startSocketBufferThread cfg vmId monitorSock (ssMonitorBuffers state) monitorBufferCapacity "monitor" logLevel
-      pure $ RespVmStateChanged initialStatus
-    VmNotFound -> pure RespVmNotFound
-    VmStartError err -> do
-      logWarnN $ "Failed to start VM " <> T.pack (show vmId) <> ": " <> err
-      liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
-      pure $ RespInvalidTransition VmError $ "Failed to start: " <> err
-
 -- | Validate that a VM can be stopped.
 handleVmStopValidate :: ServerState -> Int64 -> IO (Either Response (Vm, VmStatus))
 handleVmStopValidate state vmId = do
@@ -414,59 +411,67 @@ handleVmStopValidate state vmId = do
         Right _ -> pure $ Right (vm, currentStatus)
 
 -- | Execute VM stop to completion (blocks until VmStopped).
+--
+-- After the refactor, the agent's 'vmStopGraceful' blocks until
+-- QEMU has actually exited (or the timeout elapses), so the
+-- daemon no longer needs to poll the DB. On graceful-timeout we
+-- escalate to 'vmStopHard'.
 handleVmStopExecute :: ServerState -> Int64 -> IO Response
 handleVmStopExecute state vmId = do
   validated <- handleVmStopValidate state vmId
   case validated of
     Left errResp -> pure errResp
     Right (vm, currentStatus) -> runServerLogging state $ do
-      resp <- initiateShutdown state vmId vm currentStatus
-      case resp of
-        RespVmStateChanged VmStopping -> do
-          -- Poll until VM reaches Stopped or Error
-          logInfoN $ "Waiting for VM " <> T.pack (show vmId) <> " to stop"
-          liftIO $ waitForVmStopped state vmId 300
-          -- Check final status
-          mFinal <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-          case mFinal of
-            Just (_, VmStopped) -> pure $ RespVmStateChanged VmStopped
-            Just (_, VmError) -> pure $ RespInvalidTransition VmError "VM exited with error"
-            _ -> pure $ RespVmStateChanged VmStopped
-        _ -> pure resp
-
--- | Initiate VM shutdown (set Stopping, send shutdown command). Returns immediately.
-initiateShutdown :: ServerState -> Int64 -> Vm -> VmStatus -> LoggingT IO Response
-initiateShutdown state vmId vm currentStatus = do
-  let newStatus = VmStopping
-  liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. newStatus]) (ssDbPool state)
-  if vmGuestAgent vm
-    then do
-      logDebugN $ "Sending guest-shutdown to VM " <> T.pack (show vmId)
-      ok <- liftIO $ guestShutdown (ssGuestAgentConns state) (ssQemuConfig state) vmId
-      if ok
-        then do
-          logInfoN $ "VM " <> T.pack (show vmId) <> " guest-shutdown initiated"
-          pure $ RespVmStateChanged newStatus
-        else do
-          logWarnN $ "Guest-shutdown failed for VM " <> T.pack (show vmId) <> ", falling back to QMP"
-          shutdownViaQmp vmId currentStatus newStatus
-    else shutdownViaQmp vmId currentStatus newStatus
+      liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. VmStopping]) (ssDbPool state)
+      -- Try guest-shutdown first for guest-agent-enabled VMs.
+      -- (Slice C will move this to vmGuestExec too; for now the
+      -- daemon-side guestShutdown still works.)
+      gaShutdown <-
+        if vmGuestAgent vm
+          then do
+            logDebugN $ "Sending guest-shutdown to VM " <> T.pack (show vmId)
+            ok <- liftIO $ guestShutdown (ssGuestAgentConns state) (ssQemuConfig state) vmId
+            when ok $ logInfoN $ "VM " <> T.pack (show vmId) <> " guest-shutdown initiated"
+            pure ok
+          else pure False
+      -- Whether or not the guest-agent path succeeded, call
+      -- 'vmStopGraceful' to drive the agent's QMP system_powerdown
+      -- and block until QEMU actually exits.
+      mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+      case mAgent of
+        Nothing -> do
+          logWarnN "nodeagent unavailable; cannot stop VM"
+          liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. currentStatus]) (ssDbPool state)
+          pure $ RespInvalidTransition currentStatus "nodeagent unavailable"
+        Just nac -> stopViaAgent nac currentStatus gaShutdown
   where
-    shutdownViaQmp vmId' currentStatus' newStatus' = do
-      logDebugN $ "Sending QMP shutdown command to VM " <> T.pack (show vmId')
-      qmpResult <- liftIO $ qmpShutdown (ssQemuConfig state) vmId'
-      case qmpResult of
-        QmpSuccess -> do
-          logInfoN $ "VM " <> T.pack (show vmId') <> " shutdown initiated"
-          pure $ RespVmStateChanged newStatus'
-        QmpError err -> do
-          logWarnN $ "QMP error stopping VM " <> T.pack (show vmId') <> ": " <> err
-          liftIO $ runSqlPool (update (toSqlKey vmId' :: VmId) [M.VmStatus =. currentStatus']) (ssDbPool state)
-          pure $ RespInvalidTransition currentStatus' $ "QMP error: " <> err
-        QmpConnectionFailed err -> do
-          logWarnN $ "QMP connection failed for VM " <> T.pack (show vmId') <> ": " <> err
-          liftIO $ runSqlPool (update (toSqlKey vmId' :: VmId) [M.VmStatus =. currentStatus']) (ssDbPool state)
-          pure $ RespInvalidTransition currentStatus' $ "QMP connection failed: " <> err
+    stopViaAgent nac currentStatus _gaShutdown = do
+      r <- liftIO $ NOA.vmStopGraceful nac vmId 300
+      case r of
+        Left e -> do
+          logWarnN $ "vmStopGraceful RPC failed: " <> T.pack (show e)
+          pure $ RespInvalidTransition currentStatus ("vmStopGraceful: " <> T.pack (show e))
+        Right res -> case NOA.vsrKind res of
+          NOA.VmStopStopped -> do
+            liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+            pure $ RespVmStateChanged VmStopped
+          NOA.VmStopAlreadyStopped -> do
+            liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+            pure $ RespVmStateChanged VmStopped
+          NOA.VmStopTimeout -> do
+            logWarnN $
+              "VM "
+                <> T.pack (show vmId)
+                <> " did not exit within graceful window; force-stopping"
+            rh <- liftIO $ NOA.vmStopHard nac vmId
+            case rh of
+              Right _ -> do
+                liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+                pure $ RespVmStateChanged VmStopped
+              Left e ->
+                pure $ RespInvalidTransition currentStatus ("vmStopHard: " <> T.pack (show e))
+          NOA.VmStopFailed ->
+            pure $ RespError ("vmStopGraceful failed: " <> NOA.vsrMessage res)
 
 -- | Poll until VM status is VmStopped or VmError, or timeout.
 waitForVmStopped :: ServerState -> Int64 -> Int -> IO ()
@@ -493,48 +498,54 @@ handleVmPause state vmId = runServerLogging state $ do
       case validateTransition currentStatus ActionPause of
         Left errMsg -> pure $ RespInvalidTransition currentStatus errMsg
         Right _ -> do
-          -- Pause VM via QMP
           logDebugN $ "Sending pause command to VM " <> T.pack (show vmId)
-          qmpResult <- liftIO $ qmpStop (ssQemuConfig state) vmId
-          case qmpResult of
-            QmpSuccess -> do
-              logInfoN $ "VM " <> T.pack (show vmId) <> " paused"
-              liftIO $ runSqlPool (setVmStatus vmId VmPaused) (ssDbPool state)
-              pure $ RespVmStateChanged VmPaused
-            QmpError err -> do
-              logWarnN $ "QMP error pausing VM " <> T.pack (show vmId) <> ": " <> err
-              pure $ RespInvalidTransition currentStatus $ "QMP error: " <> err
-            QmpConnectionFailed err -> do
-              logWarnN $ "QMP connection failed for VM " <> T.pack (show vmId) <> ": " <> err
-              pure $ RespInvalidTransition currentStatus $ "QMP connection failed: " <> err
+          mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+          case mAgent of
+            Nothing -> do
+              logWarnN $ "nodeagent unavailable; cannot pause VM " <> T.pack (show vmId)
+              pure $ RespInvalidTransition currentStatus "nodeagent unavailable"
+            Just nac -> do
+              r <- liftIO $ NOA.vmPause nac vmId
+              case r of
+                Left e -> do
+                  logWarnN $ "vmPause failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
+                  pure $ RespInvalidTransition currentStatus ("vmPause: " <> T.pack (show e))
+                Right () -> do
+                  logInfoN $ "VM " <> T.pack (show vmId) <> " paused"
+                  liftIO $ runSqlPool (setVmStatus vmId VmPaused) (ssDbPool state)
+                  pure $ RespVmStateChanged VmPaused
 
--- | Handle VM reset command
--- Kill QEMU and virtiofsd processes, wait for exit, set status to stopped.
+-- | Handle VM reset command.
+-- Asks the agent to SIGTERM-then-SIGKILL QEMU + every virtiofsd
+-- helper for this vmId, then marks the VM stopped. With the agent
+-- owning all PIDs, the daemon doesn't need to look them up.
 handleVmReset :: ServerState -> Int64 -> IO Response
 handleVmReset state vmId = runServerLogging state $ do
   mVm <- liftIO $ runSqlPool (getVmWithPid vmId) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound
-    Just (_, mPid) -> do
-      -- Clear PID first so the background waitForProcess thread knows
-      -- not to update the status when it sees the non-zero exit code.
+    Just _ -> do
+      -- Clear PID first so the background monitor thread knows
+      -- not to fight us when the agent reports the exit.
       liftIO $ runSqlPool (clearVmPid vmId) (ssDbPool state)
 
-      -- Kill QEMU process if we have a PID
-      case mPid of
-        Just pid -> do
-          killResult <- killVmProcess state vmId pid
-          case killResult of
-            KillSuccess -> logInfoN $ "VM " <> T.pack (show vmId) <> " process killed"
-            KillNotRunning -> logDebugN $ "VM " <> T.pack (show vmId) <> " process not running"
-            KillError err -> logWarnN $ "Error killing VM " <> T.pack (show vmId) <> ": " <> err
+      mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+      case mAgent of
         Nothing ->
-          logDebugN $ "VM " <> T.pack (show vmId) <> " has no PID stored"
+          logWarnN $ "nodeagent unavailable; reset will only clear DB state for VM " <> T.pack (show vmId)
+        Just nac -> do
+          r <- liftIO $ NOA.vmStopHard nac vmId
+          case r of
+            Left e ->
+              logWarnN $ "vmStopHard failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
+            Right res -> case NOA.vsrKind res of
+              NOA.VmStopStopped ->
+                logInfoN $ "VM " <> T.pack (show vmId) <> " process killed"
+              NOA.VmStopAlreadyStopped ->
+                logDebugN $ "VM " <> T.pack (show vmId) <> " was not in the agent's ledger"
+              _ ->
+                logWarnN $ "vmStopHard returned: " <> NOA.vsrMessage res
 
-      -- Kill all virtiofsd processes for this VM
-      killVirtiofsdProcesses state vmId
-
-      -- Update status
       liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
       pure $ RespVmStateChanged VmStopped
 
@@ -661,17 +672,16 @@ handleVmViewGrant state vmId = do
           Nothing -> pure $ RespError "VM has no SPICE port assigned (daemon bug)"
           Just spicePort -> do
             pw <- generateSpicePassword
-            let ttl = 120
-            setResult <- qmpSetSpicePassword cfg vmId pw
-            case setResult of
-              QmpError err -> pure $ RespError $ "QMP set_password failed: " <> err
-              QmpConnectionFailed err -> pure $ RespError $ "QMP connection failed: " <> err
-              QmpSuccess -> do
-                expResult <- qmpExpireSpicePassword cfg vmId ttl
-                case expResult of
-                  QmpError err -> pure $ RespError $ "QMP expire_password failed: " <> err
-                  QmpConnectionFailed err -> pure $ RespError $ "QMP connection failed: " <> err
-                  QmpSuccess ->
+            let ttl = 120 :: Int
+            mAgent <- readTVarIO (ssNodeAgent state)
+            case mAgent of
+              Nothing -> pure $ RespError "nodeagent unavailable"
+              Just nac -> do
+                r <- NOA.vmSetSpiceTicket nac vmId pw (fromIntegral ttl)
+                case r of
+                  Left e ->
+                    pure $ RespError $ "vmSetSpiceTicket: " <> T.pack (show e)
+                  Right () ->
                     pure $
                       RespVmViewGrant
                         { host = qcSpiceBindAddress cfg
@@ -1159,84 +1169,52 @@ instance Action VmStop where
       Right _ -> Nothing
   actionExecute ctx a = handleVmStopExecute (acState ctx) (vstpVmId a)
 
--- Subtask actions used during VM start
+-- (Phase 3 refactor: the @StartVirtiofsd@ and @LaunchQemu@
+-- subtask actions are gone — virtiofsd is implicit in 'VmSpec',
+-- and QEMU spawning happens inline via 'NOA.vmStart' in
+-- 'launchVmViaAgent' rather than as a separate subtask.)
 
--- | Start virtiofsd processes for a VM's shared directories.
-data StartVirtiofsd = StartVirtiofsd
-  { svVmId :: Int64
-  , svVmName :: Text
-  }
-
-instance Action StartVirtiofsd where
-  actionSubsystem _ = SubSharedDir
-  actionCommand _ = "start-virtiofsd"
-  actionEntityName = Just . svVmName
-  actionEntityId = Just . fromIntegral . svVmId
-  actionExecute ctx a = do
-    let state = acState ctx
-    r <- runServerLogging state $ startVirtiofsdProcesses state (svVmId a)
-    pure $ case r of
-      VirtiofsdAllStarted -> RespOk
-      VirtiofsdNoSharedDirs -> RespOk
-      VirtiofsdSomeFailed -> RespError "Some virtiofsd processes failed to start"
-
--- | Launch the QEMU process for a VM.
--- The caller provides an MVar to receive the StartVmResult, because the process
--- handle (an in-memory value) cannot be communicated through the Response type.
-data LaunchQemu = LaunchQemu
-  { lqVmId :: Int64
-  , lqVmName :: Text
-  , lqAgent :: Maybe NA.NetAgentClient
-  , lqResultVar :: MVar StartVmResult
-  }
-
-instance Action LaunchQemu where
-  actionSubsystem _ = SubVm
-  actionCommand _ = "start-qemu"
-  actionEntityName = Just . lqVmName
-  actionEntityId = Just . fromIntegral . lqVmId
-  actionExecute ctx a = do
-    let state = acState ctx
-    r <- runServerLogging state $ startVm state (lqVmId a) (lqAgent a)
-    putMVar (lqResultVar a) r
-    pure $ case r of
-      VmStarted {} -> RespOk
-      VmNotFound -> RespError "VM not found"
-      VmStartError err -> RespError $ "Failed to start: " <> err
-
--- | Poll the node agent every 1 s for VM liveness; return when
--- the agent reports the PID is dead (or when the agent itself
--- disappears, in which case we treat that as 'dead' rather than
--- spinning forever — the agent's reconnect will surface the VM
--- state again).
-pollVmUntilExit :: ServerState -> Int -> IO ()
-pollVmUntilExit state pid = loop
+-- | Poll the node agent every 1 s for VM liveness via
+-- 'NOA.vmStatus'. Returns when the agent reports anything other
+-- than 'VmAgentRunning' (stopped / errored / unknown all count as
+-- "gone"), or when the agent itself disappears.
+pollVmUntilExit :: ServerState -> Int64 -> IO ExitOutcome
+pollVmUntilExit state vmId = loop
   where
-    pidW = fromIntegral pid :: Word32
     loop = do
       mAgent <- readTVarIO (ssNodeAgent state)
       case mAgent of
-        Nothing -> pure ()
+        Nothing -> pure ExitAgentGone
         Just nac -> do
-          r <- NOA.processIsAlive nac pidW
+          r <- NOA.vmStatus nac vmId
           case r of
-            Left _ -> pure ()
-            Right False -> pure ()
-            Right True -> threadDelay 1000000 >> loop
+            Left _ -> pure ExitAgentGone
+            Right status -> case NOA.vasState status of
+              NOA.VmAgentRunning -> threadDelay 1000000 >> loop
+              NOA.VmAgentStopped -> pure ExitClean
+              NOA.VmAgentErrored ->
+                pure (ExitErrored (fromIntegral (NOA.vasLastExitCode status)))
+              NOA.VmAgentUnknown -> pure ExitVanished
 
--- | Fork a background thread that waits (by polling the agent)
--- for VM @vmId@'s QEMU process to exit, then updates the DB and
--- releases ancillary resources.
+-- | How a VM's monitor loop concluded. Drives the DB-status
+-- reconciliation in 'attachVmMonitor'.
+data ExitOutcome
+  = ExitClean
+  | ExitErrored !Int
+  | ExitVanished
+  | ExitAgentGone
+
+-- | Fork a background thread that waits for VM @vmId@ to exit on
+-- the agent side, then reconciles DB state.
 --
--- Called by 'launchQemuWith' right after the agent reports the
--- VM has spawned, and by 'reattachVmMonitors' for each VM the
--- daemon finds already running when it (re)connects to the
--- agent.
-attachVmMonitor :: ServerState -> Int64 -> Int -> IO ()
-attachVmMonitor state vmId pid = do
+-- Called by the VM-start handler right after 'NOA.vmStart' returns,
+-- and by 'reattachVmMonitors' for each VM the daemon finds already
+-- running when it (re)connects to the agent.
+attachVmMonitor :: ServerState -> Int64 -> IO ()
+attachVmMonitor state vmId = do
   _ <- forkIO $ runServerLogging state $ do
     logDebugN $ "Polling VM " <> T.pack (show vmId) <> " liveness via nodeagent"
-    liftIO $ pollVmUntilExit state pid
+    outcome <- liftIO $ pollVmUntilExit state vmId
     mCurrentPid <- liftIO $ runSqlPool (getVmPid vmId) (ssDbPool state)
     case mCurrentPid of
       Nothing ->
@@ -1244,9 +1222,28 @@ attachVmMonitor state vmId pid = do
           "VM "
             <> T.pack (show vmId)
             <> " was reset externally, skipping status update"
-      Just _ -> do
-        logInfoN $ "VM " <> T.pack (show vmId) <> " exited"
-        liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+      Just _ -> case outcome of
+        ExitClean -> do
+          logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
+          liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+        ExitErrored code -> do
+          logWarnN $
+            "VM "
+              <> T.pack (show vmId)
+              <> " exited with error code "
+              <> T.pack (show code)
+          liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
+        ExitVanished -> do
+          logInfoN $
+            "VM "
+              <> T.pack (show vmId)
+              <> " no longer in agent ledger; marking stopped"
+          liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+        ExitAgentGone ->
+          logDebugN $
+            "VM "
+              <> T.pack (show vmId)
+              <> " monitor exiting: agent disconnected"
     -- Close persistent guest agent connection (QEMU is gone)
     liftIO $ closeGuestAgentConn (ssGuestAgentConns state) vmId
     -- Tell netd it can drop the VM's managed TAPs.
@@ -1254,11 +1251,9 @@ attachVmMonitor state vmId pid = do
   pure ()
 
 -- | On daemon (re)connect to the agent: walk the DB for every VM
--- with a recorded PID, verify the PID is still alive on the
--- agent, and reattach a monitor thread for each. VMs whose PID
--- the agent reports as already dead get their status reconciled
--- to 'VmStopped' here, since the agent's reaper already cleaned
--- them up while the daemon was disconnected.
+-- the DB believes is running, ask the agent for current status,
+-- and reattach a monitor thread. VMs the agent reports as exited
+-- get their DB status reconciled right here.
 reattachVmMonitors :: ServerState -> IO ()
 reattachVmMonitors state = do
   let pool = ssDbPool state
@@ -1271,36 +1266,38 @@ reattachVmMonitors state = do
           (selectList [M.VmPid !=. Nothing] [])
           pool
       runServerLogging state $
-        forM_ candidates $ \(Entity vmKey vm) ->
-          case vmPid vm of
-            Nothing -> pure ()
-            Just pid -> do
-              alive <- liftIO $ NOA.processIsAlive nac (fromIntegral pid)
-              case alive of
-                Right True -> do
-                  logInfoN $
-                    "Re-attaching monitor for VM "
-                      <> vmName vm
-                      <> " (pid "
-                      <> T.pack (show pid)
-                      <> ")"
-                  liftIO $ attachVmMonitor state (fromSqlKey vmKey) pid
-                Right False -> do
-                  logInfoN $
-                    "VM "
-                      <> vmName vm
-                      <> " (pid "
-                      <> T.pack (show pid)
-                      <> ") already exited while daemon was disconnected; reconciling"
-                  liftIO $
-                    runSqlPool
-                      (setVmStopped (fromSqlKey vmKey))
-                      pool
-                Left e ->
-                  logWarnN $
-                    "processIsAlive RPC failed for VM "
-                      <> vmName vm
-                      <> ": "
-                      <> T.pack (show e)
-  where
-    forM_ = Control.Monad.forM_
+        Control.Monad.forM_ candidates $ \(Entity vmKey vm) -> do
+          let vmId = fromSqlKey vmKey
+          r <- liftIO $ NOA.vmStatus nac vmId
+          case r of
+            Right status -> case NOA.vasState status of
+              NOA.VmAgentRunning -> do
+                logInfoN $
+                  "Re-attaching monitor for VM " <> vmName vm
+                liftIO $ attachVmMonitor state vmId
+              NOA.VmAgentStopped -> do
+                logInfoN $
+                  "VM "
+                    <> vmName vm
+                    <> " exited cleanly while daemon was disconnected; reconciling"
+                liftIO $ runSqlPool (setVmStopped vmId) pool
+              NOA.VmAgentErrored -> do
+                logWarnN $
+                  "VM "
+                    <> vmName vm
+                    <> " exited with error while daemon was disconnected (code "
+                    <> T.pack (show (NOA.vasLastExitCode status))
+                    <> ")"
+                liftIO $ runSqlPool (setVmError vmId) pool
+              NOA.VmAgentUnknown -> do
+                logInfoN $
+                  "VM "
+                    <> vmName vm
+                    <> " not in agent ledger; reconciling to stopped"
+                liftIO $ runSqlPool (setVmStopped vmId) pool
+            Left e ->
+              logWarnN $
+                "vmStatus RPC failed for VM "
+                  <> vmName vm
+                  <> ": "
+                  <> T.pack (show e)

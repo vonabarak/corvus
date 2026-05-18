@@ -31,7 +31,6 @@ import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, void, when)
-import Data.Either (lefts, rights)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logWarnN, runStderrLoggingT)
 import qualified Corvus.Model as M
@@ -47,6 +46,7 @@ import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.ByteString as BS
+import Data.Either (lefts, rights)
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust)

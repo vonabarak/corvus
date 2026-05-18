@@ -1,15 +1,15 @@
--- | QEMU virtual machine management.
+-- | QEMU virtual machine management — convenience re-exports.
 --
--- This module re-exports the main functionality from submodules:
+-- After the VM-abstraction refactor (Phase 3), every host-side
+-- subprocess (QEMU, virtiofsd) is owned by the agent. The daemon
+-- talks to the agent through 'Corvus.NodeAgentClient', not
+-- through this umbrella. The umbrella now re-exports only the
+-- daemon-side pieces a few legacy importers still reach for:
+-- QEMU config + runtime directory paths + QMP wrappers + chardev
+-- helpers + disk image surface.
 --
--- * "Corvus.Qemu.Config" - QEMU configuration options
--- * "Corvus.Node.Runtime" - Runtime directory and socket management
--- * "Corvus.Node.Qmp" - QMP protocol interaction
--- * "Corvus.Node.Process" - VM process management
--- * "Corvus.Node.Command" - QEMU command line generation
--- * "Corvus.Node.SocketBuffer" - Ring-buffered QEMU chardev relay (serial, HMP)
--- * "Corvus.Node.Virtiofsd" - Virtiofsd process management for shared directories
--- * "Corvus.Node.Image" - Disk image management using qemu-img
+-- New code should import the specific @Corvus.Node.*@ submodule
+-- it needs.
 module Corvus.Qemu
   ( -- * Configuration
     QemuConfig (..)
@@ -23,10 +23,6 @@ module Corvus.Qemu
   , getSerialSocket
   , getQmpSocket
   , getGuestAgentSocket
-
-    -- * VM execution
-  , startVm
-  , StartVmResult (..)
 
     -- * QMP interaction
   , QmpResult (..)
@@ -42,20 +38,11 @@ module Corvus.Qemu
   , qmpBlockdevDel
   , qmpQQ
 
-    -- * Process management
-  , killVmProcess
-  , KillResult (..)
-
-    -- * Virtiofsd (shared directories)
-  , startVirtiofsdProcesses
-  , killVirtiofsdProcesses
-  , VirtiofsdResult (..)
-
-    -- * Command generation
+    -- * Command generation (daemon-side preview path; agent has its own builder)
   , generateQemuCommand
   , generateQemuCommandIO
 
-    -- * Guest Agent
+    -- * Guest Agent (daemon-side helpers; slice C migrates these to the agent)
   , GuestExecResult (..)
   , GuestIpAddress (..)
   , GuestNetIf (..)
@@ -66,7 +53,7 @@ module Corvus.Qemu
   , guestShutdown
   , guestNetworkGetInterfaces
 
-    -- * Disk image management
+    -- * Disk image management (read-only helpers; mutating ops go through the agent)
   , createImage
   , deleteImage
   , resizeImage
@@ -86,8 +73,6 @@ where
 import Corvus.Node.Command
 import Corvus.Node.GuestAgent
 import Corvus.Node.Image
-import Corvus.Node.Process
 import Corvus.Node.Qmp
 import Corvus.Node.Runtime
-import Corvus.Node.Virtiofsd
 import Corvus.Qemu.Config
