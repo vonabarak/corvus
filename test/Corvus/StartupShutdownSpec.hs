@@ -81,10 +81,14 @@ spec = sequential $ withTestDb $ do
         stoppedVms <- runDb $ selectList [M.VmStatus ==. VmStopped] []
         liftIO $ length stoppedVms `shouldBe` 1
 
-    testCase "clears stale network state" $ do
+    testCase "keeps running network rows untouched on startup" $ do
+      -- After Phase 4, the agent owns kernel state independently
+      -- of the daemon process. A daemon restart finds the bridge /
+      -- dnsmasq still alive, so the DB row's NetworkRunning flag
+      -- should NOT be reset to False — the daemon's reconnect
+      -- async re-applies idempotently from the surviving row.
       given $ do
-        nwId <- insertNetwork "stale-net" "10.0.0.0/24"
-        -- Set fake running state (processes don't actually exist)
+        nwId <- insertNetwork "live-net" "10.0.0.0/24"
         runDb $ update (toSqlKey nwId :: NetworkId) [M.NetworkRunning =. True, M.NetworkDnsmasqPid =. Just 88882]
         pure ()
 
@@ -97,8 +101,8 @@ spec = sequential $ withTestDb $ do
         networks <- runDb $ selectList ([] :: [Filter Network]) []
         case networks of
           (Entity _ nw : _) -> do
-            liftIO $ networkRunning nw `shouldBe` False
-            liftIO $ networkDnsmasqPid nw `shouldBe` Nothing
+            liftIO $ networkRunning nw `shouldBe` True
+            liftIO $ networkDnsmasqPid nw `shouldBe` Just 88882
           _ -> liftIO $ fail "No networks found"
 
     testCase "records startup task as success" $ do

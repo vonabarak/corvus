@@ -1,0 +1,22 @@
+[Unit]
+Description=Corvus privileged network agent
+# Same virtiofs mount as the daemon; no Postgres dependency.
+After=opt-corvus-bin.mount
+Requires=opt-corvus-bin.mount
+RequiresMountsFor=/opt/corvus/bin
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/opt/corvus/bin/corvus-netd \
+    --host 127.0.0.1 \
+    --port 9877 \
+    --log-level info
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

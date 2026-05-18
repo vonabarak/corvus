@@ -42,6 +42,7 @@ import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend, SqlPersistT, toSqlKey)
 import System.FilePath ((</>))
+import System.Posix.User (getEffectiveGroupID, getEffectiveUserID)
 
 --------------------------------------------------------------------------------
 -- Command Generation (Public API)
@@ -437,14 +438,21 @@ resolveNetIfDevice
 resolveNetIfDevice mAgent (Entity ifaceKey netIf) =
   case (networkInterfaceNetworkId netIf, mAgent) of
     (Just nwKey, Just nac) -> do
+      -- The agent runs as root and uses TUNSETOWNER to grant
+      -- reopen rights to the daemon's process. We pass the
+      -- daemon's own effective uid/gid so QEMU (spawned by the
+      -- daemon, inheriting the same uid/gid) can open the TAP by
+      -- name without CAP_NET_ADMIN.
+      uid <- getEffectiveUserID
+      gid <- getEffectiveGroupID
       let bridge = Spec.corvusBridgeName (fromSqlKey nwKey)
           tapName = Spec.corvusTapName (fromSqlKey ifaceKey)
           spec =
             NA.TapSpec
               { NA.tsName = tapName
               , NA.tsBridge = bridge
-              , NA.tsUid = 0 -- daemon's uid is plumbed via the agent
-              , NA.tsGid = 0 -- session; 0 for now (root-owned TAP, root daemon)
+              , NA.tsUid = fromIntegral uid
+              , NA.tsGid = fromIntegral gid
               }
       result <- NA.applyTap nac spec
       case result of

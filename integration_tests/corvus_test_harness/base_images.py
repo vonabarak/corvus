@@ -1,9 +1,10 @@
 """Register pre-baked OS images with the inner Corvus daemon.
 
-The test image's `root-VMs-BaseImages.mount` (baked in
+The test image's `home-corvus-VMs-BaseImages.mount` (baked in
 [`yaml/corvus-test-node/systemd/`](../../yaml/corvus-test-node/systemd/)) virtiofs-mounts
-the host's `~/VMs/BaseImages` at `/root/VMs/BaseImages` inside the test
-VM. This module:
+the host's `~/VMs/BaseImages` at `/home/corvus/VMs/BaseImages` inside the test
+VM (the daemon runs as the `corvus` user, so this matches its
+default $HOME/VMs basePath). This module:
 
   1. Discovers what image files live under the host directory (one
      directory per OS, e.g. `Alpine/corvus-test.qcow2`,
@@ -40,9 +41,10 @@ from .outer import Crv
 # in yaml/{alpine-test,multi-os,windows-server-2025}/*.yml.
 HOST_BASE_IMAGES_DIR = Path(os.path.expanduser("~/VMs/BaseImages"))
 
-# In-guest mount point. Matches `root-VMs-BaseImages.mount` in
-# yaml/corvus-test-node/systemd/.
-GUEST_BASE_IMAGES_PATH = Path("/root/VMs/BaseImages")
+# In-guest mount point. Matches `home-corvus-VMs-BaseImages.mount`
+# in yaml/corvus-test-node/systemd/. The daemon runs as `corvus`,
+# so `/home/corvus/VMs` is its $HOME/VMs basePath.
+GUEST_BASE_IMAGES_PATH = Path("/home/corvus/VMs/BaseImages")
 
 # Virtiofs tag wired up in `Topology.add` and the systemd mount unit.
 BASE_IMAGES_TAG = "base_images"
@@ -127,15 +129,16 @@ def _sanitize_name(raw: str) -> str:
 def ensure_mounted(crv: Crv, node_name: str) -> None:
     """Ensure the BaseImages virtiofs share is mounted inside the node.
 
-    The image's `root-VMs-BaseImages.mount` should mount it at boot, but
-    images baked before that unit existed need a one-shot manual mount.
-    Idempotent: skips when `/root/VMs/BaseImages` already shows up in
+    The image's `home-corvus-VMs-BaseImages.mount` should mount it
+    at boot, but images baked before that unit existed need a
+    one-shot manual mount. Idempotent: skips when
+    `/home/corvus/VMs/BaseImages` already shows up in
     `/proc/self/mountinfo`.
     """
     script = (
-        "mkdir -p /root/VMs/BaseImages; "
-        "mountpoint -q /root/VMs/BaseImages || "
-        f"mount -t virtiofs {BASE_IMAGES_TAG} /root/VMs/BaseImages"
+        "mkdir -p /home/corvus/VMs/BaseImages; "
+        "mountpoint -q /home/corvus/VMs/BaseImages || "
+        f"mount -t virtiofs {BASE_IMAGES_TAG} /home/corvus/VMs/BaseImages"
     )
     crv.vm_exec(node_name, script, timeout_sec=30.0)
 

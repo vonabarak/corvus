@@ -21,8 +21,6 @@ import Corvus.Handlers.Network (NetworkStart (..))
 import Corvus.Handlers.Vm (VmStart (..))
 import Corvus.Model
 import qualified Corvus.Model as M
-import qualified Corvus.NetAgentClient as NA
-import qualified Corvus.NetAgentClient.Spec as Spec
 import Corvus.Protocol
 import Corvus.Qemu.Process (killVmProcess)
 import Corvus.Qemu.Virtiofsd (killVirtiofsdProcesses)
@@ -67,15 +65,13 @@ instance Action Startup where
       liftIO $ runSqlPool (updateWhere [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]) pool
       logInfoN "Reset stale VMs to error state"
 
-      -- Reset stale network DB rows. The agent runs its own
-      -- startup cleanup so any kernel resources from a prior
-      -- corvus-netd process are already gone; we just clear the
-      -- daemon's idea that they are still up.
-      liftIO $ runSqlPool (updateWhere [M.NetworkRunning ==. True] [M.NetworkRunning =. False, M.NetworkDnsmasqPid =. Nothing]) pool
-      logInfoN "Reset stale network state"
-
-      -- The connect-and-hold async in app/daemon/Main.hs writes
-      -- ssNetAgent when the agent is reachable; we just log here.
+      -- Don't reset NetworkRunning rows here. The agent owns
+      -- kernel state independently of this daemon process, so
+      -- a daemon restart finds the bridge / dnsmasq still alive.
+      -- The connect-and-hold async in app/daemon/Main.hs calls
+      -- reapplyRunningNetworks on every (re)connect; its
+      -- applyNetwork is idempotent, so a re-apply over already-
+      -- live kernel state is a no-op.
       mAgent <- liftIO $ readTVarIO (ssNetAgent state)
       case mAgent of
         Nothing -> logWarnN "corvus-netd not yet connected; networking will retry once agent is up"
@@ -157,24 +153,13 @@ instance Action GracefulShutdown where
             liftIO $ runSqlPool (update vmKey [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing]) pool
           Nothing -> pure ()
 
-      -- Stop all running networks. Phase 3: ask the agent to
-      -- delete each via NA.deleteNetwork; the agent tears down
-      -- bridge + NAT + dnsmasq atomically. Best-effort: a
-      -- missing agent (already torn down, or never connected)
-      -- skips network cleanup but still clears DB rows.
+      -- Networks are NOT torn down here. The agent owns kernel
+      -- state independently of this daemon's lifecycle, so a
+      -- daemon stop (or restart) leaves bridges + dnsmasq alive.
+      -- An admin who wants a network gone calls `crv network
+      -- stop` explicitly, or stops corvus-netd.service.
       runningNetworks <- liftIO $ runSqlPool (selectList [M.NetworkRunning ==. True] []) pool
-      logInfoN $ "Stopping " <> T.pack (show (length runningNetworks)) <> " running network(s)"
-      mAgent <- liftIO $ readTVarIO (ssNetAgent state)
-      liftIO $ forM_ runningNetworks $ \(Entity nwKey _nw) -> do
-        case mAgent of
-          Just nac -> do
-            _ <-
-              NA.deleteNetwork
-                nac
-                (Spec.corvusBridgeName (fromSqlKey nwKey))
-            pure ()
-          Nothing -> pure ()
-        runSqlPool (update nwKey [M.NetworkRunning =. False, M.NetworkDnsmasqPid =. Nothing]) pool
+      logInfoN $ "Leaving " <> T.pack (show (length runningNetworks)) <> " running network(s) under the agent's care"
 
       -- Mark any remaining running tasks as error
       liftIO $ runSqlPool (updateWhere [TaskResult <-. [TaskRunning, TaskNotStarted], TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon shutting down"]) pool

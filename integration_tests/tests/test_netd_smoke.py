@@ -1,22 +1,20 @@
-"""Phase 2.5 integration tests for `corvus-netd`, running inside the test node.
+"""Smoke tests for `corvus-netd`, against the node's steady-state agent.
 
-The declarative agent surface: applyNetwork / listNetworks / deleteNetwork +
-applyTap / listTaps / deleteTap. Each test drives the agent via pycapnp
-through an SSH `-L` port-forward whose far end is the agent's TCP listener
-inside the test node.
+The test-node image ships `corvus-netd.service` (root, port 9877). The
+inner corvus daemon dials this same instance for every managed-network
+operation. The smoke tests here exercise the declarative agent surface
+directly via pycapnp, tunnelled through an SSH `-L` port-forward to the
+node's `127.0.0.1:9877`.
 
-Why on the node, not on the host?
+Each test class gets its own dedicated node, so this class has the
+agent to itself; no isolation tricks needed.
 
-The agent needs `CAP_NET_ADMIN`; the outer test node has root and is
-disposable. The pytest process stays unprivileged on the host.
-
-Scope (Phase 2.5):
+Scope:
   * applyNetwork is idempotent + reconciles deltas
   * deleteNetwork tears down kernel state
   * applyTap rejects unknown bridge name
   * applyTap creates a persistent TAP with TUNSETOWNER
   * setIpForwarding flips /proc
-  * subscribeEvents fires onResourceVanished when admin yanks a link
   * shutdown cleanup removes every `corvus-*` resource on the node
 """
 from __future__ import annotations
@@ -40,46 +38,8 @@ from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH
 # we reuse that instance — pycapnp's process-global schema registry rejects
 # a second load of the same schema.
 
-NETD_BINARY_ON_NODE = "/opt/corvus/bin/corvus-netd"
-NETD_NODE_PORT = 9899
-NETD_TRANSIENT_UNIT = "corvus-netd-smoke.service"
-
-
-# ---------------------------------------------------------------------------
-# Node-side process lifecycle
-
-
-def _start_netd_on_node(node) -> None:
-    """Spawn `corvus-netd` as root on the node via systemd-run.
-
-    Phase 2.5 agent: stateless. Each `systemd-run` invocation starts a
-    fresh process which runs its OWN startup cleanup before binding the
-    listener — so we get a guaranteed-empty kernel state on every test.
-    """
-    cmd = (
-        f"sudo systemctl stop {NETD_TRANSIENT_UNIT} 2>/dev/null || true; "
-        f"sudo systemctl reset-failed {NETD_TRANSIENT_UNIT} 2>/dev/null || true; "
-        f"sudo systemd-run --quiet --unit={NETD_TRANSIENT_UNIT} "
-        f"  --property=Type=simple --property=Restart=no "
-        f"  {NETD_BINARY_ON_NODE} "
-        f"  --host 127.0.0.1 --port {NETD_NODE_PORT} --log-level debug; "
-        f"for i in $(seq 1 50); do "
-        f"  ss -ltn 2>/dev/null | grep -q ':{NETD_NODE_PORT} ' && exit 0; "
-        f"  sleep 0.1; "
-        f"done; "
-        f"echo 'corvus-netd never started listening' >&2; "
-        f"sudo journalctl -u {NETD_TRANSIENT_UNIT} --no-pager -n 50 >&2 || true; "
-        f"exit 1"
-    )
-    node.run(cmd, timeout_sec=15)
-
-
-def _stop_netd_on_node(node) -> None:
-    cmd = (
-        f"sudo systemctl stop {NETD_TRANSIENT_UNIT} 2>/dev/null || true; "
-        f"sudo systemctl reset-failed {NETD_TRANSIENT_UNIT} 2>/dev/null || true"
-    )
-    node.run(cmd, timeout_sec=10, check=False)
+NETD_SERVICE = "corvus-netd.service"
+NETD_NODE_PORT = 9877
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +156,8 @@ def _network_spec(
 
 
 class TestNetdDeclarative(SingleNodeCase):
-    """Phase 2.5 declarative agent surface.
+    """Declarative agent surface, against the node's steady-state
+    corvus-netd.service.
 
     Each test method opens its own session (the agent allows multiple
     concurrent sessions) so failures don't cascade.
@@ -210,14 +171,12 @@ class TestNetdDeclarative(SingleNodeCase):
         if state.topology is None:
             pytest.skip("class topology not initialised; upstream fixture failed")
         node = state.topology.nodes[0]
-        _start_netd_on_node(node)
         host_port = _pick_free_port()
         forward = _open_port_forward(node.cid, host_port)
         try:
             yield ("127.0.0.1", host_port)
         finally:
             _close_port_forward(forward)
-            _stop_netd_on_node(node)
 
     # -- Liveness / version --------------------------------------------------
 
@@ -237,7 +196,7 @@ class TestNetdDeclarative(SingleNodeCase):
 
         info = _run_on_node_loop(self.node, lambda: _with_client(host, port, body))
         assert info.semver.startswith("0.")
-        # Phase 2.5 advertises the declarative surface.
+        # The agent advertises the declarative surface.
         assert set(info.capabilities) == {
             "network", "tap", "ip-forwarding", "events",
         }
@@ -267,13 +226,10 @@ class TestNetdDeclarative(SingleNodeCase):
                 node.run, f"ip -o -4 addr show dev {name}"
             )
             assert b"10.191.0.1/24" in addr.stdout
+            # Cleanup via the agent (no privileged shell-out needed).
+            await sess.deleteNetwork(name)
 
-        try:
-            _run_on_node_loop(node, lambda: _with_client(host, port, body))
-        finally:
-            node.run(
-                f"sudo ip link del {name} 2>/dev/null || true", check=False
-            )
+        _run_on_node_loop(node, lambda: _with_client(host, port, body))
 
     def test_apply_network_is_idempotent(self, netd_endpoint):
         """Two applyNetwork calls with the same spec → bridge MAC unchanged."""
@@ -302,13 +258,9 @@ class TestNetdDeclarative(SingleNodeCase):
             assert mac1 == mac2, (
                 f"bridge recreated on idempotent apply: {mac1!r} → {mac2!r}"
             )
+            await sess.deleteNetwork(name)
 
-        try:
-            _run_on_node_loop(node, lambda: _with_client(host, port, body))
-        finally:
-            node.run(
-                f"sudo ip link del {name} 2>/dev/null || true", check=False
-            )
+        _run_on_node_loop(node, lambda: _with_client(host, port, body))
 
     def test_apply_network_reconciles_cidr_change(self, netd_endpoint):
         """Updating CIDR with applyNetwork swaps the IP in place."""
@@ -330,13 +282,9 @@ class TestNetdDeclarative(SingleNodeCase):
             )
             assert b"10.189.0.2/24" in addr.stdout
             assert b"10.189.0.1/24" not in addr.stdout
+            await sess.deleteNetwork(name)
 
-        try:
-            _run_on_node_loop(node, lambda: _with_client(host, port, body))
-        finally:
-            node.run(
-                f"sudo ip link del {name} 2>/dev/null || true", check=False
-            )
+        _run_on_node_loop(node, lambda: _with_client(host, port, body))
 
     def test_apply_network_nat_installs_masquerade(self, netd_endpoint):
         """applyNetwork with nat.enabled adds a masquerade rule."""
@@ -363,17 +311,9 @@ class TestNetdDeclarative(SingleNodeCase):
             # agent passes the bridge's CIDR (10.188.0.1/24); nft
             # renders that as the implied network 10.188.0.0/24.
             assert subnet.encode() in table.stdout or b"10.188.0.1" in table.stdout
+            await sess.deleteNetwork(name)
 
-        try:
-            _run_on_node_loop(node, lambda: _with_client(host, port, body))
-        finally:
-            node.run(
-                "sudo nft delete table inet corvus_fw 2>/dev/null || true",
-                check=False,
-            )
-            node.run(
-                f"sudo ip link del {name} 2>/dev/null || true", check=False
-            )
+        _run_on_node_loop(node, lambda: _with_client(host, port, body))
 
     def test_apply_network_dhcp_spawns_dnsmasq(self, netd_endpoint):
         """applyNetwork with dhcp.enabled spawns dnsmasq."""
@@ -399,17 +339,9 @@ class TestNetdDeclarative(SingleNodeCase):
                 check=False,
             )
             assert proc.returncode == 0, "dnsmasq not found for the bridge"
+            await sess.deleteNetwork(name)
 
-        try:
-            _run_on_node_loop(node, lambda: _with_client(host, port, body))
-        finally:
-            node.run(
-                f"sudo pkill -f 'dnsmasq.*--interface={name}' 2>/dev/null || true",
-                check=False,
-            )
-            node.run(
-                f"sudo ip link del {name} 2>/dev/null || true", check=False
-            )
+        _run_on_node_loop(node, lambda: _with_client(host, port, body))
 
     def test_delete_network_tears_down_everything(self, netd_endpoint):
         """deleteNetwork removes bridge, NAT rule, and dnsmasq."""
@@ -444,12 +376,7 @@ class TestNetdDeclarative(SingleNodeCase):
             )
             assert dn.returncode != 0
 
-        try:
-            _run_on_node_loop(node, lambda: _with_client(host, port, body))
-        finally:
-            node.run(
-                f"sudo ip link del {name} 2>/dev/null || true", check=False
-            )
+        _run_on_node_loop(node, lambda: _with_client(host, port, body))
 
     # -- TAPs ----------------------------------------------------------------
 
@@ -500,18 +427,10 @@ class TestNetdDeclarative(SingleNodeCase):
                 node.run, f"cat /sys/class/net/{tap}/owner"
             )
             assert owner.stdout.strip() == b"1000"
+            await sess.deleteTap(tap)
+            await sess.deleteNetwork(bridge)
 
-        try:
-            _run_on_node_loop(node, lambda: _with_client(host, port, body))
-        finally:
-            node.run(
-                f"sudo ip tuntap del dev {tap} mode tap 2>/dev/null || true",
-                check=False,
-            )
-            node.run(
-                f"sudo ip link del {bridge} 2>/dev/null || true",
-                check=False,
-            )
+        _run_on_node_loop(node, lambda: _with_client(host, port, body))
 
     # -- Kernel knobs --------------------------------------------------------
 
@@ -550,7 +469,12 @@ class TestNetdDeclarative(SingleNodeCase):
     # -- Cleanup-on-shutdown -------------------------------------------------
 
     def test_shutdown_cleanup_removes_everything(self, netd_endpoint):
-        """`systemctl stop` runs cleanup; corvus-* resources go away."""
+        """`systemctl stop` runs cleanup; corvus-* resources go away.
+
+        This test stops the node's own corvus-netd.service in-place
+        (the inner daemon notices, but no other test depends on it).
+        Restart at the end so the rest of the class keeps working.
+        """
         host, port = netd_endpoint
         name = "corvus-br-zz"
         node = self.node
@@ -570,11 +494,9 @@ class TestNetdDeclarative(SingleNodeCase):
 
         try:
             _run_on_node_loop(node, lambda: _with_client(host, port, body))
-            # Stop the agent. The Main.hs SIGTERM handler runs
-            # cleanupCorvusKernelState before exit.
-            node.run(
-                f"sudo systemctl stop {NETD_TRANSIENT_UNIT}", check=False
-            )
+            # Stop the steady-state agent. The Main.hs SIGTERM
+            # handler runs cleanupCorvusKernelState before exit.
+            node.run(f"sudo systemctl stop {NETD_SERVICE}", check=False)
             # Brief settle.
             time.sleep(0.5)
             link = node.run(f"ip link show {name}", check=False)
@@ -589,8 +511,16 @@ class TestNetdDeclarative(SingleNodeCase):
             )
             assert dn.returncode != 0, "dnsmasq survived shutdown"
         finally:
-            # Restart the agent so the next test in the class has
-            # a healthy endpoint. The port-forward async stays up
+            # Restart so the rest of the class (and the inner daemon)
+            # has a healthy endpoint again. The port-forward stays up
             # across this restart because the SSH tunnel is
             # connection-less from the agent's view.
-            _start_netd_on_node(node)
+            node.run(f"sudo systemctl start {NETD_SERVICE}", check=False)
+            # Wait for the listener to come back.
+            for _ in range(50):
+                ss = node.run(
+                    f"ss -ltn | grep -q ':{NETD_NODE_PORT} '", check=False
+                )
+                if ss.returncode == 0:
+                    break
+                time.sleep(0.1)

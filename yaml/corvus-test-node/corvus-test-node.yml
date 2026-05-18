@@ -169,9 +169,6 @@ pipeline:
             inline: |
               install -d -m 0755 /opt/corvus/bin
               install -d -m 0755 /mnt/corvus
-              # /root/VMs/BaseImages is the inner-daemon basePath mount
-              # for the harness's host-side ~/VMs/BaseImages share.
-              install -d -m 0755 /root/VMs/BaseImages
             timeoutSec: 10
 
         # systemd unit files. We use `file:` provisioners so the units
@@ -185,12 +182,16 @@ pipeline:
             to: /etc/systemd/system/mnt-corvus.mount
             mode: "0644"
         - file:
-            from: ./systemd/root-VMs-BaseImages.mount
-            to: /etc/systemd/system/root-VMs-BaseImages.mount
+            from: ./systemd/home-corvus-VMs-BaseImages.mount
+            to: /etc/systemd/system/home-corvus-VMs-BaseImages.mount
             mode: "0644"
         - file:
             from: ./systemd/corvus-test.service
             to: /etc/systemd/system/corvus-test.service
+            mode: "0644"
+        - file:
+            from: ./systemd/corvus-netd.service
+            to: /etc/systemd/system/corvus-netd.service
             mode: "0644"
         - file:
             from: ./systemd/corvus-tcp-relay.service
@@ -205,10 +206,15 @@ pipeline:
               # `systemctl status` lists them.
               systemctl enable opt-corvus-bin.mount
               systemctl enable mnt-corvus.mount
-              systemctl enable root-VMs-BaseImages.mount
+              systemctl enable home-corvus-VMs-BaseImages.mount
+              # corvus-netd.service runs the privileged network agent
+              # as root; the unprivileged corvus daemon dials it over
+              # 127.0.0.1:9877.
+              systemctl enable corvus-netd.service
               # corvus-test.service starts the inner daemon as soon as
               # /opt/corvus/bin is mounted (i.e. the harness's virtiofs
-              # share is attached) and Postgres is up.
+              # share is attached), Postgres is up, and the netd agent
+              # is reachable.
               systemctl enable corvus-test.service
               # corvus-tcp-relay.service translates host vsock connects
               # to the daemon's TCP listener.
@@ -257,9 +263,17 @@ pipeline:
         - shell:
             inline: |
               if ! id corvus >/dev/null 2>&1; then
-                useradd -m -s /bin/bash -G wheel corvus
+                useradd -m -s /bin/bash -G wheel,kvm corvus
+              else
+                usermod -aG kvm corvus
               fi
               install -d -m 0700 -o corvus -g corvus /home/corvus/.ssh
+              # /home/corvus/VMs is the daemon's basePath (it runs
+              # as the corvus user, so $HOME/VMs resolves here).
+              # BaseImages is the virtiofs mount point for the
+              # harness's host-side ~/VMs/BaseImages share.
+              install -d -m 0755 -o corvus -g corvus /home/corvus/VMs
+              install -d -m 0755 -o corvus -g corvus /home/corvus/VMs/BaseImages
               # Allow passwordless sudo for the wheel group so tests can
               # exercise root-only paths without prompting.
               install -d -m 0750 /etc/sudoers.d

@@ -1,0 +1,28 @@
+[Unit]
+Description=Mount the host's ~/VMs/BaseImages over virtiofs
+# Filename `home-corvus-VMs-BaseImages.mount` matches
+# `systemd-escape -p /home/corvus/VMs/BaseImages`. The path has no
+# literal hyphens, so no \x2d escaping is needed.
+#
+# The inner daemon runs as the `corvus` user, so its effective
+# basePath is /home/corvus/VMs. Mounting BaseImages there lets tests
+# register pre-baked disks under their original on-host paths
+# (~/VMs/BaseImages/Alpine/…) so the inner daemon stores them as
+# relative-to-basePath references.
+DefaultDependencies=no
+ConditionVirtualization=|kvm
+ConditionVirtualization=|qemu
+After=local-fs-pre.target
+Before=local-fs.target
+
+[Mount]
+# `base_images` is the virtiofs tag the test harness attaches via the
+# `sharedDirs` block in the per-VM apply YAML (see
+# corvus_test_harness.topology.Topology.add).
+What=base_images
+Where=/home/corvus/VMs/BaseImages
+Type=virtiofs
+Options=ro,nofail,_netdev
+
+[Install]
+WantedBy=local-fs.target
