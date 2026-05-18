@@ -2,9 +2,13 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Daemon lifecycle handlers: startup and graceful shutdown.
--- Networks are managed by the corvus-netd agent — the daemon's
--- role here is restricted to draining stale DB state and asking
--- the agent to (re)apply / tear down running networks.
+--
+-- Both networks (corvus-netd) and VMs / virtiofsd
+-- (corvus-nodeagent) are managed by external agents now. The
+-- daemon's role at startup and shutdown is restricted to
+-- draining stale task rows and logging what the agents are
+-- still keeping alive on the host. Process reaping is the
+-- agent's own startup-cleanup pass.
 module Corvus.Handlers.Lifecycle
   ( -- * Action types
     Startup (..)
@@ -21,8 +25,6 @@ import Corvus.Handlers.Network (NetworkStart (..))
 import Corvus.Handlers.Vm (VmStart (..))
 import Corvus.Model
 import qualified Corvus.Model as M
-import Corvus.Node.Process (killVmProcess)
-import Corvus.Node.Virtiofsd (killVirtiofsdProcesses)
 import Corvus.Protocol
 import Corvus.Types
 import Data.Text (Text)
@@ -53,17 +55,23 @@ instance Action Startup where
       liftIO $ runSqlPool (updateWhere [TaskResult <-. [TaskRunning, TaskNotStarted], TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon restarted"]) pool
       logInfoN "Marked stale running tasks as error"
 
-      -- Kill orphaned QEMU processes and reset stale VMs
-      staleVms <- liftIO $ runSqlPool (selectList [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] []) pool
-      liftIO $ forM_ staleVms $ \(Entity vmKey vm) -> do
-        case vmPid vm of
-          Just pid -> runServerLogging state $ do
-            logInfoN $ "Killing orphaned QEMU process for VM " <> vmName vm <> " (PID " <> T.pack (show pid) <> ")"
-            _ <- killVmProcess state (fromSqlKey vmKey) pid
-            killVirtiofsdProcesses state (fromSqlKey vmKey)
-          Nothing -> pure ()
-      liftIO $ runSqlPool (updateWhere [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]) pool
-      logInfoN "Reset stale VMs to error state"
+      -- Don't kill or reset VMs. corvus-nodeagent owns the
+      -- QEMU + virtiofsd subprocesses independently of this
+      -- daemon's lifecycle. The agent's own startup pass reaps
+      -- any genuinely-orphaned processes (and scrubs runtime
+      -- dirs); the daemon's reconnect-and-reapply loop in
+      -- 'runNodeAgentConnection' will sync DB intent against
+      -- what's actually alive once the connection comes up.
+      --
+      -- Specifically: if the daemon crashed mid-task, its VMs
+      -- are typically still alive on the agent side, and the
+      -- PIDs / SPICE-port / healthcheck rows in the DB are
+      -- still valid. Wiping them would force a needless restart.
+      runningVms <- liftIO $ runSqlPool (selectList [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] []) pool
+      logInfoN $
+        "Leaving "
+          <> T.pack (show (length runningVms))
+          <> " running/transitioning VM(s) under the agent's care"
 
       -- Don't reset NetworkRunning rows here. The agent owns
       -- kernel state independently of this daemon process, so
@@ -128,38 +136,24 @@ instance Action GracefulShutdown where
         pool = ssDbPool state
 
     runServerLogging state $ do
-      -- Stop all running/starting VMs
-      runningVms <- liftIO $ runSqlPool (selectList [M.VmStatus <-. [VmStarting, VmRunning, VmPaused]] []) pool
-      logInfoN $ "Stopping " <> T.pack (show (length runningVms)) <> " running VM(s)"
-      liftIO $ forM_ runningVms $ \(Entity vmKey vm) -> do
-        case vmPid vm of
-          Just pid -> runServerLogging state $ do
-            logInfoN $ "Killing VM " <> vmName vm <> " (PID " <> T.pack (show pid) <> ")"
-            -- Clear PID first (so process monitor thread doesn't interfere)
-            liftIO $ runSqlPool (update vmKey [M.VmPid =. Nothing]) pool
-            _ <- killVmProcess state (fromSqlKey vmKey) pid
-            killVirtiofsdProcesses state (fromSqlKey vmKey)
-            liftIO $ runSqlPool (update vmKey [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing]) pool
-          Nothing -> pure ()
-      -- Also handle VMs in Stopping state (QEMU still running)
-      stoppingVms <- liftIO $ runSqlPool (selectList [M.VmStatus ==. VmStopping] []) pool
-      liftIO $ forM_ stoppingVms $ \(Entity vmKey vm) -> do
-        case vmPid vm of
-          Just pid -> runServerLogging state $ do
-            logInfoN $ "Force-killing stopping VM " <> vmName vm <> " (PID " <> T.pack (show pid) <> ")"
-            liftIO $ runSqlPool (update vmKey [M.VmPid =. Nothing]) pool
-            _ <- killVmProcess state (fromSqlKey vmKey) pid
-            killVirtiofsdProcesses state (fromSqlKey vmKey)
-            liftIO $ runSqlPool (update vmKey [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing]) pool
-          Nothing -> pure ()
+      -- VMs are NOT torn down here. corvus-nodeagent owns
+      -- QEMU + virtiofsd subprocesses independently of this
+      -- daemon's lifecycle, so a daemon stop (or restart)
+      -- leaves them alive on the host. The next daemon
+      -- startup will re-attach and reconcile DB intent
+      -- against the agent's runtime state.
+      runningVms <- liftIO $ runSqlPool (selectList [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] []) pool
+      logInfoN $
+        "Leaving "
+          <> T.pack (show (length runningVms))
+          <> " running/transitioning VM(s) under the agent's care"
 
-      -- Networks are NOT torn down here. The agent owns kernel
-      -- state independently of this daemon's lifecycle, so a
-      -- daemon stop (or restart) leaves bridges + dnsmasq alive.
-      -- An admin who wants a network gone calls `crv network
-      -- stop` explicitly, or stops corvus-netd.service.
+      -- Same for networks: corvus-netd owns kernel state.
       runningNetworks <- liftIO $ runSqlPool (selectList [M.NetworkRunning ==. True] []) pool
-      logInfoN $ "Leaving " <> T.pack (show (length runningNetworks)) <> " running network(s) under the agent's care"
+      logInfoN $
+        "Leaving "
+          <> T.pack (show (length runningNetworks))
+          <> " running network(s) under the agent's care"
 
       -- Mark any remaining running tasks as error
       liftIO $ runSqlPool (updateWhere [TaskResult <-. [TaskRunning, TaskNotStarted], TaskId !=. taskKey] [TaskResult =. TaskError, TaskMessage =. Just "Daemon shutting down"]) pool

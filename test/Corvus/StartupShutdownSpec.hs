@@ -53,14 +53,18 @@ spec = sequential $ withTestDb $ do
           (Entity _ t : _) -> liftIO $ taskMessage t `shouldBe` Just "Daemon restarted"
           _ -> pure ()
 
-    testCase "resets stale VMs to error state" $ do
+    testCase "keeps non-stopped VMs untouched on startup" $ do
+      -- After Phase 3, corvus-nodeagent owns QEMU + virtiofsd
+      -- subprocesses independently of the daemon. A daemon
+      -- restart finds the VMs still running, so the DB rows'
+      -- status / PID / SPICE port should NOT be reset to
+      -- error — the daemon's reconnect re-attaches to the live
+      -- agent state and reconciles from there.
       given $ do
-        -- Insert VMs in various non-stopped states with fake PIDs
         vmId1 <- insertVm "running-vm" VmRunning
         vmId2 <- insertVm "starting-vm" VmStarting
         vmId3 <- insertVm "paused-vm" VmPaused
         _ <- insertVm "stopped-vm" VmStopped
-        -- Set fake PIDs (processes don't actually exist)
         runDb $ update (toSqlKey vmId1 :: VmId) [M.VmPid =. Just 99991]
         runDb $ update (toSqlKey vmId2 :: VmId) [M.VmPid =. Just 99992]
         runDb $ update (toSqlKey vmId3 :: VmId) [M.VmPid =. Just 99993]
@@ -72,14 +76,21 @@ spec = sequential $ withTestDb $ do
       liftIO $ handleStartup state 30
 
       then_ $ do
-        -- Running, Starting, Paused VMs should be Error with no PID
-        vms <- runDb $ selectList [M.VmStatus ==. VmError] []
-        liftIO $ length vms `shouldBe` 3
-        liftIO $ all (\(Entity _ v) -> isNothing (vmPid v)) vms `shouldBe` True
-
-        -- Stopped VM should remain stopped
-        stoppedVms <- runDb $ selectList [M.VmStatus ==. VmStopped] []
-        liftIO $ length stoppedVms `shouldBe` 1
+        -- Running, Starting, Paused VMs survived with their PIDs intact.
+        running <- runDb $ selectList [M.VmStatus ==. VmRunning] []
+        starting <- runDb $ selectList [M.VmStatus ==. VmStarting] []
+        paused <- runDb $ selectList [M.VmStatus ==. VmPaused] []
+        stopped <- runDb $ selectList [M.VmStatus ==. VmStopped] []
+        liftIO $ length running `shouldBe` 1
+        liftIO $ length starting `shouldBe` 1
+        liftIO $ length paused `shouldBe` 1
+        liftIO $ length stopped `shouldBe` 1
+        liftIO $
+          map (vmPid . entityVal) (running <> starting <> paused)
+            `shouldBe` [Just 99991, Just 99992, Just 99993]
+        -- Nothing was reset to VmError.
+        errored <- runDb $ selectList [M.VmStatus ==. VmError] []
+        liftIO $ length errored `shouldBe` 0
 
     testCase "keeps running network rows untouched on startup" $ do
       -- After Phase 4, the agent owns kernel state independently
@@ -178,12 +189,15 @@ spec = sequential $ withTestDb $ do
           (Entity _ t : _) -> liftIO $ taskMessage t `shouldBe` Just "Daemon shutting down"
           _ -> pure ()
 
-    testCase "resets running VMs to stopped" $ do
+    testCase "keeps running VM rows untouched on shutdown" $ do
+      -- corvus-nodeagent owns QEMU + virtiofsd lifecycle.
+      -- A daemon graceful shutdown leaves running VMs alone so
+      -- they survive the daemon restart; the next 'handleStartup'
+      -- reconnects to the agent and finds them still alive.
       given $ do
         vmId1 <- insertVm "running-vm" VmRunning
         vmId2 <- insertVm "starting-vm" VmStarting
         vmId3 <- insertVm "paused-vm" VmPaused
-        -- Set fake PIDs
         runDb $ update (toSqlKey vmId1 :: VmId) [M.VmPid =. Just 77771]
         runDb $ update (toSqlKey vmId2 :: VmId) [M.VmPid =. Just 77772]
         runDb $ update (toSqlKey vmId3 :: VmId) [M.VmPid =. Just 77773]
@@ -195,10 +209,17 @@ spec = sequential $ withTestDb $ do
       liftIO $ handleGracefulShutdown state
 
       then_ $ do
-        -- All VMs should be stopped with no PID
-        stoppedVms <- runDb $ selectList [M.VmStatus ==. VmStopped] []
-        liftIO $ length stoppedVms `shouldBe` 3
-        liftIO $ all (\(Entity _ v) -> isNothing (vmPid v)) stoppedVms `shouldBe` True
+        running <- runDb $ selectList [M.VmStatus ==. VmRunning] []
+        starting <- runDb $ selectList [M.VmStatus ==. VmStarting] []
+        paused <- runDb $ selectList [M.VmStatus ==. VmPaused] []
+        stopped <- runDb $ selectList [M.VmStatus ==. VmStopped] []
+        liftIO $ length running `shouldBe` 1
+        liftIO $ length starting `shouldBe` 1
+        liftIO $ length paused `shouldBe` 1
+        liftIO $ length stopped `shouldBe` 0
+        liftIO $
+          map (vmPid . entityVal) (running <> starting <> paused)
+            `shouldBe` [Just 77771, Just 77772, Just 77773]
 
     testCase "records shutdown task as success" $ do
       pool <- getDbPool
