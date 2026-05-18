@@ -37,6 +37,7 @@ import Corvus.Netd.Caps.DnsmasqHandle (newDnsmasqHandleCap)
 import Corvus.Netd.Caps.NatRule (newNatRuleCap)
 import Corvus.Netd.Caps.Tap (newTapCap)
 import qualified Corvus.Netd.Dnsmasq as Dn
+import qualified Corvus.Netd.Events as Ev
 import Corvus.Netd.IpLink
   ( IpLinkError (..)
   , addrAdd
@@ -62,15 +63,18 @@ data SessionCap = SessionCap
   { scOwner :: !T.Text
   , scSup :: !Supervisor
   , scLedger :: !L.Ledger
+  , scSubs :: !Ev.Subscribers
   }
 
-newSessionCap :: T.Text -> Supervisor -> L.Ledger -> IO SessionCap
-newSessionCap owner sup ledger =
+newSessionCap
+  :: T.Text -> Supervisor -> L.Ledger -> Ev.Subscribers -> IO SessionCap
+newSessionCap owner sup ledger subs =
   pure
     SessionCap
       { scOwner = owner
       , scSup = sup
       , scLedger = ledger
+      , scSubs = subs
       }
 
 instance SomeServer SessionCap
@@ -363,6 +367,12 @@ instance CGN.Session'server_ SessionCap where
           (scLedger sess)
       client <- export @CGN.DnsmasqHandle (scSup sess) cap
       pure CGN.Session'startDnsmasq'results {CGN.server = client}
+
+  -- ----- subscribeEvents --------------------------------------------------
+  session'subscribeEvents sess =
+    handleParsed $ \CGN.Session'subscribeEvents'params {CGN.sink = sink} -> do
+      Ev.addSink (scSubs sess) sink
+      pure CGN.Session'subscribeEvents'results
 
   -- ----- setIpForwarding --------------------------------------------------
   session'setIpForwarding _ =

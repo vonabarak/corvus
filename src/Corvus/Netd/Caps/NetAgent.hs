@@ -25,6 +25,7 @@ import qualified Capnp.Gen.Netagent as CGN
 import Capnp.Rpc.Server (SomeServer)
 import Control.Monad.Logger (logInfoN, runStderrLoggingT)
 import Corvus.Netd.Caps.Session (newSessionCap)
+import qualified Corvus.Netd.Events as Ev
 import qualified Corvus.Netd.Ledger as L
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
@@ -34,10 +35,11 @@ import Supervisors (Supervisor)
 data NetAgentCap = NetAgentCap
   { nacSup :: !Supervisor
   , nacLedger :: !L.Ledger
+  , nacSubs :: !Ev.Subscribers
   }
 
-newNetAgentCap :: Supervisor -> L.Ledger -> IO NetAgentCap
-newNetAgentCap sup ledger = pure (NetAgentCap sup ledger)
+newNetAgentCap :: Supervisor -> L.Ledger -> Ev.Subscribers -> IO NetAgentCap
+newNetAgentCap sup ledger subs = pure (NetAgentCap sup ledger subs)
 
 instance SomeServer NetAgentCap
 
@@ -55,10 +57,10 @@ instance CGN.NetAgent'server_ NetAgentCap where
             }
     pure CGN.NetAgent'version'results {CGN.info = info}
 
-  netAgent'session (NetAgentCap sup ledger) =
+  netAgent'session (NetAgentCap sup ledger subs) =
     handleParsed $ \CGN.NetAgent'session'params {CGN.owner = owner} -> do
       logLine ("session owner=" <> owner)
-      impl <- newSessionCap owner sup ledger
+      impl <- newSessionCap owner sup ledger subs
       client <- export @CGN.Session sup impl
       pure CGN.NetAgent'session'results {CGN.session = client}
 
@@ -69,12 +71,12 @@ instance CGN.NetAgent'server_ NetAgentCap where
 -- the patch as features land; the protocol shape is unchanged
 -- from Phase 1 so the major.minor stays at 0.1.
 agentSemver :: String
-agentSemver = "0.1.4"
+agentSemver = "0.1.5"
 
--- | Feature flags returned by @version@. The remaining Phase 2
--- slice adds "events" (rtnetlink-driven drift notifications).
+-- | Feature flags returned by @version@. Phase 2 complete.
 capnpCapabilities :: [T.Text]
-capnpCapabilities = ["bridge", "tap", "nat", "dnsmasq", "ip-forwarding"]
+capnpCapabilities =
+  ["bridge", "tap", "nat", "dnsmasq", "events", "ip-forwarding"]
 
 -- ----------------------------------------------------------------------
 

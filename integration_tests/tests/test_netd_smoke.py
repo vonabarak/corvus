@@ -292,6 +292,7 @@ class TestNetdSmoke(SingleNodeCase):
             "tap",
             "nat",
             "dnsmasq",
+            "events",
             "ip-forwarding",
         }
 
@@ -658,6 +659,71 @@ class TestNetdSmoke(SingleNodeCase):
                 f"sudo pkill -f 'dnsmasq.*--interface={bridge_name}' 2>/dev/null || true",
                 check=False,
             )
+            node.run(
+                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+                check=False,
+            )
+
+    def test_subscribe_events_fires_on_external_link_delete(self, netd_endpoint):
+        """`ip link del` of a tracked bridge fires onResourceVanished.
+
+        The agent runs an `ip monitor link` watcher in the
+        background. When a bridge it owns disappears (admin deletes
+        it manually), the watcher notices and pushes an
+        `onResourceVanished("bridge", <name>)` to every subscriber.
+        """
+        host, port = netd_endpoint
+        bridge_name = "crv-it-br-e"
+        node = self.node
+        # Per-coroutine collector for events the agent pushes to us.
+        events: list[tuple[str, str]] = []
+
+        # Implement EventSink in Python (pycapnp lets us register
+        # a callback per method). The sink stays alive for as long
+        # as the body's `subscribeEvents` cap is held.
+        class Sink(NETAGENT_SCHEMA.EventSink.Server):
+            def onResourceVanished(self, kind, name, _context, **_):
+                events.append((kind, name))
+
+            def onDnsmasqExited(self, name, exitStatus, _context, **_):
+                pass
+
+        sink = Sink()
+
+        async def body(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            await sess.subscribeEvents(sink=sink)
+            await sess.createBridge(
+                params={
+                    "name": bridge_name,
+                    "cidr": "10.195.0.1/24",
+                    "mtu": 1500,
+                }
+            )
+            # External delete bypasses the agent — the watcher
+            # observes the disappearance via `ip monitor link`.
+            await asyncio.to_thread(
+                node.run, f"sudo ip link del {bridge_name}", check=True
+            )
+            # Give the watcher + dispatch a moment. `ip monitor` is
+            # line-buffered; the agent dispatches synchronously after
+            # parsing the line.
+            for _ in range(40):
+                await asyncio.sleep(0.05)
+                if events:
+                    break
+
+        try:
+            _run_on_node_loop(
+                node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
+            )
+            assert ("bridge", bridge_name) in events, (
+                f"expected bridge-vanished event for {bridge_name}, got {events}"
+            )
+        finally:
+            # Bridge has already been ip-link-deleted; safety net
+            # in case the test bailed early.
             node.run(
                 f"sudo ip link del {bridge_name} 2>/dev/null || true",
                 check=False,

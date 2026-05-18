@@ -200,6 +200,8 @@ library:
     - Corvus.Netd.Sysctl
     - Corvus.Netd.Nftables
     - Corvus.Netd.Dnsmasq
+    - Corvus.Netd.IpMonitor
+    - Corvus.Netd.Events
     - Corvus.Netd.Caps.NetAgent
     - Corvus.Netd.Caps.Session
     - Corvus.Netd.Caps.Bridge
