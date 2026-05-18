@@ -47,17 +47,14 @@ defaultNodeAgentPort = 9878
 -- | Run the agent's Cap'n Proto server.
 --
 -- 1. Run startup cleanup so we begin from an empty world.
--- 2. Allocate the process-wide 'ProcessLedger' (legacy
---    @processSpawn*@ / @processStop@ surface) and 'VmLedger'
---    (the VM-abstraction surface). Both are shared across
---    every connection.
+-- 2. Allocate the process-wide 'VmLedger' (vmId-keyed live state
+--    for QEMU + virtiofsd PIDs). Shared across every connection.
 -- 3. Accept TCP connections; export a fresh 'NodeAgentCap' per
 --    connection (one supervisor per connection) that shares the
---    process-wide ledgers.
+--    ledger.
 runNodeAgentServer :: String -> Int -> IO ()
 runNodeAgentServer host port = do
   cleanupCorvusProcesses
-  procLedger <- L.newProcessLedger
   vmLedger <- L.newVmLedger
   -- Agent-wide subscriber registry + QGA connection cache.
   subs <- SP.newSubscribers
@@ -66,7 +63,7 @@ runNodeAgentServer host port = do
   withAsync (SP.runStatusPoller defaultQemuConfig vmLedger qgaConns subs 10000) $ \_ ->
     TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
       withSupervisor $ \sup -> do
-        nodeAgentCap <- newNodeAgentCap sup procLedger vmLedger subs qgaConns
+        nodeAgentCap <- newNodeAgentCap sup vmLedger subs qgaConns
         bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
         handleConn
           (socketTransport sock defaultLimit)

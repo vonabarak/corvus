@@ -30,12 +30,11 @@ import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
 import Supervisors (Supervisor)
 
--- | Bootstrap-cap state. Holds the supervisor for child caps,
--- the two process-wide ledgers, the status-subscriber registry,
--- and the agent-wide QGA connection cache.
+-- | Bootstrap-cap state. Holds the supervisor for child caps, the
+-- process-wide VM ledger, the status-subscriber registry, and the
+-- agent-wide QGA connection cache.
 data NodeAgentCap = NodeAgentCap
   { nacSup :: !Supervisor
-  , nacProcLedger :: !L.ProcessLedger
   , nacVmLedger :: !L.VmLedger
   , nacSubs :: !SP.Subscribers
   , nacQgaConns :: !NGA.GuestAgentConns
@@ -43,16 +42,14 @@ data NodeAgentCap = NodeAgentCap
 
 newNodeAgentCap
   :: Supervisor
-  -> L.ProcessLedger
   -> L.VmLedger
   -> SP.Subscribers
   -> NGA.GuestAgentConns
   -> IO NodeAgentCap
-newNodeAgentCap sup procLedger vmLedger subs qgaConns =
+newNodeAgentCap sup vmLedger subs qgaConns =
   pure
     NodeAgentCap
       { nacSup = sup
-      , nacProcLedger = procLedger
       , nacVmLedger = vmLedger
       , nacSubs = subs
       , nacQgaConns = qgaConns
@@ -80,7 +77,6 @@ instance CGNA.NodeAgent'server_ NodeAgentCap where
       impl <-
         newSessionCap
           owner
-          (nacProcLedger nac)
           (nacVmLedger nac)
           (nacSubs nac)
           (nacQgaConns nac)

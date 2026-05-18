@@ -283,10 +283,6 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'diskDecompressXz) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'diskMd5) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'cloudInitGenerateIso) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'processSpawnQemu) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'processSpawnVirtiofsd) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'processStop) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'processIsAlive) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmStart) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmStopGraceful) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmStopHard) s_))
@@ -297,7 +293,7 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'vmSetSpiceTicket) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'subscribeVmStatus) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'processSpawnQemu,session'processSpawnVirtiofsd,session'processStop,session'processIsAlive,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -328,14 +324,6 @@ class (Session'server_ s_) where
     session'diskMd5 _ = GH.methodUnimplemented
     session'cloudInitGenerateIso :: s_ -> (GH.MethodHandler Session'cloudInitGenerateIso'params Session'cloudInitGenerateIso'results)
     session'cloudInitGenerateIso _ = GH.methodUnimplemented
-    session'processSpawnQemu :: s_ -> (GH.MethodHandler Session'processSpawnQemu'params Session'processSpawnQemu'results)
-    session'processSpawnQemu _ = GH.methodUnimplemented
-    session'processSpawnVirtiofsd :: s_ -> (GH.MethodHandler Session'processSpawnVirtiofsd'params Session'processSpawnVirtiofsd'results)
-    session'processSpawnVirtiofsd _ = GH.methodUnimplemented
-    session'processStop :: s_ -> (GH.MethodHandler Session'processStop'params Session'processStop'results)
-    session'processStop _ = GH.methodUnimplemented
-    session'processIsAlive :: s_ -> (GH.MethodHandler Session'processIsAlive'params Session'processIsAlive'results)
-    session'processIsAlive _ = GH.methodUnimplemented
     session'vmStart :: s_ -> (GH.MethodHandler Session'vmStart'params Session'vmStart'results)
     session'vmStart _ = GH.methodUnimplemented
     session'vmStopGraceful :: s_ -> (GH.MethodHandler Session'vmStopGraceful'params Session'vmStopGraceful'results)
@@ -384,32 +372,24 @@ instance (GH.HasMethod "diskMd5" Session Session'diskMd5'params Session'diskMd5'
     methodByLabel  = (GH.Method 11450192344861352079 13)
 instance (GH.HasMethod "cloudInitGenerateIso" Session Session'cloudInitGenerateIso'params Session'cloudInitGenerateIso'results) where
     methodByLabel  = (GH.Method 11450192344861352079 14)
-instance (GH.HasMethod "processSpawnQemu" Session Session'processSpawnQemu'params Session'processSpawnQemu'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 15)
-instance (GH.HasMethod "processSpawnVirtiofsd" Session Session'processSpawnVirtiofsd'params Session'processSpawnVirtiofsd'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 16)
-instance (GH.HasMethod "processStop" Session Session'processStop'params Session'processStop'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 17)
-instance (GH.HasMethod "processIsAlive" Session Session'processIsAlive'params Session'processIsAlive'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 18)
 instance (GH.HasMethod "vmStart" Session Session'vmStart'params Session'vmStart'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 19)
+    methodByLabel  = (GH.Method 11450192344861352079 15)
 instance (GH.HasMethod "vmStopGraceful" Session Session'vmStopGraceful'params Session'vmStopGraceful'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 20)
+    methodByLabel  = (GH.Method 11450192344861352079 16)
 instance (GH.HasMethod "vmStopHard" Session Session'vmStopHard'params Session'vmStopHard'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 21)
+    methodByLabel  = (GH.Method 11450192344861352079 17)
 instance (GH.HasMethod "vmPause" Session Session'vmPause'params Session'vmPause'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 22)
+    methodByLabel  = (GH.Method 11450192344861352079 18)
 instance (GH.HasMethod "vmResume" Session Session'vmResume'params Session'vmResume'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 23)
+    methodByLabel  = (GH.Method 11450192344861352079 19)
 instance (GH.HasMethod "vmGuestExec" Session Session'vmGuestExec'params Session'vmGuestExec'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 24)
+    methodByLabel  = (GH.Method 11450192344861352079 20)
 instance (GH.HasMethod "vmStatus" Session Session'vmStatus'params Session'vmStatus'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 25)
+    methodByLabel  = (GH.Method 11450192344861352079 21)
 instance (GH.HasMethod "vmSetSpiceTicket" Session Session'vmSetSpiceTicket'params Session'vmSetSpiceTicket'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 26)
+    methodByLabel  = (GH.Method 11450192344861352079 22)
 instance (GH.HasMethod "subscribeVmStatus" Session Session'subscribeVmStatus'params Session'subscribeVmStatus'results) where
-    methodByLabel  = (GH.Method 11450192344861352079 27)
+    methodByLabel  = (GH.Method 11450192344861352079 23)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -1390,280 +1370,10 @@ instance (C.Marshal Session'cloudInitGenerateIso'results (C.Parsed Session'cloud
         )
 instance (GH.HasField "isoPath" GH.Slot Session'cloudInitGenerateIso'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'processSpawnQemu'params 
-type instance (R.ReprFor Session'processSpawnQemu'params) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'processSpawnQemu'params) where
-    typeId  = 10823871877857771010
-instance (C.TypedStruct Session'processSpawnQemu'params) where
-    numStructWords  = 1
-    numStructPtrs  = 2
-instance (C.Allocate Session'processSpawnQemu'params) where
-    type AllocHint Session'processSpawnQemu'params = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'processSpawnQemu'params (C.Parsed Session'processSpawnQemu'params))
-instance (C.AllocateList Session'processSpawnQemu'params) where
-    type ListAllocHint Session'processSpawnQemu'params = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'processSpawnQemu'params (C.Parsed Session'processSpawnQemu'params))
-data instance C.Parsed Session'processSpawnQemu'params
-    = Session'processSpawnQemu'params 
-        {vmId :: (RP.Parsed Std_.Int64)
-        ,binary :: (RP.Parsed Basics.Text)
-        ,args :: (RP.Parsed (R.List Basics.Text))}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'processSpawnQemu'params))
-deriving instance (Std_.Eq (C.Parsed Session'processSpawnQemu'params))
-instance (C.Parse Session'processSpawnQemu'params (C.Parsed Session'processSpawnQemu'params)) where
-    parse raw_ = (Session'processSpawnQemu'params <$> (GH.parseField #vmId raw_)
-                                                  <*> (GH.parseField #binary raw_)
-                                                  <*> (GH.parseField #args raw_))
-instance (C.Marshal Session'processSpawnQemu'params (C.Parsed Session'processSpawnQemu'params)) where
-    marshalInto raw_ Session'processSpawnQemu'params{..} = (do
-        (GH.encodeField #vmId vmId raw_)
-        (GH.encodeField #binary binary raw_)
-        (GH.encodeField #args args raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "vmId" GH.Slot Session'processSpawnQemu'params Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 0 64 0)
-instance (GH.HasField "binary" GH.Slot Session'processSpawnQemu'params Basics.Text) where
-    fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "args" GH.Slot Session'processSpawnQemu'params (R.List Basics.Text)) where
-    fieldByLabel  = (GH.ptrField 1)
-data Session'processSpawnQemu'results 
-type instance (R.ReprFor Session'processSpawnQemu'results) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'processSpawnQemu'results) where
-    typeId  = 12248210371593590372
-instance (C.TypedStruct Session'processSpawnQemu'results) where
-    numStructWords  = 1
-    numStructPtrs  = 0
-instance (C.Allocate Session'processSpawnQemu'results) where
-    type AllocHint Session'processSpawnQemu'results = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'processSpawnQemu'results (C.Parsed Session'processSpawnQemu'results))
-instance (C.AllocateList Session'processSpawnQemu'results) where
-    type ListAllocHint Session'processSpawnQemu'results = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'processSpawnQemu'results (C.Parsed Session'processSpawnQemu'results))
-data instance C.Parsed Session'processSpawnQemu'results
-    = Session'processSpawnQemu'results 
-        {pid :: (RP.Parsed Std_.Int32)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'processSpawnQemu'results))
-deriving instance (Std_.Eq (C.Parsed Session'processSpawnQemu'results))
-instance (C.Parse Session'processSpawnQemu'results (C.Parsed Session'processSpawnQemu'results)) where
-    parse raw_ = (Session'processSpawnQemu'results <$> (GH.parseField #pid raw_))
-instance (C.Marshal Session'processSpawnQemu'results (C.Parsed Session'processSpawnQemu'results)) where
-    marshalInto raw_ Session'processSpawnQemu'results{..} = (do
-        (GH.encodeField #pid pid raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "pid" GH.Slot Session'processSpawnQemu'results Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 0 32 0)
-data Session'processSpawnVirtiofsd'params 
-type instance (R.ReprFor Session'processSpawnVirtiofsd'params) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'processSpawnVirtiofsd'params) where
-    typeId  = 16142730254105394244
-instance (C.TypedStruct Session'processSpawnVirtiofsd'params) where
-    numStructWords  = 1
-    numStructPtrs  = 3
-instance (C.Allocate Session'processSpawnVirtiofsd'params) where
-    type AllocHint Session'processSpawnVirtiofsd'params = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'processSpawnVirtiofsd'params (C.Parsed Session'processSpawnVirtiofsd'params))
-instance (C.AllocateList Session'processSpawnVirtiofsd'params) where
-    type ListAllocHint Session'processSpawnVirtiofsd'params = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'processSpawnVirtiofsd'params (C.Parsed Session'processSpawnVirtiofsd'params))
-data instance C.Parsed Session'processSpawnVirtiofsd'params
-    = Session'processSpawnVirtiofsd'params 
-        {binary :: (RP.Parsed Basics.Text)
-        ,args :: (RP.Parsed (R.List Basics.Text))
-        ,socketPath :: (RP.Parsed Basics.Text)
-        ,waitForSocketTimeoutMs :: (RP.Parsed Std_.Word32)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'processSpawnVirtiofsd'params))
-deriving instance (Std_.Eq (C.Parsed Session'processSpawnVirtiofsd'params))
-instance (C.Parse Session'processSpawnVirtiofsd'params (C.Parsed Session'processSpawnVirtiofsd'params)) where
-    parse raw_ = (Session'processSpawnVirtiofsd'params <$> (GH.parseField #binary raw_)
-                                                       <*> (GH.parseField #args raw_)
-                                                       <*> (GH.parseField #socketPath raw_)
-                                                       <*> (GH.parseField #waitForSocketTimeoutMs raw_))
-instance (C.Marshal Session'processSpawnVirtiofsd'params (C.Parsed Session'processSpawnVirtiofsd'params)) where
-    marshalInto raw_ Session'processSpawnVirtiofsd'params{..} = (do
-        (GH.encodeField #binary binary raw_)
-        (GH.encodeField #args args raw_)
-        (GH.encodeField #socketPath socketPath raw_)
-        (GH.encodeField #waitForSocketTimeoutMs waitForSocketTimeoutMs raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "binary" GH.Slot Session'processSpawnVirtiofsd'params Basics.Text) where
-    fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "args" GH.Slot Session'processSpawnVirtiofsd'params (R.List Basics.Text)) where
-    fieldByLabel  = (GH.ptrField 1)
-instance (GH.HasField "socketPath" GH.Slot Session'processSpawnVirtiofsd'params Basics.Text) where
-    fieldByLabel  = (GH.ptrField 2)
-instance (GH.HasField "waitForSocketTimeoutMs" GH.Slot Session'processSpawnVirtiofsd'params Std_.Word32) where
-    fieldByLabel  = (GH.dataField 0 0 32 0)
-data Session'processSpawnVirtiofsd'results 
-type instance (R.ReprFor Session'processSpawnVirtiofsd'results) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'processSpawnVirtiofsd'results) where
-    typeId  = 11443307811371017683
-instance (C.TypedStruct Session'processSpawnVirtiofsd'results) where
-    numStructWords  = 0
-    numStructPtrs  = 1
-instance (C.Allocate Session'processSpawnVirtiofsd'results) where
-    type AllocHint Session'processSpawnVirtiofsd'results = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'processSpawnVirtiofsd'results (C.Parsed Session'processSpawnVirtiofsd'results))
-instance (C.AllocateList Session'processSpawnVirtiofsd'results) where
-    type ListAllocHint Session'processSpawnVirtiofsd'results = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'processSpawnVirtiofsd'results (C.Parsed Session'processSpawnVirtiofsd'results))
-data instance C.Parsed Session'processSpawnVirtiofsd'results
-    = Session'processSpawnVirtiofsd'results 
-        {result :: (RP.Parsed VirtiofsdSpawnResult)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'processSpawnVirtiofsd'results))
-deriving instance (Std_.Eq (C.Parsed Session'processSpawnVirtiofsd'results))
-instance (C.Parse Session'processSpawnVirtiofsd'results (C.Parsed Session'processSpawnVirtiofsd'results)) where
-    parse raw_ = (Session'processSpawnVirtiofsd'results <$> (GH.parseField #result raw_))
-instance (C.Marshal Session'processSpawnVirtiofsd'results (C.Parsed Session'processSpawnVirtiofsd'results)) where
-    marshalInto raw_ Session'processSpawnVirtiofsd'results{..} = (do
-        (GH.encodeField #result result raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "result" GH.Slot Session'processSpawnVirtiofsd'results VirtiofsdSpawnResult) where
-    fieldByLabel  = (GH.ptrField 0)
-data Session'processStop'params 
-type instance (R.ReprFor Session'processStop'params) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'processStop'params) where
-    typeId  = 18426405290603545736
-instance (C.TypedStruct Session'processStop'params) where
-    numStructWords  = 1
-    numStructPtrs  = 0
-instance (C.Allocate Session'processStop'params) where
-    type AllocHint Session'processStop'params = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'processStop'params (C.Parsed Session'processStop'params))
-instance (C.AllocateList Session'processStop'params) where
-    type ListAllocHint Session'processStop'params = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'processStop'params (C.Parsed Session'processStop'params))
-data instance C.Parsed Session'processStop'params
-    = Session'processStop'params 
-        {pid :: (RP.Parsed Std_.Int32)
-        ,gracefulTimeoutSec :: (RP.Parsed Std_.Word32)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'processStop'params))
-deriving instance (Std_.Eq (C.Parsed Session'processStop'params))
-instance (C.Parse Session'processStop'params (C.Parsed Session'processStop'params)) where
-    parse raw_ = (Session'processStop'params <$> (GH.parseField #pid raw_)
-                                             <*> (GH.parseField #gracefulTimeoutSec raw_))
-instance (C.Marshal Session'processStop'params (C.Parsed Session'processStop'params)) where
-    marshalInto raw_ Session'processStop'params{..} = (do
-        (GH.encodeField #pid pid raw_)
-        (GH.encodeField #gracefulTimeoutSec gracefulTimeoutSec raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "pid" GH.Slot Session'processStop'params Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 0 32 0)
-instance (GH.HasField "gracefulTimeoutSec" GH.Slot Session'processStop'params Std_.Word32) where
-    fieldByLabel  = (GH.dataField 32 0 32 0)
-data Session'processStop'results 
-type instance (R.ReprFor Session'processStop'results) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'processStop'results) where
-    typeId  = 11350962112209429015
-instance (C.TypedStruct Session'processStop'results) where
-    numStructWords  = 0
-    numStructPtrs  = 1
-instance (C.Allocate Session'processStop'results) where
-    type AllocHint Session'processStop'results = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'processStop'results (C.Parsed Session'processStop'results))
-instance (C.AllocateList Session'processStop'results) where
-    type ListAllocHint Session'processStop'results = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'processStop'results (C.Parsed Session'processStop'results))
-data instance C.Parsed Session'processStop'results
-    = Session'processStop'results 
-        {result :: (RP.Parsed ProcessStopResult)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'processStop'results))
-deriving instance (Std_.Eq (C.Parsed Session'processStop'results))
-instance (C.Parse Session'processStop'results (C.Parsed Session'processStop'results)) where
-    parse raw_ = (Session'processStop'results <$> (GH.parseField #result raw_))
-instance (C.Marshal Session'processStop'results (C.Parsed Session'processStop'results)) where
-    marshalInto raw_ Session'processStop'results{..} = (do
-        (GH.encodeField #result result raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "result" GH.Slot Session'processStop'results ProcessStopResult) where
-    fieldByLabel  = (GH.ptrField 0)
-data Session'processIsAlive'params 
-type instance (R.ReprFor Session'processIsAlive'params) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'processIsAlive'params) where
-    typeId  = 10346172043406008825
-instance (C.TypedStruct Session'processIsAlive'params) where
-    numStructWords  = 1
-    numStructPtrs  = 0
-instance (C.Allocate Session'processIsAlive'params) where
-    type AllocHint Session'processIsAlive'params = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'processIsAlive'params (C.Parsed Session'processIsAlive'params))
-instance (C.AllocateList Session'processIsAlive'params) where
-    type ListAllocHint Session'processIsAlive'params = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'processIsAlive'params (C.Parsed Session'processIsAlive'params))
-data instance C.Parsed Session'processIsAlive'params
-    = Session'processIsAlive'params 
-        {pid :: (RP.Parsed Std_.Int32)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'processIsAlive'params))
-deriving instance (Std_.Eq (C.Parsed Session'processIsAlive'params))
-instance (C.Parse Session'processIsAlive'params (C.Parsed Session'processIsAlive'params)) where
-    parse raw_ = (Session'processIsAlive'params <$> (GH.parseField #pid raw_))
-instance (C.Marshal Session'processIsAlive'params (C.Parsed Session'processIsAlive'params)) where
-    marshalInto raw_ Session'processIsAlive'params{..} = (do
-        (GH.encodeField #pid pid raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "pid" GH.Slot Session'processIsAlive'params Std_.Int32) where
-    fieldByLabel  = (GH.dataField 0 0 32 0)
-data Session'processIsAlive'results 
-type instance (R.ReprFor Session'processIsAlive'results) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'processIsAlive'results) where
-    typeId  = 11461267413760495112
-instance (C.TypedStruct Session'processIsAlive'results) where
-    numStructWords  = 1
-    numStructPtrs  = 0
-instance (C.Allocate Session'processIsAlive'results) where
-    type AllocHint Session'processIsAlive'results = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'processIsAlive'results (C.Parsed Session'processIsAlive'results))
-instance (C.AllocateList Session'processIsAlive'results) where
-    type ListAllocHint Session'processIsAlive'results = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'processIsAlive'results (C.Parsed Session'processIsAlive'results))
-data instance C.Parsed Session'processIsAlive'results
-    = Session'processIsAlive'results 
-        {alive :: (RP.Parsed Std_.Bool)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'processIsAlive'results))
-deriving instance (Std_.Eq (C.Parsed Session'processIsAlive'results))
-instance (C.Parse Session'processIsAlive'results (C.Parsed Session'processIsAlive'results)) where
-    parse raw_ = (Session'processIsAlive'results <$> (GH.parseField #alive raw_))
-instance (C.Marshal Session'processIsAlive'results (C.Parsed Session'processIsAlive'results)) where
-    marshalInto raw_ Session'processIsAlive'results{..} = (do
-        (GH.encodeField #alive alive raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "alive" GH.Slot Session'processIsAlive'results Std_.Bool) where
-    fieldByLabel  = (GH.dataField 0 0 1 0)
 data Session'vmStart'params 
 type instance (R.ReprFor Session'vmStart'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStart'params) where
-    typeId  = 17633964403724124090
+    typeId  = 10823871877857771010
 instance (C.TypedStruct Session'vmStart'params) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -1693,7 +1403,7 @@ instance (GH.HasField "spec" GH.Slot Session'vmStart'params VmSpec) where
 data Session'vmStart'results 
 type instance (R.ReprFor Session'vmStart'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStart'results) where
-    typeId  = 14290231988743062119
+    typeId  = 12248210371593590372
 instance (C.TypedStruct Session'vmStart'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -1723,7 +1433,7 @@ instance (GH.HasField "info" GH.Slot Session'vmStart'results VmRuntimeInfo) wher
 data Session'vmStopGraceful'params 
 type instance (R.ReprFor Session'vmStopGraceful'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStopGraceful'params) where
-    typeId  = 17580761475470500883
+    typeId  = 16142730254105394244
 instance (C.TypedStruct Session'vmStopGraceful'params) where
     numStructWords  = 2
     numStructPtrs  = 0
@@ -1758,7 +1468,7 @@ instance (GH.HasField "timeoutSec" GH.Slot Session'vmStopGraceful'params Std_.Wo
 data Session'vmStopGraceful'results 
 type instance (R.ReprFor Session'vmStopGraceful'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStopGraceful'results) where
-    typeId  = 9521999371041989570
+    typeId  = 11443307811371017683
 instance (C.TypedStruct Session'vmStopGraceful'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -1788,7 +1498,7 @@ instance (GH.HasField "result" GH.Slot Session'vmStopGraceful'results VmStopResu
 data Session'vmStopHard'params 
 type instance (R.ReprFor Session'vmStopHard'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStopHard'params) where
-    typeId  = 11648773013205736465
+    typeId  = 18426405290603545736
 instance (C.TypedStruct Session'vmStopHard'params) where
     numStructWords  = 1
     numStructPtrs  = 0
@@ -1818,7 +1528,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmStopHard'params Std_.Int64) where
 data Session'vmStopHard'results 
 type instance (R.ReprFor Session'vmStopHard'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStopHard'results) where
-    typeId  = 10964512409179261300
+    typeId  = 11350962112209429015
 instance (C.TypedStruct Session'vmStopHard'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -1848,7 +1558,7 @@ instance (GH.HasField "result" GH.Slot Session'vmStopHard'results VmStopResult) 
 data Session'vmPause'params 
 type instance (R.ReprFor Session'vmPause'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmPause'params) where
-    typeId  = 17809974164239182615
+    typeId  = 10346172043406008825
 instance (C.TypedStruct Session'vmPause'params) where
     numStructWords  = 1
     numStructPtrs  = 0
@@ -1878,7 +1588,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmPause'params Std_.Int64) where
 data Session'vmPause'results 
 type instance (R.ReprFor Session'vmPause'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmPause'results) where
-    typeId  = 15442773020073118915
+    typeId  = 11461267413760495112
 instance (C.TypedStruct Session'vmPause'results) where
     numStructWords  = 0
     numStructPtrs  = 0
@@ -1903,7 +1613,7 @@ instance (C.Marshal Session'vmPause'results (C.Parsed Session'vmPause'results)) 
 data Session'vmResume'params 
 type instance (R.ReprFor Session'vmResume'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmResume'params) where
-    typeId  = 13322787620260168359
+    typeId  = 17633964403724124090
 instance (C.TypedStruct Session'vmResume'params) where
     numStructWords  = 1
     numStructPtrs  = 0
@@ -1933,7 +1643,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmResume'params Std_.Int64) where
 data Session'vmResume'results 
 type instance (R.ReprFor Session'vmResume'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmResume'results) where
-    typeId  = 9283104170751054662
+    typeId  = 14290231988743062119
 instance (C.TypedStruct Session'vmResume'results) where
     numStructWords  = 0
     numStructPtrs  = 0
@@ -1958,7 +1668,7 @@ instance (C.Marshal Session'vmResume'results (C.Parsed Session'vmResume'results)
 data Session'vmGuestExec'params 
 type instance (R.ReprFor Session'vmGuestExec'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestExec'params) where
-    typeId  = 13149968643096890336
+    typeId  = 17580761475470500883
 instance (C.TypedStruct Session'vmGuestExec'params) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -1988,7 +1698,7 @@ instance (GH.HasField "req" GH.Slot Session'vmGuestExec'params VmGuestExecReq) w
 data Session'vmGuestExec'results 
 type instance (R.ReprFor Session'vmGuestExec'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmGuestExec'results) where
-    typeId  = 11705289286321711561
+    typeId  = 9521999371041989570
 instance (C.TypedStruct Session'vmGuestExec'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -2018,7 +1728,7 @@ instance (GH.HasField "info" GH.Slot Session'vmGuestExec'results VmGuestExecInfo
 data Session'vmStatus'params 
 type instance (R.ReprFor Session'vmStatus'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStatus'params) where
-    typeId  = 12373475575530691862
+    typeId  = 11648773013205736465
 instance (C.TypedStruct Session'vmStatus'params) where
     numStructWords  = 1
     numStructPtrs  = 0
@@ -2048,7 +1758,7 @@ instance (GH.HasField "vmId" GH.Slot Session'vmStatus'params Std_.Int64) where
 data Session'vmStatus'results 
 type instance (R.ReprFor Session'vmStatus'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmStatus'results) where
-    typeId  = 11436753603730193187
+    typeId  = 10964512409179261300
 instance (C.TypedStruct Session'vmStatus'results) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -2078,7 +1788,7 @@ instance (GH.HasField "status" GH.Slot Session'vmStatus'results VmAgentStatus) w
 data Session'vmSetSpiceTicket'params 
 type instance (R.ReprFor Session'vmSetSpiceTicket'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSetSpiceTicket'params) where
-    typeId  = 12309027465553179158
+    typeId  = 17809974164239182615
 instance (C.TypedStruct Session'vmSetSpiceTicket'params) where
     numStructWords  = 2
     numStructPtrs  = 1
@@ -2118,7 +1828,7 @@ instance (GH.HasField "ttlSeconds" GH.Slot Session'vmSetSpiceTicket'params Std_.
 data Session'vmSetSpiceTicket'results 
 type instance (R.ReprFor Session'vmSetSpiceTicket'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'vmSetSpiceTicket'results) where
-    typeId  = 14315634664360764488
+    typeId  = 15442773020073118915
 instance (C.TypedStruct Session'vmSetSpiceTicket'results) where
     numStructWords  = 0
     numStructPtrs  = 0
@@ -2143,7 +1853,7 @@ instance (C.Marshal Session'vmSetSpiceTicket'results (C.Parsed Session'vmSetSpic
 data Session'subscribeVmStatus'params 
 type instance (R.ReprFor Session'subscribeVmStatus'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'subscribeVmStatus'params) where
-    typeId  = 17700805822514408571
+    typeId  = 13322787620260168359
 instance (C.TypedStruct Session'subscribeVmStatus'params) where
     numStructWords  = 0
     numStructPtrs  = 1
@@ -2173,7 +1883,7 @@ instance (GH.HasField "sink" GH.Slot Session'subscribeVmStatus'params VmStatusSi
 data Session'subscribeVmStatus'results 
 type instance (R.ReprFor Session'subscribeVmStatus'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'subscribeVmStatus'results) where
-    typeId  = 17289518928549847130
+    typeId  = 9283104170751054662
 instance (C.TypedStruct Session'subscribeVmStatus'results) where
     numStructWords  = 0
     numStructPtrs  = 0
@@ -2266,169 +1976,6 @@ instance (C.Parse VmStatusSink'onSnapshot'results (C.Parsed VmStatusSink'onSnaps
     parse raw_ = (Std_.pure VmStatusSink'onSnapshot'results)
 instance (C.Marshal VmStatusSink'onSnapshot'results (C.Parsed VmStatusSink'onSnapshot'results)) where
     marshalInto _raw (VmStatusSink'onSnapshot'results) = (Std_.pure ())
-data ProcessStopResult 
-type instance (R.ReprFor ProcessStopResult) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId ProcessStopResult) where
-    typeId  = 11050615950122041208
-instance (C.TypedStruct ProcessStopResult) where
-    numStructWords  = 1
-    numStructPtrs  = 1
-instance (C.Allocate ProcessStopResult) where
-    type AllocHint ProcessStopResult = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc ProcessStopResult (C.Parsed ProcessStopResult))
-instance (C.AllocateList ProcessStopResult) where
-    type ListAllocHint ProcessStopResult = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc ProcessStopResult (C.Parsed ProcessStopResult))
-data instance C.Parsed ProcessStopResult
-    = ProcessStopResult 
-        {kind :: (RP.Parsed ProcessStopKind)
-        ,message :: (RP.Parsed Basics.Text)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed ProcessStopResult))
-deriving instance (Std_.Eq (C.Parsed ProcessStopResult))
-instance (C.Parse ProcessStopResult (C.Parsed ProcessStopResult)) where
-    parse raw_ = (ProcessStopResult <$> (GH.parseField #kind raw_)
-                                    <*> (GH.parseField #message raw_))
-instance (C.Marshal ProcessStopResult (C.Parsed ProcessStopResult)) where
-    marshalInto raw_ ProcessStopResult{..} = (do
-        (GH.encodeField #kind kind raw_)
-        (GH.encodeField #message message raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "kind" GH.Slot ProcessStopResult ProcessStopKind) where
-    fieldByLabel  = (GH.dataField 0 0 16 0)
-instance (GH.HasField "message" GH.Slot ProcessStopResult Basics.Text) where
-    fieldByLabel  = (GH.ptrField 0)
-data ProcessStopKind 
-    = ProcessStopKind'stoppedGracefully 
-    | ProcessStopKind'stoppedByTerm 
-    | ProcessStopKind'stoppedByKill 
-    | ProcessStopKind'notRunning 
-    | ProcessStopKind'stopFailed 
-    | ProcessStopKind'unknown' Std_.Word16
-    deriving(Std_.Eq
-            ,Std_.Show
-            ,Generics.Generic)
-type instance (R.ReprFor ProcessStopKind) = (R.Data R.Sz16)
-instance (C.HasTypeId ProcessStopKind) where
-    typeId  = 14549351585035316649
-instance (Std_.Enum ProcessStopKind) where
-    toEnum n_ = case n_ of
-        0 ->
-            ProcessStopKind'stoppedGracefully
-        1 ->
-            ProcessStopKind'stoppedByTerm
-        2 ->
-            ProcessStopKind'stoppedByKill
-        3 ->
-            ProcessStopKind'notRunning
-        4 ->
-            ProcessStopKind'stopFailed
-        tag_ ->
-            (ProcessStopKind'unknown' (Std_.fromIntegral tag_))
-    fromEnum value_ = case value_ of
-        (ProcessStopKind'stoppedGracefully) ->
-            0
-        (ProcessStopKind'stoppedByTerm) ->
-            1
-        (ProcessStopKind'stoppedByKill) ->
-            2
-        (ProcessStopKind'notRunning) ->
-            3
-        (ProcessStopKind'stopFailed) ->
-            4
-        (ProcessStopKind'unknown' tag_) ->
-            (Std_.fromIntegral tag_)
-instance (C.IsWord ProcessStopKind) where
-    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
-    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
-instance (C.Parse ProcessStopKind ProcessStopKind) where
-    parse  = GH.parseEnum
-    encode  = GH.encodeEnum
-instance (C.AllocateList ProcessStopKind) where
-    type ListAllocHint ProcessStopKind = Std_.Int
-instance (C.EstimateListAlloc ProcessStopKind ProcessStopKind)
-data VirtiofsdSpawnResult 
-type instance (R.ReprFor VirtiofsdSpawnResult) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId VirtiofsdSpawnResult) where
-    typeId  = 10085310222701904234
-instance (C.TypedStruct VirtiofsdSpawnResult) where
-    numStructWords  = 1
-    numStructPtrs  = 1
-instance (C.Allocate VirtiofsdSpawnResult) where
-    type AllocHint VirtiofsdSpawnResult = ()
-    new _ = C.newTypedStruct
-instance (C.EstimateAlloc VirtiofsdSpawnResult (C.Parsed VirtiofsdSpawnResult))
-instance (C.AllocateList VirtiofsdSpawnResult) where
-    type ListAllocHint VirtiofsdSpawnResult = Std_.Int
-    newList  = C.newTypedStructList
-instance (C.EstimateListAlloc VirtiofsdSpawnResult (C.Parsed VirtiofsdSpawnResult))
-data instance C.Parsed VirtiofsdSpawnResult
-    = VirtiofsdSpawnResult 
-        {kind :: (RP.Parsed VirtiofsdSpawnKind)
-        ,pid :: (RP.Parsed Std_.Int32)
-        ,message :: (RP.Parsed Basics.Text)}
-    deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed VirtiofsdSpawnResult))
-deriving instance (Std_.Eq (C.Parsed VirtiofsdSpawnResult))
-instance (C.Parse VirtiofsdSpawnResult (C.Parsed VirtiofsdSpawnResult)) where
-    parse raw_ = (VirtiofsdSpawnResult <$> (GH.parseField #kind raw_)
-                                       <*> (GH.parseField #pid raw_)
-                                       <*> (GH.parseField #message raw_))
-instance (C.Marshal VirtiofsdSpawnResult (C.Parsed VirtiofsdSpawnResult)) where
-    marshalInto raw_ VirtiofsdSpawnResult{..} = (do
-        (GH.encodeField #kind kind raw_)
-        (GH.encodeField #pid pid raw_)
-        (GH.encodeField #message message raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "kind" GH.Slot VirtiofsdSpawnResult VirtiofsdSpawnKind) where
-    fieldByLabel  = (GH.dataField 0 0 16 0)
-instance (GH.HasField "pid" GH.Slot VirtiofsdSpawnResult Std_.Int32) where
-    fieldByLabel  = (GH.dataField 32 0 32 0)
-instance (GH.HasField "message" GH.Slot VirtiofsdSpawnResult Basics.Text) where
-    fieldByLabel  = (GH.ptrField 0)
-data VirtiofsdSpawnKind 
-    = VirtiofsdSpawnKind'success 
-    | VirtiofsdSpawnKind'spawnFailed 
-    | VirtiofsdSpawnKind'socketNeverAppeared 
-    | VirtiofsdSpawnKind'unknown' Std_.Word16
-    deriving(Std_.Eq
-            ,Std_.Show
-            ,Generics.Generic)
-type instance (R.ReprFor VirtiofsdSpawnKind) = (R.Data R.Sz16)
-instance (C.HasTypeId VirtiofsdSpawnKind) where
-    typeId  = 17628019428222896935
-instance (Std_.Enum VirtiofsdSpawnKind) where
-    toEnum n_ = case n_ of
-        0 ->
-            VirtiofsdSpawnKind'success
-        1 ->
-            VirtiofsdSpawnKind'spawnFailed
-        2 ->
-            VirtiofsdSpawnKind'socketNeverAppeared
-        tag_ ->
-            (VirtiofsdSpawnKind'unknown' (Std_.fromIntegral tag_))
-    fromEnum value_ = case value_ of
-        (VirtiofsdSpawnKind'success) ->
-            0
-        (VirtiofsdSpawnKind'spawnFailed) ->
-            1
-        (VirtiofsdSpawnKind'socketNeverAppeared) ->
-            2
-        (VirtiofsdSpawnKind'unknown' tag_) ->
-            (Std_.fromIntegral tag_)
-instance (C.IsWord VirtiofsdSpawnKind) where
-    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
-    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
-instance (C.Parse VirtiofsdSpawnKind VirtiofsdSpawnKind) where
-    parse  = GH.parseEnum
-    encode  = GH.encodeEnum
-instance (C.AllocateList VirtiofsdSpawnKind) where
-    type ListAllocHint VirtiofsdSpawnKind = Std_.Int
-instance (C.EstimateListAlloc VirtiofsdSpawnKind VirtiofsdSpawnKind)
 data DiskOpResult 
 type instance (R.ReprFor DiskOpResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskOpResult) where

@@ -130,40 +130,9 @@ interface Session {
   # both processes). Only the actual fork/exec happens here.
   # -------------------------------------------------------------------
 
-  # @vmId@ is used solely to compute the runtime directory layout
-  # ($XDG_RUNTIME_DIR/corvus/<vmId>/). The agent mkdir-p's it
-  # before spawning. Returns the PID of the spawned process.
-  processSpawnQemu @15
-    (vmId :Int64, binary :Text, args :List(Text))
-    -> (pid :Int32);
-
-  # Spawn a virtiofsd subprocess. The agent waits up to
-  # @waitForSocketTimeoutMs@ for the named UNIX socket file to
-  # appear; if it doesn't, the spawn is treated as failed and
-  # the agent kills the partial child.
-  processSpawnVirtiofsd @16
-    (binary :Text,
-     args :List(Text),
-     socketPath :Text,
-     waitForSocketTimeoutMs :UInt32)
-    -> (result :VirtiofsdSpawnResult);
-
-  # SIGTERM-then-SIGKILL a previously-spawned child. The agent
-  # remembers the @ProcessHandle@ keyed by PID and waitpid()s
-  # to reap. Idempotent: a PID the agent doesn't know about
-  # (or that's already exited) returns @notRunning@.
-  processStop @17
-    (pid :Int32, gracefulTimeoutSec :UInt32)
-    -> (result :ProcessStopResult);
-
-  # Cheap liveness probe (read /proc/<pid>). Used by the daemon's
-  # VM monitor loop to learn when QEMU has exited.
-  processIsAlive @18 (pid :Int32) -> (alive :Bool);
-
   # -------------------------------------------------------------------
-  # VM lifecycle (replaces the four process-supervision methods
-  # above). The agent owns every subprocess. Daemon submits a
-  # VmSpec; agent generates QEMU argv, spawns virtiofsd iff
+  # VM lifecycle. The agent owns every subprocess. Daemon submits
+  # a VmSpec; agent generates QEMU argv, spawns virtiofsd iff
   # spec.sharedDirs is non-empty, then spawns QEMU; tracks PIDs
   # internally keyed by spec.vmId. Stop / pause / exec methods
   # take only the vmId. PIDs stay agent-private.
@@ -174,38 +143,38 @@ interface Session {
   # spec.waitForGuestAgentMs is non-zero, the agent polls QGA
   # after spawn and only returns once a ping succeeds (or throws
   # on timeout).
-  vmStart @19 (spec :VmSpec) -> (info :VmRuntimeInfo);
+  vmStart @15 (spec :VmSpec) -> (info :VmRuntimeInfo);
 
   # Graceful shutdown: QMP system_powerdown (ACPI), wait up to
   # timeoutSec for QEMU to exit, then drop the ledger entry.
   # Returns 'timeout' if QEMU is still alive when the window ends
   # (caller falls through to vmStopHard).
-  vmStopGraceful @20 (vmId :Int64, timeoutSec :UInt32)
+  vmStopGraceful @16 (vmId :Int64, timeoutSec :UInt32)
     -> (result :VmStopResult);
 
   # Force-stop: SIGTERM-then-SIGKILL the QEMU process and every
   # virtiofsd helper for this vmId. Drops the ledger entry.
-  vmStopHard @21 (vmId :Int64) -> (result :VmStopResult);
+  vmStopHard @17 (vmId :Int64) -> (result :VmStopResult);
 
   # QMP `stop` — freeze CPU execution. VM stays in memory; ledger
   # entry stays in place.
-  vmPause @22 (vmId :Int64) -> ();
+  vmPause @18 (vmId :Int64) -> ();
 
   # QMP `cont` — resume from pause.
-  vmResume @23 (vmId :Int64) -> ();
+  vmResume @19 (vmId :Int64) -> ();
 
   # Execute a command via QGA on the running VM. Agent locates
   # the QGA socket from the ledger entry for req.vmId.
-  vmGuestExec @24 (req :VmGuestExecReq) -> (info :VmGuestExecInfo);
+  vmGuestExec @20 (req :VmGuestExecReq) -> (info :VmGuestExecInfo);
 
   # Per-vmId status probe. Used by the daemon's monitor at
   # reconnect time before the status subscription's first tick
   # fires.
-  vmStatus @25 (vmId :Int64) -> (status :VmAgentStatus);
+  vmStatus @21 (vmId :Int64) -> (status :VmAgentStatus);
 
   # Install a one-time SPICE password via QMP (set_password +
   # expire_password). Daemon picks the password.
-  vmSetSpiceTicket @26
+  vmSetSpiceTicket @22
     (vmId :Int64, password :Text, ttlSeconds :UInt32) -> ();
 
   # Register a status sink. Once subscribed, the agent walks its
@@ -214,41 +183,13 @@ interface Session {
   # `VmStatusSnapshot` per tick covering every VM. Sinks that
   # throw on dispatch are pruned automatically — no explicit
   # unsubscribe. Same shape netd uses for `subscribeEvents`.
-  subscribeVmStatus @27 (sink :VmStatusSink) -> ();
+  subscribeVmStatus @23 (sink :VmStatusSink) -> ();
 }
 
 # Daemon-implemented sink for periodic agent → daemon VM status
 # push. One call per tick (~10 s) per subscriber.
 interface VmStatusSink {
   onSnapshot @0 (snapshot :VmStatusSnapshot) -> ();
-}
-
-# ProcessStopResult mirrors Corvus.Process.StopResult.
-struct ProcessStopResult {
-  kind    @0 :ProcessStopKind;
-  message @1 :Text;
-}
-
-enum ProcessStopKind {
-  stoppedGracefully @0;  # caller's optional pre-stop hook handled it
-  stoppedByTerm     @1;  # exited within graceful window after SIGTERM
-  stoppedByKill     @2;  # required SIGKILL escalation
-  notRunning        @3;  # PID wasn't alive when called
-  stopFailed        @4;  # signalling raised an OS error (text in message)
-}
-
-# VirtiofsdSpawnResult covers the two non-success outcomes
-# specific to virtiofsd spawning.
-struct VirtiofsdSpawnResult {
-  kind    @0 :VirtiofsdSpawnKind;
-  pid     @1 :Int32;     # 0 when kind != success
-  message @2 :Text;      # populated on failure
-}
-
-enum VirtiofsdSpawnKind {
-  success            @0;
-  spawnFailed        @1;   # createProcess raised
-  socketNeverAppeared @2;  # process started but didn't open its socket in time
 }
 
 # DiskOpResult mirrors Corvus.Qemu.Image.ImageResult.

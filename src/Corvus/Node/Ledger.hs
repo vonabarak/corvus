@@ -6,7 +6,7 @@
 -- shutdown; rebuilt by the daemon's on-(re)connect re-apply
 -- loop.
 module Corvus.Node.Ledger
-  ( -- * VM ledger (Phase 3 refactor)
+  ( -- * VM ledger
     VmLedger
   , VmLiveState (..)
   , newVmLedger
@@ -21,16 +21,6 @@ module Corvus.Node.Ledger
   , readDisks
   , insertDisk
   , removeDisk
-
-    -- * Spawned-process ledger (legacy; kept for the surviving
-
-  -- @processSpawn*@ / @processStop@ RPCs until slice D removes
-  -- both the wire and this).
-  , ProcessLedger
-  , newProcessLedger
-  , insertProcess
-  , takeProcess
-  , readProcess
   )
 where
 
@@ -111,27 +101,3 @@ insertDisk l name spec = modifyTVar' (diskVar l) (Map.insert name spec)
 
 removeDisk :: DiskLedger spec -> T.Text -> STM ()
 removeDisk l name = modifyTVar' (diskVar l) (Map.delete name)
-
--- ---------------------------------------------------------------------------
--- Spawned processes (legacy — for processStop / processIsAlive)
-
--- | Map of PID → 'ProcessHandle' for every subprocess the agent
--- spawned this session. Used by the surviving
--- 'processSpawnQemu' / 'processSpawnVirtiofsd' / 'processStop'
--- RPCs that slice D removes.
-newtype ProcessLedger = ProcessLedger
-  { processVar :: TVar (Map.Map Word32 ProcessHandle)
-  }
-
-newProcessLedger :: IO ProcessLedger
-newProcessLedger = ProcessLedger <$> newTVarIO Map.empty
-
-insertProcess :: ProcessLedger -> Word32 -> ProcessHandle -> STM ()
-insertProcess l pid ph = modifyTVar' (processVar l) (Map.insert pid ph)
-
-takeProcess :: ProcessLedger -> Word32 -> STM (Maybe ProcessHandle)
-takeProcess l pid =
-  stateTVar (processVar l) (\m -> (Map.lookup pid m, Map.delete pid m))
-
-readProcess :: ProcessLedger -> Word32 -> STM (Maybe ProcessHandle)
-readProcess l pid = Map.lookup pid <$> readTVar (processVar l)
