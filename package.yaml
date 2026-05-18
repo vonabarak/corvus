@@ -214,6 +214,7 @@ library:
     - Corvus.Node.Ledger
     - Corvus.Node.Cleanup
     - Corvus.Node.CloudInit
+    - Corvus.Node.VmSpec
     - Corvus.Node.Caps.NodeAgent
     - Corvus.Node.Caps.Session
     # Cap'n Proto generated modules (auto-generated from schema/*.capnp).

@@ -27,25 +27,34 @@ where
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
-import Control.Concurrent (forkIO)
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVarIO, writeTVar)
 import qualified Control.Exception as E
-import Control.Monad (void)
+import Control.Monad (forM_, unless, void, when)
+import Data.Either (lefts, rights)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (runStderrLoggingT)
+import Control.Monad.Logger (logWarnN, runStderrLoggingT)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.CloudInit as NCI
+import qualified Corvus.Node.Command as NC
+import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Image as NI
 import qualified Corvus.Node.Ledger as L
+import qualified Corvus.Node.Qmp as NQ
 import qualified Corvus.Node.Runtime as NR
+import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Process as P
-import Corvus.Qemu.Config (QemuConfig, defaultQemuConfig)
+import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Common (handleParsed)
+import qualified Data.ByteString as BS
 import Data.Int (Int32, Int64)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
+import System.Exit (ExitCode (..))
 import System.Posix.Types (CPid (..))
 import System.Process
   ( ProcessHandle
@@ -58,17 +67,27 @@ import System.Process
   , waitForProcess
   )
 
--- | Session state. Holds the process-wide 'ProcessLedger' so the
--- process-supervision methods can map PIDs back to
--- 'ProcessHandle's for reaping. Owner is kept for logs.
+-- | Session state. Holds two process-wide ledgers:
+--
+--   * 'scProcLedger' — legacy PID-keyed map for the surviving
+--     'processSpawnQemu' / 'processSpawnVirtiofsd' / 'processStop'
+--     RPCs (deleted in slice D);
+--   * 'scVmLedger' — vmId-keyed live state for the VM-abstraction
+--     methods (vmStart / vmStop* / vmStatus / vmGuestExec / …).
 data SessionCap = SessionCap
   { scOwner :: !Text
   , scProcLedger :: !L.ProcessLedger
+  , scVmLedger :: !L.VmLedger
   }
 
-newSessionCap :: Text -> L.ProcessLedger -> IO SessionCap
-newSessionCap owner procLedger =
-  pure SessionCap {scOwner = owner, scProcLedger = procLedger}
+newSessionCap :: Text -> L.ProcessLedger -> L.VmLedger -> IO SessionCap
+newSessionCap owner procLedger vmLedger =
+  pure
+    SessionCap
+      { scOwner = owner
+      , scProcLedger = procLedger
+      , scVmLedger = vmLedger
+      }
 
 instance SomeServer SessionCap
 
@@ -293,6 +312,49 @@ instance CGNA.Session'server_ SessionCap where
       let pidW = fromIntegral pidI32 :: Word32
       alive <- P.isProcessAlive (CPid (fromIntegral pidW))
       pure CGNA.Session'processIsAlive'results {CGNA.alive = alive}
+
+  -- ---- VM lifecycle (replaces process-supervision RPCs) -----------------
+
+  session'vmStart sc =
+    handleParsed $ \CGNA.Session'vmStart'params {CGNA.spec = wireSpec} ->
+      handleVmStart sc (decodeVmSpec wireSpec)
+
+  session'vmStopGraceful sc =
+    handleParsed $
+      \CGNA.Session'vmStopGraceful'params
+        { CGNA.vmId = vid
+        , CGNA.timeoutSec = tmo
+        } ->
+          handleVmStopGraceful sc vid tmo
+
+  session'vmStopHard sc =
+    handleParsed $ \CGNA.Session'vmStopHard'params {CGNA.vmId = vid} ->
+      handleVmStopHard sc vid
+
+  session'vmPause sc =
+    handleParsed $ \CGNA.Session'vmPause'params {CGNA.vmId = vid} ->
+      handleVmPause sc vid
+
+  session'vmResume sc =
+    handleParsed $ \CGNA.Session'vmResume'params {CGNA.vmId = vid} ->
+      handleVmResume sc vid
+
+  session'vmGuestExec sc =
+    handleParsed $ \CGNA.Session'vmGuestExec'params {CGNA.req = wireReq} ->
+      handleVmGuestExec sc (decodeVmGuestExecReq wireReq)
+
+  session'vmStatus sc =
+    handleParsed $ \CGNA.Session'vmStatus'params {CGNA.vmId = vid} ->
+      handleVmStatus sc vid
+
+  session'vmSetSpiceTicket sc =
+    handleParsed $
+      \CGNA.Session'vmSetSpiceTicket'params
+        { CGNA.vmId = vid
+        , CGNA.password = pw
+        , CGNA.ttlSeconds = ttl
+        } ->
+          handleVmSetSpiceTicket sc vid pw ttl
 
   -- ---- Cloud-init ----------------------------------------------------------
 
@@ -527,3 +589,595 @@ encodeStopResult r = case r of
       { CGNA.kind = CGNA.ProcessStopKind'stopFailed
       , CGNA.message = msg
       }
+
+-- ---------------------------------------------------------------------------
+-- VM abstraction — decoders + handler bodies
+-- ---------------------------------------------------------------------------
+
+decodeVmSpec :: CGNA.Parsed CGNA.VmSpec -> VS.VmSpec
+decodeVmSpec
+  CGNA.VmSpec
+    { CGNA.vmId = vid
+    , CGNA.name = n
+    , CGNA.cpuCount = c
+    , CGNA.ramMb = r
+    , CGNA.headless = h
+    , CGNA.guestAgent = g
+    , CGNA.vsockCid = vc
+    , CGNA.hasVsockCid = hvc
+    , CGNA.spicePort = sp
+    , CGNA.hasSpicePort = hsp
+    , CGNA.drives = ds
+    , CGNA.netIfs = nis
+    , CGNA.sharedDirs = sds
+    , CGNA.waitForGuestAgentMs = wms
+    } =
+    VS.VmSpec
+      { VS.vsVmId = vid
+      , VS.vsName = n
+      , VS.vsCpuCount = c
+      , VS.vsRamMb = r
+      , VS.vsHeadless = h
+      , VS.vsGuestAgent = g
+      , VS.vsVsockCid = if hvc then Just vc else Nothing
+      , VS.vsSpicePort = if hsp then Just sp else Nothing
+      , VS.vsDrives = map decodeVmDriveSpec ds
+      , VS.vsNetIfs = map decodeVmNetIfSpec nis
+      , VS.vsSharedDirs = map decodeVmSharedDirSpec sds
+      , VS.vsWaitForGuestAgentMs = wms
+      }
+
+decodeVmDriveSpec :: CGNA.Parsed CGNA.VmDriveSpec -> VS.VmDriveSpec
+decodeVmDriveSpec
+  CGNA.VmDriveSpec
+    { CGNA.diskFilePath = p
+    , CGNA.format = fmt
+    , CGNA.ifKind = ik
+    , CGNA.media = md
+    , CGNA.readOnly = ro
+    , CGNA.cache = ca
+    , CGNA.discard = di
+    } =
+    VS.VmDriveSpec
+      { VS.vdsDiskFilePath = p
+      , VS.vdsFormat = fmt
+      , VS.vdsIfKind = ik
+      , VS.vdsMedia = md
+      , VS.vdsReadOnly = ro
+      , VS.vdsCache = ca
+      , VS.vdsDiscard = di
+      }
+
+decodeVmNetIfSpec :: CGNA.Parsed CGNA.VmNetIfSpec -> VS.VmNetIfSpec
+decodeVmNetIfSpec
+  CGNA.VmNetIfSpec
+    { CGNA.ifType = it
+    , CGNA.hostDevice = hd
+    , CGNA.macAddress = ma
+    } =
+    VS.VmNetIfSpec
+      { VS.vnsIfType = it
+      , VS.vnsHostDevice = hd
+      , VS.vnsMacAddress = ma
+      }
+
+decodeVmSharedDirSpec :: CGNA.Parsed CGNA.VmSharedDirSpec -> VS.VmSharedDirSpec
+decodeVmSharedDirSpec
+  CGNA.VmSharedDirSpec
+    { CGNA.hostPath = hp
+    , CGNA.tag = tg
+    , CGNA.cache = ca
+    , CGNA.readOnly = ro
+    } =
+    VS.VmSharedDirSpec
+      { VS.vssHostPath = hp
+      , VS.vssTag = tg
+      , VS.vssCache = ca
+      , VS.vssReadOnly = ro
+      }
+
+decodeVmGuestExecReq :: CGNA.Parsed CGNA.VmGuestExecReq -> VS.VmGuestExecReq
+decodeVmGuestExecReq
+  CGNA.VmGuestExecReq
+    { CGNA.vmId = vid
+    , CGNA.path = p
+    , CGNA.args = as
+    , CGNA.captureOutput = co
+    , CGNA.inputData = i
+    , CGNA.timeoutSec = t
+    } =
+    VS.VmGuestExecReq
+      { VS.vgeVmId = vid
+      , VS.vgePath = p
+      , VS.vgeArgs = as
+      , VS.vgeCaptureOutput = co
+      , VS.vgeInputData = i
+      , VS.vgeTimeoutSec = t
+      }
+
+encodeVmRuntimeInfo :: L.VmLiveState -> CGNA.Parsed CGNA.VmRuntimeInfo
+encodeVmRuntimeInfo live =
+  CGNA.VmRuntimeInfo
+    { CGNA.qemuPid = fromIntegral (L.vlsQemuPid live) :: Int32
+    , CGNA.virtiofsdPids =
+        [fromIntegral pid :: Int32 | (pid, _) <- L.vlsVirtiofsd live]
+    , CGNA.spicePort = L.vlsSpicePort live
+    }
+
+encodeVmStopResult :: VS.VmStopKind -> Text -> CGNA.Parsed CGNA.VmStopResult
+encodeVmStopResult k m =
+  CGNA.VmStopResult
+    { CGNA.kind = case k of
+        VS.VmStopStopped -> CGNA.VmStopKind'stopped
+        VS.VmStopAlreadyStopped -> CGNA.VmStopKind'alreadyStopped
+        VS.VmStopTimeout -> CGNA.VmStopKind'timeout
+        VS.VmStopFailed -> CGNA.VmStopKind'failed
+    , CGNA.message = m
+    }
+
+encodeVmAgentStatus
+  :: VS.VmAgentState -> Int32 -> Int32 -> CGNA.Parsed CGNA.VmAgentStatus
+encodeVmAgentStatus s qpid lec =
+  CGNA.VmAgentStatus
+    { CGNA.state = case s of
+        VS.VmAgentRunning -> CGNA.VmAgentState'running
+        VS.VmAgentStopped -> CGNA.VmAgentState'stopped
+        VS.VmAgentErrored -> CGNA.VmAgentState'errored
+        VS.VmAgentUnknown -> CGNA.VmAgentState'unknown
+    , CGNA.qemuPid = qpid
+    , CGNA.lastExitCode = lec
+    }
+
+encodeVmGuestExecInfo
+  :: NGA.GuestExecResult -> CGNA.Parsed CGNA.VmGuestExecInfo
+encodeVmGuestExecInfo r = case r of
+  NGA.GuestExecSuccess code out err ->
+    CGNA.VmGuestExecInfo
+      { CGNA.exitCode = fromIntegral code :: Int32
+      , CGNA.hasExit = True
+      , CGNA.signal = 0
+      , CGNA.stdout = TE.encodeUtf8 out
+      , CGNA.stderr = TE.encodeUtf8 err
+      }
+  NGA.GuestExecError err ->
+    CGNA.VmGuestExecInfo
+      { CGNA.exitCode = -1
+      , CGNA.hasExit = False
+      , CGNA.signal = 0
+      , CGNA.stdout = BS.empty
+      , CGNA.stderr = TE.encodeUtf8 err
+      }
+  NGA.GuestExecConnectionFailed err ->
+    CGNA.VmGuestExecInfo
+      { CGNA.exitCode = -1
+      , CGNA.hasExit = False
+      , CGNA.signal = 0
+      , CGNA.stdout = BS.empty
+      , CGNA.stderr = TE.encodeUtf8 err
+      }
+
+-- ---------------------------------------------------------------------------
+-- Handler implementations
+
+-- | Spawn QEMU + per-shared-dir virtiofsd helpers, track them in
+-- the ledger, fork an exit reaper, optionally block for first
+-- QGA ping. Idempotent: a re-applied spec for a vmId already in
+-- the ledger is a no-op returning the current runtime info.
+handleVmStart
+  :: SessionCap -> VS.VmSpec -> IO (CGNA.Parsed CGNA.Session'vmStart'results)
+handleVmStart sc spec = do
+  let vmId = VS.vsVmId spec
+      ledger = scVmLedger sc
+  mExisting <- atomically $ L.lookupVm ledger vmId
+  case mExisting of
+    Just live ->
+      pure
+        CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
+    Nothing -> doVmStart sc spec
+
+doVmStart
+  :: SessionCap -> VS.VmSpec -> IO (CGNA.Parsed CGNA.Session'vmStart'results)
+doVmStart sc spec = do
+  let vmId = VS.vsVmId spec
+      cfg = agentQemuConfig
+  _ <- NR.createVmRuntimeDir cfg vmId
+  vmRuntimeDir <- NR.getVmRuntimeDir cfg vmId
+  monitorSock <- NR.getMonitorSocket cfg vmId
+  qmpSock <- NR.getQmpSocket cfg vmId
+  serialSock <- NR.getSerialSocket cfg vmId
+  guestAgentSock <- NR.getGuestAgentSocket cfg vmId
+
+  -- 1. Spawn virtiofsd per shared dir
+  virtiofsdResults <-
+    mapM (spawnVirtiofsdHelper cfg vmRuntimeDir) (VS.vsSharedDirs spec)
+  let virtiofsdEntries = rights virtiofsdResults
+      virtiofsdErrs = lefts virtiofsdResults
+  unless (null virtiofsdErrs) $ do
+    forM_ virtiofsdEntries reapEntryGracefully
+    throwFailed
+      ( "virtiofsd spawn failed for vmId "
+          <> tshow vmId
+          <> ": "
+          <> T.intercalate "; " virtiofsdErrs
+      )
+
+  -- 2. Build QEMU argv and spawn
+  let (binary, args) =
+        NC.buildQemuCommandFromSpec
+          cfg
+          spec
+          monitorSock
+          qmpSock
+          serialSock
+          guestAgentSock
+          vmRuntimeDir
+  spawnResult <-
+    E.try @E.SomeException $
+      createProcess
+        (proc binary args)
+          { std_out = CreatePipe
+          , std_err = CreatePipe
+          }
+  case spawnResult of
+    Left e -> do
+      forM_ virtiofsdEntries reapEntryGracefully
+      throwFailed ("QEMU spawn failed: " <> T.pack (show e))
+    Right (_, _, _, qemuPh) -> do
+      mPid <- getPid qemuPh
+      case mPid of
+        Nothing -> do
+          forM_ virtiofsdEntries reapEntryGracefully
+          void $ E.try @E.SomeException (waitForProcess qemuPh)
+          throwFailed "QEMU spawn returned no PID"
+        Just rawPid -> do
+          let qemuPidW = fromIntegral rawPid :: Word32
+          lastExitVar <- newTVarIO Nothing
+          let live =
+                L.VmLiveState
+                  { L.vlsQemuPid = qemuPidW
+                  , L.vlsQemuHandle = qemuPh
+                  , L.vlsVirtiofsd = virtiofsdEntries
+                  , L.vlsLastExitCode = lastExitVar
+                  , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
+                  }
+          atomically $ L.insertVm (scVmLedger sc) vmId live
+          -- Reaper: waitForProcess QEMU, fill lastExitCode.
+          void $ forkIO $ do
+            r <- E.try @E.SomeException (waitForProcess qemuPh)
+            let code = case r of
+                  Right ExitSuccess -> 0
+                  Right (ExitFailure n) -> n
+                  Left _ -> 1
+            atomically $ writeTVar lastExitVar (Just code)
+          -- Optional: block until first QGA ping succeeds.
+          when (VS.vsWaitForGuestAgentMs spec > 0) $ do
+            ok <-
+              waitForFirstQgaPing cfg vmId (VS.vsWaitForGuestAgentMs spec)
+            unless ok $ do
+              -- Tear down: kill QEMU and virtiofsd, drop ledger
+              -- entry, surface as failure.
+              _ <- atomically $ L.removeVm (scVmLedger sc) vmId
+              _ <-
+                runStderrLoggingT $
+                  P.stopProcess
+                    ("vm-" <> tshow vmId <> "-qemu")
+                    (CPid (fromIntegral qemuPidW))
+                    Nothing
+                    0
+                    5
+              void $ E.try @E.SomeException (waitForProcess qemuPh)
+              forM_ virtiofsdEntries reapEntryGracefully
+              throwFailed
+                ( "QGA ping timeout for vmId "
+                    <> tshow vmId
+                    <> " after "
+                    <> tshow (VS.vsWaitForGuestAgentMs spec)
+                    <> " ms"
+                )
+          pure
+            CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
+
+-- | Spawn one virtiofsd helper for a shared dir. Returns the PID
+-- + 'ProcessHandle' on success, or an error string on failure
+-- (caller cleans up any sibling spawns).
+spawnVirtiofsdHelper
+  :: QemuConfig
+  -> FilePath
+  -> VS.VmSharedDirSpec
+  -> IO (Either Text (Word32, ProcessHandle))
+spawnVirtiofsdHelper cfg vmRuntimeDir d = do
+  let tag = T.unpack (VS.vssTag d)
+      socketPath = vmRuntimeDir <> "/virtiofsd-" <> tag <> ".sock"
+      binary = vfsBinary cfg
+      baseArgs =
+        [ "--socket-path=" <> socketPath
+        , "--shared-dir=" <> T.unpack (VS.vssHostPath d)
+        , "--cache=" <> T.unpack (VS.vssCache d)
+        , "--sandbox=none"
+        ]
+      args
+        | VS.vssReadOnly d = baseArgs <> ["--readonly"]
+        | otherwise = baseArgs
+  spawnResult <-
+    E.try @E.SomeException $
+      createProcess
+        (proc binary args)
+          { std_out = CreatePipe
+          , std_err = CreatePipe
+          }
+  case spawnResult of
+    Left e -> pure $ Left ("virtiofsd " <> T.pack tag <> ": " <> T.pack (show e))
+    Right (_, _, _, ph) -> do
+      mPid <- getPid ph
+      case mPid of
+        Nothing -> do
+          void $ E.try @E.SomeException (waitForProcess ph)
+          pure $ Left ("virtiofsd " <> T.pack tag <> ": no PID")
+        Just rawPid -> do
+          ready <- P.waitForSocketFile socketPath 5000
+          if ready
+            then pure $ Right (fromIntegral rawPid, ph)
+            else do
+              _ <-
+                runStderrLoggingT $
+                  P.stopProcess
+                    ("virtiofsd-partial-" <> T.pack tag)
+                    (CPid (fromIntegral rawPid))
+                    Nothing
+                    0
+                    3
+              void $ E.try @E.SomeException (waitForProcess ph)
+              pure $ Left ("virtiofsd " <> T.pack tag <> ": socket never appeared")
+
+-- | Best-effort termination + reap of a virtiofsd helper.
+reapEntryGracefully :: (Word32, ProcessHandle) -> IO ()
+reapEntryGracefully (pid, ph) = do
+  _ <-
+    runStderrLoggingT $
+      P.stopProcess
+        ("virtiofsd pid=" <> tshow pid)
+        (CPid (fromIntegral pid))
+        Nothing
+        0
+        3
+  void $ E.try @E.SomeException (waitForProcess ph)
+
+-- | Poll QGA every 200 ms up to @timeoutMs@ ms; return 'True' as
+-- soon as one ping succeeds, 'False' on timeout. Used by
+-- 'doVmStart' to block until the guest agent inside the VM is
+-- alive.
+waitForFirstQgaPing :: QemuConfig -> Int64 -> Word32 -> IO Bool
+waitForFirstQgaPing cfg vmId timeoutMs = do
+  conns <- newTVarIO Map.empty
+  go conns (max 0 (fromIntegral timeoutMs) :: Int)
+  where
+    go conns remaining
+      | remaining <= 0 = pure False
+      | otherwise = do
+          ok <- NGA.guestPing conns cfg vmId
+          if ok
+            then pure True
+            else do
+              threadDelay 200000 -- 200 ms
+              go conns (remaining - 200)
+
+-- | Graceful stop: QMP system_powerdown, then poll the reaper's
+-- @vlsLastExitCode@ for up to @timeoutSec@. On exit, also reap
+-- virtiofsd helpers and drop the ledger entry.
+handleVmStopGraceful
+  :: SessionCap
+  -> Int64
+  -> Word32
+  -> IO (CGNA.Parsed CGNA.Session'vmStopGraceful'results)
+handleVmStopGraceful sc vmId timeoutSec = do
+  mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  case mLive of
+    Nothing ->
+      pure
+        CGNA.Session'vmStopGraceful'results
+          { CGNA.result = encodeVmStopResult VS.VmStopAlreadyStopped ""
+          }
+    Just live -> do
+      qmpResult <- NQ.qmpShutdown agentQemuConfig vmId
+      case qmpResult of
+        NQ.QmpSuccess -> pure ()
+        NQ.QmpError err -> runStderrLoggingT $ logQmpErr "system_powerdown" err
+        NQ.QmpConnectionFailed err ->
+          runStderrLoggingT $ logQmpErr "QMP connect" err
+      exited <- pollForExit (L.vlsLastExitCode live) (fromIntegral timeoutSec)
+      if exited
+        then do
+          forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+          _ <- atomically $ L.removeVm (scVmLedger sc) vmId
+          pure
+            CGNA.Session'vmStopGraceful'results
+              { CGNA.result = encodeVmStopResult VS.VmStopStopped ""
+              }
+        else
+          pure
+            CGNA.Session'vmStopGraceful'results
+              { CGNA.result = encodeVmStopResult VS.VmStopTimeout ""
+              }
+  where
+    logQmpErr ctx err =
+      logWarnN
+        ("[nodeagent] vmStopGraceful " <> tshow vmId <> " " <> ctx <> ": " <> err)
+
+-- | Hard stop: SIGTERM-then-SIGKILL QEMU + every virtiofsd
+-- helper. Drops the ledger entry.
+handleVmStopHard
+  :: SessionCap -> Int64 -> IO (CGNA.Parsed CGNA.Session'vmStopHard'results)
+handleVmStopHard sc vmId = do
+  mLive <- atomically $ L.removeVm (scVmLedger sc) vmId
+  case mLive of
+    Nothing ->
+      pure
+        CGNA.Session'vmStopHard'results
+          { CGNA.result = encodeVmStopResult VS.VmStopAlreadyStopped ""
+          }
+    Just live -> do
+      _ <-
+        runStderrLoggingT $
+          P.stopProcess
+            ("vm-" <> tshow vmId <> "-qemu")
+            (CPid (fromIntegral (L.vlsQemuPid live)))
+            Nothing
+            0
+            5
+      void $ E.try @E.SomeException (waitForProcess (L.vlsQemuHandle live))
+      forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+      pure
+        CGNA.Session'vmStopHard'results
+          { CGNA.result = encodeVmStopResult VS.VmStopStopped ""
+          }
+
+-- | QMP @stop@ — freeze CPUs.
+handleVmPause
+  :: SessionCap -> Int64 -> IO (CGNA.Parsed CGNA.Session'vmPause'results)
+handleVmPause sc vmId = do
+  mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  case mLive of
+    Nothing -> throwFailed ("vmPause: unknown vmId " <> tshow vmId)
+    Just _ -> do
+      r <- NQ.qmpStop agentQemuConfig vmId
+      case r of
+        NQ.QmpSuccess -> pure CGNA.Session'vmPause'results
+        NQ.QmpError err -> throwFailed ("qmpStop: " <> err)
+        NQ.QmpConnectionFailed err ->
+          throwFailed ("qmpStop connect: " <> err)
+
+-- | QMP @cont@ — unpause.
+handleVmResume
+  :: SessionCap -> Int64 -> IO (CGNA.Parsed CGNA.Session'vmResume'results)
+handleVmResume sc vmId = do
+  mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  case mLive of
+    Nothing -> throwFailed ("vmResume: unknown vmId " <> tshow vmId)
+    Just _ -> do
+      r <- NQ.qmpContinue agentQemuConfig vmId
+      case r of
+        NQ.QmpSuccess -> pure CGNA.Session'vmResume'results
+        NQ.QmpError err -> throwFailed ("qmpContinue: " <> err)
+        NQ.QmpConnectionFailed err ->
+          throwFailed ("qmpContinue connect: " <> err)
+
+-- | Execute a command via QGA. The agent locates the QGA socket
+-- from the VM's runtime layout; a fresh 'GuestAgentConns' is
+-- allocated per call for slice A (slice C introduces an
+-- agent-wide persistent cache when the status poller arrives).
+handleVmGuestExec
+  :: SessionCap
+  -> VS.VmGuestExecReq
+  -> IO (CGNA.Parsed CGNA.Session'vmGuestExec'results)
+handleVmGuestExec sc req = do
+  let vmId = VS.vgeVmId req
+  mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  case mLive of
+    Nothing -> throwFailed ("vmGuestExec: unknown vmId " <> tshow vmId)
+    Just _ -> do
+      conns <- newTVarIO Map.empty
+      let cmd =
+            T.intercalate
+              " "
+              (VS.vgePath req : VS.vgeArgs req)
+      result <-
+        if BS.null (VS.vgeInputData req)
+          then NGA.guestExec conns agentQemuConfig vmId cmd
+          else
+            NGA.guestExecWithStdin
+              conns
+              agentQemuConfig
+              vmId
+              cmd
+              (VS.vgeInputData req)
+              600
+      pure
+        CGNA.Session'vmGuestExec'results
+          { CGNA.info = encodeVmGuestExecInfo result
+          }
+
+handleVmStatus
+  :: SessionCap -> Int64 -> IO (CGNA.Parsed CGNA.Session'vmStatus'results)
+handleVmStatus sc vmId = do
+  mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  case mLive of
+    Nothing ->
+      pure
+        CGNA.Session'vmStatus'results
+          { CGNA.status = encodeVmAgentStatus VS.VmAgentUnknown 0 0
+          }
+    Just live -> do
+      mExit <- readTVarIO (L.vlsLastExitCode live)
+      let qpid = fromIntegral (L.vlsQemuPid live) :: Int32
+      case mExit of
+        Nothing ->
+          pure
+            CGNA.Session'vmStatus'results
+              { CGNA.status = encodeVmAgentStatus VS.VmAgentRunning qpid 0
+              }
+        Just 0 ->
+          pure
+            CGNA.Session'vmStatus'results
+              { CGNA.status = encodeVmAgentStatus VS.VmAgentStopped qpid 0
+              }
+        Just code ->
+          pure
+            CGNA.Session'vmStatus'results
+              { CGNA.status =
+                  encodeVmAgentStatus
+                    VS.VmAgentErrored
+                    qpid
+                    (fromIntegral code)
+              }
+
+handleVmSetSpiceTicket
+  :: SessionCap
+  -> Int64
+  -> Text
+  -> Word32
+  -> IO (CGNA.Parsed CGNA.Session'vmSetSpiceTicket'results)
+handleVmSetSpiceTicket sc vmId password ttlSeconds = do
+  mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  case mLive of
+    Nothing -> throwFailed ("vmSetSpiceTicket: unknown vmId " <> tshow vmId)
+    Just _ -> do
+      r1 <- NQ.qmpSetSpicePassword agentQemuConfig vmId password
+      case r1 of
+        NQ.QmpSuccess -> do
+          r2 <-
+            NQ.qmpExpireSpicePassword
+              agentQemuConfig
+              vmId
+              (fromIntegral ttlSeconds)
+          case r2 of
+            NQ.QmpSuccess -> pure CGNA.Session'vmSetSpiceTicket'results
+            NQ.QmpError err ->
+              throwFailed ("qmpExpireSpicePassword: " <> err)
+            NQ.QmpConnectionFailed err ->
+              throwFailed ("qmpExpireSpicePassword connect: " <> err)
+        NQ.QmpError err -> throwFailed ("qmpSetSpicePassword: " <> err)
+        NQ.QmpConnectionFailed err ->
+          throwFailed ("qmpSetSpicePassword connect: " <> err)
+
+-- ---------------------------------------------------------------------------
+-- Tiny helpers
+
+-- | Poll @vlsLastExitCode@ every 100 ms until non-Nothing or
+-- timeout. Returns 'True' when the reaper has filled the var
+-- (i.e. QEMU has exited), 'False' on timeout.
+pollForExit :: TVar (Maybe Int) -> Int -> IO Bool
+pollForExit var timeoutSec = go (max 0 timeoutSec * 10)
+  where
+    go remaining
+      | remaining <= 0 = isJust <$> readTVarIO var
+      | otherwise = do
+          mExit <- readTVarIO var
+          case mExit of
+            Just _ -> pure True
+            Nothing -> threadDelay 100000 >> go (remaining - 1)
+
+vfsBinary :: QemuConfig -> FilePath
+vfsBinary = qcVirtiofsdBinary
+
+tshow :: (Show a) => a -> Text
+tshow = T.pack . show

@@ -14,6 +14,9 @@ module Corvus.Node.Command
   , driveArgs
   , netArgs
   , sharedDirArgs
+
+    -- * VM-abstraction entry point
+  , buildQemuCommandFromSpec
   )
 where
 
@@ -28,6 +31,7 @@ import Corvus.Node.Runtime
   , getSerialSocket
   , getVmRuntimeDir
   )
+import qualified Corvus.Node.VmSpec as VS
 import Corvus.Qemu.Config
   ( QemuConfig (..)
   , getEffectiveBasePath
@@ -465,3 +469,229 @@ resolveNetIfDevice mAgent (Entity ifaceKey netIf) =
           -- the failure back into VM start more gracefully.
           pure netIf
     _ -> pure netIf
+
+--------------------------------------------------------------------------------
+-- VM-abstraction command builder
+--------------------------------------------------------------------------------
+
+-- | Build the QEMU argv from a wire-level 'VS.VmSpec'. Mirrors
+-- 'buildCommandWithSockets' but operates on the spec record types
+-- (no DB types, no DB pool, no netd interaction — the daemon
+-- pre-resolves managed-NIC TAP names before sending the spec).
+--
+-- The agent feeds the result straight to 'createProcess'.
+buildQemuCommandFromSpec
+  :: QemuConfig
+  -> VS.VmSpec
+  -> FilePath
+  -- ^ monitor socket
+  -> FilePath
+  -- ^ QMP socket
+  -> FilePath
+  -- ^ serial socket
+  -> FilePath
+  -- ^ guest-agent socket
+  -> FilePath
+  -- ^ VM runtime dir (for virtiofsd chardev paths)
+  -> (FilePath, [String])
+buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir =
+  ( qcQemuBinary
+  , concatMap
+      (filter (not . null))
+      [ ["-name", T.unpack (VS.vsName spec) ++ ",process=corvus-vm-" ++ show (VS.vsVmId spec)]
+      , ["-machine", "type=q35,accel=kvm"]
+      , ["-cpu", "host"]
+      , ["-enable-kvm"]
+      , memoryArgs
+      , ["-smp", show (VS.vsCpuCount spec)]
+      , hotplugPortArgs
+      , vsockArgs
+      , guestAgentArgs
+      , displayArgs
+      , monitorArgs
+      , concatMap driveArgsSpec (zip [0 ..] (VS.vsDrives spec))
+      , concatMap netArgsSpec (zip [0 ..] (VS.vsNetIfs spec))
+      , concatMap sharedDirArgsSpec (zip [0 ..] (VS.vsSharedDirs spec))
+      ]
+  )
+  where
+    memSize = fromMaybe (show (VS.vsRamMb spec) ++ "M") qcSharedMemSize
+    memoryArgs
+      | null (VS.vsSharedDirs spec) = ["-m", show (VS.vsRamMb spec)]
+      | otherwise =
+          [ "-m"
+          , show (VS.vsRamMb spec)
+          , "-object"
+          , "memory-backend-memfd,id=mem,size=" ++ memSize ++ ",share=on"
+          , "-numa"
+          , "node,memdev=mem"
+          ]
+
+    hotplugPortArgs =
+      [ "-device"
+      , "pcie-root-port,id=hotplug-rp,chassis=0,slot=0"
+      , "-device"
+      , "pcie-pci-bridge,id=hotplug,bus=hotplug-rp"
+      ]
+
+    vsockArgs = case VS.vsVsockCid spec of
+      Just cid ->
+        [ "-device"
+        , "vhost-vsock-pci,guest-cid=" ++ show cid ++ ",id=vsock0"
+        ]
+      Nothing -> []
+
+    guestAgentArgs =
+      [ "-device"
+      , "virtio-serial,id=virtio-serial0"
+      , "-chardev"
+      , "socket,id=qga0,path=" ++ guestAgentSock ++ ",server=on,wait=off"
+      , "-device"
+      , "virtserialport,chardev=qga0,name=org.qemu.guest_agent.0"
+      ]
+
+    displayArgs
+      | VS.vsHeadless spec = serialConsoleArgs
+      | otherwise = spiceArgs ++ usbRedirArgs
+
+    spicePort = fromMaybe 0 (VS.vsSpicePort spec)
+
+    serialConsoleArgs =
+      [ "-chardev"
+      , "socket,id=serial0,path=" ++ serialSock ++ ",server=on,wait=off"
+      , "-serial"
+      , "chardev:serial0"
+      , "-display"
+      , "none"
+      , "-vga"
+      , "none"
+      ]
+
+    spiceArgs =
+      [ "-spice"
+      , "addr="
+          ++ T.unpack qcSpiceBindAddress
+          ++ ",port="
+          ++ show spicePort
+          ++ ",disable-ticketing=off"
+      , "-chardev"
+      , "spicevmc,id=vdagent,name=vdagent"
+      , "-device"
+      , "virtio-vga"
+      , "-device"
+      , "virtserialport,chardev=vdagent,name=com.redhat.spice.0"
+      ]
+
+    usbRedirArgs =
+      [ "-device"
+      , "nec-usb-xhci,id=xhci"
+      , "-chardev"
+      , "spicevmc,id=usbredirchardev1,name=usbredir"
+      , "-device"
+      , "usb-redir,chardev=usbredirchardev1,id=usbredirdev1"
+      , "-chardev"
+      , "spicevmc,id=usbredirchardev2,name=usbredir"
+      , "-device"
+      , "usb-redir,chardev=usbredirchardev2,id=usbredirdev2"
+      , "-chardev"
+      , "spicevmc,id=usbredirchardev3,name=usbredir"
+      , "-device"
+      , "usb-redir,chardev=usbredirchardev3,id=usbredirdev3"
+      ]
+
+    monitorArgs =
+      [ "-monitor"
+      , "unix:" ++ monitorSock ++ ",server,nowait"
+      , "-qmp"
+      , "unix:" ++ qmpSock ++ ",server,nowait"
+      ]
+
+    sharedDirArgsSpec :: (Int, VS.VmSharedDirSpec) -> [String]
+    sharedDirArgsSpec (idx, d) =
+      let charId = "virtiofs" ++ show idx
+          tag = T.unpack (VS.vssTag d)
+          socketPath = vmRuntimeDir </> "virtiofsd-" ++ tag ++ ".sock"
+       in [ "-chardev"
+          , "socket,id=" ++ charId ++ ",path=" ++ socketPath
+          , "-device"
+          , "vhost-user-fs-pci,chardev=" ++ charId ++ ",tag=" ++ tag
+          ]
+
+-- | Per-drive argv assembly for 'buildQemuCommandFromSpec'.
+-- Mirrors the legacy 'driveArgs' but reads from the wire-level
+-- 'VS.VmDriveSpec' (which already carries an absolute
+-- 'vdsDiskFilePath' — the daemon resolved it from the DB).
+driveArgsSpec :: (Int, VS.VmDriveSpec) -> [String]
+driveArgsSpec (_idx, d) =
+  let ifKind = T.unpack (VS.vdsIfKind d)
+      readOnlyFlag =
+        if VS.vdsReadOnly d then Just "readonly=on" else Nothing
+      formatStr = T.unpack (VS.vdsFormat d)
+   in case ifKind of
+        "pflash" ->
+          [ "-drive"
+          , intercalate "," $
+              catMaybes
+                [ Just $ "file=" ++ T.unpack (VS.vdsDiskFilePath d)
+                , Just $ "format=" ++ formatStr
+                , Just "if=pflash"
+                , readOnlyFlag
+                ]
+          ]
+        "floppy" ->
+          [ "-drive"
+          , intercalate "," $
+              catMaybes
+                [ Just $ "file=" ++ T.unpack (VS.vdsDiskFilePath d)
+                , Just $ "format=" ++ formatStr
+                , Just "if=floppy"
+                , readOnlyFlag
+                ]
+          ]
+        _ ->
+          [ "-drive"
+          , intercalate "," $
+              catMaybes
+                [ Just $ "file=" ++ T.unpack (VS.vdsDiskFilePath d)
+                , Just $ "format=" ++ formatStr
+                , Just $ "if=" ++ ifForQemu ifKind
+                , case T.unpack (VS.vdsMedia d) of
+                    "" -> Nothing
+                    m -> Just $ "media=" ++ m
+                , Just $ "cache=" ++ T.unpack (VS.vdsCache d)
+                , if VS.vdsDiscard d
+                    then Just "discard=on"
+                    else Just "discard=off"
+                , readOnlyFlag
+                ]
+          ]
+  where
+    ifForQemu "nvme" = "none" -- NVMe uses -device instead
+    ifForQemu other = other
+
+-- | Per-NIC argv assembly for 'buildQemuCommandFromSpec'.
+-- For managed NICs the daemon's @assembleVmSpec@ pre-resolves the
+-- TAP name via netd, so @vnsHostDevice@ is the persistent TAP
+-- ifname by the time the agent sees the spec — no agent ↔ netd
+-- cross-talk needed.
+netArgsSpec :: (Int, VS.VmNetIfSpec) -> [String]
+netArgsSpec (idx, n) =
+  let netId = "net" ++ show idx
+      hostDev = T.unpack (VS.vnsHostDevice n)
+      mac = T.unpack (VS.vnsMacAddress n)
+      netdev = case T.unpack (VS.vnsIfType n) of
+        "user" ->
+          let userOpts = if null hostDev then "" else "," ++ hostDev
+           in ["-netdev", "user,id=" ++ netId ++ userOpts]
+        "tap" ->
+          ["-netdev", "tap,id=" ++ netId ++ ",ifname=" ++ hostDev ++ ",script=no,downscript=no"]
+        "bridge" ->
+          ["-netdev", "bridge,id=" ++ netId ++ ",br=" ++ hostDev]
+        "macvtap" ->
+          ["-netdev", "tap,id=" ++ netId ++ ",fd=3"]
+        "vde" ->
+          ["-netdev", "vde,id=" ++ netId ++ ",sock=" ++ hostDev]
+        "managed" ->
+          ["-netdev", "tap,id=" ++ netId ++ ",ifname=" ++ hostDev ++ ",script=no,downscript=no"]
+        _ -> []
+   in netdev ++ ["-device", "virtio-net-pci,netdev=" ++ netId ++ ",mac=" ++ mac]

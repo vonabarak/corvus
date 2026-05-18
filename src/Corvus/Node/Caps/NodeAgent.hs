@@ -29,15 +29,23 @@ import qualified Data.Text as T
 import Supervisors (Supervisor)
 
 -- | Bootstrap-cap state. Holds the supervisor for child caps and
--- the process-wide ledger of spawned subprocesses.
+-- the two process-wide ledgers (legacy PID-keyed for the
+-- surviving @processSpawn*@ / @processStop@ surface; vmId-keyed
+-- for the VM-abstraction surface).
 data NodeAgentCap = NodeAgentCap
   { nacSup :: !Supervisor
   , nacProcLedger :: !L.ProcessLedger
+  , nacVmLedger :: !L.VmLedger
   }
 
-newNodeAgentCap :: Supervisor -> L.ProcessLedger -> IO NodeAgentCap
-newNodeAgentCap sup procLedger =
-  pure NodeAgentCap {nacSup = sup, nacProcLedger = procLedger}
+newNodeAgentCap :: Supervisor -> L.ProcessLedger -> L.VmLedger -> IO NodeAgentCap
+newNodeAgentCap sup procLedger vmLedger =
+  pure
+    NodeAgentCap
+      { nacSup = sup
+      , nacProcLedger = procLedger
+      , nacVmLedger = vmLedger
+      }
 
 instance SomeServer NodeAgentCap
 
@@ -58,7 +66,7 @@ instance CGNA.NodeAgent'server_ NodeAgentCap where
   nodeAgent'session nac =
     handleParsed $ \CGNA.NodeAgent'session'params {CGNA.owner = owner} -> do
       logLine ("session owner=" <> owner)
-      impl <- newSessionCap owner (nacProcLedger nac)
+      impl <- newSessionCap owner (nacProcLedger nac) (nacVmLedger nac)
       client <- export @CGNA.Session (nacSup nac) impl
       pure CGNA.NodeAgent'session'results {CGNA.session = client}
 

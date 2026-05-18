@@ -158,6 +158,7 @@ library
       Corvus.Node.Ledger
       Corvus.Node.Cleanup
       Corvus.Node.CloudInit
+      Corvus.Node.VmSpec
       Corvus.Node.Caps.NodeAgent
       Corvus.Node.Caps.Session
       Capnp.Gen.Corvus

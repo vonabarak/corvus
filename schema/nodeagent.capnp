@@ -159,6 +159,54 @@ interface Session {
   # Cheap liveness probe (read /proc/<pid>). Used by the daemon's
   # VM monitor loop to learn when QEMU has exited.
   processIsAlive @18 (pid :Int32) -> (alive :Bool);
+
+  # -------------------------------------------------------------------
+  # VM lifecycle (replaces the four process-supervision methods
+  # above). The agent owns every subprocess. Daemon submits a
+  # VmSpec; agent generates QEMU argv, spawns virtiofsd iff
+  # spec.sharedDirs is non-empty, then spawns QEMU; tracks PIDs
+  # internally keyed by spec.vmId. Stop / pause / exec methods
+  # take only the vmId. PIDs stay agent-private.
+  # -------------------------------------------------------------------
+
+  # Start a VM. Idempotent: if spec.vmId is already in the ledger,
+  # returns its current VmRuntimeInfo without re-spawning. When
+  # spec.waitForGuestAgentMs is non-zero, the agent polls QGA
+  # after spawn and only returns once a ping succeeds (or throws
+  # on timeout).
+  vmStart @19 (spec :VmSpec) -> (info :VmRuntimeInfo);
+
+  # Graceful shutdown: QMP system_powerdown (ACPI), wait up to
+  # timeoutSec for QEMU to exit, then drop the ledger entry.
+  # Returns 'timeout' if QEMU is still alive when the window ends
+  # (caller falls through to vmStopHard).
+  vmStopGraceful @20 (vmId :Int64, timeoutSec :UInt32)
+    -> (result :VmStopResult);
+
+  # Force-stop: SIGTERM-then-SIGKILL the QEMU process and every
+  # virtiofsd helper for this vmId. Drops the ledger entry.
+  vmStopHard @21 (vmId :Int64) -> (result :VmStopResult);
+
+  # QMP `stop` — freeze CPU execution. VM stays in memory; ledger
+  # entry stays in place.
+  vmPause @22 (vmId :Int64) -> ();
+
+  # QMP `cont` — resume from pause.
+  vmResume @23 (vmId :Int64) -> ();
+
+  # Execute a command via QGA on the running VM. Agent locates
+  # the QGA socket from the ledger entry for req.vmId.
+  vmGuestExec @24 (req :VmGuestExecReq) -> (info :VmGuestExecInfo);
+
+  # Per-vmId status probe. Used by the daemon's monitor at
+  # reconnect time before the status subscription's first tick
+  # fires.
+  vmStatus @25 (vmId :Int64) -> (status :VmAgentStatus);
+
+  # Install a one-time SPICE password via QMP (set_password +
+  # expire_password). Daemon picks the password.
+  vmSetSpiceTicket @26
+    (vmId :Int64, password :Text, ttlSeconds :UInt32) -> ();
 }
 
 # ProcessStopResult mirrors Corvus.Process.StopResult.
@@ -216,4 +264,109 @@ struct DiskSnapshotInfo {
   name    @1 :Text;
   sizeMb  @2 :Int64;   # 0 if unknown
   hasSize @3 :Bool;
+}
+
+# ---------------------------------------------------------------------
+# VM abstraction (Phase 3 refactor)
+# ---------------------------------------------------------------------
+
+# VmSpec carries everything the agent needs to build the QEMU argv,
+# decide whether to spawn virtiofsd, and reach the VM's runtime
+# sockets. The daemon assembles it from DB rows; the agent never
+# queries the DB.
+struct VmSpec {
+  vmId             @0  :Int64;
+  name             @1  :Text;
+  cpuCount         @2  :Int32;
+  ramMb            @3  :Int32;
+  headless         @4  :Bool;
+  guestAgent       @5  :Bool;
+  vsockCid         @6  :UInt32;    # 0 when no vsock
+  hasVsockCid      @7  :Bool;
+  spicePort        @8  :Int32;     # 0 when no spice
+  hasSpicePort     @9  :Bool;
+  drives           @10 :List(VmDriveSpec);
+  netIfs           @11 :List(VmNetIfSpec);
+  sharedDirs       @12 :List(VmSharedDirSpec);
+  # When non-zero, the agent polls QGA after spawn and only
+  # returns from vmStart once a ping succeeds. Throws on timeout.
+  # Daemon sets a positive value for guestAgent-enabled VMs so
+  # `crv vm start --wait` blocks until QGA is reachable.
+  waitForGuestAgentMs @13 :UInt32;
+}
+
+struct VmDriveSpec {
+  diskFilePath @0 :Text;   # absolute path
+  format       @1 :Text;   # "qcow2" / "raw" / "vmdk" / ...
+  ifKind       @2 :Text;   # "virtio" / "ide" / "scsi" / "none"
+  media        @3 :Text;   # "disk" / "cdrom" (empty = disk)
+  readOnly     @4 :Bool;
+  cache        @5 :Text;   # "none" / "writeback" / ...
+  discard      @6 :Bool;
+}
+
+struct VmNetIfSpec {
+  ifType     @0 :Text;     # "user" / "tap" / "bridge" / "macvtap" / "managed"
+  hostDevice @1 :Text;     # resolved TAP / bridge name; daemon
+                           # populates from netd for managed NICs
+  macAddress @2 :Text;
+}
+
+struct VmSharedDirSpec {
+  hostPath @0 :Text;
+  tag      @1 :Text;
+  cache    @2 :Text;       # "auto" / "always" / "never"
+  readOnly @3 :Bool;
+}
+
+# Runtime info returned by vmStart and queryable thereafter.
+struct VmRuntimeInfo {
+  qemuPid       @0 :Int32;
+  virtiofsdPids @1 :List(Int32);
+  spicePort     @2 :Int32;   # echoed back from spec; 0 if none
+}
+
+# Result of stop operations.
+struct VmStopResult {
+  kind    @0 :VmStopKind;
+  message @1 :Text;
+}
+
+enum VmStopKind {
+  stopped        @0;   # QEMU exited; virtiofsd helpers reaped
+  alreadyStopped @1;   # vmId wasn't in the ledger
+  timeout        @2;   # graceful path exceeded timeoutSec
+  failed         @3;   # signalling raised; message has details
+}
+
+# Per-vmId status probe.
+struct VmAgentStatus {
+  state        @0 :VmAgentState;
+  qemuPid      @1 :Int32;   # 0 if not running
+  lastExitCode @2 :Int32;   # populated for stopped/errored
+}
+
+enum VmAgentState {
+  running @0;
+  stopped @1;   # exited cleanly
+  errored @2;   # exited non-zero
+  unknown @3;   # not in ledger
+}
+
+# QGA exec request/response.
+struct VmGuestExecReq {
+  vmId          @0 :Int64;
+  path          @1 :Text;          # binary
+  args          @2 :List(Text);
+  captureOutput @3 :Bool;
+  inputData     @4 :Data;          # empty = no stdin
+  timeoutSec    @5 :UInt32;        # 0 = use agent default
+}
+
+struct VmGuestExecInfo {
+  exitCode @0 :Int32;
+  hasExit  @1 :Bool;               # false = still running after timeoutSec
+  signal   @2 :Int32;              # 0 = no signal
+  stdout   @3 :Data;
+  stderr   @4 :Data;
 }

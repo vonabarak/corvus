@@ -66,6 +66,27 @@ module Corvus.NodeAgentClient
   , processSpawnVirtiofsd
   , processStop
   , processIsAlive
+
+    -- * VM abstraction (replaces process-supervision RPCs)
+  , VmSpec (..)
+  , VmDriveSpec (..)
+  , VmNetIfSpec (..)
+  , VmSharedDirSpec (..)
+  , VmRuntimeInfo (..)
+  , VmStopResult (..)
+  , VmStopKind (..)
+  , VmAgentStatus (..)
+  , VmAgentState (..)
+  , VmGuestExecReq (..)
+  , VmGuestExecInfo (..)
+  , vmStart
+  , vmStopGraceful
+  , vmStopHard
+  , vmPause
+  , vmResume
+  , vmGuestExec
+  , vmStatus
+  , vmSetSpiceTicket
   )
 where
 
@@ -82,10 +103,25 @@ import qualified Control.Exception as E
 import qualified Data.Default as Def
 import Data.Function ((&))
 import Data.Int (Int32, Int64)
+import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
 import Data.Word (Word32)
 import qualified Network.Socket as NS
 import Supervisors (Supervisor, withSupervisor)
+
+import Corvus.Node.VmSpec
+  ( VmAgentState (..)
+  , VmAgentStatus (..)
+  , VmDriveSpec (..)
+  , VmGuestExecInfo (..)
+  , VmGuestExecReq (..)
+  , VmNetIfSpec (..)
+  , VmRuntimeInfo (..)
+  , VmSharedDirSpec (..)
+  , VmSpec (..)
+  , VmStopKind (..)
+  , VmStopResult (..)
+  )
 
 -- ---------------------------------------------------------------------------
 -- Client handle + lifecycle
@@ -628,3 +664,218 @@ processIsAlive nac pid = remote $ do
       CGNA.Session'processIsAlive'params {CGNA.pid = fromIntegral pid :: Int32}
       (nacSession nac)
   pure a
+
+-- ---------------------------------------------------------------------------
+-- VM abstraction — wire types are defined in "Corvus.Node.VmSpec"
+-- and re-exported above so the daemon-side client surface is
+-- self-contained.
+
+-- ---------------------------------------------------------------------------
+-- Encoders / decoders for VM abstraction wire types.
+
+encodeVmSpec :: VmSpec -> CGNA.Parsed CGNA.VmSpec
+encodeVmSpec s =
+  CGNA.VmSpec
+    { CGNA.vmId = vsVmId s
+    , CGNA.name = vsName s
+    , CGNA.cpuCount = vsCpuCount s
+    , CGNA.ramMb = vsRamMb s
+    , CGNA.headless = vsHeadless s
+    , CGNA.guestAgent = vsGuestAgent s
+    , CGNA.vsockCid = fromMaybe 0 (vsVsockCid s)
+    , CGNA.hasVsockCid = isJust (vsVsockCid s)
+    , CGNA.spicePort = fromMaybe 0 (vsSpicePort s)
+    , CGNA.hasSpicePort = isJust (vsSpicePort s)
+    , CGNA.drives = map encodeVmDriveSpec (vsDrives s)
+    , CGNA.netIfs = map encodeVmNetIfSpec (vsNetIfs s)
+    , CGNA.sharedDirs = map encodeVmSharedDirSpec (vsSharedDirs s)
+    , CGNA.waitForGuestAgentMs = vsWaitForGuestAgentMs s
+    }
+
+encodeVmDriveSpec :: VmDriveSpec -> CGNA.Parsed CGNA.VmDriveSpec
+encodeVmDriveSpec d =
+  CGNA.VmDriveSpec
+    { CGNA.diskFilePath = vdsDiskFilePath d
+    , CGNA.format = vdsFormat d
+    , CGNA.ifKind = vdsIfKind d
+    , CGNA.media = vdsMedia d
+    , CGNA.readOnly = vdsReadOnly d
+    , CGNA.cache = vdsCache d
+    , CGNA.discard = vdsDiscard d
+    }
+
+encodeVmNetIfSpec :: VmNetIfSpec -> CGNA.Parsed CGNA.VmNetIfSpec
+encodeVmNetIfSpec n =
+  CGNA.VmNetIfSpec
+    { CGNA.ifType = vnsIfType n
+    , CGNA.hostDevice = vnsHostDevice n
+    , CGNA.macAddress = vnsMacAddress n
+    }
+
+encodeVmSharedDirSpec :: VmSharedDirSpec -> CGNA.Parsed CGNA.VmSharedDirSpec
+encodeVmSharedDirSpec s =
+  CGNA.VmSharedDirSpec
+    { CGNA.hostPath = vssHostPath s
+    , CGNA.tag = vssTag s
+    , CGNA.cache = vssCache s
+    , CGNA.readOnly = vssReadOnly s
+    }
+
+decodeVmRuntimeInfo :: CGNA.Parsed CGNA.VmRuntimeInfo -> VmRuntimeInfo
+decodeVmRuntimeInfo
+  CGNA.VmRuntimeInfo
+    { CGNA.qemuPid = q
+    , CGNA.virtiofsdPids = vs
+    , CGNA.spicePort = sp
+    } =
+    VmRuntimeInfo
+      { vriQemuPid = q
+      , vriVirtiofsdPids = vs
+      , vriSpicePort = sp
+      }
+
+decodeVmStopResult :: CGNA.Parsed CGNA.VmStopResult -> VmStopResult
+decodeVmStopResult CGNA.VmStopResult {CGNA.kind = k, CGNA.message = m} =
+  VmStopResult
+    { vsrKind = case k of
+        CGNA.VmStopKind'stopped -> VmStopStopped
+        CGNA.VmStopKind'alreadyStopped -> VmStopAlreadyStopped
+        CGNA.VmStopKind'timeout -> VmStopTimeout
+        CGNA.VmStopKind'failed -> VmStopFailed
+        CGNA.VmStopKind'unknown' _ -> VmStopFailed
+    , vsrMessage = m
+    }
+
+decodeVmAgentStatus :: CGNA.Parsed CGNA.VmAgentStatus -> VmAgentStatus
+decodeVmAgentStatus
+  CGNA.VmAgentStatus
+    { CGNA.state = s
+    , CGNA.qemuPid = q
+    , CGNA.lastExitCode = e
+    } =
+    VmAgentStatus
+      { vasState = case s of
+          CGNA.VmAgentState'running -> VmAgentRunning
+          CGNA.VmAgentState'stopped -> VmAgentStopped
+          CGNA.VmAgentState'errored -> VmAgentErrored
+          CGNA.VmAgentState'unknown -> VmAgentUnknown
+          CGNA.VmAgentState'unknown' _ -> VmAgentUnknown
+      , vasQemuPid = q
+      , vasLastExitCode = e
+      }
+
+encodeVmGuestExecReq :: VmGuestExecReq -> CGNA.Parsed CGNA.VmGuestExecReq
+encodeVmGuestExecReq r =
+  CGNA.VmGuestExecReq
+    { CGNA.vmId = vgeVmId r
+    , CGNA.path = vgePath r
+    , CGNA.args = vgeArgs r
+    , CGNA.captureOutput = vgeCaptureOutput r
+    , CGNA.inputData = vgeInputData r
+    , CGNA.timeoutSec = vgeTimeoutSec r
+    }
+
+decodeVmGuestExecInfo :: CGNA.Parsed CGNA.VmGuestExecInfo -> VmGuestExecInfo
+decodeVmGuestExecInfo
+  CGNA.VmGuestExecInfo
+    { CGNA.exitCode = c
+    , CGNA.hasExit = h
+    , CGNA.signal = sg
+    , CGNA.stdout = so
+    , CGNA.stderr = se
+    } =
+    VmGuestExecInfo
+      { vgiExitCode = c
+      , vgiHasExit = h
+      , vgiSignal = sg
+      , vgiStdout = so
+      , vgiStderr = se
+      }
+
+-- ---------------------------------------------------------------------------
+-- VM abstraction — client wrappers.
+
+vmStart :: NodeAgentClient -> VmSpec -> IO (Either NodeAgentError VmRuntimeInfo)
+vmStart nac spec = remote $ do
+  CGNA.Session'vmStart'results {CGNA.info = i} <-
+    callOn
+      #vmStart
+      CGNA.Session'vmStart'params {CGNA.spec = encodeVmSpec spec}
+      (nacSession nac)
+  pure (decodeVmRuntimeInfo i)
+
+vmStopGraceful
+  :: NodeAgentClient
+  -> Int64
+  -> Word32
+  -> IO (Either NodeAgentError VmStopResult)
+vmStopGraceful nac vmId timeoutSec = remote $ do
+  CGNA.Session'vmStopGraceful'results {CGNA.result = r} <-
+    callOn
+      #vmStopGraceful
+      CGNA.Session'vmStopGraceful'params
+        { CGNA.vmId = vmId
+        , CGNA.timeoutSec = timeoutSec
+        }
+      (nacSession nac)
+  pure (decodeVmStopResult r)
+
+vmStopHard :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError VmStopResult)
+vmStopHard nac vmId = remote $ do
+  CGNA.Session'vmStopHard'results {CGNA.result = r} <-
+    callOn
+      #vmStopHard
+      CGNA.Session'vmStopHard'params {CGNA.vmId = vmId}
+      (nacSession nac)
+  pure (decodeVmStopResult r)
+
+vmPause :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError ())
+vmPause nac vmId = remote $ do
+  _ :: C.Parsed CGNA.Session'vmPause'results <-
+    callOn
+      #vmPause
+      CGNA.Session'vmPause'params {CGNA.vmId = vmId}
+      (nacSession nac)
+  pure ()
+
+vmResume :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError ())
+vmResume nac vmId = remote $ do
+  _ :: C.Parsed CGNA.Session'vmResume'results <-
+    callOn
+      #vmResume
+      CGNA.Session'vmResume'params {CGNA.vmId = vmId}
+      (nacSession nac)
+  pure ()
+
+vmGuestExec
+  :: NodeAgentClient -> VmGuestExecReq -> IO (Either NodeAgentError VmGuestExecInfo)
+vmGuestExec nac r = remote $ do
+  CGNA.Session'vmGuestExec'results {CGNA.info = i} <-
+    callOn
+      #vmGuestExec
+      CGNA.Session'vmGuestExec'params {CGNA.req = encodeVmGuestExecReq r}
+      (nacSession nac)
+  pure (decodeVmGuestExecInfo i)
+
+vmStatus :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError VmAgentStatus)
+vmStatus nac vmId = remote $ do
+  CGNA.Session'vmStatus'results {CGNA.status = s} <-
+    callOn
+      #vmStatus
+      CGNA.Session'vmStatus'params {CGNA.vmId = vmId}
+      (nacSession nac)
+  pure (decodeVmAgentStatus s)
+
+vmSetSpiceTicket
+  :: NodeAgentClient -> Int64 -> T.Text -> Word32 -> IO (Either NodeAgentError ())
+vmSetSpiceTicket nac vmId password ttlSeconds = remote $ do
+  _ :: C.Parsed CGNA.Session'vmSetSpiceTicket'results <-
+    callOn
+      #vmSetSpiceTicket
+      CGNA.Session'vmSetSpiceTicket'params
+        { CGNA.vmId = vmId
+        , CGNA.password = password
+        , CGNA.ttlSeconds = ttlSeconds
+        }
+      (nacSession nac)
+  pure ()

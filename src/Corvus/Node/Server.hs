@@ -42,18 +42,21 @@ defaultNodeAgentPort = 9878
 -- | Run the agent's Cap'n Proto server.
 --
 -- 1. Run startup cleanup so we begin from an empty world.
--- 2. Allocate the process-wide 'ProcessLedger' so 'processStop'
---    can locate handles by PID across connection boundaries.
+-- 2. Allocate the process-wide 'ProcessLedger' (legacy
+--    @processSpawn*@ / @processStop@ surface) and 'VmLedger'
+--    (the VM-abstraction surface). Both are shared across
+--    every connection.
 -- 3. Accept TCP connections; export a fresh 'NodeAgentCap' per
 --    connection (one supervisor per connection) that shares the
---    process-wide ledger.
+--    process-wide ledgers.
 runNodeAgentServer :: String -> Int -> IO ()
 runNodeAgentServer host port = do
   cleanupCorvusProcesses
   procLedger <- L.newProcessLedger
+  vmLedger <- L.newVmLedger
   TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
     withSupervisor $ \sup -> do
-      nodeAgentCap <- newNodeAgentCap sup procLedger
+      nodeAgentCap <- newNodeAgentCap sup procLedger vmLedger
       bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
       handleConn
         (socketTransport sock defaultLimit)
