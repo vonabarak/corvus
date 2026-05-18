@@ -92,6 +92,7 @@ library:
     - Corvus.Handlers.Disk
     - Corvus.Handlers.Disk.Path
     - Corvus.Handlers.Disk.Db
+    - Corvus.Handlers.Disk.Agent
     - Corvus.Handlers.Disk.Snapshot
     - Corvus.Handlers.Disk.Attach
     - Corvus.Handlers.Disk.Import
@@ -146,8 +147,8 @@ library:
     - Corvus.Utils.Network
     - Corvus.Qemu.Process
     - Corvus.Qemu.Command
-    - Corvus.Qemu.Virtiofsd
-    - Corvus.Qemu.Image
+    - Corvus.Node.Virtiofsd
+    - Corvus.Node.Image
     - Corvus.Qemu.GuestAgent
     - Corvus.Qemu.SocketBuffer
     - Corvus.Qemu.SpicePort
@@ -212,6 +213,7 @@ library:
     - Corvus.Node.Server
     - Corvus.Node.Ledger
     - Corvus.Node.Cleanup
+    - Corvus.Node.CloudInit
     - Corvus.Node.Caps.NodeAgent
     - Corvus.Node.Caps.Session
     # Cap'n Proto generated modules (auto-generated from schema/*.capnp).

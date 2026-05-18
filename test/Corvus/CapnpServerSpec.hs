@@ -1,6 +1,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | End-to-end smoke tests for the Cap'n Proto wire.
 --
@@ -25,13 +26,16 @@ import Capnp.Rpc
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (bracket)
+import Control.Concurrent.STM (atomically, writeTVar)
+import Control.Exception (SomeException, bracket, catch)
 import qualified Corvus.Client.Capnp.Connection as CC
 import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Node.Server (runNodeAgentServer)
+import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.Protocol as P
 import qualified Corvus.Qemu.Config as Q
 import Corvus.Rpc.Server (runCapnpServer)
-import Corvus.Types (ListenAddress (..), newServerState)
+import Corvus.Types (ListenAddress (..), ServerState (..), newServerState)
 import qualified Corvus.Wire.Common as WC
 import Data.Function ((&))
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
@@ -43,6 +47,7 @@ import Network.Socket
   , connect
   , socket
   )
+import qualified Network.Socket as NS
 import qualified System.Directory as Dir
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -169,19 +174,63 @@ waitForSocket p = go (50 :: Int)
       if ok then pure () else threadDelay 10000 >> go (n - 1)
 
 -- | Run an action against the new CapnpConnection on a temp
--- Unix socket. Spawns the server, dials it, runs the action,
--- tears everything down.
+-- Unix socket. Spawns the daemon's Cap'n Proto server, an
+-- in-process @corvus-nodeagent@ on a free TCP port, and a daemon→
+-- agent connection that's stashed in 'ssNodeAgent' for handlers
+-- that route disk / cloud-init through the agent. Tears
+-- everything down on exit.
 withCapnpDaemon :: TestEnv -> (CC.CapnpConnection -> IO a) -> IO a
 withCapnpDaemon env action =
   withSystemTempDirectory "corvus-capnp-test" $ \tmp -> do
     let sockPath = tmp </> "corvus.capnp.sock"
     state <- newServerState (tePool env) Q.defaultQemuConfig
+    naPort <- pickFreePort
     bracket
-      (async (runCapnpServer state (UnixAddress sockPath)))
+      (async (runNodeAgentServer "127.0.0.1" naPort))
       cancel
       $ \_ -> do
-        waitForSocket sockPath
-        r <- CC.withCapnpConnection (UnixAddress sockPath) action
-        case r of
-          Right a -> pure a
-          Left e -> error (show e)
+        waitForTcp "127.0.0.1" naPort
+        NOA.withNodeAgentClient "127.0.0.1" naPort "capnp-spec" $ \nr -> do
+          nac <- case nr of
+            Left e -> error ("nodeagent dial failed: " <> show e)
+            Right c -> pure c
+          atomically $ writeTVar (ssNodeAgent state) (Just nac)
+          bracket
+            (async (runCapnpServer state (UnixAddress sockPath)))
+            cancel
+            $ \_ -> do
+              waitForSocket sockPath
+              r <- CC.withCapnpConnection (UnixAddress sockPath) action
+              case r of
+                Right a -> pure a
+                Left e -> error (show e)
+
+-- | Ask the kernel for a free TCP port on 127.0.0.1. Mild race
+-- between close-then-bind; in practice unobservable for serial
+-- unit tests.
+pickFreePort :: IO Int
+pickFreePort = do
+  sock <- NS.socket NS.AF_INET NS.Stream NS.defaultProtocol
+  NS.bind sock (NS.SockAddrInet 0 (NS.tupleToHostAddress (127, 0, 0, 1)))
+  p <- NS.socketPort sock
+  NS.close sock
+  pure (fromIntegral p)
+
+-- | Poll for the agent's TCP listener to come up. Up to ~500 ms.
+waitForTcp :: String -> Int -> IO ()
+waitForTcp host port = go (50 :: Int)
+  where
+    go 0 = error ("nodeagent listener did not appear: " <> host <> ":" <> show port)
+    go n = do
+      r <-
+        bracket
+          (NS.socket NS.AF_INET NS.Stream NS.defaultProtocol)
+          NS.close
+          $ \s -> do
+            ais <- NS.getAddrInfo Nothing (Just host) (Just (show port))
+            case ais of
+              [] -> pure False
+              (ai : _) ->
+                fmap (const True) (NS.connect s (NS.addrAddress ai))
+                  `catch` (\(_ :: SomeException) -> pure False)
+      if r then pure () else threadDelay 10000 >> go (n - 1)

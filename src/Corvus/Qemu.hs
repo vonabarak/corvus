@@ -8,8 +8,8 @@
 -- * "Corvus.Qemu.Process" - VM process management
 -- * "Corvus.Qemu.Command" - QEMU command line generation
 -- * "Corvus.Qemu.SocketBuffer" - Ring-buffered QEMU chardev relay (serial, HMP)
--- * "Corvus.Qemu.Virtiofsd" - Virtiofsd process management for shared directories
--- * "Corvus.Qemu.Image" - Disk image management using qemu-img
+-- * "Corvus.Node.Virtiofsd" - Virtiofsd process management for shared directories
+-- * "Corvus.Node.Image" - Disk image management using qemu-img
 module Corvus.Qemu
   ( -- * Configuration
     QemuConfig (..)
@@ -83,11 +83,11 @@ module Corvus.Qemu
   )
 where
 
+import Corvus.Node.Image
+import Corvus.Node.Virtiofsd
 import Corvus.Qemu.Command
 import Corvus.Qemu.Config
 import Corvus.Qemu.GuestAgent
-import Corvus.Qemu.Image
 import Corvus.Qemu.Process
 import Corvus.Qemu.Qmp
 import Corvus.Qemu.Runtime
-import Corvus.Qemu.Virtiofsd

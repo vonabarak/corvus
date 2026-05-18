@@ -41,16 +41,17 @@ import Corvus.Handlers.Apply (ApplyAction (..))
 import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, push, withCleanup)
 import Corvus.Handlers.Build.Floppy (buildFloppyImage)
 import Corvus.Handlers.Disk (DiskCreate (..), DiskDelete (..), DiskRebase (..))
+import Corvus.Handlers.Disk.Agent (getImageSizeMbViaAgent, rebaseImageViaAgent)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..), getVmDetails)
 import Corvus.Model
+import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Qemu.GuestAgent (GuestExecResult (..), guestExec, guestExecWithStdin, guestExecWithTail, guestPing)
-import Corvus.Qemu.Image (ImageResult (..), getImageSizeMb, rebaseImage)
 import Corvus.Qemu.Qmp (QmpResult (..), qmpSendKey)
 import Corvus.Schema.Build
 import Corvus.Types
@@ -1404,10 +1405,10 @@ compactDisk state diskId = do
       -- A no-op rebase (Nothing → Nothing) effectively rewrites the image
       -- through qemu-img, dropping unused clusters. The rebaseImage helper
       -- already handles the in-place pass.
-      result <- liftIO $ rebaseImage path Nothing False
+      result <- liftIO $ rebaseImageViaAgent state path Nothing False
       case result of
         ImageSuccess -> do
-          mSize <- liftIO $ getImageSizeMb path
+          mSize <- liftIO $ getImageSizeMbViaAgent state path
           case mSize of
             Just newSize ->
               liftIO $

@@ -2,7 +2,19 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | QEMU disk image management using qemu-img.
-module Corvus.Qemu.Image
+--
+-- Phase 2: lives under "Corvus.Node" because every function in it
+-- shells out to a host-side tool (@qemu-img@, @cp@, @curl@/@wget@,
+-- @xz@, @md5sum@) and writes to the local disk. Invoked by the
+-- agent's 'Corvus.Node.Caps.Session'. The daemon reaches it
+-- exclusively through the Cap'n Proto wire (see
+-- "Corvus.NodeAgentClient").
+--
+-- Pure helpers ('isHttpUrl', 'detectFormatFromUrl',
+-- 'detectFormatFromPath', 'parseImageInfo') stay in this module
+-- and are imported daemon-side from here for path/format
+-- classification.
+module Corvus.Node.Image
   ( -- * Image operations
     createImage
   , createOverlay

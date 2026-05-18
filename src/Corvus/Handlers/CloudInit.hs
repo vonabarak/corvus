@@ -19,12 +19,20 @@ where
 
 import Corvus.Action
 
+import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (forM)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN)
-import Corvus.CloudInit (CloudInitConfig (..), defaultCloudInitConfig, generateCloudInitIso, getCloudInitDir)
+import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN, logWarnN)
+import Corvus.CloudInit
+  ( CloudInitConfig (..)
+  , defaultCloudInitConfig
+  , generateMetaData
+  , getCloudInitDir
+  , renderUserData
+  )
 import Corvus.Handlers.Disk.Path (makeRelativeToBase)
 import Corvus.Model
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Corvus.Types
@@ -164,7 +172,7 @@ instance Action RegenerateCloudInit where
   actionEntityName = Just . rciVmName
   actionExecute ctx a = do
     let state = acState ctx
-    result <- regenerateCloudInitIsoForVm (ssQemuConfig state) (ssDbPool state) (rciVmId a) (rciVmName a) (ssLogLevel state)
+    result <- regenerateCloudInitIsoForVm state (rciVmId a) (rciVmName a)
     pure $ either RespError (const RespOk) result
 
 --------------------------------------------------------------------------------
@@ -172,11 +180,16 @@ instance Action RegenerateCloudInit where
 --------------------------------------------------------------------------------
 
 -- | Regenerate the cloud-init ISO for a VM.
--- Collects SSH keys and custom cloud-init config from DB, generates the ISO,
--- and ensures the ISO disk is registered and attached to the VM.
-regenerateCloudInitIsoForVm :: QemuConfig -> Pool SqlBackend -> Int64 -> Text -> LogLevel -> IO (Either Text ())
-regenerateCloudInitIsoForVm qemuConfig pool vmId vmName logLevel = do
-  let vmKey = toSqlKey vmId :: VmId
+-- Collects SSH keys and custom cloud-init config from DB, asks
+-- the node agent to assemble the ISO, then ensures the ISO is
+-- registered as a disk and attached to the VM. Fails if the
+-- node agent is unreachable.
+regenerateCloudInitIsoForVm :: ServerState -> Int64 -> Text -> IO (Either Text ())
+regenerateCloudInitIsoForVm state vmId vmName = do
+  let qemuConfig = ssQemuConfig state
+      pool = ssDbPool state
+      logLevel = ssLogLevel state
+      vmKey = toSqlKey vmId :: VmId
 
   -- Get all SSH keys attached to this VM
   attachments <- runSqlPool (selectList [VmSshKeyVmId ==. vmKey] []) pool
@@ -189,7 +202,6 @@ regenerateCloudInitIsoForVm qemuConfig pool vmId vmName logLevel = do
   -- Check for custom cloud-init config
   mCustomConfig <- runSqlPool (getBy (UniqueCloudInitVm vmKey)) pool
 
-  -- Always generate ISO (guest agent installation + SSH keys if any)
   vmDir <- getCloudInitDir qemuConfig vmName
   let config = case mCustomConfig of
         Just (Entity _ ci) ->
@@ -205,12 +217,23 @@ regenerateCloudInitIsoForVm qemuConfig pool vmId vmName logLevel = do
             { ciHostname = vmName
             , ciInstanceId = "corvus-" <> T.pack (show vmId)
             }
-  result <- generateCloudInitIso vmDir config publicKeys
-  case result of
-    Left err -> pure $ Left err
-    Right isoPath -> do
-      ensureCloudInitDiskRegistered pool qemuConfig vmId vmName (T.pack isoPath) logLevel
-      pure $ Right ()
+      userData = renderUserData config publicKeys
+      metaData = generateMetaData config
+      mNet = ciNetworkConfig config
+
+  mAgent <- readTVarIO (ssNodeAgent state)
+  case mAgent of
+    Nothing -> do
+      runFilteredLogging logLevel $
+        logWarnN "nodeagent unavailable; cannot regenerate cloud-init ISO"
+      pure $ Left "nodeagent unavailable"
+    Just nac -> do
+      result <- NOA.cloudInitGenerateIso nac (T.pack vmDir) userData metaData mNet
+      case result of
+        Left e -> pure $ Left (T.pack (show e))
+        Right isoPath -> do
+          ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel
+          pure $ Right ()
 
 -- | Ensure cloud-init disk is registered and attached to VM as CDROM
 ensureCloudInitDiskRegistered :: Pool SqlBackend -> QemuConfig -> Int64 -> Text -> Text -> LogLevel -> IO ()

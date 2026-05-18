@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuasiQuotes #-}
 
--- | Unit tests for 'Corvus.Qemu.Image.parseImageInfo' and format
+-- | Unit tests for 'Corvus.Node.Image.parseImageInfo' and format
 -- detection helpers.
 --
 -- Fixtures are written with @aesonQQ@ and encoded back to 'String' via
@@ -12,7 +12,7 @@
 module Corvus.ImageSpec (spec) where
 
 import Corvus.Model (DriveFormat (..))
-import Corvus.Qemu.Image
+import Corvus.Node.Image
 import Data.Aeson (Value, encode)
 import Data.Aeson.QQ (aesonQQ)
 import qualified Data.ByteString.Lazy.Char8 as BSL

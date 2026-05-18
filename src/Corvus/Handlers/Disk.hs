@@ -55,6 +55,15 @@ import Control.Exception (SomeException, try)
 import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import Corvus.Handlers.Disk.Agent
+  ( cloneImageViaAgent
+  , createImageViaAgent
+  , createOverlayViaAgent
+  , deleteImageViaAgent
+  , getImageInfoViaAgent
+  , getImageSizeMbViaAgent
+  , resizeImageViaAgent
+  )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
 import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, getAttachedVms, getDiskImageInfo, getOverlayIds, getRunningAttachedVms, listDiskImages)
 import Corvus.Handlers.Disk.Import (DiskImportAction (..), DiskImportUrl (..), handleDiskImportCopy, handleDiskImportUrl)
@@ -64,9 +73,9 @@ import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), 
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
 import qualified Corvus.Model as M
+import Corvus.Node.Image (ImageInfo (..), ImageResult (..), detectFormatFromPath)
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
-import Corvus.Qemu.Image
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import Data.List (isPrefixOf)
@@ -98,7 +107,7 @@ handleDiskCreate state name format sizeMb mPath = runServerLogging state $ do
       filePath <- liftIO $ resolveDiskFilePath basePath mPath fileName
 
       -- Create the actual image file
-      result <- liftIO $ createImage filePath format sizeMb
+      result <- liftIO $ createImageViaAgent state filePath format sizeMb
       case result of
         ImageError err -> do
           logWarnN $ "Failed to create image: " <> err
@@ -153,7 +162,7 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
       format <- case mFormat of
         Just f -> pure f
         Nothing -> do
-          mInfo <- liftIO $ getImageInfo resolvedPath
+          mInfo <- liftIO $ getImageInfoViaAgent state resolvedPath
           case mInfo of
             Right info -> pure $ iiFormat info
             Left err -> do
@@ -165,7 +174,7 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
                   pure FormatRaw -- safe default
 
       -- Auto-detect size
-      sizeMb <- liftIO $ getImageSizeMb resolvedPath
+      sizeMb <- liftIO $ getImageSizeMbViaAgent state resolvedPath
 
       -- Store in database
       now <- liftIO getCurrentTime
@@ -245,7 +254,7 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath = runServerLo
               let overlayFileName = T.unpack safeName <> ".qcow2"
               overlayFilePath <- liftIO $ resolveDiskFilePath basePath optDirPath overlayFileName
               baseFilePath <- liftIO $ resolveDiskPath (ssQemuConfig state) baseDisk
-              result <- liftIO $ createOverlay overlayFilePath baseFilePath (diskImageFormat baseDisk)
+              result <- liftIO $ createOverlayViaAgent state overlayFilePath baseFilePath (diskImageFormat baseDisk)
               case result of
                 ImageError err -> do
                   logWarnN $ "Failed to create overlay: " <> err
@@ -269,7 +278,7 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath = runServerLo
                   -- Resize if requested
                   case mResizeMb of
                     Just newSize -> do
-                      res <- liftIO $ resizeImage overlayFilePath (fromIntegral newSize)
+                      res <- liftIO $ resizeImageViaAgent state overlayFilePath (fromIntegral newSize)
                       case res of
                         ImageSuccess ->
                           liftIO $ runSqlPool (update diskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
@@ -303,7 +312,7 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath = runServerLogging 
                   ext = takeExtension srcFileName
                   cloneFileName = T.unpack safeName <> ext
               destPath <- liftIO $ resolveDiskFilePath basePath optionalPath cloneFileName
-              result <- liftIO $ cloneImage srcPath destPath
+              result <- liftIO $ cloneImageViaAgent state srcPath destPath
               case result of
                 ImageError err -> do
                   logWarnN $ "Failed to clone image: " <> err
@@ -336,7 +345,7 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath = runServerLogging 
                   -- Resize if requested
                   case mResizeMb of
                     Just newSize -> do
-                      res <- liftIO $ resizeImage destPath (fromIntegral newSize)
+                      res <- liftIO $ resizeImageViaAgent state destPath (fromIntegral newSize)
                       case res of
                         ImageSuccess ->
                           liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
@@ -354,7 +363,7 @@ handleDiskRefresh state diskId = runServerLogging state $ do
     Nothing -> pure RespDiskNotFound
     Just disk -> do
       resolvedPath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-      mSize <- liftIO $ getImageSizeMb resolvedPath
+      mSize <- liftIO $ getImageSizeMbViaAgent state resolvedPath
       case mSize of
         Nothing -> pure $ RespError "Could not determine disk image size"
         Just newSize -> do
@@ -386,7 +395,7 @@ handleDiskDelete state diskId = runServerLogging state $ do
             else do
               -- Delete the file (resolve relative path against base path)
               filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-              result <- liftIO $ deleteImage filePath
+              result <- liftIO $ deleteImageViaAgent state filePath
               case result of
                 ImageError err -> do
                   logWarnN $ "Failed to delete image file: " <> err
@@ -421,7 +430,7 @@ handleDiskResize state diskId newSizeMb = runServerLogging state $ do
             then pure $ RespDiskHasOverlays overlayIds
             else do
               filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-              result <- liftIO $ resizeImage filePath newSizeMb
+              result <- liftIO $ resizeImageViaAgent state filePath newSizeMb
               case result of
                 ImageSuccess -> do
                   -- Update size in database

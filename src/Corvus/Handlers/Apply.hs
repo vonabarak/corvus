@@ -31,8 +31,8 @@ import Corvus.Handlers.SshKey (SshKeyCreate (..))
 import Corvus.Handlers.Template (insertTemplateYaml)
 import Corvus.Handlers.Vm (VmCreate (..))
 import Corvus.Model
+import Corvus.Node.Image (detectFormatFromPath, isHttpUrl)
 import Corvus.Protocol
-import Corvus.Qemu.Image (detectFormatFromPath, isHttpUrl)
 import Corvus.Schema.Apply
   ( ApplyConfig (..)
   , ApplyDisk (..)

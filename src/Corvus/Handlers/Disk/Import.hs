@@ -31,17 +31,24 @@ module Corvus.Handlers.Disk.Import
 where
 
 import Corvus.Action
+import Corvus.Handlers.Disk.Agent
+  ( cloneImageViaAgent
+  , decompressXzViaAgent
+  , deleteImageViaAgent
+  , downloadImageViaAgent
+  , getImageSizeMbViaAgent
+  , md5HashFileViaAgent
+  )
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, sanitizeDiskName)
 import Corvus.Handlers.Resolve (validateName)
 
 import Control.Applicative ((<|>))
-import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Model
+import Corvus.Node.Image (ImageResult (..), detectFormatFromPath, detectFormatFromUrl, isHttpUrl)
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
-import Corvus.Qemu.Image
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import Data.List (isSuffixOf)
@@ -50,7 +57,7 @@ import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
-import System.Directory (canonicalizePath, copyFile, doesFileExist, removeFile)
+import System.Directory (canonicalizePath, doesFileExist)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 
 -- | Import a disk image from an HTTP/HTTPS URL.
@@ -116,6 +123,7 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
                   fetchResult <-
                     liftIO $
                       fetchAndVerify
+                        state
                         FetchSpec
                           { fsUrl = source
                           , fsDownloadPath = downloadDest
@@ -145,17 +153,19 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
                         then pure $ RespError "Source and destination paths are the same"
                         else do
                           logInfoN $ "Copying " <> T.pack canonSrc <> " to " <> T.pack canonDest
-                          copyResult <- liftIO $ try $ copyFile canonSrc canonDest
+                          copyResult <- liftIO $ cloneImageViaAgent state canonSrc canonDest
                           case copyResult of
-                            Left (err :: SomeException) -> do
-                              logWarnN $ "Copy failed: " <> T.pack (show err)
-                              pure $ RespError $ "Copy failed: " <> T.pack (show err)
-                            Right () -> registerImportedFile state basePath safeName format canonDest
+                            ImageSuccess -> registerImportedFile state basePath safeName format canonDest
+                            ImageError err -> do
+                              logWarnN $ "Copy failed: " <> err
+                              pure $ RespError $ "Copy failed: " <> err
+                            ImageNotFound -> pure $ RespError "Source file not found"
+                            ImageFormatNotSupported msg -> pure $ RespError msg
   where
     isXzUrl t = ".xz?" `T.isInfixOf` t
 
     registerImportedFile state' basePath safeName format diskPath = do
-      sizeMb <- liftIO $ getImageSizeMb diskPath
+      sizeMb <- liftIO $ getImageSizeMbViaAgent state' diskPath
       now <- liftIO getCurrentTime
       let storedPath = makeRelativeToBase basePath diskPath
       diskId <-
@@ -206,6 +216,7 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
               finalPath = basePath </> finalFileName
           fetchResult <-
             fetchAndVerify
+              state
               FetchSpec
                 { fsUrl = url
                 , fsDownloadPath = downloadPath
@@ -217,7 +228,7 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
             Left err -> pure $ Left err
             Right diskPath -> do
               let storedPath = makeRelativeToBase basePath diskPath
-              sizeMb <- getImageSizeMb diskPath
+              sizeMb <- getImageSizeMbViaAgent state diskPath
               now <- getCurrentTime
               diskId <-
                 runSqlPool
@@ -278,13 +289,13 @@ maxImportAttempts = 3
 -- When 'fsExpectedMd5' is 'Nothing', the existing-file behaviour
 -- preserves the no-clobber default ("Destination file already
 -- exists" error) and a single download attempt is made.
-fetchAndVerify :: FetchSpec -> IO (Either Text FilePath)
-fetchAndVerify FetchSpec {..} = do
+fetchAndVerify :: ServerState -> FetchSpec -> IO (Either Text FilePath)
+fetchAndVerify state FetchSpec {..} = do
   finalExists <- doesFileExist fsFinalPath
   case (finalExists, fsExpectedMd5) of
     (True, Just expected) -> do
       let expectedLc = T.toLower expected
-      hashResult <- md5HashFile fsFinalPath
+      hashResult <- md5HashFileViaAgent state fsFinalPath
       case hashResult of
         Left err -> pure $ Left $ "verify existing " <> T.pack fsFinalPath <> ": " <> err
         Right actual
@@ -303,13 +314,13 @@ fetchAndVerify FetchSpec {..} = do
     (False, _) -> downloadLoop 1
   where
     downloadLoop n = do
-      dlResult <- downloadImage fsDownloadPath fsUrl
+      dlResult <- downloadImageViaAgent state fsDownloadPath fsUrl
       case dlResult of
         ImageError err -> pure $ Left $ "Download failed: " <> err
         _ -> do
           decompressedResult <-
             if fsIsXz
-              then decompressXz fsDownloadPath
+              then decompressXzViaAgent state fsDownloadPath
               else pure $ Right fsFinalPath
           case decompressedResult of
             Left err -> pure $ Left err
@@ -317,7 +328,7 @@ fetchAndVerify FetchSpec {..} = do
               Nothing -> pure $ Right diskPath
               Just expected -> do
                 let expectedLc = T.toLower expected
-                hashResult <- md5HashFile diskPath
+                hashResult <- md5HashFileViaAgent state diskPath
                 case hashResult of
                   Left err -> pure $ Left $ "verify download: " <> err
                   Right actual
@@ -333,8 +344,8 @@ fetchAndVerify FetchSpec {..} = do
                               <> expectedLc
                               <> ")"
                     | otherwise -> do
-                        -- Drop the bad artifact and try again.
-                        _ <- try (removeFile diskPath) :: IO (Either SomeException ())
+                        -- Drop the bad artifact via the agent and try again.
+                        _ <- deleteImageViaAgent state diskPath
                         downloadLoop (n + 1)
 
 --------------------------------------------------------------------------------

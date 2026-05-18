@@ -22,9 +22,10 @@ import Corvus.Handlers.Disk.Path (resolveDiskPath)
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import Corvus.Handlers.Disk.Agent (getImageSizeMbViaAgent, rebaseImageViaAgent)
 import Corvus.Model
+import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol
-import Corvus.Qemu.Image
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import qualified Data.Text as T
@@ -56,7 +57,7 @@ handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
                   -- Flatten: remove backing
                   Nothing -> do
                     logInfoN "Flattening overlay (removing backing)"
-                    result <- liftIO $ rebaseImage overlayPath Nothing unsafe
+                    result <- liftIO $ rebaseImageViaAgent state overlayPath Nothing unsafe
                     case result of
                       ImageSuccess -> do
                         liftIO $
@@ -64,7 +65,7 @@ handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
                             (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Nothing])
                             (ssDbPool state)
                         -- Refresh size since flatten merges backing data
-                        mSize <- liftIO $ getImageSizeMb overlayPath
+                        mSize <- liftIO $ getImageSizeMbViaAgent state overlayPath
                         case mSize of
                           Just newSize ->
                             liftIO $
@@ -92,7 +93,7 @@ handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
                           else do
                             newBackingPath <- liftIO $ resolveDiskPath (ssQemuConfig state) newBacking
                             logInfoN $ "Rebasing to new backing: " <> T.pack newBackingPath
-                            result <- liftIO $ rebaseImage overlayPath (Just (newBackingPath, diskImageFormat newBacking)) unsafe
+                            result <- liftIO $ rebaseImageViaAgent state overlayPath (Just (newBackingPath, diskImageFormat newBacking)) unsafe
                             case result of
                               ImageSuccess -> do
                                 liftIO $
@@ -100,7 +101,7 @@ handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
                                     (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Just (toSqlKey newBackingId)])
                                     (ssDbPool state)
                                 -- Refresh size
-                                mSize <- liftIO $ getImageSizeMb overlayPath
+                                mSize <- liftIO $ getImageSizeMbViaAgent state overlayPath
                                 case mSize of
                                   Just newSize ->
                                     liftIO $

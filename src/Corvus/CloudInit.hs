@@ -1,44 +1,41 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | Cloud-init configuration generation for VMs.
--- Creates NoCloud datasource ISOs for injecting SSH keys and configuration.
+-- | Cloud-init configuration composition for VMs.
+--
+-- All host-side I/O (writing the @user-data@ / @meta-data@ /
+-- @network-config@ files into the target directory and assembling
+-- the NoCloud ISO via @genisoimage@ / @mkisofs@) lives on the
+-- agent side now — see "Corvus.Node.CloudInit". This module
+-- stays daemon-side because everything in it consults DB state
+-- (SSH keys, hostnames, instance IDs) or operates on pure values.
 module Corvus.CloudInit
   ( -- * Configuration
     CloudInitConfig (..)
   , defaultCloudInitConfig
 
-    -- * ISO paths
+    -- * ISO paths (purely computed; the directory is materialised by the agent, not the daemon)
   , getCloudInitIsoPath
   , getCloudInitDir
 
-    -- * ISO generation
-  , generateCloudInitIso
-
-    -- * Pure user-data rendering (exposed for testing)
+    -- * User-data / meta-data composition (pure)
   , renderUserData
+  , generateMetaData
   , isRawUserDataScript
   )
 where
 
-import Control.Exception (SomeException, try)
-import Control.Monad (when)
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Corvus.Utils.Yaml (yamlQQ)
 import Data.Aeson (Value (..))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KM
-import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
-import System.Directory (createDirectoryIfMissing, doesFileExist, removeFile)
-import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
-import System.Process (readProcessWithExitCode)
 
 -- | Cloud-init configuration
 data CloudInitConfig = CloudInitConfig
@@ -69,17 +66,17 @@ defaultCloudInitConfig =
     , ciInjectSshKeys = True
     }
 
--- | Get the directory for storing cloud-init files for a VM
--- Returns: $qcBasePath/<vm-name>/
+-- | Compute the directory the cloud-init artefacts for a VM live
+-- under. Pure path arithmetic — no @mkdir@ is performed here; the
+-- agent's 'Corvus.Node.CloudInit.assembleCloudInitIso' creates the
+-- directory at ISO-assembly time.
 getCloudInitDir :: QemuConfig -> Text -> IO FilePath
 getCloudInitDir config vmName = do
   basePath <- getEffectiveBasePath config
-  let vmDir = basePath </> T.unpack vmName
-  createDirectoryIfMissing True vmDir
-  pure vmDir
+  pure $ basePath </> T.unpack vmName
 
--- | Get the path to the cloud-init ISO for a VM
--- Returns: $qcBasePath/<vm-name>/cloud-init.iso
+-- | Path to the cloud-init ISO for a VM, given the same layout
+-- 'getCloudInitDir' returns.
 getCloudInitIsoPath :: QemuConfig -> Text -> IO FilePath
 getCloudInitIsoPath config vmName = do
   vmDir <- getCloudInitDir config vmName
@@ -163,7 +160,9 @@ renderUserData config sshPubKeys = case ciCustomUserData config of
     | otherwise -> "#cloud-config\n" <> customData
   Nothing -> generateUserData config sshPubKeys
 
--- | Generate meta-data for cloud-init
+-- | Generate meta-data text for cloud-init from the
+-- 'CloudInitConfig'. Pure; the agent writes this verbatim into
+-- @<targetDir>/meta-data@.
 generateMetaData :: CloudInitConfig -> Text
 generateMetaData config =
   T.decodeUtf8 $
@@ -172,91 +171,6 @@ generateMetaData config =
         instance-id: #{ciInstanceId config}
         local-hostname: #{ciHostname config}
       |]
-
--- | Generate a cloud-init NoCloud ISO image with multiple SSH keys.
--- The ISO contains user-data, meta-data, and optionally network-config files.
--- Returns the path to the generated ISO, or an error message.
-generateCloudInitIso :: FilePath -> CloudInitConfig -> [Text] -> IO (Either Text FilePath)
-generateCloudInitIso targetDir config sshPubKeys = do
-  -- Ensure target directory exists
-  createDirectoryIfMissing True targetDir
-
-  let userDataPath = targetDir </> "user-data"
-      metaDataPath = targetDir </> "meta-data"
-      networkConfigPath = targetDir </> "network-config"
-      isoPath = targetDir </> "cloud-init.iso"
-
-  -- Generate user-data: custom or default.
-  let userDataContent = renderUserData config sshPubKeys
-
-  -- Write cloud-init files
-  TIO.writeFile userDataPath userDataContent
-  TIO.writeFile metaDataPath (generateMetaData config)
-
-  -- Write optional network-config
-  mNetworkConfigFile <- case ciNetworkConfig config of
-    Just nc -> do
-      TIO.writeFile networkConfigPath nc
-      pure $ Just networkConfigPath
-    Nothing -> pure Nothing
-
-  let inputFiles = [userDataPath, metaDataPath] ++ catMaybes [mNetworkConfigFile]
-
-  -- Try genisoimage first, fall back to mkisofs
-  result <- tryGenIsoImage inputFiles isoPath
-  case result of
-    Right _ -> do
-      -- Clean up temp files
-      mapM_ removeIfExists inputFiles
-      pure $ Right isoPath
-    Left _ -> do
-      -- Try mkisofs as fallback
-      mkResult <- tryMkIsofs inputFiles isoPath
-      case mkResult of
-        Right _ -> do
-          mapM_ removeIfExists inputFiles
-          pure $ Right isoPath
-        Left err -> pure $ Left err
-
--- | Try to create ISO using genisoimage
-tryGenIsoImage :: [FilePath] -> FilePath -> IO (Either Text ())
-tryGenIsoImage inputFiles isoPath = do
-  result <-
-    try $
-      readProcessWithExitCode
-        "genisoimage"
-        (["-output", isoPath, "-volid", "cidata", "-joliet", "-rock"] ++ inputFiles)
-        ""
-  case result of
-    Left (_ :: SomeException) -> pure $ Left "genisoimage not found"
-    Right (ExitSuccess, _, _) -> pure $ Right ()
-    Right (ExitFailure n, _, stderr) ->
-      pure $
-        Left $
-          "genisoimage failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
-
--- | Try to create ISO using mkisofs
-tryMkIsofs :: [FilePath] -> FilePath -> IO (Either Text ())
-tryMkIsofs inputFiles isoPath = do
-  result <-
-    try $
-      readProcessWithExitCode
-        "mkisofs"
-        (["-output", isoPath, "-volid", "cidata", "-joliet", "-rock"] ++ inputFiles)
-        ""
-  case result of
-    Left (_ :: SomeException) -> pure $ Left "mkisofs not found"
-    Right (ExitSuccess, _, _) -> pure $ Right ()
-    Right (ExitFailure n, _, stderr) ->
-      pure $
-        Left $
-          "mkisofs failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
-
--- | Helper to remove file if it exists
-removeIfExists :: FilePath -> IO ()
-removeIfExists path = do
-  exists <- doesFileExist path
-  when exists $ removeFile path
 
 --------------------------------------------------------------------------------
 -- SSH key injection

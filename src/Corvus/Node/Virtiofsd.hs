@@ -3,7 +3,14 @@
 
 -- | Virtiofsd process management.
 -- Handles starting and killing virtiofsd processes for shared directories.
-module Corvus.Qemu.Virtiofsd
+--
+-- Phase 2: lives under "Corvus.Node" because every operation in it
+-- spawns or signals a virtiofsd subprocess on the host. Currently
+-- still invoked directly from a few daemon-side call sites
+-- (VM start/stop in 'Corvus.Handlers.SharedDir' and
+-- 'Corvus.Handlers.Lifecycle'); Phase 3 moves those call sites
+-- behind 'Corvus.NodeAgentClient.applyVm' too.
+module Corvus.Node.Virtiofsd
   ( -- * Starting virtiofsd
     startVirtiofsdProcesses
   , VirtiofsdResult (..)

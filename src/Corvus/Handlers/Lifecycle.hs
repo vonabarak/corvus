@@ -21,9 +21,9 @@ import Corvus.Handlers.Network (NetworkStart (..))
 import Corvus.Handlers.Vm (VmStart (..))
 import Corvus.Model
 import qualified Corvus.Model as M
+import Corvus.Node.Virtiofsd (killVirtiofsdProcesses)
 import Corvus.Protocol
 import Corvus.Qemu.Process (killVmProcess)
-import Corvus.Qemu.Virtiofsd (killVirtiofsdProcesses)
 import Corvus.Types
 import Data.Text (Text)
 import qualified Data.Text as T

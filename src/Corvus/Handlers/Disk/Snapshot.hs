@@ -30,9 +30,15 @@ import Corvus.Handlers.Resolve (resolveSnapshot, validateName)
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import Corvus.Handlers.Disk.Agent
+  ( createSnapshotViaAgent
+  , deleteSnapshotViaAgent
+  , mergeSnapshotViaAgent
+  , rollbackSnapshotViaAgent
+  )
 import Corvus.Model
+import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol
-import Corvus.Qemu.Image
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -65,7 +71,7 @@ handleSnapshotCreate state diskId snapshotName =
                 then pure RespVmMustBeStopped
                 else do
                   filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                  result <- liftIO $ createSnapshot filePath snapshotName
+                  result <- liftIO $ createSnapshotViaAgent state filePath snapshotName
                   case result of
                     ImageSuccess -> do
                       now <- liftIO getCurrentTime
@@ -116,7 +122,7 @@ handleSnapshotDelete state diskId snapRef = runServerLogging state $ do
                     Nothing -> pure RespSnapshotNotFound
                     Just snapshot -> do
                       filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                      result <- liftIO $ deleteSnapshot filePath (snapshotName snapshot)
+                      result <- liftIO $ deleteSnapshotViaAgent state filePath (snapshotName snapshot)
                       case result of
                         ImageSuccess -> do
                           liftIO $ runSqlPool (delete (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
@@ -151,7 +157,7 @@ handleSnapshotRollback state diskId snapRef = runServerLogging state $ do
                     Nothing -> pure RespSnapshotNotFound
                     Just snapshot -> do
                       filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                      result <- liftIO $ rollbackSnapshot filePath (snapshotName snapshot)
+                      result <- liftIO $ rollbackSnapshotViaAgent state filePath (snapshotName snapshot)
                       case result of
                         ImageSuccess -> do
                           logInfoN "Rollback complete"
@@ -185,7 +191,7 @@ handleSnapshotMerge state diskId snapRef = runServerLogging state $ do
                     Nothing -> pure RespSnapshotNotFound
                     Just snapshot -> do
                       filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                      result <- liftIO $ mergeSnapshot filePath (snapshotName snapshot)
+                      result <- liftIO $ mergeSnapshotViaAgent state filePath (snapshotName snapshot)
                       case result of
                         ImageSuccess -> do
                           liftIO $ runSqlPool (delete (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)

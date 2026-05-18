@@ -20,9 +20,9 @@ import Corvus.Action
 import Control.Monad.Logger (logDebugN, logInfoN)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
+import Corvus.Node.Virtiofsd (startVirtiofsdProcesses)
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig)
-import Corvus.Qemu.Virtiofsd (startVirtiofsdProcesses)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Text (Text)
