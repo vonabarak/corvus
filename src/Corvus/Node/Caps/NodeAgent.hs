@@ -23,19 +23,21 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc.Server (SomeServer)
 import Control.Monad.Logger (logInfoN, runStderrLoggingT)
 import Corvus.Node.Caps.Session (newSessionCap)
+import qualified Corvus.Node.Ledger as L
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
 import Supervisors (Supervisor)
 
--- | Bootstrap-cap state. Phase 1 holds only the supervisor; later
--- phases gain references to the in-memory ledgers and the
--- subscriber registry.
-newtype NodeAgentCap = NodeAgentCap
-  { nacSup :: Supervisor
+-- | Bootstrap-cap state. Holds the supervisor for child caps and
+-- the process-wide ledger of spawned subprocesses.
+data NodeAgentCap = NodeAgentCap
+  { nacSup :: !Supervisor
+  , nacProcLedger :: !L.ProcessLedger
   }
 
-newNodeAgentCap :: Supervisor -> IO NodeAgentCap
-newNodeAgentCap sup = pure (NodeAgentCap sup)
+newNodeAgentCap :: Supervisor -> L.ProcessLedger -> IO NodeAgentCap
+newNodeAgentCap sup procLedger =
+  pure NodeAgentCap {nacSup = sup, nacProcLedger = procLedger}
 
 instance SomeServer NodeAgentCap
 
@@ -56,7 +58,7 @@ instance CGNA.NodeAgent'server_ NodeAgentCap where
   nodeAgent'session nac =
     handleParsed $ \CGNA.NodeAgent'session'params {CGNA.owner = owner} -> do
       logLine ("session owner=" <> owner)
-      impl <- newSessionCap owner
+      impl <- newSessionCap owner (nacProcLedger nac)
       client <- export @CGNA.Session (nacSup nac) impl
       pure CGNA.NodeAgent'session'results {CGNA.session = client}
 

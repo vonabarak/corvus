@@ -1,6 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Per-owner session capability for `corvus-nodeagent`.
 --
@@ -26,23 +27,48 @@ where
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
+import Control.Concurrent (forkIO)
+import Control.Concurrent.STM (atomically)
+import qualified Control.Exception as E
+import Control.Monad (void)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Logger (runStderrLoggingT)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.CloudInit as NCI
 import qualified Corvus.Node.Image as NI
+import qualified Corvus.Node.Ledger as L
+import qualified Corvus.Node.Runtime as NR
+import qualified Corvus.Process as P
+import Corvus.Qemu.Config (QemuConfig, defaultQemuConfig)
 import Corvus.Rpc.Common (handleParsed)
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word (Word32)
+import System.Posix.Types (CPid (..))
+import System.Process
+  ( ProcessHandle
+  , StdStream (..)
+  , createProcess
+  , getPid
+  , proc
+  , std_err
+  , std_out
+  , waitForProcess
+  )
 
--- | Session state. Phase 2: owner tag is kept for logs; later
--- phases extend with VM/disk ledger references when those land.
-newtype SessionCap = SessionCap
-  { scOwner :: Text
+-- | Session state. Holds the process-wide 'ProcessLedger' so the
+-- process-supervision methods can map PIDs back to
+-- 'ProcessHandle's for reaping. Owner is kept for logs.
+data SessionCap = SessionCap
+  { scOwner :: !Text
+  , scProcLedger :: !L.ProcessLedger
   }
 
-newSessionCap :: Text -> IO SessionCap
-newSessionCap owner = pure SessionCap {scOwner = owner}
+newSessionCap :: Text -> L.ProcessLedger -> IO SessionCap
+newSessionCap owner procLedger =
+  pure SessionCap {scOwner = owner, scProcLedger = procLedger}
 
 instance SomeServer SessionCap
 
@@ -215,6 +241,59 @@ instance CGNA.Session'server_ SessionCap where
         Right h ->
           pure CGNA.Session'diskMd5'results {CGNA.hex = h}
 
+  -- ---- Process supervision (QEMU + virtiofsd) ----------------------------
+
+  session'processSpawnQemu sc =
+    handleParsed $
+      \CGNA.Session'processSpawnQemu'params
+        { CGNA.vmId = vid
+        , CGNA.binary = bin
+        , CGNA.args = as
+        } -> do
+          spawnQemuProcess sc vid (T.unpack bin) (map T.unpack as)
+
+  session'processSpawnVirtiofsd sc =
+    handleParsed $
+      \CGNA.Session'processSpawnVirtiofsd'params
+        { CGNA.binary = bin
+        , CGNA.args = as
+        , CGNA.socketPath = sp
+        , CGNA.waitForSocketTimeoutMs = tmo
+        } -> do
+          spawnVirtiofsdProcess sc (T.unpack bin) (map T.unpack as) (T.unpack sp) tmo
+
+  session'processStop sc =
+    handleParsed $
+      \CGNA.Session'processStop'params
+        { CGNA.pid = pidI32
+        , CGNA.gracefulTimeoutSec = grace
+        } -> do
+          let pidW = fromIntegral pidI32 :: Word32
+          mHandle <- atomically $ L.takeProcess (scProcLedger sc) pidW
+          result <-
+            runStderrLoggingT $
+              P.stopProcess
+                ("pid=" <> T.pack (show pidW))
+                (CPid (fromIntegral pidW))
+                Nothing
+                0
+                (fromIntegral grace)
+          -- Reap the handle if we still had it (waitForProcess can
+          -- be called even after the underlying process has exited).
+          case mHandle of
+            Just ph -> void $ liftIO $ E.try @E.SomeException (waitForProcess ph)
+            Nothing -> pure ()
+          pure
+            CGNA.Session'processStop'results
+              { CGNA.result = encodeStopResult result
+              }
+
+  session'processIsAlive _ =
+    handleParsed $ \CGNA.Session'processIsAlive'params {CGNA.pid = pidI32} -> do
+      let pidW = fromIntegral pidI32 :: Word32
+      alive <- P.isProcessAlive (CPid (fromIntegral pidW))
+      pure CGNA.Session'processIsAlive'results {CGNA.alive = alive}
+
   -- ---- Cloud-init ----------------------------------------------------------
 
   session'cloudInitGenerateIso _ =
@@ -279,3 +358,172 @@ encodeDiskSnapshotInfo s =
     , CGNA.sizeMb = maybe 0 fromIntegral (NI.sdSizeMb s) :: Int64
     , CGNA.hasSize = isJust (NI.sdSizeMb s)
     }
+
+-- ---------------------------------------------------------------------------
+-- Process supervision
+
+-- | A copy of 'Corvus.Qemu.Config.defaultQemuConfig' used for
+-- 'NR.createVmRuntimeDir' inside the agent. The daemon's choice of
+-- @qcBasePath@ / @qcRuntimeDir@ defaults to the same XDG-derived
+-- layout, so a fresh @QemuConfig@ inside the agent produces the
+-- same paths.
+agentQemuConfig :: QemuConfig
+agentQemuConfig = defaultQemuConfig
+
+-- | Spawn QEMU and register the process with the ledger. The
+-- agent then forks an internal waiter that reaps the process when
+-- it exits.
+spawnQemuProcess
+  :: SessionCap
+  -> Int64
+  -> FilePath
+  -> [String]
+  -> IO (CGNA.Parsed CGNA.Session'processSpawnQemu'results)
+spawnQemuProcess sc vmId binary args = do
+  -- Ensure VM runtime dir exists before spawning so QEMU can open
+  -- its qmp / monitor / serial sockets there.
+  _ <- NR.createVmRuntimeDir agentQemuConfig vmId
+  r <-
+    E.try @E.SomeException $
+      createProcess
+        (proc binary args)
+          { std_out = CreatePipe
+          , std_err = CreatePipe
+          }
+  case r of
+    Left e -> throwFailed ("QEMU spawn failed: " <> T.pack (show e))
+    Right (_, _, _, ph) -> do
+      mPid <- getPid ph
+      case mPid of
+        Nothing ->
+          throwFailed "QEMU spawn returned no PID"
+        Just rawPid -> do
+          let pidW = fromIntegral rawPid :: Word32
+          atomically $ L.insertProcess (scProcLedger sc) pidW ph
+          -- Reaper: wait for exit, then drop the entry so a later
+          -- processStop is a no-op rather than reaping twice.
+          void $ forkIO $ do
+            _ <- E.try @E.SomeException (waitForProcess ph)
+            atomically $ void $ L.takeProcess (scProcLedger sc) pidW
+          pure
+            CGNA.Session'processSpawnQemu'results
+              { CGNA.pid = fromIntegral pidW :: Int32
+              }
+
+-- | Spawn virtiofsd and wait for its socket file to appear before
+-- declaring success. Mirrors the loop the daemon used to run
+-- inline in @startVirtiofsdForDir@.
+spawnVirtiofsdProcess
+  :: SessionCap
+  -> FilePath
+  -> [String]
+  -> FilePath
+  -> Word32
+  -> IO (CGNA.Parsed CGNA.Session'processSpawnVirtiofsd'results)
+spawnVirtiofsdProcess sc binary args socketPath waitTimeoutMs = do
+  r <-
+    E.try @E.SomeException $
+      createProcess
+        (proc binary args)
+          { std_out = CreatePipe
+          , std_err = CreatePipe
+          }
+  case r of
+    Left e ->
+      pure
+        CGNA.Session'processSpawnVirtiofsd'results
+          { CGNA.result =
+              CGNA.VirtiofsdSpawnResult
+                { CGNA.kind = CGNA.VirtiofsdSpawnKind'spawnFailed
+                , CGNA.pid = 0
+                , CGNA.message = T.pack (show e)
+                }
+          }
+    Right (_, _, _, ph) -> do
+      mPid <- getPid ph
+      case mPid of
+        Nothing -> do
+          -- Process started but the OS gave us no PID; clean up
+          -- by waiting on the handle.
+          void $ E.try @E.SomeException (waitForProcess ph)
+          pure
+            CGNA.Session'processSpawnVirtiofsd'results
+              { CGNA.result =
+                  CGNA.VirtiofsdSpawnResult
+                    { CGNA.kind = CGNA.VirtiofsdSpawnKind'spawnFailed
+                    , CGNA.pid = 0
+                    , CGNA.message = "virtiofsd spawn returned no PID"
+                    }
+              }
+        Just rawPid -> do
+          let pidW = fromIntegral rawPid :: Word32
+          atomically $ L.insertProcess (scProcLedger sc) pidW ph
+          -- Reaper for natural exit.
+          void $ forkIO $ do
+            _ <- E.try @E.SomeException (waitForProcess ph)
+            atomically $ void $ L.takeProcess (scProcLedger sc) pidW
+          -- Wait for the socket to appear.
+          ready <- P.waitForSocketFile socketPath (fromIntegral waitTimeoutMs)
+          if ready
+            then
+              pure
+                CGNA.Session'processSpawnVirtiofsd'results
+                  { CGNA.result =
+                      CGNA.VirtiofsdSpawnResult
+                        { CGNA.kind = CGNA.VirtiofsdSpawnKind'success
+                        , CGNA.pid = fromIntegral pidW :: Int32
+                        , CGNA.message = ""
+                        }
+                  }
+            else do
+              -- Socket never appeared; reap the partial child.
+              mHandle <- atomically $ L.takeProcess (scProcLedger sc) pidW
+              case mHandle of
+                Just ph' -> do
+                  _ <-
+                    runStderrLoggingT $
+                      P.stopProcess
+                        ("virtiofsd-partial pid=" <> T.pack (show pidW))
+                        (CPid (fromIntegral pidW))
+                        Nothing
+                        0
+                        3
+                  void $ E.try @E.SomeException (waitForProcess ph')
+                Nothing -> pure ()
+              pure
+                CGNA.Session'processSpawnVirtiofsd'results
+                  { CGNA.result =
+                      CGNA.VirtiofsdSpawnResult
+                        { CGNA.kind = CGNA.VirtiofsdSpawnKind'socketNeverAppeared
+                        , CGNA.pid = 0
+                        , CGNA.message = T.pack socketPath
+                        }
+                  }
+
+encodeStopResult :: P.StopResult -> CGNA.Parsed CGNA.ProcessStopResult
+encodeStopResult r = case r of
+  P.StoppedGracefully ->
+    CGNA.ProcessStopResult
+      { CGNA.kind = CGNA.ProcessStopKind'stoppedGracefully
+      , CGNA.message = ""
+      }
+  P.StoppedByTerm ->
+    CGNA.ProcessStopResult
+      { CGNA.kind = CGNA.ProcessStopKind'stoppedByTerm
+      , CGNA.message = ""
+      }
+  P.StoppedByKill ->
+    CGNA.ProcessStopResult
+      { CGNA.kind = CGNA.ProcessStopKind'stoppedByKill
+      , CGNA.message = ""
+      }
+  P.NotRunning ->
+    CGNA.ProcessStopResult
+      { CGNA.kind = CGNA.ProcessStopKind'notRunning
+      , CGNA.message = ""
+      }
+  P.StopFailed msg ->
+    CGNA.ProcessStopResult
+      { CGNA.kind = CGNA.ProcessStopKind'stopFailed
+      , CGNA.message = msg
+      }

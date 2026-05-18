@@ -115,6 +115,78 @@ interface Session {
      networkConfig :Text,
      hasNetworkConfig :Bool)
     -> (isoPath :Text);
+
+  # -------------------------------------------------------------------
+  # Process supervision primitives (Phase 3).
+  #
+  # The agent owns every subprocess Corvus spawns: QEMU, virtiofsd.
+  # The daemon submits intent — "spawn this command", "kill that
+  # PID" — and the agent executes. PIDs are agent-owned but
+  # transparent to the daemon (it stores them in the DB and uses
+  # them as opaque handles when calling back).
+  #
+  # The daemon still generates command lines from DB rows (via
+  # Corvus.Node.Command, which is library code accessible to
+  # both processes). Only the actual fork/exec happens here.
+  # -------------------------------------------------------------------
+
+  # @vmId@ is used solely to compute the runtime directory layout
+  # ($XDG_RUNTIME_DIR/corvus/<vmId>/). The agent mkdir-p's it
+  # before spawning. Returns the PID of the spawned process.
+  processSpawnQemu @15
+    (vmId :Int64, binary :Text, args :List(Text))
+    -> (pid :Int32);
+
+  # Spawn a virtiofsd subprocess. The agent waits up to
+  # @waitForSocketTimeoutMs@ for the named UNIX socket file to
+  # appear; if it doesn't, the spawn is treated as failed and
+  # the agent kills the partial child.
+  processSpawnVirtiofsd @16
+    (binary :Text,
+     args :List(Text),
+     socketPath :Text,
+     waitForSocketTimeoutMs :UInt32)
+    -> (result :VirtiofsdSpawnResult);
+
+  # SIGTERM-then-SIGKILL a previously-spawned child. The agent
+  # remembers the @ProcessHandle@ keyed by PID and waitpid()s
+  # to reap. Idempotent: a PID the agent doesn't know about
+  # (or that's already exited) returns @notRunning@.
+  processStop @17
+    (pid :Int32, gracefulTimeoutSec :UInt32)
+    -> (result :ProcessStopResult);
+
+  # Cheap liveness probe (read /proc/<pid>). Used by the daemon's
+  # VM monitor loop to learn when QEMU has exited.
+  processIsAlive @18 (pid :Int32) -> (alive :Bool);
+}
+
+# ProcessStopResult mirrors Corvus.Process.StopResult.
+struct ProcessStopResult {
+  kind    @0 :ProcessStopKind;
+  message @1 :Text;
+}
+
+enum ProcessStopKind {
+  stoppedGracefully @0;  # caller's optional pre-stop hook handled it
+  stoppedByTerm     @1;  # exited within graceful window after SIGTERM
+  stoppedByKill     @2;  # required SIGKILL escalation
+  notRunning        @3;  # PID wasn't alive when called
+  stopFailed        @4;  # signalling raised an OS error (text in message)
+}
+
+# VirtiofsdSpawnResult covers the two non-success outcomes
+# specific to virtiofsd spawning.
+struct VirtiofsdSpawnResult {
+  kind    @0 :VirtiofsdSpawnKind;
+  pid     @1 :Int32;     # 0 when kind != success
+  message @2 :Text;      # populated on failure
+}
+
+enum VirtiofsdSpawnKind {
+  success            @0;
+  spawnFailed        @1;   # createProcess raised
+  socketNeverAppeared @2;  # process started but didn't open its socket in time
 }
 
 # DiskOpResult mirrors Corvus.Qemu.Image.ImageResult.

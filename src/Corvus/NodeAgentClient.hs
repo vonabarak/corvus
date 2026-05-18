@@ -58,6 +58,14 @@ module Corvus.NodeAgentClient
 
     -- * Cloud-init
   , cloudInitGenerateIso
+
+    -- * Process supervision
+  , ProcessStopResult (..)
+  , VirtiofsdSpawnResult (..)
+  , processSpawnQemu
+  , processSpawnVirtiofsd
+  , processStop
+  , processIsAlive
   )
 where
 
@@ -73,8 +81,9 @@ import Capnp.Rpc
 import qualified Control.Exception as E
 import qualified Data.Default as Def
 import Data.Function ((&))
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import qualified Data.Text as T
+import Data.Word (Word32)
 import qualified Network.Socket as NS
 import Supervisors (Supervisor, withSupervisor)
 
@@ -507,3 +516,115 @@ cloudInitGenerateIso nac targetDir userData metaData mNetworkConfig = remote $ d
         }
       (nacSession nac)
   pure p
+
+-- ---------------------------------------------------------------------------
+-- Process supervision
+
+-- | Daemon-side mirror of the agent's @ProcessStopResult@.
+data ProcessStopResult
+  = ProcessStoppedGracefully
+  | ProcessStoppedByTerm
+  | ProcessStoppedByKill
+  | ProcessNotRunning
+  | ProcessStopFailed !T.Text
+  deriving (Eq, Show)
+
+-- | Daemon-side mirror of the agent's @VirtiofsdSpawnResult@.
+data VirtiofsdSpawnResult
+  = VirtiofsdSpawned !Word32
+  | VirtiofsdSpawnFailed !T.Text
+  | VirtiofsdSocketTimeout !T.Text
+  deriving (Eq, Show)
+
+decodeProcessStopResult :: CGNA.Parsed CGNA.ProcessStopResult -> ProcessStopResult
+decodeProcessStopResult CGNA.ProcessStopResult {CGNA.kind = k, CGNA.message = m} =
+  case k of
+    CGNA.ProcessStopKind'stoppedGracefully -> ProcessStoppedGracefully
+    CGNA.ProcessStopKind'stoppedByTerm -> ProcessStoppedByTerm
+    CGNA.ProcessStopKind'stoppedByKill -> ProcessStoppedByKill
+    CGNA.ProcessStopKind'notRunning -> ProcessNotRunning
+    CGNA.ProcessStopKind'stopFailed -> ProcessStopFailed m
+    CGNA.ProcessStopKind'unknown' _ ->
+      ProcessStopFailed ("unknown ProcessStopKind: " <> m)
+
+decodeVirtiofsdSpawnResult
+  :: CGNA.Parsed CGNA.VirtiofsdSpawnResult -> VirtiofsdSpawnResult
+decodeVirtiofsdSpawnResult CGNA.VirtiofsdSpawnResult {CGNA.kind = k, CGNA.pid = p, CGNA.message = m} =
+  case k of
+    CGNA.VirtiofsdSpawnKind'success -> VirtiofsdSpawned (fromIntegral p)
+    CGNA.VirtiofsdSpawnKind'spawnFailed -> VirtiofsdSpawnFailed m
+    CGNA.VirtiofsdSpawnKind'socketNeverAppeared -> VirtiofsdSocketTimeout m
+    CGNA.VirtiofsdSpawnKind'unknown' _ ->
+      VirtiofsdSpawnFailed ("unknown VirtiofsdSpawnKind: " <> m)
+
+processSpawnQemu
+  :: NodeAgentClient
+  -> Int64
+  -- ^ VM id (used to compute the runtime directory).
+  -> T.Text
+  -- ^ QEMU binary path.
+  -> [T.Text]
+  -- ^ QEMU argv.
+  -> IO (Either NodeAgentError Word32)
+processSpawnQemu nac vmId binary args = remote $ do
+  CGNA.Session'processSpawnQemu'results {CGNA.pid = pidI32} <-
+    callOn
+      #processSpawnQemu
+      CGNA.Session'processSpawnQemu'params
+        { CGNA.vmId = vmId
+        , CGNA.binary = binary
+        , CGNA.args = args
+        }
+      (nacSession nac)
+  pure (fromIntegral pidI32)
+
+processSpawnVirtiofsd
+  :: NodeAgentClient
+  -> T.Text
+  -- ^ virtiofsd binary path.
+  -> [T.Text]
+  -- ^ virtiofsd argv.
+  -> T.Text
+  -- ^ Socket path the agent should poll for as a readiness signal.
+  -> Word32
+  -- ^ Timeout in milliseconds.
+  -> IO (Either NodeAgentError VirtiofsdSpawnResult)
+processSpawnVirtiofsd nac binary args socketPath waitMs = remote $ do
+  CGNA.Session'processSpawnVirtiofsd'results {CGNA.result = r} <-
+    callOn
+      #processSpawnVirtiofsd
+      CGNA.Session'processSpawnVirtiofsd'params
+        { CGNA.binary = binary
+        , CGNA.args = args
+        , CGNA.socketPath = socketPath
+        , CGNA.waitForSocketTimeoutMs = waitMs
+        }
+      (nacSession nac)
+  pure (decodeVirtiofsdSpawnResult r)
+
+processStop
+  :: NodeAgentClient
+  -> Word32
+  -- ^ PID returned earlier from a spawn call.
+  -> Word32
+  -- ^ Seconds to wait after SIGTERM before escalating to SIGKILL.
+  -> IO (Either NodeAgentError ProcessStopResult)
+processStop nac pid graceSec = remote $ do
+  CGNA.Session'processStop'results {CGNA.result = r} <-
+    callOn
+      #processStop
+      CGNA.Session'processStop'params
+        { CGNA.pid = fromIntegral pid :: Int32
+        , CGNA.gracefulTimeoutSec = graceSec
+        }
+      (nacSession nac)
+  pure (decodeProcessStopResult r)
+
+processIsAlive :: NodeAgentClient -> Word32 -> IO (Either NodeAgentError Bool)
+processIsAlive nac pid = remote $ do
+  CGNA.Session'processIsAlive'results {CGNA.alive = a} <-
+    callOn
+      #processIsAlive
+      CGNA.Session'processIsAlive'params {CGNA.pid = fromIntegral pid :: Int32}
+      (nacSession nac)
+  pure a

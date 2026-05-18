@@ -28,6 +28,7 @@ import Capnp.Rpc
 import Capnp.TraversalLimit (defaultLimit)
 import Corvus.Node.Caps.NodeAgent (newNodeAgentCap)
 import Corvus.Node.Cleanup (cleanupCorvusProcesses)
+import qualified Corvus.Node.Ledger as L
 import qualified Data.Default as Def
 import qualified Network.Simple.TCP as TCP
 import Supervisors (withSupervisor)
@@ -41,14 +42,18 @@ defaultNodeAgentPort = 9878
 -- | Run the agent's Cap'n Proto server.
 --
 -- 1. Run startup cleanup so we begin from an empty world.
--- 2. Accept TCP connections; export a fresh 'NodeAgentCap' per
---    connection (one supervisor per connection).
+-- 2. Allocate the process-wide 'ProcessLedger' so 'processStop'
+--    can locate handles by PID across connection boundaries.
+-- 3. Accept TCP connections; export a fresh 'NodeAgentCap' per
+--    connection (one supervisor per connection) that shares the
+--    process-wide ledger.
 runNodeAgentServer :: String -> Int -> IO ()
 runNodeAgentServer host port = do
   cleanupCorvusProcesses
+  procLedger <- L.newProcessLedger
   TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
     withSupervisor $ \sup -> do
-      nodeAgentCap <- newNodeAgentCap sup
+      nodeAgentCap <- newNodeAgentCap sup procLedger
       bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
       handleConn
         (socketTransport sock defaultLimit)

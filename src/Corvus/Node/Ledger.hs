@@ -27,12 +27,21 @@ module Corvus.Node.Ledger
   , readDisks
   , insertDisk
   , removeDisk
+
+    -- * Spawned-process ledger
+  , ProcessLedger
+  , newProcessLedger
+  , insertProcess
+  , takeProcess
+  , readProcess
   )
 where
 
-import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVarIO, readTVar)
+import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVarIO, readTVar, stateTVar)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import Data.Word (Word32)
+import System.Process (ProcessHandle)
 
 -- ---------------------------------------------------------------------------
 -- VMs
@@ -79,3 +88,32 @@ insertDisk l name spec = modifyTVar' (diskVar l) (Map.insert name spec)
 
 removeDisk :: DiskLedger spec -> T.Text -> STM ()
 removeDisk l name = modifyTVar' (diskVar l) (Map.delete name)
+
+-- ---------------------------------------------------------------------------
+-- Spawned processes
+
+-- | Map of PID → 'ProcessHandle' for every subprocess the agent
+-- spawned this session. The handle is needed for @waitpid@-style
+-- cleanup ('System.Process.waitForProcess' won't reap if you only
+-- have the bare PID). Entries are inserted on spawn, removed on
+-- stop or when the agent's internal waiter sees the process exit.
+newtype ProcessLedger = ProcessLedger
+  { processVar :: TVar (Map.Map Word32 ProcessHandle)
+  }
+
+newProcessLedger :: IO ProcessLedger
+newProcessLedger = ProcessLedger <$> newTVarIO Map.empty
+
+-- | Record a freshly-spawned process.
+insertProcess :: ProcessLedger -> Word32 -> ProcessHandle -> STM ()
+insertProcess l pid ph = modifyTVar' (processVar l) (Map.insert pid ph)
+
+-- | Remove and return the handle for a PID, if any. Used by the
+-- stop path before @waitForProcess@-ing the handle.
+takeProcess :: ProcessLedger -> Word32 -> STM (Maybe ProcessHandle)
+takeProcess l pid =
+  stateTVar (processVar l) (\m -> (Map.lookup pid m, Map.delete pid m))
+
+-- | Read but don't remove.
+readProcess :: ProcessLedger -> Word32 -> STM (Maybe ProcessHandle)
+readProcess l pid = Map.lookup pid <$> readTVar (processVar l)
