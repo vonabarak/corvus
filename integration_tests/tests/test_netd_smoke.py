@@ -30,6 +30,7 @@ those get filled in during Phase 2.
 """
 from __future__ import annotations
 
+import asyncio
 import shutil
 import socket
 import subprocess
@@ -271,7 +272,7 @@ class TestNetdSmoke(SingleNodeCase):
             lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
         )
 
-    def test_version_reports_semver(self, netd_endpoint):
+    def test_version_reports_semver_and_capabilities(self, netd_endpoint):
         host, port = netd_endpoint
 
         async def body(agent):
@@ -283,17 +284,16 @@ class TestNetdSmoke(SingleNodeCase):
             lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
         )
         assert info.semver.startswith("0.")
-        # Phase 1 advertises an empty capability list; Phase 2 will
-        # add "bridge", "tap", "nat", "dnsmasq" etc.
-        assert list(info.capabilities) == []
+        # Phase 2 advertises the features its Session can actually
+        # service.  Subsequent slices add "tap", "nat", "dnsmasq",
+        # "events" — each addition rewrites this assertion.
+        assert set(info.capabilities) == {"bridge", "ip-forwarding"}
 
     def test_session_returns_cap(self, netd_endpoint):
         host, port = netd_endpoint
 
         async def body(agent):
             resp = await agent.session(owner="test-uid-1000")
-            # Holding the cap is enough to prove the agent returned
-            # one; privileged methods are unimplemented in Phase 1.
             return resp.session is not None
 
         result = _run_on_node_loop(
@@ -302,30 +302,154 @@ class TestNetdSmoke(SingleNodeCase):
         )
         assert result is True
 
-    def test_session_privileged_method_unimplemented(self, netd_endpoint):
-        """Tripwire: Phase 1 Session methods all raise unimplemented.
+    # -- Phase 2 kernel-state tests ------------------------------------------
 
-        Calling `createBridge` should raise pycapnp's wrapper around
-        Cap'n Proto's "unimplemented" error. Phase 2 will replace the
-        stub with a real implementation — at which point this test
-        will start failing, prompting a rewrite against real
-        behaviour.
+    def test_create_bridge_appears_in_kernel(self, netd_endpoint):
+        """`createBridge` puts a real bridge in the node's host netns.
+
+        Kernel-state assertions run INSIDE the agent coroutine, via
+        `asyncio.to_thread`, so the SSH probe fires while the cap is
+        still alive.  If we asserted from the main thread after the
+        coroutine returned, the cap would have been GC'd, dropped,
+        and torn down before SSH could observe the bridge — the
+        whole point of automatic cap-drop cleanup.
         """
         host, port = netd_endpoint
+        # Bridge names are bounded by IFNAMSIZ (15 chars + NUL); the
+        # `crv-it-` prefix keeps each test's bridge greppable while
+        # staying under the limit even with an 8-char suffix.
+        bridge_name = "crv-it-create"
+        node = self.node
 
         async def body(agent):
-            session_resp = await agent.session(owner="test-uid-1000")
-            session = session_resp.session
+            sess_resp = await agent.session(owner="test-uid-1000")
+            sess = sess_resp.session
+            br_resp = await sess.createBridge(
+                params={
+                    "name": bridge_name,
+                    "cidr": "10.199.0.1/24",
+                    "mtu": 1500,
+                }
+            )
+            bridge = br_resp.bridge
+            # Kernel observation, off the kj_loop thread so it can't
+            # starve concurrent capnp activity.  Cap is still live.
+            link = await asyncio.to_thread(
+                node.run, f"ip -d link show {bridge_name}", check=False
+            )
+            assert link.returncode == 0, (
+                f"bridge {bridge_name} not found in node: "
+                f"{link.stderr.decode(errors='replace')}"
+            )
+            # IFF_UP flag is what `ip link set <name> up` sets; an
+            # empty bridge stays `state DOWN` (no carrier) until a
+            # TAP attaches, so we check the flag list rather than the
+            # operational state.
+            assert b"UP" in link.stdout.split(b"<", 1)[1].split(b">", 1)[0], (
+                f"bridge missing IFF_UP flag: {link.stdout.decode(errors='replace')}"
+            )
+            # `ip -d link show` includes the link-type detail when
+            # the device is a bridge. We assert this so the test
+            # would catch a regression that creates the link as a
+            # plain dummy/macvlan.
+            assert b"bridge " in link.stdout
+            addr = await asyncio.to_thread(
+                node.run, f"ip -o -4 addr show dev {bridge_name}"
+            )
+            assert b"10.199.0.1/24" in addr.stdout
+            # Explicit destroy + verify the bridge is gone.
+            await bridge.destroy()
+            gone = await asyncio.to_thread(
+                node.run, f"ip link show {bridge_name}", check=False
+            )
+            assert gone.returncode != 0, (
+                f"bridge {bridge_name} still present after destroy()"
+            )
+
+        try:
+            _run_on_node_loop(
+                node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
+            )
+        finally:
+            # Belt-and-braces: if the body raised mid-flight, scrub
+            # the bridge so the next test class doesn't trip on it.
+            node.run(
+                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+                check=False,
+            )
+
+    def test_create_bridge_rejects_duplicate(self, netd_endpoint):
+        """Second createBridge with the same name in the same owner fails."""
+        host, port = netd_endpoint
+        bridge_name = "crv-it-dup"
+
+        async def body(agent):
+            sess_resp = await agent.session(owner="test-uid-1000")
+            sess = sess_resp.session
+            await sess.createBridge(
+                params={"name": bridge_name, "cidr": "10.198.0.1/24", "mtu": 1500}
+            )
             with pytest.raises(capnp.KjException):
-                await session.createBridge(
+                await sess.createBridge(
                     params={
-                        "name": "br-stub",
-                        "cidr": "10.99.0.1/24",
+                        "name": bridge_name,
+                        "cidr": "10.198.0.1/24",
                         "mtu": 1500,
                     }
                 )
 
-        _run_on_node_loop(
-            self.node,
-            lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-        )
+        try:
+            _run_on_node_loop(
+                self.node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
+            )
+        finally:
+            self.node.run(
+                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+                check=False,
+            )
+
+    def test_set_ip_forwarding_toggles_proc(self, netd_endpoint):
+        """setIpForwarding writes to /proc/sys/net/ipv4/ip_forward."""
+        host, port = netd_endpoint
+
+        # Record the current value so we restore it after the test.
+        before = self.node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
+
+        try:
+            # Step 1: set to 1
+            async def enable(agent):
+                sess = (await agent.session(owner="test-uid-1000")).session
+                await sess.setIpForwarding(enabled=True, family="v4")
+
+            _run_on_node_loop(
+                self.node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, enable),
+            )
+            assert (
+                self.node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
+                == b"1"
+            )
+
+            # Step 2: set to 0
+            async def disable(agent):
+                sess = (await agent.session(owner="test-uid-1000")).session
+                await sess.setIpForwarding(enabled=False, family="v4")
+
+            _run_on_node_loop(
+                self.node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, disable),
+            )
+            assert (
+                self.node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
+                == b"0"
+            )
+        finally:
+            # Restore the prior value so we don't poison the node for
+            # other tests in the class (or for an operator inspecting
+            # a leaked node).
+            self.node.run(
+                f"echo {before.decode()} | sudo tee /proc/sys/net/ipv4/ip_forward >/dev/null",
+                check=False,
+            )

@@ -12,10 +12,8 @@
 --   * @version@ — semver + advertised capability flags. Used by
 --     daemons to negotiate features without parsing log output.
 --   * @session(owner)@ — returns a 'SessionCap' scoped to the
---     caller-claimed owner tag.
---
--- Phase 1: all methods are real (so the smoke test passes); the
--- privileged methods on 'SessionCap' are still stubs.
+--     caller-claimed owner tag, sharing the agent's process-wide
+--     resource ledger.
 module Corvus.Netd.Caps.NetAgent
   ( NetAgentCap (..)
   , newNetAgentCap
@@ -27,18 +25,19 @@ import qualified Capnp.Gen.Netagent as CGN
 import Capnp.Rpc.Server (SomeServer)
 import Control.Monad.Logger (logInfoN, runStderrLoggingT)
 import Corvus.Netd.Caps.Session (newSessionCap)
+import qualified Corvus.Netd.Ledger as L
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
 import Supervisors (Supervisor)
 
--- | Bootstrap-cap state.  No shared mutable state in Phase 1 — the
--- ledger and rtnetlink watcher get plumbed through here in Phase 2.
-newtype NetAgentCap = NetAgentCap
-  { nacSup :: Supervisor
+-- | Bootstrap-cap state.
+data NetAgentCap = NetAgentCap
+  { nacSup :: !Supervisor
+  , nacLedger :: !L.Ledger
   }
 
-newNetAgentCap :: Supervisor -> IO NetAgentCap
-newNetAgentCap sup = pure (NetAgentCap sup)
+newNetAgentCap :: Supervisor -> L.Ledger -> IO NetAgentCap
+newNetAgentCap sup ledger = pure (NetAgentCap sup ledger)
 
 instance SomeServer NetAgentCap
 
@@ -56,30 +55,29 @@ instance CGN.NetAgent'server_ NetAgentCap where
             }
     pure CGN.NetAgent'version'results {CGN.info = info}
 
-  netAgent'session (NetAgentCap sup) =
+  netAgent'session (NetAgentCap sup ledger) =
     handleParsed $ \CGN.NetAgent'session'params {CGN.owner = owner} -> do
       logLine ("session owner=" <> owner)
-      impl <- newSessionCap owner sup
+      impl <- newSessionCap owner sup ledger
       client <- export @CGN.Session sup impl
       pure CGN.NetAgent'session'results {CGN.session = client}
 
 -- ----------------------------------------------------------------------
 -- Constants
 
--- | Advertised semver for the agent wire protocol. Phase 1 is 0.1.x;
--- bump on every breaking schema change.
+-- | Advertised semver for the agent wire protocol. Phase 2 bumps
+-- the patch as features land; the protocol shape is unchanged
+-- from Phase 1 so the major.minor stays at 0.1.
 agentSemver :: String
-agentSemver = "0.1.0"
+agentSemver = "0.1.1"
 
--- | Feature flags returned by @version@. Phase 1: none yet — the
--- daemon should treat an empty list as "talk only to ping/version".
--- Phase 2 adds "bridge", "tap", "nat", "dnsmasq".
+-- | Feature flags returned by @version@. Phase 2's first slice
+-- advertises "bridge" and "ip-forwarding". Subsequent slices add
+-- "tap", "nat", "dnsmasq", "events".
 capnpCapabilities :: [T.Text]
-capnpCapabilities = []
+capnpCapabilities = ["bridge", "ip-forwarding"]
 
 -- ----------------------------------------------------------------------
--- Logging shim. The real agent uses the same MonadLogger setup as
--- the daemon (see app/netd/Main.hs); this helper lets the cap
--- impls just `logLine "foo"` without threading the logging context.
+
 logLine :: T.Text -> IO ()
 logLine msg = runStderrLoggingT $ logInfoN ("[netd] " <> msg)

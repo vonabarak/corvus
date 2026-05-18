@@ -4,14 +4,21 @@
 
 -- | Cap'n Proto RPC listener for `corvus-netd`.
 --
--- Mirrors "Corvus.Rpc.Server" but trimmed: TCP only (the daemon
--- always reaches the agent over loopback), and the bootstrap cap is
--- 'NetAgentCap' rather than 'DaemonCap'.
+-- TCP only — the daemon always reaches the agent over loopback.
+-- The bootstrap cap is 'NetAgentCap'.
 --
--- One supervisor per process (not per connection) — sub-caps
--- exported from 'NetAgentCap.session' need to outlive the bootstrap
--- response but are still scoped by Cap'n Proto's per-connection
--- lifecycle. Same pattern the daemon uses in Phase 1.
+-- Phase 2 change: each accepted connection gets its OWN
+-- 'Supervisor'. When the connection ends, its supervisor exits and
+-- every cap exported through that supervisor is dropped, firing
+-- 'SomeServer.shutdown' on each. That gives us automatic kernel
+-- cleanup when a daemon disconnects without explicit `destroy`
+-- calls.
+--
+-- The ledger, on the other hand, is process-global so resources
+-- survive disconnect (until `claim*` re-adopts them or the
+-- supervisor's drop fires the teardown). Phase 2.x will add a
+-- 60-second orphan window before drops finalise; Phase 2's first
+-- slice fires teardown immediately on cap drop.
 module Corvus.Netd.Server
   ( runNetdServer
   , defaultNetdHost
@@ -29,28 +36,31 @@ import Capnp.Rpc
   )
 import Capnp.TraversalLimit (defaultLimit)
 import Corvus.Netd.Caps.NetAgent (newNetAgentCap)
+import qualified Corvus.Netd.Ledger as L
 import qualified Data.Default as Def
 import qualified Network.Simple.TCP as TCP
 import Supervisors (withSupervisor)
 
--- | Default loopback bind address.
 defaultNetdHost :: String
 defaultNetdHost = "127.0.0.1"
 
--- | Default TCP port. One above the daemon's 9876.
 defaultNetdPort :: Int
 defaultNetdPort = 9877
 
 -- | Run the agent's Cap'n Proto server on the given host/port.
--- Blocks the calling thread; spawns a fresh handler per connection.
+-- Allocates a process-wide ledger that every accepted connection
+-- shares; per-connection supervisors scope cap lifetimes to the
+-- connection.
 runNetdServer :: String -> Int -> IO ()
-runNetdServer host port = withSupervisor $ \sup ->
-  TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) -> do
-    netAgentCap <- newNetAgentCap sup
-    bootClient <- export @CGN.NetAgent sup netAgentCap
-    handleConn
-      (socketTransport sock defaultLimit)
-      Def.def
-        { debugMode = False
-        , bootstrap = Just (toClient bootClient)
-        }
+runNetdServer host port = do
+  ledger <- L.newLedger
+  TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
+    withSupervisor $ \sup -> do
+      netAgentCap <- newNetAgentCap sup ledger
+      bootClient <- export @CGN.NetAgent sup netAgentCap
+      handleConn
+        (socketTransport sock defaultLimit)
+        Def.def
+          { debugMode = False
+          , bootstrap = Just (toClient bootClient)
+          }

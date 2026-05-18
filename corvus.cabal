@@ -139,8 +139,12 @@ library
       Corvus.Client.Capnp.Connection
       Corvus.Client.Capnp.Rpc
       Corvus.Netd.Server
+      Corvus.Netd.Ledger
+      Corvus.Netd.IpLink
+      Corvus.Netd.Sysctl
       Corvus.Netd.Caps.NetAgent
       Corvus.Netd.Caps.Session
+      Corvus.Netd.Caps.Bridge
       Capnp.Gen.Corvus
       Capnp.Gen.Common
       Capnp.Gen.Enums

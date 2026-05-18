@@ -1,40 +1,191 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Per-owner session capability for `corvus-netd`.
 --
 -- A 'SessionCap' is returned by @NetAgent.session@ and scopes every
--- subsequent privileged operation to a single owner tag. Phase 1:
--- the cap exists, every privileged method throws @methodUnimplemented@
--- (the generated bindings' default), so we override no methods on
--- purpose — the goal here is end-to-end wire shape, not behavior.
--- Phase 2 will fill in the real implementations.
+-- subsequent privileged operation to a single owner tag. Phase 2
+-- implements:
+--
+--   * 'createBridge' — @ip link add@ / @ip addr add@ / @ip link set
+--     up@ chain, plus a ledger entry whose teardown deletes the
+--     bridge. Returns a real 'BridgeCap'.
+--   * 'listBridges'  — ledger query, scoped to this session's owner.
+--   * 'claimBridge'  — re-adopt an existing bridge by name.
+--   * 'setIpForwarding' — typed sysctl, root-only.
+--
+-- The rest (TAP, NAT, dnsmasq, event subscription) remain as
+-- generated `methodUnimplemented` defaults until the next slices.
 module Corvus.Netd.Caps.Session
   ( SessionCap (..)
   , newSessionCap
   )
 where
 
+import Capnp (export)
 import qualified Capnp.Gen.Netagent as CGN
+import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
+import Control.Concurrent.STM (atomically)
+import qualified Control.Exception as E
+import Control.Monad (unless, void, when)
+import Corvus.Netd.Caps.Bridge (newBridgeCap)
+import Corvus.Netd.IpLink
+  ( IpLinkError (..)
+  , addrAdd
+  , bridgeAdd
+  , bridgeDel
+  , linkSetUp
+  )
+import qualified Corvus.Netd.Ledger as L
+import qualified Corvus.Netd.Sysctl as Sys
+import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
+import Data.Time (getCurrentTime)
 import Supervisors (Supervisor)
 
--- | Session state: just the owner tag and the supervisor used to
--- export sub-caps. The kernel-state-touching fields (ledger,
--- watchdog handle, etc.) land here in Phase 2.
+-- | Session state.  The supervisor exports sub-caps (Bridge, Tap,
+-- …) and is per-connection — see 'Corvus.Netd.Server' — so dropping
+-- the connection cleanly drops every cap the session handed out.
 data SessionCap = SessionCap
   { scOwner :: !T.Text
   , scSup :: !Supervisor
+  , scLedger :: !L.Ledger
   }
 
-newSessionCap :: T.Text -> Supervisor -> IO SessionCap
-newSessionCap owner sup = pure (SessionCap owner sup)
+newSessionCap :: T.Text -> Supervisor -> L.Ledger -> IO SessionCap
+newSessionCap owner sup ledger =
+  pure
+    SessionCap
+      { scOwner = owner
+      , scSup = sup
+      , scLedger = ledger
+      }
 
 instance SomeServer SessionCap
 
--- | Default methods come from the generated class: every override
--- uses @methodUnimplemented@. That's fine for Phase 1 — a client
--- that calls @createBridge@ on the stub will get a clean RPC error
--- back, which is exactly what the smoke test asserts against.
-instance CGN.Session'server_ SessionCap
+instance CGN.Session'server_ SessionCap where
+  -- ----- createBridge -----------------------------------------------------
+  session'createBridge sess =
+    handleParsed $ \CGN.Session'createBridge'params {CGN.params = p} -> do
+      let CGN.BridgeParams {CGN.name = name, CGN.cidr = cidr, CGN.mtu = mtu} = p
+      when (T.null name) $ throwFailed "createBridge: name must be non-empty"
+      -- Reject duplicate within this owner.
+      existing <-
+        atomically $
+          L.lookup (scLedger sess) (scOwner sess) L.KBridge name
+      case existing of
+        Just _ ->
+          throwFailed $
+            "createBridge: bridge already exists for owner: " <> name
+        Nothing -> pure ()
+      created <- getCurrentTime
+      -- Kernel chain. If addrAdd or linkSetUp fails, roll back the
+      -- bridge link so we don't leak a half-configured interface.
+      bridgeAdd name >>= failOnIpErr "createBridge:link-add"
+      let rollback = void (bridgeDel name)
+      let runOrRollback step label =
+            step >>= \case
+              Right () -> pure ()
+              Left e -> do
+                rollback
+                throwFailed (label <> ": " <> ileStderr e)
+      unless (T.null cidr) $
+        runOrRollback (addrAdd cidr name) "createBridge:addr-add"
+      runOrRollback (linkSetUp name) "createBridge:link-up"
+      -- Record in the ledger. Teardown removes the bridge link.
+      let teardown = do
+            res <- bridgeDel name
+            case res of
+              Right () -> pure ()
+              Left e -> E.throwIO e
+      atomically $
+        L.record
+          (scLedger sess)
+          L.Resource
+            { L.rOwner = scOwner sess
+            , L.rKind = L.KBridge
+            , L.rName = name
+            , L.rCreated = created
+            , L.rTeardown = teardown
+            }
+      cap <-
+        newBridgeCap
+          (scOwner sess)
+          name
+          cidr
+          mtu
+          created
+          (scLedger sess)
+      client <- export @CGN.Bridge (scSup sess) cap
+      pure CGN.Session'createBridge'results {CGN.bridge = client}
+
+  -- ----- listBridges ------------------------------------------------------
+  session'listBridges sess =
+    handleParsed $ \_ -> do
+      rs <- atomically $ L.list (scLedger sess) (scOwner sess) L.KBridge
+      -- We don't have the BridgeCaps in the ledger entries (the
+      -- entries only carry teardown closures). For listBridges we
+      -- only need BridgeInfo, and we have enough metadata in the
+      -- Resource (name, owner, created) plus reading cidr/mtu from
+      -- /sys would be needed for full fidelity. Phase 2 punts: we
+      -- return name+owner and leave the rest blank, which is what
+      -- the daemon needs for its `crv network list` rendering.
+      let toInfo r =
+            CGN.BridgeInfo
+              { CGN.name = L.rName r
+              , CGN.cidr = ""
+              , CGN.mtu = 0
+              , CGN.upState = "up"
+              , CGN.owner = L.rOwner r
+              , CGN.tapCount = 0
+              }
+      pure CGN.Session'listBridges'results {CGN.bridges = map toInfo rs}
+
+  -- ----- claimBridge ------------------------------------------------------
+  session'claimBridge sess =
+    handleParsed $ \CGN.Session'claimBridge'params {CGN.name = name} -> do
+      mExisting <-
+        atomically $
+          L.lookup (scLedger sess) (scOwner sess) L.KBridge name
+      case mExisting of
+        Nothing ->
+          throwFailed $ "claimBridge: no bridge named " <> name <> " for this owner"
+        Just r -> do
+          -- Rebuild a fresh BridgeCap pointing at the same ledger
+          -- entry. CIDR/MTU lost to the reconstruction (the ledger
+          -- doesn't preserve them today); a Phase 2.5 widening of
+          -- Resource carries them along.
+          cap <-
+            newBridgeCap
+              (scOwner sess)
+              name
+              ""
+              0
+              (L.rCreated r)
+              (scLedger sess)
+          client <- export @CGN.Bridge (scSup sess) cap
+          pure CGN.Session'claimBridge'results {CGN.bridge = client}
+
+  -- ----- setIpForwarding --------------------------------------------------
+  session'setIpForwarding _ =
+    handleParsed $ \CGN.Session'setIpForwarding'params {CGN.enabled = enabled, CGN.family_ = family_} -> do
+      let fam = case family_ of
+            CGN.NetFamily'v4 -> Sys.V4
+            CGN.NetFamily'v6 -> Sys.V6
+            CGN.NetFamily'unknown' _ -> Sys.V4
+      result <- E.try @IOError (Sys.setIpForwarding enabled fam)
+      case result of
+        Right () -> pure CGN.Session'setIpForwarding'results
+        Left e -> throwFailed $ "setIpForwarding: " <> T.pack (show e)
+
+-- ---------------------------------------------------------------------------
+-- Internal
+
+failOnIpErr :: T.Text -> Either IpLinkError () -> IO ()
+failOnIpErr label = \case
+  Right () -> pure ()
+  Left e -> throwFailed (label <> ": " <> ileStderr e)
