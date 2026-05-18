@@ -7,8 +7,9 @@ import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel (..), logInfoN)
+import Control.Monad.Logger (LogLevel (..), logInfoN, logWarnN)
 import Corvus.Model (migrateAll)
+import qualified Corvus.NetAgentClient as NA
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Server (handleGracefulShutdown, handleStartup)
@@ -22,6 +23,7 @@ import System.Exit (exitSuccess)
 import System.FilePath (takeDirectory)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
+import System.Posix.User (getRealUserID)
 
 -- | Command line options for the daemon
 data Options = Options
@@ -32,6 +34,9 @@ data Options = Options
   , optDbUri :: String
   , optLogLevel :: LogLevel
   , optSpiceBind :: Maybe String
+  , optNetdHost :: String
+  , optNetdPort :: Int
+  , optNoNetd :: Bool
   }
   deriving (Show)
 
@@ -86,6 +91,25 @@ optionsParser =
               <> metavar "ADDR"
               <> help "Address QEMU binds SPICE to (default: mirrors --host in --tcp mode, else 127.0.0.1)"
           )
+      )
+    <*> strOption
+      ( long "netd-host"
+          <> metavar "HOST"
+          <> value (fst NA.defaultNetAgentAddress)
+          <> showDefault
+          <> help "Hostname or IP of the corvus-netd privileged agent"
+      )
+    <*> option
+      auto
+      ( long "netd-port"
+          <> metavar "PORT"
+          <> value (snd NA.defaultNetAgentAddress)
+          <> showDefault
+          <> help "TCP port of the corvus-netd privileged agent"
+      )
+    <*> switch
+      ( long "no-netd"
+          <> help "Skip dialling corvus-netd at startup (legacy user-ns path)"
       )
 
 -- | Full parser with info
@@ -149,11 +173,26 @@ main = do
     -- Start the Cap'n Proto RPC server in a background thread.
     capnpThread <- liftIO $ async $ runCapnpServer state' listenAddr
 
+    -- Dial corvus-netd in a separate async whose lifetime IS the
+    -- Cap'n Proto connection's lifetime. The thread holds the
+    -- bracket open and stashes the live cap on ServerState; on
+    -- shutdown we cancel it and the bracket tears the connection
+    -- down.
+    netdThread <-
+      if optNoNetd opts
+        then do
+          logInfoN
+            "Starting without corvus-netd (legacy user-ns path will be used for network ops)"
+          liftIO $ async $ pure ()
+        else
+          liftIO $ async $ runNetdConnection state' opts
+
     -- Wait for shutdown signal
     liftIO $ waitForShutdown state'
 
     logInfoN "Shutting down..."
     liftIO $ cancel capnpThread
+    liftIO $ cancel netdThread
 
     -- Run graceful shutdown handler (stop VMs, networks)
     liftIO $ handleGracefulShutdown state'
@@ -189,3 +228,62 @@ parseLogLevel = eitherReader $ \s -> case s of
 formatListenAddr :: ListenAddress -> T.Text
 formatListenAddr (TcpAddress host port) = T.pack host <> ":" <> T.pack (show port)
 formatListenAddr (UnixAddress path) = "unix:" <> T.pack path
+
+-- | Hold a connection to corvus-netd for the daemon's lifetime.
+--
+-- The Cap'n Proto bracket pattern means the connection stays
+-- open only while 'NA.withNetAgentClient'\'s body is running.
+-- We loop: dial, write the cap to 'ssNetAgent', block until
+-- the daemon's shutdown flag flips, then exit the bracket
+-- (which closes the TCP socket).
+--
+-- On connect failure we sleep 5 s and retry. Network handlers
+-- read 'ssNetAgent' before each operation, so calls during the
+-- retry window fall back to the legacy user-ns path (until that
+-- gets ripped out in Phase 4).
+runNetdConnection :: ServerState -> Options -> IO ()
+runNetdConnection state opts = do
+  -- Owner tag = daemon uid as a stringified decimal. The agent
+  -- uses this as a ledger partition key, not a security boundary.
+  uid <- getRealUserID
+  let owner = T.pack (show uid)
+  loop owner
+  where
+    loop owner = do
+      result <-
+        NA.withNetAgentClient
+          (optNetdHost opts)
+          (optNetdPort opts)
+          owner
+          (onConnect owner)
+      shouldStop <- readTVarIO (ssShutdownFlag state)
+      if shouldStop
+        then pure ()
+        else do
+          case result of
+            Right () -> pure ()
+            Left _ -> threadDelay 5000000
+          loop owner
+
+    onConnect _owner (Left e) = do
+      runFilteredLogging (ssLogLevel state) $
+        logWarnN
+          ("netd dial failed: " <> T.pack (show e) <> "; retrying in 5s")
+      pure (Left ())
+    onConnect _owner (Right nac) = do
+      runFilteredLogging (ssLogLevel state) $
+        logInfoN ("netd dial succeeded, owner=" <> NA.nacOwner nac)
+      atomically $ writeTVar (ssNetAgent state) (Just nac)
+      -- Hold the connection open until shutdown is requested.
+      blockUntilShutdown state
+      atomically $ writeTVar (ssNetAgent state) Nothing
+      pure (Right ())
+
+-- | Spin until 'ssShutdownFlag' flips. Lets the netd-connection
+-- thread block the bracket so the TCP socket stays open.
+blockUntilShutdown :: ServerState -> IO ()
+blockUntilShutdown state = do
+  shouldStop <- readTVarIO (ssShutdownFlag state)
+  unless shouldStop $ do
+    threadDelay 200000
+    blockUntilShutdown state

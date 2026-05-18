@@ -27,6 +27,7 @@ import qualified Capnp.Gen.Streams as CGS
 import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Concurrent.STM (TMVar, TVar, newTVarIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
+import Corvus.NetAgentClient (NetAgentClient)
 import Corvus.Qemu.Config (QemuConfig)
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
@@ -56,9 +57,18 @@ data ServerState = ServerState
   , ssLogLevel :: !LogLevel
   -- ^ Minimum log level for handler logging
   , ssNamespacePid :: TVar (Maybe Int)
-  -- ^ PID of the global network namespace manager
+  -- ^ PID of the global network namespace manager (legacy
+  -- pre-netd path; Phase 4 will delete this and the user-ns
+  -- code under @cbits/@ once every consumer is gone).
   , ssPastaPid :: TVar (Maybe Int)
-  -- ^ PID of the pasta process (for NAT)
+  -- ^ PID of the pasta process (for NAT). Same Phase-4 fate as
+  -- 'ssNamespacePid'.
+  , ssNetAgent :: TVar (Maybe NetAgentClient)
+  -- ^ Phase 3 link to the privileged @corvus-netd@ agent. Set
+  -- by the connect-and-hold async in 'app/daemon/Main.hs' once
+  -- the agent is reachable; cleared if the connection drops.
+  -- Network / NetIf handlers consult this TVar and fall through
+  -- to the legacy user-ns path when it's 'Nothing'.
   , ssSerialBuffers :: TVar (Map.Map Int64 SocketBufferHandle)
   -- ^ Per-VM serial console ring buffers (headless VMs only)
   , ssMonitorBuffers :: TVar (Map.Map Int64 SocketBufferHandle)
@@ -102,6 +112,7 @@ newServerState pool qemuConfig = do
   shutdownFlag <- newTVarIO False
   namespacePid <- newTVarIO Nothing
   pastaPid <- newTVarIO Nothing
+  netAgent <- newTVarIO Nothing
   serialBuffers <- newTVarIO Map.empty
   monitorBuffers <- newTVarIO Map.empty
   gaLocks <- newTVarIO Map.empty
@@ -119,6 +130,7 @@ newServerState pool qemuConfig = do
       , ssLogLevel = LevelInfo
       , ssNamespacePid = namespacePid
       , ssPastaPid = pastaPid
+      , ssNetAgent = netAgent
       , ssSerialBuffers = serialBuffers
       , ssMonitorBuffers = monitorBuffers
       , ssGuestAgentConns = gaLocks

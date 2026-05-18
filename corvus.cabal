@@ -138,6 +138,7 @@ library
       Corvus.Rpc.CloudInit
       Corvus.Client.Capnp.Connection
       Corvus.Client.Capnp.Rpc
+      Corvus.NetAgentClient
       Corvus.Netd.Server
       Corvus.Netd.Ledger
       Corvus.Netd.IpLink
