@@ -18,7 +18,7 @@ from __future__ import annotations
 import contextlib
 import re
 import time
-from typing import Iterator
+from typing import Callable, Iterator
 
 import pytest
 
@@ -96,21 +96,45 @@ def _bridge_ifindex(node, bridge: str) -> int:
 
 
 @contextlib.contextmanager
-def _network(client, name, subnet, *, dhcp=False, nat=False):
-    """Create, start, and (on exit) stop + delete a network."""
-    nw = client.networks.create(name, subnet, dhcp=dhcp, nat=nat)
+def _network(
+    client_fn: Callable[[], "Client"],
+    name: str,
+    subnet: str,
+    *,
+    dhcp: bool = False,
+    nat: bool = False,
+):
+    """Create, start, and (on exit) stop + delete a network.
+
+    Takes a *callable* returning a Client rather than a Client itself
+    so a test body that restarts the daemon mid-flight (and thus
+    invalidates whatever Client we entered with) still gets a fresh
+    Client for the stop+delete cleanup. Without this re-resolution,
+    cleanup tries to use a stale pycapnp cap whose runloop has been
+    closed, which leaks "coroutine was never awaited" warnings.
+    """
+    nw = client_fn().networks.create(name, subnet, dhcp=dhcp, nat=nat)
     try:
         nw.start()
         yield nw
     finally:
+        # Re-resolve the network by name on a fresh client; the
+        # original `nw` cap may be stale (daemon may have been
+        # restarted). If the network was already torn down by the
+        # body, `.get` raises and we skip the rest.
         try:
-            nw.stop(force=True)
+            fresh = client_fn().networks.get(name)
         except Exception:
-            pass
-        try:
-            nw.delete()
-        except Exception:
-            pass
+            fresh = None
+        if fresh is not None:
+            try:
+                fresh.stop(force=True)
+            except Exception:
+                pass
+            try:
+                fresh.delete()
+            except Exception:
+                pass
 
 
 class _ManagedVm(VmSsh):
@@ -153,7 +177,7 @@ class TestManagedNetworking(SingleNodeCase):
         node = self.node
         client = self.client
 
-        with _network(client, "iso-net", "10.50.0.0/24") as nw:
+        with _network(lambda: self.client, "iso-net", "10.50.0.0/24") as nw:
             bridge = _bridge_name(nw.show().id)
             # The agent set the bridge IP to the network's gateway.
             addr = node.run(f"ip -o -4 addr show dev {bridge}")
@@ -201,7 +225,7 @@ class TestManagedNetworking(SingleNodeCase):
         node = self.node
         client = self.client
 
-        with _network(client, "dhcp-net", "10.51.0.0/24", dhcp=True, nat=True) as nw:
+        with _network(lambda: self.client, "dhcp-net", "10.51.0.0/24", dhcp=True, nat=True) as nw:
             net_id = nw.show().id
             bridge = _bridge_name(net_id)
             # Sanity: bridge + masquerade rule are live.
@@ -250,8 +274,8 @@ class TestManagedNetworking(SingleNodeCase):
         (agent's `iifname "corvus-br*" oifname "corvus-br*" drop`)."""
         client = self.client
 
-        with _network(client, "iso-a", "10.60.0.0/24") as a, \
-             _network(client, "iso-b", "10.61.0.0/24") as b:
+        with _network(lambda: self.client, "iso-a", "10.60.0.0/24") as a, \
+             _network(lambda: self.client, "iso-b", "10.61.0.0/24") as b:
 
             class _VmA(_ManagedVm):
                 network_name = "iso-a"
@@ -301,7 +325,7 @@ class TestManagedNetworking(SingleNodeCase):
         node = self.node
         client = self.client
 
-        with _network(client, "rea-net", "10.52.0.0/24", dhcp=True, nat=True) as nw:
+        with _network(lambda: self.client, "rea-net", "10.52.0.0/24", dhcp=True, nat=True) as nw:
             net_id = nw.show().id
             bridge = _bridge_name(net_id)
             ifindex_before = _bridge_ifindex(node, bridge)
@@ -380,7 +404,7 @@ class TestManagedNetworking(SingleNodeCase):
         node = self.node
         client = self.client
 
-        with _network(client, "wip-net", "10.53.0.0/24", dhcp=True, nat=True) as nw:
+        with _network(lambda: self.client, "wip-net", "10.53.0.0/24", dhcp=True, nat=True) as nw:
             net_id = nw.show().id
             bridge = _bridge_name(net_id)
             ifindex_before = _bridge_ifindex(node, bridge)
