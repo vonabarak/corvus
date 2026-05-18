@@ -7,23 +7,16 @@
 
 -- | Daemon-side Cap'n Proto client for `corvus-netd`.
 --
--- The daemon dials the agent at startup, captures a @Session@ cap
--- scoped to the daemon's uid, and stashes the cap on
--- 'Corvus.Types.ServerState'. Every Phase 3 network handler that
--- used to call @nsExec@ / @nsSpawn@ now calls one of the typed
--- wrappers in this module.
+-- Phase 2.5: declarative API. The daemon expresses intent
+-- ('applyNetwork', 'applyTap') and the agent reconciles. No
+-- per-resource caps to hold; the daemon's DB is the only intent
+-- store.
 --
--- All wrappers run in @IO@ and surface failures as a 'NetAgentError'
--- — either a connection-level failure (the agent went away) or a
--- remote exception (the agent's cap method threw via
--- @throwFailed@). The handler layer converts these to Cap'n
--- Proto error envelopes for the daemon's own clients.
---
--- The Session cap is thread-safe: 'Capnp.Repr.Methods.callP' goes
--- through STM, so concurrent daemon handlers can issue calls
--- without locking. The underlying TCP connection is held by a
--- single 'withConn' bracket running on the daemon's main thread
--- — see 'withNetAgentClient'.
+-- The Session cap is thread-safe ('callP' goes through STM), so
+-- concurrent daemon handlers can issue calls without extra
+-- locking. The underlying TCP connection is held by a single
+-- 'withConn' bracket on the daemon's main thread — see
+-- 'withNetAgentClient'.
 module Corvus.NetAgentClient
   ( -- * Client handle
     NetAgentClient (..)
@@ -33,38 +26,30 @@ module Corvus.NetAgentClient
   , withNetAgentClient
   , defaultNetAgentAddress
 
+    -- * Spec types (re-exported convenience)
+  , NetworkSpec (..)
+  , NatSpec (..)
+  , DhcpSpec (..)
+  , NetworkInfo (..)
+  , TapSpec (..)
+  , TapInfo (..)
+
     -- * Liveness / negotiation
   , ping
   , agentVersion
 
-    -- * Bridge ops
-  , createBridge
-  , claimBridge
-  , destroyBridge
+    -- * Networks
+  , applyNetwork
+  , listNetworks
+  , deleteNetwork
 
-    -- * TAP ops
-  , createTap
-  , claimTap
-  , destroyTap
-  , attachTapToBridge
-  , detachTapFromBridge
-
-    -- * NAT
-  , installNat
-  , destroyNatRule
-
-    -- * dnsmasq
-  , startDnsmasq
-  , stopDnsmasq
+    -- * TAPs
+  , applyTap
+  , listTaps
+  , deleteTap
 
     -- * Kernel knobs
   , setIpForwarding
-
-    -- * Re-exported cap types for handler signatures
-  , BridgeCap
-  , TapCap
-  , NatRuleCap
-  , DnsmasqHandleCap
   )
 where
 
@@ -85,16 +70,57 @@ import Data.Word (Word32)
 import qualified Network.Socket as NS
 import Supervisors (Supervisor, withSupervisor)
 
--- | Aliases so handler signatures don't have to drag the
--- generated module path through their type. Each is the wire
--- shape of a cap returned by the agent.
-type BridgeCap = C.Client CGN.Bridge
+-- ---------------------------------------------------------------------------
+-- Spec types (mirror agent-side Network / Tap modules + Cap'n Proto)
 
-type TapCap = C.Client CGN.Tap
+data NetworkSpec = NetworkSpec
+  { nsName :: !T.Text
+  , nsCidr :: !T.Text
+  , nsMtu :: !Word32
+  , nsNat :: !NatSpec
+  , nsDhcp :: !DhcpSpec
+  }
+  deriving (Eq, Show)
 
-type NatRuleCap = C.Client CGN.NatRule
+data NatSpec = NatSpec
+  { natEnabled :: !Bool
+  , natUplinkIf :: !T.Text
+  }
+  deriving (Eq, Show)
 
-type DnsmasqHandleCap = C.Client CGN.DnsmasqHandle
+data DhcpSpec = DhcpSpec
+  { dhcpEnabled :: !Bool
+  , dhcpRangeStart :: !T.Text
+  , dhcpRangeEnd :: !T.Text
+  , dhcpLeaseTime :: !T.Text
+  , dhcpDomain :: !T.Text
+  , dhcpExtraArgs :: ![T.Text]
+  }
+  deriving (Eq, Show)
+
+data NetworkInfo = NetworkInfo
+  { niSpec :: !NetworkSpec
+  , niUpState :: !T.Text
+  , niDnsmasqPid :: !Word32
+  }
+  deriving (Show)
+
+data TapSpec = TapSpec
+  { tsName :: !T.Text
+  , tsBridge :: !T.Text
+  , tsUid :: !Word32
+  , tsGid :: !Word32
+  }
+  deriving (Eq, Show)
+
+data TapInfo = TapInfo
+  { tiSpec :: !TapSpec
+  , tiUpState :: !T.Text
+  }
+  deriving (Show)
+
+-- ---------------------------------------------------------------------------
+-- Client handle + lifecycle
 
 -- | The daemon-side handle for the agent. Holds the bootstrap
 -- @NetAgent@ cap (for ping/version/session) and the
@@ -106,38 +132,21 @@ data NetAgentClient = NetAgentClient
   , nacOwner :: !T.Text
   }
 
--- | Failures observable by handlers.
 data NetAgentError
   = NetAgentConnectFailed !T.Text
-  | -- | Agent-side error; the agent threw, the wire round-tripped
-    -- the message back.
-    NetAgentRemoteError !T.Text
+  | NetAgentRemoteError !T.Text
   deriving (Show)
 
 instance E.Exception NetAgentError
 
--- | Default endpoint matches the agent's defaults
--- ('Corvus.Netd.Server.defaultNetdHost' /
--- 'Corvus.Netd.Server.defaultNetdPort'). Override via the daemon's
--- @--netd-host@ / @--netd-port@ flags.
 defaultNetAgentAddress :: (String, Int)
 defaultNetAgentAddress = ("127.0.0.1", 9877)
 
--- | Dial the agent, open a 'Session', and run @body@ with the
--- resulting handle. The TCP connection stays open for the
--- entire @body@; closing happens via the bracket inside
--- 'withConn'.
---
--- The owner tag is the daemon's identity; the agent uses it as
--- a partition key in its ledger. We pass the daemon's effective
--- uid as a stringified number.
 withNetAgentClient
   :: String
-  -- ^ host
   -> Int
-  -- ^ port
   -> T.Text
-  -- ^ owner tag (typically the daemon uid)
+  -- ^ owner tag (typically the daemon uid as text)
   -> (Either NetAgentError NetAgentClient -> IO a)
   -> IO a
 withNetAgentClient host port owner body = do
@@ -158,7 +167,6 @@ withNetAgentClient host port owner body = do
               rawAgent <- requestBootstrap conn
               let agent :: C.Client CGN.NetAgent
                   agent = fromClient rawAgent
-              -- Open a session in the same connection.
               CGN.NetAgent'session'results {CGN.session = sess} <-
                 callOn
                   #session
@@ -173,17 +181,19 @@ withNetAgentClient host port owner body = do
                     , nacOwner = owner
                     }
       case r of
-        Left (e :: E.SomeException) -> body (Left (NetAgentConnectFailed (T.pack (show e))))
+        Left (e :: E.SomeException) ->
+          body (Left (NetAgentConnectFailed (T.pack (show e))))
         Right out -> pure out
 
--- | Liveness probe. Returns @Right ()@ on success.
+-- ---------------------------------------------------------------------------
+-- Liveness
+
 ping :: NetAgentClient -> IO (Either NetAgentError ())
 ping nac = remote $ do
   _ :: C.Parsed CGN.NetAgent'ping'results <-
     callOn #ping CGN.NetAgent'ping'params (nacAgent nac)
   pure ()
 
--- | @version()@. Returns the agent's semver + capability list.
 agentVersion :: NetAgentClient -> IO (Either NetAgentError (T.Text, [T.Text]))
 agentVersion nac = remote $ do
   CGN.NetAgent'version'results {CGN.info = info_} <-
@@ -192,175 +202,69 @@ agentVersion nac = remote $ do
   pure (sv, caps)
 
 -- ---------------------------------------------------------------------------
--- Bridge
+-- Networks
 
-createBridge
-  :: NetAgentClient
-  -> T.Text
-  -- ^ name
-  -> T.Text
-  -- ^ CIDR (or "" for L2-only)
-  -> Word32
-  -- ^ MTU
-  -> IO (Either NetAgentError BridgeCap)
-createBridge nac name cidr mtu = remote $ do
-  let bp =
-        CGN.BridgeParams
-          { CGN.name = name
-          , CGN.cidr = cidr
-          , CGN.mtu = mtu
-          }
-  CGN.Session'createBridge'results {CGN.bridge = br} <-
+applyNetwork
+  :: NetAgentClient -> NetworkSpec -> IO (Either NetAgentError NetworkInfo)
+applyNetwork nac spec = remote $ do
+  CGN.Session'applyNetwork'results {CGN.info = info_} <-
     callOn
-      #createBridge
-      CGN.Session'createBridge'params {CGN.params = bp}
+      #applyNetwork
+      CGN.Session'applyNetwork'params {CGN.spec = encodeNetworkSpec spec}
       (nacSession nac)
-  pure br
+  pure (decodeNetworkInfo info_)
 
-claimBridge :: NetAgentClient -> T.Text -> IO (Either NetAgentError BridgeCap)
-claimBridge nac name = remote $ do
-  CGN.Session'claimBridge'results {CGN.bridge = br} <-
+listNetworks :: NetAgentClient -> IO (Either NetAgentError [NetworkInfo])
+listNetworks nac = remote $ do
+  CGN.Session'listNetworks'results {CGN.networks = ns} <-
     callOn
-      #claimBridge
-      CGN.Session'claimBridge'params {CGN.name = name}
+      #listNetworks
+      CGN.Session'listNetworks'params
       (nacSession nac)
-  pure br
+  pure (map decodeNetworkInfo ns)
 
-destroyBridge :: BridgeCap -> IO (Either NetAgentError ())
-destroyBridge bridge = remote $ do
-  _ :: C.Parsed CGN.Bridge'destroy'results <-
-    callOn #destroy CGN.Bridge'destroy'params bridge
+deleteNetwork :: NetAgentClient -> T.Text -> IO (Either NetAgentError ())
+deleteNetwork nac name = remote $ do
+  _ :: C.Parsed CGN.Session'deleteNetwork'results <-
+    callOn
+      #deleteNetwork
+      CGN.Session'deleteNetwork'params {CGN.name = name}
+      (nacSession nac)
   pure ()
 
 -- ---------------------------------------------------------------------------
--- TAP
+-- TAPs
 
-createTap
-  :: NetAgentClient
-  -> T.Text
-  -- ^ tap ifname
-  -> BridgeCap
-  -- ^ bridge to attach to
-  -> Word32
-  -- ^ owner uid (TUNSETOWNER)
-  -> Word32
-  -- ^ owner gid
-  -> IO (Either NetAgentError TapCap)
-createTap nac name bridge uid gid = remote $ do
-  let tp =
-        CGN.TapParams
-          { CGN.name = name
-          , CGN.bridge = bridge
-          , CGN.uid = uid
-          , CGN.gid = gid
-          }
-  CGN.Session'createTap'results {CGN.tap = t} <-
+applyTap :: NetAgentClient -> TapSpec -> IO (Either NetAgentError TapInfo)
+applyTap nac spec = remote $ do
+  CGN.Session'applyTap'results {CGN.info = info_} <-
     callOn
-      #createTap
-      CGN.Session'createTap'params {CGN.params = tp}
+      #applyTap
+      CGN.Session'applyTap'params {CGN.spec = encodeTapSpec spec}
       (nacSession nac)
-  pure t
+  pure (decodeTapInfo info_)
 
-claimTap :: NetAgentClient -> T.Text -> IO (Either NetAgentError TapCap)
-claimTap nac name = remote $ do
-  CGN.Session'claimTap'results {CGN.tap = t} <-
+listTaps :: NetAgentClient -> IO (Either NetAgentError [TapInfo])
+listTaps nac = remote $ do
+  CGN.Session'listTaps'results {CGN.taps = ts} <-
     callOn
-      #claimTap
-      CGN.Session'claimTap'params {CGN.name = name}
+      #listTaps
+      CGN.Session'listTaps'params
       (nacSession nac)
-  pure t
+  pure (map decodeTapInfo ts)
 
-destroyTap :: TapCap -> IO (Either NetAgentError ())
-destroyTap tap = remote $ do
-  _ :: C.Parsed CGN.Tap'destroy'results <-
-    callOn #destroy CGN.Tap'destroy'params tap
-  pure ()
-
-attachTapToBridge :: BridgeCap -> TapCap -> IO (Either NetAgentError ())
-attachTapToBridge bridge tap = remote $ do
-  _ :: C.Parsed CGN.Bridge'attachTap'results <-
-    callOn #attachTap CGN.Bridge'attachTap'params {CGN.tap = tap} bridge
-  pure ()
-
-detachTapFromBridge :: BridgeCap -> TapCap -> IO (Either NetAgentError ())
-detachTapFromBridge bridge tap = remote $ do
-  _ :: C.Parsed CGN.Bridge'detachTap'results <-
-    callOn #detachTap CGN.Bridge'detachTap'params {CGN.tap = tap} bridge
-  pure ()
-
--- ---------------------------------------------------------------------------
--- NAT
-
-installNat
-  :: NetAgentClient
-  -> BridgeCap
-  -> T.Text
-  -- ^ uplink interface ("" = match any)
-  -> T.Text
-  -- ^ subnet (CIDR)
-  -> IO (Either NetAgentError NatRuleCap)
-installNat nac bridge uplinkIf subnet = remote $ do
-  let np =
-        CGN.NatParams
-          { CGN.bridge = bridge
-          , CGN.uplinkIf = uplinkIf
-          , CGN.subnet = subnet
-          }
-  CGN.Session'installNat'results {CGN.nat = n} <-
+deleteTap :: NetAgentClient -> T.Text -> IO (Either NetAgentError ())
+deleteTap nac name = remote $ do
+  _ :: C.Parsed CGN.Session'deleteTap'results <-
     callOn
-      #installNat
-      CGN.Session'installNat'params {CGN.params = np}
+      #deleteTap
+      CGN.Session'deleteTap'params {CGN.name = name}
       (nacSession nac)
-  pure n
-
-destroyNatRule :: NatRuleCap -> IO (Either NetAgentError ())
-destroyNatRule nat = remote $ do
-  _ :: C.Parsed CGN.NatRule'destroy'results <-
-    callOn #destroy CGN.NatRule'destroy'params nat
-  pure ()
-
--- ---------------------------------------------------------------------------
--- dnsmasq
-
-startDnsmasq
-  :: NetAgentClient
-  -> BridgeCap
-  -> T.Text
-  -- ^ listen address (the bridge gateway IP)
-  -> T.Text
-  -- ^ DHCP range, or "" to disable DHCP
-  -> T.Text
-  -- ^ domain, or "" for default
-  -> [T.Text]
-  -- ^ extra args
-  -> IO (Either NetAgentError DnsmasqHandleCap)
-startDnsmasq nac bridge listenAddr dhcpRange domain extraArgs = remote $ do
-  let dp =
-        CGN.DnsmasqParams
-          { CGN.bridge = bridge
-          , CGN.listenAddr = listenAddr
-          , CGN.dhcpRange = dhcpRange
-          , CGN.domain = domain
-          , CGN.extraArgs = extraArgs
-          }
-  CGN.Session'startDnsmasq'results {CGN.server = srv} <-
-    callOn
-      #startDnsmasq
-      CGN.Session'startDnsmasq'params {CGN.params = dp}
-      (nacSession nac)
-  pure srv
-
-stopDnsmasq :: DnsmasqHandleCap -> IO (Either NetAgentError ())
-stopDnsmasq handle_ = remote $ do
-  _ :: C.Parsed CGN.DnsmasqHandle'stop'results <-
-    callOn #stop CGN.DnsmasqHandle'stop'params handle_
   pure ()
 
 -- ---------------------------------------------------------------------------
 -- Kernel knobs
 
--- | Enable/disable IPv4 forwarding on the host. The agent writes
--- @/proc/sys/net/ipv4/ip_forward@ directly.
 setIpForwarding :: NetAgentClient -> Bool -> IO (Either NetAgentError ())
 setIpForwarding nac enabled = remote $ do
   _ :: C.Parsed CGN.Session'setIpForwarding'results <-
@@ -374,9 +278,124 @@ setIpForwarding nac enabled = remote $ do
   pure ()
 
 -- ---------------------------------------------------------------------------
+-- Encoders / decoders
+
+encodeNetworkSpec :: NetworkSpec -> CGN.Parsed CGN.NetworkSpec
+encodeNetworkSpec s =
+  CGN.NetworkSpec
+    { CGN.name = nsName s
+    , CGN.cidr = nsCidr s
+    , CGN.mtu = nsMtu s
+    , CGN.nat = encodeNatSpec (nsNat s)
+    , CGN.dhcp = encodeDhcpSpec (nsDhcp s)
+    }
+
+encodeNatSpec :: NatSpec -> CGN.Parsed CGN.NatSpec
+encodeNatSpec n =
+  CGN.NatSpec
+    { CGN.enabled = natEnabled n
+    , CGN.uplinkIf = natUplinkIf n
+    }
+
+encodeDhcpSpec :: DhcpSpec -> CGN.Parsed CGN.DhcpSpec
+encodeDhcpSpec d =
+  CGN.DhcpSpec
+    { CGN.enabled = dhcpEnabled d
+    , CGN.rangeStart = dhcpRangeStart d
+    , CGN.rangeEnd = dhcpRangeEnd d
+    , CGN.leaseTime = dhcpLeaseTime d
+    , CGN.domain = dhcpDomain d
+    , CGN.extraArgs = dhcpExtraArgs d
+    }
+
+encodeTapSpec :: TapSpec -> CGN.Parsed CGN.TapSpec
+encodeTapSpec s =
+  CGN.TapSpec
+    { CGN.name = tsName s
+    , CGN.bridge = tsBridge s
+    , CGN.uid = tsUid s
+    , CGN.gid = tsGid s
+    }
+
+decodeNetworkInfo :: CGN.Parsed CGN.NetworkInfo -> NetworkInfo
+decodeNetworkInfo
+  CGN.NetworkInfo
+    { CGN.spec = spec
+    , CGN.upState = up_
+    , CGN.dnsmasqPid = pid
+    } =
+    NetworkInfo
+      { niSpec = decodeNetworkSpec spec
+      , niUpState = up_
+      , niDnsmasqPid = pid
+      }
+
+decodeNetworkSpec :: CGN.Parsed CGN.NetworkSpec -> NetworkSpec
+decodeNetworkSpec
+  CGN.NetworkSpec
+    { CGN.name = name
+    , CGN.cidr = cidr
+    , CGN.mtu = mtu
+    , CGN.nat = nat
+    , CGN.dhcp = dhcp
+    } =
+    NetworkSpec
+      { nsName = name
+      , nsCidr = cidr
+      , nsMtu = mtu
+      , nsNat = decodeNatSpec nat
+      , nsDhcp = decodeDhcpSpec dhcp
+      }
+
+decodeNatSpec :: CGN.Parsed CGN.NatSpec -> NatSpec
+decodeNatSpec CGN.NatSpec {CGN.enabled = e, CGN.uplinkIf = u} =
+  NatSpec {natEnabled = e, natUplinkIf = u}
+
+decodeDhcpSpec :: CGN.Parsed CGN.DhcpSpec -> DhcpSpec
+decodeDhcpSpec
+  CGN.DhcpSpec
+    { CGN.enabled = e
+    , CGN.rangeStart = rs
+    , CGN.rangeEnd = re
+    , CGN.leaseTime = lt
+    , CGN.domain = dom
+    , CGN.extraArgs = extra
+    } =
+    DhcpSpec
+      { dhcpEnabled = e
+      , dhcpRangeStart = rs
+      , dhcpRangeEnd = re
+      , dhcpLeaseTime = lt
+      , dhcpDomain = dom
+      , dhcpExtraArgs = extra
+      }
+
+decodeTapInfo :: CGN.Parsed CGN.TapInfo -> TapInfo
+decodeTapInfo
+  CGN.TapInfo
+    { CGN.spec = spec
+    , CGN.upState = up_
+    } =
+    TapInfo {tiSpec = decodeTapSpec spec, tiUpState = up_}
+
+decodeTapSpec :: CGN.Parsed CGN.TapSpec -> TapSpec
+decodeTapSpec
+  CGN.TapSpec
+    { CGN.name = name
+    , CGN.bridge = bridge
+    , CGN.uid = uid
+    , CGN.gid = gid
+    } =
+    TapSpec
+      { tsName = name
+      , tsBridge = bridge
+      , tsUid = uid
+      , tsGid = gid
+      }
+
+-- ---------------------------------------------------------------------------
 -- Internals
 
--- | Open a TCP socket to the agent. Helper for 'withNetAgentClient'.
 openTcp :: String -> Int -> IO NS.Socket
 openTcp host port = do
   ais <- NS.getAddrInfo Nothing (Just host) (Just (show port))
@@ -387,7 +406,6 @@ openTcp host port = do
       pure sock
     [] -> E.throwIO (userError ("no addrinfo for " <> host))
 
--- | Wrap a remote call so exceptions become 'NetAgentRemoteError'.
 remote :: IO a -> IO (Either NetAgentError a)
 remote action = do
   r <- E.try @E.SomeException action
@@ -395,10 +413,6 @@ remote action = do
     Right a -> pure (Right a)
     Left e -> pure (Left (NetAgentRemoteError (T.pack (show e))))
 
--- | Call a method, wait for the reply, and parse the raw struct
--- into its 'Parsed' form. Mirrors
--- 'Corvus.Client.Capnp.Rpc.callOn' but lives here so the daemon's
--- network handlers don't have to pull in the @crv@ client layer.
 callOn
   :: forall iface params results
    . ( C.IsCap iface

@@ -1,30 +1,45 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Entry point for `corvus-netd`, the privileged network agent.
 --
--- See `Corvus.Netd.Server` for what the agent actually does.
--- This module is the CLI shell: parse flags, configure logging,
--- hand off.
+-- Phase 2.5 lifecycle:
+--
+--   1. Parse CLI flags + configure logging.
+--   2. Install SIGTERM / SIGINT handler that signals the
+--      shutdown MVar.
+--   3. Spawn the server async; block on the shutdown MVar in
+--      the main thread.
+--   4. On shutdown signal: cancel the server async; run
+--      'cleanupCorvusKernelState'; exit 0.
+--
+-- systemd drives shutdown via SIGTERM with TimeoutStopSec=30s.
+-- The agent's own startup pass also runs cleanup, so each
+-- (re)start begins from an empty kernel state.
 module Main where
 
+import Control.Concurrent.Async (async, cancel)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Monad (void)
 import Control.Monad.Logger (LogLevel (..), logInfoN)
-import Corvus.Netd.Server
-  ( defaultNetdHost
-  , defaultNetdPort
-  , defaultOrphanGrace
-  , runNetdServer
-  )
+import Corvus.Netd.Cleanup (cleanupCorvusKernelState)
+import Corvus.Netd.Server (defaultNetdHost, defaultNetdPort, runNetdServer)
 import Corvus.Types (runFilteredLogging)
 import qualified Data.Text as T
-import Data.Time (NominalDiffTime)
 import Options.Applicative
+import System.Exit (exitSuccess)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
+import System.Posix.Signals
+  ( Handler (Catch)
+  , installHandler
+  , sigINT
+  , sigTERM
+  )
 
 data Options = Options
   { optHost :: String
   , optPort :: Int
   , optLogLevel :: LogLevel
-  , optOrphanGrace :: NominalDiffTime
   }
   deriving (Show)
 
@@ -64,17 +79,6 @@ optionsParser =
           <> showDefault
           <> help "Log level (debug|info|warn|error)"
       )
-    <*> option
-      (fromInteger <$> auto)
-      ( long "orphan-grace"
-          <> metavar "SECONDS"
-          <> value defaultOrphanGrace
-          <> showDefault
-          <> help
-            "Seconds to hold orphaned resources before sweeping. \
-            \Lower for integration tests; default 60s gives a reconnecting \
-            \daemon a chance to claim its prior resources."
-      )
 
 main :: IO ()
 main = do
@@ -88,10 +92,33 @@ main = do
             <> progDesc "Corvus privileged network agent"
             <> header "corvus-netd — privileged side of the Corvus VM daemon"
         )
+
+  -- SIGTERM/SIGINT signal the shutdown MVar; the main thread
+  -- blocks on it until a signal arrives, then unwinds.
+  stopMV <- newEmptyMVar
+  let raiseStop = putMVar stopMV ()
+  void $ installHandler sigTERM (Catch raiseStop) Nothing
+  void $ installHandler sigINT (Catch raiseStop) Nothing
+
   runFilteredLogging (optLogLevel opts) $
     logInfoN $
       "corvus-netd starting on "
         <> T.pack (optHost opts)
         <> ":"
         <> T.pack (show (optPort opts))
-  runNetdServer (optHost opts) (optPort opts) (optOrphanGrace opts)
+
+  -- Run the server async. The server itself performs startup
+  -- cleanup (in Corvus.Netd.Server.runNetdServer) before it
+  -- binds the listener.
+  serverThread <-
+    async $ runNetdServer (optHost opts) (optPort opts)
+
+  -- Block until SIGTERM/SIGINT.
+  takeMVar stopMV
+  runFilteredLogging (optLogLevel opts) $
+    logInfoN "corvus-netd shutting down; running cleanup"
+  cancel serverThread
+  cleanupCorvusKernelState
+  runFilteredLogging (optLogLevel opts) $
+    logInfoN "corvus-netd cleanup complete"
+  exitSuccess

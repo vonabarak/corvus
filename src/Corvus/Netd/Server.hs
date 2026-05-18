@@ -4,28 +4,16 @@
 
 -- | Cap'n Proto RPC listener for `corvus-netd`.
 --
--- TCP only — the daemon always reaches the agent over loopback.
--- The bootstrap cap is 'NetAgentCap'.
---
--- Phase 2 wiring:
---
---   * One process-wide 'Ledger' tracks every resource the agent
---     created so cap-drop teardown is idempotent and reconnecting
---     daemons can re-adopt resources via 'claim*'.
---   * One process-wide 'Subscribers' registry holds every
---     EventSink cap the daemon supplied via 'subscribeEvents'.
---   * One background 'runIpMonitor' thread parses
---     @ip monitor link@ output and fires 'onResourceVanished'
---     for every ifname that disappears AND is in the ledger.
---   * Each accepted connection still gets its own per-connection
---     'Supervisor' so dropping the TCP session drops every cap
---     it exported and fires 'SomeServer.shutdown' → kernel
---     cleanup.
+-- Phase 2.5: stateless agent. Startup runs
+-- 'cleanupCorvusKernelState' before binding the TCP listener,
+-- guaranteeing a clean kernel state on every (re)start. No
+-- orphan-window sweeper; no on-disk persistence; no
+-- per-connection cap supervision (the declarative API doesn't
+-- expose resource caps).
 module Corvus.Netd.Server
   ( runNetdServer
   , defaultNetdHost
   , defaultNetdPort
-  , defaultOrphanGrace
   )
 where
 
@@ -38,19 +26,19 @@ import Capnp.Rpc
   , toClient
   )
 import Capnp.TraversalLimit (defaultLimit)
-import Control.Concurrent (forkIO, threadDelay)
+import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (STM, atomically)
-import qualified Control.Exception as E
-import Control.Monad (forever, void)
-import Control.Monad.Logger (logInfoN, logWarnN, runStderrLoggingT)
+import Control.Monad (void)
 import Corvus.Netd.Caps.NetAgent (newNetAgentCap)
+import Corvus.Netd.Cleanup (cleanupCorvusKernelState)
 import qualified Corvus.Netd.Events as Ev
 import qualified Corvus.Netd.IpMonitor as Mon
 import qualified Corvus.Netd.Ledger as L
+import qualified Corvus.Netd.Network as Net
+import qualified Corvus.Netd.Tap as Tap
 import qualified Data.Default as Def
-import Data.Foldable (for_)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import Data.Time (NominalDiffTime, getCurrentTime)
 import qualified Network.Simple.TCP as TCP
 import Supervisors (withSupervisor)
 
@@ -60,68 +48,30 @@ defaultNetdHost = "127.0.0.1"
 defaultNetdPort :: Int
 defaultNetdPort = 9877
 
--- | Default orphan-grace window in seconds — 60s per the plan.
--- Tests override via the @--orphan-grace@ flag.
-defaultOrphanGrace :: NominalDiffTime
-defaultOrphanGrace = 60
-
--- | How often the sweeper wakes up and scans for expired
--- orphans. 1s is a fine resolution: shorter than the default
--- grace, fast enough to be observable in integration tests,
--- and rare enough that the STM scan is negligible.
-sweeperInterval :: Int
-sweeperInterval = 1000000 -- microseconds = 1s
-
--- | Run the agent's Cap'n Proto server on the given host/port.
--- Allocates process-wide state (ledger + subscriber registry),
--- forks the rtnetlink-style watcher and the orphan sweeper,
--- and then accepts TCP connections with per-connection cap
--- supervisors.
-runNetdServer :: String -> Int -> NominalDiffTime -> IO ()
-runNetdServer host port grace = do
-  ledger <- L.newLedger
+-- | Run the agent's Cap'n Proto server.
+--
+-- 1. Run startup cleanup so we begin from an empty world.
+-- 2. Allocate the process-wide network + TAP ledgers and the
+--    subscriber registry.
+-- 3. Fork the rtnetlink watcher (drift events).
+-- 4. Accept TCP connections.
+runNetdServer :: String -> Int -> IO ()
+runNetdServer host port = do
+  cleanupCorvusKernelState
+  netLedger <- L.newNetworkLedger
+  tapLedger <- L.newTapLedger
   subs <- Ev.newSubscribers
-  -- Start the ip-monitor watcher. Each delete event is filtered
-  -- against the ledger: only resources the agent owns generate
-  -- onResourceVanished. Unrelated kernel mutations (a SLIRP
-  -- interface flapping, an admin's manual probe) are silently
-  -- ignored.
+  -- Background drift watcher: parse `ip monitor link`, fire
+  -- onResourceVanished for any deleted name we own.
   void . forkIO $
     Mon.runIpMonitor $ \(Mon.LinkDeleted ifname) -> do
-      mResource <-
-        atomically $
-          findByName ledger ifname
-      case mResource of
+      mKind <- atomically $ resolveKind netLedger tapLedger ifname
+      case mKind of
         Nothing -> pure ()
-        Just (kind, name) ->
-          Ev.dispatchVanished subs (kindText kind) name
-  -- Orphan sweeper: every `sweeperInterval`, reap entries whose
-  -- orphan timestamp is older than `grace`. Teardowns run
-  -- OUTSIDE the STM transaction — they fork kernel ops
-  -- (`ip link del`, `nft delete rule`, `kill dnsmasq`) that
-  -- mustn't be retried.
-  void . forkIO . forever $ do
-    threadDelay sweeperInterval
-    now <- getCurrentTime
-    expired <- atomically $ L.reapExpired ledger now grace
-    for_ expired $ \r -> do
-      runStderrLoggingT $
-        logInfoN
-          ("[netd] sweeper reaping " <> T.pack (show (L.rKind r)) <> " " <> L.rName r)
-      result <- E.try @E.SomeException (L.rTeardown r)
-      case result of
-        Right () -> pure ()
-        Left e ->
-          runStderrLoggingT $
-            logWarnN
-              ( "[netd] sweeper teardown failed ("
-                  <> L.rName r
-                  <> "): "
-                  <> T.pack (show e)
-              )
+        Just kind -> Ev.dispatchVanished subs kind ifname
   TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
     withSupervisor $ \sup -> do
-      netAgentCap <- newNetAgentCap sup ledger subs
+      netAgentCap <- newNetAgentCap sup netLedger tapLedger subs
       bootClient <- export @CGN.NetAgent sup netAgentCap
       handleConn
         (socketTransport sock defaultLimit)
@@ -130,22 +80,20 @@ runNetdServer host port grace = do
           , bootstrap = Just (toClient bootClient)
           }
 
--- | Scan the ledger for any resource whose name matches @ifname@.
--- TAP and Bridge entries store the ifname directly in 'rName';
--- the other kinds (NAT, dnsmasq) use synthetic names that never
--- collide with kernel ifnames, so a name-only match is unambiguous.
-findByName :: L.Ledger -> T.Text -> STM (Maybe (L.Kind, T.Text))
-findByName ledger ifname = do
-  rs <- L.listAll ledger
+-- | Look up an ifname in both ledgers; return the 'kind' label
+-- used in 'onResourceVanished' events.
+resolveKind
+  :: L.NetworkLedger Net.NetworkSpec Net.NetworkLiveState
+  -> L.TapLedger Tap.TapSpec
+  -> T.Text
+  -> STM (Maybe T.Text)
+resolveKind nl tl name = do
+  nets <- L.readNetworks nl
+  taps <- L.readTaps tl
   pure $
-    case filter (\r -> L.rName r == ifname) rs of
-      (r : _) -> Just (L.rKind r, L.rName r)
-      [] -> Nothing
-
--- | Wire-side name for a Kind, used as the @kind@ field of
--- 'onResourceVanished'.
-kindText :: L.Kind -> T.Text
-kindText L.KBridge = "bridge"
-kindText L.KTap = "tap"
-kindText L.KNat = "nat"
-kindText L.KDnsmasq = "dnsmasq"
+    if Map.member name nets
+      then Just "network"
+      else
+        if Map.member name taps
+          then Just "tap"
+          else Nothing

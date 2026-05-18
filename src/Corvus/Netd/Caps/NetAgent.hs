@@ -5,15 +5,14 @@
 
 -- | NetAgent bootstrap capability for `corvus-netd`.
 --
--- The 'NetAgentCap' is the root cap exported on every accepted TCP
--- connection. It implements three methods:
+-- The 'NetAgentCap' is the root cap exported on every accepted
+-- TCP connection. It implements three methods:
 --
 --   * @ping@ — liveness check, returns immediately.
---   * @version@ — semver + advertised capability flags. Used by
---     daemons to negotiate features without parsing log output.
+--   * @version@ — semver + advertised capability flags.
 --   * @session(owner)@ — returns a 'SessionCap' scoped to the
---     caller-claimed owner tag, sharing the agent's process-wide
---     resource ledger.
+--     caller-claimed owner tag, sharing the agent's
+--     process-wide ledgers and subscriber registry.
 module Corvus.Netd.Caps.NetAgent
   ( NetAgentCap (..)
   , newNetAgentCap
@@ -27,6 +26,8 @@ import Control.Monad.Logger (logInfoN, runStderrLoggingT)
 import Corvus.Netd.Caps.Session (newSessionCap)
 import qualified Corvus.Netd.Events as Ev
 import qualified Corvus.Netd.Ledger as L
+import qualified Corvus.Netd.Network as Net
+import qualified Corvus.Netd.Tap as Tap
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
 import Supervisors (Supervisor)
@@ -34,12 +35,19 @@ import Supervisors (Supervisor)
 -- | Bootstrap-cap state.
 data NetAgentCap = NetAgentCap
   { nacSup :: !Supervisor
-  , nacLedger :: !L.Ledger
+  , nacNetworkLedger :: !(L.NetworkLedger Net.NetworkSpec Net.NetworkLiveState)
+  , nacTapLedger :: !(L.TapLedger Tap.TapSpec)
   , nacSubs :: !Ev.Subscribers
   }
 
-newNetAgentCap :: Supervisor -> L.Ledger -> Ev.Subscribers -> IO NetAgentCap
-newNetAgentCap sup ledger subs = pure (NetAgentCap sup ledger subs)
+newNetAgentCap
+  :: Supervisor
+  -> L.NetworkLedger Net.NetworkSpec Net.NetworkLiveState
+  -> L.TapLedger Tap.TapSpec
+  -> Ev.Subscribers
+  -> IO NetAgentCap
+newNetAgentCap sup nl tl subs =
+  pure (NetAgentCap sup nl tl subs)
 
 instance SomeServer NetAgentCap
 
@@ -57,26 +65,30 @@ instance CGN.NetAgent'server_ NetAgentCap where
             }
     pure CGN.NetAgent'version'results {CGN.info = info}
 
-  netAgent'session (NetAgentCap sup ledger subs) =
+  netAgent'session nac =
     handleParsed $ \CGN.NetAgent'session'params {CGN.owner = owner} -> do
       logLine ("session owner=" <> owner)
-      impl <- newSessionCap owner sup ledger subs
-      client <- export @CGN.Session sup impl
+      impl <-
+        newSessionCap
+          owner
+          (nacSup nac)
+          (nacNetworkLedger nac)
+          (nacTapLedger nac)
+          (nacSubs nac)
+      client <- export @CGN.Session (nacSup nac) impl
       pure CGN.NetAgent'session'results {CGN.session = client}
 
 -- ----------------------------------------------------------------------
 -- Constants
 
--- | Advertised semver for the agent wire protocol. Phase 2 bumps
--- the patch as features land; the protocol shape is unchanged
--- from Phase 1 so the major.minor stays at 0.1.
+-- | Advertised semver for the agent wire protocol. Phase 2.5
+-- bumps to 0.2 since the schema is a breaking change.
 agentSemver :: String
-agentSemver = "0.1.5"
+agentSemver = "0.2.0"
 
--- | Feature flags returned by @version@. Phase 2 complete.
+-- | Feature flags returned by @version@.
 capnpCapabilities :: [T.Text]
-capnpCapabilities =
-  ["bridge", "tap", "nat", "dnsmasq", "events", "ip-forwarding"]
+capnpCapabilities = ["network", "tap", "ip-forwarding", "events"]
 
 -- ----------------------------------------------------------------------
 

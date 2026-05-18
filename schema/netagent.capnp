@@ -1,14 +1,19 @@
 @0xdc412029c77dfa4a;
 
 # Cap'n Proto wire schema for `corvus-netd`, the privileged network
-# agent. The daemon (unprivileged) connects to the agent (root) over
-# TCP and requests every operation that needs CAP_NET_ADMIN — bridge
-# create/destroy, TAP create/destroy, NAT rules, dnsmasq lifecycle,
-# IP forwarding toggles.
+# agent. Phase 2.5: declarative model. The daemon expresses INTENT
+# via `applyNetwork` / `applyTap`; the agent reconciles the kernel
+# to match. No per-resource Cap'n Proto interfaces (Bridge,
+# NatRule, DnsmasqHandle, Tap) and no orphan window — the agent is
+# stateless and the daemon's database is the single source of intent.
 #
-# Phase 1: stubs only. Methods return placeholder values and log the
-# call; no kernel mutation happens yet. Phase 2 fills in the real
-# implementations.
+# Naming convention: every agent-managed kernel resource has a
+# fixed prefix the agent uses for startup / shutdown cleanup:
+#
+#   * Bridges:  `corvus-br*`
+#   * TAPs:     `corvus-tap*`
+#   * nftables: table `inet corvus_fw`
+#   * dnsmasq:  identified by `--interface=corvus-br*` in argv
 #
 # Authentication: out of scope for v1. The agent binds to
 # 127.0.0.1:9877 and trusts every connection. Caller-claimed `owner`
@@ -21,8 +26,8 @@
 
 interface NetAgent {
   # Open a new session. `owner` is a free-form tag (typically the
-  # caller's numeric uid as a string) used to partition resources in
-  # the agent's ledger. Not authenticated.
+  # caller's numeric uid as a string) used to partition resources
+  # in the agent's ledger. Not authenticated.
   session @0 (owner :Text) -> (session :Session);
 
   # Liveness + capability probe.
@@ -31,136 +36,120 @@ interface NetAgent {
 }
 
 struct AgentInfo {
-  semver       @0 :Text;       # "0.1.0"
-  capabilities @1 :List(Text); # advertised feature flags, e.g. "bridge", "tap", "nat", "dnsmasq"
+  semver       @0 :Text;       # "0.2.0"
+  capabilities @1 :List(Text); # "network", "tap", "ip-forwarding", "events"
 }
 
 # ---------------------------------------------------------------------
 # Session — scoped to one owner tag.
 #
-# Resources created through a Session are tagged with that owner and
-# bound to the Session's lifetime: dropping the session capability
-# moves owned resources to a 60-second orphan window during which the
-# owner can re-adopt them via the matching `claim*` call. After the
-# window, the agent reaps everything.
+# All operations are declarative + idempotent. The agent's in-memory
+# ledger maps name → spec; the kernel is the side effect. Specs are
+# expressed by-name, never by capability.
 # ---------------------------------------------------------------------
 
 interface Session {
-  # Bridge management.
-  createBridge  @0 (params :BridgeParams) -> (bridge :Bridge);
-  listBridges   @1 () -> (bridges :List(BridgeInfo));
-  claimBridge   @2 (name :Text) -> (bridge :Bridge);
+  # Networks (= bridge + optional NAT rule + optional dnsmasq).
+  # applyNetwork is idempotent: create-if-missing,
+  # update-if-changed, no-op-if-same.
+  applyNetwork  @0 (spec :NetworkSpec) -> (info :NetworkInfo);
+  listNetworks  @1 ()                  -> (networks :List(NetworkInfo));
+  deleteNetwork @2 (name :Text)        -> ();
 
-  # TAP management. The agent creates TAPs with TUNSETOWNER set to the
-  # session's owner uid (parsed from the owner tag if numeric); the
-  # daemon then passes the ifname to QEMU, which opens it directly.
-  createTap     @3 (params :TapParams) -> (tap :Tap);
-  claimTap      @4 (name :Text) -> (tap :Tap);
+  # TAPs. Same idempotent model. The bridge must already have been
+  # applyNetwork'd (referenced by name).
+  applyTap   @3 (spec :TapSpec) -> (info :TapInfo);
+  listTaps   @4 ()              -> (taps :List(TapInfo));
+  deleteTap  @5 (name :Text)    -> ();
 
-  # Kernel knobs — typed, never a generic sysctl(key, value).
-  setIpForwarding @5 (enabled :Bool, family :NetFamily) -> ();
+  # Host knob — typed, not generic sysctl.
+  setIpForwarding @6 (enabled :Bool, family :NetFamily) -> ();
 
-  # NAT rules. Drop the returned cap to remove the rule.
-  installNat    @6 (params :NatParams) -> (nat :NatRule);
-
-  # dnsmasq lifecycle. Drop the handle to stop the process.
-  startDnsmasq  @7 (params :DnsmasqParams) -> (server :DnsmasqHandle);
-
-  # Drift events (rtnetlink-driven). The agent calls back into the
-  # given sink when kernel state changes outside its control.
-  subscribeEvents @8 (sink :EventSink) -> ();
+  # Drift notifications: rtnetlink-driven, fired when the agent
+  # observes a kernel state change it didn't initiate.
+  subscribeEvents @7 (sink :EventSink) -> ();
 }
 
 # ---------------------------------------------------------------------
-# Resource capabilities. Each one is connection-scoped: drop the cap
-# and the agent tears the resource down (after the orphan grace).
+# Network spec / info
 # ---------------------------------------------------------------------
 
-interface Bridge {
-  info      @0 () -> (info :BridgeInfo);
-  attachTap @1 (tap :Tap) -> ();
-  detachTap @2 (tap :Tap) -> ();
-  destroy   @3 () -> ();
+struct NetworkSpec {
+  # MUST begin with "corvus-br". The prefix is the agent's startup
+  # and shutdown cleanup marker; resources without it are not
+  # touched by the agent.
+  name @0 :Text;
+
+  # "10.42.0.1/24" or "" for an L2-only bridge (no IP).
+  cidr @1 :Text;
+
+  mtu @2 :UInt32 = 1500;
+
+  # NAT and DHCP are optional sub-structs. Always present in the
+  # wire encoding; the `enabled` field controls whether the agent
+  # acts on the rest.
+  nat  @3 :NatSpec;
+  dhcp @4 :DhcpSpec;
 }
 
-interface Tap {
-  info    @0 () -> (info :TapInfo);
-  destroy @1 () -> ();
+struct NatSpec {
+  enabled  @0 :Bool;
+  # Uplink interface for the masquerade rule. "" matches any
+  # outbound interface; common case: leave it empty.
+  uplinkIf @1 :Text;
 }
 
-interface DnsmasqHandle {
-  pid  @0 () -> (pid :UInt32);
-  stop @1 () -> ();
+struct DhcpSpec {
+  enabled    @0 :Bool;
+  rangeStart @1 :Text;
+  rangeEnd   @2 :Text;
+  leaseTime  @3 :Text = "12h";
+  # "" = no --domain flag passed to dnsmasq.
+  domain     @4 :Text;
+  # Pass-through args for advanced dnsmasq tuning. Most callers
+  # leave this empty.
+  extraArgs  @5 :List(Text);
 }
 
-interface NatRule {
-  destroy @0 () -> ();
-}
-
-# ---------------------------------------------------------------------
-# Streaming event sink. Same pattern as schema/streams.capnp — the
-# daemon implements this server-side and passes the cap into
-# Session.subscribeEvents.
-# ---------------------------------------------------------------------
-
-interface EventSink {
-  onResourceVanished @0 (kind :Text, name :Text) -> ();
-  onDnsmasqExited    @1 (name :Text, exitStatus :Int32) -> ();
-}
-
-# ---------------------------------------------------------------------
-# Parameter structs
-# ---------------------------------------------------------------------
-
-struct BridgeParams {
-  name @0 :Text;  # e.g. "corvus-br-7"
-  cidr @1 :Text;  # "10.42.0.1/24"; "" for L2-only (no IP on bridge)
-  mtu  @2 :UInt32 = 1500;
-}
-
-struct TapParams {
-  name   @0 :Text;    # "corvus-tap-vm42-eth0"
-  bridge @1 :Bridge;  # capability, not name
-  # The TUNSETOWNER uid/gid the agent should set on the persistent
-  # TAP. The daemon passes its own creds here so QEMU (running as the
-  # daemon's uid) can reopen the device.
-  uid    @2 :UInt32;
-  gid    @3 :UInt32;
-}
-
-struct NatParams {
-  bridge   @0 :Bridge;
-  uplinkIf @1 :Text;  # "eth0" or "" for "any default route"
-  subnet   @2 :Text;  # "10.42.0.0/24"
-}
-
-struct DnsmasqParams {
-  bridge      @0 :Bridge;
-  listenAddr  @1 :Text;  # gateway IP on the bridge
-  dhcpRange   @2 :Text;  # "10.42.0.100,10.42.0.250,12h" or "" for no DHCP
-  domain      @3 :Text;  # "" for default
-  extraArgs   @4 :List(Text);  # passthrough flags for advanced use
+struct NetworkInfo {
+  spec       @0 :NetworkSpec;
+  upState    @1 :Text;       # "up", "down", "unknown"
+  dnsmasqPid @2 :UInt32;     # 0 if DHCP disabled
 }
 
 # ---------------------------------------------------------------------
-# Info structs returned by `info` / `list` methods
+# TAP spec / info
 # ---------------------------------------------------------------------
 
-struct BridgeInfo {
-  name     @0 :Text;
-  cidr     @1 :Text;
-  mtu      @2 :UInt32;
-  upState  @3 :Text;   # "up", "down", "unknown"
-  owner    @4 :Text;
-  tapCount @5 :UInt32;
+struct TapSpec {
+  # MUST begin with "corvus-tap". Same cleanup-marker rationale.
+  name @0 :Text;
+
+  # Name of the bridge to attach this TAP to. The bridge MUST have
+  # been applied first; the agent rejects unknown bridge names.
+  bridge @1 :Text;
+
+  # TUNSETOWNER: the agent creates the persistent TAP owned by
+  # this uid/gid, so QEMU (running as the daemon's uid) can
+  # reopen it without CAP_NET_ADMIN.
+  uid @2 :UInt32;
+  gid @3 :UInt32;
 }
 
 struct TapInfo {
-  name   @0 :Text;
-  bridge @1 :Text;   # bridge name (informational)
-  uid    @2 :UInt32;
-  gid    @3 :UInt32;
-  owner  @4 :Text;
+  spec    @0 :TapSpec;
+  upState @1 :Text;
+}
+
+# ---------------------------------------------------------------------
+# Events
+# ---------------------------------------------------------------------
+
+# Streaming sink the daemon implements and passes to the agent via
+# `subscribeEvents`. The agent calls back when kernel state drifts.
+interface EventSink {
+  # kind = "network" | "tap" | "dnsmasq"
+  onResourceVanished @0 (kind :Text, name :Text) -> ();
 }
 
 # ---------------------------------------------------------------------

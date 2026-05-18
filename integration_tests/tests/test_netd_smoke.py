@@ -1,36 +1,26 @@
-"""Phase-1 smoke tests for `corvus-netd`, running inside the test node.
+"""Phase 2.5 integration tests for `corvus-netd`, running inside the test node.
+
+The declarative agent surface: applyNetwork / listNetworks / deleteNetwork +
+applyTap / listTaps / deleteTap. Each test drives the agent via pycapnp
+through an SSH `-L` port-forward whose far end is the agent's TCP listener
+inside the test node.
 
 Why on the node, not on the host?
 
-The agent will need `CAP_NET_ADMIN` once Phase 2 lands — bridge / TAP /
-nftables / dnsmasq are all root-only on a stock kernel. Running pytest
-itself as root would be wrong: every other test in the suite runs as a
-regular user, and one rogue root pytest run could litter `nft list`
-state on a developer's workstation. The outer test node has root
-available, is disposable, and already mounts the host's stack-install
-bin dir at `/opt/corvus/bin` via virtiofs — so we can launch the
-freshly-built binary inside the node without copying it.
+The agent needs `CAP_NET_ADMIN`; the outer test node has root and is
+disposable. The pytest process stays unprivileged on the host.
 
-The test process on the host stays unprivileged. It:
-
-  1. SSH-launches `sudo corvus-netd …` on the node (one-shot, then
-     decoupled with `nohup`).
-  2. Opens an SSH `-L` port-forward so a local TCP port lands on the
-     agent's TCP port inside the node.
-  3. Submits pycapnp coroutines onto the harness's existing
-     `SyncRunloop` (the background-thread kj_loop the node's inner
-     `Client` already owns). pycapnp's kj_loop is process-global, so
-     we MUST reuse the harness's loop instead of spinning up our own
-     — otherwise pycapnp aborts the process.
-
-Phase-1 scope is wire shape only. The `Session` cap returned by
-`session()` is a real cap, but every privileged method on it
-(`createBridge`, `createTap`, …) is still `methodUnimplemented` —
-those get filled in during Phase 2.
+Scope (Phase 2.5):
+  * applyNetwork is idempotent + reconciles deltas
+  * deleteNetwork tears down kernel state
+  * applyTap rejects unknown bridge name
+  * applyTap creates a persistent TAP with TUNSETOWNER
+  * setIpForwarding flips /proc
+  * subscribeEvents fires onResourceVanished when admin yanks a link
+  * shutdown cleanup removes every `corvus-*` resource on the node
 """
 from __future__ import annotations
 
-import asyncio
 import shutil
 import socket
 import subprocess
@@ -46,60 +36,33 @@ from corvus_test_harness.cases import state_for
 from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH
 
 
-# `corvus_client._schema` already runs `capnp.load("netagent.capnp")`
-# at import time (we registered it in `_SCHEMA_FILES`). Re-loading the
-# same schema from this test module would re-register every type-id
-# and pycapnp aborts the interpreter with `Fatal Python error:
-# Aborted`. Reuse the harness-shared instance instead — it points at
-# the same in-tree schema file (resolved via `CORVUS_SCHEMA_DIR` or
-# the bundled mirror).
+# `corvus_client._schema` already loads `netagent.capnp` at import time, so
+# we reuse that instance — pycapnp's process-global schema registry rejects
+# a second load of the same schema.
 
-# `corvus_host` virtiofs share lands at /opt/corvus/bin in the node
-# (see yaml/corvus-test-node/systemd/opt-corvus-bin.mount). The host's
-# `stack install` puts `corvus-netd` next to `corvus`, so the same
-# mount point exposes both.
 NETD_BINARY_ON_NODE = "/opt/corvus/bin/corvus-netd"
-
-# Fixed TCP port inside the node — picked outside the inner daemon's
-# 9876 and outside the well-known low range. Per-class node lifecycle
-# means there's no parallelism on the same node, so a fixed port is
-# fine.
 NETD_NODE_PORT = 9899
-
-# Transient systemd unit name used on the node.  systemd-run spawns
-# the agent as a fully-detached transient service, which sidesteps
-# the SSH-channel hang you get when you try to background a daemon
-# via plain `nohup`/`setsid` over a non-interactive SSH session.
 NETD_TRANSIENT_UNIT = "corvus-netd-smoke.service"
 
 
 # ---------------------------------------------------------------------------
 # Node-side process lifecycle
-# ---------------------------------------------------------------------------
 
 
 def _start_netd_on_node(node) -> None:
-    """Spawn `corvus-netd` as root on the node and return when it's listening.
+    """Spawn `corvus-netd` as root on the node via systemd-run.
 
-    Uses `systemd-run` to create a transient service so the daemon is
-    decoupled from the SSH session's lifetime — `nohup`+`&` over SSH
-    notoriously wedges on closing pipes because backgrounded processes
-    inherit the channel's stdio.
+    Phase 2.5 agent: stateless. Each `systemd-run` invocation starts a
+    fresh process which runs its OWN startup cleanup before binding the
+    listener — so we get a guaranteed-empty kernel state on every test.
     """
     cmd = (
-        # Defensive cleanup of any prior run.
         f"sudo systemctl stop {NETD_TRANSIENT_UNIT} 2>/dev/null || true; "
         f"sudo systemctl reset-failed {NETD_TRANSIENT_UNIT} 2>/dev/null || true; "
         f"sudo systemd-run --quiet --unit={NETD_TRANSIENT_UNIT} "
         f"  --property=Type=simple --property=Restart=no "
         f"  {NETD_BINARY_ON_NODE} "
-        f"  --host 127.0.0.1 --port {NETD_NODE_PORT} --log-level debug "
-        # Short orphan-grace so the sweep-after-grace test
-        # doesn't have to wait 60s. Cap-drop tests still see
-        # a brief orphan window, which exercises the lazy
-        # teardown path that matches Phase 3 daemon behavior.
-        f"  --orphan-grace=2; "
-        # Wait up to 5s for the socket to be listening.
+        f"  --host 127.0.0.1 --port {NETD_NODE_PORT} --log-level debug; "
         f"for i in $(seq 1 50); do "
         f"  ss -ltn 2>/dev/null | grep -q ':{NETD_NODE_PORT} ' && exit 0; "
         f"  sleep 0.1; "
@@ -112,7 +75,6 @@ def _start_netd_on_node(node) -> None:
 
 
 def _stop_netd_on_node(node) -> None:
-    """Stop the transient unit; tolerant of already-stopped / never-started."""
     cmd = (
         f"sudo systemctl stop {NETD_TRANSIENT_UNIT} 2>/dev/null || true; "
         f"sudo systemctl reset-failed {NETD_TRANSIENT_UNIT} 2>/dev/null || true"
@@ -121,8 +83,7 @@ def _stop_netd_on_node(node) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Host-side TCP port forward (host:host_port → node:NETD_NODE_PORT)
-# ---------------------------------------------------------------------------
+# Host-side TCP port-forward
 
 
 def _pick_free_port() -> int:
@@ -132,13 +93,6 @@ def _pick_free_port() -> int:
 
 
 def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen:
-    """SSH `-N -L` tunnel: host 127.0.0.1:host_port → node 127.0.0.1:NETD_NODE_PORT.
-
-    Uses the same VSOCK-over-SSH proxy as `NodeShell`, but with
-    `-N` (no command) and `-L` (forward). Held open until `terminate()`.
-    Polls the local TCP port to detect when the forward is actually
-    bound — SSH establishes the forward asynchronously after handshake.
-    """
     socat = shutil.which("socat")
     ssh = shutil.which("ssh")
     if not socat or not ssh:
@@ -155,11 +109,7 @@ def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen:
         "-L", f"127.0.0.1:{host_port}:127.0.0.1:{NETD_NODE_PORT}",
         f"corvus@vsock-{cid}",
     ]
-    proc = subprocess.Popen(
-        argv,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
+    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -175,9 +125,7 @@ def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen:
         except OSError:
             time.sleep(0.1)
     proc.terminate()
-    raise RuntimeError(
-        f"ssh port forward never ready on 127.0.0.1:{host_port}"
-    )
+    raise RuntimeError(f"ssh port forward never ready on 127.0.0.1:{host_port}")
 
 
 def _close_port_forward(proc: subprocess.Popen) -> None:
@@ -192,32 +140,17 @@ def _close_port_forward(proc: subprocess.Popen) -> None:
 
 
 # ---------------------------------------------------------------------------
-# pycapnp helpers — re-using the harness's background kj_loop.
-#
-# The IntegrationTestCase fixture has already created a `Client` for
-# the node's inner daemon; that Client owns a `SyncRunloop` whose
-# background thread is running `capnp.kj_loop()`. pycapnp's kj_loop
-# is process-global — creating a second one in our test thread aborts
-# the process with `Fatal Python error: Aborted`. We therefore route
-# every pycapnp coroutine through the existing runloop's `run()`.
-# ---------------------------------------------------------------------------
+# pycapnp plumbing — reuse the harness's existing kj_loop
 
 
-async def _with_client(host: str, port: int, schema, body):
+async def _with_client(host: str, port: int, body):
     stream = await capnp.AsyncIoStream.create_connection(host=host, port=port)
     client = capnp.TwoPartyClient(stream)
-    agent = client.bootstrap().cast_as(schema.NetAgent)
+    agent = client.bootstrap().cast_as(NETAGENT_SCHEMA.NetAgent)
     return await body(agent)
 
 
 def _run_on_node_loop(node, coro_factory):
-    """Run `coro_factory()` on the node's existing kj_loop thread.
-
-    `coro_factory` is a zero-arg callable returning a fresh coroutine.
-    Building the coroutine outside the loop thread would tie it to the
-    wrong asyncio loop; the factory pattern defers creation until
-    we're already inside the loop's scheduling path.
-    """
     rl = node.client()._rl
 
     async def wrapper():
@@ -227,23 +160,46 @@ def _run_on_node_loop(node, coro_factory):
 
 
 # ---------------------------------------------------------------------------
-# Test class
+# Spec-building helpers
+
+
+def _network_spec(
+    name: str,
+    cidr: str = "",
+    mtu: int = 1500,
+    nat_enabled: bool = False,
+    nat_uplink: str = "",
+    dhcp_enabled: bool = False,
+    dhcp_start: str = "",
+    dhcp_end: str = "",
+    dhcp_lease: str = "12h",
+    dhcp_domain: str = "",
+):
+    return {
+        "name": name,
+        "cidr": cidr,
+        "mtu": mtu,
+        "nat": {"enabled": nat_enabled, "uplinkIf": nat_uplink},
+        "dhcp": {
+            "enabled": dhcp_enabled,
+            "rangeStart": dhcp_start,
+            "rangeEnd": dhcp_end,
+            "leaseTime": dhcp_lease,
+            "domain": dhcp_domain,
+            "extraArgs": [],
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
+# Test class
 
 
-class TestNetdSmoke(SingleNodeCase):
-    """Cap'n Proto wire-shape checks against the in-node agent.
+class TestNetdDeclarative(SingleNodeCase):
+    """Phase 2.5 declarative agent surface.
 
-    Inherits the class-scoped one-node topology from `SingleNodeCase`.
-    Adds a second class-scoped fixture that launches `corvus-netd`
-    inside the node and opens a TCP port-forward to it. Both fixtures
-    fire once per class; the four tests share them.
-
-    Setup ordering relies on `_class_topology` (`autouse=True` on the
-    parent) running before our `netd_endpoint` — pytest invokes
-    parent-class autouse fixtures first when MROs are linear, which
-    they are here. We surface a clear error if the topology isn't
-    ready, rather than letting it manifest as a confusing crash.
+    Each test method opens its own session (the agent allows multiple
+    concurrent sessions) so failures don't cascade.
     """
 
     NODES = ("netd",)
@@ -254,7 +210,6 @@ class TestNetdSmoke(SingleNodeCase):
         if state.topology is None:
             pytest.skip("class topology not initialised; upstream fixture failed")
         node = state.topology.nodes[0]
-
         _start_netd_on_node(node)
         host_port = _pick_free_port()
         forward = _open_port_forward(node.cid, host_port)
@@ -264,7 +219,7 @@ class TestNetdSmoke(SingleNodeCase):
             _close_port_forward(forward)
             _stop_netd_on_node(node)
 
-    # -- the four tests ------------------------------------------------------
+    # -- Liveness / version --------------------------------------------------
 
     def test_ping(self, netd_endpoint):
         host, port = netd_endpoint
@@ -272,620 +227,370 @@ class TestNetdSmoke(SingleNodeCase):
         async def body(agent):
             await agent.ping()
 
-        _run_on_node_loop(
-            self.node,
-            lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-        )
+        _run_on_node_loop(self.node, lambda: _with_client(host, port, body))
 
-    def test_version_reports_semver_and_capabilities(self, netd_endpoint):
+    def test_version_advertises_declarative_capabilities(self, netd_endpoint):
         host, port = netd_endpoint
 
         async def body(agent):
-            resp = await agent.version()
-            return resp.info
+            return (await agent.version()).info
 
-        info = _run_on_node_loop(
-            self.node,
-            lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-        )
+        info = _run_on_node_loop(self.node, lambda: _with_client(host, port, body))
         assert info.semver.startswith("0.")
-        # Phase 2 advertises the features its Session can actually
-        # service.  Subsequent slices add "tap", "nat", "dnsmasq",
-        # "events" — each addition rewrites this assertion.
+        # Phase 2.5 advertises the declarative surface.
         assert set(info.capabilities) == {
-            "bridge",
-            "tap",
-            "nat",
-            "dnsmasq",
-            "events",
-            "ip-forwarding",
+            "network", "tap", "ip-forwarding", "events",
         }
 
-    def test_session_returns_cap(self, netd_endpoint):
+    # -- Networks ------------------------------------------------------------
+
+    def test_apply_network_creates_bridge_in_kernel(self, netd_endpoint):
+        """applyNetwork puts a real bridge in the node's host netns."""
         host, port = netd_endpoint
-
-        async def body(agent):
-            resp = await agent.session(owner="test-uid-1000")
-            return resp.session is not None
-
-        result = _run_on_node_loop(
-            self.node,
-            lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-        )
-        assert result is True
-
-    # -- Phase 2 kernel-state tests ------------------------------------------
-
-    def test_create_bridge_appears_in_kernel(self, netd_endpoint):
-        """`createBridge` puts a real bridge in the node's host netns.
-
-        Kernel-state assertions run INSIDE the agent coroutine, via
-        `asyncio.to_thread`, so the SSH probe fires while the cap is
-        still alive.  If we asserted from the main thread after the
-        coroutine returned, the cap would have been GC'd, dropped,
-        and torn down before SSH could observe the bridge — the
-        whole point of automatic cap-drop cleanup.
-        """
-        host, port = netd_endpoint
-        # Bridge names are bounded by IFNAMSIZ (15 chars + NUL); the
-        # `crv-it-` prefix keeps each test's bridge greppable while
-        # staying under the limit even with an 8-char suffix.
-        bridge_name = "crv-it-create"
+        name = "corvus-br-a"
         node = self.node
 
         async def body(agent):
-            sess_resp = await agent.session(owner="test-uid-1000")
-            sess = sess_resp.session
-            br_resp = await sess.createBridge(
-                params={
-                    "name": bridge_name,
-                    "cidr": "10.199.0.1/24",
-                    "mtu": 1500,
-                }
-            )
-            bridge = br_resp.bridge
-            # Kernel observation, off the kj_loop thread so it can't
-            # starve concurrent capnp activity.  Cap is still live.
+            sess = (await agent.session(owner="test-uid-1000")).session
+            spec = _network_spec(name, cidr="10.191.0.1/24")
+            await sess.applyNetwork(spec=spec)
+            import asyncio
             link = await asyncio.to_thread(
-                node.run, f"ip -d link show {bridge_name}", check=False
+                node.run, f"ip -d link show {name}", check=False
             )
             assert link.returncode == 0, (
-                f"bridge {bridge_name} not found in node: "
+                f"bridge {name} not found: "
                 f"{link.stderr.decode(errors='replace')}"
             )
-            # IFF_UP flag is what `ip link set <name> up` sets; an
-            # empty bridge stays `state DOWN` (no carrier) until a
-            # TAP attaches, so we check the flag list rather than the
-            # operational state.
-            assert b"UP" in link.stdout.split(b"<", 1)[1].split(b">", 1)[0], (
-                f"bridge missing IFF_UP flag: {link.stdout.decode(errors='replace')}"
-            )
-            # `ip -d link show` includes the link-type detail when
-            # the device is a bridge. We assert this so the test
-            # would catch a regression that creates the link as a
-            # plain dummy/macvlan.
             assert b"bridge " in link.stdout
             addr = await asyncio.to_thread(
-                node.run, f"ip -o -4 addr show dev {bridge_name}"
+                node.run, f"ip -o -4 addr show dev {name}"
             )
-            assert b"10.199.0.1/24" in addr.stdout
-            # Explicit destroy + verify the bridge is gone.
-            await bridge.destroy()
-            gone = await asyncio.to_thread(
-                node.run, f"ip link show {bridge_name}", check=False
-            )
-            assert gone.returncode != 0, (
-                f"bridge {bridge_name} still present after destroy()"
-            )
+            assert b"10.191.0.1/24" in addr.stdout
 
         try:
-            _run_on_node_loop(
-                node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-            )
+            _run_on_node_loop(node, lambda: _with_client(host, port, body))
         finally:
-            # Belt-and-braces: if the body raised mid-flight, scrub
-            # the bridge so the next test class doesn't trip on it.
             node.run(
-                f"sudo ip link del {bridge_name} 2>/dev/null || true",
-                check=False,
+                f"sudo ip link del {name} 2>/dev/null || true", check=False
             )
 
-    def test_create_bridge_rejects_duplicate(self, netd_endpoint):
-        """Second createBridge with the same name in the same owner fails."""
+    def test_apply_network_is_idempotent(self, netd_endpoint):
+        """Two applyNetwork calls with the same spec → bridge MAC unchanged."""
         host, port = netd_endpoint
-        bridge_name = "crv-it-dup"
-
-        async def body(agent):
-            sess_resp = await agent.session(owner="test-uid-1000")
-            sess = sess_resp.session
-            await sess.createBridge(
-                params={"name": bridge_name, "cidr": "10.198.0.1/24", "mtu": 1500}
-            )
-            with pytest.raises(capnp.KjException):
-                await sess.createBridge(
-                    params={
-                        "name": bridge_name,
-                        "cidr": "10.198.0.1/24",
-                        "mtu": 1500,
-                    }
-                )
-
-        try:
-            _run_on_node_loop(
-                self.node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-            )
-        finally:
-            self.node.run(
-                f"sudo ip link del {bridge_name} 2>/dev/null || true",
-                check=False,
-            )
-
-    def test_create_tap_attaches_to_bridge(self, netd_endpoint):
-        """`createTap` makes a persistent TAP attached to the bridge.
-
-        Verifies four kernel-state properties of the new device:
-          * It exists in `ip link show`.
-          * Its link type is `tun` with `tap` mode.
-          * Its `master` is the bridge we passed in.
-          * Its `TUNSETOWNER` reflects the uid we requested
-            (visible in `ip -d link show` under `openvswitch`-style
-            extra metadata or in /sys via `tun_owner`).
-
-        Cleanup is via the cap drop chain at body exit: the TAP and
-        bridge are torn down by their respective `shutdown` handlers
-        when the supervisor unwinds.
-        """
-        host, port = netd_endpoint
-        bridge_name = "crv-it-br-t"
-        tap_name = "crv-it-tap0"
-        node = self.node
-        target_uid = 1000
-        target_gid = 1000
-
-        async def body(agent):
-            sess = (await agent.session(owner="test-uid-1000")).session
-            br = (
-                await sess.createBridge(
-                    params={
-                        "name": bridge_name,
-                        "cidr": "10.198.1.1/24",
-                        "mtu": 1500,
-                    }
-                )
-            ).bridge
-            tap = (
-                await sess.createTap(
-                    params={
-                        "name": tap_name,
-                        "bridge": br,
-                        "uid": target_uid,
-                        "gid": target_gid,
-                    }
-                )
-            ).tap
-
-            link = await asyncio.to_thread(
-                node.run, f"ip -d link show {tap_name}", check=False
-            )
-            assert link.returncode == 0, (
-                f"tap {tap_name} missing: "
-                f"{link.stderr.decode(errors='replace')}"
-            )
-            # tun with tap mode is what `ip -d` prints for tuntap-mode taps.
-            assert b"tun " in link.stdout
-            assert b"tap " in link.stdout
-            assert f"master {bridge_name}".encode() in link.stdout
-
-            # TUNSETOWNER landed: /sys/class/net/<name>/owner is the
-            # uid the agent passed to `ip tuntap add ... user X`.
-            owner_file = await asyncio.to_thread(
-                node.run,
-                f"cat /sys/class/net/{tap_name}/owner",
-                check=False,
-            )
-            assert owner_file.returncode == 0
-            assert owner_file.stdout.strip() == str(target_uid).encode()
-
-            # Drop the TAP cap explicitly; assert removal from kernel.
-            await tap.destroy()
-            gone = await asyncio.to_thread(
-                node.run, f"ip link show {tap_name}", check=False
-            )
-            assert gone.returncode != 0, (
-                f"tap {tap_name} still present after destroy()"
-            )
-
-            # Bridge will be torn down via its own cap drop at body exit.
-            _ = br
-
-        try:
-            _run_on_node_loop(
-                node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-            )
-        finally:
-            # Belt-and-braces against partial failures.
-            node.run(
-                f"sudo ip tuntap del dev {tap_name} mode tap 2>/dev/null || true",
-                check=False,
-            )
-            node.run(
-                f"sudo ip link del {bridge_name} 2>/dev/null || true",
-                check=False,
-            )
-
-    def test_install_nat_inserts_masquerade_rule(self, netd_endpoint):
-        """`installNat` lands a masquerade rule in `inet corvus_fw`.
-
-        Checks the rule is in `nft list table inet corvus_fw` while
-        the NatRule cap is alive, and is gone after destroy().
-        Captures `inet corvus_fw` state in stdout so a failure
-        prints the table for diagnosis.
-        """
-        host, port = netd_endpoint
-        bridge_name = "crv-it-br-n"
-        subnet = "10.197.0.0/24"
+        name = "corvus-br-b"
         node = self.node
 
         async def body(agent):
             sess = (await agent.session(owner="test-uid-1000")).session
-            br = (
-                await sess.createBridge(
-                    params={
-                        "name": bridge_name,
-                        "cidr": "10.197.0.1/24",
-                        "mtu": 1500,
-                    }
+            spec = _network_spec(name, cidr="10.190.0.1/24")
+            await sess.applyNetwork(spec=spec)
+            import asyncio
+            mac1 = (
+                await asyncio.to_thread(
+                    node.run,
+                    f"cat /sys/class/net/{name}/address",
                 )
-            ).bridge
-            nat = (
-                await sess.installNat(
-                    params={
-                        "bridge": br,
-                        "uplinkIf": "",  # match any oifname
-                        "subnet": subnet,
-                    }
+            ).stdout.strip()
+            await sess.applyNetwork(spec=spec)
+            mac2 = (
+                await asyncio.to_thread(
+                    node.run,
+                    f"cat /sys/class/net/{name}/address",
                 )
-            ).nat
+            ).stdout.strip()
+            assert mac1 == mac2, (
+                f"bridge recreated on idempotent apply: {mac1!r} → {mac2!r}"
+            )
 
+        try:
+            _run_on_node_loop(node, lambda: _with_client(host, port, body))
+        finally:
+            node.run(
+                f"sudo ip link del {name} 2>/dev/null || true", check=False
+            )
+
+    def test_apply_network_reconciles_cidr_change(self, netd_endpoint):
+        """Updating CIDR with applyNetwork swaps the IP in place."""
+        host, port = netd_endpoint
+        name = "corvus-br-c"
+        node = self.node
+
+        async def body(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            await sess.applyNetwork(
+                spec=_network_spec(name, cidr="10.189.0.1/24")
+            )
+            await sess.applyNetwork(
+                spec=_network_spec(name, cidr="10.189.0.2/24")
+            )
+            import asyncio
+            addr = await asyncio.to_thread(
+                node.run, f"ip -o -4 addr show dev {name}"
+            )
+            assert b"10.189.0.2/24" in addr.stdout
+            assert b"10.189.0.1/24" not in addr.stdout
+
+        try:
+            _run_on_node_loop(node, lambda: _with_client(host, port, body))
+        finally:
+            node.run(
+                f"sudo ip link del {name} 2>/dev/null || true", check=False
+            )
+
+    def test_apply_network_nat_installs_masquerade(self, netd_endpoint):
+        """applyNetwork with nat.enabled adds a masquerade rule."""
+        host, port = netd_endpoint
+        name = "corvus-br-n"
+        subnet = "10.188.0.0/24"
+        node = self.node
+
+        async def body(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            await sess.applyNetwork(
+                spec=_network_spec(
+                    name,
+                    cidr="10.188.0.1/24",
+                    nat_enabled=True,
+                )
+            )
+            import asyncio
             table = await asyncio.to_thread(
                 node.run, "sudo nft list table inet corvus_fw"
             )
-            assert subnet.encode() in table.stdout, (
-                f"masquerade rule for {subnet} not found:\n"
-                f"{table.stdout.decode(errors='replace')}"
-            )
             assert b"masquerade" in table.stdout
-
-            await nat.destroy()
-
-            gone = await asyncio.to_thread(
-                node.run, "sudo nft list table inet corvus_fw"
-            )
-            assert subnet.encode() not in gone.stdout, (
-                f"rule for {subnet} still present after destroy():\n"
-                f"{gone.stdout.decode(errors='replace')}"
-            )
-            _ = br  # held until body exits
+            # The masquerade rule's saddr is the bridge CIDR. The
+            # agent passes the bridge's CIDR (10.188.0.1/24); nft
+            # renders that as the implied network 10.188.0.0/24.
+            assert subnet.encode() in table.stdout or b"10.188.0.1" in table.stdout
 
         try:
-            _run_on_node_loop(
-                node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-            )
+            _run_on_node_loop(node, lambda: _with_client(host, port, body))
         finally:
-            # Flush the table on the node so a later test class
-            # doesn't see leftover rules.  `delete table` removes
-            # the table and everything inside it; tolerant of the
-            # table being absent.
             node.run(
                 "sudo nft delete table inet corvus_fw 2>/dev/null || true",
                 check=False,
             )
             node.run(
-                f"sudo ip link del {bridge_name} 2>/dev/null || true",
-                check=False,
+                f"sudo ip link del {name} 2>/dev/null || true", check=False
             )
 
-    def test_start_dnsmasq_runs_and_stops(self, netd_endpoint):
-        """`startDnsmasq` spawns a dnsmasq supervised by the agent.
-
-        Verifies the process is running (pid alive in /proc) and
-        that it's the corvus-netd-spawned one (commandline contains
-        our bridge name). Drops the cap and asserts the process is
-        gone.
-        """
+    def test_apply_network_dhcp_spawns_dnsmasq(self, netd_endpoint):
+        """applyNetwork with dhcp.enabled spawns dnsmasq."""
         host, port = netd_endpoint
-        bridge_name = "crv-it-br-d"
+        name = "corvus-br-d"
         node = self.node
 
         async def body(agent):
             sess = (await agent.session(owner="test-uid-1000")).session
-            br = (
-                await sess.createBridge(
-                    params={
-                        "name": bridge_name,
-                        "cidr": "10.196.0.1/24",
-                        "mtu": 1500,
-                    }
+            await sess.applyNetwork(
+                spec=_network_spec(
+                    name,
+                    cidr="10.187.0.1/24",
+                    dhcp_enabled=True,
+                    dhcp_start="10.187.0.100",
+                    dhcp_end="10.187.0.200",
                 )
-            ).bridge
-            handle = (
-                await sess.startDnsmasq(
-                    params={
-                        "bridge": br,
-                        "listenAddr": "10.196.0.1",
-                        "dhcpRange": "10.196.0.100,10.196.0.200,12h",
-                        "domain": "",
-                        "extraArgs": [],
-                    }
-                )
-            ).server
-            pid_resp = await handle.pid()
-            pid = pid_resp.pid
-            assert pid > 0
-
-            # /proc shows the running process with our bridge name in argv.
-            cmdline = await asyncio.to_thread(
+            )
+            import asyncio
+            proc = await asyncio.to_thread(
                 node.run,
-                f"tr '\\0' ' ' < /proc/{pid}/cmdline",
+                f"pgrep -af 'dnsmasq.*--interface={name}'",
                 check=False,
             )
-            assert cmdline.returncode == 0, (
-                f"dnsmasq pid {pid} not found in /proc"
-            )
-            assert b"dnsmasq" in cmdline.stdout
-            assert f"--interface={bridge_name}".encode() in cmdline.stdout
-
-            await handle.stop()
-
-            # After stop, the pid should no longer exist (the kernel
-            # may have recycled it, but checking by exact pid is fine
-            # since we're querying right after the SIGTERM).
-            gone = await asyncio.to_thread(
-                node.run, f"test -d /proc/{pid}", check=False
-            )
-            assert gone.returncode != 0, (
-                f"dnsmasq pid {pid} still present after stop()"
-            )
-            _ = br
+            assert proc.returncode == 0, "dnsmasq not found for the bridge"
 
         try:
-            _run_on_node_loop(
-                node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-            )
+            _run_on_node_loop(node, lambda: _with_client(host, port, body))
         finally:
-            # Belt-and-braces: kill any dnsmasq spawned against
-            # this bridge, then drop the bridge.
             node.run(
-                f"sudo pkill -f 'dnsmasq.*--interface={bridge_name}' 2>/dev/null || true",
+                f"sudo pkill -f 'dnsmasq.*--interface={name}' 2>/dev/null || true",
                 check=False,
             )
             node.run(
-                f"sudo ip link del {bridge_name} 2>/dev/null || true",
-                check=False,
+                f"sudo ip link del {name} 2>/dev/null || true", check=False
             )
 
-    def test_orphan_then_claim_resurrects_bridge(self, netd_endpoint):
-        """Cap drop → orphan; claimBridge within grace re-adopts.
-
-        Demonstrates the Phase 2 reconnection story: a daemon's
-        TCP session drops without explicit destroy(), but its
-        bridges persist in the kernel for the grace window. A new
-        session can `claimBridge` to re-adopt them, then either
-        explicitly `destroy()` or just let the next cap-drop
-        orphan them again.
-        """
+    def test_delete_network_tears_down_everything(self, netd_endpoint):
+        """deleteNetwork removes bridge, NAT rule, and dnsmasq."""
         host, port = netd_endpoint
-        bridge_name = "crv-it-br-o"
+        name = "corvus-br-x"
         node = self.node
 
-        async def step1_create(agent):
+        async def body(agent):
             sess = (await agent.session(owner="test-uid-1000")).session
-            await sess.createBridge(
-                params={
-                    "name": bridge_name,
-                    "cidr": "10.194.0.1/24",
-                    "mtu": 1500,
-                }
+            await sess.applyNetwork(
+                spec=_network_spec(
+                    name,
+                    cidr="10.186.0.1/24",
+                    nat_enabled=True,
+                    dhcp_enabled=True,
+                    dhcp_start="10.186.0.100",
+                    dhcp_end="10.186.0.200",
+                )
             )
-            # body exits → the cap is GC'd → orphan flag set.
-
-        async def step2_claim_and_destroy(agent):
-            sess = (await agent.session(owner="test-uid-1000")).session
             # Positional arg: pycapnp's stub clashes if you pass
-            # `name=` as kwarg (`name` is an internal pycapnp field
-            # on the call descriptor).
-            br = (await sess.claimBridge(bridge_name)).bridge
-            # Kernel still has the bridge — within grace window.
+            # `name=` as kwarg (`name` is internal to the call descriptor).
+            await sess.deleteNetwork(name)
+            import asyncio
             link = await asyncio.to_thread(
-                node.run, f"ip link show {bridge_name}", check=False
+                node.run, f"ip link show {name}", check=False
             )
-            assert link.returncode == 0, (
-                f"bridge {bridge_name} reaped before claim "
-                "— orphan grace too short?"
-            )
-            # Explicit destroy now, in this session's lifetime.
-            await br.destroy()
-            gone = await asyncio.to_thread(
-                node.run, f"ip link show {bridge_name}", check=False
-            )
-            assert gone.returncode != 0
-
-        try:
-            _run_on_node_loop(
-                node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, step1_create),
-            )
-            # Brief pause to let the per-connection supervisor unwind
-            # and fire `shutdown` on the bridge cap. The orphan flag
-            # gets set during shutdown, NOT at the TCP-close boundary.
-            import time as _time
-
-            _time.sleep(0.3)
-            _run_on_node_loop(
-                node,
-                lambda: _with_client(
-                    host, port, NETAGENT_SCHEMA, step2_claim_and_destroy
-                ),
-            )
-        finally:
-            node.run(
-                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+            assert link.returncode != 0
+            dn = await asyncio.to_thread(
+                node.run,
+                f"pgrep -f 'dnsmasq.*--interface={name}'",
                 check=False,
             )
+            assert dn.returncode != 0
 
-    def test_orphan_expires_after_grace(self, netd_endpoint):
-        """Cap drop → orphan; after grace, sweeper reaps it.
+        try:
+            _run_on_node_loop(node, lambda: _with_client(host, port, body))
+        finally:
+            node.run(
+                f"sudo ip link del {name} 2>/dev/null || true", check=False
+            )
 
-        Asserts the sweeper actually runs the teardown when the
-        orphan ages past `--orphan-grace`. Uses the harness's
-        2-second grace + an extra 2-second wait to give the
-        1-second sweeper interval room.
-        """
+    # -- TAPs ----------------------------------------------------------------
+
+    def test_apply_tap_requires_known_bridge(self, netd_endpoint):
+        """applyTap against an unknown bridge fails fast."""
         host, port = netd_endpoint
-        bridge_name = "crv-it-br-x"
+
+        async def body(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            with pytest.raises(capnp.KjException):
+                await sess.applyTap(
+                    spec={
+                        "name": "corvus-tap-z",
+                        "bridge": "corvus-br-nope",
+                        "uid": 1000,
+                        "gid": 1000,
+                    }
+                )
+
+        _run_on_node_loop(self.node, lambda: _with_client(host, port, body))
+
+    def test_apply_tap_creates_persistent_tap(self, netd_endpoint):
+        """applyTap creates a persistent TAP with the requested owner uid."""
+        host, port = netd_endpoint
+        bridge = "corvus-br-tp"
+        tap = "corvus-tap-tp"
         node = self.node
 
         async def body(agent):
             sess = (await agent.session(owner="test-uid-1000")).session
-            await sess.createBridge(
-                params={
-                    "name": bridge_name,
-                    "cidr": "10.193.0.1/24",
-                    "mtu": 1500,
+            await sess.applyNetwork(spec=_network_spec(bridge, cidr="10.185.0.1/24"))
+            await sess.applyTap(
+                spec={
+                    "name": tap,
+                    "bridge": bridge,
+                    "uid": 1000,
+                    "gid": 1000,
                 }
             )
+            import asyncio
+            link = await asyncio.to_thread(
+                node.run, f"ip -d link show {tap}"
+            )
+            assert b"tun " in link.stdout
+            assert b"tap " in link.stdout
+            assert f"master {bridge}".encode() in link.stdout
+            owner = await asyncio.to_thread(
+                node.run, f"cat /sys/class/net/{tap}/owner"
+            )
+            assert owner.stdout.strip() == b"1000"
 
         try:
-            _run_on_node_loop(
-                node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-            )
-            # Wait past grace+sweeper. Harness grace is 2s; sweeper
-            # ticks every 1s; a 4-second wait is safely past both.
-            import time as _time
-
-            _time.sleep(4.0)
-            gone = node.run(f"ip link show {bridge_name}", check=False)
-            assert gone.returncode != 0, (
-                f"bridge {bridge_name} still present after orphan-grace + sweep:\n"
-                f"{gone.stdout.decode(errors='replace')}"
-            )
+            _run_on_node_loop(node, lambda: _with_client(host, port, body))
         finally:
             node.run(
-                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+                f"sudo ip tuntap del dev {tap} mode tap 2>/dev/null || true",
+                check=False,
+            )
+            node.run(
+                f"sudo ip link del {bridge} 2>/dev/null || true",
                 check=False,
             )
 
-    def test_subscribe_events_fires_on_external_link_delete(self, netd_endpoint):
-        """`ip link del` of a tracked bridge fires onResourceVanished.
-
-        The agent runs an `ip monitor link` watcher in the
-        background. When a bridge it owns disappears (admin deletes
-        it manually), the watcher notices and pushes an
-        `onResourceVanished("bridge", <name>)` to every subscriber.
-        """
-        host, port = netd_endpoint
-        bridge_name = "crv-it-br-e"
-        node = self.node
-        # Per-coroutine collector for events the agent pushes to us.
-        events: list[tuple[str, str]] = []
-
-        # Implement EventSink in Python (pycapnp lets us register
-        # a callback per method). The sink stays alive for as long
-        # as the body's `subscribeEvents` cap is held.
-        class Sink(NETAGENT_SCHEMA.EventSink.Server):
-            def onResourceVanished(self, kind, name, _context, **_):
-                events.append((kind, name))
-
-            def onDnsmasqExited(self, name, exitStatus, _context, **_):
-                pass
-
-        sink = Sink()
-
-        async def body(agent):
-            sess = (await agent.session(owner="test-uid-1000")).session
-            await sess.subscribeEvents(sink=sink)
-            await sess.createBridge(
-                params={
-                    "name": bridge_name,
-                    "cidr": "10.195.0.1/24",
-                    "mtu": 1500,
-                }
-            )
-            # External delete bypasses the agent — the watcher
-            # observes the disappearance via `ip monitor link`.
-            await asyncio.to_thread(
-                node.run, f"sudo ip link del {bridge_name}", check=True
-            )
-            # Give the watcher + dispatch a moment. `ip monitor` is
-            # line-buffered; the agent dispatches synchronously after
-            # parsing the line.
-            for _ in range(40):
-                await asyncio.sleep(0.05)
-                if events:
-                    break
-
-        try:
-            _run_on_node_loop(
-                node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
-            )
-            assert ("bridge", bridge_name) in events, (
-                f"expected bridge-vanished event for {bridge_name}, got {events}"
-            )
-        finally:
-            # Bridge has already been ip-link-deleted; safety net
-            # in case the test bailed early.
-            node.run(
-                f"sudo ip link del {bridge_name} 2>/dev/null || true",
-                check=False,
-            )
+    # -- Kernel knobs --------------------------------------------------------
 
     def test_set_ip_forwarding_toggles_proc(self, netd_endpoint):
-        """setIpForwarding writes to /proc/sys/net/ipv4/ip_forward."""
         host, port = netd_endpoint
+        node = self.node
 
-        # Record the current value so we restore it after the test.
-        before = self.node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
+        before = node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
 
         try:
-            # Step 1: set to 1
             async def enable(agent):
                 sess = (await agent.session(owner="test-uid-1000")).session
                 await sess.setIpForwarding(enabled=True, family="v4")
 
-            _run_on_node_loop(
-                self.node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, enable),
-            )
+            _run_on_node_loop(node, lambda: _with_client(host, port, enable))
             assert (
-                self.node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
+                node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
                 == b"1"
             )
 
-            # Step 2: set to 0
             async def disable(agent):
                 sess = (await agent.session(owner="test-uid-1000")).session
                 await sess.setIpForwarding(enabled=False, family="v4")
 
-            _run_on_node_loop(
-                self.node,
-                lambda: _with_client(host, port, NETAGENT_SCHEMA, disable),
-            )
+            _run_on_node_loop(node, lambda: _with_client(host, port, disable))
             assert (
-                self.node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
+                node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
                 == b"0"
             )
         finally:
-            # Restore the prior value so we don't poison the node for
-            # other tests in the class (or for an operator inspecting
-            # a leaked node).
-            self.node.run(
+            node.run(
                 f"echo {before.decode()} | sudo tee /proc/sys/net/ipv4/ip_forward >/dev/null",
                 check=False,
             )
+
+    # -- Cleanup-on-shutdown -------------------------------------------------
+
+    def test_shutdown_cleanup_removes_everything(self, netd_endpoint):
+        """`systemctl stop` runs cleanup; corvus-* resources go away."""
+        host, port = netd_endpoint
+        name = "corvus-br-zz"
+        node = self.node
+
+        async def body(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            await sess.applyNetwork(
+                spec=_network_spec(
+                    name,
+                    cidr="10.184.0.1/24",
+                    nat_enabled=True,
+                    dhcp_enabled=True,
+                    dhcp_start="10.184.0.100",
+                    dhcp_end="10.184.0.200",
+                )
+            )
+
+        try:
+            _run_on_node_loop(node, lambda: _with_client(host, port, body))
+            # Stop the agent. The Main.hs SIGTERM handler runs
+            # cleanupCorvusKernelState before exit.
+            node.run(
+                f"sudo systemctl stop {NETD_TRANSIENT_UNIT}", check=False
+            )
+            # Brief settle.
+            time.sleep(0.5)
+            link = node.run(f"ip link show {name}", check=False)
+            assert link.returncode != 0, "bridge survived shutdown"
+            nft = node.run(
+                "sudo nft list table inet corvus_fw 2>/dev/null",
+                check=False,
+            )
+            assert nft.returncode != 0, "corvus_fw table survived shutdown"
+            dn = node.run(
+                f"pgrep -f 'dnsmasq.*--interface={name}'", check=False
+            )
+            assert dn.returncode != 0, "dnsmasq survived shutdown"
+        finally:
+            # Restart the agent so the next test in the class has
+            # a healthy endpoint. The port-forward async stays up
+            # across this restart because the SSH tunnel is
+            # connection-less from the agent's view.
+            _start_netd_on_node(node)

@@ -203,12 +203,11 @@ library:
     - Corvus.Netd.Dnsmasq
     - Corvus.Netd.IpMonitor
     - Corvus.Netd.Events
+    - Corvus.Netd.Cleanup
+    - Corvus.Netd.Network
+    - Corvus.Netd.Tap
     - Corvus.Netd.Caps.NetAgent
     - Corvus.Netd.Caps.Session
-    - Corvus.Netd.Caps.Bridge
-    - Corvus.Netd.Caps.Tap
-    - Corvus.Netd.Caps.NatRule
-    - Corvus.Netd.Caps.DnsmasqHandle
     # Cap'n Proto generated modules (auto-generated from schema/*.capnp).
     # Only the umbrella per-schema-file modules are exposed; the
     # ById/* internal modules stay private to the corvus library.

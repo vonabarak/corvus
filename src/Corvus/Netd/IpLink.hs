@@ -28,7 +28,9 @@ module Corvus.Netd.IpLink
   , bridgeAdd
   , bridgeDel
   , addrAdd
+  , addrDel
   , linkSetUp
+  , linkSetMtu
   , linkExists
   , tapAdd
   , tapDel
@@ -74,10 +76,23 @@ addrAdd :: T.Text -> T.Text -> IO (Either IpLinkError ())
 addrAdd cidr iface =
   runIp ["addr", "add", T.unpack cidr, "dev", T.unpack iface]
 
+-- | @ip addr del <cidr> dev <iface>@. Used during reconcile
+-- when a network's CIDR changes between successive
+-- 'applyNetwork' calls.
+addrDel :: T.Text -> T.Text -> IO (Either IpLinkError ())
+addrDel cidr iface =
+  runIp ["addr", "del", T.unpack cidr, "dev", T.unpack iface]
+
 -- | @ip link set <iface> up@.
 linkSetUp :: T.Text -> IO (Either IpLinkError ())
 linkSetUp iface =
   runIp ["link", "set", T.unpack iface, "up"]
+
+-- | @ip link set <iface> mtu <n>@. Used during reconcile when
+-- a network's MTU changes.
+linkSetMtu :: T.Text -> Word32 -> IO (Either IpLinkError ())
+linkSetMtu iface n =
+  runIp ["link", "set", T.unpack iface, "mtu", show n]
 
 -- | True iff a link with this name exists on the host. Lightweight
 -- check via @ip link show@ that just asks for one interface.
