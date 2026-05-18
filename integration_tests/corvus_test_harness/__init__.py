@@ -16,6 +16,7 @@ blocks they're composed from:
 - `ssh.NodeShell`        — single-leg host→node SSH over VSOCK
 - `ssh.VmShell`          — host→node→vm SSH tunnel for vms
 - `vm.{Vm,VmSsh,VmUefi}` — context managers for the vm lifecycle
+- `netd_client.NetdClient` — sync wrapper around the `corvus-netd` agent
 - `version`              — outer-daemon-version + nested-KVM sanity checks
 """
 
@@ -29,6 +30,7 @@ from .cases import (
 from .host_binary import HostBinary
 from .images import ImageReady
 from .inner import open_client
+from .netd_client import NetdClient
 from .outer import Crv
 from .spice import SpiceLinkInfo, probe_spice_link
 from .ssh import HOST_ALPINE_KEY_PATH, NodeShell, SshResult, VmShell
@@ -48,6 +50,7 @@ __all__ = [
     "ImageReady",
     "IntegrationTestCase",
     "NestedKvmStatus",
+    "NetdClient",
     "NodeShell",
     "SingleNodeCase",
     "SpiceLinkInfo",
