@@ -1,8 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
--- | VM process management.
--- Handles starting and killing QEMU processes.
+-- | VM process management — daemon-side facade.
+--
+-- Phase 3: the actual @createProcess@ / signal calls happen on
+-- the @corvus-nodeagent@ side. This module marshals intent (which
+-- command to run, which PID to stop) and routes through
+-- 'Corvus.NodeAgentClient'. The daemon never spawns or signals
+-- QEMU directly.
 module Corvus.Node.Process
   ( -- * Starting VMs
     StartVmResult (..)
@@ -14,22 +18,20 @@ module Corvus.Node.Process
   )
 where
 
-import Control.Exception (SomeException, try)
+import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import qualified Corvus.NetAgentClient as NA
 import Corvus.Node.Command (generateQemuCommandWithSockets)
-import Corvus.Node.Runtime (createVmRuntimeDir, getGuestAgentSocket, getMonitorSocket, getQmpSocket, getSerialSocket, getVmRuntimeDir)
-import Corvus.Process (StopResult (..), stopProcess)
-import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
+import Corvus.Node.Runtime (getGuestAgentSocket, getMonitorSocket, getQmpSocket, getSerialSocket, getVmRuntimeDir)
+import qualified Corvus.NodeAgentClient as NOA
+import Corvus.Qemu.Config (getEffectiveBasePath)
+import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
-import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word (Word32)
 import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlBackend)
-import System.IO (Handle)
-import System.Process (ProcessHandle, StdStream (..), createProcess, getPid, proc, std_err, std_out)
 
 --------------------------------------------------------------------------------
 -- Types
@@ -37,17 +39,13 @@ import System.Process (ProcessHandle, StdStream (..), createProcess, getPid, pro
 
 -- | Result of starting a VM
 data StartVmResult
-  = -- | VM started, returns PID, process handle, and stderr handle
-    VmStarted !Int !ProcessHandle !(Maybe Handle)
+  = -- | VM started; carries the agent-reported PID.
+    VmStarted !Int
   | -- | VM not found in database
     VmNotFound
   | -- | Error starting VM
     VmStartError !Text
   deriving (Show)
-
--- Show instance for ProcessHandle (opaque)
-instance Show ProcessHandle where
-  show _ = "<ProcessHandle>"
 
 -- | Result of stopping a VM process.
 --
@@ -64,88 +62,120 @@ data KillResult
 -- Starting VMs
 --------------------------------------------------------------------------------
 
--- | Start a VM with the given configuration.
--- Returns immediately with PID and ProcessHandle (QEMU runs in foreground).
--- The caller is responsible for waiting on the process handle.
+-- | Start a VM. Generates the QEMU command from DB rows
+-- daemon-side, then asks @corvus-nodeagent@ to spawn the process.
+-- The agent owns the resulting child; the daemon learns its PID
+-- and stores it on the 'Vm' row.
 --
--- When @mAgent@ is 'Just', the corvus-netd agent allocates a
--- persistent TAP per managed network interface (idempotent: an
--- existing TAP with the matching name is a no-op). QEMU always
--- runs in the host process world.
+-- @mNetAgent@ is the netd handle threaded through to
+-- 'generateQemuCommandWithSockets' so the command builder can ask
+-- netd to provision persistent TAPs for managed network
+-- interfaces. It is unrelated to nodeagent.
+--
+-- Returns 'VmStartError' carrying "nodeagent unavailable" when
+-- 'ssNodeAgent' is currently 'Nothing'.
 startVm
   :: (MonadIO m, MonadLogger m)
-  => Pool SqlBackend
-  -> QemuConfig
+  => ServerState
   -> Int64
   -> Maybe NA.NetAgentClient
   -> m StartVmResult
-startVm pool config vmId mAgent = do
-  -- Create runtime directory
-  _ <- liftIO $ createVmRuntimeDir config vmId
+startVm state vmId mNetAgent = do
+  let pool = ssDbPool state
+      config = ssQemuConfig state
 
-  -- Get base path for images
+  -- Compute the paths the command builder needs. The agent will
+  -- mkdir-p the runtime dir itself before spawning; the daemon
+  -- still needs to know the layout because the command line
+  -- embeds these paths.
   basePath <- liftIO $ getEffectiveBasePath config
-
-  -- Get socket paths
   monitorSock <- liftIO $ getMonitorSocket config vmId
   qmpSock <- liftIO $ getQmpSocket config vmId
   serialSock <- liftIO $ getSerialSocket config vmId
   guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
   vmRuntimeDir <- liftIO $ getVmRuntimeDir config vmId
 
-  -- Generate command (TAPs are applied via the agent during resolution).
-  mCmd <- liftIO $ runSqlPool (generateQemuCommandWithSockets config vmId basePath monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir mAgent) pool
+  mCmd <-
+    liftIO $
+      runSqlPool
+        ( generateQemuCommandWithSockets
+            config
+            vmId
+            basePath
+            monitorSock
+            qmpSock
+            serialSock
+            guestAgentSock
+            vmRuntimeDir
+            mNetAgent
+        )
+        pool
   case mCmd of
     Nothing -> pure VmNotFound
     Just (binary, args) -> do
-      -- Log the full command
-      logInfoN $ "Starting VM " <> T.pack (show vmId) <> " with command:"
+      logInfoN $ "Starting VM " <> T.pack (show vmId) <> " via nodeagent:"
       logInfoN $ T.pack $ unwords (binary : args)
-
-      result <-
-        liftIO $
-          try $
-            createProcess
-              (proc binary args)
-                { std_out = CreatePipe
-                , std_err = CreatePipe
-                }
-      case result of
-        Left (e :: SomeException) -> do
-          logWarnN $ "Failed to spawn QEMU process for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
-          pure $ VmStartError $ T.pack $ show e
-        Right (_, _, mStderr, ph) -> do
-          mPid <- liftIO $ getPid ph
-          case mPid of
-            Just pid -> do
-              let pidInt = fromIntegral pid
-              logInfoN $ "VM " <> T.pack (show vmId) <> " started with PID " <> T.pack (show pidInt)
-              pure $ VmStarted pidInt ph mStderr
-            Nothing -> do
-              logWarnN $ "Failed to get PID for VM " <> T.pack (show vmId)
-              pure $ VmStartError "Failed to get process PID"
+      mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+      case mAgent of
+        Nothing -> do
+          logWarnN $ "nodeagent unavailable; cannot start VM " <> T.pack (show vmId)
+          pure $ VmStartError "nodeagent unavailable"
+        Just nac -> do
+          r <-
+            liftIO $
+              NOA.processSpawnQemu
+                nac
+                vmId
+                (T.pack binary)
+                (map T.pack args)
+          case r of
+            Left e -> do
+              logWarnN $
+                "Failed to spawn QEMU for VM "
+                  <> T.pack (show vmId)
+                  <> ": "
+                  <> T.pack (show e)
+              pure $ VmStartError (T.pack (show e))
+            Right pidW -> do
+              logInfoN $
+                "VM "
+                  <> T.pack (show vmId)
+                  <> " started with PID "
+                  <> T.pack (show pidW)
+              pure $ VmStarted (fromIntegral (pidW :: Word32))
 
 --------------------------------------------------------------------------------
 -- Stopping VMs
 --------------------------------------------------------------------------------
 
--- | Stop a running QEMU process.
+-- | Stop a running QEMU process by asking the agent to
+-- SIGTERM-then-SIGKILL the PID.
 --
--- Sends @SIGTERM@ first to give QEMU a chance to flush qcow2 writes and
--- exit cleanly; escalates to @SIGKILL@ if the process is still alive after
--- a short grace period (see 'Corvus.Process.stopProcess').
+-- The caller is expected to have already tried higher-level
+-- graceful paths — guest agent shutdown or @qmpShutdown@ (ACPI) —
+-- before reaching here. This is the bail-out for reset, daemon
+-- shutdown, and orphan cleanup.
 --
--- The caller is expected to have already tried higher-level graceful paths
--- — guest agent shutdown or @qmpShutdown@ (ACPI) — before reaching here.
--- This function is the bail-out for reset, daemon shutdown, and orphan
--- cleanup: the VM isn't responding, just get it off the host.
-killVmProcess :: (MonadIO m, MonadLogger m) => Int64 -> Int -> m KillResult
-killVmProcess vmId pid = do
-  let name = "qemu(vm=" <> T.pack (show vmId) <> ")"
-  result <- stopProcess name (fromIntegral pid) Nothing 0 5
-  case result of
-    StoppedByTerm -> pure KillSuccess
-    StoppedByKill -> pure KillSuccess
-    StoppedGracefully -> pure KillSuccess
-    NotRunning -> pure KillNotRunning
-    StopFailed err -> pure $ KillError err
+-- Returns 'KillError' carrying "nodeagent unavailable" when the
+-- agent connection is currently down.
+killVmProcess
+  :: (MonadIO m, MonadLogger m) => ServerState -> Int64 -> Int -> m KillResult
+killVmProcess state vmId pid = do
+  let pidW = fromIntegral pid :: Word32
+  mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+  case mAgent of
+    Nothing -> do
+      logWarnN $
+        "nodeagent unavailable; cannot kill VM "
+          <> T.pack (show vmId)
+          <> " pid="
+          <> T.pack (show pid)
+      pure $ KillError "nodeagent unavailable"
+    Just nac -> do
+      r <- liftIO $ NOA.processStop nac pidW 5
+      case r of
+        Left e ->
+          pure $ KillError (T.pack (show e))
+        Right NOA.ProcessNotRunning -> pure KillNotRunning
+        Right (NOA.ProcessStopFailed err) -> pure $ KillError err
+        Right _ -> pure KillSuccess

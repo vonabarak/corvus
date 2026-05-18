@@ -84,7 +84,7 @@ handleSharedDirAdd state vmId path tag cache readOnly =
                   runServerLogging state $ logInfoN "VM is running, starting virtiofsd..."
                   _ <-
                     runServerLogging state $
-                      startVirtiofsdProcesses pool (ssQemuConfig state) vmId
+                      startVirtiofsdProcesses state vmId
                   pure () -- Log result but continue
                 _ -> pure ()
 

@@ -59,8 +59,8 @@ instance Action Startup where
         case vmPid vm of
           Just pid -> runServerLogging state $ do
             logInfoN $ "Killing orphaned QEMU process for VM " <> vmName vm <> " (PID " <> T.pack (show pid) <> ")"
-            _ <- killVmProcess (fromSqlKey vmKey) pid
-            killVirtiofsdProcesses pool (fromSqlKey vmKey)
+            _ <- killVmProcess state (fromSqlKey vmKey) pid
+            killVirtiofsdProcesses state (fromSqlKey vmKey)
           Nothing -> pure ()
       liftIO $ runSqlPool (updateWhere [M.VmStatus <-. [VmStarting, VmRunning, VmStopping, VmPaused]] [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]) pool
       logInfoN "Reset stale VMs to error state"
@@ -137,8 +137,8 @@ instance Action GracefulShutdown where
             logInfoN $ "Killing VM " <> vmName vm <> " (PID " <> T.pack (show pid) <> ")"
             -- Clear PID first (so process monitor thread doesn't interfere)
             liftIO $ runSqlPool (update vmKey [M.VmPid =. Nothing]) pool
-            _ <- killVmProcess (fromSqlKey vmKey) pid
-            killVirtiofsdProcesses pool (fromSqlKey vmKey)
+            _ <- killVmProcess state (fromSqlKey vmKey) pid
+            killVirtiofsdProcesses state (fromSqlKey vmKey)
             liftIO $ runSqlPool (update vmKey [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing]) pool
           Nothing -> pure ()
       -- Also handle VMs in Stopping state (QEMU still running)
@@ -148,8 +148,8 @@ instance Action GracefulShutdown where
           Just pid -> runServerLogging state $ do
             logInfoN $ "Force-killing stopping VM " <> vmName vm <> " (PID " <> T.pack (show pid) <> ")"
             liftIO $ runSqlPool (update vmKey [M.VmPid =. Nothing]) pool
-            _ <- killVmProcess (fromSqlKey vmKey) pid
-            killVirtiofsdProcesses pool (fromSqlKey vmKey)
+            _ <- killVmProcess state (fromSqlKey vmKey) pid
+            killVirtiofsdProcesses state (fromSqlKey vmKey)
             liftIO $ runSqlPool (update vmKey [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing]) pool
           Nothing -> pure ()
 

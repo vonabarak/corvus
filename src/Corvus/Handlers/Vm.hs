@@ -65,6 +65,7 @@ import qualified Corvus.NetAgentClient.Spec as Spec
 import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
 import Corvus.Node.SpicePort (withAllocatedSpicePort)
 import Corvus.Node.VsockCid (hostHasVhostVsock, isHostFree, withAllocatedVsockCid)
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
 import Corvus.Qemu
 import Corvus.Types
@@ -77,14 +78,12 @@ import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import qualified Data.Text.IO as TIO
 import Data.Time (getCurrentTime)
+import Data.Word (Word32)
 import Database.Persist
 import Database.Persist.Postgresql (SqlBackend, runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
-import System.Exit (ExitCode (..))
 import System.IO (IOMode (ReadMode), withBinaryFile)
-import System.Process (waitForProcess)
 
 -- | Ring-buffer capacity for a headless VM's serial console scrollback (1 MiB).
 serialBufferCapacity :: Int
@@ -376,32 +375,22 @@ launchQemuWith state vmId vm parentTaskId pool mAgent = do
   _ <- liftIO $ runActionAsSubtask state (LaunchQemu vmId (vmName vm) mAgent resultVar) parentTaskId
   result <- liftIO $ readMVar resultVar
   case result of
-    VmStarted pid ph mStderr -> do
+    VmStarted pid -> do
       let initialStatus = if vmGuestAgent vm then VmStarting else VmRunning
       liftIO $ runSqlPool (setVmStarted vmId initialStatus pid) (ssDbPool state)
-      -- Fork process monitor thread (watches for QEMU exit independently)
+      -- Fork process monitor thread (polls the agent for liveness;
+      -- the agent owns the ProcessHandle and waitpid()s the child
+      -- internally, so we just observe whether the PID is still alive).
       _ <- liftIO $ forkIO $ runServerLogging state $ do
-        logDebugN $ "Waiting for VM " <> T.pack (show vmId) <> " process to exit"
-        exitCode <- liftIO $ waitForProcess ph
+        logDebugN $ "Polling VM " <> T.pack (show vmId) <> " liveness via nodeagent"
+        liftIO $ pollVmUntilExit state pid
         mCurrentPid <- liftIO $ runSqlPool (getVmPid vmId) (ssDbPool state)
         case mCurrentPid of
           Nothing ->
             logDebugN $ "VM " <> T.pack (show vmId) <> " was reset externally, skipping status update"
-          Just _ ->
-            case exitCode of
-              ExitSuccess -> do
-                logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
-                liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-              ExitFailure code -> do
-                -- Read stderr output from QEMU for diagnostics
-                stderrOutput <- liftIO $ case mStderr of
-                  Just h -> TIO.hGetContents h
-                  Nothing -> pure ""
-                logWarnN $ "VM " <> T.pack (show vmId) <> " exited with error code " <> T.pack (show code)
-                unless (T.null stderrOutput) $
-                  logWarnN $
-                    "VM " <> T.pack (show vmId) <> " stderr: " <> stderrOutput
-                liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
+          Just _ -> do
+            logInfoN $ "VM " <> T.pack (show vmId) <> " exited"
+            liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
         -- Close persistent guest agent connection (QEMU is gone)
         liftIO $ closeGuestAgentConn (ssGuestAgentConns state) vmId
         -- Tell the agent it can drop the VM's managed TAPs.
@@ -548,7 +537,7 @@ handleVmReset state vmId = runServerLogging state $ do
       -- Kill QEMU process if we have a PID
       case mPid of
         Just pid -> do
-          killResult <- killVmProcess vmId pid
+          killResult <- killVmProcess state vmId pid
           case killResult of
             KillSuccess -> logInfoN $ "VM " <> T.pack (show vmId) <> " process killed"
             KillNotRunning -> logDebugN $ "VM " <> T.pack (show vmId) <> " process not running"
@@ -557,7 +546,7 @@ handleVmReset state vmId = runServerLogging state $ do
           logDebugN $ "VM " <> T.pack (show vmId) <> " has no PID stored"
 
       -- Kill all virtiofsd processes for this VM
-      killVirtiofsdProcesses (ssDbPool state) vmId
+      killVirtiofsdProcesses state vmId
 
       -- Update status
       liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
@@ -1199,7 +1188,7 @@ instance Action StartVirtiofsd where
   actionEntityId = Just . fromIntegral . svVmId
   actionExecute ctx a = do
     let state = acState ctx
-    r <- runServerLogging state $ startVirtiofsdProcesses (ssDbPool state) (ssQemuConfig state) (svVmId a)
+    r <- runServerLogging state $ startVirtiofsdProcesses state (svVmId a)
     pure $ case r of
       VirtiofsdAllStarted -> RespOk
       VirtiofsdNoSharedDirs -> RespOk
@@ -1222,9 +1211,29 @@ instance Action LaunchQemu where
   actionEntityId = Just . fromIntegral . lqVmId
   actionExecute ctx a = do
     let state = acState ctx
-    r <- runServerLogging state $ startVm (ssDbPool state) (ssQemuConfig state) (lqVmId a) (lqAgent a)
+    r <- runServerLogging state $ startVm state (lqVmId a) (lqAgent a)
     putMVar (lqResultVar a) r
     pure $ case r of
       VmStarted {} -> RespOk
       VmNotFound -> RespError "VM not found"
       VmStartError err -> RespError $ "Failed to start: " <> err
+
+-- | Poll the node agent every 1 s for VM liveness; return when
+-- the agent reports the PID is dead (or when the agent itself
+-- disappears, in which case we treat that as 'dead' rather than
+-- spinning forever — the agent's reconnect will surface the VM
+-- state again).
+pollVmUntilExit :: ServerState -> Int -> IO ()
+pollVmUntilExit state pid = loop
+  where
+    pidW = fromIntegral pid :: Word32
+    loop = do
+      mAgent <- readTVarIO (ssNodeAgent state)
+      case mAgent of
+        Nothing -> pure ()
+        Just nac -> do
+          r <- NOA.processIsAlive nac pidW
+          case r of
+            Left _ -> pure ()
+            Right False -> pure ()
+            Right True -> threadDelay 1000000 >> loop

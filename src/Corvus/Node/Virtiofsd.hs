@@ -1,15 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
--- | Virtiofsd process management.
--- Handles starting and killing virtiofsd processes for shared directories.
+-- | Virtiofsd process management — daemon-side facade.
 --
--- Phase 2: lives under "Corvus.Node" because every operation in it
--- spawns or signals a virtiofsd subprocess on the host. Currently
--- still invoked directly from a few daemon-side call sites
--- (VM start/stop in 'Corvus.Handlers.SharedDir' and
--- 'Corvus.Handlers.Lifecycle'); Phase 3 moves those call sites
--- behind 'Corvus.NodeAgentClient.applyVm' too.
+-- Phase 3: virtiofsd subprocesses are spawned and reaped by
+-- @corvus-nodeagent@. This module marshals each shared-dir
+-- intent (which binary, which argv, where the socket should land)
+-- and routes through 'Corvus.NodeAgentClient.processSpawnVirtiofsd'
+-- / 'Corvus.NodeAgentClient.processStop'. The daemon never spawns
+-- or signals virtiofsd directly.
 module Corvus.Node.Virtiofsd
   ( -- * Starting virtiofsd
     startVirtiofsdProcesses
@@ -23,24 +21,23 @@ module Corvus.Node.Virtiofsd
   )
 where
 
-import Control.Concurrent (forkIO)
-import Control.Exception (SomeException, try)
+import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (forM_)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN)
 import Corvus.Model
-import Corvus.Node.Runtime (createVmRuntimeDir, getVmRuntimeDir)
-import Corvus.Process (StopResult (..), stopProcess, waitForSocketFile)
+import Corvus.Node.Runtime (getVmRuntimeDir)
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Qemu.Config (QemuConfig (..))
+import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
-import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word (Word32)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlBackend, SqlPersistT, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, toSqlKey)
 import System.FilePath ((</>))
-import System.Process (StdStream (..), createProcess, getPid, proc, std_err, std_out, waitForProcess)
 
 --------------------------------------------------------------------------------
 -- Types
@@ -70,19 +67,21 @@ getVirtiofsdSocket config vmId tag = do
 -- Starting Virtiofsd
 --------------------------------------------------------------------------------
 
--- | Start virtiofsd processes for all shared directories of a VM
--- Only starts processes that don't already have a PID in the database
+-- | Spawn virtiofsd via the agent for every shared directory of
+-- the VM that doesn't already have a PID recorded.
+--
+-- Returns 'VirtiofsdSomeFailed' (rather than throwing) if the
+-- agent is currently unreachable; callers treat this the same as
+-- "a process failed to start" and roll back the VM start.
 startVirtiofsdProcesses
   :: (MonadIO m, MonadLogger m)
-  => Pool SqlBackend
-  -> QemuConfig
+  => ServerState
   -> Int64
   -> m VirtiofsdResult
-startVirtiofsdProcesses pool config vmId = do
-  -- Ensure runtime directory exists
-  _ <- liftIO $ createVmRuntimeDir config vmId
+startVirtiofsdProcesses state vmId = do
+  let pool = ssDbPool state
+      config = ssQemuConfig state
 
-  -- Get shared directories for this VM
   sharedDirs <- liftIO $ runSqlPool (getSharedDirsForVm vmId) pool
 
   if null sharedDirs
@@ -96,23 +95,26 @@ startVirtiofsdProcesses pool config vmId = do
           <> " shared directories for VM "
           <> T.pack (show vmId)
 
-      -- Start a process for each shared directory without a PID
-      results <- mapM (startVirtiofsdForDir pool config vmId) sharedDirs
+      mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+      case mAgent of
+        Nothing -> do
+          logWarnN "nodeagent unavailable; cannot start virtiofsd"
+          pure VirtiofsdSomeFailed
+        Just nac -> do
+          results <- mapM (startVirtiofsdForDir state nac vmId) sharedDirs
+          if and results
+            then pure VirtiofsdAllStarted
+            else pure VirtiofsdSomeFailed
 
-      if and results
-        then pure VirtiofsdAllStarted
-        else pure VirtiofsdSomeFailed
-
--- | Start virtiofsd for a single shared directory
+-- | Start virtiofsd for a single shared directory via the agent.
 startVirtiofsdForDir
   :: (MonadIO m, MonadLogger m)
-  => Pool SqlBackend
-  -> QemuConfig
+  => ServerState
+  -> NOA.NodeAgentClient
   -> Int64
   -> Entity SharedDir
   -> m Bool
-startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
-  -- Check if already running
+startVirtiofsdForDir state nac vmId (Entity dirKey dir) =
   case sharedDirPid dir of
     Just pid -> do
       logDebugN $
@@ -122,15 +124,13 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
           <> T.pack (show pid)
       pure True
     Nothing -> do
-      -- Get socket path
+      let config = ssQemuConfig state
+          pool = ssDbPool state
       socketPath <- liftIO $ getVirtiofsdSocket config vmId (sharedDirTag dir)
 
       -- Build command. The `--readonly` flag (modern Rust
       -- virtiofsd) tells the daemon to refuse every write op at the
-      -- FUSE layer regardless of guest mount flags — the previous
-      -- implementation persisted `sharedDirReadOnly` in the DB but
-      -- never forwarded it to virtiofsd, so the guest could write
-      -- through anyway.
+      -- FUSE layer regardless of guest mount flags.
       let binary = qcVirtiofsdBinary config
           cacheArg = T.unpack $ enumToText (sharedDirCache dir)
           baseArgs =
@@ -146,40 +146,43 @@ startVirtiofsdForDir pool config vmId (Entity dirKey dir) = do
       logDebugN $
         "Starting virtiofsd for tag '"
           <> sharedDirTag dir
-          <> "': "
+          <> "' via nodeagent: "
           <> T.pack (unwords (binary : args))
 
-      -- Fork a thread to run the process and wait for it to exit
-      _ <- liftIO $ forkIO $ do
-        result <-
-          try $
-            createProcess
-              (proc binary args)
-                { std_out = CreatePipe
-                , std_err = CreatePipe
-                }
-        case result of
-          Left (_ :: SomeException) -> do
-            -- Process failed to start
-            pure ()
-          Right (_, _, _, ph) -> do
-            mPid <- getPid ph
-            case mPid of
-              Just pid -> do
-                -- Save PID to database
-                runSqlPool (saveDirPid dirKey (fromIntegral pid)) pool
-                -- Wait for process to exit (prevents zombie)
-                _ <- waitForProcess ph
-                -- Clear PID from database when process exits
-                runSqlPool (clearDirPid dirKey) pool
-              Nothing -> pure ()
-
-      -- Wait for virtiofsd to create its socket (up to 5 seconds)
-      socketReady <- liftIO $ waitForSocketFile socketPath 5000
-      if socketReady
-        then pure True
-        else do
-          logWarnN $ "Virtiofsd socket did not appear for tag '" <> sharedDirTag dir <> "'"
+      r <-
+        liftIO $
+          NOA.processSpawnVirtiofsd
+            nac
+            (T.pack binary)
+            (map T.pack args)
+            (T.pack socketPath)
+            5000
+      case r of
+        Left e -> do
+          logWarnN $
+            "virtiofsd spawn RPC failed for tag '"
+              <> sharedDirTag dir
+              <> "': "
+              <> T.pack (show e)
+          pure False
+        Right (NOA.VirtiofsdSpawned pidW) -> do
+          liftIO $
+            runSqlPool
+              (saveDirPid dirKey (fromIntegral (pidW :: Word32)))
+              pool
+          pure True
+        Right (NOA.VirtiofsdSpawnFailed err) -> do
+          logWarnN $
+            "virtiofsd spawn failed for tag '"
+              <> sharedDirTag dir
+              <> "': "
+              <> err
+          pure False
+        Right (NOA.VirtiofsdSocketTimeout _) -> do
+          logWarnN $
+            "Virtiofsd socket did not appear for tag '"
+              <> sharedDirTag dir
+              <> "'"
           pure False
 
 -- | Save virtiofsd PID to database
@@ -200,26 +203,42 @@ getSharedDirsForVm vmId = do
 -- Killing Virtiofsd
 --------------------------------------------------------------------------------
 
--- | Stop all virtiofsd processes for a VM.
+-- | Stop all virtiofsd processes for a VM by asking the agent to
+-- SIGTERM-then-SIGKILL each recorded PID.
 --
--- Virtiofsd has no control channel, so we go straight to @SIGTERM@ (which
--- it handles cleanly) and fall back to @SIGKILL@ if it's still alive after
--- 3 seconds.
+-- If the agent is currently unreachable we log a warning and
+-- still clear the DB PIDs so the next start spawns fresh
+-- processes — the agent's own startup cleanup will eventually
+-- reap any genuinely-orphaned ones.
 killVirtiofsdProcesses
   :: (MonadIO m, MonadLogger m)
-  => Pool SqlBackend
+  => ServerState
   -> Int64
   -> m ()
-killVirtiofsdProcesses pool vmId = do
+killVirtiofsdProcesses state vmId = do
+  let pool = ssDbPool state
   sharedDirs <- liftIO $ runSqlPool (getSharedDirsForVm vmId) pool
-
-  forM_ sharedDirs $ \(Entity dirKey dir) -> do
+  mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+  forM_ sharedDirs $ \(Entity dirKey dir) ->
     case sharedDirPid dir of
       Nothing -> pure ()
       Just pid -> do
-        let name = "virtiofsd(tag=" <> sharedDirTag dir <> ")"
-        _ <- stopProcess name (fromIntegral pid) Nothing 0 3
-        -- Clear PID from database regardless of StopResult: even a failed
-        -- stop leaves nothing useful to track, and on next spawn we'd
-        -- create a new process anyway.
+        case mAgent of
+          Nothing ->
+            logWarnN $
+              "nodeagent unavailable; not stopping virtiofsd tag '"
+                <> sharedDirTag dir
+                <> "' pid="
+                <> T.pack (show pid)
+          Just nac -> do
+            r <- liftIO $ NOA.processStop nac (fromIntegral pid) 3
+            case r of
+              Left e ->
+                logWarnN $
+                  "processStop RPC failed for virtiofsd tag '"
+                    <> sharedDirTag dir
+                    <> "': "
+                    <> T.pack (show e)
+              Right _ -> pure ()
+        -- Clear PID from database regardless of stop outcome.
         liftIO $ runSqlPool (clearDirPid dirKey) pool
