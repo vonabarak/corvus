@@ -27,18 +27,22 @@ where
 
 import Capnp (export)
 import qualified Capnp.Gen.Netagent as CGN
-import Capnp.Rpc (throwFailed)
+import Capnp.Rpc (throwFailed, unwrapServer)
 import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.STM (atomically)
 import qualified Control.Exception as E
 import Control.Monad (unless, void, when)
-import Corvus.Netd.Caps.Bridge (newBridgeCap)
+import Corvus.Netd.Caps.Bridge (BridgeCap (..), newBridgeCap)
+import Corvus.Netd.Caps.Tap (newTapCap)
 import Corvus.Netd.IpLink
   ( IpLinkError (..)
   , addrAdd
   , bridgeAdd
   , bridgeDel
+  , linkSetMaster
   , linkSetUp
+  , tapAdd
+  , tapDel
   )
 import qualified Corvus.Netd.Ledger as L
 import qualified Corvus.Netd.Sysctl as Sys
@@ -169,6 +173,89 @@ instance CGN.Session'server_ SessionCap where
               (scLedger sess)
           client <- export @CGN.Bridge (scSup sess) cap
           pure CGN.Session'claimBridge'results {CGN.bridge = client}
+
+  -- ----- createTap --------------------------------------------------------
+  session'createTap sess =
+    handleParsed $ \CGN.Session'createTap'params {CGN.params = p} -> do
+      let CGN.TapParams
+            { CGN.name = name
+            , CGN.bridge = bridgeClient
+            , CGN.uid = uid
+            , CGN.gid = gid
+            } = p
+      when (T.null name) $ throwFailed "createTap: name must be non-empty"
+      -- Recover the local BridgeCap from the wire cap. A remote
+      -- cap or a wrong-agent cap returns Nothing and we refuse —
+      -- TAP creation requires the bridge to live on THIS agent.
+      bc <- case unwrapServer bridgeClient :: Maybe BridgeCap of
+        Just bc -> pure bc
+        Nothing ->
+          throwFailed "createTap: bridge cap is not local to this agent"
+      -- Reject duplicate within this owner.
+      existing <-
+        atomically $
+          L.lookup (scLedger sess) (scOwner sess) L.KTap name
+      case existing of
+        Just _ ->
+          throwFailed $ "createTap: tap already exists for owner: " <> name
+        Nothing -> pure ()
+      created <- getCurrentTime
+      -- Kernel chain: create TAP, attach to bridge, bring up.
+      tapAdd name uid gid >>= failOnIpErr "createTap:tuntap-add"
+      let rollbackTap = void (tapDel name)
+      let runOrRollback step label =
+            step >>= \case
+              Right () -> pure ()
+              Left e -> do
+                rollbackTap
+                throwFailed (label <> ": " <> ileStderr e)
+      runOrRollback
+        (linkSetMaster name (bcName bc))
+        "createTap:link-set-master"
+      runOrRollback (linkSetUp name) "createTap:link-up"
+      let teardown = do
+            res <- tapDel name
+            case res of
+              Right () -> pure ()
+              Left e -> E.throwIO e
+      atomically $
+        L.record
+          (scLedger sess)
+          L.Resource
+            { L.rOwner = scOwner sess
+            , L.rKind = L.KTap
+            , L.rName = name
+            , L.rCreated = created
+            , L.rTeardown = teardown
+            }
+      cap <-
+        newTapCap
+          (scOwner sess)
+          name
+          uid
+          gid
+          (bcName bc)
+          (scLedger sess)
+      client <- export @CGN.Tap (scSup sess) cap
+      pure CGN.Session'createTap'results {CGN.tap = client}
+
+  -- ----- claimTap ---------------------------------------------------------
+  session'claimTap sess =
+    handleParsed $ \CGN.Session'claimTap'params {CGN.name = name} -> do
+      mExisting <-
+        atomically $
+          L.lookup (scLedger sess) (scOwner sess) L.KTap name
+      case mExisting of
+        Nothing ->
+          throwFailed $ "claimTap: no tap named " <> name <> " for this owner"
+        Just _ -> do
+          -- Phase 2's ledger doesn't preserve uid/gid/bridge so we
+          -- return a cap with zeros; a Phase 2.5 widening of
+          -- Resource carries the metadata along (mirrors the
+          -- equivalent gap in claimBridge).
+          cap <- newTapCap (scOwner sess) name 0 0 "" (scLedger sess)
+          client <- export @CGN.Tap (scSup sess) cap
+          pure CGN.Session'claimTap'results {CGN.tap = client}
 
   -- ----- setIpForwarding --------------------------------------------------
   session'setIpForwarding _ =

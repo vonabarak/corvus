@@ -145,6 +145,7 @@ library
       Corvus.Netd.Caps.NetAgent
       Corvus.Netd.Caps.Session
       Corvus.Netd.Caps.Bridge
+      Corvus.Netd.Caps.Tap
       Capnp.Gen.Corvus
       Capnp.Gen.Common
       Capnp.Gen.Enums

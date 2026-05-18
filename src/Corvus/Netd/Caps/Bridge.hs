@@ -29,12 +29,17 @@ module Corvus.Netd.Caps.Bridge
 where
 
 import qualified Capnp.Gen.Netagent as CGN
+import Capnp.Rpc (throwFailed, unwrapServer)
 import Capnp.Rpc.Server (SomeServer (..))
 import Control.Concurrent.STM (atomically)
 import qualified Control.Exception as E
-import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN, runStderrLoggingT)
-import Corvus.Netd.IpLink (IpLinkError (..))
+import Corvus.Netd.Caps.Tap (TapCap (..))
+import Corvus.Netd.IpLink
+  ( IpLinkError (..)
+  , linkSetMaster
+  , linkSetNoMaster
+  )
 import qualified Corvus.Netd.Ledger as L
 import Corvus.Rpc.Common (handleParsed)
 import qualified Data.Text as T
@@ -144,7 +149,26 @@ instance CGN.Bridge'server_ BridgeCap where
       destroyBridgeCap bc
       pure CGN.Bridge'destroy'results
 
--- attachTap / detachTap land in the next Phase 2 slice (TAP cap).
--- Until then they remain at the generated `methodUnimplemented`
--- default, which is sufficient for Phase 2's first integration
--- test.
+  -- attachTap: move a previously-detached TAP back onto this
+  -- bridge. The TAP cap argument is unwrapped to its server-side
+  -- 'TapCap' so we can read the ifname directly; a non-local cap
+  -- (cross-agent, promise) is refused.
+  bridge'attachTap bc =
+    handleParsed $ \CGN.Bridge'attachTap'params {CGN.tap = tapClient} -> do
+      tc <- case unwrapServer tapClient :: Maybe TapCap of
+        Just tc -> pure tc
+        Nothing -> throwFailed "attachTap: tap cap is not local to this agent"
+      result <- linkSetMaster (tcName tc) (bcName bc)
+      case result of
+        Right () -> pure CGN.Bridge'attachTap'results
+        Left e -> throwFailed ("attachTap: " <> ileStderr e)
+
+  bridge'detachTap _ =
+    handleParsed $ \CGN.Bridge'detachTap'params {CGN.tap = tapClient} -> do
+      tc <- case unwrapServer tapClient :: Maybe TapCap of
+        Just tc -> pure tc
+        Nothing -> throwFailed "detachTap: tap cap is not local to this agent"
+      result <- linkSetNoMaster (tcName tc)
+      case result of
+        Right () -> pure CGN.Bridge'detachTap'results
+        Left e -> throwFailed ("detachTap: " <> ileStderr e)

@@ -69,13 +69,12 @@ instance CGN.NetAgent'server_ NetAgentCap where
 -- the patch as features land; the protocol shape is unchanged
 -- from Phase 1 so the major.minor stays at 0.1.
 agentSemver :: String
-agentSemver = "0.1.1"
+agentSemver = "0.1.2"
 
--- | Feature flags returned by @version@. Phase 2's first slice
--- advertises "bridge" and "ip-forwarding". Subsequent slices add
--- "tap", "nat", "dnsmasq", "events".
+-- | Feature flags returned by @version@. Subsequent Phase 2
+-- slices add "nat", "dnsmasq", "events".
 capnpCapabilities :: [T.Text]
-capnpCapabilities = ["bridge", "ip-forwarding"]
+capnpCapabilities = ["bridge", "tap", "ip-forwarding"]
 
 -- ----------------------------------------------------------------------
 

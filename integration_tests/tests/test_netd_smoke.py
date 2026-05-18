@@ -287,7 +287,7 @@ class TestNetdSmoke(SingleNodeCase):
         # Phase 2 advertises the features its Session can actually
         # service.  Subsequent slices add "tap", "nat", "dnsmasq",
         # "events" — each addition rewrites this assertion.
-        assert set(info.capabilities) == {"bridge", "ip-forwarding"}
+        assert set(info.capabilities) == {"bridge", "tap", "ip-forwarding"}
 
     def test_session_returns_cap(self, netd_endpoint):
         host, port = netd_endpoint
@@ -406,6 +406,100 @@ class TestNetdSmoke(SingleNodeCase):
             )
         finally:
             self.node.run(
+                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+                check=False,
+            )
+
+    def test_create_tap_attaches_to_bridge(self, netd_endpoint):
+        """`createTap` makes a persistent TAP attached to the bridge.
+
+        Verifies four kernel-state properties of the new device:
+          * It exists in `ip link show`.
+          * Its link type is `tun` with `tap` mode.
+          * Its `master` is the bridge we passed in.
+          * Its `TUNSETOWNER` reflects the uid we requested
+            (visible in `ip -d link show` under `openvswitch`-style
+            extra metadata or in /sys via `tun_owner`).
+
+        Cleanup is via the cap drop chain at body exit: the TAP and
+        bridge are torn down by their respective `shutdown` handlers
+        when the supervisor unwinds.
+        """
+        host, port = netd_endpoint
+        bridge_name = "crv-it-br-t"
+        tap_name = "crv-it-tap0"
+        node = self.node
+        target_uid = 1000
+        target_gid = 1000
+
+        async def body(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            br = (
+                await sess.createBridge(
+                    params={
+                        "name": bridge_name,
+                        "cidr": "10.198.1.1/24",
+                        "mtu": 1500,
+                    }
+                )
+            ).bridge
+            tap = (
+                await sess.createTap(
+                    params={
+                        "name": tap_name,
+                        "bridge": br,
+                        "uid": target_uid,
+                        "gid": target_gid,
+                    }
+                )
+            ).tap
+
+            link = await asyncio.to_thread(
+                node.run, f"ip -d link show {tap_name}", check=False
+            )
+            assert link.returncode == 0, (
+                f"tap {tap_name} missing: "
+                f"{link.stderr.decode(errors='replace')}"
+            )
+            # tun with tap mode is what `ip -d` prints for tuntap-mode taps.
+            assert b"tun " in link.stdout
+            assert b"tap " in link.stdout
+            assert f"master {bridge_name}".encode() in link.stdout
+
+            # TUNSETOWNER landed: /sys/class/net/<name>/owner is the
+            # uid the agent passed to `ip tuntap add ... user X`.
+            owner_file = await asyncio.to_thread(
+                node.run,
+                f"cat /sys/class/net/{tap_name}/owner",
+                check=False,
+            )
+            assert owner_file.returncode == 0
+            assert owner_file.stdout.strip() == str(target_uid).encode()
+
+            # Drop the TAP cap explicitly; assert removal from kernel.
+            await tap.destroy()
+            gone = await asyncio.to_thread(
+                node.run, f"ip link show {tap_name}", check=False
+            )
+            assert gone.returncode != 0, (
+                f"tap {tap_name} still present after destroy()"
+            )
+
+            # Bridge will be torn down via its own cap drop at body exit.
+            _ = br
+
+        try:
+            _run_on_node_loop(
+                node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
+            )
+        finally:
+            # Belt-and-braces against partial failures.
+            node.run(
+                f"sudo ip tuntap del dev {tap_name} mode tap 2>/dev/null || true",
+                check=False,
+            )
+            node.run(
                 f"sudo ip link del {bridge_name} 2>/dev/null || true",
                 check=False,
             )

@@ -30,11 +30,16 @@ module Corvus.Netd.IpLink
   , addrAdd
   , linkSetUp
   , linkExists
+  , tapAdd
+  , tapDel
+  , linkSetMaster
+  , linkSetNoMaster
   )
 where
 
 import qualified Control.Exception as E
 import qualified Data.Text as T
+import Data.Word (Word32)
 import System.Exit (ExitCode (..))
 import System.Process (readProcessWithExitCode)
 
@@ -81,6 +86,43 @@ linkExists iface = do
   (code, _out, _err) <-
     readProcessWithExitCode "ip" ["link", "show", "dev", T.unpack iface] ""
   pure (code == ExitSuccess)
+
+-- | @ip tuntap add dev <name> mode tap user <uid> group <gid>@.
+-- Creates a persistent TAP whose @/dev/net/tun@ reopen rights are
+-- granted to the specified uid/gid via @TUNSETOWNER@ — so QEMU
+-- (running as that uid) can open it without @CAP_NET_ADMIN@.
+tapAdd :: T.Text -> Word32 -> Word32 -> IO (Either IpLinkError ())
+tapAdd name uid gid =
+  runIp
+    [ "tuntap"
+    , "add"
+    , "dev"
+    , T.unpack name
+    , "mode"
+    , "tap"
+    , "user"
+    , show uid
+    , "group"
+    , show gid
+    ]
+
+-- | @ip tuntap del dev <name> mode tap@. The @mode tap@ must match
+-- the create-time mode or the kernel rejects the request.
+tapDel :: T.Text -> IO (Either IpLinkError ())
+tapDel name =
+  runIp ["tuntap", "del", "dev", T.unpack name, "mode", "tap"]
+
+-- | @ip link set <iface> master <bridge>@.
+linkSetMaster :: T.Text -> T.Text -> IO (Either IpLinkError ())
+linkSetMaster iface master =
+  runIp ["link", "set", T.unpack iface, "master", T.unpack master]
+
+-- | @ip link set <iface> nomaster@. Idempotent — detaching an
+-- already-detached interface is a no-op at the kernel level (but
+-- iproute2 may still return success without doing anything).
+linkSetNoMaster :: T.Text -> IO (Either IpLinkError ())
+linkSetNoMaster iface =
+  runIp ["link", "set", T.unpack iface, "nomaster"]
 
 -- ---------------------------------------------------------------------------
 -- Internal
