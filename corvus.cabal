@@ -143,11 +143,13 @@ library
       Corvus.Netd.IpLink
       Corvus.Netd.Sysctl
       Corvus.Netd.Nftables
+      Corvus.Netd.Dnsmasq
       Corvus.Netd.Caps.NetAgent
       Corvus.Netd.Caps.Session
       Corvus.Netd.Caps.Bridge
       Corvus.Netd.Caps.Tap
       Corvus.Netd.Caps.NatRule
+      Corvus.Netd.Caps.DnsmasqHandle
       Capnp.Gen.Corvus
       Capnp.Gen.Common
       Capnp.Gen.Enums

@@ -287,7 +287,13 @@ class TestNetdSmoke(SingleNodeCase):
         # Phase 2 advertises the features its Session can actually
         # service.  Subsequent slices add "tap", "nat", "dnsmasq",
         # "events" — each addition rewrites this assertion.
-        assert set(info.capabilities) == {"bridge", "tap", "nat", "ip-forwarding"}
+        assert set(info.capabilities) == {
+            "bridge",
+            "tap",
+            "nat",
+            "dnsmasq",
+            "ip-forwarding",
+        }
 
     def test_session_returns_cap(self, netd_endpoint):
         host, port = netd_endpoint
@@ -570,6 +576,86 @@ class TestNetdSmoke(SingleNodeCase):
             # table being absent.
             node.run(
                 "sudo nft delete table inet corvus_fw 2>/dev/null || true",
+                check=False,
+            )
+            node.run(
+                f"sudo ip link del {bridge_name} 2>/dev/null || true",
+                check=False,
+            )
+
+    def test_start_dnsmasq_runs_and_stops(self, netd_endpoint):
+        """`startDnsmasq` spawns a dnsmasq supervised by the agent.
+
+        Verifies the process is running (pid alive in /proc) and
+        that it's the corvus-netd-spawned one (commandline contains
+        our bridge name). Drops the cap and asserts the process is
+        gone.
+        """
+        host, port = netd_endpoint
+        bridge_name = "crv-it-br-d"
+        node = self.node
+
+        async def body(agent):
+            sess = (await agent.session(owner="test-uid-1000")).session
+            br = (
+                await sess.createBridge(
+                    params={
+                        "name": bridge_name,
+                        "cidr": "10.196.0.1/24",
+                        "mtu": 1500,
+                    }
+                )
+            ).bridge
+            handle = (
+                await sess.startDnsmasq(
+                    params={
+                        "bridge": br,
+                        "listenAddr": "10.196.0.1",
+                        "dhcpRange": "10.196.0.100,10.196.0.200,12h",
+                        "domain": "",
+                        "extraArgs": [],
+                    }
+                )
+            ).server
+            pid_resp = await handle.pid()
+            pid = pid_resp.pid
+            assert pid > 0
+
+            # /proc shows the running process with our bridge name in argv.
+            cmdline = await asyncio.to_thread(
+                node.run,
+                f"tr '\\0' ' ' < /proc/{pid}/cmdline",
+                check=False,
+            )
+            assert cmdline.returncode == 0, (
+                f"dnsmasq pid {pid} not found in /proc"
+            )
+            assert b"dnsmasq" in cmdline.stdout
+            assert f"--interface={bridge_name}".encode() in cmdline.stdout
+
+            await handle.stop()
+
+            # After stop, the pid should no longer exist (the kernel
+            # may have recycled it, but checking by exact pid is fine
+            # since we're querying right after the SIGTERM).
+            gone = await asyncio.to_thread(
+                node.run, f"test -d /proc/{pid}", check=False
+            )
+            assert gone.returncode != 0, (
+                f"dnsmasq pid {pid} still present after stop()"
+            )
+            _ = br
+
+        try:
+            _run_on_node_loop(
+                node,
+                lambda: _with_client(host, port, NETAGENT_SCHEMA, body),
+            )
+        finally:
+            # Belt-and-braces: kill any dnsmasq spawned against
+            # this bridge, then drop the bridge.
+            node.run(
+                f"sudo pkill -f 'dnsmasq.*--interface={bridge_name}' 2>/dev/null || true",
                 check=False,
             )
             node.run(

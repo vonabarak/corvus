@@ -33,8 +33,10 @@ import Control.Concurrent.STM (atomically)
 import qualified Control.Exception as E
 import Control.Monad (unless, void, when)
 import Corvus.Netd.Caps.Bridge (BridgeCap (..), newBridgeCap)
+import Corvus.Netd.Caps.DnsmasqHandle (newDnsmasqHandleCap)
 import Corvus.Netd.Caps.NatRule (newNatRuleCap)
 import Corvus.Netd.Caps.Tap (newTapCap)
+import qualified Corvus.Netd.Dnsmasq as Dn
 import Corvus.Netd.IpLink
   ( IpLinkError (..)
   , addrAdd
@@ -300,6 +302,67 @@ instance CGN.Session'server_ SessionCap where
       cap <- newNatRuleCap (scOwner sess) ruleKey (scLedger sess)
       client <- export @CGN.NatRule (scSup sess) cap
       pure CGN.Session'installNat'results {CGN.nat = client}
+
+  -- ----- startDnsmasq -----------------------------------------------------
+  session'startDnsmasq sess =
+    handleParsed $ \CGN.Session'startDnsmasq'params {CGN.params = p} -> do
+      let CGN.DnsmasqParams
+            { CGN.bridge = bridgeClient
+            , CGN.listenAddr = listenAddr
+            , CGN.dhcpRange = dhcpRange
+            , CGN.domain = domain
+            , CGN.extraArgs = extraArgs
+            } = p
+      bc <- case unwrapServer bridgeClient :: Maybe BridgeCap of
+        Just bc -> pure bc
+        Nothing ->
+          throwFailed "startDnsmasq: bridge cap is not local to this agent"
+      when (T.null listenAddr) $
+        throwFailed "startDnsmasq: listenAddr must be non-empty"
+      let bridgeName = bcName bc
+          ledgerName = "dnsmasq-" <> bridgeName
+      existing <-
+        atomically $
+          L.lookup (scLedger sess) (scOwner sess) L.KDnsmasq ledgerName
+      case existing of
+        Just _ ->
+          throwFailed $
+            "startDnsmasq: dnsmasq already running for bridge: "
+              <> bridgeName
+        Nothing -> pure ()
+      created <- getCurrentTime
+      let startParams =
+            Dn.DnsmasqStartParams
+              { Dn.dspBridge = bridgeName
+              , Dn.dspListenAddr = listenAddr
+              , Dn.dspDhcpRange = dhcpRange
+              , Dn.dspDomain = domain
+              , Dn.dspExtraArgs = extraArgs
+              }
+      dn <-
+        Dn.startDnsmasq startParams >>= \case
+          Right dn -> pure dn
+          Left e ->
+            throwFailed ("startDnsmasq: " <> T.pack (show e))
+      let teardown = Dn.stopDnsmasq dn
+      atomically $
+        L.record
+          (scLedger sess)
+          L.Resource
+            { L.rOwner = scOwner sess
+            , L.rKind = L.KDnsmasq
+            , L.rName = ledgerName
+            , L.rCreated = created
+            , L.rTeardown = teardown
+            }
+      cap <-
+        newDnsmasqHandleCap
+          (scOwner sess)
+          ledgerName
+          (Dn.dpPid dn)
+          (scLedger sess)
+      client <- export @CGN.DnsmasqHandle (scSup sess) cap
+      pure CGN.Session'startDnsmasq'results {CGN.server = client}
 
   -- ----- setIpForwarding --------------------------------------------------
   session'setIpForwarding _ =

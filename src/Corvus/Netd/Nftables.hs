@@ -21,6 +21,7 @@ module Corvus.Netd.Nftables
   )
 where
 
+import Control.Applicative ((<|>))
 import qualified Control.Exception as E
 import qualified Data.Text as T
 import System.Exit (ExitCode (..))
@@ -172,9 +173,8 @@ deleteRule (RuleHandle h) = do
 -- return the first match. The "new generation" trailer that
 -- nft 1.1+ emits on the next line is ignored.
 parseHandle :: String -> Maybe Int
-parseHandle s = firstJust (map parseLine (lines s))
+parseHandle s = foldr ((<|>) . parseLine) Nothing (lines s)
   where
     parseLine ln = case reverse (words ln) of
       (lastTok : "handle" : _) -> readMaybe lastTok
       _ -> Nothing
-    firstJust = foldr (\m acc -> maybe acc Just m) Nothing
