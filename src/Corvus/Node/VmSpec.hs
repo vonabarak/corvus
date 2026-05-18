@@ -24,6 +24,12 @@ module Corvus.Node.VmSpec
   , VmAgentState (..)
   , VmGuestExecReq (..)
   , VmGuestExecInfo (..)
+
+    -- * Status push types (slice C)
+  , VmStatusSnapshot (..)
+  , VmStatusEntry (..)
+  , GuestNetIf (..)
+  , GuestIpAddress (..)
   )
 where
 
@@ -124,5 +130,42 @@ data VmGuestExecInfo = VmGuestExecInfo
   , vgiSignal :: !Int32
   , vgiStdout :: !BS.ByteString
   , vgiStderr :: !BS.ByteString
+  }
+  deriving (Eq, Show)
+
+-- ---------------------------------------------------------------------------
+-- Status push types (slice C)
+
+-- | Consolidated status snapshot the agent pushes once per
+-- tick (~10 s) to every subscriber. Empty 'vssEntries' when no
+-- VMs are in the ledger.
+data VmStatusSnapshot = VmStatusSnapshot
+  { vssSnapshotAtMillis :: !Int64
+  , vssEntries :: ![VmStatusEntry]
+  }
+  deriving (Eq, Show)
+
+data VmStatusEntry = VmStatusEntry
+  { vseVmId :: !Int64
+  , vseState :: !VmAgentState
+  , vseQemuPid :: !Int32
+  , vseLastExitCode :: !Int32
+  , vseGuestAgentOk :: !Bool
+  , vseLastPingMillis :: !Int64
+  , vseNetIfs :: ![GuestNetIf]
+  }
+  deriving (Eq, Show)
+
+data GuestNetIf = GuestNetIf
+  { gniName :: !T.Text
+  , gniHwAddress :: !T.Text
+  , gniIpAddresses :: ![GuestIpAddress]
+  }
+  deriving (Eq, Show)
+
+data GuestIpAddress = GuestIpAddress
+  { giaIpAddress :: !T.Text
+  , giaPrefix :: !Int32
+  , giaIpAddrType :: !T.Text -- "ipv4" / "ipv6"
   }
   deriving (Eq, Show)

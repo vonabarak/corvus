@@ -97,7 +97,7 @@ library
       Corvus.Node.SpicePort
       Corvus.Node.VsockCid
       Corvus.Handlers.GuestExec
-      Corvus.Handlers.GuestAgentPoller
+      Corvus.Handlers.VmStatusSink
       Corvus.Handlers.Apply
       Corvus.Handlers.Build
       Corvus.Handlers.Build.Cleanup
@@ -157,6 +157,7 @@ library
       Corvus.Node.Cleanup
       Corvus.Node.CloudInit
       Corvus.Node.VmSpec
+      Corvus.Node.StatusPoller
       Corvus.Node.Caps.NodeAgent
       Corvus.Node.Caps.Session
       Capnp.Gen.Corvus

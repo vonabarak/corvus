@@ -41,6 +41,7 @@ import qualified Corvus.Node.Image as NI
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.Qmp as NQ
 import qualified Corvus.Node.Runtime as NR
+import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
@@ -67,26 +68,40 @@ import System.Process
   , waitForProcess
   )
 
--- | Session state. Holds two process-wide ledgers:
+-- | Session state. Holds:
 --
 --   * 'scProcLedger' — legacy PID-keyed map for the surviving
 --     'processSpawnQemu' / 'processSpawnVirtiofsd' / 'processStop'
 --     RPCs (deleted in slice D);
 --   * 'scVmLedger' — vmId-keyed live state for the VM-abstraction
---     methods (vmStart / vmStop* / vmStatus / vmGuestExec / …).
+--     methods (vmStart / vmStop* / vmStatus / vmGuestExec / …);
+--   * 'scSubs' — registry of 'VmStatusSink' caps the
+--     'subscribeVmStatus' handler appends to (slice C);
+--   * 'scQgaConns' — agent-wide per-VM QGA persistent-socket
+--     cache shared by 'vmGuestExec' and the status poller.
 data SessionCap = SessionCap
   { scOwner :: !Text
   , scProcLedger :: !L.ProcessLedger
   , scVmLedger :: !L.VmLedger
+  , scSubs :: !SP.Subscribers
+  , scQgaConns :: !NGA.GuestAgentConns
   }
 
-newSessionCap :: Text -> L.ProcessLedger -> L.VmLedger -> IO SessionCap
-newSessionCap owner procLedger vmLedger =
+newSessionCap
+  :: Text
+  -> L.ProcessLedger
+  -> L.VmLedger
+  -> SP.Subscribers
+  -> NGA.GuestAgentConns
+  -> IO SessionCap
+newSessionCap owner procLedger vmLedger subs qgaConns =
   pure
     SessionCap
       { scOwner = owner
       , scProcLedger = procLedger
       , scVmLedger = vmLedger
+      , scSubs = subs
+      , scQgaConns = qgaConns
       }
 
 instance SomeServer SessionCap
@@ -355,6 +370,11 @@ instance CGNA.Session'server_ SessionCap where
         , CGNA.ttlSeconds = ttl
         } ->
           handleVmSetSpiceTicket sc vid pw ttl
+
+  session'subscribeVmStatus sc =
+    handleParsed $ \CGNA.Session'subscribeVmStatus'params {CGNA.sink = sink} -> do
+      SP.addSubscriber (scSubs sc) sink
+      pure CGNA.Session'subscribeVmStatus'results
 
   -- ---- Cloud-init ----------------------------------------------------------
 
@@ -1071,11 +1091,11 @@ handleVmGuestExec
   -> IO (CGNA.Parsed CGNA.Session'vmGuestExec'results)
 handleVmGuestExec sc req = do
   let vmId = VS.vgeVmId req
+      conns = scQgaConns sc
   mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
   case mLive of
     Nothing -> throwFailed ("vmGuestExec: unknown vmId " <> tshow vmId)
     Just _ -> do
-      conns <- newTVarIO Map.empty
       let cmd =
             T.intercalate
               " "

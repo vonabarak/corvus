@@ -294,9 +294,10 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'vmResume) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmGuestExec) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmStatus) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'vmSetSpiceTicket) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmSetSpiceTicket) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'subscribeVmStatus) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'processSpawnQemu,session'processSpawnVirtiofsd,session'processStop,session'processIsAlive,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'processSpawnQemu,session'processSpawnVirtiofsd,session'processStop,session'processIsAlive,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -351,6 +352,8 @@ class (Session'server_ s_) where
     session'vmStatus _ = GH.methodUnimplemented
     session'vmSetSpiceTicket :: s_ -> (GH.MethodHandler Session'vmSetSpiceTicket'params Session'vmSetSpiceTicket'results)
     session'vmSetSpiceTicket _ = GH.methodUnimplemented
+    session'subscribeVmStatus :: s_ -> (GH.MethodHandler Session'subscribeVmStatus'params Session'subscribeVmStatus'results)
+    session'subscribeVmStatus _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -405,6 +408,8 @@ instance (GH.HasMethod "vmStatus" Session Session'vmStatus'params Session'vmStat
     methodByLabel  = (GH.Method 11450192344861352079 25)
 instance (GH.HasMethod "vmSetSpiceTicket" Session Session'vmSetSpiceTicket'params Session'vmSetSpiceTicket'results) where
     methodByLabel  = (GH.Method 11450192344861352079 26)
+instance (GH.HasMethod "subscribeVmStatus" Session Session'subscribeVmStatus'params Session'subscribeVmStatus'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 27)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -2135,6 +2140,132 @@ instance (C.Parse Session'vmSetSpiceTicket'results (C.Parsed Session'vmSetSpiceT
     parse raw_ = (Std_.pure Session'vmSetSpiceTicket'results)
 instance (C.Marshal Session'vmSetSpiceTicket'results (C.Parsed Session'vmSetSpiceTicket'results)) where
     marshalInto _raw (Session'vmSetSpiceTicket'results) = (Std_.pure ())
+data Session'subscribeVmStatus'params 
+type instance (R.ReprFor Session'subscribeVmStatus'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'subscribeVmStatus'params) where
+    typeId  = 17700805822514408571
+instance (C.TypedStruct Session'subscribeVmStatus'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'subscribeVmStatus'params) where
+    type AllocHint Session'subscribeVmStatus'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'subscribeVmStatus'params (C.Parsed Session'subscribeVmStatus'params))
+instance (C.AllocateList Session'subscribeVmStatus'params) where
+    type ListAllocHint Session'subscribeVmStatus'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'subscribeVmStatus'params (C.Parsed Session'subscribeVmStatus'params))
+data instance C.Parsed Session'subscribeVmStatus'params
+    = Session'subscribeVmStatus'params 
+        {sink :: (RP.Parsed VmStatusSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'subscribeVmStatus'params))
+deriving instance (Std_.Eq (C.Parsed Session'subscribeVmStatus'params))
+instance (C.Parse Session'subscribeVmStatus'params (C.Parsed Session'subscribeVmStatus'params)) where
+    parse raw_ = (Session'subscribeVmStatus'params <$> (GH.parseField #sink raw_))
+instance (C.Marshal Session'subscribeVmStatus'params (C.Parsed Session'subscribeVmStatus'params)) where
+    marshalInto raw_ Session'subscribeVmStatus'params{..} = (do
+        (GH.encodeField #sink sink raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "sink" GH.Slot Session'subscribeVmStatus'params VmStatusSink) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'subscribeVmStatus'results 
+type instance (R.ReprFor Session'subscribeVmStatus'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'subscribeVmStatus'results) where
+    typeId  = 17289518928549847130
+instance (C.TypedStruct Session'subscribeVmStatus'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'subscribeVmStatus'results) where
+    type AllocHint Session'subscribeVmStatus'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'subscribeVmStatus'results (C.Parsed Session'subscribeVmStatus'results))
+instance (C.AllocateList Session'subscribeVmStatus'results) where
+    type ListAllocHint Session'subscribeVmStatus'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'subscribeVmStatus'results (C.Parsed Session'subscribeVmStatus'results))
+data instance C.Parsed Session'subscribeVmStatus'results
+    = Session'subscribeVmStatus'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'subscribeVmStatus'results))
+deriving instance (Std_.Eq (C.Parsed Session'subscribeVmStatus'results))
+instance (C.Parse Session'subscribeVmStatus'results (C.Parsed Session'subscribeVmStatus'results)) where
+    parse raw_ = (Std_.pure Session'subscribeVmStatus'results)
+instance (C.Marshal Session'subscribeVmStatus'results (C.Parsed Session'subscribeVmStatus'results)) where
+    marshalInto _raw (Session'subscribeVmStatus'results) = (Std_.pure ())
+data VmStatusSink 
+type instance (R.ReprFor VmStatusSink) = (R.Ptr (Std_.Just R.Cap))
+instance (C.HasTypeId VmStatusSink) where
+    typeId  = 16931578229482041897
+instance (C.Parse VmStatusSink (GH.Client VmStatusSink)) where
+    parse  = GH.parseCap
+    encode  = GH.encodeCap
+instance (GH.Export VmStatusSink) where
+    type Server VmStatusSink = VmStatusSink'server_
+    methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(VmStatusSink)) [(GH.toUntypedMethodHandler ((vmStatusSink'onSnapshot) s_))] [])
+class (VmStatusSink'server_ s_) where
+    {-# MINIMAL vmStatusSink'onSnapshot #-}
+    vmStatusSink'onSnapshot :: s_ -> (GH.MethodHandler VmStatusSink'onSnapshot'params VmStatusSink'onSnapshot'results)
+    vmStatusSink'onSnapshot _ = GH.methodUnimplemented
+instance (GH.HasMethod "onSnapshot" VmStatusSink VmStatusSink'onSnapshot'params VmStatusSink'onSnapshot'results) where
+    methodByLabel  = (GH.Method 16931578229482041897 0)
+data VmStatusSink'onSnapshot'params 
+type instance (R.ReprFor VmStatusSink'onSnapshot'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmStatusSink'onSnapshot'params) where
+    typeId  = 11931450306569493951
+instance (C.TypedStruct VmStatusSink'onSnapshot'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate VmStatusSink'onSnapshot'params) where
+    type AllocHint VmStatusSink'onSnapshot'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmStatusSink'onSnapshot'params (C.Parsed VmStatusSink'onSnapshot'params))
+instance (C.AllocateList VmStatusSink'onSnapshot'params) where
+    type ListAllocHint VmStatusSink'onSnapshot'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmStatusSink'onSnapshot'params (C.Parsed VmStatusSink'onSnapshot'params))
+data instance C.Parsed VmStatusSink'onSnapshot'params
+    = VmStatusSink'onSnapshot'params 
+        {snapshot :: (RP.Parsed VmStatusSnapshot)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmStatusSink'onSnapshot'params))
+deriving instance (Std_.Eq (C.Parsed VmStatusSink'onSnapshot'params))
+instance (C.Parse VmStatusSink'onSnapshot'params (C.Parsed VmStatusSink'onSnapshot'params)) where
+    parse raw_ = (VmStatusSink'onSnapshot'params <$> (GH.parseField #snapshot raw_))
+instance (C.Marshal VmStatusSink'onSnapshot'params (C.Parsed VmStatusSink'onSnapshot'params)) where
+    marshalInto raw_ VmStatusSink'onSnapshot'params{..} = (do
+        (GH.encodeField #snapshot snapshot raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "snapshot" GH.Slot VmStatusSink'onSnapshot'params VmStatusSnapshot) where
+    fieldByLabel  = (GH.ptrField 0)
+data VmStatusSink'onSnapshot'results 
+type instance (R.ReprFor VmStatusSink'onSnapshot'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmStatusSink'onSnapshot'results) where
+    typeId  = 9367394179805790926
+instance (C.TypedStruct VmStatusSink'onSnapshot'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate VmStatusSink'onSnapshot'results) where
+    type AllocHint VmStatusSink'onSnapshot'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmStatusSink'onSnapshot'results (C.Parsed VmStatusSink'onSnapshot'results))
+instance (C.AllocateList VmStatusSink'onSnapshot'results) where
+    type ListAllocHint VmStatusSink'onSnapshot'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmStatusSink'onSnapshot'results (C.Parsed VmStatusSink'onSnapshot'results))
+data instance C.Parsed VmStatusSink'onSnapshot'results
+    = VmStatusSink'onSnapshot'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmStatusSink'onSnapshot'results))
+deriving instance (Std_.Eq (C.Parsed VmStatusSink'onSnapshot'results))
+instance (C.Parse VmStatusSink'onSnapshot'results (C.Parsed VmStatusSink'onSnapshot'results)) where
+    parse raw_ = (Std_.pure VmStatusSink'onSnapshot'results)
+instance (C.Marshal VmStatusSink'onSnapshot'results (C.Parsed VmStatusSink'onSnapshot'results)) where
+    marshalInto _raw (VmStatusSink'onSnapshot'results) = (Std_.pure ())
 data ProcessStopResult 
 type instance (R.ReprFor ProcessStopResult) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId ProcessStopResult) where
@@ -3019,4 +3150,179 @@ instance (GH.HasField "signal" GH.Slot VmGuestExecInfo Std_.Int32) where
 instance (GH.HasField "stdout" GH.Slot VmGuestExecInfo Basics.Data) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "stderr" GH.Slot VmGuestExecInfo Basics.Data) where
+    fieldByLabel  = (GH.ptrField 1)
+data VmStatusSnapshot 
+type instance (R.ReprFor VmStatusSnapshot) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmStatusSnapshot) where
+    typeId  = 12776058269055557477
+instance (C.TypedStruct VmStatusSnapshot) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate VmStatusSnapshot) where
+    type AllocHint VmStatusSnapshot = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmStatusSnapshot (C.Parsed VmStatusSnapshot))
+instance (C.AllocateList VmStatusSnapshot) where
+    type ListAllocHint VmStatusSnapshot = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmStatusSnapshot (C.Parsed VmStatusSnapshot))
+data instance C.Parsed VmStatusSnapshot
+    = VmStatusSnapshot 
+        {snapshotAtMillis :: (RP.Parsed Std_.Int64)
+        ,entries :: (RP.Parsed (R.List VmStatusEntry))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmStatusSnapshot))
+deriving instance (Std_.Eq (C.Parsed VmStatusSnapshot))
+instance (C.Parse VmStatusSnapshot (C.Parsed VmStatusSnapshot)) where
+    parse raw_ = (VmStatusSnapshot <$> (GH.parseField #snapshotAtMillis raw_)
+                                   <*> (GH.parseField #entries raw_))
+instance (C.Marshal VmStatusSnapshot (C.Parsed VmStatusSnapshot)) where
+    marshalInto raw_ VmStatusSnapshot{..} = (do
+        (GH.encodeField #snapshotAtMillis snapshotAtMillis raw_)
+        (GH.encodeField #entries entries raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "snapshotAtMillis" GH.Slot VmStatusSnapshot Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "entries" GH.Slot VmStatusSnapshot (R.List VmStatusEntry)) where
+    fieldByLabel  = (GH.ptrField 0)
+data VmStatusEntry 
+type instance (R.ReprFor VmStatusEntry) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmStatusEntry) where
+    typeId  = 18089874872843444784
+instance (C.TypedStruct VmStatusEntry) where
+    numStructWords  = 4
+    numStructPtrs  = 1
+instance (C.Allocate VmStatusEntry) where
+    type AllocHint VmStatusEntry = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmStatusEntry (C.Parsed VmStatusEntry))
+instance (C.AllocateList VmStatusEntry) where
+    type ListAllocHint VmStatusEntry = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmStatusEntry (C.Parsed VmStatusEntry))
+data instance C.Parsed VmStatusEntry
+    = VmStatusEntry 
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,state :: (RP.Parsed VmAgentState)
+        ,qemuPid :: (RP.Parsed Std_.Int32)
+        ,lastExitCode :: (RP.Parsed Std_.Int32)
+        ,guestAgentOk :: (RP.Parsed Std_.Bool)
+        ,lastPingMillis :: (RP.Parsed Std_.Int64)
+        ,netIfs :: (RP.Parsed (R.List GuestNetIf))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmStatusEntry))
+deriving instance (Std_.Eq (C.Parsed VmStatusEntry))
+instance (C.Parse VmStatusEntry (C.Parsed VmStatusEntry)) where
+    parse raw_ = (VmStatusEntry <$> (GH.parseField #vmId raw_)
+                                <*> (GH.parseField #state raw_)
+                                <*> (GH.parseField #qemuPid raw_)
+                                <*> (GH.parseField #lastExitCode raw_)
+                                <*> (GH.parseField #guestAgentOk raw_)
+                                <*> (GH.parseField #lastPingMillis raw_)
+                                <*> (GH.parseField #netIfs raw_))
+instance (C.Marshal VmStatusEntry (C.Parsed VmStatusEntry)) where
+    marshalInto raw_ VmStatusEntry{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #state state raw_)
+        (GH.encodeField #qemuPid qemuPid raw_)
+        (GH.encodeField #lastExitCode lastExitCode raw_)
+        (GH.encodeField #guestAgentOk guestAgentOk raw_)
+        (GH.encodeField #lastPingMillis lastPingMillis raw_)
+        (GH.encodeField #netIfs netIfs raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot VmStatusEntry Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "state" GH.Slot VmStatusEntry VmAgentState) where
+    fieldByLabel  = (GH.dataField 0 1 16 0)
+instance (GH.HasField "qemuPid" GH.Slot VmStatusEntry Std_.Int32) where
+    fieldByLabel  = (GH.dataField 32 1 32 0)
+instance (GH.HasField "lastExitCode" GH.Slot VmStatusEntry Std_.Int32) where
+    fieldByLabel  = (GH.dataField 0 2 32 0)
+instance (GH.HasField "guestAgentOk" GH.Slot VmStatusEntry Std_.Bool) where
+    fieldByLabel  = (GH.dataField 16 1 1 0)
+instance (GH.HasField "lastPingMillis" GH.Slot VmStatusEntry Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 3 64 0)
+instance (GH.HasField "netIfs" GH.Slot VmStatusEntry (R.List GuestNetIf)) where
+    fieldByLabel  = (GH.ptrField 0)
+data GuestNetIf 
+type instance (R.ReprFor GuestNetIf) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId GuestNetIf) where
+    typeId  = 15719728507930151912
+instance (C.TypedStruct GuestNetIf) where
+    numStructWords  = 0
+    numStructPtrs  = 3
+instance (C.Allocate GuestNetIf) where
+    type AllocHint GuestNetIf = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc GuestNetIf (C.Parsed GuestNetIf))
+instance (C.AllocateList GuestNetIf) where
+    type ListAllocHint GuestNetIf = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc GuestNetIf (C.Parsed GuestNetIf))
+data instance C.Parsed GuestNetIf
+    = GuestNetIf 
+        {name :: (RP.Parsed Basics.Text)
+        ,hwAddress :: (RP.Parsed Basics.Text)
+        ,ipAddresses :: (RP.Parsed (R.List GuestIpAddress))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed GuestNetIf))
+deriving instance (Std_.Eq (C.Parsed GuestNetIf))
+instance (C.Parse GuestNetIf (C.Parsed GuestNetIf)) where
+    parse raw_ = (GuestNetIf <$> (GH.parseField #name raw_)
+                             <*> (GH.parseField #hwAddress raw_)
+                             <*> (GH.parseField #ipAddresses raw_))
+instance (C.Marshal GuestNetIf (C.Parsed GuestNetIf)) where
+    marshalInto raw_ GuestNetIf{..} = (do
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #hwAddress hwAddress raw_)
+        (GH.encodeField #ipAddresses ipAddresses raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "name" GH.Slot GuestNetIf Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "hwAddress" GH.Slot GuestNetIf Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "ipAddresses" GH.Slot GuestNetIf (R.List GuestIpAddress)) where
+    fieldByLabel  = (GH.ptrField 2)
+data GuestIpAddress 
+type instance (R.ReprFor GuestIpAddress) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId GuestIpAddress) where
+    typeId  = 12848223563161887323
+instance (C.TypedStruct GuestIpAddress) where
+    numStructWords  = 1
+    numStructPtrs  = 2
+instance (C.Allocate GuestIpAddress) where
+    type AllocHint GuestIpAddress = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc GuestIpAddress (C.Parsed GuestIpAddress))
+instance (C.AllocateList GuestIpAddress) where
+    type ListAllocHint GuestIpAddress = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc GuestIpAddress (C.Parsed GuestIpAddress))
+data instance C.Parsed GuestIpAddress
+    = GuestIpAddress 
+        {ipAddress :: (RP.Parsed Basics.Text)
+        ,prefix :: (RP.Parsed Std_.Int32)
+        ,ipAddrType :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed GuestIpAddress))
+deriving instance (Std_.Eq (C.Parsed GuestIpAddress))
+instance (C.Parse GuestIpAddress (C.Parsed GuestIpAddress)) where
+    parse raw_ = (GuestIpAddress <$> (GH.parseField #ipAddress raw_)
+                                 <*> (GH.parseField #prefix raw_)
+                                 <*> (GH.parseField #ipAddrType raw_))
+instance (C.Marshal GuestIpAddress (C.Parsed GuestIpAddress)) where
+    marshalInto raw_ GuestIpAddress{..} = (do
+        (GH.encodeField #ipAddress ipAddress raw_)
+        (GH.encodeField #prefix prefix raw_)
+        (GH.encodeField #ipAddrType ipAddrType raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "ipAddress" GH.Slot GuestIpAddress Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "prefix" GH.Slot GuestIpAddress Std_.Int32) where
+    fieldByLabel  = (GH.dataField 0 0 32 0)
+instance (GH.HasField "ipAddrType" GH.Slot GuestIpAddress Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)

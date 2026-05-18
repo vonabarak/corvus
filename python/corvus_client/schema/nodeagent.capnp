@@ -207,6 +207,20 @@ interface Session {
   # expire_password). Daemon picks the password.
   vmSetSpiceTicket @26
     (vmId :Int64, password :Text, ttlSeconds :UInt32) -> ();
+
+  # Register a status sink. Once subscribed, the agent walks its
+  # VM ledger every ~10 s, pings each VM's QGA, collects network
+  # interfaces for the responsive ones, and pushes one
+  # `VmStatusSnapshot` per tick covering every VM. Sinks that
+  # throw on dispatch are pruned automatically — no explicit
+  # unsubscribe. Same shape netd uses for `subscribeEvents`.
+  subscribeVmStatus @27 (sink :VmStatusSink) -> ();
+}
+
+# Daemon-implemented sink for periodic agent → daemon VM status
+# push. One call per tick (~10 s) per subscriber.
+interface VmStatusSink {
+  onSnapshot @0 (snapshot :VmStatusSnapshot) -> ();
 }
 
 # ProcessStopResult mirrors Corvus.Process.StopResult.
@@ -369,4 +383,33 @@ struct VmGuestExecInfo {
   signal   @2 :Int32;              # 0 = no signal
   stdout   @3 :Data;
   stderr   @4 :Data;
+}
+
+# Consolidated status snapshot pushed once per tick to every
+# subscribed sink. Empty `entries` when no VMs are running.
+struct VmStatusSnapshot {
+  snapshotAtMillis @0 :Int64;            # agent wall-clock at tick start
+  entries          @1 :List(VmStatusEntry);
+}
+
+struct VmStatusEntry {
+  vmId           @0 :Int64;
+  state          @1 :VmAgentState;       # same enum vmStatus uses
+  qemuPid        @2 :Int32;              # 0 if not running
+  lastExitCode   @3 :Int32;              # populated when state != running
+  guestAgentOk   @4 :Bool;               # last QGA ping in this tick succeeded
+  lastPingMillis @5 :Int64;              # epoch ms; 0 if guestAgentOk is false
+  netIfs         @6 :List(GuestNetIf);   # populated when guestAgentOk
+}
+
+struct GuestNetIf {
+  name        @0 :Text;
+  hwAddress   @1 :Text;
+  ipAddresses @2 :List(GuestIpAddress);
+}
+
+struct GuestIpAddress {
+  ipAddress  @0 :Text;
+  prefix     @1 :Int32;
+  ipAddrType @2 :Text;   # "ipv4" / "ipv6"
 }

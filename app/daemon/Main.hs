@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Main where
 
+import qualified Capnp as C
+import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
@@ -9,6 +12,7 @@ import Control.Monad (forM_, unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN, logWarnN)
 import Corvus.Handlers.Vm (reattachVmMonitors)
+import Corvus.Handlers.VmStatusSink (newDaemonVmStatusSink)
 import Corvus.Model (migrateAll)
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
@@ -24,6 +28,7 @@ import Database.Persist (Entity (..), selectList, (==.))
 import Database.Persist.Postgresql (createPostgresqlPool, runMigration, runSqlPool)
 import Database.Persist.Sql (fromSqlKey)
 import Options.Applicative
+import Supervisors (withSupervisor)
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (exitSuccess)
 import System.FilePath (takeDirectory)
@@ -419,12 +424,29 @@ runNodeAgentConnection state opts = do
           runFilteredLogging (ssLogLevel state) $
             logInfoN ("nodeagent dial succeeded, owner=" <> NOA.nacOwner noac)
           atomically $ writeTVar (ssNodeAgent state) (Just noac)
-          -- Re-attach monitor threads for every VM the agent
-          -- has running. Without this, a daemon restart loses
-          -- track of QEMU exits for VMs that survived across
-          -- the reconnect (the agent's reaper still cleans up
-          -- on its side, but DB state would lag indefinitely).
-          reattachVmMonitors state
-          blockUntilShutdown state
+          -- Register the daemon's VmStatusSink so the agent
+          -- starts pushing consolidated snapshots every ~10 s.
+          -- The supervisor lives only for the lifetime of this
+          -- connection — once the bracket closes, the exported
+          -- cap is torn down and the agent prunes it.
+          withSupervisor $ \sup -> do
+            sinkClient <-
+              C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state)
+            subResult <- NOA.subscribeVmStatus noac sinkClient
+            case subResult of
+              Left e ->
+                runFilteredLogging (ssLogLevel state) $
+                  logWarnN
+                    ("subscribeVmStatus failed: " <> T.pack (show e))
+              Right () ->
+                runFilteredLogging (ssLogLevel state) $
+                  logInfoN "Subscribed to nodeagent VM status push"
+            -- Re-attach monitor threads for every VM the agent
+            -- has running. Without this, a daemon restart loses
+            -- track of QEMU exits for VMs that survived across
+            -- the reconnect (the agent's reaper still cleans up
+            -- on its side, but DB state would lag indefinitely).
+            reattachVmMonitors state
+            blockUntilShutdown state
           atomically $ writeTVar (ssNodeAgent state) Nothing
           pure (Right ())

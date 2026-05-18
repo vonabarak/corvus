@@ -54,7 +54,6 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Disk (DiskDelete (..))
-import Corvus.Handlers.GuestAgentPoller (startGuestAgentPoller, waitForFirstPing)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
@@ -208,15 +207,11 @@ handleVmStartExecute state vmId parentTaskId = do
         _ -> runServerLogging state $ do
           resp <- startQemuAndMonitor state vmId vm parentTaskId
           case resp of
-            RespVmStateChanged _ -> do
-              -- Start steady-state poller for ongoing healthchecks.
-              -- (Slice C replaces this with the agent's status
-              -- subscription; until then, the daemon-side poller
-              -- continues to refresh Vm.healthcheck and
-              -- NetworkInterface.guestIpAddresses.)
-              when (vmGuestAgent vm && qcHealthcheckInterval (ssQemuConfig state) > 0) $
-                liftIO $
-                  startGuestAgentPoller state (qcHealthcheckInterval $ ssQemuConfig state) vmId
+            RespVmStateChanged _ ->
+              -- Steady-state healthchecks now arrive via the
+              -- agent's 'subscribeVmStatus' push — see
+              -- 'Corvus.Handlers.VmStatusSink'. No per-VM poller
+              -- thread to spawn here.
               pure $ RespVmStateChanged VmRunning
             _ -> pure resp
 

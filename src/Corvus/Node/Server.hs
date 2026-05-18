@@ -26,10 +26,15 @@ import Capnp.Rpc
   , toClient
   )
 import Capnp.TraversalLimit (defaultLimit)
+import Control.Concurrent.Async (withAsync)
+import Control.Concurrent.STM (newTVarIO)
 import Corvus.Node.Caps.NodeAgent (newNodeAgentCap)
 import Corvus.Node.Cleanup (cleanupCorvusProcesses)
 import qualified Corvus.Node.Ledger as L
+import qualified Corvus.Node.StatusPoller as SP
+import Corvus.Qemu.Config (defaultQemuConfig)
 import qualified Data.Default as Def
+import qualified Data.Map.Strict as Map
 import qualified Network.Simple.TCP as TCP
 import Supervisors (withSupervisor)
 
@@ -54,13 +59,18 @@ runNodeAgentServer host port = do
   cleanupCorvusProcesses
   procLedger <- L.newProcessLedger
   vmLedger <- L.newVmLedger
-  TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
-    withSupervisor $ \sup -> do
-      nodeAgentCap <- newNodeAgentCap sup procLedger vmLedger
-      bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
-      handleConn
-        (socketTransport sock defaultLimit)
-        Def.def
-          { debugMode = False
-          , bootstrap = Just (toClient bootClient)
-          }
+  -- Agent-wide subscriber registry + QGA connection cache.
+  subs <- SP.newSubscribers
+  qgaConns <- newTVarIO Map.empty
+  -- Run the status-push ticker for the lifetime of the listener.
+  withAsync (SP.runStatusPoller defaultQemuConfig vmLedger qgaConns subs 10000) $ \_ ->
+    TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
+      withSupervisor $ \sup -> do
+        nodeAgentCap <- newNodeAgentCap sup procLedger vmLedger subs qgaConns
+        bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
+        handleConn
+          (socketTransport sock defaultLimit)
+          Def.def
+            { debugMode = False
+            , bootstrap = Just (toClient bootClient)
+            }

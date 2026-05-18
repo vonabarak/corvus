@@ -87,6 +87,7 @@ module Corvus.NodeAgentClient
   , vmGuestExec
   , vmStatus
   , vmSetSpiceTicket
+  , subscribeVmStatus
   )
 where
 
@@ -877,5 +878,22 @@ vmSetSpiceTicket nac vmId password ttlSeconds = remote $ do
         , CGNA.password = password
         , CGNA.ttlSeconds = ttlSeconds
         }
+      (nacSession nac)
+  pure ()
+
+-- | Register a 'VmStatusSink' with the agent. The agent retains
+-- a reference and pushes a 'VmStatusSnapshot' to it every ~10 s
+-- until the sink throws (at which point it is pruned). One
+-- registration per agent connection is sufficient — the daemon
+-- calls this once from its on-connect callback.
+subscribeVmStatus
+  :: NodeAgentClient
+  -> C.Client CGNA.VmStatusSink
+  -> IO (Either NodeAgentError ())
+subscribeVmStatus nac sink = remote $ do
+  _ :: C.Parsed CGNA.Session'subscribeVmStatus'results <-
+    callOn
+      #subscribeVmStatus
+      CGNA.Session'subscribeVmStatus'params {CGNA.sink = sink}
       (nacSession nac)
   pure ()
