@@ -2,7 +2,7 @@
 
 -- | QMP quasi-quoter for building QMP commands as ByteStrings.
 -- Separated from Qmp.hs due to Template Haskell stage restriction.
-module Corvus.Qemu.QmpQQ
+module Corvus.Node.QmpQQ
   ( qmpQQ
   , jsonToCmd
   )

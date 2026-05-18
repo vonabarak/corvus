@@ -95,12 +95,12 @@ data ServerState = ServerState
   -- the result — all of that has to be atomic within the daemon
   -- or two parallel handlers race onto the same CID and one
   -- QEMU process fails with EADDRINUSE. See
-  -- 'Corvus.Qemu.VsockCid.withAllocatedVsockCid'.
+  -- 'Corvus.Node.VsockCid.withAllocatedVsockCid'.
   , ssSpicePortLock :: !(MVar ())
   -- ^ Serialises SPICE TCP-port allocation. Same shape as
   -- 'ssVsockCidLock': allocator + caller persist need to be
   -- atomic so two parallel VM starts don't pick the same port.
-  -- See 'Corvus.Qemu.SpicePort.withAllocatedSpicePort'.
+  -- See 'Corvus.Node.SpicePort.withAllocatedSpicePort'.
   }
 
 -- | Create a new server state

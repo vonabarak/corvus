@@ -8,7 +8,7 @@ module Corvus.SocketBufferSpec (spec) where
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BSC
 
-import Corvus.Qemu.SocketBuffer (stripTerminalQueries)
+import Corvus.Node.SocketBuffer (stripTerminalQueries)
 import Test.Hspec
 
 esc :: BS.ByteString

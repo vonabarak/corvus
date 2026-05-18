@@ -3,7 +3,7 @@
 
 -- | VM process management.
 -- Handles starting and killing QEMU processes.
-module Corvus.Qemu.Process
+module Corvus.Node.Process
   ( -- * Starting VMs
     StartVmResult (..)
   , startVm
@@ -18,10 +18,10 @@ import Control.Exception (SomeException, try)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logInfoN, logWarnN)
 import qualified Corvus.NetAgentClient as NA
+import Corvus.Node.Command (generateQemuCommandWithSockets)
+import Corvus.Node.Runtime (createVmRuntimeDir, getGuestAgentSocket, getMonitorSocket, getQmpSocket, getSerialSocket, getVmRuntimeDir)
 import Corvus.Process (StopResult (..), stopProcess)
-import Corvus.Qemu.Command (generateQemuCommandWithSockets)
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
-import Corvus.Qemu.Runtime (createVmRuntimeDir, getGuestAgentSocket, getMonitorSocket, getQmpSocket, getSerialSocket, getVmRuntimeDir)
 import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)

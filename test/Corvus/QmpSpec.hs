@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Unit tests for 'Corvus.Qemu.Qmp.classifyQmpResponse'.
+-- | Unit tests for 'Corvus.Node.Qmp.classifyQmpResponse'.
 --
 -- The QMP success/error classifier is a substring match on the literal
 -- key @\"return\"@ rather than a JSON parser — see the Haddock on
@@ -9,7 +9,7 @@
 -- future tightening is a deliberate change, not a silent regression.
 module Corvus.QmpSpec (spec) where
 
-import Corvus.Qemu.Qmp
+import Corvus.Node.Qmp
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.Text as T
 import Test.Hspec

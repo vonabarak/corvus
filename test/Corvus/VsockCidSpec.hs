@@ -12,8 +12,8 @@ module Corvus.VsockCidSpec (spec) where
 import Control.Concurrent.Async (replicateConcurrently)
 import Control.Monad.IO.Class (liftIO)
 import qualified Corvus.Model as M
+import Corvus.Node.VsockCid (allocateVsockCid, withAllocatedVsockCid)
 import Corvus.Qemu.Config (QemuConfig (..))
-import Corvus.Qemu.VsockCid (allocateVsockCid, withAllocatedVsockCid)
 import Corvus.Types (ServerState (..))
 import Data.List (nub, sort)
 import Data.Text (Text)

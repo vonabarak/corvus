@@ -3,7 +3,7 @@
 -- | Runtime directory management for VMs.
 -- Handles creation of runtime directories and socket paths.
 -- All functions accept QemuConfig to support per-daemon runtime directories.
-module Corvus.Qemu.Runtime
+module Corvus.Node.Runtime
   ( -- * Runtime directories
     getVmRuntimeDir
   , createVmRuntimeDir

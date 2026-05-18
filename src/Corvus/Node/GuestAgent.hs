@@ -14,7 +14,7 @@
 -- On any error the socket is closed and the MVar set to @Nothing@; the next
 -- operation will reconnect automatically.  @SO_RCVTIMEO@ is set on the socket
 -- so @recv@ never blocks indefinitely.
-module Corvus.Qemu.GuestAgent
+module Corvus.Node.GuestAgent
   ( -- * Types
     GuestExecResult (..)
   , GuestIpAddress (..)
@@ -45,8 +45,8 @@ import Control.Concurrent.MVar (MVar, modifyMVar, newMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (TVar, atomically, readTVar, writeTVar)
 import Control.Exception (SomeException, catch, mask, mask_, onException, try)
 import Control.Monad (unless)
+import Corvus.Node.Runtime (getGuestAgentSocket)
 import Corvus.Qemu.Config (QemuConfig)
-import Corvus.Qemu.Runtime (getGuestAgentSocket)
 import Data.Aeson (Value (..), (.:), (.:?), (.=))
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM

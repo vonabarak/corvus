@@ -33,7 +33,7 @@ import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVarIO, writeTVar)
 import Control.Exception (SomeException, try)
-import Corvus.Qemu.SocketBuffer (readBufferFrom, waitForData)
+import Corvus.Node.SocketBuffer (readBufferFrom, waitForData)
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Types (SocketBufferHandle (..))
 import qualified Data.ByteString as BS

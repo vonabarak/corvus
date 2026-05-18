@@ -15,9 +15,9 @@ import Corvus.Action
 
 import Corvus.Model (VmStatus (..))
 import Corvus.Model hiding (VmStatus)
+import Corvus.Node.GuestAgent (GuestExecResult (..), guestExec)
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig)
-import Corvus.Qemu.GuestAgent (GuestExecResult (..), guestExec)
 import Corvus.Types
 import Data.Int (Int64)
 import Data.Text (Text)

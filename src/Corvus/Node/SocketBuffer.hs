@@ -9,7 +9,7 @@
 -- serial console and the HMP monitor; other socket-based QEMU
 -- chardevs can be added by wiring a new map + socket-path + label
 -- into 'startSocketBufferThread'.
-module Corvus.Qemu.SocketBuffer
+module Corvus.Node.SocketBuffer
   ( -- * Buffer operations
     newSocketBuffer
   , writeBuffer

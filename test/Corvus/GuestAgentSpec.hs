@@ -7,7 +7,7 @@
 -- including newline-delimited streams and 0xFF framing bytes.
 module Corvus.GuestAgentSpec (spec) where
 
-import Corvus.Qemu.GuestAgent (GuestIpAddress (..), GuestNetIf (..), parseGuestInterfaces)
+import Corvus.Node.GuestAgent (GuestIpAddress (..), GuestNetIf (..), parseGuestInterfaces)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS

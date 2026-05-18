@@ -62,11 +62,11 @@ import qualified Corvus.Model as M
 import Corvus.Model.VmState (VmAction (..), validateTransition)
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as Spec
+import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
+import Corvus.Node.SpicePort (withAllocatedSpicePort)
+import Corvus.Node.VsockCid (hostHasVhostVsock, isHostFree, withAllocatedVsockCid)
 import Corvus.Protocol
 import Corvus.Qemu
-import Corvus.Qemu.SocketBuffer (flushBuffer, startSocketBufferThread)
-import Corvus.Qemu.SpicePort (withAllocatedSpicePort)
-import Corvus.Qemu.VsockCid (hostHasVhostVsock, isHostFree, withAllocatedVsockCid)
 import Corvus.Types
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64URL

@@ -48,11 +48,11 @@ import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..), getVmDetails)
 import Corvus.Model
+import Corvus.Node.GuestAgent (GuestExecResult (..), guestExec, guestExecWithStdin, guestExecWithTail, guestPing)
 import Corvus.Node.Image (ImageResult (..))
+import Corvus.Node.Qmp (QmpResult (..), qmpSendKey)
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
-import Corvus.Qemu.GuestAgent (GuestExecResult (..), guestExec, guestExecWithStdin, guestExecWithTail, guestPing)
-import Corvus.Qemu.Qmp (QmpResult (..), qmpSendKey)
 import Corvus.Schema.Build
 import Corvus.Types
 import qualified Data.Aeson as Aeson

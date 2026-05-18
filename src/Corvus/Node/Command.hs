@@ -3,7 +3,7 @@
 
 -- | QEMU command line generation.
 -- Builds complete QEMU command lines from VM configuration.
-module Corvus.Qemu.Command
+module Corvus.Node.Command
   ( -- * Command generation
     generateQemuCommand
   , generateQemuCommandIO
@@ -21,16 +21,16 @@ import Control.Monad.IO.Class (liftIO)
 import Corvus.Model
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as Spec
-import Corvus.Qemu.Config
-  ( QemuConfig (..)
-  , getEffectiveBasePath
-  )
-import Corvus.Qemu.Runtime
+import Corvus.Node.Runtime
   ( getGuestAgentSocket
   , getMonitorSocket
   , getQmpSocket
   , getSerialSocket
   , getVmRuntimeDir
+  )
+import Corvus.Qemu.Config
+  ( QemuConfig (..)
+  , getEffectiveBasePath
   )
 import Data.Int (Int64)
 import Data.List (intercalate)
@@ -241,7 +241,7 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock ser
       | vmHeadless vm = serialConsoleArgs
       | otherwise = spiceArgs ++ usbRedirArgs
 
-    -- Port QEMU binds SPICE to. The allocator in Corvus.Qemu.SpicePort
+    -- Port QEMU binds SPICE to. The allocator in Corvus.Node.SpicePort
     -- writes 'vmSpicePort' during VM start; if it is somehow Nothing we
     -- fall through to '0' so QEMU fails loudly rather than silently
     -- producing a nonsense command line.

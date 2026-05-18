@@ -18,7 +18,7 @@
 -- processes) sharing a host can independently allocate the same CID
 -- from their own DBs and then race at QEMU start time, with the
 -- losing VM dropping into 'VmError'.
-module Corvus.Qemu.VsockCid
+module Corvus.Node.VsockCid
   ( allocateVsockCid
   , withAllocatedVsockCid
   , isHostFree

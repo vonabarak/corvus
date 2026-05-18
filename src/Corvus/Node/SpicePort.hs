@@ -10,7 +10,7 @@
 -- between the test bind and QEMU opening the listener — QEMU fails
 -- loudly on collision and 'handleVmStart' treats that as a start
 -- error.
-module Corvus.Qemu.SpicePort
+module Corvus.Node.SpicePort
   ( allocateSpicePort
   , withAllocatedSpicePort
   )

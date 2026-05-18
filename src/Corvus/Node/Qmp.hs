@@ -4,7 +4,7 @@
 
 -- | QMP (QEMU Machine Protocol) interaction.
 -- Provides functions to control running VMs via QMP.
-module Corvus.Qemu.Qmp
+module Corvus.Node.Qmp
   ( -- * Types
     QmpResult (..)
 
@@ -40,9 +40,9 @@ where
 import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, SomeException, bracket, catch, try)
 import Corvus.Model (DriveFormat (..), DriveInterface (..), EnumText (..))
+import Corvus.Node.QmpQQ (qmpQQ)
+import Corvus.Node.Runtime (getQmpSocket)
 import Corvus.Qemu.Config (QemuConfig)
-import Corvus.Qemu.QmpQQ (qmpQQ)
-import Corvus.Qemu.Runtime (getQmpSocket)
 import qualified Data.ByteString.Char8 as BS
 import Data.Int (Int64)
 import Data.Text (Text)

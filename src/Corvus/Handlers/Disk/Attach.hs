@@ -28,9 +28,9 @@ import Control.Concurrent (threadDelay)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Model
+import Corvus.Node.Qmp
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig)
-import Corvus.Qemu.Qmp
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import qualified Data.Text as T

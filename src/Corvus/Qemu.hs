@@ -3,11 +3,11 @@
 -- This module re-exports the main functionality from submodules:
 --
 -- * "Corvus.Qemu.Config" - QEMU configuration options
--- * "Corvus.Qemu.Runtime" - Runtime directory and socket management
--- * "Corvus.Qemu.Qmp" - QMP protocol interaction
--- * "Corvus.Qemu.Process" - VM process management
--- * "Corvus.Qemu.Command" - QEMU command line generation
--- * "Corvus.Qemu.SocketBuffer" - Ring-buffered QEMU chardev relay (serial, HMP)
+-- * "Corvus.Node.Runtime" - Runtime directory and socket management
+-- * "Corvus.Node.Qmp" - QMP protocol interaction
+-- * "Corvus.Node.Process" - VM process management
+-- * "Corvus.Node.Command" - QEMU command line generation
+-- * "Corvus.Node.SocketBuffer" - Ring-buffered QEMU chardev relay (serial, HMP)
 -- * "Corvus.Node.Virtiofsd" - Virtiofsd process management for shared directories
 -- * "Corvus.Node.Image" - Disk image management using qemu-img
 module Corvus.Qemu
@@ -83,11 +83,11 @@ module Corvus.Qemu
   )
 where
 
+import Corvus.Node.Command
+import Corvus.Node.GuestAgent
 import Corvus.Node.Image
+import Corvus.Node.Process
+import Corvus.Node.Qmp
+import Corvus.Node.Runtime
 import Corvus.Node.Virtiofsd
-import Corvus.Qemu.Command
 import Corvus.Qemu.Config
-import Corvus.Qemu.GuestAgent
-import Corvus.Qemu.Process
-import Corvus.Qemu.Qmp
-import Corvus.Qemu.Runtime

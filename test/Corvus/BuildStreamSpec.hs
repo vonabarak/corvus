@@ -7,7 +7,7 @@
 -- 'BuildEventSink' Cap'n Proto cap in Phase 6.
 module Corvus.BuildStreamSpec (spec) where
 
-import Corvus.Qemu.GuestAgent (splitLines)
+import Corvus.Node.GuestAgent (splitLines)
 import qualified Data.ByteString as BS
 import Test.Hspec
 

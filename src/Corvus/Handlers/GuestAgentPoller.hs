@@ -25,8 +25,8 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Model
 import qualified Corvus.Model as M
+import Corvus.Node.GuestAgent (GuestAgentConns, GuestIpAddress (..), GuestNetIf (..), guestNetworkGetInterfaces, guestPing)
 import Corvus.Qemu.Config (QemuConfig)
-import Corvus.Qemu.GuestAgent (GuestAgentConns, GuestIpAddress (..), GuestNetIf (..), guestNetworkGetInterfaces, guestPing)
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types (ServerState (..), runFilteredLogging)
 import Data.Int (Int64)
