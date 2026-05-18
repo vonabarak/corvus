@@ -22,6 +22,8 @@ module Corvus.Handlers.Vm
   , handleVmDelete
   , handleVmStartValidate
   , handleVmStartExecute
+  , attachVmMonitor
+  , reattachVmMonitors
   , handleVmStopValidate
   , handleVmStopExecute
   , handleVmPause
@@ -381,23 +383,7 @@ launchQemuWith state vmId vm parentTaskId pool mAgent = do
       -- Fork process monitor thread (polls the agent for liveness;
       -- the agent owns the ProcessHandle and waitpid()s the child
       -- internally, so we just observe whether the PID is still alive).
-      _ <- liftIO $ forkIO $ runServerLogging state $ do
-        logDebugN $ "Polling VM " <> T.pack (show vmId) <> " liveness via nodeagent"
-        liftIO $ pollVmUntilExit state pid
-        mCurrentPid <- liftIO $ runSqlPool (getVmPid vmId) (ssDbPool state)
-        case mCurrentPid of
-          Nothing ->
-            logDebugN $ "VM " <> T.pack (show vmId) <> " was reset externally, skipping status update"
-          Just _ -> do
-            logInfoN $ "VM " <> T.pack (show vmId) <> " exited"
-            liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-        -- Close persistent guest agent connection (QEMU is gone)
-        liftIO $ closeGuestAgentConn (ssGuestAgentConns state) vmId
-        -- Tell the agent it can drop the VM's managed TAPs.
-        -- Best-effort: a failure here is logged but not raised,
-        -- because the kernel state is already a fait accompli
-        -- (QEMU has exited; the TAP either survives or doesn't).
-        liftIO $ releaseManagedTaps state vmId
+      liftIO $ attachVmMonitor state vmId pid
       -- Start ring-buffered relays for QEMU's chardev sockets.
       let cfg = ssQemuConfig state
           logLevel = ssLogLevel state
@@ -1237,3 +1223,84 @@ pollVmUntilExit state pid = loop
             Left _ -> pure ()
             Right False -> pure ()
             Right True -> threadDelay 1000000 >> loop
+
+-- | Fork a background thread that waits (by polling the agent)
+-- for VM @vmId@'s QEMU process to exit, then updates the DB and
+-- releases ancillary resources.
+--
+-- Called by 'launchQemuWith' right after the agent reports the
+-- VM has spawned, and by 'reattachVmMonitors' for each VM the
+-- daemon finds already running when it (re)connects to the
+-- agent.
+attachVmMonitor :: ServerState -> Int64 -> Int -> IO ()
+attachVmMonitor state vmId pid = do
+  _ <- forkIO $ runServerLogging state $ do
+    logDebugN $ "Polling VM " <> T.pack (show vmId) <> " liveness via nodeagent"
+    liftIO $ pollVmUntilExit state pid
+    mCurrentPid <- liftIO $ runSqlPool (getVmPid vmId) (ssDbPool state)
+    case mCurrentPid of
+      Nothing ->
+        logDebugN $
+          "VM "
+            <> T.pack (show vmId)
+            <> " was reset externally, skipping status update"
+      Just _ -> do
+        logInfoN $ "VM " <> T.pack (show vmId) <> " exited"
+        liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+    -- Close persistent guest agent connection (QEMU is gone)
+    liftIO $ closeGuestAgentConn (ssGuestAgentConns state) vmId
+    -- Tell netd it can drop the VM's managed TAPs.
+    liftIO $ releaseManagedTaps state vmId
+  pure ()
+
+-- | On daemon (re)connect to the agent: walk the DB for every VM
+-- with a recorded PID, verify the PID is still alive on the
+-- agent, and reattach a monitor thread for each. VMs whose PID
+-- the agent reports as already dead get their status reconciled
+-- to 'VmStopped' here, since the agent's reaper already cleaned
+-- them up while the daemon was disconnected.
+reattachVmMonitors :: ServerState -> IO ()
+reattachVmMonitors state = do
+  let pool = ssDbPool state
+  mAgent <- readTVarIO (ssNodeAgent state)
+  case mAgent of
+    Nothing -> pure ()
+    Just nac -> do
+      candidates <-
+        runSqlPool
+          (selectList [M.VmPid !=. Nothing] [])
+          pool
+      runServerLogging state $
+        forM_ candidates $ \(Entity vmKey vm) ->
+          case vmPid vm of
+            Nothing -> pure ()
+            Just pid -> do
+              alive <- liftIO $ NOA.processIsAlive nac (fromIntegral pid)
+              case alive of
+                Right True -> do
+                  logInfoN $
+                    "Re-attaching monitor for VM "
+                      <> vmName vm
+                      <> " (pid "
+                      <> T.pack (show pid)
+                      <> ")"
+                  liftIO $ attachVmMonitor state (fromSqlKey vmKey) pid
+                Right False -> do
+                  logInfoN $
+                    "VM "
+                      <> vmName vm
+                      <> " (pid "
+                      <> T.pack (show pid)
+                      <> ") already exited while daemon was disconnected; reconciling"
+                  liftIO $
+                    runSqlPool
+                      (setVmStopped (fromSqlKey vmKey))
+                      pool
+                Left e ->
+                  logWarnN $
+                    "processIsAlive RPC failed for VM "
+                      <> vmName vm
+                      <> ": "
+                      <> T.pack (show e)
+  where
+    forM_ = Control.Monad.forM_

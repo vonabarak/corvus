@@ -8,6 +8,7 @@ import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Control.Monad (forM_, unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN, logWarnN)
+import Corvus.Handlers.Vm (reattachVmMonitors)
 import Corvus.Model (migrateAll)
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
@@ -418,6 +419,12 @@ runNodeAgentConnection state opts = do
           runFilteredLogging (ssLogLevel state) $
             logInfoN ("nodeagent dial succeeded, owner=" <> NOA.nacOwner noac)
           atomically $ writeTVar (ssNodeAgent state) (Just noac)
+          -- Re-attach monitor threads for every VM the agent
+          -- has running. Without this, a daemon restart loses
+          -- track of QEMU exits for VMs that survived across
+          -- the reconnect (the agent's reaper still cleans up
+          -- on its side, but DB state would lag indefinitely).
+          reattachVmMonitors state
           blockUntilShutdown state
           atomically $ writeTVar (ssNodeAgent state) Nothing
           pure (Right ())
