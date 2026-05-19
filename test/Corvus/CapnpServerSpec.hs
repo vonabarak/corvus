@@ -27,7 +27,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM (atomically, writeTVar)
-import Control.Exception (SomeException, bracket, catch)
+import Control.Exception (SomeException, bracket, bracket_, catch)
 import qualified Corvus.Client.Capnp.Connection as CC
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Node.Server (runNodeAgentServer)
@@ -49,6 +49,7 @@ import Network.Socket
   )
 import qualified Network.Socket as NS
 import qualified System.Directory as Dir
+import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout (timeout)
@@ -181,29 +182,51 @@ waitForSocket p = go (50 :: Int)
 -- everything down on exit.
 withCapnpDaemon :: TestEnv -> (CC.CapnpConnection -> IO a) -> IO a
 withCapnpDaemon env action =
-  withSystemTempDirectory "corvus-capnp-test" $ \tmp -> do
-    let sockPath = tmp </> "corvus.capnp.sock"
-    state <- newServerState (tePool env) Q.defaultQemuConfig
-    naPort <- pickFreePort
-    bracket
-      (async (runNodeAgentServer "127.0.0.1" naPort))
-      cancel
-      $ \_ -> do
-        waitForTcp "127.0.0.1" naPort
-        NOA.withNodeAgentClient "127.0.0.1" naPort "capnp-spec" $ \nr -> do
-          nac <- case nr of
-            Left e -> error ("nodeagent dial failed: " <> show e)
-            Right c -> pure c
-          atomically $ writeTVar (ssNodeAgent state) (Just nac)
-          bracket
-            (async (runCapnpServer state (UnixAddress sockPath)))
-            cancel
-            $ \_ -> do
-              waitForSocket sockPath
-              r <- CC.withCapnpConnection (UnixAddress sockPath) action
-              case r of
-                Right a -> pure a
-                Left e -> error (show e)
+  withSystemTempDirectory "corvus-capnp-test" $ \tmp ->
+    -- Sandbox XDG_RUNTIME_DIR so the in-process nodeagent's
+    -- startup/shutdown cleanup (which 'pgrep'-kills QEMU +
+    -- virtiofsd and wipes the agent's runtime dir) only ever
+    -- targets entries under @tmp/corvus@ — never the
+    -- developer's real /run/user/<UID>/corvus that the host
+    -- daemon owns. Bracket the env-var change so a later test
+    -- (or post-suite shell) sees whatever was inherited.
+    withSandboxedXdg tmp $ do
+      let sockPath = tmp </> "corvus.capnp.sock"
+      state <- newServerState (tePool env) Q.defaultQemuConfig
+      naPort <- pickFreePort
+      bracket
+        (async (runNodeAgentServer "127.0.0.1" naPort))
+        cancel
+        $ \_ -> do
+          waitForTcp "127.0.0.1" naPort
+          NOA.withNodeAgentClient "127.0.0.1" naPort "capnp-spec" $ \nr -> do
+            nac <- case nr of
+              Left e -> error ("nodeagent dial failed: " <> show e)
+              Right c -> pure c
+            atomically $ writeTVar (ssNodeAgent state) (Just nac)
+            bracket
+              (async (runCapnpServer state (UnixAddress sockPath)))
+              cancel
+              $ \_ -> do
+                waitForSocket sockPath
+                r <- CC.withCapnpConnection (UnixAddress sockPath) action
+                case r of
+                  Right a -> pure a
+                  Left e -> error (show e)
+
+-- | Run @action@ with @XDG_RUNTIME_DIR@ pointed at @sandbox@,
+-- restoring the previous value (or unsetting it if absent) on
+-- exit. Used by 'withCapnpDaemon' to confine the in-process
+-- nodeagent's startup-and-shutdown cleanup to a temp directory
+-- — otherwise the cleanup would 'pgrep'-kill the host daemon's
+-- QEMU children and wipe @/run/user/\<UID\>/corvus/@.
+withSandboxedXdg :: FilePath -> IO a -> IO a
+withSandboxedXdg sandbox action = do
+  prev <- lookupEnv "XDG_RUNTIME_DIR"
+  let restore = case prev of
+        Just v -> setEnv "XDG_RUNTIME_DIR" v
+        Nothing -> unsetEnv "XDG_RUNTIME_DIR"
+  bracket_ (setEnv "XDG_RUNTIME_DIR" sandbox) restore action
 
 -- | Ask the kernel for a free TCP port on 127.0.0.1. Mild race
 -- between close-then-bind; in practice unobservable for serial

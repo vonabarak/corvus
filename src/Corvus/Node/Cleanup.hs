@@ -49,19 +49,25 @@ import System.Posix.Types (CPid (..), ProcessID)
 import System.Process (readProcessWithExitCode)
 import Text.Read (readMaybe)
 
--- | @pgrep -f@ pattern that matches QEMU processes we spawned.
--- QEMU command lines always contain
--- @unix:\$XDG_RUNTIME_DIR/corvus/<vmId>/monitor.sock@ in their
--- argv; the substring @/corvus/.*monitor.sock@ is unique to our
--- usage and matches no system QEMU configuration we ship.
-corvusQemuArgvPattern :: T.Text
-corvusQemuArgvPattern = "/corvus/.*monitor.sock"
+-- | @pgrep -f@ pattern that matches QEMU processes spawned by an
+-- agent running with this runtime dir. QEMU command lines always
+-- contain @unix:\$XDG_RUNTIME_DIR/corvus/<vmId>/monitor.sock@ in
+-- their argv; we anchor the match on the *actual* runtime dir
+-- rather than a generic @/corvus/@ substring so a sandboxed agent
+-- (e.g. a unit test under a temp 'XDG_RUNTIME_DIR') only ever
+-- targets its own children — never a sibling daemon's QEMUs on
+-- the same host.
+corvusQemuArgvPattern :: FilePath -> T.Text
+corvusQemuArgvPattern runtimeDir =
+  T.pack runtimeDir <> "/.*monitor.sock"
 
--- | @pgrep -f@ pattern that matches virtiofsd processes we
--- spawned. Virtiofsd command lines always contain
+-- | @pgrep -f@ pattern that matches virtiofsd processes spawned
+-- by an agent running with this runtime dir. Virtiofsd command
+-- lines always contain
 -- @--socket-path=\$XDG_RUNTIME_DIR/corvus/<vmId>/virtiofsd-<tag>.sock@.
-corvusVirtiofsdArgvPattern :: T.Text
-corvusVirtiofsdArgvPattern = "--socket-path=.*/corvus/.*virtiofsd-"
+corvusVirtiofsdArgvPattern :: FilePath -> T.Text
+corvusVirtiofsdArgvPattern runtimeDir =
+  "--socket-path=" <> T.pack runtimeDir <> "/.*virtiofsd-"
 
 -- | Best-effort full cleanup. Each step logs + swallows failures
 -- so a half-broken host still gets as much cleaned up as
@@ -72,7 +78,8 @@ corvusVirtiofsdArgvPattern = "--socket-path=.*/corvus/.*virtiofsd-"
 -- inside them are FDs the subprocesses had open).
 cleanupCorvusProcesses :: IO ()
 cleanupCorvusProcesses = runStderrLoggingT $ do
-  vPids <- liftIO (pgrepArgv corvusVirtiofsdArgvPattern)
+  runtimeDir <- liftIO corvusRuntimeDir
+  vPids <- liftIO (pgrepArgv (corvusVirtiofsdArgvPattern runtimeDir))
   unless (null vPids) $
     logInfoN $
       "[nodeagent] cleanup: killing "
@@ -80,7 +87,7 @@ cleanupCorvusProcesses = runStderrLoggingT $ do
         <> " virtiofsd pid(s)"
   mapM_ (liftIO . signalAndReap "virtiofsd") vPids
 
-  qPids <- liftIO (pgrepArgv corvusQemuArgvPattern)
+  qPids <- liftIO (pgrepArgv (corvusQemuArgvPattern runtimeDir))
   unless (null qPids) $
     logInfoN $
       "[nodeagent] cleanup: killing "
@@ -89,7 +96,6 @@ cleanupCorvusProcesses = runStderrLoggingT $ do
   mapM_ (liftIO . signalAndReap "qemu") qPids
 
   -- Scrub per-VM runtime dirs.
-  runtimeDir <- liftIO corvusRuntimeDir
   exists <- liftIO (doesDirectoryExist runtimeDir)
   when exists $ do
     entries <- liftIO (listDirectory runtimeDir)
