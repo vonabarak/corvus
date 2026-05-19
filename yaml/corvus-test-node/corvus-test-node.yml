@@ -105,8 +105,13 @@ pipeline:
               net.ipv4.ip_forward = 1
               EOF
 
-              cat > /etc/nftables.conf <<'EOF'
-              #!/usr/sbin/nft -f
+              # Gentoo's nftables.service (sys-firewall/nftables-1.x) loads
+              # /etc/nftables/rules/main.nft and ships ConditionPathExists=
+              # on it, so the legacy /etc/nftables.conf path is silently
+              # skipped at boot (the symptom was: bake VMs got no NAT,
+              # apt-get hung, QGA never pinged).
+              install -d -m 0755 /etc/nftables/rules
+              cat > /etc/nftables/rules/main.nft <<'EOF'
               flush ruleset
 
               table ip nat {
@@ -117,6 +122,7 @@ pipeline:
                   }
               }
               EOF
+              chmod 0644 /etc/nftables/rules/main.nft
 
               cat > /etc/dnsmasq.conf <<'EOF'
               interface=vde0
@@ -169,6 +175,21 @@ pipeline:
             inline: |
               install -d -m 0755 /opt/corvus/bin
               install -d -m 0755 /mnt/corvus
+              install -d -m 0755 /home/corvus/VMs/BaseImages
+
+              # tmpfiles.d entry for the BaseImages overlay (see
+              # home-corvus-VMs-BaseImages.mount). /run is tmpfs, so
+              # the lower mount point + upper/work dirs need to be
+              # re-created every boot. corvus:corvus on upper+work
+              # so the unprivileged daemon can land writes there.
+              install -d -m 0755 /etc/tmpfiles.d
+              cat > /etc/tmpfiles.d/corvus-baseimages.conf <<'EOF'
+              d /run/baseimages       0755 root   root   -
+              d /run/baseimages/lower 0755 root   root   -
+              d /run/baseimages/upper 0755 corvus corvus -
+              d /run/baseimages/work  0700 corvus corvus -
+              EOF
+              chmod 0644 /etc/tmpfiles.d/corvus-baseimages.conf
             timeoutSec: 10
 
         # systemd unit files. We use `file:` provisioners so the units
@@ -180,6 +201,10 @@ pipeline:
         - file:
             from: ./systemd/mnt-corvus.mount
             to: /etc/systemd/system/mnt-corvus.mount
+            mode: "0644"
+        - file:
+            from: ./systemd/run-baseimages-lower.mount
+            to: /etc/systemd/system/run-baseimages-lower.mount
             mode: "0644"
         - file:
             from: ./systemd/home-corvus-VMs-BaseImages.mount
@@ -210,6 +235,10 @@ pipeline:
               # `systemctl status` lists them.
               systemctl enable opt-corvus-bin.mount
               systemctl enable mnt-corvus.mount
+              # BaseImages: ro virtiofs lower + tmpfs upper overlay,
+              # so the inner daemon can delete/overwrite registered
+              # images without touching the host's tree.
+              systemctl enable run-baseimages-lower.mount
               systemctl enable home-corvus-VMs-BaseImages.mount
               # corvus-netd.service runs the privileged network agent
               # as root; the unprivileged corvus daemon dials it over

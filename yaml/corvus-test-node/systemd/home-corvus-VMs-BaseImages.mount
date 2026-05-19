@@ -1,28 +1,33 @@
 [Unit]
-Description=Mount the host's ~/VMs/BaseImages over virtiofs
+Description=Overlay (host ro lower + tmpfs upper) of ~/VMs/BaseImages
 # Filename `home-corvus-VMs-BaseImages.mount` matches
 # `systemd-escape -p /home/corvus/VMs/BaseImages`. The path has no
 # literal hyphens, so no \x2d escaping is needed.
 #
 # The inner daemon runs as the `corvus` user, so its effective
-# basePath is /home/corvus/VMs. Mounting BaseImages there lets tests
-# register pre-baked disks under their original on-host paths
-# (~/VMs/BaseImages/Alpine/…) so the inner daemon stores them as
-# relative-to-basePath references.
+# basePath is /home/corvus/VMs. The lower layer is the host's
+# ~/VMs/BaseImages tree mounted read-only over virtiofs (see
+# run-baseimages-lower.mount); the upper + work dirs live on
+# tmpfs under /run/baseimages, populated by the tmpfiles.d entry
+# /etc/tmpfiles.d/corvus-baseimages.conf and reset on every boot.
+#
+# Net effect: the daemon sees a writable view of BaseImages —
+# `disks.register`, `disks.delete`, and the build pipeline's
+# `target: path: BaseImages/...` all work — while the host's
+# tree stays untouched.
 DefaultDependencies=no
 ConditionVirtualization=|kvm
 ConditionVirtualization=|qemu
-After=local-fs-pre.target
+After=local-fs-pre.target run-baseimages-lower.mount
+Requires=run-baseimages-lower.mount
+RequiresMountsFor=/run/baseimages/lower
 Before=local-fs.target
 
 [Mount]
-# `base_images` is the virtiofs tag the test harness attaches via the
-# `sharedDirs` block in the per-VM apply YAML (see
-# corvus_test_harness.topology.Topology.add).
-What=base_images
+What=overlay
 Where=/home/corvus/VMs/BaseImages
-Type=virtiofs
-Options=ro,nofail,_netdev
+Type=overlay
+Options=lowerdir=/run/baseimages/lower,upperdir=/run/baseimages/upper,workdir=/run/baseimages/work,nofail,_netdev
 
 [Install]
 WantedBy=local-fs.target

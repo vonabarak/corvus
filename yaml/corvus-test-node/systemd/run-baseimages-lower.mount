@@ -1,0 +1,23 @@
+[Unit]
+Description=Read-only virtiofs lower for the test-node BaseImages overlay
+# The host shares ~/VMs/BaseImages over virtiofs at the
+# `base_images` tag. This unit mounts it ro as the *lower* layer
+# of the overlay at /home/corvus/VMs/BaseImages (see
+# home-corvus-VMs-BaseImages.mount). Tests that need to delete or
+# overwrite an image — e.g. the `corvus-test-vm` build artifact —
+# only write to the upper layer, leaving the host's tree
+# untouched.
+DefaultDependencies=no
+ConditionVirtualization=|kvm
+ConditionVirtualization=|qemu
+After=local-fs-pre.target
+Before=local-fs.target
+
+[Mount]
+What=base_images
+Where=/run/baseimages/lower
+Type=virtiofs
+Options=ro,nofail,_netdev
+
+[Install]
+WantedBy=local-fs.target
