@@ -45,23 +45,14 @@ def _pg_admin_db() -> str:
     return os.environ.get("CORVUS_PY_TEST_PG_ADMIN_DB", "postgres")
 
 
-def _corvus_binary() -> str:
-    """Locate the `corvus` daemon binary.
-
-    Preference order:
-      1. `$CORVUS_BIN` env override.
-      2. The freshly built `stack path --local-install-root`
-         tree — same binary the integration-test harness uses.
-         No `make install` required to run the test suite.
-      3. `$HOME/.local/bin/corvus` (manual install).
-      4. `corvus` on `$PATH` (system package; typically older).
-    """
-    override = os.environ.get("CORVUS_BIN")
-    if override:
-        return override
-    # Discover the dev-tree binary via `stack path`. The Python test
-    # suite lives at python/, which is a sibling of the Haskell tree
-    # — walk up to the repo root and ask stack from there.
+def _bin_search(name: str, env_override: str | None) -> str:
+    """Common binary-discovery logic: env override → stack path →
+    ~/.local/bin → $PATH. Used for both `corvus` and
+    `corvus-nodeagent`."""
+    if env_override:
+        override = os.environ.get(env_override)
+        if override:
+            return override
     repo_root = Path(__file__).resolve().parent.parent.parent
     try:
         out = subprocess.run(
@@ -72,21 +63,72 @@ def _corvus_binary() -> str:
             check=True,
             timeout=60,
         )
-        stack_bin = Path(out.stdout.decode().strip()) / "bin" / "corvus"
+        stack_bin = Path(out.stdout.decode().strip()) / "bin" / name
         if stack_bin.is_file() and os.access(stack_bin, os.X_OK):
             return str(stack_bin)
     except (FileNotFoundError, subprocess.SubprocessError, RuntimeError):
         pass
-    local = Path.home() / ".local/bin/corvus"
+    local = Path.home() / ".local" / "bin" / name
     if local.is_file() and os.access(local, os.X_OK):
         return str(local)
-    found = shutil.which("corvus")
+    found = shutil.which(name)
     if not found:
         raise RuntimeError(
-            "`corvus` not found in .stack-work, ~/.local/bin, or $PATH "
-            "(set $CORVUS_BIN, run `stack build`, or `make install`)"
+            f"`{name}` not found in .stack-work, ~/.local/bin, or $PATH "
+            "(set $CORVUS_BIN / $CORVUS_NODEAGENT_BIN, run `stack build`, "
+            "or `make install`)"
         )
     return found
+
+
+def _corvus_binary() -> str:
+    """Locate the `corvus` daemon binary."""
+    return _bin_search("corvus", "CORVUS_BIN")
+
+
+def _nodeagent_binary() -> str:
+    """Locate the `corvus-nodeagent` binary."""
+    return _bin_search("corvus-nodeagent", "CORVUS_NODEAGENT_BIN")
+
+
+def _pick_free_port() -> int:
+    """Bind 127.0.0.1:0, capture the kernel-assigned port, close.
+    Races against another binder for the freshly released port are
+    unlikely in serial-pytest setup; the daemon's reconnect loop
+    masks transient collisions even if they happen."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
+
+
+def _wait_for_tcp(host: str, port: int, proc: subprocess.Popen, timeout: float = 15.0) -> None:
+    """Poll until the agent's TCP port accepts a connection or the
+    process dies."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            try:
+                _, err = proc.communicate(timeout=1)
+            except Exception:
+                err = b""
+            raise RuntimeError(
+                f"corvus-nodeagent exited (code {proc.returncode}) before "
+                f"listening on {host}:{port}: "
+                f"{err.decode(errors='replace')[-800:]}"
+            )
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.5)
+            s.connect((host, port))
+            s.close()
+            return
+        except OSError:
+            pass
+        time.sleep(0.1)
+    raise RuntimeError(f"timed out waiting for corvus-nodeagent at {host}:{port}")
 
 
 def _find_stack() -> str:
@@ -173,35 +215,65 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
     db_url = f"postgresql://{user}@{host}/{db_name}"
 
     log_file = sock_dir / "corvus.log"
+    agent_log = sock_dir / "corvus-nodeagent.log"
     _create_db(db_name)
-    proc: subprocess.Popen | None = None
+
+    # Both processes share the per-fixture XDG_RUNTIME_DIR + HOME so
+    # they agree on socket and disk-image paths. The nodeagent picks
+    # a free port to avoid colliding with a developer's running
+    # nodeagent on 9878 (or another module's fixture running in
+    # parallel under pytest-xdist).
+    env = os.environ.copy()
+    env["XDG_RUNTIME_DIR"] = str(sock_dir)
+    env["HOME"] = str(fake_home)
+    agent_port = _pick_free_port()
+
+    agent_proc: subprocess.Popen | None = None
+    daemon_proc: subprocess.Popen | None = None
     try:
-        env = os.environ.copy()
-        # Keep XDG_RUNTIME_DIR set so QEMU socket paths the daemon picks
-        # for any spawned VMs land in a temp area, not in the user's runtime.
-        env["XDG_RUNTIME_DIR"] = str(sock_dir)
-        # Isolate $HOME/VMs (disk storage) per fixture run.
-        env["HOME"] = str(fake_home)
-        with open(log_file, "wb") as logf:
-            proc = subprocess.Popen(
+        # Phase 4 routes all disk / cloud-init / VM-lifecycle ops
+        # through corvus-nodeagent; the daemon hard-errors with
+        # "nodeagent unavailable" if it isn't reachable. Spawn it
+        # first and wait for its TCP listener so the daemon's
+        # initial dial succeeds on the first attempt.
+        with open(agent_log, "wb") as alogf:
+            agent_proc = subprocess.Popen(
                 [
-                    _corvus_binary(),
-                    "--socket", str(sock),
-                    "--database", db_url,
+                    _nodeagent_binary(),
+                    "--host", "127.0.0.1",
+                    "--port", str(agent_port),
                     "--log-level", "warn",
                 ],
-                stdout=logf,
+                stdout=alogf,
                 stderr=subprocess.STDOUT,
                 env=env,
             )
-            _wait_for_socket(sock, proc)
-            yield sock
+            _wait_for_tcp("127.0.0.1", agent_port, agent_proc)
+
+            with open(log_file, "wb") as logf:
+                daemon_proc = subprocess.Popen(
+                    [
+                        _corvus_binary(),
+                        "--socket", str(sock),
+                        "--database", db_url,
+                        "--log-level", "warn",
+                        "--no-netd",
+                        "--node-agent-host", "127.0.0.1",
+                        "--node-agent-port", str(agent_port),
+                    ],
+                    stdout=logf,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                )
+                _wait_for_socket(sock, daemon_proc)
+                yield sock
     finally:
-        if proc and proc.poll() is None:
-            proc.send_signal(signal.SIGTERM)
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=5)
+        for proc in (daemon_proc, agent_proc):
+            if proc and proc.poll() is None:
+                proc.send_signal(signal.SIGTERM)
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
         _drop_db(db_name)
