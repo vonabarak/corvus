@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
+.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -29,21 +29,18 @@ capnp:
 	mkdir -p src-generated
 	stack exec --no-ghc-package-path -- env PATH="$$(stack path --compiler-bin):$$(stack path --local-install-root)/bin:$$PATH" \
 	  capnp compile -ohaskell:src-generated --src-prefix=schema $$(ls schema/*.capnp)
-	$(MAKE) python-schema-sync
 
-# Mirror schema/*.capnp into python/corvus_client/schema/ so the Python
-# client (which loads schemas at runtime via pycapnp) sees the same
-# contract as the daemon. Run automatically as part of `make capnp`.
-python-schema-sync:
-	mkdir -p python/corvus_client/schema
-	cp schema/*.capnp python/corvus_client/schema/
+# Note: python/corvus_client/schema is a directory symlink to ../../schema,
+# so the Python client (which loads schemas at runtime via pycapnp) and the
+# wheel-build's `package-data` glob both see the regenerated `.capnp` files
+# with no extra step.
 
 # Run the Python client's test suite against a real corvus daemon
 # spawned per-test on a temp Unix socket. The conftest discovers
 # the freshly built daemon from `stack path --local-install-root`
 # directly — no `make install` required, $HOME/.local/bin stays
 # clean.
-python-test: build python-schema-sync
+python-test: build
 	cd python && .venv-corvus-py/bin/pytest tests -v
 
 # Run the pytest integration test suite (nested VMs; rootful inner
