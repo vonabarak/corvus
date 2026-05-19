@@ -248,12 +248,28 @@ uninstall-system:
 	rm -f /usr/local/bin/corvus-netd
 	rm -f /usr/local/bin/corvus-nodeagent
 
-# Uninstall binaries, systemd service, and shell completions
+# Uninstall the artifacts that `make install` produced — and only
+# those. `make install` writes:
+#   * binaries to $HOME/.local/bin/
+#   * a user-systemd unit to $HOME/.config/systemd/user/corvus.service
+#   * shell completions
+#
+# A system-wide install (e.g. /usr/lib/systemd/user/corvus.service
+# from a distro package, or /etc/systemd/system/* from
+# `make install-system`) is left untouched. If the user-systemd
+# unit isn't ours we skip the stop/disable/daemon-reload entirely
+# — otherwise we'd be tearing down someone else's daemon and
+# leaving a stale listening socket behind in /run/user/*/corvus/.
 uninstall:
-	-systemctl --user stop corvus.service
-	-systemctl --user disable corvus.service
-	rm -f $(HOME)/.config/systemd/user/corvus.service
-	-systemctl --user daemon-reload
+	@if [ -f $(HOME)/.config/systemd/user/corvus.service ]; then \
+	  echo "stopping + disabling user-systemd corvus.service"; \
+	  systemctl --user stop corvus.service 2>/dev/null || true; \
+	  systemctl --user disable corvus.service 2>/dev/null || true; \
+	  rm -f $(HOME)/.config/systemd/user/corvus.service; \
+	  systemctl --user daemon-reload 2>/dev/null || true; \
+	else \
+	  echo "no user corvus.service to remove; leaving any system-wide install alone"; \
+	fi
 	rm -f $(HOME)/.local/bin/corvus
 	rm -f $(HOME)/.local/bin/crv
 	rm -f $(HOME)/.local/bin/corvus-netd
