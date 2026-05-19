@@ -303,18 +303,16 @@ launchVmViaAgent state vmId vm pool = do
         <> T.pack (show vmId)
         <> " needs managed NIC but netd is unavailable"
   let netAgentForSpec = if hasManagedNic then mNetAgent else Nothing
-  -- Wait-for-first-ping timeout. Reuse the healthcheck interval
-  -- as a coarse boot deadline; fall back to 60 s when the
-  -- interval is zero (healthcheck disabled).
+  -- Wait-for-first-ping budget for the agent's vmStart. Covers
+  -- cold boot through QGA's first response — substantially longer
+  -- than the steady-state healthcheck cadence. 90 s handles
+  -- Alpine + Debian + UEFI Alpine boots under nested KVM without
+  -- false-failing on a moderately loaded host; matches the
+  -- integration-test harness's SSH-readiness probe budget
+  -- (`VmSsh.wait_for_ready`) so a slow boot doesn't surface as
+  -- two different timeouts.
   let cfg = ssQemuConfig state
-      waitMs =
-        if vmGuestAgent vm
-          then
-            let interval = qcHealthcheckInterval cfg
-             in if interval > 0
-                  then fromIntegral (interval * 1000) :: Word32
-                  else 60000
-          else 0
+      waitMs = if vmGuestAgent vm then 90000 else 0
 
   mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
   case mSpec of
@@ -1302,13 +1300,7 @@ reapplyVm state nac vmId vm = do
   hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
   let netAgentForSpec = if hasManagedNic then mNetAgent else Nothing
       waitMs =
-        if vmGuestAgent vm
-          then
-            let interval = qcHealthcheckInterval cfg
-             in if interval > 0
-                  then fromIntegral (interval * 1000) :: Word32
-                  else 60000
-          else 0
+        if vmGuestAgent vm then 300000 else 0
   mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
   case mSpec of
     Nothing -> do

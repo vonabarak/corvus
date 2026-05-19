@@ -81,12 +81,15 @@ class TestVirtiofs(SingleNodeCase):
 
     def test_shared_dir_missing_path_fails(self):
         """Adding a shared dir whose host path does not exist must
-        cause `vm.start` to fail; the daemon records the failure as
-        a `start-virtiofsd` subtask with `result == "error"` under
-        the parent `start` task. Cleanup is done by hand because we
-        can't go through the Vm context manager (its `__enter__`
-        would tear the VM down on the start failure and we'd lose
-        the entity id we need for the task lookup)."""
+        cause `vm.start` to fail. After the Phase 4 VM-abstraction
+        refactor virtiofsd is spawned inline by the agent's
+        `vmStart` (not as a separate daemon-side subtask), so the
+        failure surfaces as a `RespError` from the parent `start`
+        task and the `vm` row lands in `VmError`. Cleanup is done
+        by hand because we can't go through the Vm context manager
+        (its `__enter__` would tear the VM down on the start
+        failure and we'd lose the entity id we need for the task
+        lookup)."""
         images = self.register_base_images()
         base = images.get("alpine")
         if base is None:
@@ -111,9 +114,12 @@ class TestVirtiofs(SingleNodeCase):
                 with pytest.raises(Exception):
                     vm.start(wait=True)
 
-                # Find the start task for this VM and walk its
-                # subtasks looking for `start-virtiofsd` with
-                # `result == "error"`.
+                # The parent `start` task must be recorded as error
+                # and reference virtiofsd in its message — the agent
+                # propagates "virtiofsd spawn failed for vmId N: …
+                # socket never appeared" up through `vmStart`'s
+                # `throwFailed`, which the daemon surfaces as the
+                # task error message.
                 start_tasks = [
                     t
                     for t in self.client.tasks.list(
@@ -122,21 +128,17 @@ class TestVirtiofs(SingleNodeCase):
                     if t.command == "start"
                 ]
                 assert start_tasks, "no `start` task recorded for the failed VM"
-                found_errored_subtask = False
-                for st in start_tasks:
-                    for child in self.client.tasks.list_children(st.id):
-                        if (
-                            child.command == "start-virtiofsd"
-                            and child.result == "error"
-                        ):
-                            found_errored_subtask = True
-                            break
-                    if found_errored_subtask:
-                        break
-                assert found_errored_subtask, (
-                    "no `start-virtiofsd` subtask with result=error found "
-                    "under any `start` task — daemon didn't surface the "
-                    "missing-path failure through the task tree"
+                errored = [t for t in start_tasks if t.result == "error"]
+                assert errored, (
+                    "no `start` task recorded as error — daemon didn't "
+                    "surface the missing-path failure"
+                )
+                assert any(
+                    "virtiofsd" in (t.message or "") for t in errored
+                ), (
+                    "no errored `start` task mentions virtiofsd in its "
+                    "message; messages: "
+                    + repr([t.message for t in errored])
                 )
             finally:
                 try:

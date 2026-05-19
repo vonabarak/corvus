@@ -78,7 +78,16 @@ handleGuestExec state vmId command = do
                               (TE.decodeUtf8 (VS.vgiStdout info))
                               (TE.decodeUtf8 (VS.vgiStderr info))
                       | otherwise ->
-                          pure $ RespGuestAgentError "guest-exec timeout / no exit"
+                          -- Agent set hasExit=False, surfacing either a
+                          -- QGA-side timeout ("guest-exec timed out
+                          -- waiting for process to exit") or a
+                          -- connection error. Either way the real
+                          -- diagnostic lives in stderr — forward it.
+                          let stderrText = TE.decodeUtf8 (VS.vgiStderr info)
+                              msg
+                                | T.null stderrText = "guest-exec did not return an exit code"
+                                | otherwise = stderrText
+                           in pure $ RespGuestAgentError msg
 
 -- | Get VM status and guestAgent flag
 getVmForExec :: Int64 -> SqlPersistT IO (Maybe (VmStatus, Bool))

@@ -175,7 +175,16 @@ agentGuestExecCore state vmId cmd stdinPayload timeoutSec = do
                   (TE.decodeUtf8With lenientDecode (VS.vgiStdout info))
                   (TE.decodeUtf8With lenientDecode (VS.vgiStderr info))
           | otherwise ->
-              pure (GuestExecError "guest-exec timeout / no exit")
+              -- hasExit=False: forward the agent's stderr (QGA
+              -- timeout, connection error, …) so the failure is
+              -- actually diagnosable in build output.
+              let stderrText =
+                    TE.decodeUtf8With lenientDecode (VS.vgiStderr info)
+                  msg
+                    | T.null stderrText =
+                        "guest-exec did not return an exit code"
+                    | otherwise = stderrText
+               in pure (GuestExecError msg)
 
 --------------------------------------------------------------------------------
 -- Top-level Action
