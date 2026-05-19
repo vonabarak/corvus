@@ -72,11 +72,25 @@ pipeline:
             sgdisk --new=2:0:+64M    --typecode=2:ef00 --change-name=2:"EFI System" /dev/vdb
             sgdisk --new=3:0:0       --typecode=3:8300 --change-name=3:"Linux root" /dev/vdb
             partprobe /dev/vdb
-            # Wait for the kernel to surface the new partition nodes
-            for _ in 1 2 3 4 5 6 7 8 9 10; do
+            partx -u /dev/vdb || true
+            # Wait for the kernel to surface all three partition nodes
+            # before formatting. Under doubly-nested KVM the event
+            # propagation lag can exceed 10 s — bump the budget and
+            # fail loudly with a `ls` dump if the partitions never
+            # appear (was: silent fall-through into mkfs.ext4
+            # against a non-existent /dev/vdb3, surfacing only as a
+            # bare `exit code 1`).
+            udevadm settle --timeout=60 || true
+            for _ in $(seq 1 60); do
               [ -b /dev/vdb1 ] && [ -b /dev/vdb2 ] && [ -b /dev/vdb3 ] && break
               sleep 1
             done
+            if ! { [ -b /dev/vdb1 ] && [ -b /dev/vdb2 ] && [ -b /dev/vdb3 ]; }; then
+              echo "partitions did not surface within 60s" >&2
+              ls -la /dev/vdb* >&2
+              cat /proc/partitions >&2
+              exit 1
+            fi
             mkfs.vfat -F32 -n EFI /dev/vdb2
             mkfs.ext4 -L root -q /dev/vdb3
 
