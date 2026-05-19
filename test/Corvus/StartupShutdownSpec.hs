@@ -57,17 +57,14 @@ spec = sequential $ withTestDb $ do
       -- After Phase 3, corvus-nodeagent owns QEMU + virtiofsd
       -- subprocesses independently of the daemon. A daemon
       -- restart finds the VMs still running, so the DB rows'
-      -- status / PID / SPICE port should NOT be reset to
-      -- error — the daemon's reconnect re-attaches to the live
-      -- agent state and reconciles from there.
+      -- status / SPICE port should NOT be reset to error — the
+      -- daemon's reconnect re-attaches to the live agent state
+      -- and reconciles from there.
       given $ do
-        vmId1 <- insertVm "running-vm" VmRunning
-        vmId2 <- insertVm "starting-vm" VmStarting
-        vmId3 <- insertVm "paused-vm" VmPaused
+        _ <- insertVm "running-vm" VmRunning
+        _ <- insertVm "starting-vm" VmStarting
+        _ <- insertVm "paused-vm" VmPaused
         _ <- insertVm "stopped-vm" VmStopped
-        runDb $ update (toSqlKey vmId1 :: VmId) [M.VmPid =. Just 99991]
-        runDb $ update (toSqlKey vmId2 :: VmId) [M.VmPid =. Just 99992]
-        runDb $ update (toSqlKey vmId3 :: VmId) [M.VmPid =. Just 99993]
         pure ()
 
       pool <- getDbPool
@@ -76,7 +73,7 @@ spec = sequential $ withTestDb $ do
       liftIO $ handleStartup state 30
 
       then_ $ do
-        -- Running, Starting, Paused VMs survived with their PIDs intact.
+        -- Running, Starting, Paused VMs survived; statuses unchanged.
         running <- runDb $ selectList [M.VmStatus ==. VmRunning] []
         starting <- runDb $ selectList [M.VmStatus ==. VmStarting] []
         paused <- runDb $ selectList [M.VmStatus ==. VmPaused] []
@@ -85,9 +82,6 @@ spec = sequential $ withTestDb $ do
         liftIO $ length starting `shouldBe` 1
         liftIO $ length paused `shouldBe` 1
         liftIO $ length stopped `shouldBe` 1
-        liftIO $
-          map (vmPid . entityVal) (running <> starting <> paused)
-            `shouldBe` [Just 99991, Just 99992, Just 99993]
         -- Nothing was reset to VmError.
         errored <- runDb $ selectList [M.VmStatus ==. VmError] []
         liftIO $ length errored `shouldBe` 0
@@ -195,12 +189,9 @@ spec = sequential $ withTestDb $ do
       -- they survive the daemon restart; the next 'handleStartup'
       -- reconnects to the agent and finds them still alive.
       given $ do
-        vmId1 <- insertVm "running-vm" VmRunning
-        vmId2 <- insertVm "starting-vm" VmStarting
-        vmId3 <- insertVm "paused-vm" VmPaused
-        runDb $ update (toSqlKey vmId1 :: VmId) [M.VmPid =. Just 77771]
-        runDb $ update (toSqlKey vmId2 :: VmId) [M.VmPid =. Just 77772]
-        runDb $ update (toSqlKey vmId3 :: VmId) [M.VmPid =. Just 77773]
+        _ <- insertVm "running-vm" VmRunning
+        _ <- insertVm "starting-vm" VmStarting
+        _ <- insertVm "paused-vm" VmPaused
         pure ()
 
       pool <- getDbPool
@@ -217,9 +208,6 @@ spec = sequential $ withTestDb $ do
         liftIO $ length starting `shouldBe` 1
         liftIO $ length paused `shouldBe` 1
         liftIO $ length stopped `shouldBe` 0
-        liftIO $
-          map (vmPid . entityVal) (running <> starting <> paused)
-            `shouldBe` [Just 77771, Just 77772, Just 77773]
 
     testCase "records shutdown task as success" $ do
       pool <- getDbPool

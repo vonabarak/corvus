@@ -75,7 +75,6 @@ insertVm name status = do
           , vmCpuCount = 2
           , vmRamMb = 4096
           , vmDescription = Nothing
-          , vmPid = Nothing
           , vmHeadless = False
           , vmGuestAgent = False
           , vmCloudInit = False
@@ -101,7 +100,6 @@ insertHeadlessVm name status = do
           , vmCpuCount = 2
           , vmRamMb = 4096
           , vmDescription = Nothing
-          , vmPid = Nothing
           , vmHeadless = True
           , vmGuestAgent = False
           , vmCloudInit = False
@@ -121,7 +119,7 @@ insertVmFull
   -> Maybe Text
   -> Maybe Int
   -> TestM Int64
-insertVmFull name status cpus ramMb desc pid = do
+insertVmFull name status cpus ramMb desc _pid = do
   now <- liftIO getCurrentTime
   key <-
     runDb $
@@ -133,7 +131,6 @@ insertVmFull name status cpus ramMb desc pid = do
           , vmCpuCount = cpus
           , vmRamMb = ramMb
           , vmDescription = desc
-          , vmPid = pid
           , vmHeadless = False
           , vmGuestAgent = False
           , vmCloudInit = False
@@ -156,7 +153,6 @@ defaultVm = do
       , vmCpuCount = 2
       , vmRamMb = 4096
       , vmDescription = Nothing
-      , vmPid = Nothing
       , vmHeadless = False
       , vmGuestAgent = False
       , vmCloudInit = False
@@ -394,7 +390,6 @@ insertSharedDir vmId path tag cache readOnly = do
           , sharedDirTag = tag
           , sharedDirCache = cache
           , sharedDirReadOnly = readOnly
-          , sharedDirPid = Nothing
           }
   pure $ fromSqlKey key
 
@@ -420,7 +415,6 @@ givenCloudInitVmExists name = do
           , vmCpuCount = 2
           , vmRamMb = 4096
           , vmDescription = Nothing
-          , vmPid = Nothing
           , vmHeadless = False
           , vmGuestAgent = False
           , vmCloudInit = True

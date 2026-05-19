@@ -70,7 +70,6 @@ handleSharedDirAdd state vmId path tag cache readOnly =
                       , sharedDirTag = tag
                       , sharedDirCache = cache
                       , sharedDirReadOnly = readOnly
-                      , sharedDirPid = Nothing
                       }
               dirId <- runSqlPool (insert sharedDir) pool
               let dirIdInt = fromSqlKey dirId
@@ -152,7 +151,7 @@ toSharedDirInfo (Entity key dir) =
     , sdiTag = sharedDirTag dir
     , sdiCache = sharedDirCache dir
     , sdiReadOnly = sharedDirReadOnly dir
-    , sdiPid = sharedDirPid dir
+    , sdiPid = Nothing
     }
 
 --------------------------------------------------------------------------------

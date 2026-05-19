@@ -517,7 +517,6 @@ Vm
     cpuCount Int
     ramMb Int
     description Text Maybe
-    pid Int Maybe
     headless Bool default=false
     guestAgent Bool default=false
     cloudInit Bool default=false
@@ -585,7 +584,6 @@ SharedDir
     tag Text
     cache SharedDirCache
     readOnly Bool default=false
-    pid Int Maybe
     UniqueSharedDirTag vmId tag
     deriving Show Eq Generic
 

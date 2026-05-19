@@ -366,7 +366,6 @@ createOneVmAttachments state keyMap diskMap nwMap v vmId = do
                     , sharedDirTag = asdTag sd
                     , sharedDirCache = asdCache sd
                     , sharedDirReadOnly = asdReadOnly sd
-                    , sharedDirPid = Nothing
                     }
               )
               (ssDbPool state)

@@ -505,20 +505,27 @@ handleVmPause state vmId = runServerLogging state $ do
 -- Asks the agent to SIGTERM-then-SIGKILL QEMU + every virtiofsd
 -- helper for this vmId, then marks the VM stopped. With the agent
 -- owning all PIDs, the daemon doesn't need to look them up.
+--
+-- The status is moved to 'VmStopped' before the @vmStopHard@ RPC
+-- fires, so the background monitor thread observes the terminal
+-- state when QEMU exits and skips its own reconciliation
+-- (mirrors the old @clearVmPid@ signal that the @Vm.pid@ column
+-- carried before it was dropped).
 handleVmReset :: ServerState -> Int64 -> IO Response
 handleVmReset state vmId = runServerLogging state $ do
-  mVm <- liftIO $ runSqlPool (getVmWithPid vmId) (ssDbPool state)
+  mVm <- liftIO $ runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound
     Just _ -> do
-      -- Clear PID first so the background monitor thread knows
-      -- not to fight us when the agent reports the exit.
-      liftIO $ runSqlPool (clearVmPid vmId) (ssDbPool state)
+      -- Commit the terminal status first; the monitor checks
+      -- status before reconciling and will back off when it sees
+      -- the row is already stopped.
+      liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
 
       mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
       case mAgent of
         Nothing ->
-          logWarnN $ "nodeagent unavailable; reset will only clear DB state for VM " <> T.pack (show vmId)
+          logWarnN $ "nodeagent unavailable; reset only updates DB state for VM " <> T.pack (show vmId)
         Just nac -> do
           r <- liftIO $ NOA.vmStopHard nac vmId
           case r of
@@ -532,7 +539,6 @@ handleVmReset state vmId = runServerLogging state $ do
               _ ->
                 logWarnN $ "vmStopHard returned: " <> NOA.vsrMessage res
 
-      liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
       pure $ RespVmStateChanged VmStopped
 
 -- | Handle VM edit command
@@ -696,50 +702,38 @@ getVmWithStatus vmId = do
     Nothing -> Nothing
     Just vm -> Just (vm, vmStatus vm)
 
--- | Get VM with its PID
-getVmWithPid :: Int64 -> SqlPersistT IO (Maybe (Vm, Maybe Int))
-getVmWithPid vmId = do
-  let key = toSqlKey vmId :: VmId
-  mVm <- get key
-  pure $ case mVm of
-    Nothing -> Nothing
-    Just vm -> Just (vm, vmPid vm)
+-- | Just the current status, or 'Nothing' if the row is gone.
+-- Used by 'attachVmMonitor' to skip reconciliation when a
+-- competing handler ('handleVmReset') has already committed a
+-- terminal state.
+getVmStatusOnly :: Int64 -> SqlPersistT IO (Maybe VmStatus)
+getVmStatusOnly vmId = fmap vmStatus <$> get (toSqlKey vmId :: VmId)
 
--- | Set VM status to running and save PID
--- | Set VM status and PID (used during start: VmStarting or VmRunning)
+-- | Set VM status (used during start: VmStarting or VmRunning).
+-- The @_pid@ parameter is kept for caller-side symmetry but is no
+-- longer persisted — the agent owns every PID. Drop the parameter
+-- on the next breaking change.
 setVmStarted :: Int64 -> VmStatus -> Int -> SqlPersistT IO ()
-setVmStarted vmId status pid = do
+setVmStarted vmId status _pid = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. status, M.VmPid =. Just pid]
+  update key [M.VmStatus =. status]
 
--- | Get the current PID stored for a VM (Nothing if cleared or VM not found)
-getVmPid :: Int64 -> SqlPersistT IO (Maybe Int)
-getVmPid vmId = do
-  let key = toSqlKey vmId :: VmId
-  mVm <- get key
-  pure $ mVm >>= vmPid
-
--- | Clear the PID field without changing status.
--- Used by handleVmReset to signal the background thread to skip status updates.
-clearVmPid :: Int64 -> SqlPersistT IO ()
-clearVmPid vmId = do
-  let key = toSqlKey vmId :: VmId
-  update key [M.VmPid =. Nothing]
-
--- | Set VM status to stopped and clear PID, healthcheck, SPICE port, and guest network data
+-- | Set VM status to stopped and clear healthcheck, SPICE port,
+-- and guest network data.
 setVmStopped :: Int64 -> SqlPersistT IO ()
 setVmStopped vmId = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmStopped, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]
+  update key [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]
   updateWhere
     [M.NetworkInterfaceVmId ==. key]
     [M.NetworkInterfaceGuestIpAddresses =. Nothing]
 
--- | Set VM status to error and clear PID, healthcheck, SPICE port, and guest network data
+-- | Set VM status to error and clear healthcheck, SPICE port,
+-- and guest network data.
 setVmError :: Int64 -> SqlPersistT IO ()
 setVmError vmId = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmError, M.VmPid =. Nothing, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]
+  update key [M.VmStatus =. VmError, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]
   updateWhere
     [M.NetworkInterfaceVmId ==. key]
     [M.NetworkInterfaceGuestIpAddresses =. Nothing]
@@ -777,7 +771,6 @@ createVm name cpuCount ramMb description headless guestAgent cloudInit autostart
           , vmCpuCount = cpuCount
           , vmRamMb = ramMb
           , vmDescription = description
-          , vmPid = Nothing
           , vmHeadless = headless
           , vmGuestAgent = guestAgent
           , vmCloudInit = cloudInit
@@ -1201,13 +1194,23 @@ attachVmMonitor state vmId = do
   _ <- forkIO $ runServerLogging state $ do
     logDebugN $ "Polling VM " <> T.pack (show vmId) <> " liveness via nodeagent"
     outcome <- liftIO $ pollVmUntilExit state vmId
-    mCurrentPid <- liftIO $ runSqlPool (getVmPid vmId) (ssDbPool state)
-    case mCurrentPid of
+    -- Skip reconciliation if a competing handler (e.g.
+    -- 'handleVmReset') already committed a terminal status.
+    -- Replaces the old "Vm.pid was cleared" signal.
+    mStatus <- liftIO $ runSqlPool (getVmStatusOnly vmId) (ssDbPool state)
+    case mStatus of
       Nothing ->
+        logDebugN $ "VM " <> T.pack (show vmId) <> " was deleted; monitor exiting"
+      Just VmStopped ->
         logDebugN $
           "VM "
             <> T.pack (show vmId)
-            <> " was reset externally, skipping status update"
+            <> " already marked stopped (likely by reset); skipping status update"
+      Just VmError ->
+        logDebugN $
+          "VM "
+            <> T.pack (show vmId)
+            <> " already marked error; skipping status update"
       Just _ -> case outcome of
         ExitClean -> do
           logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"

@@ -112,7 +112,6 @@ vmStubWithCid now name cid =
     , M.vmCpuCount = 1
     , M.vmRamMb = 128
     , M.vmDescription = Nothing
-    , M.vmPid = Nothing
     , M.vmHeadless = False
     , M.vmGuestAgent = False
     , M.vmCloudInit = False
