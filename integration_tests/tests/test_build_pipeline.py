@@ -39,6 +39,7 @@ from corvus_client.types import (
     BuildStepStart,
 )
 from corvus_test_harness import SingleNodeCase
+from corvus_test_harness.host_binary import REPO_ROOT
 
 
 pytestmark = [pytest.mark.slow, pytest.mark.timeout(1800)]
@@ -224,6 +225,70 @@ class TestBuildPipeline(SingleNodeCase):
             assert not any(n.startswith("__build_") for n in vm_names), vm_names
         finally:
             tpl.delete()
+
+    def test_builds_corvus_test_vm_image(self):
+        """End-to-end build of the project's Alpine test image.
+
+        Drives `crv build yaml/corvus-test-vm/corvus-test-vm.yml`
+        after first applying the bake-template catalogue from
+        `yaml/multi-os/multi-os.yml` (provides `debian12`, which
+        the from-scratch build uses as its bake VM).
+
+        Exercises the real-world from-scratch path:
+        apk-tools-static bootstrap, chroot configuration, GRUB
+        BIOS+UEFI install, qemu-guest-agent + vsock-sshd. The
+        artifact disk name (`corvus-test-vm`) is fixed in the
+        YAML, so the test pre-cleans any stale artifact and
+        re-cleans on teardown.
+
+        Slow: multi-os apply downloads ~1.5 GB of cloud images,
+        and the nested bake itself runs another 5-10 min.
+        """
+        artifact_name = "corvus-test-vm"
+        multi_os_path = REPO_ROOT / "yaml" / "multi-os" / "multi-os.yml"
+        build_path = REPO_ROOT / "yaml" / "corvus-test-vm" / "corvus-test-vm.yml"
+
+        def _drop_artifact() -> None:
+            for d in self.client.disks.list():
+                if d.name == artifact_name:
+                    self.client.disks.get(artifact_name, by_name=True).delete()
+                    return
+
+        # Default `target.ifExists: error` — a leftover artifact
+        # from a previous run would fail the bake before it starts.
+        _drop_artifact()
+
+        # Stage the bake-template catalogue. `skip_existing` lets
+        # the test re-run cheaply: previously-downloaded cloud
+        # images and registered templates are left alone.
+        self.client.apply(
+            multi_os_path.read_text(),
+            skip_existing=True,
+            wait=True,
+        )
+
+        try:
+            pipeline_end = None
+            for ev in self.client.build_stream(str(build_path)):
+                if isinstance(ev, BuildPipelineEnd):
+                    pipeline_end = ev
+
+            assert pipeline_end is not None, "no BuildPipelineEnd event seen"
+            assert len(pipeline_end.builds) == 1
+            bo = pipeline_end.builds[0]
+            assert not bo.error_message, bo
+            assert bo.artifact_disk_id, bo
+
+            disk_names = [d.name for d in self.client.disks.list()]
+            assert artifact_name in disk_names
+
+            # `cleanup: onSuccess` on the bake means the bake VM
+            # is reaped on success — assert there are no
+            # __build_* leftovers.
+            vm_names = [v.name for v in self.client.vms.list()]
+            assert not any(n.startswith("__build_") for n in vm_names), vm_names
+        finally:
+            _drop_artifact()
 
     def test_target_ifexists_skip_short_circuits(self):
         """`target.ifExists: skip` returns the existing disk id, no bake.

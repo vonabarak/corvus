@@ -175,7 +175,9 @@ class Topology:
                     f"[harness] leaving {len(self._nodes)} node(s) "
                     f"alive for inspection: {names}\n"
                     f"[harness] clean up manually with: "
-                    f"for n in {names}; do crv vm delete --delete-disks $n; done"
+                    f"`make integration-tests-clean` "
+                    "or "
+                    f"`for n in {names}; do crv vm delete --delete-disks $n; done`"
                 )
             return
 
