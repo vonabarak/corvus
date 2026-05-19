@@ -296,9 +296,11 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'openSerialConsole) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'openHmpMonitor) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'flushSerialConsole) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'flushHmpMonitor) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'flushHmpMonitor) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmAttachDrive) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmDetachDrive) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -355,6 +357,10 @@ class (Session'server_ s_) where
     session'flushSerialConsole _ = GH.methodUnimplemented
     session'flushHmpMonitor :: s_ -> (GH.MethodHandler Session'flushHmpMonitor'params Session'flushHmpMonitor'results)
     session'flushHmpMonitor _ = GH.methodUnimplemented
+    session'vmAttachDrive :: s_ -> (GH.MethodHandler Session'vmAttachDrive'params Session'vmAttachDrive'results)
+    session'vmAttachDrive _ = GH.methodUnimplemented
+    session'vmDetachDrive :: s_ -> (GH.MethodHandler Session'vmDetachDrive'params Session'vmDetachDrive'results)
+    session'vmDetachDrive _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -411,6 +417,10 @@ instance (GH.HasMethod "flushSerialConsole" Session Session'flushSerialConsole'p
     methodByLabel  = (GH.Method 11450192344861352079 26)
 instance (GH.HasMethod "flushHmpMonitor" Session Session'flushHmpMonitor'params Session'flushHmpMonitor'results) where
     methodByLabel  = (GH.Method 11450192344861352079 27)
+instance (GH.HasMethod "vmAttachDrive" Session Session'vmAttachDrive'params Session'vmAttachDrive'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 28)
+instance (GH.HasMethod "vmDetachDrive" Session Session'vmDetachDrive'params Session'vmDetachDrive'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 29)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -2166,6 +2176,121 @@ instance (C.Parse Session'flushHmpMonitor'results (C.Parsed Session'flushHmpMoni
     parse raw_ = (Std_.pure Session'flushHmpMonitor'results)
 instance (C.Marshal Session'flushHmpMonitor'results (C.Parsed Session'flushHmpMonitor'results)) where
     marshalInto _raw (Session'flushHmpMonitor'results) = (Std_.pure ())
+data Session'vmAttachDrive'params 
+type instance (R.ReprFor Session'vmAttachDrive'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmAttachDrive'params) where
+    typeId  = 13049054298676078877
+instance (C.TypedStruct Session'vmAttachDrive'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'vmAttachDrive'params) where
+    type AllocHint Session'vmAttachDrive'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmAttachDrive'params (C.Parsed Session'vmAttachDrive'params))
+instance (C.AllocateList Session'vmAttachDrive'params) where
+    type ListAllocHint Session'vmAttachDrive'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmAttachDrive'params (C.Parsed Session'vmAttachDrive'params))
+data instance C.Parsed Session'vmAttachDrive'params
+    = Session'vmAttachDrive'params 
+        {req :: (RP.Parsed VmAttachDriveReq)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmAttachDrive'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmAttachDrive'params))
+instance (C.Parse Session'vmAttachDrive'params (C.Parsed Session'vmAttachDrive'params)) where
+    parse raw_ = (Session'vmAttachDrive'params <$> (GH.parseField #req raw_))
+instance (C.Marshal Session'vmAttachDrive'params (C.Parsed Session'vmAttachDrive'params)) where
+    marshalInto raw_ Session'vmAttachDrive'params{..} = (do
+        (GH.encodeField #req req raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "req" GH.Slot Session'vmAttachDrive'params VmAttachDriveReq) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'vmAttachDrive'results 
+type instance (R.ReprFor Session'vmAttachDrive'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmAttachDrive'results) where
+    typeId  = 11477257483477198916
+instance (C.TypedStruct Session'vmAttachDrive'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmAttachDrive'results) where
+    type AllocHint Session'vmAttachDrive'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmAttachDrive'results (C.Parsed Session'vmAttachDrive'results))
+instance (C.AllocateList Session'vmAttachDrive'results) where
+    type ListAllocHint Session'vmAttachDrive'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmAttachDrive'results (C.Parsed Session'vmAttachDrive'results))
+data instance C.Parsed Session'vmAttachDrive'results
+    = Session'vmAttachDrive'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmAttachDrive'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmAttachDrive'results))
+instance (C.Parse Session'vmAttachDrive'results (C.Parsed Session'vmAttachDrive'results)) where
+    parse raw_ = (Std_.pure Session'vmAttachDrive'results)
+instance (C.Marshal Session'vmAttachDrive'results (C.Parsed Session'vmAttachDrive'results)) where
+    marshalInto _raw (Session'vmAttachDrive'results) = (Std_.pure ())
+data Session'vmDetachDrive'params 
+type instance (R.ReprFor Session'vmDetachDrive'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmDetachDrive'params) where
+    typeId  = 16364905694916860660
+instance (C.TypedStruct Session'vmDetachDrive'params) where
+    numStructWords  = 2
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmDetachDrive'params) where
+    type AllocHint Session'vmDetachDrive'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmDetachDrive'params (C.Parsed Session'vmDetachDrive'params))
+instance (C.AllocateList Session'vmDetachDrive'params) where
+    type ListAllocHint Session'vmDetachDrive'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmDetachDrive'params (C.Parsed Session'vmDetachDrive'params))
+data instance C.Parsed Session'vmDetachDrive'params
+    = Session'vmDetachDrive'params 
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,driveId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmDetachDrive'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmDetachDrive'params))
+instance (C.Parse Session'vmDetachDrive'params (C.Parsed Session'vmDetachDrive'params)) where
+    parse raw_ = (Session'vmDetachDrive'params <$> (GH.parseField #vmId raw_)
+                                               <*> (GH.parseField #driveId raw_))
+instance (C.Marshal Session'vmDetachDrive'params (C.Parsed Session'vmDetachDrive'params)) where
+    marshalInto raw_ Session'vmDetachDrive'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #driveId driveId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'vmDetachDrive'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "driveId" GH.Slot Session'vmDetachDrive'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+data Session'vmDetachDrive'results 
+type instance (R.ReprFor Session'vmDetachDrive'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmDetachDrive'results) where
+    typeId  = 15875586182582213085
+instance (C.TypedStruct Session'vmDetachDrive'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmDetachDrive'results) where
+    type AllocHint Session'vmDetachDrive'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmDetachDrive'results (C.Parsed Session'vmDetachDrive'results))
+instance (C.AllocateList Session'vmDetachDrive'results) where
+    type ListAllocHint Session'vmDetachDrive'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmDetachDrive'results (C.Parsed Session'vmDetachDrive'results))
+data instance C.Parsed Session'vmDetachDrive'results
+    = Session'vmDetachDrive'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmDetachDrive'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmDetachDrive'results))
+instance (C.Parse Session'vmDetachDrive'results (C.Parsed Session'vmDetachDrive'results)) where
+    parse raw_ = (Std_.pure Session'vmDetachDrive'results)
+instance (C.Marshal Session'vmDetachDrive'results (C.Parsed Session'vmDetachDrive'results)) where
+    marshalInto _raw (Session'vmDetachDrive'results) = (Std_.pure ())
 data VmStatusSink 
 type instance (R.ReprFor VmStatusSink) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId VmStatusSink) where
@@ -2854,6 +2979,61 @@ instance (C.Parse VmAgentState VmAgentState) where
 instance (C.AllocateList VmAgentState) where
     type ListAllocHint VmAgentState = Std_.Int
 instance (C.EstimateListAlloc VmAgentState VmAgentState)
+data VmAttachDriveReq 
+type instance (R.ReprFor VmAttachDriveReq) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmAttachDriveReq) where
+    typeId  = 13876782660338277154
+instance (C.TypedStruct VmAttachDriveReq) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate VmAttachDriveReq) where
+    type AllocHint VmAttachDriveReq = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmAttachDriveReq (C.Parsed VmAttachDriveReq))
+instance (C.AllocateList VmAttachDriveReq) where
+    type ListAllocHint VmAttachDriveReq = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmAttachDriveReq (C.Parsed VmAttachDriveReq))
+data instance C.Parsed VmAttachDriveReq
+    = VmAttachDriveReq 
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,driveId :: (RP.Parsed Std_.Int64)
+        ,filePath :: (RP.Parsed Basics.Text)
+        ,format :: (RP.Parsed Basics.Text)
+        ,ifKind :: (RP.Parsed Basics.Text)
+        ,readOnly :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmAttachDriveReq))
+deriving instance (Std_.Eq (C.Parsed VmAttachDriveReq))
+instance (C.Parse VmAttachDriveReq (C.Parsed VmAttachDriveReq)) where
+    parse raw_ = (VmAttachDriveReq <$> (GH.parseField #vmId raw_)
+                                   <*> (GH.parseField #driveId raw_)
+                                   <*> (GH.parseField #filePath raw_)
+                                   <*> (GH.parseField #format raw_)
+                                   <*> (GH.parseField #ifKind raw_)
+                                   <*> (GH.parseField #readOnly raw_))
+instance (C.Marshal VmAttachDriveReq (C.Parsed VmAttachDriveReq)) where
+    marshalInto raw_ VmAttachDriveReq{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #driveId driveId raw_)
+        (GH.encodeField #filePath filePath raw_)
+        (GH.encodeField #format format raw_)
+        (GH.encodeField #ifKind ifKind raw_)
+        (GH.encodeField #readOnly readOnly raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot VmAttachDriveReq Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "driveId" GH.Slot VmAttachDriveReq Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+instance (GH.HasField "filePath" GH.Slot VmAttachDriveReq Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "format" GH.Slot VmAttachDriveReq Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "ifKind" GH.Slot VmAttachDriveReq Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "readOnly" GH.Slot VmAttachDriveReq Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 2 1 0)
 data VmGuestExecReq 
 type instance (R.ReprFor VmGuestExecReq) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmGuestExecReq) where

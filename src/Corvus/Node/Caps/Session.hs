@@ -363,6 +363,75 @@ instance CGNA.Session'server_ SessionCap where
       flushBufferForVm (scMonitorBuffers sc) vid
       pure CGNA.Session'flushHmpMonitor'results
 
+  -- ---- QMP-mediated runtime VM changes -------------------------------------
+
+  session'vmAttachDrive _ =
+    handleParsed $ \CGNA.Session'vmAttachDrive'params {CGNA.req = req} -> do
+      let CGNA.VmAttachDriveReq
+            { CGNA.vmId = vid
+            , CGNA.driveId = drvId
+            , CGNA.filePath = fpTxt
+            , CGNA.format = fmtTxt
+            , CGNA.ifKind = ifTxt
+            , CGNA.readOnly = ro
+            } = req
+          filePath = T.unpack fpTxt
+          nodeName = "drive-" <> T.pack (show drvId)
+          deviceId = "device-" <> T.pack (show drvId)
+      fmt <- parseFormat fmtTxt
+      ifKind <-
+        case M.enumFromText ifTxt :: Either Text M.DriveInterface of
+          Right k -> pure k
+          Left _ -> throwFailed ("unknown drive interface: " <> ifTxt)
+      blockResult <-
+        NQ.qmpBlockdevAdd agentQemuConfig vid nodeName filePath fmt ro
+      case blockResult of
+        NQ.QmpSuccess -> do
+          deviceResult <-
+            NQ.qmpDeviceAddDrive agentQemuConfig vid deviceId nodeName ifKind
+          case deviceResult of
+            NQ.QmpSuccess ->
+              pure CGNA.Session'vmAttachDrive'results
+            NQ.QmpError err -> do
+              -- Best-effort cleanup of the blockdev half we just
+              -- added. Surface the original failure regardless.
+              _ <-
+                E.try @E.SomeException
+                  (NQ.qmpBlockdevDel agentQemuConfig vid nodeName)
+              throwFailed ("device_add: " <> err)
+            NQ.QmpConnectionFailed err ->
+              throwFailed ("QMP connect (device_add): " <> err)
+        NQ.QmpError err -> throwFailed ("blockdev-add: " <> err)
+        NQ.QmpConnectionFailed err ->
+          throwFailed ("QMP connect (blockdev-add): " <> err)
+
+  session'vmDetachDrive _ =
+    handleParsed $
+      \CGNA.Session'vmDetachDrive'params
+        { CGNA.vmId = vid
+        , CGNA.driveId = drvId
+        } -> do
+          let nodeName = "drive-" <> T.pack (show drvId)
+              deviceId = "device-" <> T.pack (show drvId)
+          deviceResult <- NQ.qmpDeviceDel agentQemuConfig vid deviceId
+          case deviceResult of
+            NQ.QmpSuccess -> do
+              -- device_del completes asynchronously; QEMU rejects
+              -- a follow-up blockdev-del with "node N is busy" for
+              -- a short window. The pre-Phase-4 daemon retried up
+              -- to N times with backoff; mirror that.
+              blockResult <-
+                retryBlockdevDel agentQemuConfig vid nodeName 10
+              case blockResult of
+                NQ.QmpSuccess ->
+                  pure CGNA.Session'vmDetachDrive'results
+                NQ.QmpError err -> throwFailed ("blockdev-del: " <> err)
+                NQ.QmpConnectionFailed err ->
+                  throwFailed ("QMP connect (blockdev-del): " <> err)
+            NQ.QmpError err -> throwFailed ("device_del: " <> err)
+            NQ.QmpConnectionFailed err ->
+              throwFailed ("QMP connect (device_del): " <> err)
+
   -- ---- Cloud-init ----------------------------------------------------------
 
   session'cloudInitGenerateIso _ =
@@ -470,6 +539,25 @@ flushBufferForVm bufMapVar vid = do
   case Map.lookup vid bufMap of
     Nothing -> pure ()
     Just handle -> flushBuffer (sbhBuffer handle)
+
+-- | QEMU @device_del@ completes asynchronously; an immediate
+-- @blockdev-del@ on the same node trips a "node N is busy"
+-- error. Retry a few times with 100 ms backoff; mirrors the
+-- pre-Phase-4 daemon-side retry loop in
+-- @Corvus.Handlers.Disk.Attach.qmpBlockdevDelRetry@.
+retryBlockdevDel
+  :: QemuConfig -> Int64 -> Text -> Int -> IO NQ.QmpResult
+retryBlockdevDel cfg vid nodeName = go
+  where
+    go 0 = NQ.qmpBlockdevDel cfg vid nodeName
+    go n = do
+      r <- NQ.qmpBlockdevDel cfg vid nodeName
+      case r of
+        NQ.QmpError err
+          | "is in use" `T.isInfixOf` err || "is busy" `T.isInfixOf` err -> do
+              threadDelay 100000
+              go (n - 1)
+        _ -> pure r
 
 -- ---------------------------------------------------------------------------
 -- Local QEMU/runtime config used by every VM-abstraction handler.

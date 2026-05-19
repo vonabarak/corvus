@@ -86,6 +86,10 @@ module Corvus.NodeAgentClient
   , openHmpMonitor
   , flushSerialConsole
   , flushHmpMonitor
+
+    -- * QMP-mediated runtime changes
+  , vmAttachDrive
+  , vmDetachDrive
   )
 where
 
@@ -846,5 +850,59 @@ flushHmpMonitor nac vmId = remote $ do
     callOn
       #flushHmpMonitor
       CGNA.Session'flushHmpMonitor'params {CGNA.vmId = vmId}
+      (nacSession nac)
+  pure ()
+
+-- ---------------------------------------------------------------------------
+-- QMP-mediated runtime changes
+
+-- | Hot-attach a drive via QMP @blockdev-add@ + @device_add@.
+-- @driveId@ is the daemon's drive table key; the agent derives
+-- QEMU's @node-name@ (@drive-N@) and @id@ (@device-N@) from it.
+-- The wire path returns @()@; QMP failures arrive as remote
+-- exceptions and surface as 'NodeAgentRemoteError'.
+vmAttachDrive
+  :: NodeAgentClient
+  -> Int64
+  -- ^ vmId
+  -> Int64
+  -- ^ driveId (DB key)
+  -> T.Text
+  -- ^ resolved disk file path
+  -> T.Text
+  -- ^ disk format (@"qcow2"@ / @"raw"@ / …)
+  -> T.Text
+  -- ^ drive interface (@"virtio"@ / @"ide"@ / …)
+  -> Bool
+  -- ^ read-only
+  -> IO (Either NodeAgentError ())
+vmAttachDrive nac vmId driveId filePath fmt ifKind ro = remote $ do
+  let req =
+        CGNA.VmAttachDriveReq
+          { CGNA.vmId = vmId
+          , CGNA.driveId = driveId
+          , CGNA.filePath = filePath
+          , CGNA.format = fmt
+          , CGNA.ifKind = ifKind
+          , CGNA.readOnly = ro
+          }
+  _ :: C.Parsed CGNA.Session'vmAttachDrive'results <-
+    callOn
+      #vmAttachDrive
+      CGNA.Session'vmAttachDrive'params {CGNA.req = req}
+      (nacSession nac)
+  pure ()
+
+-- | Hot-detach a drive via QMP @device_del@ + @blockdev-del@
+-- (the agent handles the busy-retry).
+vmDetachDrive :: NodeAgentClient -> Int64 -> Int64 -> IO (Either NodeAgentError ())
+vmDetachDrive nac vmId driveId = remote $ do
+  _ :: C.Parsed CGNA.Session'vmDetachDrive'results <-
+    callOn
+      #vmDetachDrive
+      CGNA.Session'vmDetachDrive'params
+        { CGNA.vmId = vmId
+        , CGNA.driveId = driveId
+        }
       (nacSession nac)
   pure ()

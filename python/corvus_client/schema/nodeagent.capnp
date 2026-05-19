@@ -213,6 +213,24 @@ interface Session {
   # the buffer doesn't exist (VM stopped).
   flushSerialConsole @26 (vmId :Int64) -> ();
   flushHmpMonitor    @27 (vmId :Int64) -> ();
+
+  # -------------------------------------------------------------------
+  # QMP-mediated runtime VM changes. The agent runs as root and
+  # owns the QMP socket; the daemon (unprivileged) can't connect
+  # directly, so these operations get their own RPCs. Each throws
+  # on QMP failure; the daemon translates that back into a
+  # response on its side.
+  # -------------------------------------------------------------------
+
+  # Disk hot-plug. QEMU `blockdev-add` + `device_add` for an
+  # already-attached drive row. driveId is the daemon's primary
+  # key for the drive; the agent uses it to derive the QEMU
+  # @node-name and @id (drive-<N> / device-<N>).
+  vmAttachDrive @28 (req :VmAttachDriveReq) -> ();
+
+  # Disk hot-unplug. QEMU `device_del` + `blockdev-del` with the
+  # daemon's retry-on-busy loop folded in.
+  vmDetachDrive @29 (vmId :Int64, driveId :Int64) -> ();
 }
 
 # Daemon-implemented sink for periodic agent → daemon VM status
@@ -335,6 +353,18 @@ enum VmAgentState {
   stopped @1;   # exited cleanly
   errored @2;   # exited non-zero
   unknown @3;   # not in ledger
+}
+
+# Disk hot-plug request. Mirrors the args the daemon-side
+# 'Corvus.Node.Qmp.qmpBlockdevAdd' + 'qmpDeviceAddDrive' used
+# to take.
+struct VmAttachDriveReq {
+  vmId      @0 :Int64;
+  driveId   @1 :Int64;
+  filePath  @2 :Text;
+  format    @3 :Text;       # "qcow2" / "raw" / …
+  ifKind    @4 :Text;       # "virtio" / "ide" / "scsi" / …
+  readOnly  @5 :Bool;
 }
 
 # QGA exec request/response.

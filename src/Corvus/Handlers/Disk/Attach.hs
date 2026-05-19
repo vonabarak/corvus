@@ -24,13 +24,12 @@ import Corvus.Action
 import Corvus.Handlers.Disk.Db (getOverlayIds)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
 
-import Control.Concurrent (threadDelay)
+import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (logInfoN, logWarnN)
+import Control.Monad.Logger (logInfoN)
 import Corvus.Model
-import Corvus.Node.Qmp
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
-import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import qualified Data.Text as T
@@ -91,43 +90,40 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
               case mDriveId of
                 Nothing -> pure $ RespError "Disk is already attached to this VM"
                 Just driveId -> do
-                  -- If VM is running or paused, hot-plug via QMP (both have live QEMU process)
+                  -- If VM is running or paused, hot-plug via the
+                  -- agent's `vmAttachDrive` RPC (the agent owns
+                  -- the QMP socket; the daemon can't connect to
+                  -- it from an unprivileged uid).
                   if vmStatus vm `elem` [VmRunning, VmPaused]
                     then do
                       logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-plug"
-                      let nodeName = "drive-" <> T.pack (show $ fromSqlKey driveId)
-                          deviceId = "device-" <> T.pack (show $ fromSqlKey driveId)
-                          format = diskImageFormat disk
                       filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-
-                      -- Add block device
-                      let qemuCfg = ssQemuConfig state
-                      blockResult <- liftIO $ qmpBlockdevAdd qemuCfg vmId nodeName filePath format readOnly
-                      case blockResult of
-                        QmpSuccess -> do
-                          -- Add device
-                          deviceResult <- liftIO $ qmpDeviceAddDrive qemuCfg vmId deviceId nodeName interface
-                          case deviceResult of
-                            QmpSuccess -> do
+                      let driveIdInt = fromSqlKey driveId
+                          fmtTxt = enumToText (diskImageFormat disk)
+                          ifTxt = enumToText interface
+                      mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+                      case mAgent of
+                        Nothing -> do
+                          liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                          pure $ RespError "nodeagent unavailable"
+                        Just nac -> do
+                          r <-
+                            liftIO $
+                              NOA.vmAttachDrive
+                                nac
+                                vmId
+                                driveIdInt
+                                (T.pack filePath)
+                                fmtTxt
+                                ifTxt
+                                readOnly
+                          case r of
+                            Right () -> do
                               logInfoN "Hot-plug successful"
-                              pure $ RespDiskAttached $ fromSqlKey driveId
-                            QmpError err -> do
-                              logWarnN $ "Device add failed: " <> err
-                              -- Try to clean up blockdev
-                              _ <- liftIO $ qmpBlockdevDel qemuCfg vmId nodeName
-                              -- Remove drive record
+                              pure $ RespDiskAttached driveIdInt
+                            Left e -> do
                               liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                              pure $ RespError $ "Device add failed: " <> err
-                            QmpConnectionFailed err -> do
-                              liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                              pure $ RespError $ "QMP connection failed: " <> err
-                        QmpError err -> do
-                          logWarnN $ "Blockdev add failed: " <> err
-                          liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                          pure $ RespError $ "Blockdev add failed: " <> err
-                        QmpConnectionFailed err -> do
-                          liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                          pure $ RespError $ "QMP connection failed: " <> err
+                              pure $ RespError $ "vmAttachDrive: " <> T.pack (show e)
                     else do
                       logInfoN "VM is not active, disk attached to database only"
                       pure $ RespDiskAttached $ fromSqlKey driveId
@@ -152,64 +148,29 @@ handleDiskDetach state vmId diskId = runServerLogging state $ do
       case mVm of
         Nothing -> pure RespVmNotFound
         Just vm -> do
-          -- If VM is running or paused, hot-unplug via QMP (both have live QEMU process)
+          -- Hot-unplug via the agent's vmDetachDrive RPC (the
+          -- agent owns the QMP socket). The blockdev-del busy
+          -- retry-loop lives agent-side.
           if vmStatus vm `elem` [VmRunning, VmPaused]
             then do
               logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-unplug"
-              let deviceId = "device-" <> T.pack (show driveId)
-                  nodeName = "drive-" <> T.pack (show driveId)
-
-              -- Remove device first (device_del is async — QEMU returns
-              -- immediately but the device is removed in the background)
-              let qemuCfg = ssQemuConfig state
-              deviceResult <- liftIO $ qmpDeviceDel qemuCfg vmId deviceId
-              case deviceResult of
-                QmpSuccess -> do
-                  -- Remove block device, retrying if device_del hasn't completed yet
-                  blockResult <- liftIO $ retryBlockdevDel qemuCfg vmId nodeName
-                  case blockResult of
-                    QmpSuccess -> do
+              mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
+              case mAgent of
+                Nothing -> pure $ RespError "nodeagent unavailable"
+                Just nac -> do
+                  r <- liftIO $ NOA.vmDetachDrive nac vmId driveId
+                  case r of
+                    Right () -> do
                       liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
                       logInfoN "Hot-unplug successful"
                       pure RespDiskOk
-                    QmpError err -> do
-                      logWarnN $ "Blockdev remove failed (device already removed): " <> err
-                      -- Still remove from DB since device is gone
-                      liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
-                      pure RespDiskOk
-                    QmpConnectionFailed err ->
-                      pure $ RespError $ "QMP connection failed: " <> err
-                QmpError err -> do
-                  logWarnN $ "Device remove failed: " <> err
-                  pure $ RespError $ "Device remove failed: " <> err
-                QmpConnectionFailed err ->
-                  pure $ RespError $ "QMP connection failed: " <> err
+                    Left e ->
+                      pure $ RespError $ "vmDetachDrive: " <> T.pack (show e)
             else do
               -- Just remove from database
               liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
               logInfoN "Drive detached from database"
               pure RespDiskOk
-
--- | Retry @blockdev-del@ up to 5 times with 200ms delay between attempts.
---
--- QEMU's @device_del@ is asynchronous — the device may still be in use
--- when we try to remove its block backend immediately after @device_del@
--- returns. Each retry sleeps 200ms, then polls; errors other than
--- \"in use\" are returned immediately without retrying.
-retryBlockdevDel :: QemuConfig -> Int64 -> T.Text -> IO QmpResult
-retryBlockdevDel config vmId nodeName = go (5 :: Int)
-  where
-    go 0 = qmpBlockdevDel config vmId nodeName
-    go n = do
-      result <- qmpBlockdevDel config vmId nodeName
-      case result of
-        QmpSuccess -> pure QmpSuccess
-        QmpError err
-          | "in use" `T.isInfixOf` err -> do
-              threadDelay 200000
-              go (n - 1)
-          | otherwise -> pure result
-        other -> pure other
 
 --------------------------------------------------------------------------------
 -- Action Types
