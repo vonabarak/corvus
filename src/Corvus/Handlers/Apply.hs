@@ -219,7 +219,7 @@ executeApply state config skipExisting parentId = do
         Right (diskMap, diskCreated) -> do
           -- Phase 3: Networks
           nwResult <- runSequentialCreate (acNetworks config) Map.empty $ \n _nwMap -> do
-            mExisting <- if skipExisting then resolveByName state UniqueNetworkName Map.empty (anName n) else pure Nothing
+            mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [NetworkName ==. nm]) Map.empty (anName n) else pure Nothing
             case mExisting of
               Just eid -> pure $ Right (anName n, eid)
               Nothing -> do
@@ -284,7 +284,7 @@ executeApply state config skipExisting parentId = do
       where
         go [] acc = pure $ Right $ reverse acc
         go (v : vs) acc = do
-          mExisting <- if skipExisting then resolveByName state UniqueName Map.empty (avName v) else pure Nothing
+          mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [VmName ==. nm]) Map.empty (avName v) else pure Nothing
           case mExisting of
             Just _existingId -> go vs acc
             Nothing -> do
@@ -424,7 +424,7 @@ createNetIfs state nwMap vmId netIfs vmName = go netIfs
       mNetworkId <- case aniNetwork ni of
         Nothing -> pure $ Right Nothing
         Just nwName -> do
-          mId <- resolveByName state UniqueNetworkName nwMap nwName
+          mId <- resolveByNameFilter state (\nm -> [NetworkName ==. nm]) nwMap nwName
           case mId of
             Nothing -> pure $ Left $ "VM '" <> vmName <> "': network '" <> nwName <> "' not found"
             Just nid -> pure $ Right $ Just nid
@@ -489,6 +489,28 @@ resolveByName state mkUnique localMap name = case Map.lookup name localMap of
   Nothing -> do
     mEntity <- runSqlPool (getBy (mkUnique name)) (ssDbPool state)
     pure $ fmap (fromSqlKey . entityKey) mEntity
+
+-- | Same as 'resolveByName' but uses a 'selectList' filter instead
+-- of a 'Unique' constructor — needed for entities (Vm, Network)
+-- whose uniqueness is now composite (per-node) and so don't
+-- expose a single-field name constraint.
+-- TODO(multi-node slice 1c): when 'apply' learns about nodes,
+-- thread the apply's node-id through here and add it to the
+-- filter so name conflicts across nodes resolve unambiguously.
+resolveByNameFilter
+  :: (PersistEntity record, PersistEntityBackend record ~ SqlBackend, ToBackendKey SqlBackend record)
+  => ServerState
+  -> (Text -> [Filter record])
+  -> Map.Map Text Int64
+  -> Text
+  -> IO (Maybe Int64)
+resolveByNameFilter state mkFilter localMap name = case Map.lookup name localMap of
+  Just rid -> pure $ Just rid
+  Nothing -> do
+    entities <- runSqlPool (selectList (mkFilter name) []) (ssDbPool state)
+    case entities of
+      [e] -> pure $ Just (fromSqlKey (entityKey e))
+      _ -> pure Nothing
 
 --------------------------------------------------------------------------------
 -- Action Types

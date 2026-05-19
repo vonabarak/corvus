@@ -676,13 +676,15 @@ attachBuildFloppy state parentTaskId stack vmIdLong prefix b = case buildFloppy 
           Left err -> pure $ Left $ "build floppy: " <> err
           Right () -> do
             now <- liftIO getCurrentTime
+            -- TODO(multi-node Phase 3): record 'storedPath' in
+            -- DiskImageNode on the bake VM's node.
+            let _ = storedPath
             diskKey <-
               liftIO $
                 runSqlPool
                   ( insert
                       DiskImage
                         { diskImageName = diskName
-                        , diskImageFilePath = storedPath
                         , diskImageFormat = FormatRaw
                         , diskImageSizeMb = Just 2
                         , diskImageCreatedAt = now
@@ -1361,13 +1363,12 @@ relocateArtifact state diskId target = do
                 Right () -> finalize basePath current desired
   where
     finalize basePath oldPath newPath = do
-      liftIO $
-        runSqlPool
-          ( update
-              (toSqlKey diskId :: DiskImageId)
-              [DiskImageFilePath =. makeRelativeToBase basePath newPath]
-          )
-          (ssDbPool state)
+      -- TODO(multi-node Phase 3): update DiskImageNode row for
+      -- (diskId, build-vm-node) with the new path; DiskImage no
+      -- longer carries a filePath column.
+      let _ = (basePath, newPath)
+      _ <- pure (diskId :: Int64)
+      let _ = (basePath, newPath)
       -- Best-effort: drop the now-empty bake-VM directory.
       _ <-
         liftIO

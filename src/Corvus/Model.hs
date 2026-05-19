@@ -10,23 +10,28 @@ module Corvus.Model
     migrateAll
 
     -- * Entities
+  , Node (..)
   , Vm (..)
   , Drive (..)
   , NetworkInterface (..)
   , DiskImage (..)
+  , DiskImageNode (..)
   , Snapshot (..)
 
     -- * Entity IDs
+  , NodeId
   , VmId
   , DriveId
   , NetworkInterfaceId
   , DiskImageId
+  , DiskImageNodeId
   , SnapshotId
 
     -- * Entity Fields (for queries)
   , EntityField (..)
 
     -- * Enums
+  , NodeAdminState (..)
   , VmStatus (..)
   , DriveInterface (..)
   , DriveFormat (..)
@@ -504,14 +509,79 @@ instance PersistFieldSql TaskResult where
   sqlType _ = SqlString
 
 --------------------------------------------------------------------------------
+-- NodeAdminState
+--------------------------------------------------------------------------------
+
+-- | Operator-controlled lifecycle state of a 'Node' row, independent
+-- of whether its agents are currently reachable.
+--
+--   * 'NodeOnline' — eligible for the scheduler's pick-a-node pass.
+--   * 'NodeDraining' — existing VMs keep running but no new VMs land here.
+--   * 'NodeMaintenance' — operator hint that the node is intentionally
+--     down; suppresses "agent unreachable" alerting when added.
+data NodeAdminState
+  = NodeOnline
+  | NodeDraining
+  | NodeMaintenance
+  deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
+
+instance EnumText NodeAdminState where
+  enumTypeName = "NodeAdminState"
+  enumMapping =
+    [ (NodeOnline, "online")
+    , (NodeDraining, "draining")
+    , (NodeMaintenance, "maintenance")
+    ]
+
+instance FromJSON NodeAdminState where
+  parseJSON = parseEnumJSON
+
+instance ToJSON NodeAdminState where
+  toJSON = toEnumJSON
+
+instance PersistField NodeAdminState where
+  toPersistValue = enumToPersistValue
+  fromPersistValue = enumFromPersistValue
+
+instance PersistFieldSql NodeAdminState where
+  sqlType _ = SqlString
+
+--------------------------------------------------------------------------------
 -- Entity definitions
 --------------------------------------------------------------------------------
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
   [persistLowerCase|
+Node
+    name Text
+    host Text
+    nodeAgentPort Int
+    netAgentPort Int
+    basePath Text
+    description Text Maybe default=NULL
+    adminState NodeAdminState
+    createdAt UTCTime
+    -- Populated/refreshed by the agent push (Phase 5).
+    cpuCount Int Maybe default=NULL
+    ramMbTotal Int Maybe default=NULL
+    ramMbFree Int Maybe default=NULL
+    storageBytesTotal Int Maybe default=NULL
+    storageBytesFree Int Maybe default=NULL
+    loadAvg1 Double Maybe default=NULL
+    loadAvg5 Double Maybe default=NULL
+    loadAvg15 Double Maybe default=NULL
+    kernelRelease Text Maybe default=NULL
+    agentVersion Text Maybe default=NULL
+    nodeAgentHealthcheck UTCTime Maybe default=NULL
+    netAgentHealthcheck UTCTime Maybe default=NULL
+    UniqueNodeName name
+    UniqueNodeAddress host nodeAgentPort
+    deriving Show Eq Generic
+
 Vm
     name Text
+    nodeId NodeId
     createdAt UTCTime
     status VmStatus
     cpuCount Int
@@ -526,18 +596,30 @@ Vm
     vsockCid Int Maybe default=NULL
     errorMessage Text Maybe default=NULL
     lastErrorAt UTCTime Maybe default=NULL
-    UniqueName name
+    UniqueVmNamePerNode nodeId name
     deriving Show Eq Generic
 
 DiskImage
     name Text
-    filePath Text
     format DriveFormat
     sizeMb Int Maybe
     createdAt UTCTime
     backingImageId DiskImageId Maybe
     UniqueDiskImageName name
-    UniqueImagePath filePath
+    deriving Show Eq Generic
+
+-- Per-node placement of a logical 'DiskImage'. A logical image
+-- may live on one or many nodes; each row carries the on-disk
+-- path on that specific node (paths can differ — e.g.
+-- host-installed daemon vs containerised daemon vs test-node
+-- overlay). Same-node check on attach: @disk_image_node@ row
+-- must exist for @(image, vm.node)@.
+DiskImageNode
+    diskImageId DiskImageId
+    nodeId NodeId
+    filePath Text
+    UniqueDiskImageOnNode diskImageId nodeId
+    UniqueDiskImagePathPerNode nodeId filePath
     deriving Show Eq Generic
 
 Snapshot
@@ -561,6 +643,7 @@ Drive
 
 Network
     name Text
+    nodeId NodeId
     subnet Text default=''
     dhcp Bool default=false
     nat Bool default=false
@@ -568,7 +651,7 @@ Network
     dnsmasqPid Int Maybe
     createdAt UTCTime
     autostart Bool default=false
-    UniqueNetworkName name
+    UniqueNetworkPerNode nodeId name
     deriving Show Eq Generic
 
 NetworkInterface

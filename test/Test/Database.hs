@@ -8,6 +8,7 @@ module Test.Database
   , setupTestDb
   , teardownTestDb
   , createTestTempDir
+  , insertDefaultTestNode
 
     -- * Test environment
   , TestEnv (..)
@@ -25,14 +26,17 @@ where
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (runNoLoggingT)
 import Corvus.Model (migrateAll)
+import qualified Corvus.Model as M
 import Corvus.Protocol (Response)
 import Data.ByteString.Char8 (pack)
 import Data.IORef (IORef, newIORef)
 import Data.Pool (Pool, destroyAllResources)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Time (getCurrentTime)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
+import Database.Persist (insert_)
 import Database.Persist.Postgresql (SqlBackend, createPostgresqlPool, runMigration, runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
 import System.Directory (createDirectoryIfMissing, removePathForcibly)
@@ -90,6 +94,12 @@ setupTestDb = do
   pool <- runNoLoggingT $ createPostgresqlPool connStr 50
   runSqlPool (runMigration migrateAll) pool
 
+  -- Seed a default 'test-node' so handlers that insert VMs /
+  -- networks / disks have a satisfiable FK target. Recreated by
+  -- 'testCase' after each per-test 'TRUNCATE … RESTART IDENTITY'
+  -- so the node reliably claims id=1.
+  runSqlPool insertDefaultTestNode pool
+
   -- Initialize other fields
   respRef <- newIORef Nothing
   tempDir <- createTestTempDir
@@ -101,6 +111,37 @@ setupTestDb = do
       , teConfig = config
       , teLastResponse = respRef
       , teTempDir = tempDir
+      }
+
+-- | Insert the default 'test-node' row. Called once per test
+-- case after the truncate-and-reset-identity pass so every test
+-- starts with id=1 occupied — matching the 'toSqlKey 1 :: NodeId'
+-- placeholders the lib still carries through multi-node Phase 1.
+insertDefaultTestNode :: SqlPersistT IO ()
+insertDefaultTestNode = do
+  now <- liftIO getCurrentTime
+  insert_
+    M.Node
+      { M.nodeName = "test-node"
+      , M.nodeHost = "127.0.0.1"
+      , M.nodeNodeAgentPort = 9878
+      , M.nodeNetAgentPort = 9877
+      , M.nodeBasePath = "/tmp"
+      , M.nodeDescription = Nothing
+      , M.nodeAdminState = M.NodeOnline
+      , M.nodeCreatedAt = now
+      , M.nodeCpuCount = Nothing
+      , M.nodeRamMbTotal = Nothing
+      , M.nodeRamMbFree = Nothing
+      , M.nodeStorageBytesTotal = Nothing
+      , M.nodeStorageBytesFree = Nothing
+      , M.nodeLoadAvg1 = Nothing
+      , M.nodeLoadAvg5 = Nothing
+      , M.nodeLoadAvg15 = Nothing
+      , M.nodeKernelRelease = Nothing
+      , M.nodeAgentVersion = Nothing
+      , M.nodeNodeAgentHealthcheck = Nothing
+      , M.nodeNetAgentHealthcheck = Nothing
       }
 
 -- | Destroy the test database

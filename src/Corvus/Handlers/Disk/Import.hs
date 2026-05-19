@@ -168,13 +168,13 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
       sizeMb <- liftIO $ getImageSizeMbViaAgent state' diskPath
       now <- liftIO getCurrentTime
       let storedPath = makeRelativeToBase basePath diskPath
+      let _ = storedPath -- TODO(multi-node Phase 3): record in DiskImageNode for the importing node
       diskId <-
         liftIO $
           runSqlPool
             ( insert
                 DiskImage
                   { diskImageName = safeName
-                  , diskImageFilePath = storedPath
                   , diskImageFormat = format
                   , diskImageSizeMb = sizeMb
                   , diskImageCreatedAt = now
@@ -227,7 +227,9 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
           case fetchResult of
             Left err -> pure $ Left err
             Right diskPath -> do
-              let storedPath = makeRelativeToBase basePath diskPath
+              let _storedPath = makeRelativeToBase basePath diskPath
+              -- TODO(multi-node Phase 3): record _storedPath in
+              -- DiskImageNode for the importing node.
               sizeMb <- getImageSizeMbViaAgent state diskPath
               now <- getCurrentTime
               diskId <-
@@ -235,7 +237,6 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
                   ( insert
                       DiskImage
                         { diskImageName = safeName
-                        , diskImageFilePath = storedPath
                         , diskImageFormat = format
                         , diskImageSizeMb = sizeMb
                         , diskImageCreatedAt = now

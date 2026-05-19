@@ -123,7 +123,6 @@ handleDiskCreate state name format sizeMb mPath = runServerLogging state $ do
                 ( insert
                     DiskImage
                       { diskImageName = safeName
-                      , diskImageFilePath = makeRelativeToBase basePath filePath
                       , diskImageFormat = format
                       , diskImageSizeMb = Just (fromIntegral sizeMb)
                       , diskImageCreatedAt = now
@@ -131,6 +130,11 @@ handleDiskCreate state name format sizeMb mPath = runServerLogging state $ do
                       }
                 )
                 (ssDbPool state)
+          -- TODO(multi-node Phase 3): record per-node path
+          -- 'makeRelativeToBase basePath filePath' in DiskImageNode
+          -- for the (eventually parameterised) target node.
+          let _ = basePath
+              _ = filePath
           logInfoN $ "Created disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
           pure $ RespDiskCreated $ fromSqlKey diskId
 
@@ -178,18 +182,23 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
 
       -- Store in database
       now <- liftIO getCurrentTime
+      -- TODO(multi-node Phase 3): use 'DiskImageNode' for the
+      -- (storedPath, node) dedup. For now dedupe only by logical
+      -- name; reject conflicting registrations.
       mExisting <-
         liftIO $
           runSqlPool
-            ( getBy (UniqueImagePath storedPath)
+            ( getBy (UniqueDiskImageName name)
             )
             (ssDbPool state)
 
       case mExisting of
         Just (Entity diskId _) -> do
           logInfoN $ "Disk image already registered with ID: " <> T.pack (show $ fromSqlKey diskId)
+          let _ = storedPath
           pure $ RespDiskCreated $ fromSqlKey diskId
         Nothing -> do
+          let _ = storedPath
           result <-
             liftIO $
               try $
@@ -197,7 +206,6 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
                   ( insert
                       DiskImage
                         { diskImageName = name
-                        , diskImageFilePath = storedPath
                         , diskImageFormat = format
                         , diskImageSizeMb = sizeMb
                         , diskImageCreatedAt = now
@@ -210,10 +218,13 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
               logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
               pure $ RespDiskCreated $ fromSqlKey diskId
             Left (_err :: SomeException) -> do
-              -- Race condition: another thread inserted first. Retry lookup.
+              -- Race condition: another thread inserted first.
+              -- TODO(multi-node Phase 3): retry via 'DiskImageNode'
+              -- once per-node placement lookups exist; for now
+              -- retry by name (still globally unique).
               mRetry <-
                 liftIO $
-                  runSqlPool (getBy (UniqueImagePath storedPath)) (ssDbPool state)
+                  runSqlPool (getBy (UniqueDiskImageName name)) (ssDbPool state)
               case mRetry of
                 Just (Entity diskId _) -> do
                   logInfoN $ "Disk image registered concurrently with ID: " <> T.pack (show $ fromSqlKey diskId)
@@ -267,7 +278,6 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath = runServerLo
                         ( insert
                             DiskImage
                               { diskImageName = safeName
-                              , diskImageFilePath = makeRelativeToBase basePath overlayFilePath
                               , diskImageFormat = FormatQcow2
                               , diskImageSizeMb = diskImageSizeMb baseDisk
                               , diskImageCreatedAt = now
@@ -275,6 +285,9 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath = runServerLo
                               }
                         )
                         (ssDbPool state)
+                  -- TODO(multi-node Phase 3): record overlay path in
+                  -- DiskImageNode on the target node.
+                  let _ = (basePath, overlayFilePath)
                   -- Resize if requested
                   case mResizeMb of
                     Just newSize -> do
@@ -320,6 +333,10 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath = runServerLogging 
                 ImageNotFound -> pure $ RespError "Source image file not found"
                 _ -> do
                   now <- liftIO getCurrentTime
+                  -- TODO(multi-node Phase 3): record clone path
+                  -- 'makeRelativeToBase basePath destPath' in
+                  -- DiskImageNode for the target node.
+                  let _ = (basePath, destPath)
                   newDiskId <-
                     liftIO $
                       runSqlPool
@@ -328,7 +345,6 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath = runServerLogging 
                               insert
                                 DiskImage
                                   { diskImageName = safeName
-                                  , diskImageFilePath = makeRelativeToBase basePath destPath
                                   , diskImageFormat = diskImageFormat baseDisk
                                   , diskImageSizeMb = diskImageSizeMb baseDisk
                                   , diskImageCreatedAt = now

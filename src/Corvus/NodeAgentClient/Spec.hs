@@ -119,11 +119,11 @@ fetchDriveWithImage (Entity _ drive) = do
 -- DB paths are resolved against @basePath@).
 encodeDriveSpec :: FilePath -> Drive -> M.DiskImage -> VS.VmDriveSpec
 encodeDriveSpec basePath drive img =
-  let raw = T.unpack (M.diskImageFilePath img)
-      absPath =
-        if take 1 raw == "/"
-          then raw
-          else basePath </> raw
+  -- TODO(multi-node Phase 3): resolve the file path from the
+  -- 'DiskImageNode' join keyed by (img, vm.nodeId). For now emit
+  -- empty so the daemon compiles; vmStart will fail loudly if
+  -- reached.
+  let absPath = basePath </> ""
    in VS.VmDriveSpec
         { VS.vdsDiskFilePath = T.pack absPath
         , VS.vdsFormat = enumToText (M.diskImageFormat img)

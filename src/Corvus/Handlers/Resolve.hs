@@ -37,12 +37,23 @@ import Corvus.Model
   , fromSqlKey
   , toSqlKey
   )
+import qualified Corvus.Model as M
 import Corvus.Protocol (Ref (..))
 import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Persist.Sql (PersistEntity, PersistEntityBackend, SqlBackend, ToBackendKey, get, getBy, runSqlPool)
+import Database.Persist (Filter, (==.))
+import Database.Persist.Sql
+  ( PersistEntity
+  , PersistEntityBackend
+  , SqlBackend
+  , ToBackendKey
+  , get
+  , getBy
+  , runSqlPool
+  , selectList
+  )
 import Text.Read (readMaybe)
 
 -- | Resolve a 'Ref' to a database key.
@@ -74,17 +85,62 @@ resolveRef mkUnique typeName (Ref refText) pool =
         Nothing -> pure $ Left $ typeName <> " '" <> refText <> "' not found"
         Just (Entity key _) -> pure $ Right (fromSqlKey key)
 
--- | Resolve a VM reference.
+-- | Resolve a reference whose textual form is a (non-unique) name
+-- column. Numeric → id lookup. Otherwise → 'selectList' with the
+-- caller-supplied filter, expecting exactly one match. Used by
+-- 'resolveVm' and 'resolveNetwork' where the cluster-wide
+-- 'UniqueName' / 'UniqueNetworkName' constraints are now scoped
+-- to a node (multi-node refactor) and the name alone may match
+-- zero, one, or many rows.
+resolveByName
+  :: forall record
+   . ( PersistEntity record
+     , PersistEntityBackend record ~ SqlBackend
+     , ToBackendKey SqlBackend record
+     )
+  => Text
+  -- ^ Entity type name for error messages
+  -> (Text -> [Filter record])
+  -- ^ Build the name-filter for 'selectList'
+  -> Ref
+  -> Pool SqlBackend
+  -> IO (Either Text Int64)
+resolveByName typeName mkFilter (Ref refText) pool =
+  case readMaybe (T.unpack refText) of
+    Just numId -> do
+      mEntity <- runSqlPool (get (toSqlKey numId :: Key record)) pool
+      case mEntity of
+        Nothing -> pure $ Left $ typeName <> " #" <> T.pack (show (numId :: Int64)) <> " not found"
+        Just _ -> pure $ Right numId
+    Nothing -> do
+      entities <- runSqlPool (selectList (mkFilter refText) []) pool
+      case entities of
+        [] -> pure $ Left $ typeName <> " '" <> refText <> "' not found"
+        [Entity key _] -> pure $ Right (fromSqlKey key)
+        many ->
+          pure $
+            Left $
+              typeName
+                <> " '"
+                <> refText
+                <> "' is ambiguous: "
+                <> T.pack (show (length many))
+                <> " matches across nodes; use the numeric id"
+
+-- | Resolve a VM reference. Cluster-wide name lookup; rejects
+-- ambiguous matches because 'UniqueVmNamePerNode' only guarantees
+-- uniqueness within a node.
 resolveVm :: Ref -> Pool SqlBackend -> IO (Either Text Int64)
-resolveVm = resolveRef @Vm UniqueName "VM"
+resolveVm = resolveByName @Vm "VM" (\n -> [M.VmName ==. n])
 
 -- | Resolve a disk image reference.
 resolveDisk :: Ref -> Pool SqlBackend -> IO (Either Text Int64)
 resolveDisk = resolveRef @DiskImage UniqueDiskImageName "Disk image"
 
--- | Resolve a network reference.
+-- | Resolve a network reference. Same per-node-uniqueness pattern
+-- as 'resolveVm'.
 resolveNetwork :: Ref -> Pool SqlBackend -> IO (Either Text Int64)
-resolveNetwork = resolveRef @Network UniqueNetworkName "Network"
+resolveNetwork = resolveByName @Network "Network" (\n -> [M.NetworkName ==. n])
 
 -- | Resolve an SSH key reference.
 resolveSshKey :: Ref -> Pool SqlBackend -> IO (Either Text Int64)

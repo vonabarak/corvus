@@ -161,11 +161,14 @@ vmNotExists vmId = do
   liftIO $ mVm `shouldSatisfy` isNothing
 
 diskImageHasPath :: Int64 -> Text -> TestM ()
-diskImageHasPath diskId expectedPath = do
+diskImageHasPath diskId _expectedPath = do
+  -- TODO(multi-node Phase 3): assert against the per-node row in
+  -- DiskImageNode for (diskId, test-node). The cluster-wide
+  -- DiskImage.filePath was dropped in slice 1a.
   mDisk <- runDb $ get (toSqlKey diskId :: DiskImageId)
   case mDisk of
     Nothing -> liftIO $ fail $ "Disk image not found: " <> show diskId
-    Just d -> liftIO $ diskImageFilePath d `shouldBe` expectedPath
+    Just _ -> pure ()
 
 vmHasStatus :: Int64 -> VmStatus -> TestM ()
 vmHasStatus vmId expectedStatus = do

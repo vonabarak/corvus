@@ -43,14 +43,13 @@ sanitizeDiskName name
 
 -- | Resolve a disk image file path, handling relative paths.
 -- Relative paths (not starting with @\/@) are resolved against the base path.
+-- TODO(multi-node Phase 3): file path moved to 'DiskImageNode';
+-- this helper either gains a 'NodeId' parameter or is deleted in
+-- favour of callers reading the join row directly.
 resolveDiskPath :: QemuConfig -> DiskImage -> IO FilePath
-resolveDiskPath config disk = do
+resolveDiskPath config _disk = do
   basePath <- getEffectiveBasePath config
-  let rawPath = T.unpack $ diskImageFilePath disk
-  pure $
-    if "/" `T.isPrefixOf` diskImageFilePath disk
-      then rawPath
-      else basePath </> rawPath
+  pure (basePath </> "")
 
 -- | Convert an absolute file path to a relative path if it falls within
 -- the base directory. Paths outside the base directory are returned as-is.

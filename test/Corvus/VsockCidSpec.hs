@@ -107,6 +107,7 @@ vmStubWithCid :: UTCTime -> Text -> Int -> M.Vm
 vmStubWithCid now name cid =
   M.Vm
     { M.vmName = name
+    , M.vmNodeId = M.toSqlKey 1 :: M.NodeId
     , M.vmCreatedAt = now
     , M.vmStatus = M.VmStopped
     , M.vmCpuCount = 1

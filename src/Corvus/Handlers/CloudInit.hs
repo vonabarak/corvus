@@ -240,10 +240,12 @@ ensureCloudInitDiskRegistered :: Pool SqlBackend -> QemuConfig -> Int64 -> Text 
 ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = runFilteredLogging logLevel $ do
   let vmKey = toSqlKey vmId :: VmId
   let diskName = vmName <> "-cloud-init"
-  basePath <- liftIO $ getEffectiveBasePath qemuConfig
-  let storedPath = makeRelativeToBase basePath (T.unpack isoPath)
+  _basePath <- liftIO $ getEffectiveBasePath qemuConfig
+  let _storedPath = makeRelativeToBase _basePath (T.unpack isoPath)
 
-  mExisting <- liftIO $ runSqlPool (getBy (UniqueImagePath storedPath)) pool
+  -- TODO(multi-node Phase 3): replace name-based dedup with the
+  -- proper per-node 'DiskImageNode' lookup keyed by (image, vm.nodeId).
+  mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName diskName)) pool
   case mExisting of
     Just (Entity diskId _) -> do
       logDebugN $ "Cloud-init disk already registered: " <> T.pack (show $ fromSqlKey diskId)
@@ -256,7 +258,6 @@ ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = run
             ( insert
                 DiskImage
                   { diskImageName = diskName
-                  , diskImageFilePath = storedPath
                   , diskImageFormat = FormatRaw
                   , diskImageSizeMb = Nothing
                   , diskImageCreatedAt = now

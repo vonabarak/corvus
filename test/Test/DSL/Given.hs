@@ -49,13 +49,54 @@ where
 
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Model
+import qualified Corvus.Model as M
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (Key, insert)
-import Database.Persist.Sql (fromSqlKey, toSqlKey)
+import Database.Persist (Key, getBy, insert)
+import Database.Persist.Sql (Entity (..), fromSqlKey, toSqlKey)
 import Test.DSL.Core (TestM, runDb)
+
+--------------------------------------------------------------------------------
+-- Test Node
+--------------------------------------------------------------------------------
+
+-- | Ensure a single test 'Node' row exists and return its key.
+-- Every Vm and Network the DSL inserts references this node, so
+-- the per-test DB has a coherent FK graph. Idempotent: subsequent
+-- calls within the same test return the existing key.
+seedTestNode :: TestM NodeId
+seedTestNode = do
+  mExisting <- runDb $ getBy (M.UniqueNodeName "test-node")
+  case mExisting of
+    Just (Entity k _) -> pure k
+    Nothing -> do
+      now <- liftIO getCurrentTime
+      runDb $
+        insert
+          Node
+            { nodeName = "test-node"
+            , nodeHost = "127.0.0.1"
+            , nodeNodeAgentPort = 9878
+            , nodeNetAgentPort = 9877
+            , nodeBasePath = "/tmp"
+            , nodeDescription = Nothing
+            , nodeAdminState = NodeOnline
+            , nodeCreatedAt = now
+            , nodeCpuCount = Nothing
+            , nodeRamMbTotal = Nothing
+            , nodeRamMbFree = Nothing
+            , nodeStorageBytesTotal = Nothing
+            , nodeStorageBytesFree = Nothing
+            , nodeLoadAvg1 = Nothing
+            , nodeLoadAvg5 = Nothing
+            , nodeLoadAvg15 = Nothing
+            , nodeKernelRelease = Nothing
+            , nodeAgentVersion = Nothing
+            , nodeNodeAgentHealthcheck = Nothing
+            , nodeNetAgentHealthcheck = Nothing
+            }
 
 --------------------------------------------------------------------------------
 -- VM Setup
@@ -64,12 +105,14 @@ import Test.DSL.Core (TestM, runDb)
 -- | Insert a VM with minimal parameters
 insertVm :: Text -> VmStatus -> TestM Int64
 insertVm name status = do
+  nodeKey <- seedTestNode
   now <- liftIO getCurrentTime
   key <-
     runDb $
       insert
         Vm
           { vmName = name
+          , vmNodeId = nodeKey
           , vmCreatedAt = now
           , vmStatus = status
           , vmCpuCount = 2
@@ -91,12 +134,14 @@ insertVm name status = do
 -- SPICE-related tests that need to assert "no graphical console".
 insertHeadlessVm :: Text -> VmStatus -> TestM Int64
 insertHeadlessVm name status = do
+  nodeKey <- seedTestNode
   now <- liftIO getCurrentTime
   key <-
     runDb $
       insert
         Vm
           { vmName = name
+          , vmNodeId = nodeKey
           , vmCreatedAt = now
           , vmStatus = status
           , vmCpuCount = 2
@@ -124,12 +169,14 @@ insertVmFull
   -> Maybe Int
   -> TestM Int64
 insertVmFull name status cpus ramMb desc _pid = do
+  nodeKey <- seedTestNode
   now <- liftIO getCurrentTime
   key <-
     runDb $
       insert
         Vm
           { vmName = name
+          , vmNodeId = nodeKey
           , vmCreatedAt = now
           , vmStatus = status
           , vmCpuCount = cpus
@@ -148,12 +195,16 @@ insertVmFull name status cpus ramMb desc _pid = do
   pure $ fromSqlKey key
 
 -- | Default VM values for reference
+-- | Stub VM used in pure tests that don't touch the DB.
+-- Carries an unpersisted node id — callers comparing whole 'Vm'
+-- values must mind this.
 defaultVm :: IO Vm
 defaultVm = do
   now <- getCurrentTime
   pure
     Vm
       { vmName = "test-vm"
+      , vmNodeId = toSqlKey 1 :: NodeId
       , vmCreatedAt = now
       , vmStatus = VmStopped
       , vmCpuCount = 2
@@ -183,7 +234,6 @@ insertDiskImage name path format = do
       insert
         DiskImage
           { diskImageName = name
-          , diskImageFilePath = path
           , diskImageFormat = format
           , diskImageSizeMb = Nothing
           , diskImageCreatedAt = now
@@ -205,7 +255,6 @@ insertDiskImageFull name path format sizeMb = do
       insert
         DiskImage
           { diskImageName = name
-          , diskImageFilePath = path
           , diskImageFormat = format
           , diskImageSizeMb = sizeMb
           , diskImageCreatedAt = now
@@ -228,7 +277,6 @@ insertDiskImageWithBacking name path format sizeMb mBackingId = do
       insert
         DiskImage
           { diskImageName = name
-          , diskImageFilePath = path
           , diskImageFormat = format
           , diskImageSizeMb = sizeMb
           , diskImageCreatedAt = now
@@ -243,7 +291,6 @@ defaultDiskImage = do
   pure
     DiskImage
       { diskImageName = "test-disk"
-      , diskImageFilePath = T.pack "test/disk.qcow2"
       , diskImageFormat = FormatQcow2
       , diskImageSizeMb = Just 10240
       , diskImageCreatedAt = now
@@ -335,12 +382,14 @@ insertSnapshot diskImageId name = do
 -- | Insert a network into the database
 insertNetwork :: Text -> Text -> TestM Int64
 insertNetwork name subnet = do
+  nodeKey <- seedTestNode
   now <- liftIO getCurrentTime
   key <-
     runDb $
       insert
         Network
           { networkName = name
+          , networkNodeId = nodeKey
           , networkSubnet = subnet
           , networkDhcp = False
           , networkNat = False
@@ -412,12 +461,14 @@ givenVmExists name = insertVm name VmStopped
 -- | Create a stopped VM with cloud-init enabled
 givenCloudInitVmExists :: Text -> TestM Int64
 givenCloudInitVmExists name = do
+  nodeKey <- seedTestNode
   now <- liftIO getCurrentTime
   key <-
     runDb $
       insert
         Vm
           { vmName = name
+          , vmNodeId = nodeKey
           , vmCreatedAt = now
           , vmStatus = VmStopped
           , vmCpuCount = 2

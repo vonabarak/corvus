@@ -78,6 +78,7 @@ spec = sequential $ withTestDb $ do
               ( insert
                   M.Vm
                     { M.vmName = "conc-port-" <> T.pack (show port)
+                    , M.vmNodeId = M.toSqlKey 1 :: M.NodeId
                     , M.vmCreatedAt = now
                     , M.vmStatus = M.VmRunning
                     , M.vmCpuCount = 1
@@ -132,6 +133,7 @@ insertRunningVm name port = do
       insert $
         M.Vm
           { M.vmName = name
+          , M.vmNodeId = M.toSqlKey 1 :: M.NodeId
           , M.vmCreatedAt = now
           , M.vmStatus = M.VmRunning
           , M.vmCpuCount = 1

@@ -355,12 +355,11 @@ driveArgs basePath (idx, (drive, mDiskImage)) = case mDiskImage of
             ]
       ]
   where
-    -- Resolve relative paths against base path
-    filePath diskImage =
-      let rawPath = T.unpack (diskImageFilePath diskImage)
-       in if "/" `isPrefixOf` rawPath
-            then rawPath -- Absolute path
-            else basePath </> rawPath -- Relative path
+    -- Resolve relative paths against base path.
+    -- TODO(multi-node Phase 3): file path moved to 'DiskImageNode';
+    -- caller must already supply the resolved path. For now stub
+    -- to basePath/"".
+    filePath _diskImage = basePath </> ""
 
 -- | Check if a string starts with a prefix
 isPrefixOf :: String -> String -> Bool

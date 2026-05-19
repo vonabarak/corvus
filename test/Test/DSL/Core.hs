@@ -124,8 +124,12 @@ testCase name action = it name $ \dbEnv -> do
   -- Create fresh last response ref for this test case
   respRef <- newIORef Nothing
   let env = dbEnv {DB.teLastResponse = respRef}
-  -- Truncate all tables before each test for isolation
+  -- Truncate all tables before each test for isolation, then
+  -- re-seed the default test node so every test starts with the
+  -- 'toSqlKey 1 :: NodeId' FK target satisfied (multi-node
+  -- Phase 1 lib still uses that placeholder pervasively).
   runSqlPool truncateAllTables (DB.tePool env)
+  runSqlPool DB.insertDefaultTestNode (DB.tePool env)
   runTestM env action
 
 -- | Truncate all tables to ensure test isolation

@@ -73,9 +73,14 @@ handleNetworkCreate state name subnet dhcp nat autostart =
                 then pure $ RespNetworkError "NAT requires a subnet"
                 else do
                   now <- getCurrentTime
-                  let network =
+                  -- TODO(multi-node slice 1c): placeholder nodeKey;
+                  -- 'crv network create --node' will populate this
+                  -- once the apply / CLI surface is wired.
+                  let nodeKey = M.toSqlKey 1 :: M.NodeId
+                      network =
                         Network
                           { networkName = name
+                          , networkNodeId = nodeKey
                           , networkSubnet = normalizedSubnet
                           , networkDhcp = dhcp
                           , networkNat = nat

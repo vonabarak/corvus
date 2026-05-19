@@ -778,13 +778,18 @@ setVmStatus vmId status = do
         , M.VmLastErrorAt =. Nothing
         ]
 
--- | Create a new VM
+-- | Create a new VM.
+-- TODO(multi-node slice 1c): the placeholder 'nodeKey' below
+-- becomes a parameter once 'crv vm create --node' is wired
+-- through the CLI / apply / RPC surfaces.
 createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> Bool -> Maybe Int -> SqlPersistT IO Int64
 createVm name cpuCount ramMb description headless guestAgent cloudInit autostart vsockCid = do
   now <- liftIO getCurrentTime
-  let vm =
+  let nodeKey = toSqlKey 1 :: M.NodeId
+      vm =
         Vm
           { vmName = name
+          , vmNodeId = nodeKey
           , vmCreatedAt = now
           , vmStatus = VmStopped
           , vmCpuCount = cpuCount
@@ -971,7 +976,9 @@ getVmDetails config vmId = do
               , diDiskImageId = fromSqlKey diskImageKey
               , diDiskImageName = diskImageName diskImage
               , diInterface = driveInterface drive
-              , diFilePath = diskImageFilePath diskImage
+              , -- TODO(multi-node Phase 3): resolve per-node path
+                -- via DiskImageNode keyed by (image, vm.nodeId).
+                diFilePath = T.empty
               , diFormat = diskImageFormat diskImage
               , diMedia = driveMedia drive
               , diReadOnly = driveReadOnly drive

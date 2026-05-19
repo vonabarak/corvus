@@ -100,7 +100,10 @@ listDiskImages = do
       DiskImageInfo
         { diiId = fromSqlKey key
         , diiName = diskImageName disk
-        , diiFilePath = diskImageFilePath disk
+        , -- TODO(multi-node Phase 3): file path moved to
+          -- 'DiskImageNode'; surface a per-node list in the DTO
+          -- instead of an unconditional single string.
+          diiFilePath = T.empty
         , diiFormat = diskImageFormat disk
         , diiSizeMb = diskImageSizeMb disk
         , diiCreatedAt = diskImageCreatedAt disk
@@ -123,7 +126,10 @@ getDiskImageInfo diskId = do
           DiskImageInfo
             { diiId = diskId
             , diiName = diskImageName disk
-            , diiFilePath = diskImageFilePath disk
+            , -- TODO(multi-node Phase 3): file path moved to
+              -- 'DiskImageNode'; surface a per-node list in the DTO
+              -- instead of an unconditional single string.
+              diiFilePath = T.empty
             , diiFormat = diskImageFormat disk
             , diiSizeMb = diskImageSizeMb disk
             , diiCreatedAt = diskImageCreatedAt disk
