@@ -32,6 +32,7 @@ module Corvus.Handlers.Build
 where
 
 import Control.Concurrent (threadDelay)
+import Control.Concurrent.STM (readTVarIO)
 import Control.Exception (SomeException, try)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
@@ -48,9 +49,11 @@ import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..), getVmDetails)
 import Corvus.Model
-import Corvus.Node.GuestAgent (GuestExecResult (..), guestExec, guestExecWithStdin, guestExecWithTail, guestPing)
+import Corvus.Node.GuestAgent (GuestExecResult (..))
 import Corvus.Node.Image (ImageResult (..))
 import Corvus.Node.Qmp (QmpResult (..), qmpSendKey)
+import qualified Corvus.Node.VmSpec as VS
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Schema.Build
@@ -68,6 +71,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Time (UTCTime, getCurrentTime)
 import qualified Data.Version as Version
+import Data.Word (Word32)
 import Data.Yaml (decodeEither')
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
@@ -75,6 +79,99 @@ import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 import Paths_corvus (version)
 import System.Directory (copyFile, createDirectoryIfMissing, removeDirectory, removeFile, renameFile)
 import System.FilePath (takeDirectory, (</>))
+
+--------------------------------------------------------------------------------
+-- Agent-routed QGA helpers
+--
+-- All guest-exec / guest-ping calls during a bake-VM build go
+-- through @nodeagent.vmGuestExec@ (the agent owns the QGA
+-- socket). These helpers wrap the underlying RPC and preserve
+-- the daemon-side 'GuestExecResult' shape so the bake-pipeline
+-- code reads the same.
+--
+-- Trade-off (Phase 4): @agentGuestExecWithTail@ no longer
+-- streams stdout line-by-line as QGA chunks arrive — the agent's
+-- vmGuestExec aggregates and returns the full output on exit.
+-- Build provisioner output therefore appears at end-of-step
+-- instead of live. A streaming RPC variant
+-- (@vmGuestExecStream(req, sink)@) is the natural follow-up.
+--------------------------------------------------------------------------------
+
+-- | One-shot guest exec via @nodeagent.vmGuestExec@.
+agentGuestExec :: ServerState -> Int64 -> Text -> Word32 -> IO GuestExecResult
+agentGuestExec state vmId cmd =
+  agentGuestExecCore state vmId cmd BS.empty
+
+-- | Guest exec with a stdin payload.
+agentGuestExecWithStdin
+  :: ServerState
+  -> Int64
+  -> Text
+  -> BS.ByteString
+  -> Word32
+  -> IO GuestExecResult
+agentGuestExecWithStdin = agentGuestExecCore
+
+-- | Trivial liveness probe — run @/bin/true@; success iff exit 0.
+-- Drop-in replacement for the old QGA @guest-ping@.
+agentGuestPing :: ServerState -> Int64 -> IO Bool
+agentGuestPing state vmId = do
+  r <- agentGuestExecCore state vmId "true" BS.empty 5
+  pure $ case r of
+    GuestExecSuccess 0 _ _ -> True
+    _ -> False
+
+-- | Guest exec whose stdout we split into lines and feed through
+-- @onLine@ after completion. Non-streaming (see module note).
+agentGuestExecWithTail
+  :: ServerState
+  -> Int64
+  -> Text
+  -> Word32
+  -> (Text -> IO ())
+  -> IO GuestExecResult
+agentGuestExecWithTail state vmId cmd timeoutSec onLine = do
+  r <- agentGuestExecCore state vmId cmd BS.empty timeoutSec
+  case r of
+    GuestExecSuccess _ out _ ->
+      mapM_ onLine (T.lines out) >> pure r
+    _ -> pure r
+
+-- | Common body for the four wrappers above.
+agentGuestExecCore
+  :: ServerState
+  -> Int64
+  -> Text
+  -> BS.ByteString
+  -> Word32
+  -> IO GuestExecResult
+agentGuestExecCore state vmId cmd stdinPayload timeoutSec = do
+  mAgent <- readTVarIO (ssNodeAgent state)
+  case mAgent of
+    Nothing -> pure (GuestExecConnectionFailed "nodeagent unavailable")
+    Just nac -> do
+      let req =
+            VS.VmGuestExecReq
+              { VS.vgeVmId = vmId
+              , VS.vgePath = "/bin/sh"
+              , VS.vgeArgs = ["-c", cmd]
+              , VS.vgeCaptureOutput = True
+              , VS.vgeInputData = stdinPayload
+              , VS.vgeTimeoutSec = timeoutSec
+              }
+      r <- NOA.vmGuestExec nac req
+      case r of
+        Left e ->
+          pure (GuestExecError ("vmGuestExec: " <> T.pack (show e)))
+        Right info
+          | VS.vgiHasExit info ->
+              pure $
+                GuestExecSuccess
+                  (fromIntegral (VS.vgiExitCode info))
+                  (TE.decodeUtf8With lenientDecode (VS.vgiStdout info))
+                  (TE.decodeUtf8With lenientDecode (VS.vgiStderr info))
+          | otherwise ->
+              pure (GuestExecError "guest-exec timeout / no exit")
 
 --------------------------------------------------------------------------------
 -- Top-level Action
@@ -865,12 +962,11 @@ runProvisionerBody state vmId sd cEnv stepIdx sink p = case p of
             sink (StepOutput stepIdx line)
             accumulateLine bufRef totalRef line
       result <-
-        guestExecWithTail
-          (ssGuestAgentConns state)
-          (ssQemuConfig state)
+        agentGuestExecWithTail
+          state
           vmId
           fullCmd
-          maxPolls
+          (fromIntegral maxPolls)
           onLine
       tail' <- finalizeStepBuf bufRef totalRef
       pure $ case result of
@@ -907,9 +1003,8 @@ runProvisionerBody state vmId sd cEnv stepIdx sink p = case p of
               <> dest
       sink (StepOutput stepIdx ("writing " <> fileTo fp))
       result <-
-        guestExecWithStdin
-          (ssGuestAgentConns state)
-          (ssQemuConfig state)
+        agentGuestExecWithStdin
+          state
           vmId
           cmd
           payload
@@ -1078,15 +1173,10 @@ waitForIO
 waitForIO state stepIdx sink vmId w = case w of
   WaitForPing timeoutSec ->
     loopUntil timeoutSec "guest-agent ping" $
-      guestPing (ssGuestAgentConns state) (ssQemuConfig state) vmId
+      agentGuestPing state vmId
   WaitForFile path timeoutSec ->
     loopUntil timeoutSec ("file " <> path) $ do
-      r <-
-        guestExec
-          (ssGuestAgentConns state)
-          (ssQemuConfig state)
-          vmId
-          ("test -e " <> shellQuote path)
+      r <- agentGuestExec state vmId ("test -e " <> shellQuote path) 5
       pure $ case r of
         GuestExecSuccess 0 _ _ -> True
         _ -> False
@@ -1098,12 +1188,7 @@ waitForIO state stepIdx sink vmId w = case w of
               <> "$' || netstat -ltn 2>/dev/null | awk '{print $4}' | grep -q ':"
               <> T.pack (show port)
               <> "$'"
-      r <-
-        guestExec
-          (ssGuestAgentConns state)
-          (ssQemuConfig state)
-          vmId
-          probe
+      r <- agentGuestExec state vmId probe 5
       pure $ case r of
         GuestExecSuccess 0 _ _ -> True
         _ -> False
@@ -1134,11 +1219,11 @@ rebootGuestIO
 rebootGuestIO state stepIdx sink vmId timeoutSec = do
   sink (StepOutput stepIdx "rebooting via guest-exec")
   result <-
-    guestExec
-      (ssGuestAgentConns state)
-      (ssQemuConfig state)
+    agentGuestExec
+      state
       vmId
       "(sleep 1; /sbin/reboot || /usr/sbin/reboot || reboot) >/dev/null 2>&1 &"
+      30
   case result of
     GuestExecConnectionFailed msg ->
       pure $ Left ("reboot dispatch: " <> msg, Just msg)

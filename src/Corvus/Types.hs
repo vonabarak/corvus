@@ -68,12 +68,6 @@ data ServerState = ServerState
   -- 'ssNetAgent'. Phase 1 ships the connection only; later
   -- phases route disk / VM / console operations through this
   -- handle.
-  , ssGuestAgentConns :: TVar (Map.Map Int64 (MVar (Maybe Socket)))
-  -- ^ Per-VM persistent guest agent connections.
-  -- QEMU's chardev only supports one connection at a time (listen backlog=1).
-  -- The MVar serializes access and holds the socket between operations.
-  -- Nothing = not connected (will connect on next use).
-  -- Just sock = persistent connection ready for commands.
   , ssGuestAgentSubs :: TVar (Map.Map Int64 [C.Client CGS.GuestAgentStatusSink])
   -- ^ Per-VM 'vm.subscribeGuestAgent' subscriber lists. The
   -- guest-agent poller pushes a 'GuestAgentStatus' to each sink
@@ -107,7 +101,6 @@ newServerState pool qemuConfig = do
   shutdownFlag <- newTVarIO False
   netAgent <- newTVarIO Nothing
   nodeAgent <- newTVarIO Nothing
-  gaLocks <- newTVarIO Map.empty
   gaSubs <- newTVarIO Map.empty
   taskSubs <- newTVarIO Map.empty
   vsockLock <- newMVar ()
@@ -122,7 +115,6 @@ newServerState pool qemuConfig = do
       , ssLogLevel = LevelInfo
       , ssNetAgent = netAgent
       , ssNodeAgent = nodeAgent
-      , ssGuestAgentConns = gaLocks
       , ssGuestAgentSubs = gaSubs
       , ssTaskProgressSubs = taskSubs
       , ssVsockCidLock = vsockLock

@@ -42,17 +42,6 @@ module Corvus.Qemu
   , generateQemuCommand
   , generateQemuCommandIO
 
-    -- * Guest Agent (daemon-side helpers; slice C migrates these to the agent)
-  , GuestExecResult (..)
-  , GuestIpAddress (..)
-  , GuestNetIf (..)
-  , GuestAgentConns
-  , closeGuestAgentConn
-  , guestExec
-  , guestPing
-  , guestShutdown
-  , guestNetworkGetInterfaces
-
     -- * Disk image management (read-only helpers; mutating ops go through the agent)
   , createImage
   , deleteImage

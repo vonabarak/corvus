@@ -1210,8 +1210,6 @@ attachVmMonitor state vmId = do
             "VM "
               <> T.pack (show vmId)
               <> " monitor exiting: agent disconnected"
-    -- Close persistent guest agent connection (QEMU is gone)
-    liftIO $ closeGuestAgentConn (ssGuestAgentConns state) vmId
     -- Tell netd it can drop the VM's managed TAPs.
     liftIO $ releaseManagedTaps state vmId
   pure ()

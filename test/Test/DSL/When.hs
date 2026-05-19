@@ -156,7 +156,6 @@ createTestServerState pool basePath = do
   shutdownFlag <- newTVarIO False
   netAgent <- newTVarIO Nothing
   nodeAgent <- newTVarIO Nothing
-  gaLocks <- newTVarIO mempty
   gaSubs <- newTVarIO mempty
   taskSubs <- newTVarIO mempty
   vsockLock <- newMVar ()
@@ -172,7 +171,6 @@ createTestServerState pool basePath = do
       , ssLogLevel = logLevel
       , ssNetAgent = netAgent
       , ssNodeAgent = nodeAgent
-      , ssGuestAgentConns = gaLocks
       , ssGuestAgentSubs = gaSubs
       , ssTaskProgressSubs = taskSubs
       , ssVsockCidLock = vsockLock
