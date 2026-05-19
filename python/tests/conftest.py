@@ -46,18 +46,56 @@ def _pg_admin_db() -> str:
 
 
 def _corvus_binary() -> str:
+    """Locate the `corvus` daemon binary.
+
+    Preference order:
+      1. `$CORVUS_BIN` env override.
+      2. The freshly built `stack path --local-install-root`
+         tree — same binary the integration-test harness uses.
+         No `make install` required to run the test suite.
+      3. `$HOME/.local/bin/corvus` (manual install).
+      4. `corvus` on `$PATH` (system package; typically older).
+    """
     override = os.environ.get("CORVUS_BIN")
     if override:
         return override
-    # Prefer the user-installed binary (~/.local/bin/corvus) over any
-    # system package: a system /usr/bin/corvus is typically older and
-    # may speak a stale wire protocol.
+    # Discover the dev-tree binary via `stack path`. The Python test
+    # suite lives at python/, which is a sibling of the Haskell tree
+    # — walk up to the repo root and ask stack from there.
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    try:
+        out = subprocess.run(
+            [_find_stack(), "path", "--local-install-root"],
+            cwd=str(repo_root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+            timeout=60,
+        )
+        stack_bin = Path(out.stdout.decode().strip()) / "bin" / "corvus"
+        if stack_bin.is_file() and os.access(stack_bin, os.X_OK):
+            return str(stack_bin)
+    except (FileNotFoundError, subprocess.SubprocessError, RuntimeError):
+        pass
     local = Path.home() / ".local/bin/corvus"
     if local.is_file() and os.access(local, os.X_OK):
         return str(local)
     found = shutil.which("corvus")
     if not found:
-        raise RuntimeError("`corvus` not on PATH (set $CORVUS_BIN or `make install`)")
+        raise RuntimeError(
+            "`corvus` not found in .stack-work, ~/.local/bin, or $PATH "
+            "(set $CORVUS_BIN, run `stack build`, or `make install`)"
+        )
+    return found
+
+
+def _find_stack() -> str:
+    ghcup_stack = Path.home() / ".ghcup" / "bin" / "stack"
+    if ghcup_stack.is_file() and os.access(ghcup_stack, os.X_OK):
+        return str(ghcup_stack)
+    found = shutil.which("stack")
+    if not found:
+        raise RuntimeError("`stack` not found (looked at ~/.ghcup/bin/stack and $PATH)")
     return found
 
 

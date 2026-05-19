@@ -82,15 +82,40 @@ class Crv:
 
     @classmethod
     def autodetect(cls) -> "Crv":
-        """Find a usable `crv` binary on PATH and the current user's
-        local install. Prefers ~/.local/bin/crv (the binary built from
-        this dev tree) over any system install."""
+        """Find a usable `crv` binary.
+
+        Preference order:
+          1. The freshly built `stack path --local-install-root`
+             tree (same path the orchestrator nodes virtiofs-mount
+             at /opt/corvus/bin) — guarantees test-side `crv` and
+             daemon-side `corvus` agree on the wire schema without
+             requiring a `make install` step.
+          2. `$HOME/.local/bin/crv` — present when the developer
+             ran `make install` manually.
+          3. `crv` on `$PATH` — falls back to a system install.
+        """
+        # 1) stack-built binary from the dev tree.
+        try:
+            from .host_binary import HostBinary  # local import: avoids cycle
+
+            host_bin = HostBinary.discover()
+            stack_crv = host_bin.bin_dir / "crv"
+            if stack_crv.is_file() and os.access(stack_crv, os.X_OK):
+                return cls(binary=str(stack_crv))
+        except Exception:
+            # `stack` not on PATH, .stack-work absent, etc. — fall through.
+            pass
+        # 2) Manually-installed user binary.
         local = Path.home() / ".local" / "bin" / "crv"
         if local.is_file() and os.access(local, os.X_OK):
             return cls(binary=str(local))
+        # 3) System / $PATH crv.
         found = shutil.which("crv")
         if not found:
-            raise RuntimeError("`crv` not found on PATH or in ~/.local/bin (run `make install`)")
+            raise RuntimeError(
+                "`crv` not found in .stack-work, ~/.local/bin, or $PATH "
+                "(run `stack build` or `make install`)"
+            )
         return cls(binary=found)
 
     # ---- raw subprocess machinery ----------------------------------------

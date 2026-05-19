@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-run install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
+.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -39,16 +39,22 @@ python-schema-sync:
 	cp schema/*.capnp python/corvus_client/schema/
 
 # Run the Python client's test suite against a real corvus daemon
-# spawned per-test on a temp Unix socket. Depends on `install` so
-# a fresh daemon binary is on $PATH.
-python-test: install python-schema-sync
+# spawned per-test on a temp Unix socket. The conftest discovers
+# the freshly built daemon from `stack path --local-install-root`
+# directly — no `make install` required, $HOME/.local/bin stays
+# clean.
+python-test: build python-schema-sync
 	cd python && .venv-corvus-py/bin/pytest tests -v
 
 # Run the pytest integration test suite (nested VMs; rootful inner
-# Corvus; multi-node). Depends on `build` so the inner-side binary
-# is fresh, and on `install` so `crv` is on PATH for the outer
-# driver. The first session run will `crv build` the integration-
-# test image YAML (~30-60 min cold). Requires nested-KVM on the host.
+# Corvus; multi-node). The orchestrator VMs mount the host's
+# `stack path --local-install-root`/bin/ over virtiofs at
+# /opt/corvus/bin, so a `stack build` is the only thing the suite
+# needs — the user-driven `make install` step (which copies to
+# $HOME/.local/bin) is *not* a dependency here, and the harness
+# resolves `crv` from the same stack-install path. The first
+# session run will `crv build` the integration-test image YAML
+# (~30-60 min cold). Requires nested-KVM on the host.
 #
 # No arguments: runs the whole suite in parallel (-n auto).
 # MATCH=<expr>: runs the pytest -k filter (substring or boolean expr).
@@ -57,7 +63,7 @@ python-test: install python-schema-sync
 #   make integration-tests
 #   make integration-tests MATCH=test_apply
 #   make integration-tests MATCH="lifecycle and not edit"
-integration-tests: build install
+integration-tests: build
 	test -d integration_tests/.venv || python3 -m venv integration_tests/.venv
 	integration_tests/.venv/bin/pip install -q -e ./python -e ./integration_tests
 	integration_tests/.venv/bin/pytest integration_tests/tests -v \
@@ -184,18 +190,13 @@ lint:
 format:
 	fourmolu --mode inplace $(shell find src app test -name '*.hs')
 
-# Install binaries to ~/.local/bin/, drop the systemd unit file in
-# place, and install shell completions. Does NOT enable, start, or
-# restart the daemon — use `make install-run` for that. Splitting it
-# this way lets you upgrade the binaries without bouncing a daemon
-# that may be mid-task (build, apply, etc.).
+# Install binaries to ~/.local/bin/, drop the user-systemd unit in
+# place, install shell completions, and (re)start the daemon. This
+# target is meant to be invoked *manually* by the developer — no
+# other target depends on it, so plain `make build`, `make
+# integration-tests`, etc. don't pollute $HOME/.local/bin.
 install:
 	stack install
-
-# Install binaries (as `install` does), then enable + restart the
-# corvus systemd user service. Use this when you want a freshly built
-# daemon running immediately.
-install-run: install
 	mkdir -p $(HOME)/.config/systemd/user/
 	cp corvus.service $(HOME)/.config/systemd/user/
 	systemctl --user daemon-reload
@@ -204,26 +205,28 @@ install-run: install
 
 	# Shell completions
 	mkdir -p $(HOME)/.local/share/bash-completion/completions
-	crv completion bash > $(HOME)/.local/share/bash-completion/completions/crv
+	$(HOME)/.local/bin/crv completion bash > $(HOME)/.local/share/bash-completion/completions/crv
 	mkdir -p $(HOME)/.local/share/zsh/site-functions
-	crv completion zsh > $(HOME)/.local/share/zsh/site-functions/_crv
+	$(HOME)/.local/bin/crv completion zsh > $(HOME)/.local/share/zsh/site-functions/_crv
 	mkdir -p $(HOME)/.config/fish/completions
-	crv completion fish > $(HOME)/.config/fish/completions/crv.fish
+	$(HOME)/.local/bin/crv completion fish > $(HOME)/.config/fish/completions/crv.fish
 
 	sleep 1
-	crv status
+	$(HOME)/.local/bin/crv status
 
-# Install the system-wide privileged network agent (corvus-netd).
-# Requires root: copies the binary to /usr/local/bin/, drops the
-# system systemd unit in place, reloads, enables, and starts it.
+# Install the system-wide privileged agents (corvus-netd +
+# corvus-nodeagent). Requires root.
 #
-# Run after `make install` so the binary is built and present in
-# ~/.local/bin. The system unit copies it into /usr/local/bin so
-# system systemd can find it regardless of the invoking user's home.
-install-system: install
-	install -d /usr/local/bin
-	install -m 0755 $(HOME)/.local/bin/corvus-netd /usr/local/bin/corvus-netd
-	install -m 0755 $(HOME)/.local/bin/corvus-nodeagent /usr/local/bin/corvus-nodeagent
+# Pulls the freshly built binaries straight from
+# `stack path --local-install-root`/bin/ — no dependency on
+# `make install` (which is a manual-only target for the developer's
+# $HOME/.local/bin). Drops the system systemd units, reloads,
+# enables, and restarts both services.
+install-system: build
+	@stack_bin=$$(stack path --local-install-root)/bin; \
+	  install -d /usr/local/bin; \
+	  install -m 0755 $$stack_bin/corvus-netd /usr/local/bin/corvus-netd; \
+	  install -m 0755 $$stack_bin/corvus-nodeagent /usr/local/bin/corvus-nodeagent
 	install -d /etc/systemd/system
 	install -m 0644 systemd/corvus-netd.service /etc/systemd/system/corvus-netd.service
 	install -m 0644 systemd/corvus-nodeagent.service /etc/systemd/system/corvus-nodeagent.service
@@ -254,6 +257,7 @@ uninstall:
 	rm -f $(HOME)/.local/bin/corvus
 	rm -f $(HOME)/.local/bin/crv
 	rm -f $(HOME)/.local/bin/corvus-netd
+	rm -f $(HOME)/.local/bin/corvus-nodeagent
 	rm -f $(HOME)/.local/share/bash-completion/completions/crv
 	rm -f $(HOME)/.local/share/zsh/site-functions/_crv
 	rm -f $(HOME)/.config/fish/completions/crv.fish
