@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
+.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean test-node-vm test-node-vm-clean test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -163,6 +163,46 @@ test-image-node: test-image-key
 	crv build yaml/corvus-test-node/corvus-test-node.yml --wait
 test-image-node-clean:
 	crv disk delete corvus-test-node || true
+
+# Override to rename the manual-testing VM, e.g.:
+#   make test-node-vm TEST_NODE_VM=corvus-foo
+TEST_NODE_VM ?= corvus-test-node-dev
+
+# Instantiate a one-off VM from the `corvus-test-node` template
+# (registered by `make test-image-node`), attach the developer's
+# freshly built binaries over virtiofs at the `corvus_host` tag —
+# matching the image's `opt-corvus-bin.mount` — and start it. The
+# `corvus_host` mount makes /opt/corvus/bin inside the VM the
+# *same* tree as `stack path --local-install-root`/bin/ on the
+# host, so a `stack build` on the host is reflected in the VM
+# without a rebake.
+#
+# After it boots, the daemon inside is reachable over VSOCK
+# (the image runs corvus-tcp-relay.service: VSOCK:9876 → TCP:9876)
+# and SSH is up via systemd's VSOCK socket-activation for the
+# `corvus` user.
+#
+# Idempotent for the second invocation only if you ran
+# `test-node-vm-clean` first; otherwise the template-instantiate
+# step errors on the existing VM name.
+test-node-vm: build
+	@stack_bin=$$(stack path --local-install-root)/bin; \
+	  echo "Instantiating template 'corvus-test-node' as VM '$(TEST_NODE_VM)'"; \
+	  crv template instantiate corvus-test-node $(TEST_NODE_VM); \
+	  echo "Attaching $$stack_bin -> corvus_host (read-only)"; \
+	  crv shared-dir add $(TEST_NODE_VM) "$$stack_bin" corvus_host --read-only; \
+	  echo "Starting $(TEST_NODE_VM)"; \
+	  crv vm start $(TEST_NODE_VM) --wait
+	@echo
+	@echo "VM is up. Use:"
+	@echo "  crv vm show $(TEST_NODE_VM)     # connection details (vsock CID, sockets)"
+	@echo "  ssh corvus@vsock%<CID>          # interactive shell over VSOCK"
+	@echo "  make test-node-vm-clean         # reset + delete the VM (and its overlay)"
+
+# Reset + delete the manual-testing VM and its overlay disk.
+test-node-vm-clean:
+	-crv vm reset $(TEST_NODE_VM)
+	-crv vm delete --delete-disks $(TEST_NODE_VM)
 
 # Build the Windows Server 2025 test image.
 #

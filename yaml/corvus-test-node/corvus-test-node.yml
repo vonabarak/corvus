@@ -354,3 +354,32 @@ pipeline:
             timeoutSec: 30
 
       cleanup: onSuccess
+
+  # Register a runtime template that instantiates a one-off VM from
+  # the freshly baked `corvus-test-node` image. Intended for manual
+  # poking — the integration-test harness writes its own apply YAML
+  # inline (so it can attach per-class shared dirs) and doesn't
+  # reuse this template.
+  #
+  # `make test-node-vm` instantiates this template into a named VM
+  # and attaches `stack path --local-install-root`/bin/ over
+  # virtiofs at the `corvus_host` tag, so the image's
+  # opt-corvus-bin.mount picks up the developer's freshly built
+  # binaries at /opt/corvus/bin without a rebake.
+  - apply:
+      ifExists: skip
+      templates:
+        - name: corvus-test-node
+          description: "Corvus integration-test node — instantiate via `make test-node-vm` for hands-on inspection of the daemon+netd+nodeagent stack inside the same image the test harness uses"
+          cpuCount: 4
+          ramMb: 4096
+          guestAgent: true
+          headless: true
+          drives:
+            - diskImageName: corvus-test-node
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+          networkInterfaces:
+            - type: user
