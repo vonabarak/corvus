@@ -905,6 +905,13 @@ handleVmStopGraceful sc vmId timeoutSec = do
           { CGNA.result = encodeVmStopResult VS.VmStopAlreadyStopped ""
           }
     Just live -> do
+      -- Send both shutdown signals: QGA `guest-shutdown` (the guest
+      -- runs its own `poweroff` / `shutdown -h now`) and QMP
+      -- `system_powerdown` (ACPI power-button). Together they cover
+      -- guests with QGA but no acpid (e.g. early cloud-init), guests
+      -- with acpid but no QGA, and guests with both. Either one
+      -- exiting the QEMU process is good enough.
+      _ <- E.try @E.SomeException (NGA.guestShutdown (scQgaConns sc) agentQemuConfig vmId)
       qmpResult <- NQ.qmpShutdown agentQemuConfig vmId
       case qmpResult of
         NQ.QmpSuccess -> pure ()
