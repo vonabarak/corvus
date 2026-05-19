@@ -25,7 +25,7 @@ import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath,
 import Data.ByteString.Char8 (pack)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), selectList, (==.))
-import Database.Persist.Postgresql (createPostgresqlPool, runMigration, runSqlPool)
+import Database.Persist.Postgresql (createPostgresqlPool, runMigrationUnsafe, runSqlPool)
 import Database.Persist.Sql (fromSqlKey)
 import Options.Applicative
 import Supervisors (withSupervisor)
@@ -170,7 +170,13 @@ main = do
     pool <- createPostgresqlPool (pack $ optDbUri opts) 10
 
     logInfoN "Running database migrations..."
-    liftIO $ runSqlPool (runMigration migrateAll) pool
+    -- 'runMigrationUnsafe' applies destructive migrations (DROP
+    -- COLUMN, DROP TABLE) without prompting. Required because the
+    -- Phase 4 cleanup drops legacy runtime columns ('vm.pid',
+    -- 'vm.spice_port', 'shared_dir.pid' — see slices F/H). The
+    -- backwards-compat shim in CLAUDE.md says breaking schema
+    -- changes are accepted outright.
+    liftIO $ runSqlPool (runMigrationUnsafe migrateAll) pool
     logInfoN "Migrations complete."
 
     -- Initialize server state with database pool
