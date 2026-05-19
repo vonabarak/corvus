@@ -416,31 +416,22 @@ handleVmStopExecute state vmId = do
   validated <- handleVmStopValidate state vmId
   case validated of
     Left errResp -> pure errResp
-    Right (vm, currentStatus) -> runServerLogging state $ do
+    Right (_vm, currentStatus) -> runServerLogging state $ do
       liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. VmStopping]) (ssDbPool state)
-      -- Try guest-shutdown first for guest-agent-enabled VMs.
-      -- (Slice C will move this to vmGuestExec too; for now the
-      -- daemon-side guestShutdown still works.)
-      gaShutdown <-
-        if vmGuestAgent vm
-          then do
-            logDebugN $ "Sending guest-shutdown to VM " <> T.pack (show vmId)
-            ok <- liftIO $ guestShutdown (ssGuestAgentConns state) (ssQemuConfig state) vmId
-            when ok $ logInfoN $ "VM " <> T.pack (show vmId) <> " guest-shutdown initiated"
-            pure ok
-          else pure False
-      -- Whether or not the guest-agent path succeeded, call
-      -- 'vmStopGraceful' to drive the agent's QMP system_powerdown
-      -- and block until QEMU actually exits.
+      -- 'vmStopGraceful' on the agent issues QMP @system_powerdown@
+      -- (ACPI) and blocks until QEMU exits. That's the canonical
+      -- guest shutdown path; the previous daemon-side QGA
+      -- @guest-shutdown@ pre-call was belt-and-suspenders and is
+      -- gone now that the agent owns QGA.
       mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
       case mAgent of
         Nothing -> do
           logWarnN "nodeagent unavailable; cannot stop VM"
           liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. currentStatus]) (ssDbPool state)
           pure $ RespInvalidTransition currentStatus "nodeagent unavailable"
-        Just nac -> stopViaAgent nac currentStatus gaShutdown
+        Just nac -> stopViaAgent nac currentStatus
   where
-    stopViaAgent nac currentStatus _gaShutdown = do
+    stopViaAgent nac currentStatus = do
       r <- liftIO $ NOA.vmStopGraceful nac vmId 300
       case r of
         Left e -> do
@@ -1246,9 +1237,23 @@ attachVmMonitor state vmId = do
   pure ()
 
 -- | On daemon (re)connect to the agent: walk the DB for every VM
--- the DB believes is running, ask the agent for current status,
--- and reattach a monitor thread. VMs the agent reports as exited
--- get their DB status reconciled right here.
+-- whose intent is "should be running" (status in
+-- @{Starting, Running, Paused}@), ask the agent for current
+-- status, and reconcile:
+--
+--   * 'VmAgentRunning' — agent still has the VM; re-attach the
+--     monitor thread.
+--   * 'VmAgentStopped' / 'VmAgentErrored' — agent observed the
+--     exit while the daemon was down; reflect it in the DB.
+--   * 'VmAgentUnknown' — agent has no record (e.g. it restarted
+--     and reaped the orphan QEMU on startup). Re-issue 'vmStart'
+--     to honour the daemon's intent. 'vmStart' is idempotent, so
+--     this is also safe if the agent had the VM and we're just
+--     catching up.
+--
+-- Paused VMs lose their pause state across an agent restart —
+-- they come back as VmRunning. Documented trade-off; symmetric
+-- to "agent restart = VM restart" from the parent plan.
 reattachVmMonitors :: ServerState -> IO ()
 reattachVmMonitors state = do
   let pool = ssDbPool state
@@ -1258,7 +1263,12 @@ reattachVmMonitors state = do
     Just nac -> do
       candidates <-
         runSqlPool
-          (selectList [M.VmPid !=. Nothing] [])
+          ( selectList
+              [ M.VmStatus
+                  <-. [VmStarting, VmRunning, VmPaused]
+              ]
+              []
+          )
           pool
       runServerLogging state $
         Control.Monad.forM_ candidates $ \(Entity vmKey vm) -> do
@@ -1288,11 +1298,55 @@ reattachVmMonitors state = do
                 logInfoN $
                   "VM "
                     <> vmName vm
-                    <> " not in agent ledger; reconciling to stopped"
-                liftIO $ runSqlPool (setVmStopped vmId) pool
+                    <> " not in agent ledger; re-issuing vmStart to honour DB intent"
+                reapplyVm state nac vmId vm
             Left e ->
               logWarnN $
                 "vmStatus RPC failed for VM "
                   <> vmName vm
                   <> ": "
                   <> T.pack (show e)
+
+-- | Re-issue 'vmStart' for one VM. Assembles 'VmSpec' from the
+-- DB (same path 'launchVmViaAgent' uses on a cold start),
+-- dispatches, and attaches the monitor on success. On any
+-- failure the row lands in 'VmError' — a follow-up @crv vm
+-- start@ can recover it.
+reapplyVm :: ServerState -> NOA.NodeAgentClient -> Int64 -> Vm -> LoggingT IO ()
+reapplyVm state nac vmId vm = do
+  let pool = ssDbPool state
+      cfg = ssQemuConfig state
+  mNetAgent <- liftIO $ readTVarIO (ssNetAgent state)
+  hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
+  let netAgentForSpec = if hasManagedNic then mNetAgent else Nothing
+      waitMs =
+        if vmGuestAgent vm
+          then
+            let interval = qcHealthcheckInterval cfg
+             in if interval > 0
+                  then fromIntegral (interval * 1000) :: Word32
+                  else 60000
+          else 0
+  mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
+  case mSpec of
+    Nothing -> do
+      logWarnN $
+        "VM "
+          <> vmName vm
+          <> " disappeared from DB during reapply; marking stopped"
+      liftIO $ runSqlPool (setVmStopped vmId) pool
+    Just spec -> do
+      r <- liftIO $ NOA.vmStart nac spec
+      case r of
+        Right info -> do
+          logInfoN $ "VM " <> vmName vm <> " re-applied via vmStart"
+          let pid = fromIntegral (NOA.vriQemuPid info) :: Int
+          liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) pool
+          liftIO $ attachVmMonitor state vmId
+        Left e -> do
+          logWarnN $
+            "vmStart reapply failed for VM "
+              <> vmName vm
+              <> ": "
+              <> T.pack (show e)
+          liftIO $ runSqlPool (setVmError vmId) pool
