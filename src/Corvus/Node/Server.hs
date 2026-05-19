@@ -56,14 +56,18 @@ runNodeAgentServer :: String -> Int -> IO ()
 runNodeAgentServer host port = do
   cleanupCorvusProcesses
   vmLedger <- L.newVmLedger
-  -- Agent-wide subscriber registry + QGA connection cache.
+  -- Agent-wide subscriber registry, QGA connection cache, and
+  -- chardev ring-buffer registries (serial + HMP monitor).
   subs <- SP.newSubscribers
   qgaConns <- newTVarIO Map.empty
+  serialBufs <- newTVarIO Map.empty
+  monitorBufs <- newTVarIO Map.empty
   -- Run the status-push ticker for the lifetime of the listener.
   withAsync (SP.runStatusPoller defaultQemuConfig vmLedger qgaConns subs 10000) $ \_ ->
     TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
       withSupervisor $ \sup -> do
-        nodeAgentCap <- newNodeAgentCap sup vmLedger subs qgaConns
+        nodeAgentCap <-
+          newNodeAgentCap sup vmLedger subs qgaConns serialBufs monitorBufs
         bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
         handleConn
           (socketTransport sock defaultLimit)

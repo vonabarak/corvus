@@ -21,23 +21,31 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc.Server (SomeServer)
+import Control.Concurrent.STM (TVar)
 import Control.Monad.Logger (logInfoN, runStderrLoggingT)
 import Corvus.Node.Caps.Session (newSessionCap)
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.StatusPoller as SP
 import Corvus.Rpc.Common (handleParsed)
+import Corvus.Types (SocketBufferHandle)
+import Data.Int (Int64)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Supervisors (Supervisor)
 
 -- | Bootstrap-cap state. Holds the supervisor for child caps, the
--- process-wide VM ledger, the status-subscriber registry, and the
--- agent-wide QGA connection cache.
+-- process-wide VM ledger, the status-subscriber registry, the
+-- agent-wide QGA connection cache, and the per-VM chardev ring
+-- buffers (serial + HMP monitor) the agent exposes via
+-- @openSerialConsole@ / @openHmpMonitor@.
 data NodeAgentCap = NodeAgentCap
   { nacSup :: !Supervisor
   , nacVmLedger :: !L.VmLedger
   , nacSubs :: !SP.Subscribers
   , nacQgaConns :: !NGA.GuestAgentConns
+  , nacSerialBuffers :: !(TVar (Map.Map Int64 SocketBufferHandle))
+  , nacMonitorBuffers :: !(TVar (Map.Map Int64 SocketBufferHandle))
   }
 
 newNodeAgentCap
@@ -45,14 +53,18 @@ newNodeAgentCap
   -> L.VmLedger
   -> SP.Subscribers
   -> NGA.GuestAgentConns
+  -> TVar (Map.Map Int64 SocketBufferHandle)
+  -> TVar (Map.Map Int64 SocketBufferHandle)
   -> IO NodeAgentCap
-newNodeAgentCap sup vmLedger subs qgaConns =
+newNodeAgentCap sup vmLedger subs qgaConns serialBufs monitorBufs =
   pure
     NodeAgentCap
       { nacSup = sup
       , nacVmLedger = vmLedger
       , nacSubs = subs
       , nacQgaConns = qgaConns
+      , nacSerialBuffers = serialBufs
+      , nacMonitorBuffers = monitorBufs
       }
 
 instance SomeServer NodeAgentCap
@@ -77,9 +89,12 @@ instance CGNA.NodeAgent'server_ NodeAgentCap where
       impl <-
         newSessionCap
           owner
+          (nacSup nac)
           (nacVmLedger nac)
           (nacSubs nac)
           (nacQgaConns nac)
+          (nacSerialBuffers nac)
+          (nacMonitorBuffers nac)
       client <- export @CGNA.Session (nacSup nac) impl
       pure CGNA.NodeAgent'session'results {CGNA.session = client}
 

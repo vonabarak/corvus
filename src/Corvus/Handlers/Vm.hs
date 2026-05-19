@@ -61,7 +61,6 @@ import qualified Corvus.Model as M
 import Corvus.Model.VmState (VmAction (..), validateTransition)
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as Spec
-import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
 import Corvus.Node.SpicePort (withAllocatedSpicePort)
 import Corvus.Node.VsockCid (hostHasVhostVsock, isHostFree, withAllocatedVsockCid)
 import qualified Corvus.NodeAgentClient as NOA
@@ -84,14 +83,6 @@ import Database.Persist
 import Database.Persist.Postgresql (SqlBackend, runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
 import System.IO (IOMode (ReadMode), withBinaryFile)
-
--- | Ring-buffer capacity for a headless VM's serial console scrollback (1 MiB).
-serialBufferCapacity :: Int
-serialBufferCapacity = 1048576
-
--- | Ring-buffer capacity for a VM's HMP monitor scrollback (64 KiB).
-monitorBufferCapacity :: Int
-monitorBufferCapacity = 65536
 
 -- | VM statuses in which a user may attach to the console, HMP monitor,
 -- or SPICE viewer. Anything non-@stopped@ where QEMU is (or should soon
@@ -349,16 +340,11 @@ launchVmViaAgent state vmId vm pool = do
               -- With vmStart blocking for first ping when guestAgent
               -- is set, by the time we get here the VM really is
               -- VmRunning. Skip the legacy VmStarting transition.
+              -- Chardev ring buffers (serial + HMP monitor) are now
+              -- owned by the agent and exposed via the
+              -- openSerialConsole / openHmpMonitor RPCs.
               liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) (ssDbPool state)
               liftIO $ attachVmMonitor state vmId
-              -- Wire up chardev ring buffers.
-              let logLevel = ssLogLevel state
-              when (vmHeadless vm) $ liftIO $ do
-                serialSock <- getSerialSocket cfg vmId
-                startSocketBufferThread cfg vmId serialSock (ssSerialBuffers state) serialBufferCapacity "serial" logLevel
-              liftIO $ do
-                monitorSock <- getMonitorSocket cfg vmId
-                startSocketBufferThread cfg vmId monitorSock (ssMonitorBuffers state) monitorBufferCapacity "monitor" logLevel
               pure $ RespVmStateChanged VmRunning
 
 -- | Re-validate the VM's stored vsock CID against the live host
@@ -571,60 +557,51 @@ handleVmCloudInit state vmId = do
             RespError err -> pure $ RespError $ "Cloud-init ISO generation failed: " <> err
             _ -> pure RespVmEdited
 
--- | Handle serial console attach request.
--- Validates that the VM is running and headless, and that a buffer handle exists.
+-- | Validate that the VM can be addressed for serial console
+-- attachment (running + headless). The agent owns the ring buffer;
+-- this only does the user-facing-message validation.
 handleSerialConsole :: ServerState -> Int64 -> IO Response
 handleSerialConsole state vmId = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-  case result of
-    Nothing -> pure RespVmNotFound
+  pure $ case result of
+    Nothing -> RespVmNotFound
     Just (vm, status)
       | not (isViewable status) ->
-          pure $ RespError $ "VM is not running (status: " <> enumToText status <> ")"
+          RespError $ "VM is not running (status: " <> enumToText status <> ")"
       | not (vmHeadless vm) ->
-          pure $ RespError "VM is not headless — use SPICE viewer instead"
-      | otherwise -> do
-          buffers <- readTVarIO (ssSerialBuffers state)
-          case Map.lookup vmId buffers of
-            Nothing -> pure $ RespError "Serial console buffer not available"
-            Just _ -> pure RespSerialConsoleOk
+          RespError "VM is not headless — use SPICE viewer instead"
+      | otherwise -> RespSerialConsoleOk
 
--- | Handle serial console buffer flush request.
+-- | Validate the VM for serial-console flush (same predicate as
+-- attach). The actual flush is dispatched through the agent.
 handleSerialConsoleFlush :: ServerState -> Int64 -> IO Response
 handleSerialConsoleFlush state vmId = do
-  buffers <- readTVarIO (ssSerialBuffers state)
-  case Map.lookup vmId buffers of
-    Nothing -> pure $ RespError "Serial console buffer not available"
-    Just handle -> do
-      flushBuffer (sbhBuffer handle)
-      pure RespSerialConsoleFlushed
+  resp <- handleSerialConsole state vmId
+  pure $ case resp of
+    RespSerialConsoleOk -> RespSerialConsoleFlushed
+    other -> other
 
--- | Handle HMP monitor attach request.
--- Validates that the VM is running and that a monitor buffer is registered.
--- Headlessness doesn't matter: HMP exists for both headless and graphical VMs.
+-- | Validate that the VM is running for HMP monitor attachment.
+-- Headlessness doesn't matter: HMP exists for both headless and
+-- graphical VMs.
 handleHmpMonitor :: ServerState -> Int64 -> IO Response
 handleHmpMonitor state vmId = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
-  case result of
-    Nothing -> pure RespVmNotFound
+  pure $ case result of
+    Nothing -> RespVmNotFound
     Just (_, status)
       | not (isViewable status) ->
-          pure $ RespError $ "VM is not running (status: " <> enumToText status <> ")"
-      | otherwise -> do
-          buffers <- readTVarIO (ssMonitorBuffers state)
-          case Map.lookup vmId buffers of
-            Nothing -> pure $ RespError "HMP monitor buffer not available"
-            Just _ -> pure RespHmpMonitorOk
+          RespError $ "VM is not running (status: " <> enumToText status <> ")"
+      | otherwise -> RespHmpMonitorOk
 
--- | Handle HMP monitor buffer flush request.
+-- | Validate the VM for HMP-monitor flush; actual flush dispatches
+-- through the agent.
 handleHmpMonitorFlush :: ServerState -> Int64 -> IO Response
 handleHmpMonitorFlush state vmId = do
-  buffers <- readTVarIO (ssMonitorBuffers state)
-  case Map.lookup vmId buffers of
-    Nothing -> pure $ RespError "HMP monitor buffer not available"
-    Just handle -> do
-      flushBuffer (sbhBuffer handle)
-      pure RespHmpMonitorFlushed
+  resp <- handleHmpMonitor state vmId
+  pure $ case resp of
+    RespHmpMonitorOk -> RespHmpMonitorFlushed
+    other -> other
 
 -- | Inject Ctrl+Alt+Del into a running VM via QMP. Delivered through
 -- the daemon's QMP client so it works regardless of whether the

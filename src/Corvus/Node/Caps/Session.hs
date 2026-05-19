@@ -24,15 +24,17 @@ module Corvus.Node.Caps.Session
   )
 where
 
+import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
+import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVarIO, writeTVar)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, void, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (logWarnN, runStderrLoggingT)
+import Control.Monad.Logger (LogLevel (..), logWarnN, runStderrLoggingT)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.CloudInit as NCI
 import qualified Corvus.Node.Command as NC
@@ -41,11 +43,14 @@ import qualified Corvus.Node.Image as NI
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.Qmp as NQ
 import qualified Corvus.Node.Runtime as NR
+import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
 import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Common (handleParsed)
+import Corvus.Rpc.Streams (runByteSinkRelay)
+import Corvus.Types (SocketBufferHandle (..))
 import qualified Data.ByteString as BS
 import Data.Either (lefts, rights)
 import Data.Int (Int32, Int64)
@@ -55,6 +60,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
+import Supervisors (Supervisor)
 import System.Exit (ExitCode (..))
 import System.Posix.Types (CPid (..))
 import System.Process
@@ -70,32 +76,48 @@ import System.Process
 
 -- | Session state. Holds:
 --
+--   * 'scSup' — supervisor used to export server-side caps that
+--     handlers create (e.g. the inbound chardev sink returned by
+--     @openSerialConsole@).
 --   * 'scVmLedger' — vmId-keyed live state for the VM-abstraction
 --     methods (vmStart / vmStop* / vmStatus / vmGuestExec / …);
 --   * 'scSubs' — registry of 'VmStatusSink' caps the
 --     'subscribeVmStatus' handler appends to;
 --   * 'scQgaConns' — agent-wide per-VM QGA persistent-socket
 --     cache shared by 'vmGuestExec' and the status poller.
+--   * 'scSerialBuffers' / 'scMonitorBuffers' — agent-wide
+--     per-VM chardev ring-buffer registries the chardev
+--     streaming RPCs (@openSerialConsole@, @openHmpMonitor@)
+--     read from. Populated during @vmStart@.
 data SessionCap = SessionCap
   { scOwner :: !Text
+  , scSup :: !Supervisor
   , scVmLedger :: !L.VmLedger
   , scSubs :: !SP.Subscribers
   , scQgaConns :: !NGA.GuestAgentConns
+  , scSerialBuffers :: !(TVar (Map.Map Int64 SocketBufferHandle))
+  , scMonitorBuffers :: !(TVar (Map.Map Int64 SocketBufferHandle))
   }
 
 newSessionCap
   :: Text
+  -> Supervisor
   -> L.VmLedger
   -> SP.Subscribers
   -> NGA.GuestAgentConns
+  -> TVar (Map.Map Int64 SocketBufferHandle)
+  -> TVar (Map.Map Int64 SocketBufferHandle)
   -> IO SessionCap
-newSessionCap owner vmLedger subs qgaConns =
+newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs =
   pure
     SessionCap
       { scOwner = owner
+      , scSup = sup
       , scVmLedger = vmLedger
       , scSubs = subs
       , scQgaConns = qgaConns
+      , scSerialBuffers = serialBufs
+      , scMonitorBuffers = monitorBufs
       }
 
 instance SomeServer SessionCap
@@ -317,6 +339,30 @@ instance CGNA.Session'server_ SessionCap where
       SP.addSubscriber (scSubs sc) sink
       pure CGNA.Session'subscribeVmStatus'results
 
+  -- ---- Chardev streaming ---------------------------------------------------
+
+  session'openSerialConsole sc =
+    handleParsed $
+      \CGNA.Session'openSerialConsole'params {CGNA.vmId = vid, CGNA.sink = sink} -> do
+        inputCap <- openChardev (scSerialBuffers sc) sc vid sink
+        pure CGNA.Session'openSerialConsole'results {CGNA.input = inputCap}
+
+  session'openHmpMonitor sc =
+    handleParsed $
+      \CGNA.Session'openHmpMonitor'params {CGNA.vmId = vid, CGNA.sink = sink} -> do
+        inputCap <- openChardev (scMonitorBuffers sc) sc vid sink
+        pure CGNA.Session'openHmpMonitor'results {CGNA.input = inputCap}
+
+  session'flushSerialConsole sc =
+    handleParsed $ \CGNA.Session'flushSerialConsole'params {CGNA.vmId = vid} -> do
+      flushBufferForVm (scSerialBuffers sc) vid
+      pure CGNA.Session'flushSerialConsole'results
+
+  session'flushHmpMonitor sc =
+    handleParsed $ \CGNA.Session'flushHmpMonitor'params {CGNA.vmId = vid} -> do
+      flushBufferForVm (scMonitorBuffers sc) vid
+      pure CGNA.Session'flushHmpMonitor'results
+
   -- ---- Cloud-init ----------------------------------------------------------
 
   session'cloudInitGenerateIso _ =
@@ -381,6 +427,49 @@ encodeDiskSnapshotInfo s =
     , CGNA.sizeMb = maybe 0 fromIntegral (NI.sdSizeMb s) :: Int64
     , CGNA.hasSize = isJust (NI.sdSizeMb s)
     }
+
+-- ---------------------------------------------------------------------------
+-- Chardev streaming helpers
+--
+-- The agent runs one 'startSocketBufferThread' per chardev per VM,
+-- each populating an entry in 'scSerialBuffers' / 'scMonitorBuffers'.
+-- The two RPC handlers below look up the entry, hand it (and the
+-- caller-supplied output sink) to the existing 'runByteSinkRelay'
+-- (re-used from the daemon's chardev plumbing), and return the
+-- inbound 'ByteSink' cap the caller can write to.
+
+-- | Ring-buffer capacity for a VM's serial console (1 MiB).
+serialBufferCapacity :: Int
+serialBufferCapacity = 1048576
+
+-- | Ring-buffer capacity for a VM's HMP monitor scrollback (64 KiB).
+monitorBufferCapacity :: Int
+monitorBufferCapacity = 65536
+
+-- | Common body of 'openSerialConsole' / 'openHmpMonitor':
+-- look up the buffer handle for @vmId@, wire it up via
+-- 'runByteSinkRelay', and return the input sink cap.
+openChardev
+  :: TVar (Map.Map Int64 SocketBufferHandle)
+  -> SessionCap
+  -> Int64
+  -> C.Client CGS.ByteSink
+  -> IO (C.Client CGS.ByteSink)
+openChardev bufMapVar sc vid sink = do
+  bufMap <- readTVarIO bufMapVar
+  case Map.lookup vid bufMap of
+    Nothing -> throwFailed ("chardev buffer not available for vmId " <> tshow vid)
+    Just handle -> runByteSinkRelay (scSup sc) handle sink
+
+-- | Best-effort flush of the buffer for the given vmId; silently
+-- no-op if the buffer is absent.
+flushBufferForVm
+  :: TVar (Map.Map Int64 SocketBufferHandle) -> Int64 -> IO ()
+flushBufferForVm bufMapVar vid = do
+  bufMap <- readTVarIO bufMapVar
+  case Map.lookup vid bufMap of
+    Nothing -> pure ()
+    Just handle -> flushBuffer (sbhBuffer handle)
 
 -- ---------------------------------------------------------------------------
 -- Local QEMU/runtime config used by every VM-abstraction handler.
@@ -643,6 +732,29 @@ doVmStart sc spec = do
                   , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
                   }
           atomically $ L.insertVm (scVmLedger sc) vmId live
+          -- Start agent-side chardev buffer threads. The threads
+          -- wait ~1 s for QEMU to open the socket, connect, then
+          -- ring-buffer output until QEMU exits (at which point
+          -- they remove themselves from the registry).
+          -- Serial only for headless VMs (graphical VMs use SPICE
+          -- for input/output); HMP monitor unconditionally.
+          when (VS.vsHeadless spec) $
+            startSocketBufferThread
+              cfg
+              vmId
+              serialSock
+              (scSerialBuffers sc)
+              serialBufferCapacity
+              "serial"
+              LevelInfo
+          startSocketBufferThread
+            cfg
+            vmId
+            monitorSock
+            (scMonitorBuffers sc)
+            monitorBufferCapacity
+            "monitor"
+            LevelInfo
           -- Reaper: waitForProcess QEMU, fill lastExitCode.
           void $ forkIO $ do
             r <- E.try @E.SomeException (waitForProcess qemuPh)

@@ -80,11 +80,18 @@ module Corvus.NodeAgentClient
   , vmStatus
   , vmSetSpiceTicket
   , subscribeVmStatus
+
+    -- * Chardev streaming
+  , openSerialConsole
+  , openHmpMonitor
+  , flushSerialConsole
+  , flushHmpMonitor
   )
 where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
+import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc
   ( ConnConfig (..)
   , fromClient
@@ -775,5 +782,69 @@ subscribeVmStatus nac sink = remote $ do
     callOn
       #subscribeVmStatus
       CGNA.Session'subscribeVmStatus'params {CGNA.sink = sink}
+      (nacSession nac)
+  pure ()
+
+-- ---------------------------------------------------------------------------
+-- Chardev streaming
+--
+-- Each call hands the agent a 'ByteSink' cap to write into (the
+-- ring-buffer's replay + live output goes here) and receives back
+-- another 'ByteSink' the caller can write to in order to forward
+-- bytes into QEMU's chardev (keystrokes / HMP commands).
+--
+-- The daemon proxies these on behalf of CLI clients today; a
+-- future direct-to-client variant can be added without changing
+-- this wire shape.
+
+openSerialConsole
+  :: NodeAgentClient
+  -> Int64
+  -> C.Client CGS.ByteSink
+  -> IO (Either NodeAgentError (C.Client CGS.ByteSink))
+openSerialConsole nac vmId sink = remote $ do
+  CGNA.Session'openSerialConsole'results {CGNA.input = inp} <-
+    callOn
+      #openSerialConsole
+      CGNA.Session'openSerialConsole'params
+        { CGNA.vmId = vmId
+        , CGNA.sink = sink
+        }
+      (nacSession nac)
+  pure inp
+
+openHmpMonitor
+  :: NodeAgentClient
+  -> Int64
+  -> C.Client CGS.ByteSink
+  -> IO (Either NodeAgentError (C.Client CGS.ByteSink))
+openHmpMonitor nac vmId sink = remote $ do
+  CGNA.Session'openHmpMonitor'results {CGNA.input = inp} <-
+    callOn
+      #openHmpMonitor
+      CGNA.Session'openHmpMonitor'params
+        { CGNA.vmId = vmId
+        , CGNA.sink = sink
+        }
+      (nacSession nac)
+  pure inp
+
+flushSerialConsole
+  :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError ())
+flushSerialConsole nac vmId = remote $ do
+  _ :: C.Parsed CGNA.Session'flushSerialConsole'results <-
+    callOn
+      #flushSerialConsole
+      CGNA.Session'flushSerialConsole'params {CGNA.vmId = vmId}
+      (nacSession nac)
+  pure ()
+
+flushHmpMonitor
+  :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError ())
+flushHmpMonitor nac vmId = remote $ do
+  _ :: C.Parsed CGNA.Session'flushHmpMonitor'results <-
+    callOn
+      #flushHmpMonitor
+      CGNA.Session'flushHmpMonitor'params {CGNA.vmId = vmId}
       (nacSession nac)
   pure ()

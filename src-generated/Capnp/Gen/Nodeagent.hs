@@ -29,6 +29,7 @@ import qualified Capnp.GenHelpers as GH
 import qualified Capnp.Classes as C
 import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
+import qualified Capnp.Gen.ById.X9bd452a518ed3917
 import qualified Prelude as Std_
 import qualified Data.Word as Std_
 import qualified Data.Int as Std_
@@ -291,9 +292,13 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'vmGuestExec) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmStatus) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmSetSpiceTicket) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'subscribeVmStatus) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'subscribeVmStatus) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'openSerialConsole) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'openHmpMonitor) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'flushSerialConsole) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'flushHmpMonitor) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -342,6 +347,14 @@ class (Session'server_ s_) where
     session'vmSetSpiceTicket _ = GH.methodUnimplemented
     session'subscribeVmStatus :: s_ -> (GH.MethodHandler Session'subscribeVmStatus'params Session'subscribeVmStatus'results)
     session'subscribeVmStatus _ = GH.methodUnimplemented
+    session'openSerialConsole :: s_ -> (GH.MethodHandler Session'openSerialConsole'params Session'openSerialConsole'results)
+    session'openSerialConsole _ = GH.methodUnimplemented
+    session'openHmpMonitor :: s_ -> (GH.MethodHandler Session'openHmpMonitor'params Session'openHmpMonitor'results)
+    session'openHmpMonitor _ = GH.methodUnimplemented
+    session'flushSerialConsole :: s_ -> (GH.MethodHandler Session'flushSerialConsole'params Session'flushSerialConsole'results)
+    session'flushSerialConsole _ = GH.methodUnimplemented
+    session'flushHmpMonitor :: s_ -> (GH.MethodHandler Session'flushHmpMonitor'params Session'flushHmpMonitor'results)
+    session'flushHmpMonitor _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -390,6 +403,14 @@ instance (GH.HasMethod "vmSetSpiceTicket" Session Session'vmSetSpiceTicket'param
     methodByLabel  = (GH.Method 11450192344861352079 22)
 instance (GH.HasMethod "subscribeVmStatus" Session Session'subscribeVmStatus'params Session'subscribeVmStatus'results) where
     methodByLabel  = (GH.Method 11450192344861352079 23)
+instance (GH.HasMethod "openSerialConsole" Session Session'openSerialConsole'params Session'openSerialConsole'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 24)
+instance (GH.HasMethod "openHmpMonitor" Session Session'openHmpMonitor'params Session'openHmpMonitor'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 25)
+instance (GH.HasMethod "flushSerialConsole" Session Session'flushSerialConsole'params Session'flushSerialConsole'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 26)
+instance (GH.HasMethod "flushHmpMonitor" Session Session'flushHmpMonitor'params Session'flushHmpMonitor'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 27)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -1905,6 +1926,246 @@ instance (C.Parse Session'subscribeVmStatus'results (C.Parsed Session'subscribeV
     parse raw_ = (Std_.pure Session'subscribeVmStatus'results)
 instance (C.Marshal Session'subscribeVmStatus'results (C.Parsed Session'subscribeVmStatus'results)) where
     marshalInto _raw (Session'subscribeVmStatus'results) = (Std_.pure ())
+data Session'openSerialConsole'params 
+type instance (R.ReprFor Session'openSerialConsole'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'openSerialConsole'params) where
+    typeId  = 13149968643096890336
+instance (C.TypedStruct Session'openSerialConsole'params) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate Session'openSerialConsole'params) where
+    type AllocHint Session'openSerialConsole'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'openSerialConsole'params (C.Parsed Session'openSerialConsole'params))
+instance (C.AllocateList Session'openSerialConsole'params) where
+    type ListAllocHint Session'openSerialConsole'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'openSerialConsole'params (C.Parsed Session'openSerialConsole'params))
+data instance C.Parsed Session'openSerialConsole'params
+    = Session'openSerialConsole'params 
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'openSerialConsole'params))
+deriving instance (Std_.Eq (C.Parsed Session'openSerialConsole'params))
+instance (C.Parse Session'openSerialConsole'params (C.Parsed Session'openSerialConsole'params)) where
+    parse raw_ = (Session'openSerialConsole'params <$> (GH.parseField #vmId raw_)
+                                                   <*> (GH.parseField #sink raw_))
+instance (C.Marshal Session'openSerialConsole'params (C.Parsed Session'openSerialConsole'params)) where
+    marshalInto raw_ Session'openSerialConsole'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #sink sink raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'openSerialConsole'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "sink" GH.Slot Session'openSerialConsole'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'openSerialConsole'results 
+type instance (R.ReprFor Session'openSerialConsole'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'openSerialConsole'results) where
+    typeId  = 11705289286321711561
+instance (C.TypedStruct Session'openSerialConsole'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'openSerialConsole'results) where
+    type AllocHint Session'openSerialConsole'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'openSerialConsole'results (C.Parsed Session'openSerialConsole'results))
+instance (C.AllocateList Session'openSerialConsole'results) where
+    type ListAllocHint Session'openSerialConsole'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'openSerialConsole'results (C.Parsed Session'openSerialConsole'results))
+data instance C.Parsed Session'openSerialConsole'results
+    = Session'openSerialConsole'results 
+        {input :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'openSerialConsole'results))
+deriving instance (Std_.Eq (C.Parsed Session'openSerialConsole'results))
+instance (C.Parse Session'openSerialConsole'results (C.Parsed Session'openSerialConsole'results)) where
+    parse raw_ = (Session'openSerialConsole'results <$> (GH.parseField #input raw_))
+instance (C.Marshal Session'openSerialConsole'results (C.Parsed Session'openSerialConsole'results)) where
+    marshalInto raw_ Session'openSerialConsole'results{..} = (do
+        (GH.encodeField #input input raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "input" GH.Slot Session'openSerialConsole'results Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'openHmpMonitor'params 
+type instance (R.ReprFor Session'openHmpMonitor'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'openHmpMonitor'params) where
+    typeId  = 12373475575530691862
+instance (C.TypedStruct Session'openHmpMonitor'params) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate Session'openHmpMonitor'params) where
+    type AllocHint Session'openHmpMonitor'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'openHmpMonitor'params (C.Parsed Session'openHmpMonitor'params))
+instance (C.AllocateList Session'openHmpMonitor'params) where
+    type ListAllocHint Session'openHmpMonitor'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'openHmpMonitor'params (C.Parsed Session'openHmpMonitor'params))
+data instance C.Parsed Session'openHmpMonitor'params
+    = Session'openHmpMonitor'params 
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'openHmpMonitor'params))
+deriving instance (Std_.Eq (C.Parsed Session'openHmpMonitor'params))
+instance (C.Parse Session'openHmpMonitor'params (C.Parsed Session'openHmpMonitor'params)) where
+    parse raw_ = (Session'openHmpMonitor'params <$> (GH.parseField #vmId raw_)
+                                                <*> (GH.parseField #sink raw_))
+instance (C.Marshal Session'openHmpMonitor'params (C.Parsed Session'openHmpMonitor'params)) where
+    marshalInto raw_ Session'openHmpMonitor'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #sink sink raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'openHmpMonitor'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "sink" GH.Slot Session'openHmpMonitor'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'openHmpMonitor'results 
+type instance (R.ReprFor Session'openHmpMonitor'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'openHmpMonitor'results) where
+    typeId  = 11436753603730193187
+instance (C.TypedStruct Session'openHmpMonitor'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'openHmpMonitor'results) where
+    type AllocHint Session'openHmpMonitor'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'openHmpMonitor'results (C.Parsed Session'openHmpMonitor'results))
+instance (C.AllocateList Session'openHmpMonitor'results) where
+    type ListAllocHint Session'openHmpMonitor'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'openHmpMonitor'results (C.Parsed Session'openHmpMonitor'results))
+data instance C.Parsed Session'openHmpMonitor'results
+    = Session'openHmpMonitor'results 
+        {input :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'openHmpMonitor'results))
+deriving instance (Std_.Eq (C.Parsed Session'openHmpMonitor'results))
+instance (C.Parse Session'openHmpMonitor'results (C.Parsed Session'openHmpMonitor'results)) where
+    parse raw_ = (Session'openHmpMonitor'results <$> (GH.parseField #input raw_))
+instance (C.Marshal Session'openHmpMonitor'results (C.Parsed Session'openHmpMonitor'results)) where
+    marshalInto raw_ Session'openHmpMonitor'results{..} = (do
+        (GH.encodeField #input input raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "input" GH.Slot Session'openHmpMonitor'results Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'flushSerialConsole'params 
+type instance (R.ReprFor Session'flushSerialConsole'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'flushSerialConsole'params) where
+    typeId  = 12309027465553179158
+instance (C.TypedStruct Session'flushSerialConsole'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Session'flushSerialConsole'params) where
+    type AllocHint Session'flushSerialConsole'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'flushSerialConsole'params (C.Parsed Session'flushSerialConsole'params))
+instance (C.AllocateList Session'flushSerialConsole'params) where
+    type ListAllocHint Session'flushSerialConsole'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'flushSerialConsole'params (C.Parsed Session'flushSerialConsole'params))
+data instance C.Parsed Session'flushSerialConsole'params
+    = Session'flushSerialConsole'params 
+        {vmId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'flushSerialConsole'params))
+deriving instance (Std_.Eq (C.Parsed Session'flushSerialConsole'params))
+instance (C.Parse Session'flushSerialConsole'params (C.Parsed Session'flushSerialConsole'params)) where
+    parse raw_ = (Session'flushSerialConsole'params <$> (GH.parseField #vmId raw_))
+instance (C.Marshal Session'flushSerialConsole'params (C.Parsed Session'flushSerialConsole'params)) where
+    marshalInto raw_ Session'flushSerialConsole'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'flushSerialConsole'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Session'flushSerialConsole'results 
+type instance (R.ReprFor Session'flushSerialConsole'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'flushSerialConsole'results) where
+    typeId  = 14315634664360764488
+instance (C.TypedStruct Session'flushSerialConsole'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'flushSerialConsole'results) where
+    type AllocHint Session'flushSerialConsole'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'flushSerialConsole'results (C.Parsed Session'flushSerialConsole'results))
+instance (C.AllocateList Session'flushSerialConsole'results) where
+    type ListAllocHint Session'flushSerialConsole'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'flushSerialConsole'results (C.Parsed Session'flushSerialConsole'results))
+data instance C.Parsed Session'flushSerialConsole'results
+    = Session'flushSerialConsole'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'flushSerialConsole'results))
+deriving instance (Std_.Eq (C.Parsed Session'flushSerialConsole'results))
+instance (C.Parse Session'flushSerialConsole'results (C.Parsed Session'flushSerialConsole'results)) where
+    parse raw_ = (Std_.pure Session'flushSerialConsole'results)
+instance (C.Marshal Session'flushSerialConsole'results (C.Parsed Session'flushSerialConsole'results)) where
+    marshalInto _raw (Session'flushSerialConsole'results) = (Std_.pure ())
+data Session'flushHmpMonitor'params 
+type instance (R.ReprFor Session'flushHmpMonitor'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'flushHmpMonitor'params) where
+    typeId  = 17700805822514408571
+instance (C.TypedStruct Session'flushHmpMonitor'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Session'flushHmpMonitor'params) where
+    type AllocHint Session'flushHmpMonitor'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'flushHmpMonitor'params (C.Parsed Session'flushHmpMonitor'params))
+instance (C.AllocateList Session'flushHmpMonitor'params) where
+    type ListAllocHint Session'flushHmpMonitor'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'flushHmpMonitor'params (C.Parsed Session'flushHmpMonitor'params))
+data instance C.Parsed Session'flushHmpMonitor'params
+    = Session'flushHmpMonitor'params 
+        {vmId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'flushHmpMonitor'params))
+deriving instance (Std_.Eq (C.Parsed Session'flushHmpMonitor'params))
+instance (C.Parse Session'flushHmpMonitor'params (C.Parsed Session'flushHmpMonitor'params)) where
+    parse raw_ = (Session'flushHmpMonitor'params <$> (GH.parseField #vmId raw_))
+instance (C.Marshal Session'flushHmpMonitor'params (C.Parsed Session'flushHmpMonitor'params)) where
+    marshalInto raw_ Session'flushHmpMonitor'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'flushHmpMonitor'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Session'flushHmpMonitor'results 
+type instance (R.ReprFor Session'flushHmpMonitor'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'flushHmpMonitor'results) where
+    typeId  = 17289518928549847130
+instance (C.TypedStruct Session'flushHmpMonitor'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'flushHmpMonitor'results) where
+    type AllocHint Session'flushHmpMonitor'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'flushHmpMonitor'results (C.Parsed Session'flushHmpMonitor'results))
+instance (C.AllocateList Session'flushHmpMonitor'results) where
+    type ListAllocHint Session'flushHmpMonitor'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'flushHmpMonitor'results (C.Parsed Session'flushHmpMonitor'results))
+data instance C.Parsed Session'flushHmpMonitor'results
+    = Session'flushHmpMonitor'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'flushHmpMonitor'results))
+deriving instance (Std_.Eq (C.Parsed Session'flushHmpMonitor'results))
+instance (C.Parse Session'flushHmpMonitor'results (C.Parsed Session'flushHmpMonitor'results)) where
+    parse raw_ = (Std_.pure Session'flushHmpMonitor'results)
+instance (C.Marshal Session'flushHmpMonitor'results (C.Parsed Session'flushHmpMonitor'results)) where
+    marshalInto _raw (Session'flushHmpMonitor'results) = (Std_.pure ())
 data VmStatusSink 
 type instance (R.ReprFor VmStatusSink) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId VmStatusSink) where

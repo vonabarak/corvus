@@ -1,5 +1,7 @@
 @0xbc08f7ad74ba3f78;
 
+using Streams = import "streams.capnp";
+
 # Cap'n Proto wire schema for `corvus-nodeagent`, the per-host
 # privileged agent that owns local-machine state: QEMU + virtiofsd
 # process supervision, qemu-img and cloud-init ISO generation, the
@@ -184,6 +186,33 @@ interface Session {
   # throw on dispatch are pruned automatically — no explicit
   # unsubscribe. Same shape netd uses for `subscribeEvents`.
   subscribeVmStatus @23 (sink :VmStatusSink) -> ();
+
+  # -------------------------------------------------------------------
+  # Chardev streaming. The agent owns the QEMU chardev sockets and
+  # ring-buffers their output for replay. These RPCs hand a relay
+  # endpoint to the caller:
+  #
+  #   * `sink` (input): caller-supplied. Agent replays the ring
+  #     buffer through it on connect, then streams live data.
+  #   * `input` (return): server-side sink. Caller writes here to
+  #     forward bytes into QEMU's chardev (keystrokes, HMP
+  #     commands, …).
+  #
+  # The daemon proxies these calls today (relays bytes between the
+  # client and the agent); a future direct-to-client variant can be
+  # added without changing this shape.
+  # -------------------------------------------------------------------
+
+  openSerialConsole @24 (vmId :Int64, sink :Streams.ByteSink)
+    -> (input :Streams.ByteSink);
+
+  openHmpMonitor    @25 (vmId :Int64, sink :Streams.ByteSink)
+    -> (input :Streams.ByteSink);
+
+  # Discard the scrollback for the named chardev buffer. No-op if
+  # the buffer doesn't exist (VM stopped).
+  flushSerialConsole @26 (vmId :Int64) -> ();
+  flushHmpMonitor    @27 (vmId :Int64) -> ();
 }
 
 # Daemon-implemented sink for periodic agent → daemon VM status

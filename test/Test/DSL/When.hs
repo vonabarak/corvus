@@ -156,8 +156,6 @@ createTestServerState pool basePath = do
   shutdownFlag <- newTVarIO False
   netAgent <- newTVarIO Nothing
   nodeAgent <- newTVarIO Nothing
-  serialBuffers <- newTVarIO mempty
-  monitorBuffers <- newTVarIO mempty
   gaLocks <- newTVarIO mempty
   gaSubs <- newTVarIO mempty
   taskSubs <- newTVarIO mempty
@@ -174,8 +172,6 @@ createTestServerState pool basePath = do
       , ssLogLevel = logLevel
       , ssNetAgent = netAgent
       , ssNodeAgent = nodeAgent
-      , ssSerialBuffers = serialBuffers
-      , ssMonitorBuffers = monitorBuffers
       , ssGuestAgentConns = gaLocks
       , ssGuestAgentSubs = gaSubs
       , ssTaskProgressSubs = taskSubs

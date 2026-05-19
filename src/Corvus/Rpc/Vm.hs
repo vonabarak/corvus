@@ -56,6 +56,7 @@ import Corvus.Handlers.Vm
   , handleVmViewGrant
   )
 import qualified Corvus.Model as M
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.CloudInit as PCI
@@ -294,40 +295,43 @@ instance CGVm.Vm'server_ VmCap where
   -- ring-buffer contents through it and returns an input
   -- 'ByteSink' the client can write into to forward bytes to
   -- QEMU.
-  vm'serialConsole (VmCap st sup eid) =
+  vm'serialConsole (VmCap st _sup eid) =
     handleParsed $ \CGVm.Vm'serialConsole'params {CGVm.sink = sinkClient} -> do
-      -- Route through `handleSerialConsole` so rejections preserve
-      -- the rich pre-Cap'n-Proto messages ("VM is not running ...",
-      -- "VM is not headless ...") instead of collapsing into the
-      -- generic "buffer not available".
+      -- Validator first, so rejections preserve the rich
+      -- pre-Cap'n-Proto messages ("VM is not running ...",
+      -- "VM is not headless ...").
       resp <- handleSerialConsole st eid
       case resp of
         RespVmNotFound -> throwFailed "VM not found"
         RespError msg -> throwFailed msg
         RespSerialConsoleOk -> do
-          buffers <- readTVarIO (ssSerialBuffers st)
-          case Map.lookup eid buffers of
-            Nothing -> throwFailed "Serial console buffer not available"
-            Just sbh -> do
-              inputCap <- runByteSinkRelay sup sbh sinkClient
-              pure CGVm.Vm'serialConsole'results {CGVm.input = inputCap}
+          mAgent <- readTVarIO (ssNodeAgent st)
+          case mAgent of
+            Nothing -> throwFailed "nodeagent unavailable"
+            Just nac -> do
+              r <- NOA.openSerialConsole nac eid sinkClient
+              case r of
+                Left e -> throwFailed (T.pack (show e))
+                Right inp -> pure CGVm.Vm'serialConsole'results {CGVm.input = inp}
         _ -> throwFailed "Unexpected serial console response"
 
   -- HMP monitor: identical shape to serialConsole but rides the
   -- per-VM monitor buffer. Same validator-first dispatch.
-  vm'hmpMonitor (VmCap st sup eid) =
+  vm'hmpMonitor (VmCap st _sup eid) =
     handleParsed $ \CGVm.Vm'hmpMonitor'params {CGVm.sink = sinkClient} -> do
       resp <- handleHmpMonitor st eid
       case resp of
         RespVmNotFound -> throwFailed "VM not found"
         RespError msg -> throwFailed msg
         RespHmpMonitorOk -> do
-          buffers <- readTVarIO (ssMonitorBuffers st)
-          case Map.lookup eid buffers of
-            Nothing -> throwFailed "HMP monitor buffer not available"
-            Just sbh -> do
-              inputCap <- runByteSinkRelay sup sbh sinkClient
-              pure CGVm.Vm'hmpMonitor'results {CGVm.input = inputCap}
+          mAgent <- readTVarIO (ssNodeAgent st)
+          case mAgent of
+            Nothing -> throwFailed "nodeagent unavailable"
+            Just nac -> do
+              r <- NOA.openHmpMonitor nac eid sinkClient
+              case r of
+                Left e -> throwFailed (T.pack (show e))
+                Right inp -> pure CGVm.Vm'hmpMonitor'results {CGVm.input = inp}
         _ -> throwFailed "Unexpected HMP monitor response"
 
   -- Register a 'GuestAgentStatusSink' against the per-VM
@@ -343,12 +347,27 @@ instance CGVm.Vm'server_ VmCap where
       pure CGVm.Vm'subscribeGuestAgent'results {CGVm.handle = handle}
 
   vm'serialConsoleFlush (VmCap st _ eid) = handleParsed $ \_ -> do
+    -- Validator first; proxy to the agent on success.
     _ <- handleSerialConsoleFlush st eid
-    pure CGVm.Vm'serialConsoleFlush'results
+    mAgent <- readTVarIO (ssNodeAgent st)
+    case mAgent of
+      Nothing -> throwFailed "nodeagent unavailable"
+      Just nac -> do
+        r <- NOA.flushSerialConsole nac eid
+        case r of
+          Left e -> throwFailed (T.pack (show e))
+          Right () -> pure CGVm.Vm'serialConsoleFlush'results
 
   vm'hmpMonitorFlush (VmCap st _ eid) = handleParsed $ \_ -> do
     _ <- handleHmpMonitorFlush st eid
-    pure CGVm.Vm'hmpMonitorFlush'results
+    mAgent <- readTVarIO (ssNodeAgent st)
+    case mAgent of
+      Nothing -> throwFailed "nodeagent unavailable"
+      Just nac -> do
+        r <- NOA.flushHmpMonitor nac eid
+        case r of
+          Left e -> throwFailed (T.pack (show e))
+          Right () -> pure CGVm.Vm'hmpMonitorFlush'results
 
   -- -------------------------------------------------------------------
   -- Disk attach / detach
