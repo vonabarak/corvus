@@ -17,6 +17,7 @@ import Corvus.Client.Parser.CloudInit (cloudInitCommandParser)
 import Corvus.Client.Parser.Disk (diskCommandParser)
 import Corvus.Client.Parser.NetIf (netIfCommandParser)
 import Corvus.Client.Parser.Network (networkCommandParser)
+import Corvus.Client.Parser.Node (nodeCommandParser)
 import Corvus.Client.Parser.SharedDir (sharedDirCommandParser)
 import Corvus.Client.Parser.Snapshot (snapshotCommandParser)
 import Corvus.Client.Parser.SshKey (sshKeyCommandParser)
@@ -96,6 +97,9 @@ commandParser =
         <> command
           "network"
           (info networkCommandParser (progDesc "Virtual network management commands"))
+        <> command
+          "node"
+          (info nodeCommandParser (progDesc "Multi-node orchestration commands"))
         <> command
           "cloud-init"
           (info cloudInitCommandParser (progDesc "Cloud-init configuration management"))

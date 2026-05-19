@@ -80,6 +80,7 @@ enum TaskSubsystem {
   system    @7;
   apply     @8;
   build     @9;
+  node      @10;
 }
 
 enum TaskResult {
@@ -88,4 +89,10 @@ enum TaskResult {
   error      @2;
   notStarted @3;
   cancelled  @4;
+}
+
+enum NodeAdminState {
+  online      @0;
+  draining    @1;
+  maintenance @2;
 }

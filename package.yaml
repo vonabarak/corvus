@@ -78,6 +78,7 @@ library:
     - Corvus.Protocol.SshKey
     - Corvus.Protocol.Template
     - Corvus.Protocol.Network
+    - Corvus.Protocol.Node
     - Corvus.Protocol.CloudInit
     - Corvus.Protocol.Apply
     - Corvus.Protocol.Build
@@ -101,6 +102,7 @@ library:
     - Corvus.Handlers.NetIf
     - Corvus.Handlers.SshKey
     - Corvus.Handlers.Network
+    - Corvus.Handlers.Node
     - Corvus.Handlers.Resolve
     - Corvus.CloudInit
     - Corvus.Client
@@ -117,6 +119,7 @@ library:
     - Corvus.Client.Parser.NetIf
     - Corvus.Client.Parser.Template
     - Corvus.Client.Parser.Network
+    - Corvus.Client.Parser.Node
     - Corvus.Client.Parser.Apply
     - Corvus.Client.Parser.Build
     - Corvus.Client.Parser.CloudInit
@@ -126,6 +129,7 @@ library:
     - Corvus.Client.Commands.Disk
     - Corvus.Client.Commands.SharedDir
     - Corvus.Client.Commands.NetIf
+    - Corvus.Client.Commands.Node
     - Corvus.Client.Commands.SshKey
     - Corvus.Client.Commands.Task
     - Corvus.Client.Commands.Template
@@ -170,6 +174,7 @@ library:
     - Corvus.Wire.CloudInit
     - Corvus.Wire.Disk
     - Corvus.Wire.Network
+    - Corvus.Wire.Node
     - Corvus.Wire.SshKey
     - Corvus.Wire.SharedDir
     - Corvus.Wire.Vm
@@ -184,6 +189,7 @@ library:
     - Corvus.Rpc.Vm
     - Corvus.Rpc.Disk
     - Corvus.Rpc.Network
+    - Corvus.Rpc.Node
     - Corvus.Rpc.SshKey
     - Corvus.Rpc.Template
     - Corvus.Rpc.Task

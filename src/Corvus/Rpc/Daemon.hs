@@ -22,6 +22,7 @@ import qualified Capnp.Gen.Cloudinit as CGCI
 import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Network as CGNet
+import qualified Capnp.Gen.Node as CGNode
 import qualified Capnp.Gen.Sshkey as CGSsh
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGTask
@@ -44,6 +45,7 @@ import Corvus.Rpc.CloudInit (newCloudInitManagerCap)
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Disk (newDiskManagerCap)
 import Corvus.Rpc.Network (newNetworkManagerCap)
+import Corvus.Rpc.Node (newNodeManagerCap)
 import Corvus.Rpc.SshKey (newSshKeyManagerCap)
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Rpc.Task (newTaskManagerCap)
@@ -103,6 +105,11 @@ instance CGCorvus.Daemon'server_ DaemonCap where
     impl <- newNetworkManagerCap st sup
     client <- export @CGNet.NetworkManager sup impl
     pure CGCorvus.Daemon'networks'results {CGCorvus.mgr = client}
+
+  daemon'nodes (DaemonCap st sup) = handleParsed $ \_ -> do
+    impl <- newNodeManagerCap st sup
+    client <- export @CGNode.NodeManager sup impl
+    pure CGCorvus.Daemon'nodes'results {CGCorvus.mgr = client}
 
   daemon'sshKeys (DaemonCap st sup) = handleParsed $ \_ -> do
     impl <- newSshKeyManagerCap st sup

@@ -30,6 +30,7 @@ module Corvus.Protocol
   , module Corvus.Protocol.SshKey
   , module Corvus.Protocol.Template
   , module Corvus.Protocol.Network
+  , module Corvus.Protocol.Node
   , module Corvus.Protocol.CloudInit
   , module Corvus.Protocol.Apply
   , module Corvus.Protocol.Build
@@ -48,6 +49,7 @@ import Corvus.Protocol.CloudInit
 import Corvus.Protocol.Disk
 import Corvus.Protocol.JsonOptions (innerOptions)
 import Corvus.Protocol.Network
+import Corvus.Protocol.Node
 import Corvus.Protocol.SharedDir
 import Corvus.Protocol.SshKey
 import Corvus.Protocol.Task
@@ -280,4 +282,18 @@ data Response
   | -- | Build accepted with @--wait@; events stream over a separate
     -- 'BuildEventSink' cap (Phase 6).
     RespBuildStreamStarted
+  | -- | List of nodes
+    RespNodeList {nodes :: ![NodeInfo]}
+  | -- | Single node details
+    RespNodeDetails {node :: !NodeDetails}
+  | -- | Node created successfully
+    RespNodeCreated {id :: !Int64}
+  | -- | Node deleted successfully
+    RespNodeDeleted
+  | -- | Node edited successfully
+    RespNodeEdited
+  | -- | Node not found
+    RespNodeNotFound
+  | -- | Node is still referenced by VMs / networks / disks
+    RespNodeInUse {message :: !Text}
   deriving (Eq, Show, Generic)

@@ -37,6 +37,7 @@ import Corvus.Client.Commands.Disk
 import Corvus.Client.Commands.GuestExec
 import Corvus.Client.Commands.NetIf
 import Corvus.Client.Commands.Network
+import qualified Corvus.Client.Commands.Node as CmdNode
 import Corvus.Client.Commands.SharedDir
 import Corvus.Client.Commands.SshKey
 import Corvus.Client.Commands.Task
@@ -230,6 +231,15 @@ runCommand opts = do
       NetworkList -> handleNetworkList fmt tableOpts conn
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
       NetworkEdit nwRef mSubnet mDhcp mNat mAutostart -> handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart
+      -- Node commands
+      NodeAdd name host nodeAgentPort netAgentPort basePath mDesc adminState ->
+        CmdNode.handleNodeAdd fmt conn name host nodeAgentPort netAgentPort basePath mDesc adminState
+      NodeList -> CmdNode.handleNodeList fmt tableOpts conn
+      NodeShow nRef -> CmdNode.handleNodeShow fmt conn nRef
+      NodeEdit nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState ->
+        CmdNode.handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState
+      NodeDrain nRef -> CmdNode.handleNodeDrain fmt conn nRef
+      NodeDelete nRef -> CmdNode.handleNodeDelete fmt conn nRef
       -- Cloud-init config
       CloudInitGenerate vmRef -> handleCloudInitGenerate fmt conn vmRef
       CloudInitSet vmRef mFile -> handleCloudInitSet fmt conn vmRef mFile

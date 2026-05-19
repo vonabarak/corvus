@@ -52,6 +52,8 @@ module Corvus.Client.Capnp.Rpc
   , rpcDiskShow
   , rpcNetworkList
   , rpcNetworkShow
+  , rpcNodeList
+  , rpcNodeShow
   , rpcSshKeyList
   , rpcSshKeyListForVm
   , rpcTemplateList
@@ -114,6 +116,12 @@ module Corvus.Client.Capnp.Rpc
   , rpcNetworkDelete
   , rpcNetworkEdit
 
+    -- * Node lifecycle
+  , rpcNodeAdd
+  , rpcNodeEdit
+  , rpcNodeDrain
+  , rpcNodeDelete
+
     -- * SSH key lifecycle
   , rpcSshKeyCreate
   , rpcSshKeyDelete
@@ -141,6 +149,7 @@ import qualified Capnp.Gen.Corvus as CGCorvus
 import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Network as CGNet
+import qualified Capnp.Gen.Node as CGNode
 import qualified Capnp.Gen.Sshkey as CGSsh
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGTask
@@ -156,6 +165,7 @@ import Corvus.Model
   , DriveInterface
   , DriveMedia (..)
   , NetInterfaceType
+  , NodeAdminState (..)
   , SharedDirCache
   )
 import qualified Corvus.Protocol as P
@@ -164,6 +174,7 @@ import Corvus.Protocol.Build (BuildEvent)
 import qualified Corvus.Protocol.CloudInit as PCI
 import qualified Corvus.Protocol.Disk as PD
 import qualified Corvus.Protocol.Network as PN
+import qualified Corvus.Protocol.Node as PNode
 import qualified Corvus.Protocol.SharedDir as PSd
 import qualified Corvus.Protocol.SshKey as PSk
 import qualified Corvus.Protocol.Task as PT
@@ -181,10 +192,12 @@ import Corvus.Wire.Enums
   , toCapnpDriveInterface
   , toCapnpDriveMedia
   , toCapnpNetInterfaceType
+  , toCapnpNodeAdminState
   , toCapnpSharedDirCache
   )
 import Corvus.Wire.Errors (WireError, showWireError)
 import qualified Corvus.Wire.Network as WNet
+import qualified Corvus.Wire.Node as WNode
 import qualified Corvus.Wire.SharedDir as WSd
 import qualified Corvus.Wire.SshKey as WSsh
 import qualified Corvus.Wire.Task as WTask
@@ -1517,3 +1530,117 @@ rpcTaskListChildren conn parentId = do
 -- | Mirror 'Corvus.Wire.Enums.toCapnpDriveFormat'.
 capnpDriveFormat :: DriveFormat -> CGE.DriveFormat
 capnpDriveFormat = toCapnpDriveFormat
+
+-- =====================================================================
+-- Node wrappers
+-- =====================================================================
+
+rpcNodeList :: CapnpConnection -> IO [PNode.NodeInfo]
+rpcNodeList conn = do
+  CGCorvus.Daemon'nodes'results {CGCorvus.mgr = mgr} <-
+    callOn #nodes CGCorvus.Daemon'nodes'params (ccDaemon conn)
+  CGNode.NodeManager'list'results {CGNode.nodes = ns} <-
+    callOn #list CGNode.NodeManager'list'params mgr
+  traverse (failOnWire . WNode.fromCapnpNodeInfo) ns
+
+rpcNodeShow :: CapnpConnection -> EntityRef -> IO PNode.NodeDetails
+rpcNodeShow conn ref = do
+  nClient <- getNodeClient conn ref
+  CGNode.Node'show'results {CGNode.details = det} <-
+    callOn #show CGNode.Node'show'params nClient
+  failOnWire (WNode.fromCapnpNodeDetails det)
+
+rpcNodeAdd
+  :: CapnpConnection
+  -> Text
+  -- ^ name
+  -> Text
+  -- ^ host
+  -> Int
+  -- ^ nodeAgentPort
+  -> Int
+  -- ^ netAgentPort
+  -> Text
+  -- ^ basePath
+  -> Maybe Text
+  -- ^ description (Nothing → empty string on the wire)
+  -> NodeAdminState
+  -> IO Int64
+rpcNodeAdd conn name host nodeAgentPort netAgentPort basePath mDesc adminSt = do
+  CGCorvus.Daemon'nodes'results {CGCorvus.mgr = mgr} <-
+    callOn #nodes CGCorvus.Daemon'nodes'params (ccDaemon conn)
+  let inner =
+        CGNode.NodeAddParams
+          { CGNode.name = name
+          , CGNode.host = host
+          , CGNode.nodeAgentPort = fromIntegral nodeAgentPort
+          , CGNode.netAgentPort = fromIntegral netAgentPort
+          , CGNode.basePath = basePath
+          , CGNode.description = Data.Maybe.fromMaybe "" mDesc
+          , CGNode.adminState = toCapnpNodeAdminState adminSt
+          }
+  CGNode.NodeManager'create'results {CGNode.node = nClient} <-
+    callOn #create CGNode.NodeManager'create'params {CGNode.params = inner} mgr
+  CGNode.Node'show'results {CGNode.details = det} <-
+    callOn #show CGNode.Node'show'params nClient
+  case det of CGNode.NodeDetails {CGNode.id = nid} -> pure nid
+
+rpcNodeEdit
+  :: CapnpConnection
+  -> EntityRef
+  -> Maybe Text
+  -> Maybe Text
+  -> Maybe Int
+  -> Maybe Int
+  -> Maybe Text
+  -> Maybe (Maybe Text)
+  -- ^ description: 'Nothing' = leave; 'Just Nothing' = clear; 'Just (Just t)' = set.
+  -> Maybe NodeAdminState
+  -> IO ()
+rpcNodeEdit conn ref mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminSt = do
+  nClient <- getNodeClient conn ref
+  let (hasDesc, descText) = case mDesc of
+        Nothing -> (False, "")
+        Just Nothing -> (True, "") -- empty wire text → clear
+        Just (Just t) -> (True, t)
+      p =
+        CGNode.NodeEditParams
+          { CGNode.hasName = Data.Maybe.isJust mName
+          , CGNode.name = Data.Maybe.fromMaybe "" mName
+          , CGNode.hasHost = Data.Maybe.isJust mHost
+          , CGNode.host = Data.Maybe.fromMaybe "" mHost
+          , CGNode.hasNodeAgentPort = Data.Maybe.isJust mNodeAgentPort
+          , CGNode.nodeAgentPort = maybe 0 fromIntegral mNodeAgentPort
+          , CGNode.hasNetAgentPort = Data.Maybe.isJust mNetAgentPort
+          , CGNode.netAgentPort = maybe 0 fromIntegral mNetAgentPort
+          , CGNode.hasBasePath = Data.Maybe.isJust mBasePath
+          , CGNode.basePath = Data.Maybe.fromMaybe "" mBasePath
+          , CGNode.hasDescription = hasDesc
+          , CGNode.description = descText
+          , CGNode.hasAdminState = Data.Maybe.isJust mAdminSt
+          , -- Schema default = 'online'; encoder still needs a
+            -- legal value when 'hasAdminState' is False.
+            CGNode.adminState = maybe (toCapnpNodeAdminState NodeOnline) toCapnpNodeAdminState mAdminSt
+          }
+  _ <- callOn #edit CGNode.Node'edit'params {CGNode.params = p} nClient
+  pure ()
+
+rpcNodeDrain :: CapnpConnection -> EntityRef -> IO ()
+rpcNodeDrain conn ref = do
+  nClient <- getNodeClient conn ref
+  _ <- callOn #drain CGNode.Node'drain'params nClient
+  pure ()
+
+rpcNodeDelete :: CapnpConnection -> EntityRef -> IO ()
+rpcNodeDelete conn ref = do
+  nClient <- getNodeClient conn ref
+  _ <- callOn #delete CGNode.Node'delete'params nClient
+  pure ()
+
+getNodeClient :: CapnpConnection -> EntityRef -> IO (C.Client CGNode.Node)
+getNodeClient conn ref = do
+  CGCorvus.Daemon'nodes'results {CGCorvus.mgr = mgr} <-
+    callOn #nodes CGCorvus.Daemon'nodes'params (ccDaemon conn)
+  CGNode.NodeManager'get'results {CGNode.node = nClient} <-
+    callOn #get CGNode.NodeManager'get'params {CGNode.ref = toCapnpEntityRef ref} mgr
+  pure nClient

@@ -11,6 +11,7 @@ module Corvus.Handlers.Resolve
   , resolveNetwork
   , resolveSshKey
   , resolveTemplate
+  , resolveNode
   , resolveSnapshot
   , resolveSharedDir
 
@@ -25,6 +26,7 @@ import Corvus.Model
   , Entity (..)
   , Key
   , Network
+  , Node
   , SharedDir (..)
   , SharedDirId
   , Snapshot (..)
@@ -149,6 +151,12 @@ resolveSshKey = resolveRef @SshKey UniqueSshKeyName "SSH key"
 -- | Resolve a template reference.
 resolveTemplate :: Ref -> Pool SqlBackend -> IO (Either Text Int64)
 resolveTemplate = resolveRef @TemplateVm UniqueTemplateVmName "Template"
+
+-- | Resolve a node reference. Node names are globally unique
+-- (the data model bootstraps the cluster, not per-node), so the
+-- single-field 'UniqueNodeName' constraint applies.
+resolveNode :: Ref -> Pool SqlBackend -> IO (Either Text Int64)
+resolveNode = resolveRef @Node UniqueNodeName "Node"
 
 -- | Resolve a snapshot reference within a disk.
 -- If numeric, look up by ID and verify it belongs to the given disk.

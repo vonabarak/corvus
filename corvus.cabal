@@ -23,6 +23,7 @@ library
       Corvus.Protocol.SshKey
       Corvus.Protocol.Template
       Corvus.Protocol.Network
+      Corvus.Protocol.Node
       Corvus.Protocol.CloudInit
       Corvus.Protocol.Apply
       Corvus.Protocol.Build
@@ -46,6 +47,7 @@ library
       Corvus.Handlers.NetIf
       Corvus.Handlers.SshKey
       Corvus.Handlers.Network
+      Corvus.Handlers.Node
       Corvus.Handlers.Resolve
       Corvus.CloudInit
       Corvus.Client
@@ -62,6 +64,7 @@ library
       Corvus.Client.Parser.NetIf
       Corvus.Client.Parser.Template
       Corvus.Client.Parser.Network
+      Corvus.Client.Parser.Node
       Corvus.Client.Parser.Apply
       Corvus.Client.Parser.Build
       Corvus.Client.Parser.CloudInit
@@ -71,6 +74,7 @@ library
       Corvus.Client.Commands.Disk
       Corvus.Client.Commands.SharedDir
       Corvus.Client.Commands.NetIf
+      Corvus.Client.Commands.Node
       Corvus.Client.Commands.SshKey
       Corvus.Client.Commands.Task
       Corvus.Client.Commands.Template
@@ -115,6 +119,7 @@ library
       Corvus.Wire.CloudInit
       Corvus.Wire.Disk
       Corvus.Wire.Network
+      Corvus.Wire.Node
       Corvus.Wire.SshKey
       Corvus.Wire.SharedDir
       Corvus.Wire.Vm
@@ -129,6 +134,7 @@ library
       Corvus.Rpc.Vm
       Corvus.Rpc.Disk
       Corvus.Rpc.Network
+      Corvus.Rpc.Node
       Corvus.Rpc.SshKey
       Corvus.Rpc.Template
       Corvus.Rpc.Task
@@ -179,6 +185,7 @@ library
       Corvus.Node.QmpQQ
       Capnp.Gen.ById.X9b1373e2334a09e9
       Capnp.Gen.ById.X9bd452a518ed3917
+      Capnp.Gen.ById.Xa40f88677f695703
       Capnp.Gen.ById.Xa6341bd086aa89f6
       Capnp.Gen.ById.Xa7366eabdb0b1db4
       Capnp.Gen.ById.Xbc08f7ad74ba3f78
@@ -190,6 +197,7 @@ library
       Capnp.Gen.ById.Xe996a8e112b41e28
       Capnp.Gen.ById.Xeb6a435f11477f84
       Capnp.Gen.ById.Xec449e11027b2949
+      Capnp.Gen.Node
       Paths_corvus
   autogen-modules:
       Paths_corvus

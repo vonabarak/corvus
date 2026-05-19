@@ -17,6 +17,7 @@ using Common = import "common.capnp";
 using Vm = import "vm.capnp";
 using Disk = import "disk.capnp";
 using Network = import "network.capnp";
+using Node = import "node.capnp";
 using SshKey = import "sshkey.capnp";
 using Template = import "template.capnp";
 using Task = import "task.capnp";
@@ -39,6 +40,7 @@ interface Daemon {
   templates @7 () -> (mgr :Template.TemplateManager);
   tasks     @8 () -> (mgr :Task.TaskManager);
   cloudInit @9 () -> (mgr :CloudInit.CloudInitManager);
+  nodes     @12 () -> (mgr :Node.NodeManager);
 
   # Declarative environment application. `wait` returns once the
   # synchronous portion of apply is done; long-running steps are

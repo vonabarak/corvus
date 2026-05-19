@@ -31,6 +31,7 @@ import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
 import qualified Capnp.Gen.ById.X9b1373e2334a09e9
 import qualified Capnp.Gen.ById.X9bd452a518ed3917
+import qualified Capnp.Gen.ById.Xa40f88677f695703
 import qualified Capnp.Gen.ById.Xa6341bd086aa89f6
 import qualified Capnp.Gen.ById.Xa7366eabdb0b1db4
 import qualified Capnp.Gen.ById.Xd3867de7dfe678c7
@@ -62,9 +63,10 @@ instance (GH.Export Daemon) where
                                                                         ,(GH.toUntypedMethodHandler ((daemon'tasks) s_))
                                                                         ,(GH.toUntypedMethodHandler ((daemon'cloudInit) s_))
                                                                         ,(GH.toUntypedMethodHandler ((daemon'apply) s_))
-                                                                        ,(GH.toUntypedMethodHandler ((daemon'build) s_))] [])
+                                                                        ,(GH.toUntypedMethodHandler ((daemon'build) s_))
+                                                                        ,(GH.toUntypedMethodHandler ((daemon'nodes) s_))] [])
 class (Daemon'server_ s_) where
-    {-# MINIMAL daemon'ping,daemon'status,daemon'shutdown,daemon'vms,daemon'disks,daemon'networks,daemon'sshKeys,daemon'templates,daemon'tasks,daemon'cloudInit,daemon'apply,daemon'build #-}
+    {-# MINIMAL daemon'ping,daemon'status,daemon'shutdown,daemon'vms,daemon'disks,daemon'networks,daemon'sshKeys,daemon'templates,daemon'tasks,daemon'cloudInit,daemon'apply,daemon'build,daemon'nodes #-}
     daemon'ping :: s_ -> (GH.MethodHandler Daemon'ping'params Daemon'ping'results)
     daemon'ping _ = GH.methodUnimplemented
     daemon'status :: s_ -> (GH.MethodHandler Daemon'status'params Daemon'status'results)
@@ -89,6 +91,8 @@ class (Daemon'server_ s_) where
     daemon'apply _ = GH.methodUnimplemented
     daemon'build :: s_ -> (GH.MethodHandler Daemon'build'params Daemon'build'results)
     daemon'build _ = GH.methodUnimplemented
+    daemon'nodes :: s_ -> (GH.MethodHandler Daemon'nodes'params Daemon'nodes'results)
+    daemon'nodes _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Daemon Daemon'ping'params Daemon'ping'results) where
     methodByLabel  = (GH.Method 10075231120243769355 0)
 instance (GH.HasMethod "status" Daemon Daemon'status'params Daemon'status'results) where
@@ -113,6 +117,8 @@ instance (GH.HasMethod "apply" Daemon Daemon'apply'params Daemon'apply'results) 
     methodByLabel  = (GH.Method 10075231120243769355 10)
 instance (GH.HasMethod "build" Daemon Daemon'build'params Daemon'build'results) where
     methodByLabel  = (GH.Method 10075231120243769355 11)
+instance (GH.HasMethod "nodes" Daemon Daemon'nodes'params Daemon'nodes'results) where
+    methodByLabel  = (GH.Method 10075231120243769355 12)
 data Daemon'ping'params 
 type instance (R.ReprFor Daemon'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Daemon'ping'params) where
@@ -793,6 +799,61 @@ instance (C.Marshal Daemon'build'results (C.Parsed Daemon'build'results)) where
         )
 instance (GH.HasField "taskId" GH.Slot Daemon'build'results Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
+data Daemon'nodes'params 
+type instance (R.ReprFor Daemon'nodes'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Daemon'nodes'params) where
+    typeId  = 14675049721470429859
+instance (C.TypedStruct Daemon'nodes'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Daemon'nodes'params) where
+    type AllocHint Daemon'nodes'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Daemon'nodes'params (C.Parsed Daemon'nodes'params))
+instance (C.AllocateList Daemon'nodes'params) where
+    type ListAllocHint Daemon'nodes'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Daemon'nodes'params (C.Parsed Daemon'nodes'params))
+data instance C.Parsed Daemon'nodes'params
+    = Daemon'nodes'params 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Daemon'nodes'params))
+deriving instance (Std_.Eq (C.Parsed Daemon'nodes'params))
+instance (C.Parse Daemon'nodes'params (C.Parsed Daemon'nodes'params)) where
+    parse raw_ = (Std_.pure Daemon'nodes'params)
+instance (C.Marshal Daemon'nodes'params (C.Parsed Daemon'nodes'params)) where
+    marshalInto _raw (Daemon'nodes'params) = (Std_.pure ())
+data Daemon'nodes'results 
+type instance (R.ReprFor Daemon'nodes'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Daemon'nodes'results) where
+    typeId  = 15635407695846282007
+instance (C.TypedStruct Daemon'nodes'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Daemon'nodes'results) where
+    type AllocHint Daemon'nodes'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Daemon'nodes'results (C.Parsed Daemon'nodes'results))
+instance (C.AllocateList Daemon'nodes'results) where
+    type ListAllocHint Daemon'nodes'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Daemon'nodes'results (C.Parsed Daemon'nodes'results))
+data instance C.Parsed Daemon'nodes'results
+    = Daemon'nodes'results 
+        {mgr :: (RP.Parsed Capnp.Gen.ById.Xa40f88677f695703.NodeManager)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Daemon'nodes'results))
+deriving instance (Std_.Eq (C.Parsed Daemon'nodes'results))
+instance (C.Parse Daemon'nodes'results (C.Parsed Daemon'nodes'results)) where
+    parse raw_ = (Daemon'nodes'results <$> (GH.parseField #mgr raw_))
+instance (C.Marshal Daemon'nodes'results (C.Parsed Daemon'nodes'results)) where
+    marshalInto raw_ Daemon'nodes'results{..} = (do
+        (GH.encodeField #mgr mgr raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "mgr" GH.Slot Daemon'nodes'results Capnp.Gen.ById.Xa40f88677f695703.NodeManager) where
+    fieldByLabel  = (GH.ptrField 0)
 data ApplyCreated 
 type instance (R.ReprFor ApplyCreated) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId ApplyCreated) where

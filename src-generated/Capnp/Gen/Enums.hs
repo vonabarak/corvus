@@ -430,6 +430,7 @@ data TaskSubsystem
     | TaskSubsystem'system 
     | TaskSubsystem'apply 
     | TaskSubsystem'build 
+    | TaskSubsystem'node 
     | TaskSubsystem'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -459,6 +460,8 @@ instance (Std_.Enum TaskSubsystem) where
             TaskSubsystem'apply
         9 ->
             TaskSubsystem'build
+        10 ->
+            TaskSubsystem'node
         tag_ ->
             (TaskSubsystem'unknown' (Std_.fromIntegral tag_))
     fromEnum value_ = case value_ of
@@ -482,6 +485,8 @@ instance (Std_.Enum TaskSubsystem) where
             8
         (TaskSubsystem'build) ->
             9
+        (TaskSubsystem'node) ->
+            10
         (TaskSubsystem'unknown' tag_) ->
             (Std_.fromIntegral tag_)
 instance (C.IsWord TaskSubsystem) where
@@ -542,3 +547,42 @@ instance (C.Parse TaskResult TaskResult) where
 instance (C.AllocateList TaskResult) where
     type ListAllocHint TaskResult = Std_.Int
 instance (C.EstimateListAlloc TaskResult TaskResult)
+data NodeAdminState 
+    = NodeAdminState'online 
+    | NodeAdminState'draining 
+    | NodeAdminState'maintenance 
+    | NodeAdminState'unknown' Std_.Word16
+    deriving(Std_.Eq
+            ,Std_.Show
+            ,Generics.Generic)
+type instance (R.ReprFor NodeAdminState) = (R.Data R.Sz16)
+instance (C.HasTypeId NodeAdminState) where
+    typeId  = 10729504723721137657
+instance (Std_.Enum NodeAdminState) where
+    toEnum n_ = case n_ of
+        0 ->
+            NodeAdminState'online
+        1 ->
+            NodeAdminState'draining
+        2 ->
+            NodeAdminState'maintenance
+        tag_ ->
+            (NodeAdminState'unknown' (Std_.fromIntegral tag_))
+    fromEnum value_ = case value_ of
+        (NodeAdminState'online) ->
+            0
+        (NodeAdminState'draining) ->
+            1
+        (NodeAdminState'maintenance) ->
+            2
+        (NodeAdminState'unknown' tag_) ->
+            (Std_.fromIntegral tag_)
+instance (C.IsWord NodeAdminState) where
+    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
+    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
+instance (C.Parse NodeAdminState NodeAdminState) where
+    parse  = GH.parseEnum
+    encode  = GH.encodeEnum
+instance (C.AllocateList NodeAdminState) where
+    type ListAllocHint NodeAdminState = Std_.Int
+instance (C.EstimateListAlloc NodeAdminState NodeAdminState)

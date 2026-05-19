@@ -47,6 +47,10 @@ module Corvus.Wire.Enums
     -- * TaskResult
   , toCapnpTaskResult
   , fromCapnpTaskResult
+
+    -- * NodeAdminState
+  , toCapnpNodeAdminState
+  , fromCapnpNodeAdminState
   )
 where
 
@@ -236,6 +240,7 @@ toCapnpTaskSubsystem = \case
   M.SubSystem -> CGE.TaskSubsystem'system
   M.SubApply -> CGE.TaskSubsystem'apply
   M.SubBuild -> CGE.TaskSubsystem'build
+  M.SubNode -> CGE.TaskSubsystem'node
 
 fromCapnpTaskSubsystem :: CGE.TaskSubsystem -> Either WireError M.TaskSubsystem
 fromCapnpTaskSubsystem = \case
@@ -249,6 +254,7 @@ fromCapnpTaskSubsystem = \case
   CGE.TaskSubsystem'system -> Right M.SubSystem
   CGE.TaskSubsystem'apply -> Right M.SubApply
   CGE.TaskSubsystem'build -> Right M.SubBuild
+  CGE.TaskSubsystem'node -> Right M.SubNode
   CGE.TaskSubsystem'unknown' n -> Left (WireUnknownEnum "TaskSubsystem" n)
 
 -- ---------------------------------------------------------------------
@@ -271,3 +277,20 @@ fromCapnpTaskResult = \case
   CGE.TaskResult'notStarted -> Right M.TaskNotStarted
   CGE.TaskResult'cancelled -> Right M.TaskCancelled
   CGE.TaskResult'unknown' n -> Left (WireUnknownEnum "TaskResult" n)
+
+-- ---------------------------------------------------------------------
+-- NodeAdminState
+-- ---------------------------------------------------------------------
+
+toCapnpNodeAdminState :: M.NodeAdminState -> CGE.NodeAdminState
+toCapnpNodeAdminState = \case
+  M.NodeOnline -> CGE.NodeAdminState'online
+  M.NodeDraining -> CGE.NodeAdminState'draining
+  M.NodeMaintenance -> CGE.NodeAdminState'maintenance
+
+fromCapnpNodeAdminState :: CGE.NodeAdminState -> Either WireError M.NodeAdminState
+fromCapnpNodeAdminState = \case
+  CGE.NodeAdminState'online -> Right M.NodeOnline
+  CGE.NodeAdminState'draining -> Right M.NodeDraining
+  CGE.NodeAdminState'maintenance -> Right M.NodeMaintenance
+  CGE.NodeAdminState'unknown' n -> Left (WireUnknownEnum "NodeAdminState" n)

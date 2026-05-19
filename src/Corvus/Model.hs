@@ -443,6 +443,7 @@ data TaskSubsystem
   | SubSystem
   | SubApply
   | SubBuild
+  | SubNode
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText TaskSubsystem where
@@ -458,6 +459,7 @@ instance EnumText TaskSubsystem where
     , (SubSystem, "system")
     , (SubApply, "apply")
     , (SubBuild, "build")
+    , (SubNode, "node")
     ]
 
 instance FromJSON TaskSubsystem where

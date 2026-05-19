@@ -180,6 +180,20 @@ data Command
     NetworkShow !Text
   | -- | Edit network properties (networkRef, subnet, dhcp, nat, autostart)
     NetworkEdit !Text !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
+  | -- Node commands
+
+    -- | Add a node (name, host, nodeAgentPort, netAgentPort, basePath, description, adminState)
+    NodeAdd !Text !Text !Int !Int !Text !(Maybe Text) !Text
+  | -- | List all nodes
+    NodeList
+  | -- | Show node details (nodeRef)
+    NodeShow !Text
+  | -- | Edit node properties (nodeRef, name, host, nodeAgentPort, netAgentPort, basePath, description, adminState)
+    NodeEdit !Text !(Maybe Text) !(Maybe Text) !(Maybe Int) !(Maybe Int) !(Maybe Text) !(Maybe (Maybe Text)) !(Maybe Text)
+  | -- | Mark a node as draining (nodeRef)
+    NodeDrain !Text
+  | -- | Delete a node (nodeRef)
+    NodeDelete !Text
   | -- Cloud-init config commands
 
     -- | Set cloud-init config from YAML file. Nothing opens $EDITOR on a skeleton.

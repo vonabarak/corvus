@@ -14,6 +14,7 @@ module Corvus.Wire
   , module Corvus.Wire.CloudInit
   , module Corvus.Wire.Disk
   , module Corvus.Wire.Network
+  , module Corvus.Wire.Node
   , module Corvus.Wire.SshKey
   , module Corvus.Wire.SharedDir
   , module Corvus.Wire.Vm
@@ -30,6 +31,7 @@ import Corvus.Wire.Disk
 import Corvus.Wire.Enums
 import Corvus.Wire.Errors
 import Corvus.Wire.Network
+import Corvus.Wire.Node
 import Corvus.Wire.SharedDir
 import Corvus.Wire.SshKey
 import Corvus.Wire.Task
