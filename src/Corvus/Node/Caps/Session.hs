@@ -766,7 +766,11 @@ doVmStart sc spec = do
           -- Optional: block until first QGA ping succeeds.
           when (VS.vsWaitForGuestAgentMs spec > 0) $ do
             ok <-
-              waitForFirstQgaPing cfg vmId (VS.vsWaitForGuestAgentMs spec)
+              waitForFirstQgaPing
+                (scQgaConns sc)
+                cfg
+                vmId
+                (VS.vsWaitForGuestAgentMs spec)
             unless ok $ do
               -- Tear down: kill QEMU and virtiofsd, drop ledger
               -- entry, surface as failure.
@@ -860,12 +864,21 @@ reapEntryGracefully (pid, ph) = do
 -- soon as one ping succeeds, 'False' on timeout. Used by
 -- 'doVmStart' to block until the guest agent inside the VM is
 -- alive.
-waitForFirstQgaPing :: QemuConfig -> Int64 -> Word32 -> IO Bool
-waitForFirstQgaPing cfg vmId timeoutMs = do
-  conns <- newTVarIO Map.empty
-  go conns (max 0 (fromIntegral timeoutMs) :: Int)
+--
+-- The 'NGA.GuestAgentConns' argument MUST be the agent-wide cache
+-- ('scQgaConns'), not a fresh local map. The successful ping
+-- caches a live QGA socket in the cache's per-VM MVar; if we
+-- used a private map, that socket would stay live but
+-- unreferenced after this function returned, and the status
+-- poller's subsequent connect to the same QGA chardev would
+-- collide with it (QEMU's chardev has backlog=1) and fail with
+-- @EAGAIN / Resource temporarily unavailable@.
+waitForFirstQgaPing
+  :: NGA.GuestAgentConns -> QemuConfig -> Int64 -> Word32 -> IO Bool
+waitForFirstQgaPing conns cfg vmId timeoutMs =
+  go (max 0 (fromIntegral timeoutMs) :: Int)
   where
-    go conns remaining
+    go remaining
       | remaining <= 0 = pure False
       | otherwise = do
           ok <- NGA.guestPing conns cfg vmId
@@ -873,7 +886,7 @@ waitForFirstQgaPing cfg vmId timeoutMs = do
             then pure True
             else do
               threadDelay 200000 -- 200 ms
-              go conns (remaining - 200)
+              go (remaining - 200)
 
 -- | Graceful stop: QMP system_powerdown, then poll the reaper's
 -- @vlsLastExitCode@ for up to @timeoutSec@. On exit, also reap
