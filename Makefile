@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
+.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-schema-sync python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -162,6 +162,7 @@ test-image-node: test-image-key
 	crv build yaml/gentoo-test/gentoo-headless.yml --wait
 	crv build yaml/corvus-test-node/corvus-test-node.yml --wait
 test-image-node-clean:
+	crv template delete corvus-test-node || true
 	crv disk delete corvus-test-node || true
 
 # Build the Windows Server 2025 test image.
@@ -197,32 +198,58 @@ test-image-windows-clean:
 # and SSH is up via systemd's VSOCK socket-activation for the
 # `corvus` user.
 #
-# Idempotent for the second invocation only if you ran
-# `dev-node-vm-clean` first; otherwise the template-instantiate
-# step errors on the existing VM name.
+# Idempotent: if the VM already exists the instantiate / shared-dir
+# / start steps are skipped. Run `make dev-node-vm-clean` first to
+# get a fresh VM.
 
 # Override to rename the manual-testing VM, e.g.:
 #   make dev-node-vm DEV_NODE_VM=corvus-foo
 DEV_NODE_VM ?= corvus-dev-node
+# Private half of the SSH key the image bakes into
+# /home/corvus/.ssh/authorized_keys at build time
+# (see yaml/corvus-test-node/corvus-test-node.yml).
+DEV_NODE_SSH_KEY ?= integration_tests/keys/corvus-test-key
+
 dev-node-vm: build
-	@stack_bin=$$(stack path --local-install-root)/bin; \
+	@if crv -o json vm show $(DEV_NODE_VM) >/dev/null 2>&1; then \
+	  echo "VM '$(DEV_NODE_VM)' already exists; leaving it alone."; \
+	  echo "Run 'make dev-node-vm-clean' to remove it first if you want a fresh VM."; \
+	else \
+	  stack_bin=$$(stack path --local-install-root)/bin; \
 	  echo "Instantiating template 'corvus-test-node' as VM '$(DEV_NODE_VM)'"; \
 	  crv template instantiate corvus-test-node $(DEV_NODE_VM); \
 	  echo "Attaching $$stack_bin -> corvus_host (read-only)"; \
 	  crv shared-dir add $(DEV_NODE_VM) "$$stack_bin" corvus_host --read-only; \
+	  echo "Attaching $(CURDIR) -> corvus_src (read-only, mounted at /mnt/corvus)"; \
+	  crv shared-dir add $(DEV_NODE_VM) "$(CURDIR)" corvus_src --read-only; \
+	  echo "Attaching $$HOME/VMs/BaseImages -> base_images (read-only, mounted at /home/corvus/VMs/BaseImages)"; \
+	  crv shared-dir add $(DEV_NODE_VM) "$$HOME/VMs/BaseImages" base_images --read-only; \
 	  echo "Starting $(DEV_NODE_VM)"; \
-	  crv vm start $(DEV_NODE_VM) --wait
+	  crv vm start $(DEV_NODE_VM) --wait; \
+	fi
 	@echo
-	@echo "VM is up. Use:"
+	@echo "VM is ready. Use:"
 	@echo "  crv vm show $(DEV_NODE_VM)     # connection details (vsock CID, sockets)"
-	@echo "  ssh corvus@vsock%<CID>          # interactive shell over VSOCK"
-	@echo "  make dev-node-vm-clean          # reset + delete the VM (and its overlay)"
+	@echo "  make dev-node-vm-ssh           # ssh in over VSOCK"
+	@echo "  make dev-node-vm-clean         # reset + delete the VM (and its overlay)"
 
 
 # Reset + delete the manual-testing VM and its overlay disk.
 dev-node-vm-clean:
 	-crv vm reset $(DEV_NODE_VM)
 	-crv vm delete --delete-disks $(DEV_NODE_VM)
+
+
+# SSH into the dev VM over VSOCK. Pulls the CID from `crv vm show`
+# and uses the test image's baked-in SSH key. Pass extra ssh args
+# via `make dev-node-vm-ssh SSH_ARGS='-v'`.
+dev-node-vm-ssh:
+	@cid=$$(crv -o json vm show $(DEV_NODE_VM) | jq -r '.vsock_cid // empty'); \
+	  if [ -z "$$cid" ]; then \
+	    echo "$(DEV_NODE_VM) has no vsock_cid (is the VM up?)" >&2; \
+	    exit 1; \
+	  fi; \
+	  exec ssh -i $(DEV_NODE_SSH_KEY) $(SSH_ARGS) corvus@vsock%$$cid
 
 
 # Run linter on src, app and test directories

@@ -245,12 +245,36 @@ pipeline:
               install -d -m 0755 /etc/profile.d
               cat > /etc/profile.d/50-corvus.sh <<'EOF'
               # Test-node debug aliases — see yaml/corvus-test-node/
+
+              # Put the host-shared crv on PATH so tab-completion can
+              # invoke it bare (alias expansion is off inside the
+              # completion function). The daemon listens on TCP via
+              # the vsock-to-TCP relay; CORVUS_HOST / CORVUS_PORT let
+              # the entity-name completer (Corvus.Client.Completion)
+              # reach it without `--tcp` on the inner call.
+              if [ -d /opt/corvus/bin ]; then
+                case ":$PATH:" in
+                  *:/opt/corvus/bin:*) ;;
+                  *) PATH="/opt/corvus/bin:$PATH" ;;
+                esac
+                export PATH
+                export CORVUS_HOST=127.0.0.1
+                export CORVUS_PORT=9876
+              fi
+
               alias crv='/opt/corvus/bin/crv --tcp'
               alias crv-log='journalctl -u corvus-test -f --since "5 min ago"'
               alias crv-status='systemctl status --no-pager corvus-test'
               alias crv-psql='psql -U corvus corvus'
               # Show every corvus-spawned process (qemu, virtiofsd, dnsmasq).
               alias crv-procs='pgrep -af "[c]orvus|[q]emu-system|[v]irtiofsd|[d]nsmasq" | sort'
+
+              # Tab-completion for `crv`. Regenerated each login so
+              # it tracks whichever binary is mounted at the time
+              # (the virtiofs share is the developer's stack build).
+              if [ -x /opt/corvus/bin/crv ]; then
+                eval "$(/opt/corvus/bin/crv completion bash 2>/dev/null)"
+              fi
               EOF
               chmod 0644 /etc/profile.d/50-corvus.sh
 
