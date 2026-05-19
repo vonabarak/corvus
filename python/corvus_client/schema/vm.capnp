@@ -47,6 +47,12 @@ struct VmDetails {
   cloudInitConfig     @18 :CloudInit.CloudInitInfo;
   lastHealthcheck     @19 :Int64;
   autostart           @20 :Bool;
+  # Last-known error reason and timestamp. Populated when the daemon
+  # transitions the VM to `error` status (e.g. failed start). Cleared
+  # on the next successful transition back to a healthy state. Empty
+  # text / 0 nanoseconds == none.
+  errorMessage        @21 :Text;
+  lastErrorAt         @22 :Int64;
 }
 
 struct DriveInfo {

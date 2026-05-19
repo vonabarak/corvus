@@ -524,6 +524,8 @@ Vm
     autostart Bool default=false
     spicePort Int Maybe default=NULL
     vsockCid Int Maybe default=NULL
+    errorMessage Text Maybe default=NULL
+    lastErrorAt UTCTime Maybe default=NULL
     UniqueName name
     deriving Show Eq Generic
 

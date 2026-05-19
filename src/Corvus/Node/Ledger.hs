@@ -51,6 +51,12 @@ data VmLiveState = VmLiveState
   -- @waitForProcess@ call has returned. Readers ('vmStatus',
   -- 'vmStopGraceful') observe this to learn about exits without
   -- racing the reaper.
+  , vlsStderrTail :: !(TVar T.Text)
+  -- ^ Ring-buffered tail of QEMU's stderr (last ~4 KiB).
+  -- Populated by a reader thread launched alongside QEMU; on
+  -- early exit the wait-for-first-ping path quotes this back to
+  -- the daemon so the error includes QEMU's own diagnostic
+  -- output rather than a misleading "QGA ping timeout".
   , vlsSpicePort :: !Int32
   -- ^ Echoed back from the spec so 'vmStatus' can include it in
   -- 'VmRuntimeInfo' without a second lookup. 0 when no SPICE.

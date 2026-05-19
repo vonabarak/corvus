@@ -90,6 +90,8 @@ spec = sequential $ withTestDb $ do
                     , M.vmAutostart = False
                     , M.vmSpicePort = Just port
                     , M.vmVsockCid = Nothing
+                    , M.vmErrorMessage = Nothing
+                    , M.vmLastErrorAt = Nothing
                     }
               )
               pool
@@ -142,6 +144,8 @@ insertRunningVm name port = do
           , M.vmAutostart = False
           , M.vmSpicePort = Just port
           , M.vmVsockCid = Nothing
+          , M.vmErrorMessage = Nothing
+          , M.vmLastErrorAt = Nothing
           }
   pure ()
 

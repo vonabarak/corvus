@@ -124,6 +124,8 @@ class VmDetails:
     vsock_cid: Optional[int] = None
     cloud_init_config: Optional[CloudInitInfo] = None
     last_healthcheck: Optional[datetime] = None
+    error_message: Optional[str] = None
+    last_error_at: Optional[datetime] = None
 
 
 @dataclass(frozen=True)

@@ -145,6 +145,8 @@ def vm_details(r) -> t.VmDetails:
         cloud_init_config=cloud_init_info(r.cloudInitConfig) if r.cloudInit else None,
         last_healthcheck=_ts(r.lastHealthcheck),
         autostart=r.autostart,
+        error_message=_nz_text(r.errorMessage),
+        last_error_at=_ts(r.lastErrorAt),
     )
 
 

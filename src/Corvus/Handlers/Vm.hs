@@ -271,17 +271,19 @@ startQemuAndMonitor state vmId vm parentTaskId = do
 
   case spiceResult of
     Left err -> do
+      let msg = "Failed to allocate SPICE port: " <> err
       logWarnN $ "SPICE port allocation failed: " <> err
-      liftIO $ runSqlPool (setVmError vmId) pool
-      pure $ RespError $ "Failed to allocate SPICE port: " <> err
+      liftIO $ runSqlPool (setVmError vmId msg) pool
+      pure $ RespError msg
     Right _ -> do
       -- 3. CID re-validation.
       cidResult <- liftIO $ ensureFreeVsockCid state vmId vm
       case cidResult of
         Left err -> do
+          let msg = "Failed to secure a free vsock CID: " <> err
           logWarnN $ "Vsock CID re-allocation failed: " <> err
-          liftIO $ runSqlPool (setVmError vmId) pool
-          pure $ RespError $ "Failed to secure a free vsock CID: " <> err
+          liftIO $ runSqlPool (setVmError vmId msg) pool
+          pure $ RespError msg
         Right _ -> launchVmViaAgent state vmId vm pool
 
 -- | Assemble 'VmSpec' from DB rows and call 'NOA.vmStart'.
@@ -324,19 +326,20 @@ launchVmViaAgent state vmId vm pool = do
       case mAgent of
         Nothing -> do
           logWarnN "nodeagent unavailable; cannot start VM"
-          liftIO $ runSqlPool (setVmError vmId) pool
+          liftIO $ runSqlPool (setVmError vmId "nodeagent unavailable") pool
           pure $ RespError "nodeagent unavailable"
         Just nac -> do
           r <- liftIO $ NOA.vmStart nac spec
           case r of
             Left e -> do
+              let msg = "vmStart: " <> T.pack (show e)
               logWarnN $ "vmStart failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
-              liftIO $ runSqlPool (setVmError vmId) pool
+              liftIO $ runSqlPool (setVmError vmId msg) pool
               -- 'RespError' (not 'RespInvalidTransition') so the Cap'n
               -- Proto wire layer throws on the client; matches the
               -- pre-Phase-4 daemon-side failure semantics that the
               -- @start-virtiofsd@ subtask used to surface.
-              pure $ RespError $ "vmStart: " <> T.pack (show e)
+              pure $ RespError msg
             Right info -> do
               let pid = fromIntegral (NOA.vriQemuPid info) :: Int
               -- With vmStart blocking for first ping when guestAgent
@@ -689,30 +692,56 @@ getVmStatusOnly :: Int64 -> SqlPersistT IO (Maybe VmStatus)
 getVmStatusOnly vmId = fmap vmStatus <$> get (toSqlKey vmId :: VmId)
 
 -- | Set VM status (used during start: VmStarting or VmRunning).
+-- Clears any prior error reason so a recovered VM doesn't keep
+-- showing a stale "Last error" in @crv vm show@.
 -- The @_pid@ parameter is kept for caller-side symmetry but is no
 -- longer persisted — the agent owns every PID. Drop the parameter
 -- on the next breaking change.
 setVmStarted :: Int64 -> VmStatus -> Int -> SqlPersistT IO ()
 setVmStarted vmId status _pid = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. status]
+  update
+    key
+    [ M.VmStatus =. status
+    , M.VmErrorMessage =. Nothing
+    , M.VmLastErrorAt =. Nothing
+    ]
 
 -- | Set VM status to stopped and clear healthcheck, SPICE port,
--- and guest network data.
+-- prior error reason, and guest network data.
 setVmStopped :: Int64 -> SqlPersistT IO ()
 setVmStopped vmId = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmStopped, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]
+  update
+    key
+    [ M.VmStatus =. VmStopped
+    , M.VmHealthcheck =. Nothing
+    , M.VmSpicePort =. Nothing
+    , M.VmErrorMessage =. Nothing
+    , M.VmLastErrorAt =. Nothing
+    ]
   updateWhere
     [M.NetworkInterfaceVmId ==. key]
     [M.NetworkInterfaceGuestIpAddresses =. Nothing]
 
--- | Set VM status to error and clear healthcheck, SPICE port,
--- and guest network data.
-setVmError :: Int64 -> SqlPersistT IO ()
-setVmError vmId = do
+-- | Set VM status to error, record the reason + timestamp on the
+-- VM row, and clear runtime state (healthcheck, SPICE port, guest
+-- IPs). The @reason@ surfaces verbatim in @crv vm show@ so the
+-- operator sees the actual cause (e.g. "QEMU exited with code 137
+-- before first guest-agent ping") instead of having to chase task
+-- history.
+setVmError :: Int64 -> Text -> SqlPersistT IO ()
+setVmError vmId reason = do
+  now <- liftIO getCurrentTime
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. VmError, M.VmHealthcheck =. Nothing, M.VmSpicePort =. Nothing]
+  update
+    key
+    [ M.VmStatus =. VmError
+    , M.VmHealthcheck =. Nothing
+    , M.VmSpicePort =. Nothing
+    , M.VmErrorMessage =. Just reason
+    , M.VmLastErrorAt =. Just now
+    ]
   updateWhere
     [M.NetworkInterfaceVmId ==. key]
     [M.NetworkInterfaceGuestIpAddresses =. Nothing]
@@ -732,11 +761,22 @@ hasCloudInitIso vmId = do
         Just disk -> "-cloud-init" `T.isSuffixOf` diskImageName disk
         Nothing -> False
 
--- | Set VM status (without changing PID)
+-- | Set VM status (without changing PID). Clears any prior error
+-- reason when transitioning out of 'VmError'; leaves it alone for
+-- 'VmError' itself so explicit error setters keep the message
+-- they wrote (see 'setVmError').
 setVmStatus :: Int64 -> VmStatus -> SqlPersistT IO ()
 setVmStatus vmId status = do
   let key = toSqlKey vmId :: VmId
-  update key [M.VmStatus =. status]
+  if status == VmError
+    then update key [M.VmStatus =. status]
+    else
+      update
+        key
+        [ M.VmStatus =. status
+        , M.VmErrorMessage =. Nothing
+        , M.VmLastErrorAt =. Nothing
+        ]
 
 -- | Create a new VM
 createVm :: Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> Bool -> Maybe Int -> SqlPersistT IO Int64
@@ -757,6 +797,8 @@ createVm name cpuCount ramMb description headless guestAgent cloudInit autostart
           , vmAutostart = autostart
           , vmSpicePort = Nothing
           , vmVsockCid = vsockCid
+          , vmErrorMessage = Nothing
+          , vmLastErrorAt = Nothing
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -900,6 +942,8 @@ getVmDetails config vmId = do
             , vdCloudInitConfig = ciInfo
             , vdHealthcheck = vmHealthcheck vm
             , vdAutostart = vmAutostart vm
+            , vdErrorMessage = vmErrorMessage vm
+            , vdLastErrorAt = vmLastErrorAt vm
             }
   where
     toDriveInfo (Entity driveKey drive) = do
@@ -1195,12 +1239,13 @@ attachVmMonitor state vmId = do
           logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
           liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
         ExitErrored code -> do
+          let msg = "QEMU exited with error code " <> T.pack (show code)
           logWarnN $
             "VM "
               <> T.pack (show vmId)
-              <> " exited with error code "
-              <> T.pack (show code)
-          liftIO $ runSqlPool (setVmError vmId) (ssDbPool state)
+              <> " "
+              <> msg
+          liftIO $ runSqlPool (setVmError vmId msg) (ssDbPool state)
         ExitVanished -> do
           logInfoN $
             "VM "
@@ -1267,13 +1312,13 @@ reattachVmMonitors state = do
                     <> " exited cleanly while daemon was disconnected; reconciling"
                 liftIO $ runSqlPool (setVmStopped vmId) pool
               NOA.VmAgentErrored -> do
+                let msg =
+                      "QEMU exited with error code "
+                        <> T.pack (show (NOA.vasLastExitCode status))
+                        <> " (observed while daemon was disconnected)"
                 logWarnN $
-                  "VM "
-                    <> vmName vm
-                    <> " exited with error while daemon was disconnected (code "
-                    <> T.pack (show (NOA.vasLastExitCode status))
-                    <> ")"
-                liftIO $ runSqlPool (setVmError vmId) pool
+                  "VM " <> vmName vm <> ": " <> msg
+                liftIO $ runSqlPool (setVmError vmId msg) pool
               NOA.VmAgentUnknown -> do
                 logInfoN $
                   "VM "
@@ -1318,9 +1363,10 @@ reapplyVm state nac vmId vm = do
           liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) pool
           liftIO $ attachVmMonitor state vmId
         Left e -> do
+          let msg = "vmStart reapply: " <> T.pack (show e)
           logWarnN $
             "vmStart reapply failed for VM "
               <> vmName vm
               <> ": "
               <> T.pack (show e)
-          liftIO $ runSqlPool (setVmError vmId) pool
+          liftIO $ runSqlPool (setVmError vmId msg) pool

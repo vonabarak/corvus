@@ -437,6 +437,23 @@ printVmDetails vm = do
   printField "Name" (T.unpack (vdName vm))
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (vdCreatedAt vm))
   printField "Status" (T.unpack (enumToText $ vdStatus vm))
+  case vdErrorMessage vm of
+    Just msg -> do
+      -- Print the timestamp on the "Last error" line so it's
+      -- always visible; reflow the (possibly multi-line) message
+      -- under it with the same 16-col indent printField uses for
+      -- value alignment.
+      let stamp = case vdLastErrorAt vm of
+            Just at -> formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S UTC" at
+            Nothing -> "(no timestamp)"
+          indented =
+            T.unpack
+              . T.intercalate "\n                "
+              . T.lines
+              $ msg
+      printField "Last error" stamp
+      putStrLn $ "                " ++ indented
+    Nothing -> pure ()
   printField "CPUs" (show (vdCpuCount vm))
   printField "RAM (MB)" (show (vdRamMb vm))
   printField "Description" (maybe "(none)" T.unpack (vdDescription vm))

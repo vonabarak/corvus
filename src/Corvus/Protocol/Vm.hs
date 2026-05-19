@@ -99,6 +99,12 @@ data VmDetails = VmDetails
   -- ^ Last successful guest agent ping time
   , vdAutostart :: !Bool
   -- ^ Whether this VM autostarts when the daemon starts
+  , vdErrorMessage :: !(Maybe Text)
+  -- ^ Last failure reason when the daemon transitioned this VM to
+  -- 'VmError'. Cleared on successful transitions back to a healthy
+  -- state. 'Nothing' when the VM is healthy or never errored.
+  , vdLastErrorAt :: !(Maybe UTCTime)
+  -- ^ Timestamp paired with 'vdErrorMessage'.
   }
   deriving (Eq, Show, Generic)
 

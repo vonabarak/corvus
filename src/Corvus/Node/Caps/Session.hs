@@ -60,8 +60,10 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
+import GHC.Clock (getMonotonicTime)
 import Supervisors (Supervisor)
 import System.Exit (ExitCode (..))
+import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
 import System.Posix.Types (CPid (..))
 import System.Process
   ( ProcessHandle
@@ -801,7 +803,7 @@ doVmStart sc spec = do
     Left e -> do
       forM_ virtiofsdEntries reapEntryGracefully
       throwFailed ("QEMU spawn failed: " <> T.pack (show e))
-    Right (_, _, _, qemuPh) -> do
+    Right (_, mStdoutH, mStderrH, qemuPh) -> do
       mPid <- getPid qemuPh
       case mPid of
         Nothing -> do
@@ -811,12 +813,19 @@ doVmStart sc spec = do
         Just rawPid -> do
           let qemuPidW = fromIntegral rawPid :: Word32
           lastExitVar <- newTVarIO Nothing
+          stderrTailVar <- newTVarIO T.empty
+          -- Drain QEMU's stdout silently so the pipe doesn't fill
+          -- and back-pressure the child. Capture stderr into a
+          -- ring buffer for blame-on-early-exit.
+          forM_ mStdoutH $ \h -> void $ forkIO $ drainPipeSilently h
+          forM_ mStderrH $ \h -> void $ forkIO $ captureStderrTail h stderrTailVar
           let live =
                 L.VmLiveState
                   { L.vlsQemuPid = qemuPidW
                   , L.vlsQemuHandle = qemuPh
                   , L.vlsVirtiofsd = virtiofsdEntries
                   , L.vlsLastExitCode = lastExitVar
+                  , L.vlsStderrTail = stderrTailVar
                   , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
                   }
           atomically $ L.insertVm (scVmLedger sc) vmId live
@@ -851,35 +860,36 @@ doVmStart sc spec = do
                   Right (ExitFailure n) -> n
                   Left _ -> 1
             atomically $ writeTVar lastExitVar (Just code)
-          -- Optional: block until first QGA ping succeeds.
+          -- Optional: block until first QGA ping succeeds. Watches
+          -- both the QGA socket *and* QEMU's exit code so an early
+          -- crash surfaces an accurate error in <1 s instead of a
+          -- 90 s misleading "QGA ping timeout".
           when (VS.vsWaitForGuestAgentMs spec > 0) $ do
-            ok <-
+            result <-
               waitForFirstQgaPing
                 (scQgaConns sc)
                 cfg
                 vmId
+                lastExitVar
+                stderrTailVar
                 (VS.vsWaitForGuestAgentMs spec)
-            unless ok $ do
-              -- Tear down: kill QEMU and virtiofsd, drop ledger
-              -- entry, surface as failure.
-              _ <- atomically $ L.removeVm (scVmLedger sc) vmId
-              _ <-
-                runStderrLoggingT $
-                  P.stopProcess
-                    ("vm-" <> tshow vmId <> "-qemu")
-                    (CPid (fromIntegral qemuPidW))
-                    Nothing
-                    0
-                    5
-              void $ E.try @E.SomeException (waitForProcess qemuPh)
-              forM_ virtiofsdEntries reapEntryGracefully
-              throwFailed
-                ( "QGA ping timeout for vmId "
-                    <> tshow vmId
-                    <> " after "
-                    <> tshow (VS.vsWaitForGuestAgentMs spec)
-                    <> " ms"
-                )
+            case result of
+              Right () -> pure ()
+              Left reason -> do
+                -- Tear down: kill QEMU and virtiofsd, drop ledger
+                -- entry, surface as failure.
+                _ <- atomically $ L.removeVm (scVmLedger sc) vmId
+                _ <-
+                  runStderrLoggingT $
+                    P.stopProcess
+                      ("vm-" <> tshow vmId <> "-qemu")
+                      (CPid (fromIntegral qemuPidW))
+                      Nothing
+                      0
+                      5
+                void $ E.try @E.SomeException (waitForProcess qemuPh)
+                forM_ virtiofsdEntries reapEntryGracefully
+                throwFailed reason
           pure
             CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
 
@@ -962,19 +972,114 @@ reapEntryGracefully (pid, ph) = do
 -- collide with it (QEMU's chardev has backlog=1) and fail with
 -- @EAGAIN / Resource temporarily unavailable@.
 waitForFirstQgaPing
-  :: NGA.GuestAgentConns -> QemuConfig -> Int64 -> Word32 -> IO Bool
-waitForFirstQgaPing conns cfg vmId timeoutMs =
-  go (max 0 (fromIntegral timeoutMs) :: Int)
+  :: NGA.GuestAgentConns
+  -> QemuConfig
+  -> Int64
+  -> TVar (Maybe Int)
+  -- ^ 'vlsLastExitCode' — set by the reaper the moment QEMU
+  -- exits, so we can surface an accurate error instead of timing
+  -- out.
+  -> TVar T.Text
+  -- ^ 'vlsStderrTail' — last ~4 KiB of QEMU's stderr, included
+  -- verbatim in the error string when QEMU died early.
+  -> Word32
+  -- ^ wall-clock budget in milliseconds
+  -> IO (Either T.Text ())
+  -- ^ 'Right ()' when the first guest-agent ping succeeded;
+  -- 'Left reason' on timeout *or* early QEMU exit. The reason
+  -- string is intended to flow verbatim into the daemon's task
+  -- message and 'vm.error_message'.
+waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
+  let budgetSec = fromIntegral timeoutMs / 1000 :: Double
+  start <- getMonotonicTime
+  loop (start + budgetSec)
   where
-    go remaining
-      | remaining <= 0 = pure False
-      | otherwise = do
+    loop deadline = do
+      mExit <- readTVarIO exitVar
+      case mExit of
+        Just code -> Left <$> earlyExitReason code
+        Nothing -> do
           ok <- NGA.guestPing conns cfg vmId
           if ok
-            then pure True
+            then pure $ Right ()
             else do
-              threadDelay 200000 -- 200 ms
-              go (remaining - 200)
+              -- Re-check the reaper after the (potentially slow)
+              -- ping attempt: 'guestPing' has its own ~15 s internal
+              -- timeout, so QEMU could have died during the call.
+              mExit' <- readTVarIO exitVar
+              case mExit' of
+                Just code -> Left <$> earlyExitReason code
+                Nothing -> do
+                  now <- getMonotonicTime
+                  if now >= deadline
+                    then
+                      pure $
+                        Left $
+                          "guest agent did not respond within "
+                            <> tshow timeoutMs
+                            <> " ms for vmId "
+                            <> tshow vmId
+                    else threadDelay 200000 >> loop deadline
+
+    earlyExitReason code = do
+      stderr <- readTVarIO stderrVar
+      let trimmed = T.strip stderr
+          tail' = if T.null trimmed then T.empty else "; stderr tail: " <> trimmed
+      pure $
+        "QEMU for vmId "
+          <> tshow vmId
+          <> " exited with code "
+          <> tshow code
+          <> " before first guest-agent ping"
+          <> tail'
+
+-- | Drain a child-process pipe until EOF, discarding the bytes.
+-- Used to keep QEMU's stdout from blocking when the pipe fills.
+drainPipeSilently :: Handle -> IO ()
+drainPipeSilently h = do
+  hSetBuffering h NoBuffering
+  let go = do
+        eof <- hIsEOF h
+        if eof
+          then hClose h
+          else do
+            _ <- E.try @E.SomeException $ BS.hGet h 4096
+            go
+  E.handle (\(_ :: E.SomeException) -> pure ()) go
+
+-- | Tail-capture a child-process pipe into a 'TVar' Text, keeping
+-- the last 'stderrTailCapacity' bytes. Used to surface QEMU's own
+-- diagnostic output when the wait-for-ping path needs to explain
+-- why the VM died.
+captureStderrTail :: Handle -> TVar T.Text -> IO ()
+captureStderrTail h ringVar = do
+  hSetBuffering h LineBuffering
+  let go = do
+        eof <- hIsEOF h
+        if eof
+          then hClose h
+          else do
+            r <- E.try @E.SomeException (hGetLine h)
+            case r of
+              Left _ -> pure ()
+              Right line -> do
+                let lineT = T.pack line <> "\n"
+                atomically $
+                  modifyTVar' ringVar $ \prev ->
+                    let combined = prev <> lineT
+                        overflow = T.length combined - stderrTailCapacity
+                     in if overflow > 0
+                          then T.drop overflow combined
+                          else combined
+                go
+  E.handle (\(_ :: E.SomeException) -> pure ()) go
+
+-- | Maximum number of characters retained in 'vlsStderrTail'. Sized
+-- to fit QEMU's typical "could not …" / KVM-init / device-init
+-- error block (a few hundred bytes) with comfortable headroom; not
+-- so large that it inflates the daemon's task-message column.
+stderrTailCapacity :: Int
+stderrTailCapacity = 4096
 
 -- | Graceful stop: QMP system_powerdown, then poll the reaper's
 -- @vlsLastExitCode@ for up to @timeoutSec@. On exit, also reap

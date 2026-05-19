@@ -119,8 +119,8 @@ type instance (R.ReprFor VmDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDetails) where
     typeId  = 12709035652582668216
 instance (C.TypedStruct VmDetails) where
-    numStructWords  = 6
-    numStructPtrs  = 9
+    numStructWords  = 7
+    numStructPtrs  = 10
 instance (C.Allocate VmDetails) where
     type AllocHint VmDetails = ()
     new _ = C.newTypedStruct
@@ -151,7 +151,9 @@ data instance C.Parsed VmDetails
         ,cloudInit :: (RP.Parsed Std_.Bool)
         ,cloudInitConfig :: (RP.Parsed Capnp.Gen.ById.Xeb6a435f11477f84.CloudInitInfo)
         ,lastHealthcheck :: (RP.Parsed Std_.Int64)
-        ,autostart :: (RP.Parsed Std_.Bool)}
+        ,autostart :: (RP.Parsed Std_.Bool)
+        ,errorMessage :: (RP.Parsed Basics.Text)
+        ,lastErrorAt :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmDetails))
 deriving instance (Std_.Eq (C.Parsed VmDetails))
@@ -176,7 +178,9 @@ instance (C.Parse VmDetails (C.Parsed VmDetails)) where
                             <*> (GH.parseField #cloudInit raw_)
                             <*> (GH.parseField #cloudInitConfig raw_)
                             <*> (GH.parseField #lastHealthcheck raw_)
-                            <*> (GH.parseField #autostart raw_))
+                            <*> (GH.parseField #autostart raw_)
+                            <*> (GH.parseField #errorMessage raw_)
+                            <*> (GH.parseField #lastErrorAt raw_))
 instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
     marshalInto raw_ VmDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -200,6 +204,8 @@ instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
         (GH.encodeField #cloudInitConfig cloudInitConfig raw_)
         (GH.encodeField #lastHealthcheck lastHealthcheck raw_)
         (GH.encodeField #autostart autostart raw_)
+        (GH.encodeField #errorMessage errorMessage raw_)
+        (GH.encodeField #lastErrorAt lastErrorAt raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmDetails Std_.Int64) where
@@ -244,6 +250,10 @@ instance (GH.HasField "lastHealthcheck" GH.Slot VmDetails Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 5 64 0)
 instance (GH.HasField "autostart" GH.Slot VmDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 19 2 1 0)
+instance (GH.HasField "errorMessage" GH.Slot VmDetails Basics.Text) where
+    fieldByLabel  = (GH.ptrField 9)
+instance (GH.HasField "lastErrorAt" GH.Slot VmDetails Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 6 64 0)
 data DriveInfo 
 type instance (R.ReprFor DriveInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DriveInfo) where

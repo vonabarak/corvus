@@ -194,6 +194,8 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs =
         maybe (toCapnpCloudInitInfo emptyCloudInitInfo) toCapnpCloudInitInfo vdCloudInitConfig
     , CGVm.lastHealthcheck = utcTimeToNanosMaybe vdHealthcheck
     , CGVm.autostart = vdAutostart
+    , CGVm.errorMessage = fromMaybe mempty vdErrorMessage
+    , CGVm.lastErrorAt = utcTimeToNanosMaybe vdLastErrorAt
     }
 
 -- | Reverse direction. Returns shared-dirs separately so the caller
@@ -230,6 +232,8 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
         , P.vdCloudInitConfig = if ci == emptyCloudInitInfo then Nothing else Just ci
         , P.vdHealthcheck = nanosToUtcTimeMaybe lastHealthcheck
         , P.vdAutostart = autostart
+        , P.vdErrorMessage = if errorMessage == mempty then Nothing else Just errorMessage
+        , P.vdLastErrorAt = nanosToUtcTimeMaybe lastErrorAt
         }
     , sharedDirs'
     )

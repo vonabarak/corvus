@@ -119,4 +119,6 @@ vmStubWithCid now name cid =
     , M.vmAutostart = False
     , M.vmSpicePort = Nothing
     , M.vmVsockCid = Just cid
+    , M.vmErrorMessage = Nothing
+    , M.vmLastErrorAt = Nothing
     }

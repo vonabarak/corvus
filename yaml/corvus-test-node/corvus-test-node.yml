@@ -425,7 +425,12 @@ pipeline:
         - name: corvus-test-node
           description: "Corvus integration-test node — instantiate via `make test-node-vm` for hands-on inspection of the daemon+netd+nodeagent stack inside the same image the test harness uses"
           cpuCount: 4
-          ramMb: 4096
+          # 16 GiB so the dev VM can host a real-sized nested VM
+          # (multi-os/gentoo-headless defaults are 4-8 GiB) plus the
+          # inner daemon, Postgres, VDE/dnsmasq, and headroom. The
+          # original 4 GiB was sized for the integration-test
+          # footprint, not for manual nested-VM testing.
+          ramMb: 16384
           guestAgent: true
           headless: true
           drives:
