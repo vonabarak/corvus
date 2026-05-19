@@ -110,7 +110,7 @@ instance (C.HasTypeId NetworkCreateParams) where
     typeId  = 12742821130246526528
 instance (C.TypedStruct NetworkCreateParams) where
     numStructWords  = 1
-    numStructPtrs  = 2
+    numStructPtrs  = 3
 instance (C.Allocate NetworkCreateParams) where
     type AllocHint NetworkCreateParams = ()
     new _ = C.newTypedStruct
@@ -125,7 +125,8 @@ data instance C.Parsed NetworkCreateParams
         ,subnet :: (RP.Parsed Basics.Text)
         ,dhcp :: (RP.Parsed Std_.Bool)
         ,nat :: (RP.Parsed Std_.Bool)
-        ,autostart :: (RP.Parsed Std_.Bool)}
+        ,autostart :: (RP.Parsed Std_.Bool)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetworkCreateParams))
 deriving instance (Std_.Eq (C.Parsed NetworkCreateParams))
@@ -134,7 +135,8 @@ instance (C.Parse NetworkCreateParams (C.Parsed NetworkCreateParams)) where
                                       <*> (GH.parseField #subnet raw_)
                                       <*> (GH.parseField #dhcp raw_)
                                       <*> (GH.parseField #nat raw_)
-                                      <*> (GH.parseField #autostart raw_))
+                                      <*> (GH.parseField #autostart raw_)
+                                      <*> (GH.parseField #node raw_))
 instance (C.Marshal NetworkCreateParams (C.Parsed NetworkCreateParams)) where
     marshalInto raw_ NetworkCreateParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -142,6 +144,7 @@ instance (C.Marshal NetworkCreateParams (C.Parsed NetworkCreateParams)) where
         (GH.encodeField #dhcp dhcp raw_)
         (GH.encodeField #nat nat raw_)
         (GH.encodeField #autostart autostart raw_)
+        (GH.encodeField #node node raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot NetworkCreateParams Basics.Text) where
@@ -154,6 +157,8 @@ instance (GH.HasField "nat" GH.Slot NetworkCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 0 1 0)
 instance (GH.HasField "autostart" GH.Slot NetworkCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 2 0 1 0)
+instance (GH.HasField "node" GH.Slot NetworkCreateParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 2)
 data NetworkEditParams 
 type instance (R.ReprFor NetworkEditParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NetworkEditParams) where

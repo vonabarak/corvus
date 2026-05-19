@@ -142,6 +142,7 @@ instance FromJSON ApplyDisk where
 
 data ApplyNetwork = ApplyNetwork
   { anName :: Text
+  , anNode :: Text
   , anSubnet :: Text
   , anDhcp :: Bool
   , anNat :: Bool
@@ -153,6 +154,7 @@ instance FromJSON ApplyNetwork where
   parseJSON = withObject "ApplyNetwork" $ \o ->
     ApplyNetwork
       <$> o .: "name"
+      <*> o .:? "node" .!= ""
       <*> o .:? "subnet" .!= ""
       <*> o .:? "dhcp" .!= False
       <*> o .:? "nat" .!= False
@@ -160,6 +162,7 @@ instance FromJSON ApplyNetwork where
 
 data ApplyVm = ApplyVm
   { avName :: Text
+  , avNode :: Text
   , avCpuCount :: Int
   , avRamMb :: Int
   , avDescription :: Maybe Text
@@ -179,6 +182,7 @@ instance FromJSON ApplyVm where
   parseJSON = withObject "ApplyVm" $ \o ->
     ApplyVm
       <$> o .: "name"
+      <*> o .:? "node" .!= ""
       <*> o .: "cpuCount"
       <*> o .: "ramMb"
       <*> o .:? "description"

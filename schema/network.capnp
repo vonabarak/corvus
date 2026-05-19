@@ -30,6 +30,8 @@ struct NetworkCreateParams {
   dhcp      @2 :Bool = false;
   nat       @3 :Bool = false;
   autostart @4 :Bool = false;
+  # Node this network is bound to (multi-node slice 1c).
+  node      @5 :Common.EntityRef;
 }
 
 struct NetworkEditParams {

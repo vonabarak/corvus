@@ -104,6 +104,8 @@ library:
     - Corvus.Handlers.Network
     - Corvus.Handlers.Node
     - Corvus.Handlers.Resolve
+    - Corvus.Handlers.Scheduler
+    - Corvus.NodeRouting
     - Corvus.CloudInit
     - Corvus.Client
     - Corvus.Client.Config

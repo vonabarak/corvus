@@ -21,6 +21,15 @@ networkCreateCommand =
       ( metavar "NAME"
           <> help "Name for the virtual network"
       )
+    <*> ( T.pack
+            <$> strOption
+              ( long "node"
+                  <> short 'n'
+                  <> metavar "NODE"
+                  <> value ""
+                  <> help "Name or ID of the node owning this network (optional; daemon picks via the scheduler when omitted)"
+              )
+        )
     <*> argument
       (T.pack <$> str)
       ( metavar "SUBNET"

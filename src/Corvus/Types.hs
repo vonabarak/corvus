@@ -4,9 +4,20 @@
 module Corvus.Types
   ( -- * Server State
     ServerState (..)
+  , NodeConns (..)
   , newServerState
   , runServerLogging
   , runFilteredLogging
+
+    -- * Per-node agent routing
+  , withNodeAgent
+  , withNetAgent
+  , lookupNodeAgent
+  , lookupNetAgentMaybe
+  , registerNodeConns
+  , clearNodeConn
+  , clearNetConn
+  , removeNodeConns
 
     -- * Socket Buffer Types
   , SocketBuffer (..)
@@ -24,9 +35,11 @@ where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
+import Control.Concurrent.Async (Async)
 import Control.Concurrent.MVar (MVar, newMVar)
-import Control.Concurrent.STM (TMVar, TVar, newTVarIO)
+import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
+import qualified Corvus.Model as M
 import Corvus.NetAgentClient (NetAgentClient)
 import Corvus.NodeAgentClient (NodeAgentClient)
 import Corvus.Qemu.Config (QemuConfig)
@@ -36,8 +49,10 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Pool (Pool)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time.Clock (UTCTime, getCurrentTime)
 import Database.Persist.Postgresql (SqlBackend)
+import Database.Persist.Sql (fromSqlKey)
 import Network.Socket (Socket)
 import System.Environment (lookupEnv)
 
@@ -57,17 +72,15 @@ data ServerState = ServerState
   -- ^ QEMU configuration
   , ssLogLevel :: !LogLevel
   -- ^ Minimum log level for handler logging
-  , ssNetAgent :: TVar (Maybe NetAgentClient)
-  -- ^ Link to the privileged @corvus-netd@ agent. Set by the
-  -- connect-and-hold async in 'app/daemon/Main.hs' once the
-  -- agent is reachable; cleared if the connection drops.
-  -- Network / NetIf handlers consult this TVar and hard-error
-  -- with @netd unavailable@ when it's 'Nothing'.
-  , ssNodeAgent :: TVar (Maybe NodeAgentClient)
-  -- ^ Link to the per-host @corvus-nodeagent@. Same pattern as
-  -- 'ssNetAgent'. Phase 1 ships the connection only; later
-  -- phases route disk / VM / console operations through this
-  -- handle.
+  , ssAgents :: TVar (Map.Map M.NodeId NodeConns)
+  -- ^ Per-node registry of live agent connections. The daemon
+  -- forks one reconnect-loop per row in the 'Node' table at
+  -- startup; each loop dials the node's @corvus-nodeagent@
+  -- (@nodeAgentPort@) and @corvus-netd@ (@netAgentPort@) and
+  -- updates the matching 'NodeConns' entry. Handlers route
+  -- their agent calls through 'withNodeAgent' / 'withNetAgent'
+  -- which hard-error when the entry is missing or its agent
+  -- field is 'Nothing'.
   , ssGuestAgentSubs :: TVar (Map.Map Int64 [C.Client CGS.GuestAgentStatusSink])
   -- ^ Per-VM 'vm.subscribeGuestAgent' subscriber lists. The
   -- guest-agent poller pushes a 'GuestAgentStatus' to each sink
@@ -93,14 +106,30 @@ data ServerState = ServerState
   -- See 'Corvus.Node.SpicePort.withAllocatedSpicePort'.
   }
 
+-- | Per-node bundle of live agent connections plus the
+-- supervisor 'Async' that ran the reconnect loop. Both agent
+-- fields start as 'Nothing'; the supervisor populates them once
+-- the respective TCP dial succeeds and clears them when the
+-- connection drops.
+data NodeConns = NodeConns
+  { ncNodeAgent :: !(Maybe NodeAgentClient)
+  -- ^ Live nodeagent cap for this node, or 'Nothing' while
+  -- disconnected / unreachable.
+  , ncNetAgent :: !(Maybe NetAgentClient)
+  -- ^ Live netd cap for this node.
+  , ncSupervisor :: !(Async ())
+  -- ^ The async that holds both connections open and reconnects
+  -- on drop. Cancelled when the node is deleted via @crv node
+  -- delete@ or when the daemon shuts down.
+  }
+
 -- | Create a new server state
 newServerState :: Pool SqlBackend -> QemuConfig -> IO ServerState
 newServerState pool qemuConfig = do
   startTime <- getCurrentTime
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
-  netAgent <- newTVarIO Nothing
-  nodeAgent <- newTVarIO Nothing
+  agents <- newTVarIO Map.empty
   gaSubs <- newTVarIO Map.empty
   taskSubs <- newTVarIO Map.empty
   vsockLock <- newMVar ()
@@ -113,13 +142,105 @@ newServerState pool qemuConfig = do
       , ssDbPool = pool
       , ssQemuConfig = qemuConfig
       , ssLogLevel = LevelInfo
-      , ssNetAgent = netAgent
-      , ssNodeAgent = nodeAgent
+      , ssAgents = agents
       , ssGuestAgentSubs = gaSubs
       , ssTaskProgressSubs = taskSubs
       , ssVsockCidLock = vsockLock
       , ssSpicePortLock = spiceLock
       }
+
+-- | Look up the nodeagent cap for a node. Returns 'Left' with a
+-- diagnostic message when the node isn't registered with the
+-- daemon (i.e. no supervisor was spawned for it) or its
+-- nodeagent connection is currently down.
+lookupNodeAgent :: ServerState -> M.NodeId -> IO (Either Text NodeAgentClient)
+lookupNodeAgent state nid = do
+  m <- readTVarIO (ssAgents state)
+  pure $ case Map.lookup nid m of
+    Nothing ->
+      Left $
+        "node " <> T.pack (show (fromSqlKey nid)) <> " not registered with daemon"
+    Just nc -> case ncNodeAgent nc of
+      Nothing ->
+        Left $
+          "nodeagent for node "
+            <> T.pack (show (fromSqlKey nid))
+            <> " unavailable"
+      Just nac -> Right nac
+
+-- | Look up the nodeagent cap and run an action against it.
+-- Convenience wrapper around 'lookupNodeAgent' for the common
+-- "if reachable, do X" pattern in handlers.
+withNodeAgent
+  :: ServerState
+  -> M.NodeId
+  -> (NodeAgentClient -> IO a)
+  -> IO (Either Text a)
+withNodeAgent state nid action = do
+  r <- lookupNodeAgent state nid
+  case r of
+    Left e -> pure (Left e)
+    Right nac -> Right <$> action nac
+
+-- | Look up the netd cap for a node and run an action.
+withNetAgent
+  :: ServerState
+  -> M.NodeId
+  -> (NetAgentClient -> IO a)
+  -> IO (Either Text a)
+withNetAgent state nid action = do
+  m <- readTVarIO (ssAgents state)
+  case Map.lookup nid m of
+    Nothing ->
+      pure $
+        Left $
+          "node " <> T.pack (show (fromSqlKey nid)) <> " not registered with daemon"
+    Just nc -> case ncNetAgent nc of
+      Nothing ->
+        pure $
+          Left $
+            "netd for node "
+              <> T.pack (show (fromSqlKey nid))
+              <> " unavailable"
+      Just nac -> Right <$> action nac
+
+-- | Non-blocking, non-erroring netd lookup. Returns 'Nothing' if
+-- the node isn't registered or its netd cap is currently down.
+-- Used by best-effort code paths (e.g. assembling 'VmSpec' when a
+-- managed NIC is involved but the warning case shouldn't fail the
+-- caller outright).
+lookupNetAgentMaybe :: ServerState -> M.NodeId -> IO (Maybe NetAgentClient)
+lookupNetAgentMaybe state nid = do
+  m <- readTVarIO (ssAgents state)
+  pure (ncNetAgent =<< Map.lookup nid m)
+
+-- | Install (or replace) a 'NodeConns' entry for a node. Used
+-- by the per-node reconnect spawner when a new node is added.
+registerNodeConns :: ServerState -> M.NodeId -> NodeConns -> IO ()
+registerNodeConns state nid nc =
+  atomically $ modifyTVar' (ssAgents state) (Map.insert nid nc)
+
+-- | Clear the nodeagent half of a node's connection bundle (the
+-- supervisor sets this on disconnect; another connect attempt
+-- will replace it via 'updateNodeConn').
+clearNodeConn :: ServerState -> M.NodeId -> IO ()
+clearNodeConn state nid =
+  atomically $
+    modifyTVar' (ssAgents state) $
+      Map.adjust (\nc -> nc {ncNodeAgent = Nothing}) nid
+
+-- | Clear the netd half of a node's connection bundle.
+clearNetConn :: ServerState -> M.NodeId -> IO ()
+clearNetConn state nid =
+  atomically $
+    modifyTVar' (ssAgents state) $
+      Map.adjust (\nc -> nc {ncNetAgent = Nothing}) nid
+
+-- | Remove a node's entry entirely. Used when @crv node delete@
+-- cancels the supervisor.
+removeNodeConns :: ServerState -> M.NodeId -> IO ()
+removeNodeConns state nid =
+  atomically $ modifyTVar' (ssAgents state) (Map.delete nid)
 
 --------------------------------------------------------------------------------
 -- Socket Buffer Types

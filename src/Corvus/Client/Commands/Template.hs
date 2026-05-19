@@ -147,9 +147,18 @@ handleTemplateShow fmt conn tid = do
       pure False
 
 -- | Handle template instantiate command
-handleTemplateInstantiate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
-handleTemplateInstantiate fmt conn tid name = do
-  r <- try @SomeException (CR.rpcTemplateInstantiate conn (entityRefFromText tid) name)
+handleTemplateInstantiate
+  :: OutputFormat
+  -> CapnpConnection
+  -> Text
+  -- ^ template ref
+  -> Text
+  -- ^ new VM name
+  -> Text
+  -- ^ node ref
+  -> IO Bool
+handleTemplateInstantiate fmt conn tid name nodeRef = do
+  r <- try @SomeException (CR.rpcTemplateInstantiate conn (entityRefFromText tid) name nodeRef)
   case r of
     Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $

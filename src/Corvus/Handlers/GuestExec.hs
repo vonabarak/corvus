@@ -17,11 +17,11 @@ where
 
 import Corvus.Action
 
-import Control.Concurrent.STM (readTVarIO)
 import Corvus.Model (VmStatus (..))
 import Corvus.Model hiding (VmStatus)
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.NodeAgentClient as NOA
+import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Types
 import qualified Data.ByteString as BS
@@ -47,47 +47,45 @@ handleGuestExec state vmId command = do
           if not ga
             then pure RespGuestAgentNotEnabled
             else do
-              mAgent <- readTVarIO (ssNodeAgent state)
-              case mAgent of
-                Nothing -> pure $ RespGuestAgentError "nodeagent unavailable"
-                Just nac -> do
-                  let req =
-                        VS.VmGuestExecReq
-                          { VS.vgeVmId = vmId
-                          , -- Send the bare command; the agent's
-                            -- 'guestExec' detects the guest OS and
-                            -- wraps with @/bin/sh -c@ (Linux/BSD) or
-                            -- @cmd.exe /c@ (Windows). Pre-wrapping
-                            -- with @/bin/sh -c@ here would double-wrap
-                            -- on Windows and fail.
-                            VS.vgePath = command
-                          , VS.vgeArgs = []
-                          , VS.vgeCaptureOutput = True
-                          , VS.vgeInputData = BS.empty
-                          , VS.vgeTimeoutSec = 0
-                          }
-                  r <- NOA.vmGuestExec nac req
-                  case r of
-                    Left e ->
-                      pure $ RespGuestAgentError ("vmGuestExec: " <> T.pack (show e))
-                    Right info
-                      | VS.vgiHasExit info ->
-                          pure $
-                            RespGuestExecResult
-                              (fromIntegral (VS.vgiExitCode info))
-                              (TE.decodeUtf8 (VS.vgiStdout info))
-                              (TE.decodeUtf8 (VS.vgiStderr info))
-                      | otherwise ->
-                          -- Agent set hasExit=False, surfacing either a
-                          -- QGA-side timeout ("guest-exec timed out
-                          -- waiting for process to exit") or a
-                          -- connection error. Either way the real
-                          -- diagnostic lives in stderr — forward it.
-                          let stderrText = TE.decodeUtf8 (VS.vgiStderr info)
-                              msg
-                                | T.null stderrText = "guest-exec did not return an exit code"
-                                | otherwise = stderrText
-                           in pure $ RespGuestAgentError msg
+              let req =
+                    VS.VmGuestExecReq
+                      { VS.vgeVmId = vmId
+                      , -- Send the bare command; the agent's
+                        -- 'guestExec' detects the guest OS and
+                        -- wraps with @/bin/sh -c@ (Linux/BSD) or
+                        -- @cmd.exe /c@ (Windows). Pre-wrapping
+                        -- with @/bin/sh -c@ here would double-wrap
+                        -- on Windows and fail.
+                        VS.vgePath = command
+                      , VS.vgeArgs = []
+                      , VS.vgeCaptureOutput = True
+                      , VS.vgeInputData = BS.empty
+                      , VS.vgeTimeoutSec = 0
+                      }
+              outer <- withVmNodeAgent state vmId $ \nac -> NOA.vmGuestExec nac req
+              case outer of
+                Left err -> pure $ RespGuestAgentError err
+                Right r -> case r of
+                  Left e ->
+                    pure $ RespGuestAgentError ("vmGuestExec: " <> T.pack (show e))
+                  Right info
+                    | VS.vgiHasExit info ->
+                        pure $
+                          RespGuestExecResult
+                            (fromIntegral (VS.vgiExitCode info))
+                            (TE.decodeUtf8 (VS.vgiStdout info))
+                            (TE.decodeUtf8 (VS.vgiStderr info))
+                    | otherwise ->
+                        -- Agent set hasExit=False, surfacing either a
+                        -- QGA-side timeout ("guest-exec timed out
+                        -- waiting for process to exit") or a
+                        -- connection error. Either way the real
+                        -- diagnostic lives in stderr — forward it.
+                        let stderrText = TE.decodeUtf8 (VS.vgiStderr info)
+                            msg
+                              | T.null stderrText = "guest-exec did not return an exit code"
+                              | otherwise = stderrText
+                         in pure $ RespGuestAgentError msg
 
 -- | Get VM status and guestAgent flag
 getVmForExec :: Int64 -> SqlPersistT IO (Maybe (VmStatus, Bool))

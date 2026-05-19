@@ -85,9 +85,23 @@ tryRpcUnit fmt successText action = do
 -- ---------------------------------------------------------------------
 
 -- | Handle VM creation
-handleVmCreate :: OutputFormat -> CapnpConnection -> Text -> Int -> Int -> Maybe Text -> Bool -> Bool -> Bool -> Bool -> IO Bool
-handleVmCreate fmt conn name cpuCount ramMb mDesc headless guestAgent cloudInit autostart = do
-  r <- try @SomeException (CR.rpcVmCreate conn name cpuCount ramMb mDesc headless guestAgent cloudInit autostart)
+handleVmCreate
+  :: OutputFormat
+  -> CapnpConnection
+  -> Text
+  -- ^ name
+  -> Text
+  -- ^ node ref (name or id)
+  -> Int
+  -> Int
+  -> Maybe Text
+  -> Bool
+  -> Bool
+  -> Bool
+  -> Bool
+  -> IO Bool
+handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart = do
+  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart)
   case r of
     Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $

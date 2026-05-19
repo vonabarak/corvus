@@ -24,11 +24,11 @@ import Corvus.Action
 import Corvus.Handlers.Disk.Db (getOverlayIds)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
 
-import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN)
 import Corvus.Model
 import qualified Corvus.NodeAgentClient as NOA
+import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
@@ -101,29 +101,26 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                       let driveIdInt = fromSqlKey driveId
                           fmtTxt = enumToText (diskImageFormat disk)
                           ifTxt = enumToText interface
-                      mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
-                      case mAgent of
-                        Nothing -> do
+                      outer <- liftIO $ withVmNodeAgent state vmId $ \nac ->
+                        NOA.vmAttachDrive
+                          nac
+                          vmId
+                          driveIdInt
+                          (T.pack filePath)
+                          fmtTxt
+                          ifTxt
+                          readOnly
+                      case outer of
+                        Left err -> do
                           liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                          pure $ RespError "nodeagent unavailable"
-                        Just nac -> do
-                          r <-
-                            liftIO $
-                              NOA.vmAttachDrive
-                                nac
-                                vmId
-                                driveIdInt
-                                (T.pack filePath)
-                                fmtTxt
-                                ifTxt
-                                readOnly
-                          case r of
-                            Right () -> do
-                              logInfoN "Hot-plug successful"
-                              pure $ RespDiskAttached driveIdInt
-                            Left e -> do
-                              liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                              pure $ RespError $ "vmAttachDrive: " <> T.pack (show e)
+                          pure $ RespError err
+                        Right r -> case r of
+                          Right () -> do
+                            logInfoN "Hot-plug successful"
+                            pure $ RespDiskAttached driveIdInt
+                          Left e -> do
+                            liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                            pure $ RespError $ "vmAttachDrive: " <> T.pack (show e)
                     else do
                       logInfoN "VM is not active, disk attached to database only"
                       pure $ RespDiskAttached $ fromSqlKey driveId
@@ -154,18 +151,17 @@ handleDiskDetach state vmId diskId = runServerLogging state $ do
           if vmStatus vm `elem` [VmRunning, VmPaused]
             then do
               logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-unplug"
-              mAgent <- liftIO $ readTVarIO (ssNodeAgent state)
-              case mAgent of
-                Nothing -> pure $ RespError "nodeagent unavailable"
-                Just nac -> do
-                  r <- liftIO $ NOA.vmDetachDrive nac vmId driveId
-                  case r of
-                    Right () -> do
-                      liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
-                      logInfoN "Hot-unplug successful"
-                      pure RespDiskOk
-                    Left e ->
-                      pure $ RespError $ "vmDetachDrive: " <> T.pack (show e)
+              outer <- liftIO $ withVmNodeAgent state vmId $ \nac ->
+                NOA.vmDetachDrive nac vmId driveId
+              case outer of
+                Left err -> pure $ RespError err
+                Right r -> case r of
+                  Right () -> do
+                    liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
+                    logInfoN "Hot-unplug successful"
+                    pure RespDiskOk
+                  Left e ->
+                    pure $ RespError $ "vmDetachDrive: " <> T.pack (show e)
             else do
               -- Just remove from database
               liftIO $ runSqlPool (delete driveKey) (ssDbPool state)

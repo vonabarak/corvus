@@ -28,14 +28,15 @@ where
 
 import Corvus.Action
 
-import Control.Concurrent.STM (readTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
-import Corvus.Handlers.Resolve (validateName)
+import Corvus.Handlers.Resolve (resolveNode, validateName)
+import Corvus.Handlers.Scheduler (pickNodeForNetwork)
 import Corvus.Model (Network (..), TaskId, TaskSubsystem (..), Vm (..), VmStatus (..))
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import Corvus.NetAgentClient.Spec (corvusBridgeName, networkToSpec)
+import Corvus.NodeRouting (withNetworkNetAgent)
 import Corvus.Protocol
 import Corvus.Types (ServerState (..), runServerLogging)
 import Corvus.Utils.Network (validateSubnet)
@@ -53,46 +54,64 @@ import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 --------------------------------------------------------------------------------
 
 -- | Create a new virtual network
-handleNetworkCreate :: ServerState -> Text -> Text -> Bool -> Bool -> Bool -> IO Response
-handleNetworkCreate state name subnet dhcp nat autostart =
+handleNetworkCreate
+  :: ServerState
+  -> Text
+  -- ^ name
+  -> Text
+  -- ^ node ref (name or numeric id)
+  -> Text
+  -- ^ subnet
+  -> Bool
+  -> Bool
+  -> Bool
+  -> IO Response
+handleNetworkCreate state name nodeRefText subnet dhcp nat autostart =
   case validateName "Network" name of
     Left err -> pure $ RespNetworkError err
     Right () -> do
-      -- Validate subnet if provided
-      let validatedSubnet
-            | T.null subnet = Right ""
-            | otherwise = validateSubnet subnet
-      case validatedSubnet of
-        Left err -> pure $ RespNetworkError $ "Invalid subnet: " <> err
-        Right normalizedSubnet -> do
-          -- DHCP requires a subnet; NAT requires a subnet
-          if dhcp && T.null normalizedSubnet
-            then pure $ RespNetworkError "DHCP requires a subnet"
-            else
-              if nat && T.null normalizedSubnet
-                then pure $ RespNetworkError "NAT requires a subnet"
-                else do
-                  now <- getCurrentTime
-                  -- TODO(multi-node slice 1c): placeholder nodeKey;
-                  -- 'crv network create --node' will populate this
-                  -- once the apply / CLI surface is wired.
-                  let nodeKey = M.toSqlKey 1 :: M.NodeId
-                      network =
-                        Network
-                          { networkName = name
-                          , networkNodeId = nodeKey
-                          , networkSubnet = normalizedSubnet
-                          , networkDhcp = dhcp
-                          , networkNat = nat
-                          , networkRunning = False
-                          , networkDnsmasqPid = Nothing
-                          , networkCreatedAt = now
-                          , networkAutostart = autostart
-                          }
-                  result <- runSqlPool (insertUnique network) (ssDbPool state)
-                  case result of
-                    Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
-                    Just key -> pure $ RespNetworkCreated $ fromSqlKey key
+      let pool = ssDbPool state
+      -- Empty text or capnp's unset-EntityRef default ('byId 0')
+      -- both mean "no explicit placement" — defer to the scheduler.
+      eNodeKey <-
+        if T.null nodeRefText || nodeRefText == "0"
+          then pickNodeForNetwork state
+          else do
+            r <- resolveNode (Ref nodeRefText) pool
+            pure $ fmap (M.toSqlKey :: Int64 -> M.NodeId) r
+      case eNodeKey of
+        Left err -> pure $ RespNetworkError err
+        Right nodeKey -> do
+          -- Validate subnet if provided
+          let validatedSubnet
+                | T.null subnet = Right ""
+                | otherwise = validateSubnet subnet
+          case validatedSubnet of
+            Left err -> pure $ RespNetworkError $ "Invalid subnet: " <> err
+            Right normalizedSubnet -> do
+              if dhcp && T.null normalizedSubnet
+                then pure $ RespNetworkError "DHCP requires a subnet"
+                else
+                  if nat && T.null normalizedSubnet
+                    then pure $ RespNetworkError "NAT requires a subnet"
+                    else do
+                      now <- getCurrentTime
+                      let network =
+                            Network
+                              { networkName = name
+                              , networkNodeId = nodeKey
+                              , networkSubnet = normalizedSubnet
+                              , networkDhcp = dhcp
+                              , networkNat = nat
+                              , networkRunning = False
+                              , networkDnsmasqPid = Nothing
+                              , networkCreatedAt = now
+                              , networkAutostart = autostart
+                              }
+                      result <- runSqlPool (insertUnique network) pool
+                      case result of
+                        Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
+                        Just key -> pure $ RespNetworkCreated $ fromSqlKey key
 
 -- | Delete a virtual network
 handleNetworkDelete :: ServerState -> Int64 -> IO Response
@@ -133,41 +152,39 @@ handleNetworkStart state networkId _parentTaskId = runServerLogging state $ do
     Nothing -> pure RespNetworkNotFound
     Just network
       | networkRunning network -> pure RespNetworkAlreadyRunning
-      | otherwise -> do
-          mAgent <- liftIO $ readTVarIO (ssNetAgent state)
-          case mAgent of
-            Nothing -> do
-              logWarnN "netd unavailable; cannot start network"
-              pure $ RespNetworkError "netd unavailable"
-            Just nac ->
-              case networkToSpec networkId network of
+      | otherwise ->
+          case networkToSpec networkId network of
+            Left err -> do
+              logWarnN $ "Bad network spec for " <> nwName <> ": " <> err
+              pure $ RespNetworkError err
+            Right spec -> do
+              logInfoN $ "Starting network " <> nwName <> " via netd"
+              outer <- liftIO $ withNetworkNetAgent state networkId $ \nac -> NA.applyNetwork nac spec
+              case outer of
                 Left err -> do
-                  logWarnN $ "Bad network spec for " <> nwName <> ": " <> err
+                  logWarnN $ "netd unavailable; cannot start network: " <> err
                   pure $ RespNetworkError err
-                Right spec -> do
-                  logInfoN $ "Starting network " <> nwName <> " via netd"
-                  result <- liftIO $ NA.applyNetwork nac spec
-                  case result of
-                    Left e -> do
-                      let msg = T.pack (show e)
-                      logWarnN $ "applyNetwork failed for " <> nwName <> ": " <> msg
-                      pure $ RespNetworkError msg
-                    Right info -> do
-                      liftIO $
-                        runSqlPool
-                          ( update
-                              key
-                              [ M.NetworkRunning =. True
-                              , M.NetworkDnsmasqPid
-                                  =. ( if NA.niDnsmasqPid info == 0
-                                        then Nothing
-                                        else Just (fromIntegral (NA.niDnsmasqPid info))
-                                     )
-                              ]
-                          )
-                          pool
-                      logInfoN $ "Network " <> nwName <> " started"
-                      pure RespNetworkStarted
+                Right result -> case result of
+                  Left e -> do
+                    let msg = T.pack (show e)
+                    logWarnN $ "applyNetwork failed for " <> nwName <> ": " <> msg
+                    pure $ RespNetworkError msg
+                  Right info -> do
+                    liftIO $
+                      runSqlPool
+                        ( update
+                            key
+                            [ M.NetworkRunning =. True
+                            , M.NetworkDnsmasqPid
+                                =. ( if NA.niDnsmasqPid info == 0
+                                      then Nothing
+                                      else Just (fromIntegral (NA.niDnsmasqPid info))
+                                   )
+                            ]
+                        )
+                        pool
+                    logInfoN $ "Network " <> nwName <> " started"
+                    pure RespNetworkStarted
 
 -- | Stop a virtual network. Phase 3: delegates to the agent
 -- via 'NA.deleteNetwork'.
@@ -191,13 +208,13 @@ handleNetworkStop state networkId force _parentTaskId = runServerLogging state $
   where
     doStop key _network = do
       logInfoN $ "Stopping network " <> T.pack (show networkId)
-      mAgent <- liftIO $ readTVarIO (ssNetAgent state)
-      case mAgent of
-        Nothing -> do
-          logWarnN "netd unavailable; cannot stop network"
-          pure $ RespNetworkError "netd unavailable"
-        Just nac -> do
-          result <- liftIO $ NA.deleteNetwork nac (corvusBridgeName networkId)
+      outer <- liftIO $ withNetworkNetAgent state networkId $ \nac ->
+        NA.deleteNetwork nac (corvusBridgeName networkId)
+      case outer of
+        Left err -> do
+          logWarnN $ "netd unavailable; cannot stop network: " <> err
+          pure $ RespNetworkError err
+        Right result -> do
           case result of
             Left e ->
               logWarnN $
@@ -315,6 +332,9 @@ toNetworkInfoWith nwId network =
 
 data NetworkCreate = NetworkCreate
   { ncrName :: Text
+  , ncrNodeRef :: Text
+  -- ^ Reference to the target node. Required as of multi-node
+  -- slice 1c — no scheduler yet.
   , ncrSubnet :: Text
   , ncrDhcp :: Bool
   , ncrNat :: Bool
@@ -325,7 +345,7 @@ instance Action NetworkCreate where
   actionSubsystem _ = SubNetwork
   actionCommand _ = "create"
   actionEntityName = Just . ncrName
-  actionExecute ctx a = handleNetworkCreate (acState ctx) (ncrName a) (ncrSubnet a) (ncrDhcp a) (ncrNat a) (ncrAutostart a)
+  actionExecute ctx a = handleNetworkCreate (acState ctx) (ncrName a) (ncrNodeRef a) (ncrSubnet a) (ncrDhcp a) (ncrNat a) (ncrAutostart a)
 
 newtype NetworkDelete = NetworkDelete {ndelNetworkId :: Int64}
 

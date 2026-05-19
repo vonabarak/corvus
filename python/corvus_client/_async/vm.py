@@ -49,6 +49,7 @@ class AsyncVmManager:
         self,
         name: str,
         *,
+        node: Optional[str] = None,
         cpu_count: int = 1,
         ram_mb: int = 1024,
         description: Optional[str] = None,
@@ -59,6 +60,10 @@ class AsyncVmManager:
     ) -> "AsyncVm":
         """Create a bare VM record.
 
+        Pass `node=` to pin the VM to a specific node by name or
+        numeric id. When omitted, the daemon's scheduler picks a
+        node (lowest free-RAM penalty, ties broken by node name).
+
         Attach drives, network interfaces, SSH keys, and cloud-init
         configuration with the corresponding `AsyncVm` methods after
         create (`attach_disk`, `add_net_if`, `attach_ssh_key`,
@@ -68,6 +73,8 @@ class AsyncVmManager:
         mgr = await self._ensure()
         params = _schema.vm.VmCreateParams.new_message()
         params.name = name
+        if node is not None:
+            params.node = entity_ref(node)
         params.cpuCount = cpu_count
         params.ramMb = ram_mb
         if description is not None:

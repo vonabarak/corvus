@@ -450,7 +450,7 @@ instance (C.HasTypeId VmCreateParams) where
     typeId  = 12441806447859270163
 instance (C.TypedStruct VmCreateParams) where
     numStructWords  = 2
-    numStructPtrs  = 2
+    numStructPtrs  = 3
 instance (C.Allocate VmCreateParams) where
     type AllocHint VmCreateParams = ()
     new _ = C.newTypedStruct
@@ -468,7 +468,8 @@ data instance C.Parsed VmCreateParams
         ,headless :: (RP.Parsed Std_.Bool)
         ,guestAgent :: (RP.Parsed Std_.Bool)
         ,cloudInit :: (RP.Parsed Std_.Bool)
-        ,autostart :: (RP.Parsed Std_.Bool)}
+        ,autostart :: (RP.Parsed Std_.Bool)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmCreateParams))
 deriving instance (Std_.Eq (C.Parsed VmCreateParams))
@@ -480,7 +481,8 @@ instance (C.Parse VmCreateParams (C.Parsed VmCreateParams)) where
                                  <*> (GH.parseField #headless raw_)
                                  <*> (GH.parseField #guestAgent raw_)
                                  <*> (GH.parseField #cloudInit raw_)
-                                 <*> (GH.parseField #autostart raw_))
+                                 <*> (GH.parseField #autostart raw_)
+                                 <*> (GH.parseField #node raw_))
 instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
     marshalInto raw_ VmCreateParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -491,6 +493,7 @@ instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
         (GH.encodeField #guestAgent guestAgent raw_)
         (GH.encodeField #cloudInit cloudInit raw_)
         (GH.encodeField #autostart autostart raw_)
+        (GH.encodeField #node node raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot VmCreateParams Basics.Text) where
@@ -509,6 +512,8 @@ instance (GH.HasField "cloudInit" GH.Slot VmCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 2 1 1 0)
 instance (GH.HasField "autostart" GH.Slot VmCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 3 1 1 0)
+instance (GH.HasField "node" GH.Slot VmCreateParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 2)
 data VmEditParams 
 type instance (R.ReprFor VmEditParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmEditParams) where

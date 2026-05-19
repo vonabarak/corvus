@@ -18,7 +18,9 @@ class SyncNetworkManager:
         return SyncNetwork(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)
 
     def create(self, name: str, subnet: str, **kwargs):
-        return SyncNetwork(self._rl.run(self._a.create(name, subnet, **kwargs)), self._rl)
+        return SyncNetwork(
+            self._rl.run(self._a.create(name, subnet, **kwargs)), self._rl
+        )
 
 
 class SyncNetwork(LoopBoundResource):

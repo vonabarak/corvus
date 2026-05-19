@@ -32,10 +32,10 @@ class SyncTemplate(LoopBoundResource):
     def delete(self):
         return self._rl.run(self._a.delete())
 
-    def instantiate(self, name: str):
+    def instantiate(self, name: str, **kwargs):
         from .vm import SyncVm
 
-        return SyncVm(self._rl.run(self._a.instantiate(name)), self._rl)
+        return SyncVm(self._rl.run(self._a.instantiate(name, **kwargs)), self._rl)
 
     def update(self, yaml: str):
         return self._rl.run(self._a.update(yaml))

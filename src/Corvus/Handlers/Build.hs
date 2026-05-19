@@ -32,7 +32,6 @@ module Corvus.Handlers.Build
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.STM (readTVarIO)
 import Control.Exception (SomeException, try)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
@@ -46,6 +45,7 @@ import Corvus.Handlers.Disk.Agent (getImageSizeMbViaAgent, rebaseImageViaAgent)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
 import Corvus.Handlers.Resolve (validateName)
+import Corvus.Handlers.Scheduler (pickNodeForDisk)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..), getVmDetails)
 import Corvus.Model
@@ -54,6 +54,7 @@ import Corvus.Node.Image (ImageResult (..))
 import Corvus.Node.Qmp (QmpResult (..), qmpSendKey)
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.NodeAgentClient as NOA
+import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
 import Corvus.Schema.Build
@@ -146,45 +147,43 @@ agentGuestExecCore
   -> Word32
   -> IO GuestExecResult
 agentGuestExecCore state vmId cmd stdinPayload timeoutSec = do
-  mAgent <- readTVarIO (ssNodeAgent state)
-  case mAgent of
-    Nothing -> pure (GuestExecConnectionFailed "nodeagent unavailable")
-    Just nac -> do
-      -- Send the bare command. The agent's 'guestExec' detects
-      -- the guest OS and wraps with @/bin/sh -c@ (Linux/BSD) or
-      -- @cmd.exe /c@ (Windows). Pre-wrapping here would double-
-      -- wrap on Windows.
-      let req =
-            VS.VmGuestExecReq
-              { VS.vgeVmId = vmId
-              , VS.vgePath = cmd
-              , VS.vgeArgs = []
-              , VS.vgeCaptureOutput = True
-              , VS.vgeInputData = stdinPayload
-              , VS.vgeTimeoutSec = timeoutSec
-              }
-      r <- NOA.vmGuestExec nac req
-      case r of
-        Left e ->
-          pure (GuestExecError ("vmGuestExec: " <> T.pack (show e)))
-        Right info
-          | VS.vgiHasExit info ->
-              pure $
-                GuestExecSuccess
-                  (fromIntegral (VS.vgiExitCode info))
-                  (TE.decodeUtf8With lenientDecode (VS.vgiStdout info))
-                  (TE.decodeUtf8With lenientDecode (VS.vgiStderr info))
-          | otherwise ->
-              -- hasExit=False: forward the agent's stderr (QGA
-              -- timeout, connection error, …) so the failure is
-              -- actually diagnosable in build output.
-              let stderrText =
-                    TE.decodeUtf8With lenientDecode (VS.vgiStderr info)
-                  msg
-                    | T.null stderrText =
-                        "guest-exec did not return an exit code"
-                    | otherwise = stderrText
-               in pure (GuestExecError msg)
+  -- Send the bare command. The agent's 'guestExec' detects
+  -- the guest OS and wraps with @/bin/sh -c@ (Linux/BSD) or
+  -- @cmd.exe /c@ (Windows). Pre-wrapping here would double-
+  -- wrap on Windows.
+  let req =
+        VS.VmGuestExecReq
+          { VS.vgeVmId = vmId
+          , VS.vgePath = cmd
+          , VS.vgeArgs = []
+          , VS.vgeCaptureOutput = True
+          , VS.vgeInputData = stdinPayload
+          , VS.vgeTimeoutSec = timeoutSec
+          }
+  outer <- withVmNodeAgent state vmId $ \nac -> NOA.vmGuestExec nac req
+  case outer of
+    Left err -> pure (GuestExecConnectionFailed err)
+    Right r -> case r of
+      Left e ->
+        pure (GuestExecError ("vmGuestExec: " <> T.pack (show e)))
+      Right info
+        | VS.vgiHasExit info ->
+            pure $
+              GuestExecSuccess
+                (fromIntegral (VS.vgiExitCode info))
+                (TE.decodeUtf8With lenientDecode (VS.vgiStdout info))
+                (TE.decodeUtf8With lenientDecode (VS.vgiStderr info))
+        | otherwise ->
+            -- hasExit=False: forward the agent's stderr (QGA
+            -- timeout, connection error, …) so the failure is
+            -- actually diagnosable in build output.
+            let stderrText =
+                  TE.decodeUtf8With lenientDecode (VS.vgiStderr info)
+                msg
+                  | T.null stderrText =
+                      "guest-exec did not return an exit code"
+                  | otherwise = stderrText
+             in pure (GuestExecError msg)
 
 --------------------------------------------------------------------------------
 -- Top-level Action
@@ -469,7 +468,12 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
             liftIO $
               runActionAsSubtask
                 state
-                (TemplateInstantiate templateId bakeVmName)
+                ( TemplateInstantiate
+                    { tiTemplateId = templateId
+                    , tiName = bakeVmName
+                    , tiNodeRef = buildNode b
+                    }
+                )
                 parentTaskId
           case mVmId of
             RespTemplateInstantiated vmIdLong -> do
@@ -1495,30 +1499,36 @@ renameDiskByName state diskId newName = do
 -- requirement.
 compactDisk :: ServerState -> Int64 -> LoggingT IO ()
 compactDisk state diskId = do
-  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-  case mDisk of
-    Nothing -> logWarnN "compact: disk vanished"
-    Just disk -> do
-      logInfoN "compact: rebasing onto self with -c (no-op flatten)"
-      path <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-      -- A no-op rebase (Nothing → Nothing) effectively rewrites the image
-      -- through qemu-img, dropping unused clusters. The rebaseImage helper
-      -- already handles the in-place pass.
-      result <- liftIO $ rebaseImageViaAgent state path Nothing False
-      case result of
-        ImageSuccess -> do
-          mSize <- liftIO $ getImageSizeMbViaAgent state path
-          case mSize of
-            Just newSize ->
-              liftIO $
-                runSqlPool
-                  ( update
-                      (toSqlKey diskId :: DiskImageId)
-                      [DiskImageSizeMb =. Just newSize]
-                  )
-                  (ssDbPool state)
-            Nothing -> pure ()
-        _ -> logWarnN "compact: qemu-img rebase failed (artifact still usable)"
+  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
+  -- DiskImageNode-aware placement instead of first-online-node.
+  mNid <- liftIO $ pickNodeForDisk state
+  case mNid of
+    Left err -> logWarnN $ "compact: cannot resolve node: " <> err
+    Right nid -> do
+      mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+      case mDisk of
+        Nothing -> logWarnN "compact: disk vanished"
+        Just disk -> do
+          logInfoN "compact: rebasing onto self with -c (no-op flatten)"
+          path <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+          -- A no-op rebase (Nothing → Nothing) effectively rewrites the image
+          -- through qemu-img, dropping unused clusters. The rebaseImage helper
+          -- already handles the in-place pass.
+          result <- liftIO $ rebaseImageViaAgent state nid path Nothing False
+          case result of
+            ImageSuccess -> do
+              mSize <- liftIO $ getImageSizeMbViaAgent state nid path
+              case mSize of
+                Just newSize ->
+                  liftIO $
+                    runSqlPool
+                      ( update
+                          (toSqlKey diskId :: DiskImageId)
+                          [DiskImageSizeMb =. Just newSize]
+                      )
+                      (ssDbPool state)
+                Nothing -> pure ()
+            _ -> logWarnN "compact: qemu-img rebase failed (artifact still usable)"
 
 --------------------------------------------------------------------------------
 -- Bake VM teardown

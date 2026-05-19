@@ -27,6 +27,7 @@ import Corvus.Handlers.Network
   )
 import Corvus.Handlers.Resolve (resolveNetwork)
 import Corvus.Protocol (Response (..))
+import qualified Corvus.Protocol as P
 import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Network (toCapnpNetworkInfo)
@@ -62,9 +63,11 @@ instance CGNet.NetworkManager'server_ NetworkManagerCap where
 
   networkManager'create (NetworkManagerCap st sup) =
     handleParsed $ \CGNet.NetworkManager'create'params {params = CGNet.NetworkCreateParams {..}} -> do
+      nodeRef' <- capnpRefToRef node
       let act =
             NetworkCreate
               { ncrName = name
+              , ncrNodeRef = P.unRef nodeRef'
               , ncrSubnet = subnet
               , ncrDhcp = dhcp
               , ncrNat = nat

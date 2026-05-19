@@ -97,6 +97,7 @@ module Test.DSL.When
   )
 where
 
+import Control.Concurrent.Async (async)
 import Control.Concurrent.MVar (newMVar)
 import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
@@ -131,15 +132,17 @@ import Corvus.Handlers.Template (TemplateCreate (..), TemplateDelete (..), Templ
 import Corvus.Handlers.Vm (VmDelete (..), VmEdit (..), VmPause (..), VmReset (..), VmStart (..), VmStop (..), handleVmList, handleVmShow)
 import qualified Corvus.Handlers.Vm as VmHandlers
 import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache)
+import qualified Corvus.Model as M
 import Corvus.Protocol (Ref (..), Response (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
-import Corvus.Types (ServerState (..))
+import Corvus.Types (NodeConns (..), ServerState (..), registerNodeConns)
 import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (getCurrentTime)
 import Database.Persist.Postgresql (SqlBackend)
+import Database.Persist.Sql (toSqlKey)
 import Test.DSL.Core (TestM, getDbPool, getTempDir, setLastResponse)
 import qualified Test.Database as DB
 import Test.Settings (getTestLogLevel)
@@ -154,28 +157,40 @@ createTestServerState pool basePath = do
   startTime <- getCurrentTime
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
-  netAgent <- newTVarIO Nothing
-  nodeAgent <- newTVarIO Nothing
+  agents <- newTVarIO mempty
   gaSubs <- newTVarIO mempty
   taskSubs <- newTVarIO mempty
   vsockLock <- newMVar ()
   spiceLock <- newMVar ()
   logLevel <- getTestLogLevel
-  pure
-    ServerState
-      { ssStartTime = startTime
-      , ssConnectionCount = connCount
-      , ssShutdownFlag = shutdownFlag
-      , ssDbPool = pool
-      , ssQemuConfig = defaultQemuConfig {qcBasePath = Just basePath}
-      , ssLogLevel = logLevel
-      , ssNetAgent = netAgent
-      , ssNodeAgent = nodeAgent
-      , ssGuestAgentSubs = gaSubs
-      , ssTaskProgressSubs = taskSubs
-      , ssVsockCidLock = vsockLock
-      , ssSpicePortLock = spiceLock
-      }
+  let state =
+        ServerState
+          { ssStartTime = startTime
+          , ssConnectionCount = connCount
+          , ssShutdownFlag = shutdownFlag
+          , ssDbPool = pool
+          , ssQemuConfig = defaultQemuConfig {qcBasePath = Just basePath}
+          , ssLogLevel = logLevel
+          , ssAgents = agents
+          , ssGuestAgentSubs = gaSubs
+          , ssTaskProgressSubs = taskSubs
+          , ssVsockCidLock = vsockLock
+          , ssSpicePortLock = spiceLock
+          }
+  -- Register a stub 'NodeConns' under nodeId=1 (the bootstrap
+  -- 'test-node' row 'insertDefaultTestNode' installs). Both agent
+  -- caps stay 'Nothing' — handlers that hit the agent path land
+  -- in the "nodeagent unavailable for node 1" branch, but
+  -- handlers that only need a node to *route through* (via
+  -- 'singleRegisteredNode') succeed past the registry check.
+  -- 'ncSupervisor' is a no-op async because no real reconnect
+  -- loop runs in unit tests.
+  stubSup <- async (pure ())
+  registerNodeConns
+    state
+    (toSqlKey 1 :: M.NodeId)
+    NodeConns {ncNodeAgent = Nothing, ncNetAgent = Nothing, ncSupervisor = stubSup}
+  pure state
 
 -- | Build a fresh test-server state for the current 'TestM'.
 withState :: (ServerState -> IO Response) -> TestM Response
@@ -385,7 +400,9 @@ whenVmEdit vmId mCpus mRam mDesc mHeadless =
 
 whenVmCreate :: Text -> Int -> Int -> Maybe Text -> TestM Response
 whenVmCreate name cpuCount ramMb description =
-  withState (\st -> runAction st (VmHandlers.VmCreate name cpuCount ramMb description False False False False))
+  -- Empty node ref triggers the scheduler, which picks the
+  -- seeded 'test-node' (DB id 1).
+  withState (\st -> runAction st (VmHandlers.VmCreate name "" cpuCount ramMb description False False False False))
 
 whenVmDelete :: Int64 -> TestM Response
 whenVmDelete vmId =
@@ -421,7 +438,8 @@ whenApply yaml = withState $ \st -> do
 
 whenNetworkCreate :: Text -> Text -> TestM Response
 whenNetworkCreate name subnet =
-  withState (\st -> runAction st (NetworkCreate name subnet False False False))
+  -- Empty node ref triggers the scheduler.
+  withState (\st -> runAction st (NetworkCreate name "" subnet False False False))
 
 whenNetworkDelete :: Int64 -> TestM Response
 whenNetworkDelete nwId =
@@ -453,7 +471,9 @@ whenTemplateUpdate :: Int64 -> Text -> TestM Response
 whenTemplateUpdate tplId yaml = withState (\st -> runAction st (TemplateUpdate tplId yaml))
 
 whenTemplateInstantiate :: Int64 -> Text -> TestM Response
-whenTemplateInstantiate tplId name = withState (\st -> runAction st (TemplateInstantiate tplId name))
+whenTemplateInstantiate tplId name =
+  -- Empty node ref → scheduler picks (the seeded test-node).
+  withState (\st -> runAction st (TemplateInstantiate tplId name ""))
 
 --------------------------------------------------------------------------------
 -- Guest Exec

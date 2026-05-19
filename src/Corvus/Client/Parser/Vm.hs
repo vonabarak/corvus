@@ -25,6 +25,15 @@ vmCreateCommand =
       ( metavar "NAME"
           <> help "Name for the new VM"
       )
+    <*> ( T.pack
+            <$> strOption
+              ( long "node"
+                  <> short 'n'
+                  <> metavar "NODE"
+                  <> value ""
+                  <> help "Name or ID of the node to place this VM on (optional; daemon picks via the scheduler when omitted)"
+              )
+        )
     <*> option
       auto
       ( long "cpus"

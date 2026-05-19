@@ -153,8 +153,8 @@ handleTemplateDelete state tidLong = runServerLogging state $ do
   liftIO $ runSqlPool (deleteTemplate tid) (ssDbPool state)
   pure RespTemplateDeleted
 
-handleTemplateInstantiate :: ServerState -> Int64 -> Text -> TaskId -> IO Response
-handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLogging state $ do
+handleTemplateInstantiate :: ServerState -> Int64 -> Text -> Text -> TaskId -> IO Response
+handleTemplateInstantiate state tidLong newVmName nodeRef parentTaskId = runServerLogging state $ do
   logInfoN $ "Instantiating template " <> T.pack (show tidLong) <> " as '" <> newVmName <> "'"
   let pool = ssDbPool state
 
@@ -170,6 +170,7 @@ handleTemplateInstantiate state tidLong newVmName parentTaskId = runServerLoggin
             state
             ( VmCreate
                 newVmName
+                nodeRef
                 (tvdCpuCount details)
                 (tvdRamMb details)
                 (tvdDescription details)
@@ -491,13 +492,16 @@ instance Action TemplateDelete where
 data TemplateInstantiate = TemplateInstantiate
   { tiTemplateId :: Int64
   , tiName :: Text
+  , tiNodeRef :: Text
+  -- ^ Node to place the instantiated VM on. Required as of
+  -- multi-node slice 1c.
   }
 
 instance Action TemplateInstantiate where
   actionSubsystem _ = SubTemplate
   actionCommand _ = "instantiate"
   actionEntityId = Just . fromIntegral . tiTemplateId
-  actionExecute ctx a = handleTemplateInstantiate (acState ctx) (tiTemplateId a) (tiName a) (acTaskId ctx)
+  actionExecute ctx a = handleTemplateInstantiate (acState ctx) (tiTemplateId a) (tiName a) (tiNodeRef a) (acTaskId ctx)
 
 -- | Instantiate a single template drive (clone, overlay, or direct attach).
 data InstantiateDrive = InstantiateDrive

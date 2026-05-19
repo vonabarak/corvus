@@ -6,8 +6,8 @@ module Main where
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (async, cancel)
-import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
+import Control.Concurrent.Async (Async, async, cancel)
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO, writeTVar)
 import Control.Monad (forM_, unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN, logWarnN)
@@ -21,8 +21,19 @@ import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Server (handleGracefulShutdown, handleStartup)
-import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath, newServerState, runFilteredLogging)
+import Corvus.Types
+  ( ListenAddress (..)
+  , NodeConns (..)
+  , ServerState (..)
+  , clearNetConn
+  , clearNodeConn
+  , getDefaultSocketPath
+  , newServerState
+  , registerNodeConns
+  , runFilteredLogging
+  )
 import Data.ByteString.Char8 (pack)
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Database.Persist (Entity (..), selectList, (==.))
 import Database.Persist.Postgresql (createPostgresqlPool, runMigrationUnsafe, runSqlPool)
@@ -45,12 +56,6 @@ data Options = Options
   , optDbUri :: String
   , optLogLevel :: LogLevel
   , optSpiceBind :: Maybe String
-  , optNetdHost :: String
-  , optNetdPort :: Int
-  , optNoNetd :: Bool
-  , optNodeAgentHost :: String
-  , optNodeAgentPort :: Int
-  , optNoNodeAgent :: Bool
   }
   deriving (Show)
 
@@ -106,44 +111,6 @@ optionsParser =
               <> help "Address QEMU binds SPICE to (default: mirrors --host in --tcp mode, else 127.0.0.1)"
           )
       )
-    <*> strOption
-      ( long "netd-host"
-          <> metavar "HOST"
-          <> value (fst NA.defaultNetAgentAddress)
-          <> showDefault
-          <> help "Hostname or IP of the corvus-netd privileged agent"
-      )
-    <*> option
-      auto
-      ( long "netd-port"
-          <> metavar "PORT"
-          <> value (snd NA.defaultNetAgentAddress)
-          <> showDefault
-          <> help "TCP port of the corvus-netd privileged agent"
-      )
-    <*> switch
-      ( long "no-netd"
-          <> help "Skip dialling corvus-netd at startup (legacy user-ns path)"
-      )
-    <*> strOption
-      ( long "node-agent-host"
-          <> metavar "HOST"
-          <> value (fst NOA.defaultNodeAgentAddress)
-          <> showDefault
-          <> help "Hostname or IP of the per-host corvus-nodeagent"
-      )
-    <*> option
-      auto
-      ( long "node-agent-port"
-          <> metavar "PORT"
-          <> value (snd NOA.defaultNodeAgentAddress)
-          <> showDefault
-          <> help "TCP port of the per-host corvus-nodeagent"
-      )
-    <*> switch
-      ( long "no-node-agent"
-          <> help "Skip dialling corvus-nodeagent at startup (Phase 1: agent is unused)"
-      )
 
 -- | Full parser with info
 optsInfo :: ParserInfo Options
@@ -171,11 +138,9 @@ main = do
 
     logInfoN "Running database migrations..."
     -- 'runMigrationUnsafe' applies destructive migrations (DROP
-    -- COLUMN, DROP TABLE) without prompting. Required because the
-    -- Phase 4 cleanup drops legacy runtime columns ('vm.pid',
-    -- 'vm.spice_port', 'shared_dir.pid' — see slices F/H). The
-    -- backwards-compat shim in CLAUDE.md says breaking schema
-    -- changes are accepted outright.
+    -- COLUMN, DROP TABLE) without prompting. The multi-node
+    -- slice 1a is itself a destructive change; CLAUDE.md's
+    -- no-compat-shim policy says wipe-and-reapply is fine.
     liftIO $ runSqlPool (runMigrationUnsafe migrateAll) pool
     logInfoN "Migrations complete."
 
@@ -212,37 +177,20 @@ main = do
     -- Start the Cap'n Proto RPC server in a background thread.
     capnpThread <- liftIO $ async $ runCapnpServer state' listenAddr
 
-    -- Dial corvus-netd in a separate async whose lifetime IS the
-    -- Cap'n Proto connection's lifetime. The thread holds the
-    -- bracket open and stashes the live cap on ServerState; on
-    -- shutdown we cancel it and the bracket tears the connection
-    -- down.
-    netdThread <-
-      if optNoNetd opts
-        then do
-          logInfoN
-            "Starting without corvus-netd (legacy user-ns path will be used for network ops)"
-          liftIO $ async $ pure ()
-        else
-          liftIO $ async $ runNetdConnection state' opts
-
-    -- Same dance for corvus-nodeagent. Phase 1: the connection
-    -- is opened and held but no handlers use it yet.
-    nodeAgentThread <-
-      if optNoNodeAgent opts
-        then do
-          logInfoN "Starting without corvus-nodeagent (--no-node-agent)"
-          liftIO $ async $ pure ()
-        else
-          liftIO $ async $ runNodeAgentConnection state' opts
+    -- For each node registered in the DB, fork a supervisor
+    -- that holds both the nodeagent + netd connections open and
+    -- reconciles per-node state (running networks, VM monitors)
+    -- on every (re)connect. The supervisor list lives in
+    -- 'ssAgents'; cancelling the daemon cancels each supervisor
+    -- which in turn closes its Cap'n Proto brackets.
+    nodeSupervisors <- liftIO $ spawnAllNodeSupervisors state'
 
     -- Wait for shutdown signal
     liftIO $ waitForShutdown state'
 
     logInfoN "Shutting down..."
     liftIO $ cancel capnpThread
-    liftIO $ cancel netdThread
-    liftIO $ cancel nodeAgentThread
+    liftIO $ mapM_ cancel nodeSupervisors
 
     -- Run graceful shutdown handler (stop VMs, networks)
     liftIO $ handleGracefulShutdown state'
@@ -279,33 +227,93 @@ formatListenAddr :: ListenAddress -> T.Text
 formatListenAddr (TcpAddress host port) = T.pack host <> ":" <> T.pack (show port)
 formatListenAddr (UnixAddress path) = "unix:" <> T.pack path
 
--- | Hold a connection to corvus-netd for the daemon's lifetime.
+-- | Boot-time: read every 'Node' row and fork its supervisor.
+-- Returns the list of supervisor 'Async's so the daemon can
+-- cancel them at shutdown. Each supervisor also self-registers
+-- in 'ssAgents' (see 'spawnNodeSupervisor') so handlers can
+-- find them at runtime.
+spawnAllNodeSupervisors :: ServerState -> IO [Async ()]
+spawnAllNodeSupervisors state = do
+  nodes <- runSqlPool (selectList [] []) (ssDbPool state)
+  runFilteredLogging (ssLogLevel state) $
+    logInfoN $
+      "Spawning supervisors for " <> T.pack (show (length nodes)) <> " node(s)"
+  mapM (spawnNodeSupervisor state) nodes
+
+-- | Fork one reconnect-loop supervisor for a single 'Node' row.
+-- The supervisor maintains two parallel connect-and-hold async
+-- children: one for the node's @corvus-nodeagent@, one for its
+-- @corvus-netd@. Both pump updates into the 'NodeConns' entry
+-- in 'ssAgents'.
 --
--- The Cap'n Proto bracket pattern means the connection stays
--- open only while 'NA.withNetAgentClient'\'s body is running.
--- We loop: dial, write the cap to 'ssNetAgent', block until
--- the daemon's shutdown flag flips, then exit the bracket
--- (which closes the TCP socket).
---
--- On connect failure we sleep 5 s and retry. Network handlers
--- read 'ssNetAgent' before each operation, so calls during the
--- retry window fall back to the legacy user-ns path (until that
--- gets ripped out in Phase 4).
-runNetdConnection :: ServerState -> Options -> IO ()
-runNetdConnection state opts = do
-  -- Owner tag = daemon uid as a stringified decimal. The agent
-  -- uses this as a ledger partition key, not a security boundary.
+-- The returned 'Async' is what the daemon (or @crv node delete@)
+-- cancels to tear everything down for this node. The
+-- 'NodeConns' entry is also stamped with this same async so
+-- runtime code can locate the supervisor for cancellation.
+spawnNodeSupervisor :: ServerState -> Entity M.Node -> IO (Async ())
+spawnNodeSupervisor state (Entity nodeKey node) = do
+  -- Pre-register an empty 'NodeConns' so handlers that look up
+  -- this node before either child has finished its first dial
+  -- see "agent unavailable" rather than "node not registered".
+  -- The 'ncSupervisor' field is filled in by the bracket on
+  -- 'sup' below — temporarily a self-reference via 'mfix'-like
+  -- pattern won't work for plain async, so we install a
+  -- placeholder first and patch in the real handle after fork.
+  sup <- async (runNodeSupervisor state nodeKey node)
+  registerNodeConns
+    state
+    nodeKey
+    NodeConns {ncNodeAgent = Nothing, ncNetAgent = Nothing, ncSupervisor = sup}
+  pure sup
+
+-- | Per-node supervisor body: fan out two reconnect loops, one
+-- for nodeagent, one for netd. Block until shutdown so the
+-- daemon's 'cancel' on this 'Async' tears down both children.
+runNodeSupervisor :: ServerState -> M.NodeId -> M.Node -> IO ()
+runNodeSupervisor state nodeKey node = do
   uid <- getRealUserID
   let owner = T.pack (show uid)
-  loop owner
+      host = T.unpack (M.nodeHost node)
+      noaPort = M.nodeNodeAgentPort node
+      netPort = M.nodeNetAgentPort node
+      nodeLabel = M.nodeName node
+  runFilteredLogging (ssLogLevel state) $
+    logInfoN $
+      "node "
+        <> nodeLabel
+        <> " supervisor starting (nodeagent "
+        <> T.pack (show noaPort)
+        <> ", netd "
+        <> T.pack (show netPort)
+        <> ")"
+  nodeAgentChild <-
+    async $ runNodeAgentLoop state nodeKey nodeLabel host noaPort owner
+  netdChild <-
+    async $ runNetdLoop state nodeKey nodeLabel host netPort owner
+  -- Block until the daemon's shutdown flag flips, then cancel
+  -- both children. The outer cancel from the daemon also
+  -- propagates and unwinds the connect-and-hold brackets.
+  blockUntilShutdown state
+  cancel nodeAgentChild
+  cancel netdChild
+
+-- | Single-node nodeagent connect-and-hold loop. Same shape as
+-- the legacy daemon-wide loop, but scoped to one node.
+runNodeAgentLoop
+  :: ServerState
+  -> M.NodeId
+  -> T.Text
+  -- ^ node display name (for logs)
+  -> String
+  -> Int
+  -> T.Text
+  -- ^ owner
+  -> IO ()
+runNodeAgentLoop state nodeKey nodeLabel host port owner = loop
   where
-    loop owner = do
+    loop = do
       result <-
-        NA.withNetAgentClient
-          (optNetdHost opts)
-          (optNetdPort opts)
-          owner
-          (onConnect owner)
+        NOA.withNodeAgentClient host port owner onConnect
       shouldStop <- readTVarIO (ssShutdownFlag state)
       if shouldStop
         then pure ()
@@ -313,128 +321,40 @@ runNetdConnection state opts = do
           case result of
             Right () -> pure ()
             Left _ -> threadDelay 5000000
-          loop owner
+          loop
 
-    onConnect _owner (Left e) = do
+    onConnect (Left e) = do
       runFilteredLogging (ssLogLevel state) $
-        logWarnN
-          ("netd dial failed: " <> T.pack (show e) <> "; retrying in 5s")
+        logWarnN $
+          "node "
+            <> nodeLabel
+            <> " nodeagent dial failed: "
+            <> T.pack (show e)
+            <> "; retrying in 5s"
       pure (Left ())
-    onConnect _owner (Right nac) = do
-      runFilteredLogging (ssLogLevel state) $
-        logInfoN ("netd dial succeeded, owner=" <> NA.nacOwner nac)
-      atomically $ writeTVar (ssNetAgent state) (Just nac)
-      -- Reapply intent: walk the DB for `running=true` networks
-      -- and call NA.applyNetwork on each. Idempotent on the
-      -- agent side. Same shape for VMs' TAPs would also belong
-      -- here, but VM autostart runs through the usual VmStart
-      -- handler, which already plumbs the agent.
-      reapplyRunningNetworks state nac
-      -- Hold the connection open until shutdown is requested.
-      blockUntilShutdown state
-      atomically $ writeTVar (ssNetAgent state) Nothing
-      pure (Right ())
-
--- | On (re)connect: re-apply every network the DB says should
--- be running. The agent is stateless, so this rebuilds its
--- kernel-side ledger to match the daemon's intent.
-reapplyRunningNetworks :: ServerState -> NA.NetAgentClient -> IO ()
-reapplyRunningNetworks state nac = do
-  nets <-
-    runSqlPool
-      (selectList [M.NetworkRunning ==. True] [])
-      (ssDbPool state)
-  forM_ nets $ \(Entity nwKey nw) ->
-    case Spec.networkToSpec (fromSqlKey nwKey) nw of
-      Left err ->
-        runFilteredLogging (ssLogLevel state) $
-          logWarnN
-            ( "re-apply skip network "
-                <> T.pack (show (fromSqlKey nwKey))
-                <> ": "
-                <> err
-            )
-      Right spec -> do
-        result <- NA.applyNetwork nac spec
-        case result of
-          Right _ ->
-            runFilteredLogging (ssLogLevel state) $
-              logInfoN
-                ("re-applied network " <> M.networkName nw)
-          Left e ->
-            runFilteredLogging (ssLogLevel state) $
-              logWarnN
-                ( "re-apply failed for "
-                    <> M.networkName nw
-                    <> ": "
-                    <> T.pack (show e)
-                )
-
--- | Spin until 'ssShutdownFlag' flips. Lets the netd-connection
--- thread block the bracket so the TCP socket stays open.
-blockUntilShutdown :: ServerState -> IO ()
-blockUntilShutdown state = do
-  shouldStop <- readTVarIO (ssShutdownFlag state)
-  unless shouldStop $ do
-    threadDelay 200000
-    blockUntilShutdown state
-
--- | Hold a connection to corvus-nodeagent for the daemon's
--- lifetime. Mirror of 'runNetdConnection'.
---
--- Phase 1: the cap is opened, exercised once via 'sessionPing'
--- to prove the path is live, and stashed in 'ssNodeAgent' for
--- later phases. No re-apply step yet — nothing in the DB cares
--- about the node agent.
---
--- Reconnect loop: on dial / session-open failure, sleep 5 s and
--- retry until shutdown.
-runNodeAgentConnection :: ServerState -> Options -> IO ()
-runNodeAgentConnection state opts = do
-  uid <- getRealUserID
-  let owner = T.pack (show uid)
-  loop owner
-  where
-    loop owner = do
-      result <-
-        NOA.withNodeAgentClient
-          (optNodeAgentHost opts)
-          (optNodeAgentPort opts)
-          owner
-          (onConnect owner)
-      shouldStop <- readTVarIO (ssShutdownFlag state)
-      if shouldStop
-        then pure ()
-        else do
-          case result of
-            Right () -> pure ()
-            Left _ -> threadDelay 5000000
-          loop owner
-
-    onConnect _owner (Left e) = do
-      runFilteredLogging (ssLogLevel state) $
-        logWarnN
-          ("nodeagent dial failed: " <> T.pack (show e) <> "; retrying in 5s")
-      pure (Left ())
-    onConnect _owner (Right noac) = do
-      -- Liveness probe: prove the session cap really is live
-      -- before declaring the agent reachable.
+    onConnect (Right noac) = do
+      -- Liveness probe — sessionPing proves the cap is wired.
       pingResult <- NOA.sessionPing noac
       case pingResult of
         Left e -> do
           runFilteredLogging (ssLogLevel state) $
-            logWarnN
-              ("nodeagent session ping failed: " <> T.pack (show e))
+            logWarnN $
+              "node "
+                <> nodeLabel
+                <> " nodeagent session ping failed: "
+                <> T.pack (show e)
           pure (Left ())
         Right () -> do
           runFilteredLogging (ssLogLevel state) $
-            logInfoN ("nodeagent dial succeeded, owner=" <> NOA.nacOwner noac)
-          atomically $ writeTVar (ssNodeAgent state) (Just noac)
-          -- Register the daemon's VmStatusSink so the agent
-          -- starts pushing consolidated snapshots every ~10 s.
-          -- The supervisor lives only for the lifetime of this
-          -- connection — once the bracket closes, the exported
-          -- cap is torn down and the agent prunes it.
+            logInfoN $
+              "node "
+                <> nodeLabel
+                <> " nodeagent dial succeeded, owner="
+                <> NOA.nacOwner noac
+          atomically $
+            modifyTVar' (ssAgents state) $ \m -> case Map.lookup nodeKey m of
+              Nothing -> m
+              Just nc -> Map.insert nodeKey nc {ncNodeAgent = Just noac} m
           withSupervisor $ \sup -> do
             sinkClient <-
               C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state)
@@ -442,17 +362,122 @@ runNodeAgentConnection state opts = do
             case subResult of
               Left e ->
                 runFilteredLogging (ssLogLevel state) $
-                  logWarnN
-                    ("subscribeVmStatus failed: " <> T.pack (show e))
+                  logWarnN $
+                    "node "
+                      <> nodeLabel
+                      <> " subscribeVmStatus failed: "
+                      <> T.pack (show e)
               Right () ->
                 runFilteredLogging (ssLogLevel state) $
-                  logInfoN "Subscribed to nodeagent VM status push"
-            -- Re-attach monitor threads for every VM the agent
-            -- has running. Without this, a daemon restart loses
-            -- track of QEMU exits for VMs that survived across
-            -- the reconnect (the agent's reaper still cleans up
-            -- on its side, but DB state would lag indefinitely).
+                  logInfoN $
+                    "node " <> nodeLabel <> " subscribed to VM status push"
+            -- Re-attach monitor threads. The function walks all
+            -- VMs in the DB and looks up each VM's node — VMs
+            -- whose node isn't this one are silently skipped.
             reattachVmMonitors state
             blockUntilShutdown state
-          atomically $ writeTVar (ssNodeAgent state) Nothing
+          clearNodeConn state nodeKey
           pure (Right ())
+
+-- | Single-node netd connect-and-hold loop.
+runNetdLoop
+  :: ServerState
+  -> M.NodeId
+  -> T.Text
+  -- ^ node display name
+  -> String
+  -> Int
+  -> T.Text
+  -- ^ owner
+  -> IO ()
+runNetdLoop state nodeKey nodeLabel host port owner = loop
+  where
+    loop = do
+      result <- NA.withNetAgentClient host port owner onConnect
+      shouldStop <- readTVarIO (ssShutdownFlag state)
+      if shouldStop
+        then pure ()
+        else do
+          case result of
+            Right () -> pure ()
+            Left _ -> threadDelay 5000000
+          loop
+
+    onConnect (Left e) = do
+      runFilteredLogging (ssLogLevel state) $
+        logWarnN $
+          "node "
+            <> nodeLabel
+            <> " netd dial failed: "
+            <> T.pack (show e)
+            <> "; retrying in 5s"
+      pure (Left ())
+    onConnect (Right nac) = do
+      runFilteredLogging (ssLogLevel state) $
+        logInfoN $
+          "node "
+            <> nodeLabel
+            <> " netd dial succeeded, owner="
+            <> NA.nacOwner nac
+      atomically $
+        modifyTVar' (ssAgents state) $ \m -> case Map.lookup nodeKey m of
+          Nothing -> m
+          Just nc -> Map.insert nodeKey nc {ncNetAgent = Just nac} m
+      reapplyRunningNetworks state nodeKey nodeLabel nac
+      blockUntilShutdown state
+      clearNetConn state nodeKey
+      pure (Right ())
+
+-- | Re-apply networks belonging to this node. The agent is
+-- stateless, so this rebuilds its kernel-side ledger to match
+-- the daemon's intent for this node.
+reapplyRunningNetworks
+  :: ServerState -> M.NodeId -> T.Text -> NA.NetAgentClient -> IO ()
+reapplyRunningNetworks state nodeKey nodeLabel nac = do
+  nets <-
+    runSqlPool
+      ( selectList
+          [M.NetworkRunning ==. True, M.NetworkNodeId ==. nodeKey]
+          []
+      )
+      (ssDbPool state)
+  forM_ nets $ \(Entity nwKey nw) ->
+    case Spec.networkToSpec (fromSqlKey nwKey) nw of
+      Left err ->
+        runFilteredLogging (ssLogLevel state) $
+          logWarnN $
+            "node "
+              <> nodeLabel
+              <> " re-apply skip network "
+              <> T.pack (show (fromSqlKey nwKey))
+              <> ": "
+              <> err
+      Right spec -> do
+        result <- NA.applyNetwork nac spec
+        case result of
+          Right _ ->
+            runFilteredLogging (ssLogLevel state) $
+              logInfoN $
+                "node "
+                  <> nodeLabel
+                  <> " re-applied network "
+                  <> M.networkName nw
+          Left e ->
+            runFilteredLogging (ssLogLevel state) $
+              logWarnN $
+                "node "
+                  <> nodeLabel
+                  <> " re-apply failed for "
+                  <> M.networkName nw
+                  <> ": "
+                  <> T.pack (show e)
+
+-- | Spin until 'ssShutdownFlag' flips. Lets the per-node loops
+-- block their bracket bodies so the TCP sockets stay open until
+-- daemon shutdown.
+blockUntilShutdown :: ServerState -> IO ()
+blockUntilShutdown state = do
+  shouldStop <- readTVarIO (ssShutdownFlag state)
+  unless shouldStop $ do
+    threadDelay 200000
+    blockUntilShutdown state

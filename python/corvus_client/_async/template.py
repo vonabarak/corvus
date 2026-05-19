@@ -1,7 +1,7 @@
 """Async Template manager + Template wrappers."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 from .. import _schema
 from .._entityref import entity_ref
@@ -51,11 +51,20 @@ class AsyncTemplate:
     async def delete(self) -> None:
         await self._cap.delete()
 
-    async def instantiate(self, name: str) -> "AsyncVm":
+    async def instantiate(
+        self, name: str, *, node: Optional[str] = None
+    ) -> "AsyncVm":
+        """Instantiate this template as a new VM.
+
+        Pass `node=` to pin placement; omit to let the daemon's
+        scheduler choose.
+        """
         from .vm import AsyncVm
 
         req = self._cap.instantiate_request()
         req.name = name
+        if node is not None:
+            req.node = entity_ref(node)
         resp = await req.send()
         return AsyncVm(resp.vm)
 

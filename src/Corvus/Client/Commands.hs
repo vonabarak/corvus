@@ -138,7 +138,7 @@ runCommand opts = do
             emitError fmt "rpc_error" (T.pack (show e)) $
               putStrLn ("Error: " ++ show e)
             pure False
-      VmCreate name cpuCount ramMb mDesc headless ga ci as -> handleVmCreate fmt conn name cpuCount ramMb mDesc headless ga ci as
+      VmCreate name nodeRef cpuCount ramMb mDesc headless ga ci as -> handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless ga ci as
       VmDelete vmRef deleteDisks -> handleVmDelete fmt conn vmRef deleteDisks
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
@@ -222,9 +222,9 @@ runCommand opts = do
       TemplateDelete tRef -> handleTemplateDelete fmt conn tRef
       TemplateList -> handleTemplateList fmt tableOpts conn
       TemplateShow tRef -> handleTemplateShow fmt conn tRef
-      TemplateInstantiate tRef name -> handleTemplateInstantiate fmt conn tRef name
+      TemplateInstantiate tRef name nodeRef -> handleTemplateInstantiate fmt conn tRef name nodeRef
       -- Network commands
-      NetworkCreate name subnet dhcp nat as -> handleNetworkCreate fmt conn name subnet dhcp nat as
+      NetworkCreate name nodeRef subnet dhcp nat as -> handleNetworkCreate fmt conn name nodeRef subnet dhcp nat as
       NetworkDelete nwRef -> handleNetworkDelete fmt conn nwRef
       NetworkStart nwRef -> handleNetworkStart fmt conn nwRef
       NetworkStop nwRef force -> handleNetworkStop fmt conn nwRef force

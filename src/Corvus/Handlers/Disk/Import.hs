@@ -45,7 +45,9 @@ import Corvus.Handlers.Resolve (validateName)
 import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import Corvus.Handlers.Scheduler (pickNodeForDisk)
 import Corvus.Model
+import qualified Corvus.Model as M
 import Corvus.Node.Image (ImageResult (..), detectFormatFromPath, detectFormatFromUrl, isHttpUrl)
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
@@ -70,6 +72,8 @@ handleDiskImportUrl state name url mFormatStr =
     Right () -> runServerLogging state $ do
       logInfoN $ "Importing disk image from URL: " <> name <> " <- " <> url
       let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
+      -- importDiskFromUrlIO performs its own pickNodeForDisk
+      -- lookup internally (Phase 1 fallback).
       result <- liftIO $ importDiskFromUrlIO state name url mExplicitFmt Nothing
       case result of
         Left err -> do
@@ -100,72 +104,79 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
           logWarnN $ "Invalid disk name: " <> err
           pure $ RespError err
         Right safeName -> do
-          basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+          -- TODO(multi-node Phase 3): refine pickNodeForDisk with
+          -- DiskImageNode-aware placement instead of first-online-node.
+          mNid <- liftIO $ pickNodeForDisk state
+          case mNid of
+            Left err -> pure $ RespError err
+            Right nid -> do
+              basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
 
-          -- Detect format
-          let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
-              mDetectedFmt =
-                if isHttpUrl source
-                  then detectFormatFromUrl source
-                  else detectFormatFromPath source
-          case mExplicitFmt <|> mDetectedFmt of
-            Nothing -> pure $ RespError "Cannot detect disk format. Use --format to specify."
-            Just format -> do
-              let fmtExt = T.unpack (enumToText format)
-                  destFileName = T.unpack safeName <> "." <> fmtExt
-              if isHttpUrl source
-                then do
-                  -- URL download
-                  let isXz = ".xz" `isSuffixOf` T.unpack source || isXzUrl source
-                      downloadFileName = destFileName <> if isXz then ".xz" else ""
-                  downloadDest <- liftIO $ resolveDiskFilePath basePath mDestPath downloadFileName
-                  let finalDest = resolveDiskFilePathPure basePath mDestPath destFileName
-                  fetchResult <-
-                    liftIO $
-                      fetchAndVerify
-                        state
-                        FetchSpec
-                          { fsUrl = source
-                          , fsDownloadPath = downloadDest
-                          , fsFinalPath = finalDest
-                          , fsIsXz = isXz
-                          , fsExpectedMd5 = mMd5
-                          }
-                  case fetchResult of
-                    Left err -> do
-                      logWarnN err
-                      pure $ RespError err
-                    Right diskPath -> registerImportedFile state basePath safeName format diskPath
-                else do
-                  -- Local file copy
-                  let srcPath = T.unpack source
-                  srcExists <- liftIO $ doesFileExist srcPath
-                  if not srcExists
-                    then pure $ RespError $ "Source file not found: " <> source
+              -- Detect format
+              let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
+                  mDetectedFmt =
+                    if isHttpUrl source
+                      then detectFormatFromUrl source
+                      else detectFormatFromPath source
+              case mExplicitFmt <|> mDetectedFmt of
+                Nothing -> pure $ RespError "Cannot detect disk format. Use --format to specify."
+                Just format -> do
+                  let fmtExt = T.unpack (enumToText format)
+                      destFileName = T.unpack safeName <> "." <> fmtExt
+                  if isHttpUrl source
+                    then do
+                      -- URL download
+                      let isXz = ".xz" `isSuffixOf` T.unpack source || isXzUrl source
+                          downloadFileName = destFileName <> if isXz then ".xz" else ""
+                      downloadDest <- liftIO $ resolveDiskFilePath basePath mDestPath downloadFileName
+                      let finalDest = resolveDiskFilePathPure basePath mDestPath destFileName
+                      fetchResult <-
+                        liftIO $
+                          fetchAndVerify
+                            state
+                            nid
+                            FetchSpec
+                              { fsUrl = source
+                              , fsDownloadPath = downloadDest
+                              , fsFinalPath = finalDest
+                              , fsIsXz = isXz
+                              , fsExpectedMd5 = mMd5
+                              }
+                      case fetchResult of
+                        Left err -> do
+                          logWarnN err
+                          pure $ RespError err
+                        Right diskPath -> registerImportedFile state nid basePath safeName format diskPath
                     else do
-                      destPath <- liftIO $ resolveDiskFilePath basePath mDestPath destFileName
-                      -- Check same-path: canonicalize source, and for dest
-                      -- canonicalize the parent dir + filename (dest file may not exist yet)
-                      canonSrc <- liftIO $ canonicalizePath srcPath
-                      canonDestDir <- liftIO $ canonicalizePath (takeDirectory destPath)
-                      let canonDest = canonDestDir </> takeFileName destPath
-                      if canonSrc == canonDest
-                        then pure $ RespError "Source and destination paths are the same"
+                      -- Local file copy
+                      let srcPath = T.unpack source
+                      srcExists <- liftIO $ doesFileExist srcPath
+                      if not srcExists
+                        then pure $ RespError $ "Source file not found: " <> source
                         else do
-                          logInfoN $ "Copying " <> T.pack canonSrc <> " to " <> T.pack canonDest
-                          copyResult <- liftIO $ cloneImageViaAgent state canonSrc canonDest
-                          case copyResult of
-                            ImageSuccess -> registerImportedFile state basePath safeName format canonDest
-                            ImageError err -> do
-                              logWarnN $ "Copy failed: " <> err
-                              pure $ RespError $ "Copy failed: " <> err
-                            ImageNotFound -> pure $ RespError "Source file not found"
-                            ImageFormatNotSupported msg -> pure $ RespError msg
+                          destPath <- liftIO $ resolveDiskFilePath basePath mDestPath destFileName
+                          -- Check same-path: canonicalize source, and for dest
+                          -- canonicalize the parent dir + filename (dest file may not exist yet)
+                          canonSrc <- liftIO $ canonicalizePath srcPath
+                          canonDestDir <- liftIO $ canonicalizePath (takeDirectory destPath)
+                          let canonDest = canonDestDir </> takeFileName destPath
+                          if canonSrc == canonDest
+                            then pure $ RespError "Source and destination paths are the same"
+                            else do
+                              logInfoN $ "Copying " <> T.pack canonSrc <> " to " <> T.pack canonDest
+                              copyResult <- liftIO $ cloneImageViaAgent state nid canonSrc canonDest
+                              case copyResult of
+                                ImageSuccess -> registerImportedFile state nid basePath safeName format canonDest
+                                ImageError err -> do
+                                  logWarnN $ "Copy failed: " <> err
+                                  pure $ RespError $ "Copy failed: " <> err
+                                ImageNotFound -> pure $ RespError "Source file not found"
+                                ImageFormatNotSupported msg -> pure $ RespError msg
   where
     isXzUrl t = ".xz?" `T.isInfixOf` t
 
-    registerImportedFile state' basePath safeName format diskPath = do
-      sizeMb <- liftIO $ getImageSizeMbViaAgent state' diskPath
+    registerImportedFile state' nid basePath safeName format diskPath = do
+      sizeMb <- liftIO $ getImageSizeMbViaAgent state' nid diskPath
       now <- liftIO getCurrentTime
       let storedPath = makeRelativeToBase basePath diskPath
       let _ = storedPath -- TODO(multi-node Phase 3): record in DiskImageNode for the importing node
@@ -202,6 +213,17 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
   case sanitizeDiskName name of
     Left err -> pure $ Left err
     Right safeName -> do
+      -- TODO(multi-node Phase 3): refine pickNodeForDisk with
+      -- DiskImageNode-aware placement instead of first-online-node.
+      mNid <- pickNodeForDisk state
+      case mNid of
+        Left err -> pure $ Left err
+        Right nid -> importOnNode safeName nid
+  where
+    isInfixOf' needle haystack = needle `T.isInfixOf` T.pack haystack
+
+    importOnNode :: Text -> M.NodeId -> IO (Either Text Int64)
+    importOnNode safeName nid = do
       let mUrlFmt = detectFormatFromUrl url
       case mFormat <|> mUrlFmt of
         Nothing -> pure $ Left "Cannot detect disk format from URL. Use --format to specify."
@@ -217,6 +239,7 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
           fetchResult <-
             fetchAndVerify
               state
+              nid
               FetchSpec
                 { fsUrl = url
                 , fsDownloadPath = downloadPath
@@ -230,7 +253,7 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
               let _storedPath = makeRelativeToBase basePath diskPath
               -- TODO(multi-node Phase 3): record _storedPath in
               -- DiskImageNode for the importing node.
-              sizeMb <- getImageSizeMbViaAgent state diskPath
+              sizeMb <- getImageSizeMbViaAgent state nid diskPath
               now <- getCurrentTime
               diskId <-
                 runSqlPool
@@ -245,8 +268,6 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
                   )
                   (ssDbPool state)
               pure $ Right $ fromSqlKey diskId
-  where
-    isInfixOf' needle haystack = needle `T.isInfixOf` T.pack haystack
 
 --------------------------------------------------------------------------------
 -- Fetch + verify
@@ -290,13 +311,13 @@ maxImportAttempts = 3
 -- When 'fsExpectedMd5' is 'Nothing', the existing-file behaviour
 -- preserves the no-clobber default ("Destination file already
 -- exists" error) and a single download attempt is made.
-fetchAndVerify :: ServerState -> FetchSpec -> IO (Either Text FilePath)
-fetchAndVerify state FetchSpec {..} = do
+fetchAndVerify :: ServerState -> M.NodeId -> FetchSpec -> IO (Either Text FilePath)
+fetchAndVerify state nid FetchSpec {..} = do
   finalExists <- doesFileExist fsFinalPath
   case (finalExists, fsExpectedMd5) of
     (True, Just expected) -> do
       let expectedLc = T.toLower expected
-      hashResult <- md5HashFileViaAgent state fsFinalPath
+      hashResult <- md5HashFileViaAgent state nid fsFinalPath
       case hashResult of
         Left err -> pure $ Left $ "verify existing " <> T.pack fsFinalPath <> ": " <> err
         Right actual
@@ -315,13 +336,13 @@ fetchAndVerify state FetchSpec {..} = do
     (False, _) -> downloadLoop 1
   where
     downloadLoop n = do
-      dlResult <- downloadImageViaAgent state fsDownloadPath fsUrl
+      dlResult <- downloadImageViaAgent state nid fsDownloadPath fsUrl
       case dlResult of
         ImageError err -> pure $ Left $ "Download failed: " <> err
         _ -> do
           decompressedResult <-
             if fsIsXz
-              then decompressXzViaAgent state fsDownloadPath
+              then decompressXzViaAgent state nid fsDownloadPath
               else pure $ Right fsFinalPath
           case decompressedResult of
             Left err -> pure $ Left err
@@ -329,7 +350,7 @@ fetchAndVerify state FetchSpec {..} = do
               Nothing -> pure $ Right diskPath
               Just expected -> do
                 let expectedLc = T.toLower expected
-                hashResult <- md5HashFileViaAgent state diskPath
+                hashResult <- md5HashFileViaAgent state nid diskPath
                 case hashResult of
                   Left err -> pure $ Left $ "verify download: " <> err
                   Right actual
@@ -346,7 +367,7 @@ fetchAndVerify state FetchSpec {..} = do
                               <> ")"
                     | otherwise -> do
                         -- Drop the bad artifact via the agent and try again.
-                        _ <- deleteImageViaAgent state diskPath
+                        _ <- deleteImageViaAgent state nid diskPath
                         downloadLoop (n + 1)
 
 --------------------------------------------------------------------------------

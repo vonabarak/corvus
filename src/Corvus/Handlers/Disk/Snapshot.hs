@@ -36,6 +36,7 @@ import Corvus.Handlers.Disk.Agent
   , mergeSnapshotViaAgent
   , rollbackSnapshotViaAgent
   )
+import Corvus.Handlers.Scheduler (pickNodeForDisk)
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol
@@ -55,151 +56,175 @@ handleSnapshotCreate state diskId snapshotName =
     Right () -> runServerLogging state $ do
       logInfoN $ "Creating snapshot '" <> snapshotName <> "' for disk " <> T.pack (show diskId)
 
-      mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-      case mDisk of
-        Nothing -> pure RespDiskNotFound
-        Just disk -> do
-          -- Check format - only qcow2 supports snapshots
-          if diskImageFormat disk /= FormatQcow2
-            then do
-              logWarnN "Snapshot requested on non-qcow2 image"
-              pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
-            else do
-              -- Check if any attached VM is running or paused
-              runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
-              if not (null runningVms)
-                then pure RespVmMustBeStopped
+      -- TODO(multi-node Phase 3): refine pickNodeForDisk with
+      -- DiskImageNode-aware placement instead of first-online-node.
+      mNid <- liftIO $ pickNodeForDisk state
+      case mNid of
+        Left err -> pure $ RespError err
+        Right nid -> do
+          mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+          case mDisk of
+            Nothing -> pure RespDiskNotFound
+            Just disk -> do
+              -- Check format - only qcow2 supports snapshots
+              if diskImageFormat disk /= FormatQcow2
+                then do
+                  logWarnN "Snapshot requested on non-qcow2 image"
+                  pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
                 else do
-                  filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                  result <- liftIO $ createSnapshotViaAgent state filePath snapshotName
-                  case result of
-                    ImageSuccess -> do
-                      now <- liftIO getCurrentTime
-                      snapshotId <-
-                        liftIO $
-                          runSqlPool
-                            ( insert
-                                Snapshot
-                                  { snapshotDiskImageId = toSqlKey diskId
-                                  , snapshotName = snapshotName
-                                  , snapshotCreatedAt = now
-                                  , snapshotSizeMb = Nothing
-                                  }
-                            )
-                            (ssDbPool state)
-                      logInfoN $ "Created snapshot with ID: " <> T.pack (show $ fromSqlKey snapshotId)
-                      pure $ RespSnapshotCreated $ fromSqlKey snapshotId
-                    ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
-                    ImageError err -> pure $ RespError err
-                    ImageNotFound -> pure RespDiskNotFound
+                  -- Check if any attached VM is running or paused
+                  runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
+                  if not (null runningVms)
+                    then pure RespVmMustBeStopped
+                    else do
+                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                      result <- liftIO $ createSnapshotViaAgent state nid filePath snapshotName
+                      case result of
+                        ImageSuccess -> do
+                          now <- liftIO getCurrentTime
+                          snapshotId <-
+                            liftIO $
+                              runSqlPool
+                                ( insert
+                                    Snapshot
+                                      { snapshotDiskImageId = toSqlKey diskId
+                                      , snapshotName = snapshotName
+                                      , snapshotCreatedAt = now
+                                      , snapshotSizeMb = Nothing
+                                      }
+                                )
+                                (ssDbPool state)
+                          logInfoN $ "Created snapshot with ID: " <> T.pack (show $ fromSqlKey snapshotId)
+                          pure $ RespSnapshotCreated $ fromSqlKey snapshotId
+                        ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
+                        ImageError err -> pure $ RespError err
+                        ImageNotFound -> pure RespDiskNotFound
 
 -- | Delete a snapshot
 handleSnapshotDelete :: ServerState -> Int64 -> Ref -> IO Response
 handleSnapshotDelete state diskId snapRef = runServerLogging state $ do
   logInfoN $ "Deleting snapshot '" <> unRef snapRef <> "' from disk " <> T.pack (show diskId)
 
-  -- First check disk exists
-  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-  case mDisk of
-    Nothing -> pure RespDiskNotFound
-    Just disk -> do
-      -- Check format supports snapshots - only qcow2 supports snapshots
-      if diskImageFormat disk /= FormatQcow2
-        then pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
-        else do
-          -- Check if any attached VM is running or paused
-          runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
-          if not (null runningVms)
-            then pure RespVmMustBeStopped
+  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
+  -- DiskImageNode-aware placement instead of first-online-node.
+  mNid <- liftIO $ pickNodeForDisk state
+  case mNid of
+    Left err -> pure $ RespError err
+    Right nid -> do
+      -- First check disk exists
+      mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+      case mDisk of
+        Nothing -> pure RespDiskNotFound
+        Just disk -> do
+          -- Check format supports snapshots - only qcow2 supports snapshots
+          if diskImageFormat disk /= FormatQcow2
+            then pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
             else do
-              -- Resolve snapshot ref
-              mSnapId <- liftIO $ resolveSnapshot snapRef diskId (ssDbPool state)
-              case mSnapId of
-                Left _ -> pure RespSnapshotNotFound
-                Right snapshotId -> do
-                  mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
-                  case mSnapshot of
-                    Nothing -> pure RespSnapshotNotFound
-                    Just snapshot -> do
-                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                      result <- liftIO $ deleteSnapshotViaAgent state filePath (snapshotName snapshot)
-                      case result of
-                        ImageSuccess -> do
-                          liftIO $ runSqlPool (delete (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
-                          logInfoN "Snapshot deleted"
-                          pure RespSnapshotOk
-                        ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
-                        ImageError err -> pure $ RespError err
-                        ImageNotFound -> pure RespDiskNotFound
+              -- Check if any attached VM is running or paused
+              runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
+              if not (null runningVms)
+                then pure RespVmMustBeStopped
+                else do
+                  -- Resolve snapshot ref
+                  mSnapId <- liftIO $ resolveSnapshot snapRef diskId (ssDbPool state)
+                  case mSnapId of
+                    Left _ -> pure RespSnapshotNotFound
+                    Right snapshotId -> do
+                      mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
+                      case mSnapshot of
+                        Nothing -> pure RespSnapshotNotFound
+                        Just snapshot -> do
+                          filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                          result <- liftIO $ deleteSnapshotViaAgent state nid filePath (snapshotName snapshot)
+                          case result of
+                            ImageSuccess -> do
+                              liftIO $ runSqlPool (delete (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
+                              logInfoN "Snapshot deleted"
+                              pure RespSnapshotOk
+                            ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
+                            ImageError err -> pure $ RespError err
+                            ImageNotFound -> pure RespDiskNotFound
 
 -- | Rollback to a snapshot (VM must be stopped)
 handleSnapshotRollback :: ServerState -> Int64 -> Ref -> IO Response
 handleSnapshotRollback state diskId snapRef = runServerLogging state $ do
   logInfoN $ "Rolling back disk " <> T.pack (show diskId) <> " to snapshot '" <> unRef snapRef <> "'"
 
-  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-  case mDisk of
-    Nothing -> pure RespDiskNotFound
-    Just disk -> do
-      if diskImageFormat disk /= FormatQcow2
-        then pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
-        else do
-          runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
-          if not (null runningVms)
-            then pure RespVmMustBeStopped
+  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
+  -- DiskImageNode-aware placement instead of first-online-node.
+  mNid <- liftIO $ pickNodeForDisk state
+  case mNid of
+    Left err -> pure $ RespError err
+    Right nid -> do
+      mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+      case mDisk of
+        Nothing -> pure RespDiskNotFound
+        Just disk -> do
+          if diskImageFormat disk /= FormatQcow2
+            then pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
             else do
-              mSnapId <- liftIO $ resolveSnapshot snapRef diskId (ssDbPool state)
-              case mSnapId of
-                Left _ -> pure RespSnapshotNotFound
-                Right snapshotId -> do
-                  mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
-                  case mSnapshot of
-                    Nothing -> pure RespSnapshotNotFound
-                    Just snapshot -> do
-                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                      result <- liftIO $ rollbackSnapshotViaAgent state filePath (snapshotName snapshot)
-                      case result of
-                        ImageSuccess -> do
-                          logInfoN "Rollback complete"
-                          pure RespSnapshotOk
-                        ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
-                        ImageError err -> pure $ RespError err
-                        ImageNotFound -> pure RespDiskNotFound
+              runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
+              if not (null runningVms)
+                then pure RespVmMustBeStopped
+                else do
+                  mSnapId <- liftIO $ resolveSnapshot snapRef diskId (ssDbPool state)
+                  case mSnapId of
+                    Left _ -> pure RespSnapshotNotFound
+                    Right snapshotId -> do
+                      mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
+                      case mSnapshot of
+                        Nothing -> pure RespSnapshotNotFound
+                        Just snapshot -> do
+                          filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                          result <- liftIO $ rollbackSnapshotViaAgent state nid filePath (snapshotName snapshot)
+                          case result of
+                            ImageSuccess -> do
+                              logInfoN "Rollback complete"
+                              pure RespSnapshotOk
+                            ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
+                            ImageError err -> pure $ RespError err
+                            ImageNotFound -> pure RespDiskNotFound
 
 -- | Merge a snapshot (VM must be stopped)
 handleSnapshotMerge :: ServerState -> Int64 -> Ref -> IO Response
 handleSnapshotMerge state diskId snapRef = runServerLogging state $ do
   logInfoN $ "Merging snapshot '" <> unRef snapRef <> "' for disk " <> T.pack (show diskId)
 
-  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-  case mDisk of
-    Nothing -> pure RespDiskNotFound
-    Just disk -> do
-      if diskImageFormat disk /= FormatQcow2
-        then pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
-        else do
-          runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
-          if not (null runningVms)
-            then pure RespVmMustBeStopped
+  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
+  -- DiskImageNode-aware placement instead of first-online-node.
+  mNid <- liftIO $ pickNodeForDisk state
+  case mNid of
+    Left err -> pure $ RespError err
+    Right nid -> do
+      mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+      case mDisk of
+        Nothing -> pure RespDiskNotFound
+        Just disk -> do
+          if diskImageFormat disk /= FormatQcow2
+            then pure $ RespFormatNotSupported "Snapshots are only supported for qcow2 format"
             else do
-              mSnapId <- liftIO $ resolveSnapshot snapRef diskId (ssDbPool state)
-              case mSnapId of
-                Left _ -> pure RespSnapshotNotFound
-                Right snapshotId -> do
-                  mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
-                  case mSnapshot of
-                    Nothing -> pure RespSnapshotNotFound
-                    Just snapshot -> do
-                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                      result <- liftIO $ mergeSnapshotViaAgent state filePath (snapshotName snapshot)
-                      case result of
-                        ImageSuccess -> do
-                          liftIO $ runSqlPool (delete (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
-                          logInfoN "Merge complete"
-                          pure RespSnapshotOk
-                        ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
-                        ImageError err -> pure $ RespError err
-                        ImageNotFound -> pure RespDiskNotFound
+              runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
+              if not (null runningVms)
+                then pure RespVmMustBeStopped
+                else do
+                  mSnapId <- liftIO $ resolveSnapshot snapRef diskId (ssDbPool state)
+                  case mSnapId of
+                    Left _ -> pure RespSnapshotNotFound
+                    Right snapshotId -> do
+                      mSnapshot <- liftIO $ runSqlPool (get (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
+                      case mSnapshot of
+                        Nothing -> pure RespSnapshotNotFound
+                        Just snapshot -> do
+                          filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                          result <- liftIO $ mergeSnapshotViaAgent state nid filePath (snapshotName snapshot)
+                          case result of
+                            ImageSuccess -> do
+                              liftIO $ runSqlPool (delete (toSqlKey snapshotId :: SnapshotId)) (ssDbPool state)
+                              logInfoN "Merge complete"
+                              pure RespSnapshotOk
+                            ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
+                            ImageError err -> pure $ RespError err
+                            ImageNotFound -> pure RespDiskNotFound
 
 -- | List snapshots for a disk image
 handleSnapshotList :: ServerState -> Int64 -> IO Response

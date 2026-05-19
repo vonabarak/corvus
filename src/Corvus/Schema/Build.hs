@@ -78,6 +78,9 @@ data Build = Build
   { buildName :: Text
   , buildDescription :: Maybe Text
   , buildTemplate :: Text
+  , buildNode :: Text
+  -- ^ Node to run the bake VM on. Required as of multi-node
+  -- slice 1c (no scheduler yet).
   , buildTarget :: BuildTarget
   , buildStrategy :: BuildStrategy
   , buildVm :: BuildVm
@@ -96,6 +99,7 @@ instance FromJSON Build where
       <$> o .: "name"
       <*> o .:? "description"
       <*> o .: "template"
+      <*> o .:? "node" .!= ""
       <*> o .: "target"
       <*> o .:? "strategy" .!= BuildStrategyOverlay
       <*> o .:? "vm" .!= defaultBuildVm

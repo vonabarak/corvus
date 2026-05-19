@@ -32,6 +32,7 @@ import Corvus.Handlers.Template
   , handleTemplateShow
   )
 import Corvus.Protocol (Response (..))
+import qualified Corvus.Protocol as P
 import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
 import Corvus.Rpc.Vm (VmCap (..))
 import Corvus.Types (ServerState (..))
@@ -116,7 +117,16 @@ instance CGT.Template'server_ TemplateCap where
 
   template'instantiate (TemplateCap st sup eid) =
     handleParsed $ \CGT.Template'instantiate'params {..} -> do
-      resp <- runAction st (TemplateInstantiate {tiTemplateId = eid, tiName = name})
+      nodeRef' <- capnpRefToRef node
+      resp <-
+        runAction
+          st
+          ( TemplateInstantiate
+              { tiTemplateId = eid
+              , tiName = name
+              , tiNodeRef = P.unRef nodeRef'
+              }
+          )
       case resp of
         RespTemplateInstantiated newVmId -> do
           client <- export @CGVm.Vm sup (VmCap st sup newVmId)

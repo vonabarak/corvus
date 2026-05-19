@@ -183,7 +183,7 @@ import qualified Corvus.Protocol.Vm as PV
 import Corvus.Wire.Apply (fromCapnpApplyResult)
 import Corvus.Wire.Build (fromCapnpBuildEvent)
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
-import Corvus.Wire.Common (EntityRef, ViewGrant (..), fromCapnpStatusInfo, fromCapnpViewGrant, toCapnpEntityRef)
+import Corvus.Wire.Common (EntityRef, ViewGrant (..), entityRefFromText, fromCapnpStatusInfo, fromCapnpViewGrant, toCapnpEntityRef)
 import qualified Corvus.Wire.Common as WC
 import qualified Corvus.Wire.Disk as WDisk
 import Corvus.Wire.Enums
@@ -400,6 +400,8 @@ rpcVmCreate
   :: CapnpConnection
   -> Text
   -- ^ name
+  -> Text
+  -- ^ node reference (name or numeric id)
   -> Int
   -- ^ cpus
   -> Int
@@ -415,12 +417,13 @@ rpcVmCreate
   -> Bool
   -- ^ autostart
   -> IO Int64
-rpcVmCreate conn name cpus ram desc headless ga ci autostart = do
+rpcVmCreate conn name nodeRef cpus ram desc headless ga ci autostart = do
   CGCorvus.Daemon'vms'results {CGCorvus.mgr = mgr} <-
     callOn #vms CGCorvus.Daemon'vms'params (ccDaemon conn)
   let inner =
         CGVm.VmCreateParams
           { CGVm.name = name
+          , CGVm.node = toCapnpEntityRef (entityRefFromText nodeRef)
           , CGVm.cpuCount = fromIntegral cpus
           , CGVm.ramMb = fromIntegral ram
           , CGVm.description = Data.Maybe.fromMaybe "" desc
@@ -513,6 +516,8 @@ rpcNetworkCreate
   -> Text
   -- ^ name
   -> Text
+  -- ^ node ref (name or numeric id)
+  -> Text
   -- ^ subnet (CIDR)
   -> Bool
   -- ^ dhcp
@@ -521,12 +526,13 @@ rpcNetworkCreate
   -> Bool
   -- ^ autostart
   -> IO Int64
-rpcNetworkCreate conn name subnet dhcp nat autostart = do
+rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart = do
   CGCorvus.Daemon'networks'results {CGCorvus.mgr = mgr} <-
     callOn #networks CGCorvus.Daemon'networks'params (ccDaemon conn)
   let inner =
         CGNet.NetworkCreateParams
           { CGNet.name = name
+          , CGNet.node = toCapnpEntityRef (entityRefFromText nodeRef)
           , CGNet.subnet = subnet
           , CGNet.dhcp = dhcp
           , CGNet.nat = nat
@@ -1129,14 +1135,20 @@ rpcTemplateUpdate conn ref yaml = do
   _ <- callOn #update CGTmpl.Template'update'params {CGTmpl.yaml = yaml} tClient
   pure ()
 
-rpcTemplateInstantiate :: CapnpConnection -> EntityRef -> Text -> IO Int64
-rpcTemplateInstantiate conn ref vmName = do
+rpcTemplateInstantiate :: CapnpConnection -> EntityRef -> Text -> Text -> IO Int64
+rpcTemplateInstantiate conn ref vmName nodeRef = do
   CGCorvus.Daemon'templates'results {CGCorvus.mgr = mgr} <-
     callOn #templates CGCorvus.Daemon'templates'params (ccDaemon conn)
   CGTmpl.TemplateManager'get'results {CGTmpl.template = tClient} <-
     callOn #get CGTmpl.TemplateManager'get'params {CGTmpl.ref = toCapnpEntityRef ref} mgr
   CGTmpl.Template'instantiate'results {CGTmpl.vm = vmClient} <-
-    callOn #instantiate CGTmpl.Template'instantiate'params {CGTmpl.name = vmName} tClient
+    callOn
+      #instantiate
+      CGTmpl.Template'instantiate'params
+        { CGTmpl.name = vmName
+        , CGTmpl.node = toCapnpEntityRef (entityRefFromText nodeRef)
+        }
+      tClient
   CGVm.Vm'show'results {CGVm.details = det} <-
     callOn #show CGVm.Vm'show'params vmClient
   case det of CGVm.VmDetails {CGVm.id = vid} -> pure vid

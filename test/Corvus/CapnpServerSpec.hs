@@ -26,19 +26,26 @@ import Capnp.Rpc
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Concurrent.STM (atomically, writeTVar)
 import Control.Exception (SomeException, bracket, bracket_, catch)
 import qualified Corvus.Client.Capnp.Connection as CC
 import qualified Corvus.Client.Capnp.Rpc as CR
+import qualified Corvus.Model as M
 import Corvus.Node.Server (runNodeAgentServer)
 import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.Protocol as P
 import qualified Corvus.Qemu.Config as Q
 import Corvus.Rpc.Server (runCapnpServer)
-import Corvus.Types (ListenAddress (..), ServerState (..), newServerState)
+import Corvus.Types
+  ( ListenAddress (..)
+  , NodeConns (..)
+  , ServerState (..)
+  , newServerState
+  , registerNodeConns
+  )
 import qualified Corvus.Wire.Common as WC
 import Data.Function ((&))
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+import Database.Persist.Sql (toSqlKey)
 import Network.Socket
   ( Family (..)
   , SockAddr (..)
@@ -115,7 +122,8 @@ spec = withTestDb $ do
   describe "Cap'n Proto mutation wrappers (Phase 4f)" $ do
     it "VM lifecycle: create → list (length 1) → delete → list (empty)" $ \env -> do
       withCapnpDaemon env $ \conn -> do
-        vid <- CR.rpcVmCreate conn "spec-vm" 1 1024 Nothing True False False False
+        -- Empty node ref → daemon's scheduler picks the seeded test-node.
+        vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1024 Nothing True False False False
         vms <- CR.rpcVmList conn
         length vms `shouldBe` 1
         CR.rpcVmDelete conn (WC.RefById vid) False
@@ -203,7 +211,21 @@ withCapnpDaemon env action =
             nac <- case nr of
               Left e -> error ("nodeagent dial failed: " <> show e)
               Right c -> pure c
-            atomically $ writeTVar (ssNodeAgent state) (Just nac)
+            -- Register the in-process nodeagent under nodeId=1
+            -- (the test DB's bootstrap 'test-node' row that
+            -- 'insertDefaultTestNode' installs at id 1). The
+            -- 'ncSupervisor' is a stub async — the test's own
+            -- bracket controls the connection lifetime, not the
+            -- supervisor.
+            stubSup <- async (pure ())
+            registerNodeConns
+              state
+              (toSqlKey 1 :: M.NodeId)
+              NodeConns
+                { ncNodeAgent = Just nac
+                , ncNetAgent = Nothing
+                , ncSupervisor = stubSup
+                }
             bracket
               (async (runCapnpServer state (UnixAddress sockPath)))
               cancel

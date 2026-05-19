@@ -35,13 +35,22 @@ class AsyncNetworkManager:
         name: str,
         subnet: str,
         *,
+        node: Optional[str] = None,
         dhcp: bool = False,
         nat: bool = False,
         autostart: bool = False,
     ) -> "AsyncNetwork":
+        """Create a virtual network.
+
+        Networks are per-node; pass `node=` to pin to a specific
+        node by name or id, or omit to let the daemon's scheduler
+        place it.
+        """
         mgr = await self._ensure()
         params = _schema.network.NetworkCreateParams.new_message()
         params.name = name
+        if node is not None:
+            params.node = entity_ref(node)
         params.subnet = subnet
         params.dhcp = dhcp
         params.nat = nat

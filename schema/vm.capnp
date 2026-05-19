@@ -109,6 +109,9 @@ struct VmCreateParams {
   guestAgent      @5  :Bool = false;
   cloudInit       @6  :Bool = false;
   autostart       @7  :Bool = false;
+  # Node this VM is bound to. Required as of multi-node slice 1c
+  # (no scheduler yet). Resolved as `node-by-name` or `id:N`.
+  node            @8  :Common.EntityRef;
 }
 
 struct VmEditParams {

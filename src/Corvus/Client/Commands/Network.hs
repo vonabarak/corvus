@@ -27,9 +27,21 @@ import Data.Text (Text)
 import qualified Data.Text as T
 
 -- | Handle network create command
-handleNetworkCreate :: OutputFormat -> CapnpConnection -> Text -> Text -> Bool -> Bool -> Bool -> IO Bool
-handleNetworkCreate fmt conn name subnet dhcp nat autostart = do
-  r <- try @SomeException (CR.rpcNetworkCreate conn name subnet dhcp nat autostart)
+handleNetworkCreate
+  :: OutputFormat
+  -> CapnpConnection
+  -> Text
+  -- ^ name
+  -> Text
+  -- ^ node ref
+  -> Text
+  -- ^ subnet
+  -> Bool
+  -> Bool
+  -> Bool
+  -> IO Bool
+handleNetworkCreate fmt conn name nodeRef subnet dhcp nat autostart = do
+  r <- try @SomeException (CR.rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart)
   case r of
     Right nwId -> do
       emitOkWith fmt [("id", toJSON nwId)] $

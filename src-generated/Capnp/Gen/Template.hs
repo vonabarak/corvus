@@ -695,7 +695,7 @@ instance (C.HasTypeId Template'instantiate'params) where
     typeId  = 12030698055293344497
 instance (C.TypedStruct Template'instantiate'params) where
     numStructWords  = 0
-    numStructPtrs  = 1
+    numStructPtrs  = 2
 instance (C.Allocate Template'instantiate'params) where
     type AllocHint Template'instantiate'params = ()
     new _ = C.newTypedStruct
@@ -706,19 +706,24 @@ instance (C.AllocateList Template'instantiate'params) where
 instance (C.EstimateListAlloc Template'instantiate'params (C.Parsed Template'instantiate'params))
 data instance C.Parsed Template'instantiate'params
     = Template'instantiate'params 
-        {name :: (RP.Parsed Basics.Text)}
+        {name :: (RP.Parsed Basics.Text)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Template'instantiate'params))
 deriving instance (Std_.Eq (C.Parsed Template'instantiate'params))
 instance (C.Parse Template'instantiate'params (C.Parsed Template'instantiate'params)) where
-    parse raw_ = (Template'instantiate'params <$> (GH.parseField #name raw_))
+    parse raw_ = (Template'instantiate'params <$> (GH.parseField #name raw_)
+                                              <*> (GH.parseField #node raw_))
 instance (C.Marshal Template'instantiate'params (C.Parsed Template'instantiate'params)) where
     marshalInto raw_ Template'instantiate'params{..} = (do
         (GH.encodeField #name name raw_)
+        (GH.encodeField #node node raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot Template'instantiate'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "node" GH.Slot Template'instantiate'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 1)
 data Template'instantiate'results 
 type instance (R.ReprFor Template'instantiate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Template'instantiate'results) where

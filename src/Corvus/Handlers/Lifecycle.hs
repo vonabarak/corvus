@@ -27,6 +27,8 @@ import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types
+import qualified Data.Map.Strict as Map
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (addUTCTime, getCurrentTime)
@@ -80,10 +82,11 @@ instance Action Startup where
       -- reapplyRunningNetworks on every (re)connect; its
       -- applyNetwork is idempotent, so a re-apply over already-
       -- live kernel state is a no-op.
-      mAgent <- liftIO $ readTVarIO (ssNetAgent state)
-      case mAgent of
-        Nothing -> logWarnN "corvus-netd not yet connected; networking will retry once agent is up"
-        Just _ -> logInfoN "corvus-netd connection ready"
+      agents <- liftIO $ readTVarIO (ssAgents state)
+      let anyNetdLive = any (isJust . ncNetAgent) (Map.elems agents)
+      if anyNetdLive
+        then logInfoN "corvus-netd connection ready (one or more nodes)"
+        else logWarnN "corvus-netd not yet connected; networking will retry once agent is up"
 
       -- Autostart networks (before VMs, since VMs may depend on networks)
       autostartNetworks <- liftIO $ runSqlPool (selectList [M.NetworkAutostart ==. True] [Asc M.NetworkName]) pool

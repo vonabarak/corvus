@@ -75,6 +75,6 @@ interface TemplateManager {
 interface Template {
   show         @0 () -> (details :TemplateDetails);
   delete       @1 () -> ();
-  instantiate  @2 (name :Text) -> (vm :Vm.Vm);
+  instantiate  @2 (name :Text, node :Common.EntityRef) -> (vm :Vm.Vm);
   update       @3 (yaml :Text) -> ();
 }

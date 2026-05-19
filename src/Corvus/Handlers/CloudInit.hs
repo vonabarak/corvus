@@ -19,7 +19,6 @@ where
 
 import Corvus.Action
 
-import Control.Concurrent.STM (readTVarIO)
 import Control.Monad (forM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN, logWarnN)
@@ -33,6 +32,7 @@ import Corvus.CloudInit
 import Corvus.Handlers.Disk.Path (makeRelativeToBase)
 import Corvus.Model
 import qualified Corvus.NodeAgentClient as NOA
+import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Corvus.Types
@@ -221,19 +221,19 @@ regenerateCloudInitIsoForVm state vmId vmName = do
       metaData = generateMetaData config
       mNet = ciNetworkConfig config
 
-  mAgent <- readTVarIO (ssNodeAgent state)
-  case mAgent of
-    Nothing -> do
+  outer <- withVmNodeAgent state vmId $ \nac ->
+    NOA.cloudInitGenerateIso nac (T.pack vmDir) userData metaData mNet
+  case outer of
+    Left err -> do
       runFilteredLogging logLevel $
-        logWarnN "nodeagent unavailable; cannot regenerate cloud-init ISO"
-      pure $ Left "nodeagent unavailable"
-    Just nac -> do
-      result <- NOA.cloudInitGenerateIso nac (T.pack vmDir) userData metaData mNet
-      case result of
-        Left e -> pure $ Left (T.pack (show e))
-        Right isoPath -> do
-          ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel
-          pure $ Right ()
+        logWarnN $
+          "nodeagent unavailable; cannot regenerate cloud-init ISO: " <> err
+      pure $ Left err
+    Right result -> case result of
+      Left e -> pure $ Left (T.pack (show e))
+      Right isoPath -> do
+        ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel
+        pure $ Right ()
 
 -- | Ensure cloud-init disk is registered and attached to VM as CDROM
 ensureCloudInitDiskRegistered :: Pool SqlBackend -> QemuConfig -> Int64 -> Text -> Text -> LogLevel -> IO ()

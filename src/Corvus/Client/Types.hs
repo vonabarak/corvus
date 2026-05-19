@@ -62,8 +62,8 @@ data Command
   | -- VM commands
     VmList
   | VmShow !Text
-  | -- | Create a new VM (name, cpuCount, ramMb, description, headless, guestAgent, cloudInit, autostart)
-    VmCreate !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool !Bool
+  | -- | Create a new VM (name, nodeRef, cpuCount, ramMb, description, headless, guestAgent, cloudInit, autostart)
+    VmCreate !Text !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool !Bool
   | -- | Delete a VM (vmRef, deleteDisks)
     VmDelete !Text !Bool
   | VmStart !Text !WaitOptions
@@ -163,11 +163,11 @@ data Command
   | -- | Show template details (templateRef)
     TemplateShow !Text
   | -- | Instantiate a template (templateRef, new vm name)
-    TemplateInstantiate !Text !Text
+    TemplateInstantiate !Text !Text !Text
   | -- Virtual network commands
 
-    -- | Create a virtual network (name, subnet, dhcp, nat, autostart)
-    NetworkCreate !Text !Text !Bool !Bool !Bool
+    -- | Create a virtual network (name, nodeRef, subnet, dhcp, nat, autostart)
+    NetworkCreate !Text !Text !Text !Bool !Bool !Bool
   | -- | Delete a virtual network (networkRef)
     NetworkDelete !Text
   | -- | Start a virtual network (networkRef)

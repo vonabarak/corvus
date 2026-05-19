@@ -23,6 +23,7 @@ import Corvus.Handlers.Disk.Path (resolveDiskPath)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk.Agent (getImageSizeMbViaAgent, rebaseImageViaAgent)
+import Corvus.Handlers.Scheduler (pickNodeForDisk)
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol
@@ -37,85 +38,91 @@ handleDiskRebase :: ServerState -> Int64 -> Maybe Int64 -> Bool -> IO Response
 handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
   logInfoN $ "Rebasing disk image: " <> T.pack (show diskId)
 
-  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-  case mDisk of
-    Nothing -> pure RespDiskNotFound
-    Just disk -> do
-      -- Must be qcow2
-      if diskImageFormat disk /= FormatQcow2
-        then pure $ RespFormatNotSupported "Rebase requires qcow2 format"
-        else case diskImageBackingImageId disk of
-          Nothing -> pure $ RespError "Disk is not an overlay"
-          Just _ -> do
-            -- Must not be attached to running/paused VMs
-            runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
-            if not (null runningVms)
-              then pure RespVmMustBeStopped
-              else do
-                overlayPath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                case mNewBackingId of
-                  -- Flatten: remove backing
-                  Nothing -> do
-                    logInfoN "Flattening overlay (removing backing)"
-                    result <- liftIO $ rebaseImageViaAgent state overlayPath Nothing unsafe
-                    case result of
-                      ImageSuccess -> do
-                        liftIO $
-                          runSqlPool
-                            (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Nothing])
-                            (ssDbPool state)
-                        -- Refresh size since flatten merges backing data
-                        mSize <- liftIO $ getImageSizeMbViaAgent state overlayPath
-                        case mSize of
-                          Just newSize ->
+  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
+  -- DiskImageNode-aware placement instead of first-online-node.
+  mNid <- liftIO $ pickNodeForDisk state
+  case mNid of
+    Left err -> pure $ RespError err
+    Right nid -> do
+      mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
+      case mDisk of
+        Nothing -> pure RespDiskNotFound
+        Just disk -> do
+          -- Must be qcow2
+          if diskImageFormat disk /= FormatQcow2
+            then pure $ RespFormatNotSupported "Rebase requires qcow2 format"
+            else case diskImageBackingImageId disk of
+              Nothing -> pure $ RespError "Disk is not an overlay"
+              Just _ -> do
+                -- Must not be attached to running/paused VMs
+                runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
+                if not (null runningVms)
+                  then pure RespVmMustBeStopped
+                  else do
+                    overlayPath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                    case mNewBackingId of
+                      -- Flatten: remove backing
+                      Nothing -> do
+                        logInfoN "Flattening overlay (removing backing)"
+                        result <- liftIO $ rebaseImageViaAgent state nid overlayPath Nothing unsafe
+                        case result of
+                          ImageSuccess -> do
                             liftIO $
                               runSqlPool
-                                (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
+                                (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Nothing])
                                 (ssDbPool state)
-                          Nothing -> pure ()
-                        logInfoN "Overlay flattened successfully"
-                        pure RespDiskOk
-                      ImageNotFound -> pure $ RespError "Overlay file not found on disk"
-                      ImageError err -> do
-                        logWarnN $ "Failed to flatten overlay: " <> err
-                        pure $ RespError err
-                      _ -> pure $ RespError "Unexpected rebase result"
-                  -- Rebase to new backing
-                  Just newBackingId -> do
-                    mNewBacking <- liftIO $ runSqlPool (get (toSqlKey newBackingId :: DiskImageId)) (ssDbPool state)
-                    case mNewBacking of
-                      Nothing -> pure $ RespError "New backing image not found"
-                      Just newBacking -> do
-                        -- Check circular dependency
-                        circular <- liftIO $ runSqlPool (isCircularBacking diskId newBackingId) (ssDbPool state)
-                        if circular
-                          then pure $ RespError "Circular backing dependency detected"
-                          else do
-                            newBackingPath <- liftIO $ resolveDiskPath (ssQemuConfig state) newBacking
-                            logInfoN $ "Rebasing to new backing: " <> T.pack newBackingPath
-                            result <- liftIO $ rebaseImageViaAgent state overlayPath (Just (newBackingPath, diskImageFormat newBacking)) unsafe
-                            case result of
-                              ImageSuccess -> do
+                            -- Refresh size since flatten merges backing data
+                            mSize <- liftIO $ getImageSizeMbViaAgent state nid overlayPath
+                            case mSize of
+                              Just newSize ->
                                 liftIO $
                                   runSqlPool
-                                    (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Just (toSqlKey newBackingId)])
+                                    (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
                                     (ssDbPool state)
-                                -- Refresh size
-                                mSize <- liftIO $ getImageSizeMbViaAgent state overlayPath
-                                case mSize of
-                                  Just newSize ->
+                              Nothing -> pure ()
+                            logInfoN "Overlay flattened successfully"
+                            pure RespDiskOk
+                          ImageNotFound -> pure $ RespError "Overlay file not found on disk"
+                          ImageError err -> do
+                            logWarnN $ "Failed to flatten overlay: " <> err
+                            pure $ RespError err
+                          _ -> pure $ RespError "Unexpected rebase result"
+                      -- Rebase to new backing
+                      Just newBackingId -> do
+                        mNewBacking <- liftIO $ runSqlPool (get (toSqlKey newBackingId :: DiskImageId)) (ssDbPool state)
+                        case mNewBacking of
+                          Nothing -> pure $ RespError "New backing image not found"
+                          Just newBacking -> do
+                            -- Check circular dependency
+                            circular <- liftIO $ runSqlPool (isCircularBacking diskId newBackingId) (ssDbPool state)
+                            if circular
+                              then pure $ RespError "Circular backing dependency detected"
+                              else do
+                                newBackingPath <- liftIO $ resolveDiskPath (ssQemuConfig state) newBacking
+                                logInfoN $ "Rebasing to new backing: " <> T.pack newBackingPath
+                                result <- liftIO $ rebaseImageViaAgent state nid overlayPath (Just (newBackingPath, diskImageFormat newBacking)) unsafe
+                                case result of
+                                  ImageSuccess -> do
                                     liftIO $
                                       runSqlPool
-                                        (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
+                                        (update (toSqlKey diskId :: DiskImageId) [DiskImageBackingImageId =. Just (toSqlKey newBackingId)])
                                         (ssDbPool state)
-                                  Nothing -> pure ()
-                                logInfoN "Overlay rebased successfully"
-                                pure RespDiskOk
-                              ImageNotFound -> pure $ RespError "Overlay file not found on disk"
-                              ImageError err -> do
-                                logWarnN $ "Failed to rebase overlay: " <> err
-                                pure $ RespError err
-                              _ -> pure $ RespError "Unexpected rebase result"
+                                    -- Refresh size
+                                    mSize <- liftIO $ getImageSizeMbViaAgent state nid overlayPath
+                                    case mSize of
+                                      Just newSize ->
+                                        liftIO $
+                                          runSqlPool
+                                            (update (toSqlKey diskId :: DiskImageId) [DiskImageSizeMb =. Just newSize])
+                                            (ssDbPool state)
+                                      Nothing -> pure ()
+                                    logInfoN "Overlay rebased successfully"
+                                    pure RespDiskOk
+                                  ImageNotFound -> pure $ RespError "Overlay file not found on disk"
+                                  ImageError err -> do
+                                    logWarnN $ "Failed to rebase overlay: " <> err
+                                    pure $ RespError err
+                                  _ -> pure $ RespError "Unexpected rebase result"
 
 --------------------------------------------------------------------------------
 -- Action Types

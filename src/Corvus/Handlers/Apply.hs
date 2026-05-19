@@ -223,7 +223,7 @@ executeApply state config skipExisting parentId = do
             case mExisting of
               Just eid -> pure $ Right (anName n, eid)
               Nothing -> do
-                resp <- runActionAsSubtask state (NetworkCreate (anName n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n)) parentId
+                resp <- runActionAsSubtask state (NetworkCreate (anName n) (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n)) parentId
                 extractCreatedResult (anName n) resp
           case nwResult of
             Left err -> pure $ Left err
@@ -324,6 +324,7 @@ createOneVm state keyMap diskMap nwMap v = do
       state
       ( VmCreate
           (avName v)
+          (avNode v)
           (avCpuCount v)
           (avRamMb v)
           (avDescription v)
