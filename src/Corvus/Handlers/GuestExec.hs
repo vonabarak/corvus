@@ -54,11 +54,14 @@ handleGuestExec state vmId command = do
                   let req =
                         VS.VmGuestExecReq
                           { VS.vgeVmId = vmId
-                          , -- Daemon historically sent the whole command
-                            -- as one shell-style line; preserve that by
-                            -- using /bin/sh -c.
-                            VS.vgePath = "/bin/sh"
-                          , VS.vgeArgs = ["-c", command]
+                          , -- Send the bare command; the agent's
+                            -- 'guestExec' detects the guest OS and
+                            -- wraps with @/bin/sh -c@ (Linux/BSD) or
+                            -- @cmd.exe /c@ (Windows). Pre-wrapping
+                            -- with @/bin/sh -c@ here would double-wrap
+                            -- on Windows and fail.
+                            VS.vgePath = command
+                          , VS.vgeArgs = []
                           , VS.vgeCaptureOutput = True
                           , VS.vgeInputData = BS.empty
                           , VS.vgeTimeoutSec = 0

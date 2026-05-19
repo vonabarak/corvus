@@ -994,9 +994,17 @@ handleVmGuestExec sc req = do
             T.intercalate
               " "
               (VS.vgePath req : VS.vgeArgs req)
+          -- Poll budget: convert vgeTimeoutSec (seconds) into
+          -- 100 ms ticks expected by guestExecImpl. A zero value
+          -- means "use the agent default" — 60 s, same as the
+          -- pre-Phase-4 daemon-side helper.
+          maxPolls =
+            if VS.vgeTimeoutSec req == 0
+              then 600
+              else fromIntegral (VS.vgeTimeoutSec req) * 10
       result <-
         if BS.null (VS.vgeInputData req)
-          then NGA.guestExec conns agentQemuConfig vmId cmd
+          then NGA.guestExecWithTimeout conns agentQemuConfig vmId cmd maxPolls
           else
             NGA.guestExecWithStdin
               conns
@@ -1004,7 +1012,7 @@ handleVmGuestExec sc req = do
               vmId
               cmd
               (VS.vgeInputData req)
-              600
+              maxPolls
       pure
         CGNA.Session'vmGuestExec'results
           { CGNA.info = encodeVmGuestExecInfo result

@@ -150,11 +150,15 @@ agentGuestExecCore state vmId cmd stdinPayload timeoutSec = do
   case mAgent of
     Nothing -> pure (GuestExecConnectionFailed "nodeagent unavailable")
     Just nac -> do
+      -- Send the bare command. The agent's 'guestExec' detects
+      -- the guest OS and wraps with @/bin/sh -c@ (Linux/BSD) or
+      -- @cmd.exe /c@ (Windows). Pre-wrapping here would double-
+      -- wrap on Windows.
       let req =
             VS.VmGuestExecReq
               { VS.vgeVmId = vmId
-              , VS.vgePath = "/bin/sh"
-              , VS.vgeArgs = ["-c", cmd]
+              , VS.vgePath = cmd
+              , VS.vgeArgs = []
               , VS.vgeCaptureOutput = True
               , VS.vgeInputData = stdinPayload
               , VS.vgeTimeoutSec = timeoutSec

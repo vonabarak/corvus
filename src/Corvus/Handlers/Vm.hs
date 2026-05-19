@@ -334,7 +334,11 @@ launchVmViaAgent state vmId vm pool = do
             Left e -> do
               logWarnN $ "vmStart failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
               liftIO $ runSqlPool (setVmError vmId) pool
-              pure $ RespInvalidTransition VmError $ "vmStart: " <> T.pack (show e)
+              -- 'RespError' (not 'RespInvalidTransition') so the Cap'n
+              -- Proto wire layer throws on the client; matches the
+              -- pre-Phase-4 daemon-side failure semantics that the
+              -- @start-virtiofsd@ subtask used to surface.
+              pure $ RespError $ "vmStart: " <> T.pack (show e)
             Right info -> do
               let pid = fromIntegral (NOA.vriQemuPid info) :: Int
               -- With vmStart blocking for first ping when guestAgent

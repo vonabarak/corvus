@@ -27,6 +27,7 @@ module Corvus.Node.GuestAgent
 
     -- * Commands
   , guestExec
+  , guestExecWithTimeout
   , guestExecWithStdin
   , guestExecWithTail
   , guestPing
@@ -279,9 +280,25 @@ closeMaybe (Just s) = closeSafe s
 
 -- | Execute a command inside the guest via the QEMU Guest Agent.
 -- Detects the guest OS and uses the appropriate shell:
--- Linux/BSD: /bin/sh -c, Windows: cmd.exe /c
+-- Linux/BSD: /bin/sh -c, Windows: cmd.exe /c.
+-- Default 60 s poll budget (600 ticks × 100 ms); use
+-- 'guestExecWithTimeout' for longer-running commands.
 guestExec :: GuestAgentConns -> QemuConfig -> Int64 -> Text -> IO GuestExecResult
 guestExec conns config vmId command = guestExecImpl conns config vmId command Nothing 600
+
+-- | Like 'guestExec' but with a caller-supplied poll budget (in
+-- 100 ms ticks). Used by 'Corvus.Node.Caps.Session.handleVmGuestExec'
+-- so the daemon-supplied @vmGuestExecReq.timeoutSec@ is honoured.
+guestExecWithTimeout
+  :: GuestAgentConns
+  -> QemuConfig
+  -> Int64
+  -> Text
+  -> Int
+  -- ^ poll timeout, in 100 ms ticks
+  -> IO GuestExecResult
+guestExecWithTimeout conns config vmId command =
+  guestExecImpl conns config vmId command Nothing
 
 -- | Like 'guestExec' but also pipes raw bytes onto the guest process's stdin
 -- and accepts a custom poll-timeout (in 100 ms ticks; 600 = ~60 s).
