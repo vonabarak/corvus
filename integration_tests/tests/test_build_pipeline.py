@@ -33,6 +33,9 @@ import textwrap
 
 import pytest
 
+import yaml as yamlmod
+
+from corvus_client._async.build import preprocess_build_yaml
 from corvus_client.types import (
     BuildPipelineEnd,
     BuildStepEnd,
@@ -230,23 +233,38 @@ class TestBuildPipeline(SingleNodeCase):
         """End-to-end build of the project's Alpine test image.
 
         Drives `crv build yaml/corvus-test-vm/corvus-test-vm.yml`
-        after first applying the bake-template catalogue from
-        `yaml/multi-os/multi-os.yml` (provides `debian12`, which
-        the from-scratch build uses as its bake VM).
+        after staging the `debian12` bake template inline (the
+        build uses it as the bake VM for the apk-tools-static
+        bootstrap → chroot → GRUB BIOS+UEFI install →
+        qemu-guest-agent + vsock-sshd flow).
 
-        Exercises the real-world from-scratch path:
-        apk-tools-static bootstrap, chroot configuration, GRUB
-        BIOS+UEFI install, qemu-guest-agent + vsock-sshd. The
-        artifact disk name (`corvus-test-vm`) is fixed in the
-        YAML, so the test pre-cleans any stale artifact and
-        re-cleans on teardown.
+        We deliberately do *not* apply `yaml/multi-os/multi-os.yml`
+        here: that file registers cloud-image disks under names
+        like `ubuntu-24.04-server-base` (with dots) whose
+        `file_path` collides with the harness's pre-registered
+        same-file disks (`register_base_images` sanitises dots to
+        hyphens). Staging only what this build needs sidesteps the
+        name/path mismatch and keeps the test self-contained.
 
-        Slow: multi-os apply downloads ~1.5 GB of cloud images,
-        and the nested bake itself runs another 5-10 min.
+        We also rewrite the build YAML on the fly to use a unique
+        per-test artifact name. The project's hardcoded
+        `corvus-test-vm` collides with the harness's `images
+        ["alpine"]` alias when the developer's host has a single
+        cached `corvus-test-vm.qcow2` under `BaseImages/Alpine/`
+        (no `alpine-3.21-base.qcow2`). Deleting that disk in
+        finally would break sibling tests that consume the same
+        cached `register_base_images()` dict.
+
+        Slow: nested bake runs ~5-10 min under doubly-nested KVM.
         """
-        artifact_name = "corvus-test-vm"
-        multi_os_path = REPO_ROOT / "yaml" / "multi-os" / "multi-os.yml"
+        token = secrets.token_hex(4)
+        artifact_name = f"corvus-it-corvus-test-vm-{token}"
         build_path = REPO_ROOT / "yaml" / "corvus-test-vm" / "corvus-test-vm.yml"
+
+        # Make sure the harness's BaseImages catalogue is registered
+        # (gives us `debian-12-generic-base` referenced by the
+        # template below).
+        self.register_base_images()
 
         def _drop_artifact() -> None:
             for d in self.client.disks.list():
@@ -254,22 +272,72 @@ class TestBuildPipeline(SingleNodeCase):
                     self.client.disks.get(artifact_name, by_name=True).delete()
                     return
 
-        # Default `target.ifExists: error` — a leftover artifact
-        # from a previous run would fail the bake before it starts.
-        _drop_artifact()
+        # Minimal apply: the SSH key, OVMF firmware disks (read
+        # from the test-node's local /usr/share/edk2/, no
+        # downloads), and the bake template. `skip_existing` makes
+        # the test idempotent — re-running in the same topology
+        # leaves prior entries untouched.
+        bake_template_yaml = textwrap.dedent("""
+            sshKeys:
+              - name: corvus
+                publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
 
-        # Stage the bake-template catalogue. `skip_existing` lets
-        # the test re-run cheaply: previously-downloaded cloud
-        # images and registered templates are left alone.
-        self.client.apply(
-            multi_os_path.read_text(),
-            skip_existing=True,
-            wait=True,
-        )
+            disks:
+              - name: ovmf-code
+                register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
+                format: qcow2
+              - name: ovmf-vars
+                register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
+                format: qcow2
+
+            templates:
+              - name: debian12
+                description: "Debian 12 (bake template for corvus-test-vm)"
+                cpuCount: 2
+                ramMb: 4096
+                cloudInit: true
+                guestAgent: true
+                cloudInitConfig:
+                  userData:
+                    packages:
+                      - qemu-guest-agent
+                    runcmd:
+                      - systemctl enable --now qemu-guest-agent
+                drives:
+                  - diskImageName: debian-12-generic-base
+                    interface: virtio
+                    strategy: overlay
+                    cacheType: writeback
+                    discard: true
+                  - diskImageName: ovmf-code
+                    interface: pflash
+                    readOnly: true
+                    strategy: direct
+                  - diskImageName: ovmf-vars
+                    interface: pflash
+                    strategy: clone
+                networkInterfaces:
+                  - type: vde
+                    hostDevice: /run/vde2/switch.ctl
+                sshKeys:
+                  - name: corvus
+        """).strip()
+        self.client.apply(bake_template_yaml, skip_existing=True, wait=True)
+
+        # Preprocess the build YAML (inlines file refs like the
+        # SSH-key pubkey) then patch the target/build names so we
+        # don't write back into the shared `corvus-test-vm` slot.
+        preprocessed = preprocess_build_yaml(str(build_path))
+        doc = yamlmod.safe_load(preprocessed)
+        for step in doc["pipeline"]:
+            build = step.get("build")
+            if isinstance(build, dict):
+                build["name"] = f"corvus-it-build-{token}"
+                build["target"]["name"] = artifact_name
 
         try:
             pipeline_end = None
-            for ev in self.client.build_stream(str(build_path)):
+            for ev in self.client.build_stream_text(yamlmod.safe_dump(doc)):
                 if isinstance(ev, BuildPipelineEnd):
                     pipeline_end = ev
 
