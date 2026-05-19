@@ -9,6 +9,13 @@ RequiresMountsFor=/opt/corvus/bin
 Type=simple
 User=root
 Group=root
+# Match the daemon's `corvus-test.service` runtime directory.
+# The agent computes per-VM QEMU socket paths from XDG_RUNTIME_DIR;
+# without this the daemon's surviving direct-QMP calls (disk
+# hotplug, build key injection, send-ctrl-alt-del) miss the
+# sockets because the two processes resolve different paths.
+RuntimeDirectory=corvus
+Environment=XDG_RUNTIME_DIR=/run/corvus
 ExecStart=/opt/corvus/bin/corvus-nodeagent \
     --host 127.0.0.1 \
     --port 9878 \

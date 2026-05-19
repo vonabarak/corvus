@@ -30,6 +30,7 @@ import Corvus.Node.Server (defaultNodeAgentHost, defaultNodeAgentPort, runNodeAg
 import Corvus.Types (runFilteredLogging)
 import qualified Data.Text as T
 import Options.Applicative
+import System.Environment (lookupEnv, setEnv)
 import System.Exit (exitSuccess)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 import System.Posix.Signals
@@ -38,6 +39,7 @@ import System.Posix.Signals
   , sigINT
   , sigTERM
   )
+import System.Posix.User (getRealUserID)
 
 data Options = Options
   { optHost :: String
@@ -87,6 +89,22 @@ main :: IO ()
 main = do
   hSetBuffering stdout LineBuffering
   hSetBuffering stderr LineBuffering
+
+  -- Default 'XDG_RUNTIME_DIR' when running as root without one
+  -- set. The agent uses it (via @getEffectiveRuntimeDir@) to
+  -- decide where QEMU's per-VM sockets live; the daemon uses
+  -- the *same* logic for its handful of remaining
+  -- daemon-direct QMP calls (disk hotplug, build key injection,
+  -- send-ctrl-alt-del). If the two processes resolve the path
+  -- differently, those daemon-direct QMP connects fail with
+  -- "Network.Socket.connect: does not exist".
+  --
+  -- The default of @/run/corvus@ mirrors the daemon's
+  -- systemd-unit @RuntimeDirectory=corvus@ + @Environment=
+  -- XDG_RUNTIME_DIR=/run/corvus@; an explicit env var (or
+  -- non-root run) overrides this.
+  syncRuntimeDir
+
   opts <-
     execParser $
       info
@@ -125,3 +143,14 @@ main = do
   runFilteredLogging (optLogLevel opts) $
     logInfoN "corvus-nodeagent cleanup complete"
   exitSuccess
+
+syncRuntimeDir :: IO ()
+syncRuntimeDir = do
+  mXdg <- lookupEnv "XDG_RUNTIME_DIR"
+  case mXdg of
+    Just _ -> pure ()
+    Nothing -> do
+      uid <- getRealUserID
+      case uid of
+        0 -> setEnv "XDG_RUNTIME_DIR" "/run/corvus"
+        _ -> pure ()

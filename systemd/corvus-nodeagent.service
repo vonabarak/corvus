@@ -6,6 +6,13 @@ Wants=network-pre.target
 
 [Service]
 Type=exec
+# Match the daemon's runtime directory. The agent computes per-VM
+# QEMU socket paths from XDG_RUNTIME_DIR; without this the daemon's
+# surviving direct-QMP calls (disk hotplug, build key injection,
+# send-ctrl-alt-del) miss the sockets because the two processes
+# resolve different paths.
+RuntimeDirectory=corvus
+Environment=XDG_RUNTIME_DIR=/run/corvus
 ExecStart=/usr/local/bin/corvus-nodeagent --log-level info
 Restart=on-failure
 RestartSec=5
