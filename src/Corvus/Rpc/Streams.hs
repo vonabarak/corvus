@@ -33,7 +33,7 @@ import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVarIO, writeTVar)
 import Control.Exception (SomeException, try)
-import Corvus.Node.SocketBuffer (readBufferFrom, waitForData)
+import Corvus.Node.SocketBuffer (readBufferFrom, stripTerminalQueries, waitForData)
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Types (SocketBufferHandle (..))
 import qualified Data.ByteString as BS
@@ -145,12 +145,19 @@ runByteSinkRelay
 runByteSinkRelay sup sbh clientSink = do
   let buf = sbhBuffer sbh
   -- Replay the existing scrollback first so a reconnecting client
-  -- sees recent output. Failures are swallowed: if the client cap
-  -- is already dead, the live-stream loop below will exit on its
-  -- own.
+  -- sees recent output. Strip terminal query/response CSI
+  -- sequences (DSR / DA / CPR) from the replay — replaying them
+  -- prompts the client's terminal to answer stale queries, and
+  -- the guest's TTY (in cooked-mode with echo) bounces the
+  -- answers back as visible junk like `^[[65;1R` at the prompt.
+  -- Live data after the initial replay is passed through
+  -- unchanged so ncurses-style apps inside the guest can still
+  -- query and receive cursor positions normally.
+  -- Failures are swallowed: if the client cap is already dead,
+  -- the live-stream loop below will exit on its own.
   (buffered, pos0) <- readBufferFrom buf 0
   _ <-
-    try (pushChunk clientSink buffered)
+    try (pushChunk clientSink (stripTerminalQueries buffered))
       :: IO (Either SomeException ())
   -- Live data streamer.
   relayBox <- newTVarIO Nothing

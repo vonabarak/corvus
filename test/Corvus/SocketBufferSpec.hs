@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Unit tests for the ring-buffer replay sanitiser. Covers the DSR
--- / DA / CPR stripping that 'relayClient' applies to the initial
--- buffered replay.
+-- | Unit tests for the ring-buffer replay sanitiser. Covers the
+-- DSR / DA / CPR stripping that 'Corvus.Rpc.Streams.runByteSinkRelay'
+-- applies to the initial buffered replay.
 module Corvus.SocketBufferSpec (spec) where
 
 import qualified Data.ByteString as BS

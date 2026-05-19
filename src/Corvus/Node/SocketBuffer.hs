@@ -20,19 +20,18 @@ module Corvus.Node.SocketBuffer
     -- * Background thread
   , startSocketBufferThread
 
-    -- * Client relay
-  , relayClient
+    -- * Replay sanitisation
 
-    -- * Replay sanitisation (exposed for tests)
+  -- Called from 'Corvus.Rpc.Streams.runByteSinkRelay'; also
+  -- exposed for tests.
   , stripTerminalQueries
   )
 where
 
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Concurrent.STM
 import Control.Exception (SomeException, bracket, try)
-import Control.Monad (unless, void)
+import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel, LoggingT, filterLogger, logDebugN, logWarnN, runStdoutLoggingT)
 import Corvus.Qemu.Config (QemuConfig)
@@ -44,7 +43,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..))
 import qualified Network.Socket as NS
-import Network.Socket.ByteString (recv, sendAll)
+import Network.Socket.ByteString (recv)
 
 --------------------------------------------------------------------------------
 -- Ring Buffer Operations
@@ -204,71 +203,3 @@ runReader vmId bufferMap capacity qemuSock = do
     writeTVar qemuSockVar Nothing
     modifyTVar' bufferMap (Map.delete vmId)
     void $ tryPutTMVar (sbNotify buf) ()
-
---------------------------------------------------------------------------------
--- Client Relay
---------------------------------------------------------------------------------
-
--- | Relay raw bytes between an RPC client socket and a VM's socket
--- buffer. Sends the current buffer contents first so reconnecting
--- clients see recent scrollback, then streams live data
--- bidirectionally. Blocks until either the client disconnects or
--- QEMU closes its side.
---
--- Safe for multiple concurrent clients against the same handle: each
--- call holds its own read position and its own per-client input
--- forker.
-relayClient :: Socket -> SocketBufferHandle -> IO ()
-relayClient clientSock handle = do
-  let buf = sbhBuffer handle
-  -- Send buffered output to client. Strip terminal query/response
-  -- CSI sequences from the replay so the client's terminal doesn't
-  -- reply to stale queries — those replies get echoed by the VM's
-  -- TTY and show up as visible junk (e.g. ";1R;124R") at the user's
-  -- prompt. Live data after the initial replay is passed through
-  -- unchanged so real applications can still query/receive normally.
-  (buffered, pos) <- readBufferFrom buf 0
-  unless (BS.null buffered) $
-    sendAll clientSock (stripTerminalQueries buffered)
-  exitVar <- newEmptyMVar
-  -- QEMU → client: stream new data from the ring buffer.
-  _ <- forkIO $ do
-    let loop curPos = do
-          shutdown <- readTVarIO (sbhShutdown handle)
-          if shutdown
-            then putMVar exitVar ()
-            else do
-              (newData, newPos) <- waitForData buf curPos
-              if BS.null newData
-                then do
-                  shutdown' <- readTVarIO (sbhShutdown handle)
-                  if shutdown' then putMVar exitVar () else loop newPos
-                else do
-                  result <- try $ sendAll clientSock newData
-                  case result of
-                    Left (_ :: SomeException) -> putMVar exitVar ()
-                    Right () -> loop newPos
-    result <- try $ loop pos
-    case result of
-      Left (_ :: SomeException) -> putMVar exitVar ()
-      Right () -> pure ()
-  -- Client → QEMU: forward client input to QEMU's socket.
-  _ <- forkIO $ do
-    let loop = do
-          chunk <- recv clientSock 4096
-          if BS.null chunk
-            then putMVar exitVar ()
-            else do
-              mQemuSock <- readTVarIO (sbhQemuSock handle)
-              case mQemuSock of
-                Nothing -> putMVar exitVar ()
-                Just qSock -> do
-                  result <- try $ sendAll qSock chunk
-                  case result of
-                    Left (_ :: SomeException) -> putMVar exitVar ()
-                    Right () -> loop
-    result <- try loop
-    case result of
-      Left (_ :: SomeException) -> putMVar exitVar ()
-      Right () -> pure ()
-  takeMVar exitVar
