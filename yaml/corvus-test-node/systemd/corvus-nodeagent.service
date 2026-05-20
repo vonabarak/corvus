@@ -23,7 +23,8 @@ Environment=XDG_RUNTIME_DIR=/run/corvus
 ExecStart=/opt/corvus/bin/corvus-nodeagent \
     --host 0.0.0.0 \
     --port 9878 \
-    --log-level debug
+    --log-level debug \
+    --no-tls
 KillSignal=SIGTERM
 TimeoutStopSec=30s
 Restart=on-failure

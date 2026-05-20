@@ -8,6 +8,7 @@ guest-agent / systemd ordering.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Optional
 
 from corvus_client import Client
@@ -23,12 +24,24 @@ def open_client(
     poll_interval_sec: float = 1.0,
     ensure_self_node: bool = True,
     self_node_name: str = "self",
+    cert_dir: Optional[Path] = None,
+    tls: Optional[bool] = None,
 ) -> Client:
     """Block until the inner daemon answers `status()`, then return its client.
 
     Raises `TimeoutError` if `boot_timeout_sec` elapses without a
     successful status call. The caller is responsible for closing
     the returned `Client`.
+
+    ``cert_dir`` / ``tls`` are passed straight through to the
+    :class:`Client` constructor. ``tls=None`` (the default) means
+    "auto" — pycapnp's TCP transport will turn on TLS. For the
+    integration suite right now the inner daemons run with
+    ``--no-tls`` baked into their systemd units (see
+    ``yaml/corvus-test-node/systemd/``), so test callers pass
+    ``tls=False`` until the per-VM cert-deploy lands. Once it
+    does, callers will pass an explicit ``cert_dir`` pointing at
+    a temp dir holding the trio the harness PKI minted.
 
     If ``ensure_self_node`` is ``True`` (the default), also
     registers a ``Node`` row in the inner daemon pointing at
@@ -44,7 +57,7 @@ def open_client(
     last_err: Optional[BaseException] = None
     while time.monotonic() < deadline:
         try:
-            c = Client(host=host, port=port)
+            c = Client(host=host, port=port, cert_dir=cert_dir, tls=tls)
         except (ConnectError, CorvusError, OSError) as e:
             last_err = e
             time.sleep(poll_interval_sec)

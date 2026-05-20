@@ -7,6 +7,7 @@ Every public method calls into the async core via
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from .._async.client import AsyncClient
@@ -28,9 +29,25 @@ class Client:
         unix_socket: Optional[str] = None,
         host: Optional[str] = None,
         port: int = 9876,
+        cert_dir: Optional[str | Path] = None,
+        tls: Optional[bool] = None,
     ) -> None:
+        """See :class:`corvus_client.AsyncClient` for the full
+        argument list — the sync wrapper is intentionally a 1:1
+        shape.
+
+        ``cert_dir`` / ``tls`` are passed straight through and
+        honoured for TCP connections (Unix sockets keep using
+        filesystem permissions)."""
+
         self._rl = SyncRunloop()
-        self._a = AsyncClient(unix_socket=unix_socket, host=host, port=port)
+        self._a = AsyncClient(
+            unix_socket=unix_socket,
+            host=host,
+            port=port,
+            cert_dir=cert_dir,
+            tls=tls,
+        )
         try:
             self._rl.run(self._a.__aenter__())
         except Exception:

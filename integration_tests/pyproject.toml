@@ -7,6 +7,11 @@ dependencies = [
     # The inner-side client is the production package from this repo;
     # install with `pip install -e ../python` alongside.
     "corvus-client",
+    # X.509 generation for the harness's per-session ephemeral CA
+    # (see `corvus_test_harness.pki`). Same library corvus-admin
+    # uses, kept here so the harness has no dependency on the
+    # corvus-admin install.
+    "cryptography>=42",
     "pytest>=8",
     "pytest-timeout>=2.3",
     "pytest-xdist>=3.6",

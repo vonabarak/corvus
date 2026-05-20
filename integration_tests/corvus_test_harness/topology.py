@@ -61,6 +61,13 @@ class TestNode:
     cid: int
     relay: VsockTcpRelay
     _client: Optional[Client] = None
+    # TLS mode threaded in from the Topology: the inner daemons in
+    # the current test-image build run with --no-tls baked into
+    # their systemd units, so the host-side client must dial
+    # plaintext too. Topology owns the toggle so tests don't have
+    # to remember.
+    _client_tls: Optional[bool] = False
+    _client_cert_dir: Optional[Path] = None
 
     @property
     def host_endpoint(self) -> tuple[str, int]:
@@ -74,7 +81,11 @@ class TestNode:
         finishes its first boot; subsequent calls return immediately.
         """
         if self._client is None:
-            self._client = open_client(self.relay)
+            self._client = open_client(
+                self.relay,
+                tls=self._client_tls,
+                cert_dir=self._client_cert_dir,
+            )
         return self._client
 
     def run(
@@ -380,7 +391,16 @@ class Topology:
             )
         relay = self._stack.enter_context(VsockTcpRelay.start(cid))
         test_node = TestNode(
-            name=node_name, short_name=short_name, cid=cid, relay=relay
+            name=node_name,
+            short_name=short_name,
+            cid=cid,
+            relay=relay,
+            # Inner daemons in the current test-image build run
+            # with --no-tls (see yaml/corvus-test-node/systemd).
+            # Cert deployment + TLS-on lands in a follow-up; until
+            # then we dial plaintext.
+            _client_tls=False,
+            _client_cert_dir=None,
         )
         self._nodes.append(test_node)
         return test_node

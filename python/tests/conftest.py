@@ -315,6 +315,13 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
                     "--host", "127.0.0.1",
                     "--port", str(agent_port),
                     "--log-level", "warn",
+                    # The Python-client unit suite uses Unix
+                    # sockets only and doesn't exercise the mTLS
+                    # paths; --no-tls keeps the fixture
+                    # cert-free. Integration tests have their
+                    # own ephemeral CA (see
+                    # `integration_tests/corvus_test_harness/pki.py`).
+                    "--no-tls",
                 ],
                 stdout=alogf,
                 stderr=subprocess.STDOUT,
@@ -337,6 +344,10 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
                         "--socket", str(sock),
                         "--database", db_url,
                         "--log-level", "warn",
+                        # See the matching --no-tls on the
+                        # nodeagent above; the daemon's outbound
+                        # dial to it would also fail without one.
+                        "--no-tls",
                     ],
                     stdout=logf,
                     stderr=subprocess.STDOUT,

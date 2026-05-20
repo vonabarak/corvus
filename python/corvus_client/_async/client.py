@@ -14,11 +14,12 @@ so they survive across calls.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import capnp
 
-from .. import _schema
+from .. import _schema, _tls
 from ..exceptions import translate_errors
 from . import _convert as conv
 
@@ -41,7 +42,23 @@ class AsyncClient:
         unix_socket: Optional[str] = None,
         host: Optional[str] = None,
         port: int = 9876,
+        cert_dir: Optional[str | Path] = None,
+        tls: Optional[bool] = None,
     ) -> None:
+        """Connect to the daemon over either a Unix socket or TCP.
+
+        :param cert_dir: when set, force the client to load its
+            cert / key / CA from this directory and skip the
+            usual search path. Ignored for Unix-socket
+            connections.
+        :param tls: explicit override. ``None`` (the default)
+            means *auto*: TLS on for TCP, off for Unix. ``True``
+            forces TLS on (errors on Unix since pycapnp's
+            ``create_unix_connection`` doesn't take ``ssl=``);
+            ``False`` disables TLS even for TCP — useful when
+            the daemon was started with ``--no-tls`` for dev.
+        """
+
         if unix_socket and host:
             raise ValueError("specify exactly one of unix_socket or host")
         if unix_socket is None and host is None:
@@ -49,6 +66,22 @@ class AsyncClient:
         self._unix = unix_socket
         self._host = host
         self._port = port
+        self._cert_dir: Optional[Path] = (
+            Path(cert_dir) if cert_dir is not None else None
+        )
+        # Resolve effective TLS mode now so we can fail-fast in
+        # the constructor rather than mid-handshake.
+        if tls is None:
+            self._tls_enabled = host is not None
+        else:
+            if tls and unix_socket is not None:
+                raise ValueError(
+                    "tls=True requested but unix_socket was given; "
+                    "Unix sockets rely on filesystem permissions and "
+                    "do not wrap with TLS"
+                )
+            self._tls_enabled = bool(tls)
+        self._tls_bundle: Optional[_tls.TlsBundle] = None
         self._twoparty: Optional[capnp.TwoPartyClient] = None
         self._daemon = None
         self._stream: Optional[capnp.AsyncIoStream] = None
@@ -65,11 +98,46 @@ class AsyncClient:
         if self._unix:
             stream = await capnp.AsyncIoStream.create_unix_connection(self._unix)
         else:
-            stream = await capnp.AsyncIoStream.create_connection(self._host, self._port)
+            kwargs = {}
+            if self._tls_enabled:
+                # Build the bundle once on the connection path so
+                # the constructor stays cheap and so we can pull
+                # the validated cert dir into log lines.
+                self._tls_bundle = _tls.build_client_bundle(
+                    cert_dir=self._cert_dir,
+                )
+                kwargs["ssl"] = self._tls_bundle.context
+                # `server_hostname=None` disables SNI; the daemon
+                # doesn't dispatch by SNI and the cert SAN may not
+                # match the dialed address. Hostname matching is
+                # disabled in the SSLContext too.
+                kwargs["server_hostname"] = None
+            stream = await capnp.AsyncIoStream.create_connection(
+                self._host, self._port, **kwargs
+            )
+            if self._tls_enabled:
+                self._validate_peer_cn(stream)
         self._stream = stream
         self._twoparty = capnp.TwoPartyClient(stream)
         self._daemon = self._twoparty.bootstrap().cast_as(_schema.corvus.Daemon)
         return self
+
+    def _validate_peer_cn(self, stream: "capnp.AsyncIoStream") -> None:
+        """Pull the peer cert off the underlying asyncio transport
+        and check the CN against the bundle's expectations. Called
+        once per connection, immediately after the handshake."""
+
+        bundle = self._tls_bundle
+        if bundle is None:
+            return
+        try:
+            transport = stream.protocol.transport
+        except AttributeError as e:
+            raise _tls.CertificateError(
+                "pycapnp stream has no protocol.transport; cannot read peer cert"
+            ) from e
+        peercert = transport.get_extra_info("peercert")
+        _tls.validate_peer_cn(peercert, bundle)
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
         await self.close()
