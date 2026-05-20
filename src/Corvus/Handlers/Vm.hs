@@ -347,15 +347,29 @@ launchVmViaAgent state vmId vm pool = do
         <> " needs managed NIC but netd is unavailable"
   let netAgentForSpec = if hasManagedNic then mNetAgent else Nothing
   -- Wait-for-first-ping budget for the agent's vmStart. Covers
-  -- cold boot through QGA's first response — substantially longer
-  -- than the steady-state healthcheck cadence. 90 s handles
-  -- Alpine + Debian + UEFI Alpine boots under nested KVM without
-  -- false-failing on a moderately loaded host; matches the
-  -- integration-test harness's SSH-readiness probe budget
-  -- (`VmSsh.wait_for_ready`) so a slow boot doesn't surface as
-  -- two different timeouts.
+  -- cold boot through QGA's first response.
+  --
+  --  * 'guestAgent' off → no wait.
+  --  * 'guestAgent' on, has previously checked in (steady-state
+  --    reboot) → 90 s. Handles Alpine + Debian + UEFI Alpine
+  --    boots under nested KVM on a moderately loaded host.
+  --  * 'guestAgent' on, never checked in AND 'cloudInit' on →
+  --    300 s. First-boot cloud images do 'apt install
+  --    qemu-guest-agent' from cloud-init's package list, which
+  --    runs apt-get update + install over the network and only
+  --    *then* starts the agent. Under parallel integration-test
+  --    load this routinely needs > 90 s; the 5-min budget
+  --    matches 'reapplyVm' below.
+  --  * 'guestAgent' on, never checked in, no cloud-init → 90 s
+  --    (image presumably has the agent baked in and started by
+  --    systemd at boot).
   let cfg = ssQemuConfig state
-      waitMs = if vmGuestAgent vm then 90000 else 0
+      firstBoot = isNothing (vmHealthcheck vm)
+      cloudInitBootstrap = firstBoot && vmCloudInit vm
+      waitMs
+        | not (vmGuestAgent vm) = 0
+        | cloudInitBootstrap = 300000
+        | otherwise = 90000
 
   mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
   case mSpec of

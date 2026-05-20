@@ -18,7 +18,7 @@ from __future__ import annotations
 import contextlib
 import re
 import time
-from typing import Callable, Iterator
+from typing import Callable, Iterator, Optional
 
 import pytest
 
@@ -157,6 +157,39 @@ GUEST_NIC = "eth0"
 # A reasonable external target to exercise NAT. Cloudflare's 1.1.1.1 is
 # globally pingable and rarely filters ICMP.
 EXTERNAL_TARGET = "1.1.1.1"
+
+
+def _ping_with_retry(
+    vm,
+    target: str,
+    *,
+    attempts: int = 3,
+    per_attempt_count: int = 2,
+    per_attempt_wait_sec: int = 6,
+) -> None:
+    """Run 'ping' inside a VM, retrying on transient failure.
+
+    Used for VM → external NAT pings where the very first packet
+    has to provision conntrack + nftables state on the test-node's
+    kernel. Under heavy parallel-suite load the cold path can
+    exceed the per-attempt timeout; subsequent attempts land
+    on a hot conntrack entry and succeed in milliseconds.
+
+    Raises on the last failed attempt (preserves the original
+    'vm.run' RuntimeError so the test's pytest traceback still
+    shows the ping command line and stderr).
+    """
+    last_err: Optional[BaseException] = None
+    for _ in range(attempts):
+        try:
+            vm.run(
+                f"ping -c {per_attempt_count} -W {per_attempt_wait_sec} {target}"
+            )
+            return
+        except RuntimeError as e:
+            last_err = e
+    assert last_err is not None
+    raise last_err
 
 
 def _node_has_outbound_internet(node) -> bool:
@@ -303,8 +336,15 @@ class TestManagedNetworking(SingleNodeCase):
                 vm2.run("ping -c 2 -W 2 10.51.0.1")
 
                 # Each VM → outside world via NAT.
-                vm1.run(f"ping -c 2 -W 4 {EXTERNAL_TARGET}")
-                vm2.run(f"ping -c 2 -W 4 {EXTERNAL_TARGET}")
+                # Under heavy parallel-suite load the first NAT
+                # round-trip can exceed 4 s (conntrack table
+                # allocations, host firewall hashing, …); a
+                # follow-up retry succeeds because the conntrack
+                # entry is already cached. Allow a small retry
+                # budget so this stays a NAT-correctness test, not
+                # a host-load benchmark.
+                _ping_with_retry(vm1, EXTERNAL_TARGET)
+                _ping_with_retry(vm2, EXTERNAL_TARGET)
 
     # -- 3. Cross-network isolation ------------------------------------------
 
