@@ -48,7 +48,14 @@ from corvus_test_harness.cases import IntegrationTestCase, state_for
 
 @pytest.fixture(scope="session")
 def crv() -> Crv:
-    """Autodetected `crv` CLI driver (prefers ~/.local/bin/crv)."""
+    """Autodetected `crv` CLI driver for the outer daemon.
+
+    Picks the binary that's on the operator's '$PATH' so the
+    outer-side CLI matches whichever Corvus install is actually
+    running on the host. Override via '$CORVUS_CRV'. The
+    freshly-built dev-tree 'crv' is intentionally not preferred
+    here — that one ships with the inner daemons in test VMs.
+    """
     return Crv.autodetect()
 
 

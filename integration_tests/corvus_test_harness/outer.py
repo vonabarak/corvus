@@ -82,41 +82,53 @@ class Crv:
 
     @classmethod
     def autodetect(cls) -> "Crv":
-        """Find a usable `crv` binary.
+        """Find a usable `crv` binary for driving the outer daemon.
+
+        The outer daemon is whatever Corvus install the developer
+        is running on the host — typically the `make install`'d
+        version under `~/.local/bin`. The inner daemon (running
+        in test VMs) is the freshly compiled one from this tree.
+        Driving a stable outer daemon with a freshly compiled
+        `crv` causes wire-protocol drift the moment a schema
+        change lands in `schema/`. So the outer driver picks the
+        binary that lives on the operator's `$PATH`, not the
+        dev-tree one.
 
         Preference order:
-          1. The freshly built `stack path --local-install-root`
-             tree (same path the orchestrator nodes virtiofs-mount
-             at /opt/corvus/bin) — guarantees test-side `crv` and
-             daemon-side `corvus` agree on the wire schema without
-             requiring a `make install` step.
-          2. `$HOME/.local/bin/crv` — present when the developer
-             ran `make install` manually.
-          3. `crv` on `$PATH` — falls back to a system install.
-        """
-        # 1) stack-built binary from the dev tree.
-        try:
-            from .host_binary import HostBinary  # local import: avoids cycle
+          1. `$CORVUS_CRV` env override — explicit pin for CI or
+             for a developer running against a specific build.
+          2. `crv` on `$PATH` — matches the binary the developer
+             would type `crv` for outside the tests; usually the
+             same build the running outer daemon was installed
+             from (`make install`).
+          3. `~/.local/bin/crv` — last-ditch fallback for when
+             `~/.local/bin` isn't on `$PATH`.
 
-            host_bin = HostBinary.discover()
-            stack_crv = host_bin.bin_dir / "crv"
-            if stack_crv.is_file() and os.access(stack_crv, os.X_OK):
-                return cls(binary=str(stack_crv))
-        except Exception:
-            # `stack` not on PATH, .stack-work absent, etc. — fall through.
-            pass
-        # 2) Manually-installed user binary.
+        The freshly-built `.stack-work/install/.../bin/crv` is
+        deliberately NOT in the preference list — that binary is
+        for the inner daemon (attached to test VMs via virtiofs;
+        see 'host_binary.py'). Pin via `$CORVUS_CRV` if you
+        really want to drive the outer daemon with it.
+        """
+        override = os.environ.get("CORVUS_CRV")
+        if override:
+            override_path = Path(override)
+            if not override_path.is_file() or not os.access(override_path, os.X_OK):
+                raise RuntimeError(
+                    f"$CORVUS_CRV points at {override_path} which is not an "
+                    "executable file"
+                )
+            return cls(binary=str(override_path))
+        found = shutil.which("crv")
+        if found:
+            return cls(binary=found)
         local = Path.home() / ".local" / "bin" / "crv"
         if local.is_file() and os.access(local, os.X_OK):
             return cls(binary=str(local))
-        # 3) System / $PATH crv.
-        found = shutil.which("crv")
-        if not found:
-            raise RuntimeError(
-                "`crv` not found in .stack-work, ~/.local/bin, or $PATH "
-                "(run `stack build` or `make install`)"
-            )
-        return cls(binary=found)
+        raise RuntimeError(
+            "`crv` not found on $PATH or in ~/.local/bin. "
+            "Run `make install` (or set $CORVUS_CRV to an explicit path)."
+        )
 
     # ---- raw subprocess machinery ----------------------------------------
 

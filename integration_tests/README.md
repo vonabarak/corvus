@@ -28,8 +28,14 @@ A nested VM gives us root, real KVM, and isolation.
   Y
   ```
   Enable with the kernel parameter `kvm-intel.nested=1` (or `kvm-amd`).
-- A built host binary: `stack build` (the harness reads
-  `stack path --local-install-root`).
+- A built host binary: `stack build` (the harness attaches the
+  freshly built `corvus` from `stack path --local-install-root`
+  to every test VM as the *inner* daemon).
+- An installed `crv` on `$PATH` for driving the *outer* daemon:
+  `make install` puts one at `~/.local/bin/crv`. The harness
+  deliberately uses the installed binary — not the dev-tree one
+  — to insulate the outer daemon from in-flight schema changes.
+  Override the picked binary via `$CORVUS_CRV=/path/to/crv`.
 - The integration-test image, built once on first session run:
   `crv build yaml/corvus-test-node/corvus-test-node.yml --wait`
   takes 30-60 min cold (kernel + stage3 + emerges).
