@@ -79,20 +79,66 @@ def open_client(
 
 
 def _register_self_node(client: Client, name: str) -> None:
-    """Idempotently register a self-pointing Node row.
+    """Idempotently register a self-pointing Node row and wait for
+    its per-node supervisor to dial the nodeagent.
 
     Inner daemons run with their nodeagent + netd on the same
     box, listening on the conventional 9878 / 9877 ports. The
     'host' value is '127.0.0.1' because the daemon is on that
     host too — there's no cross-host hop inside a test node.
+
+    The daemon's 'handleNodeAdd' spawns the per-node reconnect
+    supervisor as a background async; the supervisor's dial
+    races with whichever test method runs next. Without the
+    poll below, the first 'client.disks.create(…)' inside a
+    test sees 'nodeagent for node 1 unavailable' before the
+    dial completes. We probe a cheap agent-dependent op
+    ('disks.create' on a sentinel name, immediately deleted)
+    until it succeeds.
     """
-    # If a node with this name already exists, do nothing — this
-    # makes the function safe to call multiple times.
+    # If a node with this name already exists, skip the create
+    # but still run the connectivity poll — across test re-runs
+    # against a long-lived daemon the supervisor may already be
+    # connected; the probe returns fast in that case.
+    need_create = True
     try:
         existing = client.nodes.get(name, by_name=True)
-        # If we get here, the node already exists. Nothing to do.
         del existing
-        return
+        need_create = False
     except CorvusError:
         pass
-    client.nodes.create(name, "127.0.0.1")
+    if need_create:
+        client.nodes.create(name, "127.0.0.1")
+    _wait_for_self_node_ready(client)
+
+
+def _wait_for_self_node_ready(
+    client: Client,
+    *,
+    timeout_sec: float = 30.0,
+    poll_interval_sec: float = 0.1,
+) -> None:
+    """Block until the inner daemon's per-node supervisor has
+    finished its initial nodeagent dial.
+
+    Probes a cheap, idempotent agent call. Any 'unavailable'
+    error from the daemon means the supervisor's dial hasn't
+    landed yet — keep polling. Any other error surfaces
+    immediately (it's a real problem).
+    """
+    deadline = time.monotonic() + timeout_sec
+    last_err: Optional[BaseException] = None
+    while time.monotonic() < deadline:
+        try:
+            d = client.disks.create("__harness_probe__", size_mb=1)
+            d.delete()
+            return
+        except CorvusError as e:
+            last_err = e
+            if "unavailable" not in str(e).lower():
+                raise
+            time.sleep(poll_interval_sec)
+    raise RuntimeError(
+        f"inner daemon's nodeagent never became reachable through "
+        f"the supervisor: {last_err!r}"
+    )
