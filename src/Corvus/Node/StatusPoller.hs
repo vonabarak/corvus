@@ -47,6 +47,7 @@ import Control.Monad (foldM, forever)
 import Control.Monad.Logger (logWarnN, runStderrLoggingT)
 import qualified Corvus.Node.GuestAgent as NGA
 import qualified Corvus.Node.Ledger as L
+import qualified Corvus.Node.NodeStats as NS
 import qualified Corvus.Node.VmSpec as VS
 import Corvus.Qemu.Config (QemuConfig)
 import Corvus.Rpc.Streams (callSink)
@@ -88,10 +89,15 @@ runStatusPoller cfg ledger qgaConns subs tickIntervalMs = forever $ do
   vms <- atomically $ L.readVms ledger
   now <- millisNow
   entries <- mapM (buildEntry cfg qgaConns) (Map.toList vms)
+  -- Per-tick node observation: CPU/RAM/disk/load/kernel/version.
+  -- The daemon-side sink stamps these into the 'Node' row and
+  -- bumps 'nodeAgentHealthcheck'.
+  stats <- NS.readNodeStats cfg
   let snapshot =
         CGNA.VmStatusSnapshot
           { CGNA.snapshotAtMillis = now
           , CGNA.entries = entries
+          , CGNA.nodeStats = stats
           }
   dispatch subs snapshot
 

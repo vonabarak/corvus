@@ -37,7 +37,8 @@ import Control.Monad (forM_, when)
 import qualified Corvus.Model as M
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (callSink)
-import Corvus.Types (ServerState (..))
+import Corvus.Types (ServerState (..), clearReservation)
+import qualified Corvus.Types
 import Data.Int (Int64)
 import Data.List (find)
 import qualified Data.Map.Strict as Map
@@ -49,24 +50,39 @@ import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
 
--- | Server-side handle. Owns a reference to 'ServerState' so the
--- 'onSnapshot' handler can reach the DB pool, the
--- @vm.subscribeGuestAgent@ subscriber map, and (for IP-formatting)
--- nothing else — the snapshot is self-contained otherwise.
-newtype DaemonVmStatusSink = DaemonVmStatusSink
+-- | Server-side handle. Owns a reference to 'ServerState' so
+-- the 'onSnapshot' handler can reach the DB pool + the
+-- @vm.subscribeGuestAgent@ subscriber map, plus the 'NodeId'
+-- of the node whose nodeagent this sink is bound to. The
+-- daemon creates one sink per node (the per-node reconnect
+-- loop in @app/daemon/Main.hs@ supplies the id), so every
+-- 'onSnapshot' call knows which 'Node' row to stamp.
+data DaemonVmStatusSink = DaemonVmStatusSink
   { dvssState :: ServerState
+  , dvssNodeId :: !M.NodeId
   }
 
-newDaemonVmStatusSink :: ServerState -> DaemonVmStatusSink
+newDaemonVmStatusSink :: ServerState -> M.NodeId -> DaemonVmStatusSink
 newDaemonVmStatusSink = DaemonVmStatusSink
 
 instance SomeServer DaemonVmStatusSink
 
 instance CGNA.VmStatusSink'server_ DaemonVmStatusSink where
-  vmStatusSink'onSnapshot (DaemonVmStatusSink state) =
+  vmStatusSink'onSnapshot (DaemonVmStatusSink state nid) =
     handleParsed $ \CGNA.VmStatusSink'onSnapshot'params {CGNA.snapshot = snap} -> do
-      let CGNA.VmStatusSnapshot {CGNA.entries = entries} = snap
+      let CGNA.VmStatusSnapshot
+            { CGNA.entries = entries
+            , CGNA.nodeStats = stats
+            , CGNA.snapshotAtMillis = snapMs
+            } = snap
       forM_ entries (processEntry state)
+      -- Per-tick node observation: stamp into the 'Node' row,
+      -- bump the healthcheck timestamp, and clear the
+      -- scheduler's pending RAM reservation for this node
+      -- (the agent's fresh @ramMbFree@ already reflects the
+      -- newly-created VM's allocation, so re-counting would
+      -- double-charge headroom).
+      applyNodeStats state nid stats snapMs
       pure CGNA.VmStatusSink'onSnapshot'results
 
 -- | Reconcile one 'VmStatusEntry' with daemon state.
@@ -174,6 +190,60 @@ pushGuestAgentStatus state vmId reachable pingMillis = do
       pure $ case r of
         Right () -> True
         Left _ -> False
+
+-- | Stamp a 'NodeStats' observation into the 'Node' row that
+-- corresponds to the agent connection this sink is bound to.
+-- Bumps 'nodeAgentHealthcheck' to the agent's snapshot wall
+-- clock so the scheduler can filter on freshness. Clears the
+-- scheduler's pending RAM reservation for this node so we
+-- don't double-count headroom that the agent's fresh
+-- @ramMbFree@ already reflects.
+applyNodeStats
+  :: ServerState
+  -> M.NodeId
+  -> C.Parsed CGNA.NodeStats
+  -> Int64
+  -- ^ snapshot millis (agent wall clock)
+  -> IO ()
+applyNodeStats state nid stats snapMs = do
+  let CGNA.NodeStats
+        { CGNA.cpuCount = cpus
+        , CGNA.ramMbTotal = ramTotal
+        , CGNA.ramMbFree = ramFree
+        , CGNA.storageBytesTotal = storTotal
+        , CGNA.storageBytesFree = storFree
+        , CGNA.loadAvg1 = l1
+        , CGNA.loadAvg5 = l5
+        , CGNA.loadAvg15 = l15
+        , CGNA.kernelRelease = kernel
+        , CGNA.agentVersion = ver
+        } = stats
+      observedAt = millisToUtc snapMs
+      maybeIfNonZero x = if x == 0 then Nothing else Just (fromIntegral x)
+      maybeIfNonZeroD x = if x == 0 then Nothing else Just x
+      maybeText t = if T.null t then Nothing else Just t
+  runSqlPool
+    ( update
+        nid
+        [ M.NodeCpuCount =. maybeIfNonZero cpus
+        , M.NodeRamMbTotal =. maybeIfNonZero ramTotal
+        , M.NodeRamMbFree =. maybeIfNonZero ramFree
+        , M.NodeStorageBytesTotal =. maybeIfNonZero64 storTotal
+        , M.NodeStorageBytesFree =. maybeIfNonZero64 storFree
+        , M.NodeLoadAvg1 =. maybeIfNonZeroD l1
+        , M.NodeLoadAvg5 =. maybeIfNonZeroD l5
+        , M.NodeLoadAvg15 =. maybeIfNonZeroD l15
+        , M.NodeKernelRelease =. maybeText kernel
+        , M.NodeAgentVersion =. maybeText ver
+        , M.NodeNodeAgentHealthcheck =. Just observedAt
+        ]
+    )
+    (ssDbPool state)
+  -- See note above re: re-counting.
+  Corvus.Types.clearReservation state nid
+  where
+    maybeIfNonZero64 :: Int64 -> Maybe Int
+    maybeIfNonZero64 x = if x == 0 then Nothing else Just (fromIntegral x)
 
 millisToUtc :: Int64 -> UTCTime
 millisToUtc ms =

@@ -357,7 +357,7 @@ runNodeAgentLoop state nodeKey nodeLabel host port owner = loop
               Just nc -> Map.insert nodeKey nc {ncNodeAgent = Just noac} m
           withSupervisor $ \sup -> do
             sinkClient <-
-              C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state)
+              C.export @CGNA.VmStatusSink sup (newDaemonVmStatusSink state nodeKey)
             subResult <- NOA.subscribeVmStatus noac sinkClient
             case subResult of
               Left e ->

@@ -390,6 +390,27 @@ struct VmGuestExecInfo {
 struct VmStatusSnapshot {
   snapshotAtMillis @0 :Int64;            # agent wall-clock at tick start
   entries          @1 :List(VmStatusEntry);
+  # Per-node observation, populated on every tick. Phase 5: the
+  # daemon stamps these into the `Node` row's stat columns and
+  # bumps `nodeAgentHealthcheck = snapshotAtMillis`. Optional
+  # fields use 0 / empty as "unknown" sentinels.
+  nodeStats        @2 :NodeStats;
+}
+
+# Per-tick observation of the node the agent runs on. Populated
+# from /proc/meminfo, /proc/loadavg, statvfs(basePath), uname -r,
+# and the agent's baked-in version.
+struct NodeStats {
+  cpuCount          @0 :Int32;           # 0 == unknown
+  ramMbTotal        @1 :Int32;
+  ramMbFree         @2 :Int32;
+  storageBytesTotal @3 :Int64;
+  storageBytesFree  @4 :Int64;
+  loadAvg1          @5 :Float64;
+  loadAvg5          @6 :Float64;
+  loadAvg15         @7 :Float64;
+  kernelRelease     @8 :Text;            # "" == unknown
+  agentVersion      @9 :Text;
 }
 
 struct VmStatusEntry {

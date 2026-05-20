@@ -3145,7 +3145,7 @@ instance (C.HasTypeId VmStatusSnapshot) where
     typeId  = 12776058269055557477
 instance (C.TypedStruct VmStatusSnapshot) where
     numStructWords  = 1
-    numStructPtrs  = 1
+    numStructPtrs  = 2
 instance (C.Allocate VmStatusSnapshot) where
     type AllocHint VmStatusSnapshot = ()
     new _ = C.newTypedStruct
@@ -3157,23 +3157,103 @@ instance (C.EstimateListAlloc VmStatusSnapshot (C.Parsed VmStatusSnapshot))
 data instance C.Parsed VmStatusSnapshot
     = VmStatusSnapshot 
         {snapshotAtMillis :: (RP.Parsed Std_.Int64)
-        ,entries :: (RP.Parsed (R.List VmStatusEntry))}
+        ,entries :: (RP.Parsed (R.List VmStatusEntry))
+        ,nodeStats :: (RP.Parsed NodeStats)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmStatusSnapshot))
 deriving instance (Std_.Eq (C.Parsed VmStatusSnapshot))
 instance (C.Parse VmStatusSnapshot (C.Parsed VmStatusSnapshot)) where
     parse raw_ = (VmStatusSnapshot <$> (GH.parseField #snapshotAtMillis raw_)
-                                   <*> (GH.parseField #entries raw_))
+                                   <*> (GH.parseField #entries raw_)
+                                   <*> (GH.parseField #nodeStats raw_))
 instance (C.Marshal VmStatusSnapshot (C.Parsed VmStatusSnapshot)) where
     marshalInto raw_ VmStatusSnapshot{..} = (do
         (GH.encodeField #snapshotAtMillis snapshotAtMillis raw_)
         (GH.encodeField #entries entries raw_)
+        (GH.encodeField #nodeStats nodeStats raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "snapshotAtMillis" GH.Slot VmStatusSnapshot Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "entries" GH.Slot VmStatusSnapshot (R.List VmStatusEntry)) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "nodeStats" GH.Slot VmStatusSnapshot NodeStats) where
+    fieldByLabel  = (GH.ptrField 1)
+data NodeStats 
+type instance (R.ReprFor NodeStats) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId NodeStats) where
+    typeId  = 17976094670731628670
+instance (C.TypedStruct NodeStats) where
+    numStructWords  = 7
+    numStructPtrs  = 2
+instance (C.Allocate NodeStats) where
+    type AllocHint NodeStats = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc NodeStats (C.Parsed NodeStats))
+instance (C.AllocateList NodeStats) where
+    type ListAllocHint NodeStats = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc NodeStats (C.Parsed NodeStats))
+data instance C.Parsed NodeStats
+    = NodeStats 
+        {cpuCount :: (RP.Parsed Std_.Int32)
+        ,ramMbTotal :: (RP.Parsed Std_.Int32)
+        ,ramMbFree :: (RP.Parsed Std_.Int32)
+        ,storageBytesTotal :: (RP.Parsed Std_.Int64)
+        ,storageBytesFree :: (RP.Parsed Std_.Int64)
+        ,loadAvg1 :: (RP.Parsed Std_.Double)
+        ,loadAvg5 :: (RP.Parsed Std_.Double)
+        ,loadAvg15 :: (RP.Parsed Std_.Double)
+        ,kernelRelease :: (RP.Parsed Basics.Text)
+        ,agentVersion :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed NodeStats))
+deriving instance (Std_.Eq (C.Parsed NodeStats))
+instance (C.Parse NodeStats (C.Parsed NodeStats)) where
+    parse raw_ = (NodeStats <$> (GH.parseField #cpuCount raw_)
+                            <*> (GH.parseField #ramMbTotal raw_)
+                            <*> (GH.parseField #ramMbFree raw_)
+                            <*> (GH.parseField #storageBytesTotal raw_)
+                            <*> (GH.parseField #storageBytesFree raw_)
+                            <*> (GH.parseField #loadAvg1 raw_)
+                            <*> (GH.parseField #loadAvg5 raw_)
+                            <*> (GH.parseField #loadAvg15 raw_)
+                            <*> (GH.parseField #kernelRelease raw_)
+                            <*> (GH.parseField #agentVersion raw_))
+instance (C.Marshal NodeStats (C.Parsed NodeStats)) where
+    marshalInto raw_ NodeStats{..} = (do
+        (GH.encodeField #cpuCount cpuCount raw_)
+        (GH.encodeField #ramMbTotal ramMbTotal raw_)
+        (GH.encodeField #ramMbFree ramMbFree raw_)
+        (GH.encodeField #storageBytesTotal storageBytesTotal raw_)
+        (GH.encodeField #storageBytesFree storageBytesFree raw_)
+        (GH.encodeField #loadAvg1 loadAvg1 raw_)
+        (GH.encodeField #loadAvg5 loadAvg5 raw_)
+        (GH.encodeField #loadAvg15 loadAvg15 raw_)
+        (GH.encodeField #kernelRelease kernelRelease raw_)
+        (GH.encodeField #agentVersion agentVersion raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "cpuCount" GH.Slot NodeStats Std_.Int32) where
+    fieldByLabel  = (GH.dataField 0 0 32 0)
+instance (GH.HasField "ramMbTotal" GH.Slot NodeStats Std_.Int32) where
+    fieldByLabel  = (GH.dataField 32 0 32 0)
+instance (GH.HasField "ramMbFree" GH.Slot NodeStats Std_.Int32) where
+    fieldByLabel  = (GH.dataField 0 1 32 0)
+instance (GH.HasField "storageBytesTotal" GH.Slot NodeStats Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 2 64 0)
+instance (GH.HasField "storageBytesFree" GH.Slot NodeStats Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 3 64 0)
+instance (GH.HasField "loadAvg1" GH.Slot NodeStats Std_.Double) where
+    fieldByLabel  = (GH.dataField 0 4 64 0)
+instance (GH.HasField "loadAvg5" GH.Slot NodeStats Std_.Double) where
+    fieldByLabel  = (GH.dataField 0 5 64 0)
+instance (GH.HasField "loadAvg15" GH.Slot NodeStats Std_.Double) where
+    fieldByLabel  = (GH.dataField 0 6 64 0)
+instance (GH.HasField "kernelRelease" GH.Slot NodeStats Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "agentVersion" GH.Slot NodeStats Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
 data VmStatusEntry 
 type instance (R.ReprFor VmStatusEntry) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStatusEntry) where
