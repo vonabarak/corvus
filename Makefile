@@ -271,7 +271,7 @@ format:
 install:
 	stack install
 	mkdir -p $(HOME)/.config/systemd/user/
-	cp corvus.service $(HOME)/.config/systemd/user/
+	cp systemd/corvus.service $(HOME)/.config/systemd/user/
 	systemctl --user daemon-reload
 	systemctl --user enable corvus.service
 	systemctl --user restart corvus.service
