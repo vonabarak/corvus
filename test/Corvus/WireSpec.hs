@@ -9,6 +9,8 @@
 module Corvus.WireSpec (spec) where
 
 import qualified Corvus.Model as M
+import qualified Corvus.Protocol.Node as PN
+import qualified Corvus.Protocol.Task as PT
 import Corvus.Wire.Common
   ( EntityRef (..)
   , entityRefFromText
@@ -16,6 +18,11 @@ import Corvus.Wire.Common
   , toCapnpEntityRef
   )
 import Corvus.Wire.Enums
+import Corvus.Wire.Node (fromCapnpNodeDetails, fromCapnpNodeInfo, toCapnpNodeDetails, toCapnpNodeInfo)
+import Corvus.Wire.Task (fromCapnpTaskInfo, toCapnpTaskInfo)
+import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, utcTimeToNanosMaybe)
+import Data.Time (UTCTime, addUTCTime, secondsToNominalDiffTime)
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Test.Hspec
 
 spec :: Spec
@@ -83,3 +90,137 @@ spec = do
       entityRefFromText "webserver" `shouldBe` RefByName "webserver"
     it "treats names beginning with digits as names" $
       entityRefFromText "42web" `shouldBe` RefByName "42web"
+
+  describe "Wire.Time" $ do
+    -- The wire layer truncates to nanoseconds, which is lossless
+    -- for any UTCTime whose picoseconds-since-epoch divide evenly
+    -- by 1000. We pick samples on second / millisecond boundaries
+    -- to dodge the precision floor.
+    it "utcTimeToNanos . nanosToUtcTime ≡ id for sample points" $ do
+      let samples = [0, 1000000000, 1700000000000000000]
+      mapM_ (\n -> utcTimeToNanos (nanosToUtcTime n) `shouldBe` n) samples
+
+    it "utcTimeToNanosMaybe Nothing maps to the 0 sentinel" $
+      utcTimeToNanosMaybe Nothing `shouldBe` 0
+
+    it "nanosToUtcTimeMaybe 0 maps back to Nothing" $
+      nanosToUtcTimeMaybe 0 `shouldBe` Nothing
+
+    it "nanosToUtcTimeMaybe of a non-zero value round-trips" $ do
+      let t = sampleUtc
+      utcTimeToNanosMaybe (nanosToUtcTimeMaybe (utcTimeToNanos t)) `shouldBe` utcTimeToNanos t
+
+  describe "Wire.Node.NodeInfo" $ do
+    it "round-trips a fully-populated NodeInfo" $
+      fromCapnpNodeInfo (toCapnpNodeInfo sampleNodeInfo) `shouldBe` Right sampleNodeInfo
+
+    it "round-trips a NodeInfo with all stats Nothing" $
+      let ni =
+            sampleNodeInfo
+              { PN.noiCpuCount = Nothing
+              , PN.noiRamMbTotal = Nothing
+              , PN.noiRamMbFree = Nothing
+              , PN.noiStorageBytesTotal = Nothing
+              , PN.noiStorageBytesFree = Nothing
+              , PN.noiLoadAvg1 = Nothing
+              , PN.noiLastNodeAgentPushAt = Nothing
+              , PN.noiLastNetAgentPushAt = Nothing
+              }
+       in fromCapnpNodeInfo (toCapnpNodeInfo ni) `shouldBe` Right ni
+
+  describe "Wire.Node.NodeDetails" $ do
+    it "round-trips a fully-populated NodeDetails" $
+      fromCapnpNodeDetails (toCapnpNodeDetails sampleNodeDetails)
+        `shouldBe` Right sampleNodeDetails
+
+    it "drops an empty description to Nothing (sentinel mapping)" $ do
+      -- The wire stores Maybe Text as "" for Nothing; a fresh
+      -- '' on the way back must come out as Nothing — exactly
+      -- the property the schema documents.
+      let nd = sampleNodeDetails {PN.nodDescription = Nothing}
+      fromCapnpNodeDetails (toCapnpNodeDetails nd) `shouldBe` Right nd
+
+  describe "Wire.Task.TaskInfo" $ do
+    it "round-trips a fully-populated TaskInfo" $
+      fromCapnpTaskInfo (toCapnpTaskInfo sampleTaskInfo) `shouldBe` Right sampleTaskInfo
+
+    it "round-trips a TaskInfo without a parent or finished-at" $
+      let ti =
+            sampleTaskInfo
+              { PT.tiParentId = Nothing
+              , PT.tiFinishedAt = Nothing
+              , PT.tiEntityId = Nothing
+              , PT.tiEntityName = Nothing
+              , PT.tiMessage = Nothing
+              }
+       in fromCapnpTaskInfo (toCapnpTaskInfo ti) `shouldBe` Right ti
+
+-- | A fixed UTCTime that survives the nanos→ps→nanos round-trip
+-- exactly: posix-second granularity, no sub-second tail.
+sampleUtc :: UTCTime
+sampleUtc = posixSecondsToUTCTime 1700000000
+
+-- | A finished-at one second after sampleUtc, for tasks.
+sampleUtc1 :: UTCTime
+sampleUtc1 = addUTCTime (secondsToNominalDiffTime 1) sampleUtc
+
+sampleNodeInfo :: PN.NodeInfo
+sampleNodeInfo =
+  PN.NodeInfo
+    { PN.noiId = 7
+    , PN.noiName = "alpha"
+    , PN.noiHost = "10.0.0.1"
+    , PN.noiNodeAgentPort = 9878
+    , PN.noiNetAgentPort = 9877
+    , PN.noiAdminState = M.NodeOnline
+    , PN.noiCreatedAt = sampleUtc
+    , PN.noiCpuCount = Just 8
+    , PN.noiRamMbTotal = Just 32768
+    , PN.noiRamMbFree = Just 16384
+    , PN.noiStorageBytesTotal = Just 1099511627776
+    , PN.noiStorageBytesFree = Just 549755813888
+    , PN.noiLoadAvg1 = Just 0.42
+    , PN.noiLastNodeAgentPushAt = Just sampleUtc1
+    , PN.noiLastNetAgentPushAt = Just sampleUtc1
+    }
+
+sampleNodeDetails :: PN.NodeDetails
+sampleNodeDetails =
+  PN.NodeDetails
+    { PN.nodId = 7
+    , PN.nodName = "alpha"
+    , PN.nodHost = "10.0.0.1"
+    , PN.nodNodeAgentPort = 9878
+    , PN.nodNetAgentPort = 9877
+    , PN.nodBasePath = "/var/lib/corvus"
+    , PN.nodDescription = Just "head node"
+    , PN.nodAdminState = M.NodeOnline
+    , PN.nodCreatedAt = sampleUtc
+    , PN.nodCpuCount = Just 8
+    , PN.nodRamMbTotal = Just 32768
+    , PN.nodRamMbFree = Just 16384
+    , PN.nodStorageBytesTotal = Just 1099511627776
+    , PN.nodStorageBytesFree = Just 549755813888
+    , PN.nodLoadAvg1 = Just 0.42
+    , PN.nodLoadAvg5 = Just 0.5
+    , PN.nodLoadAvg15 = Just 0.6
+    , PN.nodKernelRelease = Just "6.6.0"
+    , PN.nodAgentVersion = Just "0.10.0.0"
+    , PN.nodLastNodeAgentPushAt = Just sampleUtc1
+    , PN.nodLastNetAgentPushAt = Just sampleUtc1
+    }
+
+sampleTaskInfo :: PT.TaskInfo
+sampleTaskInfo =
+  PT.TaskInfo
+    { PT.tiId = 100
+    , PT.tiParentId = Just 99
+    , PT.tiStartedAt = sampleUtc
+    , PT.tiFinishedAt = Just sampleUtc1
+    , PT.tiSubsystem = M.SubVm
+    , PT.tiEntityId = Just 42
+    , PT.tiEntityName = Just "web-1"
+    , PT.tiCommand = "create"
+    , PT.tiResult = M.TaskSuccess
+    , PT.tiMessage = Just "ok"
+    }

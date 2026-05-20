@@ -580,10 +580,14 @@ test-suite corvus-test
       Corvus.GuestAgentSpec
       Corvus.GuestExecSpec
       Corvus.ImageSpec
+      Corvus.NetdLedgerSpec
       Corvus.NetIfSpec
       Corvus.NetworkSpec
+      Corvus.NodeRoutingSpec
       Corvus.ProcessSpec
       Corvus.QmpSpec
+      Corvus.ResolveSpec
+      Corvus.SchedulerSpec
       Corvus.SharedDirSpec
       Corvus.SnapshotSpec
       Corvus.SocketBufferSpec
