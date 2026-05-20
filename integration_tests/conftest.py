@@ -174,10 +174,12 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         return
     state = state_for(item.cls)
     if state.setup_failed:
-        pytest.skip(
-            f"class fixture setup failed for {item.cls.__qualname__} — "
-            "see prior stderr for the topology / VM bring-up error"
+        reason = (
+            f"class fixture setup failed for {item.cls.__qualname__}"
         )
+        if state.setup_error:
+            reason = f"{reason}: {state.setup_error}"
+        pytest.skip(reason)
     if state.first_failure is not None and state.first_failure != item.name:
         pytest.skip(
             f"previous test in class failed ({state.first_failure}); "

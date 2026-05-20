@@ -50,6 +50,11 @@ class _ClassState:
     topology: Optional[Topology] = None
     first_failure: Optional[str] = None
     setup_failed: bool = False
+    # Reason recorded when class-fixture setup failed. The
+    # 'pytest_runtest_setup' hook surfaces this in the per-method
+    # skip messages so the developer doesn't have to dig through
+    # stderr to find what actually broke.
+    setup_error: Optional[str] = None
     base_images_cache: Optional[dict[str, str]] = None
 
 
@@ -119,8 +124,26 @@ class IntegrationTestCase:
             for node in topology.nodes:
                 node.client()  # blocks until inner daemon is up
             state.topology = topology
-        except BaseException:
+        except BaseException as exc:
+            import traceback
+
             state.setup_failed = True
+            # Record the actual exception so 'pytest_runtest_setup'
+            # can surface it in the per-method skip reason — the
+            # legacy behaviour (silently swallow + 'see prior
+            # stderr') hid the real problem when stderr was muxed
+            # under pytest-xdist or the test was re-run in isolation.
+            state.setup_error = (
+                f"{type(exc).__name__}: {exc}"
+            )
+            # Also dump the full traceback to stderr so 'pytest -s'
+            # operators see it without having to enable per-test
+            # capture.
+            sys.stderr.write(
+                f"[harness] {cls.__qualname__} class fixture failed:\n"
+            )
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
             # Leak the partial topology for inspection. We can't `raise`
             # — that would surface as ERROR on every test method but
             # we'd lose the skip-on-prior-failure UX we just built in
@@ -166,12 +189,23 @@ class IntegrationTestCase:
     @property
     def topology(self) -> Topology:
         """The class-scoped Topology. Raises if setup hasn't run."""
-        t = state_for(type(self)).topology
+        state = state_for(type(self))
+        t = state.topology
         if t is None:
-            raise RuntimeError(
-                f"{type(self).__qualname__}: class topology not initialised — "
-                "did the class fixture fail?"
+            reason = (
+                f"{type(self).__qualname__}: class topology not initialised"
             )
+            if state.setup_error:
+                reason = f"{reason} (setup error: {state.setup_error})"
+            elif state.setup_failed:
+                reason = (
+                    f"{reason} — class fixture failed (no recorded reason)"
+                )
+            else:
+                reason = (
+                    f"{reason} — did the class fixture run?"
+                )
+            raise RuntimeError(reason)
         return t
 
     @property

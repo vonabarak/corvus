@@ -257,6 +257,27 @@ class TestBuildPipeline(SingleNodeCase):
 
         Slow: nested bake runs ~5-10 min under doubly-nested KVM.
         """
+        # The bake VM uses Debian's cloud image and cloud-init to
+        # install qemu-guest-agent at first boot ('packages: [qemu-
+        # guest-agent]'). Without outbound internet on the test-node,
+        # apt-get can't reach Debian's mirrors and the agent never
+        # starts — the bake VM times out with 'guest agent did not
+        # respond within 90000 ms'. Detect the lack of outbound and
+        # skip with a clear reason rather than burning 90 s.
+        # 'TestNode.run' returns 'subprocess.CompletedProcess'
+        # (exit status field is 'returncode').
+        probe = self.node.run(
+            "ping -c 1 -W 2 1.1.1.1",
+            check=False,
+        )
+        if probe.returncode != 0:
+            pytest.skip(
+                f"test-node {self.node.name!r} can't reach the internet "
+                "on its own; the Debian-cloud bake VM cannot 'apt install "
+                "qemu-guest-agent' without it. Set up the host's VDE "
+                "uplink to a real NIC + NAT, then re-run."
+            )
+
         token = secrets.token_hex(4)
         artifact_name = f"corvus-it-corvus-test-vm-{token}"
         build_path = REPO_ROOT / "yaml" / "corvus-test-vm" / "corvus-test-vm.yml"

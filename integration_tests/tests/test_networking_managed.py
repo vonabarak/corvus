@@ -159,6 +159,37 @@ GUEST_NIC = "eth0"
 EXTERNAL_TARGET = "1.1.1.1"
 
 
+def _node_has_outbound_internet(node) -> bool:
+    """Probe whether the test-node itself can reach 'EXTERNAL_TARGET'.
+
+    The NAT-chain tests rely on the test-node forwarding VM traffic
+    out through its own default route to the host's internet. If the
+    test-node has no outbound (e.g. the host's VDE switch isn't
+    NAT'd to a real uplink), every 'ping {EXTERNAL_TARGET}' from
+    inside a managed-VM is going to time out — *not* because the
+    daemon's per-network NAT is broken but because there's nowhere
+    for the masqueraded packets to go.
+
+    Cached per-node so we only pay the 2 s ping once per class.
+    Returns 'True' on a successful ping, 'False' otherwise (the
+    test should be skipped).
+    """
+    cache_key = "_corvus_outbound_ok"
+    cached = getattr(node, cache_key, None)
+    if cached is not None:
+        return cached
+    # 'TestNode.run' returns 'subprocess.CompletedProcess' (whose
+    # exit status is 'returncode'), not the inner VM's 'SshResult'
+    # ('exit_code'). Don't confuse the two.
+    r = node.run(
+        f"ping -c 1 -W 2 {EXTERNAL_TARGET}",
+        check=False,
+    )
+    ok = r.returncode == 0
+    setattr(node, cache_key, ok)
+    return ok
+
+
 # ---------------------------------------------------------------------------
 # Tests
 
@@ -224,6 +255,14 @@ class TestManagedNetworking(SingleNodeCase):
         other, the bridge, and the outside world."""
         node = self.node
         client = self.client
+
+        if not _node_has_outbound_internet(node):
+            pytest.skip(
+                f"test-node {node.name!r} can't reach {EXTERNAL_TARGET} on "
+                "its own — the NAT-chain test requires the host's VDE "
+                "switch to be NAT'd to a real uplink, otherwise the "
+                "masqueraded VM packets have nowhere to go. Skipping."
+            )
 
         with _network(lambda: self.client, "dhcp-net", "10.51.0.0/24", dhcp=True, nat=True) as nw:
             net_id = nw.show().id
