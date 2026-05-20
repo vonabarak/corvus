@@ -515,11 +515,19 @@ class TestVmLifecycle(SingleNodeCase):
                 assert boot_id_1, "empty boot_id on first read"
 
             # --- pause / resume -----------------------------------
+            # The pause / resume RPCs return when the daemon has
+            # issued the QMP 'stop' / 'cont' command, but the
+            # status column in the daemon's DB is bumped by the
+            # background monitor thread (it processes the QMP
+            # event-channel reply). Under load that bump can lag
+            # the RPC return by a few ms. Poll with '_wait_status'
+            # rather than assert the status immediately — the
+            # original tight assert flaked on busy hosts.
             vm.cap.pause()
-            assert vm.cap.show().status == "paused"
+            self._wait_status(vm.cap, "paused", timeout_sec=10)
 
             vm.cap.start()
-            assert vm.cap.show().status == "running"
+            self._wait_status(vm.cap, "running", timeout_sec=30)
 
             # --- reset (hard) -------------------------------------
             vm.cap.reset()
@@ -544,5 +552,11 @@ class TestVmLifecycle(SingleNodeCase):
             # itself off. Test image bakes both QGA and acpid so
             # this is reliable; on an image without acpid this
             # would hang until the daemon's 5-min timeout.
+            #
+            # The 'wait=True' RPC returns once QEMU has exited;
+            # the DB's 'status' column is bumped by the monitor
+            # thread reaping the exit, which can lag the RPC by
+            # a few ms under load. Poll with '_wait_status'
+            # rather than assert immediately.
             vm.cap.stop(wait=True)
-            assert vm.cap.show().status == "stopped"
+            self._wait_status(vm.cap, "stopped", timeout_sec=10)
