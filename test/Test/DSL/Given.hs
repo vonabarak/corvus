@@ -15,7 +15,9 @@ module Test.DSL.Given
   , insertDiskImage
   , insertDiskImageFull
   , insertDiskImageWithBacking
+  , insertDiskImageOnTestNode
   , givenDiskExists
+  , givenDiskOnTestNodeExists
 
     -- * Drive setup
   , attachDrive
@@ -284,6 +286,35 @@ insertDiskImageWithBacking name path format sizeMb mBackingId = do
           }
   pure $ fromSqlKey key
 
+-- | Insert a 'DiskImage' and a matching 'DiskImageNode' row
+-- pinning it to the seeded test-node. Needed by handlers that
+-- check the same-node invariant on attach / vm-start (see
+-- 'Corvus.Handlers.Disk.Attach.handleDiskAttach'); the bare
+-- 'insertDiskImage' helper above only writes the image row.
+insertDiskImageOnTestNode :: Text -> Text -> DriveFormat -> TestM Int64
+insertDiskImageOnTestNode name path format = do
+  nodeKey <- seedTestNode
+  now <- liftIO getCurrentTime
+  diskKey <-
+    runDb $
+      insert
+        DiskImage
+          { diskImageName = name
+          , diskImageFormat = format
+          , diskImageSizeMb = Nothing
+          , diskImageCreatedAt = now
+          , diskImageBackingImageId = Nothing
+          }
+  _ <-
+    runDb $
+      insert
+        DiskImageNode
+          { diskImageNodeDiskImageId = diskKey
+          , diskImageNodeNodeId = nodeKey
+          , diskImageNodeFilePath = path
+          }
+  pure $ fromSqlKey diskKey
+
 -- | Default disk image values for reference
 defaultDiskImage :: IO DiskImage
 defaultDiskImage = do
@@ -493,6 +524,16 @@ givenRunningVmExists name = insertVm name VmRunning
 -- | Create a qcow2 disk image with the given name
 givenDiskExists :: Text -> TestM Int64
 givenDiskExists name = insertDiskImage name ("/test/images/" <> name <> ".qcow2") FormatQcow2
+
+-- | Same as 'givenDiskExists' but also places the image on the
+-- test-node via 'DiskImageNode' so 'handleDiskAttach' /
+-- 'handleVmStart' can find it under the same-node invariant.
+givenDiskOnTestNodeExists :: Text -> TestM Int64
+givenDiskOnTestNodeExists name =
+  insertDiskImageOnTestNode
+    name
+    ("/test/images/" <> name <> ".qcow2")
+    FormatQcow2
 
 -- | Create a snapshot for a disk
 givenSnapshotExists :: Int64 -> Text -> TestM Int64

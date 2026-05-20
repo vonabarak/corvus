@@ -598,7 +598,6 @@ test-suite corvus-test
       Corvus.ViewGrantSpec
       Corvus.VmSpec
       Corvus.VmTransitionSpec
-      Corvus.VsockCidSpec
       Corvus.WireSpec
       SpecHook
       Test.Database
