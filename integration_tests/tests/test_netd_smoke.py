@@ -150,11 +150,24 @@ class TestNetdDeclarative(SingleNodeCase):
             _close_port_forward(forward)
 
     @pytest.fixture
-    def agent(self, netd_endpoint) -> Iterator[NetdClient]:
-        """One fresh agent connection + session per test method."""
+    def agent(self, netd_endpoint, tmp_path_factory) -> Iterator[NetdClient]:
+        """One fresh agent connection + session per test method.
+
+        netd's CN-prefix check requires the peer to present a
+        ``corvus-daemon:…`` cert (the daemon is its only
+        legitimate caller in production), so the harness mints a
+        host-side corvus-daemon trio off the class's CA for this
+        dial.
+        """
+
         host, port = netd_endpoint
         rl = self.node.client()._rl
-        with NetdClient.connect(host, port, rl) as nc:
+        cert_dir = self.topology.ca.mint_host_cert_dir(
+            role="corvus-daemon",
+            name=f"netd-test-{port}",
+            root=tmp_path_factory.mktemp("netd-smoke-cert"),
+        )
+        with NetdClient.connect(host, port, rl, cert_dir=cert_dir) as nc:
             yield nc
 
     # -- Liveness / version --------------------------------------------------

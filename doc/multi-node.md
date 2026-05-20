@@ -232,7 +232,10 @@ Cap'n Proto schema additions for multi-node:
     (CN convention, cert layout, `corvus-admin` walkthrough).
     Every component refuses connections from peers presenting
     the wrong CN prefix, so `crv node add` is also an
-    "is the right cert deployed?" smoke test.
+    "is the right cert deployed?" smoke test. The integration
+    test suite exercises this end-to-end — see the
+    "Integration tests exercise mTLS end-to-end" section in
+    `doc/security.md`.
 
   * **No live migration** of a running VM between nodes.
     Stop, delete-without-`--delete-disks`, rsync the disk,

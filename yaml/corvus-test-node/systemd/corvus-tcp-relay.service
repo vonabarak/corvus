@@ -1,10 +1,13 @@
 [Unit]
 Description=VSOCK-to-TCP relay for the inner Corvus daemon
-# The relay only needs to run when the test daemon is up; ordering is
-# best-effort. The relay tolerates an initially-absent TCP listener
-# (socat retries on the FORK-side connect failure).
-After=corvus-test.service
-Wants=corvus-test.service
+# No dependency on corvus-test.service: the harness deploys the
+# daemon's mTLS cert over SSH-over-VSOCK at class fixture time
+# and only THEN enables corvus-test. A transitive `Wants=` on
+# corvus-test here would crash-loop the daemon at every test
+# image boot (no cert in /etc/corvus yet) until StartLimit
+# kicks in, and on agents-only nodes it would never recover.
+# The relay tolerates an initially-absent TCP listener (socat
+# retries on the FORK-side connect failure).
 
 [Service]
 Type=simple

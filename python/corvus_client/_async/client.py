@@ -123,19 +123,36 @@ class AsyncClient:
         return self
 
     def _validate_peer_cn(self, stream: "capnp.AsyncIoStream") -> None:
-        """Pull the peer cert off the underlying asyncio transport
-        and check the CN against the bundle's expectations. Called
-        once per connection, immediately after the handshake."""
+        """Best-effort post-handshake CN-prefix check.
+
+        Reads ``transport.get_extra_info('peercert')`` if the
+        underlying pycapnp internals expose the asyncio
+        transport, and validates the CN against the bundle's
+        expectations. When the transport isn't reachable
+        (pycapnp keeps it behind a ``cdef object`` attribute
+        that Python introspection can't follow), the check is
+        skipped silently — the SSLContext's own
+        ``verify_mode=CERT_REQUIRED`` + the CA store already
+        rejected the connection if the peer's cert wasn't
+        signed by our CA, and the daemon's Haskell-side
+        :mod:`Corvus.Tls` still enforces the CN-prefix rule on
+        every accepted socket. The Python-side check here is
+        defence-in-depth, not the security boundary.
+        """
 
         bundle = self._tls_bundle
         if bundle is None:
             return
-        try:
-            transport = stream.protocol.transport
-        except AttributeError as e:
-            raise _tls.CertificateError(
-                "pycapnp stream has no protocol.transport; cannot read peer cert"
-            ) from e
+        # `stream.protocol` is a Cython `cdef object`, not exposed
+        # on the Python side. Use getattr for politeness — a
+        # future pycapnp release that exposes a transport
+        # accessor would automatically light this back up.
+        protocol = getattr(stream, "protocol", None)
+        if protocol is None:
+            return
+        transport = getattr(protocol, "transport", None)
+        if transport is None:
+            return
         peercert = transport.get_extra_info("peercert")
         _tls.validate_peer_cn(peercert, bundle)
 

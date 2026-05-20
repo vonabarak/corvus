@@ -34,14 +34,14 @@ def open_client(
     the returned `Client`.
 
     ``cert_dir`` / ``tls`` are passed straight through to the
-    :class:`Client` constructor. ``tls=None`` (the default) means
-    "auto" — pycapnp's TCP transport will turn on TLS. For the
-    integration suite right now the inner daemons run with
-    ``--no-tls`` baked into their systemd units (see
-    ``yaml/corvus-test-node/systemd/``), so test callers pass
-    ``tls=False`` until the per-VM cert-deploy lands. Once it
-    does, callers will pass an explicit ``cert_dir`` pointing at
-    a temp dir holding the trio the harness PKI minted.
+    :class:`Client` constructor. The harness defaults
+    (:meth:`TestNode.client`) pass ``tls=True`` plus a per-node
+    ``cert_dir`` minted by :meth:`Topology.deploy_certs` — the
+    inner daemon's systemd unit refuses to start without a cert
+    trio at ``/etc/corvus/``. The bare arg defaults here stay
+    ``tls=None`` ("auto") so direct callers fall through to the
+    pycapnp default; that's fine for callers that bring their
+    own cert config.
 
     If ``ensure_self_node`` is ``True`` (the default), also
     registers a ``Node`` row in the inner daemon pointing at

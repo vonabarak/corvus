@@ -240,23 +240,19 @@ pipeline:
               # images without touching the host's tree.
               systemctl enable run-baseimages-lower.mount
               systemctl enable home-corvus-VMs-BaseImages.mount
-              # corvus-netd.service runs the privileged network agent
-              # as root; the unprivileged corvus daemon dials it over
-              # 127.0.0.1:9877.
-              systemctl enable corvus-netd.service
-              # corvus-nodeagent.service runs the per-host node agent
-              # (QEMU/virtiofsd supervision, disk I/O, console buffers)
-              # as root; the unprivileged corvus daemon dials it over
-              # 127.0.0.1:9878. Phase 1 stub — the binary runs but no
-              # handlers route through it yet.
-              systemctl enable corvus-nodeagent.service
-              # corvus-test.service starts the inner daemon as soon as
-              # /opt/corvus/bin is mounted (i.e. the harness's virtiofs
-              # share is attached), Postgres is up, and the netd agent
-              # is reachable.
-              systemctl enable corvus-test.service
-              # corvus-tcp-relay.service translates host vsock connects
-              # to the daemon's TCP listener.
+              # corvus-{netd,nodeagent,test}.service are installed but
+              # NOT enabled here. The integration-test harness drives
+              # `corvus-admin deploy …` over SSH-over-VSOCK on every
+              # test class, drops the mTLS cert trio into /etc/corvus,
+              # and enables + starts each unit at that point. Baking
+              # the enables in would race the cert deploy on first
+              # boot and crash the units (they require certs to start
+              # — `--no-tls` has been removed from the unit files).
+              #
+              # corvus-tcp-relay.service stays enabled because it's
+              # how the harness reaches the daemon — it must come up
+              # on boot regardless of whether the daemon has been
+              # cert-deployed yet.
               systemctl enable corvus-tcp-relay.service
               # sshd accepts incoming SSH (including over VSOCK via
               # systemd's built-in socket-activated proxy); the corvus
@@ -337,6 +333,13 @@ pipeline:
               # harness's host-side ~/VMs/BaseImages share.
               install -d -m 0755 -o corvus -g corvus /home/corvus/VMs
               install -d -m 0755 -o corvus -g corvus /home/corvus/VMs/BaseImages
+              # /etc/corvus is the system-install cert dir
+              # (Corvus.Tls.defaultCertSearchPath looks there first).
+              # The harness drops the mTLS cert trio in here before
+              # enabling corvus-test.service. Pre-creating it owned
+              # by corvus:corvus means the harness's deploy step
+              # doesn't need root to `install -m 0644 ca.crt …`.
+              install -d -m 0755 -o corvus -g corvus /etc/corvus
               # Allow passwordless sudo for the wheel group so tests can
               # exercise root-only paths without prompting.
               install -d -m 0750 /etc/sudoers.d

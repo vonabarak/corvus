@@ -35,7 +35,7 @@ import pytest
 
 from . import base_images as _base_images
 from .ssh import HOST_ALPINE_KEY_PATH, VmShell
-from .topology import Topology
+from .topology import NodeRole, Topology
 
 if TYPE_CHECKING:
     from corvus_client import Client
@@ -76,7 +76,11 @@ class IntegrationTestCase:
     """Common machinery for class-scoped node tests.
 
     Subclasses set `NODES` to a tuple of short names. The class
-    fixture boots one node per name in declaration order.
+    fixture boots one node per name in declaration order, mints a
+    per-class CA (or per-node CAs, see :meth:`_ca_key_for`),
+    deploys the cert trio onto each VM, and finally opens an
+    mTLS-protected client for every FULL_STACK node.
+
     Subclasses get `self.nodes` (list[TestNode]) and `self.clients`
     (list[Client]); the concrete N-node bases below add named
     accessors on top.
@@ -86,6 +90,30 @@ class IntegrationTestCase:
     # non-empty tuple — `IntegrationTestCase` itself isn't a runnable
     # test class.
     NODES: tuple[str, ...] = ()
+
+    # ---- TLS topology hooks ------------------------------------------------
+    #
+    # Two questions every case answers for the class fixture:
+    # 1. "What software stack runs on each node?" (`_node_role`)
+    # 2. "Which CA signs each node's cert?"        (`_ca_key_for`)
+    #
+    # SingleNodeCase + OneDaemonTwoNodesCase keep the default
+    # answer for #2 (one shared CA); TwoDaemonsCase overrides
+    # both to give every node its own isolated CA.
+
+    def _node_role(self, short_name: str) -> NodeRole:
+        """Default: every node runs the full stack. Override
+        in subclasses (e.g. OneDaemonTwoNodesCase returns
+        AGENTS_ONLY for ``"beta"``)."""
+
+        return NodeRole.FULL_STACK
+
+    def _ca_key_for(self, short_name: str) -> str:
+        """Default: every node points at the one ``"shared"`` CA.
+        Override in :class:`TwoDaemonsCase` to return *short_name*
+        and get one CA per node."""
+
+        return "shared"
 
     @pytest.fixture(scope="class", autouse=True)
     def _class_topology(self, request, crv, image_ready, host_binary):
@@ -109,20 +137,39 @@ class IntegrationTestCase:
             topology = Topology(
                 crv, image_ready, host_binary, class_name=cls.__name__
             ).__enter__()
-            for short_name in cls.NODES:
-                topology.add(short_name)
-            # Eagerly open clients so the first test method doesn't pay
-            # the daemon-readiness probe in addition to its own
-            # assertions. Status of every node lands in stderr — useful
-            # when running with `pytest -s` and a class has multiple
-            # nodes (so you can tell which one is slow).
+            # Build the per-class CA(s) first so add() can stash
+            # the right CA key on each TestNode. Sorting de-duped
+            # keys keeps the init order stable for log output.
+            ca_keys = tuple(
+                sorted({self._ca_key_for(name) for name in cls.NODES})
+            )
+            topology.init_cas(ca_keys)
             sys.stderr.write(
                 f"[harness] booting class topology for "
-                f"{cls.__qualname__} ({len(cls.NODES)} node(s))\n"
+                f"{cls.__qualname__} ({len(cls.NODES)} node(s), "
+                f"{len(ca_keys)} CA(s))\n"
             )
             sys.stderr.flush()
+            # Phase 1: bring every VM up. No cert deploys yet —
+            # add() just stashes role + ca_key.
+            for short_name in cls.NODES:
+                topology.add(
+                    short_name,
+                    role=self._node_role(short_name),
+                    ca_key=self._ca_key_for(short_name),
+                )
+            # Phase 2: mint + push cert trios, enable + start the
+            # inner services. Each FULL_STACK node also lands a
+            # host-side client cert dir on its TestNode so the
+            # subsequent client() open dials over mTLS.
+            topology.deploy_certs()
+            # Phase 3: eagerly open clients for FULL_STACK nodes
+            # so the first test method doesn't pay the
+            # daemon-readiness probe in addition to its own
+            # assertions. AGENTS_ONLY nodes have nothing to dial.
             for node in topology.nodes:
-                node.client()  # blocks until inner daemon is up
+                if node.role is NodeRole.FULL_STACK:
+                    node.client()
             state.topology = topology
         except BaseException as exc:
             import traceback
@@ -214,7 +261,13 @@ class IntegrationTestCase:
 
     @property
     def clients(self) -> list["Client"]:
-        return [node.client() for node in self.topology.nodes]
+        """Clients for every FULL_STACK node. AGENTS_ONLY nodes
+        are silently skipped — they have no daemon to dial."""
+        return [
+            node.client()
+            for node in self.topology.nodes
+            if node.role is NodeRole.FULL_STACK
+        ]
 
     # ---- Convenience helpers -----------------------------------------------
 
@@ -307,10 +360,58 @@ class SingleNodeCase(IntegrationTestCase):
         return self.node.client()
 
 
-class TwoNodesCase(IntegrationTestCase):
-    """Two nodes. Use `self.node_alpha`/`self.node_beta` and matching `client_*`."""
+class OneDaemonTwoNodesCase(IntegrationTestCase):
+    """Two nodes, **one** daemon, one CA.
+
+    ``alpha`` runs the daemon + nodeagent + netd; ``beta`` runs
+    only the agents. Both nodes are signed by the same CA so
+    alpha's daemon can validate beta's ``corvus-node:beta`` /
+    ``corvus-netd:beta`` certs on the cross-host dial.
+
+    The test must register beta with alpha's daemon explicitly,
+    typically via ``self.client_alpha.nodes.create("beta",
+    self.node_beta.outer_ip)``. There is no ``client_beta`` —
+    beta runs no daemon to dial.
+    """
 
     NODES = ("alpha", "beta")
+
+    def _node_role(self, short_name: str) -> NodeRole:
+        return (
+            NodeRole.FULL_STACK
+            if short_name == "alpha"
+            else NodeRole.AGENTS_ONLY
+        )
+
+    @property
+    def node_alpha(self) -> "TestNode":
+        return self.nodes[0]
+
+    @property
+    def node_beta(self) -> "TestNode":
+        return self.nodes[1]
+
+    @property
+    def client_alpha(self) -> "Client":
+        return self.node_alpha.client()
+
+
+class TwoDaemonsCase(IntegrationTestCase):
+    """Two nodes, **two** daemons, **two** isolated CAs.
+
+    Each node runs the full daemon + agents stack signed by its
+    own CA — alpha's daemon won't trust certs from beta's CA and
+    vice-versa. Useful for tests that need to exercise CA
+    isolation (e.g. a node from one cluster can't drive a daemon
+    in another) or simply two parallel single-node universes.
+    """
+
+    NODES = ("alpha", "beta")
+
+    def _ca_key_for(self, short_name: str) -> str:
+        # One CA per node — name it after the node itself so the
+        # admin store on disk is easy to inspect on a leaked run.
+        return short_name
 
     @property
     def node_alpha(self) -> "TestNode":

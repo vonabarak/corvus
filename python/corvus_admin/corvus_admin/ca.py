@@ -64,6 +64,13 @@ ALL_ROLES = (ROLE_DAEMON, ROLE_NODE, ROLE_NETD, ROLE_CLIENT)
 CA_LIFETIME = dt.timedelta(days=10 * 365)
 COMPONENT_LIFETIME = dt.timedelta(days=365)
 
+# Back-date every cert's `notBefore` by this much to ride out
+# small clock differences between the admin's box, the daemon
+# host, and the agent hosts. NTP usually keeps things within a
+# few seconds; a 5-minute buffer is the industry standard and
+# eats only an imperceptible slice of the cert lifetime.
+CLOCK_SKEW_GRACE = dt.timedelta(minutes=5)
+
 
 @dataclass
 class IssuedCert:
@@ -117,7 +124,7 @@ def init_ca(
         .issuer_name(issuer)
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now)
+        .not_valid_before(now - CLOCK_SKEW_GRACE)
         .not_valid_after(not_after)
         .add_extension(
             x509.BasicConstraints(ca=True, path_length=0),
@@ -243,7 +250,7 @@ def issue_cert(
         .issuer_name(ca_cert.subject)
         .public_key(leaf_key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(now)
+        .not_valid_before(now - CLOCK_SKEW_GRACE)
         .not_valid_after(not_after)
         .add_extension(
             x509.BasicConstraints(ca=False, path_length=None),

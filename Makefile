@@ -62,7 +62,11 @@ python-test: build
 #   make integration-tests MATCH="lifecycle and not edit"
 integration-tests: build
 	test -d integration_tests/.venv || python3 -m venv integration_tests/.venv
-	integration_tests/.venv/bin/pip install -q -e ./python -e ./integration_tests
+	# Install corvus-client + corvus-admin + the harness itself.
+	# The harness uses corvus-admin's `ca` / `deploy` / `runner`
+	# modules to deploy per-VM mTLS certs over SSH-over-VSOCK
+	# (see `corvus_test_harness.runner` / `.component_deploy`).
+	integration_tests/.venv/bin/pip install -q -e ./python -e ./python/corvus_admin -e ./integration_tests
 	integration_tests/.venv/bin/pytest integration_tests/tests -v \
 	  $(if $(MATCH),-k "$(MATCH)",-n auto)
 

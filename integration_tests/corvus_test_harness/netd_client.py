@@ -31,6 +31,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import capnp
 
@@ -103,11 +104,47 @@ class NetdClient:
         self._sess = session_cap
 
     @classmethod
-    def connect(cls, host: str, port: int, rl, *, owner: str = "test") -> "NetdClient":
-        """Open a TCP connection to the agent, bootstrap, open a Session."""
+    def connect(
+        cls,
+        host: str,
+        port: int,
+        rl,
+        *,
+        owner: str = "test",
+        cert_dir: "Path | None" = None,
+    ) -> "NetdClient":
+        """Open a TCP connection to the agent, bootstrap, open a
+        Session.
+
+        When *cert_dir* is supplied, the dial wraps in TLS using
+        the trio at ``<cert_dir>/{ca.crt,corvus-daemon.{crt,key}}``
+        — netd's CN-prefix check requires the peer to present
+        ``corvus-daemon:…`` (the daemon is its only legitimate
+        caller in production). The harness builds such a dir
+        per-test via :meth:`CaContext.mint_host_cert_dir`. With
+        *cert_dir* unset the dial is plaintext, which only works
+        against an agent started with ``--no-tls``.
+        """
 
         async def _open():
-            stream = await capnp.AsyncIoStream.create_connection(host=host, port=port)
+            kwargs = {}
+            if cert_dir is not None:
+                # Local import to avoid a hard dep on
+                # corvus_client._tls at module import time; the
+                # plaintext path stays usable when corvus_client
+                # is older than the TLS plumbing.
+                from corvus_client import _tls
+
+                bundle = _tls.build_client_bundle(
+                    cert_dir=cert_dir,
+                    role=_tls.ROLE_DAEMON,
+                    expected_peer_prefix=_tls.ROLE_NETD,
+                )
+                kwargs["ssl"] = bundle.context
+                kwargs["server_hostname"] = None
+            stream = await capnp.AsyncIoStream.create_connection(
+                host=host, port=port, **kwargs
+            )
             two_party = capnp.TwoPartyClient(stream)
             agent_cap = two_party.bootstrap().cast_as(NETAGENT_SCHEMA.NetAgent)
             sess_cap = (await agent_cap.session(owner=owner)).session

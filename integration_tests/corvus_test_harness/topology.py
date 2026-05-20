@@ -25,8 +25,11 @@ the inner daemon running on it.
 """
 from __future__ import annotations
 
+import enum
 import secrets
+import shutil
 import subprocess
+import sys
 import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -38,6 +41,8 @@ import yaml as _yaml
 from corvus_client import Client
 
 from .base_images import BASE_IMAGES_TAG, HOST_BASE_IMAGES_DIR
+from . import component_deploy
+from .component_deploy import CaContext
 from .host_binary import HostBinary, REPO_ROOT
 from .images import ImageReady
 from .inner import open_client
@@ -51,6 +56,26 @@ from .transport import VsockTcpRelay
 RESOURCE_PREFIX = "corvus-it"
 
 
+class NodeRole(enum.Enum):
+    """What software stack runs on a given test-node.
+
+    ``FULL_STACK``: corvus daemon + corvus-nodeagent + corvus-netd.
+        Has a `client()` that dials the daemon's TCP listener.
+    ``AGENTS_ONLY``: corvus-nodeagent + corvus-netd only.
+        Used for the beta node in `OneDaemonTwoNodesCase` —
+        alpha's daemon dials beta over mTLS. `client()` raises
+        :class:`NoDaemonOnNodeError`.
+    """
+
+    FULL_STACK = "full_stack"
+    AGENTS_ONLY = "agents_only"
+
+
+class NoDaemonOnNodeError(RuntimeError):
+    """Raised by :meth:`TestNode.client` when the node only runs
+    the agents (no daemon → nothing to dial)."""
+
+
 @dataclass
 class TestNode:
     """One orchestrator node, paired with its host-side relay + the
@@ -60,18 +85,43 @@ class TestNode:
     short_name: str
     cid: int
     relay: VsockTcpRelay
+    # The stack the harness will deploy onto this VM. The default
+    # matches the old single-node-everything-on shape; multi-node
+    # cases pick per-node via `Topology.add(role=…)`.
+    role: NodeRole = NodeRole.FULL_STACK
+    # Key into the topology's `_ca_contexts` map. Default is the
+    # shared `"shared"` CA; `TwoDaemonsCase` sets a per-node key.
+    # Stashed on the TestNode (rather than passing a `CaContext`
+    # directly) so the case fixture can build all CAs up front and
+    # then call `Topology.deploy_certs()` once.
+    ca_key: str = "shared"
     _client: Optional[Client] = None
-    # TLS mode threaded in from the Topology: the inner daemons in
-    # the current test-image build run with --no-tls baked into
-    # their systemd units, so the host-side client must dial
-    # plaintext too. Topology owns the toggle so tests don't have
-    # to remember.
-    _client_tls: Optional[bool] = False
+    # Populated by `Topology.deploy_certs()` with the host-side
+    # path holding {ca.crt, corvus-client.{crt,key}} the pycapnp
+    # client uses to dial this node's daemon over mTLS.
     _client_cert_dir: Optional[Path] = None
+    # IP address inside the VM that the deployer baked into the
+    # cert SAN (and that any *other* node would dial this node
+    # by). Captured by `Topology.deploy_certs()`; available to
+    # tests via `TestNode.outer_ip`.
+    _outer_ip: Optional[str] = None
 
     @property
     def host_endpoint(self) -> tuple[str, int]:
         return self.relay.endpoint
+
+    @property
+    def outer_ip(self) -> str:
+        """The address baked into this node's cert IP SAN. Tests
+        that bring up cross-node connections (e.g. registering
+        beta as a node on alpha's daemon) use this directly."""
+
+        if self._outer_ip is None:
+            raise RuntimeError(
+                f"TestNode {self.short_name!r}: outer_ip not resolved yet — "
+                "Topology.deploy_certs() hasn't run"
+            )
+        return self._outer_ip
 
     def client(self) -> Client:
         """Lazily open (or return) the pycapnp client to this node's
@@ -79,12 +129,34 @@ class TestNode:
 
         First call blocks for up to 3 min while the inner daemon
         finishes its first boot; subsequent calls return immediately.
+        Raises :class:`NoDaemonOnNodeError` on `AGENTS_ONLY` nodes —
+        there's nothing to dial.
         """
+        if self.role is NodeRole.AGENTS_ONLY:
+            raise NoDaemonOnNodeError(
+                f"node {self.short_name!r} runs corvus-nodeagent + corvus-netd "
+                "only; no daemon to dial"
+            )
         if self._client is None:
+            # cert_dir/tls land here after deploy_certs(); without
+            # them open_client would fall back to its (mTLS-on)
+            # default and fail to validate the server cert.
+            if self._client_cert_dir is None:
+                raise RuntimeError(
+                    f"node {self.short_name!r}: cert dir not set — "
+                    "Topology.deploy_certs() hasn't run"
+                )
+            # Register self-node under `short_name`, not the
+            # default "self". The daemon's per-node supervisor
+            # dials the agents over mTLS and expects the peer's
+            # CN to match `corvus-node:<Node.name>` — the
+            # nodeagent's cert was minted with `corvus-node:<short_name>`
+            # in deploy_certs(), so the row name has to agree.
             self._client = open_client(
                 self.relay,
-                tls=self._client_tls,
+                tls=True,
                 cert_dir=self._client_cert_dir,
+                self_node_name=self.short_name,
             )
         return self._client
 
@@ -138,6 +210,15 @@ class Topology:
         self.attach_source = attach_source
         self._nodes: list[TestNode] = []
         self._stack: ExitStack = ExitStack()
+        # Per-class cert tree. CA stores live under `_cert_root/ca/<key>/`;
+        # per-node host-side client cert dirs (handed to `Client(cert_dir=…)`)
+        # live under `_cert_root/host/<short_name>/`. Cleaned up by finalize()
+        # unless we're leaking on failure.
+        self._cert_root = Path(
+            tempfile.mkdtemp(prefix=f"corvus-it-pki-{self.class_name}-")
+        )
+        self._ca_contexts: dict[str, CaContext] = {}
+        self._certs_deployed = False
 
     # ---- lifecycle -------------------------------------------------------
 
@@ -216,6 +297,125 @@ class Topology:
                 + "\n  - ".join(cleanup_errors)
             )
 
+        # CA stores + per-node host cert dirs are intermediate
+        # build products of the deploy step; nothing else holds
+        # references to them after the clients close. Wipe.
+        try:
+            shutil.rmtree(self._cert_root, ignore_errors=True)
+        except Exception:
+            pass
+
+    # ---- CA + cert deploy ----------------------------------------------------
+
+    def init_cas(self, keys: tuple[str, ...]) -> None:
+        """Build one :class:`CaContext` per key in *keys*.
+
+        Called by the case fixture before any ``add()``; the
+        keys must match whatever ``add(ca_key=…)`` will reference.
+        Typical shapes:
+
+        * ``("shared",)`` — SingleNodeCase, OneDaemonTwoNodesCase.
+          Every node points at the one CA.
+        * ``("alpha", "beta")`` — TwoDaemonsCase. Each node has
+          its own CA so beta's daemon won't validate alpha's
+          cert and vice-versa.
+        """
+
+        if self._ca_contexts:
+            raise RuntimeError("init_cas may only be called once per Topology")
+        for key in keys:
+            root = self._cert_root / "ca" / key
+            self._ca_contexts[key] = CaContext.new(root, client_name="harness")
+
+    def deploy_certs(self) -> None:
+        """Push cert trios into every registered node and start
+        the inner services.
+
+        Walks every :class:`TestNode` added to this topology, in
+        order. For each:
+
+        1. Resolve the node's outer IP (the address baked into
+           the cert IP SAN — also what cross-node dials will
+           use).
+        2. Look up the CA context this node is keyed against.
+        3. Either :func:`component_deploy.deploy_full_stack` or
+           :func:`component_deploy.deploy_agents_only` depending
+           on `node.role`.
+        4. Stash the returned host-side cert dir (full-stack
+           only) onto the TestNode so the lazy
+           :meth:`TestNode.client` can dial over mTLS.
+
+        Idempotent: calling twice is a no-op (the case fixture
+        shouldn't, but a leaked-on-failure restart shouldn't
+        crash either).
+        """
+
+        if self._certs_deployed:
+            return
+        if not self._ca_contexts:
+            raise RuntimeError(
+                "deploy_certs() requires init_cas() first; case fixture "
+                "should call it before the first add()"
+            )
+
+        host_cert_root = self._cert_root / "host"
+        host_cert_root.mkdir(parents=True, exist_ok=True)
+
+        for node in self._nodes:
+            shell = NodeShell(
+                cid=node.cid, user="corvus", key_path=HOST_ALPINE_KEY_PATH
+            )
+            outer_ip = shell.outer_ip()
+            node._outer_ip = outer_ip
+
+            ca_ctx = self._ca_contexts.get(node.ca_key)
+            if ca_ctx is None:
+                raise RuntimeError(
+                    f"node {node.short_name!r}: ca_key={node.ca_key!r} "
+                    f"has no matching CA (init_cas keys: "
+                    f"{tuple(self._ca_contexts)})"
+                )
+            sys.stderr.write(
+                f"[harness] deploying certs to {node.short_name} "
+                f"(role={node.role.value}, ip={outer_ip})\n"
+            )
+            sys.stderr.flush()
+
+            if node.role is NodeRole.FULL_STACK:
+                cert_dir = component_deploy.deploy_full_stack(
+                    ca_ctx,
+                    shell,
+                    node_name=node.short_name,
+                    node_ip=outer_ip,
+                    host_cert_root=host_cert_root,
+                )
+                node._client_cert_dir = cert_dir
+            else:
+                component_deploy.deploy_agents_only(
+                    ca_ctx,
+                    shell,
+                    node_name=node.short_name,
+                    node_ip=outer_ip,
+                )
+
+        self._certs_deployed = True
+
+    @property
+    def ca(self) -> CaContext:
+        """Convenience accessor for the single-CA case. Raises
+        when there's more than one CA — TwoDaemonsCase callers
+        should walk :attr:`ca_contexts` instead."""
+        if len(self._ca_contexts) != 1:
+            raise RuntimeError(
+                f"Topology has {len(self._ca_contexts)} CAs; "
+                "use .ca_contexts[<key>] explicitly"
+            )
+        return next(iter(self._ca_contexts.values()))
+
+    @property
+    def ca_contexts(self) -> dict[str, CaContext]:
+        return dict(self._ca_contexts)
+
     # ---- node creation ----------------------------------------------------
 
     def add(
@@ -225,6 +425,8 @@ class Topology:
         cpu_count: int = 8,
         ram_mb: int = 8192,
         extra_shared_dirs: Optional[list[tuple[str, str, bool]]] = None,
+        role: NodeRole = NodeRole.FULL_STACK,
+        ca_key: str = "shared",
     ) -> TestNode:
         """Add one node to the topology and return its handle.
 
@@ -395,12 +597,8 @@ class Topology:
             short_name=short_name,
             cid=cid,
             relay=relay,
-            # Inner daemons in the current test-image build run
-            # with --no-tls (see yaml/corvus-test-node/systemd).
-            # Cert deployment + TLS-on lands in a follow-up; until
-            # then we dial plaintext.
-            _client_tls=False,
-            _client_cert_dir=None,
+            role=role,
+            ca_key=ca_key,
         )
         self._nodes.append(test_node)
         return test_node

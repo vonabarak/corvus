@@ -146,9 +146,32 @@ reach to that port can drive it.
 Unix-socket connections aren't affected by `--no-tls` because
 they never wrap with TLS in the first place.
 
-The integration-test image's systemd units pass `--no-tls`
-explicitly to keep the existing test suite running without a
-per-VM cert deploy. The full TLS-on integration is a follow-up.
+## Integration tests exercise mTLS end-to-end
+
+The integration test suite (under `integration_tests/`) runs
+every test through the full mTLS handshake. The harness builds
+its own ephemeral CA per test class (via the same
+`corvus_admin.ca` module operators use), drops the cert trio
+into `/etc/corvus/` on each test-node VM over SSH-over-VSOCK,
+and starts the inner `corvus.service` / `corvus-nodeagent.service`
+/ `corvus-netd.service` with TLS on. The test image installs
+these units but no longer enables them at bake time — the
+harness drives the cert-deploy + start step from
+`integration_tests/corvus_test_harness/component_deploy.py`.
+
+Two-node tests pick one of two shapes:
+
+* `OneDaemonTwoNodesCase` — alpha runs daemon + agents, beta
+  runs agents only; both share a CA so alpha's daemon validates
+  beta's `corvus-node:beta` / `corvus-netd:beta` certs.
+* `TwoDaemonsCase` — each node runs its own full stack under
+  its own CA. Useful for asserting cross-cluster isolation.
+
+After this layout lands, the test image must be rebuilt
+(`make test-image-node`) before the suite passes again. Once
+rebuilt, `make integration-tests` is the gate — any visible
+`--no-tls` flag in the harness or test-node systemd units
+indicates drift.
 
 ## Trust model + threat coverage
 

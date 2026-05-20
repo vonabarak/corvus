@@ -1,19 +1,21 @@
 """Multi-node scenarios.
 
-`TestTwoIndependentDaemons` covers the boring 'two VMs ⇒ two
-independent inner daemons' case the `TwoNodesCase` fixture
-already gives us: both daemons answer `status()` independently.
+`TestTwoIndependentDaemons` covers the 'two VMs ⇒ two
+independent inner daemons (each with its own CA)' case. Both
+clients answer `status()` independently and validate against
+their respective CA.
 
 `TestMultiNodeDispatch` covers the multi-node feature proper —
-ONE daemon driving TWO nodeagents. Both test-node VMs come up
-the normal way (`TwoNodesCase`); we then have ALPHA's daemon
-register BETA's nodeagent as a second node ('remote-beta',
-reached over the host's VDE switch by BETA's DHCP-leased IP).
-A VM created on the 'self' node spawns qemu on alpha; a VM
-created on 'remote-beta' spawns qemu on beta. The test asserts
-each qemu lands on its expected node AND is absent from the
-other — that's the property the per-node routing in the daemon
-is supposed to guarantee.
+ONE daemon driving TWO nodeagents (alpha runs the daemon + its
+own agents, beta runs agents only). Both nodes are signed by
+the same CA so alpha's daemon can verify beta's
+`corvus-node:beta` cert. ALPHA's daemon registers BETA as a
+second node, reached over the host's VDE switch by BETA's
+DHCP-leased IP. A VM created on the 'self' node spawns qemu on
+alpha; a VM created on 'remote-beta' spawns qemu on beta. The
+test asserts each qemu lands on its expected node AND is absent
+from the other — that's the property the per-node routing in
+the daemon is supposed to guarantee.
 """
 from __future__ import annotations
 
@@ -22,7 +24,7 @@ import time
 import pytest
 
 from corvus_client import ServerError
-from corvus_test_harness import TwoNodesCase
+from corvus_test_harness import OneDaemonTwoNodesCase, TwoDaemonsCase
 
 
 pytestmark = pytest.mark.slow
@@ -49,31 +51,6 @@ def _qemu_count(node, vm_name: str) -> int:
     return sum(1 for line in out.splitlines() if line.strip())
 
 
-def _node_outer_ip(node) -> str:
-    """Return `node`'s DHCP-leased IP on the host's VDE switch.
-
-    Each test-node has two IPv4 global-scope addresses inside the
-    guest: an outer NIC reached via the host's VDE switch and a
-    virtual `vde0` on 192.168.92.1/24 that the test-node uses for
-    its OWN nested children. We want the outer one — that's how
-    alpha's daemon can reach beta's nodeagent.
-    """
-    r = node.run("ip -4 -o addr show scope global")
-    out = r.stdout.decode("utf-8", errors="replace")
-    for line in out.splitlines():
-        # Each line looks like:
-        #   "2: enp0s4    inet 192.168.89.197/22 brd … scope global …"
-        parts = line.split()
-        if len(parts) < 4:
-            continue
-        ip = parts[3].split("/", 1)[0]
-        if ip.startswith("127.") or ip.startswith("192.168.92."):
-            continue
-        return ip
-    raise RuntimeError(
-        f"could not find an outer VDE IP on node {node.short_name!r}; "
-        f"`ip -4 -o addr show` returned:\n{out}"
-    )
 
 
 def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
@@ -107,7 +84,7 @@ def _retry_start(vm, *, attempts: int = 30, sleep_sec: float = 1.0) -> None:
     raise AssertionError(f"vm.start failed after {attempts} attempts: {last}")
 
 
-class TestTwoIndependentDaemons(TwoNodesCase):
+class TestTwoIndependentDaemons(TwoDaemonsCase):
     def test_status_on_both(self):
         """Two inner daemons start, both answer status() independently."""
         info_a = self.client_alpha.status()
@@ -119,7 +96,7 @@ class TestTwoIndependentDaemons(TwoNodesCase):
         assert info_b.uptime_seconds >= 0
 
 
-class TestMultiNodeDispatch(TwoNodesCase):
+class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
     """One daemon (alpha's), two nodeagents (alpha + beta).
 
     Both test-node VMs are up from the class fixture; we drive
@@ -130,14 +107,25 @@ class TestMultiNodeDispatch(TwoNodesCase):
     """
 
     def test_vm_lands_on_chosen_node(self):
-        beta_ip = _node_outer_ip(self.node_beta)
+        # The harness's deploy step already captured beta's outer
+        # IP into the cert SAN; reuse that value here to register
+        # beta with alpha's daemon.
+        beta_ip = self.node_beta.outer_ip
 
         client = self.client_alpha
-        # The 'self' node (→ 127.0.0.1) is already registered by
-        # the harness's open_client(). Register beta's nodeagent
-        # as a second node.
+        # The harness's `open_client` registered the local node
+        # under the test-node's short_name (so the daemon's
+        # per-node supervisor's mTLS dial finds the agent's
+        # `corvus-node:<short_name>` cert). For alpha that means
+        # the self-node row is named "alpha".
+        self_name = self.node_alpha.short_name
+        # Register beta's nodeagent as a second node. The name
+        # MUST match beta's nodeagent cert CN suffix
+        # (`corvus-node:beta`), so we register it as plain "beta"
+        # rather than the older "remote-beta" alias.
+        beta_name = self.node_beta.short_name
         remote = client.nodes.create(
-            "remote-beta",
+            beta_name,
             beta_ip,
             node_agent_port=9878,
             net_agent_port=9877,
@@ -149,7 +137,7 @@ class TestMultiNodeDispatch(TwoNodesCase):
                 "mn-alpha-vm",
                 cpu_count=1,
                 ram_mb=128,
-                node="self",
+                node=self_name,
                 headless=True,
                 guest_agent=False,
                 cloud_init=False,
@@ -184,7 +172,7 @@ class TestMultiNodeDispatch(TwoNodesCase):
                 "mn-beta-vm",
                 cpu_count=1,
                 ram_mb=128,
-                node="remote-beta",
+                node=beta_name,
                 headless=True,
                 guest_agent=False,
                 cloud_init=False,
@@ -218,6 +206,6 @@ class TestMultiNodeDispatch(TwoNodesCase):
 
 
 @pytest.mark.skip(reason="TODO: design once shared-network across VMs is wired up")
-class TestTwoNodesOnSharedNetwork(TwoNodesCase):
+class TestTwoNodesOnSharedNetwork(OneDaemonTwoNodesCase):
     def test_shared_network(self):
         raise NotImplementedError
