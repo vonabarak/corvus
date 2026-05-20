@@ -9,6 +9,12 @@
 #   crv apply multi-os.yml
 #   crv template instantiate debian12 my-debian-vm
 #   crv vm start my-debian-vm
+#
+# Multi-node note: templates themselves are node-agnostic;
+# the target node is chosen at instantiation time. Use
+# `crv template instantiate debian12 my-debian-vm --node <name>`
+# to pin a new VM to a specific node, or omit `--node` to let
+# the scheduler place it.
 
 sshKeys:
   - name: corvus

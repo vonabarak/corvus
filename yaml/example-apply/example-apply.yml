@@ -8,6 +8,18 @@
 # Usage:
 #   crv apply example-apply.yml
 #   crv apply example-apply.yml --skip-existing   # re-run after partial failure
+#
+# Multi-node placement
+# --------------------
+# Every VM, network, and disk-image entry accepts an optional `node:` field
+# (a node name or numeric id, e.g. `node: alpha`). When set, the resource is
+# pinned to that node; when omitted, the daemon's scheduler picks one.
+#
+# This file deliberately mixes both styles: `web-server` and the `lab-net`
+# network are pinned to a specific node to demonstrate explicit placement;
+# every other resource is bare so the scheduler decides. On a single-node
+# install (the default after `crv node add my-node …`) the scheduler always
+# picks that one node, so the bare entries Just Work.
 
 sshKeys:
   - name: deploy-key
@@ -56,6 +68,10 @@ disks:
 
 networks:
   - name: lab-net
+    # Pinned to a specific node to demonstrate the `node:` field.
+    # Remove this line on a single-node install to let the
+    # scheduler place it.
+    node: alpha
     subnet: "10.0.1.0/24"
 
 # ── YAML anchors for shared VM configuration ────────────────────────────
@@ -75,6 +91,10 @@ _vm_defaults: &vm_defaults
 vms:
   - name: web-server
     <<: *vm_defaults
+    # Pinned to the same node as `lab-net` — the same-node check
+    # in `vm.netif.add` would otherwise refuse the managed-NIC
+    # attach below.
+    node: alpha
     description: "Alpine Linux web server"
     drives:
       - disk: ovmf-code

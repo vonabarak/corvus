@@ -27,6 +27,11 @@
 #   crv build yaml/alpine-test/alpine-test.yml --wait
 #
 # Bake takes ~5–7 min. Result: a Corvus disk named `corvus-test-vm`.
+#
+# Multi-node note: the build step accepts an optional `node:` field
+# to pin the bake VM to a specific node. Omitted here so the
+# scheduler picks — fine on single-node installs; on multi-node
+# clusters add `node: <name>` under `build:` to pin the bake.
 
 pipeline:
   - build:
