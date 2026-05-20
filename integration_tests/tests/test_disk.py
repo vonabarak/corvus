@@ -237,14 +237,21 @@ class TestDisk(SingleNodeCase):
         copy_name = _uniq("import-copy")
         src = self.client.disks.create(src_name, size_mb=4, format="qcow2")
         try:
-            src_path = src.show().file_path
+            # Phase 3: file_path lives on a per-node placement now.
+            # The harness's single-node topology has exactly one
+            # placement; grab its file_path.
+            src_path = src.show().placements[0].file_path
             copy = self.client.disks.import_(copy_name, src_path, format="qcow2")
             try:
                 info = copy.show()
                 assert info.name == copy_name
                 assert info.format == "qcow2"
                 # New disk lives at a different path than the source.
-                assert info.file_path != src_path
+                copy_paths = [p.file_path for p in info.placements]
+                assert src_path not in copy_paths, (
+                    f"import landed at the source path {src_path!r}; "
+                    f"copy placements: {copy_paths!r}"
+                )
             finally:
                 copy.delete()
         finally:
@@ -257,7 +264,7 @@ class TestDisk(SingleNodeCase):
         name = _uniq("import-collide")
         disk = self.client.disks.create(name, size_mb=4, format="qcow2")
         try:
-            src_path = disk.show().file_path
+            src_path = disk.show().placements[0].file_path
             with pytest.raises(Exception, match="(?i)same"):
                 # Re-importing under the same name targets the same
                 # `<basePath>/<name>.qcow2` destination — canonicalised
