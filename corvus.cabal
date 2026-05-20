@@ -51,6 +51,7 @@ library
       Corvus.Handlers.Resolve
       Corvus.Handlers.Scheduler
       Corvus.NodeRouting
+      Corvus.NodeSupervisor
       Corvus.CloudInit
       Corvus.Client
       Corvus.Client.Config

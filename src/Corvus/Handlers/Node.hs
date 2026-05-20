@@ -24,16 +24,27 @@ module Corvus.Handlers.Node
   )
 where
 
+import Control.Concurrent.Async (cancel)
+import Control.Concurrent.STM (readTVarIO)
+import qualified Control.Monad
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Action
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model (Node (..))
 import qualified Corvus.Model as M
+import Corvus.NodeSupervisor (spawnNodeSupervisor)
 import Corvus.Protocol
-import Corvus.Types (ServerState (..), runServerLogging)
+import Corvus.Types
+  ( NodeConns (..)
+  , ServerState (..)
+  , removeNodeConns
+  , runServerLogging
+  )
 import Data.Int (Int64)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
+import qualified Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
@@ -95,7 +106,12 @@ handleNodeAdd state name host nodeAgentPort netAgentPort basePath mDesc adminSta
               }
       result <- liftIO $ runSqlPool (insertUnique node) (ssDbPool state)
       case result of
-        Just key -> pure $ RespNodeCreated (fromSqlKey key)
+        Just key -> do
+          -- Fork the per-node reconnect supervisor right away so
+          -- the operator doesn't need to restart the daemon
+          -- before the new node starts accepting workloads.
+          _ <- liftIO $ spawnNodeSupervisor state (Entity key node)
+          pure $ RespNodeCreated (fromSqlKey key)
         Nothing ->
           pure $
             RespError $
@@ -141,6 +157,12 @@ handleNodeDelete state nodeId = runServerLogging state $ do
           logWarnN msg
           pure $ RespNodeInUse msg
         else do
+          -- Cancel the per-node reconnect supervisor before
+          -- dropping the registry entry — otherwise the
+          -- supervisor's next 'modifyTVar' on 'ssAgents' would
+          -- silently re-install an empty 'NodeConns' for a node
+          -- that's already gone from the DB.
+          liftIO $ cancelNodeSupervisor state key
           liftIO $ runSqlPool (delete key) pool
           logInfoN $ "Deleted node: " <> nodeName node
           pure RespNodeDeleted
@@ -182,6 +204,25 @@ handleNodeEdit state nodeId mName mHost mNodeAgentPort mNetAgentPort mBasePath m
         [] -> pure RespNodeEdited
         us -> do
           liftIO $ runSqlPool (update key us) pool
+          -- A host or port change moves the agent endpoint, so
+          -- the existing supervisor's dial loop targets the
+          -- old address. Cancel it and respawn against the
+          -- fresh row so the daemon picks up the new endpoint
+          -- immediately. Other fields (name, description,
+          -- admin-state, basePath) leave the connection alone.
+          let connectionMoved =
+                Data.Maybe.isJust mHost
+                  || Data.Maybe.isJust mNodeAgentPort
+                  || Data.Maybe.isJust mNetAgentPort
+          Control.Monad.when connectionMoved $ do
+            liftIO $ cancelNodeSupervisor state key
+            mNodeRefreshed <- liftIO $ runSqlPool (get key) pool
+            case mNodeRefreshed of
+              Just refreshed ->
+                liftIO $
+                  Control.Monad.void $
+                    spawnNodeSupervisor state (Entity key refreshed)
+              Nothing -> pure ()
           pure RespNodeEdited
 
 --------------------------------------------------------------------------------
@@ -219,6 +260,24 @@ handleNodeShow state nodeId = do
   case mNode of
     Nothing -> pure RespNodeNotFound
     Just node -> pure $ RespNodeDetails $ toNodeDetails nodeId node
+
+--------------------------------------------------------------------------------
+-- Supervisor lifecycle
+--------------------------------------------------------------------------------
+
+-- | Cancel the per-node reconnect supervisor and drop the
+-- registry entry. Called by 'handleNodeDelete' and (with a
+-- fresh respawn) by 'handleNodeEdit' on host/port change. A
+-- missing registry entry is a no-op — the row may pre-date the
+-- daemon boot if a follow-up patch ever lets handlers run
+-- before 'spawnAllNodeSupervisors'.
+cancelNodeSupervisor :: ServerState -> M.NodeId -> IO ()
+cancelNodeSupervisor state nid = do
+  m <- readTVarIO (ssAgents state)
+  case Map.lookup nid m of
+    Just nc -> cancel (ncSupervisor nc)
+    Nothing -> pure ()
+  removeNodeConns state nid
 
 --------------------------------------------------------------------------------
 -- DTO converters
