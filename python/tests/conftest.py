@@ -104,20 +104,33 @@ def _pick_free_port() -> int:
         s.close()
 
 
-def _wait_for_tcp(host: str, port: int, proc: subprocess.Popen, timeout: float = 15.0) -> None:
+def _read_log_tail(log_path: Path) -> str:
+    """Best-effort read of the last 800 bytes of a child process's
+    redirected log file. Returns empty string on any IO error so
+    the surrounding error message stays readable."""
+    try:
+        data = log_path.read_bytes()
+    except OSError:
+        return ""
+    return data.decode(errors="replace")[-800:]
+
+
+def _wait_for_tcp(
+    host: str,
+    port: int,
+    proc: subprocess.Popen,
+    log_path: Path,
+    *,
+    timeout: float = 15.0,
+) -> None:
     """Poll until the agent's TCP port accepts a connection or the
     process dies."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            try:
-                _, err = proc.communicate(timeout=1)
-            except Exception:
-                err = b""
             raise RuntimeError(
                 f"corvus-nodeagent exited (code {proc.returncode}) before "
-                f"listening on {host}:{port}: "
-                f"{err.decode(errors='replace')[-800:]}"
+                f"listening on {host}:{port}:\n{_read_log_tail(log_path)}"
             )
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -171,18 +184,20 @@ def _drop_db(name: str) -> None:
     )
 
 
-def _wait_for_socket(sock_path: Path, proc: subprocess.Popen, timeout: float = 15.0) -> None:
+def _wait_for_socket(
+    sock_path: Path,
+    proc: subprocess.Popen,
+    log_path: Path,
+    *,
+    timeout: float = 15.0,
+) -> None:
     """Poll until the daemon's socket is connectable or the process dies."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            try:
-                _, err = proc.communicate(timeout=1)
-            except Exception:
-                err = b""
             raise RuntimeError(
-                f"corvus daemon exited (code {proc.returncode}) before socket: "
-                f"{err.decode(errors='replace')[-800:]}"
+                f"corvus daemon exited (code {proc.returncode}) before socket "
+                f"{sock_path}:\n{_read_log_tail(log_path)}"
             )
         if sock_path.exists():
             try:
@@ -195,6 +210,63 @@ def _wait_for_socket(sock_path: Path, proc: subprocess.Popen, timeout: float = 1
                 pass
         time.sleep(0.1)
     raise RuntimeError(f"timed out waiting for corvus socket at {sock_path}")
+
+
+def _ensure_self_node(sock: Path, agent_port: int) -> None:
+    """Register a self-pointing 'Node' row so the daemon's
+    per-node connection registry has somewhere to dial. Tests
+    treat this node as the implicit default — every
+    'vms.create' / 'disks.create' / 'networks.create' that
+    omits 'node=' resolves to this row via the scheduler.
+
+    Run against the freshly-booted daemon over a one-shot Unix
+    socket client. Importing 'corvus_client' here (and not at
+    module top) keeps test collection fast when the package
+    isn't installed yet.
+    """
+    from corvus_client import Client  # noqa: PLC0415
+    from corvus_client.exceptions import CorvusError  # noqa: PLC0415
+
+    with Client(unix_socket=str(sock)) as c:
+        c.nodes.create(
+            "self",
+            "127.0.0.1",
+            node_agent_port=agent_port,
+            # The conftest spawns no netd (it's not needed for
+            # the python-level tests, which don't exercise
+            # virtual networks). Point the netd port at the
+            # nodeagent's port too — the per-node supervisor
+            # will retry-and-warn on netd dial failure but the
+            # nodeagent stays reachable.
+            net_agent_port=agent_port,
+        )
+        # The daemon's per-node supervisor dials the agent
+        # asynchronously from 'handleNodeAdd'; tests that hit
+        # 'createImageViaAgent' immediately afterwards see
+        # 'nodeagent for node 1 unavailable' until the dial
+        # finishes. Poll a cheap agent-dependent op
+        # ('disks.create' on a sentinel name, deleted
+        # immediately) until it succeeds or we exhaust the
+        # budget. Both calls are idempotent in the failing
+        # case so retrying is safe.
+        deadline = time.monotonic() + 10.0
+        last_err: BaseException | None = None
+        while time.monotonic() < deadline:
+            try:
+                d = c.disks.create("__conftest_probe__", size_mb=1)
+                d.delete()
+                return
+            except CorvusError as e:
+                last_err = e
+                msg = str(e)
+                if "unavailable" not in msg.lower():
+                    # Real error — surface immediately.
+                    raise
+                time.sleep(0.05)
+        raise RuntimeError(
+            f"nodeagent never became reachable through the daemon's "
+            f"registry: {last_err!r}"
+        )
 
 
 @pytest.fixture(scope="module")
@@ -232,7 +304,7 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
     daemon_proc: subprocess.Popen | None = None
     try:
         # Phase 4 routes all disk / cloud-init / VM-lifecycle ops
-        # through corvus-nodeagent; the daemon hard-errors with
+        # through corvus-nodeagent; the daemon errors out with
         # "nodeagent unavailable" if it isn't reachable. Spawn it
         # first and wait for its TCP listener so the daemon's
         # initial dial succeeds on the first attempt.
@@ -248,24 +320,30 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
                 stderr=subprocess.STDOUT,
                 env=env,
             )
-            _wait_for_tcp("127.0.0.1", agent_port, agent_proc)
+            _wait_for_tcp("127.0.0.1", agent_port, agent_proc, agent_log)
 
             with open(log_file, "wb") as logf:
+                # Multi-node slice 1c dropped the legacy
+                # '--node-agent-*' / '--no-netd' flags. The daemon
+                # now learns its agent endpoints from rows in the
+                # 'Node' table. We start the daemon with an empty
+                # DB, then immediately register a self-pointing
+                # node via the Cap'n Proto wire (see
+                # '_ensure_self_node' below) so subsequent test
+                # calls have a registry entry to route through.
                 daemon_proc = subprocess.Popen(
                     [
                         _corvus_binary(),
                         "--socket", str(sock),
                         "--database", db_url,
                         "--log-level", "warn",
-                        "--no-netd",
-                        "--node-agent-host", "127.0.0.1",
-                        "--node-agent-port", str(agent_port),
                     ],
                     stdout=logf,
                     stderr=subprocess.STDOUT,
                     env=env,
                 )
-                _wait_for_socket(sock, daemon_proc)
+                _wait_for_socket(sock, daemon_proc, log_file)
+                _ensure_self_node(sock, agent_port)
                 yield sock
     finally:
         for proc in (daemon_proc, agent_proc):

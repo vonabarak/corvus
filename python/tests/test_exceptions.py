@@ -9,6 +9,8 @@ from corvus_client.exceptions import (
     DiskInUse,
     DiskNotFound,
     NetworkNotFound,
+    NodeInUse,
+    NodeNotFound,
     ServerError,
     SnapshotNotFound,
     SshKeyNotFound,
@@ -42,6 +44,14 @@ def _fake_kj(description: str) -> capnp.KjException:
         ("(remote):0: failed: remote exception: Disk 'root' not found", DiskNotFound),
         ("(remote):0: failed: remote exception: Snapshot #5 not found", SnapshotNotFound),
         ("(remote):0: failed: remote exception: Network 'br0' not found", NetworkNotFound),
+        # Multi-node Node translations.
+        ("(remote):0: failed: remote exception: Node not found", NodeNotFound),
+        ("(remote):0: failed: remote exception: Node 'alpha' not found", NodeNotFound),
+        (
+            "(remote):0: failed: remote exception: Node 'alpha' is still referenced: "
+            "2 VM(s), 0 network(s), 0 disk placement(s). Delete them first.",
+            NodeInUse,
+        ),
         # Unknown message → ServerError (the catch-all branch).
         ("(remote):0: failed: remote exception: something weird", ServerError),
     ],

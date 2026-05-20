@@ -137,6 +137,14 @@ class TemplateNotFound(CorvusError):
     """No template matches the ref."""
 
 
+class NodeNotFound(CorvusError):
+    """No node matches the ref."""
+
+
+class NodeInUse(CorvusError):
+    """Node still has VMs, networks, or disk placements attached."""
+
+
 class GuestAgentNotEnabled(CorvusError):
     """VM doesn't have the QEMU guest agent enabled."""
 
@@ -182,6 +190,8 @@ _MESSAGE_TABLE = (
     (re.compile(r"^SSH key\b.*\bnot found"), SshKeyNotFound),
     (re.compile(r"^Template\b.*\bnot found"), TemplateNotFound),
     (re.compile(r"^Task\b.*\bnot found"), TaskNotFound),
+    (re.compile(r"^Node\b.*\bnot found"), NodeNotFound),
+    (re.compile(r"^Node\b.*\bis still referenced"), NodeInUse),
     (re.compile(r"^Shared directory\b.*\bnot found"), SharedDirNotFound),
 )
 
