@@ -21,6 +21,7 @@ import Capnp (export)
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Capnp.Rpc
   ( ConnConfig (..)
+  , Transport
   , handleConn
   , socketTransport
   , toClient
@@ -28,15 +29,22 @@ import Capnp.Rpc
 import Capnp.TraversalLimit (defaultLimit)
 import Control.Concurrent.Async (withAsync)
 import Control.Concurrent.STM (newTVarIO)
+import Control.Exception (catch)
 import Corvus.Node.Caps.NodeAgent (newNodeAgentCap)
 import Corvus.Node.Cleanup (cleanupCorvusProcesses)
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.StatusPoller as SP
 import Corvus.Qemu.Config (defaultQemuConfig)
+import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import qualified Data.Map.Strict as Map
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import qualified Network.Simple.TCP as TCP
-import Supervisors (withSupervisor)
+import Network.Socket (Socket)
+import Supervisors (Supervisor, withSupervisor)
+import System.IO (stderr)
+import System.IO.Error (IOError)
 
 defaultNodeAgentHost :: String
 defaultNodeAgentHost = "127.0.0.1"
@@ -52,8 +60,13 @@ defaultNodeAgentPort = 9878
 -- 3. Accept TCP connections; export a fresh 'NodeAgentCap' per
 --    connection (one supervisor per connection) that shares the
 --    ledger.
-runNodeAgentServer :: String -> Int -> IO ()
-runNodeAgentServer host port = do
+--
+-- When @'Just' tlsCfg@ is supplied, every accepted socket is
+-- wrapped with mutual TLS and the peer's CN is validated against
+-- the @corvus-daemon:@ prefix before any RPC frame is exchanged.
+-- 'Nothing' (i.e. @--no-tls@) falls back to plain TCP.
+runNodeAgentServer :: String -> Int -> Maybe Tls.TlsConfig -> IO ()
+runNodeAgentServer host port mTlsCfg = do
   cleanupCorvusProcesses
   vmLedger <- L.newVmLedger
   -- Agent-wide subscriber registry, QGA connection cache, and
@@ -69,9 +82,43 @@ runNodeAgentServer host port = do
         nodeAgentCap <-
           newNodeAgentCap sup vmLedger subs qgaConns serialBufs monitorBufs
         bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
-        handleConn
-          (socketTransport sock defaultLimit)
-          Def.def
-            { debugMode = False
-            , bootstrap = Just (toClient bootClient)
-            }
+        let handle transport =
+              handleConn
+                transport
+                Def.def
+                  { debugMode = False
+                  , bootstrap = Just (toClient bootClient)
+                  }
+        runOneConn mTlsCfg sock handle
+
+-- | Run one Cap'n Proto session, optionally wrapping the socket
+-- with TLS + validating the peer CN first.
+runOneConn
+  :: Maybe Tls.TlsConfig
+  -> Socket
+  -> (Transport -> IO ())
+  -> IO ()
+runOneConn mTlsCfg sock handle = case mTlsCfg of
+  Nothing -> handle (socketTransport sock defaultLimit)
+  Just cfg -> do
+    r <-
+      (Right <$> Tls.wrapServerSocket cfg sock)
+        `catch` \(e :: IOError) -> pure (Left (show e))
+    case r of
+      Left e -> logTlsRejection "nodeagent: TLS handshake failed" e
+      Right (ctx, ref) -> do
+        v <- Tls.validatePeerCN cfg ref
+        case v of
+          Left msg -> do
+            logTlsRejection "nodeagent: TLS peer rejected" (T.unpack msg)
+            Tls.closeTlsContext ctx
+          Right () -> do
+            transport <- Tls.tlsTransport ctx defaultLimit
+            handle transport `catch` \(e :: IOError) ->
+              TIO.hPutStrLn stderr $
+                T.pack ("nodeagent: TLS connection error: " <> show e)
+            Tls.closeTlsContext ctx
+
+logTlsRejection :: String -> String -> IO ()
+logTlsRejection what why =
+  TIO.hPutStrLn stderr $ T.pack (what <> ": " <> why)

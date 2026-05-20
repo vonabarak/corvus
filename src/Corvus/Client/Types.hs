@@ -44,6 +44,8 @@ data Options = Options
   , optTruncate :: !Bool
   , optColumns :: ![String]
   , optFitWidth :: !Bool
+  , optNoTls :: !Bool
+  , optTlsCertDir :: !(Maybe FilePath)
   , optCommand :: Command
   }
   deriving (Show)

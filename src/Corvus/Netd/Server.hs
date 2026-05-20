@@ -21,6 +21,7 @@ import Capnp (export)
 import qualified Capnp.Gen.Netagent as CGN
 import Capnp.Rpc
   ( ConnConfig (..)
+  , Transport
   , handleConn
   , socketTransport
   , toClient
@@ -28,6 +29,7 @@ import Capnp.Rpc
 import Capnp.TraversalLimit (defaultLimit)
 import Control.Concurrent (forkIO)
 import Control.Concurrent.STM (STM, atomically)
+import Control.Exception (catch)
 import Control.Monad (void)
 import Corvus.Netd.Caps.NetAgent (newNetAgentCap)
 import Corvus.Netd.Cleanup (cleanupCorvusKernelState)
@@ -36,11 +38,16 @@ import qualified Corvus.Netd.IpMonitor as Mon
 import qualified Corvus.Netd.Ledger as L
 import qualified Corvus.Netd.Network as Net
 import qualified Corvus.Netd.Tap as Tap
+import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import qualified Network.Simple.TCP as TCP
-import Supervisors (withSupervisor)
+import Network.Socket (Socket)
+import Supervisors (Supervisor, withSupervisor)
+import System.IO (stderr)
+import System.IO.Error (IOError)
 
 defaultNetdHost :: String
 defaultNetdHost = "127.0.0.1"
@@ -55,8 +62,13 @@ defaultNetdPort = 9877
 --    subscriber registry.
 -- 3. Fork the rtnetlink watcher (drift events).
 -- 4. Accept TCP connections.
-runNetdServer :: String -> Int -> IO ()
-runNetdServer host port = do
+--
+-- When @'Just' tlsCfg@ is supplied, every accepted socket is
+-- wrapped with mutual TLS and the peer's CN is validated against
+-- the @corvus-daemon:@ prefix before any RPC frame is exchanged.
+-- 'Nothing' (@--no-tls@) falls back to plain TCP.
+runNetdServer :: String -> Int -> Maybe Tls.TlsConfig -> IO ()
+runNetdServer host port mTlsCfg = do
   cleanupCorvusKernelState
   netLedger <- L.newNetworkLedger
   tapLedger <- L.newTapLedger
@@ -73,12 +85,46 @@ runNetdServer host port = do
     withSupervisor $ \sup -> do
       netAgentCap <- newNetAgentCap sup netLedger tapLedger subs
       bootClient <- export @CGN.NetAgent sup netAgentCap
-      handleConn
-        (socketTransport sock defaultLimit)
-        Def.def
-          { debugMode = False
-          , bootstrap = Just (toClient bootClient)
-          }
+      let handle transport =
+            handleConn
+              transport
+              Def.def
+                { debugMode = False
+                , bootstrap = Just (toClient bootClient)
+                }
+      runOneConn mTlsCfg sock handle
+
+-- | Run one Cap'n Proto session, optionally wrapping the socket
+-- with TLS + validating the peer CN first.
+runOneConn
+  :: Maybe Tls.TlsConfig
+  -> Socket
+  -> (Transport -> IO ())
+  -> IO ()
+runOneConn mTlsCfg sock handle = case mTlsCfg of
+  Nothing -> handle (socketTransport sock defaultLimit)
+  Just cfg -> do
+    r <-
+      (Right <$> Tls.wrapServerSocket cfg sock)
+        `catch` \(e :: IOError) -> pure (Left (show e))
+    case r of
+      Left e -> logTlsRejection "netd: TLS handshake failed" e
+      Right (ctx, ref) -> do
+        v <- Tls.validatePeerCN cfg ref
+        case v of
+          Left msg -> do
+            logTlsRejection "netd: TLS peer rejected" (T.unpack msg)
+            Tls.closeTlsContext ctx
+          Right () -> do
+            transport <- Tls.tlsTransport ctx defaultLimit
+            handle transport `catch` \(e :: IOError) ->
+              TIO.hPutStrLn stderr $
+                T.pack ("netd: TLS connection error: " <> show e)
+            Tls.closeTlsContext ctx
+
+logTlsRejection :: String -> String -> IO ()
+logTlsRejection what why =
+  TIO.hPutStrLn stderr $ T.pack (what <> ": " <> why)
 
 -- | Look up an ifname in both ledgers; return the 'kind' label
 -- used in 'onResourceVanished' events.

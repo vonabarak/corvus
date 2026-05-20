@@ -13,6 +13,13 @@ import Corvus.NodeSupervisor (spawnAllNodeSupervisors)
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Server (runCapnpServer)
 import Corvus.Server (handleGracefulShutdown, handleStartup)
+import Corvus.Tls
+  ( CertSearchPath (..)
+  , TlsConfig (..)
+  , TlsRole (..)
+  , defaultCertSearchPath
+  , loadTlsConfig
+  )
 import Corvus.Types
   ( ListenAddress (..)
   , NodeConns (..)
@@ -41,6 +48,8 @@ data Options = Options
   , optDbUri :: String
   , optLogLevel :: LogLevel
   , optSpiceBind :: Maybe String
+  , optNoTls :: Bool
+  , optTlsCertDir :: Maybe FilePath
   }
   deriving (Show)
 
@@ -95,6 +104,17 @@ optionsParser =
               <> help "Address QEMU binds SPICE to (default: mirrors --host in --tcp mode, else 127.0.0.1)"
           )
       )
+    <*> switch
+      ( long "no-tls"
+          <> help "Disable mutual TLS on the daemon's TCP listener and on outbound nodeagent/netd dials. Unix socket connections are not affected."
+      )
+    <*> optional
+      ( strOption
+          ( long "tls-cert-dir"
+              <> metavar "DIR"
+              <> help "Directory containing ca.crt + corvus-daemon.crt + corvus-daemon.key (default: search /etc/corvus then $XDG_CONFIG_HOME/corvus)"
+          )
+      )
 
 optsInfo :: ParserInfo Options
 optsInfo =
@@ -127,7 +147,16 @@ main = do
             | otherwise -> "127.0.0.1"
         qemuConfig = defaultQemuConfig {qcSpiceBindAddress = spiceBind}
     state <- liftIO $ newServerState pool qemuConfig
-    let state' = state {ssLogLevel = logLevel}
+    tlsCfg <- liftIO $ resolveDaemonTls opts
+    let state' = state {ssLogLevel = logLevel, ssTlsConfig = tlsCfg}
+    case tlsCfg of
+      Just c ->
+        logInfoN $
+          "TLS enabled; cert dir "
+            <> T.pack (tcCertDir c)
+            <> ", CN "
+            <> tcOwnCN c
+      Nothing -> logInfoN "TLS disabled (--no-tls); TCP listener and dials are plaintext"
 
     logInfoN "Running startup tasks..."
     liftIO $ handleStartup state' 30
@@ -193,3 +222,27 @@ parseLogLevel = eitherReader $ \s -> case s of
 formatListenAddr :: ListenAddress -> T.Text
 formatListenAddr (TcpAddress host port) = T.pack host <> ":" <> T.pack (show port)
 formatListenAddr (UnixAddress path) = "unix:" <> T.pack path
+
+-- | Resolve the daemon's TLS config given the CLI flags. 'Nothing'
+-- when @--no-tls@ was passed (every TCP listener and outbound
+-- dial then falls back to plain sockets). When TLS is on, refuses
+-- to start if the cert trio can't be found / loaded — the
+-- diagnostic includes the search path so operators know where
+-- the loader looked.
+resolveDaemonTls :: Options -> IO (Maybe TlsConfig)
+resolveDaemonTls opts
+  | optNoTls opts = pure Nothing
+  | otherwise = do
+      sp <- case optTlsCertDir opts of
+        Just d -> pure (CertSearchPath [d])
+        Nothing -> defaultCertSearchPath
+      r <- loadTlsConfig sp RoleDaemon RoleClient Nothing
+      case r of
+        Right cfg -> pure (Just cfg)
+        Left e ->
+          error $
+            "Corvus daemon: failed to load TLS material: "
+              <> show e
+              <> "\n  searched: "
+              <> show (certSearchDirs sp)
+              <> "\nFix with `corvus-admin deploy daemon ...` or pass --no-tls."

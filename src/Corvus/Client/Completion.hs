@@ -42,7 +42,10 @@ getCompletionAddress = do
 fetchNames :: forall a. (CC.CapnpConnection -> IO [a]) -> (a -> String) -> IO [String]
 fetchNames query extract = do
   addr <- getCompletionAddress
-  result <- try $ CC.withCapnpConnection addr $ \conn -> do
+  -- Completion never uses TLS — the shell calls @crv … --bash-completion-…@
+  -- before users ever pass connection flags, and TLS over Unix is a no-op
+  -- anyway. Pass 'Nothing' for the cert config.
+  result <- try $ CC.withCapnpConnection addr Nothing $ \conn -> do
     r <- try (query conn) :: IO (Either SomeException [a])
     pure $ case r of
       Right xs -> map extract xs

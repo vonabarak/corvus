@@ -51,6 +51,7 @@ import qualified Corvus.Model as M
 import Corvus.NetAgentClient (NetAgentClient)
 import Corvus.NodeAgentClient (NodeAgentClient)
 import Corvus.Qemu.Config (QemuConfig)
+import Corvus.Tls (TlsConfig)
 import qualified Data.ByteString as BS
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
@@ -125,6 +126,16 @@ data ServerState = ServerState
   -- in practice because the typical operator session creates
   -- a small number of VMs and a real RAM cap is enforced by
   -- the agent itself on @vmStart@.
+  , ssTlsConfig :: !(Maybe TlsConfig)
+  -- ^ Loaded mutual-TLS material for the daemon. Carries the
+  -- daemon's own cert / key / CA store and the CN-prefix
+  -- expectation for inbound CLI connections (peer must be
+  -- @corvus-client:*@). 'Nothing' when @--no-tls@ was passed;
+  -- in that case every TCP listener and outbound dial falls
+  -- back to plain sockets. For outbound dials to agents, the
+  -- supervisor uses 'Corvus.Tls.withPeerExpectation' to swap
+  -- the peer expectation to @corvus-node:<name>@ /
+  -- @corvus-netd:<name>@.
   }
 
 -- | Per-node bundle of live agent connections plus the
@@ -170,6 +181,7 @@ newServerState pool qemuConfig = do
       , ssVsockCidLocks = vsockLocks
       , ssSpicePortLock = spiceLock
       , ssReservedRam = reservedRam
+      , ssTlsConfig = Nothing
       }
 
 -- | Look up the nodeagent cap for a node. Returns 'Left' with a

@@ -57,12 +57,14 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Netagent as CGN
 import Capnp.Rpc
   ( ConnConfig (..)
+  , Transport
   , fromClient
   , requestBootstrap
   , socketTransport
   , withConn
   )
 import qualified Control.Exception as E
+import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import Data.Function ((&))
 import qualified Data.Text as T
@@ -147,9 +149,14 @@ withNetAgentClient
   -> Int
   -> T.Text
   -- ^ owner tag (typically the daemon uid as text)
+  -> Maybe Tls.TlsConfig
+  -- ^ When 'Just', wrap the TCP socket with mTLS and validate
+  -- the peer's CN. Caller pre-specialises the config to the
+  -- expected node's @corvus-netd:<name>@ via
+  -- 'Tls.withPeerExpectation'.
   -> (Either NetAgentError NetAgentClient -> IO a)
   -> IO a
-withNetAgentClient host port owner body = do
+withNetAgentClient host port owner mTlsCfg body = do
   sockResult <- E.try @E.SomeException (openTcp host port)
   case sockResult of
     Left e ->
@@ -158,32 +165,59 @@ withNetAgentClient host port owner body = do
       E.bracket (pure sock) NS.close $ \_ -> runOnSocket sock
   where
     runOnSocket sock = do
-      let transport = socketTransport sock C.defaultLimit
-          cfg = Def.def {debugMode = False}
-      r <-
-        E.try @E.SomeException $
-          withSupervisor $ \sup ->
-            withConn transport cfg $ \conn -> do
-              rawAgent <- requestBootstrap conn
-              let agent :: C.Client CGN.NetAgent
-                  agent = fromClient rawAgent
-              CGN.NetAgent'session'results {CGN.session = sess} <-
-                callOn
-                  #session
-                  CGN.NetAgent'session'params {CGN.owner = owner}
-                  agent
-              body $
-                Right
-                  NetAgentClient
-                    { nacAgent = agent
-                    , nacSession = sess
-                    , nacSupervisor = sup
-                    , nacOwner = owner
-                    }
-      case r of
-        Left (e :: E.SomeException) ->
-          body (Left (NetAgentConnectFailed (T.pack (show e))))
-        Right out -> pure out
+      eTransport <- buildTransport mTlsCfg sock
+      case eTransport of
+        Left err -> body (Left (NetAgentConnectFailed err))
+        Right (transport, cleanup) ->
+          (`E.finally` cleanup) $ do
+            let cfg = Def.def {debugMode = False}
+            r <-
+              E.try @E.SomeException $
+                withSupervisor $ \sup ->
+                  withConn transport cfg $ \conn -> do
+                    rawAgent <- requestBootstrap conn
+                    let agent :: C.Client CGN.NetAgent
+                        agent = fromClient rawAgent
+                    CGN.NetAgent'session'results {CGN.session = sess} <-
+                      callOn
+                        #session
+                        CGN.NetAgent'session'params {CGN.owner = owner}
+                        agent
+                    body $
+                      Right
+                        NetAgentClient
+                          { nacAgent = agent
+                          , nacSession = sess
+                          , nacSupervisor = sup
+                          , nacOwner = owner
+                          }
+            case r of
+              Left (e :: E.SomeException) ->
+                body (Left (NetAgentConnectFailed (T.pack (show e))))
+              Right out -> pure out
+
+-- | Build a Cap'n Proto 'Transport' over the connected socket,
+-- TLS-wrapped when 'Just' was passed. Returns a teardown action
+-- the caller runs when the transport is no longer in use.
+buildTransport
+  :: Maybe Tls.TlsConfig
+  -> NS.Socket
+  -> IO (Either T.Text (Transport, IO ()))
+buildTransport Nothing sock =
+  pure (Right (socketTransport sock C.defaultLimit, pure ()))
+buildTransport (Just cfg) sock = do
+  r <- E.try @E.SomeException (Tls.wrapClientSocket cfg sock)
+  case r of
+    Left e -> pure (Left (T.pack ("TLS handshake failed: " <> show e)))
+    Right (ctx, ref) -> do
+      v <- Tls.validatePeerCN cfg ref
+      case v of
+        Left msg -> do
+          Tls.closeTlsContext ctx
+          pure (Left ("TLS peer rejected: " <> msg))
+        Right () -> do
+          transport <- Tls.tlsTransport ctx C.defaultLimit
+          pure (Right (transport, Tls.closeTlsContext ctx))
 
 -- ---------------------------------------------------------------------------
 -- Liveness

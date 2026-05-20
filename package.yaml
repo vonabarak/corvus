@@ -44,6 +44,13 @@ dependencies:
   - capnp
   - supervisors
   - data-default
+  - tls
+  - crypton-x509
+  - crypton-x509-store
+  - crypton-x509-validation
+  - asn1-types
+  - memory
+  - transformers
 
 default-extensions:
   - OverloadedStrings
@@ -84,6 +91,7 @@ library:
     - Corvus.Protocol.Build
     - Corvus.Protocol.Task
     - Corvus.Types
+    - Corvus.Tls
     - Corvus.Server
     - Corvus.Action
     - Corvus.Process

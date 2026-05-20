@@ -97,6 +97,8 @@ baseOpts =
     , optBorders = BordersUnicodeOpt
     , optTruncate = True
     , optColumns = []
+    , optNoTls = True
+    , optTlsCertDir = Nothing
     , optFitWidth = False
     , optCommand = Ping
     }

@@ -48,6 +48,7 @@ import Corvus.Client.Output
 import Corvus.Client.Types
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (StatusInfo (..), VmDetails (..))
+import qualified Corvus.Tls as Tls
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (Value, object, toJSON, (.=))
@@ -77,7 +78,8 @@ runCommand opts = do
     Completion shell -> handleCompletion shell
     _ -> pure ()
   addr <- getListenAddress opts
-  connResult <- withCapnpConnection addr $ \conn ->
+  tlsCfg <- resolveClientTls opts addr
+  connResult <- withCapnpConnection addr tlsCfg $ \conn ->
     case optCommand opts of
       Ping -> do
         r <- try (CR.rpcPing conn) :: IO (Either SomeException ())
@@ -424,3 +426,31 @@ grantToJson g =
     , "password" .= vgPassword g
     , "ttl_seconds" .= vgTtlSeconds g
     ]
+
+-- | Resolve the CLI's TLS config based on @--no-tls@ /
+-- @--tls-cert-dir@ and the resolved listen address. Unix-socket
+-- connections never need TLS; TCP connections load the client
+-- credentials from @$XDG_CONFIG_HOME/corvus/@ (the cert is
+-- per-user, never under @/etc/corvus@). On load failure the CLI
+-- aborts with a clear pointer at @corvus-admin deploy client@
+-- rather than silently falling back to plaintext — operators
+-- expect TCP without certs to mean "you forgot to deploy".
+resolveClientTls :: Options -> ListenAddress -> IO (Maybe Tls.TlsConfig)
+resolveClientTls _ (UnixAddress _) = pure Nothing
+resolveClientTls opts (TcpAddress _ _)
+  | optNoTls opts = pure Nothing
+  | otherwise = do
+      sp <- case optTlsCertDir opts of
+        Just d -> pure (Tls.CertSearchPath [d])
+        Nothing -> Tls.clientCertSearchPath
+      r <- Tls.loadTlsConfig sp Tls.RoleClient Tls.RoleDaemon Nothing
+      case r of
+        Right cfg -> pure (Just cfg)
+        Left e -> do
+          hPutStrLn stderr $
+            "crv: failed to load TLS material for TCP connection: "
+              <> show e
+              <> "\n  searched: "
+              <> show (Tls.certSearchDirs sp)
+              <> "\nFix with `corvus-admin deploy client ...` or pass --no-tls."
+          exitFailure

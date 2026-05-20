@@ -36,6 +36,7 @@ import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as Spec
 import qualified Corvus.NodeAgentClient as NOA
+import qualified Corvus.Tls as Tls
 import Corvus.Types
   ( NodeConns (..)
   , ServerState (..)
@@ -93,6 +94,14 @@ runNodeSupervisor state nodeKey node = do
       noaPort = M.nodeNodeAgentPort node
       netPort = M.nodeNetAgentPort node
       nodeLabel = M.nodeName node
+      -- Specialise the daemon's TLS config to expect this node's
+      -- @corvus-node:<name>@ / @corvus-netd:<name>@ peer cert.
+      nodeagentTls =
+        Tls.withPeerExpectation Tls.RoleNode (Just nodeLabel)
+          <$> ssTlsConfig state
+      netdTls =
+        Tls.withPeerExpectation Tls.RoleNetd (Just nodeLabel)
+          <$> ssTlsConfig state
   runFilteredLogging (ssLogLevel state) $
     logInfoN $
       "node "
@@ -103,9 +112,9 @@ runNodeSupervisor state nodeKey node = do
         <> T.pack (show netPort)
         <> ")"
   nodeAgentChild <-
-    async $ runNodeAgentLoop state nodeKey nodeLabel host noaPort owner
+    async $ runNodeAgentLoop state nodeKey nodeLabel host noaPort owner nodeagentTls
   netdChild <-
-    async $ runNetdLoop state nodeKey nodeLabel host netPort owner
+    async $ runNetdLoop state nodeKey nodeLabel host netPort owner netdTls
   blockUntilShutdown state
   cancel nodeAgentChild
   cancel netdChild
@@ -120,12 +129,15 @@ runNodeAgentLoop
   -> Int
   -> T.Text
   -- ^ owner
+  -> Maybe Tls.TlsConfig
+  -- ^ per-node TLS config (peer = @corvus-node:<name>@) or
+  -- 'Nothing' for plaintext
   -> IO ()
-runNodeAgentLoop state nodeKey nodeLabel host port owner = loop
+runNodeAgentLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
   where
     loop = do
       result <-
-        NOA.withNodeAgentClient host port owner onConnect
+        NOA.withNodeAgentClient host port owner mTlsCfg onConnect
       shouldStop <- readTVarIO (ssShutdownFlag state)
       if shouldStop
         then pure ()
@@ -197,11 +209,14 @@ runNetdLoop
   -> Int
   -> T.Text
   -- ^ owner
+  -> Maybe Tls.TlsConfig
+  -- ^ per-node TLS config (peer = @corvus-netd:<name>@) or
+  -- 'Nothing' for plaintext
   -> IO ()
-runNetdLoop state nodeKey nodeLabel host port owner = loop
+runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
   where
     loop = do
-      result <- NA.withNetAgentClient host port owner onConnect
+      result <- NA.withNetAgentClient host port owner mTlsCfg onConnect
       shouldStop <- readTVarIO (ssShutdownFlag state)
       if shouldStop
         then pure ()

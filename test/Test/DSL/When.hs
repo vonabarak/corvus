@@ -178,6 +178,7 @@ createTestServerState pool basePath = do
           , ssVsockCidLocks = vsockLocks
           , ssSpicePortLock = spiceLock
           , ssReservedRam = reservedRam
+          , ssTlsConfig = Nothing
           }
   -- Register a stub 'NodeConns' under nodeId=1 (the bootstrap
   -- 'test-node' row 'insertDefaultTestNode' installs). Both agent

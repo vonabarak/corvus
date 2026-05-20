@@ -24,6 +24,13 @@ import Control.Monad (void)
 import Control.Monad.Logger (LogLevel (..), logInfoN)
 import Corvus.Netd.Cleanup (cleanupCorvusKernelState)
 import Corvus.Netd.Server (defaultNetdHost, defaultNetdPort, runNetdServer)
+import Corvus.Tls
+  ( CertSearchPath (..)
+  , TlsConfig (..)
+  , TlsRole (..)
+  , defaultCertSearchPath
+  , loadTlsConfig
+  )
 import Corvus.Types (runFilteredLogging)
 import qualified Data.Text as T
 import Options.Applicative
@@ -40,6 +47,8 @@ data Options = Options
   { optHost :: String
   , optPort :: Int
   , optLogLevel :: LogLevel
+  , optNoTls :: Bool
+  , optTlsCertDir :: Maybe FilePath
   }
   deriving (Show)
 
@@ -79,6 +88,17 @@ optionsParser =
           <> showDefault
           <> help "Log level (debug|info|warn|error)"
       )
+    <*> switch
+      ( long "no-tls"
+          <> help "Disable mutual TLS on the listener (dev-only)."
+      )
+    <*> optional
+      ( strOption
+          ( long "tls-cert-dir"
+              <> metavar "DIR"
+              <> help "Directory containing ca.crt + corvus-netd.crt + corvus-netd.key (default: search /etc/corvus then $XDG_CONFIG_HOME/corvus)"
+          )
+      )
 
 main :: IO ()
 main = do
@@ -100,18 +120,27 @@ main = do
   void $ installHandler sigTERM (Catch raiseStop) Nothing
   void $ installHandler sigINT (Catch raiseStop) Nothing
 
-  runFilteredLogging (optLogLevel opts) $
+  tlsCfg <- resolveNetdTls opts
+  runFilteredLogging (optLogLevel opts) $ do
     logInfoN $
       "corvus-netd starting on "
         <> T.pack (optHost opts)
         <> ":"
         <> T.pack (show (optPort opts))
+    case tlsCfg of
+      Just c ->
+        logInfoN $
+          "TLS enabled; cert dir "
+            <> T.pack (tcCertDir c)
+            <> ", CN "
+            <> tcOwnCN c
+      Nothing -> logInfoN "TLS disabled (--no-tls)"
 
   -- Run the server async. The server itself performs startup
   -- cleanup (in Corvus.Netd.Server.runNetdServer) before it
   -- binds the listener.
   serverThread <-
-    async $ runNetdServer (optHost opts) (optPort opts)
+    async $ runNetdServer (optHost opts) (optPort opts) tlsCfg
 
   -- Block until SIGTERM/SIGINT.
   takeMVar stopMV
@@ -122,3 +151,25 @@ main = do
   runFilteredLogging (optLogLevel opts) $
     logInfoN "corvus-netd cleanup complete"
   exitSuccess
+
+-- | Resolve corvus-netd's TLS config from CLI flags. Same pattern
+-- as the daemon / nodeagent — refuses to start on load failure
+-- with a diagnostic pointing at the search path and at
+-- @corvus-admin deploy netd ...@.
+resolveNetdTls :: Options -> IO (Maybe TlsConfig)
+resolveNetdTls opts
+  | optNoTls opts = pure Nothing
+  | otherwise = do
+      sp <- case optTlsCertDir opts of
+        Just d -> pure (CertSearchPath [d])
+        Nothing -> defaultCertSearchPath
+      r <- loadTlsConfig sp RoleNetd RoleDaemon Nothing
+      case r of
+        Right cfg -> pure (Just cfg)
+        Left e ->
+          error $
+            "corvus-netd: failed to load TLS material: "
+              <> show e
+              <> "\n  searched: "
+              <> show (certSearchDirs sp)
+              <> "\nFix with `corvus-admin deploy netd ...` or pass --no-tls."

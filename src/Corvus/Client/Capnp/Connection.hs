@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Cap'n Proto-side client connection management.
 --
@@ -29,12 +30,14 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Corvus as CGCorvus
 import Capnp.Rpc
   ( ConnConfig (..)
+  , Transport
   , fromClient
   , requestBootstrap
   , socketTransport
   , withConn
   )
 import Control.Exception (Exception, SomeException, bracket, try)
+import qualified Corvus.Tls as Tls
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import qualified Data.Default as Def
 import Data.Text (Text)
@@ -81,12 +84,17 @@ defaultCapnpAddress = UnixAddress <$> getDefaultSocketPath
 
 -- | Open a connection, run an action with the resulting
 -- 'CapnpConnection', and tear everything down cleanly when the
--- action returns (or throws).
+-- action returns (or throws). 'Just' for the TLS config wraps
+-- TCP connections with mutual TLS and validates the daemon's CN
+-- prefix (must be @corvus-daemon:@) before any RPC frame is
+-- exchanged. Unix-socket connections always go plain regardless
+-- of the TLS arg.
 withCapnpConnection
   :: ListenAddress
+  -> Maybe Tls.TlsConfig
   -> (CapnpConnection -> IO a)
   -> IO (Either CapnpConnectionError a)
-withCapnpConnection addr action = do
+withCapnpConnection addr mTlsCfg action = do
   sockResult <- try (openSocket addr) :: IO (Either SomeException Socket)
   case sockResult of
     Left e ->
@@ -95,24 +103,57 @@ withCapnpConnection addr action = do
       bracket (pure sock) close $ \_ -> runOnSocket sock
   where
     runOnSocket sock = do
-      let transport = socketTransport sock C.defaultLimit
-          cfg = Def.def {debugMode = False}
-      r <- try $
-        withSupervisor $ \sup ->
-          withConn transport cfg $ \conn -> do
-            rawClient <- requestBootstrap conn
-            let daemon :: C.Client CGCorvus.Daemon
-                daemon = fromClient rawClient
-            action
-              CapnpConnection
-                { ccDaemon = daemon
-                , ccSupervisor = sup
-                , ccSocket = sock
-                }
-      case r of
-        Left (e :: SomeException) ->
-          pure (Left (CapnpRpcError (T.pack (show e))))
-        Right a -> pure (Right a)
+      eTransport <- buildTransport addr mTlsCfg sock
+      case eTransport of
+        Left err -> pure (Left (CapnpConnectFailed err))
+        Right (transport, cleanup) -> do
+          let cfg = Def.def {debugMode = False}
+          r <- try $
+            withSupervisor $ \sup ->
+              withConn transport cfg $ \conn -> do
+                rawClient <- requestBootstrap conn
+                let daemon :: C.Client CGCorvus.Daemon
+                    daemon = fromClient rawClient
+                action
+                  CapnpConnection
+                    { ccDaemon = daemon
+                    , ccSupervisor = sup
+                    , ccSocket = sock
+                    }
+          cleanup
+          case r of
+            Left (e :: SomeException) ->
+              pure (Left (CapnpRpcError (T.pack (show e))))
+            Right a -> pure (Right a)
+
+-- | Build a Cap'n Proto 'Transport' over the connected socket,
+-- TLS-wrapped when 'Just' was passed AND the address is TCP.
+-- Returns a teardown action the caller runs when the transport
+-- is no longer in use.
+buildTransport
+  :: ListenAddress
+  -> Maybe Tls.TlsConfig
+  -> NS.Socket
+  -> IO (Either Text (Transport, IO ()))
+buildTransport (UnixAddress _) _ sock =
+  -- Unix-socket connections rely on filesystem permissions; TLS
+  -- is skipped even when a config was passed.
+  pure (Right (socketTransport sock C.defaultLimit, pure ()))
+buildTransport (TcpAddress _ _) Nothing sock =
+  pure (Right (socketTransport sock C.defaultLimit, pure ()))
+buildTransport (TcpAddress _ _) (Just cfg) sock = do
+  r <- try @SomeException (Tls.wrapClientSocket cfg sock)
+  case r of
+    Left e -> pure (Left (T.pack ("TLS handshake failed: " <> show e)))
+    Right (ctx, ref) -> do
+      v <- Tls.validatePeerCN cfg ref
+      case v of
+        Left msg -> do
+          Tls.closeTlsContext ctx
+          pure (Left ("TLS peer rejected: " <> msg))
+        Right () -> do
+          transport <- Tls.tlsTransport ctx C.defaultLimit
+          pure (Right (transport, Tls.closeTlsContext ctx))
 
 -- | Open the underlying socket for the listen address (TCP or
 -- Unix). The socket is closed by the enclosing

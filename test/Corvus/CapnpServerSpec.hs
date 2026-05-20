@@ -203,11 +203,11 @@ withCapnpDaemon env action =
       state <- newServerState (tePool env) Q.defaultQemuConfig
       naPort <- pickFreePort
       bracket
-        (async (runNodeAgentServer "127.0.0.1" naPort))
+        (async (runNodeAgentServer "127.0.0.1" naPort Nothing))
         cancel
         $ \_ -> do
           waitForTcp "127.0.0.1" naPort
-          NOA.withNodeAgentClient "127.0.0.1" naPort "capnp-spec" $ \nr -> do
+          NOA.withNodeAgentClient "127.0.0.1" naPort "capnp-spec" Nothing $ \nr -> do
             nac <- case nr of
               Left e -> error ("nodeagent dial failed: " <> show e)
               Right c -> pure c
@@ -231,7 +231,7 @@ withCapnpDaemon env action =
               cancel
               $ \_ -> do
                 waitForSocket sockPath
-                r <- CC.withCapnpConnection (UnixAddress sockPath) action
+                r <- CC.withCapnpConnection (UnixAddress sockPath) Nothing action
                 case r of
                   Right a -> pure a
                   Left e -> error (show e)

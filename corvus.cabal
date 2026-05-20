@@ -29,6 +29,7 @@ library
       Corvus.Protocol.Build
       Corvus.Protocol.Task
       Corvus.Types
+      Corvus.Tls
       Corvus.Server
       Corvus.Action
       Corvus.Process
@@ -231,12 +232,16 @@ library
       aeson
     , aeson-qq
     , ansi-terminal
+    , asn1-types
     , async
     , base >=4.7 && <5
     , base64-bytestring
     , bytestring
     , capnp
     , containers
+    , crypton-x509
+    , crypton-x509-store
+    , crypton-x509-validation
     , data-default
     , directory
     , esqueleto
@@ -245,6 +250,7 @@ library
     , fourmolu
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -261,6 +267,8 @@ library
     , temporary
     , text
     , time
+    , tls
+    , transformers
     , unix
     , unliftio-core
     , vector
@@ -295,6 +303,7 @@ executable corvus
       aeson
     , aeson-qq
     , ansi-terminal
+    , asn1-types
     , async
     , base >=4.7 && <5
     , base64-bytestring
@@ -302,6 +311,9 @@ executable corvus
     , capnp
     , containers
     , corvus
+    , crypton-x509
+    , crypton-x509-store
+    , crypton-x509-validation
     , data-default
     , directory
     , esqueleto
@@ -310,6 +322,7 @@ executable corvus
     , fourmolu
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -326,6 +339,8 @@ executable corvus
     , temporary
     , text
     , time
+    , tls
+    , transformers
     , unix
     , unliftio-core
     , vector
@@ -360,6 +375,7 @@ executable corvus-netd
       aeson
     , aeson-qq
     , ansi-terminal
+    , asn1-types
     , async
     , base >=4.7 && <5
     , base64-bytestring
@@ -367,6 +383,9 @@ executable corvus-netd
     , capnp
     , containers
     , corvus
+    , crypton-x509
+    , crypton-x509-store
+    , crypton-x509-validation
     , data-default
     , directory
     , esqueleto
@@ -375,6 +394,7 @@ executable corvus-netd
     , fourmolu
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -391,6 +411,8 @@ executable corvus-netd
     , temporary
     , text
     , time
+    , tls
+    , transformers
     , unix
     , unliftio-core
     , vector
@@ -425,6 +447,7 @@ executable corvus-nodeagent
       aeson
     , aeson-qq
     , ansi-terminal
+    , asn1-types
     , async
     , base >=4.7 && <5
     , base64-bytestring
@@ -432,6 +455,9 @@ executable corvus-nodeagent
     , capnp
     , containers
     , corvus
+    , crypton-x509
+    , crypton-x509-store
+    , crypton-x509-validation
     , data-default
     , directory
     , esqueleto
@@ -440,6 +466,7 @@ executable corvus-nodeagent
     , fourmolu
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -456,6 +483,8 @@ executable corvus-nodeagent
     , temporary
     , text
     , time
+    , tls
+    , transformers
     , unix
     , unliftio-core
     , vector
@@ -490,6 +519,7 @@ executable crv
       aeson
     , aeson-qq
     , ansi-terminal
+    , asn1-types
     , async
     , base >=4.7 && <5
     , base64-bytestring
@@ -497,6 +527,9 @@ executable crv
     , capnp
     , containers
     , corvus
+    , crypton-x509
+    , crypton-x509-store
+    , crypton-x509-validation
     , data-default
     , directory
     , esqueleto
@@ -505,6 +538,7 @@ executable crv
     , fourmolu
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -521,6 +555,8 @@ executable crv
     , temporary
     , text
     , time
+    , tls
+    , transformers
     , unix
     , unliftio-core
     , vector
@@ -558,6 +594,7 @@ test-suite corvus-test
       Corvus.TaskRecordingSpec
       Corvus.TemplateSpec
       Corvus.TemplateYamlSpec
+      Corvus.TlsSpec
       Corvus.ViewGrantSpec
       Corvus.VmSpec
       Corvus.VmTransitionSpec
@@ -597,6 +634,7 @@ test-suite corvus-test
     , aeson
     , aeson-qq
     , ansi-terminal
+    , asn1-types
     , async
     , base >=4.7 && <5
     , base64-bytestring
@@ -604,6 +642,9 @@ test-suite corvus-test
     , capnp
     , containers
     , corvus
+    , crypton-x509
+    , crypton-x509-store
+    , crypton-x509-validation
     , data-default
     , directory
     , esqueleto
@@ -615,6 +656,7 @@ test-suite corvus-test
     , hspec
     , hspec-discover
     , hspec-expectations
+    , memory
     , monad-logger
     , mtl
     , network
@@ -632,6 +674,8 @@ test-suite corvus-test
     , temporary
     , text
     , time
+    , tls
+    , transformers
     , unix
     , unliftio-core
     , uuid

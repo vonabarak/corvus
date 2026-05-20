@@ -153,6 +153,17 @@ optionsParser =
     <*> (not <$> switch (long "no-truncate" <> help "Print full values in table cells instead of truncating with ellipsis (useful for piping to awk/sed)"))
     <*> columnsParser
     <*> (not <$> switch (long "no-fit" <> help "Don't shrink table columns to fit the terminal width"))
+    <*> switch
+      ( long "no-tls"
+          <> help "Skip mutual TLS when connecting over TCP (dev / --no-tls daemon only). No-op for Unix-socket connections."
+      )
+    <*> optional
+      ( strOption
+          ( long "tls-cert-dir"
+              <> metavar "DIR"
+              <> help "Directory containing ca.crt + corvus-client.crt + corvus-client.key (default: $XDG_CONFIG_HOME/corvus)"
+          )
+      )
     <*> commandParser
 
 -- | Parser for --borders and --no-borders flags.

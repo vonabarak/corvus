@@ -27,6 +27,13 @@ import Control.Monad (void)
 import Control.Monad.Logger (LogLevel (..), logInfoN)
 import Corvus.Node.Cleanup (cleanupCorvusProcesses)
 import Corvus.Node.Server (defaultNodeAgentHost, defaultNodeAgentPort, runNodeAgentServer)
+import Corvus.Tls
+  ( CertSearchPath (..)
+  , TlsConfig (..)
+  , TlsRole (..)
+  , defaultCertSearchPath
+  , loadTlsConfig
+  )
 import Corvus.Types (runFilteredLogging)
 import qualified Data.Text as T
 import Options.Applicative
@@ -45,6 +52,8 @@ data Options = Options
   { optHost :: String
   , optPort :: Int
   , optLogLevel :: LogLevel
+  , optNoTls :: Bool
+  , optTlsCertDir :: Maybe FilePath
   }
   deriving (Show)
 
@@ -84,6 +93,17 @@ optionsParser =
           <> showDefault
           <> help "Log level (debug|info|warn|error)"
       )
+    <*> switch
+      ( long "no-tls"
+          <> help "Disable mutual TLS on the listener (dev-only)."
+      )
+    <*> optional
+      ( strOption
+          ( long "tls-cert-dir"
+              <> metavar "DIR"
+              <> help "Directory containing ca.crt + corvus-node.crt + corvus-node.key (default: search /etc/corvus then $XDG_CONFIG_HOME/corvus)"
+          )
+      )
 
 main :: IO ()
 main = do
@@ -121,18 +141,27 @@ main = do
   void $ installHandler sigTERM (Catch raiseStop) Nothing
   void $ installHandler sigINT (Catch raiseStop) Nothing
 
-  runFilteredLogging (optLogLevel opts) $
+  tlsCfg <- resolveAgentTls opts
+  runFilteredLogging (optLogLevel opts) $ do
     logInfoN $
       "corvus-nodeagent starting on "
         <> T.pack (optHost opts)
         <> ":"
         <> T.pack (show (optPort opts))
+    case tlsCfg of
+      Just c ->
+        logInfoN $
+          "TLS enabled; cert dir "
+            <> T.pack (tcCertDir c)
+            <> ", CN "
+            <> tcOwnCN c
+      Nothing -> logInfoN "TLS disabled (--no-tls)"
 
   -- Run the server async. The server itself performs startup
   -- cleanup (in Corvus.Node.Server.runNodeAgentServer) before
   -- it binds the listener.
   serverThread <-
-    async $ runNodeAgentServer (optHost opts) (optPort opts)
+    async $ runNodeAgentServer (optHost opts) (optPort opts) tlsCfg
 
   -- Block until SIGTERM/SIGINT.
   takeMVar stopMV
@@ -154,3 +183,25 @@ syncRuntimeDir = do
       case uid of
         0 -> setEnv "XDG_RUNTIME_DIR" "/run/corvus"
         _ -> pure ()
+
+-- | Resolve the agent's TLS config from CLI flags. 'Nothing' for
+-- @--no-tls@; abort with a clear diagnostic on load failure
+-- otherwise. The expected peer is @corvus-daemon:*@ — any daemon
+-- presenting a CA-signed cert with that prefix is allowed in.
+resolveAgentTls :: Options -> IO (Maybe TlsConfig)
+resolveAgentTls opts
+  | optNoTls opts = pure Nothing
+  | otherwise = do
+      sp <- case optTlsCertDir opts of
+        Just d -> pure (CertSearchPath [d])
+        Nothing -> defaultCertSearchPath
+      r <- loadTlsConfig sp RoleNode RoleDaemon Nothing
+      case r of
+        Right cfg -> pure (Just cfg)
+        Left e ->
+          error $
+            "corvus-nodeagent: failed to load TLS material: "
+              <> show e
+              <> "\n  searched: "
+              <> show (certSearchDirs sp)
+              <> "\nFix with `corvus-admin deploy node ...` or pass --no-tls."
