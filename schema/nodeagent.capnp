@@ -231,6 +231,18 @@ interface Session {
   # Disk hot-unplug. QEMU `device_del` + `blockdev-del` with the
   # daemon's retry-on-busy loop folded in.
   vmDetachDrive @29 (vmId :Int64, driveId :Int64) -> ();
+
+  # Probe whether a given AF_VSOCK CID is currently free on the
+  # agent's host kernel (VHOST_VSOCK_SET_GUEST_CID ioctl against
+  # /dev/vhost-vsock). The daemon owns the per-node DB filter
+  # for already-recorded CIDs; this RPC just answers the kernel
+  # uniqueness question, which is what stops two daemons sharing
+  # a host from independently picking the same CID. Returns
+  # `false` only when the kernel reports the CID is in use; a
+  # missing /dev/vhost-vsock surfaces as `true` (the agent's
+  # host has no vhost-vsock support, so there's no conflict to
+  # report).
+  probeVsockCid @30 (cid :Int64) -> (free :Bool);
 }
 
 # Daemon-implemented sink for periodic agent → daemon VM status

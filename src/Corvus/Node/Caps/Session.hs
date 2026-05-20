@@ -46,6 +46,7 @@ import qualified Corvus.Node.Runtime as NR
 import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
 import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.VmSpec as VS
+import qualified Corvus.Node.VsockCid as VC
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Common (handleParsed)
@@ -433,6 +434,14 @@ instance CGNA.Session'server_ SessionCap where
             NQ.QmpError err -> throwFailed ("device_del: " <> err)
             NQ.QmpConnectionFailed err ->
               throwFailed ("QMP connect (device_del): " <> err)
+
+  -- ---- Vsock probe ---------------------------------------------------------
+
+  session'probeVsockCid _ =
+    handleParsed $
+      \CGNA.Session'probeVsockCid'params {CGNA.cid = cid} -> do
+        free <- liftIO $ VC.isHostFree (fromIntegral cid)
+        pure CGNA.Session'probeVsockCid'results {CGNA.free = free}
 
   -- ---- Cloud-init ----------------------------------------------------------
 

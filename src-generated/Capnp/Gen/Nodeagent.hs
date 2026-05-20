@@ -298,9 +298,10 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'flushSerialConsole) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'flushHmpMonitor) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmAttachDrive) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'vmDetachDrive) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmDetachDrive) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'probeVsockCid) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -361,6 +362,8 @@ class (Session'server_ s_) where
     session'vmAttachDrive _ = GH.methodUnimplemented
     session'vmDetachDrive :: s_ -> (GH.MethodHandler Session'vmDetachDrive'params Session'vmDetachDrive'results)
     session'vmDetachDrive _ = GH.methodUnimplemented
+    session'probeVsockCid :: s_ -> (GH.MethodHandler Session'probeVsockCid'params Session'probeVsockCid'results)
+    session'probeVsockCid _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -421,6 +424,8 @@ instance (GH.HasMethod "vmAttachDrive" Session Session'vmAttachDrive'params Sess
     methodByLabel  = (GH.Method 11450192344861352079 28)
 instance (GH.HasMethod "vmDetachDrive" Session Session'vmDetachDrive'params Session'vmDetachDrive'results) where
     methodByLabel  = (GH.Method 11450192344861352079 29)
+instance (GH.HasMethod "probeVsockCid" Session Session'probeVsockCid'params Session'probeVsockCid'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 30)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -2291,6 +2296,66 @@ instance (C.Parse Session'vmDetachDrive'results (C.Parsed Session'vmDetachDrive'
     parse raw_ = (Std_.pure Session'vmDetachDrive'results)
 instance (C.Marshal Session'vmDetachDrive'results (C.Parsed Session'vmDetachDrive'results)) where
     marshalInto _raw (Session'vmDetachDrive'results) = (Std_.pure ())
+data Session'probeVsockCid'params 
+type instance (R.ReprFor Session'probeVsockCid'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'probeVsockCid'params) where
+    typeId  = 9957990287174145727
+instance (C.TypedStruct Session'probeVsockCid'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Session'probeVsockCid'params) where
+    type AllocHint Session'probeVsockCid'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'probeVsockCid'params (C.Parsed Session'probeVsockCid'params))
+instance (C.AllocateList Session'probeVsockCid'params) where
+    type ListAllocHint Session'probeVsockCid'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'probeVsockCid'params (C.Parsed Session'probeVsockCid'params))
+data instance C.Parsed Session'probeVsockCid'params
+    = Session'probeVsockCid'params 
+        {cid :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'probeVsockCid'params))
+deriving instance (Std_.Eq (C.Parsed Session'probeVsockCid'params))
+instance (C.Parse Session'probeVsockCid'params (C.Parsed Session'probeVsockCid'params)) where
+    parse raw_ = (Session'probeVsockCid'params <$> (GH.parseField #cid raw_))
+instance (C.Marshal Session'probeVsockCid'params (C.Parsed Session'probeVsockCid'params)) where
+    marshalInto raw_ Session'probeVsockCid'params{..} = (do
+        (GH.encodeField #cid cid raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "cid" GH.Slot Session'probeVsockCid'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Session'probeVsockCid'results 
+type instance (R.ReprFor Session'probeVsockCid'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'probeVsockCid'results) where
+    typeId  = 13444723105890588371
+instance (C.TypedStruct Session'probeVsockCid'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Session'probeVsockCid'results) where
+    type AllocHint Session'probeVsockCid'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'probeVsockCid'results (C.Parsed Session'probeVsockCid'results))
+instance (C.AllocateList Session'probeVsockCid'results) where
+    type ListAllocHint Session'probeVsockCid'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'probeVsockCid'results (C.Parsed Session'probeVsockCid'results))
+data instance C.Parsed Session'probeVsockCid'results
+    = Session'probeVsockCid'results 
+        {free :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'probeVsockCid'results))
+deriving instance (Std_.Eq (C.Parsed Session'probeVsockCid'results))
+instance (C.Parse Session'probeVsockCid'results (C.Parsed Session'probeVsockCid'results)) where
+    parse raw_ = (Session'probeVsockCid'results <$> (GH.parseField #free raw_))
+instance (C.Marshal Session'probeVsockCid'results (C.Parsed Session'probeVsockCid'results)) where
+    marshalInto raw_ Session'probeVsockCid'results{..} = (do
+        (GH.encodeField #free free raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "free" GH.Slot Session'probeVsockCid'results Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
 data VmStatusSink 
 type instance (R.ReprFor VmStatusSink) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId VmStatusSink) where

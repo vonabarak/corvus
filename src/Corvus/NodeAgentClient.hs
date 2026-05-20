@@ -90,6 +90,7 @@ module Corvus.NodeAgentClient
     -- * QMP-mediated runtime changes
   , vmAttachDrive
   , vmDetachDrive
+  , probeVsockCid
   )
 where
 
@@ -906,3 +907,16 @@ vmDetachDrive nac vmId driveId = remote $ do
         }
       (nacSession nac)
   pure ()
+
+-- | Probe whether the given AF_VSOCK CID is currently free on
+-- the agent's host kernel. Returns 'True' when the kernel
+-- reports the CID as available (or when the agent's host has
+-- no vhost-vsock device at all).
+probeVsockCid :: NodeAgentClient -> Int -> IO (Either NodeAgentError Bool)
+probeVsockCid nac cid = remote $ do
+  CGNA.Session'probeVsockCid'results {CGNA.free = free} <-
+    callOn
+      #probeVsockCid
+      CGNA.Session'probeVsockCid'params {CGNA.cid = fromIntegral cid}
+      (nacSession nac)
+  pure free

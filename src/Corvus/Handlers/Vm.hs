@@ -62,7 +62,7 @@ import Corvus.Model.VmState (VmAction (..), validateTransition)
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as Spec
 import Corvus.Node.SpicePort (withAllocatedSpicePort)
-import Corvus.Node.VsockCid (hostHasVhostVsock, isHostFree, withAllocatedVsockCid)
+import Corvus.Node.VsockCid (withAllocatedVsockCid)
 import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.NodeAgentClient.Spec as NSpec
 import Corvus.NodeRouting (withVmNetAgent, withVmNodeAgent)
@@ -147,20 +147,27 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
       case eNodeKey of
         Left err -> pure $ RespError err
         Right nodeKey -> do
-          hasVsock <- hostHasVhostVsock
-          eVmId <-
-            if not hasVsock
-              then do
-                vmId <- runSqlPool (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart Nothing) pool
-                pure $ Right vmId
-              else do
-                -- Allocate + persist the CID atomically (under ssVsockCidLock)
-                -- so concurrent vm.create / vm.start handlers never pick the
-                -- same CID and race at QEMU bind time.
-                withAllocatedVsockCid state $ \cid ->
+          -- Try to allocate a CID via the target node's agent.
+          -- A 'Left' here typically means the agent's host has no
+          -- vhost-vsock support (or the agent is unreachable);
+          -- fall back to creating the VM with vsockCid = Nothing
+          -- — QEMU will start without a vhost-vsock-pci device
+          -- and operators just lose the @ssh user\@vsock/CID@
+          -- shortcut for that VM.
+          eVmId <- do
+            r <-
+              withAllocatedVsockCid state nodeKey $ \cid ->
+                runSqlPool
+                  (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart (Just cid))
+                  pool
+            case r of
+              Right vmId -> pure (Right vmId)
+              Left _ -> do
+                vmId <-
                   runSqlPool
-                    (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart (Just cid))
+                    (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart Nothing)
                     pool
+                pure (Right vmId)
           case eVmId of
             Left err -> pure $ RespError err
             Right vmId -> do
@@ -398,22 +405,30 @@ launchVmViaAgent state vmId vm pool = do
 ensureFreeVsockCid :: ServerState -> Int64 -> Vm -> IO (Either Text Int)
 ensureFreeVsockCid state vmId vm = do
   let pool = ssDbPool state
-  hasVsock <- hostHasVhostVsock
-  if not hasVsock
-    then -- Host has no vhost_vsock kernel module; the VM's QEMU args
-    -- skip the vhost-vsock-pci device entirely. Returning a bogus
-    -- CID is fine because the caller only inspects Left vs Right.
-      pure (Right 0)
-    else case vmVsockCid vm of
-      Nothing -> reallocate pool
-      Just cid -> do
-        free <- isHostFree cid
-        if free
-          then pure (Right cid)
-          else reallocate pool
+      nid = vmNodeId vm
+  -- Re-probe via the node's agent. If the agent isn't reachable
+  -- the call returns Left, which propagates as "vmStart can't
+  -- check vsock"; the caller already routes 'Left' into
+  -- 'VmError' with a clear message.
+  case vmVsockCid vm of
+    Nothing -> reallocate pool nid
+    Just cid -> do
+      r <- probeViaAgent nid cid
+      if r
+        then pure (Right cid)
+        else reallocate pool nid
   where
-    reallocate pool =
-      withAllocatedVsockCid state $ \newCid -> do
+    probeViaAgent nid cid = do
+      mAgent <- lookupNodeAgent state nid
+      case mAgent of
+        Left _ -> pure False
+        Right nac -> do
+          res <- NOA.probeVsockCid nac cid
+          pure $ case res of
+            Right b -> b
+            Left _ -> False
+    reallocate pool nid =
+      withAllocatedVsockCid state nid $ \newCid -> do
         runSqlPool (update (toSqlKey vmId :: VmId) [M.VmVsockCid =. Just newCid]) pool
         pure newCid
 

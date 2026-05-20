@@ -24,6 +24,9 @@ module Corvus.Types
   , reservedRamFor
   , clearReservation
 
+    -- * Per-node serialisation locks
+  , vsockCidLockFor
+
     -- * Socket Buffer Types
   , SocketBuffer (..)
   , SocketBufferHandle (..)
@@ -42,7 +45,7 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
 import Control.Concurrent.Async (Async)
 import Control.Concurrent.MVar (MVar, newMVar)
-import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newTVarIO, readTVarIO)
+import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
 import qualified Corvus.Model as M
 import Corvus.NetAgentClient (NetAgentClient)
@@ -96,13 +99,12 @@ data ServerState = ServerState
   -- The Action runtime pushes a 'TaskProgressEvent' to each
   -- sink at task transitions (started / finished); dead sinks
   -- are pruned on the next push attempt.
-  , ssVsockCidLock :: !(MVar ())
-  -- ^ Serialises VSOCK CID allocation across concurrent VM
-  -- create/start handlers. The allocator reads the DB, picks a
-  -- candidate, probes the host kernel, then the caller persists
-  -- the result — all of that has to be atomic within the daemon
-  -- or two parallel handlers race onto the same CID and one
-  -- QEMU process fails with EADDRINUSE. See
+  , ssVsockCidLocks :: TVar (Map.Map M.NodeId (MVar ()))
+  -- ^ Per-node VSOCK CID allocation serialisation. The
+  -- allocator picks a candidate, asks the matching node's
+  -- agent to probe its kernel, then the caller persists — all
+  -- atomic within the daemon for that node. Two parallel
+  -- handlers targeting *different* nodes don't contend. See
   -- 'Corvus.Node.VsockCid.withAllocatedVsockCid'.
   , ssSpicePortLock :: !(MVar ())
   -- ^ Serialises SPICE TCP-port allocation. Same shape as
@@ -151,7 +153,7 @@ newServerState pool qemuConfig = do
   agents <- newTVarIO Map.empty
   gaSubs <- newTVarIO Map.empty
   taskSubs <- newTVarIO Map.empty
-  vsockLock <- newMVar ()
+  vsockLocks <- newTVarIO Map.empty
   spiceLock <- newMVar ()
   reservedRam <- newTVarIO Map.empty
   pure
@@ -165,7 +167,7 @@ newServerState pool qemuConfig = do
       , ssAgents = agents
       , ssGuestAgentSubs = gaSubs
       , ssTaskProgressSubs = taskSubs
-      , ssVsockCidLock = vsockLock
+      , ssVsockCidLocks = vsockLocks
       , ssSpicePortLock = spiceLock
       , ssReservedRam = reservedRam
       }
@@ -291,6 +293,29 @@ clearReservation :: ServerState -> M.NodeId -> IO ()
 clearReservation state nid =
   atomically $
     modifyTVar' (ssReservedRam state) (Map.delete nid)
+
+-- | Get the per-node vsock CID allocation 'MVar', lazily
+-- creating it the first time a caller asks. The lock is held
+-- across the candidate-pick + agent-probe + DB-persist window
+-- so concurrent allocations on the *same* node never collide;
+-- different nodes don't contend at all.
+vsockCidLockFor :: ServerState -> M.NodeId -> IO (MVar ())
+vsockCidLockFor state nid = do
+  m <- readTVarIO (ssVsockCidLocks state)
+  case Map.lookup nid m of
+    Just lk -> pure lk
+    Nothing -> do
+      lk <- newMVar ()
+      -- Race: a concurrent caller may have created their own
+      -- lock by the time we go to install ours. Re-check inside
+      -- the STM transaction and keep whichever lock wins.
+      atomically $ do
+        m' <- readTVar (ssVsockCidLocks state)
+        case Map.lookup nid m' of
+          Just existing -> pure existing
+          Nothing -> do
+            writeTVar (ssVsockCidLocks state) (Map.insert nid lk m')
+            pure lk
 
 --------------------------------------------------------------------------------
 -- Socket Buffer Types
