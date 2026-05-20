@@ -13,7 +13,7 @@ Type=simple
 User=corvus
 Group=corvus
 SupplementaryGroups=kvm
-# Match the daemon's `corvus-test.service` runtime directory.
+# Match the daemon's `corvus.service` runtime directory.
 # The agent computes per-VM QEMU socket paths from XDG_RUNTIME_DIR;
 # without this the daemon's surviving direct-QMP calls (disk
 # hotplug, build key injection, send-ctrl-alt-del) miss the

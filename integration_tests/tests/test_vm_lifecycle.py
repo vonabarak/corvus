@@ -97,7 +97,7 @@ class TestVmLifecycle(SingleNodeCase):
         Implicitly verifies every layer of the harness:
           - outer Corvus created the VM from our template
           - virtiofs mounted the host stack-install dir at /opt/corvus/bin
-          - systemd's corvus-test.service ExecStarted the inner daemon
+          - systemd's corvus.service ExecStarted the inner daemon
           - corvus-tcp-relay.service forwarded VSOCK ↔ TCP
           - the host's socat relay bridged the host TCP socket
           - pycapnp completed the bootstrap handshake against the inner

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-# The TCP port the inner daemon binds; matches corvus-test.service
+# The TCP port the inner daemon binds; matches corvus.service
 # inside the test image. Same number is used as the VSOCK port.
 INNER_DAEMON_TCP_PORT = 9876
 

@@ -32,15 +32,13 @@ from .runner import NodeShellRunner
 from .ssh import NodeShell
 
 
-# systemd unit names used inside the corvus-test-node image (see
-# `yaml/corvus-test-node/systemd/`). The daemon unit is named
-# `corvus-test.service` historically (to distinguish from the
-# user-systemd `corvus.service` a developer's `make install` drops
-# in `~/.config/systemd/user/`); the agent units match
-# production naming.
-TEST_DAEMON_UNIT = "corvus-test.service"
-TEST_NODE_AGENT_UNIT = "corvus-nodeagent.service"
-TEST_NETD_UNIT = "corvus-netd.service"
+# systemd unit names match the production install (see
+# `yaml/corvus-test-node/systemd/` and `systemd/`). corvus-admin's
+# deploy helpers default to these names so the harness doesn't
+# need to override them.
+DAEMON_UNIT = "corvus.service"
+NODE_AGENT_UNIT = "corvus-nodeagent.service"
+NETD_UNIT = "corvus-netd.service"
 
 
 @dataclass
@@ -155,26 +153,20 @@ def deploy_full_stack(
     # StartLimit hold (a typical first-boot symptom before all
     # certs are in place), clear that state up front so the
     # enable --now calls below see a clean slate.
-    _reset_failed(
-        runner,
-        TEST_DAEMON_UNIT,
-        TEST_NODE_AGENT_UNIT,
-        TEST_NETD_UNIT,
-    )
+    _reset_failed(runner, DAEMON_UNIT, NODE_AGENT_UNIT, NETD_UNIT)
     # Deploy in dependency order — netd first, then nodeagent,
-    # then the daemon. ``corvus-test.service`` Wants both agents,
-    # so enabling the daemon early would trigger systemd to
-    # start the agents *before* their certs are in place,
-    # crash-loop them, and hit StartLimitBurst within 10s. By
-    # ordering netd → nodeagent → daemon, each unit has its
-    # cert when systemd tries to start it.
+    # then the daemon. ``corvus.service`` Wants both agents, so
+    # enabling the daemon early would trigger systemd to start
+    # the agents *before* their certs are in place, crash-loop
+    # them, and hit StartLimitBurst within 10s. By ordering
+    # netd → nodeagent → daemon, each unit has its cert when
+    # systemd tries to start it.
     deploy.deploy_netd(
         ca_ctx.store,
         runner,
         name=node_name,
         ip=node_ip,
         user_service=False,
-        service_unit=TEST_NETD_UNIT,
     )
     deploy.deploy_node(
         ca_ctx.store,
@@ -182,14 +174,12 @@ def deploy_full_stack(
         name=node_name,
         ip=node_ip,
         user_service=False,
-        service_unit=TEST_NODE_AGENT_UNIT,
     )
     deploy.deploy_daemon(
         ca_ctx.store,
         runner,
         listen_ip=node_ip,
         user_service=False,
-        service_unit=TEST_DAEMON_UNIT,
     )
     return _write_host_cert_dir(ca_ctx, host_cert_root, node_name)
 
@@ -212,7 +202,7 @@ def deploy_agents_only(
     """
 
     runner = NodeShellRunner(shell, label=f"vsock:{node_name}")
-    _reset_failed(runner, TEST_NODE_AGENT_UNIT, TEST_NETD_UNIT)
+    _reset_failed(runner, NODE_AGENT_UNIT, NETD_UNIT)
     # netd first; nodeagent has no Wants on netd but ordering by
     # dependency keeps both deploy paths symmetric.
     deploy.deploy_netd(
@@ -221,7 +211,6 @@ def deploy_agents_only(
         name=node_name,
         ip=node_ip,
         user_service=False,
-        service_unit=TEST_NETD_UNIT,
     )
     deploy.deploy_node(
         ca_ctx.store,
@@ -229,7 +218,6 @@ def deploy_agents_only(
         name=node_name,
         ip=node_ip,
         user_service=False,
-        service_unit=TEST_NODE_AGENT_UNIT,
     )
 
 
@@ -240,7 +228,7 @@ def deploy_agents_only(
 def _reset_failed(runner: NodeShellRunner, *units: str) -> None:
     """``systemctl reset-failed`` for *units*. No-ops cleanly when
     a unit isn't actually in the failed state. We do this before
-    the first enable in a deploy pass because corvus-test.service
+    the first enable in a deploy pass because ``corvus.service``
     Wants both agents — even with the units installed-but-not-
     enabled at image-bake time, an earlier deploy iteration that
     crashed could have left ``corvus-netd.service`` in StartLimit

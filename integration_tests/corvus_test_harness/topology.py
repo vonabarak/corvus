@@ -556,7 +556,7 @@ class Topology:
         # A silently-empty drives / net_ifs / sharedDirs list means the
         # YAML structure was wrong and apply succeeded vacuously; the
         # node would otherwise boot without a Corvus binary mount and
-        # the systemd corvus-test.service `RequiresMountsFor` check would
+        # the systemd corvus.service `RequiresMountsFor` check would
         # fail without a hint. Fail loudly here instead.
         # NB: `crv vm show` deliberately omits sharedDirs (the
         # protocol-side VmDetails record doesn't carry them), so we

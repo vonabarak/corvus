@@ -211,8 +211,8 @@ pipeline:
             to: /etc/systemd/system/home-corvus-VMs-BaseImages.mount
             mode: "0644"
         - file:
-            from: ./systemd/corvus-test.service
-            to: /etc/systemd/system/corvus-test.service
+            from: ./systemd/corvus.service
+            to: /etc/systemd/system/corvus.service
             mode: "0644"
         - file:
             from: ./systemd/corvus-netd.service
@@ -240,7 +240,7 @@ pipeline:
               # images without touching the host's tree.
               systemctl enable run-baseimages-lower.mount
               systemctl enable home-corvus-VMs-BaseImages.mount
-              # corvus-{netd,nodeagent,test}.service are installed but
+              # corvus-{netd,nodeagent}.service + corvus.service are installed but
               # NOT enabled here. The integration-test harness drives
               # `corvus-admin deploy …` over SSH-over-VSOCK on every
               # test class, drops the mTLS cert trio into /etc/corvus,
@@ -288,8 +288,8 @@ pipeline:
               fi
 
               alias crv='/opt/corvus/bin/crv --tcp'
-              alias crv-log='journalctl -u corvus-test -f --since "5 min ago"'
-              alias crv-status='systemctl status --no-pager corvus-test'
+              alias crv-log='journalctl -u corvus -f --since "5 min ago"'
+              alias crv-status='systemctl status --no-pager corvus'
               alias crv-psql='psql -U corvus corvus'
               # Show every corvus-spawned process (qemu, virtiofsd, dnsmasq).
               alias crv-procs='pgrep -af "[c]orvus|[q]emu-system|[v]irtiofsd|[d]nsmasq" | sort'
@@ -336,7 +336,7 @@ pipeline:
               # /etc/corvus is the system-install cert dir
               # (Corvus.Tls.defaultCertSearchPath looks there first).
               # The harness drops the mTLS cert trio in here before
-              # enabling corvus-test.service. Pre-creating it owned
+              # enabling corvus.service. Pre-creating it owned
               # by corvus:corvus means the harness's deploy step
               # doesn't need root to `install -m 0644 ca.crt …`.
               install -d -m 0755 -o corvus -g corvus /etc/corvus

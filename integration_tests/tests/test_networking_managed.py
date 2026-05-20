@@ -418,7 +418,7 @@ class TestManagedNetworking(SingleNodeCase):
                 r.stdout.strip().splitlines()[0] if r.returncode == 0 else b""
             )
 
-            node.run("sudo systemctl restart corvus-test.service")
+            node.run("sudo systemctl restart corvus.service")
             for _ in range(60):
                 r = node.run("ss -ltn | grep -q ':9876 '", check=False)
                 if r.returncode == 0:

@@ -73,17 +73,12 @@ def deploy_daemon(
     listen_ip: str | None,
     user_service: bool = False,
     reuse_uuid: str | None = None,
-    service_unit: str = "corvus.service",
 ) -> DeployPlan:
     """Mint a daemon cert (CN ``corvus-daemon:<uuid>``) and deploy
     it to *runner*'s target. The UUID is fresh each call unless
     *reuse_uuid* is passed; rotating the daemon's identity by
     accident would orphan every node row, so the CLI surfaces
     this as ``--rotate-identity``.
-
-    *service_unit* defaults to the production unit name; the
-    integration-test image keeps a distinct ``corvus-test.service``
-    name and threads its own value through here.
     """
 
     if reuse_uuid is not None:
@@ -102,7 +97,7 @@ def deploy_daemon(
         name=daemon_uuid,
         target=runner.label,
         user_service=user_service,
-        service_unit=service_unit,
+        service_unit="corvus.service",
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
     _systemd_restart(runner, plan)
@@ -122,7 +117,6 @@ def deploy_node(
     name: str,
     ip: str | None,
     user_service: bool = False,
-    service_unit: str = "corvus-nodeagent.service",
 ) -> DeployPlan:
     """Mint and deploy a ``corvus-node:<name>`` cert."""
 
@@ -137,7 +131,7 @@ def deploy_node(
         name=name,
         target=runner.label,
         user_service=user_service,
-        service_unit=service_unit,
+        service_unit="corvus-nodeagent.service",
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
     _systemd_restart(runner, plan)
@@ -157,7 +151,6 @@ def deploy_netd(
     name: str,
     ip: str | None,
     user_service: bool = False,
-    service_unit: str = "corvus-netd.service",
 ) -> DeployPlan:
     """Mint and deploy a ``corvus-netd:<name>`` cert."""
 
@@ -172,7 +165,7 @@ def deploy_netd(
         name=name,
         target=runner.label,
         user_service=user_service,
-        service_unit=service_unit,
+        service_unit="corvus-netd.service",
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
     _systemd_restart(runner, plan)

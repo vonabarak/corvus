@@ -2,7 +2,7 @@
 
 The integration tests run the freshly compiled inner Corvus by
 attaching the host's `stack install` bin directory to each test VM
-via virtiofs. The systemd unit `corvus-test.service` inside the VM
+via virtiofs. The systemd unit `corvus.service` inside the VM
 then ExecStarts `/opt/corvus/bin/corvus`.
 
 This module:
