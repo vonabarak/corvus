@@ -77,7 +77,7 @@ handleSnapshotCreate state diskId snapshotName =
                   if not (null runningVms)
                     then pure RespVmMustBeStopped
                     else do
-                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                      filePath <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) (toSqlKey diskId :: DiskImageId) nid
                       result <- liftIO $ createSnapshotViaAgent state nid filePath snapshotName
                       case result of
                         ImageSuccess -> do
@@ -134,7 +134,7 @@ handleSnapshotDelete state diskId snapRef = runServerLogging state $ do
                       case mSnapshot of
                         Nothing -> pure RespSnapshotNotFound
                         Just snapshot -> do
-                          filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                          filePath <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) (toSqlKey diskId :: DiskImageId) nid
                           result <- liftIO $ deleteSnapshotViaAgent state nid filePath (snapshotName snapshot)
                           case result of
                             ImageSuccess -> do
@@ -175,7 +175,7 @@ handleSnapshotRollback state diskId snapRef = runServerLogging state $ do
                       case mSnapshot of
                         Nothing -> pure RespSnapshotNotFound
                         Just snapshot -> do
-                          filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                          filePath <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) (toSqlKey diskId :: DiskImageId) nid
                           result <- liftIO $ rollbackSnapshotViaAgent state nid filePath (snapshotName snapshot)
                           case result of
                             ImageSuccess -> do
@@ -215,7 +215,7 @@ handleSnapshotMerge state diskId snapRef = runServerLogging state $ do
                       case mSnapshot of
                         Nothing -> pure RespSnapshotNotFound
                         Just snapshot -> do
-                          filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                          filePath <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) (toSqlKey diskId :: DiskImageId) nid
                           result <- liftIO $ mergeSnapshotViaAgent state nid filePath (snapshotName snapshot)
                           case result of
                             ImageSuccess -> do

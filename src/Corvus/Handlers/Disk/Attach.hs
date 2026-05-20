@@ -21,7 +21,7 @@ module Corvus.Handlers.Disk.Attach
 where
 
 import Corvus.Action
-import Corvus.Handlers.Disk.Db (getOverlayIds)
+import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor, getOverlayIds)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
 
 import Control.Monad.IO.Class (liftIO)
@@ -65,65 +65,97 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
       case mVm of
         Nothing -> pure RespVmNotFound
         Just vm -> do
-          -- Check if disk is used as backing image for overlays
-          -- We only allow attaching base images as read-only.
-          overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) (ssDbPool state)
-          if not (null overlayIds) && not readOnly
-            then pure $ RespDiskHasOverlays overlayIds
-            else do
-              -- Create drive record (unique constraint: one drive per VM+disk pair)
-              mDriveId <-
-                liftIO $
-                  runSqlPool
-                    ( insertUnique
-                        Drive
-                          { driveVmId = toSqlKey vmId
-                          , driveDiskImageId = toSqlKey diskId
-                          , driveInterface = interface
-                          , driveMedia = media
-                          , driveReadOnly = readOnly
-                          , driveCacheType = cache
-                          , driveDiscard = discard
-                          }
-                    )
-                    (ssDbPool state)
-              case mDriveId of
-                Nothing -> pure $ RespError "Disk is already attached to this VM"
-                Just driveId -> do
-                  -- If VM is running or paused, hot-plug via the
-                  -- agent's `vmAttachDrive` RPC (the agent owns
-                  -- the QMP socket; the daemon can't connect to
-                  -- it from an unprivileged uid).
-                  if vmStatus vm `elem` [VmRunning, VmPaused]
-                    then do
-                      logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-plug"
-                      filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                      let driveIdInt = fromSqlKey driveId
-                          fmtTxt = enumToText (diskImageFormat disk)
-                          ifTxt = enumToText interface
-                      outer <- liftIO $ withVmNodeAgent state vmId $ \nac ->
-                        NOA.vmAttachDrive
-                          nac
-                          vmId
-                          driveIdInt
-                          (T.pack filePath)
-                          fmtTxt
-                          ifTxt
-                          readOnly
-                      case outer of
-                        Left err -> do
-                          liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                          pure $ RespError err
-                        Right r -> case r of
-                          Right () -> do
-                            logInfoN "Hot-plug successful"
-                            pure $ RespDiskAttached driveIdInt
-                          Left e -> do
-                            liftIO $ runSqlPool (delete driveId) (ssDbPool state)
-                            pure $ RespError $ "vmAttachDrive: " <> T.pack (show e)
-                    else do
-                      logInfoN "VM is not active, disk attached to database only"
-                      pure $ RespDiskAttached $ fromSqlKey driveId
+          -- Same-node invariant: the disk image must have a
+          -- 'DiskImageNode' row pinning it to the VM's node.
+          -- Without that, qemu on the VM's host has no file to
+          -- open. Refuse with a clear message naming both sides
+          -- so the operator can rsync + 'crv disk register
+          -- --node <vm-node>' (or pick a VM on the right node).
+          mPlacement <-
+            liftIO $
+              runSqlPool
+                ( diskImageNodeFilePathFor
+                    (toSqlKey diskId)
+                    (vmNodeId vm)
+                )
+                (ssDbPool state)
+          case mPlacement of
+            Nothing ->
+              pure $
+                RespError $
+                  "Disk image '"
+                    <> diskImageName disk
+                    <> "' is not present on node "
+                    <> T.pack (show (fromSqlKey (vmNodeId vm)))
+                    <> " where VM '"
+                    <> vmName vm
+                    <> "' lives"
+            Just _ -> do
+              -- Check if disk is used as backing image for overlays
+              -- We only allow attaching base images as read-only.
+              overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) (ssDbPool state)
+              if not (null overlayIds) && not readOnly
+                then pure $ RespDiskHasOverlays overlayIds
+                else do
+                  -- Create drive record (unique constraint: one drive per VM+disk pair)
+                  mDriveId <-
+                    liftIO $
+                      runSqlPool
+                        ( insertUnique
+                            Drive
+                              { driveVmId = toSqlKey vmId
+                              , driveDiskImageId = toSqlKey diskId
+                              , driveInterface = interface
+                              , driveMedia = media
+                              , driveReadOnly = readOnly
+                              , driveCacheType = cache
+                              , driveDiscard = discard
+                              }
+                        )
+                        (ssDbPool state)
+                  case mDriveId of
+                    Nothing -> pure $ RespError "Disk is already attached to this VM"
+                    Just driveId -> do
+                      -- If VM is running or paused, hot-plug via the
+                      -- agent's `vmAttachDrive` RPC (the agent owns
+                      -- the QMP socket; the daemon can't connect to
+                      -- it from an unprivileged uid).
+                      if vmStatus vm `elem` [VmRunning, VmPaused]
+                        then do
+                          logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-plug"
+                          filePath <-
+                            liftIO $
+                              resolveDiskPath
+                                (ssDbPool state)
+                                (ssQemuConfig state)
+                                (toSqlKey diskId)
+                                (vmNodeId vm)
+                          let driveIdInt = fromSqlKey driveId
+                              fmtTxt = enumToText (diskImageFormat disk)
+                              ifTxt = enumToText interface
+                          outer <- liftIO $ withVmNodeAgent state vmId $ \nac ->
+                            NOA.vmAttachDrive
+                              nac
+                              vmId
+                              driveIdInt
+                              (T.pack filePath)
+                              fmtTxt
+                              ifTxt
+                              readOnly
+                          case outer of
+                            Left err -> do
+                              liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                              pure $ RespError err
+                            Right r -> case r of
+                              Right () -> do
+                                logInfoN "Hot-plug successful"
+                                pure $ RespDiskAttached driveIdInt
+                              Left e -> do
+                                liftIO $ runSqlPool (delete driveId) (ssDbPool state)
+                                pure $ RespError $ "vmAttachDrive: " <> T.pack (show e)
+                        else do
+                          logInfoN "VM is not active, disk attached to database only"
+                          pure $ RespDiskAttached $ fromSqlKey driveId
 
 -- | Detach a disk from a VM by disk image ID (looks up drive via UniqueDrive constraint).
 handleDiskDetach :: ServerState -> Int64 -> Int64 -> IO Response

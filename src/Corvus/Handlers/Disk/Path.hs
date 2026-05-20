@@ -17,10 +17,14 @@ where
 
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
+import qualified Corvus.Model as M
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Data.List (isPrefixOf, isSuffixOf)
+import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Database.Persist (Entity (..), getBy)
+import Database.Persist.Postgresql (SqlBackend, runSqlPool)
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (isRelative, takeDirectory, (</>))
 
@@ -41,15 +45,26 @@ sanitizeDiskName name
       T.replace ".." "" $
         T.filter (`notElem` ['/', '\\', '\0']) name
 
--- | Resolve a disk image file path, handling relative paths.
--- Relative paths (not starting with @\/@) are resolved against the base path.
--- TODO(multi-node Phase 3): file path moved to 'DiskImageNode';
--- this helper either gains a 'NodeId' parameter or is deleted in
--- favour of callers reading the join row directly.
-resolveDiskPath :: QemuConfig -> DiskImage -> IO FilePath
-resolveDiskPath config _disk = do
+-- | Resolve a disk image file path for a specific node by
+-- reading the matching 'DiskImageNode' row. Relative paths
+-- (not starting with @\/@) are resolved against the daemon's
+-- base directory. Returns the empty string if no placement
+-- exists for @(diskId, nodeId)@ — callers that hit this case
+-- should treat it as a clear bug (the same-node invariant
+-- check should have rejected the request earlier).
+resolveDiskPath
+  :: Pool SqlBackend -> QemuConfig -> DiskImageId -> NodeId -> IO FilePath
+resolveDiskPath pool config diskId nodeId = do
   basePath <- getEffectiveBasePath config
-  pure (basePath </> "")
+  mRow <- runSqlPool (getBy (M.UniqueDiskImageOnNode diskId nodeId)) pool
+  case mRow of
+    Nothing -> pure ""
+    Just (Entity _ row) ->
+      let stored = T.unpack (diskImageNodeFilePath row)
+       in pure $
+            if "/" `isPrefixOf` stored
+              then stored
+              else basePath </> stored
 
 -- | Convert an absolute file path to a relative path if it falls within
 -- the base directory. Paths outside the base directory are returned as-is.

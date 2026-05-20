@@ -44,7 +44,7 @@ import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printField, printTable)
 import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
-import Corvus.Protocol (DiskImageInfo (..), SnapshotInfo (..))
+import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), SnapshotInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Corvus.Wire.Enums (toCapnpDriveFormat)
 import Data.Aeson (toJSON)
@@ -440,7 +440,20 @@ printDiskDetails :: DiskImageInfo -> IO ()
 printDiskDetails d = do
   printField "Disk ID" (show (diiId d))
   printField "Name" (T.unpack (diiName d))
-  printField "File Path" (T.unpack (diiFilePath d))
+  -- Per-node placements: render one "<node>: <path>" line per
+  -- placement, or @(none)@ when an image has been registered
+  -- without an on-disk file yet.
+  printField
+    "Placements"
+    ( if null (diiPlacements d)
+        then "(none)"
+        else
+          T.unpack $
+            T.intercalate "; " $
+              map
+                (\p -> dipNodeName p <> ": " <> dipFilePath p)
+                (diiPlacements d)
+    )
   printField "Format" (T.unpack (enumToText $ diiFormat d))
   printField "Size (MB)" (maybe "(unknown)" show (diiSizeMb d))
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d))

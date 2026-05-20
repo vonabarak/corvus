@@ -1,3 +1,4 @@
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- | Cap'n Proto conversion for disk and snapshot info structs.
@@ -26,7 +27,7 @@ toCapnpDiskImageInfo P.DiskImageInfo {..} =
   CGDisk.DiskImageInfo
     { CGDisk.id = diiId
     , CGDisk.name = diiName
-    , CGDisk.filePath = diiFilePath
+    , CGDisk.placements = map mkPlacement diiPlacements
     , CGDisk.format = toCapnpDriveFormat diiFormat
     , CGDisk.sizeMb = maybe 0 fromIntegral diiSizeMb
     , CGDisk.createdAt = utcTimeToNanos diiCreatedAt
@@ -37,6 +38,12 @@ toCapnpDiskImageInfo P.DiskImageInfo {..} =
   where
     mkAttachment (vid, vname) =
       CGDisk.DiskAttachment {CGDisk.vmId = vid, CGDisk.vmName = vname}
+    mkPlacement p =
+      CGDisk.DiskImagePlacement
+        { CGDisk.nodeId = P.dipNodeId p
+        , CGDisk.nodeName = P.dipNodeName p
+        , CGDisk.filePath = P.dipFilePath p
+        }
 
 fromCapnpDiskImageInfo :: C.Parsed CGDisk.DiskImageInfo -> Either WireError P.DiskImageInfo
 fromCapnpDiskImageInfo CGDisk.DiskImageInfo {..} = do
@@ -45,7 +52,16 @@ fromCapnpDiskImageInfo CGDisk.DiskImageInfo {..} = do
     P.DiskImageInfo
       { P.diiId = id
       , P.diiName = name
-      , P.diiFilePath = filePath
+      , P.diiPlacements =
+          [ case p of
+            CGDisk.DiskImagePlacement {CGDisk.nodeId = nid, CGDisk.nodeName = nm, CGDisk.filePath = fp} ->
+              P.DiskImagePlacement
+                { P.dipNodeId = nid
+                , P.dipNodeName = nm
+                , P.dipFilePath = fp
+                }
+          | p <- placements
+          ]
       , P.diiFormat = format'
       , P.diiSizeMb = if sizeMb == 0 then Nothing else Just (fromIntegral sizeMb)
       , P.diiCreatedAt = nanosToUtcTime createdAt

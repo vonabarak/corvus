@@ -36,6 +36,7 @@ import Data.Pool (Pool)
 import qualified Data.Text as T
 import Data.Word (Word32)
 import Database.Persist (Entity (..), get, selectList, (==.))
+import qualified Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlBackend, fromSqlKey, toSqlKey)
 import qualified Database.Persist.Sql
@@ -69,13 +70,16 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
     Nothing -> pure Nothing
     Just vm -> do
       basePath <- getEffectiveBasePath config
+      let vmNode = vmNodeId vm
       (drives, netIfs, sharedDirs) <-
         runSqlPool
           ( do
               ds <- selectList [M.DriveVmId ==. vmKey] []
               nIfs <- selectList [M.NetworkInterfaceVmId ==. vmKey] []
               sds <- selectList [M.SharedDirVmId ==. vmKey] []
-              dimg <- mapM fetchDriveWithImage ds
+              -- For every drive: load both the DiskImage row and
+              -- its per-node placement on this VM's node.
+              dimg <- mapM (fetchDriveWithImage vmNode) ds
               pure (dimg, nIfs, sds)
           )
           pool
@@ -83,8 +87,8 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
       -- TAP and substitute the resolved ifname.
       resolvedNetIfs <- mapM (resolveNetIf mNetAgent) netIfs
       let driveSpecs =
-            [ encodeDriveSpec basePath drive di
-            | (drive, Just di) <- drives
+            [ encodeDriveSpec basePath drive di placement
+            | (drive, Just di, Just placement) <- drives
             ]
           netIfSpecs = map encodeNetIfSpec resolvedNetIfs
           sharedDirSpecs = map (encodeSharedDirSpec . entityVal) sharedDirs
@@ -106,24 +110,35 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
               }
       pure (Just spec)
 
--- | Load the 'DiskImage' row each 'Drive' references.
+-- | Load the 'DiskImage' row and the per-node placement
+-- ('DiskImageNode'.filePath) each 'Drive' references. The
+-- placement is keyed on the VM's node; missing placements
+-- surface as 'Nothing' (the same-node attach check should have
+-- caught the inconsistency, so reaching here with 'Nothing'
+-- means an operator hand-edited the DB).
 fetchDriveWithImage
-  :: Entity Drive
-  -> Database.Persist.Sql.SqlPersistT IO (Drive, Maybe M.DiskImage)
-fetchDriveWithImage (Entity _ drive) = do
+  :: M.NodeId
+  -> Entity Drive
+  -> Database.Persist.Sql.SqlPersistT IO (Drive, Maybe M.DiskImage, Maybe T.Text)
+fetchDriveWithImage vmNode (Entity _ drive) = do
   mImg <- get (driveDiskImageId drive)
-  pure (drive, mImg)
+  mPath <-
+    Database.Persist.getBy
+      (M.UniqueDiskImageOnNode (driveDiskImageId drive) vmNode)
+  let placementPath = fmap (M.diskImageNodeFilePath . entityVal) mPath
+  pure (drive, mImg, placementPath)
 
--- | Encode a (Drive, DiskImage) pair as 'VS.VmDriveSpec'. The
--- resulting @vdsDiskFilePath@ is an absolute host path (relative
--- DB paths are resolved against @basePath@).
-encodeDriveSpec :: FilePath -> Drive -> M.DiskImage -> VS.VmDriveSpec
-encodeDriveSpec basePath drive img =
-  -- TODO(multi-node Phase 3): resolve the file path from the
-  -- 'DiskImageNode' join keyed by (img, vm.nodeId). For now emit
-  -- empty so the daemon compiles; vmStart will fail loudly if
-  -- reached.
-  let absPath = basePath </> ""
+-- | Encode a (Drive, DiskImage, placement-path) triple as
+-- 'VS.VmDriveSpec'. The resulting @vdsDiskFilePath@ is an
+-- absolute host path (relative DB paths are resolved against
+-- @basePath@).
+encodeDriveSpec :: FilePath -> Drive -> M.DiskImage -> T.Text -> VS.VmDriveSpec
+encodeDriveSpec basePath drive img placement =
+  let raw = T.unpack placement
+      absPath =
+        if take 1 raw == "/"
+          then raw
+          else basePath </> raw
    in VS.VmDriveSpec
         { VS.vdsDiskFilePath = T.pack absPath
         , VS.vdsFormat = enumToText (M.diskImageFormat img)

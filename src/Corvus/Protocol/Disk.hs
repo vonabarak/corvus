@@ -3,6 +3,7 @@
 -- | Disk and snapshot response data.
 module Corvus.Protocol.Disk
   ( DiskImageInfo (..)
+  , DiskImagePlacement (..)
   , SnapshotInfo (..)
   )
 where
@@ -15,11 +16,28 @@ import Data.Text (Text)
 import Data.Time (UTCTime)
 import GHC.Generics (Generic)
 
+-- | Per-node placement of a logical disk image — the on-disk
+-- @file_path@ on a specific node. A logical 'DiskImage' may
+-- have zero, one, or many placements (zero is unusual but
+-- possible while an import is in flight; multi is the
+-- intentional state once Phase 3 ships and an operator has
+-- replicated an image via @rsync@ + @crv disk register@).
+data DiskImagePlacement = DiskImagePlacement
+  { dipNodeId :: !Int64
+  , dipNodeName :: !Text
+  , dipFilePath :: !Text
+  }
+  deriving (Eq, Show, Generic)
+
 -- | Disk image info for list/show view
 data DiskImageInfo = DiskImageInfo
   { diiId :: !Int64
   , diiName :: !Text
-  , diiFilePath :: !Text
+  , diiPlacements :: ![DiskImagePlacement]
+  -- ^ Per-node placements: where the on-disk file actually
+  -- lives. Multi-node deployments have one entry per node the
+  -- image has been replicated to; single-node deployments have
+  -- exactly one entry.
   , diiFormat :: !DriveFormat
   , diiSizeMb :: !(Maybe Int)
   , diiCreatedAt :: !UTCTime
@@ -42,6 +60,9 @@ data SnapshotInfo = SnapshotInfo
   deriving (Eq, Show, Generic)
 
 instance ToJSON DiskImageInfo where
+  toJSON = genericToJSON innerOptions
+
+instance ToJSON DiskImagePlacement where
   toJSON = genericToJSON innerOptions
 
 instance ToJSON SnapshotInfo where

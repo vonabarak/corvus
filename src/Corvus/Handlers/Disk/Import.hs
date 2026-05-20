@@ -39,6 +39,7 @@ import Corvus.Handlers.Disk.Agent
   , getImageSizeMbViaAgent
   , md5HashFileViaAgent
   )
+import Corvus.Handlers.Disk.Db (recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, sanitizeDiskName)
 import Corvus.Handlers.Resolve (validateName)
 
@@ -179,18 +180,21 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
       sizeMb <- liftIO $ getImageSizeMbViaAgent state' nid diskPath
       now <- liftIO getCurrentTime
       let storedPath = makeRelativeToBase basePath diskPath
-      let _ = storedPath -- TODO(multi-node Phase 3): record in DiskImageNode for the importing node
       diskId <-
         liftIO $
           runSqlPool
-            ( insert
-                DiskImage
-                  { diskImageName = safeName
-                  , diskImageFormat = format
-                  , diskImageSizeMb = sizeMb
-                  , diskImageCreatedAt = now
-                  , diskImageBackingImageId = Nothing
-                  }
+            ( do
+                dkey <-
+                  insert
+                    DiskImage
+                      { diskImageName = safeName
+                      , diskImageFormat = format
+                      , diskImageSizeMb = sizeMb
+                      , diskImageCreatedAt = now
+                      , diskImageBackingImageId = Nothing
+                      }
+                recordDiskImageNode dkey nid storedPath
+                pure dkey
             )
             (ssDbPool state')
       logInfoN $ "Imported disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
@@ -250,21 +254,23 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
           case fetchResult of
             Left err -> pure $ Left err
             Right diskPath -> do
-              let _storedPath = makeRelativeToBase basePath diskPath
-              -- TODO(multi-node Phase 3): record _storedPath in
-              -- DiskImageNode for the importing node.
+              let storedPath = makeRelativeToBase basePath diskPath
               sizeMb <- getImageSizeMbViaAgent state nid diskPath
               now <- getCurrentTime
               diskId <-
                 runSqlPool
-                  ( insert
-                      DiskImage
-                        { diskImageName = safeName
-                        , diskImageFormat = format
-                        , diskImageSizeMb = sizeMb
-                        , diskImageCreatedAt = now
-                        , diskImageBackingImageId = Nothing
-                        }
+                  ( do
+                      dkey <-
+                        insert
+                          DiskImage
+                            { diskImageName = safeName
+                            , diskImageFormat = format
+                            , diskImageSizeMb = sizeMb
+                            , diskImageCreatedAt = now
+                            , diskImageBackingImageId = Nothing
+                            }
+                      recordDiskImageNode dkey nid storedPath
+                      pure dkey
                   )
                   (ssDbPool state)
               pure $ Right $ fromSqlKey diskId

@@ -22,6 +22,13 @@ module Corvus.Handlers.Disk.Db
   , listDiskImages
   , getDiskImageInfo
   , getSnapshots
+
+    -- * DiskImageNode placement
+  , recordDiskImageNode
+  , diskImageNodeFor
+  , diskImageNodeFilePathFor
+  , listDiskImageNodes
+  , deleteDiskImageNodeRow
   )
 where
 
@@ -30,6 +37,7 @@ import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Data.Int (Int64)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Sql (SqlPersistT)
@@ -89,6 +97,23 @@ getBackingImageName (Just backingKey) = do
   mBacking <- get backingKey
   pure $ fmap diskImageName mBacking
 
+-- | Resolve placements for one disk: every 'DiskImageNode' row
+-- joined with the matching 'Node' name so the DTO carries
+-- human-friendly node labels instead of raw ids.
+placementsFor :: DiskImageId -> SqlPersistT IO [DiskImagePlacement]
+placementsFor diskId = do
+  rows <- selectList [M.DiskImageNodeDiskImageId ==. diskId] []
+  forM rows $ \(Entity _ row) -> do
+    let nKey = diskImageNodeNodeId row
+    mNode <- get nKey
+    let nName = maybe "(deleted)" nodeName mNode
+    pure
+      DiskImagePlacement
+        { dipNodeId = fromSqlKey nKey
+        , dipNodeName = nName
+        , dipFilePath = diskImageNodeFilePath row
+        }
+
 -- | List all disk images with attachment info.
 listDiskImages :: SqlPersistT IO [DiskImageInfo]
 listDiskImages = do
@@ -96,14 +121,12 @@ listDiskImages = do
   forM disks $ \(Entity key disk) -> do
     attachedVms <- getAttachedVms (fromSqlKey key)
     backingName <- getBackingImageName (diskImageBackingImageId disk)
+    placements <- placementsFor key
     pure $
       DiskImageInfo
         { diiId = fromSqlKey key
         , diiName = diskImageName disk
-        , -- TODO(multi-node Phase 3): file path moved to
-          -- 'DiskImageNode'; surface a per-node list in the DTO
-          -- instead of an unconditional single string.
-          diiFilePath = T.empty
+        , diiPlacements = placements
         , diiFormat = diskImageFormat disk
         , diiSizeMb = diskImageSizeMb disk
         , diiCreatedAt = diskImageCreatedAt disk
@@ -119,17 +142,16 @@ getDiskImageInfo diskId = do
   case mDisk of
     Nothing -> pure Nothing
     Just disk -> do
+      let key = toSqlKey diskId :: DiskImageId
       attachedVms <- getAttachedVms diskId
       backingName <- getBackingImageName (diskImageBackingImageId disk)
+      placements <- placementsFor key
       pure $
         Just
           DiskImageInfo
             { diiId = diskId
             , diiName = diskImageName disk
-            , -- TODO(multi-node Phase 3): file path moved to
-              -- 'DiskImageNode'; surface a per-node list in the DTO
-              -- instead of an unconditional single string.
-              diiFilePath = T.empty
+            , diiPlacements = placements
             , diiFormat = diskImageFormat disk
             , diiSizeMb = diskImageSizeMb disk
             , diiCreatedAt = diskImageCreatedAt disk
@@ -137,6 +159,58 @@ getDiskImageInfo diskId = do
             , diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk)
             , diiBackingImageName = backingName
             }
+
+-- | Insert (or update) the 'DiskImageNode' row that locates a
+-- logical disk image on a specific node. Idempotent — re-running
+-- with the same @(diskId, nodeId)@ replaces the stored file path
+-- (mirrors the @--force@-style behaviour @crv disk register@
+-- already implies for re-registration).
+recordDiskImageNode :: DiskImageId -> NodeId -> Text -> SqlPersistT IO ()
+recordDiskImageNode diskId nodeId path = do
+  existing <- getBy (M.UniqueDiskImageOnNode diskId nodeId)
+  case existing of
+    Just (Entity key _) ->
+      update key [M.DiskImageNodeFilePath =. path]
+    Nothing ->
+      insert_
+        M.DiskImageNode
+          { diskImageNodeDiskImageId = diskId
+          , diskImageNodeNodeId = nodeId
+          , diskImageNodeFilePath = path
+          }
+
+-- | Look up the 'DiskImageNode' row for a (disk, node) pair, if
+-- any. Returns 'Nothing' when the image isn't yet stored on the
+-- requested node — call sites use this for the same-node attach
+-- check.
+diskImageNodeFor
+  :: DiskImageId
+  -> NodeId
+  -> SqlPersistT IO (Maybe (Entity DiskImageNode))
+diskImageNodeFor diskId nodeId =
+  getBy (M.UniqueDiskImageOnNode diskId nodeId)
+
+-- | Convenience: return just the file path for a (disk, node)
+-- pair, or 'Nothing' when no row exists.
+diskImageNodeFilePathFor :: DiskImageId -> NodeId -> SqlPersistT IO (Maybe Text)
+diskImageNodeFilePathFor diskId nodeId = do
+  r <- diskImageNodeFor diskId nodeId
+  pure $ fmap (diskImageNodeFilePath . entityVal) r
+
+-- | List every 'DiskImageNode' row for a logical image.
+listDiskImageNodes :: DiskImageId -> SqlPersistT IO [Entity DiskImageNode]
+listDiskImageNodes diskId =
+  selectList [M.DiskImageNodeDiskImageId ==. diskId] []
+
+-- | Remove a single (disk, node) placement row. Used by
+-- 'handleDiskDelete' after the agent on that node confirms the
+-- file is gone.
+deleteDiskImageNodeRow :: DiskImageId -> NodeId -> SqlPersistT IO ()
+deleteDiskImageNodeRow diskId nodeId =
+  deleteWhere
+    [ M.DiskImageNodeDiskImageId ==. diskId
+    , M.DiskImageNodeNodeId ==. nodeId
+    ]
 
 -- | Get snapshots for a disk.
 getSnapshots :: Int64 -> SqlPersistT IO [SnapshotInfo]

@@ -65,7 +65,7 @@ import Corvus.Handlers.Disk.Agent
   , resizeImageViaAgent
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
-import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, getAttachedVms, getDiskImageInfo, getOverlayIds, getRunningAttachedVms, listDiskImages)
+import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, deleteDiskImageNodeRow, diskImageNodeFilePathFor, getAttachedVms, getDiskImageInfo, getOverlayIds, getRunningAttachedVms, listDiskImageNodes, listDiskImages, recordDiskImageNode)
 import Corvus.Handlers.Disk.Import (DiskImportAction (..), DiskImportUrl (..), handleDiskImportCopy, handleDiskImportUrl)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Handlers.Disk.Rebase (DiskRebase (..), handleDiskRebase)
@@ -124,24 +124,24 @@ handleDiskCreate state name format sizeMb mPath = runServerLogging state $ do
             ImageSuccess -> do
               -- Store in database with original name for display, but sanitized path
               now <- liftIO getCurrentTime
+              let storedPath = makeRelativeToBase basePath filePath
               diskId <-
                 liftIO $
                   runSqlPool
-                    ( insert
-                        DiskImage
-                          { diskImageName = safeName
-                          , diskImageFormat = format
-                          , diskImageSizeMb = Just (fromIntegral sizeMb)
-                          , diskImageCreatedAt = now
-                          , diskImageBackingImageId = Nothing
-                          }
+                    ( do
+                        dkey <-
+                          insert
+                            DiskImage
+                              { diskImageName = safeName
+                              , diskImageFormat = format
+                              , diskImageSizeMb = Just (fromIntegral sizeMb)
+                              , diskImageCreatedAt = now
+                              , diskImageBackingImageId = Nothing
+                              }
+                        recordDiskImageNode dkey nid storedPath
+                        pure dkey
                     )
                     (ssDbPool state)
-              -- TODO(multi-node Phase 3): record per-node path
-              -- 'makeRelativeToBase basePath filePath' in DiskImageNode
-              -- for the (eventually parameterised) target node.
-              let _ = basePath
-                  _ = filePath
               logInfoN $ "Created disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
               pure $ RespDiskCreated $ fromSqlKey diskId
 
@@ -195,9 +195,6 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
 
           -- Store in database
           now <- liftIO getCurrentTime
-          -- TODO(multi-node Phase 3): use 'DiskImageNode' for the
-          -- (storedPath, node) dedup. For now dedupe only by logical
-          -- name; reject conflicting registrations.
           mExisting <-
             liftIO $
               runSqlPool
@@ -206,24 +203,35 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
                 (ssDbPool state)
 
           case mExisting of
-            Just (Entity diskId _) -> do
-              logInfoN $ "Disk image already registered with ID: " <> T.pack (show $ fromSqlKey diskId)
-              let _ = storedPath
-              pure $ RespDiskCreated $ fromSqlKey diskId
+            Just (Entity diskKey _) -> do
+              -- Image already exists under this logical name —
+              -- record its placement on this node so an operator
+              -- replicating a file via rsync + `crv disk register
+              -- --node N` ends up with a 'DiskImageNode' row for
+              -- the new node without inserting a duplicate image.
+              liftIO $
+                runSqlPool
+                  (recordDiskImageNode diskKey nid storedPath)
+                  (ssDbPool state)
+              logInfoN $ "Disk image already registered with ID: " <> T.pack (show $ fromSqlKey diskKey)
+              pure $ RespDiskCreated $ fromSqlKey diskKey
             Nothing -> do
-              let _ = storedPath
               result <-
                 liftIO $
                   try $
                     runSqlPool
-                      ( insert
-                          DiskImage
-                            { diskImageName = name
-                            , diskImageFormat = format
-                            , diskImageSizeMb = sizeMb
-                            , diskImageCreatedAt = now
-                            , diskImageBackingImageId = fmap toSqlKey mBackingDiskId
-                            }
+                      ( do
+                          dkey <-
+                            insert
+                              DiskImage
+                                { diskImageName = name
+                                , diskImageFormat = format
+                                , diskImageSizeMb = sizeMb
+                                , diskImageCreatedAt = now
+                                , diskImageBackingImageId = fmap toSqlKey mBackingDiskId
+                                }
+                          recordDiskImageNode dkey nid storedPath
+                          pure dkey
                       )
                       (ssDbPool state)
               case result of
@@ -231,17 +239,20 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
                   logInfoN $ "Registered disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
                   pure $ RespDiskCreated $ fromSqlKey diskId
                 Left (_err :: SomeException) -> do
-                  -- Race condition: another thread inserted first.
-                  -- TODO(multi-node Phase 3): retry via 'DiskImageNode'
-                  -- once per-node placement lookups exist; for now
-                  -- retry by name (still globally unique).
+                  -- Race: another thread inserted first. Recover
+                  -- by reading the new row's key and recording
+                  -- our placement against it.
                   mRetry <-
                     liftIO $
                       runSqlPool (getBy (UniqueDiskImageName name)) (ssDbPool state)
                   case mRetry of
-                    Just (Entity diskId _) -> do
-                      logInfoN $ "Disk image registered concurrently with ID: " <> T.pack (show $ fromSqlKey diskId)
-                      pure $ RespDiskCreated $ fromSqlKey diskId
+                    Just (Entity diskKey _) -> do
+                      liftIO $
+                        runSqlPool
+                          (recordDiskImageNode diskKey nid storedPath)
+                          (ssDbPool state)
+                      logInfoN $ "Disk image registered concurrently with ID: " <> T.pack (show $ fromSqlKey diskKey)
+                      pure $ RespDiskCreated $ fromSqlKey diskKey
                     Nothing -> pure $ RespError $ "Failed to register disk image: " <> name
 
 -- | Create a qcow2 overlay backed by an existing disk image
@@ -283,41 +294,52 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath = runServerLo
                   basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
                   let overlayFileName = T.unpack safeName <> ".qcow2"
                   overlayFilePath <- liftIO $ resolveDiskFilePath basePath optDirPath overlayFileName
-                  baseFilePath <- liftIO $ resolveDiskPath (ssQemuConfig state) baseDisk
-                  result <- liftIO $ createOverlayViaAgent state nid overlayFilePath baseFilePath (diskImageFormat baseDisk)
-                  case result of
-                    ImageError err -> do
-                      logWarnN $ "Failed to create overlay: " <> err
-                      pure $ RespError err
-                    _ -> do
-                      now <- liftIO getCurrentTime
-                      diskId <-
-                        liftIO $
-                          runSqlPool
-                            ( insert
-                                DiskImage
-                                  { diskImageName = safeName
-                                  , diskImageFormat = FormatQcow2
-                                  , diskImageSizeMb = diskImageSizeMb baseDisk
-                                  , diskImageCreatedAt = now
-                                  , diskImageBackingImageId = Just (toSqlKey baseDiskId)
-                                  }
-                            )
-                            (ssDbPool state)
-                      -- TODO(multi-node Phase 3): record overlay path in
-                      -- DiskImageNode on the target node.
-                      let _ = (basePath, overlayFilePath)
-                      -- Resize if requested
-                      case mResizeMb of
-                        Just newSize -> do
-                          res <- liftIO $ resizeImageViaAgent state nid overlayFilePath (fromIntegral newSize)
-                          case res of
-                            ImageSuccess ->
-                              liftIO $ runSqlPool (update diskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
-                            _ -> logWarnN "Failed to resize overlay after creation"
-                        Nothing -> pure ()
-                      logInfoN $ "Created overlay with ID: " <> T.pack (show $ fromSqlKey diskId)
-                      pure $ RespDiskCreated $ fromSqlKey diskId
+                  -- The overlay must sit on the same node as its
+                  -- backing image — qemu can't open a backing chain
+                  -- across hosts. Look up the base's placement on
+                  -- the target node; refuse if missing.
+                  let pool = ssDbPool state
+                      baseKey = toSqlKey baseDiskId :: DiskImageId
+                  baseFilePath <- liftIO $ resolveDiskPath pool (ssQemuConfig state) baseKey nid
+                  if null baseFilePath
+                    then pure $ RespError $ "Base image '" <> diskImageName baseDisk <> "' is not present on the target node"
+                    else do
+                      result <- liftIO $ createOverlayViaAgent state nid overlayFilePath baseFilePath (diskImageFormat baseDisk)
+                      case result of
+                        ImageError err -> do
+                          logWarnN $ "Failed to create overlay: " <> err
+                          pure $ RespError err
+                        _ -> do
+                          now <- liftIO getCurrentTime
+                          let storedOverlay = makeRelativeToBase basePath overlayFilePath
+                          diskId <-
+                            liftIO $
+                              runSqlPool
+                                ( do
+                                    dkey <-
+                                      insert
+                                        DiskImage
+                                          { diskImageName = safeName
+                                          , diskImageFormat = FormatQcow2
+                                          , diskImageSizeMb = diskImageSizeMb baseDisk
+                                          , diskImageCreatedAt = now
+                                          , diskImageBackingImageId = Just (toSqlKey baseDiskId)
+                                          }
+                                    recordDiskImageNode dkey nid storedOverlay
+                                    pure dkey
+                                )
+                                (ssDbPool state)
+                          -- Resize if requested
+                          case mResizeMb of
+                            Just newSize -> do
+                              res <- liftIO $ resizeImageViaAgent state nid overlayFilePath (fromIntegral newSize)
+                              case res of
+                                ImageSuccess ->
+                                  liftIO $ runSqlPool (update diskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
+                                _ -> logWarnN "Failed to resize overlay after creation"
+                            Nothing -> pure ()
+                          logInfoN $ "Created overlay with ID: " <> T.pack (show $ fromSqlKey diskId)
+                          pure $ RespDiskCreated $ fromSqlKey diskId
 
 -- | Clone a disk image
 handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Int -> Maybe Text -> IO Response
@@ -345,62 +367,63 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath = runServerLogging 
                 then pure RespVmMustBeStopped
                 else do
                   basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
-                  srcPath <- liftIO $ resolveDiskPath (ssQemuConfig state) baseDisk
-                  let srcFileName = takeFileName srcPath
-                      ext = takeExtension srcFileName
-                      cloneFileName = T.unpack safeName <> ext
-                  destPath <- liftIO $ resolveDiskFilePath basePath optionalPath cloneFileName
-                  result <- liftIO $ cloneImageViaAgent state nid srcPath destPath
-                  case result of
-                    ImageError err -> do
-                      logWarnN $ "Failed to clone image: " <> err
-                      pure $ RespError err
-                    ImageNotFound -> pure $ RespError "Source image file not found"
-                    _ -> do
-                      now <- liftIO getCurrentTime
-                      -- TODO(multi-node Phase 3): record clone path
-                      -- 'makeRelativeToBase basePath destPath' in
-                      -- DiskImageNode for the target node.
-                      let _ = (basePath, destPath)
-                      newDiskId <-
-                        liftIO $
-                          runSqlPool
-                            ( do
-                                dId <-
-                                  insert
-                                    DiskImage
-                                      { diskImageName = safeName
-                                      , diskImageFormat = diskImageFormat baseDisk
-                                      , diskImageSizeMb = diskImageSizeMb baseDisk
-                                      , diskImageCreatedAt = now
-                                      , diskImageBackingImageId = diskImageBackingImageId baseDisk
-                                      }
-                                -- Clone snapshots as well
-                                baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey baseDiskId] []
-                                forM_ baseSnapshots $ \snapEntity -> do
-                                  let snap = entityVal snapEntity
-                                  insert snap {snapshotDiskImageId = dId}
-                                pure dId
-                            )
-                            (ssDbPool state)
-                      -- Resize if requested
-                      case mResizeMb of
-                        Just newSize -> do
-                          res <- liftIO $ resizeImageViaAgent state nid destPath (fromIntegral newSize)
-                          case res of
-                            ImageSuccess ->
-                              liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
-                            _ -> logWarnN "Failed to resize clone after creation"
-                        Nothing -> pure ()
-                      logInfoN $ "Cloned disk image with ID: " <> T.pack (show $ fromSqlKey newDiskId)
-                      pure $ RespDiskCreated $ fromSqlKey newDiskId
+                  let pool = ssDbPool state
+                      baseKey = toSqlKey baseDiskId :: DiskImageId
+                  srcPath <- liftIO $ resolveDiskPath pool (ssQemuConfig state) baseKey nid
+                  if null srcPath
+                    then pure $ RespError $ "Source image '" <> diskImageName baseDisk <> "' is not present on the target node"
+                    else do
+                      let srcFileName = takeFileName srcPath
+                          ext = takeExtension srcFileName
+                          cloneFileName = T.unpack safeName <> ext
+                      destPath <- liftIO $ resolveDiskFilePath basePath optionalPath cloneFileName
+                      result <- liftIO $ cloneImageViaAgent state nid srcPath destPath
+                      case result of
+                        ImageError err -> do
+                          logWarnN $ "Failed to clone image: " <> err
+                          pure $ RespError err
+                        ImageNotFound -> pure $ RespError "Source image file not found"
+                        _ -> do
+                          now <- liftIO getCurrentTime
+                          let storedDest = makeRelativeToBase basePath destPath
+                          newDiskId <-
+                            liftIO $
+                              runSqlPool
+                                ( do
+                                    dId <-
+                                      insert
+                                        DiskImage
+                                          { diskImageName = safeName
+                                          , diskImageFormat = diskImageFormat baseDisk
+                                          , diskImageSizeMb = diskImageSizeMb baseDisk
+                                          , diskImageCreatedAt = now
+                                          , diskImageBackingImageId = diskImageBackingImageId baseDisk
+                                          }
+                                    recordDiskImageNode dId nid storedDest
+                                    -- Clone snapshots as well
+                                    baseSnapshots <- selectList [SnapshotDiskImageId ==. toSqlKey baseDiskId] []
+                                    forM_ baseSnapshots $ \snapEntity -> do
+                                      let snap = entityVal snapEntity
+                                      insert snap {snapshotDiskImageId = dId}
+                                    pure dId
+                                )
+                                (ssDbPool state)
+                          -- Resize if requested
+                          case mResizeMb of
+                            Just newSize -> do
+                              res <- liftIO $ resizeImageViaAgent state nid destPath (fromIntegral newSize)
+                              case res of
+                                ImageSuccess ->
+                                  liftIO $ runSqlPool (update newDiskId [DiskImageSizeMb =. Just newSize]) (ssDbPool state)
+                                _ -> logWarnN "Failed to resize clone after creation"
+                            Nothing -> pure ()
+                          logInfoN $ "Cloned disk image with ID: " <> T.pack (show $ fromSqlKey newDiskId)
+                          pure $ RespDiskCreated $ fromSqlKey newDiskId
 
 -- | Refresh a disk image's size by querying qemu-img info
 handleDiskRefresh :: ServerState -> Int64 -> IO Response
 handleDiskRefresh state diskId = runServerLogging state $ do
   logInfoN $ "Refreshing disk image size: " <> T.pack (show diskId)
-  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
-  -- DiskImageNode-aware placement instead of first-online-node.
   mNid <- liftIO $ pickNodeForDisk state
   case mNid of
     Left err -> pure $ RespError err
@@ -408,8 +431,9 @@ handleDiskRefresh state diskId = runServerLogging state $ do
       mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
       case mDisk of
         Nothing -> pure RespDiskNotFound
-        Just disk -> do
-          resolvedPath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+        Just _disk -> do
+          let key = toSqlKey diskId :: DiskImageId
+          resolvedPath <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) key nid
           mSize <- liftIO $ getImageSizeMbViaAgent state nid resolvedPath
           case mSize of
             Nothing -> pure $ RespError "Could not determine disk image size"
@@ -421,55 +445,67 @@ handleDiskRefresh state diskId = runServerLogging state $ do
               logInfoN $ "Updated size to " <> T.pack (show newSize) <> " MB"
               pure RespDiskOk
 
--- | Delete a disk image
+-- | Delete a disk image. Walks every 'DiskImageNode' placement
+-- and asks each node's nodeagent to delete the on-disk file, then
+-- drops the join rows + the logical image.
 handleDiskDelete :: ServerState -> Int64 -> IO Response
 handleDiskDelete state diskId = runServerLogging state $ do
   logInfoN $ "Deleting disk image: " <> T.pack (show diskId)
 
-  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
-  -- DiskImageNode-aware placement instead of first-online-node.
-  mNid <- liftIO $ pickNodeForDisk state
-  case mNid of
-    Left err -> pure $ RespError err
-    Right nid -> do
-      mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-      case mDisk of
-        Nothing -> pure RespDiskNotFound
-        Just disk -> do
-          -- Check if disk is attached to any VMs
-          attachedVms <- liftIO $ runSqlPool (getAttachedVms diskId) (ssDbPool state)
-          if not (null attachedVms)
-            then pure $ RespDiskInUse attachedVms
+  let pool = ssDbPool state
+      key = toSqlKey diskId :: DiskImageId
+  mDisk <- liftIO $ runSqlPool (get key) pool
+  case mDisk of
+    Nothing -> pure RespDiskNotFound
+    Just _disk -> do
+      attachedVms <- liftIO $ runSqlPool (getAttachedVms diskId) pool
+      if not (null attachedVms)
+        then pure $ RespDiskInUse attachedVms
+        else do
+          overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) pool
+          if not (null overlayIds)
+            then pure $ RespDiskHasOverlays overlayIds
             else do
-              -- Check if disk is used as backing image for overlays
-              overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) (ssDbPool state)
-              if not (null overlayIds)
-                then pure $ RespDiskHasOverlays overlayIds
-                else do
-                  -- Delete the file (resolve relative path against base path)
-                  filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
-                  result <- liftIO $ deleteImageViaAgent state nid filePath
-                  case result of
-                    ImageError err -> do
-                      logWarnN $ "Failed to delete image file: " <> err
-                      pure $ RespError err
-                    ImageNotFound -> do
-                      logWarnN "Image file not found, removing from database anyway"
-                      liftIO $ runSqlPool (deleteDiskAndSnapshots diskId) (ssDbPool state)
-                      pure RespDiskOk
-                    _ -> do
-                      -- Delete from database
-                      liftIO $ runSqlPool (deleteDiskAndSnapshots diskId) (ssDbPool state)
-                      logInfoN $ "Deleted disk image: " <> T.pack (show diskId)
-                      pure RespDiskOk
+              basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+              placements <- liftIO $ runSqlPool (listDiskImageNodes key) pool
+              -- Delete the on-disk file on every node we've ever
+              -- recorded for this image. Per-node failures are
+              -- logged but don't abort the rest of the cleanup —
+              -- the operator can re-run @crv disk delete@ after
+              -- the failing node comes back, and the DB drop at
+              -- the end is idempotent.
+              forM_ placements $ \(Entity _ row) -> do
+                let nid = diskImageNodeNodeId row
+                    storedPath = T.unpack (diskImageNodeFilePath row)
+                    resolved =
+                      if "/" `isPrefixOf` storedPath
+                        then storedPath
+                        else basePath </> storedPath
+                result <- liftIO $ deleteImageViaAgent state nid resolved
+                case result of
+                  ImageError err ->
+                    logWarnN $
+                      "Failed to delete file on node "
+                        <> T.pack (show (fromSqlKey nid))
+                        <> ": "
+                        <> err
+                  ImageNotFound ->
+                    logWarnN $
+                      "Image file already gone on node "
+                        <> T.pack (show (fromSqlKey nid))
+                  _ -> pure ()
+                liftIO $
+                  runSqlPool (deleteDiskImageNodeRow key nid) pool
+              liftIO $ runSqlPool (deleteDiskAndSnapshots diskId) pool
+              logInfoN $ "Deleted disk image: " <> T.pack (show diskId)
+              pure RespDiskOk
 
--- | Resize a disk image (VM must be stopped)
+-- | Resize a disk image (VM must be stopped). Resizes on every
+-- node that hosts a placement, then updates the logical size.
 handleDiskResize :: ServerState -> Int64 -> Int64 -> IO Response
 handleDiskResize state diskId newSizeMb = runServerLogging state $ do
   logInfoN $ "Resizing disk image " <> T.pack (show diskId) <> " to " <> T.pack (show newSizeMb) <> " MB"
 
-  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
-  -- DiskImageNode-aware placement instead of first-online-node.
   mNid <- liftIO $ pickNodeForDisk state
   case mNid of
     Left err -> pure $ RespError err
@@ -477,7 +513,8 @@ handleDiskResize state diskId newSizeMb = runServerLogging state $ do
       mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
       case mDisk of
         Nothing -> pure RespDiskNotFound
-        Just disk -> do
+        Just _disk -> do
+          let key = toSqlKey diskId :: DiskImageId
           -- Check if any attached VM is running
           runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
           if not (null runningVms)
@@ -488,7 +525,7 @@ handleDiskResize state diskId newSizeMb = runServerLogging state $ do
               if not (null overlayIds)
                 then pure $ RespDiskHasOverlays overlayIds
                 else do
-                  filePath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                  filePath <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) key nid
                   result <- liftIO $ resizeImageViaAgent state nid filePath newSizeMb
                   case result of
                     ImageSuccess -> do
@@ -525,13 +562,17 @@ handleDiskShow state diskId = do
       basePath <- getEffectiveBasePath (ssQemuConfig state)
       pure $ RespDiskInfo (absolutizeDiskFilePath basePath info)
 
--- | Promote 'diiFilePath' to an absolute path. The DB stores paths
--- relative to the daemon's base; clients need the absolute form.
+-- | Promote each placement's 'dipFilePath' to an absolute path.
+-- The DB stores paths relative to the daemon's base; clients
+-- need the absolute form.
 absolutizeDiskFilePath :: FilePath -> DiskImageInfo -> DiskImageInfo
 absolutizeDiskFilePath basePath info =
-  let raw = T.unpack (diiFilePath info)
-      absPath = if "/" `isPrefixOf` raw then raw else basePath </> raw
-   in info {diiFilePath = T.pack absPath}
+  info {diiPlacements = map absolutizePlacement (diiPlacements info)}
+  where
+    absolutizePlacement p =
+      let raw = T.unpack (dipFilePath p)
+          absPath = if "/" `isPrefixOf` raw then raw else basePath </> raw
+       in p {dipFilePath = T.pack absPath}
 
 --------------------------------------------------------------------------------
 -- Action Types

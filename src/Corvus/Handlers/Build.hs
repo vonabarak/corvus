@@ -43,6 +43,7 @@ import Corvus.Handlers.Build.Floppy (buildFloppyImage)
 import Corvus.Handlers.Disk (DiskCreate (..), DiskDelete (..), DiskRebase (..))
 import Corvus.Handlers.Disk.Agent (getImageSizeMbViaAgent, rebaseImageViaAgent)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
+import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Scheduler (pickNodeForDisk)
@@ -65,6 +66,7 @@ import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as LBS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
+import qualified Data.List
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -1338,11 +1340,17 @@ publishArtifactCore state parentTaskId diskId target needFlatten = do
 relocateArtifact :: ServerState -> Int64 -> BuildTarget -> LoggingT IO (Either Text ())
 relocateArtifact state diskId target = do
   basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
-  mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-  case mDisk of
-    Nothing -> pure $ Left "relocate: disk vanished from DB"
-    Just disk -> do
-      current <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+  let pool = ssDbPool state
+      key = toSqlKey diskId :: DiskImageId
+  -- Build artifacts have exactly one placement (the bake VM's
+  -- node). Read the row, do the move on that node's filesystem,
+  -- and rewrite the placement's path on success.
+  mPlacement <- liftIO $ runSqlPool (listDiskImageNodes key) pool
+  case mPlacement of
+    [] -> pure $ Left "relocate: disk has no recorded placement"
+    (Entity _ row : _) -> do
+      let nid = diskImageNodeNodeId row
+      current <- liftIO $ resolveDiskPath pool (ssQemuConfig state) key nid
       let ext = T.unpack (enumToText (btFormat target))
           fileName = T.unpack (btName target) <> "." <> ext
           desired = resolveDiskFilePathPure basePath (btPath target) fileName
@@ -1353,7 +1361,7 @@ relocateArtifact state diskId target = do
           liftIO $ createDirectoryIfMissing True (takeDirectory desired)
           moveRes <- liftIO (try (renameFile current desired) :: IO (Either IOError ()))
           case moveRes of
-            Right () -> finalize basePath current desired
+            Right () -> finalize nid basePath current desired
             Left _ -> do
               -- EXDEV (cross-device) or similar: copy then delete.
               copyRes <-
@@ -1364,15 +1372,19 @@ relocateArtifact state diskId target = do
                   )
               case copyRes of
                 Left e -> pure $ Left $ "relocate failed: " <> T.pack (show e)
-                Right () -> finalize basePath current desired
+                Right () -> finalize nid basePath current desired
   where
-    finalize basePath oldPath newPath = do
-      -- TODO(multi-node Phase 3): update DiskImageNode row for
-      -- (diskId, build-vm-node) with the new path; DiskImage no
-      -- longer carries a filePath column.
-      let _ = (basePath, newPath)
-      _ <- pure (diskId :: Int64)
-      let _ = (basePath, newPath)
+    finalize nid basePath oldPath newPath = do
+      -- Record the new path in the DiskImageNode row so future
+      -- 'resolveDiskPath' calls land at the relocated artifact.
+      let stored =
+            if (basePath ++ "/") `Data.List.isPrefixOf` newPath
+              then T.pack (drop (length basePath + 1) newPath)
+              else T.pack newPath
+      liftIO $
+        runSqlPool
+          (recordDiskImageNode (toSqlKey diskId) nid stored)
+          (ssDbPool state)
       -- Best-effort: drop the now-empty bake-VM directory.
       _ <-
         liftIO
@@ -1508,9 +1520,15 @@ compactDisk state diskId = do
       mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
       case mDisk of
         Nothing -> logWarnN "compact: disk vanished"
-        Just disk -> do
+        Just _disk -> do
           logInfoN "compact: rebasing onto self with -c (no-op flatten)"
-          path <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+          path <-
+            liftIO $
+              resolveDiskPath
+                (ssDbPool state)
+                (ssQemuConfig state)
+                (toSqlKey diskId :: DiskImageId)
+                nid
           -- A no-op rebase (Nothing → Nothing) effectively rewrites the image
           -- through qemu-img, dropping unused clusters. The rebaseImage helper
           -- already handles the in-place pass.

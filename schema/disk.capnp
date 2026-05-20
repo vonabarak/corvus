@@ -10,13 +10,23 @@ using Enums = import "enums.capnp";
 struct DiskImageInfo {
   id              @0 :Int64;
   name            @1 :Text;
-  filePath        @2 :Text;
+  # Per-node placements. Multi-node deployments have one entry
+  # per node the image has been replicated to; single-node
+  # deployments have exactly one entry. Phase-3 replacement for
+  # the legacy single 'filePath' field.
+  placements      @2 :List(DiskImagePlacement);
   format          @3 :Enums.DriveFormat;
   sizeMb          @4 :Int64;            # 0 == unknown
   createdAt       @5 :Int64;            # POSIX nanoseconds
   attachedTo      @6 :List(DiskAttachment);
   backingImageId  @7 :Int64;            # 0 == none
   backingImageName @8 :Text;            # empty == none
+}
+
+struct DiskImagePlacement {
+  nodeId   @0 :Int64;
+  nodeName @1 :Text;
+  filePath @2 :Text;
 }
 
 struct DiskAttachment {

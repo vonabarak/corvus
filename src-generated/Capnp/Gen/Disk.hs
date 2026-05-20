@@ -54,7 +54,7 @@ data instance C.Parsed DiskImageInfo
     = DiskImageInfo 
         {id :: (RP.Parsed Std_.Int64)
         ,name :: (RP.Parsed Basics.Text)
-        ,filePath :: (RP.Parsed Basics.Text)
+        ,placements :: (RP.Parsed (R.List DiskImagePlacement))
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
         ,sizeMb :: (RP.Parsed Std_.Int64)
         ,createdAt :: (RP.Parsed Std_.Int64)
@@ -67,7 +67,7 @@ deriving instance (Std_.Eq (C.Parsed DiskImageInfo))
 instance (C.Parse DiskImageInfo (C.Parsed DiskImageInfo)) where
     parse raw_ = (DiskImageInfo <$> (GH.parseField #id raw_)
                                 <*> (GH.parseField #name raw_)
-                                <*> (GH.parseField #filePath raw_)
+                                <*> (GH.parseField #placements raw_)
                                 <*> (GH.parseField #format raw_)
                                 <*> (GH.parseField #sizeMb raw_)
                                 <*> (GH.parseField #createdAt raw_)
@@ -78,7 +78,7 @@ instance (C.Marshal DiskImageInfo (C.Parsed DiskImageInfo)) where
     marshalInto raw_ DiskImageInfo{..} = (do
         (GH.encodeField #id id raw_)
         (GH.encodeField #name name raw_)
-        (GH.encodeField #filePath filePath raw_)
+        (GH.encodeField #placements placements raw_)
         (GH.encodeField #format format raw_)
         (GH.encodeField #sizeMb sizeMb raw_)
         (GH.encodeField #createdAt createdAt raw_)
@@ -91,7 +91,7 @@ instance (GH.HasField "id" GH.Slot DiskImageInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "name" GH.Slot DiskImageInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-instance (GH.HasField "filePath" GH.Slot DiskImageInfo Basics.Text) where
+instance (GH.HasField "placements" GH.Slot DiskImageInfo (R.List DiskImagePlacement)) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "format" GH.Slot DiskImageInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat) where
     fieldByLabel  = (GH.dataField 0 1 16 0)
@@ -105,6 +105,46 @@ instance (GH.HasField "backingImageId" GH.Slot DiskImageInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 4 64 0)
 instance (GH.HasField "backingImageName" GH.Slot DiskImageInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
+data DiskImagePlacement 
+type instance (R.ReprFor DiskImagePlacement) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskImagePlacement) where
+    typeId  = 17704711645275117274
+instance (C.TypedStruct DiskImagePlacement) where
+    numStructWords  = 1
+    numStructPtrs  = 2
+instance (C.Allocate DiskImagePlacement) where
+    type AllocHint DiskImagePlacement = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskImagePlacement (C.Parsed DiskImagePlacement))
+instance (C.AllocateList DiskImagePlacement) where
+    type ListAllocHint DiskImagePlacement = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskImagePlacement (C.Parsed DiskImagePlacement))
+data instance C.Parsed DiskImagePlacement
+    = DiskImagePlacement 
+        {nodeId :: (RP.Parsed Std_.Int64)
+        ,nodeName :: (RP.Parsed Basics.Text)
+        ,filePath :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskImagePlacement))
+deriving instance (Std_.Eq (C.Parsed DiskImagePlacement))
+instance (C.Parse DiskImagePlacement (C.Parsed DiskImagePlacement)) where
+    parse raw_ = (DiskImagePlacement <$> (GH.parseField #nodeId raw_)
+                                     <*> (GH.parseField #nodeName raw_)
+                                     <*> (GH.parseField #filePath raw_))
+instance (C.Marshal DiskImagePlacement (C.Parsed DiskImagePlacement)) where
+    marshalInto raw_ DiskImagePlacement{..} = (do
+        (GH.encodeField #nodeId nodeId raw_)
+        (GH.encodeField #nodeName nodeName raw_)
+        (GH.encodeField #filePath filePath raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "nodeId" GH.Slot DiskImagePlacement Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "nodeName" GH.Slot DiskImagePlacement Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "filePath" GH.Slot DiskImagePlacement Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
 data DiskAttachment 
 type instance (R.ReprFor DiskAttachment) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskAttachment) where

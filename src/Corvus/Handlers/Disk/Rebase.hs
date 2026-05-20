@@ -59,7 +59,7 @@ handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
                 if not (null runningVms)
                   then pure RespVmMustBeStopped
                   else do
-                    overlayPath <- liftIO $ resolveDiskPath (ssQemuConfig state) disk
+                    overlayPath <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) (toSqlKey diskId :: DiskImageId) nid
                     case mNewBackingId of
                       -- Flatten: remove backing
                       Nothing -> do
@@ -98,7 +98,14 @@ handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
                             if circular
                               then pure $ RespError "Circular backing dependency detected"
                               else do
-                                newBackingPath <- liftIO $ resolveDiskPath (ssQemuConfig state) newBacking
+                                newBackingPath <-
+                                  liftIO $
+                                    resolveDiskPath
+                                      (ssDbPool state)
+                                      (ssQemuConfig state)
+                                      (toSqlKey newBackingId :: DiskImageId)
+                                      nid
+                                let _ = newBacking
                                 logInfoN $ "Rebasing to new backing: " <> T.pack newBackingPath
                                 result <- liftIO $ rebaseImageViaAgent state nid overlayPath (Just (newBackingPath, diskImageFormat newBacking)) unsafe
                                 case result of
