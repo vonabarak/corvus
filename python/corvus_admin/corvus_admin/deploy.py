@@ -25,11 +25,19 @@ Conventions:
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from dataclasses import dataclass
 
 from corvus_admin import ca, store
-from corvus_admin.runner import Runner
+from corvus_admin.runner import Runner, for_target
+
+
+# Default renewal window. Refusing to renew earlier than this stops
+# operators from rolling certs constantly for no reason; --force
+# bypasses it for the "I think a key leaked, get me out of here"
+# case.
+RENEW_WINDOW = dt.timedelta(days=30)
 
 
 # System install paths. Keep these constants in sync with the
@@ -293,6 +301,170 @@ def _systemd_restart(runner: Runner, plan: DeployPlan) -> None:
         runner.run(
             ["systemctl", "restart", plan.service_unit],
             sudo=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Renewal
+
+
+class RenewError(RuntimeError):
+    """Raised when renewal can't proceed: cert isn't due yet, no
+    matching record exists, or the target label can't be reused."""
+
+
+def find_record(
+    admin_store: store.AdminStore,
+    *,
+    role: str,
+    name: str | None = None,
+) -> store.IssuedRecord:
+    """Find an issued cert by role and (for non-daemon roles) name.
+    Raises :class:`RenewError` when nothing matches. The daemon
+    is a special case: there's only one row with role
+    ``corvus-daemon``, so the name is ignored."""
+
+    records = list(admin_store.iter_records())
+    if role == ca.ROLE_DAEMON:
+        matches = [r for r in records if r.role == role]
+        if len(matches) > 1:
+            raise RenewError(
+                "multiple daemon records exist; admin store should have at "
+                f"most one — found {len(matches)}"
+            )
+    else:
+        if name is None:
+            raise ValueError(f"role {role!r} requires a name argument")
+        matches = [
+            r for r in records if r.role == role and r.name_or_uuid == name
+        ]
+    if not matches:
+        raise RenewError(
+            f"no issued cert for role={role!r}"
+            + (f" name={name!r}" if name is not None else "")
+        )
+    return matches[0]
+
+
+def runner_label_to_target(label: str) -> str:
+    """Reverse-engineer a runner target from the label we stored
+    in :attr:`IssuedRecord.deployed_to`. ``"local"`` stays
+    ``"local"``; ``"ssh:user@host"`` becomes ``"user@host"``;
+    ``"local:<path>"`` (used for client deploys) raises — clients
+    don't go through a runner."""
+
+    if label == "local":
+        return "local"
+    if label.startswith("ssh:"):
+        return label[len("ssh:"):]
+    if label.startswith("local:"):
+        raise RenewError(
+            f"deploy target {label!r} is a local file path, not a runner "
+            f"target — use `deploy client` to re-mint a client cert"
+        )
+    raise RenewError(f"can't reuse target label {label!r} for renew")
+
+
+def needs_renewal(record: store.IssuedRecord, *, now: dt.datetime | None = None) -> bool:
+    """True iff *record* expires within :data:`RENEW_WINDOW`. The
+    CLI uses this both for the default behaviour (refuse if still
+    well-in-date) and the documented ``--auto`` filter (Phase 4
+    follow-up)."""
+
+    now = now or dt.datetime.now(dt.timezone.utc)
+    expires = dt.datetime.fromisoformat(record.expires_at)
+    return (expires - now) <= RENEW_WINDOW
+
+
+def renew_daemon(
+    admin_store: store.AdminStore,
+    *,
+    target: str | None = None,
+    force: bool = False,
+) -> DeployPlan:
+    """Re-mint + redeploy the daemon cert. Reuses the existing
+    daemon UUID so the identity stays stable across renewals.
+    ``target`` defaults to the original deploy target (parsed off
+    ``IssuedRecord.deployed_to``); pass an explicit value to
+    rehome the daemon to a different host (rare).
+    """
+
+    rec = find_record(admin_store, role=ca.ROLE_DAEMON)
+    _check_due(rec, force=force)
+    runner = for_target(target or runner_label_to_target(rec.deployed_to or ""))
+    return deploy_daemon(
+        admin_store,
+        runner,
+        listen_ip=rec.ip,
+        # User-service vs system-service comes from the runner +
+        # deploy paths the cert was originally placed under; we
+        # can't introspect that from the record alone, so we
+        # default to system-service. Future enhancement: store
+        # the flag on IssuedRecord.
+        user_service=False,
+        reuse_uuid=rec.name_or_uuid,
+    )
+
+
+def renew_node(
+    admin_store: store.AdminStore,
+    *,
+    name: str,
+    target: str | None = None,
+    force: bool = False,
+) -> DeployPlan:
+    rec = find_record(admin_store, role=ca.ROLE_NODE, name=name)
+    _check_due(rec, force=force)
+    runner = for_target(target or runner_label_to_target(rec.deployed_to or ""))
+    return deploy_node(
+        admin_store,
+        runner,
+        name=name,
+        ip=rec.ip,
+        user_service=False,
+    )
+
+
+def renew_netd(
+    admin_store: store.AdminStore,
+    *,
+    name: str,
+    target: str | None = None,
+    force: bool = False,
+) -> DeployPlan:
+    rec = find_record(admin_store, role=ca.ROLE_NETD, name=name)
+    _check_due(rec, force=force)
+    runner = for_target(target or runner_label_to_target(rec.deployed_to or ""))
+    return deploy_netd(
+        admin_store,
+        runner,
+        name=name,
+        ip=rec.ip,
+        user_service=False,
+    )
+
+
+def renew_client(
+    admin_store: store.AdminStore,
+    *,
+    name: str,
+    force: bool = False,
+) -> store.IssuedRecord:
+    rec = find_record(admin_store, role=ca.ROLE_CLIENT, name=name)
+    _check_due(rec, force=force)
+    return deploy_client(admin_store, name=name)
+
+
+def _check_due(record: store.IssuedRecord, *, force: bool) -> None:
+    if force:
+        return
+    if not needs_renewal(record):
+        expires = dt.datetime.fromisoformat(record.expires_at)
+        remaining = expires - dt.datetime.now(dt.timezone.utc)
+        days = max(0, int(remaining.total_seconds() // 86400))
+        raise RenewError(
+            f"cert {record.cn} is still valid for {days} days "
+            f"(renewal window is {RENEW_WINDOW.days}d); pass --force to renew anyway"
         )
 
 

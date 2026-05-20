@@ -85,3 +85,47 @@ def test_deploy_client_emits_record(tmp_path, xdg_home):
     )
     assert r.exit_code == 0, r.output
     assert "corvus-client:bob" in r.output
+
+
+def test_renew_client_force(tmp_path, xdg_home):
+    """Renewing a freshly-minted client cert requires --force
+    (it's not due for 364 days). With --force the CLI exits 0 and
+    overwrites the XDG client cert pair."""
+
+    runner = CliRunner()
+    admin_dir = tmp_path / "admin"
+    runner.invoke(
+        cli.main,
+        ["init", "--ca-dir", str(admin_dir), "--admin-name", "alice"],
+    )
+    # Default: refuses
+    r = runner.invoke(
+        cli.main,
+        ["renew", "client", "--ca-dir", str(admin_dir), "alice"],
+    )
+    assert r.exit_code != 0
+    assert "still valid" in r.output
+    # --force: succeeds
+    r2 = runner.invoke(
+        cli.main,
+        ["renew", "client", "--ca-dir", str(admin_dir), "alice", "--force"],
+    )
+    assert r2.exit_code == 0, r2.output
+    assert "Renewed client cert corvus-client:alice" in r2.output
+
+
+def test_status_lists_client_record(tmp_path, xdg_home):
+    runner = CliRunner()
+    admin_dir = tmp_path / "admin"
+    runner.invoke(
+        cli.main,
+        ["init", "--ca-dir", str(admin_dir), "--admin-name", "alice"],
+    )
+    r = runner.invoke(cli.main, ["status", "--ca-dir", str(admin_dir)])
+    # exit_code == 0: only a client cert was issued (no remote
+    # services to probe), so the probe loop has nothing to flag
+    # as unreachable.
+    assert r.exit_code == 0, r.output
+    assert "corvus-client:alice" in r.output
+    # Client rows are labelled `client`, not `ok` / `UNREACHABLE`.
+    assert "client" in r.output
