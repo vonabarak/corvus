@@ -72,6 +72,21 @@ createdb corvus
 # The daemon runs migrations automatically on startup
 ```
 
+### TLS Setup
+
+Corvus uses mutual TLS on every TCP link (CLI ↔ daemon over TCP, daemon ↔ agents). See [doc/security.md](security.md) for the full picture. For a single-host install:
+
+```bash
+make install-admin                                                # one-time
+corvus-admin init                                                 # CA + admin client cert
+corvus-admin deploy daemon local --listen-ip 127.0.0.1 --user-service
+corvus-admin deploy node   self  local --ip 127.0.0.1
+corvus-admin deploy netd   self  local --ip 127.0.0.1
+corvus-admin register      self  --host 127.0.0.1
+```
+
+For dev / single-host use only, you can skip the TLS setup and pass `--no-tls` to every Corvus binary; Unix-socket connections (the default for `crv` ↔ daemon on the same host) never wrap with TLS regardless.
+
 ## Quick Start
 
 ### Starting the Daemon

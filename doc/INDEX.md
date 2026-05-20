@@ -11,6 +11,7 @@
 - [Snapshots](snapshots.md) -- Create, rollback, merge, delete qcow2 snapshots
 - [Networking](networking.md) -- Virtual networks, network interfaces, port forwarding
 - [Multi-Node](multi-node.md) -- Register hosts via `crv node …`, scheduler placement, same-node invariants
+- [Security (mTLS)](security.md) -- Mutual-TLS auth, cert layout, `corvus-admin` walkthrough, troubleshooting
 - [SSH Keys](ssh-keys.md) -- Create, delete, attach/detach to VMs
 - [Cloud-Init](cloud-init.md) -- ISO generation, custom user-data, SSH key injection, Windows support
 - [Shared Directories](shared-directories.md) -- virtiofs host directory sharing

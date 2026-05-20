@@ -227,11 +227,12 @@ Cap'n Proto schema additions for multi-node:
 
 ## Limitations (current Phase 1 shape)
 
-  * **Auth / TLS** on daemon↔agent links is **not yet in
-    place**. Agents bind 127.0.0.1; cross-host nodes assume a
-    trusted L2 or a WireGuard / SSH tunnel between the daemon
-    host and each node. A certificate-based auth scheme is on
-    the roadmap.
+  * **Auth / TLS** on daemon↔agent links is via mutual TLS;
+    see [doc/security.md](security.md) for the full picture
+    (CN convention, cert layout, `corvus-admin` walkthrough).
+    Every component refuses connections from peers presenting
+    the wrong CN prefix, so `crv node add` is also an
+    "is the right cert deployed?" smoke test.
 
   * **No live migration** of a running VM between nodes.
     Stop, delete-without-`--delete-disks`, rsync the disk,
