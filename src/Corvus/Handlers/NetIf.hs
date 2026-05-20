@@ -14,7 +14,7 @@ where
 import Corvus.Action
 
 import Control.Monad.IO.Class (liftIO)
-import Corvus.Model (NetInterfaceType (..), Network (..), NetworkInterface (..), TaskSubsystem (..), Vm, VmId, VmStatus (..))
+import Corvus.Model (NetInterfaceType (..), Network (..), NetworkInterface (..), TaskSubsystem (..), Vm (..), VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types (ServerState (..))
@@ -89,14 +89,30 @@ addNetIf vmId ifaceType hostDevice macAddress mNetworkKey = do
   mVm <- get vmKey
   case mVm of
     Nothing -> pure Nothing
-    Just _ -> do
-      -- Validate network exists if specified
+    Just vm -> do
+      -- Validate network exists if specified, and enforce the
+      -- same-node invariant for managed networks: a managed-NIC
+      -- TAP can only join a bridge that lives on the same kernel
+      -- as the VM's QEMU process. Refuse cross-node attempts
+      -- with a clear error so the operator can move the VM (or
+      -- create a network on the right node).
       case mNetworkKey of
         Just nwKey -> do
           mNetwork <- get nwKey
           case mNetwork of
             Nothing -> pure $ Just $ Left "Network not found"
-            Just _ -> doInsert vmKey mNetworkKey
+            Just nw
+              | networkNodeId nw /= vmNodeId vm ->
+                  pure $
+                    Just $
+                      Left $
+                        "Network '"
+                          <> networkName nw
+                          <> "' is on node "
+                          <> T.pack (show (fromSqlKey (networkNodeId nw)))
+                          <> " but VM is on node "
+                          <> T.pack (show (fromSqlKey (vmNodeId vm)))
+              | otherwise -> doInsert vmKey mNetworkKey
         Nothing -> doInsert vmKey Nothing
   where
     doInsert vmKey nwKey = do
