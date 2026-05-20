@@ -27,7 +27,17 @@ crv vm create my-vm 2 2048 --cloud-init       # Enable cloud-init
 crv vm create my-vm 2 2048 --guest-agent      # Enable guest agent
 crv vm create my-vm 2 2048 --autostart        # Auto-start on daemon startup
 crv vm create my-vm 2 2048 -d "Web server"    # With description
+crv vm create my-vm 2 2048 --node alpha       # Pin to a specific node
 ```
+
+`--node` (alias `-n`) is optional. When omitted the daemon's
+scheduler picks a node — filtered to `admin_state = online`,
+scored by free RAM + free disk minus a small load penalty, and
+broken on ties by node name. On a single-node install the
+scheduler always picks the one node, so single-host operators
+never need to think about it. See [multi-node.md](multi-node.md)
+for the full algorithm and the same-node invariants this
+imposes downstream (disk attach + managed-NIC binding).
 
 A newly created VM has no disks or network interfaces. Attach them with `crv disk attach` and `crv net-if add` before starting.
 

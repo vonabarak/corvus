@@ -43,6 +43,50 @@ Resources are created in the order listed above. Within each section, items are 
 
 Resources can also reference items that already exist in the database. For example, a VM drive can reference a disk image that was previously registered via `crv disk register`, not just disks defined in the same YAML file.
 
+## Multi-node placement
+
+Every `vms:`, `networks:`, and (Phase-3+) disk entry accepts an
+optional `node:` field — a node name or numeric id. Resources
+with `node:` set are pinned to that node; resources without it
+go to the scheduler.
+
+```yaml
+vms:
+  - name: web
+    node: alpha           # pinned
+    cpuCount: 2
+    ramMb: 2048
+
+  - name: worker
+    cpuCount: 1            # scheduler picks
+    ramMb: 1024
+
+networks:
+  - name: lab-net
+    node: alpha            # pinned (same node as the web VM above)
+    subnet: 10.0.1.0/24
+```
+
+When the scheduler picks for a VM, it filters to online nodes
+with enough free RAM and breaks ties by node name; for networks
+and disks it picks the lowest-id online node. See
+[multi-node.md](multi-node.md) for the full algorithm. On a
+single-node install (the default) the scheduler always picks
+that one node, so `node:` can be omitted everywhere.
+
+The daemon enforces same-node invariants downstream:
+
+  * A VM's drive must have a `disk_image_node` placement on the
+    VM's node.
+  * A managed-NIC must point at a network on the VM's node.
+
+So when you do pin one resource to a node, anything referencing
+it from the same apply YAML usually needs the same `node:`
+value.
+
+The build pipeline's `build:` step has the same optional
+`node:` field — pins the bake VM to a specific node.
+
 ## YAML Features
 
 Configuration files support standard YAML features including anchors (`&name`), aliases (`*name`), and merge keys (`<<:`). These are useful for reducing duplication when multiple VMs share common settings.

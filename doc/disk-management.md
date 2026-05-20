@@ -20,6 +20,34 @@ crv disk detach <vm> <drive>
 
 `<disk>`, `<vm>`, and `<drive>` accept names or numeric IDs.
 
+## Per-node placement
+
+Disk images are per-node: each row in the `disk_image` table is a
+logical name, and each on-disk file lives in the
+`disk_image_node` join keyed by `(disk_image_id, node_id,
+file_path)`. The same logical image may have placements on
+multiple nodes; an operator replicates an image by rsync-ing
+the file and running `crv disk register --node <new-node>`
+against the resulting path.
+
+The daemon enforces a **same-node attach check**: `crv disk
+attach <vm> <disk>` refuses unless a `disk_image_node` row
+exists for `(disk, vm.node)`. Otherwise qemu on the VM's host
+would have no file to open. The error names both sides:
+
+```
+Disk image 'debian-base' is not present on node 3
+where VM 'web-1' lives
+```
+
+`crv disk show <disk>` renders each placement on its own line
+as `<node>: <path>; …`.
+
+On a single-node install all disk operations default to the
+single registered node (the scheduler's first-online-node
+fallback). Multi-node operators are responsible for explicit
+`--node` placement during create / register / import.
+
 ## Creating Disk Images
 
 ```bash

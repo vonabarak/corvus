@@ -26,6 +26,7 @@ crv network create lab-net --subnet 10.0.1.0/24                     # With subne
 crv network create lab-net --subnet 10.0.1.0/24 --dhcp              # With DHCP
 crv network create lab-net --subnet 10.0.1.0/24 --dhcp --nat        # With DHCP + NAT
 crv network create lab-net --subnet 10.0.1.0/24 --dhcp --nat --autostart
+crv network create lab-net --node alpha --subnet 10.0.1.0/24        # Pin to a node
 ```
 
 | Option | Description |
@@ -34,6 +35,13 @@ crv network create lab-net --subnet 10.0.1.0/24 --dhcp --nat --autostart
 | `--dhcp` | Run dnsmasq for DHCP/DNS |
 | `--nat` | Enable NAT for internet access |
 | `--autostart` | Start network when daemon starts |
+| `--node` | Node owning this network (optional; daemon picks via the scheduler) |
+
+Networks are per-node — the bridge and dnsmasq instance live
+on the kernel of the node owning the network. The daemon's
+**same-node netif check** refuses to add a managed-NIC pointing
+at a network on a different node than the VM. See
+[multi-node.md](multi-node.md) for the full invariant.
 
 ### Network Lifecycle
 
