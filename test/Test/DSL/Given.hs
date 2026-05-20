@@ -7,6 +7,7 @@ module Test.DSL.Given
     insertVm
   , insertVmFull
   , insertHeadlessVm
+  , insertRunningVmWithGuestAgent
   , givenVmExists
   , givenCloudInitVmExists
   , givenRunningVmExists
@@ -122,6 +123,36 @@ insertVm name status = do
           , vmDescription = Nothing
           , vmHeadless = False
           , vmGuestAgent = False
+          , vmCloudInit = False
+          , vmHealthcheck = Nothing
+          , vmAutostart = False
+          , vmSpicePort = Nothing
+          , vmVsockCid = Nothing
+          , vmErrorMessage = Nothing
+          , vmLastErrorAt = Nothing
+          }
+  pure $ fromSqlKey key
+
+-- | Insert a running VM with the guest-agent bit flipped on.
+-- Used by `whenGuestExec` tests; the bare `insertVm` helper
+-- defaults `vmGuestAgent = False`.
+insertRunningVmWithGuestAgent :: Text -> TestM Int64
+insertRunningVmWithGuestAgent name = do
+  nodeKey <- seedTestNode
+  now <- liftIO getCurrentTime
+  key <-
+    runDb $
+      insert
+        Vm
+          { vmName = name
+          , vmNodeId = nodeKey
+          , vmCreatedAt = now
+          , vmStatus = VmRunning
+          , vmCpuCount = 2
+          , vmRamMb = 4096
+          , vmDescription = Nothing
+          , vmHeadless = True
+          , vmGuestAgent = True
           , vmCloudInit = False
           , vmHealthcheck = Nothing
           , vmAutostart = False
