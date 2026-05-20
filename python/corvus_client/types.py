@@ -147,12 +147,28 @@ class DiskAttachment:
 
 
 @dataclass(frozen=True)
+class DiskImagePlacement:
+    """Per-node placement of a logical disk image.
+
+    A logical `DiskImage` may live on one or many nodes; each
+    `DiskImagePlacement` records the on-disk path on a specific
+    node. Multi-node deployments have one entry per node the
+    image has been replicated to; single-node deployments have
+    exactly one.
+    """
+
+    node_id: int
+    node_name: str
+    file_path: str
+
+
+@dataclass(frozen=True)
 class DiskImageInfo:
     id: int
     name: str
-    file_path: str
     format: str
     created_at: datetime
+    placements: list[DiskImagePlacement] = field(default_factory=list)
     attached_to: list[DiskAttachment] = field(default_factory=list)
     size_mb: Optional[int] = None
     backing_image_id: Optional[int] = None
@@ -165,6 +181,64 @@ class SnapshotInfo:
     name: str
     created_at: datetime
     size_mb: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# Node
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NodeInfo:
+    """Short node summary surfaced by ``crv node list``.
+
+    Capacity fields (``cpu_count``, ``ram_*``, ``storage_*``,
+    ``load_avg1``) are ``None`` until the node's agent has
+    pushed its first stats snapshot.
+    """
+
+    id: int
+    name: str
+    host: str
+    node_agent_port: int
+    net_agent_port: int
+    admin_state: str
+    created_at: datetime
+    cpu_count: Optional[int] = None
+    ram_mb_total: Optional[int] = None
+    ram_mb_free: Optional[int] = None
+    storage_bytes_total: Optional[int] = None
+    storage_bytes_free: Optional[int] = None
+    load_avg1: Optional[float] = None
+    last_node_agent_push_at: Optional[datetime] = None
+    last_net_agent_push_at: Optional[datetime] = None
+
+
+@dataclass(frozen=True)
+class NodeDetails:
+    """Full per-node detail surfaced by ``crv node show``."""
+
+    id: int
+    name: str
+    host: str
+    node_agent_port: int
+    net_agent_port: int
+    base_path: str
+    admin_state: str
+    created_at: datetime
+    description: Optional[str] = None
+    cpu_count: Optional[int] = None
+    ram_mb_total: Optional[int] = None
+    ram_mb_free: Optional[int] = None
+    storage_bytes_total: Optional[int] = None
+    storage_bytes_free: Optional[int] = None
+    load_avg1: Optional[float] = None
+    load_avg5: Optional[float] = None
+    load_avg15: Optional[float] = None
+    kernel_release: Optional[str] = None
+    agent_version: Optional[str] = None
+    last_node_agent_push_at: Optional[datetime] = None
+    last_net_agent_push_at: Optional[datetime] = None
 
 
 # ---------------------------------------------------------------------------

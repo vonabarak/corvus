@@ -28,6 +28,10 @@ def _nz_text(s: str) -> Optional[str]:
     return s if s else None
 
 
+def _nz_float(x: float) -> Optional[float]:
+    return None if x == 0.0 else x
+
+
 # ---------------------------------------------------------------------------
 # Common
 # ---------------------------------------------------------------------------
@@ -167,14 +171,22 @@ def disk_attachment(r) -> t.DiskAttachment:
     return t.DiskAttachment(vm_id=r.vmId, vm_name=r.vmName)
 
 
+def disk_image_placement(r) -> t.DiskImagePlacement:
+    return t.DiskImagePlacement(
+        node_id=r.nodeId,
+        node_name=r.nodeName,
+        file_path=r.filePath,
+    )
+
+
 def disk_image_info(r) -> t.DiskImageInfo:
     return t.DiskImageInfo(
         id=r.id,
         name=r.name,
-        file_path=r.filePath,
         format=str(r.format),
         size_mb=_nz_int(r.sizeMb),
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
+        placements=[disk_image_placement(p) for p in r.placements],
         attached_to=[disk_attachment(a) for a in r.attachedTo],
         backing_image_id=_nz_int(r.backingImageId),
         backing_image_name=_nz_text(r.backingImageName),
@@ -187,6 +199,57 @@ def snapshot_info(r) -> t.SnapshotInfo:
         name=r.name,
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
         size_mb=_nz_int(r.sizeMb),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Node
+# ---------------------------------------------------------------------------
+
+
+def node_info(r) -> t.NodeInfo:
+    return t.NodeInfo(
+        id=r.id,
+        name=r.name,
+        host=r.host,
+        node_agent_port=r.nodeAgentPort,
+        net_agent_port=r.netAgentPort,
+        admin_state=str(r.adminState),
+        created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
+        cpu_count=_nz_int(r.cpuCount),
+        ram_mb_total=_nz_int(r.ramMbTotal),
+        ram_mb_free=_nz_int(r.ramMbFree),
+        storage_bytes_total=_nz_int(r.storageBytesTotal),
+        storage_bytes_free=_nz_int(r.storageBytesFree),
+        load_avg1=_nz_float(r.loadAvg1),
+        last_node_agent_push_at=_ts(r.lastNodeAgentPushAt),
+        last_net_agent_push_at=_ts(r.lastNetAgentPushAt),
+    )
+
+
+def node_details(r) -> t.NodeDetails:
+    return t.NodeDetails(
+        id=r.id,
+        name=r.name,
+        host=r.host,
+        node_agent_port=r.nodeAgentPort,
+        net_agent_port=r.netAgentPort,
+        base_path=r.basePath,
+        description=_nz_text(r.description),
+        admin_state=str(r.adminState),
+        created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
+        cpu_count=_nz_int(r.cpuCount),
+        ram_mb_total=_nz_int(r.ramMbTotal),
+        ram_mb_free=_nz_int(r.ramMbFree),
+        storage_bytes_total=_nz_int(r.storageBytesTotal),
+        storage_bytes_free=_nz_int(r.storageBytesFree),
+        load_avg1=_nz_float(r.loadAvg1),
+        load_avg5=_nz_float(r.loadAvg5),
+        load_avg15=_nz_float(r.loadAvg15),
+        kernel_release=_nz_text(r.kernelRelease),
+        agent_version=_nz_text(r.agentVersion),
+        last_node_agent_push_at=_ts(r.lastNodeAgentPushAt),
+        last_net_agent_push_at=_ts(r.lastNetAgentPushAt),
     )
 
 

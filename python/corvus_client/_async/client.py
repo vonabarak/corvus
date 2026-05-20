@@ -26,6 +26,7 @@ if TYPE_CHECKING:  # avoid circular imports at runtime
     from .cloudinit import AsyncCloudInitManager
     from .disk import AsyncDiskManager
     from .network import AsyncNetworkManager
+    from .node import AsyncNodeManager
     from .sshkey import AsyncSshKeyManager
     from .task import AsyncTaskManager
     from .template import AsyncTemplateManager
@@ -58,6 +59,7 @@ class AsyncClient:
         self._templates: Optional["AsyncTemplateManager"] = None
         self._tasks: Optional["AsyncTaskManager"] = None
         self._cloud_init: Optional["AsyncCloudInitManager"] = None
+        self._nodes: Optional["AsyncNodeManager"] = None
 
     async def __aenter__(self) -> "AsyncClient":
         if self._unix:
@@ -185,3 +187,10 @@ class AsyncClient:
             from .cloudinit import AsyncCloudInitManager
             self._cloud_init = AsyncCloudInitManager(self.daemon)
         return self._cloud_init
+
+    @property
+    def nodes(self) -> "AsyncNodeManager":
+        if self._nodes is None:
+            from .node import AsyncNodeManager
+            self._nodes = AsyncNodeManager(self.daemon)
+        return self._nodes

@@ -14,6 +14,7 @@ from .._runloop import SyncRunloop
 from .cloudinit import SyncCloudInitManager
 from .disk import SyncDiskManager
 from .network import SyncNetworkManager
+from .node import SyncNodeManager
 from .sshkey import SyncSshKeyManager
 from .task import SyncTaskManager
 from .template import SyncTemplateManager
@@ -42,6 +43,7 @@ class Client:
         self.templates = SyncTemplateManager(self._a.templates, self._rl)
         self.tasks = SyncTaskManager(self._a.tasks, self._rl)
         self.cloud_init = SyncCloudInitManager(self._a.cloud_init, self._rl)
+        self.nodes = SyncNodeManager(self._a.nodes, self._rl)
         self._closed = False
 
     # ---- lifecycle --------------------------------------------------------

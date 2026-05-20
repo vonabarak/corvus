@@ -32,6 +32,7 @@ _SCHEMA_FILES = (
     "disk.capnp",
     "template.capnp",
     "vm.capnp",
+    "node.capnp",
     "corvus.capnp",
     "netagent.capnp",
 )
@@ -76,5 +77,6 @@ network = _MODULES["network"]
 disk = _MODULES["disk"]
 template = _MODULES["template"]
 vm = _MODULES["vm"]
+node = _MODULES["node"]
 corvus = _MODULES["corvus"]
 netagent = _MODULES["netagent"]
