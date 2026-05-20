@@ -123,20 +123,28 @@ class TestDisk(SingleNodeCase):
             try:
                 info = clone.show()
                 assert info.name == clone_name
-                # The daemon records the actual on-disk path. With
-                # a relative path it resolves to
-                # `<basePath>/<custom_rel>`; the file_path the
-                # daemon reports must end in our custom suffix —
-                # NOT the default `<basePath>/<clone_name>.qcow2`.
-                assert info.file_path.endswith(custom_rel), (
+                # The daemon records the actual on-disk path on
+                # each node the image lives on (Phase 3 moved
+                # 'file_path' off DiskImageInfo and onto a per-node
+                # 'DiskImagePlacement' list). For a fresh clone
+                # there's exactly one placement on the bake VM's
+                # node; that placement's 'file_path' must end in
+                # our custom suffix — NOT the default
+                # '<basePath>/<clone_name>.qcow2'.
+                assert info.placements, (
+                    f"clone has no recorded placement: {info!r}"
+                )
+                file_paths = [p.file_path for p in info.placements]
+                assert any(fp.endswith(custom_rel) for fp in file_paths), (
                     f"clone landed at default location, not custom path: "
-                    f"{info.file_path!r}"
+                    f"{file_paths!r}"
                 )
                 # Sanity: the path is distinct from what the
                 # default would have been.
-                assert not info.file_path.endswith(f"{clone_name}.qcow2"), (
+                default_suffix = f"/{clone_name}.qcow2"
+                assert not any(fp.endswith(default_suffix) for fp in file_paths), (
                     f"file_path matches the default location, not the custom one: "
-                    f"{info.file_path!r}"
+                    f"{file_paths!r}"
                 )
             finally:
                 clone.delete()

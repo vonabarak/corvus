@@ -29,6 +29,7 @@ import Corvus.CloudInit
   , getCloudInitDir
   , renderUserData
   )
+import Corvus.Handlers.Disk.Db (recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase)
 import Corvus.Model
 import qualified Corvus.NodeAgentClient as NOA
@@ -235,20 +236,34 @@ regenerateCloudInitIsoForVm state vmId vmName = do
         ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel
         pure $ Right ()
 
--- | Ensure cloud-init disk is registered and attached to VM as CDROM
+-- | Ensure cloud-init disk is registered and attached to VM as CDROM.
+--
+-- Records both the logical 'DiskImage' row and the per-node
+-- 'DiskImageNode' placement keyed on the VM's node. Without
+-- the placement row, 'assembleVmSpec' would silently filter
+-- the drive out of 'VmSpec.vsDrives' (because the join lookup
+-- on @(image, vm.nodeId)@ returns 'Nothing'), and the VM would
+-- start without its NoCloud ISO mounted — meaning cloud-init
+-- inside the guest sees no metadata source and no SSH keys
+-- ever get injected.
 ensureCloudInitDiskRegistered :: Pool SqlBackend -> QemuConfig -> Int64 -> Text -> Text -> LogLevel -> IO ()
 ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = runFilteredLogging logLevel $ do
   let vmKey = toSqlKey vmId :: VmId
   let diskName = vmName <> "-cloud-init"
-  _basePath <- liftIO $ getEffectiveBasePath qemuConfig
-  let _storedPath = makeRelativeToBase _basePath (T.unpack isoPath)
+  basePath <- liftIO $ getEffectiveBasePath qemuConfig
+  let storedPath = makeRelativeToBase basePath (T.unpack isoPath)
+  -- Pull the VM's node id so the placement row points at the
+  -- right node. A missing VM row here means the caller has
+  -- raced cloud-init regen with a delete; bail without a
+  -- placement (the VM is going away anyway).
+  mVm <- liftIO $ runSqlPool (get vmKey) pool
+  let mNodeKey = vmNodeId <$> mVm
 
-  -- TODO(multi-node Phase 3): replace name-based dedup with the
-  -- proper per-node 'DiskImageNode' lookup keyed by (image, vm.nodeId).
   mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName diskName)) pool
   case mExisting of
     Just (Entity diskId _) -> do
       logDebugN $ "Cloud-init disk already registered: " <> T.pack (show $ fromSqlKey diskId)
+      mapM_ (recordPlacement diskId storedPath) mNodeKey
       ensureDiskAttached pool vmKey diskId
     Nothing -> do
       now <- liftIO getCurrentTime
@@ -266,7 +281,12 @@ ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = run
             )
             pool
       logInfoN $ "Registered cloud-init disk with ID: " <> T.pack (show $ fromSqlKey diskId)
+      mapM_ (recordPlacement diskId storedPath) mNodeKey
       ensureDiskAttached pool vmKey diskId
+  where
+    recordPlacement diskId path nodeKey =
+      liftIO $
+        runSqlPool (recordDiskImageNode diskId nodeKey path) pool
 
 -- | Ensure a disk is attached to a VM as CDROM
 ensureDiskAttached :: Pool SqlBackend -> VmId -> DiskImageId -> LoggingT IO ()
