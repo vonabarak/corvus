@@ -406,6 +406,23 @@ pipeline:
               cat /etc/corvus-image-info
             timeoutSec: 30
 
+        # ── Reset machine-id so every clone gets a fresh one ─────────────
+        # Must be the LAST disk-mutating provisioner step: gentoo-headless
+        # truncates /etc/machine-id in the chroot, but every provisioner
+        # boot after that repopulates it. Two clones booting with the same
+        # machine-id ⇒ same systemd-networkd DHCPv4 DUID ⇒ host's dnsmasq
+        # hands them the same lease ⇒ VMs collide on one IP. Writing the
+        # canonical `uninitialized\n` sentinel makes systemd-machine-id-
+        # setup regenerate the id on first boot of each clone (see
+        # machine-id(5)). /var/lib/dbus/machine-id is symlinked to the
+        # same file so dbus's view tracks.
+        - shell:
+            inline: |
+              echo "uninitialized" > /etc/machine-id
+              install -d -m 0755 /var/lib/dbus
+              ln -sf /etc/machine-id /var/lib/dbus/machine-id
+            timeoutSec: 10
+
       cleanup: onSuccess
 
   # Register a runtime template that instantiates a one-off VM from
