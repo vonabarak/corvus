@@ -29,7 +29,6 @@
 - [RPC Protocol](rpc-protocol.md) -- Cap'n Proto schema overview, capability tree, streaming sinks, pycapnp client example
 - [Python Client (`corvus_client`)](../python/README.md) -- pycapnp-based client shipping with this tree
 - [Integration Test Suite](../integration_tests/README.md) -- Python harness that runs the freshly-compiled Corvus inside nested VMs
-- [Integration Test Coverage (pre-Cap'n Proto snapshot)](integration-tests-pre-capnp.md) -- Catalogue of the integration tests pending re-implementation on the new wire
 
 ## Examples
 
@@ -46,4 +45,4 @@ any companion files like kernel configs or autounattend answer files):
 - [yaml/gentoo-corvus/](../yaml/gentoo-corvus/) -- Build a Gentoo image with the Corvus toolchain
 - [yaml/debian-nginx/](../yaml/debian-nginx/) -- Bake nginx onto a Debian 12 base
 - [yaml/ubuntu-nginx/](../yaml/ubuntu-nginx/) -- Bake nginx onto an Ubuntu 24.04 base
-- [doc/template-example.yml](template-example.yml) -- Standalone template file
+- [yaml/template-example/template-example.yml](../yaml/template-example/template-example.yml) -- Standalone template file
