@@ -1,0 +1,29 @@
+[project]
+name = "corvus-admin"
+version = "0.1.0"
+description = "Admin utility for the Corvus VM manager: mints, deploys, and registers mTLS certificates for the daemon, agents, and CLI clients. Runs on the admin's workstation; the CA private key lives there and never touches the daemon host."
+requires-python = ">=3.10"
+dependencies = [
+    # X.509 generation / signing / private-key handling. The
+    # daemon and agents only validate certs — minting and renewal
+    # live entirely in this tool.
+    "cryptography>=42",
+    # CLI parsing. The plan calls for click; argparse would also
+    # work but click's group/subcommand model maps cleanly onto
+    # `corvus-admin init / deploy / list`.
+    "click>=8",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+corvus-admin = "corvus_admin.cli:main"
+
+[tool.setuptools]
+packages = ["corvus_admin"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

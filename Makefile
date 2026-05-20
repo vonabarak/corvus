@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-test
+.PHONY: all build install install-system install-admin uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-test admin-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -282,6 +282,28 @@ install:
 
 	sleep 1
 	$(HOME)/.local/bin/crv status
+
+# Install the corvus-admin Python utility into a user-isolated
+# location (pipx by default; falls back to `pip install --user`).
+# The CA private key the tool manages lives under
+# $XDG_CONFIG_HOME/corvus/admin/ — see python/corvus_admin/.
+install-admin:
+	@if command -v pipx >/dev/null 2>&1; then \
+	  pipx install --force python/corvus_admin; \
+	else \
+	  echo "pipx not found; falling back to pip --user"; \
+	  python3 -m pip install --user --upgrade python/corvus_admin; \
+	fi
+
+# Run the corvus-admin pytest suite. Uses the same venv as the
+# corvus_client tests when present, otherwise the system python.
+admin-test:
+	@if [ -x python/.venv-corvus-py/bin/pytest ]; then \
+	  python/.venv-corvus-py/bin/pip install --quiet -e python/corvus_admin; \
+	  python/.venv-corvus-py/bin/pytest python/corvus_admin/tests; \
+	else \
+	  python3 -m pytest python/corvus_admin/tests; \
+	fi
 
 # Install the system-wide privileged agents (corvus-netd +
 # corvus-nodeagent). Requires root.
