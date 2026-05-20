@@ -162,6 +162,7 @@ createTestServerState pool basePath = do
   taskSubs <- newTVarIO mempty
   vsockLock <- newMVar ()
   spiceLock <- newMVar ()
+  reservedRam <- newTVarIO mempty
   logLevel <- getTestLogLevel
   let state =
         ServerState
@@ -176,6 +177,7 @@ createTestServerState pool basePath = do
           , ssTaskProgressSubs = taskSubs
           , ssVsockCidLock = vsockLock
           , ssSpicePortLock = spiceLock
+          , ssReservedRam = reservedRam
           }
   -- Register a stub 'NodeConns' under nodeId=1 (the bootstrap
   -- 'test-node' row 'insertDefaultTestNode' installs). Both agent

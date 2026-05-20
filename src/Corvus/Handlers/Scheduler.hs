@@ -38,7 +38,7 @@ where
 
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Corvus.Model as M
-import Corvus.Types (ServerState (..))
+import Corvus.Types (ServerState (..), reservedRamFor)
 import Data.List (sortBy)
 import Data.Maybe (fromMaybe)
 import Data.Ord (Down (..), comparing)
@@ -73,12 +73,19 @@ pickNodeForVm state requestedRamMb = do
   case nodes of
     [] -> pure $ Left "no online node available to place this VM (register one with `crv node add`)"
     candidates -> do
-      let withStats = filter (hasEnoughRam requestedRamMb . entityVal) candidates
+      -- Annotate every candidate with the daemon's in-memory
+      -- reservation for that node, then run the filter + score
+      -- against the *effective* free RAM (raw stat minus the
+      -- pending reservation). Two back-to-back picks within the
+      -- same daemon won't pile onto the same node before the
+      -- agent's next 'NodeStats' push refreshes the raw value.
+      annotated <- liftIO $ traverse withReservation candidates
+      let withStats = filter (hasEnoughRam requestedRamMb) annotated
           chosen =
             if null withStats
               then -- Fall back to "first online node" while node stats are
               -- still NULL (pre-first-push). Order by id for stability.
-                sortBy (comparing entityKey) candidates
+                sortBy (comparing (entityKey . fst)) annotated
               else sortBy scoreOrder withStats
       case chosen of
         [] ->
@@ -87,21 +94,30 @@ pickNodeForVm state requestedRamMb = do
               "no online node has capacity for "
                 <> tshow requestedRamMb
                 <> " MiB RAM"
-        (Entity k _ : _) -> pure $ Right k
+        ((Entity k _, _) : _) -> pure $ Right k
   where
-    -- Either no stats yet (Nothing — accept) or free RAM clears
-    -- the request plus the safety margin.
-    hasEnoughRam reqRam n = case M.nodeRamMbFree n of
+    withReservation :: Entity M.Node -> IO (Entity M.Node, Int)
+    withReservation e@(Entity k _) = do
+      r <- reservedRamFor state k
+      pure (e, r)
+
+    -- Effective free RAM = reported free minus already-reserved.
+    -- 'Nothing' (no stats yet) is treated as "accept" — degrades
+    -- to the first-online-node fallback at the call site.
+    hasEnoughRam reqRam (Entity _ n, reserved) = case M.nodeRamMbFree n of
       Nothing -> True
-      Just free -> free >= reqRam + ramSafetyMb
+      Just free -> (free - reserved) >= reqRam + ramSafetyMb
 
     -- Higher score = better placement. Tie-break by node name
     -- so two equally good nodes resolve deterministically.
-    scoreOrder = comparing (Down . scoreNode) <> comparing (M.nodeName . entityVal)
+    scoreOrder =
+      comparing (Down . scoreNode)
+        <> comparing (M.nodeName . entityVal . fst)
 
-    scoreNode :: Entity M.Node -> Double
-    scoreNode (Entity _ n) =
-      let ram = fromIntegral (fromMaybe 0 (M.nodeRamMbFree n) - requestedRamMb) :: Double
+    scoreNode :: (Entity M.Node, Int) -> Double
+    scoreNode (Entity _ n, reserved) =
+      let effectiveFree = fromMaybe 0 (M.nodeRamMbFree n) - reserved
+          ram = fromIntegral (effectiveFree - requestedRamMb) :: Double
           gib = case M.nodeStorageBytesFree n of
             Nothing -> 0
             Just b -> fromIntegral (b `div` (1024 * 1024 * 1024)) :: Double

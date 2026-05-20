@@ -148,21 +148,29 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
         Left err -> pure $ RespError err
         Right nodeKey -> do
           hasVsock <- hostHasVhostVsock
-          if not hasVsock
-            then do
-              vmId <- runSqlPool (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart Nothing) pool
+          eVmId <-
+            if not hasVsock
+              then do
+                vmId <- runSqlPool (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart Nothing) pool
+                pure $ Right vmId
+              else do
+                -- Allocate + persist the CID atomically (under ssVsockCidLock)
+                -- so concurrent vm.create / vm.start handlers never pick the
+                -- same CID and race at QEMU bind time.
+                withAllocatedVsockCid state $ \cid ->
+                  runSqlPool
+                    (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart (Just cid))
+                    pool
+          case eVmId of
+            Left err -> pure $ RespError err
+            Right vmId -> do
+              -- Bump the scheduler's in-memory reservation so the
+              -- next 'pickNodeForVm' call (within the same daemon,
+              -- before the agent's next stats push) doesn't
+              -- double-spend this VM's RAM share. The reservation
+              -- clears when fresh 'NodeStats' arrive (Phase 5).
+              reserveRam state nodeKey ramMb
               pure $ RespVmCreated vmId
-            else do
-              -- Allocate + persist the CID atomically (under ssVsockCidLock)
-              -- so concurrent vm.create / vm.start handlers never pick the
-              -- same CID and race at QEMU bind time.
-              result <- withAllocatedVsockCid state $ \cid ->
-                runSqlPool
-                  (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart (Just cid))
-                  pool
-              case result of
-                Left err -> pure $ RespError err
-                Right vmId -> pure $ RespVmCreated vmId
 
 -- | Handle VM delete command
 handleVmDelete :: ActionContext -> Int64 -> Bool -> IO Response

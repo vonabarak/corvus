@@ -19,6 +19,11 @@ module Corvus.Types
   , clearNetConn
   , removeNodeConns
 
+    -- * Scheduler reservations
+  , reserveRam
+  , reservedRamFor
+  , clearReservation
+
     -- * Socket Buffer Types
   , SocketBuffer (..)
   , SocketBufferHandle (..)
@@ -104,6 +109,20 @@ data ServerState = ServerState
   -- 'ssVsockCidLock': allocator + caller persist need to be
   -- atomic so two parallel VM starts don't pick the same port.
   -- See 'Corvus.Node.SpicePort.withAllocatedSpicePort'.
+  , ssReservedRam :: TVar (Map.Map M.NodeId Int)
+  -- ^ Scheduler reservation bookkeeping: RAM (MiB) the
+  -- scheduler has handed out for VMs created via 'pickNodeForVm'
+  -- since the last agent push reset the relevant entry. The
+  -- scheduler subtracts the per-node reservation from each
+  -- node's reported @ramMbFree@ when scoring candidates, so
+  -- back-to-back creates within the same daemon don't all
+  -- pile onto the same (now-no-longer-empty) node before the
+  -- agent's next push reflects reality. The Phase 5 agent
+  -- 'NodeStats' push hook clears the entry; until then
+  -- entries persist for the daemon's lifetime, which is fine
+  -- in practice because the typical operator session creates
+  -- a small number of VMs and a real RAM cap is enforced by
+  -- the agent itself on @vmStart@.
   }
 
 -- | Per-node bundle of live agent connections plus the
@@ -134,6 +153,7 @@ newServerState pool qemuConfig = do
   taskSubs <- newTVarIO Map.empty
   vsockLock <- newMVar ()
   spiceLock <- newMVar ()
+  reservedRam <- newTVarIO Map.empty
   pure
     ServerState
       { ssStartTime = startTime
@@ -147,6 +167,7 @@ newServerState pool qemuConfig = do
       , ssTaskProgressSubs = taskSubs
       , ssVsockCidLock = vsockLock
       , ssSpicePortLock = spiceLock
+      , ssReservedRam = reservedRam
       }
 
 -- | Look up the nodeagent cap for a node. Returns 'Left' with a
@@ -239,8 +260,37 @@ clearNetConn state nid =
 -- | Remove a node's entry entirely. Used when @crv node delete@
 -- cancels the supervisor.
 removeNodeConns :: ServerState -> M.NodeId -> IO ()
-removeNodeConns state nid =
+removeNodeConns state nid = do
   atomically $ modifyTVar' (ssAgents state) (Map.delete nid)
+  -- Drop any pending reservation for the gone node too — keeps
+  -- the scheduler's view of "RAM I've handed out" honest.
+  clearReservation state nid
+
+-- | Bump the in-memory RAM reservation for a node. Called by
+-- 'pickNodeForVm' (or any explicit-placement path) right after
+-- the new 'Vm' row is inserted, so the next scheduler pass
+-- doesn't double-spend the same headroom.
+reserveRam :: ServerState -> M.NodeId -> Int -> IO ()
+reserveRam state nid ramMb =
+  atomically $
+    modifyTVar' (ssReservedRam state) $
+      Map.insertWith (+) nid ramMb
+
+-- | Read the current reserved-RAM total for a node (0 if none).
+-- Phase-1 helper for the scheduler.
+reservedRamFor :: ServerState -> M.NodeId -> IO Int
+reservedRamFor state nid = do
+  m <- readTVarIO (ssReservedRam state)
+  pure $ Map.findWithDefault 0 nid m
+
+-- | Reset a node's reservation back to zero. Called when fresh
+-- 'NodeStats' from the agent push arrive (Phase 5) so the
+-- scheduler stops double-counting reserved RAM already
+-- reflected in the agent's reported @ramMbFree@.
+clearReservation :: ServerState -> M.NodeId -> IO ()
+clearReservation state nid =
+  atomically $
+    modifyTVar' (ssReservedRam state) (Map.delete nid)
 
 --------------------------------------------------------------------------------
 -- Socket Buffer Types
