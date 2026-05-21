@@ -1,9 +1,0 @@
-pycapnp>=2.2.0
-PyYAML>=6.0
-cryptography>=42
-click>=8
-
-[harness]
-pytest>=8
-pytest-timeout>=2.3
-pytest-xdist>=3.6

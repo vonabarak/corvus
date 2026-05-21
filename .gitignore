@@ -11,6 +11,9 @@ plans/
 # Python tool caches
 .ruff_cache/
 .mypy_cache/
+# Root-level editable-install metadata (the unified distribution
+# lives at the repo root, so its .egg-info lands there too).
+*.egg-info/
 # Python extension build artefacts
 python/.venv*/
 python/corvus_client/_corvus.abi3.so
