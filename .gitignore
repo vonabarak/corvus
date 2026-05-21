@@ -8,6 +8,9 @@ dist/
 plans/
 .test-cache/
 .test-images/
+# Python tool caches
+.ruff_cache/
+.mypy_cache/
 # Python extension build artefacts
 python/.venv*/
 python/corvus_client/_corvus.abi3.so

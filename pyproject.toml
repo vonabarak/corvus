@@ -1,0 +1,70 @@
+[project]
+name = "corvus"
+version = "0.2.0"
+description = "Corvus VM manager — Python client, admin CLI, and integration-test harness."
+requires-python = ">=3.10"
+dependencies = [
+    # Cap'n Proto RPC client used by every Python entry point. The
+    # daemon's wire protocol is Cap'n Proto; the schema files live
+    # in /schema and are symlinked into corvus_client/schema/.
+    "pycapnp>=2.2.0",
+    # YAML parsing for templates and the declarative `crv apply`
+    # YAML config inside corvus_client.
+    "PyYAML>=6.0",
+    # X.509 generation / signing / private-key handling for
+    # corvus_admin (mint, deploy, renew certificates).
+    "cryptography>=42",
+    # Click drives the `corvus-admin` CLI's command hierarchy.
+    "click>=8",
+]
+
+[project.optional-dependencies]
+# Integration-test harness deps — opt-in via `pip install -e .[harness]`.
+# Keeps a plain `pip install corvus` slim for downstream client users.
+harness = [
+    "pytest>=8",
+    "pytest-timeout>=2.3",
+    "pytest-xdist>=3.6",
+]
+
+[project.scripts]
+corvus-admin = "corvus_admin.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# Three top-level packages, source dirs in two different trees.
+# `corvus_client` and `corvus_admin` live under /python; the
+# integration-test harness lives under /integration_tests.
+[tool.setuptools]
+packages = [
+    "corvus_client",
+    "corvus_client._async",
+    "corvus_client._sync",
+    "corvus_admin",
+    "corvus_test_harness",
+]
+
+[tool.setuptools.package-dir]
+corvus_client = "python/corvus_client"
+"corvus_client._async" = "python/corvus_client/_async"
+"corvus_client._sync" = "python/corvus_client/_sync"
+corvus_admin = "python/corvus_admin"
+corvus_test_harness = "integration_tests/corvus_test_harness"
+
+[tool.setuptools.package-data]
+corvus_client = ["schema/*.capnp"]
+
+[tool.pytest.ini_options]
+# Both /python/tests and /integration_tests/tests are discoverable
+# from the repo root. Selecting which set to run is the Makefile's
+# job (see `python-test` / `integration-tests` targets).
+testpaths = ["python/tests", "integration_tests/tests"]
+pythonpath = ["."]
+timeout = 600
+markers = [
+    "slow: tests that take more than a minute (boot cycle, image build)",
+    "rootful: tests that exercise root-only paths inside the inner VM",
+]
+addopts = "--dist=loadscope --import-mode=importlib"

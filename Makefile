@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-system install-admin uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-test admin-test
+.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format check capnp python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -35,13 +35,19 @@ capnp:
 # wheel-build's `package-data` glob both see the regenerated `.capnp` files
 # with no extra step.
 
-# Run the Python client's test suite against a real corvus daemon
-# spawned per-test on a temp Unix socket. The conftest discovers
-# the freshly built daemon from `stack path --local-install-root`
-# directly — no `make install` required, $HOME/.local/bin stays
-# clean.
+# Run BOTH Python pytest suites (corvus_client + corvus_admin) against
+# a real corvus daemon spawned per-test on a temp Unix socket. Both
+# packages share the consolidated /python/tests tree and one editable
+# install at the repo root covers both. The conftest discovers the
+# freshly built daemon from `stack path --local-install-root` — no
+# `make install` required.
 python-test: build
-	cd python && .venv-corvus-py/bin/pytest tests -v
+	@if [ -x python/.venv-corvus-py/bin/pytest ]; then \
+	  python/.venv-corvus-py/bin/pip install --quiet -e . ; \
+	  python/.venv-corvus-py/bin/pytest python/tests -v ; \
+	else \
+	  python3 -m pytest python/tests -v ; \
+	fi
 
 # Run the pytest integration test suite (nested VMs; rootful inner
 # Corvus; multi-node). The orchestrator VMs mount the host's
@@ -62,11 +68,10 @@ python-test: build
 #   make integration-tests MATCH="lifecycle and not edit"
 integration-tests: build
 	test -d integration_tests/.venv || python3 -m venv integration_tests/.venv
-	# Install corvus-client + corvus-admin + the harness itself.
-	# The harness uses corvus-admin's `ca` / `deploy` / `runner`
-	# modules to deploy per-VM mTLS certs over SSH-over-VSOCK
-	# (see `corvus_test_harness.runner` / `.component_deploy`).
-	integration_tests/.venv/bin/pip install -q -e ./python -e ./python/corvus_admin -e ./integration_tests
+	# One editable install at the repo root with the `harness` extra
+	# replaces the three separate installs (corvus_client, corvus_admin,
+	# corvus_test_harness now ship as a single distribution).
+	integration_tests/.venv/bin/pip install -q -e .[harness]
 	integration_tests/.venv/bin/pytest integration_tests/tests -v \
 	  $(if $(MATCH),-k "$(MATCH)",-n auto)
 
@@ -253,21 +258,41 @@ dev-node-vm-ssh:
 	  exec ssh -i $(DEV_NODE_SSH_KEY) $(SSH_ARGS) corvus@vsock%$$cid
 
 
-# Run linter on src, app and test directories
-lint:
-	hlint src app test
-
-
-# Format the code using fourmolu
+# Format Python (ruff) + Haskell (fourmolu) sources in place.
 format:
+	ruff format python integration_tests
 	fourmolu --mode inplace $(shell find src app test -name '*.hs')
 
 
-# Install binaries to ~/.local/bin/, drop the user-systemd unit in
-# place, install shell completions, and (re)start the daemon. This
-# target is meant to be invoked *manually* by the developer — no
-# other target depends on it, so plain `make build`, `make
-# integration-tests`, etc. don't pollute $HOME/.local/bin.
+# Lint Python (ruff check + mypy) + Haskell (hlint). Mypy lives here
+# so a single `make lint` covers both style and types end-to-end.
+lint:
+	ruff check python integration_tests
+	mypy python integration_tests
+	hlint src app test
+
+
+# Read-only verification. Runs every check `make lint` does, plus a
+# `--check` pass of every formatter (Ruff + fourmolu) that exits
+# non-zero if any file would be reformatted. Does NOT edit code —
+# suited for CI / pre-merge gates and pre-push hooks.
+check:
+	ruff check python integration_tests
+	ruff format --check python integration_tests
+	mypy python integration_tests
+	hlint src app test
+	fourmolu --mode check $(shell find src app test -name '*.hs')
+
+
+# Install Haskell binaries to ~/.local/bin/, drop the user-systemd
+# unit in place, install shell completions, (re)start the daemon, and
+# pipx-install the corvus-admin Python CLI. This target is meant to
+# be invoked *manually* by the developer — no other target depends
+# on it, so plain `make build`, `make integration-tests`, etc. don't
+# pollute $HOME/.local/bin or the pipx environment.
+#
+# The CA private key corvus-admin manages lives under
+# $XDG_CONFIG_HOME/corvus/admin/ — see python/corvus_admin/.
 install:
 	stack install
 	mkdir -p $(HOME)/.config/systemd/user/
@@ -284,30 +309,17 @@ install:
 	mkdir -p $(HOME)/.config/fish/completions
 	$(HOME)/.local/bin/crv completion fish > $(HOME)/.config/fish/completions/crv.fish
 
+	# corvus-admin CLI — pipx-installed from the root distribution
+	# (folded in from the old `install-admin` target).
+	@if command -v pipx >/dev/null 2>&1; then \
+	  pipx install --force . ; \
+	else \
+	  echo "pipx not found; falling back to pip --user" >&2 ; \
+	  python3 -m pip install --user --upgrade . ; \
+	fi
+
 	sleep 1
 	$(HOME)/.local/bin/crv status
-
-# Install the corvus-admin Python utility into a user-isolated
-# location (pipx by default; falls back to `pip install --user`).
-# The CA private key the tool manages lives under
-# $XDG_CONFIG_HOME/corvus/admin/ — see python/corvus_admin/.
-install-admin:
-	@if command -v pipx >/dev/null 2>&1; then \
-	  pipx install --force python/corvus_admin; \
-	else \
-	  echo "pipx not found; falling back to pip --user"; \
-	  python3 -m pip install --user --upgrade python/corvus_admin; \
-	fi
-
-# Run the corvus-admin pytest suite. Uses the same venv as the
-# corvus_client tests when present, otherwise the system python.
-admin-test:
-	@if [ -x python/.venv-corvus-py/bin/pytest ]; then \
-	  python/.venv-corvus-py/bin/pip install --quiet -e python/corvus_admin; \
-	  python/.venv-corvus-py/bin/pytest python/corvus_admin/tests; \
-	else \
-	  python3 -m pytest python/corvus_admin/tests; \
-	fi
 
 # Install the system-wide privileged agents (corvus-netd +
 # corvus-nodeagent). Requires root.
