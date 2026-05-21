@@ -180,6 +180,44 @@ class TestVmMigration(OneDaemonTwoNodesCase):
             f"(expected one of: {message_must_match!r})"
         )
 
+    def _make_bootable_vm(
+        self,
+        vm_name: str,
+        overlay_name: str,
+        *,
+        guest_agent: bool = True,
+    ):
+        """Build a bootable VM on alpha by creating a qcow2 overlay
+        on top of the standard `corvus-test-vm` base image (Alpine
+        + qemu-guest-agent + vsock-sshd, baked under the `alpine`
+        key in ``base_images.discover``). Suitable for tests that
+        need the VM to actually boot, run QGA, and let
+        ``vm.start(wait=True)`` return.
+
+        Returns the ``Vm`` capability. Cleanup is the caller's
+        job (``self._delete_silent_vm(vm_name)`` +
+        ``self._delete_silent_disk(overlay_name)``).
+        """
+        images = self.register_base_images()
+        base_disk = images.get("alpine")
+        if base_disk is None:
+            pytest.skip(
+                "alpine (corvus-test-vm) base image not registered — "
+                "run `make test-image-vm` to bake it on the host"
+            )
+        self.client_alpha.disks.create_overlay(overlay_name, base_disk)
+        vm = self.client_alpha.vms.create(
+            vm_name,
+            cpu_count=1,
+            ram_mb=512,
+            node=self.alpha_name,
+            headless=True,
+            guest_agent=guest_agent,
+            cloud_init=False,
+        )
+        vm.attach_disk(overlay_name, interface="virtio")
+        return vm
+
     def _make_stopped_vm_with_disk(
         self,
         vm_name: str,
@@ -293,53 +331,54 @@ class TestVmMigration(OneDaemonTwoNodesCase):
             self._delete_silent_disk(rw_disk)
 
     def test_migrate_clears_vsock_and_spice(self):
-        """A VM that was started once on alpha (allocating both
-        VSOCK CID and SPICE port) has those fields cleared after
-        migration; the next start re-allocates against beta.
+        """A VM that was started once on alpha (allocating its
+        VSOCK CID) has that field cleared after migration; the
+        next start re-allocates against beta.
 
-        Note: the VM is started with ``wait=True`` so the daemon's
-        background start task fully completes (status=running)
-        BEFORE we reset it. With ``wait=False`` the start task is
-        still running while reset commits status=stopped, and
-        the start task's later ``setVmStarted`` would override
-        the reset's stopped status — making the subsequent
-        migrate's "status==stopped" gate fail.
+        Uses the standard `corvus-test-vm` Alpine image so the
+        guest actually boots and runs qemu-guest-agent — the
+        daemon needs the first QGA ping to land before it
+        transitions the row to ``running`` and allocates the
+        VSOCK CID. With a non-bootable disk QGA never replies and
+        ``vm.start(wait=True)`` hangs to the daemon timeout
+        without ever producing the "ran once with vsock_cid set"
+        state this test asserts on.
+
+        SPICE port allocation is opt-in (headless VMs don't get
+        one); this test runs headless so spice_port is None both
+        before and after — we still assert it stays None.
         """
-        # We need the agent to actually allocate a VSOCK CID, so
-        # the test only really validates the "cleared" assertion
-        # when the agent's kernel has /dev/vhost-vsock. Most
-        # nested-VM hosts do; if this test ever runs on a kernel
-        # without vsock support, the post-migration assertion
-        # still holds (both before and after are None).
         vm_name = _uniq("mig-alloc")
-        disk_name = _uniq("mig-alloc-disk")
-        vm = self._make_stopped_vm_with_disk(
-            vm_name, disk_name, guest_agent=True
-        )
+        overlay_name = _uniq("mig-alloc-ovl")
+        vm = self._make_bootable_vm(vm_name, overlay_name, guest_agent=True)
         try:
-            # Allocate on alpha by starting once.  ``wait=True``
-            # makes the daemon block until the agent reports the
-            # VM as running — when this returns, the row's status
-            # is committed as ``running`` and there's no pending
-            # background task to race against.
-            try:
-                vm.start(wait=True)
-            except Exception as e:
-                # If guest-agent isn't reachable inside the test
-                # node (no /dev/vhost-vsock or similar), bail
-                # rather than hang — the assertion below is
-                # well-defined on the no-vsock path too, but the
-                # whole point of this test is the cleared-vsock
-                # case.
-                pytest.skip(f"could not start VM with guest-agent: {e}")
+            # ``wait=True`` makes the daemon block until the agent
+            # reports the first QGA ping — when this returns, the
+            # row's status is committed as ``running`` and the
+            # VSOCK CID has been re-validated against the host
+            # kernel.
+            vm.start(wait=True)
             _poll_until(
                 lambda: _qemu_count(self.node_alpha, vm_name) == 1,
                 timeout_sec=15.0,
                 msg=f"qemu for {vm_name!r} did not spawn on alpha",
             )
             details_before = vm.show()
-            had_vsock = details_before.vsock_cid is not None
-            # Cleanly stop so we can migrate.
+            # With guest_agent=True + a guest that runs qemu-ga,
+            # the daemon's per-node allocator always assigns a
+            # CID; if vsock_cid is None here something is wrong
+            # with the test infra (no /dev/vhost-vsock on the
+            # node kernel) and the assertions below would be
+            # vacuous. Fail fast with a clear message.
+            assert details_before.vsock_cid is not None, (
+                f"VM {vm_name!r} started with guest_agent=True but no "
+                f"vsock_cid was allocated; node kernel may be missing "
+                f"/dev/vhost-vsock"
+            )
+            # Cleanly stop so we can migrate. Use reset (hard
+            # kill) — reset commits status=stopped synchronously,
+            # works from any state, and doesn't depend on the
+            # guest acking ACPI.
             vm.reset()
             _poll_until(
                 lambda: _qemu_count(self.node_alpha, vm_name) == 0,
@@ -353,21 +392,23 @@ class TestVmMigration(OneDaemonTwoNodesCase):
             )
             # Migrate.
             tid = vm.migrate(self.beta_name)
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=300.0)
             details_after = vm.show()
-            # The orchestrator must clear both fields. (If VSOCK
-            # never got allocated in the first place, both pre and
-            # post are None; assert the cleared invariant either
-            # way.)
-            assert details_after.vsock_cid is None
+            # The orchestrator must clear both fields; the next
+            # ``vm.start`` will re-allocate against beta's per-node
+            # pools.
+            assert details_after.vsock_cid is None, (
+                f"vsock_cid still set after migration: "
+                f"{details_after.vsock_cid}"
+            )
             assert details_after.spice_port is None
-            if had_vsock:
-                # The pre-migration value was set, the post one is
-                # cleared — proves the orchestrator nulled it.
-                assert details_before.vsock_cid != details_after.vsock_cid
+            # The pre-migration vsock_cid value was set; the post
+            # one is cleared — proves the orchestrator nulled it
+            # rather than incidentally returning the same value.
+            assert details_before.vsock_cid != details_after.vsock_cid
         finally:
             self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(disk_name)
+            self._delete_silent_disk(overlay_name)
 
     # ---- refusals ----------------------------------------------------------
 
