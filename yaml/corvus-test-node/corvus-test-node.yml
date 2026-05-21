@@ -59,7 +59,13 @@ pipeline:
                 dev-vcs/git \
                 net-misc/curl \
                 sys-process/htop \
-                app-misc/jq
+                app-misc/jq \
+                dev-python/pip \
+                dev-python/click \
+                dev-python/cryptography \
+                dev-python/jinja \
+                dev-python/pyyaml \
+                dev-python/pycapnp
             timeoutSec: 14400
         - shell:
             inline: |
