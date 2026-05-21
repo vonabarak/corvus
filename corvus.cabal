@@ -188,6 +188,7 @@ library
       Corvus.Client.Commands.Network
       Corvus.Handlers.Build.Floppy
       Corvus.Handlers.Disk.Transfer
+      Corvus.Handlers.Vm.Migrate.PreCheck
       Corvus.Node.QmpQQ
       Corvus.Node.Transfer
       Capnp.Gen.ById.X9b1373e2334a09e9

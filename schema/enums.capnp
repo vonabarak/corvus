@@ -81,6 +81,7 @@ enum TaskSubsystem {
   apply     @8;
   build     @9;
   node      @10;
+  migration @11;
 }
 
 enum TaskResult {

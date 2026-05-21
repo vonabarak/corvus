@@ -431,6 +431,7 @@ data TaskSubsystem
     | TaskSubsystem'apply 
     | TaskSubsystem'build 
     | TaskSubsystem'node 
+    | TaskSubsystem'migration 
     | TaskSubsystem'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -462,6 +463,8 @@ instance (Std_.Enum TaskSubsystem) where
             TaskSubsystem'build
         10 ->
             TaskSubsystem'node
+        11 ->
+            TaskSubsystem'migration
         tag_ ->
             (TaskSubsystem'unknown' (Std_.fromIntegral tag_))
     fromEnum value_ = case value_ of
@@ -487,6 +490,8 @@ instance (Std_.Enum TaskSubsystem) where
             9
         (TaskSubsystem'node) ->
             10
+        (TaskSubsystem'migration) ->
+            11
         (TaskSubsystem'unknown' tag_) ->
             (Std_.fromIntegral tag_)
 instance (C.IsWord TaskSubsystem) where

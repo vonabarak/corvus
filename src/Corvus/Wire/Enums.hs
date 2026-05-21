@@ -241,6 +241,7 @@ toCapnpTaskSubsystem = \case
   M.SubApply -> CGE.TaskSubsystem'apply
   M.SubBuild -> CGE.TaskSubsystem'build
   M.SubNode -> CGE.TaskSubsystem'node
+  M.SubMigration -> CGE.TaskSubsystem'migration
 
 fromCapnpTaskSubsystem :: CGE.TaskSubsystem -> Either WireError M.TaskSubsystem
 fromCapnpTaskSubsystem = \case
@@ -255,6 +256,7 @@ fromCapnpTaskSubsystem = \case
   CGE.TaskSubsystem'apply -> Right M.SubApply
   CGE.TaskSubsystem'build -> Right M.SubBuild
   CGE.TaskSubsystem'node -> Right M.SubNode
+  CGE.TaskSubsystem'migration -> Right M.SubMigration
   CGE.TaskSubsystem'unknown' n -> Left (WireUnknownEnum "TaskSubsystem" n)
 
 -- ---------------------------------------------------------------------

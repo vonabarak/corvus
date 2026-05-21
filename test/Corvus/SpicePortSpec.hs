@@ -93,6 +93,7 @@ spec = sequential $ withTestDb $ do
                     , M.vmVsockCid = Nothing
                     , M.vmErrorMessage = Nothing
                     , M.vmLastErrorAt = Nothing
+                    , M.vmMigrating = False
                     }
               )
               pool
@@ -148,6 +149,7 @@ insertRunningVm name port = do
           , M.vmVsockCid = Nothing
           , M.vmErrorMessage = Nothing
           , M.vmLastErrorAt = Nothing
+          , M.vmMigrating = False
           }
   pure ()
 

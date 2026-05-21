@@ -873,6 +873,7 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit a
           , vmVsockCid = vsockCid
           , vmErrorMessage = Nothing
           , vmLastErrorAt = Nothing
+          , vmMigrating = False
           }
   key <- insert vm
   pure $ fromSqlKey key

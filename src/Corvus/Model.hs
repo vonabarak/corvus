@@ -444,6 +444,7 @@ data TaskSubsystem
   | SubApply
   | SubBuild
   | SubNode
+  | SubMigration
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText TaskSubsystem where
@@ -460,6 +461,7 @@ instance EnumText TaskSubsystem where
     , (SubApply, "apply")
     , (SubBuild, "build")
     , (SubNode, "node")
+    , (SubMigration, "migration")
     ]
 
 instance FromJSON TaskSubsystem where
@@ -598,6 +600,7 @@ Vm
     vsockCid Int Maybe default=NULL
     errorMessage Text Maybe default=NULL
     lastErrorAt UTCTime Maybe default=NULL
+    migrating Bool default=false
     UniqueVmNamePerNode nodeId name
     deriving Show Eq Generic
 

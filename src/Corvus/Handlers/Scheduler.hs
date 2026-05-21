@@ -33,6 +33,7 @@ module Corvus.Handlers.Scheduler
   , pickNodeForDisk
   , pickNodeForNetwork
   , ramSafetyMb
+  , hasCapacityFor
   )
 where
 
@@ -123,6 +124,46 @@ pickNodeForVm state requestedRamMb = do
             Just b -> fromIntegral (b `div` (1024 * 1024 * 1024)) :: Double
           load = fromMaybe 0 (M.nodeLoadAvg1 n) :: Double
        in ram + gib - 100 * load
+
+-- | Predicate: does the named node currently have enough free
+-- RAM to host a new VM that needs @requestedRamMb@ MiB?
+--
+-- 'Left' carries a human-readable diagnostic ("not online",
+-- "insufficient RAM") that callers (e.g. migration pre-check)
+-- can surface directly to the operator. Reservations and the
+-- 'ramSafetyMb' margin are applied exactly as in
+-- 'pickNodeForVm'.
+hasCapacityFor
+  :: (MonadIO m)
+  => ServerState
+  -> M.NodeId
+  -> Int
+  -- ^ requested RAM (MiB)
+  -> m (Either Text ())
+hasCapacityFor state nodeId requestedRamMb = do
+  mRow <- liftIO $ runSqlPool (selectList [M.NodeId ==. nodeId] []) (ssDbPool state)
+  case mRow of
+    [] -> pure (Left ("node " <> tshow (M.fromSqlKey nodeId) <> " not found"))
+    (Entity _ node : _)
+      | M.nodeAdminState node /= M.NodeOnline ->
+          pure (Left ("node " <> M.nodeName node <> " is not online"))
+      | otherwise -> do
+          reserved <- liftIO $ reservedRamFor state nodeId
+          case M.nodeRamMbFree node of
+            Nothing -> pure (Right ()) -- no stats yet → optimistic, like the scheduler's pre-push fallback
+            Just free ->
+              if free - reserved >= requestedRamMb + ramSafetyMb
+                then pure (Right ())
+                else
+                  pure $
+                    Left $
+                      "node "
+                        <> M.nodeName node
+                        <> " has insufficient free RAM ("
+                        <> tshow (free - reserved)
+                        <> " MiB available, need "
+                        <> tshow (requestedRamMb + ramSafetyMb)
+                        <> " MiB with safety margin)"
 
 -- | Pick a node to host a new disk image. No objective criteria
 -- yet (Phase 3 will replace this with proper 'DiskImageNode'
