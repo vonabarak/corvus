@@ -37,4 +37,4 @@ def test_bool_rejected():
 
 def test_other_type_rejected():
     with pytest.raises(TypeError):
-        entity_ref(3.14)  # type: ignore[arg-type]
+        entity_ref(3.14)

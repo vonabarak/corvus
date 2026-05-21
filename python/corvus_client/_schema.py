@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 import capnp
 
@@ -48,14 +49,18 @@ def _resolve_schema_dir() -> Path:
 SCHEMA_DIR: Path = _resolve_schema_dir()
 
 
-def _load_all() -> dict[str, object]:
+def _load_all() -> dict[str, Any]:
+    # Each value is whatever pycapnp returns from `capnp.load(...)`:
+    # a runtime-generated module-like object whose attributes are the
+    # schema's top-level types. Typed as `Any` so attribute access
+    # like `_schema.vm.VmCreateParams` doesn't need a stub per type.
     if not SCHEMA_DIR.is_dir():
         raise RuntimeError(
             f"corvus_client: schema directory not found at {SCHEMA_DIR}. "
             "Set CORVUS_SCHEMA_DIR or run `make python-schema-sync`."
         )
     imports = [str(SCHEMA_DIR)]
-    modules: dict[str, object] = {}
+    modules: dict[str, Any] = {}
     for fname in _SCHEMA_FILES:
         path = SCHEMA_DIR / fname
         if not path.is_file():
@@ -67,16 +72,18 @@ def _load_all() -> dict[str, object]:
 
 _MODULES = _load_all()
 
-common = _MODULES["common"]
-enums = _MODULES["enums"]
-streams = _MODULES["streams"]
-cloudinit = _MODULES["cloudinit"]
-sshkey = _MODULES["sshkey"]
-task = _MODULES["task"]
-network = _MODULES["network"]
-disk = _MODULES["disk"]
-template = _MODULES["template"]
-vm = _MODULES["vm"]
-node = _MODULES["node"]
-corvus = _MODULES["corvus"]
-netagent = _MODULES["netagent"]
+# Per-schema module attributes — typed Any for the same reason as
+# the dict values above.
+common: Any = _MODULES["common"]
+enums: Any = _MODULES["enums"]
+streams: Any = _MODULES["streams"]
+cloudinit: Any = _MODULES["cloudinit"]
+sshkey: Any = _MODULES["sshkey"]
+task: Any = _MODULES["task"]
+network: Any = _MODULES["network"]
+disk: Any = _MODULES["disk"]
+template: Any = _MODULES["template"]
+vm: Any = _MODULES["vm"]
+node: Any = _MODULES["node"]
+corvus: Any = _MODULES["corvus"]
+netagent: Any = _MODULES["netagent"]

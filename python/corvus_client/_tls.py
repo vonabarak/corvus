@@ -130,6 +130,7 @@ def build_client_bundle(
     """
 
     needed = ["ca.crt", f"{role}.crt", f"{role}.key"]
+    chosen: Path
     if cert_dir is not None:
         if not all((cert_dir / f).is_file() for f in needed):
             missing = [f for f in needed if not (cert_dir / f).is_file()]
@@ -143,13 +144,14 @@ def build_client_bundle(
             if role == ROLE_CLIENT
             else default_cert_search_path()
         )
-        chosen = resolve_cert_dir(search, needed)
-        if chosen is None:
+        resolved = resolve_cert_dir(search, needed)
+        if resolved is None:
             raise CertNotFoundError(
                 f"no directory in {[str(p) for p in search]} contains "
                 f"{needed}; run `corvus-admin deploy {role.split('-', 1)[1]} ...` "
                 f"or pass tls=False"
             )
+        chosen = resolved
 
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.load_verify_locations(cafile=str(chosen / "ca.crt"))

@@ -16,7 +16,7 @@ so they survive across calls.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import capnp
 
@@ -82,7 +82,12 @@ class AsyncClient:
             self._tls_enabled = bool(tls)
         self._tls_bundle: _tls.TlsBundle | None = None
         self._twoparty: capnp.TwoPartyClient | None = None
-        self._daemon = None
+        # `_daemon` is set on connect via `cast_as`, which returns the
+        # dynamic Daemon cap typed as Any. Annotate explicitly so the
+        # init-time None doesn't pin the field's type to `None` and
+        # render the post-check branch in the `daemon` property
+        # unreachable to mypy.
+        self._daemon: Any = None
         self._stream: capnp.AsyncIoStream | None = None
         self._vms: AsyncVmManager | None = None
         self._disks: AsyncDiskManager | None = None
@@ -97,7 +102,7 @@ class AsyncClient:
         if self._unix:
             stream = await capnp.AsyncIoStream.create_unix_connection(self._unix)
         else:
-            kwargs = {}
+            kwargs: dict[str, Any] = {}
             if self._tls_enabled:
                 # Build the bundle once on the connection path so
                 # the constructor stays cheap and so we can pull

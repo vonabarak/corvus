@@ -38,6 +38,7 @@ import datetime as dt
 import ipaddress
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
@@ -276,7 +277,14 @@ def issue_cert(
             critical=False,
         )
         .add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key()),
+            # `cryptography`'s stubs declare `public_key()` as a wider union
+            # that includes X25519/X448, which `AuthorityKeyIdentifier`
+            # doesn't accept. The CA key is always Ed25519 here (see the
+            # docstring's "Keys are Ed25519" invariant), so the runtime
+            # call is safe; suppress the unreachable-stub arg-type warning.
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                ca_cert.public_key()  # type: ignore[arg-type]
+            ),
             critical=False,
         )
     )
@@ -310,15 +318,15 @@ def issue_cert(
 # Helpers
 
 
-def _atomic_write(path, data: bytes, *, mode: int) -> None:
+def _atomic_write(path: Path, data: bytes, *, mode: int) -> None:
     """Write *data* to *path* atomically with the given mode. Used
     for cert + key files so a crashed run can't leave a half-written
     key on disk that a later run would silently load."""
 
     import os
 
-    path = str(path)
-    tmp = path + ".tmp"
+    path_s = str(path)
+    tmp = path_s + ".tmp"
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
     try:
         with os.fdopen(fd, "wb") as f:
@@ -328,6 +336,6 @@ def _atomic_write(path, data: bytes, *, mode: int) -> None:
             os.unlink(tmp)
         finally:
             raise
-    os.replace(tmp, path)
+    os.replace(tmp, path_s)
     # Re-apply mode in case umask masked it.
     os.chmod(path, mode)

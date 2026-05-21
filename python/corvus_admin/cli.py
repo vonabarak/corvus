@@ -40,7 +40,7 @@ from corvus_admin.runner import RunnerError, for_target
 # Shared options
 
 
-def _ca_dir_option(f):
+def _ca_dir_option(f: click.decorators.FC) -> click.decorators.FC:
     return click.option(
         "--ca-dir",
         "ca_dir",

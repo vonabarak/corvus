@@ -69,7 +69,7 @@ import gc
 import threading
 from collections import deque
 from collections.abc import Coroutine
-from typing import Any
+from typing import Any, cast
 
 import capnp
 
@@ -219,10 +219,15 @@ class SyncRunloop:
         )
         self._thread.start()
         self._ready.wait()
-        if self._error is not None:
+        # `_error` is set from the runloop thread inside `_serve`
+        # (line ~254); mypy's narrowing pass can't see the
+        # cross-thread mutation and infers `_error` is still None.
+        # Round-trip through a cast so mypy stops narrowing.
+        err = cast("BaseException | None", self._error)
+        if err is not None:
             _release_gc_disable()
             self._gc_claimed = False
-            raise self._error
+            raise err
 
     def _serve(self) -> None:
         try:

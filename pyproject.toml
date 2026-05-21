@@ -110,6 +110,79 @@ ignore = [
 "**/tests/**" = ["B011"]            # `assert False` is acceptable in tests
 "**/conftest.py" = ["F401"]         # fixtures are re-exported, not "unused"
 
+[tool.mypy]
+python_version = "3.10"
+# Same dual-root layout setuptools sees: corvus_client + corvus_admin
+# live under /python; corvus_test_harness lives under /integration_tests.
+# Plus `explicit_package_bases = true` so mypy resolves
+# `python/tests/<pkg>/conftest.py` as `tests.<pkg>.conftest` rather
+# than the bare `conftest` (which would collide between the two
+# centralised subtrees).
+mypy_path = "python:integration_tests"
+explicit_package_bases = true
+namespace_packages = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+no_implicit_optional = true
+check_untyped_defs = true
+exclude = [
+    "(^|/)\\.venv",
+    # Reserved for future codegen — see the ruff `extend-exclude`
+    # entry for the same path. Nothing currently matches.
+    "(^|/)_generated/",
+]
+
+# pycapnp's `capnp` module has incomplete stubs (no py.typed
+# marker on the importable submodules). Treat it as untyped at
+# the import boundary; calls into the dynamic cap surface still
+# hit Any, which is the accepted boundary.
+[[tool.mypy.overrides]]
+module = "capnp"
+ignore_missing_imports = true
+
+# corvus_admin — strict-annotated module. Keep the gate tight here:
+# the admin CLI is small (~3k LoC, single subsystem) and every
+# function already has reasonably narrow types thanks to Click.
+[[tool.mypy.overrides]]
+module = ["corvus_admin.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+# corvus_client — looser for now. Ratcheting to disallow_untyped_defs
+# is a future follow-up: ~244 sync-wrapper functions in _sync/ + _async/
+# mirror each other and would need annotations either copied from
+# the async side or wrapped through a generic helper. Until that
+# pass lands, keep the baseline gentle so `make lint` stays green.
+[[tool.mypy.overrides]]
+module = ["corvus_client.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# Tests + harness + the top-level conftest at integration_tests/
+# (which mypy sees as bare module `conftest`): looser bar. The
+# disabled error codes correspond to patterns the harness leans on
+# heavily but mypy can't follow without an annotated refactor:
+#   * attr-defined / arg-type — VmSsh subclasses Vm and
+#     __enter__ returns the actual subclass; mypy infers the
+#     base class.
+#   * union-attr — Optional fields (self.cap, self.client) are
+#     populated in __enter__ and accessed afterward without an
+#     explicit None-guard the harness's invariant already
+#     enforces.
+#   * call-arg — cryptography's public_key() return is a wide
+#     union; tests do `.verify(sig, msg)` which is ed25519-only
+#     and not in the union of all signature shapes.
+#   * unreachable — pytest fixture flow defeats mypy's narrowing.
+# Full typing here is a separate effort.
+[[tool.mypy.overrides]]
+module = ["tests.*", "corvus_test_harness.*", "conftest"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disable_error_code = ["attr-defined", "arg-type", "union-attr", "call-arg", "unreachable", "misc", "assignment"]
+
 [tool.pytest.ini_options]
 # Both /python/tests and /integration_tests/tests are discoverable
 # from the repo root. Selecting which set to run is the Makefile's

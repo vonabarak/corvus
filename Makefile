@@ -258,17 +258,25 @@ dev-node-vm-ssh:
 	  exec ssh -i $(DEV_NODE_SSH_KEY) $(SSH_ARGS) corvus@vsock%$$cid
 
 
+# Python tool resolution: prefer the venv copies when they exist —
+# the venv has the project's runtime deps (pycapnp, pyyaml, click,
+# pytest, types-PyYAML stubs) so mypy resolves third-party types
+# correctly. Falls back to PATH for users who set up tooling
+# globally (e.g. via pipx) and never created the venv.
+MYPY  ?= $(if $(wildcard python/.venv-corvus-py/bin/mypy),python/.venv-corvus-py/bin/mypy,mypy)
+RUFF  ?= $(if $(wildcard python/.venv-corvus-py/bin/ruff),python/.venv-corvus-py/bin/ruff,ruff)
+
 # Format Python (ruff) + Haskell (fourmolu) sources in place.
 format:
-	ruff format python integration_tests
+	$(RUFF) format python integration_tests
 	fourmolu --mode inplace $(shell find src app test -name '*.hs')
 
 
 # Lint Python (ruff check + mypy) + Haskell (hlint). Mypy lives here
 # so a single `make lint` covers both style and types end-to-end.
 lint:
-	ruff check python integration_tests
-	mypy python integration_tests
+	$(RUFF) check python integration_tests
+	$(MYPY) python integration_tests
 	hlint src app test
 
 
@@ -277,9 +285,9 @@ lint:
 # non-zero if any file would be reformatted. Does NOT edit code —
 # suited for CI / pre-merge gates and pre-push hooks.
 check:
-	ruff check python integration_tests
-	ruff format --check python integration_tests
-	mypy python integration_tests
+	$(RUFF) check python integration_tests
+	$(RUFF) format --check python integration_tests
+	$(MYPY) python integration_tests
 	hlint src app test
 	fourmolu --mode check $(shell find src app test -name '*.hs')
 

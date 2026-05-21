@@ -28,6 +28,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 from corvus_admin import ca, store
 from corvus_admin.runner import Runner, for_target
@@ -461,11 +462,9 @@ def _check_due(record: store.IssuedRecord, *, force: bool) -> None:
         )
 
 
-def _local_atomic_write(path, data: bytes, *, mode: int) -> None:
+def _local_atomic_write(path: Path, data: bytes, *, mode: int) -> None:
     import os
-    from pathlib import Path
 
-    path = Path(path)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
