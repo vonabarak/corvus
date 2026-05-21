@@ -109,6 +109,9 @@ class SyncVm(LoopBoundResource):
     def delete(self, *, delete_disks: bool = False):
         return self._rl.run(self._a.delete(delete_disks=delete_disks))
 
+    def migrate(self, to_node_ref) -> int:
+        return self._rl.run(self._a.migrate(to_node_ref))
+
     # cloud-init / view / guest exec / hotkeys
     def cloud_init(self):
         return self._rl.run(self._a.cloud_init())

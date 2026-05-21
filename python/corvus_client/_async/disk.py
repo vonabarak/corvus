@@ -156,6 +156,44 @@ class AsyncDiskManager:
         resp = await getattr(mgr, "import")(params=params)
         return AsyncDisk(resp.disk)
 
+    async def copy(
+        self,
+        disk_ref: Union[int, str],
+        to_node_ref: Union[int, str],
+    ) -> int:
+        """Copy a disk image's bytes to another node.
+
+        Adds a `DiskImageNode` placement on the destination while
+        leaving the source intact. Bytes flow agent-to-agent; the
+        daemon orchestrates but does not relay. Returns the task
+        id so the caller can poll `tasks.get(tid).show()` for
+        completion.
+        """
+        mgr = await self._ensure()
+        params = _schema.disk.DiskCopyParams.new_message()
+        params.diskRef = entity_ref(disk_ref)
+        params.toNodeRef = entity_ref(to_node_ref)
+        resp = await mgr.copy(params=params)
+        return resp.taskId
+
+    async def move(
+        self,
+        disk_ref: Union[int, str],
+        to_node_ref: Union[int, str],
+    ) -> int:
+        """Move a disk image's bytes to another node.
+
+        Adds a `DiskImageNode` placement on the destination and
+        drops the source placement + file on success. Same byte
+        path as :meth:`copy`. Returns the task id.
+        """
+        mgr = await self._ensure()
+        params = _schema.disk.DiskMoveParams.new_message()
+        params.diskRef = entity_ref(disk_ref)
+        params.toNodeRef = entity_ref(to_node_ref)
+        resp = await mgr.move(params=params)
+        return resp.taskId
+
 
 @translate_errors
 class AsyncDisk:

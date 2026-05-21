@@ -144,6 +144,21 @@ class AsyncVm:
     async def delete(self, *, delete_disks: bool = False) -> None:
         await self._cap.delete(deleteDisks=delete_disks)
 
+    # ---- migration ---------------------------------------------------------
+
+    async def migrate(self, to_node_ref: Union[int, str]) -> int:
+        """Migrate this stopped VM to another node.
+
+        Returns the task id; the actual transfer runs in the
+        background. Poll `tasks.get(tid).show()` until `result`
+        transitions out of `running`. See `doc/vm-migration.md`
+        for the constraint list.
+        """
+        params = _schema.vm.VmMigrateParams.new_message()
+        params.toNodeRef = entity_ref(to_node_ref)
+        resp = await self._cap.migrate(params=params)
+        return resp.taskId
+
     # ---- cloud-init / view / guest exec / hotkeys -------------------------
 
     async def cloud_init(self):

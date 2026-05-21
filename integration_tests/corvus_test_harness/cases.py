@@ -27,6 +27,7 @@ accidentally. Hooks in conftest.py read and write that registry.
 from __future__ import annotations
 
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -287,6 +288,44 @@ class IntegrationTestCase:
             first.client(), self.topology.crv, first.name
         )
         return state.base_images_cache
+
+    # ---- Task polling ------------------------------------------------------
+
+    def wait_for_task(
+        self,
+        client,
+        task_id: int,
+        *,
+        timeout_sec: float = 60.0,
+        poll_sec: float = 0.5,
+    ):
+        """Block until a daemon task transitions out of `running`.
+
+        Used by the async `vm.migrate` / `disks.copy` / `disks.move`
+        RPCs (and any other taskId-returning verb). Polls
+        ``client.tasks.get(tid).show()`` every ``poll_sec`` seconds
+        and returns the final ``TaskInfo``. Raises ``AssertionError``
+        if the task ends in ``error`` (the task's ``message`` field
+        is surfaced verbatim) or if the wait exceeds ``timeout_sec``.
+        """
+        deadline = time.monotonic() + timeout_sec
+        last_info = None
+        while time.monotonic() < deadline:
+            last_info = client.tasks.get(task_id).show()
+            if last_info.result != "running":
+                if last_info.result == "error":
+                    raise AssertionError(
+                        f"task {task_id} ({last_info.subsystem}/"
+                        f"{last_info.command}) failed: "
+                        f"{last_info.message or '(no message)'}"
+                    )
+                return last_info
+            time.sleep(poll_sec)
+        last_result = last_info.result if last_info else "(no snapshot)"
+        raise AssertionError(
+            f"task {task_id} did not finish within {timeout_sec}s "
+            f"(last result: {last_result})"
+        )
 
     # ---- VM-side shell -----------------------------------------------------
 

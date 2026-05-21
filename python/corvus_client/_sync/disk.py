@@ -54,6 +54,20 @@ class SyncDiskManager:
     def import_(self, name: str, src_path: str, *, format: Optional[str] = None):
         return SyncDisk(self._rl.run(self._a.import_(name, src_path, format=format)), self._rl)
 
+    def copy(
+        self,
+        disk_ref: Union[int, str],
+        to_node_ref: Union[int, str],
+    ) -> int:
+        return self._rl.run(self._a.copy(disk_ref, to_node_ref))
+
+    def move(
+        self,
+        disk_ref: Union[int, str],
+        to_node_ref: Union[int, str],
+    ) -> int:
+        return self._rl.run(self._a.move(disk_ref, to_node_ref))
+
 
 class SyncDisk(LoopBoundResource):
     def __init__(self, async_disk, runloop):
