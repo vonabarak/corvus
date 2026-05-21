@@ -1,4 +1,5 @@
 """Async Network manager + Network wrappers."""
+
 from __future__ import annotations
 
 from typing import Optional, Union
@@ -25,7 +26,9 @@ class AsyncNetworkManager:
         resp = await mgr.list()
         return [conv.network_info(n) for n in resp.networks]
 
-    async def get(self, ref: Union[int, str], *, by_name: bool = False) -> "AsyncNetwork":
+    async def get(
+        self, ref: Union[int, str], *, by_name: bool = False
+    ) -> "AsyncNetwork":
         mgr = await self._ensure()
         resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
         return AsyncNetwork(resp.network)

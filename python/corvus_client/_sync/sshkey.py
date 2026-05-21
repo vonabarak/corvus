@@ -1,4 +1,5 @@
 """Sync mirrors for the async SshKey wrappers."""
+
 from __future__ import annotations
 
 from typing import Union

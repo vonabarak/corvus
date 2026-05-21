@@ -31,6 +31,7 @@ The wrapper exposes the underlying pycapnp `SyncVm` capability as
 `.cap` (not `.vm`, which would collide with the local variable
 name in `with ... as vm:` bodies).
 """
+
 from __future__ import annotations
 
 import re
@@ -320,6 +321,7 @@ class VmSsh(Vm):
         subclasses override to point at a per-VM generated key.
         """
         from .ssh import HOST_ALPINE_KEY_PATH
+
         return HOST_ALPINE_KEY_PATH
 
     def __exit__(self, exc_type, exc, tb) -> None:
@@ -530,10 +532,15 @@ class VmCloudInit(VmSsh):
     def _generate_keypair(self) -> None:
         subprocess.run(
             [
-                "ssh-keygen", "-t", "ed25519",
-                "-f", str(self._priv_key_path),
-                "-N", "",
-                "-C", f"corvus-ci-{self.name}",
+                "ssh-keygen",
+                "-t",
+                "ed25519",
+                "-f",
+                str(self._priv_key_path),
+                "-N",
+                "",
+                "-C",
+                f"corvus-ci-{self.name}",
             ],
             check=True,
             stdout=subprocess.DEVNULL,
@@ -558,10 +565,12 @@ class VmCloudInit(VmSsh):
         # `Qemu/Command.hs::netdevArgs` accepts SLIRP options via
         # `hostDevice`, so `hostfwd=tcp:127.0.0.1:<port>-:22`
         # becomes `-netdev user,id=…,hostfwd=tcp:127.0.0.1:<port>-:22`.
-        return [{
-            "type": "user",
-            "host_device": f"hostfwd=tcp:127.0.0.1:{self._tcp_port}-:22",
-        }]
+        return [
+            {
+                "type": "user",
+                "host_device": f"hostfwd=tcp:127.0.0.1:{self._tcp_port}-:22",
+            }
+        ]
 
     def _cloud_init_config(self) -> dict:
         return {"inject_ssh_keys": True}

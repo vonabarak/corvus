@@ -25,6 +25,7 @@ Both tests rely on:
     after QGA's first ping. Drive the guest via
     `vm.cap.guest_exec(...)`; no SSH on Windows.
 """
+
 from __future__ import annotations
 
 import base64
@@ -90,21 +91,22 @@ class TestWindows(SingleNodeCase):
         vm.cap.guest_exec("cmd.exe /c sc.exe start VirtioFsSvc")
         time.sleep(10)
 
-        list_r = vm.cap.guest_exec(_ps(
-            "Get-PSDrive -PSProvider FileSystem | "
-            "Select-Object -ExpandProperty Name"
-        ))
+        list_r = vm.cap.guest_exec(
+            _ps(
+                "Get-PSDrive -PSProvider FileSystem | "
+                "Select-Object -ExpandProperty Name"
+            )
+        )
         if list_r.exit_code != 0:
             return None
         candidate_letters = [
-            ln.strip() for ln in list_r.stdout.splitlines()
+            ln.strip()
+            for ln in list_r.stdout.splitlines()
             if ln.strip() and ln.strip().upper() != "C"
         ]
         for letter in candidate_letters:
             try:
-                probe = vm.cap.guest_exec(
-                    f"cmd.exe /c type {letter}:\\from-host.txt"
-                )
+                probe = vm.cap.guest_exec(f"cmd.exe /c type {letter}:\\from-host.txt")
             except ServerError:
                 continue
             if probe.exit_code == 0 and "HOST-WROTE" in probe.stdout:
@@ -120,51 +122,55 @@ class TestWindows(SingleNodeCase):
         def _probe(cmd: str) -> str:
             try:
                 rr = vm.cap.guest_exec(cmd)
-                return (
-                    f"exit={rr.exit_code} "
-                    f"stdout={rr.stdout!r} stderr={rr.stderr!r}"
-                )
+                return f"exit={rr.exit_code} stdout={rr.stdout!r} stderr={rr.stderr!r}"
             except ServerError as e:
                 return f"ServerError({e!r})"
 
         svc = _probe(_ps("(Get-Service VirtioFsSvc).Status"))
-        winfsp = _probe(_ps(
-            "(Get-Service WinFsp.Launcher -ErrorAction "
-            "SilentlyContinue).Status"
-        ))
+        winfsp = _probe(
+            _ps("(Get-Service WinFsp.Launcher -ErrorAction SilentlyContinue).Status")
+        )
         # Enumerate virtio PnP devices. `Status: OK` = driver bound,
         # `Error`/`Unknown` = ConfigManagerErrorCode tells us why.
-        pnp = _probe(_ps(
-            "Get-PnpDevice -Class System -ErrorAction "
-            "SilentlyContinue | Where-Object "
-            "{$_.FriendlyName -match 'VirtIO|virtio'} | "
-            "Select-Object FriendlyName,Status,InstanceId | "
-            "Format-List | Out-String"
-        ))
-        drives_seen = _probe(_ps(
-            "Get-PSDrive -PSProvider FileSystem | "
-            "Select-Object Name,Used,Free | "
-            "Format-Table | Out-String"
-        ))
+        pnp = _probe(
+            _ps(
+                "Get-PnpDevice -Class System -ErrorAction "
+                "SilentlyContinue | Where-Object "
+                "{$_.FriendlyName -match 'VirtIO|virtio'} | "
+                "Select-Object FriendlyName,Status,InstanceId | "
+                "Format-List | Out-String"
+            )
+        )
+        drives_seen = _probe(
+            _ps(
+                "Get-PSDrive -PSProvider FileSystem | "
+                "Select-Object Name,Used,Free | "
+                "Format-Table | Out-String"
+            )
+        )
         # `Win32_Volume` lists volumes that may have no drive letter
         # but otherwise look mounted — covers the "viofs presented a
         # volume but Windows refused to assign a letter" case.
-        volumes = _probe(_ps(
-            "Get-CimInstance Win32_Volume | "
-            "Select-Object DriveLetter,Label,FileSystem,Capacity | "
-            "Format-Table | Out-String"
-        ))
+        volumes = _probe(
+            _ps(
+                "Get-CimInstance Win32_Volume | "
+                "Select-Object DriveLetter,Label,FileSystem,Capacity | "
+                "Format-Table | Out-String"
+            )
+        )
         # Windows event log entries from VirtioFsSvc / WinFsp —
         # usually the most direct signal when the service started
         # but the mount didn't.
-        events = _probe(_ps(
-            "Get-WinEvent -LogName Application -MaxEvents 200 "
-            "-ErrorAction SilentlyContinue | "
-            "Where-Object {$_.ProviderName -match "
-            "'virtio|VirtIO|WinFsp'} | "
-            "Select-Object -First 10 TimeCreated,LevelDisplayName,"
-            "Message | Format-List | Out-String"
-        ))
+        events = _probe(
+            _ps(
+                "Get-WinEvent -LogName Application -MaxEvents 200 "
+                "-ErrorAction SilentlyContinue | "
+                "Where-Object {$_.ProviderName -match "
+                "'virtio|VirtIO|WinFsp'} | "
+                "Select-Object -First 10 TimeCreated,LevelDisplayName,"
+                "Message | Format-List | Out-String"
+            )
+        )
         raise AssertionError(
             "virtiofs share never mounted (no FileSystem PSDrive "
             "contained from-host.txt), even after a VirtioFsSvc "
@@ -224,9 +230,7 @@ class TestWindows(SingleNodeCase):
                 saw_renewal = False
                 while time.monotonic() < deadline:
                     with hc_lock:
-                        distinct = sorted(
-                            {t for t in hc_events if t is not None}
-                        )
+                        distinct = sorted({t for t in hc_events if t is not None})
                     if len(distinct) >= 2:
                         assert distinct[1] > distinct[0], distinct
                         saw_renewal = True
@@ -270,17 +274,12 @@ class TestWindows(SingleNodeCase):
             last_err: Optional[Exception] = None
             for _ in range(30):
                 try:
-                    last_r = vm.cap.guest_exec(
-                        f"cmd.exe /c type {marker_path}"
-                    )
+                    last_r = vm.cap.guest_exec(f"cmd.exe /c type {marker_path}")
                 except ServerError as e:
                     last_err = e
                     time.sleep(10)
                     continue
-                if (
-                    last_r.exit_code == 0
-                    and f"ci-ok-{marker_token}" in last_r.stdout
-                ):
+                if last_r.exit_code == 0 and f"ci-ok-{marker_token}" in last_r.stdout:
                     found = True
                     break
                 time.sleep(10)
@@ -299,24 +298,26 @@ class TestWindows(SingleNodeCase):
                     except ServerError as e:
                         return f"ServerError({e!r})"
 
-                svc = _probe(_ps(
-                    "(Get-Service cloudbase-init).Status"
-                ))
-                log_tail = _probe(_ps(
-                    "$p = 'C:\\Program Files\\Cloudbase Solutions"
-                    "\\Cloudbase-Init\\log\\cloudbase-init.log'; "
-                    "if (Test-Path $p) "
-                    "{ Get-Content -Tail 40 -Path $p } "
-                    "else { 'log not present' }"
-                ))
+                svc = _probe(_ps("(Get-Service cloudbase-init).Status"))
+                log_tail = _probe(
+                    _ps(
+                        "$p = 'C:\\Program Files\\Cloudbase Solutions"
+                        "\\Cloudbase-Init\\log\\cloudbase-init.log'; "
+                        "if (Test-Path $p) "
+                        "{ Get-Content -Tail 40 -Path $p } "
+                        "else { 'log not present' }"
+                    )
+                )
                 last_desc = (
-                    f"last err: {last_err!r}" if last_err is not None
+                    f"last err: {last_err!r}"
+                    if last_err is not None
                     else (
                         f"last `type {marker_path}` "
                         f"exit={last_r.exit_code} "
                         f"stdout={last_r.stdout!r} "
                         f"stderr={last_r.stderr!r}"
-                        if last_r is not None else "no exec attempted"
+                        if last_r is not None
+                        else "no exec attempted"
                     )
                 )
                 raise AssertionError(
@@ -374,9 +375,7 @@ class TestWindows(SingleNodeCase):
                 drive = share_drive
 
                 # Read host-written content from inside the guest.
-                r = vm.cap.guest_exec(
-                    f"cmd.exe /c type {drive}:\\from-host.txt"
-                )
+                r = vm.cap.guest_exec(f"cmd.exe /c type {drive}:\\from-host.txt")
                 assert r.exit_code == 0, r
                 assert "HOST-WROTE" in r.stdout, r
 
@@ -388,9 +387,7 @@ class TestWindows(SingleNodeCase):
                 )
                 assert w.exit_code == 0, w
 
-                out = self.node.run(
-                    f"cat {share_path}/from-guest.txt"
-                ).stdout.decode()
+                out = self.node.run(f"cat {share_path}/from-guest.txt").stdout.decode()
                 assert f"GUEST-WROTE-{guest_token}" in out
         finally:
             self.node.run(f"rm -rf {share_path}", check=False)

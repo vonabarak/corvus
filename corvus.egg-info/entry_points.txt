@@ -1,0 +1,2 @@
+[console_scripts]
+corvus-admin = corvus_admin.cli:main

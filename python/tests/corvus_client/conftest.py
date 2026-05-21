@@ -15,6 +15,7 @@ The fixture is `module`-scoped so a single daemon serves all tests in a
 module — fast enough for the size of our suite, and isolates state
 between test files.
 """
+
 from __future__ import annotations
 
 import os
@@ -155,7 +156,17 @@ def _find_stack() -> str:
 
 
 def _psql(args: list[str], *, db: str | None = None) -> None:
-    cmd = ["psql", "-h", _pg_host(), "-U", _pg_user(), "-d", db or _pg_admin_db(), "-v", "ON_ERROR_STOP=1"]
+    cmd = [
+        "psql",
+        "-h",
+        _pg_host(),
+        "-U",
+        _pg_user(),
+        "-d",
+        db or _pg_admin_db(),
+        "-v",
+        "ON_ERROR_STOP=1",
+    ]
     cmd.extend(args)
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
@@ -168,19 +179,36 @@ def _drop_db(name: str) -> None:
     # Terminate any lingering connections first.
     subprocess.run(
         [
-            "psql", "-h", _pg_host(), "-U", _pg_user(),
-            "-d", _pg_admin_db(), "-c",
+            "psql",
+            "-h",
+            _pg_host(),
+            "-U",
+            _pg_user(),
+            "-d",
+            _pg_admin_db(),
+            "-c",
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
             f"WHERE datname = '{name}' AND pid <> pg_backend_pid()",
         ],
-        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     subprocess.run(
         [
-            "psql", "-h", _pg_host(), "-U", _pg_user(),
-            "-d", _pg_admin_db(), "-c", f'DROP DATABASE IF EXISTS "{name}"',
+            "psql",
+            "-h",
+            _pg_host(),
+            "-U",
+            _pg_user(),
+            "-d",
+            _pg_admin_db(),
+            "-c",
+            f'DROP DATABASE IF EXISTS "{name}"',
         ],
-        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
 
@@ -312,9 +340,12 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
             agent_proc = subprocess.Popen(
                 [
                     _nodeagent_binary(),
-                    "--host", "127.0.0.1",
-                    "--port", str(agent_port),
-                    "--log-level", "warn",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(agent_port),
+                    "--log-level",
+                    "warn",
                     # The Python-client unit suite uses Unix
                     # sockets only and doesn't exercise the mTLS
                     # paths; --no-tls keeps the fixture
@@ -341,9 +372,12 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
                 daemon_proc = subprocess.Popen(
                     [
                         _corvus_binary(),
-                        "--socket", str(sock),
-                        "--database", db_url,
-                        "--log-level", "warn",
+                        "--socket",
+                        str(sock),
+                        "--database",
+                        db_url,
+                        "--log-level",
+                        "warn",
                         # See the matching --no-tls on the
                         # nodeagent above; the daemon's outbound
                         # dial to it would also fail without one.

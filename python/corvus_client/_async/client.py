@@ -12,6 +12,7 @@ Use as an async context manager:
 The lazy `vms`/`disks`/... properties cache subsystem manager wrappers
 so they survive across calls.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -179,7 +180,9 @@ class AsyncClient:
     def daemon(self):
         """Raw Daemon cap. Library users may invoke un-wrapped methods through this."""
         if self._daemon is None:
-            raise RuntimeError("AsyncClient: not connected (use as async context manager)")
+            raise RuntimeError(
+                "AsyncClient: not connected (use as async context manager)"
+            )
         return self._daemon
 
     # ---- top-level Daemon methods ----------------------------------------
@@ -194,11 +197,11 @@ class AsyncClient:
     async def shutdown(self) -> None:
         await self.daemon.shutdown()
 
-    async def apply(self, yaml: str, *, skip_existing: bool = False, wait: bool = False):
+    async def apply(
+        self, yaml: str, *, skip_existing: bool = False, wait: bool = False
+    ):
         """Run `apply` against a YAML pipeline. Returns (ApplyResult, task_id)."""
-        resp = await self.daemon.apply(
-            yaml=yaml, skipExisting=skip_existing, wait=wait
-        )
+        resp = await self.daemon.apply(yaml=yaml, skipExisting=skip_existing, wait=wait)
         return conv.apply_result(resp.result), resp.taskId
 
     def build_stream(self, yaml_path: str):
@@ -228,6 +231,7 @@ class AsyncClient:
     def vms(self) -> "AsyncVmManager":
         if self._vms is None:
             from .vm import AsyncVmManager
+
             self._vms = AsyncVmManager(self.daemon)
         return self._vms
 
@@ -235,6 +239,7 @@ class AsyncClient:
     def disks(self) -> "AsyncDiskManager":
         if self._disks is None:
             from .disk import AsyncDiskManager
+
             self._disks = AsyncDiskManager(self.daemon)
         return self._disks
 
@@ -242,6 +247,7 @@ class AsyncClient:
     def networks(self) -> "AsyncNetworkManager":
         if self._networks is None:
             from .network import AsyncNetworkManager
+
             self._networks = AsyncNetworkManager(self.daemon)
         return self._networks
 
@@ -249,6 +255,7 @@ class AsyncClient:
     def ssh_keys(self) -> "AsyncSshKeyManager":
         if self._ssh_keys is None:
             from .sshkey import AsyncSshKeyManager
+
             self._ssh_keys = AsyncSshKeyManager(self.daemon)
         return self._ssh_keys
 
@@ -256,6 +263,7 @@ class AsyncClient:
     def templates(self) -> "AsyncTemplateManager":
         if self._templates is None:
             from .template import AsyncTemplateManager
+
             self._templates = AsyncTemplateManager(self.daemon)
         return self._templates
 
@@ -263,6 +271,7 @@ class AsyncClient:
     def tasks(self) -> "AsyncTaskManager":
         if self._tasks is None:
             from .task import AsyncTaskManager
+
             self._tasks = AsyncTaskManager(self.daemon)
         return self._tasks
 
@@ -270,6 +279,7 @@ class AsyncClient:
     def cloud_init(self) -> "AsyncCloudInitManager":
         if self._cloud_init is None:
             from .cloudinit import AsyncCloudInitManager
+
             self._cloud_init = AsyncCloudInitManager(self.daemon)
         return self._cloud_init
 
@@ -277,5 +287,6 @@ class AsyncClient:
     def nodes(self) -> "AsyncNodeManager":
         if self._nodes is None:
             from .node import AsyncNodeManager
+
             self._nodes = AsyncNodeManager(self.daemon)
         return self._nodes

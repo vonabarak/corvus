@@ -1,4 +1,5 @@
 """Sync mirrors for the async Network wrappers."""
+
 from __future__ import annotations
 
 from typing import Union

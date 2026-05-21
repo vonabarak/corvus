@@ -94,9 +94,7 @@ def register_node(
             stderr=proc.stderr,
         )
 
-    show_stdout, healthy = _poll_show(
-        crv, name, timeout_sec=healthcheck_timeout_sec
-    )
+    show_stdout, healthy = _poll_show(crv, name, timeout_sec=healthcheck_timeout_sec)
     return RegisterResult(
         name=name,
         host=host,

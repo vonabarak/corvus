@@ -5,6 +5,7 @@ Holds a background asyncio + kj_loop thread (`_SyncRunloop`) and an
 Every public method calls into the async core via
 `asyncio.run_coroutine_threadsafe`.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -98,9 +99,7 @@ class Client:
         return self._rl.run(self._a.shutdown())
 
     def apply(self, yaml: str, *, skip_existing: bool = False, wait: bool = False):
-        return self._rl.run(
-            self._a.apply(yaml, skip_existing=skip_existing, wait=wait)
-        )
+        return self._rl.run(self._a.apply(yaml, skip_existing=skip_existing, wait=wait))
 
     # ---- build streaming (yields events on the calling thread) ----------
 

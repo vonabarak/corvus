@@ -12,6 +12,7 @@ persist but their per-node supervisor never connects (which is
 fine, the tests below don't actually try to drive workloads
 through the second node).
 """
+
 from __future__ import annotations
 
 import pytest

@@ -5,6 +5,7 @@ enums come back as their lowercased schema name (str). Sentinel
 integer fields (`0` ⇒ "absent") are collapsed to `None`. Timestamps
 (POSIX nanoseconds) become `datetime` with UTC tzinfo.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

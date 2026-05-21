@@ -13,6 +13,7 @@ the methods in this class are meaningful. If it fails, the suite-wide
 skip-on-first-failure machinery skips the rest of the class for a
 single coherent reason instead of producing nine spurious failures.
 """
+
 from __future__ import annotations
 
 import time
@@ -58,8 +59,7 @@ def _drain_serial_until(stream, needle: bytes, *, timeout: float) -> bytes:
             if needle in buf:
                 return bytes(buf)
     raise AssertionError(
-        f"timed out waiting for {needle!r} after {timeout}s; "
-        f"tail={bytes(buf[-512:])!r}"
+        f"timed out waiting for {needle!r} after {timeout}s; tail={bytes(buf[-512:])!r}"
     )
 
 
@@ -87,8 +87,7 @@ class TestVmLifecycle(SingleNodeCase):
                 return
             time.sleep(poll_sec)
         raise TimeoutError(
-            f"VM stuck at {last!r}, expected {target!r} "
-            f"(waited {timeout_sec}s)"
+            f"VM stuck at {last!r}, expected {target!r} (waited {timeout_sec}s)"
         )
 
     def test_inner_daemon_reachable(self):
@@ -399,9 +398,9 @@ class TestVmLifecycle(SingleNodeCase):
             assert r.exit_code == 0
             # Match any of qemu's standard adapters (std/qxl/virtio).
             out = r.stdout.lower()
-            assert any(
-                k in out for k in ("vga", "qxl", "virtio gpu", "display")
-            ), f"no display adapter visible in lshw output: {r.stdout!r}"
+            assert any(k in out for k in ("vga", "qxl", "virtio gpu", "display")), (
+                f"no display adapter visible in lshw output: {r.stdout!r}"
+            )
 
             # SPICE liveness: a non-headless VM must have a
             # spice_port allocated, and qemu must be speaking the
@@ -433,8 +432,7 @@ class TestVmLifecycle(SingleNodeCase):
                 r = shell.run("lshw -class display")
                 assert r.exit_code == 0
                 assert r.stdout.strip() == "", (
-                    f"display adapter visible after headless swap: "
-                    f"{r.stdout!r}"
+                    f"display adapter visible after headless swap: {r.stdout!r}"
                 )
             details = vm.cap.show()
             assert details.spice_port is None, (
@@ -443,9 +441,7 @@ class TestVmLifecycle(SingleNodeCase):
             # Serial console buffer is wired up only for headless
             # VMs; reach login: through the daemon's ring buffer.
             with vm.cap.serial_console() as stream:
-                data = _drain_serial_until(
-                    stream, b"login:", timeout=60.0
-                )
+                data = _drain_serial_until(stream, b"login:", timeout=60.0)
                 assert b"login:" in data
 
     def test_cpu_and_ram_edit_round_trip(self):

@@ -85,6 +85,7 @@ class IssuedCert:
 # ---------------------------------------------------------------------------
 # CA
 
+
 def init_ca(
     store: AdminStore,
     *,
@@ -114,9 +115,7 @@ def init_ca(
     now = dt.datetime.now(dt.timezone.utc)
     not_after = not_after or (now + CA_LIFETIME)
 
-    subject = issuer = x509.Name(
-        [x509.NameAttribute(NameOID.COMMON_NAME, ca_cn)]
-    )
+    subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, ca_cn)])
 
     cert = (
         x509.CertificateBuilder()
@@ -175,18 +174,14 @@ def load_ca(store: AdminStore) -> tuple[x509.Certificate, ed25519.Ed25519Private
     initialised."""
 
     if not store.exists():
-        raise FileNotFoundError(
-            f"no CA at {store.root}; run `corvus-admin init` first"
-        )
+        raise FileNotFoundError(f"no CA at {store.root}; run `corvus-admin init` first")
     cert = x509.load_pem_x509_certificate(store.ca_cert_path.read_bytes())
     key_obj = serialization.load_pem_private_key(
         store.ca_key_path.read_bytes(),
         password=None,
     )
     if not isinstance(key_obj, ed25519.Ed25519PrivateKey):
-        raise TypeError(
-            f"CA private key at {store.ca_key_path} is not Ed25519"
-        )
+        raise TypeError(f"CA private key at {store.ca_key_path} is not Ed25519")
     return cert, key_obj
 
 
@@ -199,6 +194,7 @@ def ca_cert_pem(store: AdminStore) -> bytes:
 
 # ---------------------------------------------------------------------------
 # Leaf cert minting
+
 
 def issue_cert(
     store: AdminStore,
@@ -224,13 +220,9 @@ def issue_cert(
     """
 
     if role not in ALL_ROLES:
-        raise ValueError(
-            f"unknown role {role!r}; expected one of {ALL_ROLES}"
-        )
+        raise ValueError(f"unknown role {role!r}; expected one of {ALL_ROLES}")
     if ":" in name:
-        raise ValueError(
-            f"name {name!r} must not contain ':'; that's the CN separator"
-        )
+        raise ValueError(f"name {name!r} must not contain ':'; that's the CN separator")
 
     ca_cert, ca_key = load_ca(store)
 
@@ -285,9 +277,7 @@ def issue_cert(
             critical=False,
         )
         .add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(
-                ca_cert.public_key()
-            ),
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_cert.public_key()),
             critical=False,
         )
     )
@@ -319,6 +309,7 @@ def issue_cert(
 
 # ---------------------------------------------------------------------------
 # Helpers
+
 
 def _atomic_write(path, data: bytes, *, mode: int) -> None:
     """Write *data* to *path* atomically with the given mode. Used

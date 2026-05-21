@@ -10,6 +10,7 @@ Every method returns parsed JSON (`crv -o json …`) so callers get
 Python dicts/lists, not text to scrape. On non-zero exit, the wrapped
 `CrvError` carries the JSON error envelope (if any) plus stderr.
 """
+
 from __future__ import annotations
 
 import json
@@ -244,7 +245,9 @@ class Crv:
             args += ["--timeout", str(timeout_sec)]
         return self.run(*args, timeout=180)
 
-    def vm_delete(self, name_or_id: str | int, *, delete_disks: bool = False) -> dict[str, Any]:
+    def vm_delete(
+        self, name_or_id: str | int, *, delete_disks: bool = False
+    ) -> dict[str, Any]:
         args = ["vm", "delete", str(name_or_id)]
         if delete_disks:
             args.append("--delete-disks")

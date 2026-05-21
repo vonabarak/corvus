@@ -1,4 +1,5 @@
 """Async SshKey manager + SshKey wrappers."""
+
 from __future__ import annotations
 
 from typing import Union
@@ -25,7 +26,9 @@ class AsyncSshKeyManager:
         resp = await mgr.list()
         return [conv.ssh_key_info(k) for k in resp.keys]
 
-    async def get(self, ref: Union[int, str], *, by_name: bool = False) -> "AsyncSshKey":
+    async def get(
+        self, ref: Union[int, str], *, by_name: bool = False
+    ) -> "AsyncSshKey":
         mgr = await self._ensure()
         resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
         return AsyncSshKey(resp.key)

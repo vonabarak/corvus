@@ -23,6 +23,7 @@ per-node overlays too).
 Tests get a `TestNode` handle per node and call `.client()` to reach
 the inner daemon running on it.
 """
+
 from __future__ import annotations
 
 import enum
@@ -185,9 +186,9 @@ class TestNode:
                 f"SSH private key not found at {HOST_ALPINE_KEY_PATH} — "
                 "run `make test-image-key` to generate it"
             )
-        return NodeShell(
-            cid=self.cid, user=user, key_path=HOST_ALPINE_KEY_PATH
-        ).run(command, timeout_sec=timeout_sec, check=check)
+        return NodeShell(cid=self.cid, user=user, key_path=HOST_ALPINE_KEY_PATH).run(
+            command, timeout_sec=timeout_sec, check=check
+        )
 
 
 class Topology:
@@ -439,9 +440,7 @@ class Topology:
         `extra_shared_dirs` is a list of `(host_path, tag, read_only)`
         tuples; each becomes an additional sharedDir on the node.
         """
-        node_name = (
-            f"{RESOURCE_PREFIX}-{self.class_name}-{self.run_id}-{short_name}"
-        )
+        node_name = f"{RESOURCE_PREFIX}-{self.class_name}-{self.run_id}-{short_name}"
         overlay_name = f"{node_name}-rootfs"
 
         shared_dirs: list[dict] = [
@@ -477,7 +476,7 @@ class Topology:
                     "readOnly": True,
                 }
             )
-        for host_path, tag, read_only in (extra_shared_dirs or []):
+        for host_path, tag, read_only in extra_shared_dirs or []:
             shared_dirs.append(
                 {
                     "path": host_path,

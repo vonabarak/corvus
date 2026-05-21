@@ -25,6 +25,7 @@ Gentoo node image and the Alpine VM image embed the public half of
 authorized_keys at bake time, so one keypair authorises both legs of
 the tunnel.
 """
+
 from __future__ import annotations
 
 import shlex
@@ -73,10 +74,14 @@ class NodeShell:
             raise RuntimeError("`ssh` not on PATH")
         argv = [
             ssh,
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "BatchMode=yes",
-            "-o", f"ProxyCommand={socat} - VSOCK-CONNECT:{self.cid}:{self.port}",
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            f"ProxyCommand={socat} - VSOCK-CONNECT:{self.cid}:{self.port}",
         ]
         if self.key_path is not None:
             argv += ["-i", str(self.key_path)]
@@ -228,9 +233,7 @@ class VmShell:
         # Single control socket per VmShell instance, named by whichever
         # of the two transports we're using — keeps concurrent shells
         # over different transports from clobbering each other.
-        socket_tag = (
-            f"vm-{vm_cid}" if vm_cid is not None else f"tcp-{vm_tcp_port}"
-        )
+        socket_tag = f"vm-{vm_cid}" if vm_cid is not None else f"tcp-{vm_tcp_port}"
         self.control_path = self.control_dir / f"{socket_tag}.sock"
         self._closed = False
 
@@ -292,10 +295,7 @@ class VmShell:
                 if result.exit_code == 0:
                     return
                 err_lower = result.stderr.lower()
-                if (
-                    "permission denied" in err_lower
-                    and "publickey" in err_lower
-                ):
+                if "permission denied" in err_lower and "publickey" in err_lower:
                     raise RuntimeError(
                         f"SSH key {self.host_key_path} rejected by VM "
                         f"({self._target_label}): {result.stderr.strip()}"
@@ -322,8 +322,10 @@ class VmShell:
             subprocess.run(
                 [
                     "ssh",
-                    "-O", "exit",
-                    "-o", f"ControlPath={self.control_path}",
+                    "-O",
+                    "exit",
+                    "-o",
+                    f"ControlPath={self.control_path}",
                     f"{self.user}@{self._target_label}",
                 ],
                 stdin=subprocess.DEVNULL,
@@ -353,20 +355,23 @@ class VmShell:
         transport). The node-hop SSH's stdin/stdout becomes the
         transport stream for the VM SSH.
         """
-        node_proxy = (
-            f"socat - VSOCK-CONNECT:{self.node_cid}:{self.node_port}"
-        )
+        node_proxy = f"socat - VSOCK-CONNECT:{self.node_cid}:{self.node_port}"
         if self.vm_tcp_port is not None:
             inner = f"socat - TCP:127.0.0.1:{self.vm_tcp_port}"
         else:
             inner = f"socat - VSOCK-CONNECT:{self.vm_cid}:{self.vm_port}"
         node_argv = [
             "ssh",
-            "-i", str(self.node_key_path),
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "BatchMode=yes",
-            "-o", f"ProxyCommand={node_proxy}",
+            "-i",
+            str(self.node_key_path),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            f"ProxyCommand={node_proxy}",
             f"{self.node_user}@vsock-{self.node_cid}",
             inner,
         ]
@@ -380,15 +385,24 @@ class VmShell:
     ) -> list[str]:
         argv = [
             "ssh",
-            "-i", str(self.host_key_path),
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "BatchMode=yes",
-            "-o", f"ConnectTimeout={max(connect_timeout, 5)}",
-            "-o", "ControlMaster=auto",
-            "-o", f"ControlPath={self.control_path}",
-            "-o", "ControlPersist=300",
-            "-o", f"ProxyCommand={self._vm_proxy_command}",
+            "-i",
+            str(self.host_key_path),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "UserKnownHostsFile=/dev/null",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            f"ConnectTimeout={max(connect_timeout, 5)}",
+            "-o",
+            "ControlMaster=auto",
+            "-o",
+            f"ControlPath={self.control_path}",
+            "-o",
+            "ControlPersist=300",
+            "-o",
+            f"ProxyCommand={self._vm_proxy_command}",
             f"{self.user}@{self._target_label}",
         ]
         if command is not None:

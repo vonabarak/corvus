@@ -32,10 +32,10 @@ def fake_paths(tmp_path, monkeypatch):
     bin_dir.mkdir()
     log = bin_dir / "systemctl.log"
     sysctl = bin_dir / "systemctl"
-    sysctl.write_text(f"#!/bin/sh\necho \"$@\" >> {log!s}\n")
+    sysctl.write_text(f'#!/bin/sh\necho "$@" >> {log!s}\n')
     sysctl.chmod(0o755)
     sudo = bin_dir / "sudo"
-    sudo.write_text("#!/bin/sh\nshift; exec \"$@\"\n")
+    sudo.write_text('#!/bin/sh\nshift; exec "$@"\n')
     sudo.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     return etc, log
@@ -118,9 +118,7 @@ def test_find_record_raises_when_missing(initialised_store):
         deploy.find_record(initialised_store, role=ca.ROLE_DAEMON)
 
 
-def test_renew_client_remints_into_xdg(
-    initialised_store, fake_paths, xdg_home
-):
+def test_renew_client_remints_into_xdg(initialised_store, fake_paths, xdg_home):
     """The admin's local client cert deploy path is reused by
     renew_client; the XDG file is overwritten with the new
     material."""

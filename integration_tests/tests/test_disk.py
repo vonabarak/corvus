@@ -6,6 +6,7 @@ so each test creates and deletes its own qcow2s without any host-side
 filesystem hacks (the pre-capnp `withSystemTempDirectory` + `HOME`
 swap is gone).
 """
+
 from __future__ import annotations
 
 import secrets
@@ -117,9 +118,7 @@ class TestDisk(SingleNodeCase):
         custom_rel = f"{clone_name}-at-custom.qcow2"
         self.client.disks.create(src_name, size_mb=8, format="qcow2")
         try:
-            clone = self.client.disks.clone(
-                src_name, clone_name, path=custom_rel
-            )
+            clone = self.client.disks.clone(src_name, clone_name, path=custom_rel)
             try:
                 info = clone.show()
                 assert info.name == clone_name
@@ -131,13 +130,10 @@ class TestDisk(SingleNodeCase):
                 # node; that placement's 'file_path' must end in
                 # our custom suffix — NOT the default
                 # '<basePath>/<clone_name>.qcow2'.
-                assert info.placements, (
-                    f"clone has no recorded placement: {info!r}"
-                )
+                assert info.placements, f"clone has no recorded placement: {info!r}"
                 file_paths = [p.file_path for p in info.placements]
                 assert any(fp.endswith(custom_rel) for fp in file_paths), (
-                    f"clone landed at default location, not custom path: "
-                    f"{file_paths!r}"
+                    f"clone landed at default location, not custom path: {file_paths!r}"
                 )
                 # Sanity: the path is distinct from what the
                 # default would have been.
@@ -305,9 +301,7 @@ class TestDisk(SingleNodeCase):
 
                     # Re-attach: succeeds → the qcow2 lock was released
                     # by the detach. Drive ID is fresh.
-                    new_drive_id = vm.cap.attach_disk(
-                        data_disk, interface="virtio"
-                    )
+                    new_drive_id = vm.cap.attach_disk(data_disk, interface="virtio")
                     assert new_drive_id != drive_id
                     self._wait_vd_count(vm, before + 1)
                     vm.cap.detach_disk(new_drive_id)
@@ -377,6 +371,7 @@ class TestDisk(SingleNodeCase):
         the kernel surfaces the new virtio-blk device within a second
         or two but we leave slack for busy nested-KVM hosts."""
         import time
+
         deadline = time.monotonic() + timeout_sec
         last = -1
         while time.monotonic() < deadline:
@@ -384,6 +379,4 @@ class TestDisk(SingleNodeCase):
             if last == target:
                 return
             time.sleep(0.5)
-        raise AssertionError(
-            f"guest /dev/vd* count stuck at {last}, expected {target}"
-        )
+        raise AssertionError(f"guest /dev/vd* count stuck at {last}, expected {target}")

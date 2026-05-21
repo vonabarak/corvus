@@ -11,6 +11,7 @@ This is a temporary translation layer. If/when the daemon adopts
 structured exception codes on the wire (see `src/Corvus/Wire/Errors.hs`),
 this module shrinks to a dict lookup.
 """
+
 from __future__ import annotations
 
 import re

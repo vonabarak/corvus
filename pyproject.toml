@@ -56,6 +56,22 @@ corvus_test_harness = "integration_tests/corvus_test_harness"
 [tool.setuptools.package-data]
 corvus_client = ["schema/*.capnp"]
 
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+extend-exclude = [
+    ".venv*",
+    "*.egg-info",
+    # The Cap'n Proto schema symlink target inside corvus_client/ —
+    # not Python source.
+    "schema",
+    # Reserved exclusion for future codegen output. Nothing currently
+    # matches: `_sync/` is hand-written, `_schema.py` is hand-written,
+    # no `*_capnp.py` stubs. The pattern is here so any future
+    # codegen drop-in automatically gets the lint/typecheck carve-out.
+    "**/_generated/**",
+]
+
 [tool.pytest.ini_options]
 # Both /python/tests and /integration_tests/tests are discoverable
 # from the repo root. Selecting which set to run is the Makefile's

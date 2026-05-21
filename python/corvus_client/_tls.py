@@ -140,7 +140,8 @@ def build_client_bundle(
         chosen = cert_dir
     else:
         search = (
-            client_cert_search_path() if role == ROLE_CLIENT
+            client_cert_search_path()
+            if role == ROLE_CLIENT
             else default_cert_search_path()
         )
         chosen = resolve_cert_dir(search, needed)
@@ -204,9 +205,7 @@ def validate_peer_cn(
     dict returned by ``transport.get_extra_info('peercert')``."""
 
     if not peercert:
-        raise CertificateError(
-            "no peer certificate available after TLS handshake"
-        )
+        raise CertificateError("no peer certificate available after TLS handshake")
     cn = extract_cn(peercert)
     if cn is None:
         raise CertificateError(
@@ -218,7 +217,7 @@ def validate_peer_cn(
             f"{bundle.expected_peer_prefix!r}"
         )
     if bundle.expected_peer_name is not None:
-        suffix = cn[len(bundle.expected_peer_prefix):]
+        suffix = cn[len(bundle.expected_peer_prefix) :]
         if suffix != bundle.expected_peer_name:
             raise CertificateError(
                 f"peer CN {cn!r} has name {suffix!r}, expected "

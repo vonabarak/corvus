@@ -1,4 +1,5 @@
 """CloudInit set / get / delete."""
+
 from __future__ import annotations
 
 from ._helpers import with_client

@@ -17,6 +17,7 @@ Scope:
   * setIpForwarding flips /proc
   * shutdown cleanup removes every `corvus-*` resource on the node
 """
+
 from __future__ import annotations
 
 import shutil
@@ -55,13 +56,20 @@ def _open_port_forward(cid: int, host_port: int) -> subprocess.Popen:
     argv = [
         ssh,
         "-N",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "BatchMode=yes",
-        "-o", "ExitOnForwardFailure=yes",
-        "-o", f"ProxyCommand={socat} - VSOCK-CONNECT:{cid}:22",
-        "-i", str(HOST_ALPINE_KEY_PATH),
-        "-L", f"127.0.0.1:{host_port}:127.0.0.1:{NETD_NODE_PORT}",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        f"ProxyCommand={socat} - VSOCK-CONNECT:{cid}:22",
+        "-i",
+        str(HOST_ALPINE_KEY_PATH),
+        "-L",
+        f"127.0.0.1:{host_port}:127.0.0.1:{NETD_NODE_PORT}",
         f"corvus@vsock-{cid}",
     ]
     proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -179,7 +187,10 @@ class TestNetdDeclarative(SingleNodeCase):
         info = agent.version()
         assert info.semver.startswith("0.")
         assert set(info.capabilities) == {
-            "network", "tap", "ip-forwarding", "events",
+            "network",
+            "tap",
+            "ip-forwarding",
+            "events",
         }
 
     # -- Networks ------------------------------------------------------------
@@ -193,8 +204,7 @@ class TestNetdDeclarative(SingleNodeCase):
 
         link = node.run(f"ip -d link show {name}", check=False)
         assert link.returncode == 0, (
-            f"bridge {name} not found: "
-            f"{link.stderr.decode(errors='replace')}"
+            f"bridge {name} not found: {link.stderr.decode(errors='replace')}"
         )
         assert b"bridge " in link.stdout
         addr = node.run(f"ip -o -4 addr show dev {name}")
@@ -236,9 +246,7 @@ class TestNetdDeclarative(SingleNodeCase):
         subnet = "10.188.0.0/24"
         node = self.node
 
-        agent.apply_network(
-            _network_spec(name, cidr="10.188.0.1/24", nat_enabled=True)
-        )
+        agent.apply_network(_network_spec(name, cidr="10.188.0.1/24", nat_enabled=True))
 
         table = node.run("sudo nft list table inet corvus_fw")
         assert b"masquerade" in table.stdout
@@ -261,9 +269,7 @@ class TestNetdDeclarative(SingleNodeCase):
             )
         )
 
-        proc = node.run(
-            f"pgrep -af 'dnsmasq.*--interface={name}'", check=False
-        )
+        proc = node.run(f"pgrep -af 'dnsmasq.*--interface={name}'", check=False)
         assert proc.returncode == 0, "dnsmasq not found for the bridge"
         agent.delete_network(name)
 
@@ -286,9 +292,7 @@ class TestNetdDeclarative(SingleNodeCase):
 
         link = node.run(f"ip link show {name}", check=False)
         assert link.returncode != 0
-        dn = node.run(
-            f"pgrep -f 'dnsmasq.*--interface={name}'", check=False
-        )
+        dn = node.run(f"pgrep -f 'dnsmasq.*--interface={name}'", check=False)
         assert dn.returncode != 0
 
     # -- TAPs ----------------------------------------------------------------
@@ -312,9 +316,7 @@ class TestNetdDeclarative(SingleNodeCase):
         node = self.node
 
         agent.apply_network(_network_spec(bridge, cidr="10.185.0.1/24"))
-        agent.apply_tap(
-            {"name": tap, "bridge": bridge, "uid": 1000, "gid": 1000}
-        )
+        agent.apply_tap({"name": tap, "bridge": bridge, "uid": 1000, "gid": 1000})
 
         link = node.run(f"ip -d link show {tap}")
         assert b"tun " in link.stdout
@@ -334,16 +336,10 @@ class TestNetdDeclarative(SingleNodeCase):
 
         try:
             agent.set_ip_forwarding(enabled=True, family="v4")
-            assert (
-                node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
-                == b"1"
-            )
+            assert node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip() == b"1"
 
             agent.set_ip_forwarding(enabled=False, family="v4")
-            assert (
-                node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip()
-                == b"0"
-            )
+            assert node.run("cat /proc/sys/net/ipv4/ip_forward").stdout.strip() == b"0"
         finally:
             node.run(
                 f"echo {before.decode()} | sudo tee /proc/sys/net/ipv4/ip_forward >/dev/null",
@@ -386,9 +382,7 @@ class TestNetdDeclarative(SingleNodeCase):
                 check=False,
             )
             assert nft.returncode != 0, "corvus_fw table survived shutdown"
-            dn = node.run(
-                f"pgrep -f 'dnsmasq.*--interface={name}'", check=False
-            )
+            dn = node.run(f"pgrep -f 'dnsmasq.*--interface={name}'", check=False)
             assert dn.returncode != 0, "dnsmasq survived shutdown"
         finally:
             # Restart so the rest of the class (and the inner daemon)
@@ -397,9 +391,7 @@ class TestNetdDeclarative(SingleNodeCase):
             # connection-less from the agent's view.
             node.run(f"sudo systemctl start {NETD_SERVICE}", check=False)
             for _ in range(50):
-                ss = node.run(
-                    f"ss -ltn | grep -q ':{NETD_NODE_PORT} '", check=False
-                )
+                ss = node.run(f"ss -ltn | grep -q ':{NETD_NODE_PORT} '", check=False)
                 if ss.returncode == 0:
                     break
                 time.sleep(0.1)

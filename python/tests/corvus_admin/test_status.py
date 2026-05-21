@@ -44,7 +44,8 @@ def test_probe_target_handles_missing_ip(initialised_store):
 
     ca.issue_cert(initialised_store, role=ca.ROLE_DAEMON, name="noip", ip=None)
     [report] = [
-        r for r in status_mod.probe_all(initialised_store)
+        r
+        for r in status_mod.probe_all(initialised_store)
         if r.cn == "corvus-daemon:noip"
     ]
     assert report.reachable is False
@@ -139,6 +140,7 @@ def test_cert_not_after_round_trips(initialised_store):
     not_after = status_mod.cert_not_after(issued.cert_pem)
     # Same value the index records.
     import datetime as dt
+
     indexed = dt.datetime.fromisoformat(issued.record.expires_at)
     # The cert's notAfter is timezone-aware; index value is too.
     assert abs((not_after - indexed).total_seconds()) < 60

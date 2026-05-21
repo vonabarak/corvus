@@ -38,15 +38,11 @@ def fake_paths(tmp_path, monkeypatch):
     bin_dir.mkdir()
     log = bin_dir / "systemctl.log"
     sysctl = bin_dir / "systemctl"
-    sysctl.write_text(
-        f"#!/bin/sh\necho \"$@\" >> {log!s}\n"
-    )
+    sysctl.write_text(f'#!/bin/sh\necho "$@" >> {log!s}\n')
     sysctl.chmod(0o755)
     sudo = bin_dir / "sudo"
     # Make `sudo -n …` a passthrough.
-    sudo.write_text(
-        "#!/bin/sh\nshift; exec \"$@\"\n"
-    )
+    sudo.write_text('#!/bin/sh\nshift; exec "$@"\n')
     sudo.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     return etc, log
@@ -81,6 +77,7 @@ def test_deploy_daemon_drops_three_files_with_right_modes(
     assert (etc / "ca.crt").stat().st_mode & 0o777 == 0o644
     # Sanity: the key parses as a private key.
     from cryptography.hazmat.primitives import serialization
+
     _ = serialization.load_pem_private_key(daemon_key, password=None)
 
 
@@ -90,12 +87,8 @@ def test_deploy_daemon_invokes_systemctl_restart(initialised_store, fake_paths):
     deploy.deploy_daemon(initialised_store, runner, listen_ip="127.0.0.1")
     lines = log.read_text().splitlines()
     # Expect at least an `enable --now corvus.service` then `restart corvus.service`.
-    assert any(
-        line == "enable --now corvus.service" for line in lines
-    ), lines
-    assert any(
-        line == "restart corvus.service" for line in lines
-    ), lines
+    assert any(line == "enable --now corvus.service" for line in lines), lines
+    assert any(line == "restart corvus.service" for line in lines), lines
 
 
 def test_deploy_node_records_deployment_target(initialised_store, fake_paths):

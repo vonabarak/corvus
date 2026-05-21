@@ -15,6 +15,7 @@ This module:
 A `$CORVUS_TEST_HOST_BIN_DIR` env override exists for the rare case
 where someone wants to test a specific binary outside the stack tree.
 """
+
 from __future__ import annotations
 
 import os

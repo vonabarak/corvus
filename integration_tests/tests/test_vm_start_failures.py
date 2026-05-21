@@ -18,6 +18,7 @@ allocation, QEMU exits within ~1 s, and the nodeagent's
 "QEMU exited with code N before first guest-agent ping" instead of
 the misleading 90 s "QGA ping timeout".
 """
+
 from __future__ import annotations
 
 import secrets
@@ -39,9 +40,7 @@ class TestVmStartFailures(SingleNodeCase):
         # Discover the node's total RAM so the test is independent
         # of how the test-node is sized today (4 GiB) vs. tomorrow
         # (16 GiB).
-        r = self.node.run(
-            "awk '/MemTotal/{print int($2/1024)}' /proc/meminfo"
-        )
+        r = self.node.run("awk '/MemTotal/{print int($2/1024)}' /proc/meminfo")
         node_ram_mb = int(r.stdout.decode().strip())
         # 2 GiB beyond what the kernel can possibly grant. Margin
         # avoids racing against the dev VM's own working set.
@@ -73,17 +72,13 @@ class TestVmStartFailures(SingleNodeCase):
             # budget. 30 s allows generous margin for QEMU init,
             # the reaper picking up the exit, and the RPC roundtrip
             # back through the daemon.
-            assert (
-                elapsed < 30
-            ), f"vm.start hung for {elapsed:.1f}s — should be <30s"
+            assert elapsed < 30, f"vm.start hung for {elapsed:.1f}s — should be <30s"
 
             # The error string (lands in task.message) must blame
             # QEMU's early exit, not a guest-agent timeout.
             msg = str(exc_info.value).lower()
             assert "exited" in msg, msg
-            assert (
-                "before first guest-agent ping" in msg
-            ), msg
+            assert "before first guest-agent ping" in msg, msg
             assert "qga ping timeout" not in msg, msg
 
             # `crv vm show` surface: the VM is in error with a

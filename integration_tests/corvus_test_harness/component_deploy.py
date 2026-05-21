@@ -105,9 +105,7 @@ class CaContext:
         the Python side of the handshake only.
         """
 
-        issued = ca.issue_cert(
-            self.store, role=role, name=name, ip=None
-        )
+        issued = ca.issue_cert(self.store, role=role, name=name, ip=None)
         dir_ = root / f"{role}-{name}"
         dir_.mkdir(parents=True, exist_ok=True)
         (dir_ / "ca.crt").write_bytes(self.ca_pem)
@@ -245,9 +243,7 @@ def _reset_failed(runner: NodeShellRunner, *units: str) -> None:
     )
 
 
-def _write_host_cert_dir(
-    ca_ctx: CaContext, root: Path, node_name: str
-) -> Path:
+def _write_host_cert_dir(ca_ctx: CaContext, root: Path, node_name: str) -> Path:
     """Write the trio that ``corvus_client._tls.build_client_bundle``
     expects under ``<root>/<node_name>/``. Returns that path so
     callers can plug it into ``Client(cert_dir=…)``.

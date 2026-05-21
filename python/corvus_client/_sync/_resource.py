@@ -21,6 +21,7 @@ old `asyncio.run_coroutine_threadsafe` path constructed a coroutine, a
 which occasionally tripped a SIGABRT in CPython's allocator interleaved
 with pycapnp's own C-level finalizers.
 """
+
 from __future__ import annotations
 
 

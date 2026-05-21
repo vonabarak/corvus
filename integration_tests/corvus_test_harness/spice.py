@@ -24,6 +24,7 @@ Constants are mirrored from @spice-protocol@'s
   * @SPICE_VERSION_MINOR = 2@
   * @SPICE_CHANNEL_MAIN = 1@ (from @spice/enums.h@)
 """
+
 from __future__ import annotations
 
 import base64
@@ -157,9 +158,7 @@ def probe_spice_link(
         f"sys.stdout.write(buf.hex())\n"
     )
     script_b64 = base64.b64encode(node_script.encode("ascii")).decode("ascii")
-    bootstrap = (
-        f"import base64; exec(base64.b64decode('{script_b64}'))"
-    )
+    bootstrap = f"import base64; exec(base64.b64decode('{script_b64}'))"
 
     # `ssh` joins remote-command argv with literal spaces — no
     # quoting — and ships the result to the remote shell, so we
@@ -170,11 +169,16 @@ def probe_spice_link(
     proxy_cmd = f"socat - VSOCK-CONNECT:{node_cid}:{node_port}"
     argv = [
         "ssh",
-        "-i", str(host_key_path),
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-o", "BatchMode=yes",
-        "-o", f"ProxyCommand={proxy_cmd}",
+        "-i",
+        str(host_key_path),
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        f"ProxyCommand={proxy_cmd}",
         f"{user}@vsock-{node_cid}",
         remote_cmd,
     ]

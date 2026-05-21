@@ -1,4 +1,5 @@
 """entity_ref heuristic tests (pure-Python; no daemon needed)."""
+
 from __future__ import annotations
 
 import pytest

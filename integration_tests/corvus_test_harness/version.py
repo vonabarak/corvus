@@ -13,6 +13,7 @@ Two things must hold before any integration test is meaningful:
    check is a one-shot file read of
    `/sys/module/kvm_{intel,amd}/parameters/nested`.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -101,7 +102,6 @@ def check_outer_version(crv: Crv) -> dict:
     version = info.get("version") or info.get("info", {}).get("version")
     if not version:
         raise RuntimeError(
-            "outer Corvus `status` envelope had no version field. "
-            f"got: {info!r}"
+            f"outer Corvus `status` envelope had no version field. got: {info!r}"
         )
     return info

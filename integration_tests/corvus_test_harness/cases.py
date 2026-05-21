@@ -24,6 +24,7 @@ concrete subclass type — not on the class body itself — so inheritance
 between base/leaf classes never aliases a `_topology` attribute
 accidentally. Hooks in conftest.py read and write that registry.
 """
+
 from __future__ import annotations
 
 import sys
@@ -141,9 +142,7 @@ class IntegrationTestCase:
             # Build the per-class CA(s) first so add() can stash
             # the right CA key on each TestNode. Sorting de-duped
             # keys keeps the init order stable for log output.
-            ca_keys = tuple(
-                sorted({self._ca_key_for(name) for name in cls.NODES})
-            )
+            ca_keys = tuple(sorted({self._ca_key_for(name) for name in cls.NODES}))
             topology.init_cas(ca_keys)
             sys.stderr.write(
                 f"[harness] booting class topology for "
@@ -181,15 +180,11 @@ class IntegrationTestCase:
             # legacy behaviour (silently swallow + 'see prior
             # stderr') hid the real problem when stderr was muxed
             # under pytest-xdist or the test was re-run in isolation.
-            state.setup_error = (
-                f"{type(exc).__name__}: {exc}"
-            )
+            state.setup_error = f"{type(exc).__name__}: {exc}"
             # Also dump the full traceback to stderr so 'pytest -s'
             # operators see it without having to enable per-test
             # capture.
-            sys.stderr.write(
-                f"[harness] {cls.__qualname__} class fixture failed:\n"
-            )
+            sys.stderr.write(f"[harness] {cls.__qualname__} class fixture failed:\n")
             traceback.print_exc(file=sys.stderr)
             sys.stderr.flush()
             # Leak the partial topology for inspection. We can't `raise`
@@ -221,8 +216,7 @@ class IntegrationTestCase:
                     # failure worth surfacing; mark the class as failed
                     # so any subsequent class doesn't get a stale state.
                     sys.stderr.write(
-                        f"[harness] finalize failed for "
-                        f"{cls.__qualname__}: {e}\n"
+                        f"[harness] finalize failed for {cls.__qualname__}: {e}\n"
                     )
                     sys.stderr.flush()
             # Drop the cached registration map so a fresh run starts clean.
@@ -240,19 +234,13 @@ class IntegrationTestCase:
         state = state_for(type(self))
         t = state.topology
         if t is None:
-            reason = (
-                f"{type(self).__qualname__}: class topology not initialised"
-            )
+            reason = f"{type(self).__qualname__}: class topology not initialised"
             if state.setup_error:
                 reason = f"{reason} (setup error: {state.setup_error})"
             elif state.setup_failed:
-                reason = (
-                    f"{reason} — class fixture failed (no recorded reason)"
-                )
+                reason = f"{reason} — class fixture failed (no recorded reason)"
             else:
-                reason = (
-                    f"{reason} — did the class fixture run?"
-                )
+                reason = f"{reason} — did the class fixture run?"
             raise RuntimeError(reason)
         return t
 
@@ -416,11 +404,7 @@ class OneDaemonTwoNodesCase(IntegrationTestCase):
     NODES = ("alpha", "beta")
 
     def _node_role(self, short_name: str) -> NodeRole:
-        return (
-            NodeRole.FULL_STACK
-            if short_name == "alpha"
-            else NodeRole.AGENTS_ONLY
-        )
+        return NodeRole.FULL_STACK if short_name == "alpha" else NodeRole.AGENTS_ONLY
 
     @property
     def node_alpha(self) -> "TestNode":

@@ -23,7 +23,13 @@ from pathlib import Path
 
 import click
 
-from corvus_admin import ca, deploy, register as register_mod, status as status_mod, store
+from corvus_admin import (
+    ca,
+    deploy,
+    register as register_mod,
+    status as status_mod,
+    store,
+)
 from corvus_admin.runner import RunnerError, for_target
 
 
@@ -222,7 +228,9 @@ def deploy_node(
 @_ca_dir_option
 @click.argument("name")
 @click.argument("target")
-@click.option("--ip", default=None, show_default=False, help="IP SAN for the netd cert.")
+@click.option(
+    "--ip", default=None, show_default=False, help="IP SAN for the netd cert."
+)
 @click.option(
     "--user-service/--system-service",
     default=False,
@@ -313,9 +321,7 @@ def renew_daemon(ca_dir: Path | None, target: str | None, force: bool) -> None:
 @click.argument("name")
 @click.option("--target", default=None, show_default=False)
 @click.option("--force/--no-force", default=False)
-def renew_node(
-    ca_dir: Path | None, name: str, target: str | None, force: bool
-) -> None:
+def renew_node(ca_dir: Path | None, name: str, target: str | None, force: bool) -> None:
     st = _ensure_initialised(ca_dir)
     try:
         plan = deploy.renew_node(st, name=name, target=target, force=force)
@@ -323,8 +329,7 @@ def renew_node(
         click.echo(f"renew node failed: {e}", err=True)
         sys.exit(1)
     click.echo(
-        f"Renewed node cert (CN corvus-node:{plan.name}); "
-        f"redeployed to {plan.target}."
+        f"Renewed node cert (CN corvus-node:{plan.name}); redeployed to {plan.target}."
     )
 
 
@@ -333,9 +338,7 @@ def renew_node(
 @click.argument("name")
 @click.option("--target", default=None, show_default=False)
 @click.option("--force/--no-force", default=False)
-def renew_netd(
-    ca_dir: Path | None, name: str, target: str | None, force: bool
-) -> None:
+def renew_netd(ca_dir: Path | None, name: str, target: str | None, force: bool) -> None:
     st = _ensure_initialised(ca_dir)
     try:
         plan = deploy.renew_netd(st, name=name, target=target, force=force)
@@ -343,8 +346,7 @@ def renew_netd(
         click.echo(f"renew netd failed: {e}", err=True)
         sys.exit(1)
     click.echo(
-        f"Renewed netd cert (CN corvus-netd:{plan.name}); "
-        f"redeployed to {plan.target}."
+        f"Renewed netd cert (CN corvus-netd:{plan.name}); redeployed to {plan.target}."
     )
 
 
@@ -437,9 +439,7 @@ def register_cmd(
             click.echo(e.stderr, err=True)
         sys.exit(1)
     status = "healthy" if result.healthy else "registered (no healthcheck yet)"
-    click.echo(
-        f"Node {result.name} → {result.host}:{result.node_agent_port}: {status}"
-    )
+    click.echo(f"Node {result.name} → {result.host}:{result.node_agent_port}: {status}")
 
 
 # ---------------------------------------------------------------------------
@@ -506,9 +506,7 @@ def status_cmd(ca_dir: Path | None) -> None:
             status_word = "UNREACHABLE"
             detail = r.handshake_error or "?"
             any_unhealthy = True
-        click.echo(
-            f"{r.cn:40} {r.days_remaining:>9} {status_word:12} {detail}"
-        )
+        click.echo(f"{r.cn:40} {r.days_remaining:>9} {status_word:12} {detail}")
     sys.exit(1 if any_unhealthy else 0)
 
 

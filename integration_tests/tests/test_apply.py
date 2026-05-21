@@ -19,6 +19,7 @@ All five tests drive the inner daemon's `apply` cap directly (the
 harness's `Vm` class bypasses `apply`; this is the first apply
 coverage at the cap level).
 """
+
 from __future__ import annotations
 
 import secrets
@@ -38,8 +39,7 @@ pytestmark = [pytest.mark.slow, pytest.mark.timeout(1200)]
 def _qga(vm, cmd: str) -> None:
     r = vm.guest_exec(cmd)
     assert r.exit_code == 0, (
-        f"{cmd!r} failed: exit={r.exit_code} stdout={r.stdout!r} "
-        f"stderr={r.stderr!r}"
+        f"{cmd!r} failed: exit={r.exit_code} stdout={r.stdout!r} stderr={r.stderr!r}"
     )
 
 
@@ -201,16 +201,12 @@ class TestApply(SingleNodeCase):
                 # Cloud-init runs at first boot. Poll up to ~60 s.
                 last = None
                 for _ in range(30):
-                    last = vm.guest_exec(
-                        "/bin/cat /home/corvus/.ssh/authorized_keys"
-                    )
+                    last = vm.guest_exec("/bin/cat /home/corvus/.ssh/authorized_keys")
                     if last.exit_code == 0 and _TEST_PUB_KEY_BLOB in last.stdout:
                         break
                     time.sleep(2)
                 else:
-                    raise AssertionError(
-                        f"ssh key not injected; last={last!r}"
-                    )
+                    raise AssertionError(f"ssh key not injected; last={last!r}")
             finally:
                 vm.stop(wait=True)
         finally:
@@ -285,10 +281,7 @@ class TestApply(SingleNodeCase):
                 for _ in range(60):
                     if not seen_user:
                         last_user = vm.guest_exec("/usr/bin/id deployer")
-                        if (
-                            last_user.exit_code == 0
-                            and "deployer" in last_user.stdout
-                        ):
+                        if last_user.exit_code == 0 and "deployer" in last_user.stdout:
                             seen_user = True
                     if seen_user and not seen_key:
                         last_key = vm.guest_exec(
@@ -303,7 +296,9 @@ class TestApply(SingleNodeCase):
                         break
                     time.sleep(2)
                 assert seen_user, f"deployer user never appeared; last={last_user!r}"
-                assert seen_key, f"key not in deployer authorized_keys; last={last_key!r}"
+                assert seen_key, (
+                    f"key not in deployer authorized_keys; last={last_key!r}"
+                )
             finally:
                 vm.stop(wait=True)
         finally:
@@ -369,15 +364,11 @@ class TestApply(SingleNodeCase):
             self.client.vms.get(vm_name, by_name=True)
         finally:
             try:
-                self.client.vms.get(
-                    vm_name, by_name=True
-                ).delete(delete_disks=True)
+                self.client.vms.get(vm_name, by_name=True).delete(delete_disks=True)
             except Exception:
                 pass
             try:
-                self.client.networks.get(
-                    net_name, by_name=True
-                ).delete()
+                self.client.networks.get(net_name, by_name=True).delete()
             except Exception:
                 pass
 

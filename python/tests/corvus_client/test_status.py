@@ -1,4 +1,5 @@
 """Smoke test for the async client's bootstrap + status flow."""
+
 from __future__ import annotations
 
 import asyncio

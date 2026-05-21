@@ -26,6 +26,7 @@ matches `corvus-it-*`). If a test dies mid-bake, clean by hand:
     | jq -r ".[] | select(.name|startswith(\\"__build_\\")) | .name" \\
     | xargs -I{} crv vm delete --delete-disks {}'
 """
+
 from __future__ import annotations
 
 import secrets
@@ -215,9 +216,7 @@ class TestBuildPipeline(SingleNodeCase):
             err = bo.error_message.lower()
             # Pre-refactor doc accepted "shell" OR "exited"; allow
             # "provisioner" as a post-refactor variant.
-            assert (
-                "shell" in err or "exited" in err or "provisioner" in err
-            ), err
+            assert "shell" in err or "exited" in err or "provisioner" in err, err
 
             # Artifact must not be registered.
             disk_names = [d.name for d in self.client.disks.list()]
@@ -394,9 +393,7 @@ class TestBuildPipeline(SingleNodeCase):
         tpl_name = f"corvus-it-build-tpl-{token}"
         artifact_name = f"corvus-it-build-art-{token}"
 
-        stub = self.client.disks.create(
-            artifact_name, size_mb=64, format="qcow2"
-        )
+        stub = self.client.disks.create(artifact_name, size_mb=64, format="qcow2")
         tpl = self.client.templates.create(
             _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
         )

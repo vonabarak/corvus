@@ -60,6 +60,7 @@ allocation pressure and removes the most obvious crash trigger.
 path). The runloop thread drains the deque every
 `_DRAIN_INTERVAL_SEC`, dropping caps where kj is alive.
 """
+
 from __future__ import annotations
 
 import _thread
@@ -213,7 +214,9 @@ class SyncRunloop:
         # don't allocate on the common path (only when crossing the
         # internal 64-slot block boundary).
         self._drop_queue: deque[Any] = deque()
-        self._thread = threading.Thread(target=self._serve, daemon=True, name="corvus-runloop")
+        self._thread = threading.Thread(
+            target=self._serve, daemon=True, name="corvus-runloop"
+        )
         self._thread.start()
         self._ready.wait()
         if self._error is not None:

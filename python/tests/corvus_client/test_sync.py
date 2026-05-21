@@ -3,6 +3,7 @@
 Verifies the sync wrapper threads correctly and the background runloop
 is reentrant: multiple calls in the same Client instance share a loop.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -41,9 +42,10 @@ def test_sync_vm_create_edit_delete(daemon_socket):
 
 def test_sync_multiple_clients_isolated(daemon_socket):
     """Two Client instances must not share state, even on the same daemon."""
-    with Client(unix_socket=str(daemon_socket)) as c1, Client(
-        unix_socket=str(daemon_socket)
-    ) as c2:
+    with (
+        Client(unix_socket=str(daemon_socket)) as c1,
+        Client(unix_socket=str(daemon_socket)) as c2,
+    ):
         c1.ping()
         c2.ping()
         # Manager caps fetched independently per client.

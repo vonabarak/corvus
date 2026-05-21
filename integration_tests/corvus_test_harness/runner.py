@@ -80,8 +80,12 @@ class NodeShellRunner(Runner):
             self.run(
                 [
                     "install",
-                    "-o", "corvus", "-g", "corvus",
-                    "-m", oct(mode)[2:],
+                    "-o",
+                    "corvus",
+                    "-g",
+                    "corvus",
+                    "-m",
+                    oct(mode)[2:],
                     staging,
                     remote_path,
                 ],

@@ -7,6 +7,7 @@ Timestamps reach the wire as POSIX nanoseconds (Int64). We expose them
 as `datetime.datetime` with UTC tzinfo; the conversion lives in
 `_async/_convert.py`.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

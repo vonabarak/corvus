@@ -13,6 +13,7 @@ Drives the full daemon → corvus-netd → kernel pipeline:
 Each test class gets its own dedicated node, so its corvus-netd
 instance is private to the class.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -89,8 +90,7 @@ def _bridge_ifindex(node, bridge: str) -> int:
     r = node.run(f"cat /sys/class/net/{bridge}/ifindex", check=False)
     if r.returncode != 0:
         raise AssertionError(
-            f"bridge {bridge} not present: "
-            f"{r.stderr.decode(errors='replace')}"
+            f"bridge {bridge} not present: {r.stderr.decode(errors='replace')}"
         )
     return int(r.stdout.strip())
 
@@ -182,9 +182,7 @@ def _ping_with_retry(
     last_err: Optional[BaseException] = None
     for _ in range(attempts):
         try:
-            vm.run(
-                f"ping -c {per_attempt_count} -W {per_attempt_wait_sec} {target}"
-            )
+            vm.run(f"ping -c {per_attempt_count} -W {per_attempt_wait_sec} {target}")
             return
         except RuntimeError as e:
             last_err = e
@@ -297,21 +295,22 @@ class TestManagedNetworking(SingleNodeCase):
                 "masqueraded VM packets have nowhere to go. Skipping."
             )
 
-        with _network(lambda: self.client, "dhcp-net", "10.51.0.0/24", dhcp=True, nat=True) as nw:
+        with _network(
+            lambda: self.client, "dhcp-net", "10.51.0.0/24", dhcp=True, nat=True
+        ) as nw:
             net_id = nw.show().id
             bridge = _bridge_name(net_id)
             # Sanity: bridge + masquerade rule are live.
-            assert b"10.51.0.1/24" in node.run(
-                f"ip -o -4 addr show dev {bridge}"
-            ).stdout
+            assert (
+                b"10.51.0.1/24" in node.run(f"ip -o -4 addr show dev {bridge}").stdout
+            )
             nft = node.run("sudo nft list table inet corvus_fw")
             assert b"masquerade" in nft.stdout
 
             class _Vm(_ManagedVm):
                 network_name = "dhcp-net"
 
-            with _Vm(self, name="dhcp-vm1") as vm1, \
-                 _Vm(self, name="dhcp-vm2") as vm2:
+            with _Vm(self, name="dhcp-vm1") as vm1, _Vm(self, name="dhcp-vm2") as vm2:
                 # Alpine doesn't auto-DHCP secondary NICs (and our
                 # managed NIC is the only NIC). The harness's baked
                 # alpine image leaves it down. Bring it up + dhcp.
@@ -353,8 +352,10 @@ class TestManagedNetworking(SingleNodeCase):
         (agent's `iifname "corvus-br*" oifname "corvus-br*" drop`)."""
         client = self.client
 
-        with _network(lambda: self.client, "iso-a", "10.60.0.0/24") as a, \
-             _network(lambda: self.client, "iso-b", "10.61.0.0/24") as b:
+        with (
+            _network(lambda: self.client, "iso-a", "10.60.0.0/24") as a,
+            _network(lambda: self.client, "iso-b", "10.61.0.0/24") as b,
+        ):
 
             class _VmA(_ManagedVm):
                 network_name = "iso-a"
@@ -362,8 +363,10 @@ class TestManagedNetworking(SingleNodeCase):
             class _VmB(_ManagedVm):
                 network_name = "iso-b"
 
-            with _VmA(self, name="iso-vm-a") as vm_a, \
-                 _VmB(self, name="iso-vm-b") as vm_b:
+            with (
+                _VmA(self, name="iso-vm-a") as vm_a,
+                _VmB(self, name="iso-vm-b") as vm_b,
+            ):
                 vm_a.run(
                     f"doas ip link set {GUEST_NIC} up && "
                     f"doas ipaddr add 10.60.0.10/24 dev {GUEST_NIC}"
@@ -379,13 +382,9 @@ class TestManagedNetworking(SingleNodeCase):
                 # routing-wise reason is "no default route"; the
                 # firewall-wise reason (visible to anyone reading
                 # corvus_fw) is the cross-bridge drop rule.
-                r = vm_a.run(
-                    "ping -c 1 -W 2 10.61.0.10", check=False
-                )
+                r = vm_a.run("ping -c 1 -W 2 10.61.0.10", check=False)
                 assert r.exit_code != 0
-                r = vm_b.run(
-                    "ping -c 1 -W 2 10.60.0.10", check=False
-                )
+                r = vm_b.run("ping -c 1 -W 2 10.60.0.10", check=False)
                 assert r.exit_code != 0
 
     # -- 4. Daemon re-apply on reconnect -------------------------------------
@@ -404,16 +403,16 @@ class TestManagedNetworking(SingleNodeCase):
         node = self.node
         client = self.client
 
-        with _network(lambda: self.client, "rea-net", "10.52.0.0/24", dhcp=True, nat=True) as nw:
+        with _network(
+            lambda: self.client, "rea-net", "10.52.0.0/24", dhcp=True, nat=True
+        ) as nw:
             net_id = nw.show().id
             bridge = _bridge_name(net_id)
             ifindex_before = _bridge_ifindex(node, bridge)
 
             # Snapshot dnsmasq pid via /proc — survives daemon
             # restart only if the agent kept it alive.
-            r = node.run(
-                f"pgrep -f 'dnsmasq.*--interface={bridge}'", check=False
-            )
+            r = node.run(f"pgrep -f 'dnsmasq.*--interface={bridge}'", check=False)
             dnsmasq_pid_before = (
                 r.stdout.strip().splitlines()[0] if r.returncode == 0 else b""
             )
@@ -448,9 +447,7 @@ class TestManagedNetworking(SingleNodeCase):
             )
 
             # dnsmasq is still the same process (kept alive by agent).
-            r = node.run(
-                f"pgrep -f 'dnsmasq.*--interface={bridge}'", check=False
-            )
+            r = node.run(f"pgrep -f 'dnsmasq.*--interface={bridge}'", check=False)
             dnsmasq_pid_after = (
                 r.stdout.strip().splitlines()[0] if r.returncode == 0 else b""
             )
@@ -483,7 +480,9 @@ class TestManagedNetworking(SingleNodeCase):
         node = self.node
         client = self.client
 
-        with _network(lambda: self.client, "wip-net", "10.53.0.0/24", dhcp=True, nat=True) as nw:
+        with _network(
+            lambda: self.client, "wip-net", "10.53.0.0/24", dhcp=True, nat=True
+        ) as nw:
             net_id = nw.show().id
             bridge = _bridge_name(net_id)
             ifindex_before = _bridge_ifindex(node, bridge)
@@ -548,9 +547,8 @@ class TestManagedNetworking(SingleNodeCase):
             # error (the daemon's cached client just saw the agent's
             # listener go away). Both prove the daemon didn't fall
             # back to a legacy path.
-            assert (
-                re.search(r"netd unavailable", msg, re.IGNORECASE)
-                or re.search(r"disconnect", msg, re.IGNORECASE)
+            assert re.search(r"netd unavailable", msg, re.IGNORECASE) or re.search(
+                r"disconnect", msg, re.IGNORECASE
             ), (
                 f"unexpected error (no 'netd unavailable' or "
                 f"disconnect substring): {msg!r}"
@@ -592,9 +590,7 @@ class TestManagedNetworking(SingleNodeCase):
                     pass
                 time.sleep(1.0)
         else:
-            pytest.fail(
-                f"daemon never re-applied after netd restart: {last_exc}"
-            )
+            pytest.fail(f"daemon never re-applied after netd restart: {last_exc}")
         # Clean up.
         try:
             nw.stop(force=True)

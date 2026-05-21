@@ -13,6 +13,7 @@ Schemas are resolved in this order:
      (populated by `make python-schema-sync` and bundled into wheels via
      `tool.setuptools.package-data`).
 """
+
 from __future__ import annotations
 
 import os

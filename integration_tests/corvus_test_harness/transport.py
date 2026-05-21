@@ -10,6 +10,7 @@ The Python client connects as if the inner daemon were a local TCP
 service. The relay is created per VM by the topology fixture and torn
 down on test end.
 """
+
 from __future__ import annotations
 
 import errno
@@ -76,14 +77,20 @@ class VsockTcpRelay:
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             if proc.poll() is not None:
-                err = (proc.stderr.read() if proc.stderr else b"").decode(errors="replace")
-                raise RuntimeError(f"socat relay exited early: {err.strip() or proc.returncode}")
+                err = (proc.stderr.read() if proc.stderr else b"").decode(
+                    errors="replace"
+                )
+                raise RuntimeError(
+                    f"socat relay exited early: {err.strip() or proc.returncode}"
+                )
             if _tcp_listen_ready(port):
                 break
             time.sleep(0.05)
         else:
             proc.terminate()
-            raise RuntimeError(f"socat relay didn't start listening on 127.0.0.1:{port}")
+            raise RuntimeError(
+                f"socat relay didn't start listening on 127.0.0.1:{port}"
+            )
         return cls(cid=cid, vsock_port=vsock_port, host_port=port, _proc=proc)
 
     @property

@@ -4,6 +4,7 @@ Mirrors the @crv node@ subcommand surface. A registered ``Node`` is
 the daemon's record of one host it orchestrates; per-node agent
 endpoints plus the agent-pushed capacity snapshot live on each row.
 """
+
 from __future__ import annotations
 
 from typing import Optional, Union

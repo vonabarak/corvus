@@ -9,6 +9,7 @@ The daemon rejects un-preprocessed build payloads — it expects:
 
 Mirrors `Corvus.Client.Commands.Build.preprocessRoot` in the Haskell client.
 """
+
 from __future__ import annotations
 
 import base64
@@ -89,9 +90,7 @@ def preprocess_build_yaml(yaml_path: str) -> str:
     return yaml.safe_dump(doc, sort_keys=False)
 
 
-async def stream_build_from_file(
-    daemon, yaml_path: str
-) -> AsyncIterator[Any]:
+async def stream_build_from_file(daemon, yaml_path: str) -> AsyncIterator[Any]:
     """Run `Daemon.build` on a preprocessed YAML file.
 
     Yields `BuildEvent` dataclasses as they arrive, followed by a final

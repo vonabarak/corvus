@@ -21,6 +21,7 @@ bidirectional byte sinks — there's no protocol upgrade to verify.
 Uses the `SyncByteStream` wrapper around `serialConsole` (added in
 `python/corvus_client/_sync/vm.py`).
 """
+
 from __future__ import annotations
 
 import os
@@ -59,8 +60,7 @@ def _drain_until(stream, needle: bytes, timeout: float) -> bytes:
             if needle in buf:
                 return bytes(buf)
     raise AssertionError(
-        f"timed out waiting for {needle!r} after {timeout}s; "
-        f"tail={bytes(buf[-512:])!r}"
+        f"timed out waiting for {needle!r} after {timeout}s; tail={bytes(buf[-512:])!r}"
     )
 
 
@@ -86,17 +86,13 @@ class TestSerialConsole(SingleNodeCase):
             # `echo … > /dev/ttyS0` lands in the same chardev the
             # daemon's ring buffer reads from.
             marker = f"SERIAL-MARKER-{secrets.token_hex(4)}"
-            r = vm.cap.guest_exec(
-                f"/bin/sh -c 'echo {marker} > /dev/ttyS0'"
-            )
+            r = vm.cap.guest_exec(f"/bin/sh -c 'echo {marker} > /dev/ttyS0'")
             assert r.exit_code == 0, r
             time.sleep(0.5)  # let the buffer absorb the bytes
 
             # ── Phase C: reconnect — replay must include the marker.
             with vm.cap.serial_console() as stream2:
-                data = _drain_until(
-                    stream2, marker.encode(), timeout=10.0
-                )
+                data = _drain_until(stream2, marker.encode(), timeout=10.0)
                 assert marker.encode() in data
 
             # ── Phase D: flush actually empties the ring buffer.

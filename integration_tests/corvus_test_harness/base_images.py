@@ -24,6 +24,7 @@ Tests then refer to the images by short name:
         vm = single_client.vms.create("scratch")
         vm.attach_disk("scratch-overlay", interface="virtio")
 """
+
 from __future__ import annotations
 
 import os
@@ -96,9 +97,7 @@ def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
             # The disk-name registered with the inner daemon is the
             # filename stem — unique per file.
             guest_path = GUEST_BASE_IMAGES_PATH / subdir.name / image_file.name
-            base = BaseImage(
-                name=stem_key, guest_path=guest_path, host_path=image_file
-            )
+            base = BaseImage(name=stem_key, guest_path=guest_path, host_path=image_file)
             images[stem_key] = base
             # Backwards-compat alias: the dir-name key resolves to the
             # first file in the directory (alphabetical sort order).

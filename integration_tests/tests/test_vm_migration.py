@@ -15,6 +15,7 @@ and `test_migrated_vm_with_cloud_init_boots_on_destination`) are
 deliberately the only two that actually start QEMU; the rest are
 fast state/DB checks so the class's wall-clock time stays bounded.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -398,8 +399,7 @@ class TestVmMigration(OneDaemonTwoNodesCase):
             # ``vm.start`` will re-allocate against beta's per-node
             # pools.
             assert details_after.vsock_cid is None, (
-                f"vsock_cid still set after migration: "
-                f"{details_after.vsock_cid}"
+                f"vsock_cid still set after migration: {details_after.vsock_cid}"
             )
             assert details_after.spice_port is None
             # The pre-migration vsock_cid value was set; the post

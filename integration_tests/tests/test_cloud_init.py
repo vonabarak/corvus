@@ -26,6 +26,7 @@ image: the first attaches a second keypair on top of the primary;
 the second supplies fully-custom user-data that creates a
 `testadmin` user with sudo and an explicit `ssh_authorized_keys`.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -95,9 +96,7 @@ class TestCloudInit(SingleNodeCase):
         on the cloud-init/nuageinit implementation."""
         pub_body = vm.public_key.split()[1]
         ak = vm.run("cat ~/.ssh/authorized_keys").stdout
-        assert pub_body in ak, (
-            f"injected pubkey not found in authorized_keys:\n{ak!r}"
-        )
+        assert pub_body in ak, f"injected pubkey not found in authorized_keys:\n{ak!r}"
 
     def _verify_login_linux(self, vm) -> None:
         """Verify a cloud-init-based Linux distro (Alpine, AlmaLinux,
@@ -191,10 +190,15 @@ class TestCloudInit(SingleNodeCase):
         try:
             subprocess.run(
                 [
-                    "ssh-keygen", "-t", "ed25519",
-                    "-f", str(key2_priv),
-                    "-N", "",
-                    "-C", "corvus-ci-key2",
+                    "ssh-keygen",
+                    "-t",
+                    "ed25519",
+                    "-f",
+                    str(key2_priv),
+                    "-N",
+                    "",
+                    "-C",
+                    "corvus-ci-key2",
                 ],
                 check=True,
                 stdout=subprocess.DEVNULL,
@@ -255,9 +259,7 @@ class TestCloudInit(SingleNodeCase):
             assert info.inject_ssh_keys is False
 
             user_data = "#cloud-config\nhostname: crud-test\n"
-            network_config = (
-                "version: 2\nethernets:\n  eth0:\n    dhcp4: true\n"
-            )
+            network_config = "version: 2\nethernets:\n  eth0:\n    dhcp4: true\n"
             self.client.cloud_init.set(
                 vm_id,
                 user_data=user_data,
@@ -322,6 +324,5 @@ class TestCloudInit(SingleNodeCase):
             # Passwordless sudo from the user-data took effect.
             r = vm.run("sudo -n true", check=False)
             assert r.exit_code == 0, (
-                f"sudo -n failed for testadmin: "
-                f"stdout={r.stdout!r} stderr={r.stderr!r}"
+                f"sudo -n failed for testadmin: stdout={r.stdout!r} stderr={r.stderr!r}"
             )

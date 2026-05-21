@@ -1,4 +1,5 @@
 """Translation of daemon KjException messages to typed Python exceptions."""
+
 from __future__ import annotations
 
 import capnp
@@ -42,8 +43,14 @@ def _fake_kj(description: str) -> capnp.KjException:
         ("(remote):0: failed: remote exception: VM 'web-1' not found", VmNotFound),
         ("(remote):0: failed: remote exception: VM #42 not found", VmNotFound),
         ("(remote):0: failed: remote exception: Disk 'root' not found", DiskNotFound),
-        ("(remote):0: failed: remote exception: Snapshot #5 not found", SnapshotNotFound),
-        ("(remote):0: failed: remote exception: Network 'br0' not found", NetworkNotFound),
+        (
+            "(remote):0: failed: remote exception: Snapshot #5 not found",
+            SnapshotNotFound,
+        ),
+        (
+            "(remote):0: failed: remote exception: Network 'br0' not found",
+            NetworkNotFound,
+        ),
         # Multi-node Node translations.
         ("(remote):0: failed: remote exception: Node not found", NodeNotFound),
         ("(remote):0: failed: remote exception: Node 'alpha' not found", NodeNotFound),

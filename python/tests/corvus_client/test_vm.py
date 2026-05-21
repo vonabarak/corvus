@@ -4,6 +4,7 @@ Stays at create/edit/show/delete level. Boot is exercised in the
 integration tests (which would require KVM and an OS image — separate
 concern; the conftest daemon fixture doesn't depend on that).
 """
+
 from __future__ import annotations
 
 import pytest

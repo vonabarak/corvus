@@ -1,4 +1,5 @@
 """Build YAML preprocessing + streaming end-to-end."""
+
 from __future__ import annotations
 
 import base64

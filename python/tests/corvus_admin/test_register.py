@@ -30,21 +30,21 @@ def fake_crv(tmp_path, monkeypatch):
     crv = bin_dir / "crv"
     crv.write_text(
         "#!/bin/sh\n"
-        f"echo \"$@\" >> {log!s}\n"
+        f'echo "$@" >> {log!s}\n'
         'case "$1$2" in\n'
         '  "nodeadd")\n'
-        '    exit 0\n'
-        '    ;;\n'
+        "    exit 0\n"
+        "    ;;\n"
         '  "nodeshow")\n'
         '    echo "Name: $3"\n'
         '    echo "Healthcheck: 2026-05-20T19:00:00Z"\n'
-        '    exit 0\n'
-        '    ;;\n'
-        '  *)\n'
+        "    exit 0\n"
+        "    ;;\n"
+        "  *)\n"
         '    echo "unknown stub: $@" 1>&2\n'
-        '    exit 2\n'
-        '    ;;\n'
-        'esac\n'
+        "    exit 2\n"
+        "    ;;\n"
+        "esac\n"
     )
     crv.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
@@ -82,11 +82,7 @@ def test_register_node_surfaces_failure(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bad-bin"
     bin_dir.mkdir()
     bad_crv = bin_dir / "crv"
-    bad_crv.write_text(
-        "#!/bin/sh\n"
-        "echo 'simulated failure' 1>&2\n"
-        "exit 1\n"
-    )
+    bad_crv.write_text("#!/bin/sh\necho 'simulated failure' 1>&2\nexit 1\n")
     bad_crv.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     with pytest.raises(register_mod.RegisterError) as exc:
@@ -96,9 +92,7 @@ def test_register_node_surfaces_failure(tmp_path, monkeypatch):
     )
 
 
-def test_register_returns_unhealthy_when_show_lacks_healthcheck(
-    tmp_path, monkeypatch
-):
+def test_register_returns_unhealthy_when_show_lacks_healthcheck(tmp_path, monkeypatch):
     """If `crv node show` never reports a healthcheck within the
     timeout, the result should report healthy=False (rather than
     raising)."""
@@ -109,16 +103,16 @@ def test_register_returns_unhealthy_when_show_lacks_healthcheck(
     crv = bin_dir / "crv"
     crv.write_text(
         "#!/bin/sh\n"
-        f"echo \"$@\" >> {log!s}\n"
+        f'echo "$@" >> {log!s}\n'
         'case "$1$2" in\n'
         '  "nodeadd") exit 0 ;;\n'
         '  "nodeshow")\n'
         '    echo "Name: $3"\n'
         '    echo "Healthcheck: -"\n'
-        '    exit 0\n'
-        '    ;;\n'
-        '  *) exit 2 ;;\n'
-        'esac\n'
+        "    exit 0\n"
+        "    ;;\n"
+        "  *) exit 2 ;;\n"
+        "esac\n"
     )
     crv.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")

@@ -1,4 +1,5 @@
 """Sync mirrors for the async Vm wrappers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -203,7 +204,9 @@ class SyncVm(LoopBoundResource):
     def snapshot_get(self, ref: Union[int, str], *, by_name: bool = False):
         from .disk import SyncSnapshot
 
-        return SyncSnapshot(self._rl.run(self._a.snapshot_get(ref, by_name=by_name)), self._rl)
+        return SyncSnapshot(
+            self._rl.run(self._a.snapshot_get(ref, by_name=by_name)), self._rl
+        )
 
     # ssh keys
     def attach_ssh_key(self, key_ref):

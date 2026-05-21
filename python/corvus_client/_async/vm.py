@@ -5,6 +5,7 @@ Mirrors the schema in `schema/vm.capnp`. Streaming endpoints
 `corvus_client._async.streams` to keep this module focused on
 request/response wrappers.
 """
+
 from __future__ import annotations
 
 from typing import Optional, Union

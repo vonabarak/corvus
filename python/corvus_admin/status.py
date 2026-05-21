@@ -120,9 +120,7 @@ def _probe_target(rec: store.IssuedRecord) -> tuple[str, int] | None:
     return rec.ip, port
 
 
-def _try_handshake(
-    host: str, port: int, admin_store: store.AdminStore
-) -> str | None:
+def _try_handshake(host: str, port: int, admin_store: store.AdminStore) -> str | None:
     """Open a TLS connection to *host:port* using the admin's
     client cert. Returns ``None`` on success, a one-line error
     string on failure. The cert validation passes when the

@@ -9,6 +9,7 @@ the same VM (the one whose id is 42, not a VM literally named "42").
 
 Callers who must address a digit-only name use `by_name=True`.
 """
+
 from __future__ import annotations
 
 from typing import Union

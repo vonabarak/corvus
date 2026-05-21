@@ -28,6 +28,7 @@ Usage:
         agent.apply_network({"name": "corvus-br-x", "cidr": "10.0.0.1/24", ...})
         agent.delete_network("corvus-br-x")
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -199,6 +200,7 @@ class NetdClient:
     def ping(self) -> None:
         async def go():
             await self._agent.ping()
+
         self._call(go)
 
     def version(self) -> VersionInfo:
@@ -208,15 +210,15 @@ class NetdClient:
                 semver=info.semver,
                 capabilities=tuple(info.capabilities),
             )
+
         return self._call(go)
 
     # ---- Session: networks ------------------------------------------------
 
     def apply_network(self, spec) -> NetworkInfo:
         async def go():
-            return _decode_network_info(
-                (await self._sess.applyNetwork(spec=spec)).info
-            )
+            return _decode_network_info((await self._sess.applyNetwork(spec=spec)).info)
+
         return self._call(go)
 
     def delete_network(self, name: str) -> None:
@@ -224,6 +226,7 @@ class NetdClient:
         # (`name` is internal to the call descriptor).
         async def go():
             await self._sess.deleteNetwork(name)
+
         self._call(go)
 
     def list_networks(self) -> list[NetworkInfo]:
@@ -232,28 +235,27 @@ class NetdClient:
                 _decode_network_info(n)
                 for n in (await self._sess.listNetworks()).networks
             ]
+
         return self._call(go)
 
     # ---- Session: TAPs ----------------------------------------------------
 
     def apply_tap(self, spec) -> TapInfo:
         async def go():
-            return _decode_tap_info(
-                (await self._sess.applyTap(spec=spec)).info
-            )
+            return _decode_tap_info((await self._sess.applyTap(spec=spec)).info)
+
         return self._call(go)
 
     def delete_tap(self, name: str) -> None:
         async def go():
             await self._sess.deleteTap(name)
+
         self._call(go)
 
     def list_taps(self) -> list[TapInfo]:
         async def go():
-            return [
-                _decode_tap_info(t)
-                for t in (await self._sess.listTaps()).taps
-            ]
+            return [_decode_tap_info(t) for t in (await self._sess.listTaps()).taps]
+
         return self._call(go)
 
     # ---- Session: kernel knobs -------------------------------------------
@@ -261,4 +263,5 @@ class NetdClient:
     def set_ip_forwarding(self, enabled: bool, family: str) -> None:
         async def go():
             await self._sess.setIpForwarding(enabled=enabled, family=family)
+
         self._call(go)

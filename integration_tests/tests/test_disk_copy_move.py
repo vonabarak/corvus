@@ -17,6 +17,7 @@ Refusal matrix tested (see [planTransfer](/home/bobr/Work/corvus/src/Corvus/Hand
   - overlay's backing chain missing on destination: refused
   - destination not online / equals source: refused
 """
+
 from __future__ import annotations
 
 import secrets

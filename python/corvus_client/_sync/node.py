@@ -1,4 +1,5 @@
 """Sync mirrors for the async Node wrappers."""
+
 from __future__ import annotations
 
 from typing import Union
@@ -18,9 +19,7 @@ class SyncNodeManager:
         return SyncNode(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)
 
     def create(self, name: str, host: str, **kwargs):
-        return SyncNode(
-            self._rl.run(self._a.create(name, host, **kwargs)), self._rl
-        )
+        return SyncNode(self._rl.run(self._a.create(name, host, **kwargs)), self._rl)
 
 
 class SyncNode(LoopBoundResource):

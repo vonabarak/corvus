@@ -3,6 +3,7 @@
 Cloud-init configs are owned by their VM; the schema exposes a
 manager cap only (no per-config resource cap).
 """
+
 from __future__ import annotations
 
 from typing import Optional, Union

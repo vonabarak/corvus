@@ -1,4 +1,5 @@
 """Sync mirrors for the async Disk + Snapshot wrappers."""
+
 from __future__ import annotations
 
 from typing import Optional, Union
@@ -18,10 +19,14 @@ class SyncDiskManager:
         return SyncDisk(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)
 
     def create(self, name: str, size_mb: int, *, format: Optional[str] = None):
-        return SyncDisk(self._rl.run(self._a.create(name, size_mb, format=format)), self._rl)
+        return SyncDisk(
+            self._rl.run(self._a.create(name, size_mb, format=format)), self._rl
+        )
 
     def register(self, name: str, file_path: str, *, format: Optional[str] = None):
-        return SyncDisk(self._rl.run(self._a.register(name, file_path, format=format)), self._rl)
+        return SyncDisk(
+            self._rl.run(self._a.register(name, file_path, format=format)), self._rl
+        )
 
     def create_overlay(self, name: str, backing_disk_ref):
         return SyncDisk(
@@ -49,10 +54,14 @@ class SyncDiskManager:
         format: Optional[str] = None,
         size_mb: Optional[int] = None,
     ) -> int:
-        return self._rl.run(self._a.import_url(name, url, format=format, size_mb=size_mb))
+        return self._rl.run(
+            self._a.import_url(name, url, format=format, size_mb=size_mb)
+        )
 
     def import_(self, name: str, src_path: str, *, format: Optional[str] = None):
-        return SyncDisk(self._rl.run(self._a.import_(name, src_path, format=format)), self._rl)
+        return SyncDisk(
+            self._rl.run(self._a.import_(name, src_path, format=format)), self._rl
+        )
 
     def copy(
         self,
@@ -93,7 +102,9 @@ class SyncDisk(LoopBoundResource):
         return self._rl.run(self._a.snapshot_list())
 
     def snapshot_get(self, ref: Union[int, str], *, by_name: bool = False):
-        return SyncSnapshot(self._rl.run(self._a.snapshot_get(ref, by_name=by_name)), self._rl)
+        return SyncSnapshot(
+            self._rl.run(self._a.snapshot_get(ref, by_name=by_name)), self._rl
+        )
 
 
 class SyncSnapshot(LoopBoundResource):

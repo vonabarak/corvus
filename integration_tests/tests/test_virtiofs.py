@@ -13,6 +13,7 @@ All tests stage their host-side directories on the node (the
 inner daemon's filesystem) via `self.node.run(...)`; the Alpine
 guest mounts via virtiofs and reads/writes from there.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -48,6 +49,7 @@ class TestVirtiofs(SingleNodeCase):
         self.node.run(f"mkdir -p {outer_path}")
         self.node.run(f"echo UUID:{host_uuid} > {outer_path}/testfile.txt")
         try:
+
             class _Bidi(VmSsh):
                 def _shared_dirs(_self):
                     return [{"path": outer_path, "tag": "share"}]
@@ -65,9 +67,7 @@ class TestVirtiofs(SingleNodeCase):
 
                 # Write guest content to the mount.
                 guest_marker = f"WRITTEN-BY-GUEST:{secrets.token_hex(4)}"
-                vm.run(
-                    f"doas sh -c 'echo {guest_marker} > /mnt/share/guest-file.txt'"
-                )
+                vm.run(f"doas sh -c 'echo {guest_marker} > /mnt/share/guest-file.txt'")
 
             # After the with block: VM is torn down by VmSsh.
             # The guest write should have been persisted on the
@@ -122,9 +122,7 @@ class TestVirtiofs(SingleNodeCase):
                 # task error message.
                 start_tasks = [
                     t
-                    for t in self.client.tasks.list(
-                        subsystem="vm", entity_id=vm_id
-                    )
+                    for t in self.client.tasks.list(subsystem="vm", entity_id=vm_id)
                     if t.command == "start"
                 ]
                 assert start_tasks, "no `start` task recorded for the failed VM"
@@ -133,12 +131,9 @@ class TestVirtiofs(SingleNodeCase):
                     "no `start` task recorded as error — daemon didn't "
                     "surface the missing-path failure"
                 )
-                assert any(
-                    "virtiofsd" in (t.message or "") for t in errored
-                ), (
+                assert any("virtiofsd" in (t.message or "") for t in errored), (
                     "no errored `start` task mentions virtiofsd in its "
-                    "message; messages: "
-                    + repr([t.message for t in errored])
+                    "message; messages: " + repr([t.message for t in errored])
                 )
             finally:
                 try:
@@ -166,6 +161,7 @@ class TestVirtiofs(SingleNodeCase):
         self.node.run(f"echo SHARE-A:{token_a} > {path_a}/file.txt")
         self.node.run(f"echo SHARE-B:{token_b} > {path_b}/file.txt")
         try:
+
             class _Two(VmSsh):
                 def _shared_dirs(_self):
                     return [
@@ -200,12 +196,14 @@ class TestVirtiofs(SingleNodeCase):
                 vm.run(f"doas sh -c 'echo {guest_b} > /mnt/b/from-guest.txt'")
 
             # After teardown, host sees each write only in its own dir.
-            assert self.node.run(
-                f"cat {path_a}/from-guest.txt"
-            ).stdout.decode().strip() == guest_a
-            assert self.node.run(
-                f"cat {path_b}/from-guest.txt"
-            ).stdout.decode().strip() == guest_b
+            assert (
+                self.node.run(f"cat {path_a}/from-guest.txt").stdout.decode().strip()
+                == guest_a
+            )
+            assert (
+                self.node.run(f"cat {path_b}/from-guest.txt").stdout.decode().strip()
+                == guest_b
+            )
             # And NOT cross-pollinated: file from B doesn't appear in A's dir.
             cross = self.node.run(
                 f"test -e {path_a}/from-guest-b-by-mistake.txt; echo $?",
@@ -228,6 +226,7 @@ class TestVirtiofs(SingleNodeCase):
         self.node.run(f"mkdir -p {ro_path}")
         self.node.run(f"echo READ-ONLY:{token} > {ro_path}/file.txt")
         try:
+
             class _Ro(VmSsh):
                 def _shared_dirs(_self):
                     return [
@@ -243,16 +242,16 @@ class TestVirtiofs(SingleNodeCase):
                 vm.run("doas mount -t virtiofs ro /mnt/ro")
 
                 # Reads succeed and see host content.
-                assert vm.run(
-                    "cat /mnt/ro/file.txt"
-                ).stdout.strip() == f"READ-ONLY:{token}"
+                assert (
+                    vm.run("cat /mnt/ro/file.txt").stdout.strip()
+                    == f"READ-ONLY:{token}"
+                )
 
                 # Writes must fail. We don't care WHICH error — EROFS,
                 # permission, etc. — only that the shell command exits
                 # non-zero AND the file isn't created on the host.
                 w = vm.run(
-                    "doas sh -c 'echo nope > /mnt/ro/wrote-me.txt' "
-                    "2>&1; echo EXIT=$?",
+                    "doas sh -c 'echo nope > /mnt/ro/wrote-me.txt' 2>&1; echo EXIT=$?",
                     check=False,
                 )
                 # The `EXIT=N` tail tells us how the vm-side doas exited;

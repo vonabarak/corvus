@@ -5,6 +5,7 @@ The inner daemon's TCP listener is exposed to the host via a
 inner daemon answers — first-boot times can be 30-90s depending on
 guest-agent / systemd ordering.
 """
+
 from __future__ import annotations
 
 import time

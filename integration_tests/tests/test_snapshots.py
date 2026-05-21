@@ -10,6 +10,7 @@ Most state-mutating tests bracket a stop / snapshot or stop / rollback
 cycle inside one `Vm`, opening a fresh SSH session per boot — the
 ControlMaster VmSsh keeps alive cannot span a stop/start.
 """
+
 from __future__ import annotations
 
 import secrets
@@ -80,14 +81,10 @@ class TestSnapshots(SingleNodeCase):
         name = _uniq("snap-rapid")
         disk = self.client.disks.create(name, size_mb=8, format="qcow2")
         try:
-            snaps = [
-                disk.snapshot_create(f"concurrent-{i}") for i in (1, 2, 3)
-            ]
+            snaps = [disk.snapshot_create(f"concurrent-{i}") for i in (1, 2, 3)]
             try:
                 listed_names = {s.name for s in disk.snapshot_list()}
-                assert listed_names == {
-                    "concurrent-1", "concurrent-2", "concurrent-3"
-                }
+                assert listed_names == {"concurrent-1", "concurrent-2", "concurrent-3"}
                 # IDs are strictly positive and unique.
                 ids = [s.show().id for s in snaps]
                 assert all(i > 0 for i in ids)
@@ -221,9 +218,7 @@ class TestSnapshots(SingleNodeCase):
                 f"{count_before} → {count_after}"
             )
             # The merged snapshot is gone from the list.
-            assert not any(
-                s.name == "to-merge" for s in disk.snapshot_list()
-            )
+            assert not any(s.name == "to-merge" for s in disk.snapshot_list())
             vm.cap.start(wait=True)
 
             with self.vm_shell(vm.cap) as shell:

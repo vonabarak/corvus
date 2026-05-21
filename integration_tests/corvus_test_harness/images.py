@@ -19,6 +19,7 @@ disk via an inline `apply` YAML; see `topology.py`.
 First run takes 30-60 min (kernel + stage3 + emerges); subsequent runs
 return in milliseconds.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -69,6 +70,8 @@ def _disk_exists(crv: Crv, name: str) -> bool:
         crv.disk_show(name)
         return True
     except CrvError as e:
-        if (e.kind or "").endswith("not_found") or "not found" in (e.message or "").lower():
+        if (e.kind or "").endswith("not_found") or "not found" in (
+            e.message or ""
+        ).lower():
             return False
         raise

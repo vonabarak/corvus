@@ -6,6 +6,7 @@ The package layout:
   - corvus_client.entity_ref   — helper to build EntityRef union values
   - corvus_client.exceptions   — typed exception hierarchy
 """
+
 from __future__ import annotations
 
 from ._async.client import AsyncClient

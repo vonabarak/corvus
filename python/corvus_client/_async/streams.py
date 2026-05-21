@@ -7,6 +7,7 @@ generators or async callbacks.
 
 A sentinel `_END` value indicates "stream finished — no more events."
 """
+
 from __future__ import annotations
 
 import asyncio

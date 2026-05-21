@@ -206,12 +206,8 @@ def deploy_client(
 
     ca_pem = ca.ca_cert_pem(admin_store)
     _local_atomic_write(client_dir / "ca.crt", ca_pem, mode=0o644)
-    _local_atomic_write(
-        client_dir / "corvus-client.crt", issued.cert_pem, mode=0o644
-    )
-    _local_atomic_write(
-        client_dir / "corvus-client.key", issued.key_pem, mode=0o600
-    )
+    _local_atomic_write(client_dir / "corvus-client.crt", issued.cert_pem, mode=0o644)
+    _local_atomic_write(client_dir / "corvus-client.key", issued.key_pem, mode=0o600)
 
     issued.record.deployed_to = f"local:{client_dir}"
     admin_store.record(issued.record)
@@ -335,9 +331,7 @@ def find_record(
     else:
         if name is None:
             raise ValueError(f"role {role!r} requires a name argument")
-        matches = [
-            r for r in records if r.role == role and r.name_or_uuid == name
-        ]
+        matches = [r for r in records if r.role == role and r.name_or_uuid == name]
     if not matches:
         raise RenewError(
             f"no issued cert for role={role!r}"
@@ -356,7 +350,7 @@ def runner_label_to_target(label: str) -> str:
     if label == "local":
         return "local"
     if label.startswith("ssh:"):
-        return label[len("ssh:"):]
+        return label[len("ssh:") :]
     if label.startswith("local:"):
         raise RenewError(
             f"deploy target {label!r} is a local file path, not a runner "
@@ -365,7 +359,9 @@ def runner_label_to_target(label: str) -> str:
     raise RenewError(f"can't reuse target label {label!r} for renew")
 
 
-def needs_renewal(record: store.IssuedRecord, *, now: dt.datetime | None = None) -> bool:
+def needs_renewal(
+    record: store.IssuedRecord, *, now: dt.datetime | None = None
+) -> bool:
     """True iff *record* expires within :data:`RENEW_WINDOW`. The
     CLI uses this both for the default behaviour (refuse if still
     well-in-date) and the documented ``--auto`` filter (Phase 4

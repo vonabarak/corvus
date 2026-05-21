@@ -1,4 +1,5 @@
 """Sync mirrors for the async Template wrappers."""
+
 from __future__ import annotations
 
 from typing import Union

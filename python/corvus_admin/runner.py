@@ -100,9 +100,7 @@ class LocalRunner(Runner):
         # password twice.
         try:
             tmp.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(
-                str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode
-            )
+            fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
             with os.fdopen(fd, "wb") as f:
                 f.write(data)
             os.replace(tmp, path)
@@ -114,9 +112,7 @@ class LocalRunner(Runner):
             # may not have authorised.
             import tempfile
 
-            with tempfile.NamedTemporaryFile(
-                delete=False, prefix="corvus-admin-"
-            ) as t:
+            with tempfile.NamedTemporaryFile(delete=False, prefix="corvus-admin-") as t:
                 t.write(data)
                 staging = t.name
             try:
@@ -207,9 +203,7 @@ class SshRunner(Runner):
     def copy_bytes(self, data: bytes, remote_path: str, *, mode: int) -> None:
         import tempfile
 
-        with tempfile.NamedTemporaryFile(
-            delete=False, prefix="corvus-admin-"
-        ) as t:
+        with tempfile.NamedTemporaryFile(delete=False, prefix="corvus-admin-") as t:
             t.write(data)
             staging = t.name
         try:
@@ -218,7 +212,9 @@ class SshRunner(Runner):
             # mode. Doing both in one shot via `ssh sudo tee` is
             # tempting but routes the bytes through sudo's stdin
             # and trips its tty heuristics on some configs.
-            remote_staging = f"/tmp/corvus-admin.{os.getpid()}.{os.path.basename(remote_path)}"
+            remote_staging = (
+                f"/tmp/corvus-admin.{os.getpid()}.{os.path.basename(remote_path)}"
+            )
             self._scp(staging, remote_staging)
             self.run(
                 [

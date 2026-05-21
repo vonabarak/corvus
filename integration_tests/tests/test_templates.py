@@ -14,6 +14,7 @@ Adds gap coverage absent from the pre-refactor spec:
   * Missing-disk-reference rejection at create time (validation
     should fail before any disk-overlay work).
 """
+
 from __future__ import annotations
 
 import secrets

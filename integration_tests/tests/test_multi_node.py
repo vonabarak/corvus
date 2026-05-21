@@ -17,6 +17,7 @@ test asserts each qemu lands on its expected node AND is absent
 from the other — that's the property the per-node routing in
 the daemon is supposed to guarantee.
 """
+
 from __future__ import annotations
 
 import time
@@ -49,8 +50,6 @@ def _qemu_count(node, vm_name: str) -> int:
     )
     out = r.stdout.decode("utf-8", errors="replace").strip()
     return sum(1 for line in out.splitlines() if line.strip())
-
-
 
 
 def _poll_until(cond, *, timeout_sec: float, msg: str, poll_sec: float = 0.5) -> None:
@@ -149,9 +148,9 @@ class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
                     timeout_sec=15.0,
                     msg="qemu for 'mn-alpha-vm' did not spawn on alpha",
                 )
-                assert (
-                    _qemu_count(self.node_beta, "mn-alpha-vm") == 0
-                ), "qemu for 'mn-alpha-vm' leaked onto beta"
+                assert _qemu_count(self.node_beta, "mn-alpha-vm") == 0, (
+                    "qemu for 'mn-alpha-vm' leaked onto beta"
+                )
                 # reset() is the fast SIGTERM/SIGKILL path — the
                 # graceful stop would block 300 s on ACPI without
                 # a guest OS to ack the powerdown.
@@ -184,9 +183,9 @@ class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
                     timeout_sec=15.0,
                     msg="qemu for 'mn-beta-vm' did not spawn on beta",
                 )
-                assert (
-                    _qemu_count(self.node_alpha, "mn-beta-vm") == 0
-                ), "qemu for 'mn-beta-vm' leaked onto alpha"
+                assert _qemu_count(self.node_alpha, "mn-beta-vm") == 0, (
+                    "qemu for 'mn-beta-vm' leaked onto alpha"
+                )
                 beta_vm.reset()
                 _poll_until(
                     lambda: _qemu_count(self.node_beta, "mn-beta-vm") == 0,
