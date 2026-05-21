@@ -243,6 +243,95 @@ interface Session {
   # host has no vhost-vsock support, so there's no conflict to
   # report).
   probeVsockCid @30 (cid :Int64) -> (free :Bool);
+
+  # -------------------------------------------------------------------
+  # Inter-agent disk transfer (Phase: migration).
+  #
+  # The data path stays off the daemon: the destination agent dials
+  # the source agent's nodeagent port itself, calls `attachReader`
+  # over its own session, then drives the byte stream over that
+  # destination↔source connection. The daemon only orchestrates the
+  # handshake (open / start the import / drop on completion).
+  #
+  # Flow:
+  #
+  #   1. Daemon → source.diskOpenRead(path, ttlSec) →
+  #        (reader, token, sizeBytes, md5).
+  #   2. Daemon → destination.diskImportFromPeer(
+  #        destPath, peerHost, peerPort, token,
+  #        expectedBytes, expectedMd5).
+  #      The destination agent opens a fresh NodeAgent session
+  #      to `peerHost:peerPort`, calls `attachReader(token)` to
+  #      pick up the (same) DiskReader cap on its own session,
+  #      and then `reader.pipeInto(localSink)` where localSink
+  #      writes to destPath.<rand>.part on disk.
+  #   3. On clean EOF, destination fsync()s, renames to destPath,
+  #      verifies its computed md5 against `expectedMd5`, throws
+  #      if they disagree.
+  #   4. Daemon drops the `reader` capability returned in (1);
+  #      the source closes its open file handle.
+  #
+  # The token is a 128-bit random hex string. It does not have to
+  # be secret on the wire (mTLS protects the connection), but it
+  # must be unguessable so a misbehaving peer with a valid cert
+  # cannot race the legitimate destination to claim the reader.
+  # -------------------------------------------------------------------
+
+  # Source side. Open `path` for reading and prepare a single-use
+  # reader handle. Returns:
+  #
+  #   * `reader`     — the DiskReader cap on this session. The
+  #                    daemon holds this for the lifetime of the
+  #                    transfer; dropping it before
+  #                    `diskImportFromPeer` returns is the abort
+  #                    signal.
+  #   * `token`      — opaque single-use ticket the destination
+  #                    agent presents to `attachReader` on a
+  #                    different session to obtain the same
+  #                    reader.
+  #   * `sizeBytes`  — file size at open time (the destination
+  #                    cross-checks how many bytes arrived).
+  #   * `md5`        — md5 hex hash of the file at open time
+  #                    (the destination cross-checks the received
+  #                    bytes against this).
+  diskOpenRead @31 (path :Text, ttlSec :UInt32)
+    -> (reader :DiskReader, token :Text, sizeBytes :Int64, md5 :Text);
+
+  # Source side. Re-resolve a token issued by `diskOpenRead` to the
+  # corresponding `DiskReader` cap on the current session — typically
+  # called by the destination agent over a fresh connection to the
+  # source. Single-use; the token is consumed on success.
+  attachReader @32 (token :Text) -> (reader :DiskReader);
+
+  # Destination side. Dial `peerHost:peerPort`, open a fresh
+  # NodeAgent session, claim the reader via `attachReader(token)`,
+  # then stream the bytes through a local ByteSink that writes to
+  # `destPath`. Verifies the size + md5 against the daemon-supplied
+  # expectations and throws on any mismatch. Cleans up any partial
+  # file on error.
+  diskImportFromPeer @33
+    (destPath :Text,
+     peerHost :Text, peerPort :Int32,
+     token :Text,
+     expectedBytes :Int64,
+     expectedMd5 :Text)
+    -> ();
+}
+
+# Handle the source agent hands out for one in-flight read. Held
+# first by the daemon (the cap returned by `diskOpenRead`), then
+# re-resolved by the destination agent over its own session via
+# `attachReader(token)`. The destination side pumps bytes through
+# `pipeInto`; the daemon's only direct interaction is dropping the
+# cap to abort.
+interface DiskReader {
+  # Push bytes into `sink` until EOF, then call sink.end().
+  # Throws on read error or cancellation.
+  pipeInto @0 (sink :Streams.ByteSink) -> ();
+
+  # Explicit cancel. Equivalent to dropping the cap; provided so
+  # callers can fail fast without waiting for GC.
+  cancel @1 () -> ();
 }
 
 # Daemon-implemented sink for periodic agent → daemon VM status

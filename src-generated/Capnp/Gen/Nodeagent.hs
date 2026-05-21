@@ -299,9 +299,12 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'flushHmpMonitor) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmAttachDrive) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmDetachDrive) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'probeVsockCid) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'probeVsockCid) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'diskOpenRead) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'attachReader) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'diskImportFromPeer) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -364,6 +367,12 @@ class (Session'server_ s_) where
     session'vmDetachDrive _ = GH.methodUnimplemented
     session'probeVsockCid :: s_ -> (GH.MethodHandler Session'probeVsockCid'params Session'probeVsockCid'results)
     session'probeVsockCid _ = GH.methodUnimplemented
+    session'diskOpenRead :: s_ -> (GH.MethodHandler Session'diskOpenRead'params Session'diskOpenRead'results)
+    session'diskOpenRead _ = GH.methodUnimplemented
+    session'attachReader :: s_ -> (GH.MethodHandler Session'attachReader'params Session'attachReader'results)
+    session'attachReader _ = GH.methodUnimplemented
+    session'diskImportFromPeer :: s_ -> (GH.MethodHandler Session'diskImportFromPeer'params Session'diskImportFromPeer'results)
+    session'diskImportFromPeer _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -426,6 +435,12 @@ instance (GH.HasMethod "vmDetachDrive" Session Session'vmDetachDrive'params Sess
     methodByLabel  = (GH.Method 11450192344861352079 29)
 instance (GH.HasMethod "probeVsockCid" Session Session'probeVsockCid'params Session'probeVsockCid'results) where
     methodByLabel  = (GH.Method 11450192344861352079 30)
+instance (GH.HasMethod "diskOpenRead" Session Session'diskOpenRead'params Session'diskOpenRead'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 31)
+instance (GH.HasMethod "attachReader" Session Session'attachReader'params Session'attachReader'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 32)
+instance (GH.HasMethod "diskImportFromPeer" Session Session'diskImportFromPeer'params Session'diskImportFromPeer'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 33)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -2356,6 +2371,352 @@ instance (C.Marshal Session'probeVsockCid'results (C.Parsed Session'probeVsockCi
         )
 instance (GH.HasField "free" GH.Slot Session'probeVsockCid'results Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
+data Session'diskOpenRead'params 
+type instance (R.ReprFor Session'diskOpenRead'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskOpenRead'params) where
+    typeId  = 14382638796393382158
+instance (C.TypedStruct Session'diskOpenRead'params) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate Session'diskOpenRead'params) where
+    type AllocHint Session'diskOpenRead'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'diskOpenRead'params (C.Parsed Session'diskOpenRead'params))
+instance (C.AllocateList Session'diskOpenRead'params) where
+    type ListAllocHint Session'diskOpenRead'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'diskOpenRead'params (C.Parsed Session'diskOpenRead'params))
+data instance C.Parsed Session'diskOpenRead'params
+    = Session'diskOpenRead'params 
+        {path :: (RP.Parsed Basics.Text)
+        ,ttlSec :: (RP.Parsed Std_.Word32)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'diskOpenRead'params))
+deriving instance (Std_.Eq (C.Parsed Session'diskOpenRead'params))
+instance (C.Parse Session'diskOpenRead'params (C.Parsed Session'diskOpenRead'params)) where
+    parse raw_ = (Session'diskOpenRead'params <$> (GH.parseField #path raw_)
+                                              <*> (GH.parseField #ttlSec raw_))
+instance (C.Marshal Session'diskOpenRead'params (C.Parsed Session'diskOpenRead'params)) where
+    marshalInto raw_ Session'diskOpenRead'params{..} = (do
+        (GH.encodeField #path path raw_)
+        (GH.encodeField #ttlSec ttlSec raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "path" GH.Slot Session'diskOpenRead'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "ttlSec" GH.Slot Session'diskOpenRead'params Std_.Word32) where
+    fieldByLabel  = (GH.dataField 0 0 32 0)
+data Session'diskOpenRead'results 
+type instance (R.ReprFor Session'diskOpenRead'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskOpenRead'results) where
+    typeId  = 18250419826091380833
+instance (C.TypedStruct Session'diskOpenRead'results) where
+    numStructWords  = 1
+    numStructPtrs  = 3
+instance (C.Allocate Session'diskOpenRead'results) where
+    type AllocHint Session'diskOpenRead'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'diskOpenRead'results (C.Parsed Session'diskOpenRead'results))
+instance (C.AllocateList Session'diskOpenRead'results) where
+    type ListAllocHint Session'diskOpenRead'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'diskOpenRead'results (C.Parsed Session'diskOpenRead'results))
+data instance C.Parsed Session'diskOpenRead'results
+    = Session'diskOpenRead'results 
+        {reader :: (RP.Parsed DiskReader)
+        ,token :: (RP.Parsed Basics.Text)
+        ,sizeBytes :: (RP.Parsed Std_.Int64)
+        ,md5 :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'diskOpenRead'results))
+deriving instance (Std_.Eq (C.Parsed Session'diskOpenRead'results))
+instance (C.Parse Session'diskOpenRead'results (C.Parsed Session'diskOpenRead'results)) where
+    parse raw_ = (Session'diskOpenRead'results <$> (GH.parseField #reader raw_)
+                                               <*> (GH.parseField #token raw_)
+                                               <*> (GH.parseField #sizeBytes raw_)
+                                               <*> (GH.parseField #md5 raw_))
+instance (C.Marshal Session'diskOpenRead'results (C.Parsed Session'diskOpenRead'results)) where
+    marshalInto raw_ Session'diskOpenRead'results{..} = (do
+        (GH.encodeField #reader reader raw_)
+        (GH.encodeField #token token raw_)
+        (GH.encodeField #sizeBytes sizeBytes raw_)
+        (GH.encodeField #md5 md5 raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "reader" GH.Slot Session'diskOpenRead'results DiskReader) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "token" GH.Slot Session'diskOpenRead'results Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "sizeBytes" GH.Slot Session'diskOpenRead'results Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "md5" GH.Slot Session'diskOpenRead'results Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
+data Session'attachReader'params 
+type instance (R.ReprFor Session'attachReader'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'attachReader'params) where
+    typeId  = 16583164990814995810
+instance (C.TypedStruct Session'attachReader'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'attachReader'params) where
+    type AllocHint Session'attachReader'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'attachReader'params (C.Parsed Session'attachReader'params))
+instance (C.AllocateList Session'attachReader'params) where
+    type ListAllocHint Session'attachReader'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'attachReader'params (C.Parsed Session'attachReader'params))
+data instance C.Parsed Session'attachReader'params
+    = Session'attachReader'params 
+        {token :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'attachReader'params))
+deriving instance (Std_.Eq (C.Parsed Session'attachReader'params))
+instance (C.Parse Session'attachReader'params (C.Parsed Session'attachReader'params)) where
+    parse raw_ = (Session'attachReader'params <$> (GH.parseField #token raw_))
+instance (C.Marshal Session'attachReader'params (C.Parsed Session'attachReader'params)) where
+    marshalInto raw_ Session'attachReader'params{..} = (do
+        (GH.encodeField #token token raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "token" GH.Slot Session'attachReader'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'attachReader'results 
+type instance (R.ReprFor Session'attachReader'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'attachReader'results) where
+    typeId  = 13063254323432150227
+instance (C.TypedStruct Session'attachReader'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'attachReader'results) where
+    type AllocHint Session'attachReader'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'attachReader'results (C.Parsed Session'attachReader'results))
+instance (C.AllocateList Session'attachReader'results) where
+    type ListAllocHint Session'attachReader'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'attachReader'results (C.Parsed Session'attachReader'results))
+data instance C.Parsed Session'attachReader'results
+    = Session'attachReader'results 
+        {reader :: (RP.Parsed DiskReader)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'attachReader'results))
+deriving instance (Std_.Eq (C.Parsed Session'attachReader'results))
+instance (C.Parse Session'attachReader'results (C.Parsed Session'attachReader'results)) where
+    parse raw_ = (Session'attachReader'results <$> (GH.parseField #reader raw_))
+instance (C.Marshal Session'attachReader'results (C.Parsed Session'attachReader'results)) where
+    marshalInto raw_ Session'attachReader'results{..} = (do
+        (GH.encodeField #reader reader raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "reader" GH.Slot Session'attachReader'results DiskReader) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'diskImportFromPeer'params 
+type instance (R.ReprFor Session'diskImportFromPeer'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskImportFromPeer'params) where
+    typeId  = 14396209859029846008
+instance (C.TypedStruct Session'diskImportFromPeer'params) where
+    numStructWords  = 2
+    numStructPtrs  = 4
+instance (C.Allocate Session'diskImportFromPeer'params) where
+    type AllocHint Session'diskImportFromPeer'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'diskImportFromPeer'params (C.Parsed Session'diskImportFromPeer'params))
+instance (C.AllocateList Session'diskImportFromPeer'params) where
+    type ListAllocHint Session'diskImportFromPeer'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'diskImportFromPeer'params (C.Parsed Session'diskImportFromPeer'params))
+data instance C.Parsed Session'diskImportFromPeer'params
+    = Session'diskImportFromPeer'params 
+        {destPath :: (RP.Parsed Basics.Text)
+        ,peerHost :: (RP.Parsed Basics.Text)
+        ,peerPort :: (RP.Parsed Std_.Int32)
+        ,token :: (RP.Parsed Basics.Text)
+        ,expectedBytes :: (RP.Parsed Std_.Int64)
+        ,expectedMd5 :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'diskImportFromPeer'params))
+deriving instance (Std_.Eq (C.Parsed Session'diskImportFromPeer'params))
+instance (C.Parse Session'diskImportFromPeer'params (C.Parsed Session'diskImportFromPeer'params)) where
+    parse raw_ = (Session'diskImportFromPeer'params <$> (GH.parseField #destPath raw_)
+                                                    <*> (GH.parseField #peerHost raw_)
+                                                    <*> (GH.parseField #peerPort raw_)
+                                                    <*> (GH.parseField #token raw_)
+                                                    <*> (GH.parseField #expectedBytes raw_)
+                                                    <*> (GH.parseField #expectedMd5 raw_))
+instance (C.Marshal Session'diskImportFromPeer'params (C.Parsed Session'diskImportFromPeer'params)) where
+    marshalInto raw_ Session'diskImportFromPeer'params{..} = (do
+        (GH.encodeField #destPath destPath raw_)
+        (GH.encodeField #peerHost peerHost raw_)
+        (GH.encodeField #peerPort peerPort raw_)
+        (GH.encodeField #token token raw_)
+        (GH.encodeField #expectedBytes expectedBytes raw_)
+        (GH.encodeField #expectedMd5 expectedMd5 raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "destPath" GH.Slot Session'diskImportFromPeer'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "peerHost" GH.Slot Session'diskImportFromPeer'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "peerPort" GH.Slot Session'diskImportFromPeer'params Std_.Int32) where
+    fieldByLabel  = (GH.dataField 0 0 32 0)
+instance (GH.HasField "token" GH.Slot Session'diskImportFromPeer'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "expectedBytes" GH.Slot Session'diskImportFromPeer'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+instance (GH.HasField "expectedMd5" GH.Slot Session'diskImportFromPeer'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 3)
+data Session'diskImportFromPeer'results 
+type instance (R.ReprFor Session'diskImportFromPeer'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskImportFromPeer'results) where
+    typeId  = 18286574020088566998
+instance (C.TypedStruct Session'diskImportFromPeer'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'diskImportFromPeer'results) where
+    type AllocHint Session'diskImportFromPeer'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'diskImportFromPeer'results (C.Parsed Session'diskImportFromPeer'results))
+instance (C.AllocateList Session'diskImportFromPeer'results) where
+    type ListAllocHint Session'diskImportFromPeer'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'diskImportFromPeer'results (C.Parsed Session'diskImportFromPeer'results))
+data instance C.Parsed Session'diskImportFromPeer'results
+    = Session'diskImportFromPeer'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'diskImportFromPeer'results))
+deriving instance (Std_.Eq (C.Parsed Session'diskImportFromPeer'results))
+instance (C.Parse Session'diskImportFromPeer'results (C.Parsed Session'diskImportFromPeer'results)) where
+    parse raw_ = (Std_.pure Session'diskImportFromPeer'results)
+instance (C.Marshal Session'diskImportFromPeer'results (C.Parsed Session'diskImportFromPeer'results)) where
+    marshalInto _raw (Session'diskImportFromPeer'results) = (Std_.pure ())
+data DiskReader 
+type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
+instance (C.HasTypeId DiskReader) where
+    typeId  = 18266150226689627376
+instance (C.Parse DiskReader (GH.Client DiskReader)) where
+    parse  = GH.parseCap
+    encode  = GH.encodeCap
+instance (GH.Export DiskReader) where
+    type Server DiskReader = DiskReader'server_
+    methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(DiskReader)) [(GH.toUntypedMethodHandler ((diskReader'pipeInto) s_))
+                                                                            ,(GH.toUntypedMethodHandler ((diskReader'cancel) s_))] [])
+class (DiskReader'server_ s_) where
+    {-# MINIMAL diskReader'pipeInto,diskReader'cancel #-}
+    diskReader'pipeInto :: s_ -> (GH.MethodHandler DiskReader'pipeInto'params DiskReader'pipeInto'results)
+    diskReader'pipeInto _ = GH.methodUnimplemented
+    diskReader'cancel :: s_ -> (GH.MethodHandler DiskReader'cancel'params DiskReader'cancel'results)
+    diskReader'cancel _ = GH.methodUnimplemented
+instance (GH.HasMethod "pipeInto" DiskReader DiskReader'pipeInto'params DiskReader'pipeInto'results) where
+    methodByLabel  = (GH.Method 18266150226689627376 0)
+instance (GH.HasMethod "cancel" DiskReader DiskReader'cancel'params DiskReader'cancel'results) where
+    methodByLabel  = (GH.Method 18266150226689627376 1)
+data DiskReader'pipeInto'params 
+type instance (R.ReprFor DiskReader'pipeInto'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskReader'pipeInto'params) where
+    typeId  = 10662965049043475550
+instance (C.TypedStruct DiskReader'pipeInto'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate DiskReader'pipeInto'params) where
+    type AllocHint DiskReader'pipeInto'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskReader'pipeInto'params (C.Parsed DiskReader'pipeInto'params))
+instance (C.AllocateList DiskReader'pipeInto'params) where
+    type ListAllocHint DiskReader'pipeInto'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskReader'pipeInto'params (C.Parsed DiskReader'pipeInto'params))
+data instance C.Parsed DiskReader'pipeInto'params
+    = DiskReader'pipeInto'params 
+        {sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskReader'pipeInto'params))
+deriving instance (Std_.Eq (C.Parsed DiskReader'pipeInto'params))
+instance (C.Parse DiskReader'pipeInto'params (C.Parsed DiskReader'pipeInto'params)) where
+    parse raw_ = (DiskReader'pipeInto'params <$> (GH.parseField #sink raw_))
+instance (C.Marshal DiskReader'pipeInto'params (C.Parsed DiskReader'pipeInto'params)) where
+    marshalInto raw_ DiskReader'pipeInto'params{..} = (do
+        (GH.encodeField #sink sink raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "sink" GH.Slot DiskReader'pipeInto'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 0)
+data DiskReader'pipeInto'results 
+type instance (R.ReprFor DiskReader'pipeInto'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskReader'pipeInto'results) where
+    typeId  = 14293781581944344404
+instance (C.TypedStruct DiskReader'pipeInto'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskReader'pipeInto'results) where
+    type AllocHint DiskReader'pipeInto'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskReader'pipeInto'results (C.Parsed DiskReader'pipeInto'results))
+instance (C.AllocateList DiskReader'pipeInto'results) where
+    type ListAllocHint DiskReader'pipeInto'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskReader'pipeInto'results (C.Parsed DiskReader'pipeInto'results))
+data instance C.Parsed DiskReader'pipeInto'results
+    = DiskReader'pipeInto'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskReader'pipeInto'results))
+deriving instance (Std_.Eq (C.Parsed DiskReader'pipeInto'results))
+instance (C.Parse DiskReader'pipeInto'results (C.Parsed DiskReader'pipeInto'results)) where
+    parse raw_ = (Std_.pure DiskReader'pipeInto'results)
+instance (C.Marshal DiskReader'pipeInto'results (C.Parsed DiskReader'pipeInto'results)) where
+    marshalInto _raw (DiskReader'pipeInto'results) = (Std_.pure ())
+data DiskReader'cancel'params 
+type instance (R.ReprFor DiskReader'cancel'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskReader'cancel'params) where
+    typeId  = 16505186430357742365
+instance (C.TypedStruct DiskReader'cancel'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskReader'cancel'params) where
+    type AllocHint DiskReader'cancel'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskReader'cancel'params (C.Parsed DiskReader'cancel'params))
+instance (C.AllocateList DiskReader'cancel'params) where
+    type ListAllocHint DiskReader'cancel'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskReader'cancel'params (C.Parsed DiskReader'cancel'params))
+data instance C.Parsed DiskReader'cancel'params
+    = DiskReader'cancel'params 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskReader'cancel'params))
+deriving instance (Std_.Eq (C.Parsed DiskReader'cancel'params))
+instance (C.Parse DiskReader'cancel'params (C.Parsed DiskReader'cancel'params)) where
+    parse raw_ = (Std_.pure DiskReader'cancel'params)
+instance (C.Marshal DiskReader'cancel'params (C.Parsed DiskReader'cancel'params)) where
+    marshalInto _raw (DiskReader'cancel'params) = (Std_.pure ())
+data DiskReader'cancel'results 
+type instance (R.ReprFor DiskReader'cancel'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskReader'cancel'results) where
+    typeId  = 14645444459278494587
+instance (C.TypedStruct DiskReader'cancel'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskReader'cancel'results) where
+    type AllocHint DiskReader'cancel'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskReader'cancel'results (C.Parsed DiskReader'cancel'results))
+instance (C.AllocateList DiskReader'cancel'results) where
+    type ListAllocHint DiskReader'cancel'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskReader'cancel'results (C.Parsed DiskReader'cancel'results))
+data instance C.Parsed DiskReader'cancel'results
+    = DiskReader'cancel'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskReader'cancel'results))
+deriving instance (Std_.Eq (C.Parsed DiskReader'cancel'results))
+instance (C.Parse DiskReader'cancel'results (C.Parsed DiskReader'cancel'results)) where
+    parse raw_ = (Std_.pure DiskReader'cancel'results)
+instance (C.Marshal DiskReader'cancel'results (C.Parsed DiskReader'cancel'results)) where
+    marshalInto _raw (DiskReader'cancel'results) = (Std_.pure ())
 data VmStatusSink 
 type instance (R.ReprFor VmStatusSink) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId VmStatusSink) where

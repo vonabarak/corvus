@@ -34,6 +34,7 @@ import Corvus.Node.Caps.NodeAgent (newNodeAgentCap)
 import Corvus.Node.Cleanup (cleanupCorvusProcesses)
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.StatusPoller as SP
+import qualified Corvus.Node.Transfer as NTr
 import Corvus.Qemu.Config (defaultQemuConfig)
 import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
@@ -75,12 +76,25 @@ runNodeAgentServer host port mTlsCfg = do
   qgaConns <- newTVarIO Map.empty
   serialBufs <- newTVarIO Map.empty
   monitorBufs <- newTVarIO Map.empty
+  -- Process-wide token registry for inter-agent disk transfer
+  -- (shared across all per-connection sessions so the destination
+  -- agent's @attachReader@ call lands on the same map the source
+  -- agent's @diskOpenRead@ populated).
+  transferTokens <- NTr.newTokenRegistry
   -- Run the status-push ticker for the lifetime of the listener.
   withAsync (SP.runStatusPoller defaultQemuConfig vmLedger qgaConns subs 10000) $ \_ ->
     TCP.serve (TCP.Host host) (show port) $ \(sock, _peer) ->
       withSupervisor $ \sup -> do
         nodeAgentCap <-
-          newNodeAgentCap sup vmLedger subs qgaConns serialBufs monitorBufs
+          newNodeAgentCap
+            sup
+            vmLedger
+            subs
+            qgaConns
+            serialBufs
+            monitorBufs
+            transferTokens
+            mTlsCfg
         bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
         let handle transport =
               handleConn
@@ -93,6 +107,19 @@ runNodeAgentServer host port mTlsCfg = do
 
 -- | Run one Cap'n Proto session, optionally wrapping the socket
 -- with TLS + validating the peer CN first.
+--
+-- The nodeagent accepts two kinds of TLS clients:
+--
+--   * @corvus-daemon:*@ — the orchestrating daemon (the common
+--     case).
+--   * @corvus-node:*@   — other nodeagents, for the inter-agent
+--     disk transfer flow (the destination agent dials the source
+--     agent directly to claim a 'DiskReader' on its own session).
+--
+-- Either prefix is accepted; the @<name>@ suffix is not pinned
+-- because at server side we don't know in advance which daemon /
+-- agent will dial in (and per-session pinning offers no extra
+-- security on top of CA-signed certs with the right prefix).
 runOneConn
   :: Maybe Tls.TlsConfig
   -> Socket
@@ -107,7 +134,7 @@ runOneConn mTlsCfg sock handle = case mTlsCfg of
     case r of
       Left e -> logTlsRejection "nodeagent: TLS handshake failed" e
       Right (ctx, ref) -> do
-        v <- Tls.validatePeerCN cfg ref
+        v <- Tls.validatePeerCNAnyRole [Tls.RoleDaemon, Tls.RoleNode] ref
         case v of
           Left msg -> do
             logTlsRejection "nodeagent: TLS peer rejected" (T.unpack msg)

@@ -53,6 +53,7 @@ module Corvus.Tls
     -- * Validation
   , peerCN
   , validatePeerCN
+  , validatePeerCNAnyRole
   , extractCNFromCert
   , extractCNFromChain
   , checkPrefixAndName
@@ -525,6 +526,28 @@ validatePeerCN cfg ref = do
         (tcExpectedPeerPrefix cfg)
         (tcExpectedPeerName cfg)
         cn
+
+-- | Like 'validatePeerCN' but accepts any of the listed roles.
+-- The CN must start with one of the role prefixes; the peer-name
+-- suffix is ignored (used by the nodeagent server, which accepts
+-- both the orchestrating daemon and other agents during
+-- inter-agent disk transfer).
+validatePeerCNAnyRole :: [TlsRole] -> PeerCNRef -> IO (Either T.Text ())
+validatePeerCNAnyRole roles ref = do
+  mCN <- readPeerCNRef ref
+  pure $ case mCN of
+    Nothing -> Left "no peer CN captured after handshake"
+    Just cn ->
+      let prefixes = map roleCNPrefix roles
+       in if any (`T.isPrefixOf` cn) prefixes
+            then Right ()
+            else
+              Left
+                ( "peer CN "
+                    <> cn
+                    <> " does not match any accepted prefix: "
+                    <> T.intercalate ", " prefixes
+                )
 
 -- ---------------------------------------------------------------------------
 -- Cap'n Proto transport adapter

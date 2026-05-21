@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -45,12 +46,15 @@ import qualified Corvus.Node.Qmp as NQ
 import qualified Corvus.Node.Runtime as NR
 import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
 import qualified Corvus.Node.StatusPoller as SP
+import qualified Corvus.Node.Transfer as NTr
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.Node.VsockCid as VC
+import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (runByteSinkRelay)
+import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle (..))
 import qualified Data.ByteString as BS
 import Data.Either (lefts, rights)
@@ -63,6 +67,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
 import GHC.Clock (getMonotonicTime)
 import Supervisors (Supervisor)
+import System.Directory (getFileSize, renameFile)
 import System.Exit (ExitCode (..))
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
 import System.Posix.Types (CPid (..))
@@ -100,6 +105,8 @@ data SessionCap = SessionCap
   , scQgaConns :: !NGA.GuestAgentConns
   , scSerialBuffers :: !(TVar (Map.Map Int64 SocketBufferHandle))
   , scMonitorBuffers :: !(TVar (Map.Map Int64 SocketBufferHandle))
+  , scTransferTokens :: !NTr.TokenRegistry
+  , scTlsConfig :: !(Maybe Tls.TlsConfig)
   }
 
 newSessionCap
@@ -110,8 +117,10 @@ newSessionCap
   -> NGA.GuestAgentConns
   -> TVar (Map.Map Int64 SocketBufferHandle)
   -> TVar (Map.Map Int64 SocketBufferHandle)
+  -> NTr.TokenRegistry
+  -> Maybe Tls.TlsConfig
   -> IO SessionCap
-newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs =
+newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tlsCfg =
   pure
     SessionCap
       { scOwner = owner
@@ -121,6 +130,8 @@ newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs =
       , scQgaConns = qgaConns
       , scSerialBuffers = serialBufs
       , scMonitorBuffers = monitorBufs
+      , scTransferTokens = tokens
+      , scTlsConfig = tlsCfg
       }
 
 instance SomeServer SessionCap
@@ -464,6 +475,116 @@ instance CGNA.Session'server_ SessionCap where
                   { CGNA.isoPath = T.pack p
                   }
 
+  -- ---- Inter-agent disk transfer -------------------------------------------
+
+  session'diskOpenRead sc =
+    handleParsed $
+      \CGNA.Session'diskOpenRead'params {CGNA.path = pTxt} -> do
+        let path = T.unpack pTxt
+        -- Stat the file + hash it. The hash is computed once, up
+        -- front, so the destination can verify the bytes it
+        -- received without the source having to recompute on the
+        -- fly. Failures (file missing, unreadable) surface as
+        -- @throwFailed@ to the daemon.
+        eSize <- E.try @E.SomeException (getFileSize path)
+        actualSize <- case eSize of
+          Right s -> pure s
+          Left e ->
+            throwFailed
+              ("diskOpenRead: stat " <> T.pack path <> " failed: " <> T.pack (show e))
+        md5Result <- NI.md5HashFile path
+        md5 <- case md5Result of
+          Right h -> pure h
+          Left err -> throwFailed ("diskOpenRead: md5 failed: " <> err)
+        reader <- NTr.newFileReader path
+        readerClient <- C.export @CGNA.DiskReader (scSup sc) reader
+        token <- NTr.newToken
+        NTr.registerReader (scTransferTokens sc) token readerClient
+        pure
+          CGNA.Session'diskOpenRead'results
+            { CGNA.reader = readerClient
+            , CGNA.token = token
+            , CGNA.sizeBytes = fromIntegral actualSize
+            , CGNA.md5 = md5
+            }
+
+  session'attachReader sc =
+    handleParsed $
+      \CGNA.Session'attachReader'params {CGNA.token = token} -> do
+        mReader <- NTr.redeemReader (scTransferTokens sc) token
+        case mReader of
+          Nothing ->
+            throwFailed "attachReader: unknown or already-consumed token"
+          Just reader ->
+            pure CGNA.Session'attachReader'results {CGNA.reader = reader}
+
+  session'diskImportFromPeer sc =
+    handleParsed $
+      \CGNA.Session'diskImportFromPeer'params
+        { CGNA.destPath = destPathTxt
+        , CGNA.peerHost = peerHostTxt
+        , CGNA.peerPort = peerPort
+        , CGNA.token = token
+        , CGNA.expectedBytes = expectedBytes
+        , CGNA.expectedMd5 = expectedMd5
+        } -> do
+          let destPath = T.unpack destPathTxt
+              peerHost = T.unpack peerHostTxt
+              partPath = destPath <> ".part"
+              -- Inter-agent dial: same TLS material, but the peer
+              -- presents a corvus-node:<name> cert. We accept any
+              -- corvus-node:* peer (CN suffix not pinned).
+              mTls = Tls.withPeerExpectation Tls.RoleNode Nothing <$> scTlsConfig sc
+          r <-
+            E.try @E.SomeException $
+              importFromPeer
+                sc
+                partPath
+                peerHost
+                (fromIntegral peerPort)
+                token
+                mTls
+          case r of
+            Left e -> do
+              -- Best-effort cleanup of the partial file.
+              _ <- E.try @E.SomeException (NI.deleteImage partPath)
+              throwFailed (T.pack (show e))
+            Right () -> do
+              -- Verify size + md5 against expectations before
+              -- renaming into place.
+              actualSize <-
+                E.handle (\(e :: E.SomeException) -> throwFailed (T.pack (show e))) $
+                  getFileSize partPath
+              when (fromIntegral actualSize /= expectedBytes) $ do
+                _ <- E.try @E.SomeException (NI.deleteImage partPath)
+                throwFailed
+                  ( "diskImportFromPeer: size mismatch: got "
+                      <> T.pack (show actualSize)
+                      <> " expected "
+                      <> T.pack (show expectedBytes)
+                  )
+              md5Result <- NI.md5HashFile partPath
+              case md5Result of
+                Left err -> do
+                  _ <- E.try @E.SomeException (NI.deleteImage partPath)
+                  throwFailed ("diskImportFromPeer: md5 failed: " <> err)
+                Right gotMd5 -> do
+                  when (gotMd5 /= expectedMd5) $ do
+                    _ <- E.try @E.SomeException (NI.deleteImage partPath)
+                    throwFailed
+                      ( "diskImportFromPeer: md5 mismatch: got "
+                          <> gotMd5
+                          <> " expected "
+                          <> expectedMd5
+                      )
+                  -- Promote .part to its final path.
+                  renameResult <-
+                    E.try @E.SomeException $ renameFile partPath destPath
+                  case renameResult of
+                    Left e -> throwFailed (T.pack (show e))
+                    Right () -> pure ()
+          pure CGNA.Session'diskImportFromPeer'results
+
 -- ---------------------------------------------------------------------------
 -- Encoders / parsers
 
@@ -507,6 +628,56 @@ encodeDiskSnapshotInfo s =
     , CGNA.sizeMb = maybe 0 fromIntegral (NI.sdSizeMb s) :: Int64
     , CGNA.hasSize = isJust (NI.sdSizeMb s)
     }
+
+-- ---------------------------------------------------------------------------
+-- Inter-agent disk import (destination side)
+--
+-- Opens a fresh @NodeAgentClient@ session to the source agent at
+-- @(host, port)@, claims the reader by token via @attachReader@,
+-- exports a local 'FileWriterSink' against @partPath@, then runs
+-- @reader.pipeInto(sink)@. Blocks until the sink reports
+-- completion. The caller is responsible for fsync / rename of
+-- @partPath@ to its final location and md5 verification.
+importFromPeer
+  :: SessionCap
+  -> FilePath
+  -- ^ partial-file path (typically @<destPath>.part@) the writer
+  -- streams bytes into.
+  -> String
+  -- ^ peer host
+  -> Int
+  -- ^ peer port
+  -> Text
+  -- ^ token from @diskOpenRead@
+  -> Maybe Tls.TlsConfig
+  -- ^ TLS material for the outbound dial. 'Nothing' falls back
+  -- to plaintext (the agent was started with @--no-tls@).
+  -> IO ()
+importFromPeer sc partPath host port token mTls = do
+  (sinkImpl, done) <- NTr.newFileWriterSink partPath
+  sinkClient <- C.export @CGS.ByteSink (scSup sc) sinkImpl
+  NOA.withNodeAgentClient host port (scOwner sc) mTls $ \case
+    Left err ->
+      E.throwIO . userError $ "peer dial failed: " <> show err
+    Right nac -> do
+      readerResult <- NOA.attachReader nac token
+      case readerResult of
+        Left err ->
+          E.throwIO . userError $ "attachReader on peer failed: " <> show err
+        Right readerClient -> do
+          pipeResult <- NOA.diskReaderPipeInto readerClient sinkClient
+          case pipeResult of
+            Left err ->
+              E.throwIO . userError $ "pipeInto failed: " <> show err
+            Right () -> pure ()
+      -- 'pipeInto' returns when the source side calls 'sink.end',
+      -- which signals the writer; wait for the writer to flush /
+      -- close before we return.
+      mDoneErr <- NTr.waitFileWriter done
+      case mDoneErr of
+        Nothing -> pure ()
+        Just msg ->
+          E.throwIO . userError $ "destination writer error: " <> T.unpack msg
 
 -- ---------------------------------------------------------------------------
 -- Chardev streaming helpers

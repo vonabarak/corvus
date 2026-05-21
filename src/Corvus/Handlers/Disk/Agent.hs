@@ -39,6 +39,10 @@ module Corvus.Handlers.Disk.Agent
   , downloadImageViaAgent
   , decompressXzViaAgent
   , md5HashFileViaAgent
+
+    -- * Inter-agent transfer
+  , openReadViaAgent
+  , importFromPeerViaAgent
   )
 where
 
@@ -215,3 +219,56 @@ decompressXzViaAgent state nid xzPath = do
 md5HashFileViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Either Text Text)
 md5HashFileViaAgent state nid path =
   withEitherText state nid $ \nac -> NOA.diskMd5 nac (T.pack path)
+
+-- ---------------------------------------------------------------------------
+-- Inter-agent transfer
+
+-- | Ask the source agent to open @path@ for reading. Returns the
+-- 'DiskReader' cap (the daemon holds this so the source treats
+-- the transfer as live), an opaque single-use token the
+-- destination presents to claim the same reader on its own
+-- session, plus the source-side size + md5 for verification.
+openReadViaAgent
+  :: ServerState
+  -> M.NodeId
+  -> FilePath
+  -> Int
+  -- ^ token TTL in seconds; the source evicts the token after
+  -- this many seconds if it isn't claimed.
+  -> IO (Either Text NOA.DiskOpenReadResult)
+openReadViaAgent state nid path ttlSec =
+  withEitherText state nid $ \nac ->
+    NOA.diskOpenRead nac (T.pack path) (fromIntegral ttlSec)
+
+-- | Ask the destination agent to dial the source agent at
+-- @(peerHost, peerPort)@, claim the reader by token, and stream
+-- bytes into @destPath@. Blocks until the destination has
+-- verified the size + md5 against the daemon-supplied
+-- expectations (or aborts with a clear error).
+importFromPeerViaAgent
+  :: ServerState
+  -> M.NodeId
+  -- ^ destination node
+  -> FilePath
+  -- ^ destination path
+  -> Text
+  -- ^ peer host (source's @nodeHost@)
+  -> Int
+  -- ^ peer port (source's @nodeAgentPort@)
+  -> Text
+  -- ^ token from 'openReadViaAgent'
+  -> Int64
+  -- ^ expected size in bytes
+  -> Text
+  -- ^ expected md5 hex hash
+  -> IO (Either Text ())
+importFromPeerViaAgent state nid destPath peerHost peerPort token sz md5 =
+  withEitherText state nid $ \nac ->
+    NOA.diskImportFromPeer
+      nac
+      (T.pack destPath)
+      peerHost
+      (fromIntegral peerPort)
+      token
+      sz
+      md5
