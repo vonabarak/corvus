@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ._helpers import with_client
 
-
 TEMPLATE_YAML = """\
 name: py-tpl
 cpuCount: 2

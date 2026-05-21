@@ -31,7 +31,6 @@ The hooks below enforce the suite-wide behaviour:
 from __future__ import annotations
 
 import pytest
-
 from corvus_test_harness import (
     Crv,
     HostBinary,
@@ -40,7 +39,6 @@ from corvus_test_harness import (
     check_outer_version,
 )
 from corvus_test_harness.cases import IntegrationTestCase, state_for
-
 
 # ---------------------------------------------------------------------------
 # Session-scoped preconditions
@@ -121,7 +119,7 @@ def pytest_collection_modifyitems(
             continue
         by_class.setdefault(item.cls, []).append((idx, item))
 
-    for cls, group in by_class.items():
+    for _cls, group in by_class.items():
         # Sort by source-line number of the underlying function. Items
         # already share a file (one class lives in one file), so name
         # alone would also work — but lineno is the property the user
@@ -138,7 +136,7 @@ def pytest_collection_modifyitems(
         # Splice the sorted methods back into items[] at the original
         # positions, in their new order.
         positions = [orig_idx for orig_idx, _ in group]
-        for pos, (_, new_item) in zip(positions, group_sorted):
+        for pos, (_, new_item) in zip(positions, group_sorted, strict=False):
             items[pos] = new_item
 
 

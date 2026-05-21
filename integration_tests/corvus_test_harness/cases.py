@@ -31,7 +31,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -49,15 +49,15 @@ if TYPE_CHECKING:
 class _ClassState:
     """Per-class harness state. Looked up by the conftest hooks."""
 
-    topology: Optional[Topology] = None
-    first_failure: Optional[str] = None
+    topology: Topology | None = None
+    first_failure: str | None = None
     setup_failed: bool = False
     # Reason recorded when class-fixture setup failed. The
     # 'pytest_runtest_setup' hook surfaces this in the per-method
     # skip messages so the developer doesn't have to dig through
     # stderr to find what actually broke.
-    setup_error: Optional[str] = None
-    base_images_cache: Optional[dict[str, str]] = None
+    setup_error: str | None = None
+    base_images_cache: dict[str, str] | None = None
 
 
 # Keyed by the concrete subclass `type`. Read by both `cases.py` (the
@@ -134,7 +134,7 @@ class IntegrationTestCase:
             "TwoNodesCase / ThreeNodesCase)."
         )
         state = state_for(cls)
-        topology: Optional[Topology] = None
+        topology: Topology | None = None
         try:
             topology = Topology(
                 crv, image_ready, host_binary, class_name=cls.__name__
@@ -245,11 +245,11 @@ class IntegrationTestCase:
         return t
 
     @property
-    def nodes(self) -> list["TestNode"]:
+    def nodes(self) -> list[TestNode]:
         return self.topology.nodes
 
     @property
-    def clients(self) -> list["Client"]:
+    def clients(self) -> list[Client]:
         """Clients for every FULL_STACK node. AGENTS_ONLY nodes
         are silently skipped — they have no daemon to dial."""
         return [
@@ -324,7 +324,7 @@ class IntegrationTestCase:
         node_index: int = 0,
         host_key_path: Path = HOST_ALPINE_KEY_PATH,
         user: str = "corvus",
-        vm_tcp_port: Optional[int] = None,
+        vm_tcp_port: int | None = None,
     ) -> VmShell:
         """Build an SSH transport to a vm created by the inner daemon.
 
@@ -379,11 +379,11 @@ class SingleNodeCase(IntegrationTestCase):
     NODES = ("single",)
 
     @property
-    def node(self) -> "TestNode":
+    def node(self) -> TestNode:
         return self.nodes[0]
 
     @property
-    def client(self) -> "Client":
+    def client(self) -> Client:
         return self.node.client()
 
 
@@ -407,15 +407,15 @@ class OneDaemonTwoNodesCase(IntegrationTestCase):
         return NodeRole.FULL_STACK if short_name == "alpha" else NodeRole.AGENTS_ONLY
 
     @property
-    def node_alpha(self) -> "TestNode":
+    def node_alpha(self) -> TestNode:
         return self.nodes[0]
 
     @property
-    def node_beta(self) -> "TestNode":
+    def node_beta(self) -> TestNode:
         return self.nodes[1]
 
     @property
-    def client_alpha(self) -> "Client":
+    def client_alpha(self) -> Client:
         return self.node_alpha.client()
 
 
@@ -437,19 +437,19 @@ class TwoDaemonsCase(IntegrationTestCase):
         return short_name
 
     @property
-    def node_alpha(self) -> "TestNode":
+    def node_alpha(self) -> TestNode:
         return self.nodes[0]
 
     @property
-    def node_beta(self) -> "TestNode":
+    def node_beta(self) -> TestNode:
         return self.nodes[1]
 
     @property
-    def client_alpha(self) -> "Client":
+    def client_alpha(self) -> Client:
         return self.node_alpha.client()
 
     @property
-    def client_beta(self) -> "Client":
+    def client_beta(self) -> Client:
         return self.node_beta.client()
 
 
@@ -459,25 +459,25 @@ class ThreeNodesCase(IntegrationTestCase):
     NODES = ("alpha", "beta", "gamma")
 
     @property
-    def node_alpha(self) -> "TestNode":
+    def node_alpha(self) -> TestNode:
         return self.nodes[0]
 
     @property
-    def node_beta(self) -> "TestNode":
+    def node_beta(self) -> TestNode:
         return self.nodes[1]
 
     @property
-    def node_gamma(self) -> "TestNode":
+    def node_gamma(self) -> TestNode:
         return self.nodes[2]
 
     @property
-    def client_alpha(self) -> "Client":
+    def client_alpha(self) -> Client:
         return self.node_alpha.client()
 
     @property
-    def client_beta(self) -> "Client":
+    def client_beta(self) -> Client:
         return self.node_beta.client()
 
     @property
-    def client_gamma(self) -> "Client":
+    def client_gamma(self) -> Client:
         return self.node_gamma.client()

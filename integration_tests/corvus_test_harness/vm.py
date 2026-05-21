@@ -40,7 +40,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -107,9 +107,9 @@ class Vm:
 
     def __init__(
         self,
-        case: "IntegrationTestCase",
+        case: IntegrationTestCase,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         self.case = case
         self.client = case.client
@@ -122,7 +122,7 @@ class Vm:
 
     # ---- public API --------------------------------------------------------
 
-    def __enter__(self) -> "Vm":
+    def __enter__(self) -> Vm:
         images = self.case.register_base_images()
         base_disk = images.get(self.base_image_key)
         if base_disk is None:
@@ -250,7 +250,7 @@ class Vm:
         authorized_keys at first boot."""
         return []
 
-    def _cloud_init_config(self) -> Optional[dict]:
+    def _cloud_init_config(self) -> dict | None:
         """Return a dict of kwargs for `client.cloud_init.set()`
         (`user_data`, `network_config`, `inject_ssh_keys`), or `None`
         to skip the call. Default `None`."""
@@ -293,12 +293,12 @@ class VmSsh(Vm):
 
     def __init__(
         self,
-        case: "IntegrationTestCase",
+        case: IntegrationTestCase,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(case, name=name)
-        self.shell: Optional["VmShell"] = None
+        self.shell: VmShell | None = None
 
     def _post_start(self) -> None:
         try:
@@ -336,7 +336,7 @@ class VmSsh(Vm):
             self.shell = None
         super().__exit__(exc_type, exc, tb)
 
-    def run(self, command: str, **kw) -> "SshResult":
+    def run(self, command: str, **kw) -> SshResult:
         """Run a shell command in the guest over the open SSH session."""
         return self.shell.run(command, **kw)
 
@@ -507,9 +507,9 @@ class VmCloudInit(VmSsh):
 
     def __init__(
         self,
-        case: "IntegrationTestCase",
+        case: IntegrationTestCase,
         *,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         super().__init__(case, name=name)
         self._key_dir = Path(tempfile.mkdtemp(prefix="corvus-ci-key-"))

@@ -9,27 +9,26 @@ integer fields (`0` ⇒ "absent") are collapsed to `None`. Timestamps
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
 
 from .. import types as t
 
 
-def _ts(ns: int) -> Optional[datetime]:
+def _ts(ns: int) -> datetime | None:
     """POSIX nanoseconds → timezone-aware datetime; 0 → None."""
     if ns == 0:
         return None
     return datetime.fromtimestamp(ns / 1_000_000_000, tz=timezone.utc)
 
 
-def _nz_int(n: int) -> Optional[int]:
+def _nz_int(n: int) -> int | None:
     return None if n == 0 else n
 
 
-def _nz_text(s: str) -> Optional[str]:
+def _nz_text(s: str) -> str | None:
     return s if s else None
 
 
-def _nz_float(x: float) -> Optional[float]:
+def _nz_float(x: float) -> float | None:
     return None if x == 0.0 else x
 
 

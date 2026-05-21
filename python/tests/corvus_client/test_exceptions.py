@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import capnp
 import pytest
-
 from corvus_client.exceptions import (
     CorvusError,
     DiskInUse,

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Optional
 
 from corvus_client import Client
 from corvus_client.exceptions import ConnectError, CorvusError
@@ -26,8 +25,8 @@ def open_client(
     ensure_self_node: bool = True,
     self_node_name: str = "self",
     self_node_host: str = "127.0.0.1",
-    cert_dir: Optional[Path] = None,
-    tls: Optional[bool] = None,
+    cert_dir: Path | None = None,
+    tls: bool | None = None,
 ) -> Client:
     """Block until the inner daemon answers `status()`, then return its client.
 
@@ -56,7 +55,7 @@ def open_client(
     """
     host, port = relay.endpoint
     deadline = time.monotonic() + boot_timeout_sec
-    last_err: Optional[BaseException] = None
+    last_err: BaseException | None = None
     while time.monotonic() < deadline:
         try:
             c = Client(host=host, port=port, cert_dir=cert_dir, tls=tls)
@@ -145,7 +144,7 @@ def _wait_for_self_node_ready(
     immediately (it's a real problem).
     """
     deadline = time.monotonic() + timeout_sec
-    last_err: Optional[BaseException] = None
+    last_err: BaseException | None = None
     while time.monotonic() < deadline:
         try:
             d = client.disks.create("__harness_probe__", size_mb=1)

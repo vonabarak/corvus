@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ._helpers import with_client
 
-
 SAMPLE_USERDATA = "#cloud-config\nhostname: py-test\n"
 
 

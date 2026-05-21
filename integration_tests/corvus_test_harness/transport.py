@@ -19,8 +19,6 @@ import socket
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Optional
-
 
 # The TCP port the inner daemon binds; matches corvus.service
 # inside the test image. Same number is used as the VSOCK port.
@@ -53,8 +51,8 @@ class VsockTcpRelay:
         cid: int,
         *,
         vsock_port: int = INNER_DAEMON_TCP_PORT,
-        host_port: Optional[int] = None,
-    ) -> "VsockTcpRelay":
+        host_port: int | None = None,
+    ) -> VsockTcpRelay:
         if cid <= 2:
             # CIDs 0/1/2 are reserved by the AF_VSOCK ABI; the harness
             # should never see one of those on a Corvus VM.
@@ -108,7 +106,7 @@ class VsockTcpRelay:
                 proc.kill()
                 proc.wait(timeout=2)
 
-    def __enter__(self) -> "VsockTcpRelay":
+    def __enter__(self) -> VsockTcpRelay:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

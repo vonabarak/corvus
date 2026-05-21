@@ -24,10 +24,9 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass, field, asdict
+from collections.abc import Iterator
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Iterator
-
 
 # Filenames used in the admin dir. Keep these constants in sync
 # with the Haskell-side defaults in Corvus.Tls.
@@ -190,5 +189,4 @@ class AdminStore:
         self.save_index(idx)
 
     def iter_records(self) -> Iterator[IssuedRecord]:
-        for rec in self.load_index().values():
-            yield rec
+        yield from self.load_index().values()

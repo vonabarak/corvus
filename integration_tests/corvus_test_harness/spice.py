@@ -35,7 +35,6 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-
 SPICE_MAGIC: bytes = b"REDQ"
 SPICE_VERSION_MAJOR: int = 2
 SPICE_VERSION_MINOR: int = 2
@@ -185,8 +184,7 @@ def probe_spice_link(
     proc = subprocess.run(
         argv,
         stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         timeout=timeout_sec + 5,
     )
     if proc.returncode != 0:

@@ -5,10 +5,8 @@ from __future__ import annotations
 
 import datetime as dt
 import os
-from pathlib import Path
 
 import pytest
-
 from corvus_admin import ca, deploy, store
 from corvus_admin.runner import LocalRunner
 

@@ -16,7 +16,7 @@ so they survive across calls.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import capnp
 
@@ -40,11 +40,11 @@ class AsyncClient:
     def __init__(
         self,
         *,
-        unix_socket: Optional[str] = None,
-        host: Optional[str] = None,
+        unix_socket: str | None = None,
+        host: str | None = None,
         port: int = 9876,
-        cert_dir: Optional[str | Path] = None,
-        tls: Optional[bool] = None,
+        cert_dir: str | Path | None = None,
+        tls: bool | None = None,
     ) -> None:
         """Connect to the daemon over either a Unix socket or TCP.
 
@@ -67,9 +67,7 @@ class AsyncClient:
         self._unix = unix_socket
         self._host = host
         self._port = port
-        self._cert_dir: Optional[Path] = (
-            Path(cert_dir) if cert_dir is not None else None
-        )
+        self._cert_dir: Path | None = Path(cert_dir) if cert_dir is not None else None
         # Resolve effective TLS mode now so we can fail-fast in
         # the constructor rather than mid-handshake.
         if tls is None:
@@ -82,20 +80,20 @@ class AsyncClient:
                     "do not wrap with TLS"
                 )
             self._tls_enabled = bool(tls)
-        self._tls_bundle: Optional[_tls.TlsBundle] = None
-        self._twoparty: Optional[capnp.TwoPartyClient] = None
+        self._tls_bundle: _tls.TlsBundle | None = None
+        self._twoparty: capnp.TwoPartyClient | None = None
         self._daemon = None
-        self._stream: Optional[capnp.AsyncIoStream] = None
-        self._vms: Optional["AsyncVmManager"] = None
-        self._disks: Optional["AsyncDiskManager"] = None
-        self._networks: Optional["AsyncNetworkManager"] = None
-        self._ssh_keys: Optional["AsyncSshKeyManager"] = None
-        self._templates: Optional["AsyncTemplateManager"] = None
-        self._tasks: Optional["AsyncTaskManager"] = None
-        self._cloud_init: Optional["AsyncCloudInitManager"] = None
-        self._nodes: Optional["AsyncNodeManager"] = None
+        self._stream: capnp.AsyncIoStream | None = None
+        self._vms: AsyncVmManager | None = None
+        self._disks: AsyncDiskManager | None = None
+        self._networks: AsyncNetworkManager | None = None
+        self._ssh_keys: AsyncSshKeyManager | None = None
+        self._templates: AsyncTemplateManager | None = None
+        self._tasks: AsyncTaskManager | None = None
+        self._cloud_init: AsyncCloudInitManager | None = None
+        self._nodes: AsyncNodeManager | None = None
 
-    async def __aenter__(self) -> "AsyncClient":
+    async def __aenter__(self) -> AsyncClient:
         if self._unix:
             stream = await capnp.AsyncIoStream.create_unix_connection(self._unix)
         else:
@@ -123,7 +121,7 @@ class AsyncClient:
         self._daemon = self._twoparty.bootstrap().cast_as(_schema.corvus.Daemon)
         return self
 
-    def _validate_peer_cn(self, stream: "capnp.AsyncIoStream") -> None:
+    def _validate_peer_cn(self, stream: capnp.AsyncIoStream) -> None:
         """Best-effort post-handshake CN-prefix check.
 
         Reads ``transport.get_extra_info('peercert')`` if the
@@ -228,7 +226,7 @@ class AsyncClient:
     # ---- subsystem managers (lazy) ---------------------------------------
 
     @property
-    def vms(self) -> "AsyncVmManager":
+    def vms(self) -> AsyncVmManager:
         if self._vms is None:
             from .vm import AsyncVmManager
 
@@ -236,7 +234,7 @@ class AsyncClient:
         return self._vms
 
     @property
-    def disks(self) -> "AsyncDiskManager":
+    def disks(self) -> AsyncDiskManager:
         if self._disks is None:
             from .disk import AsyncDiskManager
 
@@ -244,7 +242,7 @@ class AsyncClient:
         return self._disks
 
     @property
-    def networks(self) -> "AsyncNetworkManager":
+    def networks(self) -> AsyncNetworkManager:
         if self._networks is None:
             from .network import AsyncNetworkManager
 
@@ -252,7 +250,7 @@ class AsyncClient:
         return self._networks
 
     @property
-    def ssh_keys(self) -> "AsyncSshKeyManager":
+    def ssh_keys(self) -> AsyncSshKeyManager:
         if self._ssh_keys is None:
             from .sshkey import AsyncSshKeyManager
 
@@ -260,7 +258,7 @@ class AsyncClient:
         return self._ssh_keys
 
     @property
-    def templates(self) -> "AsyncTemplateManager":
+    def templates(self) -> AsyncTemplateManager:
         if self._templates is None:
             from .template import AsyncTemplateManager
 
@@ -268,7 +266,7 @@ class AsyncClient:
         return self._templates
 
     @property
-    def tasks(self) -> "AsyncTaskManager":
+    def tasks(self) -> AsyncTaskManager:
         if self._tasks is None:
             from .task import AsyncTaskManager
 
@@ -276,7 +274,7 @@ class AsyncClient:
         return self._tasks
 
     @property
-    def cloud_init(self) -> "AsyncCloudInitManager":
+    def cloud_init(self) -> AsyncCloudInitManager:
         if self._cloud_init is None:
             from .cloudinit import AsyncCloudInitManager
 
@@ -284,7 +282,7 @@ class AsyncClient:
         return self._cloud_init
 
     @property
-    def nodes(self) -> "AsyncNodeManager":
+    def nodes(self) -> AsyncNodeManager:
         if self._nodes is None:
             from .node import AsyncNodeManager
 

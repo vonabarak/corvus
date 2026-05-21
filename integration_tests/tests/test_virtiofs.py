@@ -19,9 +19,8 @@ from __future__ import annotations
 import secrets
 
 import pytest
-
-from corvus_test_harness import VmSsh, SingleNodeCase
-
+from corvus_client import CorvusError
+from corvus_test_harness import SingleNodeCase, VmSsh
 
 pytestmark = pytest.mark.slow
 
@@ -111,7 +110,7 @@ class TestVirtiofs(SingleNodeCase):
                 vm.add_shared_dir(path=bad_path, tag="broken")
                 vm_id = vm.show().id
 
-                with pytest.raises(Exception):
+                with pytest.raises(CorvusError):
                     vm.start(wait=True)
 
                 # The parent `start` task must be recorded as error

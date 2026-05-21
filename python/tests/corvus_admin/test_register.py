@@ -4,12 +4,9 @@ its argv to a log file."""
 
 from __future__ import annotations
 
-import datetime as dt
 import os
-from pathlib import Path
 
 import pytest
-
 from corvus_admin import register as register_mod
 
 
@@ -52,7 +49,7 @@ def fake_crv(tmp_path, monkeypatch):
 
 
 def test_register_node_calls_crv_add_with_documented_flags(fake_crv):
-    crv, log = fake_crv
+    _crv, log = fake_crv
     result = register_mod.register_node(
         name="alpha",
         host="10.0.0.21",

@@ -10,13 +10,11 @@ VM (Phase 2 verification).
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
-from cryptography import x509
-
 from corvus_admin import ca, deploy
 from corvus_admin.runner import LocalRunner
+from cryptography import x509
 
 
 @pytest.fixture()

@@ -26,12 +26,15 @@ import click
 from corvus_admin import (
     ca,
     deploy,
-    register as register_mod,
-    status as status_mod,
     store,
 )
+from corvus_admin import (
+    register as register_mod,
+)
+from corvus_admin import (
+    status as status_mod,
+)
 from corvus_admin.runner import RunnerError, for_target
-
 
 # ---------------------------------------------------------------------------
 # Shared options

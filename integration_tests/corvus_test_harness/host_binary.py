@@ -23,8 +23,6 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -37,7 +35,7 @@ class HostBinary:
     binary: Path
 
     @classmethod
-    def discover(cls, *, repo_root: Optional[Path] = None) -> "HostBinary":
+    def discover(cls, *, repo_root: Path | None = None) -> HostBinary:
         root = repo_root or REPO_ROOT
         override = os.environ.get("CORVUS_TEST_HOST_BIN_DIR")
         if override:
@@ -61,8 +59,7 @@ def _stack_install_bin_dir(repo_root: Path) -> Path:
     out = subprocess.run(
         [stack, "path", "--local-install-root"],
         cwd=str(repo_root),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        capture_output=True,
         check=True,
         timeout=60,
     )
@@ -93,7 +90,7 @@ def _check_freshness(binary: Path, repo_root: Path) -> None:
         return
     binary_mtime = binary.stat().st_mtime
     newest_src_mtime = binary_mtime
-    newest_src_path: Optional[Path] = None
+    newest_src_path: Path | None = None
     for path in src.rglob("*.hs"):
         m = path.stat().st_mtime
         if m > newest_src_mtime:

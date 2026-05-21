@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import base64
 import os
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 import yaml
 
@@ -24,7 +25,7 @@ from .streams import stream_build_events
 
 def _read_text(base_dir: Path, rel: str) -> str:
     path = rel if rel.startswith("/") else str(base_dir / rel)
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return f.read()
 
 
@@ -68,7 +69,7 @@ def preprocess_build_yaml(yaml_path: str) -> str:
     """Read `yaml_path`, inline references, return the rewritten YAML text."""
     path = Path(yaml_path).resolve()
     base_dir = path.parent
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
     if not isinstance(doc, dict):
         return yaml.safe_dump(doc, sort_keys=False)

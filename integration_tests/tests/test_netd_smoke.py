@@ -24,15 +24,13 @@ import shutil
 import socket
 import subprocess
 import time
-from typing import Iterator
+from collections.abc import Iterator
 
 import capnp
 import pytest
-
 from corvus_test_harness import NetdClient, SingleNodeCase
 from corvus_test_harness.cases import state_for
 from corvus_test_harness.ssh import HOST_ALPINE_KEY_PATH
-
 
 NETD_SERVICE = "corvus-netd.service"
 NETD_NODE_PORT = 9877

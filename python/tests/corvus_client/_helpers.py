@@ -8,10 +8,10 @@ they're actually exercising.
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 import capnp
-
 from corvus_client._async.client import AsyncClient
 
 T = TypeVar("T")

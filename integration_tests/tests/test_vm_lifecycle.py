@@ -19,17 +19,15 @@ from __future__ import annotations
 import time
 
 import pytest
-
 from corvus_client import VmNotFound
 from corvus_test_harness import (
     HOST_ALPINE_KEY_PATH,
+    SingleNodeCase,
     Vm,
     VmSsh,
     VmUefi,
-    SingleNodeCase,
     probe_spice_link,
 )
-
 
 pytestmark = pytest.mark.slow
 

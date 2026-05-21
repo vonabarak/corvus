@@ -19,12 +19,11 @@ from __future__ import annotations
 import contextlib
 import re
 import time
-from typing import Callable, Iterator, Optional
+from collections.abc import Callable
 
 import pytest
-
+from corvus_client import Client
 from corvus_test_harness import SingleNodeCase, VmSsh
-
 
 pytestmark = [pytest.mark.slow]
 
@@ -97,7 +96,7 @@ def _bridge_ifindex(node, bridge: str) -> int:
 
 @contextlib.contextmanager
 def _network(
-    client_fn: Callable[[], "Client"],
+    client_fn: Callable[[], Client],
     name: str,
     subnet: str,
     *,
@@ -179,7 +178,7 @@ def _ping_with_retry(
     'vm.run' RuntimeError so the test's pytest traceback still
     shows the ping command line and stderr).
     """
-    last_err: Optional[BaseException] = None
+    last_err: BaseException | None = None
     for _ in range(attempts):
         try:
             vm.run(f"ping -c {per_attempt_count} -W {per_attempt_wait_sec} {target}")
@@ -237,7 +236,6 @@ class TestManagedNetworking(SingleNodeCase):
         """Network without DHCP/NAT: VM has no auto IP; manual config
         gives reachability with the node and isolates from the outside."""
         node = self.node
-        client = self.client
 
         with _network(lambda: self.client, "iso-net", "10.50.0.0/24") as nw:
             bridge = _bridge_name(nw.show().id)
@@ -285,7 +283,6 @@ class TestManagedNetworking(SingleNodeCase):
         """Network with DHCP+NAT: two VMs both get IPs, can ping each
         other, the bridge, and the outside world."""
         node = self.node
-        client = self.client
 
         if not _node_has_outbound_internet(node):
             pytest.skip(
@@ -350,11 +347,10 @@ class TestManagedNetworking(SingleNodeCase):
     def test_cross_network_isolation(self):
         """Two distinct networks: VM on net-a can't reach VM on net-b
         (agent's `iifname "corvus-br*" oifname "corvus-br*" drop`)."""
-        client = self.client
 
         with (
-            _network(lambda: self.client, "iso-a", "10.60.0.0/24") as a,
-            _network(lambda: self.client, "iso-b", "10.61.0.0/24") as b,
+            _network(lambda: self.client, "iso-a", "10.60.0.0/24"),
+            _network(lambda: self.client, "iso-b", "10.61.0.0/24"),
         ):
 
             class _VmA(_ManagedVm):
@@ -401,7 +397,6 @@ class TestManagedNetworking(SingleNodeCase):
         TAP-reopen support, which is out of scope.)
         """
         node = self.node
-        client = self.client
 
         with _network(
             lambda: self.client, "rea-net", "10.52.0.0/24", dhcp=True, nat=True
@@ -526,7 +521,7 @@ class TestManagedNetworking(SingleNodeCase):
         # Best-effort: there shouldn't be any networks running yet for
         # this test (every other test in this class wraps networks in
         # `_network`, which deletes on exit). Sanity check anyway.
-        for nw in client.networks.list():
+        for _nw in client.networks.list():
             pass  # purely existence-check; we don't act on stale rows.
 
         node.run("sudo systemctl stop corvus-netd.service")

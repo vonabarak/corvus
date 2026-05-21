@@ -32,10 +32,8 @@ import base64
 import secrets
 import threading
 import time
-from typing import Optional
 
 import pytest
-
 from corvus_client import ServerError
 from corvus_test_harness import SingleNodeCase, VmWindows
 
@@ -67,7 +65,7 @@ class TestWindows(SingleNodeCase):
 
     # ---- virtiofs helpers --------------------------------------------------
 
-    def _find_share_drive(self, vm) -> Optional[str]:
+    def _find_share_drive(self, vm) -> str | None:
         """Return the drive letter of the virtio-fs mount, or `None`.
 
         Restarts `VirtioFsSvc` first (auto-start can race the PCI
@@ -271,7 +269,7 @@ class TestWindows(SingleNodeCase):
             marker_path = "C:\\corvus-marker.txt"
             found = False
             last_r = None
-            last_err: Optional[Exception] = None
+            last_err: Exception | None = None
             for _ in range(30):
                 try:
                     last_r = vm.cap.guest_exec(f"cmd.exe /c type {marker_path}")

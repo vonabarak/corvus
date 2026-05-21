@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from corvus_client import DiskNotFound
 
 from ._helpers import with_client

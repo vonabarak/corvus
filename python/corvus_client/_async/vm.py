@@ -8,8 +8,6 @@ request/response wrappers.
 
 from __future__ import annotations
 
-from typing import Optional, Union
-
 from .. import _schema
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
@@ -41,7 +39,7 @@ class AsyncVmManager:
         resp = await mgr.list()
         return [conv.vm_info(v) for v in resp.vms]
 
-    async def get(self, ref: Union[int, str], *, by_name: bool = False) -> "AsyncVm":
+    async def get(self, ref: int | str, *, by_name: bool = False) -> AsyncVm:
         mgr = await self._ensure()
         resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
         return AsyncVm(resp.vm)
@@ -50,15 +48,15 @@ class AsyncVmManager:
         self,
         name: str,
         *,
-        node: Optional[str] = None,
+        node: str | None = None,
         cpu_count: int = 1,
         ram_mb: int = 1024,
-        description: Optional[str] = None,
+        description: str | None = None,
         headless: bool = False,
         guest_agent: bool = False,
         cloud_init: bool = False,
         autostart: bool = False,
-    ) -> "AsyncVm":
+    ) -> AsyncVm:
         """Create a bare VM record.
 
         Pass `node=` to pin the VM to a specific node by name or
@@ -122,14 +120,14 @@ class AsyncVm:
     async def edit(
         self,
         *,
-        name: Optional[str] = None,
-        cpu_count: Optional[int] = None,
-        ram_mb: Optional[int] = None,
-        description: Optional[str] = None,
-        headless: Optional[bool] = None,
-        guest_agent: Optional[bool] = None,
-        cloud_init: Optional[bool] = None,
-        autostart: Optional[bool] = None,
+        name: str | None = None,
+        cpu_count: int | None = None,
+        ram_mb: int | None = None,
+        description: str | None = None,
+        headless: bool | None = None,
+        guest_agent: bool | None = None,
+        cloud_init: bool | None = None,
+        autostart: bool | None = None,
     ) -> None:
         params = _schema.vm.VmEditParams.new_message()
         _set_optional(params, "hasName", "name", name)
@@ -147,7 +145,7 @@ class AsyncVm:
 
     # ---- migration ---------------------------------------------------------
 
-    async def migrate(self, to_node_ref: Union[int, str]) -> int:
+    async def migrate(self, to_node_ref: int | str) -> int:
         """Migrate this stopped VM to another node.
 
         Returns the task id; the actual transfer runs in the
@@ -218,12 +216,12 @@ class AsyncVm:
 
     async def attach_disk(
         self,
-        disk_ref: Union[int, str],
+        disk_ref: int | str,
         *,
-        interface: Optional[str] = None,
-        media: Optional[str] = None,
+        interface: str | None = None,
+        media: str | None = None,
         read_only: bool = False,
-        cache_type: Optional[str] = None,
+        cache_type: str | None = None,
         discard: bool = False,
     ) -> int:
         params = _schema.vm.DriveAttachParams.new_message()
@@ -261,10 +259,10 @@ class AsyncVm:
     async def add_net_if(
         self,
         *,
-        type: Optional[str] = None,
-        host_device: Optional[str] = None,
-        mac_address: Optional[str] = None,
-        network_ref: Optional[Union[int, str]] = None,
+        type: str | None = None,
+        host_device: str | None = None,
+        mac_address: str | None = None,
+        network_ref: int | str | None = None,
     ) -> int:
         params = _schema.vm.NetIfAddParams.new_message()
         if type is not None:
@@ -292,7 +290,7 @@ class AsyncVm:
         path: str,
         tag: str,
         *,
-        cache: Optional[str] = None,
+        cache: str | None = None,
         read_only: bool = False,
     ) -> int:
         params = _schema.vm.SharedDirAddParams.new_message()
@@ -325,7 +323,7 @@ class AsyncVm:
         resp = await self._cap.snapshotList()
         return [conv.snapshot_info(s) for s in resp.snapshots]
 
-    async def snapshot_get(self, ref: Union[int, str], *, by_name: bool = False):
+    async def snapshot_get(self, ref: int | str, *, by_name: bool = False):
         from .disk import AsyncSnapshot
 
         resp = await self._cap.snapshotGet(ref=entity_ref(ref, by_name=by_name))
@@ -333,10 +331,10 @@ class AsyncVm:
 
     # ---- ssh keys ---------------------------------------------------------
 
-    async def attach_ssh_key(self, key_ref: Union[int, str]) -> None:
+    async def attach_ssh_key(self, key_ref: int | str) -> None:
         await self._cap.attachSshKey(keyRef=entity_ref(key_ref))
 
-    async def detach_ssh_key(self, key_ref: Union[int, str]) -> None:
+    async def detach_ssh_key(self, key_ref: int | str) -> None:
         await self._cap.detachSshKey(keyRef=entity_ref(key_ref))
 
     async def list_ssh_keys(self):

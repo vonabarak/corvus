@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional, Union
-
 from .. import _schema
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
@@ -26,9 +24,7 @@ class AsyncNetworkManager:
         resp = await mgr.list()
         return [conv.network_info(n) for n in resp.networks]
 
-    async def get(
-        self, ref: Union[int, str], *, by_name: bool = False
-    ) -> "AsyncNetwork":
+    async def get(self, ref: int | str, *, by_name: bool = False) -> AsyncNetwork:
         mgr = await self._ensure()
         resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
         return AsyncNetwork(resp.network)
@@ -38,11 +34,11 @@ class AsyncNetworkManager:
         name: str,
         subnet: str,
         *,
-        node: Optional[str] = None,
+        node: str | None = None,
         dhcp: bool = False,
         nat: bool = False,
         autostart: bool = False,
-    ) -> "AsyncNetwork":
+    ) -> AsyncNetwork:
         """Create a virtual network.
 
         Networks are per-node; pass `node=` to pin to a specific
@@ -80,11 +76,11 @@ class AsyncNetwork:
     async def edit(
         self,
         *,
-        name: Optional[str] = None,
-        subnet: Optional[str] = None,
-        dhcp: Optional[bool] = None,
-        nat: Optional[bool] = None,
-        autostart: Optional[bool] = None,
+        name: str | None = None,
+        subnet: str | None = None,
+        dhcp: bool | None = None,
+        nat: bool | None = None,
+        autostart: bool | None = None,
     ) -> None:
         params = _schema.network.NetworkEditParams.new_message()
         if name is not None:

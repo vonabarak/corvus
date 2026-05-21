@@ -8,7 +8,6 @@ concern; the conftest daemon fixture doesn't depend on that).
 from __future__ import annotations
 
 import pytest
-
 from corvus_client import VmNotFound
 
 from ._helpers import with_client

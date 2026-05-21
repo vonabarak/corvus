@@ -68,10 +68,10 @@ import asyncio
 import gc
 import threading
 from collections import deque
-from typing import Any, Coroutine
+from collections.abc import Coroutine
+from typing import Any
 
 import capnp
-
 
 # How often the loop wakes up to drain the cap-drop deque. 50 ms is
 # short enough that caps don't pile up under heavy churn (test suites
@@ -138,7 +138,7 @@ class _RawFuture:
     reader blocks on `acquire`.
     """
 
-    __slots__ = ("_lock", "_result", "_exception")
+    __slots__ = ("_exception", "_lock", "_result")
 
     def __init__(self) -> None:
         self._lock = _thread.allocate_lock()
@@ -250,7 +250,7 @@ class SyncRunloop:
                     gc.collect()
 
             self._loop.run_until_complete(park())
-        except BaseException as e:  # noqa: BLE001 - we re-raise on the calling thread
+        except BaseException as e:
             self._error = e
             self._ready.set()
         finally:

@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import pytest
-
 from corvus_client import SshKeyNotFound
 
 from ._helpers import with_client
-
 
 SAMPLE_PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIClvxsxlcOg+G5d9G2qZIDPyAVlcgVuJqJg corvus-test"
 

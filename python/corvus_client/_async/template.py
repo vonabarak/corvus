@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
-from .. import _schema
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
 from . import _convert as conv
@@ -29,14 +28,12 @@ class AsyncTemplateManager:
         resp = await mgr.list()
         return [conv.template_vm_info(t) for t in resp.templates]
 
-    async def get(
-        self, ref: Union[int, str], *, by_name: bool = False
-    ) -> "AsyncTemplate":
+    async def get(self, ref: int | str, *, by_name: bool = False) -> AsyncTemplate:
         mgr = await self._ensure()
         resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
         return AsyncTemplate(resp.template)
 
-    async def create(self, yaml: str) -> "AsyncTemplate":
+    async def create(self, yaml: str) -> AsyncTemplate:
         mgr = await self._ensure()
         resp = await mgr.create(yaml=yaml)
         return AsyncTemplate(resp.template)
@@ -54,7 +51,7 @@ class AsyncTemplate:
     async def delete(self) -> None:
         await self._cap.delete()
 
-    async def instantiate(self, name: str, *, node: Optional[str] = None) -> "AsyncVm":
+    async def instantiate(self, name: str, *, node: str | None = None) -> AsyncVm:
         """Instantiate this template as a new VM.
 
         Pass `node=` to pin placement; omit to let the daemon's

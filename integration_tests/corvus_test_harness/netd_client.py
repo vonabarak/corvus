@@ -35,7 +35,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import capnp
-
 from corvus_client._schema import netagent as NETAGENT_SCHEMA
 
 
@@ -112,8 +111,8 @@ class NetdClient:
         rl,
         *,
         owner: str = "test",
-        cert_dir: "Path | None" = None,
-    ) -> "NetdClient":
+        cert_dir: Path | None = None,
+    ) -> NetdClient:
         """Open a TCP connection to the agent, bootstrap, open a
         Session.
 
@@ -161,7 +160,7 @@ class NetdClient:
     # `corvus_client._sync._resource.py`. `schedule_drop` is a
     # GIL-atomic deque append; the runloop drains it on its own
     # thread where the kj loop is alive.
-    def __enter__(self) -> "NetdClient":
+    def __enter__(self) -> NetdClient:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

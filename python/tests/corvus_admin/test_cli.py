@@ -7,7 +7,6 @@ test_ca / test_deploy."""
 from __future__ import annotations
 
 from click.testing import CliRunner
-
 from corvus_admin import cli
 
 

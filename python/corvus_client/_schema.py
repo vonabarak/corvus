@@ -21,7 +21,6 @@ from pathlib import Path
 
 import capnp
 
-
 _SCHEMA_FILES = (
     "common.capnp",
     "enums.capnp",

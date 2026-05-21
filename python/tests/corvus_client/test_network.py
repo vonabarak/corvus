@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from corvus_client import NetworkNotFound
 
 from ._helpers import with_client

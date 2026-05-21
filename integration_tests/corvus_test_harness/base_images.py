@@ -29,14 +29,13 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
 
 from corvus_client import Client, DiskNotFound
 
 from .outer import Crv
-
 
 # Host-side root for all pre-baked images. Mirrors `path: BaseImages/…/`
 # in yaml/{alpine-test,multi-os,windows-server-2025}/*.yml.

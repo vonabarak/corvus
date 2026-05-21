@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Union
-
 from ._resource import LoopBoundResource
 
 
@@ -15,7 +13,7 @@ class SyncNodeManager:
     def list(self):
         return self._rl.run(self._a.list())
 
-    def get(self, ref: Union[int, str], *, by_name: bool = False):
+    def get(self, ref: int | str, *, by_name: bool = False):
         return SyncNode(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)
 
     def create(self, name: str, host: str, **kwargs):

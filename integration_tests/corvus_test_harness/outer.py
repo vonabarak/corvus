@@ -18,9 +18,10 @@ import os
 import shlex
 import shutil
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any
 
 
 class CrvError(RuntimeError):
@@ -47,8 +48,8 @@ class CrvError(RuntimeError):
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
-        self.kind: Optional[str] = None
-        self.message: Optional[str] = None
+        self.kind: str | None = None
+        self.message: str | None = None
         # Try to parse a JSON error envelope from stdout (crv -o json
         # writes the envelope there even on error).
         try:
@@ -75,14 +76,14 @@ class Crv:
     """
 
     binary: str
-    unix_socket: Optional[str] = None
-    extra_env: Optional[dict[str, str]] = None
+    unix_socket: str | None = None
+    extra_env: dict[str, str] | None = None
     # Default subprocess timeout for "quick" calls; long-running ones
     # (build/apply with --wait) pass their own timeout explicitly.
     default_timeout_sec: float = 60.0
 
     @classmethod
-    def autodetect(cls) -> "Crv":
+    def autodetect(cls) -> Crv:
         """Find a usable `crv` binary for driving the outer daemon.
 
         The outer daemon is whatever Corvus install the developer
@@ -145,9 +146,9 @@ class Crv:
     def run(
         self,
         *args: str,
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
         check: bool = True,
-        input_bytes: Optional[bytes] = None,
+        input_bytes: bytes | None = None,
     ) -> Any:
         """Run `crv -o json <args>` and return the parsed JSON payload.
 
@@ -162,8 +163,7 @@ class Crv:
             env.update(self.extra_env)
         proc = subprocess.run(
             argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             input=input_bytes,
             env=env,
             timeout=timeout or self.default_timeout_sec,
@@ -201,7 +201,7 @@ class Crv:
         *,
         cpu_count: int = 1,
         ram_mb: int = 1024,
-        description: Optional[str] = None,
+        description: str | None = None,
         headless: bool = False,
         guest_agent: bool = False,
         cloud_init: bool = False,
@@ -232,7 +232,7 @@ class Crv:
         name_or_id: str | int,
         *,
         wait: bool = False,
-        timeout_sec: Optional[int] = None,
+        timeout_sec: int | None = None,
     ) -> dict[str, Any]:
         # `crv vm stop` is graceful only — there's no `--force` (that
         # option only exists on `network stop`). For uncooperative
@@ -277,7 +277,7 @@ class Crv:
         path: str,
         tag: str,
         *,
-        cache: Optional[str] = None,
+        cache: str | None = None,
         read_only: bool = False,
     ) -> dict[str, Any]:
         args = ["shared-dir", "add", str(vm), str(path), tag]

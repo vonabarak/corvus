@@ -35,22 +35,20 @@ import tempfile
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-
-import yaml as _yaml
 
 from corvus_client import Client
 
-from .base_images import BASE_IMAGES_TAG, HOST_BASE_IMAGES_DIR
+import yaml as _yaml
+
 from . import component_deploy
+from .base_images import BASE_IMAGES_TAG, HOST_BASE_IMAGES_DIR
 from .component_deploy import CaContext
-from .host_binary import HostBinary, REPO_ROOT
+from .host_binary import REPO_ROOT, HostBinary
 from .images import ImageReady
 from .inner import open_client
 from .outer import Crv, CrvError
 from .ssh import HOST_ALPINE_KEY_PATH, NodeShell
 from .transport import VsockTcpRelay
-
 
 # Prefix for every test-owned node-side resource. Makes orphan
 # cleanup a trivial `crv vm delete corvus-it-*`.
@@ -96,16 +94,16 @@ class TestNode:
     # directly) so the case fixture can build all CAs up front and
     # then call `Topology.deploy_certs()` once.
     ca_key: str = "shared"
-    _client: Optional[Client] = None
+    _client: Client | None = None
     # Populated by `Topology.deploy_certs()` with the host-side
     # path holding {ca.crt, corvus-client.{crt,key}} the pycapnp
     # client uses to dial this node's daemon over mTLS.
-    _client_cert_dir: Optional[Path] = None
+    _client_cert_dir: Path | None = None
     # IP address inside the VM that the deployer baked into the
     # cert SAN (and that any *other* node would dial this node
     # by). Captured by `Topology.deploy_certs()`; available to
     # tests via `TestNode.outer_ip`.
-    _outer_ip: Optional[str] = None
+    _outer_ip: str | None = None
 
     @property
     def host_endpoint(self) -> tuple[str, int]:
@@ -201,7 +199,7 @@ class Topology:
         host_binary: HostBinary,
         *,
         class_name: str,
-        run_id: Optional[str] = None,
+        run_id: str | None = None,
         attach_source: bool = False,
     ) -> None:
         self.crv = crv
@@ -229,7 +227,7 @@ class Topology:
 
     # ---- lifecycle -------------------------------------------------------
 
-    def __enter__(self) -> "Topology":
+    def __enter__(self) -> Topology:
         self._stack.__enter__()
         return self
 
@@ -431,7 +429,7 @@ class Topology:
         *,
         cpu_count: int = 8,
         ram_mb: int = 8192,
-        extra_shared_dirs: Optional[list[tuple[str, str, bool]]] = None,
+        extra_shared_dirs: list[tuple[str, str, bool]] | None = None,
         role: NodeRole = NodeRole.FULL_STACK,
         ca_key: str = "shared",
     ) -> TestNode:

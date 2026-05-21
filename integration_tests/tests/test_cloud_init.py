@@ -37,9 +37,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
-
 from corvus_test_harness import SingleNodeCase, VmCloudInit
-
 
 pytestmark = [pytest.mark.slow]
 

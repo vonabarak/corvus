@@ -7,8 +7,6 @@ endpoints plus the agent-pushed capacity snapshot live on each row.
 
 from __future__ import annotations
 
-from typing import Optional, Union
-
 from .. import _schema
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
@@ -32,7 +30,7 @@ class AsyncNodeManager:
         resp = await mgr.list()
         return [conv.node_info(n) for n in resp.nodes]
 
-    async def get(self, ref: Union[int, str], *, by_name: bool = False) -> "AsyncNode":
+    async def get(self, ref: int | str, *, by_name: bool = False) -> AsyncNode:
         mgr = await self._ensure()
         resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
         return AsyncNode(resp.node)
@@ -45,9 +43,9 @@ class AsyncNodeManager:
         node_agent_port: int = 9878,
         net_agent_port: int = 9877,
         base_path: str = "/home/corvus/VMs",
-        description: Optional[str] = None,
+        description: str | None = None,
         admin_state: str = "online",
-    ) -> "AsyncNode":
+    ) -> AsyncNode:
         """Register a new node.
 
         ``host`` is the IPv4 / IPv6 / hostname the daemon will dial.
@@ -83,13 +81,13 @@ class AsyncNode:
     async def edit(
         self,
         *,
-        name: Optional[str] = None,
-        host: Optional[str] = None,
-        node_agent_port: Optional[int] = None,
-        net_agent_port: Optional[int] = None,
-        base_path: Optional[str] = None,
-        description: Optional[str] = None,
-        admin_state: Optional[str] = None,
+        name: str | None = None,
+        host: str | None = None,
+        node_agent_port: int | None = None,
+        net_agent_port: int | None = None,
+        base_path: str | None = None,
+        description: str | None = None,
+        admin_state: str | None = None,
     ) -> None:
         """Mutate a subset of fields. Pass ``None`` (the default) to
         leave a field unchanged. Pass an empty string for

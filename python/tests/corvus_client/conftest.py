@@ -25,8 +25,8 @@ import signal
 import socket
 import subprocess
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 import pytest
 
@@ -59,8 +59,7 @@ def _bin_search(name: str, env_override: str | None) -> str:
         out = subprocess.run(
             [_find_stack(), "path", "--local-install-root"],
             cwd=str(repo_root),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=True,
             timeout=60,
         )
@@ -252,8 +251,8 @@ def _ensure_self_node(sock: Path, agent_port: int) -> None:
     module top) keeps test collection fast when the package
     isn't installed yet.
     """
-    from corvus_client import Client  # noqa: PLC0415
-    from corvus_client.exceptions import CorvusError  # noqa: PLC0415
+    from corvus_client import Client
+    from corvus_client.exceptions import CorvusError
 
     with Client(unix_socket=str(sock)) as c:
         c.nodes.create(

@@ -27,10 +27,8 @@ import textwrap
 import time
 
 import pytest
-
 from corvus_client.exceptions import CorvusError
 from corvus_test_harness import SingleNodeCase
-
 
 pytestmark = [pytest.mark.slow, pytest.mark.timeout(1200)]
 

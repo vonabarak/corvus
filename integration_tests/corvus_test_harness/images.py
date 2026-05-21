@@ -24,7 +24,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from .outer import Crv, CrvError
 
@@ -50,9 +49,9 @@ class ImageReady:
         cls,
         crv: Crv,
         *,
-        yaml_path: Optional[Path] = None,
+        yaml_path: Path | None = None,
         disk_name: str = DISK_NAME,
-    ) -> "ImageReady":
+    ) -> ImageReady:
         path = yaml_path or DEFAULT_YAML
         if not path.is_file():
             raise FileNotFoundError(f"integration-test YAML not found at {path}")

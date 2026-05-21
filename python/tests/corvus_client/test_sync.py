@@ -7,7 +7,6 @@ is reentrant: multiple calls in the same Client instance share a loop.
 from __future__ import annotations
 
 import pytest
-
 from corvus_client import Client, DiskNotFound
 
 

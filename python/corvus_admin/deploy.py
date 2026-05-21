@@ -32,7 +32,6 @@ from dataclasses import dataclass
 from corvus_admin import ca, store
 from corvus_admin.runner import Runner, for_target
 
-
 # Default renewal window. Refusing to renew earlier than this stops
 # operators from rolling certs constantly for no reason; --force
 # bypasses it for the "I think a key leaked, get me out of here"
@@ -192,8 +191,6 @@ def deploy_client(
     /etc/corvus); this is enforced here by going through
     :func:`store.default_client_dir` and not the runner.
     """
-
-    from pathlib import Path
 
     issued = ca.issue_cert(
         admin_store,

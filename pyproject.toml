@@ -72,6 +72,44 @@ extend-exclude = [
     "**/_generated/**",
 ]
 
+[tool.ruff.lint]
+# Conservative day-1 ruleset. Rule groups documented at
+# https://docs.astral.sh/ruff/rules/.
+select = [
+    "E", "W",     # pycodestyle errors / warnings
+    "F",          # pyflakes (unused imports, undefined names)
+    "I",          # isort (import order)
+    "B",          # flake8-bugbear (likely-bug patterns)
+    "UP",         # pyupgrade (modernise syntax for the target version)
+    "SIM",        # flake8-simplify (cleaner conditionals)
+    "RUF",        # Ruff-specific
+]
+ignore = [
+    # The formatter handles long lines structurally; the few legit
+    # long lines (URLs, error strings) shouldn't get hand-wrapped.
+    "E501",
+    # Stylistic rules whose existing-codebase pattern we accept:
+    #   SIM105 — try/except/pass is idiomatic for best-effort cleanup
+    #            paths (socket close on shutdown, fs path cleanup);
+    #            contextlib.suppress reads worse for short blocks.
+    #   SIM108 — explicit if/else is often clearer than ternaries.
+    #   SIM117 — keeping nested `with` blocks per resource is fine
+    #            when each acquisition reads as its own step.
+    #   RUF005 — list-literal concat (`[a] + xs`) reads fine in the
+    #            argv-building style code that uses it.
+    #   RUF002, RUF003 — typographic dashes / em-dashes in docstrings
+    #            and comments aren't ambiguity hazards.
+    "SIM105", "SIM108", "SIM117",
+    "RUF005",
+    "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use a few patterns that are noise in production code but
+# fine in fixtures.
+"**/tests/**" = ["B011"]            # `assert False` is acceptable in tests
+"**/conftest.py" = ["F401"]         # fixtures are re-exported, not "unused"
+
 [tool.pytest.ini_options]
 # Both /python/tests and /integration_tests/tests are discoverable
 # from the repo root. Selecting which set to run is the Makefile's

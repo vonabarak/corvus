@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from .outer import Crv, CrvError
 
@@ -26,8 +25,8 @@ from .outer import Crv, CrvError
 @dataclass(frozen=True)
 class NestedKvmStatus:
     available: bool
-    vendor: Optional[str]  # 'intel' or 'amd'
-    reason: Optional[str]  # human-readable explanation when unavailable
+    vendor: str | None  # 'intel' or 'amd'
+    reason: str | None  # human-readable explanation when unavailable
 
 
 def check_nested_kvm() -> NestedKvmStatus:

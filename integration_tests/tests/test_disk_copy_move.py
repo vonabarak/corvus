@@ -24,10 +24,8 @@ import secrets
 import time
 
 import pytest
-
 from corvus_client import ServerError
 from corvus_test_harness import OneDaemonTwoNodesCase
-
 
 pytestmark = pytest.mark.slow
 
@@ -123,7 +121,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         """Create a small disk on alpha; copy to beta. Both
         placements exist, both files present, bytes identical."""
         name = _uniq("copy")
-        disk = self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
         try:
             assert self._placement_nodes(name) == {self.alpha_name}
             tid = self.client_alpha.disks.copy(name, self.beta_name)

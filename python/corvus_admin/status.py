@@ -24,7 +24,6 @@ from cryptography import x509
 
 from corvus_admin import ca, store
 
-
 # Default ports the components listen on. Same values as
 # corvus_admin.register; kept here so status doesn't import
 # register and pull subprocess into this module.

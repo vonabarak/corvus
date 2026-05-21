@@ -39,7 +39,7 @@ from .outer import Crv
 from .runner import NodeShellRunner
 from .spice import SpiceLinkInfo, probe_spice_link
 from .ssh import HOST_ALPINE_KEY_PATH, NodeShell, SshResult, VmShell
-from .topology import NodeRole, NoDaemonOnNodeError, TestNode, Topology
+from .topology import NoDaemonOnNodeError, NodeRole, TestNode, Topology
 from .transport import VsockTcpRelay
 from .version import (
     NestedKvmStatus,
@@ -49,9 +49,9 @@ from .version import (
 from .vm import Vm, VmCloudInit, VmSsh, VmUefi, VmWindows
 
 __all__ = [
+    "HOST_ALPINE_KEY_PATH",
     "CaContext",
     "Crv",
-    "HOST_ALPINE_KEY_PATH",
     "HostBinary",
     "ImageReady",
     "IntegrationTestCase",

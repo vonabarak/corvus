@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, Union
 
 from ._resource import LoopBoundResource
 
@@ -22,7 +21,7 @@ class SyncByteStream:
         self._a = async_stream
         self._rl = runloop
 
-    def read(self, *, timeout: Optional[float] = None) -> Optional[bytes]:
+    def read(self, *, timeout: float | None = None) -> bytes | None:
         async def _go():
             if timeout is None:
                 return await self._a.read()
@@ -201,7 +200,7 @@ class SyncVm(LoopBoundResource):
     def snapshot_list(self):
         return self._rl.run(self._a.snapshot_list())
 
-    def snapshot_get(self, ref: Union[int, str], *, by_name: bool = False):
+    def snapshot_get(self, ref: int | str, *, by_name: bool = False):
         from .disk import SyncSnapshot
 
         return SyncSnapshot(

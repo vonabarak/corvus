@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional, Union
-
 from .. import _schema
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
@@ -26,7 +24,7 @@ class AsyncDiskManager:
         resp = await mgr.list()
         return [conv.disk_image_info(d) for d in resp.disks]
 
-    async def get(self, ref: Union[int, str], *, by_name: bool = False) -> "AsyncDisk":
+    async def get(self, ref: int | str, *, by_name: bool = False) -> AsyncDisk:
         mgr = await self._ensure()
         resp = await mgr.get(ref=entity_ref(ref, by_name=by_name))
         return AsyncDisk(resp.disk)
@@ -36,8 +34,8 @@ class AsyncDiskManager:
         name: str,
         size_mb: int,
         *,
-        format: Optional[str] = None,
-    ) -> "AsyncDisk":
+        format: str | None = None,
+    ) -> AsyncDisk:
         mgr = await self._ensure()
         params = _schema.disk.DiskCreateParams.new_message()
         params.name = name
@@ -52,8 +50,8 @@ class AsyncDiskManager:
         name: str,
         file_path: str,
         *,
-        format: Optional[str] = None,
-    ) -> "AsyncDisk":
+        format: str | None = None,
+    ) -> AsyncDisk:
         mgr = await self._ensure()
         params = _schema.disk.DiskRegisterParams.new_message()
         params.name = name
@@ -66,8 +64,8 @@ class AsyncDiskManager:
     async def create_overlay(
         self,
         name: str,
-        backing_disk_ref: Union[int, str],
-    ) -> "AsyncDisk":
+        backing_disk_ref: int | str,
+    ) -> AsyncDisk:
         mgr = await self._ensure()
         params = _schema.disk.DiskCreateOverlayParams.new_message()
         params.name = name
@@ -77,11 +75,11 @@ class AsyncDiskManager:
 
     async def clone(
         self,
-        source_ref: Union[int, str],
+        source_ref: int | str,
         new_name: str,
         *,
-        path: Optional[str] = None,
-    ) -> "AsyncDisk":
+        path: str | None = None,
+    ) -> AsyncDisk:
         """Clone an existing disk to a new disk record.
 
         `path` is the destination on the daemon's filesystem; leave
@@ -101,8 +99,8 @@ class AsyncDiskManager:
 
     async def rebase(
         self,
-        disk_ref: Union[int, str],
-        new_backing_disk_ref: Union[int, str],
+        disk_ref: int | str,
+        new_backing_disk_ref: int | str,
     ) -> None:
         mgr = await self._ensure()
         params = _schema.disk.DiskRebaseParams.new_message()
@@ -110,7 +108,7 @@ class AsyncDiskManager:
         params.newBackingDiskRef = entity_ref(new_backing_disk_ref)
         await mgr.rebase(params=params)
 
-    async def flatten(self, disk_ref: Union[int, str]) -> None:
+    async def flatten(self, disk_ref: int | str) -> None:
         """Flatten an overlay disk: consolidate its delta with its
         backing image(s) into a standalone qcow2. The disk record
         keeps its id; only its `backing_image_*` fields go to
@@ -124,8 +122,8 @@ class AsyncDiskManager:
         name: str,
         url: str,
         *,
-        format: Optional[str] = None,
-        size_mb: Optional[int] = None,
+        format: str | None = None,
+        size_mb: int | None = None,
     ) -> int:
         """Returns the task id; the disk is created asynchronously."""
         mgr = await self._ensure()
@@ -144,8 +142,8 @@ class AsyncDiskManager:
         name: str,
         src_path: str,
         *,
-        format: Optional[str] = None,
-    ) -> "AsyncDisk":
+        format: str | None = None,
+    ) -> AsyncDisk:
         mgr = await self._ensure()
         params = _schema.disk.DiskImportParams.new_message()
         params.name = name
@@ -159,8 +157,8 @@ class AsyncDiskManager:
 
     async def copy(
         self,
-        disk_ref: Union[int, str],
-        to_node_ref: Union[int, str],
+        disk_ref: int | str,
+        to_node_ref: int | str,
     ) -> int:
         """Copy a disk image's bytes to another node.
 
@@ -179,8 +177,8 @@ class AsyncDiskManager:
 
     async def move(
         self,
-        disk_ref: Union[int, str],
-        to_node_ref: Union[int, str],
+        disk_ref: int | str,
+        to_node_ref: int | str,
     ) -> int:
         """Move a disk image's bytes to another node.
 
@@ -215,7 +213,7 @@ class AsyncDisk:
     async def resize(self, new_size_mb: int) -> None:
         await self._cap.resize(newSizeMb=new_size_mb)
 
-    async def snapshot_create(self, name: str) -> "AsyncSnapshot":
+    async def snapshot_create(self, name: str) -> AsyncSnapshot:
         # `name` collides with pycapnp's internal `_send(name, ...)`
         # method-name kwarg, so build the request explicitly.
         req = self._cap.snapshotCreate_request()
@@ -228,8 +226,8 @@ class AsyncDisk:
         return [conv.snapshot_info(s) for s in resp.snapshots]
 
     async def snapshot_get(
-        self, ref: Union[int, str], *, by_name: bool = False
-    ) -> "AsyncSnapshot":
+        self, ref: int | str, *, by_name: bool = False
+    ) -> AsyncSnapshot:
         resp = await self._cap.snapshotGet(ref=entity_ref(ref, by_name=by_name))
         return AsyncSnapshot(resp.snapshot)
 

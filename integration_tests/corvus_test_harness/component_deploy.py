@@ -31,7 +31,6 @@ from corvus_admin import ca, deploy, store
 from .runner import NodeShellRunner
 from .ssh import NodeShell
 
-
 # systemd unit names match the production install (see
 # `yaml/corvus-test-node/systemd/` and `systemd/`). corvus-admin's
 # deploy helpers default to these names so the harness doesn't
@@ -56,7 +55,7 @@ class CaContext:
     client_key_pem: bytes
 
     @classmethod
-    def new(cls, root: Path, *, client_name: str = "harness") -> "CaContext":
+    def new(cls, root: Path, *, client_name: str = "harness") -> CaContext:
         """Build a fresh CA rooted at *root* and mint a client
         cert under ``client_name``. The CA's private key never
         leaves *root* — make it a per-class tmpdir."""

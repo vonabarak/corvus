@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import base64
 import shlex
-from typing import Iterable
+from collections.abc import Iterable
 
-from corvus_admin.runner import Runner, RunResult, RunnerError
+from corvus_admin.runner import Runner, RunnerError, RunResult
 
 from .ssh import NodeShell
 

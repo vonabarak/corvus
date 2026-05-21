@@ -6,8 +6,6 @@ manager cap only (no per-config resource cap).
 
 from __future__ import annotations
 
-from typing import Optional, Union
-
 from .. import _schema
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
@@ -16,8 +14,8 @@ from . import _convert as conv
 
 def _build_cloud_init_info(
     *,
-    user_data: Optional[str],
-    network_config: Optional[str],
+    user_data: str | None,
+    network_config: str | None,
     inject_ssh_keys: bool,
 ):
     info = _schema.cloudinit.CloudInitInfo.new_message()
@@ -44,10 +42,10 @@ class AsyncCloudInitManager:
 
     async def set(
         self,
-        vm_ref: Union[int, str],
+        vm_ref: int | str,
         *,
-        user_data: Optional[str] = None,
-        network_config: Optional[str] = None,
+        user_data: str | None = None,
+        network_config: str | None = None,
         inject_ssh_keys: bool = False,
     ) -> None:
         mgr = await self._ensure()
@@ -60,11 +58,11 @@ class AsyncCloudInitManager:
         )
         await mgr.set(params=params)
 
-    async def get(self, vm_ref: Union[int, str]):
+    async def get(self, vm_ref: int | str):
         mgr = await self._ensure()
         resp = await mgr.get(vmRef=entity_ref(vm_ref))
         return conv.cloud_init_info(resp.config)
 
-    async def delete(self, vm_ref: Union[int, str]) -> None:
+    async def delete(self, vm_ref: int | str) -> None:
         mgr = await self._ensure()
         await mgr.delete(vmRef=entity_ref(vm_ref))

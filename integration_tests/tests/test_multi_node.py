@@ -23,10 +23,8 @@ from __future__ import annotations
 import time
 
 import pytest
-
 from corvus_client import ServerError
 from corvus_test_harness import OneDaemonTwoNodesCase, TwoDaemonsCase
-
 
 pytestmark = pytest.mark.slow
 

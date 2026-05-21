@@ -16,10 +16,8 @@ from __future__ import annotations
 import secrets
 
 import pytest
-
-from corvus_client import VmMustBeStopped
-from corvus_test_harness import Vm, SingleNodeCase
-
+from corvus_client import CorvusError, VmMustBeStopped
+from corvus_test_harness import SingleNodeCase, Vm
 
 pytestmark = pytest.mark.slow
 
@@ -59,7 +57,7 @@ class TestSnapshots(SingleNodeCase):
         try:
             first = disk.snapshot_create("same-name")
             try:
-                with pytest.raises(Exception):
+                with pytest.raises(CorvusError):
                     disk.snapshot_create("same-name")
                 # Only one row exists.
                 listed = disk.snapshot_list()

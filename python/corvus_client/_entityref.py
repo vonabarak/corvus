@@ -12,12 +12,10 @@ Callers who must address a digit-only name use `by_name=True`.
 
 from __future__ import annotations
 
-from typing import Union
-
 from . import _schema
 
 
-def entity_ref(value: Union[int, str], *, by_name: bool = False):
+def entity_ref(value: int | str, *, by_name: bool = False):
     """Build an EntityRef message ready to pass as a cap method arg.
 
     - `int` → `EntityRef.id`

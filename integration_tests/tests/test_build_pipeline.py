@@ -33,9 +33,6 @@ import secrets
 import textwrap
 
 import pytest
-
-import yaml as yamlmod
-
 from corvus_client._async.build import preprocess_build_yaml
 from corvus_client.types import (
     BuildPipelineEnd,
@@ -45,6 +42,7 @@ from corvus_client.types import (
 from corvus_test_harness import SingleNodeCase
 from corvus_test_harness.host_binary import REPO_ROOT
 
+import yaml as yamlmod
 
 pytestmark = [pytest.mark.slow, pytest.mark.timeout(1800)]
 

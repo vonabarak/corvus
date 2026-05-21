@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from .. import _schema
 from ..exceptions import translate_errors
 from . import _convert as conv
@@ -23,10 +21,10 @@ class AsyncTaskManager:
     async def list(
         self,
         *,
-        limit: Optional[int] = None,
-        subsystem: Optional[str] = None,
-        entity_id: Optional[int] = None,
-        result: Optional[str] = None,
+        limit: int | None = None,
+        subsystem: str | None = None,
+        entity_id: int | None = None,
+        result: str | None = None,
     ):
         mgr = await self._ensure()
         params = _schema.task.TaskListParams.new_message()
@@ -43,7 +41,7 @@ class AsyncTaskManager:
         resp = await mgr.list(params=params)
         return [conv.task_info(t) for t in resp.tasks]
 
-    async def get(self, task_id: int) -> "AsyncTask":
+    async def get(self, task_id: int) -> AsyncTask:
         mgr = await self._ensure()
         resp = await mgr.get(taskId=task_id)
         return AsyncTask(resp.task)

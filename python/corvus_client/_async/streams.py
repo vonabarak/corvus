@@ -11,11 +11,11 @@ A sentinel `_END` value indicates "stream finished — no more events."
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator, Awaitable, Callable, Optional
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 from .. import _schema
 from . import _convert as conv
-
 
 _END = object()  # sentinel pushed onto queues when the daemon ends a stream
 
@@ -28,10 +28,10 @@ _END = object()  # sentinel pushed onto queues when the daemon ends a stream
 class _ByteSinkServer(_schema.streams.ByteSink.Server):
     """Receive bytes from the daemon and forward them to a queue."""
 
-    def __init__(self, queue: "asyncio.Queue[Any]"):
+    def __init__(self, queue: asyncio.Queue[Any]):
         self._q = queue
 
-    async def write(self, chunk, _context):  # noqa: D401 - schema dictates name
+    async def write(self, chunk, _context):
         await self._q.put(("write", bytes(chunk)))
 
     async def end(self, _context):
@@ -44,7 +44,7 @@ class _ByteSinkServer(_schema.streams.ByteSink.Server):
 
 
 class _BuildEventSinkServer(_schema.streams.BuildEventSink.Server):
-    def __init__(self, queue: "asyncio.Queue[Any]"):
+    def __init__(self, queue: asyncio.Queue[Any]):
         self._q = queue
 
     async def push(self, event, _context):
@@ -97,7 +97,7 @@ async def stream_build_events(daemon, yaml: str) -> AsyncIterator[Any]:
                 # BuildLogLine / BuildStepStart / ... event dataclasses
                 ...
     """
-    queue: "asyncio.Queue[Any]" = asyncio.Queue()
+    queue: asyncio.Queue[Any] = asyncio.Queue()
     sink = _BuildEventSinkServer(queue)
     promise = daemon.build(yaml=yaml, sink=sink)
     # Drain events from the queue. The daemon signals end-of-stream
@@ -167,12 +167,12 @@ class ByteStream:
     signal end-of-input.
     """
 
-    def __init__(self, input_cap, inbound_queue: "asyncio.Queue[Any]"):
+    def __init__(self, input_cap, inbound_queue: asyncio.Queue[Any]):
         self._input = input_cap
         self._q = inbound_queue
         self._closed_in = False
 
-    async def read(self) -> Optional[bytes]:
+    async def read(self) -> bytes | None:
         kind, payload = await self._q.get()
         if kind == "end":
             return None
@@ -200,7 +200,7 @@ async def open_byte_stream(method, **kwargs) -> ByteStream:
     `method` is e.g. `vm_cap.serialConsole` or `vm_cap.hmpMonitor`.
     The caller passes the sink and the daemon returns the input cap.
     """
-    queue: "asyncio.Queue[Any]" = asyncio.Queue()
+    queue: asyncio.Queue[Any] = asyncio.Queue()
     sink = _ByteSinkServer(queue)
     resp = await method(sink=sink, **kwargs)
     return ByteStream(resp.input, queue)

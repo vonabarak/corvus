@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from ._resource import LoopBoundResource
 
 
@@ -15,10 +13,10 @@ class SyncTaskManager:
     def list(
         self,
         *,
-        limit: Optional[int] = None,
-        subsystem: Optional[str] = None,
-        entity_id: Optional[int] = None,
-        result: Optional[str] = None,
+        limit: int | None = None,
+        subsystem: str | None = None,
+        entity_id: int | None = None,
+        result: str | None = None,
     ):
         return self._rl.run(
             self._a.list(

@@ -9,7 +9,6 @@ Every public method calls into the async core via
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from .._async.client import AsyncClient
 from .._runloop import SyncRunloop
@@ -27,11 +26,11 @@ class Client:
     def __init__(
         self,
         *,
-        unix_socket: Optional[str] = None,
-        host: Optional[str] = None,
+        unix_socket: str | None = None,
+        host: str | None = None,
         port: int = 9876,
-        cert_dir: Optional[str | Path] = None,
-        tls: Optional[bool] = None,
+        cert_dir: str | Path | None = None,
+        tls: bool | None = None,
     ) -> None:
         """See :class:`corvus_client.AsyncClient` for the full
         argument list — the sync wrapper is intentionally a 1:1
@@ -75,7 +74,7 @@ class Client:
         finally:
             self._rl.close()
 
-    def __enter__(self) -> "Client":
+    def __enter__(self) -> Client:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

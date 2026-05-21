@@ -15,10 +15,10 @@ this module shrinks to a dict lookup.
 from __future__ import annotations
 
 import re
-from typing import Any, Awaitable, Callable, Optional, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 import capnp
-
 
 # ---------------------------------------------------------------------------
 # Hierarchy
@@ -258,7 +258,6 @@ def translate_errors(cls):
     Applied to each Async* class so callers see typed
     `CorvusError` subclasses instead of raw `capnp.KjException`.
     """
-    import asyncio as _asyncio
     import inspect
 
     for name, attr in list(vars(cls).items()):

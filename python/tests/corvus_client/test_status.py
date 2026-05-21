@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 
 import capnp
-import pytest
-
 from corvus_client._async.client import AsyncClient
 
 

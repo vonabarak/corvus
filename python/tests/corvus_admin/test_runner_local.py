@@ -4,12 +4,7 @@ to in-process logic that doesn't touch sshd."""
 
 from __future__ import annotations
 
-import os
-import stat
-import subprocess
-
 import pytest
-
 from corvus_admin.runner import LocalRunner, RunnerError, for_target
 
 

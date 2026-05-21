@@ -15,7 +15,7 @@ def test_task_list_after_disk_create(daemon_socket):
 
     async def go(c):
         disk = await c.disks.create("py-task-disk", size_mb=32)
-        info = await disk.show()
+        await disk.show()
         tasks = await c.tasks.list(subsystem="disk")
         assert tasks, "expected at least one disk task after create"
         # Look up one task by id via the resource cap.

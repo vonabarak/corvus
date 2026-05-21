@@ -16,7 +16,6 @@ through the second node).
 from __future__ import annotations
 
 import pytest
-
 from corvus_client import NodeInUse, NodeNotFound, ServerError
 
 from ._helpers import with_client

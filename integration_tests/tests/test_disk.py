@@ -12,10 +12,8 @@ from __future__ import annotations
 import secrets
 
 import pytest
-
 from corvus_client import VmMustBeStopped
-from corvus_test_harness import Vm, VmSsh, SingleNodeCase
-
+from corvus_test_harness import SingleNodeCase, Vm, VmSsh
 
 pytestmark = pytest.mark.slow
 
@@ -99,9 +97,8 @@ class TestDisk(SingleNodeCase):
         """Cloning a disk attached to a running VM must fail with
         `VmMustBeStopped`. The disk is the Alpine vm's overlay,
         which is attached and busy for the lifetime of the `with`."""
-        with Vm(self) as vm:
-            with pytest.raises(VmMustBeStopped):
-                self.client.disks.clone(vm.name, _uniq("clone-while-running"))
+        with Vm(self) as vm, pytest.raises(VmMustBeStopped):
+            self.client.disks.clone(vm.name, _uniq("clone-while-running"))
 
     def test_clone_to_custom_path(self):
         """`disks.clone(..., path=...)` writes the clone to an
@@ -176,7 +173,7 @@ class TestDisk(SingleNodeCase):
         base_a = _uniq("rebase-a")
         base_b = _uniq("rebase-b")
         overlay = _uniq("rebase-top")
-        a = self.client.disks.create(base_a, size_mb=8, format="qcow2")
+        self.client.disks.create(base_a, size_mb=8, format="qcow2")
         b = self.client.disks.create(base_b, size_mb=8, format="qcow2")
         try:
             ov = self.client.disks.create_overlay(overlay, base_a)
@@ -261,7 +258,7 @@ class TestDisk(SingleNodeCase):
         disk = self.client.disks.create(name, size_mb=4, format="qcow2")
         try:
             src_path = disk.show().placements[0].file_path
-            with pytest.raises(Exception, match="(?i)same"):
+            with pytest.raises(Exception, match=r"(?i)same"):
                 # Re-importing under the same name targets the same
                 # `<basePath>/<name>.qcow2` destination — canonicalised
                 # source and dest collide.
@@ -355,14 +352,14 @@ class TestDisk(SingleNodeCase):
 
     # ---- helpers -----------------------------------------------------------
 
-    def _guest_vd_count(self, vm: "VmSsh") -> int:
+    def _guest_vd_count(self, vm: VmSsh) -> int:
         """Count of /dev/vd* block devices the guest kernel exposes."""
         out = vm.run("ls /dev/vd* 2>/dev/null | wc -l").stdout.strip()
         return int(out or "0")
 
     def _wait_vd_count(
         self,
-        vm: "VmSsh",
+        vm: VmSsh,
         target: int,
         *,
         timeout_sec: float = 10.0,

@@ -15,10 +15,9 @@ from __future__ import annotations
 
 import os
 import ssl
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional
-
 
 # ---------------------------------------------------------------------------
 # Role / CN convention — keep aligned with Corvus.Tls (Haskell)
@@ -85,7 +84,7 @@ def _xdg_config_home() -> Path:
 def resolve_cert_dir(
     search_path: Iterable[Path],
     needed: Iterable[str],
-) -> Optional[Path]:
+) -> Path | None:
     """Return the first dir under *search_path* that contains
     every entry in *needed*. ``None`` when nothing matches."""
 
@@ -110,15 +109,15 @@ class TlsBundle:
     cert_dir: Path
     own_cn_prefix: str
     expected_peer_prefix: str
-    expected_peer_name: Optional[str]
+    expected_peer_name: str | None
 
 
 def build_client_bundle(
-    cert_dir: Optional[Path] = None,
+    cert_dir: Path | None = None,
     *,
     role: str = ROLE_CLIENT,
     expected_peer_prefix: str = ROLE_DAEMON,
-    expected_peer_name: Optional[str] = None,
+    expected_peer_name: str | None = None,
 ) -> TlsBundle:
     """Build a TLS bundle for a client of the given *role*.
     Defaults match the most-common case: the CLI / Python client
@@ -181,7 +180,7 @@ def build_client_bundle(
 # Post-handshake CN validation
 
 
-def extract_cn(peercert: dict) -> Optional[str]:
+def extract_cn(peercert: dict) -> str | None:
     """Pull the CN out of the dict shape :py:meth:`ssl.SSLSocket.getpeercert`
     returns. The dict carries ``subject`` as a tuple of
     ``((('commonName', 'corvus-daemon:...'),),)``-style nested

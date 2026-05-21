@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
-
 
 # ---------------------------------------------------------------------------
 # Common
@@ -43,8 +41,8 @@ class ViewGrant:
 
 @dataclass(frozen=True)
 class CloudInitInfo:
-    user_data: Optional[str] = None
-    network_config: Optional[str] = None
+    user_data: str | None = None
+    network_config: str | None = None
     inject_ssh_keys: bool = False
 
 
@@ -64,7 +62,7 @@ class VmInfo:
     guest_agent: bool
     cloud_init: bool
     autostart: bool
-    last_healthcheck: Optional[datetime] = None
+    last_healthcheck: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -87,9 +85,9 @@ class NetIfInfo:
     type: str
     host_device: str
     mac_address: str
-    network_id: Optional[int] = None
-    network_name: Optional[str] = None
-    guest_ip_addresses: Optional[str] = None
+    network_id: int | None = None
+    network_name: str | None = None
+    guest_ip_addresses: str | None = None
 
 
 @dataclass(frozen=True)
@@ -99,7 +97,7 @@ class SharedDirInfo:
     tag: str
     cache: str
     read_only: bool
-    pid: Optional[int] = None
+    pid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -120,13 +118,13 @@ class VmDetails:
     drives: list[DriveInfo] = field(default_factory=list)
     net_ifs: list[NetIfInfo] = field(default_factory=list)
     shared_dirs: list[SharedDirInfo] = field(default_factory=list)
-    description: Optional[str] = None
-    spice_port: Optional[int] = None
-    vsock_cid: Optional[int] = None
-    cloud_init_config: Optional[CloudInitInfo] = None
-    last_healthcheck: Optional[datetime] = None
-    error_message: Optional[str] = None
-    last_error_at: Optional[datetime] = None
+    description: str | None = None
+    spice_port: int | None = None
+    vsock_cid: int | None = None
+    cloud_init_config: CloudInitInfo | None = None
+    last_healthcheck: datetime | None = None
+    error_message: str | None = None
+    last_error_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -171,9 +169,9 @@ class DiskImageInfo:
     created_at: datetime
     placements: list[DiskImagePlacement] = field(default_factory=list)
     attached_to: list[DiskAttachment] = field(default_factory=list)
-    size_mb: Optional[int] = None
-    backing_image_id: Optional[int] = None
-    backing_image_name: Optional[str] = None
+    size_mb: int | None = None
+    backing_image_id: int | None = None
+    backing_image_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -181,7 +179,7 @@ class SnapshotInfo:
     id: int
     name: str
     created_at: datetime
-    size_mb: Optional[int] = None
+    size_mb: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -205,14 +203,14 @@ class NodeInfo:
     net_agent_port: int
     admin_state: str
     created_at: datetime
-    cpu_count: Optional[int] = None
-    ram_mb_total: Optional[int] = None
-    ram_mb_free: Optional[int] = None
-    storage_bytes_total: Optional[int] = None
-    storage_bytes_free: Optional[int] = None
-    load_avg1: Optional[float] = None
-    last_node_agent_push_at: Optional[datetime] = None
-    last_net_agent_push_at: Optional[datetime] = None
+    cpu_count: int | None = None
+    ram_mb_total: int | None = None
+    ram_mb_free: int | None = None
+    storage_bytes_total: int | None = None
+    storage_bytes_free: int | None = None
+    load_avg1: float | None = None
+    last_node_agent_push_at: datetime | None = None
+    last_net_agent_push_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -227,19 +225,19 @@ class NodeDetails:
     base_path: str
     admin_state: str
     created_at: datetime
-    description: Optional[str] = None
-    cpu_count: Optional[int] = None
-    ram_mb_total: Optional[int] = None
-    ram_mb_free: Optional[int] = None
-    storage_bytes_total: Optional[int] = None
-    storage_bytes_free: Optional[int] = None
-    load_avg1: Optional[float] = None
-    load_avg5: Optional[float] = None
-    load_avg15: Optional[float] = None
-    kernel_release: Optional[str] = None
-    agent_version: Optional[str] = None
-    last_node_agent_push_at: Optional[datetime] = None
-    last_net_agent_push_at: Optional[datetime] = None
+    description: str | None = None
+    cpu_count: int | None = None
+    ram_mb_total: int | None = None
+    ram_mb_free: int | None = None
+    storage_bytes_total: int | None = None
+    storage_bytes_free: int | None = None
+    load_avg1: float | None = None
+    load_avg5: float | None = None
+    load_avg15: float | None = None
+    kernel_release: str | None = None
+    agent_version: str | None = None
+    last_node_agent_push_at: datetime | None = None
+    last_net_agent_push_at: datetime | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +255,7 @@ class NetworkInfo:
     running: bool
     autostart: bool
     created_at: datetime
-    dnsmasq_pid: Optional[int] = None
+    dnsmasq_pid: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +292,7 @@ class TemplateVmInfo:
     headless: bool
     guest_agent: bool
     autostart: bool
-    description: Optional[str] = None
+    description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -304,17 +302,17 @@ class TemplateDriveInfo:
     cache_type: str
     discard: bool
     clone_strategy: str
-    disk_image_id: Optional[int] = None
-    disk_image_name: Optional[str] = None
-    media: Optional[str] = None
-    size_mb: Optional[int] = None
-    format: Optional[str] = None
+    disk_image_id: int | None = None
+    disk_image_name: str | None = None
+    media: str | None = None
+    size_mb: int | None = None
+    format: str | None = None
 
 
 @dataclass(frozen=True)
 class TemplateNetIfInfo:
     type: str
-    host_device: Optional[str] = None
+    host_device: str | None = None
 
 
 @dataclass(frozen=True)
@@ -337,8 +335,8 @@ class TemplateDetails:
     drives: list[TemplateDriveInfo] = field(default_factory=list)
     net_ifs: list[TemplateNetIfInfo] = field(default_factory=list)
     ssh_keys: list[TemplateSshKeyInfo] = field(default_factory=list)
-    description: Optional[str] = None
-    cloud_init_config: Optional[CloudInitInfo] = None
+    description: str | None = None
+    cloud_init_config: CloudInitInfo | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -353,11 +351,11 @@ class TaskInfo:
     subsystem: str
     command: str
     result: str
-    parent_id: Optional[int] = None
-    finished_at: Optional[datetime] = None
-    entity_id: Optional[int] = None
-    entity_name: Optional[str] = None
-    message: Optional[str] = None
+    parent_id: int | None = None
+    finished_at: datetime | None = None
+    entity_id: int | None = None
+    entity_name: str | None = None
+    message: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -407,21 +405,21 @@ class BuildStepOutput:
 class BuildStepEnd:
     step_index: int
     result: str
-    message: Optional[str] = None
+    message: str | None = None
 
 
 @dataclass(frozen=True)
 class BuildBuildEnd:
     success: bool
-    error_message: Optional[str] = None
-    artifact_disk_id: Optional[int] = None
+    error_message: str | None = None
+    artifact_disk_id: int | None = None
 
 
 @dataclass(frozen=True)
 class BuildOneResult:
     name: str
-    artifact_disk_id: Optional[int] = None
-    error_message: Optional[str] = None
+    artifact_disk_id: int | None = None
+    error_message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -434,8 +432,8 @@ class GuestAgentStatus:
     vm_id: int
     enabled: bool
     reachable: bool
-    last_healthcheck: Optional[datetime] = None
-    message: Optional[str] = None
+    last_healthcheck: datetime | None = None
+    message: str | None = None
 
 
 @dataclass(frozen=True)
@@ -449,12 +447,12 @@ class TaskProgressStarted:
 class TaskProgressProgress:
     task_id: int
     completed: int
-    total: Optional[int] = None
-    label: Optional[str] = None
+    total: int | None = None
+    label: str | None = None
 
 
 @dataclass(frozen=True)
 class TaskProgressFinished:
     task_id: int
     result: str
-    message: Optional[str] = None
+    message: str | None = None

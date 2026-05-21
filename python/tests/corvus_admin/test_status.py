@@ -10,8 +10,8 @@ import threading
 from contextlib import contextmanager
 
 import pytest
-
-from corvus_admin import ca, deploy, status as status_mod, store
+from corvus_admin import ca, deploy, store
+from corvus_admin import status as status_mod
 
 
 @pytest.fixture()

@@ -40,12 +40,11 @@ import uuid
 from dataclasses import dataclass
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from corvus_admin.store import AdminStore, IssuedRecord
-
 
 # ---------------------------------------------------------------------------
 # Role table
