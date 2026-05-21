@@ -43,7 +43,7 @@ RENEW_WINDOW = dt.timedelta(days=30)
 
 # System install paths. Keep these constants in sync with the
 # Haskell-side default search path (Corvus.Tls.defaultCertSearchPath
-# tries /etc/corvus first, then $XDG_CONFIG_HOME/corvus).
+# tries $XDG_CONFIG_HOME/corvus first, then /etc/corvus).
 SYSTEM_CERT_DIR = "/etc/corvus"
 SYSTEM_CERT_MODE = 0o644
 SYSTEM_KEY_MODE = 0o600

@@ -16,9 +16,14 @@
 -- * @corvus-netd.{crt,key}@                     — CN @corvus-netd:<name>@
 -- * @corvus-client.{crt,key}@                   — CN @corvus-client:<name>@
 --
--- Cert files are searched first under @/etc/corvus/@, then under
--- @$XDG_CONFIG_HOME/corvus/@ (default @~/.config/corvus/@). Client
--- certs are user-owned, so the CLI's resolver skips @/etc/corvus@.
+-- Cert files are searched first under @$XDG_CONFIG_HOME/corvus/@
+-- (default @~/.config/corvus/@), then under @/etc/corvus/@. The
+-- user-dir-first ordering lets a user-systemd daemon load its own
+-- certs even when @/etc/corvus@ holds an unrelated (and possibly
+-- unreadable) system-mode install. A directory whose cert files
+-- exist but can't be read by the current user is skipped so the
+-- search falls through cleanly. Client certs are user-owned, so
+-- the CLI's resolver skips @/etc/corvus@ entirely.
 --
 -- After every TLS handshake the receiving side reads the peer's CN
 -- and validates the prefix (and, for daemon→agent links, the node
@@ -78,7 +83,7 @@ import qualified Data.X509.Validation as X509Val
 import qualified Network.Socket as NS
 import qualified Network.TLS as TLS
 import qualified Network.TLS.Extra.Cipher as TLSC
-import System.Directory (doesFileExist)
+import System.Directory (Permissions, doesFileExist, getPermissions, readable)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
 
@@ -119,12 +124,13 @@ newtype CertSearchPath = CertSearchPath {certSearchDirs :: [FilePath]}
   deriving (Eq, Show)
 
 -- | Default search path for every component except the CLI:
--- @/etc/corvus/@ then @$XDG_CONFIG_HOME/corvus/@ (default
--- @~/.config/corvus/@).
+-- @$XDG_CONFIG_HOME/corvus/@ (default @~/.config/corvus/@), then
+-- @/etc/corvus/@. User-dir-first so a user-systemd daemon doesn't
+-- get derailed by stale or unreadable files in @/etc/corvus@.
 defaultCertSearchPath :: IO CertSearchPath
 defaultCertSearchPath = do
   xdg <- resolveXdgConfigDir
-  pure (CertSearchPath ["/etc/corvus", xdg])
+  pure (CertSearchPath [xdg, "/etc/corvus"])
 
 -- | Client-side search path. Client certs are user-owned and live
 -- only under @$XDG_CONFIG_HOME/corvus/@; @/etc/corvus/@ is
@@ -146,19 +152,32 @@ resolveXdgConfigDir = do
         Just h | not (null h) -> pure (h </> ".config" </> "corvus")
         _ -> pure ("/.config" </> "corvus")
 
--- | Walk a 'CertSearchPath' and return the first directory that
--- contains all of the requested filenames. The caller's
--- diagnostic in the 'Nothing' branch should mention every path
--- tried.
+-- | Walk a 'CertSearchPath' and return the first directory in
+-- which every requested filename exists AND is readable by the
+-- current process. A directory whose files exist but are mode-
+-- denied is treated as a miss so the search falls through to the
+-- next candidate — that's what lets a user-systemd daemon recover
+-- when @/etc/corvus@ holds a root-owned cert set it can't open.
+-- The caller's diagnostic in the 'Nothing' branch should mention
+-- every path tried.
 resolveCertDir :: CertSearchPath -> [FilePath] -> IO (Maybe FilePath)
 resolveCertDir (CertSearchPath dirs) needed = go dirs
   where
     go [] = pure Nothing
     go (d : rest) = do
-      oks <- mapM (\f -> doesFileExist (d </> f)) needed
+      oks <- mapM (isAccessible . (d </>)) needed
       if and oks
         then pure (Just d)
         else go rest
+    isAccessible f = do
+      ex <- doesFileExist f
+      if not ex
+        then pure False
+        else do
+          eperms <- E.try (getPermissions f) :: IO (Either E.IOException Permissions)
+          pure $ case eperms of
+            Right p -> readable p
+            Left _ -> False
 
 -- ---------------------------------------------------------------------------
 -- Configuration
@@ -177,8 +196,8 @@ data TlsConfig = TlsConfig
   , tcCertDir :: !FilePath
   -- ^ The directory the cert/key/ca trio was loaded from.
   -- Reported in startup logs so operators see which file won
-  -- when both @/etc/corvus@ and @$XDG_CONFIG_HOME/corvus@ have
-  -- entries.
+  -- when both @$XDG_CONFIG_HOME/corvus@ and @/etc/corvus@ have
+  -- entries (the user dir wins).
   , tcCredentials :: !TLS.Credentials
   -- ^ Own cert chain + private key, packed for 'TLS.Shared'.
   , tcCAStore :: !X509Store.CertificateStore

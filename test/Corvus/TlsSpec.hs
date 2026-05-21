@@ -19,6 +19,8 @@ import Corvus.Tls
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (setFileMode)
+import System.Posix.User (getRealUserID)
 import Test.Hspec
 
 spec :: Spec
@@ -79,10 +81,11 @@ spec = do
             ["ca.crt", "corvus-daemon.crt", "corvus-daemon.key"]
         resolved `shouldBe` Nothing
     it "prefers the earliest directory in the search path" $
-      -- This is the rule that makes /etc/corvus override
-      -- \$XDG_CONFIG_HOME/corvus: the loader picks whichever
-      -- directory comes first in the path *and* has every
-      -- required file.
+      -- The loader picks whichever directory comes first in the
+      -- path *and* has every required file. Default ordering
+      -- (see defaultCertSearchPath) puts \$XDG_CONFIG_HOME/corvus
+      -- ahead of /etc/corvus so a user-systemd daemon doesn't
+      -- get sidetracked by stale system-mode files.
       withSystemTempDirectory "corvus-tls-spec" $ \root -> do
         let dirA = root </> "first"
             dirB = root </> "second"
@@ -94,6 +97,28 @@ spec = do
             sp
             ["ca.crt", "corvus-daemon.crt", "corvus-daemon.key"]
         resolved `shouldBe` Just dirA
+    it "falls through past a directory whose files exist but aren't readable" $
+      -- The system-mode → user-mode fallback case: \/etc\/corvus
+      -- has a root-owned cert set the user-systemd daemon can't
+      -- read; the loader must skip past it instead of erroring.
+      -- The test runs as a non-root user; if we ARE root,
+      -- chmod 000 still keeps root readable, so skip then.
+      withSystemTempDirectory "corvus-tls-spec" $ \root -> do
+        uid <- getRealUserID
+        if uid == 0
+          then pendingWith "permission check is a no-op as root"
+          else do
+            let dirA = root </> "unreadable"
+                dirB = root </> "readable"
+            mkDirWithFiles dirA ["ca.crt", "corvus-daemon.crt", "corvus-daemon.key"]
+            mkDirWithFiles dirB ["ca.crt", "corvus-daemon.crt", "corvus-daemon.key"]
+            setFileMode (dirA </> "corvus-daemon.key") 0o000
+            let sp = CertSearchPath [dirA, dirB]
+            resolved <-
+              resolveCertDir
+                sp
+                ["ca.crt", "corvus-daemon.crt", "corvus-daemon.key"]
+            resolved `shouldBe` Just dirB
 
 -- | Make a directory and touch each named file inside it.
 mkDirWithFiles :: FilePath -> [FilePath] -> IO ()

@@ -38,10 +38,15 @@ matches the role's CN prefix:
 
 The Haskell daemon and agents search for their cert trio in:
 
-1. `/etc/corvus/` — the system-install location (`corvus-admin`
+1. `$XDG_CONFIG_HOME/corvus/` (default `~/.config/corvus/`) — the
+   user-systemd-service variant (and `corvus-admin quickstart`
    default).
-2. `$XDG_CONFIG_HOME/corvus/` (default `~/.config/corvus/`) — for
-   the user-systemd-service variant.
+2. `/etc/corvus/` — system-mode installs.
+
+A directory whose cert files exist but aren't readable by the
+running process (e.g. root-owned `/etc/corvus/*.key` on a
+user-systemd daemon) is treated as a miss and the search falls
+through to the next candidate.
 
 **Exception**: client certs are read from
 `$XDG_CONFIG_HOME/corvus/` only — never `/etc/corvus`. The

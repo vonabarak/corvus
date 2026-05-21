@@ -96,7 +96,7 @@ optionsParser =
       ( strOption
           ( long "tls-cert-dir"
               <> metavar "DIR"
-              <> help "Directory containing ca.crt + corvus-netd.crt + corvus-netd.key (default: search /etc/corvus then $XDG_CONFIG_HOME/corvus)"
+              <> help "Directory containing ca.crt + corvus-netd.crt + corvus-netd.key (default: search $XDG_CONFIG_HOME/corvus then /etc/corvus)"
           )
       )
 
