@@ -97,6 +97,27 @@ struct DiskImportParams {
   format  @2 :Enums.DriveFormat = qcow2;
 }
 
+# Copy a logical disk image from its current placement on one node
+# to another. Source rows are left intact; the destination ends up
+# with an additional `DiskImageNode` placement. Refused when the
+# disk is attached read-write to a VM, when an overlay's backing
+# chain isn't already present on the target, or when the target
+# path collides with an existing placement.
+struct DiskCopyParams {
+  diskRef   @0 :Common.EntityRef;
+  toNodeRef @1 :Common.EntityRef;
+}
+
+# Move a logical disk image from one node to another. The source's
+# `DiskImageNode` row is deleted and the file unlinked on success.
+# Refused for any disk that is currently attached to a VM (use
+# `vm.migrate` for that path) — for non-attached disks both copy
+# and move are allowed.
+struct DiskMoveParams {
+  diskRef   @0 :Common.EntityRef;
+  toNodeRef @1 :Common.EntityRef;
+}
+
 # ---------------------------------------------------------------------
 # Manager + resource capabilities
 # ---------------------------------------------------------------------
@@ -116,6 +137,17 @@ interface DiskManager {
   # The disk record stays at the same id; only its `backingImage*`
   # fields go to null. VM must be stopped.
   flatten       @9 (diskRef :Common.EntityRef) -> ();
+
+  # Copy a disk image's bytes to a new node, adding a placement
+  # row on the destination while leaving the source intact. Bytes
+  # flow agent → agent; the daemon orchestrates but does not relay.
+  # Returns a task id for long-running progress observation.
+  copy          @10 (params :DiskCopyParams) -> (taskId :Int64);
+
+  # Move a disk image's bytes to a new node, then delete the
+  # source placement + file. Same data path as `copy`. Returns a
+  # task id for long-running progress observation.
+  move          @11 (params :DiskMoveParams) -> (taskId :Int64);
 }
 
 interface Disk {

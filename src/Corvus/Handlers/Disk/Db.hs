@@ -9,11 +9,13 @@ module Corvus.Handlers.Disk.Db
   ( -- * Attachment queries
     getAttachedVms
   , getRunningAttachedVms
+  , getReadWriteAttachedVms
 
     -- * Overlay / backing chain
   , getOverlayIds
   , isCircularBacking
   , getBackingImageName
+  , getBackingChainIds
 
     -- * Deletion
   , deleteDiskAndSnapshots
@@ -27,6 +29,7 @@ module Corvus.Handlers.Disk.Db
   , recordDiskImageNode
   , diskImageNodeFor
   , diskImageNodeFilePathFor
+  , hasPlacementOnNode
   , listDiskImageNodes
   , deleteDiskImageNodeRow
   )
@@ -60,6 +63,23 @@ getRunningAttachedVms diskId = do
   let vmKeys = map (driveVmId . entityVal) drives
   activeVms <- selectList [M.VmId <-. vmKeys, M.VmStatus <-. [VmRunning, VmPaused]] []
   pure $ map (fromSqlKey . entityKey) activeVms
+
+-- | Get VM (id, name) pairs that have this disk attached
+-- read-write. Used by @crv disk copy@/@move@ to refuse moving an
+-- in-use writable image without going through @vm migrate@.
+getReadWriteAttachedVms :: Int64 -> SqlPersistT IO [(Int64, T.Text)]
+getReadWriteAttachedVms diskId = do
+  drives <-
+    selectList
+      [ M.DriveDiskImageId ==. toSqlKey diskId
+      , M.DriveReadOnly ==. False
+      ]
+      []
+  let vmKeys = map (driveVmId . entityVal) drives
+  forM vmKeys $ \vmKey -> do
+    mVm <- get vmKey
+    let name = maybe "(deleted)" vmName mVm
+    pure (fromSqlKey vmKey, name)
 
 -- | Get overlay disk (ID, name) pairs that reference this disk as a backing image.
 getOverlayIds :: Int64 -> SqlPersistT IO [(Int64, T.Text)]
@@ -96,6 +116,19 @@ getBackingImageName Nothing = pure Nothing
 getBackingImageName (Just backingKey) = do
   mBacking <- get backingKey
   pure $ fmap diskImageName mBacking
+
+-- | Walk a disk image's backing chain and return every ancestor's
+-- 'DiskImageId' in nearest-first order. The disk itself is *not*
+-- included. Empty for non-overlay images. Stops if the chain
+-- contains a missing parent (which would indicate a stale row).
+getBackingChainIds :: Int64 -> SqlPersistT IO [DiskImageId]
+getBackingChainIds diskId = go (toSqlKey diskId)
+  where
+    go key = do
+      mDisk <- get key
+      case mDisk >>= diskImageBackingImageId of
+        Nothing -> pure []
+        Just parent -> (parent :) <$> go parent
 
 -- | Resolve placements for one disk: every 'DiskImageNode' row
 -- joined with the matching 'Node' name so the DTO carries
@@ -196,6 +229,15 @@ diskImageNodeFilePathFor :: DiskImageId -> NodeId -> SqlPersistT IO (Maybe Text)
 diskImageNodeFilePathFor diskId nodeId = do
   r <- diskImageNodeFor diskId nodeId
   pure $ fmap (diskImageNodeFilePath . entityVal) r
+
+-- | Convenience: 'True' if the (disk, node) pair already has a
+-- 'DiskImageNode' placement row.
+hasPlacementOnNode :: DiskImageId -> NodeId -> SqlPersistT IO Bool
+hasPlacementOnNode diskId nodeId = do
+  r <- diskImageNodeFor diskId nodeId
+  pure $ case r of
+    Just _ -> True
+    Nothing -> False
 
 -- | List every 'DiskImageNode' row for a logical image.
 listDiskImageNodes :: DiskImageId -> SqlPersistT IO [Entity DiskImageNode]

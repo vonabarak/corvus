@@ -500,6 +500,76 @@ instance (GH.HasField "srcPath" GH.Slot DiskImportParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "format" GH.Slot DiskImportParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat) where
     fieldByLabel  = (GH.dataField 0 0 16 0)
+data DiskCopyParams 
+type instance (R.ReprFor DiskCopyParams) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskCopyParams) where
+    typeId  = 10673387965178120780
+instance (C.TypedStruct DiskCopyParams) where
+    numStructWords  = 0
+    numStructPtrs  = 2
+instance (C.Allocate DiskCopyParams) where
+    type AllocHint DiskCopyParams = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskCopyParams (C.Parsed DiskCopyParams))
+instance (C.AllocateList DiskCopyParams) where
+    type ListAllocHint DiskCopyParams = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskCopyParams (C.Parsed DiskCopyParams))
+data instance C.Parsed DiskCopyParams
+    = DiskCopyParams 
+        {diskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
+        ,toNodeRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskCopyParams))
+deriving instance (Std_.Eq (C.Parsed DiskCopyParams))
+instance (C.Parse DiskCopyParams (C.Parsed DiskCopyParams)) where
+    parse raw_ = (DiskCopyParams <$> (GH.parseField #diskRef raw_)
+                                 <*> (GH.parseField #toNodeRef raw_))
+instance (C.Marshal DiskCopyParams (C.Parsed DiskCopyParams)) where
+    marshalInto raw_ DiskCopyParams{..} = (do
+        (GH.encodeField #diskRef diskRef raw_)
+        (GH.encodeField #toNodeRef toNodeRef raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "diskRef" GH.Slot DiskCopyParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "toNodeRef" GH.Slot DiskCopyParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 1)
+data DiskMoveParams 
+type instance (R.ReprFor DiskMoveParams) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskMoveParams) where
+    typeId  = 12946892671933591168
+instance (C.TypedStruct DiskMoveParams) where
+    numStructWords  = 0
+    numStructPtrs  = 2
+instance (C.Allocate DiskMoveParams) where
+    type AllocHint DiskMoveParams = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskMoveParams (C.Parsed DiskMoveParams))
+instance (C.AllocateList DiskMoveParams) where
+    type ListAllocHint DiskMoveParams = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskMoveParams (C.Parsed DiskMoveParams))
+data instance C.Parsed DiskMoveParams
+    = DiskMoveParams 
+        {diskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
+        ,toNodeRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskMoveParams))
+deriving instance (Std_.Eq (C.Parsed DiskMoveParams))
+instance (C.Parse DiskMoveParams (C.Parsed DiskMoveParams)) where
+    parse raw_ = (DiskMoveParams <$> (GH.parseField #diskRef raw_)
+                                 <*> (GH.parseField #toNodeRef raw_))
+instance (C.Marshal DiskMoveParams (C.Parsed DiskMoveParams)) where
+    marshalInto raw_ DiskMoveParams{..} = (do
+        (GH.encodeField #diskRef diskRef raw_)
+        (GH.encodeField #toNodeRef toNodeRef raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "diskRef" GH.Slot DiskMoveParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "toNodeRef" GH.Slot DiskMoveParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 1)
 data DiskManager 
 type instance (R.ReprFor DiskManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskManager) where
@@ -518,9 +588,11 @@ instance (GH.Export DiskManager) where
                                                                              ,(GH.toUntypedMethodHandler ((diskManager'rebase) s_))
                                                                              ,(GH.toUntypedMethodHandler ((diskManager'importUrl) s_))
                                                                              ,(GH.toUntypedMethodHandler ((diskManager'import_) s_))
-                                                                             ,(GH.toUntypedMethodHandler ((diskManager'flatten) s_))] [])
+                                                                             ,(GH.toUntypedMethodHandler ((diskManager'flatten) s_))
+                                                                             ,(GH.toUntypedMethodHandler ((diskManager'copy) s_))
+                                                                             ,(GH.toUntypedMethodHandler ((diskManager'move) s_))] [])
 class (DiskManager'server_ s_) where
-    {-# MINIMAL diskManager'list,diskManager'get,diskManager'create,diskManager'register,diskManager'createOverlay,diskManager'clone,diskManager'rebase,diskManager'importUrl,diskManager'import_,diskManager'flatten #-}
+    {-# MINIMAL diskManager'list,diskManager'get,diskManager'create,diskManager'register,diskManager'createOverlay,diskManager'clone,diskManager'rebase,diskManager'importUrl,diskManager'import_,diskManager'flatten,diskManager'copy,diskManager'move #-}
     diskManager'list :: s_ -> (GH.MethodHandler DiskManager'list'params DiskManager'list'results)
     diskManager'list _ = GH.methodUnimplemented
     diskManager'get :: s_ -> (GH.MethodHandler DiskManager'get'params DiskManager'get'results)
@@ -541,6 +613,10 @@ class (DiskManager'server_ s_) where
     diskManager'import_ _ = GH.methodUnimplemented
     diskManager'flatten :: s_ -> (GH.MethodHandler DiskManager'flatten'params DiskManager'flatten'results)
     diskManager'flatten _ = GH.methodUnimplemented
+    diskManager'copy :: s_ -> (GH.MethodHandler DiskManager'copy'params DiskManager'copy'results)
+    diskManager'copy _ = GH.methodUnimplemented
+    diskManager'move :: s_ -> (GH.MethodHandler DiskManager'move'params DiskManager'move'results)
+    diskManager'move _ = GH.methodUnimplemented
 instance (GH.HasMethod "list" DiskManager DiskManager'list'params DiskManager'list'results) where
     methodByLabel  = (GH.Method 14751763957337118315 0)
 instance (GH.HasMethod "get" DiskManager DiskManager'get'params DiskManager'get'results) where
@@ -561,6 +637,10 @@ instance (GH.HasMethod "import_" DiskManager DiskManager'import'params DiskManag
     methodByLabel  = (GH.Method 14751763957337118315 8)
 instance (GH.HasMethod "flatten" DiskManager DiskManager'flatten'params DiskManager'flatten'results) where
     methodByLabel  = (GH.Method 14751763957337118315 9)
+instance (GH.HasMethod "copy" DiskManager DiskManager'copy'params DiskManager'copy'results) where
+    methodByLabel  = (GH.Method 14751763957337118315 10)
+instance (GH.HasMethod "move" DiskManager DiskManager'move'params DiskManager'move'results) where
+    methodByLabel  = (GH.Method 14751763957337118315 11)
 data DiskManager'list'params 
 type instance (R.ReprFor DiskManager'list'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskManager'list'params) where
@@ -1146,6 +1226,126 @@ instance (C.Parse DiskManager'flatten'results (C.Parsed DiskManager'flatten'resu
     parse raw_ = (Std_.pure DiskManager'flatten'results)
 instance (C.Marshal DiskManager'flatten'results (C.Parsed DiskManager'flatten'results)) where
     marshalInto _raw (DiskManager'flatten'results) = (Std_.pure ())
+data DiskManager'copy'params 
+type instance (R.ReprFor DiskManager'copy'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'copy'params) where
+    typeId  = 9847204764816947922
+instance (C.TypedStruct DiskManager'copy'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate DiskManager'copy'params) where
+    type AllocHint DiskManager'copy'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'copy'params (C.Parsed DiskManager'copy'params))
+instance (C.AllocateList DiskManager'copy'params) where
+    type ListAllocHint DiskManager'copy'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'copy'params (C.Parsed DiskManager'copy'params))
+data instance C.Parsed DiskManager'copy'params
+    = DiskManager'copy'params 
+        {params :: (RP.Parsed DiskCopyParams)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'copy'params))
+deriving instance (Std_.Eq (C.Parsed DiskManager'copy'params))
+instance (C.Parse DiskManager'copy'params (C.Parsed DiskManager'copy'params)) where
+    parse raw_ = (DiskManager'copy'params <$> (GH.parseField #params raw_))
+instance (C.Marshal DiskManager'copy'params (C.Parsed DiskManager'copy'params)) where
+    marshalInto raw_ DiskManager'copy'params{..} = (do
+        (GH.encodeField #params params raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "params" GH.Slot DiskManager'copy'params DiskCopyParams) where
+    fieldByLabel  = (GH.ptrField 0)
+data DiskManager'copy'results 
+type instance (R.ReprFor DiskManager'copy'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'copy'results) where
+    typeId  = 12556882617831631231
+instance (C.TypedStruct DiskManager'copy'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate DiskManager'copy'results) where
+    type AllocHint DiskManager'copy'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'copy'results (C.Parsed DiskManager'copy'results))
+instance (C.AllocateList DiskManager'copy'results) where
+    type ListAllocHint DiskManager'copy'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'copy'results (C.Parsed DiskManager'copy'results))
+data instance C.Parsed DiskManager'copy'results
+    = DiskManager'copy'results 
+        {taskId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'copy'results))
+deriving instance (Std_.Eq (C.Parsed DiskManager'copy'results))
+instance (C.Parse DiskManager'copy'results (C.Parsed DiskManager'copy'results)) where
+    parse raw_ = (DiskManager'copy'results <$> (GH.parseField #taskId raw_))
+instance (C.Marshal DiskManager'copy'results (C.Parsed DiskManager'copy'results)) where
+    marshalInto raw_ DiskManager'copy'results{..} = (do
+        (GH.encodeField #taskId taskId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "taskId" GH.Slot DiskManager'copy'results Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data DiskManager'move'params 
+type instance (R.ReprFor DiskManager'move'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'move'params) where
+    typeId  = 16774640712740262938
+instance (C.TypedStruct DiskManager'move'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate DiskManager'move'params) where
+    type AllocHint DiskManager'move'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'move'params (C.Parsed DiskManager'move'params))
+instance (C.AllocateList DiskManager'move'params) where
+    type ListAllocHint DiskManager'move'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'move'params (C.Parsed DiskManager'move'params))
+data instance C.Parsed DiskManager'move'params
+    = DiskManager'move'params 
+        {params :: (RP.Parsed DiskMoveParams)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'move'params))
+deriving instance (Std_.Eq (C.Parsed DiskManager'move'params))
+instance (C.Parse DiskManager'move'params (C.Parsed DiskManager'move'params)) where
+    parse raw_ = (DiskManager'move'params <$> (GH.parseField #params raw_))
+instance (C.Marshal DiskManager'move'params (C.Parsed DiskManager'move'params)) where
+    marshalInto raw_ DiskManager'move'params{..} = (do
+        (GH.encodeField #params params raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "params" GH.Slot DiskManager'move'params DiskMoveParams) where
+    fieldByLabel  = (GH.ptrField 0)
+data DiskManager'move'results 
+type instance (R.ReprFor DiskManager'move'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'move'results) where
+    typeId  = 10845935175882287879
+instance (C.TypedStruct DiskManager'move'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate DiskManager'move'results) where
+    type AllocHint DiskManager'move'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'move'results (C.Parsed DiskManager'move'results))
+instance (C.AllocateList DiskManager'move'results) where
+    type ListAllocHint DiskManager'move'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'move'results (C.Parsed DiskManager'move'results))
+data instance C.Parsed DiskManager'move'results
+    = DiskManager'move'results 
+        {taskId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'move'results))
+deriving instance (Std_.Eq (C.Parsed DiskManager'move'results))
+instance (C.Parse DiskManager'move'results (C.Parsed DiskManager'move'results)) where
+    parse raw_ = (DiskManager'move'results <$> (GH.parseField #taskId raw_))
+instance (C.Marshal DiskManager'move'results (C.Parsed DiskManager'move'results)) where
+    marshalInto raw_ DiskManager'move'results{..} = (do
+        (GH.encodeField #taskId taskId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "taskId" GH.Slot DiskManager'move'results Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
 data Disk 
 type instance (R.ReprFor Disk) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId Disk) where

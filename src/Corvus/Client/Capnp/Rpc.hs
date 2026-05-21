@@ -86,6 +86,8 @@ module Corvus.Client.Capnp.Rpc
   , rpcDiskImport
   , rpcDiskClone
   , rpcDiskRebase
+  , rpcDiskCopy
+  , rpcDiskMove
   , rpcDiskDelete
   , rpcDiskResize
   , rpcDiskAttach
@@ -867,6 +869,38 @@ rpcDiskRebase conn diskRef newBackingRef = do
           }
   _ <- callOn #rebase CGDisk.DiskManager'rebase'params {CGDisk.params = p} mgr
   pure ()
+
+-- | Copy a disk image to another node. Returns the task id for
+-- progress observation; the actual byte transfer happens
+-- agent-to-agent in the background.
+rpcDiskCopy :: CapnpConnection -> EntityRef -> EntityRef -> IO Int64
+rpcDiskCopy conn diskRef toNodeRef = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  let p =
+        CGDisk.DiskCopyParams
+          { CGDisk.diskRef = toCapnpEntityRef diskRef
+          , CGDisk.toNodeRef = toCapnpEntityRef toNodeRef
+          }
+  CGDisk.DiskManager'copy'results {CGDisk.taskId = tid} <-
+    callOn #copy CGDisk.DiskManager'copy'params {CGDisk.params = p} mgr
+  pure tid
+
+-- | Move a disk image to another node. Same byte path as
+-- 'rpcDiskCopy', but the daemon deletes the source-side placement
+-- (and the file) on success.
+rpcDiskMove :: CapnpConnection -> EntityRef -> EntityRef -> IO Int64
+rpcDiskMove conn diskRef toNodeRef = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  let p =
+        CGDisk.DiskMoveParams
+          { CGDisk.diskRef = toCapnpEntityRef diskRef
+          , CGDisk.toNodeRef = toCapnpEntityRef toNodeRef
+          }
+  CGDisk.DiskManager'move'results {CGDisk.taskId = tid} <-
+    callOn #move CGDisk.DiskManager'move'params {CGDisk.params = p} mgr
+  pure tid
 
 -- | Attach a disk to a VM. Returns the new drive (attachment) id.
 rpcDiskAttach

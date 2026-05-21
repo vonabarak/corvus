@@ -18,6 +18,8 @@ module Corvus.Client.Commands.Disk
   , handleDiskRefresh
   , handleDiskAttach
   , handleDiskDetach
+  , handleDiskCopy
+  , handleDiskMove
 
     -- * Snapshot command handlers
   , handleSnapshotCreate
@@ -484,3 +486,37 @@ readMaybeInt64 :: String -> Maybe Int64
 readMaybeInt64 s = case reads s of
   [(n, "")] -> Just n
   _ -> Nothing
+
+-- | Handle @crv disk copy <DISK> --to-node <NODE>@.
+handleDiskCopy :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleDiskCopy fmt conn diskRef toNodeRef = do
+  r <-
+    try @SomeException $
+      CR.rpcDiskCopy conn (entityRefFromText diskRef) (entityRefFromText toNodeRef)
+  case r of
+    Right tid -> do
+      emitOkWith fmt [("taskId", toJSON tid)] $
+        putStrLn $
+          "Disk copy started. Task ID: " ++ show tid
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error copying disk: " ++ show e)
+      pure False
+
+-- | Handle @crv disk move <DISK> --to-node <NODE>@.
+handleDiskMove :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleDiskMove fmt conn diskRef toNodeRef = do
+  r <-
+    try @SomeException $
+      CR.rpcDiskMove conn (entityRefFromText diskRef) (entityRefFromText toNodeRef)
+  case r of
+    Right tid -> do
+      emitOkWith fmt [("taskId", toJSON tid)] $
+        putStrLn $
+          "Disk move started. Task ID: " ++ show tid
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error moving disk: " ++ show e)
+      pure False

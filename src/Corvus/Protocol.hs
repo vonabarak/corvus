@@ -258,6 +258,9 @@ data Response
     RespOk
   | -- | Disk import started asynchronously
     RespDiskImportStarted {taskId :: !Int64}
+  | -- | Disk copy / move kicked off asynchronously; @taskId@
+    -- references the long-running task row.
+    RespDiskTransferStarted {taskId :: !Int64}
   | -- | Template updated successfully
     RespTemplateUpdated {id :: !Int64}
   | -- | SPICE connection parameters with an ephemeral password.

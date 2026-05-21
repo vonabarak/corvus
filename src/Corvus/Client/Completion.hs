@@ -9,6 +9,7 @@ module Corvus.Client.Completion
     vmCompleter
   , diskCompleter
   , networkCompleter
+  , nodeCompleter
   , sshKeyCompleter
   , templateCompleter
   )
@@ -18,6 +19,7 @@ import Control.Exception (SomeException, try)
 import qualified Corvus.Client.Capnp.Connection as CC
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Protocol (DiskImageInfo (..), NetworkInfo (..), SshKeyInfo (..), TemplateVmInfo (..), VmInfo (..))
+import qualified Corvus.Protocol.Node as PNode
 import Corvus.Types (ListenAddress (..), getDefaultSocketPath)
 import qualified Data.Text as T
 import Options.Applicative.Builder.Completer (listIOCompleter)
@@ -79,3 +81,8 @@ templateCompleter :: Completer
 templateCompleter =
   listIOCompleter $
     fetchNames CR.rpcTemplateList (T.unpack . tviName)
+
+nodeCompleter :: Completer
+nodeCompleter =
+  listIOCompleter $
+    fetchNames CR.rpcNodeList (T.unpack . PNode.noiName)

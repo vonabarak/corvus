@@ -110,6 +110,10 @@ data Command
     DiskAttach !Text !Text !Text !(Maybe Text) !Bool !Bool !Text
   | -- | Detach disk from VM (vmRef, diskRef)
     DiskDetach !Text !Text
+  | -- | Copy a disk image to another node (diskRef, toNodeRef)
+    DiskCopy !Text !Text
+  | -- | Move a disk image to another node (diskRef, toNodeRef)
+    DiskMove !Text !Text
   | -- Shared directory commands
 
     -- | Add shared directory to VM (vmRef, path, tag, cache, readOnly)

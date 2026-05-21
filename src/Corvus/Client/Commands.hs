@@ -188,6 +188,8 @@ runCommand opts = do
                       pure False
                     Right parsedMedia -> handleDiskAttach fmt conn vmRef diskRef iface (Just parsedMedia) readOnly discard cache
       DiskDetach vmRef diskRef -> handleDiskDetach fmt conn vmRef diskRef
+      DiskCopy diskRef toNodeRef -> handleDiskCopy fmt conn diskRef toNodeRef
+      DiskMove diskRef toNodeRef -> handleDiskMove fmt conn diskRef toNodeRef
       -- Shared directory commands
       SharedDirAdd vmRef path tag cacheStr readOnly -> do
         case parseSharedDirCache cacheStr of

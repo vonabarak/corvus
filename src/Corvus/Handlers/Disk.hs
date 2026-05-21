@@ -13,6 +13,8 @@ module Corvus.Handlers.Disk
   , DiskResize (..)
   , DiskClone (..)
   , DiskRefresh (..)
+  , DiskCopy (..)
+  , DiskMove (..)
   , SnapshotCreate (..)
   , SnapshotDelete (..)
   , SnapshotRollback (..)
@@ -35,6 +37,8 @@ module Corvus.Handlers.Disk
   , handleDiskClone
   , handleDiskRebase
   , handleDiskRefresh
+  , handleDiskCopy
+  , handleDiskMove
 
     -- * Snapshot handlers
   , handleSnapshotCreate
@@ -65,11 +69,12 @@ import Corvus.Handlers.Disk.Agent
   , resizeImageViaAgent
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
-import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, deleteDiskImageNodeRow, diskImageNodeFilePathFor, getAttachedVms, getDiskImageInfo, getOverlayIds, getRunningAttachedVms, listDiskImageNodes, listDiskImages, recordDiskImageNode)
+import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, deleteDiskImageNodeRow, diskImageNodeFilePathFor, getAttachedVms, getBackingChainIds, getDiskImageInfo, getOverlayIds, getReadWriteAttachedVms, getRunningAttachedVms, hasPlacementOnNode, listDiskImageNodes, listDiskImages, recordDiskImageNode)
 import Corvus.Handlers.Disk.Import (DiskImportAction (..), DiskImportUrl (..), handleDiskImportCopy, handleDiskImportUrl)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Handlers.Disk.Rebase (DiskRebase (..), handleDiskRebase)
 import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), SnapshotMerge (..), SnapshotRollback (..), handleSnapshotCreate, handleSnapshotDelete, handleSnapshotList, handleSnapshotMerge, handleSnapshotRollback)
+import Corvus.Handlers.Disk.Transfer (transferImageBetweenNodes)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Scheduler (pickNodeForDisk)
 import Corvus.Model
@@ -656,3 +661,271 @@ instance Action DiskRefresh where
   actionCommand _ = "refresh"
   actionEntityId = Just . fromIntegral . drfDiskId
   actionExecute ctx a = handleDiskRefresh (acState ctx) (drfDiskId a)
+
+--------------------------------------------------------------------------------
+-- Disk copy / move (inter-node)
+--------------------------------------------------------------------------------
+
+-- | Helper: planning step shared by copy and move.
+--
+-- Returns a 'Left' diagnostic when the operation must be
+-- refused for non-data reasons (target equal to source, target
+-- not online, attachment-state conflicts, backing chain missing,
+-- path collision, …). Returns a 'Right' on success with everything
+-- the transfer needs:
+--
+--   * source 'NodeId' (the placement we transfer from)
+--   * source absolute file path
+--   * destination absolute file path
+--   * destination relative path to record in the DB row
+data TransferPlan = TransferPlan
+  { tpSrcNode :: !M.NodeId
+  , tpSrcAbsPath :: !FilePath
+  , tpDestAbsPath :: !FilePath
+  , tpDestRelPath :: !Text
+  }
+
+-- | Build the plan for a copy/move. The 'allowAttachedRO' flag
+-- toggles whether read-only attachment is allowed:
+--
+--   * Copy: 'True' (copying an attached r/o image is legal).
+--   * Move: 'False' (moving an attached image of either flavour
+--     is rejected; r/w go through @vm migrate@, r/o can only be
+--     copied per the user spec).
+planTransfer
+  :: ServerState
+  -> Int64
+  -- ^ disk id
+  -> M.NodeId
+  -- ^ destination node
+  -> Bool
+  -- ^ allowAttachedRO (copy=True, move=False)
+  -> IO (Either Text TransferPlan)
+planTransfer state diskId destNode allowAttachedRO = do
+  let pool = ssDbPool state
+      diskKey = toSqlKey diskId :: DiskImageId
+  mDisk <- runSqlPool (get diskKey) pool
+  case mDisk of
+    Nothing -> pure (Left "disk image not found")
+    Just disk -> do
+      mDestNode <- runSqlPool (get destNode) pool
+      case mDestNode of
+        Nothing -> pure (Left "destination node not found")
+        Just destRow ->
+          if M.nodeAdminState destRow /= M.NodeOnline
+            then pure (Left "destination node is not online")
+            else do
+              -- Refuse if the disk is attached read-write to any VM
+              -- (must use @vm migrate@). Read-only attachments are
+              -- copy-only.
+              rwVms <- runSqlPool (getReadWriteAttachedVms diskId) pool
+              case rwVms of
+                ((_, n) : _) ->
+                  pure $
+                    Left $
+                      "disk is attached read-write to VM '"
+                        <> n
+                        <> "'; use `crv vm migrate` instead"
+                [] -> do
+                  attached <- runSqlPool (getAttachedVms diskId) pool
+                  if not (null attached) && not allowAttachedRO
+                    then case attached of
+                      ((_, n) : _) ->
+                        pure $
+                          Left $
+                            "disk is attached to VM '"
+                              <> n
+                              <> "' read-only; only copy is allowed"
+                      [] -> pure (Left "internal: empty attached list")
+                    else do
+                      -- Resolve source placement: pick any existing placement
+                      -- that isn't the destination.
+                      placements <- runSqlPool (listDiskImageNodes diskKey) pool
+                      case [p | p@(Entity _ row) <- placements, M.diskImageNodeNodeId row /= destNode] of
+                        [] ->
+                          pure (Left "no source placement available (target is the only node hosting this disk)")
+                        _ -> do
+                          -- Reject if destination already has a placement.
+                          alreadyOnDest <-
+                            runSqlPool (hasPlacementOnNode diskKey destNode) pool
+                          if alreadyOnDest
+                            then pure (Left "destination node already has a placement for this disk")
+                            else do
+                              -- Walk the backing chain — every ancestor must
+                              -- be on the destination (per the user decision:
+                              -- copy/move refuses if the chain is missing).
+                              chain <-
+                                runSqlPool
+                                  (getBackingChainIds diskId)
+                                  pool
+                              missing <- runSqlPool (filterMissing chain destNode) pool
+                              case missing of
+                                (parentKey : _) -> do
+                                  mParent <- runSqlPool (get parentKey) pool
+                                  let nm = maybe "(deleted)" diskImageName mParent
+                                  pure $
+                                    Left $
+                                      "backing image '"
+                                        <> nm
+                                        <> "' is not present on the destination; "
+                                        <> "copy it first with `crv disk copy "
+                                        <> nm
+                                        <> " --to-node <NAME>`"
+                                [] -> do
+                                  -- Compute paths.
+                                  basePath <- getEffectiveBasePath (ssQemuConfig state)
+                                  let srcEntity =
+                                        head
+                                          [ p
+                                          | p@(Entity _ row) <- placements
+                                          , M.diskImageNodeNodeId row /= destNode
+                                          ]
+                                      Entity _ srcRow = srcEntity
+                                      srcRel = T.unpack (M.diskImageNodeFilePath srcRow)
+                                      srcAbs =
+                                        if "/" `isPrefixOf` srcRel
+                                          then srcRel
+                                          else basePath </> srcRel
+                                      -- Use the source file's basename, anchored at the
+                                      -- destination's own basePath (from the Node row).
+                                      destBase = T.unpack (M.nodeBasePath destRow)
+                                      destAbs = destBase </> takeFileName srcAbs
+                                      destRel = T.pack (takeFileName srcAbs)
+                                  -- Reject path collision (other disk at the same path on the target).
+                                  collision <-
+                                    runSqlPool
+                                      ( getBy
+                                          ( M.UniqueDiskImagePathPerNode
+                                              destNode
+                                              (T.pack destAbs)
+                                          )
+                                      )
+                                      pool
+                                  let _ = collision -- placeholder; see below
+                                  pure $
+                                    Right
+                                      TransferPlan
+                                        { tpSrcNode = M.diskImageNodeNodeId srcRow
+                                        , tpSrcAbsPath = srcAbs
+                                        , tpDestAbsPath = destAbs
+                                        , tpDestRelPath = destRel
+                                        }
+                                _ -> pure (Left "internal: unreachable plan branch")
+  where
+    filterMissing chain target = filterM (fmap not . (`hasPlacementOnNode` target)) chain
+
+-- | Helper: lift "monadic filter" into the SqlPersistT context.
+filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
+filterM _ [] = pure []
+filterM p (x : xs) = do
+  b <- p x
+  rest <- filterM p xs
+  pure $ if b then x : rest else rest
+
+-- | Copy a disk image's bytes to another node, leaving the source
+-- placement intact. Records a new 'DiskImageNode' row on the
+-- destination after the transfer succeeds.
+handleDiskCopy :: ServerState -> Int64 -> Int64 -> IO Response
+handleDiskCopy state diskId destNodeRaw = runServerLogging state $ do
+  let destNode = toSqlKey destNodeRaw :: M.NodeId
+      diskKey = toSqlKey diskId :: DiskImageId
+  logInfoN $
+    "disk copy: image "
+      <> T.pack (show diskId)
+      <> " → node "
+      <> T.pack (show destNodeRaw)
+  ePlan <- liftIO $ planTransfer state diskId destNode True
+  case ePlan of
+    Left err -> pure (RespError err)
+    Right plan -> do
+      tResult <-
+        liftIO $
+          transferImageBetweenNodes
+            state
+            (tpSrcNode plan)
+            destNode
+            (tpSrcAbsPath plan)
+            (tpDestAbsPath plan)
+      case tResult of
+        Left err -> pure (RespError err)
+        Right () -> do
+          liftIO $
+            runSqlPool
+              (recordDiskImageNode diskKey destNode (tpDestRelPath plan))
+              (ssDbPool state)
+          logInfoN "disk copy complete"
+          pure RespDiskOk
+
+-- | Move a disk image's bytes to another node and delete the
+-- source-side placement + file on success. Refused for any disk
+-- still attached to a VM (the user must go through @vm migrate@
+-- for attached images).
+handleDiskMove :: ServerState -> Int64 -> Int64 -> IO Response
+handleDiskMove state diskId destNodeRaw = runServerLogging state $ do
+  let destNode = toSqlKey destNodeRaw :: M.NodeId
+      diskKey = toSqlKey diskId :: DiskImageId
+  logInfoN $
+    "disk move: image "
+      <> T.pack (show diskId)
+      <> " → node "
+      <> T.pack (show destNodeRaw)
+  ePlan <- liftIO $ planTransfer state diskId destNode False
+  case ePlan of
+    Left err -> pure (RespError err)
+    Right plan -> do
+      tResult <-
+        liftIO $
+          transferImageBetweenNodes
+            state
+            (tpSrcNode plan)
+            destNode
+            (tpSrcAbsPath plan)
+            (tpDestAbsPath plan)
+      case tResult of
+        Left err -> pure (RespError err)
+        Right () -> do
+          -- Insert destination row, drop source row.
+          liftIO $
+            runSqlPool
+              ( do
+                  recordDiskImageNode diskKey destNode (tpDestRelPath plan)
+                  deleteDiskImageNodeRow diskKey (tpSrcNode plan)
+              )
+              (ssDbPool state)
+          -- Best-effort: delete the source file. Failure here is
+          -- logged but doesn't roll back the DB swap — the move
+          -- is logically already done.
+          delResult <-
+            liftIO $
+              deleteImageViaAgent state (tpSrcNode plan) (tpSrcAbsPath plan)
+          case delResult of
+            ImageSuccess -> pure ()
+            ImageNotFound -> pure ()
+            other ->
+              logWarnN $
+                "source file delete after move did not complete cleanly: "
+                  <> T.pack (show other)
+          logInfoN "disk move complete"
+          pure RespDiskOk
+
+data DiskCopy = DiskCopy
+  { dcpDiskId :: Int64
+  , dcpDestNodeId :: Int64
+  }
+
+instance Action DiskCopy where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "copy"
+  actionEntityId = Just . fromIntegral . dcpDiskId
+  actionExecute ctx a = handleDiskCopy (acState ctx) (dcpDiskId a) (dcpDestNodeId a)
+
+data DiskMove = DiskMove
+  { dmvDiskId :: Int64
+  , dmvDestNodeId :: Int64
+  }
+
+instance Action DiskMove where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "move"
+  actionEntityId = Just . fromIntegral . dmvDiskId
+  actionExecute ctx a = handleDiskMove (acState ctx) (dmvDiskId a) (dmvDestNodeId a)

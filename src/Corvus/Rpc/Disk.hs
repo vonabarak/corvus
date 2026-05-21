@@ -24,11 +24,13 @@ import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Corvus.Action (runAction, runActionAsyncWithId)
 import Corvus.Handlers.Disk
   ( DiskClone (..)
+  , DiskCopy (..)
   , DiskCreate (..)
   , DiskCreateOverlay (..)
   , DiskDelete (..)
   , DiskImportAction (..)
   , DiskImportUrl (..)
+  , DiskMove (..)
   , DiskRebase (..)
   , DiskRefresh (..)
   , DiskRegister (..)
@@ -43,7 +45,7 @@ import Corvus.Handlers.Disk.Snapshot
   , SnapshotRollback (..)
   , handleSnapshotList
   )
-import Corvus.Handlers.Resolve (resolveDisk, resolveSnapshot)
+import Corvus.Handlers.Resolve (resolveDisk, resolveNode, resolveSnapshot)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
@@ -233,6 +235,34 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
           pure CGDisk.DiskManager'import'results {CGDisk.disk = client}
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'import: unexpected response"
+
+  diskManager'copy (DiskManagerCap st _) =
+    handleParsed $ \CGDisk.DiskManager'copy'params {params = CGDisk.DiskCopyParams {..}} -> do
+      dr <- capnpRefToRef diskRef
+      diskId <- failOnLeft =<< resolveDisk dr (ssDbPool st)
+      nr <- capnpRefToRef toNodeRef
+      nodeId <- failOnLeft =<< resolveNode nr (ssDbPool st)
+      let act = DiskCopy {dcpDiskId = diskId, dcpDestNodeId = nodeId}
+      resp <- runActionAsyncWithId st act RespDiskTransferStarted
+      case resp of
+        RespDiskTransferStarted tid ->
+          pure CGDisk.DiskManager'copy'results {CGDisk.taskId = tid}
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "diskManager'copy: unexpected response"
+
+  diskManager'move (DiskManagerCap st _) =
+    handleParsed $ \CGDisk.DiskManager'move'params {params = CGDisk.DiskMoveParams {..}} -> do
+      dr <- capnpRefToRef diskRef
+      diskId <- failOnLeft =<< resolveDisk dr (ssDbPool st)
+      nr <- capnpRefToRef toNodeRef
+      nodeId <- failOnLeft =<< resolveNode nr (ssDbPool st)
+      let act = DiskMove {dmvDiskId = diskId, dmvDestNodeId = nodeId}
+      resp <- runActionAsyncWithId st act RespDiskTransferStarted
+      case resp of
+        RespDiskTransferStarted tid ->
+          pure CGDisk.DiskManager'move'results {CGDisk.taskId = tid}
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "diskManager'move: unexpected response"
 
 -- ---------------------------------------------------------------------
 -- Disk resource cap

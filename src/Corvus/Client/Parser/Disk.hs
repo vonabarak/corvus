@@ -307,6 +307,40 @@ diskRefreshCommand =
           <> completer diskCompleter
       )
 
+-- | Parser for disk copy (cross-node placement add).
+diskCopyCommand :: Parser Command
+diskCopyCommand =
+  DiskCopy
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image to copy"
+          <> completer diskCompleter
+      )
+    <*> strOption
+      ( long "to-node"
+          <> metavar "NODE"
+          <> help "Destination node (name or ID)"
+          <> completer nodeCompleter
+      )
+
+-- | Parser for disk move (cross-node placement swap).
+diskMoveCommand :: Parser Command
+diskMoveCommand =
+  DiskMove
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the disk image to move"
+          <> completer diskCompleter
+      )
+    <*> strOption
+      ( long "to-node"
+          <> metavar "NODE"
+          <> help "Destination node (name or ID)"
+          <> completer nodeCompleter
+      )
+
 -- | Parser for all disk subcommands
 diskCommandParser :: Parser Command
 diskCommandParser =
@@ -350,4 +384,10 @@ diskCommandParser =
         <> command
           "refresh"
           (info diskRefreshCommand (progDesc "Refresh disk image size from qemu-img"))
+        <> command
+          "copy"
+          (info diskCopyCommand (progDesc "Copy a disk image to another node (agent-to-agent)"))
+        <> command
+          "move"
+          (info diskMoveCommand (progDesc "Move a disk image to another node (agent-to-agent)"))
     )
