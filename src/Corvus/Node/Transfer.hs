@@ -54,9 +54,6 @@ module Corvus.Node.Transfer
   , newFileWriterSink
   , FileWriterDone (..)
   , waitFileWriter
-
-    -- * Chunk size
-  , transferChunkBytes
   )
 where
 

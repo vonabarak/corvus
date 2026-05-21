@@ -31,10 +31,6 @@ module Corvus.Types
   , SocketBuffer (..)
   , SocketBufferHandle (..)
 
-    -- * Configuration
-  , ServerConfig (..)
-  , defaultServerConfig
-
     -- * Listen Address
   , ListenAddress (..)
   , getDefaultSocketPath
@@ -364,29 +360,6 @@ runServerLogging state = runFilteredLogging (ssLogLevel state)
 runFilteredLogging :: LogLevel -> LoggingT IO a -> IO a
 runFilteredLogging minLevel =
   runStdoutLoggingT . filterLogger (\_ level -> level >= minLevel)
-
--- | Server configuration
-data ServerConfig = ServerConfig
-  { scHost :: !Text
-  -- ^ Host to bind to
-  , scPort :: !Int
-  -- ^ Port to listen on
-  , scUnixSocket :: Maybe FilePath
-  -- ^ Optional Unix socket path
-  , scDbUri :: !Text
-  -- ^ PostgreSQL connection URI
-  }
-  deriving (Eq, Show)
-
--- | Default server configuration
-defaultServerConfig :: ServerConfig
-defaultServerConfig =
-  ServerConfig
-    { scHost = "127.0.0.1"
-    , scPort = 9876
-    , scUnixSocket = Nothing
-    , scDbUri = "postgresql://localhost/corvus"
-    }
 
 -- | Address to listen on or connect to
 data ListenAddress

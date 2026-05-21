@@ -14,7 +14,6 @@ module Corvus.Handlers.Disk.Db
     -- * Overlay / backing chain
   , getOverlayIds
   , isCircularBacking
-  , getBackingImageName
   , getBackingChainIds
 
     -- * Deletion
@@ -27,7 +26,6 @@ module Corvus.Handlers.Disk.Db
 
     -- * DiskImageNode placement
   , recordDiskImageNode
-  , diskImageNodeFor
   , diskImageNodeFilePathFor
   , hasPlacementOnNode
   , listDiskImageNodes

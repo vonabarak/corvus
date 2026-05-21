@@ -10,7 +10,6 @@ module Corvus.Client.Types
 
     -- * Wait options
   , WaitOptions (..)
-  , defaultWaitOptions
   )
 where
 
@@ -28,10 +27,6 @@ data WaitOptions = WaitOptions
   -- ^ Timeout in seconds. Nothing = default 120s.
   }
   deriving (Show, Eq)
-
--- | Default wait options (no waiting)
-defaultWaitOptions :: WaitOptions
-defaultWaitOptions = WaitOptions False Nothing
 
 -- | Command line options
 data Options = Options

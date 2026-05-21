@@ -18,14 +18,9 @@ module Corvus.Handlers.Vm
   , handleVmShow
   , handleVmCreate
   , handleVmDelete
-  , handleVmStartValidate
-  , handleVmStartExecute
   , attachVmMonitor
   , reattachVmMonitors
-  , handleVmStopValidate
-  , handleVmStopExecute
   , handleVmPause
-  , handleVmReset
   , handleVmEdit
   , handleVmCloudInit
   , handleSerialConsole

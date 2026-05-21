@@ -32,7 +32,6 @@ module Corvus.Handlers.Scheduler
   ( pickNodeForVm
   , pickNodeForDisk
   , pickNodeForNetwork
-  , ramSafetyMb
   , hasCapacityFor
   )
 where

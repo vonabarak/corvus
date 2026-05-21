@@ -23,9 +23,6 @@ module Corvus.Client.Commands.Vm
   , handleVmEdit
   , handleVmMigrate
 
-    -- * Polling
-  , waitForVmStatus
-
     -- * VM display/interaction
   , runRemoteViewer
   , runRawTerminalSession
@@ -158,39 +155,6 @@ handleVmStop fmt conn vmRef waitOpts = do
       putStrLn $
         "Stopping VM '" ++ T.unpack vmRef ++ "' and waiting for it to stop..."
   handleVmAction fmt "stop" vmRef (CR.rpcVmStop conn (entityRefFromText vmRef) wait)
-
--- | Poll the daemon until a VM reaches a target status.
--- Returns True if the target status was reached, False on timeout or error.
-waitForVmStatus :: OutputFormat -> CapnpConnection -> Text -> VmStatus -> Int -> IO Bool
-waitForVmStatus fmt conn vmRef targetStatus timeout = do
-  startTime <- getCurrentTime
-  go startTime
-  where
-    go startTime = do
-      threadDelay 1000000 -- 1 second
-      now <- getCurrentTime
-      let elapsed = round (diffUTCTime now startTime) :: Int
-      if elapsed >= timeout
-        then do
-          let msg = "VM '" ++ T.unpack vmRef ++ "' did not reach " ++ T.unpack (enumToText targetStatus) ++ " within " ++ show timeout ++ " seconds."
-          emitError fmt "timeout" (T.pack msg) $
-            putStrLn $
-              "Timeout: " ++ msg
-          pure False
-        else do
-          resp <- try (CR.rpcVmShow conn (entityRefFromText vmRef)) :: IO (Either SomeException VmDetails)
-          case resp of
-            Right details
-              | vdStatus details == targetStatus -> pure True
-              | vdStatus details == VmError -> do
-                  let msg = "VM '" ++ T.unpack vmRef ++ "' entered error state."
-                  emitError fmt "vm_error" (T.pack msg) $ putStrLn msg
-                  pure False
-            _ -> do
-              unless (isStructured fmt) $ do
-                hPutStr stderr "."
-                hFlush stderr
-              go startTime
 
 -- | Handle VM edit
 handleVmEdit :: OutputFormat -> CapnpConnection -> Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool

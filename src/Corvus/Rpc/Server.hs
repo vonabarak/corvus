@@ -9,7 +9,6 @@
 -- as the bootstrap interface.
 module Corvus.Rpc.Server
   ( runCapnpServer
-  , defaultCapnpSocketPath
   )
 where
 
@@ -50,11 +49,6 @@ import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath (takeDirectory)
 import System.IO (hPutStrLn, stderr)
 import System.IO.Error (IOError)
-
--- | Default path for the Cap'n Proto Unix socket: the canonical
--- daemon socket in the XDG runtime dir.
-defaultCapnpSocketPath :: IO FilePath
-defaultCapnpSocketPath = getDefaultSocketPath
 
 -- | Run the Cap'n Proto RPC server on the given address.
 -- Blocks the calling thread; spawns a fresh handler per connection.

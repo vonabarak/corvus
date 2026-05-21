@@ -83,7 +83,6 @@ module Corvus.Client.Capnp.Rpc
   , rpcDiskCreateOverlay
   , rpcDiskRegister
   , rpcDiskRefresh
-  , rpcDiskImportUrl
   , rpcDiskImport
   , rpcDiskClone
   , rpcDiskRebase
@@ -92,7 +91,6 @@ module Corvus.Client.Capnp.Rpc
   , rpcDiskDelete
   , rpcDiskResize
   , rpcDiskAttach
-  , rpcDiskDetach
   , rpcDiskDetachByDisk
 
     -- * Snapshot operations (per-disk)
@@ -803,31 +801,6 @@ rpcDiskRefresh conn ref = do
   CGDisk.Disk'refresh'results {CGDisk.info = info} <-
     callOn #refresh CGDisk.Disk'refresh'params dClient
   failOnWire (WDisk.fromCapnpDiskImageInfo info)
-
--- | Import a disk from a URL asynchronously. Returns the parent
--- task id; poll @crv task show@ for progress.
-rpcDiskImportUrl
-  :: CapnpConnection
-  -> Text
-  -- ^ name
-  -> Text
-  -- ^ url
-  -> DriveFormat
-  -- ^ format
-  -> IO Int64
-rpcDiskImportUrl conn name url fmt = do
-  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
-    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
-  let p =
-        CGDisk.DiskImportUrlParams
-          { CGDisk.name = name
-          , CGDisk.url = url
-          , CGDisk.format = capnpDriveFormat fmt
-          , CGDisk.sizeMb = 0
-          }
-  CGDisk.DiskManager'importUrl'results {CGDisk.taskId = tid} <-
-    callOn #importUrl CGDisk.DiskManager'importUrl'params {CGDisk.params = p} mgr
-  pure tid
 
 -- | Import a disk synchronously from a local source path.
 rpcDiskImport

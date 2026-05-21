@@ -15,7 +15,6 @@ module Corvus.Handlers.Vm.Migrate.PreCheck
   ( MigrationPlan (..)
   , MigrationDriveOp (..)
   , validateMigration
-  , storageSafetyMb
   )
 where
 

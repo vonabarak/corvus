@@ -3,10 +3,6 @@
 -- | Machine-readable output helpers for the Corvus client.
 module Corvus.Client.Output
   ( outputValue
-  , outputResult
-  , outputOk
-  , outputOkWith
-  , outputError
   , isStructured
 
     -- * Dispatching emitters
@@ -31,7 +27,6 @@ module Corvus.Client.Output
 
     -- * Legacy sub-table helpers (used by detail views)
   , tableFormat
-  , printTableHeader
 
     -- * Internal (exposed for testing)
   , selectColumns
@@ -69,20 +64,16 @@ outputValue JsonOutput v = BL.putStrLn (encode v)
 outputValue YamlOutput v = BS.putStr (Yaml.encode v)
 outputValue TextOutput _ = pure ()
 
--- | Output a ToJSON value
 outputResult :: (ToJSON a) => OutputFormat -> a -> IO ()
 outputResult fmt a = outputValue fmt (toJSON a)
 
--- | Output {"status":"ok"}
 outputOk :: OutputFormat -> IO ()
 outputOk fmt = outputValue fmt (object ["status" .= ("ok" :: Text)])
 
--- | Output {"status":"ok", ...extraFields}
 outputOkWith :: OutputFormat -> [(Key, Value)] -> IO ()
 outputOkWith fmt fields =
   outputValue fmt (object (("status" .= ("ok" :: Text)) : fields))
 
--- | Output {"status":"error","error":"<code>","message":"<msg>"}
 outputError :: OutputFormat -> Text -> Text -> IO ()
 outputError fmt code msg =
   outputValue fmt $
@@ -476,28 +467,3 @@ tableFormat cols =
       totalWidth = sum [abs w | (_, w) <- cols] + length cols - 1
       sep = replicate totalWidth '-'
    in (fmt, sep)
-
--- | Print a table header row and separator line from column specs.
-printTableHeader :: [(String, Int)] -> IO ()
-printTableHeader cols = do
-  let (fmt, sep) = tableFormat cols
-      row = buildRow fmt (map fst cols)
-  putStr row
-  putStrLn sep
-  where
-    buildRow :: String -> [String] -> String
-    buildRow fmt' vals = go fmt' vals ""
-      where
-        go [] _ acc = acc ++ "\n"
-        go ('%' : rest) (v : vs) acc =
-          let (spec, rest') = span (/= 's') rest
-           in case rest' of
-                ('s' : rest'') -> go rest'' vs (acc ++ padField (read spec) v)
-                _ -> acc ++ "%" ++ rest
-        go (c : rest) vs acc = go rest vs (acc ++ [c])
-        go _ [] acc = acc ++ "\n"
-
-    padField :: Int -> String -> String
-    padField w s
-      | w < 0 = take (abs w) (s ++ repeat ' ')
-      | otherwise = replicate (w - length s) ' ' ++ take w s

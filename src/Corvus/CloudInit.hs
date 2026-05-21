@@ -15,7 +15,6 @@ module Corvus.CloudInit
   , defaultCloudInitConfig
 
     -- * ISO paths (purely computed; the directory is materialised by the agent, not the daemon)
-  , getCloudInitIsoPath
   , getCloudInitDir
 
     -- * User-data / meta-data composition (pure)
@@ -74,13 +73,6 @@ getCloudInitDir :: QemuConfig -> Text -> IO FilePath
 getCloudInitDir config vmName = do
   basePath <- getEffectiveBasePath config
   pure $ basePath </> T.unpack vmName
-
--- | Path to the cloud-init ISO for a VM, given the same layout
--- 'getCloudInitDir' returns.
-getCloudInitIsoPath :: QemuConfig -> Text -> IO FilePath
-getCloudInitIsoPath config vmName = do
-  vmDir <- getCloudInitDir config vmName
-  pure $ vmDir </> "cloud-init.iso"
 
 -- | Generate user-data YAML for cloud-init with multiple SSH keys
 generateUserData :: CloudInitConfig -> [Text] -> Text

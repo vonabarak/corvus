@@ -13,7 +13,6 @@ module Corvus.Handlers.Resolve
   , resolveTemplate
   , resolveNode
   , resolveSnapshot
-  , resolveSharedDir
 
     -- * Validation
   , validateName
@@ -176,26 +175,6 @@ resolveSnapshot (Ref refText) diskId pool =
       mSnap <- runSqlPool (getBy (UniqueSnapshot (toSqlKey diskId :: DiskImageId) refText)) pool
       case mSnap of
         Nothing -> pure $ Left $ "Snapshot '" <> refText <> "' not found on this disk"
-        Just (Entity key _) -> pure $ Right (fromSqlKey key)
-
--- | Resolve a shared directory reference within a VM.
--- If numeric, look up by ID and verify it belongs to the given VM.
--- Otherwise, look up by (vmId, tag) unique constraint.
-resolveSharedDir :: Ref -> Int64 -> Pool SqlBackend -> IO (Either Text Int64)
-resolveSharedDir (Ref refText) vmId pool =
-  case readMaybe (T.unpack refText) of
-    Just numId -> do
-      mDir <- runSqlPool (get (toSqlKey numId :: SharedDirId)) pool
-      case mDir of
-        Nothing -> pure $ Left $ "Shared directory #" <> T.pack (show (numId :: Int64)) <> " not found"
-        Just dir ->
-          if sharedDirVmId dir == toSqlKey vmId
-            then pure $ Right numId
-            else pure $ Left $ "Shared directory #" <> T.pack (show numId) <> " does not belong to this VM"
-    Nothing -> do
-      mDir <- runSqlPool (getBy (UniqueSharedDirTag (toSqlKey vmId :: VmId) refText)) pool
-      case mDir of
-        Nothing -> pure $ Left $ "Shared directory with tag '" <> refText <> "' not found on this VM"
         Just (Entity key _) -> pure $ Right (fromSqlKey key)
 
 -- | Reject all-digit names to prevent ambiguity with numeric ID refs.

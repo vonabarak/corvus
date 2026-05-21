@@ -28,9 +28,7 @@ module Corvus.Node.Qmp
   , qmpBlockdevDel
 
     -- * Low-level
-  , sendQmpCommand
   , classifyQmpResponse
-  , withUnixSocket
 
     -- * Re-export quasi-quoter
   , qmpQQ

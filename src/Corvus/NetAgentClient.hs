@@ -24,7 +24,6 @@ module Corvus.NetAgentClient
 
     -- * Lifecycle
   , withNetAgentClient
-  , defaultNetAgentAddress
 
     -- * Spec types (re-exported convenience)
   , NetworkSpec (..)
@@ -140,9 +139,6 @@ data NetAgentError
   deriving (Show)
 
 instance E.Exception NetAgentError
-
-defaultNetAgentAddress :: (String, Int)
-defaultNetAgentAddress = ("127.0.0.1", 9877)
 
 withNetAgentClient
   :: String

@@ -19,21 +19,17 @@ module Corvus.Node.GuestAgent
     GuestExecResult (..)
   , GuestIpAddress (..)
   , GuestNetIf (..)
-  , GuestOsInfo (..)
 
     -- * Persistent connection management
   , GuestAgentConns
-  , closeGuestAgentConn
 
     -- * Commands
   , guestExec
   , guestExecWithTimeout
   , guestExecWithStdin
-  , guestExecWithTail
   , guestPing
   , guestShutdown
   , guestNetworkGetInterfaces
-  , guestGetOsInfo
 
     -- * Internal (exposed for tests)
   , parseGuestInterfaces
@@ -96,19 +92,6 @@ data GuestExecResult
     GuestExecConnectionFailed !Text
   deriving (Eq, Show)
 
--- | Guest OS information returned by guest-get-osinfo
-data GuestOsInfo = GuestOsInfo
-  { goiKernelRelease :: !Text
-  -- ^ e.g. "10.0.19041" or "6.1.0-20-amd64"
-  , goiKernelVersion :: !Text
-  -- ^ e.g. "#1 SMP" or "10.0"
-  , goiId :: !Text
-  -- ^ OS ID: "mswindows", "linux", "freebsd", etc.
-  , goiMachine :: !Text
-  -- ^ Machine type, e.g. "x86_64"
-  }
-  deriving (Eq, Show)
-
 -- | A single IP address reported by the guest agent
 data GuestIpAddress = GuestIpAddress
   { giaType :: !Text
@@ -148,22 +131,6 @@ getOrCreateConn connsVar vmId = do
           Nothing -> do
             writeTVar connsVar (Map.insert vmId newConn conns)
             pure newConn
-
--- | Close a VM's persistent guest agent connection and remove it from the map.
--- Called when a VM is stopped to clean up the socket.
-closeGuestAgentConn :: GuestAgentConns -> Int64 -> IO ()
-closeGuestAgentConn connsVar vmId = do
-  mConn <- atomically $ do
-    conns <- readTVar connsVar
-    let mC = Map.lookup vmId conns
-    writeTVar connsVar (Map.delete vmId conns)
-    pure mC
-  case mConn of
-    Nothing -> pure ()
-    Just connVar -> do
-      mSock <- takeMVar connVar
-      closeMaybe mSock
-      putMVar connVar Nothing
 
 -- | Run an action on a VM's persistent guest agent connection.
 -- Connects and syncs on first use; reuses the socket for subsequent calls.
@@ -318,158 +285,6 @@ guestExecWithStdin
 guestExecWithStdin conns config vmId command stdinBs =
   guestExecImpl conns config vmId command (Just stdinBs)
 
--- | Path inside the guest where build-pipeline shell provisioners
--- redirect stdout+stderr so the daemon can tail them. Single path:
--- @guestExecWithTail@ truncates at start of every step (file mode @w+@)
--- and steps run sequentially per build, so the file never serves two
--- writers at once.
-buildStepLogPath :: Text
-buildStepLogPath = "/tmp/.corvus-build-step.log"
-
--- | Like 'guestExecWithStdin' but tails the guest's stdout+stderr live
--- and feeds each line to the supplied callback as it's written.
---
--- QGA's @guest-exec-status@ only returns captured output once the
--- process exits, so we redirect inside the guest to a log file and
--- @guest-file-read@ the file in parallel with the status poll. The
--- callback is invoked once per complete line (no trailing newline).
--- Any tail without a terminating newline is flushed as a final line
--- after the process exits.
---
--- The returned 'GuestExecResult' carries the exit code from
--- @guest-exec-status@; its @stdout@ and @stderr@ fields are always the
--- empty string because the wrapper redirects them into the log file.
-guestExecWithTail
-  :: GuestAgentConns
-  -> QemuConfig
-  -> Int64
-  -> Text
-  -- ^ command body (passed as the shell's @-c@ argument)
-  -> Int
-  -- ^ poll timeout, in 100 ms ticks
-  -> (Text -> IO ())
-  -- ^ called once per complete line of merged stdout+stderr
-  -> IO GuestExecResult
-guestExecWithTail conns config vmId command maxPolls onLine = do
-  let connTimeoutMicros = max 15000000 (maxPolls * 100000 + 30000000)
-  mResult <- withPersistentConn conns config vmId 5 connTimeoutMicros $ \sock -> do
-    -- Open the log file in mode "w+" first: this both truncates any
-    -- leftover content from a previous step and gives us a read handle
-    -- whose offset starts at 0. The wrapper script uses ">>" so each
-    -- write extends the file past our read position.
-    mHandle <- openLogFile sock buildStepLogPath
-    case mHandle of
-      Left err -> pure $ GuestExecError err
-      Right handle -> do
-        (shellPath, shellArgs) <- detectGuestShell sock
-        let logPathQuoted = "'" <> T.replace "'" "'\\''" buildStepLogPath <> "'"
-            wrapped =
-              "exec >>"
-                <> logPathQuoted
-                <> " 2>&1\n"
-                <> command
-            execCmd =
-              Aeson.object
-                [ "execute" .= ("guest-exec" :: Text)
-                , "arguments"
-                    .= Aeson.object
-                      [ "path" .= shellPath
-                      , "arg" .= (shellArgs ++ [wrapped])
-                      , "capture-output" .= True
-                      ]
-                ]
-        sendJson sock execCmd
-        execResp <- recvJson sock
-        case parsePid execResp of
-          Nothing -> do
-            _ <- closeLogFile sock handle
-            pure $
-              GuestExecError $
-                "Failed to parse guest-exec response: " <> T.pack (show execResp)
-          Just pid -> do
-            tailRef <- newIORef BS.empty
-            let drain = drainLog sock handle tailRef onLine
-            r <- pollStatusWithTail sock pid 0 maxPolls drain
-            -- Final drain to capture any output written between the
-            -- last poll cycle and the process exit.
-            _ <- drain
-            -- Flush trailing partial line (output without final \n).
-            partial <- readIORef tailRef
-            unless (BS.null partial) $
-              onLine (decodeUtf8With lenientDecode partial)
-            _ <- closeLogFile sock handle
-            pure r
-  case mResult of
-    Left err -> pure $ GuestExecConnectionFailed err
-    Right r -> pure r
-
--- | Open a guest file with @fopen@ mode @"w+"@ (truncate, read+write).
--- Returns the QGA file handle on success.
-openLogFile :: Socket -> Text -> IO (Either Text Int)
-openLogFile sock path = do
-  sendJson sock $
-    Aeson.object
-      [ "execute" .= ("guest-file-open" :: Text)
-      , "arguments" .= Aeson.object ["path" .= path, "mode" .= ("w+" :: Text)]
-      ]
-  resp <- recvJson sock
-  case resp of
-    Just (Object o) -> case KM.lookup "return" o of
-      Just (Number n) -> pure $ Right (truncate (realToFrac n :: Double))
-      _ -> pure $ Left $ "guest-file-open: " <> T.pack (show resp)
-    _ -> pure $ Left $ "guest-file-open: " <> T.pack (show resp)
-
--- | Close a guest file handle. Errors are ignored — the bake VM is torn
--- down at the end of the build either way.
-closeLogFile :: Socket -> Int -> IO ()
-closeLogFile sock handle = do
-  sendJson sock $
-    Aeson.object
-      [ "execute" .= ("guest-file-close" :: Text)
-      , "arguments" .= Aeson.object ["handle" .= handle]
-      ]
-  _ <- recvJson sock
-  pure ()
-
--- | Read up to 65536 bytes from a guest file handle. Returns the raw
--- (base64-decoded) payload. The handle's read offset advances on each
--- call; QGA returns count=0 when nothing new is available, which is
--- normal for a slow-producing process.
-readLogChunk :: Socket -> Int -> IO BS.ByteString
-readLogChunk sock handle = do
-  sendJson sock $
-    Aeson.object
-      [ "execute" .= ("guest-file-read" :: Text)
-      , "arguments" .= Aeson.object ["handle" .= handle, "count" .= (65536 :: Int)]
-      ]
-  resp <- recvJson sock
-  pure $ case resp of
-    Just (Object o)
-      | Just (Object ret) <- KM.lookup "return" o
-      , Just (String b64) <- KM.lookup "buf-b64" ret ->
-          case B64.decode (encodeUtf8 b64) of
-            Right bs -> bs
-            Left _ -> BS.empty
-    _ -> BS.empty
-
--- | One cycle of: read a chunk from the guest log file, append to the
--- partial-line buffer, emit any complete lines via @onLine@, retain the
--- last incomplete line in the buffer.
-drainLog
-  :: Socket
-  -> Int
-  -> IORef BS.ByteString
-  -> (Text -> IO ())
-  -> IO ()
-drainLog sock handle tailRef onLine = do
-  chunk <- readLogChunk sock handle
-  unless (BS.null chunk) $ do
-    buf <- readIORef tailRef
-    let combined = buf <> chunk
-        (complete, leftover) = splitLines combined
-    writeIORef tailRef leftover
-    mapM_ (onLine . decodeUtf8With lenientDecode) complete
-
 -- | Split a buffer on @\\n@ boundaries: returns the list of complete
 -- lines (without trailing @\\n@) and the trailing partial line (which
 -- may be empty if the buffer ends in @\\n@). Exposed for tests.
@@ -480,35 +295,6 @@ splitLines bs =
    in case reverse pieces of
         [] -> ([], BS.empty)
         (lastPiece : rest) -> (reverse rest, lastPiece)
-
--- | Like 'pollStatus' but runs an extra IO action between status polls
--- so the caller can drain the log file in lockstep.
-pollStatusWithTail
-  :: Socket
-  -> Int
-  -> Int
-  -> Int
-  -> IO ()
-  -> IO GuestExecResult
-pollStatusWithTail sock pid attempts maxAttempts drain
-  | attempts > maxAttempts = pure $ GuestExecError "guest-exec timed out waiting for process to exit"
-  | otherwise = do
-      let statusCmd =
-            Aeson.object
-              [ "execute" .= ("guest-exec-status" :: Text)
-              , "arguments" .= Aeson.object ["pid" .= pid]
-              ]
-      sendJson sock statusCmd
-      statusResp <- recvJson sock
-      case parseExecStatus statusResp of
-        Just (True, exitcode, _, _) ->
-          -- Output went via the log file, not via QGA's out-data/err-data.
-          pure $ GuestExecSuccess exitcode "" ""
-        Just (False, _, _, _) -> do
-          drain
-          threadDelay 100000 -- 100ms
-          pollStatusWithTail sock pid (attempts + 1) maxAttempts drain
-        Nothing -> pure $ GuestExecError "Failed to parse guest-exec-status response"
 
 guestExecImpl
   :: GuestAgentConns
@@ -603,18 +389,6 @@ guestNetworkGetInterfaces conns config vmId = do
     sendJson sock $ Aeson.object ["execute" .= ("guest-network-get-interfaces" :: Text)]
     resp <- recvJson sock
     pure $ parseGuestInterfaces resp
-  case mResult of
-    Left _ -> pure Nothing
-    Right r -> pure r
-
--- | Query guest OS info via the QEMU Guest Agent.
--- Returns Nothing on failure.
-guestGetOsInfo :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Maybe GuestOsInfo)
-guestGetOsInfo conns config vmId = do
-  mResult <- withPersistentConn conns config vmId 5 15000000 $ \sock -> do
-    sendJson sock $ Aeson.object ["execute" .= ("guest-get-osinfo" :: Text)]
-    resp <- recvJson sock
-    pure $ parseOsInfo resp
   case mResult of
     Left _ -> pure Nothing
     Right r -> pure r
@@ -718,26 +492,6 @@ detectGuestShell sock = do
             ret .:? "id" AT..!= ("" :: Text)
         )
         val
-
--- | Parse guest-get-osinfo response.
-parseOsInfo :: Maybe Value -> Maybe GuestOsInfo
-parseOsInfo mVal = do
-  val <- mVal
-  AT.parseMaybe osInfoParser val
-  where
-    osInfoParser = AT.withObject "response" $ \obj -> do
-      ret <- obj .: "return"
-      kernelRelease <- ret .:? "kernel-release" AT..!= ""
-      kernelVersion <- ret .:? "kernel-version" AT..!= ""
-      osId <- ret .:? "id" AT..!= ""
-      machine <- ret .:? "machine" AT..!= ""
-      pure
-        GuestOsInfo
-          { goiKernelRelease = kernelRelease
-          , goiKernelVersion = kernelVersion
-          , goiId = osId
-          , goiMachine = machine
-          }
 
 -- | Extract PID from guest-exec response: {"return": {"pid": N}}
 parsePid :: Maybe Value -> Maybe Int

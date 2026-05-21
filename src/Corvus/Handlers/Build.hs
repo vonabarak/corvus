@@ -19,12 +19,10 @@ module Corvus.Handlers.Build
     BuildAction (..)
 
     -- * Handlers
-  , handleBuildExecute
   , runBuildPipeline
 
     -- * Streaming sink
   , BuildSink
-  , noOpBuildSink
 
     -- * Shell command assembly (exported for tests)
   , buildShellCommand

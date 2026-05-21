@@ -12,7 +12,6 @@ module Corvus.Handlers.Apply
 
     -- * Handlers
   , handleApplyValidate
-  , handleApplyExecute
   )
 where
 

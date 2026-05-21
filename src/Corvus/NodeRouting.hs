@@ -11,12 +11,8 @@
 -- Phase 3 will extend the disk routing with proper
 -- 'DiskImageNode' lookups.
 module Corvus.NodeRouting
-  ( -- * Resolving NodeIds from related rows
-    vmNodeIdById
-  , networkNodeIdById
-
-    -- * Dispatch wrappers
-  , withVmNodeAgent
+  ( -- * Dispatch wrappers
+    withVmNodeAgent
   , withVmNetAgent
   , withNetworkNetAgent
   )

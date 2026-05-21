@@ -31,11 +31,9 @@ module Corvus.Netd.IpLink
   , addrDel
   , linkSetUp
   , linkSetMtu
-  , linkExists
   , tapAdd
   , tapDel
   , linkSetMaster
-  , linkSetNoMaster
   )
 where
 
@@ -57,8 +55,7 @@ data IpLinkError = IpLinkError
 
 instance E.Exception IpLinkError
 
--- | @ip link add <name> type bridge@. Idempotency is the caller's
--- problem — call 'linkExists' first if you want to be permissive.
+-- | @ip link add <name> type bridge@.
 bridgeAdd :: T.Text -> IO (Either IpLinkError ())
 bridgeAdd name =
   runIp ["link", "add", T.unpack name, "type", "bridge"]
@@ -94,14 +91,6 @@ linkSetMtu :: T.Text -> Word32 -> IO (Either IpLinkError ())
 linkSetMtu iface n =
   runIp ["link", "set", T.unpack iface, "mtu", show n]
 
--- | True iff a link with this name exists on the host. Lightweight
--- check via @ip link show@ that just asks for one interface.
-linkExists :: T.Text -> IO Bool
-linkExists iface = do
-  (code, _out, _err) <-
-    readProcessWithExitCode "ip" ["link", "show", "dev", T.unpack iface] ""
-  pure (code == ExitSuccess)
-
 -- | @ip tuntap add dev <name> mode tap user <uid> group <gid>@.
 -- Creates a persistent TAP whose @/dev/net/tun@ reopen rights are
 -- granted to the specified uid/gid via @TUNSETOWNER@ — so QEMU
@@ -131,13 +120,6 @@ tapDel name =
 linkSetMaster :: T.Text -> T.Text -> IO (Either IpLinkError ())
 linkSetMaster iface master =
   runIp ["link", "set", T.unpack iface, "master", T.unpack master]
-
--- | @ip link set <iface> nomaster@. Idempotent — detaching an
--- already-detached interface is a no-op at the kernel level (but
--- iproute2 may still return success without doing anything).
-linkSetNoMaster :: T.Text -> IO (Either IpLinkError ())
-linkSetNoMaster iface =
-  runIp ["link", "set", T.unpack iface, "nomaster"]
 
 -- ---------------------------------------------------------------------------
 -- Internal

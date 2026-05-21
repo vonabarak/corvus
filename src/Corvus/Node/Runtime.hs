@@ -8,21 +8,11 @@ module Corvus.Node.Runtime
     getVmRuntimeDir
   , createVmRuntimeDir
 
-    -- * Network runtime directories
-  , getNetworkRuntimeDir
-  , createNetworkRuntimeDir
-  , getBridgeName
-  , getTapUpScript
-  , getTapInterfaceName
-  , getDnsmasqPidFile
-  , getDnsmasqLeaseFile
-
     -- * Socket paths
   , getMonitorSocket
   , getQmpSocket
   , getSerialSocket
   , getGuestAgentSocket
-  , getPidFile
   )
 where
 
@@ -48,49 +38,6 @@ createVmRuntimeDir config vmId = do
   vmDir <- getVmRuntimeDir config vmId
   createDirectoryIfMissing True vmDir
   pure vmDir
-
---------------------------------------------------------------------------------
--- Network Runtime Directories
---------------------------------------------------------------------------------
-
--- | Get the runtime directory for a specific network
-getNetworkRuntimeDir :: QemuConfig -> Int64 -> IO FilePath
-getNetworkRuntimeDir config networkId = do
-  baseDir <- getEffectiveRuntimeDir config
-  pure $ baseDir </> "networks" </> show networkId
-
--- | Create runtime directory for a network
-createNetworkRuntimeDir :: QemuConfig -> Int64 -> IO FilePath
-createNetworkRuntimeDir config networkId = do
-  netDir <- getNetworkRuntimeDir config networkId
-  createDirectoryIfMissing True netDir
-  pure netDir
-
--- | Get the bridge name for a network (deterministic from ID)
-getBridgeName :: Int64 -> String
-getBridgeName networkId = "crv" ++ show networkId
-
--- | Get path to the tap-up script for a network
-getTapUpScript :: QemuConfig -> Int64 -> IO FilePath
-getTapUpScript config networkId = do
-  netDir <- getNetworkRuntimeDir config networkId
-  pure $ netDir </> "tap-up.sh"
-
--- | Get the TAP interface name for a network (deterministic from ID)
-getTapInterfaceName :: Int64 -> String
-getTapInterfaceName networkId = "crv" ++ show networkId
-
--- | Get path to dnsmasq PID file for a network
-getDnsmasqPidFile :: QemuConfig -> Int64 -> IO FilePath
-getDnsmasqPidFile config networkId = do
-  netDir <- getNetworkRuntimeDir config networkId
-  pure $ netDir </> "dnsmasq.pid"
-
--- | Get path to dnsmasq lease file for a network
-getDnsmasqLeaseFile :: QemuConfig -> Int64 -> IO FilePath
-getDnsmasqLeaseFile config networkId = do
-  netDir <- getNetworkRuntimeDir config networkId
-  pure $ netDir </> "dnsmasq.leases"
 
 --------------------------------------------------------------------------------
 -- Socket Paths
@@ -119,9 +66,3 @@ getGuestAgentSocket :: QemuConfig -> Int64 -> IO FilePath
 getGuestAgentSocket config vmId = do
   vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "qga.sock"
-
--- | Get path to PID file for a VM
-getPidFile :: QemuConfig -> Int64 -> IO FilePath
-getPidFile config vmId = do
-  vmDir <- getVmRuntimeDir config vmId
-  pure $ vmDir </> "qemu.pid"

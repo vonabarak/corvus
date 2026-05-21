@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Shared helpers for the Cap'n Proto cap implementations:
@@ -11,8 +10,6 @@ module Corvus.Rpc.Common
 
     -- * Failures
   , failOnLeft
-  , failNotFound
-  , throwWireError
 
     -- * Method-handler wrapper (connection-safe)
   , handleParsed
@@ -44,12 +41,6 @@ capnpRefToRef raw = case fromCapnpEntityRef raw of
 failOnLeft :: Either Text a -> IO a
 failOnLeft (Right a) = pure a
 failOnLeft (Left e) = throwFailed e
-
-failNotFound :: Text -> IO a
-failNotFound what = throwFailed (what <> " not found")
-
-throwWireError :: WireError -> IO a
-throwWireError = throwFailed . showWireError
 
 -- | Connection-safe replacement for 'Capnp.Rpc.Server.handleParsed'.
 --

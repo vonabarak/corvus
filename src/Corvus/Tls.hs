@@ -51,11 +51,8 @@ module Corvus.Tls
   , closeTlsContext
 
     -- * Validation
-  , peerCN
   , validatePeerCN
   , validatePeerCNAnyRole
-  , extractCNFromCert
-  , extractCNFromChain
   , checkPrefixAndName
   )
 where
@@ -458,13 +455,6 @@ relaxedChecks = def {X509Val.checkFQHN = False}
 
 -- ---------------------------------------------------------------------------
 -- Peer-CN extraction + validation
-
--- | Read the captured peer CN after a successful handshake. Will
--- be @Nothing@ if the validation hook didn't fire (e.g. session
--- resumption, which we don't actually use, or a TLS-stack bug);
--- 'validatePeerCN' treats that as a hard failure.
-peerCN :: PeerCNRef -> IO (Maybe T.Text)
-peerCN = readPeerCNRef
 
 -- | Pull the CN out of the leaf certificate in a chain, decoded as
 -- UTF-8 (the @asn1@ library already takes care of charset

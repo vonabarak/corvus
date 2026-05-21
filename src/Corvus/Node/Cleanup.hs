@@ -25,8 +25,6 @@
 -- cleanup pkill doesn't sweep unrelated processes.
 module Corvus.Node.Cleanup
   ( cleanupCorvusProcesses
-  , corvusQemuArgvPattern
-  , corvusVirtiofsdArgvPattern
   )
 where
 

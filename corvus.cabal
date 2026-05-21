@@ -248,13 +248,10 @@ library
     , crypton-x509-validation
     , data-default
     , directory
-    , esqueleto
     , exceptions
     , filepath
-    , fourmolu
     , gitrev
     , haskell-src-meta
-    , memory
     , monad-logger
     , mtl
     , network
@@ -274,7 +271,6 @@ library
     , tls
     , transformers
     , unix
-    , unliftio-core
     , vector
     , yaml
   default-language: Haskell2010
@@ -320,13 +316,10 @@ executable corvus
     , crypton-x509-validation
     , data-default
     , directory
-    , esqueleto
     , exceptions
     , filepath
-    , fourmolu
     , gitrev
     , haskell-src-meta
-    , memory
     , monad-logger
     , mtl
     , network
@@ -346,7 +339,6 @@ executable corvus
     , tls
     , transformers
     , unix
-    , unliftio-core
     , vector
     , yaml
   default-language: Haskell2010
@@ -392,13 +384,10 @@ executable corvus-netd
     , crypton-x509-validation
     , data-default
     , directory
-    , esqueleto
     , exceptions
     , filepath
-    , fourmolu
     , gitrev
     , haskell-src-meta
-    , memory
     , monad-logger
     , mtl
     , network
@@ -418,7 +407,6 @@ executable corvus-netd
     , tls
     , transformers
     , unix
-    , unliftio-core
     , vector
     , yaml
   default-language: Haskell2010
@@ -464,13 +452,10 @@ executable corvus-nodeagent
     , crypton-x509-validation
     , data-default
     , directory
-    , esqueleto
     , exceptions
     , filepath
-    , fourmolu
     , gitrev
     , haskell-src-meta
-    , memory
     , monad-logger
     , mtl
     , network
@@ -490,7 +475,6 @@ executable corvus-nodeagent
     , tls
     , transformers
     , unix
-    , unliftio-core
     , vector
     , yaml
   default-language: Haskell2010
@@ -536,13 +520,10 @@ executable crv
     , crypton-x509-validation
     , data-default
     , directory
-    , esqueleto
     , exceptions
     , filepath
-    , fourmolu
     , gitrev
     , haskell-src-meta
-    , memory
     , monad-logger
     , mtl
     , network
@@ -562,7 +543,6 @@ executable crv
     , tls
     , transformers
     , unix
-    , unliftio-core
     , vector
     , yaml
   default-language: Haskell2010
@@ -654,16 +634,13 @@ test-suite corvus-test
     , crypton-x509-validation
     , data-default
     , directory
-    , esqueleto
     , exceptions
     , filepath
-    , fourmolu
     , gitrev
     , haskell-src-meta
     , hspec
     , hspec-discover
     , hspec-expectations
-    , memory
     , monad-logger
     , mtl
     , network
@@ -684,7 +661,6 @@ test-suite corvus-test
     , tls
     , transformers
     , unix
-    , unliftio-core
     , uuid
     , vector
     , yaml

@@ -23,11 +23,9 @@ dependencies:
   - time
   - persistent
   - persistent-postgresql
-  - esqueleto
   - monad-logger
   - resource-pool
   - mtl
-  - unliftio-core
   - exceptions
   - aeson
   - aeson-qq
@@ -35,7 +33,6 @@ dependencies:
   - template-haskell
   - haskell-src-meta
   - random
-  - fourmolu
   - base64-bytestring
   - containers
   - temporary
@@ -49,7 +46,6 @@ dependencies:
   - crypton-x509-store
   - crypton-x509-validation
   - asn1-types
-  - memory
   - transformers
 
 default-extensions:

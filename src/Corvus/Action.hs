@@ -21,7 +21,6 @@ module Corvus.Action
   , runActionAsync
   , runActionAsyncWithId
   , runActionAsSubtask
-  , runActionWithSubtasks
 
     -- * Helpers
   , executeCreate
@@ -30,9 +29,6 @@ module Corvus.Action
     -- * Response classification (used by runners)
   , classifyResponse
   , extractEntityFromResponse
-
-    -- * Task progress fan-out
-  , pushTaskFinished
   )
 where
 
@@ -181,13 +177,6 @@ runActionAsSubtask state action parentId = do
             TaskError -> cancelRemainingSubtasks (ssDbPool state) parentId
             _ -> pure ()
           pure resp
-
--- | Run an action as a parent task that may create subtasks.
--- Like runAction but the action receives its own TaskId via ActionContext
--- so it can create subtasks. Same behavior as runAction — the distinction
--- is semantic (callers that need subtask support use this name for clarity).
-runActionWithSubtasks :: (Action a) => ServerState -> a -> IO Response
-runActionWithSubtasks = runAction
 
 --------------------------------------------------------------------------------
 -- Internal Helpers

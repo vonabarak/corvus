@@ -20,9 +20,6 @@ module Corvus.Client.Capnp.Connection
 
     -- * Bracketed connect
   , withCapnpConnection
-
-    -- * Default address helper
-  , defaultCapnpAddress
   )
 where
 
@@ -75,12 +72,6 @@ data CapnpConnectionError
   deriving (Eq, Show)
 
 instance Exception CapnpConnectionError
-
--- | Default Cap'n Proto Unix socket path: the canonical Corvus
--- socket in the XDG runtime dir. The daemon owns this socket
--- end-to-end now that the legacy 'Data.Binary' listener is gone.
-defaultCapnpAddress :: IO ListenAddress
-defaultCapnpAddress = UnixAddress <$> getDefaultSocketPath
 
 -- | Open a connection, run an action with the resulting
 -- 'CapnpConnection', and tear everything down cleanly when the

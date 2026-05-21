@@ -12,10 +12,6 @@
 --
 -- * 'handleDiskImportUrl' — specialised URL-only import, kept for the
 --   legacy @ReqDiskImportUrl@ protocol message.
---
--- The pure helper 'importDiskFromUrlIO' is exported for reuse from the
--- @crv apply@ handler so it can download URLs declared in apply configs
--- without going through the protocol layer.
 module Corvus.Handlers.Disk.Import
   ( -- * Action types
     DiskImportAction (..)
@@ -24,9 +20,6 @@ module Corvus.Handlers.Disk.Import
     -- * Handlers
   , handleDiskImportCopy
   , handleDiskImportUrl
-
-    -- * Reusable core for Apply
-  , importDiskFromUrlIO
   )
 where
 

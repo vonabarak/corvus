@@ -11,9 +11,7 @@
 -- into 'startSocketBufferThread'.
 module Corvus.Node.SocketBuffer
   ( -- * Buffer operations
-    newSocketBuffer
-  , writeBuffer
-  , readBufferFrom
+    readBufferFrom
   , waitForData
   , flushBuffer
 

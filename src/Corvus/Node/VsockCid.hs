@@ -18,10 +18,8 @@
 -- filter is keyed on the target node's id rather than scanning
 -- every VM cluster-wide.
 module Corvus.Node.VsockCid
-  ( allocateVsockCid
-  , withAllocatedVsockCid
+  ( withAllocatedVsockCid
   , isHostFree
-  , hostHasVhostVsock
   )
 where
 
@@ -103,15 +101,6 @@ withAllocatedVsockCid state nid persist = do
     case eCid of
       Left err -> pure (Left err)
       Right cid -> Right <$> persist cid
-
--- | Does this host even have @/dev/vhost-vsock@?
---
--- Some kernels (notably nested-virt test images) ship without
--- @vhost_vsock@. Only used by the *agent* now — the daemon
--- routes through 'NOA.probeVsockCid' which already returns
--- @true@ when the device is missing.
-hostHasVhostVsock :: IO Bool
-hostHasVhostVsock = doesPathExist "/dev/vhost-vsock"
 
 -- | Probe the host kernel for an unused guest CID.
 --

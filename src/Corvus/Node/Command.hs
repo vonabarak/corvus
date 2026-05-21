@@ -7,13 +7,6 @@ module Corvus.Node.Command
   ( -- * Command generation
     generateQemuCommand
   , generateQemuCommandIO
-  , generateQemuCommandWithSockets
-
-    -- * Command building
-  , buildCommandWithSockets
-  , driveArgs
-  , netArgs
-  , sharedDirArgs
 
     -- * VM-abstraction entry point
   , buildQemuCommandFromSpec

@@ -19,7 +19,6 @@ module Corvus.NodeSupervisor
   ( spawnAllNodeSupervisors
   , spawnNodeSupervisor
   , reapplyRunningNetworks
-  , blockUntilShutdown
   )
 where
 

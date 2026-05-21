@@ -14,13 +14,6 @@ module Corvus.Node.Ledger
   , lookupVm
   , insertVm
   , removeVm
-
-    -- * Disk ledger
-  , DiskLedger
-  , newDiskLedger
-  , readDisks
-  , insertDisk
-  , removeDisk
   )
 where
 
@@ -84,26 +77,3 @@ insertVm l vmId st = modifyTVar' (vmVar l) (Map.insert vmId st)
 removeVm :: VmLedger -> Int64 -> STM (Maybe VmLiveState)
 removeVm l vmId =
   stateTVar (vmVar l) (\m -> (Map.lookup vmId m, Map.delete vmId m))
-
--- ---------------------------------------------------------------------------
--- Disks
-
--- | Key = disk-image logical name. Value = the spec the agent
--- has materialised on the filesystem; the underlying file is
--- the side effect. Polymorphic so the disk subsystem can pick
--- whatever record type it likes.
-newtype DiskLedger spec = DiskLedger
-  { diskVar :: TVar (Map.Map T.Text spec)
-  }
-
-newDiskLedger :: IO (DiskLedger spec)
-newDiskLedger = DiskLedger <$> newTVarIO Map.empty
-
-readDisks :: DiskLedger spec -> STM (Map.Map T.Text spec)
-readDisks = readTVar . diskVar
-
-insertDisk :: DiskLedger spec -> T.Text -> spec -> STM ()
-insertDisk l name spec = modifyTVar' (diskVar l) (Map.insert name spec)
-
-removeDisk :: DiskLedger spec -> T.Text -> STM ()
-removeDisk l name = modifyTVar' (diskVar l) (Map.delete name)
