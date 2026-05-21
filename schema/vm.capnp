@@ -233,4 +233,19 @@ interface Vm {
   attachSshKey @27 (keyRef :Common.EntityRef) -> ();
   detachSshKey @28 (keyRef :Common.EntityRef) -> ();
   listSshKeys  @29 () -> (keys :List(SshKey.SshKeyInfo));
+
+  # Migrate this (stopped) VM to a different node. The bytes of
+  # every attached drive are streamed agent-to-agent; the daemon
+  # orchestrates but does not relay. The VM must be stopped, must
+  # have no shared dirs, and must use only `user`-type netifs (or
+  # none at all). Returns a task id for long-running progress
+  # observation.
+  migrate @30 (params :VmMigrateParams) -> (taskId :Int64);
+}
+
+# Parameters for `Vm.migrate`. The VM is identified by the
+# capability the caller already holds; only the destination node
+# is conveyed in the params struct.
+struct VmMigrateParams {
+  toNodeRef @0 :Common.EntityRef;
 }

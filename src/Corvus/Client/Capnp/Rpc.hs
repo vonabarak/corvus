@@ -69,6 +69,7 @@ module Corvus.Client.Capnp.Rpc
   , rpcVmPause
   , rpcVmReset
   , rpcVmDelete
+  , rpcVmMigrate
   , rpcVmEdit
   , rpcVmCloudInit
   , rpcVmViewGrant
@@ -471,6 +472,16 @@ rpcVmDelete conn ref deleteDisks = do
   vmClient <- getVmClient conn ref
   _ <- callOn #delete CGVm.Vm'delete'params {CGVm.deleteDisks = deleteDisks} vmClient
   pure ()
+
+-- | Migrate a stopped VM to another node. Returns the task id so
+-- the caller can subscribe to migration progress events.
+rpcVmMigrate :: CapnpConnection -> EntityRef -> EntityRef -> IO Int64
+rpcVmMigrate conn vmRef toNodeRef = do
+  vmClient <- getVmClient conn vmRef
+  let p = CGVm.VmMigrateParams {CGVm.toNodeRef = toCapnpEntityRef toNodeRef}
+  CGVm.Vm'migrate'results {CGVm.taskId = tid} <-
+    callOn #migrate CGVm.Vm'migrate'params {CGVm.params = p} vmClient
+  pure tid
 
 -- =====================================================================
 -- Disk lifecycle wrappers

@@ -82,6 +82,8 @@ data Command
     CloudInitGenerate !Text
   | -- | Execute a command in a VM via guest agent (vmRef, command)
     VmExec !Text !Text
+  | -- | Migrate a stopped VM to another node (vmRef, toNodeRef)
+    VmMigrate !Text !Text
   | -- Disk image commands
 
     -- | Create disk image (name, format, sizeMb, optionalPath)

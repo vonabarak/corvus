@@ -1043,9 +1043,10 @@ instance (GH.Export Vm) where
                                                                     ,(GH.toUntypedMethodHandler ((vm'snapshotGet) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'attachSshKey) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'detachSshKey) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'listSshKeys) s_))] [])
+                                                                    ,(GH.toUntypedMethodHandler ((vm'listSshKeys) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'migrate) s_))] [])
 class (Vm'server_ s_) where
-    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotGet,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys #-}
+    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotGet,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate #-}
     vm'show :: s_ -> (GH.MethodHandler Vm'show'params Vm'show'results)
     vm'show _ = GH.methodUnimplemented
     vm'start :: s_ -> (GH.MethodHandler Vm'start'params Vm'start'results)
@@ -1106,6 +1107,8 @@ class (Vm'server_ s_) where
     vm'detachSshKey _ = GH.methodUnimplemented
     vm'listSshKeys :: s_ -> (GH.MethodHandler Vm'listSshKeys'params Vm'listSshKeys'results)
     vm'listSshKeys _ = GH.methodUnimplemented
+    vm'migrate :: s_ -> (GH.MethodHandler Vm'migrate'params Vm'migrate'results)
+    vm'migrate _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Vm Vm'show'params Vm'show'results) where
     methodByLabel  = (GH.Method 17269745093196220462 0)
 instance (GH.HasMethod "start" Vm Vm'start'params Vm'start'results) where
@@ -1166,6 +1169,8 @@ instance (GH.HasMethod "detachSshKey" Vm Vm'detachSshKey'params Vm'detachSshKey'
     methodByLabel  = (GH.Method 17269745093196220462 28)
 instance (GH.HasMethod "listSshKeys" Vm Vm'listSshKeys'params Vm'listSshKeys'results) where
     methodByLabel  = (GH.Method 17269745093196220462 29)
+instance (GH.HasMethod "migrate" Vm Vm'migrate'params Vm'migrate'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 30)
 data Vm'show'params 
 type instance (R.ReprFor Vm'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'show'params) where
@@ -2855,4 +2860,94 @@ instance (C.Marshal Vm'listSshKeys'results (C.Parsed Vm'listSshKeys'results)) wh
         (Std_.pure ())
         )
 instance (GH.HasField "keys" GH.Slot Vm'listSshKeys'results (R.List Capnp.Gen.ById.Xa6341bd086aa89f6.SshKeyInfo)) where
+    fieldByLabel  = (GH.ptrField 0)
+data Vm'migrate'params 
+type instance (R.ReprFor Vm'migrate'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'migrate'params) where
+    typeId  = 9453909330779409115
+instance (C.TypedStruct Vm'migrate'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Vm'migrate'params) where
+    type AllocHint Vm'migrate'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'migrate'params (C.Parsed Vm'migrate'params))
+instance (C.AllocateList Vm'migrate'params) where
+    type ListAllocHint Vm'migrate'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'migrate'params (C.Parsed Vm'migrate'params))
+data instance C.Parsed Vm'migrate'params
+    = Vm'migrate'params 
+        {params :: (RP.Parsed VmMigrateParams)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'migrate'params))
+deriving instance (Std_.Eq (C.Parsed Vm'migrate'params))
+instance (C.Parse Vm'migrate'params (C.Parsed Vm'migrate'params)) where
+    parse raw_ = (Vm'migrate'params <$> (GH.parseField #params raw_))
+instance (C.Marshal Vm'migrate'params (C.Parsed Vm'migrate'params)) where
+    marshalInto raw_ Vm'migrate'params{..} = (do
+        (GH.encodeField #params params raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "params" GH.Slot Vm'migrate'params VmMigrateParams) where
+    fieldByLabel  = (GH.ptrField 0)
+data Vm'migrate'results 
+type instance (R.ReprFor Vm'migrate'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'migrate'results) where
+    typeId  = 9935088300684081619
+instance (C.TypedStruct Vm'migrate'results) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Vm'migrate'results) where
+    type AllocHint Vm'migrate'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'migrate'results (C.Parsed Vm'migrate'results))
+instance (C.AllocateList Vm'migrate'results) where
+    type ListAllocHint Vm'migrate'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'migrate'results (C.Parsed Vm'migrate'results))
+data instance C.Parsed Vm'migrate'results
+    = Vm'migrate'results 
+        {taskId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'migrate'results))
+deriving instance (Std_.Eq (C.Parsed Vm'migrate'results))
+instance (C.Parse Vm'migrate'results (C.Parsed Vm'migrate'results)) where
+    parse raw_ = (Vm'migrate'results <$> (GH.parseField #taskId raw_))
+instance (C.Marshal Vm'migrate'results (C.Parsed Vm'migrate'results)) where
+    marshalInto raw_ Vm'migrate'results{..} = (do
+        (GH.encodeField #taskId taskId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "taskId" GH.Slot Vm'migrate'results Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data VmMigrateParams 
+type instance (R.ReprFor VmMigrateParams) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmMigrateParams) where
+    typeId  = 17275536786290198101
+instance (C.TypedStruct VmMigrateParams) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate VmMigrateParams) where
+    type AllocHint VmMigrateParams = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmMigrateParams (C.Parsed VmMigrateParams))
+instance (C.AllocateList VmMigrateParams) where
+    type ListAllocHint VmMigrateParams = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmMigrateParams (C.Parsed VmMigrateParams))
+data instance C.Parsed VmMigrateParams
+    = VmMigrateParams 
+        {toNodeRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmMigrateParams))
+deriving instance (Std_.Eq (C.Parsed VmMigrateParams))
+instance (C.Parse VmMigrateParams (C.Parsed VmMigrateParams)) where
+    parse raw_ = (VmMigrateParams <$> (GH.parseField #toNodeRef raw_))
+instance (C.Marshal VmMigrateParams (C.Parsed VmMigrateParams)) where
+    marshalInto raw_ VmMigrateParams{..} = (do
+        (GH.encodeField #toNodeRef toNodeRef raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "toNodeRef" GH.Slot VmMigrateParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)

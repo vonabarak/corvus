@@ -21,6 +21,7 @@ module Corvus.Client.Commands.Vm
   , handleVmStart
   , handleVmStop
   , handleVmEdit
+  , handleVmMigrate
 
     -- * Polling
   , waitForVmStatus
@@ -198,6 +199,26 @@ handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mA
     fmt
     (putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated.")
     (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart)
+
+-- | Handle @crv vm migrate <VM> --to-node <NODE>@.
+handleVmMigrate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleVmMigrate fmt conn vmRef toNodeRef = do
+  r <-
+    try @SomeException $
+      CR.rpcVmMigrate
+        conn
+        (entityRefFromText vmRef)
+        (entityRefFromText toNodeRef)
+  case r of
+    Right tid -> do
+      emitOkWith fmt [("taskId", toJSON tid)] $
+        putStrLn $
+          "VM migration started. Task ID: " ++ show tid
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error migrating VM: " ++ show e)
+      pure False
 
 -- ---------------------------------------------------------------------
 -- Raw terminal session over Cap'n Proto ByteSink caps (Phase 6b/c/f)

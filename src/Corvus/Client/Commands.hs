@@ -152,6 +152,7 @@ runCommand opts = do
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> handleVmView opts fmt conn vmRef
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef
+      VmMigrate vmRef toNodeRef -> handleVmMigrate fmt conn vmRef toNodeRef
       -- Disk commands
       DiskCreate name formatStr sizeMb mPath -> do
         case parseFormat formatStr of

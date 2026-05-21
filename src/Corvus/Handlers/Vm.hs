@@ -208,19 +208,24 @@ handleVmStartValidate state vmId = do
   mVm <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
     Nothing -> pure $ Left RespVmNotFound
-    Just (vm, currentStatus) ->
-      case validateTransition currentStatus ActionStart of
-        Left errMsg -> pure $ Left $ RespInvalidTransition currentStatus errMsg
-        Right _ -> do
-          -- Check that all referenced networks are running (only for cold start)
-          if currentStatus == VmStopped
-            then do
-              networkCheck <- runSqlPool (checkNetworksRunning vmId) (ssDbPool state)
-              case networkCheck of
-                Just networkName ->
-                  pure $ Left $ RespInvalidTransition VmStopped $ "Network '" <> networkName <> "' is not running"
-                Nothing -> pure $ Right (vm, currentStatus)
-            else pure $ Right (vm, currentStatus)
+    Just (vm, currentStatus)
+      | vmMigrating vm ->
+          pure $
+            Left $
+              RespError "VM is being migrated; wait for the migration to complete"
+      | otherwise ->
+          case validateTransition currentStatus ActionStart of
+            Left errMsg -> pure $ Left $ RespInvalidTransition currentStatus errMsg
+            Right _ -> do
+              -- Check that all referenced networks are running (only for cold start)
+              if currentStatus == VmStopped
+                then do
+                  networkCheck <- runSqlPool (checkNetworksRunning vmId) (ssDbPool state)
+                  case networkCheck of
+                    Just networkName ->
+                      pure $ Left $ RespInvalidTransition VmStopped $ "Network '" <> networkName <> "' is not running"
+                    Nothing -> pure $ Right (vm, currentStatus)
+                else pure $ Right (vm, currentStatus)
 
 -- | Execute VM start to completion (blocks until VmRunning).
 -- Used with --wait flag or in withTaskAsync.

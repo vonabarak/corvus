@@ -260,6 +260,23 @@ vmExecCommand =
           <> help "Command to execute inside the VM"
       )
 
+-- | Parser for @crv vm migrate@: move a stopped VM to another node.
+vmMigrateCommand :: Parser Command
+vmMigrateCommand =
+  VmMigrate
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to migrate"
+          <> completer vmCompleter
+      )
+    <*> strOption
+      ( long "to-node"
+          <> metavar "NODE"
+          <> help "Destination node (name or ID)"
+          <> completer nodeCompleter
+      )
+
 -- | Parser for all VM subcommands
 vmCommandParser :: Parser Command
 vmCommandParser =
@@ -300,4 +317,7 @@ vmCommandParser =
         <> command
           "exec"
           (info vmExecCommand (progDesc "Execute a command inside a VM via guest agent"))
+        <> command
+          "migrate"
+          (info vmMigrateCommand (progDesc "Migrate a stopped VM to another node (agent-to-agent)"))
     )

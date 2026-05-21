@@ -30,11 +30,11 @@ import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Control.Concurrent.STM (atomically, modifyTVar')
-import Corvus.Action (runAction, runActionAsync)
+import Corvus.Action (runAction, runActionAsync, runActionAsyncWithId)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.GuestExec (GuestExec (..))
 import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfRemove (..), handleNetIfList)
-import Corvus.Handlers.Resolve (resolveDisk, resolveNetwork, resolveSshKey, resolveVm)
+import Corvus.Handlers.Resolve (resolveDisk, resolveNetwork, resolveNode, resolveSshKey, resolveVm)
 import Corvus.Handlers.SharedDir (SharedDirAdd (..), SharedDirRemove (..), handleSharedDirList)
 import Corvus.Handlers.SshKey (SshKeyAttach (..), SshKeyDetach (..), handleSshKeyListForVm)
 import Corvus.Handlers.Vm
@@ -55,6 +55,7 @@ import Corvus.Handlers.Vm
   , handleVmShow
   , handleVmViewGrant
   )
+import Corvus.Handlers.Vm.Migrate (VmMigrate (..))
 import qualified Corvus.Model as M
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
@@ -540,6 +541,18 @@ instance CGVm.Vm'server_ VmCap where
   vm'snapshotCreate _ = methodUnimplemented
   vm'snapshotList _ = methodUnimplemented
   vm'snapshotGet _ = methodUnimplemented
+
+  vm'migrate (VmCap st _ eid) =
+    handleParsed $ \CGVm.Vm'migrate'params {params = CGVm.VmMigrateParams {..}} -> do
+      nr <- capnpRefToRef toNodeRef
+      destNode <- failOnLeft =<< resolveNode nr (ssDbPool st)
+      let act = VmMigrate {vmiVmId = eid, vmiDestNodeId = destNode}
+      resp <- runActionAsyncWithId st act RespDiskTransferStarted
+      case resp of
+        RespDiskTransferStarted tid ->
+          pure CGVm.Vm'migrate'results {CGVm.taskId = tid}
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "vm'migrate: unexpected response"
 
 -- ---------------------------------------------------------------------
 -- Helpers
