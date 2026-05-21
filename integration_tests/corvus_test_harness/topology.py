@@ -152,11 +152,17 @@ class TestNode:
             # CN to match `corvus-node:<Node.name>` — the
             # nodeagent's cert was minted with `corvus-node:<short_name>`
             # in deploy_certs(), so the row name has to agree.
+            # Register self with the routable outer_ip rather than
+            # 127.0.0.1: the daemon's own dial still works because
+            # the agent listens on 0.0.0.0, AND other nodeagents
+            # (during the inter-agent disk-transfer flow) can dial
+            # this node by the same address the daemon recorded.
             self._client = open_client(
                 self.relay,
                 tls=True,
                 cert_dir=self._client_cert_dir,
                 self_node_name=self.short_name,
+                self_node_host=self.outer_ip,
             )
         return self._client
 

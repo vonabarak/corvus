@@ -189,6 +189,34 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
 
     # ---- refusal matrix ----------------------------------------------------
 
+    def _assert_transfer_fails(
+        self,
+        op,
+        disk_name: str,
+        to_node: str,
+        *,
+        message_must_match,
+    ):
+        """Run op(disk_name, to_node) (where op is disks.copy or
+        disks.move) and assert the resulting task ends in
+        ``error`` whose message contains any substring from
+        ``message_must_match`` (case-insensitive).
+
+        The daemon models copy/move as taskId-returning RPCs, so
+        the synchronous return is always a numeric task id even
+        when validation will reject the operation. The error
+        materialises asynchronously in the task's ``message`` /
+        ``result`` fields.
+        """
+        tid = op(disk_name, to_node)
+        with pytest.raises(AssertionError) as ei:
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=30.0)
+        lowered = str(ei.value).lower()
+        assert any(p.lower() in lowered for p in message_must_match), (
+            f"unexpected task error message: {ei.value!r} "
+            f"(expected one of: {message_must_match!r})"
+        )
+
     def test_copy_refuses_rw_attached(self):
         """An r/w-attached disk can only move via `vm.migrate`."""
         disk_name = _uniq("rw-copy")
@@ -206,10 +234,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             )
             try:
                 vm.attach_disk(disk_name, interface="virtio")
-                with pytest.raises(ServerError) as ei:
-                    self.client_alpha.disks.copy(disk_name, self.beta_name)
-                msg = str(ei.value)
-                assert "read-write" in msg or "vm migrate" in msg
+                self._assert_transfer_fails(
+                    self.client_alpha.disks.copy,
+                    disk_name,
+                    self.beta_name,
+                    message_must_match=["read-write", "vm migrate"],
+                )
             finally:
                 vm.delete()
         finally:
@@ -231,9 +261,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             )
             try:
                 vm.attach_disk(disk_name, interface="virtio")
-                with pytest.raises(ServerError) as ei:
-                    self.client_alpha.disks.move(disk_name, self.beta_name)
-                assert "read-write" in str(ei.value) or "vm migrate" in str(ei.value)
+                self._assert_transfer_fails(
+                    self.client_alpha.disks.move,
+                    disk_name,
+                    self.beta_name,
+                    message_must_match=["read-write", "vm migrate"],
+                )
             finally:
                 vm.delete()
         finally:
@@ -257,10 +290,11 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             )
             try:
                 vm.attach_disk(disk_name, interface="virtio", read_only=True)
-                with pytest.raises(ServerError) as ei:
-                    self.client_alpha.disks.move(disk_name, self.beta_name)
-                assert "can only be copied" in str(ei.value) or "read-only" in str(
-                    ei.value
+                self._assert_transfer_fails(
+                    self.client_alpha.disks.move,
+                    disk_name,
+                    self.beta_name,
+                    message_must_match=["can only be copied", "read-only"],
                 )
             finally:
                 vm.delete()
@@ -275,9 +309,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         try:
             tid = self.client_alpha.disks.copy(name, self.beta_name)
             self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
-            with pytest.raises(ServerError) as ei:
-                self.client_alpha.disks.copy(name, self.beta_name)
-            assert "already has a placement" in str(ei.value)
+            self._assert_transfer_fails(
+                self.client_alpha.disks.copy,
+                name,
+                self.beta_name,
+                message_must_match=["already has a placement"],
+            )
         finally:
             self._delete_silent(name)
 
@@ -290,9 +327,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         try:
             self.client_alpha.disks.create_overlay(overlay_name, base_name)
             try:
-                with pytest.raises(ServerError) as ei:
-                    self.client_alpha.disks.copy(overlay_name, self.beta_name)
-                assert "backing" in str(ei.value).lower()
+                self._assert_transfer_fails(
+                    self.client_alpha.disks.copy,
+                    overlay_name,
+                    self.beta_name,
+                    message_must_match=["backing"],
+                )
             finally:
                 self._delete_silent(overlay_name)
         finally:
@@ -335,9 +375,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         try:
             beta_cap.drain()
             try:
-                with pytest.raises(ServerError) as ei:
-                    self.client_alpha.disks.copy(name, self.beta_name)
-                assert "not online" in str(ei.value)
+                self._assert_transfer_fails(
+                    self.client_alpha.disks.copy,
+                    name,
+                    self.beta_name,
+                    message_must_match=["not online"],
+                )
             finally:
                 beta_cap.edit(admin_state="online")
         finally:
@@ -349,16 +392,15 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         name = _uniq("self")
         self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
         try:
-            with pytest.raises(ServerError) as ei:
-                self.client_alpha.disks.copy(name, self.alpha_name)
-            # The daemon's exact wording is "no source placement
-            # available (target is the only node hosting this disk)"
-            # — match the substring rather than the full string so
-            # future copy edits to that diagnostic don't break the
-            # test.
-            assert "target" in str(ei.value).lower() or "no source" in str(
-                ei.value
-            ).lower()
+            self._assert_transfer_fails(
+                self.client_alpha.disks.copy,
+                name,
+                self.alpha_name,
+                # The daemon's exact wording is "no source
+                # placement available (target is the only node
+                # hosting this disk)" — match either keyword.
+                message_must_match=["target", "no source"],
+            )
         finally:
             self._delete_silent(name)
 

@@ -162,6 +162,24 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         info = self.client_alpha.disks.get(disk_name).show()
         return {p.node_name for p in info.placements}
 
+    def _assert_migrate_fails(self, vm, to_node: str, *, message_must_match):
+        """Drive vm.migrate(to_node) and assert the resulting task
+        ends in ``error`` with a message matching any of the
+        substrings in ``message_must_match``. Mirrors the
+        equivalent helper in test_disk_copy_move.py — vm.migrate is
+        an async taskId-returning RPC, so the failure surfaces via
+        ``wait_for_task`` rather than synchronously from the
+        ``migrate`` call itself.
+        """
+        tid = vm.migrate(to_node)
+        with pytest.raises(AssertionError) as ei:
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=30.0)
+        lowered = str(ei.value).lower()
+        assert any(p.lower() in lowered for p in message_must_match), (
+            f"unexpected migrate task error message: {ei.value!r} "
+            f"(expected one of: {message_must_match!r})"
+        )
+
     def _make_stopped_vm_with_disk(
         self,
         vm_name: str,
@@ -277,24 +295,49 @@ class TestVmMigration(OneDaemonTwoNodesCase):
     def test_migrate_clears_vsock_and_spice(self):
         """A VM that was started once on alpha (allocating both
         VSOCK CID and SPICE port) has those fields cleared after
-        migration; the next start re-allocates against beta."""
+        migration; the next start re-allocates against beta.
+
+        Note: the VM is started with ``wait=True`` so the daemon's
+        background start task fully completes (status=running)
+        BEFORE we reset it. With ``wait=False`` the start task is
+        still running while reset commits status=stopped, and
+        the start task's later ``setVmStarted`` would override
+        the reset's stopped status — making the subsequent
+        migrate's "status==stopped" gate fail.
+        """
+        # We need the agent to actually allocate a VSOCK CID, so
+        # the test only really validates the "cleared" assertion
+        # when the agent's kernel has /dev/vhost-vsock. Most
+        # nested-VM hosts do; if this test ever runs on a kernel
+        # without vsock support, the post-migration assertion
+        # still holds (both before and after are None).
         vm_name = _uniq("mig-alloc")
         disk_name = _uniq("mig-alloc-disk")
         vm = self._make_stopped_vm_with_disk(
             vm_name, disk_name, guest_agent=True
         )
         try:
-            # Allocate on alpha by starting once.
-            _retry_start(vm)
+            # Allocate on alpha by starting once.  ``wait=True``
+            # makes the daemon block until the agent reports the
+            # VM as running — when this returns, the row's status
+            # is committed as ``running`` and there's no pending
+            # background task to race against.
+            try:
+                vm.start(wait=True)
+            except Exception as e:
+                # If guest-agent isn't reachable inside the test
+                # node (no /dev/vhost-vsock or similar), bail
+                # rather than hang — the assertion below is
+                # well-defined on the no-vsock path too, but the
+                # whole point of this test is the cleared-vsock
+                # case.
+                pytest.skip(f"could not start VM with guest-agent: {e}")
             _poll_until(
                 lambda: _qemu_count(self.node_alpha, vm_name) == 1,
                 timeout_sec=15.0,
                 msg=f"qemu for {vm_name!r} did not spawn on alpha",
             )
             details_before = vm.show()
-            # The agent-side state may or may not assign a SPICE
-            # port depending on the headless flag — guest_agent=True
-            # guarantees a VSOCK CID if the kernel supports it.
             had_vsock = details_before.vsock_cid is not None
             # Cleanly stop so we can migrate.
             vm.reset()
@@ -302,6 +345,11 @@ class TestVmMigration(OneDaemonTwoNodesCase):
                 lambda: _qemu_count(self.node_alpha, vm_name) == 0,
                 timeout_sec=15.0,
                 msg=f"qemu for {vm_name!r} did not exit on alpha after reset",
+            )
+            _poll_until(
+                lambda: vm.show().status == "stopped",
+                timeout_sec=15.0,
+                msg=f"vm.show().status for {vm_name!r} did not settle on stopped",
             )
             # Migrate.
             tid = vm.migrate(self.beta_name)
@@ -336,10 +384,11 @@ class TestVmMigration(OneDaemonTwoNodesCase):
                 msg=f"qemu for {vm_name!r} did not spawn on alpha",
             )
             try:
-                with pytest.raises(ServerError) as ei:
-                    vm.migrate(self.beta_name)
-                msg = str(ei.value).lower()
-                assert "stopped" in msg or "another migration" in msg
+                self._assert_migrate_fails(
+                    vm,
+                    self.beta_name,
+                    message_must_match=["stopped", "another migration"],
+                )
             finally:
                 vm.reset()
                 _poll_until(
@@ -358,9 +407,11 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         vm = self._make_stopped_vm_with_disk(vm_name, disk_name)
         try:
             vm.add_shared_dir("/tmp", tag="dummy", read_only=True)
-            with pytest.raises(ServerError) as ei:
-                vm.migrate(self.beta_name)
-            assert "shared director" in str(ei.value).lower()
+            self._assert_migrate_fails(
+                vm,
+                self.beta_name,
+                message_must_match=["shared director"],
+            )
         finally:
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
@@ -374,11 +425,11 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         vm = self._make_stopped_vm_with_disk(vm_name, disk_name)
         try:
             vm.add_net_if(type="tap", host_device="corvus-tap-xxxx")
-            with pytest.raises(ServerError) as ei:
-                vm.migrate(self.beta_name)
-            assert "non-user" in str(ei.value).lower() or "user" in str(
-                ei.value
-            ).lower()
+            self._assert_migrate_fails(
+                vm,
+                self.beta_name,
+                message_must_match=["non-user", "network interface"],
+            )
         finally:
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
@@ -388,9 +439,11 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         disk_name = _uniq("mig-self-disk")
         vm = self._make_stopped_vm_with_disk(vm_name, disk_name)
         try:
-            with pytest.raises(ServerError) as ei:
-                vm.migrate(self.alpha_name)
-            assert "current node" in str(ei.value).lower()
+            self._assert_migrate_fails(
+                vm,
+                self.alpha_name,
+                message_must_match=["current node"],
+            )
         finally:
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
@@ -421,10 +474,11 @@ class TestVmMigration(OneDaemonTwoNodesCase):
             )
             try:
                 vm.attach_disk(disk_name, interface="virtio")
-                with pytest.raises(ServerError) as ei:
-                    vm.migrate(self.beta_name)
-                msg = str(ei.value).lower()
-                assert "insufficient" in msg or "ram" in msg
+                self._assert_migrate_fails(
+                    vm,
+                    self.beta_name,
+                    message_must_match=["insufficient", "ram"],
+                )
             finally:
                 try:
                     vm.delete()
@@ -445,7 +499,10 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         try:
             # Start once on alpha so the cloud-init ISO disk is
             # materialised (it's lazily generated by the agent at
-            # first start). Stop afterwards.
+            # first start). Stop afterwards. ``wait=False`` is
+            # fine here because cloud-init disks attach BEFORE
+            # qemu spawns — the registration happens inside the
+            # daemon's start path before agent.vmStart returns.
             _retry_start(vm)
             _poll_until(
                 lambda: _qemu_count(self.node_alpha, vm_name) == 1,
@@ -457,6 +514,15 @@ class TestVmMigration(OneDaemonTwoNodesCase):
                 lambda: _qemu_count(self.node_alpha, vm_name) == 0,
                 timeout_sec=15.0,
                 msg=f"qemu for {vm_name!r} did not exit on alpha after reset",
+            )
+            # Wait for the status row to settle on `stopped` —
+            # without this poll the still-running async start
+            # task can overwrite reset's status (see the
+            # comment in test_migrate_clears_vsock_and_spice).
+            _poll_until(
+                lambda: vm.show().status == "stopped",
+                timeout_sec=15.0,
+                msg=f"vm.show().status for {vm_name!r} did not settle on stopped",
             )
             # The cloud-init ISO disk is named `<vmName>-cloud-init`
             # (see Corvus.Handlers.CloudInit.ensureCloudInitDiskRegistered).

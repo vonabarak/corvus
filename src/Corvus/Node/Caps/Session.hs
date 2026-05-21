@@ -497,9 +497,15 @@ instance CGNA.Session'server_ SessionCap where
           Right h -> pure h
           Left err -> throwFailed ("diskOpenRead: md5 failed: " <> err)
         reader <- NTr.newFileReader path
-        readerClient <- C.export @CGNA.DiskReader (scSup sc) reader
+        -- Register the server impl in the process-wide token map
+        -- BEFORE exporting it on this session — the destination
+        -- agent will re-export it on its own session via
+        -- @attachReader@, so the cap returned here is just the
+        -- daemon's handle (a separate exported reference to the
+        -- same impl).
         token <- NTr.newToken
-        NTr.registerReader (scTransferTokens sc) token readerClient
+        NTr.registerReader (scTransferTokens sc) token reader
+        readerClient <- C.export @CGNA.DiskReader (scSup sc) reader
         pure
           CGNA.Session'diskOpenRead'results
             { CGNA.reader = readerClient
@@ -515,8 +521,13 @@ instance CGNA.Session'server_ SessionCap where
         case mReader of
           Nothing ->
             throwFailed "attachReader: unknown or already-consumed token"
-          Just reader ->
-            pure CGNA.Session'attachReader'results {CGNA.reader = reader}
+          Just reader -> do
+            -- Re-export the stored server impl on THIS session's
+            -- supervisor; the @C.Client@ originally returned to
+            -- the daemon lives on the daemon's connection and
+            -- isn't valid to hand back over a different one.
+            readerClient <- C.export @CGNA.DiskReader (scSup sc) reader
+            pure CGNA.Session'attachReader'results {CGNA.reader = readerClient}
 
   session'diskImportFromPeer sc =
     handleParsed $

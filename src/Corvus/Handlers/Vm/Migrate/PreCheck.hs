@@ -77,8 +77,12 @@ validateMigration state vmId destNode = do
   case mVm of
     Nothing -> pure (Left "VM not found")
     Just vm
-      | M.vmMigrating vm ->
-          pure (Left "VM is already being migrated")
+      -- Note: the @migrating@ flag is intentionally NOT checked
+      -- here. The orchestrator's conditional update has already
+      -- acquired the lock by the time it calls this function;
+      -- @vm.migrating@ is now @True@. The lock acquisition is
+      -- the single source of truth for "another migration is in
+      -- progress" — see Corvus.Handlers.Vm.Migrate.handleVmMigrate.
       | M.vmStatus vm /= M.VmStopped ->
           pure (Left "VM must be stopped before migrating")
       | M.vmNodeId vm == destNode ->

@@ -24,6 +24,7 @@ def open_client(
     poll_interval_sec: float = 1.0,
     ensure_self_node: bool = True,
     self_node_name: str = "self",
+    self_node_host: str = "127.0.0.1",
     cert_dir: Optional[Path] = None,
     tls: Optional[bool] = None,
 ) -> Client:
@@ -74,7 +75,7 @@ def open_client(
             continue
         if ensure_self_node:
             try:
-                _register_self_node(c, self_node_name)
+                _register_self_node(c, self_node_name, self_node_host)
             except Exception as e:
                 try:
                     c.close()
@@ -91,14 +92,17 @@ def open_client(
     )
 
 
-def _register_self_node(client: Client, name: str) -> None:
+def _register_self_node(client: Client, name: str, host: str) -> None:
     """Idempotently register a self-pointing Node row and wait for
     its per-node supervisor to dial the nodeagent.
 
     Inner daemons run with their nodeagent + netd on the same
-    box, listening on the conventional 9878 / 9877 ports. The
-    'host' value is '127.0.0.1' because the daemon is on that
-    host too — there's no cross-host hop inside a test node.
+    box, listening on the conventional 9878 / 9877 ports.
+    Single-node tests can pass ``host="127.0.0.1"`` since there's
+    no cross-host hop — but multi-node scenarios that use
+    inter-agent disk transfer need the routable outer_ip so
+    OTHER nodeagents can dial this node by the same address the
+    daemon recorded.
 
     The daemon's 'handleNodeAdd' spawns the per-node reconnect
     supervisor as a background async; the supervisor's dial
@@ -121,7 +125,7 @@ def _register_self_node(client: Client, name: str) -> None:
     except CorvusError:
         pass
     if need_create:
-        client.nodes.create(name, "127.0.0.1")
+        client.nodes.create(name, host)
     _wait_for_self_node_ready(client)
 
 

@@ -112,9 +112,17 @@ transferChunkBytes = 262144
 
 -- | The source-side single-use ticket map. Keys are random hex
 -- strings handed to the destination via @diskOpenRead@; values are
--- the 'DiskReader' caps the destination claims via @attachReader@.
--- Tokens are consumed on first lookup.
-newtype TokenRegistry = TokenRegistry (MVar (Map.Map Text (C.Client CGNA.DiskReader)))
+-- the 'FileReader' server impls behind them.
+--
+-- We deliberately store the bare server impl rather than the
+-- exported Cap'n Proto 'C.Client' cap: a 'C.Client' is bound to
+-- the connection it was originally exported on (level-1 RPC has
+-- no three-party handoff), so returning the daemon's exported
+-- cap from a method call on a different connection breaks. The
+-- destination agent calls @attachReader@ on its own fresh
+-- session to the source — that session must re-export the impl
+-- on its own supervisor before handing it back.
+newtype TokenRegistry = TokenRegistry (MVar (Map.Map Text FileReader))
 
 newTokenRegistry :: IO TokenRegistry
 newTokenRegistry = TokenRegistry <$> newMVar Map.empty
@@ -132,13 +140,13 @@ newToken = do
        in if length h == 1 then '0' : h else h
 
 -- | Insert a token → reader binding.
-registerReader :: TokenRegistry -> Text -> C.Client CGNA.DiskReader -> IO ()
+registerReader :: TokenRegistry -> Text -> FileReader -> IO ()
 registerReader (TokenRegistry mv) token reader =
   modifyMVar_ mv (pure . Map.insert token reader)
 
 -- | Look up and consume a token. Returns 'Nothing' if the token
 -- is unknown / already consumed.
-redeemReader :: TokenRegistry -> Text -> IO (Maybe (C.Client CGNA.DiskReader))
+redeemReader :: TokenRegistry -> Text -> IO (Maybe FileReader)
 redeemReader (TokenRegistry mv) token =
   modifyMVar mv $ \m ->
     case Map.lookup token m of
