@@ -52,6 +52,12 @@ class IssuedRecord:
     serial: int
     deployed_to: str | None = None  # e.g. "root@10.0.0.21" or "local"
     ip: str | None = None  # SAN IP, when applicable
+    # Install mode the cert was deployed under (user-systemd vs
+    # system-systemd). Renewal uses this so the cert lands back in
+    # the layout the operator originally picked. ``None`` for
+    # legacy records predating this field — treat those as
+    # system-service (the historical default).
+    user_service: bool | None = None
     extra: dict = field(default_factory=dict)
 
 

@@ -3,7 +3,19 @@
 from __future__ import annotations
 
 import pytest
-from corvus_admin import store
+from corvus_admin import privesc, store
+
+
+@pytest.fixture(autouse=True)
+def reset_privesc_cache():
+    """privesc.detect() caches its result for the lifetime of the
+    process. Tests that monkey-patch $PATH or shutil.which need a
+    clean slate. Clearing before AND after each test is cheap and
+    avoids order-dependent failures."""
+
+    privesc.reset_cache()
+    yield
+    privesc.reset_cache()
 
 
 @pytest.fixture()

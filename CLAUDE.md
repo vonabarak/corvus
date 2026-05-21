@@ -140,8 +140,7 @@ Stack + Hpack (`package.yaml` → `corvus.cabal`), LTS-23.28 resolver.
 | Target | Description |
 |---|---|
 | `make build` | Stack build |
-| `make install` | Install binaries to `~/.local/bin/` + systemd user service |
-| `make install-system` | Install + enable the system-wide `corvus-netd` agent (needs root) |
+| `make install` | Install binaries to `~/.local/bin/` + shell completions + pipx-install corvus-admin. Run `corvus-admin quickstart` after for a turn-key single-node setup. |
 | `make format` | Fourmolu formatting (in-place) |
 | `make lint` | HLint static analysis |
 | `make unit-tests` | Haskell unit tests (the full Haskell suite — no integration tests left here) |

@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from corvus_admin import ca, store
+from corvus_admin import systemd as systemd_mod
 from corvus_admin.runner import Runner, for_target
 
 # Default renewal window. Refusing to renew earlier than this stops
@@ -102,6 +103,7 @@ def deploy_daemon(
     _drop_cert_trio(admin_store, runner, issued, plan)
     _systemd_restart(runner, plan)
     issued.record.deployed_to = runner.label
+    issued.record.user_service = user_service
     admin_store.record(issued.record)
     return plan
 
@@ -136,6 +138,7 @@ def deploy_node(
     _drop_cert_trio(admin_store, runner, issued, plan)
     _systemd_restart(runner, plan)
     issued.record.deployed_to = runner.label
+    issued.record.user_service = user_service
     admin_store.record(issued.record)
     return plan
 
@@ -170,6 +173,7 @@ def deploy_netd(
     _drop_cert_trio(admin_store, runner, issued, plan)
     _systemd_restart(runner, plan)
     issued.record.deployed_to = runner.label
+    issued.record.user_service = user_service
     admin_store.record(issued.record)
     return plan
 
@@ -275,27 +279,12 @@ def _drop_cert_trio(
 
 
 def _systemd_restart(runner: Runner, plan: DeployPlan) -> None:
-    if plan.user_service:
-        # `--user` units; no sudo. The unit may not be enabled
-        # yet (fresh install), so `enable --now` is friendlier
-        # than `restart` for first-time deploys.
-        runner.run(
-            ["systemctl", "--user", "enable", "--now", plan.service_unit],
-            sudo=False,
-        )
-        runner.run(
-            ["systemctl", "--user", "restart", plan.service_unit],
-            sudo=False,
-        )
-    else:
-        runner.run(
-            ["systemctl", "enable", "--now", plan.service_unit],
-            sudo=True,
-        )
-        runner.run(
-            ["systemctl", "restart", plan.service_unit],
-            sudo=True,
-        )
+    mode: systemd_mod.InstallMode = "user" if plan.user_service else "system"
+    # `enable --now` is friendlier than `restart` for first-time
+    # deploys (the unit may not be enabled yet); follow it with an
+    # explicit restart to pick up any cert rotation.
+    systemd_mod.enable_now(runner, unit=plan.service_unit, mode=mode)
+    systemd_mod.restart(runner, unit=plan.service_unit, mode=mode)
 
 
 # ---------------------------------------------------------------------------
@@ -386,16 +375,14 @@ def renew_daemon(
     rec = find_record(admin_store, role=ca.ROLE_DAEMON)
     _check_due(rec, force=force)
     runner = for_target(target or runner_label_to_target(rec.deployed_to or ""))
+    # rec.user_service is None for legacy records (predates the
+    # field). Default to False (system-service) — that's what the
+    # old code unconditionally assumed.
     return deploy_daemon(
         admin_store,
         runner,
         listen_ip=rec.ip,
-        # User-service vs system-service comes from the runner +
-        # deploy paths the cert was originally placed under; we
-        # can't introspect that from the record alone, so we
-        # default to system-service. Future enhancement: store
-        # the flag on IssuedRecord.
-        user_service=False,
+        user_service=bool(rec.user_service),
         reuse_uuid=rec.name_or_uuid,
     )
 
@@ -415,7 +402,7 @@ def renew_node(
         runner,
         name=name,
         ip=rec.ip,
-        user_service=False,
+        user_service=bool(rec.user_service),
     )
 
 
@@ -434,7 +421,7 @@ def renew_netd(
         runner,
         name=name,
         ip=rec.ip,
-        user_service=False,
+        user_service=bool(rec.user_service),
     )
 
 

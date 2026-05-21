@@ -2,6 +2,7 @@
 
 Subcommands shipped:
 
+* ``quickstart``         — one-shot single-node bring-up
 * ``init``               — generate CA + admin client cert
 * ``deploy daemon``      — mint daemon cert + push + restart
 * ``deploy node``        — mint node-agent cert + push + restart
@@ -27,6 +28,9 @@ from corvus_admin import (
     ca,
     deploy,
     store,
+)
+from corvus_admin import (
+    quickstart as quickstart_mod,
 )
 from corvus_admin import (
     register as register_mod,
@@ -119,6 +123,112 @@ def _default_admin_name() -> str:
         return getpass.getuser()
     except Exception:
         return "admin"
+
+
+# ---------------------------------------------------------------------------
+# quickstart
+
+
+@main.command("quickstart")
+@_ca_dir_option
+@click.option(
+    "--node-name",
+    default=None,
+    show_default=False,
+    help="Name to register this node under. Default: hostname (short form).",
+)
+@click.option(
+    "--listen-ip",
+    default="127.0.0.1",
+    show_default=True,
+    help="IP the daemon TCP listener binds to and that the daemon dials back through.",
+)
+@click.option(
+    "--base-path",
+    default=None,
+    show_default=False,
+    help="Per-node disk base path. Default: ~/VMs.",
+)
+@click.option(
+    "--database-url",
+    default="postgresql://localhost/corvus",
+    show_default=True,
+    help="Postgres connection URL baked into the generated systemd unit.",
+)
+@click.option(
+    "--skip-netd",
+    is_flag=True,
+    default=False,
+    help="Don't install corvus-netd even when sudo/doas is available.",
+)
+@click.option(
+    "--force/--no-force",
+    default=False,
+    help="Overwrite an existing CA. Orphans previously issued certs.",
+)
+@click.option(
+    "--healthcheck-timeout",
+    type=float,
+    default=15.0,
+    show_default=True,
+    help="Seconds to wait for the daemon's first healthcheck push after register.",
+)
+def quickstart(
+    ca_dir: Path | None,
+    node_name: str | None,
+    listen_ip: str,
+    base_path: str | None,
+    database_url: str,
+    skip_netd: bool,
+    force: bool,
+    healthcheck_timeout: float,
+) -> None:
+    """Bring up a one-node Corvus install in a single command.
+
+    Generates the CA + all component certs, writes systemd unit
+    files (user-mode for daemon + nodeagent, system-mode for netd),
+    starts the services, and registers the node with the daemon.
+
+    Auto-detects sudo or doas for privilege escalation. When
+    neither is available, skips corvus-netd and prints a warning —
+    daemon + nodeagent come up as user services with no network
+    management.
+    """
+
+    try:
+        result = quickstart_mod.run(
+            node_name=node_name,
+            listen_ip=listen_ip,
+            base_path=base_path,
+            ca_dir=ca_dir,
+            skip_netd=skip_netd,
+            force=force,
+            healthcheck_timeout=healthcheck_timeout,
+            database_url=database_url,
+            log_callback=lambda m: click.echo(m),
+        )
+    except quickstart_mod.QuickstartError as e:
+        click.echo(f"quickstart failed: {e}", err=True)
+        sys.exit(1)
+
+    click.echo("")
+    click.echo("=" * 60)
+    click.echo("Corvus quickstart complete.")
+    click.echo(f"  Node:           {result.node_name}")
+    click.echo(f"  Listen IP:      {result.listen_ip}")
+    click.echo(
+        f"  Privesc tool:   {result.privesc_tool or 'none (corvus-netd skipped)'}"
+    )
+    click.echo(f"  Daemon cert:    {result.daemon_cert_cn}")
+    click.echo(f"  Node cert:      {result.node_cert_cn}")
+    if result.netd_cert_cn:
+        click.echo(f"  Netd cert:      {result.netd_cert_cn}")
+    click.echo(f"  Client cert:    {result.client_cert_cn}")
+    click.echo(
+        f"  Healthcheck:    {'received' if result.healthy else 'pending (see logs)'}"
+    )
+    click.echo("=" * 60)
+    sys.exit(0 if result.healthy else 2)
 
 
 # ---------------------------------------------------------------------------

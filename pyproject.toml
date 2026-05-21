@@ -16,6 +16,9 @@ dependencies = [
     "cryptography>=42",
     # Click drives the `corvus-admin` CLI's command hierarchy.
     "click>=8",
+    # Jinja2 renders the systemd unit-file templates that
+    # corvus-admin generates during `quickstart` / `deploy`.
+    "jinja2>=3",
 ]
 
 [project.optional-dependencies]
@@ -55,6 +58,11 @@ corvus_test_harness = "integration_tests/corvus_test_harness"
 
 [tool.setuptools.package-data]
 corvus_client = ["schema/*.capnp"]
+# Systemd unit templates that `corvus-admin quickstart` renders.
+# The canonical location is python/corvus_admin/_systemd_templates/;
+# the repo-root `systemd/` symlink points at the same directory for
+# operator visibility.
+corvus_admin = ["_systemd_templates/*.j2"]
 
 [tool.ruff]
 target-version = "py310"

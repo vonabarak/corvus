@@ -83,7 +83,7 @@ On the admin's workstation, install `corvus-admin` and create a
 CA:
 
 ```
-make install-admin            # (one-time) pipx-installs corvus-admin
+make install                  # (one-time) installs binaries + pipx-installs corvus-admin
 corvus-admin init             # creates CA + admin client cert under
                               # $XDG_CONFIG_HOME/corvus/admin/
 ```
@@ -92,12 +92,27 @@ corvus-admin init             # creates CA + admin client cert under
 `$XDG_CONFIG_HOME/corvus/` so `crv` finds it without further
 flags.
 
-### Single-host deployment (admin's workstation IS the daemon host)
+### Single-host deployment (one command)
 
-Use the `local` target — no SSH, no sudo prompt for keys you
-already own:
+For a turn-key single-node setup on the admin's workstation, the
+`quickstart` shortcut handles everything: CA generation, all
+component certs, systemd unit files (user-mode for daemon and
+nodeagent, system-mode for netd), service bring-up, and node
+registration.
 
 ```
+corvus-admin quickstart            # detects sudo or doas; skips netd
+                                   # with a warning if neither is found
+```
+
+Quickstart always installs daemon + nodeagent as user services.
+If you need a system-mode layout for either, use the granular
+commands below.
+
+### Single-host deployment (granular)
+
+```
+corvus-admin init
 corvus-admin deploy daemon local --listen-ip 127.0.0.1 --user-service
 corvus-admin deploy node   self local --ip 127.0.0.1
 corvus-admin deploy netd   self local --ip 127.0.0.1
@@ -107,7 +122,8 @@ corvus-admin register      self --host 127.0.0.1
 ### Multi-host deployment
 
 ```
-# Assumed: binaries installed on each host via `make install-system`.
+# Assumed: binaries installed on each host (your package manager,
+# `stack install`, or `make install`).
 corvus-admin deploy daemon root@corvus-master.lan --listen-ip 10.0.0.10
 corvus-admin deploy node   alpha root@10.0.0.21 --ip 10.0.0.21
 corvus-admin deploy netd   alpha root@10.0.0.21 --ip 10.0.0.21

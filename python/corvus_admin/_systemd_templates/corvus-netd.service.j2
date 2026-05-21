@@ -1,0 +1,19 @@
+[Unit]
+Description=Corvus privileged network agent
+After=network-pre.target
+Before=network.target
+Wants=network-pre.target
+
+[Service]
+Type=exec
+ExecStart={{ binary_path }} --log-level {{ log_level }}
+Restart=on-failure
+RestartSec=5
+
+# corvus-netd needs CAP_NET_ADMIN, raw netlink, /dev/net/tun, and
+# the ability to spawn nft + dnsmasq. The sandbox stays permissive
+# until the privileged operations are well understood enough to
+# scope them down.
+
+[Install]
+WantedBy=multi-user.target

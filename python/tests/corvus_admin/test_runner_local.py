@@ -5,6 +5,7 @@ to in-process logic that doesn't touch sshd."""
 from __future__ import annotations
 
 import pytest
+from corvus_admin import privesc
 from corvus_admin.runner import LocalRunner, RunnerError, for_target
 
 
@@ -64,3 +65,41 @@ def test_mkdir_p_is_idempotent(tmp_path):
     runner.mkdir_p(str(target), mode=0o755)
     runner.mkdir_p(str(target), mode=0o755)
     assert target.is_dir()
+
+
+def test_run_with_sudo_uses_doas_when_injected(tmp_path):
+    """Inject a PrivEsc(tool="doas") and confirm the runner
+    prepends ``doas -n`` rather than ``sudo -n``. We fake the
+    doas binary so the underlying subprocess.run doesn't blow up
+    on a host that has neither installed."""
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_doas = bin_dir / "doas"
+    fake_doas.write_text('#!/bin/sh\nshift; exec "$@"\n')
+    fake_doas.chmod(0o755)
+    import os
+
+    os.environ["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
+
+    pe = privesc.PrivEsc(tool="doas", argv_prefix=("doas", "-n"))
+    runner = LocalRunner(privesc_tool=pe)
+    # We can't easily assert on the exact argv subprocess saw, but
+    # we can assert the call succeeds (which exercises the prefix
+    # plumbing — a bad prefix would fail with FileNotFoundError).
+    r = runner.run(["true"], sudo=True, capture=True, check=False)
+    assert r.returncode == 0
+
+
+def test_run_with_sudo_raises_when_no_privesc():
+    """If no escalator is available and we still ask for sudo, the
+    runner must raise rather than silently dropping the request."""
+
+    runner = LocalRunner()
+    # Force the "no escalator" state regardless of what
+    # privesc.detect() found on the test host.
+    runner.privesc = None
+    runner._is_root = False
+    with pytest.raises(RunnerError) as exc:
+        runner.run(["true"], sudo=True)
+    assert "sudo or doas" in str(exc.value)

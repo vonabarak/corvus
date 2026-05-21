@@ -62,7 +62,7 @@ The `corvus-bin` package installs pre-built binaries from the GitHub releases ab
 
 ```bash
 make build
-make install  # Installs to ~/.local/bin/ and sets up systemd user service
+make install  # Installs binaries to ~/.local/bin/ + pipx-installs corvus-admin
 ```
 
 ### Database Setup
@@ -72,20 +72,17 @@ createdb corvus
 # The daemon runs migrations automatically on startup
 ```
 
-### TLS Setup
+### Single-host setup (one command)
 
-Corvus uses mutual TLS on every TCP link (CLI ↔ daemon over TCP, daemon ↔ agents). See [doc/security.md](security.md) for the full picture. For a single-host install:
+For a turn-key single-node install, run `corvus-admin quickstart` after `make install`. It generates the CA, mints every component cert, writes systemd unit files (user-mode for daemon and nodeagent, system-mode for netd), brings up the services, and registers the node with the daemon. sudo or doas is auto-detected; if neither is available, corvus-netd is skipped with a warning and the daemon + nodeagent come up without network management.
 
 ```bash
-make install-admin                                                # one-time
-corvus-admin init                                                 # CA + admin client cert
-corvus-admin deploy daemon local --listen-ip 127.0.0.1 --user-service
-corvus-admin deploy node   self  local --ip 127.0.0.1
-corvus-admin deploy netd   self  local --ip 127.0.0.1
-corvus-admin register      self  --host 127.0.0.1
+corvus-admin quickstart
 ```
 
-For dev / single-host use only, you can skip the TLS setup and pass `--no-tls` to every Corvus binary; Unix-socket connections (the default for `crv` ↔ daemon on the same host) never wrap with TLS regardless.
+### Multi-host or system-service setup (granular)
+
+For multi-host deployments or when you want daemon/nodeagent as system services, see [doc/security.md](security.md) for the per-component flow. For dev / single-host use only, you can skip TLS entirely and pass `--no-tls` to every Corvus binary; Unix-socket connections (the default for `crv` ↔ daemon on the same host) never wrap with TLS regardless.
 
 ## Quick Start
 
@@ -96,7 +93,7 @@ For dev / single-host use only, you can skip the TLS setup and pass `--no-tls` t
 corvus --database postgresql://localhost/corvus
 ```
 
-A systemd user service file (`corvus.service`) is included in the release tarball and installed automatically by the Gentoo ebuild and `make install`. To use it:
+After `corvus-admin quickstart` has run, the daemon's systemd unit is already enabled and started — you can manage it with the usual `systemctl --user` commands:
 
 ```bash
 # Edit the database connection string if needed

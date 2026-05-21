@@ -1,0 +1,29 @@
+[Unit]
+Description=Corvus VM Management Daemon
+After=network.target
+
+[Service]
+Type=exec
+{%- if install_mode == "system" %}
+# System install: systemd creates the runtime dir at startup. The
+# daemon shares it with corvus-nodeagent so the two processes
+# resolve identical socket paths for daemon-direct QMP calls.
+RuntimeDirectory=corvus
+Environment=XDG_RUNTIME_DIR=/run/corvus
+{%- endif %}
+# Default cert dir comes from the daemon's built-in search path
+# (/etc/corvus for system, ~/.config/corvus for user). Override
+# here only when a custom layout is needed.
+ExecStart={{ binary_path }} \
+    --database {{ database_url }} \
+    --log-level {{ log_level }}
+
+Restart=always
+RestartSec=5
+
+[Install]
+{%- if install_mode == "user" %}
+WantedBy=default.target
+{%- else %}
+WantedBy=multi-user.target
+{%- endif %}

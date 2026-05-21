@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install install-system uninstall uninstall-system cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format check capnp python-test
+.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format check capnp python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -292,22 +292,16 @@ check:
 	fourmolu --mode check $(shell find src app test -name '*.hs')
 
 
-# Install Haskell binaries to ~/.local/bin/, drop the user-systemd
-# unit in place, install shell completions, (re)start the daemon, and
-# pipx-install the corvus-admin Python CLI. This target is meant to
-# be invoked *manually* by the developer — no other target depends
-# on it, so plain `make build`, `make integration-tests`, etc. don't
-# pollute $HOME/.local/bin or the pipx environment.
+# Place Haskell binaries on $PATH, install shell completions, and
+# pipx-install the corvus-admin Python CLI. Nothing else: CA
+# generation, cert deployment, systemd unit files, and service
+# bring-up live in `corvus-admin quickstart`. Run it once after
+# `make install` for a turn-key single-node setup.
 #
 # The CA private key corvus-admin manages lives under
 # $XDG_CONFIG_HOME/corvus/admin/ — see python/corvus_admin/.
 install:
 	stack install
-	mkdir -p $(HOME)/.config/systemd/user/
-	cp systemd/corvus.service $(HOME)/.config/systemd/user/
-	systemctl --user daemon-reload
-	systemctl --user enable corvus.service
-	systemctl --user restart corvus.service
 
 	# Shell completions
 	mkdir -p $(HOME)/.local/share/bash-completion/completions
@@ -317,8 +311,7 @@ install:
 	mkdir -p $(HOME)/.config/fish/completions
 	$(HOME)/.local/bin/crv completion fish > $(HOME)/.config/fish/completions/crv.fish
 
-	# corvus-admin CLI — pipx-installed from the root distribution
-	# (folded in from the old `install-admin` target).
+	# corvus-admin CLI — pipx-installed from the root distribution.
 	@if command -v pipx >/dev/null 2>&1; then \
 	  pipx install --force . ; \
 	else \
@@ -326,67 +319,26 @@ install:
 	  python3 -m pip install --user --upgrade . ; \
 	fi
 
-	sleep 1
-	$(HOME)/.local/bin/crv status
+	@echo ""
+	@echo "Haskell binaries + corvus-admin installed."
+	@echo "Next step: run 'corvus-admin quickstart' to set up a single-node deployment."
 
-# Install the system-wide privileged agents (corvus-netd +
-# corvus-nodeagent). Requires root.
-#
-# Pulls the freshly built binaries straight from
-# `stack path --local-install-root`/bin/ — no dependency on
-# `make install` (which is a manual-only target for the developer's
-# $HOME/.local/bin). Drops the system systemd units, reloads,
-# enables, and restarts both services.
-install-system: build
-	@stack_bin=$$(stack path --local-install-root)/bin; \
-	  install -d /usr/local/bin; \
-	  install -m 0755 $$stack_bin/corvus-netd /usr/local/bin/corvus-netd; \
-	  install -m 0755 $$stack_bin/corvus-nodeagent /usr/local/bin/corvus-nodeagent
-	install -d /etc/systemd/system
-	install -m 0644 systemd/corvus-netd.service /etc/systemd/system/corvus-netd.service
-	install -m 0644 systemd/corvus-nodeagent.service /etc/systemd/system/corvus-nodeagent.service
-	systemctl daemon-reload
-	systemctl enable corvus-netd.service
-	systemctl restart corvus-netd.service
-	systemctl enable corvus-nodeagent.service
-	systemctl restart corvus-nodeagent.service
-
-# Stop, disable, and remove the system-wide agents.
-uninstall-system:
-	-systemctl stop corvus-netd.service
-	-systemctl disable corvus-netd.service
-	-systemctl stop corvus-nodeagent.service
-	-systemctl disable corvus-nodeagent.service
-	rm -f /etc/systemd/system/corvus-netd.service
-	rm -f /etc/systemd/system/corvus-nodeagent.service
-	-systemctl daemon-reload
-	rm -f /usr/local/bin/corvus-netd
-	rm -f /usr/local/bin/corvus-nodeagent
-
-# Uninstall the artifacts that `make install` produced — and only
-# those. `make install` writes:
-#   * binaries to $HOME/.local/bin/
-#   * a user-systemd unit to $HOME/.config/systemd/user/corvus.service
-#   * shell completions
-#
-# A system-wide install (e.g. /usr/lib/systemd/user/corvus.service
-# from a distro package, or /etc/systemd/system/* from
-# `make install-system`) is left untouched. If the user-systemd
-# unit isn't ours we skip the stop/disable/daemon-reload entirely
-# — otherwise we'd be tearing down someone else's daemon and
-# leaving a stale listening socket behind in /run/user/*/corvus/.
+# Remove the binaries that `make install` placed. Service teardown
+# is corvus-admin's job (`systemctl --user disable corvus.service`
+# etc.) — `make uninstall` does *not* touch generated unit files
+# or certs, since the operator may have edited them.
 uninstall:
-	@if [ -f $(HOME)/.config/systemd/user/corvus.service ]; then \
-	  echo "stopping + disabling user-systemd corvus.service"; \
-	  systemctl --user stop corvus.service 2>/dev/null || true; \
-	  systemctl --user disable corvus.service 2>/dev/null || true; \
-	  rm -f $(HOME)/.config/systemd/user/corvus.service; \
-	  systemctl --user daemon-reload 2>/dev/null || true; \
-	else \
-	  echo "no user corvus.service to remove; leaving any system-wide install alone"; \
-	fi
 	rm -f $(HOME)/.local/bin/corvus
+	rm -f $(HOME)/.local/bin/corvus-nodeagent
+	rm -f $(HOME)/.local/bin/corvus-netd
 	rm -f $(HOME)/.local/bin/crv
+	@if command -v pipx >/dev/null 2>&1; then \
+	  pipx uninstall corvus 2>/dev/null || true; \
+	fi
+	@echo "Binaries removed. Generated systemd units + certs are left in place;"
+	@echo "remove them by hand if no longer needed:"
+	@echo "  rm -f ~/.config/systemd/user/corvus*.service /etc/systemd/system/corvus*.service"
+	@echo "  rm -rf ~/.config/corvus /etc/corvus"
 	rm -f $(HOME)/.local/bin/corvus-netd
 	rm -f $(HOME)/.local/bin/corvus-nodeagent
 	rm -f $(HOME)/.local/share/bash-completion/completions/crv

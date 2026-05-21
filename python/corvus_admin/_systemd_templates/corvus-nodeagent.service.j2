@@ -6,6 +6,7 @@ Wants=network-pre.target
 
 [Service]
 Type=exec
+{%- if install_mode == "system" %}
 # Match the daemon's runtime directory. The agent computes per-VM
 # QEMU socket paths from XDG_RUNTIME_DIR; without this the daemon's
 # surviving direct-QMP calls (disk hotplug, build key injection,
@@ -13,14 +14,14 @@ Type=exec
 # resolve different paths.
 RuntimeDirectory=corvus
 Environment=XDG_RUNTIME_DIR=/run/corvus
-ExecStart=/usr/local/bin/corvus-nodeagent --log-level info
+{%- endif %}
+ExecStart={{ binary_path }} --log-level {{ log_level }}
 Restart=on-failure
 RestartSec=5
 
-# Phase 1 stub: the agent doesn't yet own any host state (no QEMU,
-# no virtiofsd, no qemu-img). Sandbox stays permissive until Phase
-# 2/3 land — those add filesystem writes (BaseImages, runtime dirs)
-# and process spawning, both of which need careful policy.
-
 [Install]
+{%- if install_mode == "user" %}
+WantedBy=default.target
+{%- else %}
 WantedBy=multi-user.target
+{%- endif %}
