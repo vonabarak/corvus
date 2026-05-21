@@ -54,13 +54,23 @@ After every handshake the receiving side reads the peer's CN
 and validates the prefix. Wrong prefix = connection closed before
 any RPC frame is exchanged:
 
-| Listener                  | Required peer CN prefix     | Extra check                   |
-| ------------------------- | ---------------------------- | ----------------------------- |
-| Daemon (CLI listener)     | `corvus-client:`             | —                             |
-| Nodeagent                 | `corvus-daemon:`             | —                             |
-| Netd                      | `corvus-daemon:`             | —                             |
-| Daemon → nodeagent (dial) | `corvus-node:`               | suffix == registered node name|
-| Daemon → netd (dial)      | `corvus-netd:`               | suffix == registered node name|
+| Listener                  | Required peer CN prefix             | Extra check                   |
+| ------------------------- | ----------------------------------- | ----------------------------- |
+| Daemon (CLI listener)     | `corvus-client:`                    | —                             |
+| Nodeagent                 | `corvus-daemon:` or `corvus-node:`  | —                             |
+| Netd                      | `corvus-daemon:`                    | —                             |
+| Daemon → nodeagent (dial) | `corvus-node:`                      | suffix == registered node name|
+| Daemon → netd (dial)      | `corvus-netd:`                      | suffix == registered node name|
+| Nodeagent → nodeagent     | `corvus-node:`                      | —                             |
+
+The nodeagent listener accepts both the orchestrating daemon
+**and** other nodeagents. The agent-to-agent path is exercised
+only during disk migration: the destination agent dials the
+source agent's listener directly to claim a single-use
+`DiskReader` capability and stream the bytes (see
+[doc/vm-migration.md](vm-migration.md)). The session-scoped
+token issued by `session.diskOpenRead` provides per-transfer
+authorization on top of the cert-level check.
 
 This is what makes "stole a node's key, used it to impersonate a
 CLI client" cryptographically impossible. The CA could sign certs

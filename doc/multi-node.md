@@ -237,14 +237,19 @@ Cap'n Proto schema additions for multi-node:
     "Integration tests exercise mTLS end-to-end" section in
     `doc/security.md`.
 
-  * **No live migration** of a running VM between nodes.
-    Stop, delete-without-`--delete-disks`, rsync the disk,
-    re-register on the new node, create a fresh VM, attach.
+  * **No *live* migration** of a running VM between nodes.
+    Offline migration is supported: `crv vm migrate <VM>
+    --to-node <NEW>` stops, transfers disks agent-to-agent, and
+    flips the placement in one transaction. See
+    [doc/vm-migration.md](vm-migration.md) for constraints (no
+    shared dirs, `user`-type netifs only, target node must have
+    enough RAM + disk).
 
-  * **No automatic disk replication**. The
-    `disk_image_node` rows are populated as the operator
-    explicitly registers / creates images per node. A `crv
-    disk replicate <name> --to <node>` is a Phase-7 candidate.
+  * **Disk replication via explicit verbs.** `crv disk copy
+    <DISK> --to-node <NODE>` adds a second placement on a target
+    node; `crv disk move <DISK> --to-node <NODE>` swaps the
+    placement (and unlinks the source file). Both are
+    agent-to-agent — no rsync, no daemon-side relay.
 
   * **Per-node networks only**. Networks have a `node_id`
     FK — overlays / cross-node VXLAN are out of scope.

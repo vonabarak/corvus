@@ -16,9 +16,11 @@ crv disk show <disk>
 crv disk delete <disk>
 crv disk attach <vm> <disk> [--interface <iface>] [--media <media>] [--read-only] [--discard] [--cache <cache>]
 crv disk detach <vm> <drive>
+crv disk copy <disk> --to-node <node>
+crv disk move <disk> --to-node <node>
 ```
 
-`<disk>`, `<vm>`, and `<drive>` accept names or numeric IDs.
+`<disk>`, `<vm>`, `<drive>`, and `<node>` accept names or numeric IDs.
 
 ## Per-node placement
 
@@ -124,6 +126,26 @@ crv disk attach my-vm iso -i ide -m cdrom --read-only
 crv disk attach my-vm data -i virtio --cache writeback --discard
 crv disk detach my-vm 3   # By drive ID (from `crv vm show`)
 ```
+
+## Moving / Copying Disks Between Nodes
+
+```bash
+crv disk copy <disk> --to-node <node>   # add a placement, source intact
+crv disk move <disk> --to-node <node>   # add destination, drop source
+```
+
+Both commands run asynchronously and return a task id; bytes
+flow agent-to-agent (the daemon orchestrates but never relays
+data). They refuse for any disk attached read-write to a VM
+(use `crv vm migrate` instead). `move` additionally refuses for
+disks that are attached read-only anywhere — read-only
+attachments can only be copied. Both also refuse for overlays
+whose backing image is not already on the destination; copy
+the backing image first.
+
+For migrating a whole VM (which moves r/w drives and copies
+r/o drives in one orchestrated step), see
+[doc/vm-migration.md](vm-migration.md).
 
 | Option | Values | Default |
 |--------|--------|---------|
