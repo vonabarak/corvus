@@ -88,6 +88,35 @@ class TestVmLifecycle(SingleNodeCase):
             f"VM stuck at {last!r}, expected {target!r} (waited {timeout_sec}s)"
         )
 
+    def _observe_transitions(
+        self,
+        vm,
+        target: str,
+        *,
+        timeout_sec: float = 90.0,
+        poll_sec: float = 0.1,
+    ) -> list[str]:
+        """Hot-poll vm.show().status and return the ordered list of
+        DISTINCT statuses observed before reaching `target`.
+
+        Caller is expected to have just issued an async transition
+        (start/stop). Polling cadence is 100 ms so transient
+        intermediate states (`starting`, `stopping`) are seen
+        reliably even when the underlying RPC takes only a few
+        hundred milliseconds."""
+        observed: list[str] = []
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            s = vm.show().status
+            if not observed or observed[-1] != s:
+                observed.append(s)
+            if s == target:
+                return observed
+            time.sleep(poll_sec)
+        raise TimeoutError(
+            f"VM never reached {target!r} within {timeout_sec}s; observed={observed!r}"
+        )
+
     def test_inner_daemon_reachable(self):
         """Smoke test: the inner daemon answers `status()` after first boot.
 
@@ -343,6 +372,68 @@ class TestVmLifecycle(SingleNodeCase):
             self._wait_status(vm.cap, "running", timeout_sec=90)
             vm.cap.stop(wait=False)
             self._wait_status(vm.cap, "stopped", timeout_sec=60)
+
+    def test_status_transitions_through_starting_and_stopping(self):
+        """The DB-observable VM status must pass through `starting`
+        before reaching `running`, and through `stopping` before
+        reaching `stopped`.
+
+        The stop path has always done this (the daemon sets
+        ``VmStopping`` before dispatching ``vmStopGraceful`` to the
+        agent and waits for it to complete). The start path was
+        silently going ``stopped`` → ``running`` because
+        ``launchVmViaAgent`` only ever set ``VmRunning`` after the
+        agent returned — there was no symmetric pre-call
+        ``VmStarting`` write. Users couldn't tell "spawning + first
+        boot" apart from "fully up".
+
+        Method:
+          1. Create a VM with guestAgent enabled so the agent's
+             ``vmStart`` blocks for the first QGA ping. The
+             ``starting`` window is then comfortably long for the
+             100ms poll cadence to catch.
+          2. Issue ``start(wait=False)`` and hot-poll the status.
+          3. Assert the observed sequence is exactly
+             ``stopped → starting → running``.
+          4. Issue ``stop(wait=False)`` and assert
+             ``running → stopping → stopped``.
+        """
+
+        class _AsyncQga(Vm):
+            wait_for_qga = False  # uses vm.start(wait=False)
+
+        with _AsyncQga(self) as vm:
+            # `Vm.__enter__` may have already run start() — wait
+            # until we're back at a clean `stopped` for a known
+            # baseline, then drive the transition ourselves.
+            self._wait_status(vm.cap, "running", timeout_sec=90)
+            vm.cap.stop(wait=True)
+            self._wait_status(vm.cap, "stopped", timeout_sec=60)
+
+            # --- start: stopped → starting → running ----------------
+            vm.cap.start(wait=False)
+            start_seq = self._observe_transitions(vm.cap, "running", timeout_sec=90)
+            assert "starting" in start_seq, (
+                "VM status never passed through 'starting' on async start. "
+                f"Observed sequence: {start_seq!r}. "
+                "The daemon should set VmStarting before invoking the "
+                "agent's vmStart so external observers can tell a "
+                "still-booting VM apart from a steady-state one."
+            )
+            # Order check: starting must come before running.
+            assert start_seq.index("starting") < start_seq.index("running"), (
+                f"'starting' should appear before 'running'. Got: {start_seq!r}"
+            )
+
+            # --- stop: running → stopping → stopped -----------------
+            vm.cap.stop(wait=False)
+            stop_seq = self._observe_transitions(vm.cap, "stopped", timeout_sec=60)
+            assert "stopping" in stop_seq, (
+                f"VM status never passed through 'stopping'. Got: {stop_seq!r}"
+            )
+            assert stop_seq.index("stopping") < stop_seq.index("stopped"), (
+                f"'stopping' should appear before 'stopped'. Got: {stop_seq!r}"
+            )
 
     def test_start_async_without_guest_agent(self):
         """Without QGA the daemon transitions stopped → running

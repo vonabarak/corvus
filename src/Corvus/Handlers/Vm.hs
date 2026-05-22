@@ -377,6 +377,16 @@ launchVmViaAgent state vmId vm pool = do
       logWarnN $ "VM " <> T.pack (show vmId) <> " disappeared from DB during start"
       pure RespVmNotFound
     Just spec -> do
+      -- Set 'VmStarting' before invoking the agent. The agent's
+      -- 'vmStart' RPC blocks for QEMU spawn and (when guestAgent
+      -- is set) the first QGA ping — that window can run from
+      -- ~1 s up to the cloud-init bootstrap budget. Without this
+      -- pre-call write, the DB stays at 'VmStopped' for the
+      -- entire wait and then jumps straight to 'VmRunning' — so
+      -- 'crv vm show' can't distinguish "still spawning" from
+      -- "fully up". Mirrors how the stop path sets 'VmStopping'
+      -- before 'NOA.vmStopGraceful'.
+      liftIO $ runSqlPool (setVmStatus vmId VmStarting) pool
       outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStart nac spec
       case outer of
         Left err -> do
@@ -395,12 +405,12 @@ launchVmViaAgent state vmId vm pool = do
             pure $ RespError msg
           Right info -> do
             let pid = fromIntegral (NOA.vriQemuPid info) :: Int
-            -- With vmStart blocking for first ping when guestAgent
-            -- is set, by the time we get here the VM really is
-            -- VmRunning. Skip the legacy VmStarting transition.
-            -- Chardev ring buffers (serial + HMP monitor) are now
-            -- owned by the agent and exposed via the
-            -- openSerialConsole / openHmpMonitor RPCs.
+            -- vmStart's blocking semantics mean QEMU is up and
+            -- (with guestAgent) the first ping has landed by the
+            -- time we get here. Promote to VmRunning. Chardev
+            -- ring buffers (serial + HMP monitor) are owned by
+            -- the agent and exposed via the openSerialConsole /
+            -- openHmpMonitor RPCs.
             liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) (ssDbPool state)
             liftIO $ attachVmMonitor state vmId
             pure $ RespVmStateChanged VmRunning
