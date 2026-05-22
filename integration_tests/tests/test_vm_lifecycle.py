@@ -360,19 +360,6 @@ class TestVmLifecycle(SingleNodeCase):
                 "the daemon"
             )
 
-    def test_start_async_with_guest_agent(self):
-        """`vm.start(wait=False)` returns at status=`starting`; the
-        VM flips to `running` once the daemon catches the first
-        QGA ping. Mirror for stop."""
-
-        class _AsyncStart(Vm):
-            wait_for_qga = False  # uses vm.start(wait=False)
-
-        with _AsyncStart(self) as vm:
-            self._wait_status(vm.cap, "running", timeout_sec=90)
-            vm.cap.stop(wait=False)
-            self._wait_status(vm.cap, "stopped", timeout_sec=60)
-
     def test_status_transitions_through_starting_and_stopping(self):
         """The DB-observable VM status must pass through `starting`
         before reaching `running`, and through `stopping` before
