@@ -1022,11 +1022,17 @@ doVmStart sc spec = do
             "[nodeagent] vm-" <> tshow vmId <> ": QEMU started pid=" <> tshow qemuPidW
           lastExitVar <- newTVarIO Nothing
           stderrTailVar <- newTVarIO T.empty
-          -- Drain QEMU's stdout silently so the pipe doesn't fill
-          -- and back-pressure the child. Capture stderr into a
-          -- ring buffer for blame-on-early-exit.
-          forM_ mStdoutH $ \h -> void $ forkIO $ drainPipeSilently h
-          forM_ mStderrH $ \h -> void $ forkIO $ captureStderrTail h stderrTailVar
+          -- Forward QEMU's stdout to the agent log at debug level
+          -- so the pipe never fills and back-pressures the child.
+          -- Stderr is both ring-buffered (for blame-on-early-exit)
+          -- and forwarded line-by-line at debug.
+          let qemuLogLabel = "vm-" <> tshow vmId <> "-qemu"
+          forM_ mStdoutH $ \h ->
+            void $ forkIO $ forwardPipeToLog (qemuLogLabel <> "/stdout") h
+          forM_ mStderrH $ \h ->
+            void $
+              forkIO $
+                captureStderrTail (qemuLogLabel <> "/stderr") h stderrTailVar
           let live =
                 L.VmLiveState
                   { L.vlsQemuPid = qemuPidW
@@ -1187,7 +1193,18 @@ spawnVirtiofsdHelper cfg vmRuntimeDir d = do
       runStderrLoggingT . logWarnN $
         "[nodeagent] virtiofsd tag=" <> T.pack tag <> " spawn failed: " <> T.pack (show e)
       pure $ Left ("virtiofsd " <> T.pack tag <> ": " <> T.pack (show e))
-    Right (_, _, _, ph) -> do
+    Right (_, mStdoutH, mStderrH, ph) -> do
+      -- Forward virtiofsd's stdout/stderr to the agent log at debug
+      -- level. Leaving the pipes unread blocks virtiofsd once the
+      -- kernel buffer fills, and — combined with skipping
+      -- 'waitForProcess' on the reap path — was the root cause of
+      -- the lingering @[virtiofsd] <defunct>@ zombies after VM
+      -- teardown.
+      let vfsLogLabel = "virtiofsd-" <> T.pack tag
+      forM_ mStdoutH $ \h ->
+        void $ forkIO $ forwardPipeToLog (vfsLogLabel <> "/stdout") h
+      forM_ mStderrH $ \h ->
+        void $ forkIO $ forwardPipeToLog (vfsLogLabel <> "/stderr") h
       mPid <- getPid ph
       case mPid of
         Nothing -> do
@@ -1207,7 +1224,7 @@ spawnVirtiofsdHelper cfg vmRuntimeDir d = do
             then pure $ Right (fromIntegral rawPid, ph)
             else do
               let partialLabel = "virtiofsd-partial-" <> T.pack tag
-              stopRes <-
+              _ <-
                 runStderrLoggingT $
                   P.stopProcess
                     partialLabel
@@ -1215,30 +1232,31 @@ spawnVirtiofsdHelper cfg vmRuntimeDir d = do
                     Nothing
                     0
                     3
-              case stopRes of
-                P.NotRunning -> pure ()
-                _ -> runStderrLoggingT $ P.waitForProcessBounded partialLabel 5 ph
+              -- Always reap, even when stopProcess saw NotRunning
+              -- (zombie state still requires our @waitpid@) — see
+              -- 'reapEntryGracefully' for the full rationale.
+              runStderrLoggingT $ P.waitForProcessBounded partialLabel 5 ph
               pure $ Left ("virtiofsd " <> T.pack tag <> ": socket never appeared")
 
 -- | Best-effort termination + reap of a virtiofsd helper.
 --
--- The reap is bounded: when @stopProcess@ already observed the
--- process was gone (e.g. it was killed externally during an
--- interrupted teardown), we skip @waitForProcess@ entirely
--- because the kernel may have reaped the child via another path
--- and the System.Process MVar would block forever. When we did
--- send the SIGTERM/SIGKILL ourselves, a 5 s bounded wait is
--- enough to reap the predictable zombie without holding up the
--- handler.
+-- Always call 'waitForProcessBounded' afterwards — including when
+-- 'stopProcess' returned 'NotRunning'. That branch fires when the
+-- process is already in zombie state (@/proc/<pid>/status@ shows
+-- @State: Z@) or its @/proc@ entry has vanished, and in the former
+-- case the kernel is still waiting on its parent (us) to
+-- @waitpid()@ the entry. Skipping the wait — the old behaviour —
+-- left every cleanly-exiting virtiofsd around as
+-- @[virtiofsd] <defunct>@. The bounded wait can't deadlock the
+-- caller: 'waitForProcessBounded' caps its own wallclock and
+-- abandons the handle on timeout.
 reapEntryGracefully :: (Word32, ProcessHandle) -> IO ()
 reapEntryGracefully (pid, ph) = do
   let label = "virtiofsd pid=" <> tshow pid
-  result <-
+  _ <-
     runStderrLoggingT $
       P.stopProcess label (CPid (fromIntegral pid)) Nothing 0 3
-  case result of
-    P.NotRunning -> pure ()
-    _ -> runStderrLoggingT $ P.waitForProcessBounded label 5 ph
+  runStderrLoggingT $ P.waitForProcessBounded label 5 ph
 
 -- | Poll QGA every 200 ms up to @timeoutMs@ ms; return 'True' as
 -- soon as one ping succeeds, 'False' on timeout. Used by
@@ -1315,36 +1333,50 @@ waitForFirstQgaPing conns cfg vmId exitVar stderrVar timeoutMs = do
           <> " before first guest-agent ping"
           <> tail'
 
--- | Drain a child-process pipe until EOF, discarding the bytes.
--- Used to keep QEMU's stdout from blocking when the pipe fills.
-drainPipeSilently :: Handle -> IO ()
-drainPipeSilently h = do
-  hSetBuffering h NoBuffering
-  let go = do
-        eof <- hIsEOF h
-        if eof
-          then hClose h
-          else do
-            _ <- E.try @E.SomeException $ BS.hGet h 4096
-            go
-  E.handle (\(_ :: E.SomeException) -> pure ()) go
-
--- | Tail-capture a child-process pipe into a 'TVar' Text, keeping
--- the last 'stderrTailCapacity' bytes. Used to surface QEMU's own
--- diagnostic output when the wait-for-ping path needs to explain
--- why the VM died.
-captureStderrTail :: Handle -> TVar T.Text -> IO ()
-captureStderrTail h ringVar = do
+-- | Drain a child-process pipe line-by-line, forwarding each line
+-- to the agent log at debug level under @label@. Used for every
+-- subprocess the agent spawns (QEMU stdout, virtiofsd stdout +
+-- stderr, …) so the operator can opt into seeing exactly what the
+-- helpers print without leaving the pipes unread (which would
+-- back-pressure the child once the kernel buffer fills, and leave
+-- zombies behind if the child later exited on its own).
+forwardPipeToLog :: Text -> Handle -> IO ()
+forwardPipeToLog label h = do
   hSetBuffering h LineBuffering
   let go = do
         eof <- hIsEOF h
         if eof
-          then hClose h
+          then pure ()
           else do
             r <- E.try @E.SomeException (hGetLine h)
             case r of
               Left _ -> pure ()
               Right line -> do
+                runStderrLoggingT . logDebugN $
+                  "[" <> label <> "] " <> T.pack line
+                go
+  E.handle (\(_ :: E.SomeException) -> pure ()) go
+  E.handle (\(_ :: E.SomeException) -> pure ()) (hClose h)
+
+-- | Tail-capture a child-process pipe into a 'TVar' Text, keeping
+-- the last 'stderrTailCapacity' bytes. Used to surface QEMU's own
+-- diagnostic output when the wait-for-ping path needs to explain
+-- why the VM died. Each line is additionally forwarded to the
+-- agent log at debug level under @label@ for live visibility.
+captureStderrTail :: Text -> Handle -> TVar T.Text -> IO ()
+captureStderrTail label h ringVar = do
+  hSetBuffering h LineBuffering
+  let go = do
+        eof <- hIsEOF h
+        if eof
+          then pure ()
+          else do
+            r <- E.try @E.SomeException (hGetLine h)
+            case r of
+              Left _ -> pure ()
+              Right line -> do
+                runStderrLoggingT . logDebugN $
+                  "[" <> label <> "] " <> T.pack line
                 let lineT = T.pack line <> "\n"
                 atomically $
                   modifyTVar' ringVar $ \prev ->
@@ -1355,6 +1387,7 @@ captureStderrTail h ringVar = do
                           else combined
                 go
   E.handle (\(_ :: E.SomeException) -> pure ()) go
+  E.handle (\(_ :: E.SomeException) -> pure ()) (hClose h)
 
 -- | Maximum number of characters retained in 'vlsStderrTail'. Sized
 -- to fit QEMU's typical "could not …" / KVM-init / device-init
