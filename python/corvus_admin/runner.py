@@ -71,7 +71,9 @@ class Runner(ABC):
         capture: bool = False,
     ) -> RunResult:
         """Run *argv* on the target. When ``sudo`` is True, prepend
-        the configured privesc prefix (``sudo -n`` or ``doas -n``).
+        the configured privesc prefix (``sudo`` or ``doas``). The
+        underlying tool prompts on the controlling terminal when
+        run interactively and fails fast when no TTY is available.
         Raises :class:`RunnerError` if ``sudo=True`` is requested
         but no escalator is available. ``capture=True`` makes
         stdout/stderr available on the result instead of streaming

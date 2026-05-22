@@ -22,7 +22,7 @@ class _FakeRunner:
     label = "local"
 
     def __init__(self) -> None:
-        self.privesc = privesc.PrivEsc(tool="sudo", argv_prefix=("sudo", "-n"))
+        self.privesc = privesc.PrivEsc(tool="sudo", argv_prefix=("sudo",))
         self.calls: list[tuple[str, tuple, dict]] = []
         self.copies: list[tuple[str, int]] = []
 

@@ -2,13 +2,16 @@
 
 corvus-admin needs root for a handful of operations (writing certs
 under /etc/corvus, restarting system systemd units, installing the
-netd unit file). Historically the deploy code hardcoded ``sudo -n``;
-that breaks on hosts that ship ``doas`` instead (Alpine, OpenBSD,
-some hardened Gentoo profiles).
+netd unit file).
 
 This module probes the environment once and returns whatever
-escalator is on $PATH. ``detect()`` is cached: corvus-admin is a
-short-lived CLI, the answer doesn't change mid-run.
+escalator is on $PATH. The argv prefix is just ``sudo`` / ``doas``
+— no ``-n``. That way an interactive run prompts on the
+controlling terminal, while non-interactive contexts (CI, SSH
+with ``BatchMode=yes``) still fail fast: both tools refuse to
+prompt without a TTY and exit with a clear error. ``detect()``
+is cached: corvus-admin is a short-lived CLI, the answer doesn't
+change mid-run.
 """
 
 from __future__ import annotations
@@ -21,9 +24,9 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class PrivEsc:
     """A resolved privilege-escalation tool. ``argv_prefix`` is the
-    argv slice to prepend to a command so it runs as root without
-    prompting (both sudo and doas accept ``-n`` to mean
-    "non-interactive: fail if a password is required")."""
+    argv slice to prepend to a command so it runs as root. The
+    underlying tool (sudo or doas) handles whether to prompt: with
+    a TTY it asks for a password, without one it errors out."""
 
     tool: str
     argv_prefix: tuple[str, ...]
@@ -33,8 +36,8 @@ class PrivEsc:
 # probed via shutil.which so PATH-only installs (no /usr/bin
 # symlink) still get picked up.
 _CANDIDATES: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("sudo", ("sudo", "-n")),
-    ("doas", ("doas", "-n")),
+    ("sudo", ("sudo",)),
+    ("doas", ("doas",)),
 )
 
 

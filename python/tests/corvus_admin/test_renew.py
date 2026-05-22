@@ -33,7 +33,7 @@ def fake_paths(tmp_path, monkeypatch):
     sysctl.write_text(f'#!/bin/sh\necho "$@" >> {log!s}\n')
     sysctl.chmod(0o755)
     sudo = bin_dir / "sudo"
-    sudo.write_text('#!/bin/sh\nshift; exec "$@"\n')
+    sudo.write_text('#!/bin/sh\nexec "$@"\n')
     sudo.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     return etc, log

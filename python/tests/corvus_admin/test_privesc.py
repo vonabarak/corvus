@@ -15,7 +15,9 @@ def test_detect_returns_sudo_when_only_sudo_present(monkeypatch):
     pe = privesc.detect()
     assert pe is not None
     assert pe.tool == "sudo"
-    assert pe.argv_prefix == ("sudo", "-n")
+    # Interactive prefix: no -n. sudo prompts on the controlling
+    # terminal when one is available; otherwise it exits cleanly.
+    assert pe.argv_prefix == ("sudo",)
 
 
 def test_detect_returns_doas_when_only_doas_present(monkeypatch):
@@ -28,7 +30,7 @@ def test_detect_returns_doas_when_only_doas_present(monkeypatch):
     pe = privesc.detect()
     assert pe is not None
     assert pe.tool == "doas"
-    assert pe.argv_prefix == ("doas", "-n")
+    assert pe.argv_prefix == ("doas",)
 
 
 def test_detect_prefers_sudo_when_both_installed(monkeypatch):

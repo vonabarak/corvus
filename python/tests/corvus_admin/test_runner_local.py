@@ -69,20 +69,20 @@ def test_mkdir_p_is_idempotent(tmp_path):
 
 def test_run_with_sudo_uses_doas_when_injected(tmp_path):
     """Inject a PrivEsc(tool="doas") and confirm the runner
-    prepends ``doas -n`` rather than ``sudo -n``. We fake the
-    doas binary so the underlying subprocess.run doesn't blow up
-    on a host that has neither installed."""
+    prepends ``doas`` rather than ``sudo``. We fake the doas
+    binary so the underlying subprocess.run doesn't blow up on a
+    host that has neither installed."""
 
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     fake_doas = bin_dir / "doas"
-    fake_doas.write_text('#!/bin/sh\nshift; exec "$@"\n')
+    fake_doas.write_text('#!/bin/sh\nexec "$@"\n')
     fake_doas.chmod(0o755)
     import os
 
     os.environ["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
 
-    pe = privesc.PrivEsc(tool="doas", argv_prefix=("doas", "-n"))
+    pe = privesc.PrivEsc(tool="doas", argv_prefix=("doas",))
     runner = LocalRunner(privesc_tool=pe)
     # We can't easily assert on the exact argv subprocess saw, but
     # we can assert the call succeeds (which exercises the prefix

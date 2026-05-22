@@ -39,8 +39,10 @@ def fake_paths(tmp_path, monkeypatch):
     sysctl.write_text(f'#!/bin/sh\necho "$@" >> {log!s}\n')
     sysctl.chmod(0o755)
     sudo = bin_dir / "sudo"
-    # Make `sudo -n …` a passthrough.
-    sudo.write_text('#!/bin/sh\nshift; exec "$@"\n')
+    # Make `sudo …` a passthrough — the runner no longer passes
+    # ``-n`` (so the operator can be prompted for a password); the
+    # fake passes the args through as-is.
+    sudo.write_text('#!/bin/sh\nexec "$@"\n')
     sudo.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     return etc, log
