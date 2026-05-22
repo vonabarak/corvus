@@ -112,7 +112,7 @@ class LocalRunner(Runner):
         self.privesc = privesc_tool if privesc_tool is not None else privesc.detect()
 
     def copy_bytes(self, data: bytes, remote_path: str, *, mode: int) -> None:
-        path = Path(remote_path)
+        path = Path(os.path.expanduser(remote_path))
         tmp = path.with_suffix(path.suffix + ".tmp")
         # If the target needs root and we're not root, write to a
         # user-writable tmp then sudo-install. Keeps the high-mode
@@ -176,6 +176,10 @@ class LocalRunner(Runner):
         return result
 
     def mkdir_p(self, path: str, *, mode: int = 0o755, sudo: bool = False) -> None:
+        # Expand ~ here rather than at every call site: the runner
+        # APIs accept any string the caller would write into a shell
+        # command, and subprocess.run skips shell expansion.
+        path = os.path.expanduser(path)
         if not sudo or self._is_root:
             os.makedirs(path, mode=mode, exist_ok=True)
             try:

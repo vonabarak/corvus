@@ -213,11 +213,18 @@ class TestQuickstart(IntegrationTestCase):
             )
 
     def test_02_quickstart_succeeds(self):
-        """``corvus-admin quickstart`` runs to completion on a fresh node."""
+        """``corvus-admin quickstart`` runs to completion on a fresh node.
+
+        Bump the healthcheck timeout: the test-node VM's user-systemd
+        cold-starts the daemon, runs migrations, and waits for the
+        nodeagent supervisor's first dial — all of which routinely
+        eat past the 15s production default.
+        """
 
         cp = _shrun(
             self.node,
-            "corvus-admin quickstart --node-name self --listen-ip 127.0.0.1",
+            "corvus-admin quickstart --node-name self --listen-ip 127.0.0.1 "
+            "--healthcheck-timeout 60",
             check=False,
             timeout_sec=180.0,
         )
@@ -354,16 +361,17 @@ def _bootstrap_node(node):
 
     sys.stderr.write("[quickstart-test] installing corvus into ~corvus/.local\n")
     sys.stderr.flush()
-    # ensurepip is a no-op on Gentoo's stage3 (pip is already there)
-    # but harmless to run; --break-system-packages required so PEP 668
-    # doesn't refuse a user-site install on distros that ship marker
-    # files. --no-cache-dir keeps the test reproducible.
+    # The virtiofs mount is read-only, but setuptools' egg_info step
+    # wants to write `corvus.egg-info/` inside the source dir. Copy
+    # to a writable scratch dir first. --break-system-packages is
+    # required so PEP 668 doesn't refuse a user-site install on
+    # distros that ship the EXTERNALLY-MANAGED marker.
     _shrun(
         node,
         (
-            "python3 -m ensurepip --user 2>/dev/null || true; "
-            "python3 -m pip install --user --quiet --upgrade --break-system-packages pip 2>/dev/null || true; "
-            f"python3 -m pip install --user --quiet --break-system-packages {SRC_MOUNT}"
+            "rm -rf /tmp/corvus-src && "
+            f"cp -r {SRC_MOUNT} /tmp/corvus-src && "
+            "python3 -m pip install --user --quiet --break-system-packages /tmp/corvus-src"
         ),
         timeout_sec=300.0,
     )

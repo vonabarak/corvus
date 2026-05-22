@@ -45,6 +45,16 @@ pipeline:
               app-emulation/qemu spice usb usbredir virtfs passt vde
               dev-db/postgresql python uuid xml
               EOF
+              
+              cat > /etc/portage/package.accept_keywords/corvus <<'EOF'
+              app-emulation/corvus **
+              app-emulation/corvus-bin **
+              dev-python/pycapnp **
+              dev-haskell/supervisors **
+              dev-haskell/data-default-instances-vector **
+              dev-haskell/monad-stm **
+              dev-haskell/zenhack-prelude **
+              EOF
 
               emerge --noreplace --usepkg \
                 net-misc/socat \
@@ -63,7 +73,7 @@ pipeline:
                 dev-python/pip \
                 dev-python/click \
                 dev-python/cryptography \
-                dev-python/jinja \
+                dev-python/jinja2 \
                 dev-python/pyyaml \
                 dev-python/pycapnp
             timeoutSec: 14400

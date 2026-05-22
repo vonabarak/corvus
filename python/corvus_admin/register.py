@@ -112,12 +112,22 @@ def _poll_show(
     timeout_sec: float,
     poll_interval_sec: float = 0.5,
 ) -> tuple[str, bool]:
-    """Run ``crv node show`` repeatedly until either the
-    healthcheck field looks non-empty or the timeout elapses.
-    Returns the last stdout + a healthy/not flag."""
+    """Run ``crv node show`` repeatedly until either an agent
+    healthcheck timestamp shows up or the timeout elapses. Returns
+    the last stdout + a healthy/not flag.
+
+    The CLI renders agent pushes as ``Nodeagent last push: <ts>``
+    and ``Netd last push: <ts>`` (with ``(never)`` until the first
+    dial lands). The nodeagent comes up first because the daemon's
+    supervisor dials it for any RPC; netd's first push can take
+    longer. Treat the nodeagent timestamp alone as "healthy" so a
+    one-shot quickstart doesn't block waiting for netd's slower
+    cadence.
+    """
 
     deadline = time.monotonic() + timeout_sec
     last_stdout = ""
+    sentinels = ("-", "never", "(never)", "unknown")
     while time.monotonic() < deadline:
         proc = subprocess.run(
             [crv, "node", "show", name],
@@ -125,21 +135,22 @@ def _poll_show(
             capture_output=True,
         )
         last_stdout = proc.stdout
-        # The current CLI prints "Health check: <iso-datetime>"
-        # once an agent push arrives. Anything else (or "-") means
-        # the supervisor hasn't dialed yet. Use a forgiving
-        # substring match so cosmetic changes to the CLI don't
-        # break this poll silently.
-        text = proc.stdout.lower()
-        if "health" in text and "agent unavailable" not in text:
-            # The Haskell-side renderer prints the timestamp in
-            # ISO format; any non-empty value other than "-" or
-            # "never" counts.
-            for line in proc.stdout.splitlines():
-                lower = line.lower()
-                if "healthcheck" in lower or "health check" in lower:
-                    val = line.split(":", 1)[-1].strip()
-                    if val and val not in ("-", "never", "unknown"):
-                        return last_stdout, True
+        for line in proc.stdout.splitlines():
+            lower = line.lower()
+            # Match "Nodeagent last push", "Node-agent last push",
+            # "Healthcheck", or "Health check" — old and new CLI
+            # spellings. The agent name is included so a "Netd
+            # last push" alone doesn't trip the check (netd
+            # pushes lag the nodeagent and the bring-up doesn't
+            # need to wait for them).
+            is_nodeagent_push = "nodeagent last push" in lower or (
+                "node-agent" in lower and "last push" in lower
+            )
+            is_legacy_health = "healthcheck" in lower or "health check" in lower
+            if not (is_nodeagent_push or is_legacy_health):
+                continue
+            val = line.split(":", 1)[-1].strip()
+            if val and val.lower() not in sentinels:
+                return last_stdout, True
         time.sleep(poll_interval_sec)
     return last_stdout, False
