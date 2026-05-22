@@ -819,3 +819,142 @@ class TestVmLifecycle(SingleNodeCase):
                     f"VM bounced back to {status!r} after a daemon-"
                     f"initiated stop — quirk-suppression failed"
                 )
+
+    def _read_qemu_pid(self, vm_id: int) -> int | None:
+        """Return the QEMU pid on the node whose argv contains
+        ``corvus-vm-<vm_id>``, or ``None`` if no such process exists.
+
+        Corvus launches QEMU with ``-name <name>,process=corvus-vm-<id>``
+        (see ``src/Corvus/Node/Command.hs``), so the per-VM id is
+        always embedded in the command line and makes the process
+        directly grep-able.
+        """
+        r = self.nodes[0].run(
+            f"pgrep -f 'corvus-vm-{vm_id}' || true",
+            check=False,
+            timeout_sec=10.0,
+        )
+        out = r.stdout.decode("utf-8", errors="replace").strip()
+        if not out:
+            return None
+        # pgrep prints one pid per line; the first match is enough.
+        # The shell that wraps this command runs `pgrep` directly via
+        # exec, so it does not appear in the result set.
+        return int(out.splitlines()[0].strip())
+
+    def test_reboot_quirk_qemu_pid_changes_on_reboot(self):
+        """With ``reboot_quirk=True`` a guest-initiated reboot must
+        replace the underlying QEMU process — the agent's reaper
+        ``-no-reboot`` + re-spawn path is the whole point of the
+        feature, and its only externally visible artefact is a new
+        OS-level pid.
+
+        Tests for ``status`` continuity and ``boot_id`` change
+        already exist (see ``test_reboot_quirk_restart_on_guest_reboot``);
+        this one nails down the lower-level claim that we really did
+        kill and re-launch the qemu-system binary, not just bounce
+        the guest in place.
+        """
+
+        class _RebootQuirkVm(VmSsh):
+            reboot_quirk = True
+
+        with _RebootQuirkVm(self) as vm:
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+
+            vm_id = vm.cap.show().id
+            pid_before = self._read_qemu_pid(vm_id)
+            assert pid_before is not None, (
+                f"no QEMU process found for vm id {vm_id} before reboot"
+            )
+
+            # Trigger guest reboot via QGA. QEMU exits because we
+            # launched it with @-no-reboot@; the agent's reaper
+            # re-spawns a fresh process under a new pid.
+            try:
+                vm.cap.guest_exec("/sbin/reboot -f")
+            except Exception:
+                pass
+
+            deadline = time.monotonic() + 120.0
+            pid_after: int | None = None
+            while time.monotonic() < deadline:
+                p = self._read_qemu_pid(vm_id)
+                if p is not None and p != pid_before:
+                    pid_after = p
+                    break
+                time.sleep(1.0)
+
+            assert pid_after is not None, (
+                f"QEMU pid for vm id {vm_id} did not change within 120s "
+                f"after a guest-initiated reboot (still {pid_before}) — "
+                f"the reboot-quirk reaper did not re-spawn"
+            )
+
+    def test_no_reboot_quirk_qemu_pid_unchanged_on_reboot(self):
+        """Without ``reboot_quirk``, a guest-initiated reboot keeps
+        the same QEMU process — QEMU resets the machine in place,
+        so the host-level pid is preserved.
+
+        Together with the quirk-on test, this pins down both halves
+        of the contract: the flag exclusively controls whether we go
+        through QEMU's in-process reset or the agent's exit-and-respawn
+        loop.
+        """
+
+        class _NoQuirkVm(VmSsh):
+            reboot_quirk = False
+
+        with _NoQuirkVm(self) as vm:
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                boot_id_1 = shell.run(
+                    "cat /proc/sys/kernel/random/boot_id"
+                ).stdout.strip()
+
+            vm_id = vm.cap.show().id
+            pid_before = self._read_qemu_pid(vm_id)
+            assert pid_before is not None, (
+                f"no QEMU process found for vm id {vm_id} before reboot"
+            )
+
+            try:
+                vm.cap.guest_exec("/sbin/reboot -f")
+            except Exception:
+                pass
+
+            # Wait for the guest to actually have rebooted (boot_id
+            # changes), so we don't just sample before the reboot
+            # took effect. Without this, a flat pid would prove
+            # nothing.
+            deadline = time.monotonic() + 120.0
+            rebooted = False
+            while time.monotonic() < deadline:
+                try:
+                    with self.vm_shell(vm.cap) as shell:
+                        shell.wait_ready(timeout_sec=5)
+                        boot_id_2 = shell.run(
+                            "cat /proc/sys/kernel/random/boot_id"
+                        ).stdout.strip()
+                    if boot_id_2 and boot_id_2 != boot_id_1:
+                        rebooted = True
+                        break
+                except Exception:
+                    # ssh down for a few seconds during boot is
+                    # expected — keep polling.
+                    pass
+                time.sleep(2.0)
+
+            assert rebooted, (
+                "guest did not finish rebooting within 120s — "
+                "cannot validate pid stability"
+            )
+
+            pid_after = self._read_qemu_pid(vm_id)
+            assert pid_after == pid_before, (
+                f"QEMU pid for vm id {vm_id} changed across an "
+                f"in-place reboot: before={pid_before}, after={pid_after}. "
+                f"Without reboot_quirk the same qemu-system process should "
+                f"survive the guest reset"
+            )
