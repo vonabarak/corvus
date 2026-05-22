@@ -347,6 +347,17 @@ class TestWindows(SingleNodeCase):
         exit. The guest sees a normal reboot; firmware sees a
         cold boot. With (2) defanged we can use the (1)
         workaround safely: boot, reboot, mount.
+
+        Verifies the quirk path by capturing
+        ``Win32_OperatingSystem.LastBootUpTime`` before and
+        after issuing ``shutdown /r`` and asserting it advanced
+        — the reboot must actually happen for the bind to work
+        AND for the test to mean anything. A baked image that
+        already ran cloudbase-init at build time has no reason
+        to reboot itself on subsequent boots, so without the
+        explicit force-reboot here the test could pass simply
+        because the share bound on first try, never exercising
+        the quirk path.
         """
         share_path = f"/tmp/win-share-{secrets.token_hex(4)}"
         self.node.run(f"mkdir -p {share_path}")
@@ -363,33 +374,70 @@ class TestWindows(SingleNodeCase):
 
         try:
             with _WinShare(self) as vm:
-                # Poll for the share to appear. cloudbase-init
-                # naturally reboots the guest mid-bring-up (for
-                # the hostname change); that reboot is what
-                # actually fixes the share's vhost-user-fs
-                # handshake. With `reboot_quirk` on the agent
-                # re-spawns QEMU transparently — the DB row
-                # stays `running` and the QGA socket reconnects
-                # under the hood. The polling loop tolerates
-                # the QGA blip across the bounce: each guest_exec
-                # call may raise during the window, and the
-                # `_find_share_drive` helper also restarts
-                # `VirtioFsSvc` on each pass to give the driver
-                # another chance to enumerate.
-                #
-                # Budget: ~15 min covers slow nested-KVM Windows
-                # boot (~4 min) + cloud-init (~3 min) + reboot
-                # via the quirk (~3 min) + a couple of retry
-                # passes with `_find_share_drive`.
-                drive: str | None = None
-                deadline = time.monotonic() + 15 * 60.0
+                # Capture the guest's pre-reboot boot time. The
+                # baked image already ran cloudbase-init at
+                # build time, so subsequent boots typically
+                # don't reboot themselves — we have to force
+                # the bounce explicitly to exercise the quirk
+                # path. LastBootUpTime is monotonic across a
+                # reboot on Windows, same role as Linux's
+                # /proc/sys/kernel/random/boot_id in the
+                # other reboot-quirk tests.
+                boot_time_1 = self._read_last_boot_time(vm)
+
+                # Force the share-bind workaround: issue a
+                # guest-initiated reboot. With `reboot_quirk`
+                # on the agent re-spawns QEMU transparently;
+                # from the daemon's perspective the DB row
+                # stays `running` and the QGA socket
+                # reconnects under the hood. From OVMF's
+                # perspective it's a cold boot, dodging
+                # edk2#12441.
+                try:
+                    vm.cap.guest_exec("cmd.exe /c shutdown /r /t 0 /f")
+                except ServerError:
+                    # `shutdown` initiates the bounce
+                    # asynchronously; QGA can disconnect mid-
+                    # call before returning a clean exit code.
+                    # That's fine — the wait loop below gates
+                    # on the actual outcome.
+                    pass
+
+                # Wait for QGA to come back on the re-spawned
+                # QEMU and for the new boot to register a
+                # later LastBootUpTime. Budget covers the
+                # Windows shutdown + cold boot under nested
+                # KVM (~4–5 min typical).
+                boot_time_2: str | None = None
+                deadline = time.monotonic() + 10 * 60.0
                 while time.monotonic() < deadline:
+                    try:
+                        t = self._read_last_boot_time(vm)
+                    except ServerError:
+                        t = None
+                    if t is not None and t != boot_time_1:
+                        boot_time_2 = t
+                        break
+                    time.sleep(15)
+
+                assert boot_time_2 is not None, (
+                    "guest never reported a new LastBootUpTime "
+                    "after `shutdown /r` — either the reboot-"
+                    "quirk re-spawn never fired or QGA never "
+                    "came back within the 10 min budget"
+                )
+
+                # Now that the cold boot landed, poll
+                # `_find_share_drive`. The viofs driver
+                # sometimes still needs a `VirtioFsSvc`
+                # restart on top of the cold boot (helper
+                # already does that on each call).
+                drive: str | None = None
+                find_deadline = time.monotonic() + 5 * 60.0
+                while time.monotonic() < find_deadline:
                     try:
                         drive = self._find_share_drive(vm)
                     except Exception:
-                        # QGA may be transiently unreachable
-                        # while the reboot-quirk re-spawn is in
-                        # flight. Keep polling.
                         drive = None
                     if drive is not None:
                         break
@@ -416,3 +464,25 @@ class TestWindows(SingleNodeCase):
                 assert f"GUEST-WROTE-{guest_token}" in out
         finally:
             self.node.run(f"rm -rf {share_path}", check=False)
+
+    @staticmethod
+    def _read_last_boot_time(vm) -> str | None:
+        """Read `Win32_OperatingSystem.LastBootUpTime` via QGA.
+
+        The CIM datetime string the cmdlet returns is the closest
+        cross-process proxy for "QEMU has been restarted" — the
+        Python client can't see the agent-private QEMU pid
+        directly, so we observe the guest-visible side effect
+        instead. Returns ``None`` if the cmdlet doesn't produce
+        a parseable line.
+        """
+        r = vm.cap.guest_exec(
+            _ps(
+                "(Get-CimInstance Win32_OperatingSystem)."
+                "LastBootUpTime.ToString('o')"
+            )
+        )
+        if r.exit_code != 0:
+            return None
+        line = r.stdout.strip()
+        return line or None
