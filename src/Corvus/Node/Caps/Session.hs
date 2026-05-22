@@ -1,5 +1,7 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -53,11 +55,12 @@ import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
-import Corvus.Rpc.Streams (runByteSinkRelay)
+import Corvus.Rpc.Streams (callSink, runByteSinkRelay)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle (..))
 import qualified Data.ByteString as BS
 import Data.Either (lefts, rights)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust)
@@ -344,6 +347,22 @@ instance CGNA.Session'server_ SessionCap where
     -- the agent actually needs serialisation.
     handleParsedAsync $ \CGNA.Session'vmGuestExec'params {CGNA.req = wireReq} ->
       handleVmGuestExec sc (decodeVmGuestExecReq wireReq)
+
+  session'vmGuestExecStream sc =
+    -- Same async rationale as 'vmGuestExec' — streaming execs
+    -- (build provisioners) run even longer than the aggregating
+    -- variant, so they MUST NOT block the session dispatcher.
+    handleParsedAsync $
+      \CGNA.Session'vmGuestExecStream'params
+        { CGNA.req = wireReq
+        , CGNA.stdoutSink = stdoutCli
+        , CGNA.stderrSink = stderrCli
+        } ->
+          handleVmGuestExecStream
+            sc
+            (decodeVmGuestExecReq wireReq)
+            stdoutCli
+            stderrCli
 
   session'vmStatus sc =
     handleParsed $ \CGNA.Session'vmStatus'params {CGNA.vmId = vid} ->
@@ -1577,6 +1596,86 @@ handleVmGuestExec sc req = do
         CGNA.Session'vmGuestExec'results
           { CGNA.info = encodeVmGuestExecInfo result
           }
+
+-- | Streaming variant of 'handleVmGuestExec'.
+--
+-- Pushes incremental stdout / stderr bytes to the supplied
+-- 'ByteSink' caps as QGA's @guest-exec-status@ drains them. Both
+-- sinks are @end()@-ed on completion (success or failure) so the
+-- daemon's line buffer can flush any trailing partial line. The
+-- returned 'VmGuestExecInfo' carries the exit code only; stdout /
+-- stderr are empty because the bytes already flowed through the
+-- sinks.
+--
+-- Sink-write errors (typically: caller dropped its sink) record a
+-- flag locally so the loop can stop polling QGA — there's no
+-- point doing more guest-side work when nothing receives the
+-- output. The return value in that case is a synthetic
+-- 'GuestExecError'.
+handleVmGuestExecStream
+  :: SessionCap
+  -> VS.VmGuestExecReq
+  -> C.Client CGS.ByteSink
+  -> C.Client CGS.ByteSink
+  -> IO (CGNA.Parsed CGNA.Session'vmGuestExecStream'results)
+handleVmGuestExecStream sc req stdoutCli stderrCli = do
+  let vmId = VS.vgeVmId req
+      conns = scQgaConns sc
+  mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  case mLive of
+    Nothing -> do
+      -- End both sinks before bailing so the daemon's
+      -- LineBufferSink doesn't sit waiting on a flush that's
+      -- never coming.
+      endSinkBest stdoutCli
+      endSinkBest stderrCli
+      throwFailed ("vmGuestExecStream: unknown vmId " <> tshow vmId)
+    Just _ -> do
+      let cmd =
+            T.intercalate
+              " "
+              (VS.vgePath req : VS.vgeArgs req)
+          maxPolls =
+            if VS.vgeTimeoutSec req == 0
+              then 600
+              else fromIntegral (VS.vgeTimeoutSec req) * 10
+          mStdin =
+            if BS.null (VS.vgeInputData req)
+              then Nothing
+              else Just (VS.vgeInputData req)
+      brokenRef <- newIORef False
+      let pushTo client bs = do
+            broken <- readIORef brokenRef
+            unless broken $ do
+              r <-
+                E.try @E.SomeException $
+                  callSink
+                    #write
+                    CGS.ByteSink'write'params {CGS.chunk = bs}
+                    client
+              case r of
+                Left _ -> writeIORef brokenRef True
+                Right () -> pure ()
+      result <-
+        NGA.guestExecStream
+          conns
+          agentQemuConfig
+          vmId
+          cmd
+          mStdin
+          maxPolls
+          (pushTo stdoutCli)
+          (pushTo stderrCli)
+      endSinkBest stdoutCli
+      endSinkBest stderrCli
+      pure
+        CGNA.Session'vmGuestExecStream'results
+          { CGNA.info = encodeVmGuestExecInfo result
+          }
+  where
+    endSinkBest client =
+      E.handle (\(_ :: E.SomeException) -> pure ()) $
+        callSink #end CGS.ByteSink'end'params client
 
 handleVmStatus
   :: SessionCap -> Int64 -> IO (CGNA.Parsed CGNA.Session'vmStatus'results)

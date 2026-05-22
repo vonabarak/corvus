@@ -31,12 +31,14 @@ from __future__ import annotations
 
 import secrets
 import textwrap
+import time
 
 import pytest
 from corvus_client._async.build import preprocess_build_yaml
 from corvus_client.types import (
     BuildPipelineEnd,
     BuildStepEnd,
+    BuildStepOutput,
     BuildStepStart,
 )
 from corvus_test_harness import SingleNodeCase
@@ -375,6 +377,140 @@ class TestBuildPipeline(SingleNodeCase):
             assert not any(n.startswith("__build_") for n in vm_names), vm_names
         finally:
             _drop_artifact()
+
+    def test_provisioner_output_streams_live(self):
+        """Provisioner stdout reaches the client line-by-line, not in
+        a single batch at step end.
+
+        Pre-Phase-4 the daemon owned the QGA socket and tailed
+        guest-side output via @guest-file-read@, so each line
+        emitted by a provisioner showed up in the client live.
+        Phase 4 routed guest-exec through @nodeagent.vmGuestExec@,
+        which aggregated and returned the entire output on exit
+        — provisioner output appeared in a clump only after the
+        step finished. The new ``vmGuestExecStream`` RPC restores
+        the live behaviour.
+
+        The shell provisioner here prints five lines with one-
+        second sleeps between them. Each line arrives as a
+        ``BuildStepOutput`` event; we record wall-clock arrival
+        times and assert the spread is at least 3 s — well above
+        any plausible batching window but well below the 5 s the
+        provisioner takes overall. Also assert at least one
+        ``BuildStepOutput`` lands *before* the corresponding
+        ``BuildStepEnd``: in the regressed implementation the
+        outputs were enqueued only AFTER step-end because the
+        daemon split them post-completion.
+        """
+
+        token = secrets.token_hex(4)
+        images = self.register_base_images()
+        base_disk = images["alpine"]
+        tpl_name = f"corvus-it-build-tpl-{token}"
+        build_name = f"corvus-it-build-{token}"
+        artifact_name = f"corvus-it-build-art-{token}"
+
+        tpl = self.client.templates.create(
+            _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
+        )
+        # Five iterations × 1 s sleep ≈ 5 s of streamed output.
+        # `set +x` keeps the loop's set -x trace from drowning the
+        # echo lines we're timing.
+        pipeline_yaml = textwrap.dedent(f"""
+            pipeline:
+              - build:
+                  name: {build_name}
+                  template: {tpl_name}
+                  strategy: overlay
+                  target:
+                    name: {artifact_name}
+                    format: qcow2
+                    sizeGb: 1
+                  vm:
+                    cpuCount: 1
+                    ramMb: 512
+                  provisioners:
+                    - shell: |
+                        set +x
+                        for i in 1 2 3 4 5; do
+                          echo "streaming-marker $i"
+                          sleep 1
+                        done
+                  cleanup: always
+                  waitForShutdownSec: 300
+        """).strip()
+
+        try:
+            # (arrival_time, event) pairs for every event the daemon
+            # streams back. Stamping at event-receipt time on the
+            # client is the only way to distinguish "arrived live"
+            # from "arrived in a final batch".
+            timeline: list[tuple[float, object]] = []
+            for ev in self.client.build_stream_text(pipeline_yaml):
+                timeline.append((time.monotonic(), ev))
+
+            # Pull out the (step_index → BuildStepEnd time) map so
+            # we can compare each BuildStepOutput's timestamp to
+            # the end of its step.
+            step_end_at: dict[int, float] = {
+                ev.step_index: t for t, ev in timeline if isinstance(ev, BuildStepEnd)
+            }
+            # Find the BuildStepStart for our streaming step so we
+            # can scope BuildStepOutput events to it.
+            step_start_at: dict[int, float] = {
+                ev.step_index: t for t, ev in timeline if isinstance(ev, BuildStepStart)
+            }
+            assert step_start_at, "no BuildStepStart events seen"
+
+            streaming_step = None
+            streaming_lines: list[tuple[float, str]] = []
+            for t, ev in timeline:
+                if isinstance(ev, BuildStepOutput) and "streaming-marker" in ev.line:
+                    streaming_step = ev.step_index
+                    streaming_lines.append((t, ev.line))
+
+            assert streaming_step is not None, (
+                "no BuildStepOutput carrying 'streaming-marker' arrived"
+            )
+            assert len(streaming_lines) >= 5, (
+                f"expected ≥5 streaming-marker lines, got "
+                f"{len(streaming_lines)}: {[line for _, line in streaming_lines]}"
+            )
+
+            # Live-streaming assertions:
+            # (1) Spread between first and last line is at least
+            #     3 s — they cannot all have been batched at step
+            #     end.
+            spread = streaming_lines[-1][0] - streaming_lines[0][0]
+            assert spread >= 3.0, (
+                f"streaming-marker lines arrived in {spread:.2f}s — "
+                f"too compressed; output was likely batched at step end"
+            )
+            # (2) At least one BuildStepOutput arrives BEFORE the
+            #     step's BuildStepEnd. Pre-fix, outputs were
+            #     enqueued just before stepEnd, so this would fail.
+            end_t = step_end_at.get(streaming_step)
+            assert end_t is not None, (
+                f"no BuildStepEnd for streaming step {streaming_step}"
+            )
+            early_lines = [t for t, _ in streaming_lines if t < end_t - 0.5]
+            assert early_lines, (
+                f"all {len(streaming_lines)} BuildStepOutput events arrived "
+                f"within 500 ms of BuildStepEnd — no live streaming"
+            )
+
+            # Sanity: the build itself succeeded.
+            pipeline_end = next(
+                (ev for _, ev in timeline if isinstance(ev, BuildPipelineEnd)),
+                None,
+            )
+            assert pipeline_end is not None
+            assert pipeline_end.builds and pipeline_end.builds[0].artifact_disk_id
+
+            # Cleanup the artifact disk.
+            self.client.disks.get(artifact_name, by_name=True).delete()
+        finally:
+            tpl.delete()
 
     def test_target_ifexists_skip_short_circuits(self):
         """`target.ifExists: skip` returns the existing disk id, no bake.

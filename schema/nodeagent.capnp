@@ -169,6 +169,19 @@ interface Session {
   # the QGA socket from the ledger entry for req.vmId.
   vmGuestExec @20 (req :VmGuestExecReq) -> (info :VmGuestExecInfo);
 
+  # Streaming variant of vmGuestExec. The agent pushes incremental
+  # stdout/stderr bytes to the supplied sinks as QGA's
+  # guest-exec-status drains them, then returns the final exit
+  # code in VmGuestExecInfo (with stdout/stderr empty — bytes
+  # already flowed through the sinks). Both sinks are end()-ed
+  # on normal completion AND on error, so the caller can flush
+  # any partial line.
+  vmGuestExecStream @34
+    (req :VmGuestExecReq,
+     stdoutSink :Streams.ByteSink,
+     stderrSink :Streams.ByteSink)
+    -> (info :VmGuestExecInfo);
+
   # Per-vmId status probe. Used by the daemon's monitor at
   # reconnect time before the status subscription's first tick
   # fires.

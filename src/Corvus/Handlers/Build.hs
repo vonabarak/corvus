@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Image-bake orchestration for @crv build@.
 --
@@ -29,6 +30,8 @@ module Corvus.Handlers.Build
   )
 where
 
+import qualified Capnp as C
+import qualified Capnp.Gen.Streams as CGS
 import Control.Concurrent (threadDelay)
 import Control.Exception (SomeException, try)
 import Control.Monad (unless, when)
@@ -56,6 +59,7 @@ import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
+import Corvus.Rpc.Streams (newLineBufferSink)
 import Corvus.Schema.Build
 import Corvus.Types
 import qualified Data.Aeson as Aeson
@@ -122,8 +126,19 @@ agentGuestPing state vmId = do
     GuestExecSuccess 0 _ _ -> True
     _ -> False
 
--- | Guest exec whose stdout we split into lines and feed through
--- @onLine@ after completion. Non-streaming (see module note).
+-- | Guest exec whose stdout / stderr stream line-by-line through
+-- @onLine@ as the guest emits them. Drives the agent's
+-- @vmGuestExecStream@ RPC: we export two 'LineBufferSink' caps,
+-- the agent pushes raw QGA chunks into them as @guest-exec-status@
+-- returns, and our line buffer fires @onLine@ for each complete
+-- line on the way in. The agent calls @sink.end()@ on completion
+-- (success or failure) so any trailing partial line gets flushed
+-- before this function returns.
+--
+-- Stdout and stderr each get their own line buffer (lines from
+-- the two streams never split mid-line), but the SAME @onLine@
+-- callback — so the build sees a single merged event stream,
+-- matching the user-visible UX of 0.10's @exec 2>&1@ log file.
 agentGuestExecWithTail
   :: ServerState
   -> Int64
@@ -132,11 +147,46 @@ agentGuestExecWithTail
   -> (Text -> IO ())
   -> IO GuestExecResult
 agentGuestExecWithTail state vmId cmd timeoutSec onLine = do
-  r <- agentGuestExecCore state vmId cmd BS.empty timeoutSec
-  case r of
-    GuestExecSuccess _ out _ ->
-      mapM_ onLine (T.lines out) >> pure r
-    _ -> pure r
+  let req =
+        VS.VmGuestExecReq
+          { VS.vgeVmId = vmId
+          , VS.vgePath = cmd
+          , VS.vgeArgs = []
+          , VS.vgeCaptureOutput = True
+          , VS.vgeInputData = BS.empty
+          , VS.vgeTimeoutSec = timeoutSec
+          }
+  outer <- withVmNodeAgent state vmId $ \nac -> do
+    let sup = NOA.nacSupervisor nac
+    stdoutSink <- newLineBufferSink onLine
+    stderrSink <- newLineBufferSink onLine
+    stdoutCap <- C.export @CGS.ByteSink sup stdoutSink
+    stderrCap <- C.export @CGS.ByteSink sup stderrSink
+    NOA.vmGuestExecStream nac req stdoutCap stderrCap
+  case outer of
+    Left err -> pure (GuestExecConnectionFailed err)
+    Right r -> case r of
+      Left e ->
+        pure (GuestExecError ("vmGuestExecStream: " <> T.pack (show e)))
+      Right info
+        | VS.vgiHasExit info ->
+            -- Bytes already flowed through 'onLine'. Stdout /
+            -- stderr fields are empty by design (the agent's
+            -- streaming path doesn't echo them back), so don't
+            -- forward them to the caller — pass 'T.empty'.
+            pure $
+              GuestExecSuccess
+                (fromIntegral (VS.vgiExitCode info))
+                T.empty
+                T.empty
+        | otherwise ->
+            let stderrText =
+                  TE.decodeUtf8With lenientDecode (VS.vgiStderr info)
+                msg
+                  | T.null stderrText =
+                      "guest-exec did not return an exit code"
+                  | otherwise = stderrText
+             in pure (GuestExecError msg)
 
 -- | Common body for the four wrappers above.
 agentGuestExecCore

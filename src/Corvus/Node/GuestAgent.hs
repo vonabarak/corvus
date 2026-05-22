@@ -27,6 +27,8 @@ module Corvus.Node.GuestAgent
   , guestExec
   , guestExecWithTimeout
   , guestExecWithStdin
+  , guestExecStream
+  , ChunkSink
   , guestPing
   , guestShutdown
   , guestNetworkGetInterfaces
@@ -51,7 +53,7 @@ import qualified Data.Aeson.Types as AT
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as BL
-import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
@@ -296,6 +298,19 @@ splitLines bs =
         [] -> ([], BS.empty)
         (lastPiece : rest) -> (reverse rest, lastPiece)
 
+-- | Callback fed each non-empty stdout / stderr chunk that QGA's
+-- @guest-exec-status@ returns. The chunk is the raw bytes QGA
+-- buffered since the previous status call. Returning quickly is
+-- important: the poll loop runs synchronously on the QGA socket,
+-- so a slow callback delays the next status fetch.
+type ChunkSink = BS.ByteString -> IO ()
+
+-- | Drop-on-the-floor sink. Used by the non-streaming wrappers
+-- when they accumulate the full output into 'GuestExecSuccess'
+-- via 'IORef's instead.
+discardChunk :: ChunkSink
+discardChunk _ = pure ()
+
 guestExecImpl
   :: GuestAgentConns
   -> QemuConfig
@@ -305,6 +320,332 @@ guestExecImpl
   -> Int
   -> IO GuestExecResult
 guestExecImpl conns config vmId command mStdin maxPolls = do
+  -- Aggregating path: accumulate every chunk pollStatus emits into
+  -- per-stream IORefs so the returned 'GuestExecSuccess' carries
+  -- the complete output, matching the pre-streaming contract.
+  outRef <- newIORef BS.empty
+  errRef <- newIORef BS.empty
+  let onOut bs = modifyIORef' outRef (<> bs)
+      onErr bs = modifyIORef' errRef (<> bs)
+  result <-
+    runGuestExecWithSinks conns config vmId command mStdin maxPolls onOut onErr
+  case result of
+    GuestExecSuccess code _ _ -> do
+      outBs <- readIORef outRef
+      errBs <- readIORef errRef
+      pure $
+        GuestExecSuccess
+          code
+          (decodeUtf8With lenientDecode outBs)
+          (decodeUtf8With lenientDecode errBs)
+    other -> pure other
+
+-- | Streaming variant: stdout AND stderr (merged via shell
+-- @2>&1@ redirection) flow through @onOut@ chunk-by-chunk as
+-- the guest emits them. @onErr@ is unused by this path — the
+-- shell wrapper merges both streams so the consumer sees a
+-- single ordered stream, matching the pre-Phase-4 behaviour
+-- ('crv build' output was always combined).
+--
+-- Implementation: redirect the user's command into a guest-side
+-- log file (@/tmp/.corvus-build-step.log@), tail it via QGA's
+-- @guest-file-read@ on the same polling cadence as the exec
+-- status. QGA's @guest-exec-status@ buffers all captured output
+-- and only returns it on @exited=true@ in modern qemu-ga
+-- builds, so polling it for live data is futile; the log file
+-- gives an authoritative byte-stream the agent can drain
+-- incrementally.
+--
+-- Linux/BSD only — the shell-redirection trick uses POSIX
+-- @exec >>file 2>&1@, which has no @cmd.exe@ analogue. On
+-- Windows guests this falls back to the non-streaming
+-- aggregator (output appears all at once at step end), same
+-- degraded UX as 'guestExec'.
+guestExecStream
+  :: GuestAgentConns
+  -> QemuConfig
+  -> Int64
+  -> Text
+  -> Maybe BS.ByteString
+  -> Int
+  -> ChunkSink
+  -- ^ stdout + stderr (merged) chunks
+  -> ChunkSink
+  -- ^ stderr chunks (unused on POSIX; populated only on Windows fallback)
+  -> IO GuestExecResult
+guestExecStream conns config vmId command mStdin maxPolls onOut onErr = do
+  let connTimeoutMicros = max 15000000 (maxPolls * 100000 + 30000000)
+  mResult <- withPersistentConn conns config vmId 5 connTimeoutMicros $ \sock -> do
+    (shellPath, shellArgs) <- detectGuestShell sock
+    if shellPath == "cmd.exe"
+      then runGuestExecWindowsFallback sock shellPath shellArgs command mStdin maxPolls onOut onErr
+      else runGuestExecLogTail sock shellPath shellArgs command mStdin maxPolls onOut
+  case mResult of
+    Left err -> pure $ GuestExecConnectionFailed err
+    Right r -> pure r
+
+-- | Path used by the streaming RPC on POSIX guests. Wraps the
+-- user's command to redirect all output into a guest-side log
+-- file, then polls 'guest-file-read' to stream those bytes back
+-- through @onOut@ while the command runs. @guest-exec-status@
+-- is polled only to detect process exit.
+runGuestExecLogTail
+  :: Socket
+  -> Text
+  -- ^ shell path (e.g. @/bin/sh@)
+  -> [Text]
+  -- ^ shell flags (e.g. @[\"-c\"]@)
+  -> Text
+  -- ^ user-supplied command body
+  -> Maybe BS.ByteString
+  -- ^ stdin bytes for the guest process
+  -> Int
+  -- ^ max polls (100 ms ticks)
+  -> ChunkSink
+  -> IO GuestExecResult
+runGuestExecLogTail sock shellPath shellArgs command mStdin maxPolls onOut = do
+  let logPath = "/tmp/.corvus-build-step.log" :: Text
+  -- Open the log handle for reading. The shell wrapper truncates
+  -- and writes to the SAME path via fs (not via this handle), so
+  -- "r" is enough — the handle just needs to point at the file
+  -- the writer is appending to. Open BEFORE exec so the file
+  -- exists from the start; the @: >'<path>'@ truncation in the
+  -- shell wrapper handles the existing-file case.
+  --
+  -- Truncate-and-open dance: we issue a write open first (mode
+  -- @w+@) to truncate any leftover from a previous step, then
+  -- close that and re-open for read. Doing the truncate via the
+  -- shell wrapper would race the agent's first read.
+  truncResult <- guestFileOpenForTruncate sock logPath
+  case truncResult of
+    Left e -> pure $ GuestExecError ("guest-file-open(truncate): " <> e)
+    Right truncHandle -> do
+      _ <- guestFileClose sock truncHandle
+      readResult <- guestFileOpenForRead sock logPath
+      case readResult of
+        Left e -> pure $ GuestExecError ("guest-file-open(read): " <> e)
+        Right readHandle -> do
+          let wrappedBody =
+                "exec >>" <> shellQuote logPath <> " 2>&1\n" <> command
+              stdinField = case mStdin of
+                Nothing -> []
+                Just bs -> ["input-data" .= decodeUtf8 (B64.encode bs)]
+              execCmd =
+                Aeson.object
+                  [ "execute" .= ("guest-exec" :: Text)
+                  , "arguments"
+                      .= Aeson.object
+                        ( [ "path" .= shellPath
+                          , "arg" .= (shellArgs ++ [wrappedBody])
+                          , "capture-output" .= True
+                          ]
+                            ++ stdinField
+                        )
+                  ]
+          sendJson sock execCmd
+          execResp <- recvJson sock
+          case parsePid execResp of
+            Nothing -> do
+              _ <- guestFileClose sock readHandle
+              pure $
+                GuestExecError $
+                  "Failed to parse guest-exec response: " <> T.pack (show execResp)
+            Just pid -> do
+              r <- pollWithLogTail sock pid readHandle 0 maxPolls onOut
+              _ <- guestFileClose sock readHandle
+              pure r
+
+-- | Windows fallback for the streaming RPC: behaves exactly like
+-- 'guestExecImpl' (aggregate everything, emit at the end). The
+-- caller's @onOut@ / @onErr@ still fire — just in one big chunk
+-- per stream, after the guest process exits.
+runGuestExecWindowsFallback
+  :: Socket
+  -> Text
+  -> [Text]
+  -> Text
+  -> Maybe BS.ByteString
+  -> Int
+  -> ChunkSink
+  -> ChunkSink
+  -> IO GuestExecResult
+runGuestExecWindowsFallback sock shellPath shellArgs command mStdin maxPolls onOut onErr = do
+  let stdinField = case mStdin of
+        Nothing -> []
+        Just bs -> ["input-data" .= decodeUtf8 (B64.encode bs)]
+      execCmd =
+        Aeson.object
+          [ "execute" .= ("guest-exec" :: Text)
+          , "arguments"
+              .= Aeson.object
+                ( [ "path" .= shellPath
+                  , "arg" .= (shellArgs ++ [command])
+                  , "capture-output" .= True
+                  ]
+                    ++ stdinField
+                )
+          ]
+  sendJson sock execCmd
+  execResp <- recvJson sock
+  case parsePid execResp of
+    Nothing ->
+      pure $
+        GuestExecError $
+          "Failed to parse guest-exec response: " <> T.pack (show execResp)
+    Just pid -> pollStatus sock pid 0 maxPolls onOut onErr
+
+-- | One poll cycle: drain any new bytes from the log file, then
+-- check whether the guest process exited. On exit, do a final
+-- drain and return the exit code.
+pollWithLogTail
+  :: Socket
+  -> Int
+  -- ^ pid of the wrapped guest process
+  -> Int
+  -- ^ guest file handle for the log
+  -> Int
+  -- ^ current attempt
+  -> Int
+  -- ^ max attempts
+  -> ChunkSink
+  -> IO GuestExecResult
+pollWithLogTail sock pid logHandle attempts maxAttempts onOut
+  | attempts > maxAttempts =
+      pure $
+        GuestExecError "guest-exec timed out waiting for process to exit"
+  | otherwise = do
+      drainLog sock logHandle onOut
+      let statusCmd =
+            Aeson.object
+              [ "execute" .= ("guest-exec-status" :: Text)
+              , "arguments" .= Aeson.object ["pid" .= pid]
+              ]
+      sendJson sock statusCmd
+      statusResp <- recvJson sock
+      case parseExecStatus statusResp of
+        Just (True, exitcode, _, _) -> do
+          -- Drain anything written between our drainLog above
+          -- and the process actually exiting (guest scheduler
+          -- gap, final newline, etc.).
+          drainLog sock logHandle onOut
+          pure $ GuestExecSuccess exitcode T.empty T.empty
+        Just (False, _, _, _) -> do
+          threadDelay 100000 -- 100 ms
+          pollWithLogTail sock pid logHandle (attempts + 1) maxAttempts onOut
+        Nothing ->
+          pure $ GuestExecError "Failed to parse guest-exec-status response"
+
+-- | Read until EOF from a guest file handle, pushing every
+-- non-empty chunk to @onOut@. EOF here means "no more data
+-- currently buffered" — calling 'drainLog' again later will
+-- pick up new bytes the guest wrote in between.
+drainLog :: Socket -> Int -> ChunkSink -> IO ()
+drainLog sock logHandle onOut = loop
+  where
+    loop = do
+      r <- guestFileRead sock logHandle 65536
+      case r of
+        Left _ -> pure () -- swallow transient read errors
+        Right (bs, eof) -> do
+          unless (BS.null bs) (onOut bs)
+          unless eof loop
+
+-- | Open a guest file via QGA with mode @w+@, which truncates
+-- existing files and grants read+write access. The handle we
+-- get back can be discarded (we use it just to clear the file);
+-- the shell wrapper then appends from scratch via the path.
+guestFileOpenForTruncate :: Socket -> Text -> IO (Either Text Int)
+guestFileOpenForTruncate = guestFileOpenMode "w+"
+
+-- | Open a guest file via QGA for reading only.
+guestFileOpenForRead :: Socket -> Text -> IO (Either Text Int)
+guestFileOpenForRead = guestFileOpenMode "r"
+
+guestFileOpenMode :: Text -> Socket -> Text -> IO (Either Text Int)
+guestFileOpenMode mode sock path = do
+  sendJson sock $
+    Aeson.object
+      [ "execute" .= ("guest-file-open" :: Text)
+      , "arguments"
+          .= Aeson.object
+            [ "path" .= path
+            , "mode" .= mode
+            ]
+      ]
+  resp <- recvJson sock
+  case parseHandle resp of
+    Just h -> pure (Right h)
+    Nothing ->
+      pure $ Left ("guest-file-open: " <> T.pack (show resp))
+  where
+    parseHandle mVal = do
+      val <- mVal
+      AT.parseMaybe
+        (AT.withObject "resp" $ \obj -> obj .: "return")
+        val
+
+-- | Read up to @count@ bytes from a guest file handle. Returns
+-- @(bytes, eof)@ where eof signals "no more data currently".
+guestFileRead :: Socket -> Int -> Int -> IO (Either Text (BS.ByteString, Bool))
+guestFileRead sock handle count = do
+  sendJson sock $
+    Aeson.object
+      [ "execute" .= ("guest-file-read" :: Text)
+      , "arguments"
+          .= Aeson.object
+            [ "handle" .= handle
+            , "count" .= count
+            ]
+      ]
+  resp <- recvJson sock
+  case parseRead resp of
+    Just (bs, eof) -> pure (Right (bs, eof))
+    Nothing -> pure $ Left ("guest-file-read: " <> T.pack (show resp))
+  where
+    parseRead mVal = do
+      val <- mVal
+      AT.parseMaybe
+        ( AT.withObject "resp" $ \obj -> do
+            ret <- obj .: "return"
+            bufB64 <- ret .:? "buf-b64" AT..!= ""
+            eof <- ret .:? "eof" AT..!= False
+            pure (decodeBase64Bytes bufB64, eof)
+        )
+        val
+
+-- | Close a guest file handle. Best-effort; ignores errors.
+guestFileClose :: Socket -> Int -> IO (Either Text ())
+guestFileClose sock handle = do
+  sendJson sock $
+    Aeson.object
+      [ "execute" .= ("guest-file-close" :: Text)
+      , "arguments" .= Aeson.object ["handle" .= handle]
+      ]
+  _ <- recvJson sock
+  pure (Right ())
+
+-- | POSIX-shell single-quoting. Wraps in @'…'@ and replaces
+-- embedded @'@ with @'\\''@. Used to interpolate the log path
+-- into the @exec >>… 2>&1@ wrapper.
+shellQuote :: Text -> Text
+shellQuote t = "'" <> T.replace "'" "'\\''" t <> "'"
+
+-- | Internal: open the persistent connection, dispatch
+-- @guest-exec@, hand off to 'pollStatus' with the supplied
+-- callbacks. The aggregating and streaming wrappers share this
+-- body to keep the @guest-exec@ + OS-detection plumbing in one
+-- place; only the callback shape differs.
+runGuestExecWithSinks
+  :: GuestAgentConns
+  -> QemuConfig
+  -> Int64
+  -> Text
+  -> Maybe BS.ByteString
+  -> Int
+  -> ChunkSink
+  -> ChunkSink
+  -> IO GuestExecResult
+runGuestExecWithSinks conns config vmId command mStdin maxPolls onOut onErr = do
   -- The persistent-connection timeout has to cover the entire polling
   -- loop (pollStatus sleeps 100 ms between guest-exec-status calls).
   -- A 15 s default kills long shell provisioners (apt-get install nginx
@@ -333,7 +674,7 @@ guestExecImpl conns config vmId command mStdin maxPolls = do
     execResp <- recvJson sock
     case parsePid execResp of
       Nothing -> pure $ GuestExecError $ "Failed to parse guest-exec response: " <> T.pack (show execResp)
-      Just pid -> pollStatus sock pid 0 maxPolls
+      Just pid -> pollStatus sock pid 0 maxPolls onOut onErr
   case mResult of
     Left err -> pure $ GuestExecConnectionFailed err
     Right r -> pure r
@@ -504,11 +845,35 @@ parsePid mVal = do
       ret .: "pid"
 
 -- | Poll guest-exec-status until the process exits.
--- @maxAttempts@ is the budget in 100 ms ticks; the previous default of 600
--- (~60 s) is preserved by 'guestExec'. Long-running provisioner steps in
--- builds raise this to several minutes.
-pollStatus :: Socket -> Int -> Int -> Int -> IO GuestExecResult
-pollStatus sock pid attempts maxAttempts
+--
+-- Each non-empty @out-data@ / @err-data@ field the QGA returns —
+-- whether on an intermediate (exited=False) or final
+-- (exited=True) response — is forwarded to @onOut@ / @onErr@ as
+-- soon as it's read off the wire. QGA semantics: each
+-- @guest-exec-status@ call drains the agent-side buffer, so
+-- successive calls return successive chunks of the guest
+-- process's output. Callers that need to stream output
+-- (e.g. the build pipeline) wire the callbacks to a sink;
+-- callers that just want the aggregate accumulate to IORefs.
+--
+-- @maxAttempts@ is the budget in 100 ms ticks; the previous
+-- default of 600 (~60 s) is preserved by 'guestExec'. Long-
+-- running provisioner steps in builds raise this to several
+-- minutes.
+pollStatus
+  :: Socket
+  -> Int
+  -- ^ pid
+  -> Int
+  -- ^ current attempt
+  -> Int
+  -- ^ max attempts
+  -> ChunkSink
+  -- ^ stdout chunks (raw bytes from QGA)
+  -> ChunkSink
+  -- ^ stderr chunks (raw bytes from QGA)
+  -> IO GuestExecResult
+pollStatus sock pid attempts maxAttempts onOut onErr
   | attempts > maxAttempts = pure $ GuestExecError "guest-exec timed out waiting for process to exit"
   | otherwise = do
       let statusCmd =
@@ -520,16 +885,25 @@ pollStatus sock pid attempts maxAttempts
       statusResp <- recvJson sock
 
       case parseExecStatus statusResp of
-        Just (True, exitcode, stdout, stderr) ->
-          pure $ GuestExecSuccess exitcode stdout stderr
-        Just (False, _, _, _) -> do
-          threadDelay 100000 -- 100ms
-          pollStatus sock pid (attempts + 1) maxAttempts
+        Just (exited, exitcode, outBs, errBs) -> do
+          unless (BS.null outBs) (onOut outBs)
+          unless (BS.null errBs) (onErr errBs)
+          if exited
+            then pure $ GuestExecSuccess exitcode T.empty T.empty
+            else do
+              threadDelay 100000 -- 100ms
+              pollStatus sock pid (attempts + 1) maxAttempts onOut onErr
         Nothing -> pure $ GuestExecError "Failed to parse guest-exec-status response"
 
--- | Parse guest-exec-status response.
--- Returns (exited, exitcode, stdout, stderr)
-parseExecStatus :: Maybe Value -> Maybe (Bool, Int, Text, Text)
+-- | Parse a @guest-exec-status@ response.
+--
+-- Returns @(exited, exitcode, stdout, stderr)@ where the two byte
+-- strings hold whatever QGA buffered since the previous status
+-- call. On intermediate (exited=False) responses, the @exitcode@
+-- field is undefined (we return 0 as a placeholder; callers MUST
+-- check @exited@ first). On the final (exited=True) response,
+-- @exitcode@ is the guest process's exit status.
+parseExecStatus :: Maybe Value -> Maybe (Bool, Int, BS.ByteString, BS.ByteString)
 parseExecStatus mVal = do
   val <- mVal
   AT.parseMaybe statusParser val
@@ -537,13 +911,10 @@ parseExecStatus mVal = do
     statusParser = AT.withObject "response" $ \obj -> do
       ret <- obj .: "return"
       exited <- ret .: "exited"
-      if exited
-        then do
-          exitcode <- ret .:? "exitcode" AT..!= 1
-          outData <- ret .:? "out-data" AT..!= ""
-          errData <- ret .:? "err-data" AT..!= ""
-          pure (True, exitcode, decodeBase64 outData, decodeBase64 errData)
-        else pure (False, 0, "", "")
+      exitcode <- ret .:? "exitcode" AT..!= 1
+      outData <- ret .:? "out-data" AT..!= ""
+      errData <- ret .:? "err-data" AT..!= ""
+      pure (exited, exitcode, decodeBase64Bytes outData, decodeBase64Bytes errData)
 
 -- | Parse the guest-network-get-interfaces response.
 -- Expected format: {"return": [{"name": "eth0", "hardware-address": "...", "ip-addresses": [...]}]}
@@ -586,3 +957,14 @@ decodeBase64 t
   | otherwise = case B64.decode (encodeUtf8 t) of
       Right decoded -> decodeUtf8With lenientDecode decoded
       Left _ -> t
+
+-- | Like 'decodeBase64' but returns raw bytes. Used by the
+-- streaming poll path so callers can choose their own decoding
+-- strategy (binary-safe line buffers, UTF-8 with replacement,
+-- raw forwarding to a 'ByteSink', …).
+decodeBase64Bytes :: Text -> BS.ByteString
+decodeBase64Bytes t
+  | T.null t = BS.empty
+  | otherwise = case B64.decode (encodeUtf8 t) of
+      Right decoded -> decoded
+      Left _ -> encodeUtf8 t

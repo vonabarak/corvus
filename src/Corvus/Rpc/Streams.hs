@@ -19,6 +19,12 @@ module Corvus.Rpc.Streams
     -- * Server-side ByteSink (client → daemon direction)
   , QemuByteSink (..)
 
+    -- * Server-side ByteSink: line-split adapter
+  , LineBufferSink (..)
+  , newLineBufferSink
+  , feedLineBuffer
+  , flushLineBuffer
+
     -- * Subscription handle
   , EmptyHandle (..)
 
@@ -31,8 +37,10 @@ import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.Async (Async, async, cancel)
+import Control.Concurrent.MVar (MVar, modifyMVar_, newMVar)
 import Control.Concurrent.STM (TVar, atomically, newTVarIO, readTVarIO, writeTVar)
 import Control.Exception (SomeException, try)
+import Control.Monad (unless)
 import Corvus.Node.SocketBuffer (readBufferFrom, stripTerminalQueries, waitForData)
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Types (SocketBufferHandle (..))
@@ -40,6 +48,10 @@ import qualified Data.ByteString as BS
 import Data.Foldable (for_)
 import Data.Function ((&))
 import Data.Int (Int64)
+import Data.Text (Text)
+import qualified Data.Text.Encoding as TE
+import Data.Text.Encoding.Error (lenientDecode)
+import Data.Word (Word8)
 import Network.Socket (Socket)
 import qualified Network.Socket.ByteString as NSB
 import Supervisors (Supervisor)
@@ -105,6 +117,92 @@ instance CGS.ByteSink'server_ QemuByteSink where
       mRelay <- readTVarIO relayVar
       for_ mRelay cancel
       pure CGS.ByteSink'end'results
+
+-- ---------------------------------------------------------------------
+-- Line-split ByteSink
+-- ---------------------------------------------------------------------
+
+-- | Server-side 'ByteSink' impl that converts incoming raw byte
+-- chunks into UTF-8 'Text' lines and fires a caller-supplied
+-- callback per complete line. Partial trailing data is retained
+-- between writes and flushed when 'byteSink'end' fires.
+--
+-- The MVar serialises both the partial-line buffer mutation AND
+-- the @onLine@ callback dispatch: Cap'n Proto can dispatch
+-- @write@ calls concurrently when multiple sinks share a thread
+-- pool, and even a single sink's @write@ followed by @end@ may
+-- race if the agent pipelines them.
+data LineBufferSink = LineBufferSink
+  { lbsState :: !(MVar BS.ByteString)
+  -- ^ Pending partial-line bytes since the last newline.
+  , lbsOnLine :: !(Text -> IO ())
+  -- ^ Invoked once per complete line (without the trailing @\n@).
+  }
+
+instance SomeServer LineBufferSink
+
+instance CGS.ByteSink'server_ LineBufferSink where
+  byteSink'write lbs =
+    handleParsed $ \CGS.ByteSink'write'params {CGS.chunk = chunk} -> do
+      feedLineBuffer lbs chunk
+      pure CGS.ByteSink'write'results
+
+  byteSink'end lbs =
+    handleParsed $ \_ -> do
+      flushLineBuffer lbs
+      pure CGS.ByteSink'end'results
+
+-- | Allocate a fresh 'LineBufferSink' whose complete lines are
+-- delivered to the supplied callback. Decoding is UTF-8 with the
+-- lenient policy (invalid sequences become @U+FFFD@) so binary
+-- noise in build output doesn't crash the daemon.
+newLineBufferSink :: (Text -> IO ()) -> IO LineBufferSink
+newLineBufferSink onLine = do
+  v <- newMVar BS.empty
+  pure LineBufferSink {lbsState = v, lbsOnLine = onLine}
+
+-- | Feed a raw chunk into the buffer. Complete lines (terminated
+-- by @\\n@) trigger the callback; any trailing partial is
+-- retained for the next call. Exposed for tests.
+feedLineBuffer :: LineBufferSink -> BS.ByteString -> IO ()
+feedLineBuffer LineBufferSink {lbsState = stateVar, lbsOnLine = onLine} chunk =
+  modifyMVar_ stateVar $ \prev -> do
+    let combined = prev <> chunk
+        (complete, trailing) = splitOnNewline combined
+    mapM_ (onLine . decodeLine) complete
+    pure trailing
+
+-- | Flush any retained partial line through the callback. Idempotent.
+-- Called by 'byteSink'end' once the peer signals end-of-stream.
+flushLineBuffer :: LineBufferSink -> IO ()
+flushLineBuffer LineBufferSink {lbsState = stateVar, lbsOnLine = onLine} =
+  modifyMVar_ stateVar $ \prev -> do
+    unless (BS.null prev) (onLine (decodeLine prev))
+    pure BS.empty
+
+-- | Split a byte string on @\\n@. Returns (completeLines, trailingPartial)
+-- where each complete line is **without** the trailing newline and the
+-- partial is whatever follows the last @\\n@ (empty if the input ended
+-- in one). Mirrors 'Corvus.Node.GuestAgent.splitLines' but exposes
+-- raw bytes (decoding happens at the line boundary).
+--
+-- A stray @\\r@ at the end of a line (i.e. @\\r\\n@ → "Windows
+-- newline") is trimmed so consumers see the line content cleanly.
+splitOnNewline :: BS.ByteString -> ([BS.ByteString], BS.ByteString)
+splitOnNewline bs =
+  let nl = fromIntegral (fromEnum '\n') :: Word8
+      pieces = BS.split nl bs
+   in case reverse pieces of
+        [] -> ([], BS.empty)
+        (lastPiece : rest) -> (reverse (map stripCR rest), lastPiece)
+  where
+    cr = fromIntegral (fromEnum '\r') :: Word8
+    stripCR s
+      | not (BS.null s) && BS.last s == cr = BS.init s
+      | otherwise = s
+
+decodeLine :: BS.ByteString -> Text
+decodeLine = TE.decodeUtf8With lenientDecode
 
 -- ---------------------------------------------------------------------
 -- Subscription handle (empty cap)

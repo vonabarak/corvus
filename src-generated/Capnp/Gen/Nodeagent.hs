@@ -302,9 +302,10 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'probeVsockCid) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'diskOpenRead) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'attachReader) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'diskImportFromPeer) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'diskImportFromPeer) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmGuestExecStream) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -373,6 +374,8 @@ class (Session'server_ s_) where
     session'attachReader _ = GH.methodUnimplemented
     session'diskImportFromPeer :: s_ -> (GH.MethodHandler Session'diskImportFromPeer'params Session'diskImportFromPeer'results)
     session'diskImportFromPeer _ = GH.methodUnimplemented
+    session'vmGuestExecStream :: s_ -> (GH.MethodHandler Session'vmGuestExecStream'params Session'vmGuestExecStream'results)
+    session'vmGuestExecStream _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -441,6 +444,8 @@ instance (GH.HasMethod "attachReader" Session Session'attachReader'params Sessio
     methodByLabel  = (GH.Method 11450192344861352079 32)
 instance (GH.HasMethod "diskImportFromPeer" Session Session'diskImportFromPeer'params Session'diskImportFromPeer'results) where
     methodByLabel  = (GH.Method 11450192344861352079 33)
+instance (GH.HasMethod "vmGuestExecStream" Session Session'vmGuestExecStream'params Session'vmGuestExecStream'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 34)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -2591,6 +2596,76 @@ instance (C.Parse Session'diskImportFromPeer'results (C.Parsed Session'diskImpor
     parse raw_ = (Std_.pure Session'diskImportFromPeer'results)
 instance (C.Marshal Session'diskImportFromPeer'results (C.Parsed Session'diskImportFromPeer'results)) where
     marshalInto _raw (Session'diskImportFromPeer'results) = (Std_.pure ())
+data Session'vmGuestExecStream'params 
+type instance (R.ReprFor Session'vmGuestExecStream'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmGuestExecStream'params) where
+    typeId  = 10495467010808434359
+instance (C.TypedStruct Session'vmGuestExecStream'params) where
+    numStructWords  = 0
+    numStructPtrs  = 3
+instance (C.Allocate Session'vmGuestExecStream'params) where
+    type AllocHint Session'vmGuestExecStream'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmGuestExecStream'params (C.Parsed Session'vmGuestExecStream'params))
+instance (C.AllocateList Session'vmGuestExecStream'params) where
+    type ListAllocHint Session'vmGuestExecStream'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmGuestExecStream'params (C.Parsed Session'vmGuestExecStream'params))
+data instance C.Parsed Session'vmGuestExecStream'params
+    = Session'vmGuestExecStream'params 
+        {req :: (RP.Parsed VmGuestExecReq)
+        ,stdoutSink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)
+        ,stderrSink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmGuestExecStream'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmGuestExecStream'params))
+instance (C.Parse Session'vmGuestExecStream'params (C.Parsed Session'vmGuestExecStream'params)) where
+    parse raw_ = (Session'vmGuestExecStream'params <$> (GH.parseField #req raw_)
+                                                   <*> (GH.parseField #stdoutSink raw_)
+                                                   <*> (GH.parseField #stderrSink raw_))
+instance (C.Marshal Session'vmGuestExecStream'params (C.Parsed Session'vmGuestExecStream'params)) where
+    marshalInto raw_ Session'vmGuestExecStream'params{..} = (do
+        (GH.encodeField #req req raw_)
+        (GH.encodeField #stdoutSink stdoutSink raw_)
+        (GH.encodeField #stderrSink stderrSink raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "req" GH.Slot Session'vmGuestExecStream'params VmGuestExecReq) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "stdoutSink" GH.Slot Session'vmGuestExecStream'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "stderrSink" GH.Slot Session'vmGuestExecStream'params Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 2)
+data Session'vmGuestExecStream'results 
+type instance (R.ReprFor Session'vmGuestExecStream'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmGuestExecStream'results) where
+    typeId  = 17516551508749116903
+instance (C.TypedStruct Session'vmGuestExecStream'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'vmGuestExecStream'results) where
+    type AllocHint Session'vmGuestExecStream'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmGuestExecStream'results (C.Parsed Session'vmGuestExecStream'results))
+instance (C.AllocateList Session'vmGuestExecStream'results) where
+    type ListAllocHint Session'vmGuestExecStream'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmGuestExecStream'results (C.Parsed Session'vmGuestExecStream'results))
+data instance C.Parsed Session'vmGuestExecStream'results
+    = Session'vmGuestExecStream'results 
+        {info :: (RP.Parsed VmGuestExecInfo)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmGuestExecStream'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmGuestExecStream'results))
+instance (C.Parse Session'vmGuestExecStream'results (C.Parsed Session'vmGuestExecStream'results)) where
+    parse raw_ = (Session'vmGuestExecStream'results <$> (GH.parseField #info raw_))
+instance (C.Marshal Session'vmGuestExecStream'results (C.Parsed Session'vmGuestExecStream'results)) where
+    marshalInto raw_ Session'vmGuestExecStream'results{..} = (do
+        (GH.encodeField #info info raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "info" GH.Slot Session'vmGuestExecStream'results VmGuestExecInfo) where
+    fieldByLabel  = (GH.ptrField 0)
 data DiskReader 
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where

@@ -77,6 +77,7 @@ module Corvus.NodeAgentClient
   , vmPause
   , vmResume
   , vmGuestExec
+  , vmGuestExecStream
   , vmStatus
   , vmSetSpiceTicket
   , subscribeVmStatus
@@ -789,6 +790,33 @@ vmGuestExec nac r = remote $ do
     callOn
       #vmGuestExec
       CGNA.Session'vmGuestExec'params {CGNA.req = encodeVmGuestExecReq r}
+      (nacSession nac)
+  pure (decodeVmGuestExecInfo i)
+
+-- | Streaming variant of 'vmGuestExec'. The agent pushes
+-- incremental stdout / stderr bytes through the caller-supplied
+-- sinks while the guest process runs; the returned
+-- 'VmGuestExecInfo' carries only the exit code. The caller MUST
+-- export the sinks BEFORE this call (they must be live for the
+-- duration of the exec) and end-of-stream signalling arrives via
+-- the agent calling @sink.end()@ on completion.
+vmGuestExecStream
+  :: NodeAgentClient
+  -> VmGuestExecReq
+  -> C.Client CGS.ByteSink
+  -- ^ stdout sink (exported by the caller)
+  -> C.Client CGS.ByteSink
+  -- ^ stderr sink (exported by the caller)
+  -> IO (Either NodeAgentError VmGuestExecInfo)
+vmGuestExecStream nac r stdoutSink stderrSink = remote $ do
+  CGNA.Session'vmGuestExecStream'results {CGNA.info = i} <-
+    callOn
+      #vmGuestExecStream
+      CGNA.Session'vmGuestExecStream'params
+        { CGNA.req = encodeVmGuestExecReq r
+        , CGNA.stdoutSink = stdoutSink
+        , CGNA.stderrSink = stderrSink
+        }
       (nacSession nac)
   pure (decodeVmGuestExecInfo i)
 
