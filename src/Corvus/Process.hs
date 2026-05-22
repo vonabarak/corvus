@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Shared lifecycle helpers for external processes spawned by Corvus.
 --
@@ -19,11 +20,16 @@ module Corvus.Process
     -- * Graceful shutdown
   , StopResult (..)
   , stopProcess
+
+    -- * Reaping
+  , waitForProcessBounded
   )
 where
 
 import Control.Concurrent (threadDelay)
+import qualified Control.Concurrent.Async as Async
 import Control.Exception (SomeException, try)
+import qualified Control.Exception as E
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (MonadLogger, logDebugN, logInfoN, logWarnN)
 import Data.Text (Text)
@@ -31,6 +37,7 @@ import qualified Data.Text as T
 import System.Directory (doesFileExist)
 import System.Posix.Signals (sigKILL, sigTERM, signalProcess)
 import System.Posix.Types (ProcessID)
+import System.Process (ProcessHandle, getProcessExitCode, waitForProcess)
 
 --------------------------------------------------------------------------------
 -- Readiness
@@ -221,3 +228,54 @@ stopProcess name pid mGraceful gracefulWaitSec termWaitSec = do
         else do
           logWarnN $ "Failed to send " <> sig <> " to " <> name <> ": " <> errMsg
           pure $ StopFailed errMsg
+
+--------------------------------------------------------------------------------
+-- Reaping
+--------------------------------------------------------------------------------
+
+-- | Wait up to @timeoutSec@ seconds for a 'ProcessHandle' to be
+-- reaped, returning quietly on timeout instead of blocking forever.
+--
+-- 'System.Process.waitForProcess' takes an MVar internal to the
+-- handle and only releases it after the underlying @waitpid@
+-- system call returns. If the child has been reaped externally
+-- (a subreaper above us, init absorbing an orphan, manual
+-- @waitpid@ in a forked monitor), that @waitpid@ can block
+-- indefinitely — and any other thread that later touches the
+-- same handle blocks on the held MVar. The nodeagent has been
+-- observed locking up exactly this way after interrupted
+-- teardowns left orphaned QEMU + virtiofsd children behind.
+--
+-- A bounded reap accepts a small zombie / fd leak when the kernel
+-- isn't cooperating, in exchange for the agent staying responsive.
+-- The wait thread is cancelled on timeout; the OS reclaims the
+-- zombie at agent exit at the latest.
+waitForProcessBounded
+  :: (MonadIO m, MonadLogger m)
+  => Text
+  -- ^ Human-readable name for logs.
+  -> Int
+  -- ^ Timeout in seconds.
+  -> ProcessHandle
+  -> m ()
+waitForProcessBounded name timeoutSec ph = do
+  -- Fast path: if the handle is already in a ClosedHandle state
+  -- (someone else already waited), 'getProcessExitCode' returns
+  -- 'Just' without blocking and without touching @waitpid@.
+  fast <- liftIO $ try @SomeException (getProcessExitCode ph)
+  case fast of
+    Right (Just _) -> pure ()
+    _ -> do
+      outcome <-
+        liftIO $
+          Async.race
+            (threadDelay (max 0 timeoutSec * 1000000))
+            (E.try @SomeException (waitForProcess ph))
+      case outcome of
+        Right _ -> pure ()
+        Left () ->
+          logWarnN $
+            name
+              <> ": waitForProcess did not return within "
+              <> T.pack (show timeoutSec)
+              <> "s; abandoning (likely reaped externally)"

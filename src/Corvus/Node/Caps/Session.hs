@@ -35,7 +35,7 @@ import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVa
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, void, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel (..), logWarnN, runStderrLoggingT)
+import Control.Monad.Logger (LogLevel (..), logDebugN, logInfoN, logWarnN, runStderrLoggingT)
 import qualified Corvus.Model as M
 import qualified Corvus.Node.CloudInit as NCI
 import qualified Corvus.Node.Command as NC
@@ -983,6 +983,16 @@ doVmStart sc spec = do
           serialSock
           guestAgentSock
           vmRuntimeDir
+  runStderrLoggingT $ do
+    logInfoN $
+      "[nodeagent] vm-" <> tshow vmId <> ": spawning QEMU (" <> T.pack binary <> ")"
+    logDebugN $
+      "[nodeagent] vm-"
+        <> tshow vmId
+        <> ": QEMU argv: "
+        <> T.pack binary
+        <> " "
+        <> T.unwords (map (T.pack . show) args)
   spawnResult <-
     E.try @E.SomeException $
       createProcess
@@ -992,17 +1002,24 @@ doVmStart sc spec = do
           }
   case spawnResult of
     Left e -> do
+      runStderrLoggingT . logWarnN $
+        "[nodeagent] vm-" <> tshow vmId <> ": QEMU spawn failed: " <> T.pack (show e)
       forM_ virtiofsdEntries reapEntryGracefully
       throwFailed ("QEMU spawn failed: " <> T.pack (show e))
     Right (_, mStdoutH, mStderrH, qemuPh) -> do
       mPid <- getPid qemuPh
       case mPid of
         Nothing -> do
+          runStderrLoggingT . logWarnN $
+            "[nodeagent] vm-" <> tshow vmId <> ": QEMU spawn returned no PID"
           forM_ virtiofsdEntries reapEntryGracefully
-          void $ E.try @E.SomeException (waitForProcess qemuPh)
+          runStderrLoggingT $
+            P.waitForProcessBounded "vm-qemu (no-pid path)" 5 qemuPh
           throwFailed "QEMU spawn returned no PID"
         Just rawPid -> do
           let qemuPidW = fromIntegral rawPid :: Word32
+          runStderrLoggingT . logInfoN $
+            "[nodeagent] vm-" <> tshow vmId <> ": QEMU started pid=" <> tshow qemuPidW
           lastExitVar <- newTVarIO Nothing
           stderrTailVar <- newTVarIO T.empty
           -- Drain QEMU's stdout silently so the pipe doesn't fill
@@ -1051,6 +1068,13 @@ doVmStart sc spec = do
                   Right (ExitFailure n) -> n
                   Left _ -> 1
             atomically $ writeTVar lastExitVar (Just code)
+            runStderrLoggingT . logInfoN $
+              "[nodeagent] vm-"
+                <> tshow vmId
+                <> ": QEMU exited pid="
+                <> tshow qemuPidW
+                <> " code="
+                <> tshow code
           -- Optional: block until first QGA ping succeeds. Watches
           -- both the QGA socket *and* QEMU's exit code so an early
           -- crash surfaces an accurate error in <1 s instead of a
@@ -1070,15 +1094,18 @@ doVmStart sc spec = do
                 -- Tear down: kill QEMU and virtiofsd, drop ledger
                 -- entry, surface as failure.
                 _ <- atomically $ L.removeVm (scVmLedger sc) vmId
-                _ <-
+                let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
+                stopRes <-
                   runStderrLoggingT $
                     P.stopProcess
-                      ("vm-" <> tshow vmId <> "-qemu")
+                      qemuLabel
                       (CPid (fromIntegral qemuPidW))
                       Nothing
                       0
                       5
-                void $ E.try @E.SomeException (waitForProcess qemuPh)
+                case stopRes of
+                  P.NotRunning -> pure ()
+                  _ -> runStderrLoggingT $ P.waitForProcessBounded qemuLabel 5 qemuPh
                 forM_ virtiofsdEntries reapEntryGracefully
                 throwFailed reason
           pure
@@ -1105,6 +1132,17 @@ spawnVirtiofsdHelper cfg vmRuntimeDir d = do
       args
         | VS.vssReadOnly d = baseArgs <> ["--readonly"]
         | otherwise = baseArgs
+  runStderrLoggingT $ do
+    logInfoN $
+      "[nodeagent] spawning virtiofsd tag="
+        <> T.pack tag
+        <> " host-path="
+        <> VS.vssHostPath d
+    logDebugN $
+      "[nodeagent] virtiofsd argv: "
+        <> T.pack binary
+        <> " "
+        <> T.unwords (map (T.pack . show) args)
   spawnResult <-
     E.try @E.SomeException $
       createProcess
@@ -1113,41 +1151,62 @@ spawnVirtiofsdHelper cfg vmRuntimeDir d = do
           , std_err = CreatePipe
           }
   case spawnResult of
-    Left e -> pure $ Left ("virtiofsd " <> T.pack tag <> ": " <> T.pack (show e))
+    Left e -> do
+      runStderrLoggingT . logWarnN $
+        "[nodeagent] virtiofsd tag=" <> T.pack tag <> " spawn failed: " <> T.pack (show e)
+      pure $ Left ("virtiofsd " <> T.pack tag <> ": " <> T.pack (show e))
     Right (_, _, _, ph) -> do
       mPid <- getPid ph
       case mPid of
         Nothing -> do
-          void $ E.try @E.SomeException (waitForProcess ph)
+          runStderrLoggingT . logWarnN $
+            "[nodeagent] virtiofsd tag=" <> T.pack tag <> ": no PID after spawn"
+          runStderrLoggingT $
+            P.waitForProcessBounded
+              ("virtiofsd " <> T.pack tag <> " (no-pid)")
+              5
+              ph
           pure $ Left ("virtiofsd " <> T.pack tag <> ": no PID")
         Just rawPid -> do
+          runStderrLoggingT . logInfoN $
+            "[nodeagent] virtiofsd tag=" <> T.pack tag <> " started pid=" <> tshow rawPid
           ready <- P.waitForSocketFile socketPath 5000
           if ready
             then pure $ Right (fromIntegral rawPid, ph)
             else do
-              _ <-
+              let partialLabel = "virtiofsd-partial-" <> T.pack tag
+              stopRes <-
                 runStderrLoggingT $
                   P.stopProcess
-                    ("virtiofsd-partial-" <> T.pack tag)
+                    partialLabel
                     (CPid (fromIntegral rawPid))
                     Nothing
                     0
                     3
-              void $ E.try @E.SomeException (waitForProcess ph)
+              case stopRes of
+                P.NotRunning -> pure ()
+                _ -> runStderrLoggingT $ P.waitForProcessBounded partialLabel 5 ph
               pure $ Left ("virtiofsd " <> T.pack tag <> ": socket never appeared")
 
 -- | Best-effort termination + reap of a virtiofsd helper.
+--
+-- The reap is bounded: when @stopProcess@ already observed the
+-- process was gone (e.g. it was killed externally during an
+-- interrupted teardown), we skip @waitForProcess@ entirely
+-- because the kernel may have reaped the child via another path
+-- and the System.Process MVar would block forever. When we did
+-- send the SIGTERM/SIGKILL ourselves, a 5 s bounded wait is
+-- enough to reap the predictable zombie without holding up the
+-- handler.
 reapEntryGracefully :: (Word32, ProcessHandle) -> IO ()
 reapEntryGracefully (pid, ph) = do
-  _ <-
+  let label = "virtiofsd pid=" <> tshow pid
+  result <-
     runStderrLoggingT $
-      P.stopProcess
-        ("virtiofsd pid=" <> tshow pid)
-        (CPid (fromIntegral pid))
-        Nothing
-        0
-        3
-  void $ E.try @E.SomeException (waitForProcess ph)
+      P.stopProcess label (CPid (fromIntegral pid)) Nothing 0 3
+  case result of
+    P.NotRunning -> pure ()
+    _ -> runStderrLoggingT $ P.waitForProcessBounded label 5 ph
 
 -- | Poll QGA every 200 ms up to @timeoutMs@ ms; return 'True' as
 -- soon as one ping succeeds, 'False' on timeout. Used by
@@ -1283,12 +1342,22 @@ handleVmStopGraceful
 handleVmStopGraceful sc vmId timeoutSec = do
   mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
   case mLive of
-    Nothing ->
+    Nothing -> do
+      runStderrLoggingT . logDebugN $
+        "[nodeagent] vmStopGraceful vm-" <> tshow vmId <> ": not in ledger"
       pure
         CGNA.Session'vmStopGraceful'results
           { CGNA.result = encodeVmStopResult VS.VmStopAlreadyStopped ""
           }
     Just live -> do
+      runStderrLoggingT . logInfoN $
+        "[nodeagent] vmStopGraceful vm-"
+          <> tshow vmId
+          <> " pid="
+          <> tshow (L.vlsQemuPid live)
+          <> " timeout="
+          <> tshow timeoutSec
+          <> "s"
       -- Send both shutdown signals: QGA `guest-shutdown` (the guest
       -- runs its own `poweroff` / `shutdown -h now`) and QMP
       -- `system_powerdown` (ACPI power-button). Together they cover
@@ -1328,21 +1397,33 @@ handleVmStopHard
 handleVmStopHard sc vmId = do
   mLive <- atomically $ L.removeVm (scVmLedger sc) vmId
   case mLive of
-    Nothing ->
+    Nothing -> do
+      runStderrLoggingT . logDebugN $
+        "[nodeagent] vmStopHard vm-" <> tshow vmId <> ": not in ledger"
       pure
         CGNA.Session'vmStopHard'results
           { CGNA.result = encodeVmStopResult VS.VmStopAlreadyStopped ""
           }
     Just live -> do
-      _ <-
+      runStderrLoggingT . logInfoN $
+        "[nodeagent] vmStopHard vm-"
+          <> tshow vmId
+          <> " pid="
+          <> tshow (L.vlsQemuPid live)
+      let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
+      stopRes <-
         runStderrLoggingT $
           P.stopProcess
-            ("vm-" <> tshow vmId <> "-qemu")
+            qemuLabel
             (CPid (fromIntegral (L.vlsQemuPid live)))
             Nothing
             0
             5
-      void $ E.try @E.SomeException (waitForProcess (L.vlsQemuHandle live))
+      case stopRes of
+        P.NotRunning -> pure ()
+        _ ->
+          runStderrLoggingT $
+            P.waitForProcessBounded qemuLabel 5 (L.vlsQemuHandle live)
       forM_ (L.vlsVirtiofsd live) reapEntryGracefully
       pure
         CGNA.Session'vmStopHard'results
