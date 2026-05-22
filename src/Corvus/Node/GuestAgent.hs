@@ -535,20 +535,30 @@ pollWithLogTail sock pid logHandle attempts maxAttempts onOut
         Nothing ->
           pure $ GuestExecError "Failed to parse guest-exec-status response"
 
--- | Read until EOF from a guest file handle, pushing every
--- non-empty chunk to @onOut@. EOF here means "no more data
--- currently buffered" — calling 'drainLog' again later will
--- pick up new bytes the guest wrote in between.
+-- | Read until EOF from a guest file handle and emit ONE
+-- consolidated chunk to @onOut@. EOF here means "no more data
+-- currently buffered" — calling 'drainLog' again later picks
+-- up new bytes the guest wrote in between.
+--
+-- Why consolidate: each @onOut@ call is a separate Cap'n Proto
+-- RPC from the agent back to the daemon. Pushing each 64 KiB
+-- read individually multiplies the RPC count and starves the
+-- daemon's @availableCallWords@ budget under bursty output
+-- (emerge can spew MB/s during package install). One push per
+-- drain cycle keeps the wire chatty enough to feel live but
+-- bounded enough to never back up.
 drainLog :: Socket -> Int -> ChunkSink -> IO ()
-drainLog sock logHandle onOut = loop
+drainLog sock logHandle onOut = do
+  bytes <- collect BS.empty
+  unless (BS.null bytes) (onOut bytes)
   where
-    loop = do
+    collect acc = do
       r <- guestFileRead sock logHandle 65536
       case r of
-        Left _ -> pure () -- swallow transient read errors
+        Left _ -> pure acc -- swallow transient read errors
         Right (bs, eof) -> do
-          unless (BS.null bs) (onOut bs)
-          unless eof loop
+          let acc' = acc <> bs
+          if eof then pure acc' else collect acc'
 
 -- | Open a guest file via QGA with mode @w+@, which truncates
 -- existing files and grants read+write access. The handle we

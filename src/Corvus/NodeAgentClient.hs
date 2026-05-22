@@ -189,7 +189,23 @@ withNodeAgentClient host port owner mTlsCfg body = do
         Left err -> body (Left (NodeAgentConnectFailed err))
         Right (transport, cleanup) ->
           (`E.finally` cleanup) $ do
-            let cfg = Def.def {debugMode = False}
+            -- A streaming build provisioner can hold one
+            -- outstanding 'vmGuestExecStream' for tens of minutes
+            -- AND the agent is pushing tens of writes/sec on its
+            -- LineBufferSink during that window. The default
+            -- 128-question / 32 MiB-word budget is comfortable
+            -- but small under burst loads (emerge spewing MB/s
+            -- of output): exhaustion triggers STM retries inside
+            -- haskell-capnp and, in pathological cases,
+            -- 'BlockedIndefinitelyOnSTM'. Quadruple the budget
+            -- for headroom; the memory cost is negligible vs the
+            -- failure mode.
+            let cfg =
+                  Def.def
+                    { debugMode = False
+                    , maxQuestions = 4096
+                    , maxCallWords = 128 * 1024 * 1024 `div` 8
+                    }
             r <-
               E.try @E.SomeException $
                 withSupervisor $ \sup ->

@@ -84,6 +84,7 @@ import System.Process
   , std_out
   , waitForProcess
   )
+import qualified System.Timeout
 
 -- | Session state. Holds:
 --
@@ -1647,15 +1648,27 @@ handleVmGuestExecStream sc req stdoutCli stderrCli = do
       let pushTo client bs = do
             broken <- readIORef brokenRef
             unless broken $ do
+              -- Bound each individual write with a 30 s wall
+              -- clock. If the daemon's LineBufferSink is somehow
+              -- wedged (its onLine cascades to a slow client
+              -- sink) the agent's poll loop would otherwise
+              -- block on this STM wait indefinitely, eventually
+              -- tripping GHC's @BlockedIndefinitelyOnSTM@
+              -- detector. Mark broken on timeout so the
+              -- remaining drain cycles short-circuit and the
+              -- exec still finishes cleanly via the QGA-status
+              -- poll.
               r <-
                 E.try @E.SomeException $
-                  callSink
-                    #write
-                    CGS.ByteSink'write'params {CGS.chunk = bs}
-                    client
+                  System.Timeout.timeout 30000000 $
+                    callSink
+                      #write
+                      CGS.ByteSink'write'params {CGS.chunk = bs}
+                      client
               case r of
                 Left _ -> writeIORef brokenRef True
-                Right () -> pure ()
+                Right Nothing -> writeIORef brokenRef True
+                Right (Just ()) -> pure ()
       result <-
         NGA.guestExecStream
           conns
@@ -1675,7 +1688,9 @@ handleVmGuestExecStream sc req stdoutCli stderrCli = do
   where
     endSinkBest client =
       E.handle (\(_ :: E.SomeException) -> pure ()) $
-        callSink #end CGS.ByteSink'end'params client
+        void $
+          System.Timeout.timeout 10000000 $
+            callSink #end CGS.ByteSink'end'params client
 
 handleVmStatus
   :: SessionCap -> Int64 -> IO (CGNA.Parsed CGNA.Session'vmStatus'results)

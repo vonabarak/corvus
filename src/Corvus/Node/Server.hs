@@ -96,12 +96,19 @@ runNodeAgentServer host port mTlsCfg = do
             transferTokens
             mTlsCfg
         bootClient <- export @CGNA.NodeAgent sup nodeAgentCap
+        -- See the matching note in 'Corvus.NodeAgentClient' for
+        -- the rationale on the inflated limits. The agent
+        -- receives a burst of LineBufferSink writes during long
+        -- streaming builds; the default budget can starve under
+        -- emerge-class output and trigger STM-retry pathologies.
         let handle transport =
               handleConn
                 transport
                 Def.def
                   { debugMode = False
                   , bootstrap = Just (toClient bootClient)
+                  , maxQuestions = 4096
+                  , maxCallWords = 128 * 1024 * 1024 `div` 8
                   }
         runOneConn mTlsCfg sock handle
 
