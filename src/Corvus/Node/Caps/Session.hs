@@ -813,6 +813,7 @@ decodeVmSpec
     , CGNA.netIfs = nis
     , CGNA.sharedDirs = sds
     , CGNA.waitForGuestAgentMs = wms
+    , CGNA.rebootQuirk = rq
     } =
     VS.VmSpec
       { VS.vsVmId = vid
@@ -827,6 +828,7 @@ decodeVmSpec
       , VS.vsNetIfs = map decodeVmNetIfSpec nis
       , VS.vsSharedDirs = map decodeVmSharedDirSpec sds
       , VS.vsWaitForGuestAgentMs = wms
+      , VS.vsRebootQuirk = rq
       }
 
 decodeVmDriveSpec :: CGNA.Parsed CGNA.VmDriveSpec -> VS.VmDriveSpec
@@ -1095,6 +1097,7 @@ doVmStart sc spec = do
             void $
               forkIO $
                 captureStderrTail (qemuLogLabel <> "/stderr") h stderrTailVar
+          stopRequestedVar <- newTVarIO False
           let live =
                 L.VmLiveState
                   { L.vlsQemuPid = qemuPidW
@@ -1103,6 +1106,8 @@ doVmStart sc spec = do
                   , L.vlsLastExitCode = lastExitVar
                   , L.vlsStderrTail = stderrTailVar
                   , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
+                  , L.vlsSpec = spec
+                  , L.vlsStopRequested = stopRequestedVar
                   }
           atomically $ L.insertVm (scVmLedger sc) vmId live
           -- Start agent-side chardev buffer threads. The threads
@@ -1128,21 +1133,42 @@ doVmStart sc spec = do
             monitorBufferCapacity
             "monitor"
             LevelInfo
-          -- Reaper: waitForProcess QEMU, fill lastExitCode.
+          -- Reaper: waitForProcess QEMU, then either record the
+          -- exit (daemon-initiated stop or quirk-off) OR drop the
+          -- old ledger entry and re-spawn with the same spec
+          -- (reboot-quirk on, guest-initiated exit). The
+          -- re-spawn path calls back into 'doVmStart' so the
+          -- whole spawn-and-watch dance — virtiofsd, QEMU,
+          -- buffer threads, first-ping watcher, fresh reaper —
+          -- runs end-to-end as if the daemon had asked for a
+          -- new start.
           void $ forkIO $ do
             r <- E.try @E.SomeException (waitForProcess qemuPh)
             let code = case r of
                   Right ExitSuccess -> 0
                   Right (ExitFailure n) -> n
                   Left _ -> 1
-            atomically $ writeTVar lastExitVar (Just code)
-            runStderrLoggingT . logInfoN $
-              "[nodeagent] vm-"
-                <> tshow vmId
-                <> ": QEMU exited pid="
-                <> tshow qemuPidW
-                <> " code="
-                <> tshow code
+            stopReq <- readTVarIO stopRequestedVar
+            if VS.vsRebootQuirk spec && not stopReq
+              then do
+                runStderrLoggingT . logInfoN $
+                  "[nodeagent] vm-"
+                    <> tshow vmId
+                    <> ": QEMU exited pid="
+                    <> tshow qemuPidW
+                    <> " code="
+                    <> tshow code
+                    <> "; reboot-quirk → re-spawning"
+                respawnAfterExit sc spec
+              else do
+                atomically $ writeTVar lastExitVar (Just code)
+                runStderrLoggingT . logInfoN $
+                  "[nodeagent] vm-"
+                    <> tshow vmId
+                    <> ": QEMU exited pid="
+                    <> tshow qemuPidW
+                    <> " code="
+                    <> tshow code
           -- First-QGA-ping watcher: fork it off so the RPC can
           -- return as soon as QEMU is alive. The watcher races
           -- the QGA socket against the reaper's exit-code TVar,
@@ -1210,6 +1236,52 @@ doVmStart sc spec = do
                       liftIO $ forM_ virtiofsdEntries reapEntryGracefully
           pure
             CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
+
+-- | Reboot-quirk re-spawn: after the agent's reaper observed
+-- QEMU exit AND the stop wasn't daemon-initiated, evict the
+-- stale ledger entry (with all its now-defunct virtiofsd
+-- helpers and cached QGA socket) and call back into
+-- 'doVmStart' with the original spec to lay down a fresh
+-- entry — new QEMU process, new virtiofsd processes, new
+-- buffer threads, new reaper, new first-ping watcher. The
+-- daemon's status push sees the brief @QGA unreachable@ window
+-- as a regular reboot blip and never flips the DB row out of
+-- 'VmRunning'.
+--
+-- Failures in 'doVmStart' (e.g. QEMU spawn rejected for OOM
+-- after a long uptime) bubble up as a 'throwFailed' — caught
+-- and logged here. We do NOT write 'vlsLastExitCode' on
+-- failure because at this point the old entry is already gone;
+-- the daemon's monitor will see 'VmAgentUnknown' on its next
+-- poll and reconcile via 'reapplyVm'.
+respawnAfterExit :: SessionCap -> VS.VmSpec -> IO ()
+respawnAfterExit sc spec = do
+  let vmId = VS.vsVmId spec
+  -- Evict the dead entry. Anything we read off it (virtiofsd
+  -- list etc.) is dead too — QEMU's vhost-user socket closed
+  -- when QEMU exited, taking the helpers with it.
+  mLive <- atomically $ L.removeVm (scVmLedger sc) vmId
+  forM_ mLive $ \live ->
+    forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+  -- Drop the cached QGA socket: the new QEMU re-opens the
+  -- chardev under the same path but it's a fresh fd; talking
+  -- to the dead socket would give EPIPE on every method.
+  atomically $ modifyTVar' (scQgaConns sc) (Map.delete vmId)
+  -- Re-execute the full spawn path. Discard the wire result
+  -- (no caller is waiting on it — the daemon's original
+  -- vmStart already returned long ago).
+  r <- E.try @E.SomeException (doVmStart sc spec)
+  case r of
+    Right _ ->
+      runStderrLoggingT . logInfoN $
+        "[nodeagent] vm-" <> tshow vmId <> ": reboot-quirk re-spawn succeeded"
+    Left e ->
+      runStderrLoggingT . logWarnN $
+        "[nodeagent] vm-"
+          <> tshow vmId
+          <> ": reboot-quirk re-spawn FAILED: "
+          <> T.pack (show e)
+          <> "; daemon will reconcile via VmAgentUnknown"
 
 -- | Spawn one virtiofsd helper for a shared dir. Returns the PID
 -- + 'ProcessHandle' on success, or an error string on failure
@@ -1485,6 +1557,12 @@ handleVmStopGraceful sc vmId timeoutSec = do
           <> " timeout="
           <> tshow timeoutSec
           <> "s"
+      -- Record the daemon's stop intent BEFORE signalling QEMU
+      -- so the reboot-quirk reaper sees it on a concurrent exit
+      -- and skips the auto-restart. Without this flag the
+      -- reaper would re-spawn QEMU as soon as the guest's
+      -- ACPI handler took it down.
+      atomically $ writeTVar (L.vlsStopRequested live) True
       -- Send both shutdown signals: QGA `guest-shutdown` (the guest
       -- runs its own `poweroff` / `shutdown -h now`) and QMP
       -- `system_powerdown` (ACPI power-button). Together they cover
@@ -1537,6 +1615,11 @@ handleVmStopHard sc vmId = do
           <> tshow vmId
           <> " pid="
           <> tshow (L.vlsQemuPid live)
+      -- Suppress reboot-quirk auto-restart on the impending
+      -- QEMU exit. The ledger entry is already evicted above,
+      -- but the reaper thread still holds a reference to this
+      -- live state's 'vlsStopRequested' TVar.
+      atomically $ writeTVar (L.vlsStopRequested live) True
       let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
       stopRes <-
         runStderrLoggingT $

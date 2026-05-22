@@ -95,6 +95,7 @@ class Vm:
     headless: bool = True
     guest_agent: bool = True
     cloud_init: bool = False
+    reboot_quirk: bool = False
     # When True, `__enter__` blocks until the inner daemon reports the
     # first QGA ping. False = return as soon as `vm.start` is accepted
     # (the subclass's `_post_start` is then responsible for whatever
@@ -145,6 +146,7 @@ class Vm:
                 headless=self.headless,
                 guest_agent=self.guest_agent,
                 cloud_init=self.cloud_init,
+                reboot_quirk=self.reboot_quirk,
             )
             # `vms.create` produces a bare VM record; drives, network
             # interfaces, SSH keys, cloud-init, and virtiofs shared

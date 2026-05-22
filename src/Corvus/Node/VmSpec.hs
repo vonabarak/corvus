@@ -51,6 +51,12 @@ data VmSpec = VmSpec
   , vsNetIfs :: ![VmNetIfSpec]
   , vsSharedDirs :: ![VmSharedDirSpec]
   , vsWaitForGuestAgentMs :: !Word32
+  , vsRebootQuirk :: !Bool
+  -- ^ When true, the agent runs QEMU with @-no-reboot@ and
+  -- re-spawns it after a guest-initiated exit. Daemon-initiated
+  -- stop/reset still tears the VM down; the agent tracks
+  -- 'vlsStopRequested' to tell the two apart. Targets the
+  -- tianocore\/edk2#12441 OVMF firmware reboot hang.
   }
   deriving (Eq, Show)
 

@@ -47,7 +47,7 @@ spec = sequential $ do
 
     describe "VmInfo" $ do
       it "serializes with correct field names and enum values" $ do
-        let vm = VmInfo 1 "my-vm" VmRunning 4 2048 False False False Nothing False
+        let vm = VmInfo 1 "my-vm" VmRunning 4 2048 False False False Nothing False False
             val = toJSON vm
         -- 'omitNothingFields = True' in 'innerOptions' drops the
         -- Nothing-valued 'healthcheck' entirely rather than serialising
@@ -64,10 +64,11 @@ spec = sequential $ do
             , "guest_agent" .= False
             , "cloud_init" .= False
             , "autostart" .= False
+            , "reboot_quirk" .= False
             ]
 
       it "serializes stopped status correctly" $ do
-        let vm = VmInfo 2 "test" VmStopped 1 512 False False False Nothing False
+        let vm = VmInfo 2 "test" VmStopped 1 512 False False False Nothing False False
             json = encode vm
         BL.unpack json `shouldSatisfy` isInfixOf "\"stopped\""
 
@@ -137,7 +138,7 @@ spec = sequential $ do
 
     describe "TemplateVmInfo" $ do
       it "serializes with optional description" $ do
-        let t = TemplateVmInfo 1 "my-template" 2 1024 (Just "A test template") False False False
+        let t = TemplateVmInfo 1 "my-template" 2 1024 (Just "A test template") False False False False
             val = toJSON t
         case val of
           Object obj -> do
@@ -146,7 +147,7 @@ spec = sequential $ do
           _ -> fail "Expected JSON object"
 
       it "omits null description under omitNothingFields" $ do
-        let t = TemplateVmInfo 1 "minimal" 1 512 Nothing False False False
+        let t = TemplateVmInfo 1 "minimal" 1 512 Nothing False False False False
             val = toJSON t
         case val of
           Object obj ->
@@ -158,7 +159,7 @@ spec = sequential $ do
         encode ([] :: [VmInfo]) `shouldBe` "[]"
 
       it "VM list serializes as JSON array" $ do
-        let vms = [VmInfo 1 "a" VmRunning 1 512 False False False Nothing False, VmInfo 2 "b" VmStopped 2 1024 False False False Nothing False]
+        let vms = [VmInfo 1 "a" VmRunning 1 512 False False False Nothing False False, VmInfo 2 "b" VmStopped 2 1024 False False False Nothing False False]
             val = toJSON vms
         case val of
           Array arr -> length arr `shouldBe` 2

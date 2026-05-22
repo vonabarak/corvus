@@ -129,6 +129,7 @@ instance CGVm.VmManager'server_ VmManagerCap where
               , vcrGuestAgent = guestAgent
               , vcrCloudInit = cloudInit
               , vcrAutostart = autostart
+              , vcrRebootQuirk = rebootQuirk
               }
       resp <- runAction st act
       case resp of
@@ -206,6 +207,7 @@ instance CGVm.Vm'server_ VmCap where
               , vedGuestAgent = if hasGuestAgent then Just guestAgent else Nothing
               , vedCloudInit = if hasCloudInit then Just cloudInit else Nothing
               , vedAutostart = if hasAutostart then Just autostart else Nothing
+              , vedRebootQuirk = if hasRebootQuirk then Just rebootQuirk else Nothing
               }
       resp <- runAction st act
       case resp of

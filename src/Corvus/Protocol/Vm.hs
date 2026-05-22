@@ -34,6 +34,7 @@ data VmInfo = VmInfo
   , viCloudInit :: !Bool
   , viHealthcheck :: !(Maybe UTCTime)
   , viAutostart :: !Bool
+  , viRebootQuirk :: !Bool
   }
   deriving (Eq, Show, Generic)
 
@@ -105,6 +106,10 @@ data VmDetails = VmDetails
   -- state. 'Nothing' when the VM is healthy or never errored.
   , vdLastErrorAt :: !(Maybe UTCTime)
   -- ^ Timestamp paired with 'vdErrorMessage'.
+  , vdRebootQuirk :: !Bool
+  -- ^ When true, QEMU runs with @-no-reboot@ and the agent
+  -- re-spawns on each guest-initiated exit. Used to dodge OVMF
+  -- firmware reboot hangs (tianocore/edk2#12441).
   }
   deriving (Eq, Show, Generic)
 

@@ -18,6 +18,7 @@ module Corvus.Node.Ledger
 where
 
 import Control.Concurrent.STM (STM, TVar, modifyTVar', newTVarIO, readTVar, stateTVar)
+import qualified Corvus.Node.VmSpec as VS
 import Data.Int (Int32, Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
@@ -32,9 +33,12 @@ import System.Process (ProcessHandle)
 -- DB primary key).
 data VmLiveState = VmLiveState
   { vlsQemuPid :: !Word32
-  -- ^ The PID of the QEMU process.
+  -- ^ The PID of the QEMU process. Mutated in place by the
+  -- reboot-quirk re-spawn path; readers expecting a stable PID
+  -- across an entry's lifetime should not assume identity.
   , vlsQemuHandle :: !ProcessHandle
   -- ^ The process handle for @waitForProcess@-style reaping.
+  -- Also mutated in place on reboot-quirk re-spawn.
   , vlsVirtiofsd :: ![(Word32, ProcessHandle)]
   -- ^ Per-shared-dir virtiofsd children. Empty when the VM had
   -- no shared dirs in its spec.
@@ -43,7 +47,9 @@ data VmLiveState = VmLiveState
   -- 'Nothing' while the VM is running; 'Just code' once the
   -- @waitForProcess@ call has returned. Readers ('vmStatus',
   -- 'vmStopGraceful') observe this to learn about exits without
-  -- racing the reaper.
+  -- racing the reaper. The reboot-quirk re-spawn path
+  -- deliberately keeps this 'Nothing' across the QEMU bounce —
+  -- the daemon's monitor must not see a transient stopped state.
   , vlsStderrTail :: !(TVar T.Text)
   -- ^ Ring-buffered tail of QEMU's stderr (last ~4 KiB).
   -- Populated by a reader thread launched alongside QEMU; on
@@ -53,6 +59,18 @@ data VmLiveState = VmLiveState
   , vlsSpicePort :: !Int32
   -- ^ Echoed back from the spec so 'vmStatus' can include it in
   -- 'VmRuntimeInfo' without a second lookup. 0 when no SPICE.
+  , vlsSpec :: !VS.VmSpec
+  -- ^ The 'VmSpec' the daemon sent on 'vmStart'. Kept so the
+  -- reboot-quirk re-spawn path can re-launch QEMU with identical
+  -- settings (drives, NICs, shared dirs, vsock CID, …) without
+  -- having to round-trip back to the daemon.
+  , vlsStopRequested :: !(TVar Bool)
+  -- ^ Set by 'handleVmStopGraceful' / 'handleVmStopHard' before
+  -- they signal QEMU. The reaper consults this flag on QEMU
+  -- exit: when 'True' the exit is daemon-initiated and the
+  -- reaper records 'vlsLastExitCode' normally; when 'False'
+  -- (and 'vsRebootQuirk' is on) the exit is guest-initiated
+  -- and the reaper re-spawns QEMU instead.
   }
 
 -- | The agent-wide ledger of currently-tracked VMs, keyed by

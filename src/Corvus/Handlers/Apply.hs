@@ -331,6 +331,7 @@ createOneVm state keyMap diskMap nwMap v = do
           (avGuestAgent v)
           (effectiveCloudInit v)
           (avAutostart v)
+          (avRebootQuirk v)
       )
       dummyTaskId
   case vmResult of

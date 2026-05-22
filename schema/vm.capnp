@@ -23,6 +23,11 @@ struct VmInfo {
   cloudInit       @7  :Bool;
   lastHealthcheck @8  :Int64;  # POSIX nanoseconds; 0 == never
   autostart       @9  :Bool;
+  # When true, QEMU is started with `-no-reboot` and the agent
+  # restarts the VM after each guest-initiated exit (reboot or
+  # poweroff). Daemon-initiated stop/reset continues to actually
+  # stop the VM. Used to dodge OVMF firmware reboot hangs.
+  rebootQuirk     @10 :Bool;
 }
 
 struct VmDetails {
@@ -53,6 +58,8 @@ struct VmDetails {
   # text / 0 nanoseconds == none.
   errorMessage        @21 :Text;
   lastErrorAt         @22 :Int64;
+  # See `VmInfo.rebootQuirk`.
+  rebootQuirk         @23 :Bool;
 }
 
 struct DriveInfo {
@@ -112,6 +119,7 @@ struct VmCreateParams {
   # Node this VM is bound to. Required as of multi-node slice 1c
   # (no scheduler yet). Resolved as `node-by-name` or `id:N`.
   node            @8  :Common.EntityRef;
+  rebootQuirk     @9  :Bool = false;
 }
 
 struct VmEditParams {
@@ -133,6 +141,8 @@ struct VmEditParams {
   cloudInit          @13 :Bool;
   hasAutostart       @14 :Bool;
   autostart          @15 :Bool;
+  hasRebootQuirk     @16 :Bool;
+  rebootQuirk        @17 :Bool;
 }
 
 struct DriveAttachParams {

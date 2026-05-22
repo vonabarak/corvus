@@ -37,6 +37,7 @@ sampleDetails =
     , tvdCloudInit = True
     , tvdGuestAgent = True
     , tvdAutostart = False
+    , tvdRebootQuirk = False
     , tvdCloudInitConfig = Nothing
     , tvdCreatedAt = UTCTime (fromGregorian 2026 1 1) (secondsToDiffTime 0)
     , tvdDrives =

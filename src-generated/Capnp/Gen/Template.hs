@@ -61,7 +61,8 @@ data instance C.Parsed TemplateVmInfo
         ,description :: (RP.Parsed Basics.Text)
         ,headless :: (RP.Parsed Std_.Bool)
         ,guestAgent :: (RP.Parsed Std_.Bool)
-        ,autostart :: (RP.Parsed Std_.Bool)}
+        ,autostart :: (RP.Parsed Std_.Bool)
+        ,rebootQuirk :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateVmInfo))
 deriving instance (Std_.Eq (C.Parsed TemplateVmInfo))
@@ -73,7 +74,8 @@ instance (C.Parse TemplateVmInfo (C.Parsed TemplateVmInfo)) where
                                  <*> (GH.parseField #description raw_)
                                  <*> (GH.parseField #headless raw_)
                                  <*> (GH.parseField #guestAgent raw_)
-                                 <*> (GH.parseField #autostart raw_))
+                                 <*> (GH.parseField #autostart raw_)
+                                 <*> (GH.parseField #rebootQuirk raw_))
 instance (C.Marshal TemplateVmInfo (C.Parsed TemplateVmInfo)) where
     marshalInto raw_ TemplateVmInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -84,6 +86,7 @@ instance (C.Marshal TemplateVmInfo (C.Parsed TemplateVmInfo)) where
         (GH.encodeField #headless headless raw_)
         (GH.encodeField #guestAgent guestAgent raw_)
         (GH.encodeField #autostart autostart raw_)
+        (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TemplateVmInfo Std_.Int64) where
@@ -102,6 +105,8 @@ instance (GH.HasField "guestAgent" GH.Slot TemplateVmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 2 1 0)
 instance (GH.HasField "autostart" GH.Slot TemplateVmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 2 2 1 0)
+instance (GH.HasField "rebootQuirk" GH.Slot TemplateVmInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 3 2 1 0)
 data TemplateDriveInfo 
 type instance (R.ReprFor TemplateDriveInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateDriveInfo) where
@@ -287,7 +292,8 @@ data instance C.Parsed TemplateDetails
         ,createdAt :: (RP.Parsed Std_.Int64)
         ,drives :: (RP.Parsed (R.List TemplateDriveInfo))
         ,netIfs :: (RP.Parsed (R.List TemplateNetIfInfo))
-        ,sshKeys :: (RP.Parsed (R.List TemplateSshKeyInfo))}
+        ,sshKeys :: (RP.Parsed (R.List TemplateSshKeyInfo))
+        ,rebootQuirk :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateDetails))
 deriving instance (Std_.Eq (C.Parsed TemplateDetails))
@@ -305,7 +311,8 @@ instance (C.Parse TemplateDetails (C.Parsed TemplateDetails)) where
                                   <*> (GH.parseField #createdAt raw_)
                                   <*> (GH.parseField #drives raw_)
                                   <*> (GH.parseField #netIfs raw_)
-                                  <*> (GH.parseField #sshKeys raw_))
+                                  <*> (GH.parseField #sshKeys raw_)
+                                  <*> (GH.parseField #rebootQuirk raw_))
 instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
     marshalInto raw_ TemplateDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -322,6 +329,7 @@ instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
         (GH.encodeField #drives drives raw_)
         (GH.encodeField #netIfs netIfs raw_)
         (GH.encodeField #sshKeys sshKeys raw_)
+        (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TemplateDetails Std_.Int64) where
@@ -352,6 +360,8 @@ instance (GH.HasField "netIfs" GH.Slot TemplateDetails (R.List TemplateNetIfInfo
     fieldByLabel  = (GH.ptrField 4)
 instance (GH.HasField "sshKeys" GH.Slot TemplateDetails (R.List TemplateSshKeyInfo)) where
     fieldByLabel  = (GH.ptrField 5)
+instance (GH.HasField "rebootQuirk" GH.Slot TemplateDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 4 2 1 0)
 data TemplateManager 
 type instance (R.ReprFor TemplateManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId TemplateManager) where

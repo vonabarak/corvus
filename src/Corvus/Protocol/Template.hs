@@ -33,6 +33,7 @@ data TemplateVmInfo = TemplateVmInfo
   , tviHeadless :: !Bool
   , tviGuestAgent :: !Bool
   , tviAutostart :: !Bool
+  , tviRebootQuirk :: !Bool
   }
   deriving (Eq, Show, Generic)
 
@@ -76,6 +77,7 @@ data TemplateDetails = TemplateDetails
   , tvdCloudInit :: !Bool
   , tvdGuestAgent :: !Bool
   , tvdAutostart :: !Bool
+  , tvdRebootQuirk :: !Bool
   , tvdCloudInitConfig :: !(Maybe CloudInitInfo)
   , tvdCreatedAt :: !UTCTime
   , tvdDrives :: ![TemplateDriveInfo]

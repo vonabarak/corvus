@@ -107,6 +107,7 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
               , VS.vsSharedDirs = sharedDirSpecs
               , VS.vsWaitForGuestAgentMs =
                   if vmGuestAgent vm then waitMs else 0
+              , VS.vsRebootQuirk = vmRebootQuirk vm
               }
       pure (Just spec)
 

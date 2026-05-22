@@ -61,6 +61,7 @@ toCapnpTemplateVmInfo P.TemplateVmInfo {..} =
     , CGT.headless = tviHeadless
     , CGT.guestAgent = tviGuestAgent
     , CGT.autostart = tviAutostart
+    , CGT.rebootQuirk = tviRebootQuirk
     }
 
 fromCapnpTemplateVmInfo :: C.Parsed CGT.TemplateVmInfo -> P.TemplateVmInfo
@@ -74,6 +75,7 @@ fromCapnpTemplateVmInfo CGT.TemplateVmInfo {..} =
     , P.tviHeadless = headless
     , P.tviGuestAgent = guestAgent
     , P.tviAutostart = autostart
+    , P.tviRebootQuirk = rebootQuirk
     }
 
 -- ---------------------------------------------------------------------
@@ -182,6 +184,7 @@ toCapnpTemplateDetails P.TemplateDetails {..} =
     , CGT.drives = map toCapnpTemplateDriveInfo tvdDrives
     , CGT.netIfs = map toCapnpTemplateNetIfInfo tvdNetIfs
     , CGT.sshKeys = map toCapnpTemplateSshKeyInfo tvdSshKeys
+    , CGT.rebootQuirk = tvdRebootQuirk
     }
 
 fromCapnpTemplateDetails
@@ -203,6 +206,7 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
       , P.tvdCloudInit = cloudInit
       , P.tvdGuestAgent = guestAgent
       , P.tvdAutostart = autostart
+      , P.tvdRebootQuirk = rebootQuirk
       , P.tvdCloudInitConfig = if ci == emptyCloudInitInfo then Nothing else Just ci
       , P.tvdCreatedAt = nanosToUtcTime createdAt
       , P.tvdDrives = drives'

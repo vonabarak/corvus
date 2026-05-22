@@ -504,6 +504,13 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       , concatMap driveArgsSpec (zip [0 ..] (VS.vsDrives spec))
       , concatMap netArgsSpec (zip [0 ..] (VS.vsNetIfs spec))
       , concatMap sharedDirArgsSpec (zip [0 ..] (VS.vsSharedDirs spec))
+      , -- Reboot-quirk: make QEMU exit on guest-initiated
+        -- reboot instead of resetting in place. The agent's
+        -- reaper notices the exit and re-spawns QEMU
+        -- transparently, so the guest sees a "reboot" but the
+        -- firmware sees a cold boot — works around the OVMF
+        -- second-boot hang (tianocore/edk2#12441).
+        ["-no-reboot" | VS.vsRebootQuirk spec]
       ]
   )
   where

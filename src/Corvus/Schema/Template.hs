@@ -28,6 +28,7 @@ data TemplateYaml = TemplateYaml
   , tyCloudInit :: Bool
   , tyGuestAgent :: Bool
   , tyAutostart :: Bool
+  , tyRebootQuirk :: Bool
   , tyCloudInitConfig :: Maybe CloudInitConfigYaml
   , tyDrives :: [TemplateDriveYaml]
   , tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml]
@@ -46,6 +47,7 @@ instance FromJSON TemplateYaml where
       <*> o .:? "cloudInit" .!= False
       <*> o .:? "guestAgent" .!= False
       <*> o .:? "autostart" .!= False
+      <*> o .:? "rebootQuirk" .!= False
       <*> o .:? "cloudInitConfig"
       <*> o .: "drives"
       <*> o .:? "networkInterfaces" .!= []

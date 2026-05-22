@@ -137,6 +137,7 @@ handleTemplateList state = do
         , tviHeadless = templateVmHeadless t
         , tviGuestAgent = templateVmGuestAgent t
         , tviAutostart = templateVmAutostart t
+        , tviRebootQuirk = templateVmRebootQuirk t
         }
 
 handleTemplateShow :: ServerState -> Int64 -> IO Response
@@ -178,6 +179,7 @@ handleTemplateInstantiate state tidLong newVmName nodeRef parentTaskId = runServ
                 (tvdGuestAgent details)
                 (tvdCloudInit details)
                 (tvdAutostart details)
+                (tvdRebootQuirk details)
             )
             parentTaskId
       case vmResp of
@@ -243,7 +245,7 @@ insertTemplateYaml ty now = do
         then pure $ Left "Template has SSH keys but cloud-init is not enabled"
         else case (sequence mDiskIds, sequence mKeyIds) of
           (Right diskIds, Right keyIds) -> do
-            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyAutostart ty) now
+            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyAutostart ty) (tyRebootQuirk ty) now
             case mTid of
               Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
               Just tid -> do
@@ -352,6 +354,7 @@ getTemplateDetails tid = do
             , tvdCloudInit = templateVmCloudInit t
             , tvdGuestAgent = templateVmGuestAgent t
             , tvdAutostart = templateVmAutostart t
+            , tvdRebootQuirk = templateVmRebootQuirk t
             , tvdCloudInitConfig = ciInfo
             , tvdCreatedAt = templateVmCreatedAt t
             , tvdDrives = driveInfos

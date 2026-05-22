@@ -601,6 +601,7 @@ Vm
     errorMessage Text Maybe default=NULL
     lastErrorAt UTCTime Maybe default=NULL
     migrating Bool default=false
+    rebootQuirk Bool default=false
     UniqueVmNamePerNode nodeId name
     deriving Show Eq Generic
 
@@ -699,6 +700,7 @@ TemplateVm
     cloudInit Bool default=false
     guestAgent Bool default=false
     autostart Bool default=false
+    rebootQuirk Bool default=false
     createdAt UTCTime
     UniqueTemplateVmName name
     deriving Show Eq Generic

@@ -642,6 +642,7 @@ encodeVmSpec s =
     , CGNA.netIfs = map encodeVmNetIfSpec (vsNetIfs s)
     , CGNA.sharedDirs = map encodeVmSharedDirSpec (vsSharedDirs s)
     , CGNA.waitForGuestAgentMs = vsWaitForGuestAgentMs s
+    , CGNA.rebootQuirk = vsRebootQuirk s
     }
 
 encodeVmDriveSpec :: VmDriveSpec -> CGNA.Parsed CGNA.VmDriveSpec

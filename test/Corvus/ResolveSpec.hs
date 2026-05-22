@@ -195,5 +195,6 @@ insertVmOnNode name nodeKey = do
           , M.vmErrorMessage = Nothing
           , M.vmLastErrorAt = Nothing
           , M.vmMigrating = False
+          , M.vmRebootQuirk = False
           }
   pure $ fromSqlKey key

@@ -97,9 +97,11 @@ handleVmCreate
   -> Bool
   -> Bool
   -> Bool
+  -> Bool
+  -- ^ rebootQuirk
   -> IO Bool
-handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart = do
-  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart)
+handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart rebootQuirk = do
+  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart rebootQuirk)
   case r of
     Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $
@@ -157,12 +159,25 @@ handleVmStop fmt conn vmRef waitOpts = do
   handleVmAction fmt "stop" vmRef (CR.rpcVmStop conn (entityRefFromText vmRef) wait)
 
 -- | Handle VM edit
-handleVmEdit :: OutputFormat -> CapnpConnection -> Text -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool
-handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart =
+handleVmEdit
+  :: OutputFormat
+  -> CapnpConnection
+  -> Text
+  -> Maybe Int
+  -> Maybe Int
+  -> Maybe Text
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe Bool
+  -- ^ rebootQuirk
+  -> IO Bool
+handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk =
   tryRpcUnit
     fmt
     (putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated.")
-    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart)
+    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk)
 
 -- | Handle @crv vm migrate <VM> --to-node <NODE>@.
 handleVmMigrate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
@@ -460,6 +475,7 @@ printVmDetails vm = do
   printField "Guest Agent" (if vdGuestAgent vm then "enabled" else "disabled")
   printField "Cloud-init" (if vdCloudInit vm then "enabled" else "disabled")
   printField "Autostart" (if vdAutostart vm then "enabled" else "disabled")
+  printField "Reboot quirk" (if vdRebootQuirk vm then "enabled" else "disabled")
   case vdCloudInitConfig vm of
     Just _ -> printField "Cloud-init Config" "custom"
     Nothing -> pure ()

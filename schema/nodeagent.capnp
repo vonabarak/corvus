@@ -409,6 +409,12 @@ struct VmSpec {
   # Daemon sets a positive value for guestAgent-enabled VMs so
   # `crv vm start --wait` blocks until QGA is reachable.
   waitForGuestAgentMs @13 :UInt32;
+  # When true, the agent runs QEMU with `-no-reboot` so it
+  # exits on guest-initiated reboot, then re-spawns QEMU
+  # transparently. Daemon-initiated stop / reset still wins —
+  # the agent suppresses the auto-restart for them. Used to
+  # dodge OVMF firmware reboot hangs (tianocore/edk2#12441).
+  rebootQuirk @14 :Bool;
 }
 
 struct VmDriveSpec {

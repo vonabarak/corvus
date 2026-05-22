@@ -18,6 +18,7 @@ struct TemplateVmInfo {
   headless    @5 :Bool;
   guestAgent  @6 :Bool;
   autostart   @7 :Bool;
+  rebootQuirk @8 :Bool;
 }
 
 struct TemplateDriveInfo {
@@ -60,6 +61,7 @@ struct TemplateDetails {
   drives          @11 :List(TemplateDriveInfo);
   netIfs          @12 :List(TemplateNetIfInfo);
   sshKeys         @13 :List(TemplateSshKeyInfo);
+  rebootQuirk     @14 :Bool;
 }
 
 # ---------------------------------------------------------------------

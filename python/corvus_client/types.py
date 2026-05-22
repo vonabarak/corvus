@@ -63,6 +63,7 @@ class VmInfo:
     cloud_init: bool
     autostart: bool
     last_healthcheck: datetime | None = None
+    reboot_quirk: bool = False
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,7 @@ class VmDetails:
     last_healthcheck: datetime | None = None
     error_message: str | None = None
     last_error_at: datetime | None = None
+    reboot_quirk: bool = False
 
 
 @dataclass(frozen=True)

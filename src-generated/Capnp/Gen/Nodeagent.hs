@@ -3067,7 +3067,8 @@ data instance C.Parsed VmSpec
         ,drives :: (RP.Parsed (R.List VmDriveSpec))
         ,netIfs :: (RP.Parsed (R.List VmNetIfSpec))
         ,sharedDirs :: (RP.Parsed (R.List VmSharedDirSpec))
-        ,waitForGuestAgentMs :: (RP.Parsed Std_.Word32)}
+        ,waitForGuestAgentMs :: (RP.Parsed Std_.Word32)
+        ,rebootQuirk :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmSpec))
 deriving instance (Std_.Eq (C.Parsed VmSpec))
@@ -3085,7 +3086,8 @@ instance (C.Parse VmSpec (C.Parsed VmSpec)) where
                          <*> (GH.parseField #drives raw_)
                          <*> (GH.parseField #netIfs raw_)
                          <*> (GH.parseField #sharedDirs raw_)
-                         <*> (GH.parseField #waitForGuestAgentMs raw_))
+                         <*> (GH.parseField #waitForGuestAgentMs raw_)
+                         <*> (GH.parseField #rebootQuirk raw_))
 instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
     marshalInto raw_ VmSpec{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -3102,6 +3104,7 @@ instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
         (GH.encodeField #netIfs netIfs raw_)
         (GH.encodeField #sharedDirs sharedDirs raw_)
         (GH.encodeField #waitForGuestAgentMs waitForGuestAgentMs raw_)
+        (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmSpec Std_.Int64) where
@@ -3132,6 +3135,8 @@ instance (GH.HasField "sharedDirs" GH.Slot VmSpec (R.List VmSharedDirSpec)) wher
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "waitForGuestAgentMs" GH.Slot VmSpec Std_.Word32) where
     fieldByLabel  = (GH.dataField 32 3 32 0)
+instance (GH.HasField "rebootQuirk" GH.Slot VmSpec Std_.Bool) where
+    fieldByLabel  = (GH.dataField 4 2 1 0)
 data VmDriveSpec 
 type instance (R.ReprFor VmDriveSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDriveSpec) where

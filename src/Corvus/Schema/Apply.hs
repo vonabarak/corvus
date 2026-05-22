@@ -175,6 +175,7 @@ data ApplyVm = ApplyVm
   , avSharedDirs :: [ApplySharedDir]
   , avSshKeys :: [Text]
   , avAutostart :: Bool
+  , avRebootQuirk :: Bool
   }
   deriving (Show)
 
@@ -195,6 +196,7 @@ instance FromJSON ApplyVm where
       <*> o .:? "sharedDirs" .!= []
       <*> o .:? "sshKeys" .!= []
       <*> o .:? "autostart" .!= False
+      <*> o .:? "rebootQuirk" .!= False
 
 data ApplyDrive = ApplyDrive
   { adrDisk :: Text

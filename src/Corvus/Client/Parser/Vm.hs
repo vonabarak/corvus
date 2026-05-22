@@ -76,6 +76,14 @@ vmCreateCommand =
       ( long "autostart"
           <> help "Automatically start this VM when the daemon starts"
       )
+    <*> switch
+      ( long "reboot-quirk"
+          <> help
+            "Enable the reboot quirk: QEMU runs with `-no-reboot` so it \
+            \exits on guest reboot, and the agent re-spawns it. Works \
+            \around the OVMF firmware second-boot hang \
+            \(tianocore/edk2#12441)."
+      )
 
 -- | Parser for vm delete
 vmDeleteCommand :: Parser Command
@@ -218,6 +226,17 @@ vmEditCommand =
           ( long "autostart"
               <> metavar "BOOL"
               <> help "Enable/disable autostart (true/false)"
+              <> completeWith ["true", "false"]
+          )
+      )
+    <*> optional
+      ( option
+          readBool
+          ( long "reboot-quirk"
+              <> metavar "BOOL"
+              <> help
+                "Enable/disable the reboot-on-exit quirk for OVMF \
+                \workarounds (true/false). Takes effect on next start."
               <> completeWith ["true", "false"]
           )
       )

@@ -123,7 +123,7 @@ spec = withTestDb $ do
     it "VM lifecycle: create → list (length 1) → delete → list (empty)" $ \env -> do
       withCapnpDaemon env $ \conn -> do
         -- Empty node ref → daemon's scheduler picks the seeded test-node.
-        vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1024 Nothing True False False False
+        vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1024 Nothing True False False False False
         vms <- CR.rpcVmList conn
         length vms `shouldBe` 1
         CR.rpcVmDelete conn (WC.RefById vid) False

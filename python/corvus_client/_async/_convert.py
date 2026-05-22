@@ -85,6 +85,7 @@ def vm_info(r) -> t.VmInfo:
         cloud_init=r.cloudInit,
         autostart=r.autostart,
         last_healthcheck=_ts(r.lastHealthcheck),
+        reboot_quirk=r.rebootQuirk,
     )
 
 
@@ -151,6 +152,7 @@ def vm_details(r) -> t.VmDetails:
         autostart=r.autostart,
         error_message=_nz_text(r.errorMessage),
         last_error_at=_ts(r.lastErrorAt),
+        reboot_quirk=r.rebootQuirk,
     )
 
 

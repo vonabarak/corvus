@@ -705,3 +705,117 @@ class TestVmLifecycle(SingleNodeCase):
                     f"the agent likely returned the stale ledger entry "
                     f"and no new QEMU was spawned"
                 )
+
+    def test_reboot_quirk_restart_on_guest_reboot(self):
+        """With ``reboot_quirk=True``, a guest-initiated reboot
+        bounces QEMU transparently.
+
+        Tianocore OVMF firmware hangs on second boot in some
+        configurations (tianocore/edk2#12441). The quirk works
+        around it by running QEMU with ``-no-reboot`` and having
+        the agent re-spawn QEMU after each guest-initiated
+        exit. The guest sees a normal reboot; firmware sees a
+        cold boot.
+
+        Verifies:
+
+        * After ``reboot -f`` inside the guest, the daemon's
+          status row stays at ``running`` (agent re-spawned in
+          place; no transient ``stopped``).
+        * The guest's ``boot_id`` differs after the bounce —
+          proving an actual QEMU process change, not just a
+          ledger-level idempotence.
+        """
+
+        class _RebootQuirkVm(VmSsh):
+            reboot_quirk = True
+
+        with _RebootQuirkVm(self) as vm:
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                boot_id_1 = shell.run(
+                    "cat /proc/sys/kernel/random/boot_id"
+                ).stdout.strip()
+                assert boot_id_1
+
+            # Trigger a clean guest reboot via QGA. ``reboot -f``
+            # bypasses init; the kernel halts and QEMU exits
+            # (because we're running with @-no-reboot@).
+            try:
+                vm.cap.guest_exec("/sbin/reboot -f")
+            except Exception:
+                pass
+
+            # Sample status periodically: the row must NEVER
+            # show 'stopped' (the auto-restart should keep it
+            # at 'running' throughout). A single 'stopped'
+            # sighting would mean the agent's monitor thread
+            # tripped before the re-spawn finished.
+            saw_stopped = False
+            deadline = time.monotonic() + 60.0
+            settled_running = False
+            while time.monotonic() < deadline:
+                status = vm.cap.show().status
+                if status == "stopped":
+                    saw_stopped = True
+                    break
+                if status == "running":
+                    # Try to ssh in; if it answers, the new QEMU
+                    # is up and the guest agent finished its
+                    # first ping. Bail out of the polling loop.
+                    try:
+                        with self.vm_shell(vm.cap) as shell:
+                            shell.wait_ready(timeout_sec=5)
+                            boot_id_2 = shell.run(
+                                "cat /proc/sys/kernel/random/boot_id"
+                            ).stdout.strip()
+                        if boot_id_2 and boot_id_2 != boot_id_1:
+                            settled_running = True
+                            break
+                    except Exception:
+                        # ssh down for a few moments during boot
+                        # is normal; keep polling.
+                        pass
+                time.sleep(1.0)
+
+            assert not saw_stopped, (
+                "VM transitioned to 'stopped' during a quirk-on "
+                "reboot — the agent failed to re-spawn in place"
+            )
+            assert settled_running, (
+                "VM did not finish rebooting back to 'running' "
+                "within 60s, or boot_id did not change"
+            )
+
+    def test_reboot_quirk_does_not_restart_on_daemon_stop(self):
+        """With ``reboot_quirk=True``, ``vm.stop()`` from the
+        daemon still actually stops the VM. The auto-restart is
+        suppressed when the agent observes a stop intent.
+
+        Without this guarantee, the only way to power-off a
+        quirk-enabled VM would be ``vm.reset()`` (SIGKILL +
+        explicit ledger eviction) — surprising semantics. The
+        agent's ``vlsStopRequested`` flag exists exactly to
+        gate the reaper's auto-restart on this case.
+        """
+
+        class _RebootQuirkVm(VmSsh):
+            reboot_quirk = True
+
+        with _RebootQuirkVm(self) as vm:
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+
+            vm.cap.stop(wait=True)
+            self._wait_status(vm.cap, "stopped", timeout_sec=30)
+
+            # Hold for a few more seconds and assert it didn't
+            # bounce back to running. If the quirk-suppression
+            # is broken the agent would re-spawn QEMU here.
+            for _ in range(10):
+                time.sleep(1.0)
+                status = vm.cap.show().status
+                assert status == "stopped", (
+                    f"VM bounced back to {status!r} after a daemon-"
+                    f"initiated stop — quirk-suppression failed"
+                )
