@@ -3,7 +3,7 @@
 module Main where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (Async, async, cancel)
+import Control.Concurrent.Async (Async, async, cancel, poll)
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Control.Monad (unless)
 import Control.Monad.IO.Class (liftIO)
@@ -34,7 +34,7 @@ import qualified Data.Text as T
 import Database.Persist.Postgresql (createPostgresqlPool, runMigrationUnsafe, runSqlPool)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
-import System.Exit (exitSuccess)
+import System.Exit (ExitCode (..), exitSuccess, exitWith)
 import System.FilePath (takeDirectory)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
@@ -178,7 +178,31 @@ main = do
     -- additional supervisors at runtime.
     nodeSupervisors <- liftIO $ spawnAllNodeSupervisors state'
 
-    liftIO $ waitForShutdown state'
+    -- Wait for either a shutdown signal OR the listener thread
+    -- dying. If 'capnpThread' exits for any reason while we're
+    -- not shutting down, the process must exit non-zero so
+    -- systemd ('Restart=on-failure' / '=always') restarts us
+    -- cleanly. The previous code waited only on 'ssShutdownFlag'
+    -- and so could end up in a zombie state — process alive,
+    -- listener dead — with the Unix-socket file unlinked by
+    -- 'runCapnpServer's bracket cleanup. Operators saw this as
+    -- "ENOENT on the daemon socket" with no obvious way to
+    -- recover short of manually 'systemctl restart'-ing.
+    liftIO $ waitForShutdownOrListenerDeath state' capnpThread
+
+    -- Re-check the listener: if it died, surface a fatal log
+    -- line BEFORE the rest of the teardown so the journal makes
+    -- the cause obvious. Then exit non-zero.
+    listenerDied <- liftIO $ poll capnpThread
+    case listenerDied of
+      Just (Left e) ->
+        logInfoN $
+          "Listener thread died unexpectedly: "
+            <> T.pack (show e)
+            <> "; exiting so systemd can restart the daemon"
+      Just (Right _) ->
+        logInfoN "Listener thread exited cleanly; exiting"
+      Nothing -> pure ()
 
     logInfoN "Shutting down..."
     liftIO $ cancel capnpThread
@@ -195,7 +219,12 @@ main = do
     liftIO $ mapM_ cancel nodeSupervisors
 
     liftIO $ handleGracefulShutdown state'
-    liftIO exitSuccess
+    -- Exit non-zero if the listener died and we're here only
+    -- because of that. Otherwise normal shutdown is success.
+    listenerDied' <- liftIO $ poll capnpThread
+    case listenerDied' of
+      Just (Left _) -> liftIO (exitWith (ExitFailure 1))
+      _ -> liftIO exitSuccess
 
 getListenAddr :: Options -> IO ListenAddress
 getListenAddr opts
@@ -210,6 +239,25 @@ waitForShutdown state = do
   unless shouldShutdown $ do
     threadDelay 100000
     waitForShutdown state
+
+-- | Like 'waitForShutdown', but also returns if the supplied
+-- listener 'Async' exits for any reason. The exit code path
+-- in 'main' polls the async after this returns to decide
+-- between clean exit and a non-zero failure.
+waitForShutdownOrListenerDeath :: ServerState -> Async a -> IO ()
+waitForShutdownOrListenerDeath state listener = go
+  where
+    go = do
+      shouldShutdown <- readTVarIO (ssShutdownFlag state)
+      if shouldShutdown
+        then pure ()
+        else do
+          listenerStatus <- poll listener
+          case listenerStatus of
+            Just _ -> pure () -- listener exited; let main exit
+            Nothing -> do
+              threadDelay 100000
+              go
 
 parseLogLevel :: ReadM LogLevel
 parseLogLevel = eitherReader $ \s -> case s of

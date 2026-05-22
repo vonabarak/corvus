@@ -93,11 +93,21 @@ cleanupCorvusProcesses = runStderrLoggingT $ do
         <> " QEMU pid(s)"
   mapM_ (liftIO . signalAndReap "qemu") qPids
 
-  -- Scrub per-VM runtime dirs.
-  exists <- liftIO (doesDirectoryExist runtimeDir)
+  -- Scrub per-VM runtime dirs. Restrict the wipe to the
+  -- @vms\/@ subdirectory ('Corvus.Node.Runtime.getVmRuntimeDir'
+  -- builds @\$XDG_RUNTIME_DIR\/corvus\/vms\/<vmId>\/@), NOT the
+  -- entire @corvus\/@ directory. The daemon's Unix-socket
+  -- listener lives at @\$XDG_RUNTIME_DIR\/corvus\/corvus.sock@
+  -- — a sibling of @vms\/@ — and the previous indiscriminate
+  -- wipe removed it whenever the agent restarted, leaving the
+  -- daemon process alive but its listener path orphaned
+  -- ("ENOENT" on every subsequent client dial). Touching only
+  -- @vms\/@ keeps the daemon's socket intact.
+  let vmsDir = runtimeDir </> "vms"
+  exists <- liftIO (doesDirectoryExist vmsDir)
   when exists $ do
-    entries <- liftIO (listDirectory runtimeDir)
-    mapM_ (rmTreeWarn runtimeDir) entries
+    entries <- liftIO (listDirectory vmsDir)
+    mapM_ (rmTreeWarn vmsDir) entries
 
 tshow :: (Show a) => a -> T.Text
 tshow = T.pack . show
