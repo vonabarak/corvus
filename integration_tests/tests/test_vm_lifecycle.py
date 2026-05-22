@@ -632,3 +632,76 @@ class TestVmLifecycle(SingleNodeCase):
             # rather than assert immediately.
             vm.cap.stop(wait=True)
             self._wait_status(vm.cap, "stopped", timeout_sec=10)
+
+    def test_start_after_guest_initiated_poweroff(self):
+        """``vm.start()`` works after the guest powers itself off.
+
+        Regression for: the agent's @handleVmStart@ returned the
+        existing ledger entry without checking @vlsLastExitCode@.
+        After ``sudo poweroff`` inside the guest, the reaper
+        recorded exit code 0 but the ledger row persisted; the
+        next ``vm.start()`` matched that row and short-circuited
+        to "already running" with the dead pid, never spawning a
+        new QEMU. Daemon-side this surfaced as a task with
+        result=success and message="State: stopped".
+
+        Triggers via SSH so the guest powers off itself (no QMP
+        path involved); then expects ``vm.start()`` to land a
+        boot_id that differs from the pre-poweroff one.
+        """
+
+        with VmSsh(self) as vm:
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                boot_id_1 = shell.run(
+                    "cat /proc/sys/kernel/random/boot_id"
+                ).stdout.strip()
+                assert boot_id_1
+
+            # Trigger the guest's @poweroff@ via QGA's
+            # @guest-exec@: equivalent to a logged-in user
+            # running ``sudo poweroff``, but doesn't depend on
+            # SSH staying up across the kernel halt. The agent
+            # still routes through QGA (no QMP system_powerdown
+            # involved) so this exercises the exact code path
+            # the bug report came from — the agent records the
+            # exit code but the ledger entry persists because
+            # no stop RPC was issued.
+            try:
+                vm.cap.guest_exec("/sbin/poweroff -f")
+            except Exception:
+                # QGA's connection drops mid-exec when the
+                # kernel halts. The bug is downstream of this
+                # call; whether QGA returned cleanly is
+                # immaterial.
+                pass
+
+            # Wait for the guest to finish powering off and the
+            # daemon's monitor to reap the exit. 90s covers a
+            # full Alpine shutdown sequence under nested KVM
+            # plus one status-poller tick.
+            self._wait_status(vm.cap, "stopped", timeout_sec=90)
+
+            # The crux: start must spawn a fresh QEMU. Before
+            # the fix the agent's @handleVmStart@ saw the still-
+            # present ledger entry (the reaper wrote
+            # @vlsLastExitCode = Just 0@ but never evicted the
+            # row) and returned success with the dead pid. The
+            # daemon then attached a monitor that immediately
+            # observed @VmAgentStopped@ and slid the DB right
+            # back to stopped — task message
+            # @"State: stopped"@, result success, no new QEMU.
+            vm.cap.start()
+            self._wait_status(vm.cap, "running", timeout_sec=120)
+
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=120)
+                boot_id_2 = shell.run(
+                    "cat /proc/sys/kernel/random/boot_id"
+                ).stdout.strip()
+                assert boot_id_2 and boot_id_2 != boot_id_1, (
+                    f"boot_id unchanged across guest poweroff + start: "
+                    f"before={boot_id_1!r}, after={boot_id_2!r} — "
+                    f"the agent likely returned the stale ledger entry "
+                    f"and no new QEMU was spawned"
+                )

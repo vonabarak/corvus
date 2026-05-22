@@ -972,9 +972,41 @@ handleVmStart sc spec = do
       ledger = scVmLedger sc
   mExisting <- atomically $ L.lookupVm ledger vmId
   case mExisting of
-    Just live ->
-      pure
-        CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
+    Just live -> do
+      -- Idempotent return only if QEMU is still alive — the
+      -- reaper writes 'vlsLastExitCode' the moment the process
+      -- exits. A stale entry (process gone, ledger row not yet
+      -- evicted) would otherwise short-circuit @vmStart@ to
+      -- "already running" and the caller would see "State:
+      -- stopped" with no new QEMU spawned. This happens after
+      -- the guest powers itself off ('sudo poweroff'): the
+      -- daemon's monitor records VmStopped in the DB but the
+      -- agent's ledger entry persists carrying the exit code
+      -- 0 — needed so the next status push reports
+      -- 'VmAgentStopped' rather than 'VmAgentUnknown'.
+      mExit <- readTVarIO (L.vlsLastExitCode live)
+      case mExit of
+        Nothing ->
+          pure
+            CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
+        Just _ -> do
+          runStderrLoggingT . logInfoN $
+            "[nodeagent] vm-"
+              <> tshow vmId
+              <> ": stale ledger entry (QEMU already exited); "
+              <> "discarding and starting fresh"
+          -- Best-effort cleanup of any virtiofsd helpers still
+          -- in the entry — they should already be dead (QEMU's
+          -- vhost-user socket close took them down), but
+          -- 'reapEntryGracefully' handles already-gone PIDs
+          -- without error.
+          forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+          _ <- atomically $ L.removeVm ledger vmId
+          -- Drop the cached QGA socket so the fresh QEMU's QGA
+          -- chardev gets a clean connect rather than an attempt
+          -- to talk to the closed-socket fd from the old run.
+          atomically $ modifyTVar' (scQgaConns sc) (Map.delete vmId)
+          doVmStart sc spec
     Nothing -> doVmStart sc spec
 
 doVmStart
