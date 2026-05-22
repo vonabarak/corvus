@@ -11,8 +11,9 @@ module Corvus.Rpc.Common
     -- * Failures
   , failOnLeft
 
-    -- * Method-handler wrapper (connection-safe)
+    -- * Method-handler wrappers (connection-safe)
   , handleParsed
+  , handleParsedAsync
   )
 where
 
@@ -22,7 +23,9 @@ import qualified Capnp.Repr as R
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (MethodHandler)
 import qualified Capnp.Rpc.Server as CapnpServer
+import Control.Concurrent (forkIO)
 import Control.Exception (SomeException, catch)
+import Control.Monad (void)
 import qualified Corvus.Protocol as P
 import Corvus.Wire.Common (EntityRef (..), fromCapnpEntityRef)
 import Corvus.Wire.Errors (WireError, showWireError)
@@ -71,3 +74,43 @@ handleParsed
 handleParsed handler param fulfiller =
   CapnpServer.handleParsed handler param fulfiller
     `catch` \(_ :: SomeException) -> pure ()
+
+-- | Asynchronous variant of 'handleParsed': forks the handler in
+-- a fresh 'forkIO' so the calling 'Capnp.Rpc.Server.runServer'
+-- loop returns to the dispatch queue immediately and the next
+-- RPC on the same exported cap can start running.
+--
+-- 'runServer' processes one 'CallInfo' to completion before
+-- pulling the next one — fine for fast handlers, but a hard
+-- single-threaded bottleneck for anything that blocks (a
+-- multi-minute @vmGuestExec@ during a build, for example): every
+-- subsequent call on the agent's session sits in the queue until
+-- the slow one returns. Forking the handler restores the
+-- expected "calls proceed independently" semantics.
+--
+-- 'Capnp.Rpc.Promise.Fulfiller' is STM-backed and thread-safe,
+-- so calling 'fulfill' / 'breakPromise' from the forked thread
+-- is well-defined. Exceptions inside the handler still flow
+-- through upstream 'propagateExceptions' → the promise is
+-- broken with a structured RPC error before the catch swallows
+-- the re-raise (same rationale as 'handleParsed' — keep the
+-- connection alive).
+--
+-- Use this sparingly: only for handlers that legitimately block
+-- on something outside the agent's control (guest-side processes,
+-- long file I/O, etc.). Forking every handler would multiply the
+-- thread count and complicate per-VM serialization invariants
+-- that some handlers rely on.
+handleParsedAsync
+  :: ( C.Parse p pp
+     , R.IsStruct p
+     , C.Parse r pr
+     , R.IsStruct r
+     )
+  => (pp -> IO pr)
+  -> MethodHandler p r
+handleParsedAsync handler param fulfiller =
+  void $
+    forkIO $
+      CapnpServer.handleParsed handler param fulfiller
+        `catch` \(_ :: SomeException) -> pure ()

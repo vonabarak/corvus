@@ -52,7 +52,7 @@ import qualified Corvus.Node.VsockCid as VC
 import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.Process as P
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
-import Corvus.Rpc.Common (handleParsed)
+import Corvus.Rpc.Common (handleParsed, handleParsedAsync)
 import Corvus.Rpc.Streams (runByteSinkRelay)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (SocketBufferHandle (..))
@@ -332,7 +332,17 @@ instance CGNA.Session'server_ SessionCap where
       handleVmResume sc vid
 
   session'vmGuestExec sc =
-    handleParsed $ \CGNA.Session'vmGuestExec'params {CGNA.req = wireReq} ->
+    -- Async dispatch: a single guest-exec can run for many
+    -- minutes (build provisioners are the worst offender), and
+    -- 'runServer' on the agent's session cap is a serial loop
+    -- — every other RPC on the same daemon→agent connection
+    -- (vmStatus, subscribeVmStatus, even disk ops on unrelated
+    -- VMs) would queue behind it until the exec returns. Fork
+    -- the handler so the dispatcher is free to process the next
+    -- call immediately; the per-VM QGA MVar still serialises
+    -- \*guest-side* access to one VM, which is the only place
+    -- the agent actually needs serialisation.
+    handleParsedAsync $ \CGNA.Session'vmGuestExec'params {CGNA.req = wireReq} ->
       handleVmGuestExec sc (decodeVmGuestExecReq wireReq)
 
   session'vmStatus sc =

@@ -35,6 +35,7 @@ where
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (threadDelay)
+import qualified Control.Concurrent.Async as Async
 import Control.Concurrent.STM
   ( TVar
   , atomically
@@ -89,7 +90,18 @@ runStatusPoller cfg ledger qgaConns subs tickIntervalMs = forever $ do
   threadDelay (tickIntervalMs * 1000)
   vms <- atomically $ L.readVms ledger
   now <- millisNow
-  entries <- mapM (buildEntry cfg qgaConns) (Map.toList vms)
+  -- Build entries in parallel: one stuck guest agent (typically
+  -- a VM whose QGA MVar is held by a long-running vmGuestExec
+  -- from an in-flight build) would otherwise block the entire
+  -- tick via 'mapM', starving every other VM's status push and
+  -- leaving all of them with stale 'healthcheck' timestamps
+  -- ('crv vm list' shows them all as DOWN). Per-VM QGA
+  -- serialisation still applies inside 'buildEntry' for the
+  -- single stuck VM; the rest proceed independently.
+  entries <-
+    Async.forConcurrently
+      (Map.toList vms)
+      (buildEntry cfg qgaConns)
   -- Per-tick node observation: CPU/RAM/disk/load/kernel/version.
   -- The daemon-side sink stamps these into the 'Node' row and
   -- bumps 'nodeAgentHealthcheck'.
