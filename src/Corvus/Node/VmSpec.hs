@@ -57,6 +57,11 @@ data VmSpec = VmSpec
   -- stop/reset still tears the VM down; the agent tracks
   -- 'vlsStopRequested' to tell the two apart. Targets the
   -- tianocore\/edk2#12441 OVMF firmware reboot hang.
+  , vsSpiceBindAddr :: !T.Text
+  -- ^ Address QEMU's SPICE TCP listener binds to. Set by the
+  -- daemon from its @--spice-bind@ / @--host@ flags; the agent
+  -- substitutes it into @-spice addr=…@. Ignored when
+  -- 'vsSpicePort' is 'Nothing'.
   }
   deriving (Eq, Show)
 

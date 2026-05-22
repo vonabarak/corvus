@@ -569,7 +569,7 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
     spiceArgs =
       [ "-spice"
       , "addr="
-          ++ T.unpack qcSpiceBindAddress
+          ++ T.unpack (VS.vsSpiceBindAddr spec)
           ++ ",port="
           ++ show spicePort
           ++ ",disable-ticketing=off"

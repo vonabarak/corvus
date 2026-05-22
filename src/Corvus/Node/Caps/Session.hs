@@ -814,6 +814,7 @@ decodeVmSpec
     , CGNA.sharedDirs = sds
     , CGNA.waitForGuestAgentMs = wms
     , CGNA.rebootQuirk = rq
+    , CGNA.spiceBindAddr = sba
     } =
     VS.VmSpec
       { VS.vsVmId = vid
@@ -829,6 +830,7 @@ decodeVmSpec
       , VS.vsSharedDirs = map decodeVmSharedDirSpec sds
       , VS.vsWaitForGuestAgentMs = wms
       , VS.vsRebootQuirk = rq
+      , VS.vsSpiceBindAddr = sba
       }
 
 decodeVmDriveSpec :: CGNA.Parsed CGNA.VmDriveSpec -> VS.VmDriveSpec

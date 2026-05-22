@@ -415,6 +415,13 @@ struct VmSpec {
   # the agent suppresses the auto-restart for them. Used to
   # dodge OVMF firmware reboot hangs (tianocore/edk2#12441).
   rebootQuirk @14 :Bool;
+  # Address QEMU binds the SPICE TCP listener to. The daemon
+  # is the source of truth: its `--spice-bind` flag (defaulting
+  # to `--host` in --tcp mode, else 127.0.0.1) is forwarded
+  # here so the agent's QEMU spawn matches what the daemon
+  # reports back to clients in vmViewGrant. Ignored when
+  # spicePort is 0 (headless VMs have no SPICE listener).
+  spiceBindAddr @15 :Text;
 }
 
 struct VmDriveSpec {

@@ -643,6 +643,7 @@ encodeVmSpec s =
     , CGNA.sharedDirs = map encodeVmSharedDirSpec (vsSharedDirs s)
     , CGNA.waitForGuestAgentMs = vsWaitForGuestAgentMs s
     , CGNA.rebootQuirk = vsRebootQuirk s
+    , CGNA.spiceBindAddr = vsSpiceBindAddr s
     }
 
 encodeVmDriveSpec :: VmDriveSpec -> CGNA.Parsed CGNA.VmDriveSpec

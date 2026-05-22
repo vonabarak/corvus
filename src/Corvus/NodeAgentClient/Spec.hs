@@ -30,7 +30,7 @@ import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import qualified Corvus.NetAgentClient.Spec as NS
 import qualified Corvus.Node.VmSpec as VS
-import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
+import Corvus.Qemu.Config (QemuConfig (..), getEffectiveBasePath)
 import Data.Int (Int32, Int64)
 import Data.Pool (Pool)
 import qualified Data.Text as T
@@ -108,6 +108,7 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
               , VS.vsWaitForGuestAgentMs =
                   if vmGuestAgent vm then waitMs else 0
               , VS.vsRebootQuirk = vmRebootQuirk vm
+              , VS.vsSpiceBindAddr = qcSpiceBindAddress config
               }
       pure (Just spec)
 
