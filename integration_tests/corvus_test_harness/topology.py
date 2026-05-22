@@ -219,9 +219,16 @@ class Topology:
         # per-node host-side client cert dirs (handed to `Client(cert_dir=…)`)
         # live under `_cert_root/host/<short_name>/`. Cleaned up by finalize()
         # unless we're leaking on failure.
-        self._cert_root = Path(
-            tempfile.mkdtemp(prefix=f"corvus-it-pki-{self.class_name}-")
+        #
+        # The dir name embeds `run_id` (same run_id baked into every VM
+        # name) so debug tools — e.g. `integration_tests/scripts/crv-it` —
+        # can map a leaked outer-daemon VM name back to its cert dir
+        # without guessing among multiple leaked trees.
+        self._cert_root = (
+            Path(tempfile.gettempdir())
+            / f"corvus-it-pki-{self.class_name}-{self.run_id}"
         )
+        self._cert_root.mkdir(parents=True, exist_ok=False)
         self._ca_contexts: dict[str, CaContext] = {}
         self._certs_deployed = False
 

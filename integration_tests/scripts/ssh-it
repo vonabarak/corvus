@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Debug-only `ssh` wrapper for an integration-test node VM.
+#
+# Usage:   ssh-it <vm-name-or-id> [ssh args / remote command...]
+# Example: ssh-it corvus-it-TestWindows-d9eae66c-single
+#          ssh-it 48 sudo journalctl -u corvus.service -f
+#
+# Looks up the VM in the outer daemon, parses its outer IPv4, and execs:
+#   ssh -i integration_tests/keys/corvus-test-key corvus@<ip> [args...]
+#
+# Skips host-key checks (test VM IPs are recycled across runs, so
+# StrictHostKeyChecking would otherwise reject every fresh node).
+
+set -euo pipefail
+
+usage() {
+    cat >&2 <<EOF
+Usage: $(basename "$0") <vm-name-or-id> [ssh args / remote command...]
+
+SSHes into an integration-test node VM. Arg 1 is either the outer-daemon
+VM name (corvus-it-<Class>-<run>-<short>) or the outer-daemon numeric
+VM ID. Remaining args are passed to ssh (flags or a remote command).
+EOF
+    exit 2
+}
+
+[[ $# -ge 1 ]] || usage
+case "$1" in -h|--help) usage ;; esac
+
+target="$1"; shift
+
+show_output=$(crv vm show "$target" 2>&1) || {
+    echo "ssh-it: 'crv vm show $target' failed:" >&2
+    echo "$show_output" >&2
+    exit 1
+}
+
+vm_name=$(awk -F'[[:space:]]+' '/^Name:/ { print $2; exit }' <<<"$show_output")
+[[ -n "$vm_name" ]] || { echo "ssh-it: could not parse VM name from 'crv vm show'" >&2; exit 1; }
+
+# Sanity-check the integration-test naming pattern so we don't silently
+# SSH into something unrelated when given the wrong VM ID.
+if [[ ! $vm_name =~ ^corvus-it-(.+)-([0-9a-f]{8})-([^[:space:]]+)$ ]]; then
+    echo "ssh-it: '$vm_name' is not an integration-test VM name" >&2
+    echo "        (expected corvus-it-<Class>-<runid>-<short>)" >&2
+    exit 1
+fi
+
+ip_line=$(grep -E '^[[:space:]]+Guest IPs:' <<<"$show_output" | head -1 || true)
+if [[ -z "$ip_line" ]]; then
+    echo "ssh-it: VM has no Guest IPs reported by the outer daemon yet" >&2
+    echo "        (guest agent hasn't pushed a lease — is the VM running?)" >&2
+    exit 1
+fi
+vm_ip=$(sed -E 's/.*Guest IPs:[[:space:]]*//; s/,.*//; s|/.*||' <<<"$ip_line")
+if [[ ! $vm_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ssh-it: could not parse IPv4 from: $ip_line" >&2
+    exit 1
+fi
+
+# Repo-relative key path matches `HOST_ALPINE_KEY_PATH` in the harness;
+# resolve against the script's location so the wrapper works regardless
+# of the caller's CWD.
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+key_path="${script_dir}/../keys/corvus-test-key"
+if [[ ! -f $key_path ]]; then
+    echo "ssh-it: SSH key not found at $key_path" >&2
+    echo "        Run \`make test-image-key\` to generate it." >&2
+    exit 1
+fi
+
+echo "ssh-it: $vm_name → corvus@$vm_ip" >&2
+exec ssh \
+    -i "$key_path" \
+    -o StrictHostKeyChecking=no \
+    -o UserKnownHostsFile=/dev/null \
+    -o LogLevel=ERROR \
+    "corvus@$vm_ip" "$@"

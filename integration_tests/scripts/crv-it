@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Debug-only `crv` wrapper for an integration-test inner daemon.
+#
+# Usage:   crv-it <vm-name-or-id> [crv args...]
+# Example: crv-it corvus-it-TestWindows-d9eae66c-single vm list
+#          crv-it 48 disk list
+#
+# Looks up the VM in the outer daemon, finds the per-class CA's host-side
+# client cert dir under /tmp/corvus-it-pki-<class>-*/host/<short_name>/,
+# and execs:
+#   crv --tcp --host <vm_ip> --tls-cert-dir <dir> <args...>
+#
+# Cert dirs are wiped by Topology.finalize() on clean teardown; this
+# script only works while the test is paused (e.g. pdb) or after a
+# failure that triggered leak_on_failure.
+
+set -euo pipefail
+
+usage() {
+    cat >&2 <<EOF
+Usage: $(basename "$0") <vm-name-or-id> [crv args...]
+
+Connects to the inner Corvus daemon running on an integration-test VM.
+Arg 1 is either the outer-daemon VM name (corvus-it-<Class>-<run>-<short>)
+or the outer-daemon numeric VM ID. Remaining args are passed to crv.
+EOF
+    exit 2
+}
+
+[[ $# -ge 1 ]] || usage
+case "$1" in -h|--help) usage ;; esac
+
+target="$1"; shift
+
+# Resolve to the canonical VM name via the outer daemon (accepts ID or name).
+show_output=$(crv vm show "$target" 2>&1) || {
+    echo "crv-it: 'crv vm show $target' failed:" >&2
+    echo "$show_output" >&2
+    exit 1
+}
+
+vm_name=$(awk -F'[[:space:]]+' '/^Name:/ { print $2; exit }' <<<"$show_output")
+[[ -n "$vm_name" ]] || { echo "crv-it: could not parse VM name from 'crv vm show'" >&2; exit 1; }
+
+# Pattern: corvus-it-<class_name>-<8 hex run_id>-<short_name>
+# class_name itself can contain dashes/underscores (e.g. TestVmStartFailures),
+# so anchor on the 8-hex run id.
+if [[ ! $vm_name =~ ^corvus-it-(.+)-([0-9a-f]{8})-([^[:space:]]+)$ ]]; then
+    echo "crv-it: '$vm_name' is not an integration-test VM name" >&2
+    echo "        (expected corvus-it-<Class>-<runid>-<short>)" >&2
+    exit 1
+fi
+class_name="${BASH_REMATCH[1]}"
+run_id="${BASH_REMATCH[2]}"
+short_name="${BASH_REMATCH[3]}"
+
+# Harness names the cert root `corvus-it-pki-<class>-<run_id>` so this
+# mapping is exact, even when older leaked trees exist for the same class.
+cert_dir="${TMPDIR:-/tmp}/corvus-it-pki-${class_name}-${run_id}/host/${short_name}"
+if [[ ! -d "$cert_dir" ]]; then
+    echo "crv-it: no cert dir at $cert_dir" >&2
+    echo "        Topology.finalize() wipes cert dirs on clean teardown; this" >&2
+    echo "        script only works while the test is paused (e.g. pdb) or" >&2
+    echo "        leaked-on-failure." >&2
+    exit 1
+fi
+for f in ca.crt corvus-client.crt corvus-client.key; do
+    [[ -f "$cert_dir/$f" ]] || { echo "crv-it: cert dir '$cert_dir' missing $f" >&2; exit 1; }
+done
+
+# Guest IPs line: "    Guest IPs: 192.168.89.61/22,fe80::.../64"
+# Take the first IPv4 CIDR, strip /prefix.
+ip_line=$(grep -E '^[[:space:]]+Guest IPs:' <<<"$show_output" | head -1 || true)
+if [[ -z "$ip_line" ]]; then
+    echo "crv-it: VM has no Guest IPs reported by the outer daemon yet" >&2
+    echo "        (guest agent hasn't pushed a lease — is the VM running?)" >&2
+    exit 1
+fi
+vm_ip=$(sed -E 's/.*Guest IPs:[[:space:]]*//; s/,.*//; s|/.*||' <<<"$ip_line")
+if [[ ! $vm_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "crv-it: could not parse IPv4 from: $ip_line" >&2
+    exit 1
+fi
+
+echo "crv-it: $vm_name → $vm_ip  (certs: $cert_dir)" >&2
+exec crv --tcp --host "$vm_ip" --tls-cert-dir "$cert_dir" "$@"
