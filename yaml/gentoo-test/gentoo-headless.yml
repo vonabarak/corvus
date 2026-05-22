@@ -16,7 +16,7 @@ pipeline:
           format: qcow2
 
         - name: gentoo-base-cloud
-          import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260510T170106Z.qcow2"
+          import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260517T170110Z.qcow2"
           format: qcow2
           path: BaseImages/Gentoo/
 
@@ -182,7 +182,7 @@ pipeline:
             inline: |
               SYSROOT="/" emerge -vt sys-kernel/gentoo-sources
 
-              KSRC=$(ls -1d /usr/src/linux-*-gentoo 2>/dev/null | sort -V | tail -1)
+              KSRC=$(ls -1d /usr/src/linux-*-gentoo* 2>/dev/null | sort -V | tail -1)
               test -n "$KSRC" -a -d "$KSRC" \
                 || { echo "no gentoo-sources install at /usr/src/linux-*-gentoo"; ls /usr/src/; exit 1; }
 
