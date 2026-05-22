@@ -70,6 +70,10 @@ def patched_quickstart(monkeypatch, tmp_path, xdg_home):
         quickstart, "LocalRunner", lambda privesc_tool=None: fake_runner
     )
 
+    # Pretend Postgres is reachable; the real probe would fail on
+    # a CI host that doesn't run one.
+    monkeypatch.setattr(quickstart, "_check_postgres", lambda url: None)
+
     # Skip register's subprocess work — the daemon isn't running.
     def fake_register(**kwargs):
         return register.RegisterResult(
@@ -125,6 +129,7 @@ def test_quickstart_skips_netd_when_no_privesc(monkeypatch, tmp_path, xdg_home):
         }.get(name)
 
     monkeypatch.setattr(privesc.shutil, "which", fake_which)
+    monkeypatch.setattr(quickstart, "_check_postgres", lambda url: None)
 
     fake_runner = _FakeRunner()
     fake_runner.privesc = None
@@ -196,6 +201,34 @@ def test_quickstart_missing_binary_raises(monkeypatch, tmp_path, xdg_home):
     assert "corvus" in str(exc.value)
 
 
+def test_quickstart_aborts_when_postgres_unreachable(monkeypatch, tmp_path, xdg_home):
+    """If Postgres isn't up, quickstart should raise *before* it
+    starts writing systemd units. Catches the operator before they
+    spend 90s on a hung `systemctl --user enable --now`."""
+
+    privesc.reset_cache()
+    monkeypatch.setattr(
+        privesc.shutil,
+        "which",
+        lambda name: {
+            "sudo": "/usr/bin/sudo",
+            "corvus": "/usr/bin/corvus",
+            "corvus-nodeagent": "/usr/bin/corvus-nodeagent",
+            "corvus-netd": "/usr/bin/corvus-netd",
+        }.get(name),
+    )
+    monkeypatch.setattr(quickstart, "_check_postgres", lambda url: "Connection refused")
+
+    with pytest.raises(quickstart.QuickstartError) as exc:
+        quickstart.run(
+            node_name="primary",
+            ca_dir=tmp_path / "admin",
+            log_callback=lambda _: None,
+        )
+    assert "PostgreSQL" in str(exc.value)
+    assert "Connection refused" in str(exc.value)
+
+
 def test_default_node_name_uses_hostname(monkeypatch):
     monkeypatch.setattr("socket.gethostname", lambda: "alpha.example.com")
     # Short form: strip the FQDN suffix.
@@ -205,3 +238,62 @@ def test_default_node_name_uses_hostname(monkeypatch):
 def test_default_node_name_falls_back_to_primary(monkeypatch):
     monkeypatch.setattr("socket.gethostname", lambda: "")
     assert quickstart._default_node_name() == "primary"
+
+
+def test_check_postgres_rejects_non_postgres_url():
+    err = quickstart._check_postgres("mysql://localhost/x")
+    assert err is not None
+    assert "not a postgres URL" in err
+
+
+def test_check_postgres_tcp_unreachable(monkeypatch):
+    import socket as _socket
+
+    def fail_connect(*args, **kwargs):
+        raise OSError("Connection refused")
+
+    monkeypatch.setattr(_socket, "create_connection", fail_connect)
+    err = quickstart._check_postgres("postgresql://localhost/corvus")
+    assert err is not None
+    assert "Connection refused" in err
+
+
+def test_check_postgres_tcp_ok(monkeypatch):
+    import socket as _socket
+
+    class _FakeSock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_socket, "create_connection", lambda *a, **k: _FakeSock())
+    assert quickstart._check_postgres("postgresql://localhost/corvus") is None
+
+
+def test_check_postgres_unix_socket_present(monkeypatch, tmp_path):
+    # Re-route both common search dirs at /var/run/postgresql and
+    # /tmp; the probe walks both. We pretend the socket file is
+    # present by patching Path.exists for any path with the right
+    # suffix.
+    from pathlib import Path
+
+    real_exists = Path.exists
+
+    def fake_exists(self):
+        if str(self).endswith(".s.PGSQL.5432"):
+            return True
+        return real_exists(self)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+    assert quickstart._check_postgres("postgresql:///corvus") is None
+
+
+def test_check_postgres_unix_socket_missing(monkeypatch):
+    from pathlib import Path
+
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+    err = quickstart._check_postgres("postgresql:///corvus")
+    assert err is not None
+    assert "Unix socket" in err

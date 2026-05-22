@@ -19,6 +19,7 @@ import socket
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 from corvus_admin import (
     binaries,
@@ -77,6 +78,47 @@ def _default_base_path() -> str:
     return str(home / "VMs")
 
 
+def _check_postgres(url: str, *, timeout_sec: float = 3.0) -> str | None:
+    """Quick reachability probe for the URL the daemon will use.
+
+    Catches the most common quickstart failure — Postgres not
+    running — *before* the daemon's systemd unit is started, since
+    a daemon stuck on the initial DB connect makes
+    ``systemctl --user enable --now`` hang for the full timeout.
+
+    Returns ``None`` on success or a short diagnostic on failure.
+    Tries TCP for URLs with a host and the standard Unix-socket
+    location otherwise; deliberately does not authenticate or run
+    SQL — we just want "is something listening?"."""
+
+    try:
+        u = urlparse(url)
+    except ValueError as e:
+        return f"could not parse {url!r}: {e}"
+    if u.scheme not in ("postgresql", "postgres"):
+        return f"not a postgres URL: {url!r}"
+
+    port = u.port or 5432
+    host = u.hostname
+
+    if not host:
+        # Empty host means Unix socket; try the two common dirs.
+        for sock_dir in ("/var/run/postgresql", "/tmp"):
+            sock_path = Path(sock_dir) / f".s.PGSQL.{port}"
+            if sock_path.exists():
+                return None
+        return (
+            f"no postgres Unix socket at /var/run/postgresql/.s.PGSQL.{port} "
+            f"or /tmp/.s.PGSQL.{port}"
+        )
+
+    try:
+        with socket.create_connection((host, port), timeout=timeout_sec):
+            return None
+    except OSError as e:
+        return f"cannot connect to {host}:{port}: {e}"
+
+
 def run(
     *,
     node_name: str | None = None,
@@ -124,7 +166,21 @@ def run(
         log(f"Using netd binary at {bins.netd}.")
 
     # ------------------------------------------------------------------
-    # 2. Admin store + CA + admin client cert
+    # 2. Probe PostgreSQL — if it isn't up, the daemon's startup
+    # blocks the systemd `enable --now` call we'll make below and
+    # quickstart appears to hang indefinitely. Fail loud and early
+    # instead.
+
+    pg_err = _check_postgres(database_url)
+    if pg_err is not None:
+        raise QuickstartError(
+            f"PostgreSQL not reachable at {database_url}: {pg_err}. "
+            f"Start it (e.g. `sudo systemctl start postgresql`) and re-run."
+        )
+    log(f"PostgreSQL reachable at {database_url}.")
+
+    # ------------------------------------------------------------------
+    # 3. Admin store + CA + admin client cert
 
     st = store.AdminStore(ca_dir if ca_dir is not None else store.default_admin_dir())
     if not st.exists() or force:
@@ -146,7 +202,7 @@ def run(
     )
 
     # ------------------------------------------------------------------
-    # 3. Render + install systemd units
+    # 4. Render + install systemd units
 
     runner = LocalRunner(privesc_tool=pe)
     units_installed: list[str] = []
@@ -191,7 +247,7 @@ def run(
         systemd_mod.daemon_reload(runner, mode="system")
 
     # ------------------------------------------------------------------
-    # 4. Mint + deploy component certs (which also enables + starts units)
+    # 5. Mint + deploy component certs (which also enables + starts units)
 
     daemon_plan = deploy.deploy_daemon(
         st,
@@ -230,7 +286,7 @@ def run(
         )
 
     # ------------------------------------------------------------------
-    # 5. Register node with daemon
+    # 6. Register node with daemon
 
     try:
         result = register.register_node(
