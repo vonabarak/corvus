@@ -1210,6 +1210,17 @@ doVmStart sc spec = do
                           <> tshow vmId
                           <> ": first QGA ping failed: "
                           <> reason
+                      -- Suppress reboot-quirk auto-restart on
+                      -- the impending QEMU teardown: this is an
+                      -- agent-initiated stop (the first-ping
+                      -- watcher gave up), not a guest-initiated
+                      -- exit. Without this flag the reaper would
+                      -- treat the kill as "guest rebooted" and
+                      -- re-spawn QEMU on a quirk-enabled VM,
+                      -- looping forever while the daemon's
+                      -- watcher fires the same timeout each
+                      -- pass.
+                      liftIO $ atomically $ writeTVar stopRequestedVar True
                       let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
                       stopRes <-
                         P.stopProcess

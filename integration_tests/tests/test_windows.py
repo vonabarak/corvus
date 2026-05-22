@@ -325,52 +325,79 @@ class TestWindows(SingleNodeCase):
                     f"cloudbase-init.log tail probe: {log_tail}"
                 )
 
-    @pytest.mark.skip(
-        reason=(
-            "Windows + virtio-fs is blocked by two firmware-side bugs: "
-            "(1) the share doesn't bind on first boot under nested-KVM "
-            "even though VirtIO FS Device shows Status=OK and "
-            "VirtioFsSvc/WinFsp.Launcher are both Running (vhost-user-fs "
-            "handshake between inner qemu and virtiofsd appears to fail "
-            "silently); (2) the natural workaround — power-cycle the VM "
-            "to re-do the handshake — trips TianoCore edk2#12441 "
-            "(OVMF hangs on reboot with virtio-fs attached). Skip until "
-            "either upstream fix lands — the test takes ~25 min and "
-            "doesn't currently verify anything end-to-end."
-        )
-    )
     @pytest.mark.timeout(1500)
     def test_shared_directory(self):
         """Virtiofs shared dir round-trips through the guest.
 
-        Currently xfail — see the marker above. cloud-init is
-        disabled here because the earlier `cloud_init=True +
-        shared_dir` configuration triggered a guest-initiated reboot
-        (cloudbase-init hostname change), which then hit edk2#12441
-        and hung OVMF mid-reboot. Even with cloud-init off the
-        first-boot mount doesn't appear, but at least the test
-        terminates cleanly with diagnostics instead of hanging the
-        outer daemon.
+        Two intertwined firmware-side issues are at play:
+
+        1. The share doesn't bind on first boot under nested-KVM
+           even though `VirtIO FS Device` reports `Status=OK` and
+           both `VirtioFsSvc` / `WinFsp.Launcher` are running —
+           the vhost-user-fs handshake between the inner QEMU and
+           virtiofsd silently fails. The natural fix is a full
+           VM power-cycle so the handshake is redone from
+           scratch.
+        2. That power-cycle then trips tianocore/edk2#12441 —
+           OVMF hangs on in-place reboot with virtio-fs attached.
+
+        The `reboot_quirk` flag (added in commit `eeb6ef4`)
+        sidesteps (2): with it on, QEMU runs with `-no-reboot`
+        and the agent re-spawns QEMU after each guest-initiated
+        exit. The guest sees a normal reboot; firmware sees a
+        cold boot. With (2) defanged we can use the (1)
+        workaround safely: boot, reboot, mount.
         """
         share_path = f"/tmp/win-share-{secrets.token_hex(4)}"
         self.node.run(f"mkdir -p {share_path}")
         self.node.run(f"echo HOST-WROTE > {share_path}/from-host.txt")
 
         class _WinShare(VmWindows):
-            # cloud_init disabled: enabling it lets cloudbase-init
-            # reboot the guest mid-test, and that reboot hangs OVMF
-            # due to edk2#12441 — the test would never terminate.
-            cloud_init = False
+            # See the test docstring: the OVMF reboot hang
+            # blocks the (1) workaround. `reboot_quirk` makes
+            # the bounce safe.
+            reboot_quirk = True
 
             def _shared_dirs(_self):
                 return [{"path": share_path, "tag": "winshare"}]
 
         try:
             with _WinShare(self) as vm:
-                share_drive = self._find_share_drive(vm)
-                if share_drive is None:
+                # Poll for the share to appear. cloudbase-init
+                # naturally reboots the guest mid-bring-up (for
+                # the hostname change); that reboot is what
+                # actually fixes the share's vhost-user-fs
+                # handshake. With `reboot_quirk` on the agent
+                # re-spawns QEMU transparently — the DB row
+                # stays `running` and the QGA socket reconnects
+                # under the hood. The polling loop tolerates
+                # the QGA blip across the bounce: each guest_exec
+                # call may raise during the window, and the
+                # `_find_share_drive` helper also restarts
+                # `VirtioFsSvc` on each pass to give the driver
+                # another chance to enumerate.
+                #
+                # Budget: ~15 min covers slow nested-KVM Windows
+                # boot (~4 min) + cloud-init (~3 min) + reboot
+                # via the quirk (~3 min) + a couple of retry
+                # passes with `_find_share_drive`.
+                drive: str | None = None
+                deadline = time.monotonic() + 15 * 60.0
+                while time.monotonic() < deadline:
+                    try:
+                        drive = self._find_share_drive(vm)
+                    except Exception:
+                        # QGA may be transiently unreachable
+                        # while the reboot-quirk re-spawn is in
+                        # flight. Keep polling.
+                        drive = None
+                    if drive is not None:
+                        break
+                    time.sleep(15)
+
+                if drive is None:
                     self._raise_share_diagnostic(vm)
-                drive = share_drive
+                assert drive is not None
 
                 # Read host-written content from inside the guest.
                 r = vm.cap.guest_exec(f"cmd.exe /c type {drive}:\\from-host.txt")
