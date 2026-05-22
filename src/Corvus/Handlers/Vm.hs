@@ -68,7 +68,7 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64URL
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -241,13 +241,60 @@ handleVmStartExecute state vmId parentTaskId = do
         _ -> runServerLogging state $ do
           resp <- startQemuAndMonitor state vmId vm parentTaskId
           case resp of
-            RespVmStateChanged _ ->
-              -- Steady-state healthchecks now arrive via the
-              -- agent's 'subscribeVmStatus' push — see
-              -- 'Corvus.Handlers.VmStatusSink'. No per-VM poller
-              -- thread to spawn here.
-              pure $ RespVmStateChanged VmRunning
+            RespVmStateChanged VmStarting ->
+              -- The agent's vmStart now returns after QEMU spawn,
+              -- before the first QGA ping. Block here until the
+              -- push channel finishes the transition — either to
+              -- 'VmRunning' (ping landed) or 'VmError' (first
+              -- ping never came / QEMU crashed early). Without
+              -- this poll, callers passing @wait=true@ would see
+              -- the RPC return at 'VmStarting' and immediately
+              -- fail their first @vm.exec@ because QGA isn't yet
+              -- reachable.
+              liftIO $ waitForStartCompletion state vmId
+            RespVmStateChanged _ -> pure resp
             _ -> pure resp
+
+-- | Block until the DB row for @vmId@ leaves 'VmStarting'.
+-- Returns the final response (always one of 'VmRunning',
+-- 'VmError', or 'RespError' if the row vanishes / wait
+-- timeout). Used by the @wait=true@ start path to preserve the
+-- old "block until fully booted" semantics now that the agent
+-- returns from 'vmStart' before QGA is ready.
+waitForStartCompletion :: ServerState -> Int64 -> IO Response
+waitForStartCompletion state vmId = go (10 * 60 * 10)
+  where
+    pool = ssDbPool state
+    -- 10-minute budget at 100 ms ticks; matches the agent's
+    -- worst-case cloud-init bootstrap wait (5 min) with margin.
+    go remaining
+      | remaining <= 0 =
+          pure $
+            RespError $
+              "VM "
+                <> T.pack (show vmId)
+                <> " did not finish starting within 10 minutes; "
+                <> "the agent's first-QGA-ping watcher may be stuck"
+      | otherwise = do
+          mStatus <- runSqlPool (getVmStatusOnly vmId) pool
+          case mStatus of
+            Nothing -> pure RespVmNotFound
+            Just VmStarting -> do
+              threadDelay 100000
+              go (remaining - 1)
+            Just VmRunning -> pure $ RespVmStateChanged VmRunning
+            Just VmError -> do
+              -- Read the persisted error message so the RPC
+              -- caller sees what the agent reported.
+              mVm <- runSqlPool (get (toSqlKey vmId :: VmId)) pool
+              let msg = case mVm of
+                    Just v -> fromMaybe "VM start failed" (vmErrorMessage v)
+                    Nothing -> "VM start failed"
+              pure $ RespError msg
+            -- Anything else: the start was overtaken by another
+            -- handler (reset / delete). Report whatever the
+            -- terminal state is so the caller doesn't loop.
+            Just s -> pure $ RespVmStateChanged s
 
 -- | Resume a paused VM via @vmResume@ (agent issues QMP @cont@).
 resumeFromPaused :: ServerState -> Int64 -> LoggingT IO Response
@@ -405,15 +452,27 @@ launchVmViaAgent state vmId vm pool = do
             pure $ RespError msg
           Right info -> do
             let pid = fromIntegral (NOA.vriQemuPid info) :: Int
-            -- vmStart's blocking semantics mean QEMU is up and
-            -- (with guestAgent) the first ping has landed by the
-            -- time we get here. Promote to VmRunning. Chardev
-            -- ring buffers (serial + HMP monitor) are owned by
-            -- the agent and exposed via the openSerialConsole /
-            -- openHmpMonitor RPCs.
-            liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) (ssDbPool state)
+            -- Post-split semantics: the agent's 'vmStart' returns
+            -- once QEMU is spawned, *not* once QGA is reachable.
+            -- The first-QGA-ping wait was moved into a forked
+            -- watcher inside the agent (see 'doVmStart'). When the
+            -- ping lands, the watcher dispatches a single-VM
+            -- snapshot via the existing push channel and the
+            -- daemon's 'VmStatusSink' promotes our DB row from
+            -- 'VmStarting' to 'VmRunning'. Goal: unblock the
+            -- agent's session RPC thread so it can process N
+            -- concurrent vmStart calls without queuing behind one
+            -- VM's first-boot latency.
+            --
+            -- VMs without a guest agent never trigger that push
+            -- (the watcher only fires when 'waitForGuestAgentMs >
+            -- 0'); promote synchronously here for them.
             liftIO $ attachVmMonitor state vmId
-            pure $ RespVmStateChanged VmRunning
+            if vmGuestAgent vm
+              then pure $ RespVmStateChanged VmStarting
+              else do
+                liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) (ssDbPool state)
+                pure $ RespVmStateChanged VmRunning
 
 -- | Re-validate the VM's stored vsock CID against the live host
 -- kernel before launching QEMU, and reallocate if necessary.

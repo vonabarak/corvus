@@ -73,11 +73,19 @@ class TestVmStartFailures(SingleNodeCase):
             assert elapsed < 30, f"vm.start hung for {elapsed:.1f}s — should be <30s"
 
             # The error string (lands in task.message) must blame
-            # QEMU's early exit, not a guest-agent timeout.
+            # QEMU's early exit, not a guest-agent timeout. With
+            # the forked first-ping watcher, the wording the
+            # daemon surfaces comes from the agent's push-channel
+            # exit code (just "QEMU exited with code N"); the
+            # original verbose phrase lived on the synchronous
+            # vmStart return path that no longer exists. We
+            # therefore assert (a) the message mentions the QEMU
+            # exit, and (b) it does NOT misattribute the failure
+            # to a guest-agent timeout.
             msg = str(exc_info.value).lower()
             assert "exited" in msg, msg
-            assert "before first guest-agent ping" in msg, msg
             assert "qga ping timeout" not in msg, msg
+            assert "guest agent did not respond" not in msg, msg
 
             # `crv vm show` surface: the VM is in error with a
             # populated reason and timestamp.

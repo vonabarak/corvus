@@ -1075,39 +1075,71 @@ doVmStart sc spec = do
                 <> tshow qemuPidW
                 <> " code="
                 <> tshow code
-          -- Optional: block until first QGA ping succeeds. Watches
-          -- both the QGA socket *and* QEMU's exit code so an early
-          -- crash surfaces an accurate error in <1 s instead of a
-          -- 90 s misleading "QGA ping timeout".
-          when (VS.vsWaitForGuestAgentMs spec > 0) $ do
-            result <-
-              waitForFirstQgaPing
-                (scQgaConns sc)
-                cfg
-                vmId
-                lastExitVar
-                stderrTailVar
-                (VS.vsWaitForGuestAgentMs spec)
-            case result of
-              Right () -> pure ()
-              Left reason -> do
-                -- Tear down: kill QEMU and virtiofsd, drop ledger
-                -- entry, surface as failure.
-                _ <- atomically $ L.removeVm (scVmLedger sc) vmId
-                let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
-                stopRes <-
-                  runStderrLoggingT $
-                    P.stopProcess
-                      qemuLabel
-                      (CPid (fromIntegral qemuPidW))
-                      Nothing
-                      0
-                      5
-                case stopRes of
-                  P.NotRunning -> pure ()
-                  _ -> runStderrLoggingT $ P.waitForProcessBounded qemuLabel 5 qemuPh
-                forM_ virtiofsdEntries reapEntryGracefully
-                throwFailed reason
+          -- First-QGA-ping watcher: fork it off so the RPC can
+          -- return as soon as QEMU is alive. The watcher races
+          -- the QGA socket against the reaper's exit-code TVar,
+          -- so an early QEMU crash surfaces in <1 s. On success
+          -- it pushes a single-VM status snapshot to every
+          -- subscribed daemon — the daemon's VmStatusSink
+          -- promotes its DB row from VmStarting to VmRunning on
+          -- receipt. On failure it tears the VM down and pushes
+          -- one more snapshot reflecting the errored state.
+          --
+          -- Pre-split this wait blocked the agent's RPC thread,
+          -- which serialized every other vmStart on the same
+          -- session — the user-visible "only ~3 VMs can start at
+          -- once" bottleneck. Forking here decouples the
+          -- session's RPC dispatcher from each VM's individual
+          -- first-ping latency.
+          when (VS.vsWaitForGuestAgentMs spec > 0) $
+            void $
+              forkIO $
+                runStderrLoggingT $ do
+                  result <-
+                    liftIO $
+                      waitForFirstQgaPing
+                        (scQgaConns sc)
+                        cfg
+                        vmId
+                        lastExitVar
+                        stderrTailVar
+                        (VS.vsWaitForGuestAgentMs spec)
+                  case result of
+                    Right () -> do
+                      logInfoN $
+                        "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping landed"
+                      liftIO $
+                        SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
+                    Left reason -> do
+                      logWarnN $
+                        "[nodeagent] vm-"
+                          <> tshow vmId
+                          <> ": first QGA ping failed: "
+                          <> reason
+                      let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
+                      stopRes <-
+                        P.stopProcess
+                          qemuLabel
+                          (CPid (fromIntegral qemuPidW))
+                          Nothing
+                          0
+                          5
+                      case stopRes of
+                        P.NotRunning -> pure ()
+                        _ -> P.waitForProcessBounded qemuLabel 5 qemuPh
+                      -- Push the errored snapshot BEFORE removing
+                      -- the entry: 'buildEntry' reads
+                      -- 'vlsLastExitCode' (now set by the reaper)
+                      -- and emits VmAgentState'errored, which the
+                      -- sink translates to setVmError. After
+                      -- removal the next 10 s tick reports
+                      -- nothing for this VM (the entry list just
+                      -- doesn't contain it) — fine for steady
+                      -- state.
+                      liftIO $
+                        SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
+                      _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
+                      liftIO $ forM_ virtiofsdEntries reapEntryGracefully
           pure
             CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
 

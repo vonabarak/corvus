@@ -34,6 +34,7 @@ import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Control.Exception as E
 import Control.Monad (forM_, when)
+import Control.Monad.IO.Class (liftIO)
 import qualified Corvus.Model as M
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (callSink)
@@ -90,8 +91,10 @@ processEntry :: ServerState -> C.Parsed CGNA.VmStatusEntry -> IO ()
 processEntry state entry = do
   let CGNA.VmStatusEntry
         { CGNA.vmId = vmId
+        , CGNA.state = agentState
         , CGNA.guestAgentOk = ok
         , CGNA.lastPingMillis = pingMillis
+        , CGNA.lastExitCode = exitCode
         , CGNA.netIfs = ifs
         } = entry
       pool = ssDbPool state
@@ -101,10 +104,71 @@ processEntry state entry = do
     let pingedAt = millisToUtc pingMillis
     runSqlPool (updateHealthcheck vmId pingedAt) pool
     runSqlPool (updateGuestNetworkData vmId ifs) pool
+  -- Translate agent-side state into DB transitions for the
+  -- subset of states the agent owns (start completion + crash
+  -- detection). 'attachVmMonitor' still drives the running →
+  -- stopped/error transition for VMs the agent reports as gone
+  -- — keep that in one place. Here we only promote on the
+  -- start-side push (forked QGA watcher in 'doVmStart' fires
+  -- 'dispatchVm' the moment the first ping lands) and surface
+  -- early QEMU crashes that happened before the daemon's
+  -- monitor was even attached.
+  case agentState of
+    CGNA.VmAgentState'running
+      | ok ->
+          runSqlPool (promoteStartingToRunning vmId) pool
+    CGNA.VmAgentState'errored ->
+      runSqlPool (markErroredFromAgent vmId (fromIntegral exitCode)) pool
+    _ -> pure ()
   -- Fan out the per-VM GuestAgentStatus to anyone subscribed via
   -- @vm.subscribeGuestAgent@. Mirrors the old in-daemon poller's
   -- 'pushGuestAgentStatus' helper.
   pushGuestAgentStatus state vmId ok pingMillis
+
+-- | Promote @VmStarting@ to @VmRunning@. The push channel is the
+-- only place the daemon learns that the agent finished bringing
+-- the VM up: the agent's 'doVmStart' forks the first-QGA-ping
+-- watcher and pushes a single-entry snapshot the moment it
+-- succeeds. We guard on @VmStatus = 'VmStarting'@ so that a
+-- regular 10 s tick for a steady-state VM doesn't accidentally
+-- re-write its status (would clobber 'VmPaused' / mid-stop
+-- transitions if the timing is unkind).
+promoteStartingToRunning :: Int64 -> SqlPersistT IO ()
+promoteStartingToRunning vmId = do
+  let key = M.toSqlKey vmId :: M.VmId
+  mVm <- get key
+  case mVm of
+    Just vm
+      | M.vmStatus vm == M.VmStarting ->
+          update
+            key
+            [ M.VmStatus =. M.VmRunning
+            , M.VmErrorMessage =. Nothing
+            , M.VmLastErrorAt =. Nothing
+            ]
+    _ -> pure ()
+
+-- | Surface an agent-reported errored state into the DB. Only
+-- transitions VMs that aren't already in a terminal state
+-- ('VmStopped' / 'VmError') to avoid clobbering whatever an
+-- earlier failure path already wrote.
+markErroredFromAgent :: Int64 -> Int -> SqlPersistT IO ()
+markErroredFromAgent vmId exitCode = do
+  let key = M.toSqlKey vmId :: M.VmId
+  mVm <- get key
+  case mVm of
+    Just vm | M.vmStatus vm `notElem` [M.VmStopped, M.VmError] -> do
+      now <- liftIO getCurrentTime
+      let msg = "QEMU exited with code " <> T.pack (show exitCode)
+      update
+        key
+        [ M.VmStatus =. M.VmError
+        , M.VmHealthcheck =. Nothing
+        , M.VmSpicePort =. Nothing
+        , M.VmErrorMessage =. Just msg
+        , M.VmLastErrorAt =. Just now
+        ]
+    _ -> pure ()
 
 -- | Update the healthcheck timestamp on the VM.
 updateHealthcheck :: Int64 -> UTCTime -> SqlPersistT IO ()

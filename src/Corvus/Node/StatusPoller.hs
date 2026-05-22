@@ -28,6 +28,7 @@ module Corvus.Node.StatusPoller
   , newSubscribers
   , addSubscriber
   , runStatusPoller
+  , dispatchVm
   )
 where
 
@@ -100,6 +101,40 @@ runStatusPoller cfg ledger qgaConns subs tickIntervalMs = forever $ do
           , CGNA.nodeStats = stats
           }
   dispatch subs snapshot
+
+-- | Push a single-VM snapshot to every subscriber, out of band
+-- from the 10 s ticker. Used by the agent's @vmStart@ forked
+-- post-spawn watcher to signal "first QGA ping landed" (or
+-- "QGA never came up, VM torn down") to the daemon without
+-- waiting for the next tick.
+--
+-- The entry is built from the same path the periodic poller
+-- uses, so the daemon-side 'VmStatusSink' handler can't tell an
+-- on-demand push apart from a regular tick. If the VM isn't in
+-- the ledger anymore (e.g. removed before this call landed), the
+-- push is a no-op.
+dispatchVm
+  :: QemuConfig
+  -> NGA.GuestAgentConns
+  -> L.VmLedger
+  -> Subscribers
+  -> Int64
+  -> IO ()
+dispatchVm cfg qgaConns ledger subs vmId = do
+  vms <- atomically $ L.readVms ledger
+  case Map.lookup vmId vms of
+    Nothing -> pure ()
+    Just live -> do
+      entry <- buildEntry cfg qgaConns (vmId, live)
+      now <- millisNow
+      stats <- NS.readNodeStats cfg
+      let snapshot =
+            CGNA.VmStatusSnapshot
+              { CGNA.snapshotAtMillis = now
+              , CGNA.entries = [entry]
+              , CGNA.nodeStats = stats
+              }
+      dispatch subs snapshot
 
 -- | One pass per VM in the ledger. Reads the reaper's last-exit
 -- code, decides the agent-side state, and (for running VMs)
