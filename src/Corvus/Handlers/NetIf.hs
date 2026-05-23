@@ -14,12 +14,15 @@ where
 import Corvus.Action
 
 import Control.Monad.IO.Class (liftIO)
+import qualified Corvus.Handlers.Network as NetworkH
+import qualified Corvus.Handlers.Network.Ipam as Ipam
 import Corvus.Model (NetInterfaceType (..), Network (..), NetworkInterface (..), TaskSubsystem (..), Vm (..), VmId, VmStatus (..))
 import qualified Corvus.Model as M
 import Corvus.Protocol
 import Corvus.Types (ServerState (..))
 import Corvus.Utils.Network (generateMacAddress)
 import Data.Int (Int64)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
@@ -53,7 +56,18 @@ handleNetIfAdd state vmId ifaceType hostDevice mMacAddress mNetworkId = do
   case result of
     Nothing -> pure RespVmNotFound
     Just (Left err) -> pure $ RespError err
-    Just (Right netIfId) -> pure $ RespNetIfAdded netIfId
+    Just (Right (netIfId, mNetworkKey, refreshNetworkSpec)) -> do
+      -- The DB insert succeeded; if it created a NIC on a managed
+      -- network whose IP allocation changed, push the updated
+      -- spec out so dnsmasq picks up the new --dhcp-host
+      -- reservation. Best-effort: a failure here doesn't fail the
+      -- add (the supervisor reapply will catch up later).
+      case (refreshNetworkSpec, mNetworkKey) of
+        (True, Just key) -> do
+          _ <- NetworkH.pushNetworkToAllMembers state key
+          pure ()
+        _ -> pure ()
+      pure $ RespNetIfAdded netIfId
 
 -- | Remove a network interface from a VM
 handleNetIfRemove :: ServerState -> Int64 -> Int64 -> IO Response
@@ -76,46 +90,70 @@ handleNetIfList state vmId = do
 -- Database Operations
 --------------------------------------------------------------------------------
 
--- | Add a network interface to a VM
+-- | Add a network interface to a VM. Returns @(netIfId,
+-- networkKey, refreshNeeded)@ where @refreshNeeded@ is True when
+-- the row landed on a managed network and the daemon should re-push
+-- the network spec to all members (so the new DHCP reservation
+-- propagates).
 addNetIf
   :: Int64
   -> NetInterfaceType
   -> Text
   -> Text
   -> Maybe M.NetworkId
-  -> SqlPersistT IO (Maybe (Either Text Int64))
+  -> SqlPersistT IO (Maybe (Either Text (Int64, Maybe M.NetworkId, Bool)))
 addNetIf vmId ifaceType hostDevice macAddress mNetworkKey = do
   let vmKey = toSqlKey vmId :: VmId
   mVm <- get vmKey
   case mVm of
     Nothing -> pure Nothing
     Just vm -> do
-      -- Validate network exists if specified, and enforce the
-      -- same-node invariant for managed networks: a managed-NIC
-      -- TAP can only join a bridge that lives on the same kernel
-      -- as the VM's QEMU process. Refuse cross-node attempts
-      -- with a clear error so the operator can move the VM (or
-      -- create a network on the right node).
       case mNetworkKey of
         Just nwKey -> do
           mNetwork <- get nwKey
           case mNetwork of
             Nothing -> pure $ Just $ Left "Network not found"
-            Just nw
-              | networkNodeId nw /= vmNodeId vm ->
+            Just nw -> do
+              -- A managed NIC's VM may be on the owner OR on any
+              -- peer node — the overlay (when present) carries
+              -- traffic between them.
+              isMember <- vmNodeIsNetworkMember nw nwKey (vmNodeId vm)
+              if not isMember
+                then
                   pure $
                     Just $
                       Left $
-                        "Network '"
+                        "VM's node is neither the owner nor a peer of network '"
                           <> networkName nw
-                          <> "' is on node "
-                          <> T.pack (show (fromSqlKey (networkNodeId nw)))
-                          <> " but VM is on node "
-                          <> T.pack (show (fromSqlKey (vmNodeId vm)))
-              | otherwise -> doInsert vmKey mNetworkKey
-        Nothing -> doInsert vmKey Nothing
+                          <> "' (add it with `crv network attach-node`)"
+                else allocateAndInsert vmKey nwKey nw
+        Nothing -> doInsert vmKey Nothing Nothing
   where
-    doInsert vmKey nwKey = do
+    vmNodeIsNetworkMember nw nwKey vmNode
+      | networkNodeId nw == vmNode = pure True
+      | otherwise = do
+          c <-
+            count
+              [ M.NetworkPeerNetworkId ==. nwKey
+              , M.NetworkPeerNodeId ==. vmNode
+              ]
+          pure (c > 0)
+
+    allocateAndInsert vmKey nwKey nw
+      | T.null (networkSubnet nw) =
+          -- No subnet → no IPAM. Keeps L2-only networks usable.
+          doInsert vmKey (Just nwKey) Nothing
+      | otherwise = do
+          used <- allocatedIpsForNetwork nwKey
+          case Ipam.allocateIp (networkSubnet nw) used of
+            Left err -> pure $ Just $ Left err
+            Right ip -> doInsert vmKey (Just nwKey) (Just ip)
+
+    allocatedIpsForNetwork nwKey = do
+      nics <- selectList [M.NetworkInterfaceNetworkId ==. Just nwKey] []
+      pure $ mapMaybe (M.networkInterfaceIpAddress . entityVal) nics
+
+    doInsert vmKey nwKey mIp = do
       let netIf =
             NetworkInterface
               { networkInterfaceVmId = vmKey
@@ -124,10 +162,13 @@ addNetIf vmId ifaceType hostDevice macAddress mNetworkKey = do
               , networkInterfaceMacAddress = macAddress
               , networkInterfaceNetworkId = nwKey
               , networkInterfaceGuestIpAddresses = Nothing
-              , networkInterfaceIpAddress = Nothing
+              , networkInterfaceIpAddress = mIp
               }
       netIfKey <- insert netIf
-      pure $ Just $ Right $ fromSqlKey netIfKey
+      let needsRefresh = case (nwKey, mIp) of
+            (Just _, Just _) -> True
+            _ -> False
+      pure $ Just $ Right (fromSqlKey netIfKey, nwKey, needsRefresh)
 
 -- | Remove a network interface from a VM
 removeNetIf :: Int64 -> Int64 -> SqlPersistT IO (Maybe Bool)

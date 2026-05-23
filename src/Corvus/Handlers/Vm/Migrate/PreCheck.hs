@@ -28,7 +28,7 @@ import qualified Data.List as L
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Persist (Entity (..), get, selectList, (==.))
+import Database.Persist (Entity (..), count, get, selectList, (==.))
 import Database.Persist.Postgresql (SqlPersistT, runSqlPool)
 
 -- ---------------------------------------------------------------------------
@@ -115,23 +115,70 @@ checkSharedDirsAndNet state vmId vm destNode dest = do
       pure $
         Left "VM has shared directories; remove them before migrating (host paths are node-local)"
     [] -> do
-      nis <-
+      -- NIC migration rules:
+      --   * 'user' (SLIRP) — always OK, no kernel ifaces involved.
+      --   * 'managed' — OK iff the destination is a member of the
+      --     NIC's network (owner OR a NetworkPeer). The VXLAN
+      --     overlay (if present) carries the L2 segment, so the
+      --     VM keeps the IP it was leased on the source.
+      --   * everything else (tap / bridge / macvtap / vde) —
+      --     still node-local; refuse.
+      verdict <-
         runSqlPool
-          (selectList [M.NetworkInterfaceVmId ==. vmId] [])
+          ( do
+              nis <- selectList [M.NetworkInterfaceVmId ==. vmId] []
+              checkNicsForMigration destNode nis
+          )
           pool
-      let badIf =
-            [ M.networkInterfaceInterfaceType (entityVal e)
-            | e <- nis
-            , M.networkInterfaceInterfaceType (entityVal e) /= M.NetUser
-            ]
-      case badIf of
-        (t : _) ->
+      case verdict of
+        Left err -> pure (Left err)
+        Right () -> buildPlanFromDrives state vmId vm destNode dest
+
+checkNicsForMigration
+  :: M.NodeId
+  -> [Entity M.NetworkInterface]
+  -> SqlPersistT IO (Either Text ())
+checkNicsForMigration destNode = go
+  where
+    go [] = pure (Right ())
+    go (Entity _ nic : rest) =
+      case M.networkInterfaceInterfaceType nic of
+        M.NetUser -> go rest
+        M.NetManaged -> case M.networkInterfaceNetworkId nic of
+          Nothing ->
+            pure $
+              Left "managed NIC has no network assigned (cannot evaluate migration)"
+          Just nwKey -> do
+            mNw <- get nwKey
+            case mNw of
+              Nothing ->
+                pure $ Left "managed NIC references a missing network row"
+              Just nw -> do
+                isMember <-
+                  if M.networkNodeId nw == destNode
+                    then pure True
+                    else do
+                      c <-
+                        count
+                          [ M.NetworkPeerNetworkId ==. nwKey
+                          , M.NetworkPeerNodeId ==. destNode
+                          ]
+                      pure (c > 0)
+                if isMember
+                  then go rest
+                  else
+                    pure $
+                      Left $
+                        "VM is attached to network '"
+                          <> M.networkName nw
+                          <> "' which does not include the destination node "
+                          <> "(attach it with `crv network attach-node`)"
+        other ->
           pure $
             Left $
               "VM has a non-user network interface ("
-                <> M.enumToText t
-                <> "); only user (SLIRP) or no network is supported"
-        [] -> buildPlanFromDrives state vmId vm destNode dest
+                <> M.enumToText other
+                <> "); only user (SLIRP), managed (overlay-backed), or no network is supported"
 
 buildPlanFromDrives
   :: ServerState
