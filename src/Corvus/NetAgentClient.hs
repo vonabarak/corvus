@@ -29,6 +29,9 @@ module Corvus.NetAgentClient
   , NetworkSpec (..)
   , NatSpec (..)
   , DhcpSpec (..)
+  , DhcpHostReservation (..)
+  , OverlaySpec (..)
+  , VxlanSpec (..)
   , NetworkInfo (..)
   , TapSpec (..)
   , TapInfo (..)
@@ -80,6 +83,7 @@ data NetworkSpec = NetworkSpec
   , nsMtu :: !Word32
   , nsNat :: !NatSpec
   , nsDhcp :: !DhcpSpec
+  , nsOverlay :: !OverlaySpec
   }
   deriving (Eq, Show)
 
@@ -96,6 +100,28 @@ data DhcpSpec = DhcpSpec
   , dhcpLeaseTime :: !T.Text
   , dhcpDomain :: !T.Text
   , dhcpExtraArgs :: ![T.Text]
+  , dhcpHostReservations :: ![DhcpHostReservation]
+  }
+  deriving (Eq, Show)
+
+data DhcpHostReservation = DhcpHostReservation
+  { dhrMac :: !T.Text
+  , dhrIp :: !T.Text
+  }
+  deriving (Eq, Show)
+
+-- | Multi-node overlay configuration. 'OverlayNone' = single-node
+-- bridge (today's behavior); 'OverlayVxlan' wires a VTEP onto the
+-- bridge so the L2 segment spans multiple nodes.
+data OverlaySpec
+  = OverlayNone
+  | OverlayVxlan !VxlanSpec
+  deriving (Eq, Show)
+
+data VxlanSpec = VxlanSpec
+  { vsVni :: !Word32
+  , vsLocalIp :: !T.Text
+  , vsPeerIps :: ![T.Text]
   }
   deriving (Eq, Show)
 
@@ -318,7 +344,28 @@ encodeNetworkSpec s =
     , CGN.mtu = nsMtu s
     , CGN.nat = encodeNatSpec (nsNat s)
     , CGN.dhcp = encodeDhcpSpec (nsDhcp s)
+    , CGN.overlay = encodeOverlaySpec (nsOverlay s)
     }
+
+encodeOverlaySpec :: OverlaySpec -> CGN.Parsed CGN.OverlaySpec
+encodeOverlaySpec o =
+  CGN.OverlaySpec {CGN.union' = variant}
+  where
+    variant = case o of
+      OverlayNone -> CGN.OverlaySpec'none
+      OverlayVxlan v -> CGN.OverlaySpec'vxlan (encodeVxlanSpec v)
+
+encodeVxlanSpec :: VxlanSpec -> CGN.Parsed CGN.VxlanSpec
+encodeVxlanSpec v =
+  CGN.VxlanSpec
+    { CGN.vni = vsVni v
+    , CGN.localIp = vsLocalIp v
+    , CGN.peerIps = vsPeerIps v
+    }
+
+encodeDhcpHostReservation :: DhcpHostReservation -> CGN.Parsed CGN.DhcpHostReservation
+encodeDhcpHostReservation r =
+  CGN.DhcpHostReservation {CGN.mac = dhrMac r, CGN.ip = dhrIp r}
 
 encodeNatSpec :: NatSpec -> CGN.Parsed CGN.NatSpec
 encodeNatSpec n =
@@ -336,6 +383,7 @@ encodeDhcpSpec d =
     , CGN.leaseTime = dhcpLeaseTime d
     , CGN.domain = dhcpDomain d
     , CGN.extraArgs = dhcpExtraArgs d
+    , CGN.hostReservations = map encodeDhcpHostReservation (dhcpHostReservations d)
     }
 
 encodeTapSpec :: TapSpec -> CGN.Parsed CGN.TapSpec
@@ -368,6 +416,7 @@ decodeNetworkSpec
     , CGN.mtu = mtu
     , CGN.nat = nat
     , CGN.dhcp = dhcp
+    , CGN.overlay = overlay
     } =
     NetworkSpec
       { nsName = name
@@ -375,7 +424,36 @@ decodeNetworkSpec
       , nsMtu = mtu
       , nsNat = decodeNatSpec nat
       , nsDhcp = decodeDhcpSpec dhcp
+      , nsOverlay = decodeOverlaySpec overlay
       }
+
+decodeOverlaySpec :: CGN.Parsed CGN.OverlaySpec -> OverlaySpec
+decodeOverlaySpec CGN.OverlaySpec {CGN.union' = variant} = case variant of
+  CGN.OverlaySpec'none -> OverlayNone
+  CGN.OverlaySpec'vxlan v -> OverlayVxlan (decodeVxlanSpec v)
+  -- Unknown union tag from a newer peer: degrade to 'none' rather
+  -- than fail. The daemon's spec is authoritative, so this only
+  -- matters on the wire-decode-from-agent path.
+  CGN.OverlaySpec'unknown' _ -> OverlayNone
+
+decodeVxlanSpec :: CGN.Parsed CGN.VxlanSpec -> VxlanSpec
+decodeVxlanSpec
+  CGN.VxlanSpec
+    { CGN.vni = vni
+    , CGN.localIp = localIp
+    , CGN.peerIps = peerIps
+    } =
+    VxlanSpec
+      { vsVni = vni
+      , vsLocalIp = localIp
+      , vsPeerIps = peerIps
+      }
+
+decodeDhcpHostReservation
+  :: CGN.Parsed CGN.DhcpHostReservation -> DhcpHostReservation
+decodeDhcpHostReservation
+  CGN.DhcpHostReservation {CGN.mac = mac, CGN.ip = ip} =
+    DhcpHostReservation {dhrMac = mac, dhrIp = ip}
 
 decodeNatSpec :: CGN.Parsed CGN.NatSpec -> NatSpec
 decodeNatSpec CGN.NatSpec {CGN.enabled = e, CGN.uplinkIf = u} =
@@ -390,6 +468,7 @@ decodeDhcpSpec
     , CGN.leaseTime = lt
     , CGN.domain = dom
     , CGN.extraArgs = extra
+    , CGN.hostReservations = res
     } =
     DhcpSpec
       { dhcpEnabled = e
@@ -398,6 +477,7 @@ decodeDhcpSpec
       , dhcpLeaseTime = lt
       , dhcpDomain = dom
       , dhcpExtraArgs = extra
+      , dhcpHostReservations = map decodeDhcpHostReservation res
       }
 
 decodeTapInfo :: CGN.Parsed CGN.TapInfo -> TapInfo

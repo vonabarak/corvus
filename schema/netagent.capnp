@@ -80,9 +80,14 @@ struct NetworkSpec {
   # touched by the agent.
   name @0 :Text;
 
-  # "10.42.0.1/24" or "" for an L2-only bridge (no IP).
+  # "10.42.0.1/24" or "" for an L2-only bridge (no IP). On peer
+  # nodes of a VXLAN overlay this MUST be empty — only the owner
+  # gets the gateway IP / NAT / DHCP.
   cidr @1 :Text;
 
+  # Guest-facing MTU. Callers pre-subtract 50 bytes for VXLAN
+  # encapsulation so the bridge member's MTU matches what the
+  # guest will fragment / segment to.
   mtu @2 :UInt32 = 1500;
 
   # NAT and DHCP are optional sub-structs. Always present in the
@@ -90,6 +95,9 @@ struct NetworkSpec {
   # acts on the rest.
   nat  @3 :NatSpec;
   dhcp @4 :DhcpSpec;
+
+  # Multi-node overlay. Defaults to 'none' (single-node bridge).
+  overlay @5 :OverlaySpec;
 }
 
 struct NatSpec {
@@ -109,6 +117,41 @@ struct DhcpSpec {
   # Pass-through args for advanced dnsmasq tuning. Most callers
   # leave this empty.
   extraArgs  @5 :List(Text);
+  # MAC-keyed lease reservations. The daemon emits one entry per
+  # NIC attached to a managed network, so the same VM always
+  # receives the same IP — including when it migrates onto a peer
+  # node. Empty on networks without an IPAM allocation yet.
+  hostReservations @6 :List(DhcpHostReservation);
+}
+
+struct DhcpHostReservation {
+  mac @0 :Text;   # "52:54:00:aa:bb:cc"
+  ip  @1 :Text;   # "10.0.0.7"
+}
+
+# A network's overlay configuration. 'none' means today's
+# single-node behavior (one bridge, no VXLAN). 'vxlan' adds a
+# VXLAN VTEP attached to the bridge so the L2 segment spans
+# multiple nodes.
+struct OverlaySpec {
+  union {
+    none  @0 :Void;
+    vxlan @1 :VxlanSpec;
+  }
+}
+
+struct VxlanSpec {
+  # 24-bit VXLAN Network Identifier. Same value on every node in
+  # the mesh.
+  vni @0 :UInt32;
+
+  # This node's underlay IP — the 'local' kwarg on
+  # `ip link add type vxlan`. Distinct from the bridge CIDR.
+  localIp @1 :Text;
+
+  # Every OTHER VTEP in the mesh. The agent installs one BUM flood
+  # FDB entry per peer (head-end replication).
+  peerIps @2 :List(Text);
 }
 
 struct NetworkInfo {

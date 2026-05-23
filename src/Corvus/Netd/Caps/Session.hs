@@ -153,6 +153,7 @@ decodeNetworkSpec
     , CGN.mtu = mtu
     , CGN.nat = nat
     , CGN.dhcp = dhcp
+    , CGN.overlay = overlay
     } =
     pure
       Net.NetworkSpec
@@ -161,7 +162,33 @@ decodeNetworkSpec
         , Net.nsMtu = mtu
         , Net.nsNat = decodeNatSpec nat
         , Net.nsDhcp = decodeDhcpSpec dhcp
+        , Net.nsOverlay = decodeOverlaySpec overlay
         }
+
+decodeOverlaySpec :: CGN.Parsed CGN.OverlaySpec -> Net.OverlaySpec
+decodeOverlaySpec CGN.OverlaySpec {CGN.union' = variant} = case variant of
+  CGN.OverlaySpec'none -> Net.OverlayNone
+  CGN.OverlaySpec'vxlan v -> Net.OverlayVxlan (decodeVxlanSpec v)
+  CGN.OverlaySpec'unknown' _ -> Net.OverlayNone
+
+decodeVxlanSpec :: CGN.Parsed CGN.VxlanSpec -> Net.VxlanSpec
+decodeVxlanSpec
+  CGN.VxlanSpec
+    { CGN.vni = vni
+    , CGN.localIp = localIp
+    , CGN.peerIps = peerIps
+    } =
+    Net.VxlanSpec
+      { Net.vsVni = vni
+      , Net.vsLocalIp = localIp
+      , Net.vsPeerIps = peerIps
+      }
+
+decodeDhcpHostReservation
+  :: CGN.Parsed CGN.DhcpHostReservation -> Net.DhcpHostReservation
+decodeDhcpHostReservation
+  CGN.DhcpHostReservation {CGN.mac = mac, CGN.ip = ip} =
+    Net.DhcpHostReservation {Net.dhrMac = mac, Net.dhrIp = ip}
 
 decodeNatSpec :: CGN.Parsed CGN.NatSpec -> Net.NatSpec
 decodeNatSpec
@@ -183,6 +210,7 @@ decodeDhcpSpec
     , CGN.leaseTime = lt
     , CGN.domain = dom
     , CGN.extraArgs = extra
+    , CGN.hostReservations = res
     } =
     Net.DhcpSpec
       { Net.dhcpEnabled = enabled
@@ -191,6 +219,7 @@ decodeDhcpSpec
       , Net.dhcpLeaseTime = lt
       , Net.dhcpDomain = dom
       , Net.dhcpExtraArgs = extra
+      , Net.dhcpHostReservations = map decodeDhcpHostReservation res
       }
 
 decodeTapSpec :: CGN.Parsed CGN.TapSpec -> Tap.TapSpec
@@ -224,7 +253,28 @@ encodeNetworkSpec spec =
     , CGN.mtu = Net.nsMtu spec
     , CGN.nat = encodeNatSpec (Net.nsNat spec)
     , CGN.dhcp = encodeDhcpSpec (Net.nsDhcp spec)
+    , CGN.overlay = encodeOverlaySpec (Net.nsOverlay spec)
     }
+
+encodeOverlaySpec :: Net.OverlaySpec -> CGN.Parsed CGN.OverlaySpec
+encodeOverlaySpec o = CGN.OverlaySpec {CGN.union' = variant}
+  where
+    variant = case o of
+      Net.OverlayNone -> CGN.OverlaySpec'none
+      Net.OverlayVxlan v -> CGN.OverlaySpec'vxlan (encodeVxlanSpec v)
+
+encodeVxlanSpec :: Net.VxlanSpec -> CGN.Parsed CGN.VxlanSpec
+encodeVxlanSpec v =
+  CGN.VxlanSpec
+    { CGN.vni = Net.vsVni v
+    , CGN.localIp = Net.vsLocalIp v
+    , CGN.peerIps = Net.vsPeerIps v
+    }
+
+encodeDhcpHostReservation
+  :: Net.DhcpHostReservation -> CGN.Parsed CGN.DhcpHostReservation
+encodeDhcpHostReservation r =
+  CGN.DhcpHostReservation {CGN.mac = Net.dhrMac r, CGN.ip = Net.dhrIp r}
 
 encodeNatSpec :: Net.NatSpec -> CGN.Parsed CGN.NatSpec
 encodeNatSpec n =
@@ -242,6 +292,8 @@ encodeDhcpSpec d =
     , CGN.leaseTime = Net.dhcpLeaseTime d
     , CGN.domain = Net.dhcpDomain d
     , CGN.extraArgs = Net.dhcpExtraArgs d
+    , CGN.hostReservations =
+        map encodeDhcpHostReservation (Net.dhcpHostReservations d)
     }
 
 encodeTapInfo :: Tap.TapInfo -> CGN.Parsed CGN.TapInfo

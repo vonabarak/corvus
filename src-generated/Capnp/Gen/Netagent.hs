@@ -771,7 +771,7 @@ instance (C.HasTypeId NetworkSpec) where
     typeId  = 11878780582777869737
 instance (C.TypedStruct NetworkSpec) where
     numStructWords  = 1
-    numStructPtrs  = 4
+    numStructPtrs  = 5
 instance (C.Allocate NetworkSpec) where
     type AllocHint NetworkSpec = ()
     new _ = C.newTypedStruct
@@ -786,7 +786,8 @@ data instance C.Parsed NetworkSpec
         ,cidr :: (RP.Parsed Basics.Text)
         ,mtu :: (RP.Parsed Std_.Word32)
         ,nat :: (RP.Parsed NatSpec)
-        ,dhcp :: (RP.Parsed DhcpSpec)}
+        ,dhcp :: (RP.Parsed DhcpSpec)
+        ,overlay :: (RP.Parsed OverlaySpec)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetworkSpec))
 deriving instance (Std_.Eq (C.Parsed NetworkSpec))
@@ -795,7 +796,8 @@ instance (C.Parse NetworkSpec (C.Parsed NetworkSpec)) where
                               <*> (GH.parseField #cidr raw_)
                               <*> (GH.parseField #mtu raw_)
                               <*> (GH.parseField #nat raw_)
-                              <*> (GH.parseField #dhcp raw_))
+                              <*> (GH.parseField #dhcp raw_)
+                              <*> (GH.parseField #overlay raw_))
 instance (C.Marshal NetworkSpec (C.Parsed NetworkSpec)) where
     marshalInto raw_ NetworkSpec{..} = (do
         (GH.encodeField #name name raw_)
@@ -803,6 +805,7 @@ instance (C.Marshal NetworkSpec (C.Parsed NetworkSpec)) where
         (GH.encodeField #mtu mtu raw_)
         (GH.encodeField #nat nat raw_)
         (GH.encodeField #dhcp dhcp raw_)
+        (GH.encodeField #overlay overlay raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot NetworkSpec Basics.Text) where
@@ -815,6 +818,8 @@ instance (GH.HasField "nat" GH.Slot NetworkSpec NatSpec) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "dhcp" GH.Slot NetworkSpec DhcpSpec) where
     fieldByLabel  = (GH.ptrField 3)
+instance (GH.HasField "overlay" GH.Slot NetworkSpec OverlaySpec) where
+    fieldByLabel  = (GH.ptrField 4)
 data NatSpec 
 type instance (R.ReprFor NatSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NatSpec) where
@@ -856,7 +861,7 @@ instance (C.HasTypeId DhcpSpec) where
     typeId  = 9911415732338660737
 instance (C.TypedStruct DhcpSpec) where
     numStructWords  = 1
-    numStructPtrs  = 5
+    numStructPtrs  = 6
 instance (C.Allocate DhcpSpec) where
     type AllocHint DhcpSpec = ()
     new _ = C.newTypedStruct
@@ -872,7 +877,8 @@ data instance C.Parsed DhcpSpec
         ,rangeEnd :: (RP.Parsed Basics.Text)
         ,leaseTime :: (RP.Parsed Basics.Text)
         ,domain :: (RP.Parsed Basics.Text)
-        ,extraArgs :: (RP.Parsed (R.List Basics.Text))}
+        ,extraArgs :: (RP.Parsed (R.List Basics.Text))
+        ,hostReservations :: (RP.Parsed (R.List DhcpHostReservation))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DhcpSpec))
 deriving instance (Std_.Eq (C.Parsed DhcpSpec))
@@ -882,7 +888,8 @@ instance (C.Parse DhcpSpec (C.Parsed DhcpSpec)) where
                            <*> (GH.parseField #rangeEnd raw_)
                            <*> (GH.parseField #leaseTime raw_)
                            <*> (GH.parseField #domain raw_)
-                           <*> (GH.parseField #extraArgs raw_))
+                           <*> (GH.parseField #extraArgs raw_)
+                           <*> (GH.parseField #hostReservations raw_))
 instance (C.Marshal DhcpSpec (C.Parsed DhcpSpec)) where
     marshalInto raw_ DhcpSpec{..} = (do
         (GH.encodeField #enabled enabled raw_)
@@ -891,6 +898,7 @@ instance (C.Marshal DhcpSpec (C.Parsed DhcpSpec)) where
         (GH.encodeField #leaseTime leaseTime raw_)
         (GH.encodeField #domain domain raw_)
         (GH.encodeField #extraArgs extraArgs raw_)
+        (GH.encodeField #hostReservations hostReservations raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "enabled" GH.Slot DhcpSpec Std_.Bool) where
@@ -905,6 +913,154 @@ instance (GH.HasField "domain" GH.Slot DhcpSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "extraArgs" GH.Slot DhcpSpec (R.List Basics.Text)) where
     fieldByLabel  = (GH.ptrField 4)
+instance (GH.HasField "hostReservations" GH.Slot DhcpSpec (R.List DhcpHostReservation)) where
+    fieldByLabel  = (GH.ptrField 5)
+data DhcpHostReservation 
+type instance (R.ReprFor DhcpHostReservation) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DhcpHostReservation) where
+    typeId  = 18059630684346861993
+instance (C.TypedStruct DhcpHostReservation) where
+    numStructWords  = 0
+    numStructPtrs  = 2
+instance (C.Allocate DhcpHostReservation) where
+    type AllocHint DhcpHostReservation = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DhcpHostReservation (C.Parsed DhcpHostReservation))
+instance (C.AllocateList DhcpHostReservation) where
+    type ListAllocHint DhcpHostReservation = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DhcpHostReservation (C.Parsed DhcpHostReservation))
+data instance C.Parsed DhcpHostReservation
+    = DhcpHostReservation 
+        {mac :: (RP.Parsed Basics.Text)
+        ,ip :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DhcpHostReservation))
+deriving instance (Std_.Eq (C.Parsed DhcpHostReservation))
+instance (C.Parse DhcpHostReservation (C.Parsed DhcpHostReservation)) where
+    parse raw_ = (DhcpHostReservation <$> (GH.parseField #mac raw_)
+                                      <*> (GH.parseField #ip raw_))
+instance (C.Marshal DhcpHostReservation (C.Parsed DhcpHostReservation)) where
+    marshalInto raw_ DhcpHostReservation{..} = (do
+        (GH.encodeField #mac mac raw_)
+        (GH.encodeField #ip ip raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "mac" GH.Slot DhcpHostReservation Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "ip" GH.Slot DhcpHostReservation Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+data OverlaySpec 
+type instance (R.ReprFor OverlaySpec) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId OverlaySpec) where
+    typeId  = 11754725013735792531
+instance (C.TypedStruct OverlaySpec) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate OverlaySpec) where
+    type AllocHint OverlaySpec = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc OverlaySpec (C.Parsed OverlaySpec))
+instance (C.AllocateList OverlaySpec) where
+    type ListAllocHint OverlaySpec = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc OverlaySpec (C.Parsed OverlaySpec))
+data instance C.Parsed OverlaySpec
+    = OverlaySpec 
+        {union' :: (C.Parsed (GH.Which OverlaySpec))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed OverlaySpec))
+deriving instance (Std_.Eq (C.Parsed OverlaySpec))
+instance (C.Parse OverlaySpec (C.Parsed OverlaySpec)) where
+    parse raw_ = (OverlaySpec <$> (C.parse (GH.structUnion raw_)))
+instance (C.Marshal OverlaySpec (C.Parsed OverlaySpec)) where
+    marshalInto raw_ OverlaySpec{..} = (do
+        (C.marshalInto (GH.structUnion raw_) union')
+        )
+instance (GH.HasUnion OverlaySpec) where
+    unionField  = (GH.dataField 0 0 16 0)
+    data RawWhich OverlaySpec mut_
+        = RW_OverlaySpec'none (R.Raw () mut_)
+        | RW_OverlaySpec'vxlan (R.Raw VxlanSpec mut_)
+        | RW_OverlaySpec'unknown' Std_.Word16
+    internalWhich tag_ struct_ = case tag_ of
+        0 ->
+            (RW_OverlaySpec'none <$> (GH.readVariant #none struct_))
+        1 ->
+            (RW_OverlaySpec'vxlan <$> (GH.readVariant #vxlan struct_))
+        _ ->
+            (Std_.pure (RW_OverlaySpec'unknown' tag_))
+    data Which OverlaySpec
+instance (GH.HasVariant "none" GH.Slot OverlaySpec ()) where
+    variantByLabel  = (GH.Variant GH.voidField 0)
+instance (GH.HasVariant "vxlan" GH.Slot OverlaySpec VxlanSpec) where
+    variantByLabel  = (GH.Variant (GH.ptrField 0) 1)
+data instance C.Parsed (GH.Which OverlaySpec)
+    = OverlaySpec'none 
+    | OverlaySpec'vxlan (RP.Parsed VxlanSpec)
+    | OverlaySpec'unknown' Std_.Word16
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed (GH.Which OverlaySpec)))
+deriving instance (Std_.Eq (C.Parsed (GH.Which OverlaySpec)))
+instance (C.Parse (GH.Which OverlaySpec) (C.Parsed (GH.Which OverlaySpec))) where
+    parse raw_ = (do
+        rawWhich_ <- (GH.unionWhich raw_)
+        case rawWhich_ of
+            (RW_OverlaySpec'none _) ->
+                (Std_.pure OverlaySpec'none)
+            (RW_OverlaySpec'vxlan rawArg_) ->
+                (OverlaySpec'vxlan <$> (C.parse rawArg_))
+            (RW_OverlaySpec'unknown' tag_) ->
+                (Std_.pure (OverlaySpec'unknown' tag_))
+        )
+instance (C.Marshal (GH.Which OverlaySpec) (C.Parsed (GH.Which OverlaySpec))) where
+    marshalInto raw_ parsed_ = case parsed_ of
+        (OverlaySpec'none) ->
+            (GH.encodeVariant #none () (GH.unionStruct raw_))
+        (OverlaySpec'vxlan arg_) ->
+            (GH.encodeVariant #vxlan arg_ (GH.unionStruct raw_))
+        (OverlaySpec'unknown' tag_) ->
+            (GH.encodeField GH.unionField tag_ (GH.unionStruct raw_))
+data VxlanSpec 
+type instance (R.ReprFor VxlanSpec) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VxlanSpec) where
+    typeId  = 14439075868054381263
+instance (C.TypedStruct VxlanSpec) where
+    numStructWords  = 1
+    numStructPtrs  = 2
+instance (C.Allocate VxlanSpec) where
+    type AllocHint VxlanSpec = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VxlanSpec (C.Parsed VxlanSpec))
+instance (C.AllocateList VxlanSpec) where
+    type ListAllocHint VxlanSpec = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VxlanSpec (C.Parsed VxlanSpec))
+data instance C.Parsed VxlanSpec
+    = VxlanSpec 
+        {vni :: (RP.Parsed Std_.Word32)
+        ,localIp :: (RP.Parsed Basics.Text)
+        ,peerIps :: (RP.Parsed (R.List Basics.Text))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VxlanSpec))
+deriving instance (Std_.Eq (C.Parsed VxlanSpec))
+instance (C.Parse VxlanSpec (C.Parsed VxlanSpec)) where
+    parse raw_ = (VxlanSpec <$> (GH.parseField #vni raw_)
+                            <*> (GH.parseField #localIp raw_)
+                            <*> (GH.parseField #peerIps raw_))
+instance (C.Marshal VxlanSpec (C.Parsed VxlanSpec)) where
+    marshalInto raw_ VxlanSpec{..} = (do
+        (GH.encodeField #vni vni raw_)
+        (GH.encodeField #localIp localIp raw_)
+        (GH.encodeField #peerIps peerIps raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vni" GH.Slot VxlanSpec Std_.Word32) where
+    fieldByLabel  = (GH.dataField 0 0 32 0)
+instance (GH.HasField "localIp" GH.Slot VxlanSpec Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "peerIps" GH.Slot VxlanSpec (R.List Basics.Text)) where
+    fieldByLabel  = (GH.ptrField 1)
 data NetworkInfo 
 type instance (R.ReprFor NetworkInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NetworkInfo) where

@@ -31,6 +31,7 @@ import Corvus.NetAgentClient
   ( DhcpSpec (..)
   , NatSpec (..)
   , NetworkSpec (..)
+  , OverlaySpec (..)
   )
 import qualified Corvus.Utils.Network as N
 import Data.Char (chr, ord)
@@ -95,6 +96,7 @@ networkToSpec networkId network = do
             -- a per-network or daemon-global uplink override.
             }
       , nsDhcp = dhcp
+      , nsOverlay = OverlayNone
       }
   where
     buildDhcp subnet False = Right disabledDhcp
@@ -111,6 +113,7 @@ networkToSpec networkId network = do
               , dhcpLeaseTime = "12h"
               , dhcpDomain = ""
               , dhcpExtraArgs = []
+              , dhcpHostReservations = []
               }
     disabledDhcp =
       DhcpSpec
@@ -120,4 +123,5 @@ networkToSpec networkId network = do
         , dhcpLeaseTime = "12h"
         , dhcpDomain = ""
         , dhcpExtraArgs = []
+        , dhcpHostReservations = []
         }

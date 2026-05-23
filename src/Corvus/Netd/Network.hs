@@ -30,6 +30,9 @@ module Corvus.Netd.Network
   ( NetworkSpec (..)
   , NatSpec (..)
   , DhcpSpec (..)
+  , DhcpHostReservation (..)
+  , OverlaySpec (..)
+  , VxlanSpec (..)
   , NetworkInfo (..)
   , NetworkLiveState
   , NetworkError (..)
@@ -73,6 +76,7 @@ data NetworkSpec = NetworkSpec
   , nsMtu :: !Word32
   , nsNat :: !NatSpec
   , nsDhcp :: !DhcpSpec
+  , nsOverlay :: !OverlaySpec
   }
   deriving (Eq, Show)
 
@@ -89,6 +93,28 @@ data DhcpSpec = DhcpSpec
   , dhcpLeaseTime :: !T.Text
   , dhcpDomain :: !T.Text
   , dhcpExtraArgs :: ![T.Text]
+  , dhcpHostReservations :: ![DhcpHostReservation]
+  }
+  deriving (Eq, Show)
+
+data DhcpHostReservation = DhcpHostReservation
+  { dhrMac :: !T.Text
+  , dhrIp :: !T.Text
+  }
+  deriving (Eq, Show)
+
+-- | Overlay configuration. 'OverlayNone' is single-node behavior;
+-- 'OverlayVxlan' wires a VXLAN VTEP onto the bridge so the L2
+-- segment spans multiple hosts.
+data OverlaySpec
+  = OverlayNone
+  | OverlayVxlan !VxlanSpec
+  deriving (Eq, Show)
+
+data VxlanSpec = VxlanSpec
+  { vsVni :: !Word32
+  , vsLocalIp :: !T.Text
+  , vsPeerIps :: ![T.Text]
   }
   deriving (Eq, Show)
 
