@@ -107,6 +107,7 @@ library:
     - Corvus.Handlers.SshKey
     - Corvus.Handlers.Network
     - Corvus.Handlers.Network.Ipam
+    - Corvus.Handlers.Network.PeerSpec
     - Corvus.Handlers.Node
     - Corvus.Handlers.Resolve
     - Corvus.Handlers.Scheduler

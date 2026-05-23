@@ -17,8 +17,10 @@ import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Network
-  ( NetworkCreate (..)
+  ( NetworkAttachNode (..)
+  , NetworkCreate (..)
   , NetworkDelete (..)
+  , NetworkDetachNode (..)
   , NetworkEdit (..)
   , NetworkStart (..)
   , NetworkStop (..)
@@ -144,3 +146,29 @@ instance CGNet.Network'server_ NetworkCap where
       RespNetworkInUse -> throwFailed "Network in use"
       RespError msg -> throwFailed msg
       _ -> throwFailed "network'delete: unexpected response"
+
+  network'attachNode (NetworkCap st eid) =
+    handleParsed $ \CGNet.Network'attachNode'params {params = CGNet.NetworkPeerParams {..}} -> do
+      nodeRef' <- capnpRefToRef node
+      resp <-
+        runAction st $
+          NetworkAttachNode {nanNetworkId = eid, nanNodeRef = P.unRef nodeRef'}
+      case resp of
+        RespNetworkPeerAttached -> pure CGNet.Network'attachNode'results
+        RespNetworkNotFound -> throwFailed "Network not found"
+        RespNetworkError msg -> throwFailed msg
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "network'attachNode: unexpected response"
+
+  network'detachNode (NetworkCap st eid) =
+    handleParsed $ \CGNet.Network'detachNode'params {params = CGNet.NetworkPeerParams {..}} -> do
+      nodeRef' <- capnpRefToRef node
+      resp <-
+        runAction st $
+          NetworkDetachNode {ndnNetworkId = eid, ndnNodeRef = P.unRef nodeRef'}
+      case resp of
+        RespNetworkPeerDetached -> pure CGNet.Network'detachNode'results
+        RespNetworkNotFound -> throwFailed "Network not found"
+        RespNetworkError msg -> throwFailed msg
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "network'detachNode: unexpected response"

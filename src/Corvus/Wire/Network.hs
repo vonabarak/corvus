@@ -24,6 +24,8 @@ toCapnpNetworkInfo P.NetworkInfo {..} =
     , CGNet.dnsmasqPid = maybe 0 fromIntegral nwiDnsmasqPid
     , CGNet.createdAt = utcTimeToNanos nwiCreatedAt
     , CGNet.autostart = nwiAutostart
+    , CGNet.vni = maybe 0 fromIntegral nwiVni
+    , CGNet.peerNodeIds = nwiPeerNodeIds
     }
 
 fromCapnpNetworkInfo :: C.Parsed CGNet.NetworkInfo -> P.NetworkInfo
@@ -38,4 +40,6 @@ fromCapnpNetworkInfo CGNet.NetworkInfo {..} =
     , P.nwiDnsmasqPid = if dnsmasqPid == 0 then Nothing else Just (fromIntegral dnsmasqPid)
     , P.nwiCreatedAt = nanosToUtcTime createdAt
     , P.nwiAutostart = autostart
+    , P.nwiVni = if vni == 0 then Nothing else Just (fromIntegral vni)
+    , P.nwiPeerNodeIds = peerNodeIds
     }

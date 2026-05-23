@@ -39,8 +39,8 @@ type instance (R.ReprFor NetworkInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NetworkInfo) where
     typeId  = 10226046599106768326
 instance (C.TypedStruct NetworkInfo) where
-    numStructWords  = 3
-    numStructPtrs  = 2
+    numStructWords  = 4
+    numStructPtrs  = 3
 instance (C.Allocate NetworkInfo) where
     type AllocHint NetworkInfo = ()
     new _ = C.newTypedStruct
@@ -59,7 +59,9 @@ data instance C.Parsed NetworkInfo
         ,running :: (RP.Parsed Std_.Bool)
         ,dnsmasqPid :: (RP.Parsed Std_.Int32)
         ,createdAt :: (RP.Parsed Std_.Int64)
-        ,autostart :: (RP.Parsed Std_.Bool)}
+        ,autostart :: (RP.Parsed Std_.Bool)
+        ,vni :: (RP.Parsed Std_.Int32)
+        ,peerNodeIds :: (RP.Parsed (R.List Std_.Int64))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetworkInfo))
 deriving instance (Std_.Eq (C.Parsed NetworkInfo))
@@ -72,7 +74,9 @@ instance (C.Parse NetworkInfo (C.Parsed NetworkInfo)) where
                               <*> (GH.parseField #running raw_)
                               <*> (GH.parseField #dnsmasqPid raw_)
                               <*> (GH.parseField #createdAt raw_)
-                              <*> (GH.parseField #autostart raw_))
+                              <*> (GH.parseField #autostart raw_)
+                              <*> (GH.parseField #vni raw_)
+                              <*> (GH.parseField #peerNodeIds raw_))
 instance (C.Marshal NetworkInfo (C.Parsed NetworkInfo)) where
     marshalInto raw_ NetworkInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -84,6 +88,8 @@ instance (C.Marshal NetworkInfo (C.Parsed NetworkInfo)) where
         (GH.encodeField #dnsmasqPid dnsmasqPid raw_)
         (GH.encodeField #createdAt createdAt raw_)
         (GH.encodeField #autostart autostart raw_)
+        (GH.encodeField #vni vni raw_)
+        (GH.encodeField #peerNodeIds peerNodeIds raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot NetworkInfo Std_.Int64) where
@@ -104,6 +110,40 @@ instance (GH.HasField "createdAt" GH.Slot NetworkInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 2 64 0)
 instance (GH.HasField "autostart" GH.Slot NetworkInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 3 1 1 0)
+instance (GH.HasField "vni" GH.Slot NetworkInfo Std_.Int32) where
+    fieldByLabel  = (GH.dataField 0 3 32 0)
+instance (GH.HasField "peerNodeIds" GH.Slot NetworkInfo (R.List Std_.Int64)) where
+    fieldByLabel  = (GH.ptrField 2)
+data NetworkPeerParams 
+type instance (R.ReprFor NetworkPeerParams) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId NetworkPeerParams) where
+    typeId  = 9706336656784510585
+instance (C.TypedStruct NetworkPeerParams) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate NetworkPeerParams) where
+    type AllocHint NetworkPeerParams = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc NetworkPeerParams (C.Parsed NetworkPeerParams))
+instance (C.AllocateList NetworkPeerParams) where
+    type ListAllocHint NetworkPeerParams = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc NetworkPeerParams (C.Parsed NetworkPeerParams))
+data instance C.Parsed NetworkPeerParams
+    = NetworkPeerParams 
+        {node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed NetworkPeerParams))
+deriving instance (Std_.Eq (C.Parsed NetworkPeerParams))
+instance (C.Parse NetworkPeerParams (C.Parsed NetworkPeerParams)) where
+    parse raw_ = (NetworkPeerParams <$> (GH.parseField #node raw_))
+instance (C.Marshal NetworkPeerParams (C.Parsed NetworkPeerParams)) where
+    marshalInto raw_ NetworkPeerParams{..} = (do
+        (GH.encodeField #node node raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "node" GH.Slot NetworkPeerParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 0)
 data NetworkCreateParams 
 type instance (R.ReprFor NetworkCreateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NetworkCreateParams) where
@@ -448,9 +488,11 @@ instance (GH.Export Network) where
                                                                          ,(GH.toUntypedMethodHandler ((network'start) s_))
                                                                          ,(GH.toUntypedMethodHandler ((network'stop) s_))
                                                                          ,(GH.toUntypedMethodHandler ((network'edit) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((network'delete) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((network'delete) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((network'attachNode) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((network'detachNode) s_))] [])
 class (Network'server_ s_) where
-    {-# MINIMAL network'show,network'start,network'stop,network'edit,network'delete #-}
+    {-# MINIMAL network'show,network'start,network'stop,network'edit,network'delete,network'attachNode,network'detachNode #-}
     network'show :: s_ -> (GH.MethodHandler Network'show'params Network'show'results)
     network'show _ = GH.methodUnimplemented
     network'start :: s_ -> (GH.MethodHandler Network'start'params Network'start'results)
@@ -461,6 +503,10 @@ class (Network'server_ s_) where
     network'edit _ = GH.methodUnimplemented
     network'delete :: s_ -> (GH.MethodHandler Network'delete'params Network'delete'results)
     network'delete _ = GH.methodUnimplemented
+    network'attachNode :: s_ -> (GH.MethodHandler Network'attachNode'params Network'attachNode'results)
+    network'attachNode _ = GH.methodUnimplemented
+    network'detachNode :: s_ -> (GH.MethodHandler Network'detachNode'params Network'detachNode'results)
+    network'detachNode _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Network Network'show'params Network'show'results) where
     methodByLabel  = (GH.Method 17573678317974358173 0)
 instance (GH.HasMethod "start" Network Network'start'params Network'start'results) where
@@ -471,6 +517,10 @@ instance (GH.HasMethod "edit" Network Network'edit'params Network'edit'results) 
     methodByLabel  = (GH.Method 17573678317974358173 3)
 instance (GH.HasMethod "delete" Network Network'delete'params Network'delete'results) where
     methodByLabel  = (GH.Method 17573678317974358173 4)
+instance (GH.HasMethod "attachNode" Network Network'attachNode'params Network'attachNode'results) where
+    methodByLabel  = (GH.Method 17573678317974358173 5)
+instance (GH.HasMethod "detachNode" Network Network'detachNode'params Network'detachNode'results) where
+    methodByLabel  = (GH.Method 17573678317974358173 6)
 data Network'show'params 
 type instance (R.ReprFor Network'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Network'show'params) where
@@ -736,3 +786,113 @@ instance (C.Parse Network'delete'results (C.Parsed Network'delete'results)) wher
     parse raw_ = (Std_.pure Network'delete'results)
 instance (C.Marshal Network'delete'results (C.Parsed Network'delete'results)) where
     marshalInto _raw (Network'delete'results) = (Std_.pure ())
+data Network'attachNode'params 
+type instance (R.ReprFor Network'attachNode'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Network'attachNode'params) where
+    typeId  = 15634954757147829029
+instance (C.TypedStruct Network'attachNode'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Network'attachNode'params) where
+    type AllocHint Network'attachNode'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Network'attachNode'params (C.Parsed Network'attachNode'params))
+instance (C.AllocateList Network'attachNode'params) where
+    type ListAllocHint Network'attachNode'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Network'attachNode'params (C.Parsed Network'attachNode'params))
+data instance C.Parsed Network'attachNode'params
+    = Network'attachNode'params 
+        {params :: (RP.Parsed NetworkPeerParams)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Network'attachNode'params))
+deriving instance (Std_.Eq (C.Parsed Network'attachNode'params))
+instance (C.Parse Network'attachNode'params (C.Parsed Network'attachNode'params)) where
+    parse raw_ = (Network'attachNode'params <$> (GH.parseField #params raw_))
+instance (C.Marshal Network'attachNode'params (C.Parsed Network'attachNode'params)) where
+    marshalInto raw_ Network'attachNode'params{..} = (do
+        (GH.encodeField #params params raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "params" GH.Slot Network'attachNode'params NetworkPeerParams) where
+    fieldByLabel  = (GH.ptrField 0)
+data Network'attachNode'results 
+type instance (R.ReprFor Network'attachNode'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Network'attachNode'results) where
+    typeId  = 17538879902440190481
+instance (C.TypedStruct Network'attachNode'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Network'attachNode'results) where
+    type AllocHint Network'attachNode'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Network'attachNode'results (C.Parsed Network'attachNode'results))
+instance (C.AllocateList Network'attachNode'results) where
+    type ListAllocHint Network'attachNode'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Network'attachNode'results (C.Parsed Network'attachNode'results))
+data instance C.Parsed Network'attachNode'results
+    = Network'attachNode'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Network'attachNode'results))
+deriving instance (Std_.Eq (C.Parsed Network'attachNode'results))
+instance (C.Parse Network'attachNode'results (C.Parsed Network'attachNode'results)) where
+    parse raw_ = (Std_.pure Network'attachNode'results)
+instance (C.Marshal Network'attachNode'results (C.Parsed Network'attachNode'results)) where
+    marshalInto _raw (Network'attachNode'results) = (Std_.pure ())
+data Network'detachNode'params 
+type instance (R.ReprFor Network'detachNode'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Network'detachNode'params) where
+    typeId  = 11894298787704539365
+instance (C.TypedStruct Network'detachNode'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Network'detachNode'params) where
+    type AllocHint Network'detachNode'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Network'detachNode'params (C.Parsed Network'detachNode'params))
+instance (C.AllocateList Network'detachNode'params) where
+    type ListAllocHint Network'detachNode'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Network'detachNode'params (C.Parsed Network'detachNode'params))
+data instance C.Parsed Network'detachNode'params
+    = Network'detachNode'params 
+        {params :: (RP.Parsed NetworkPeerParams)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Network'detachNode'params))
+deriving instance (Std_.Eq (C.Parsed Network'detachNode'params))
+instance (C.Parse Network'detachNode'params (C.Parsed Network'detachNode'params)) where
+    parse raw_ = (Network'detachNode'params <$> (GH.parseField #params raw_))
+instance (C.Marshal Network'detachNode'params (C.Parsed Network'detachNode'params)) where
+    marshalInto raw_ Network'detachNode'params{..} = (do
+        (GH.encodeField #params params raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "params" GH.Slot Network'detachNode'params NetworkPeerParams) where
+    fieldByLabel  = (GH.ptrField 0)
+data Network'detachNode'results 
+type instance (R.ReprFor Network'detachNode'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Network'detachNode'results) where
+    typeId  = 12307764914299515053
+instance (C.TypedStruct Network'detachNode'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Network'detachNode'results) where
+    type AllocHint Network'detachNode'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Network'detachNode'results (C.Parsed Network'detachNode'results))
+instance (C.AllocateList Network'detachNode'results) where
+    type ListAllocHint Network'detachNode'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Network'detachNode'results (C.Parsed Network'detachNode'results))
+data instance C.Parsed Network'detachNode'results
+    = Network'detachNode'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Network'detachNode'results))
+deriving instance (Std_.Eq (C.Parsed Network'detachNode'results))
+instance (C.Parse Network'detachNode'results (C.Parsed Network'detachNode'results)) where
+    parse raw_ = (Std_.pure Network'detachNode'results)
+instance (C.Marshal Network'detachNode'results (C.Parsed Network'detachNode'results)) where
+    marshalInto _raw (Network'detachNode'results) = (Std_.pure ())

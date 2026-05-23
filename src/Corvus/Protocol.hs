@@ -220,6 +220,10 @@ data Response
     RespNetworkInUse
   | -- | Network edited successfully
     RespNetworkEdited
+  | -- | A peer node was attached to a multi-node network
+    RespNetworkPeerAttached
+  | -- | A peer node was detached from a multi-node network
+    RespNetworkPeerDetached
   | -- | Network error
     RespNetworkError {message :: !Text}
   | -- | Guest command execution result

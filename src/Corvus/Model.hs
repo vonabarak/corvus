@@ -44,6 +44,8 @@ module Corvus.Model
     -- * Network entity
   , Network (..)
   , NetworkId
+  , NetworkPeer (..)
+  , NetworkPeerId
 
     -- * Shared directory entity
   , SharedDir (..)

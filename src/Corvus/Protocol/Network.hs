@@ -24,6 +24,8 @@ data NetworkInfo = NetworkInfo
   , nwiDnsmasqPid :: !(Maybe Int)
   , nwiCreatedAt :: !UTCTime
   , nwiAutostart :: !Bool
+  , nwiVni :: !(Maybe Int)
+  , nwiPeerNodeIds :: ![Int64]
   }
   deriving (Eq, Show, Generic)
 

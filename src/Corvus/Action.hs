@@ -349,6 +349,8 @@ classifyResponse = \case
   RespNetworkEdited -> (TaskSuccess, Just "Edited")
   RespNetworkStarted -> (TaskSuccess, Just "Started")
   RespNetworkStopped -> (TaskSuccess, Just "Stopped")
+  RespNetworkPeerAttached -> (TaskSuccess, Just "Peer attached")
+  RespNetworkPeerDetached -> (TaskSuccess, Just "Peer detached")
   RespApplyResult _ -> (TaskSuccess, Nothing)
   RespApplyStarted tid -> (TaskSuccess, Just $ "Task ID " <> T.pack (show tid))
   RespBuildResult _ -> (TaskSuccess, Nothing)

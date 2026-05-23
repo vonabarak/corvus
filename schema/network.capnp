@@ -16,6 +16,13 @@ struct NetworkInfo {
   dnsmasqPid   @6 :Int32;   # 0 == not running
   createdAt    @7 :Int64;   # POSIX nanoseconds
   autostart    @8 :Bool;
+  vni          @9 :Int32;   # 0 == none (single-node network)
+  peerNodeIds  @10 :List(Int64);
+}
+
+# Inputs for attach-node / detach-node.
+struct NetworkPeerParams {
+  node @0 :Common.EntityRef;
 }
 
 # ---------------------------------------------------------------------
@@ -58,10 +65,12 @@ interface NetworkManager {
 }
 
 interface Network {
-  show   @0 () -> (info :NetworkInfo);
-  start  @1 () -> ();
+  show         @0 () -> (info :NetworkInfo);
+  start        @1 () -> ();
   # `force` defaults to false to match `crv network stop`.
-  stop   @2 (force :Bool = false) -> ();
-  edit   @3 (params :NetworkEditParams) -> ();
-  delete @4 () -> ();
+  stop         @2 (force :Bool = false) -> ();
+  edit         @3 (params :NetworkEditParams) -> ();
+  delete       @4 () -> ();
+  attachNode   @5 (params :NetworkPeerParams) -> ();
+  detachNode   @6 (params :NetworkPeerParams) -> ();
 }
