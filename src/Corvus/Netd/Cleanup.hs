@@ -23,6 +23,7 @@ module Corvus.Netd.Cleanup
   ( cleanupCorvusKernelState
   , corvusBridgePrefix
   , corvusTapPrefix
+  , corvusVxlanPrefix
   )
 where
 
@@ -42,9 +43,10 @@ import Text.Read (readMaybe)
 -- | Naming prefixes the agent reserves. The startup / shutdown
 -- pass treats anything matching as fair game; anything else is
 -- left alone.
-corvusBridgePrefix, corvusTapPrefix :: T.Text
+corvusBridgePrefix, corvusTapPrefix, corvusVxlanPrefix :: T.Text
 corvusBridgePrefix = "corvus-br"
 corvusTapPrefix = "corvus-tap"
+corvusVxlanPrefix = "corvus-vx"
 
 -- | Best-effort full cleanup. Each step logs + swallows failures
 -- so a half-broken host still gets as much cleaned up as
@@ -66,7 +68,14 @@ cleanupCorvusKernelState = runStderrLoggingT $ do
   taps <- liftIO (ipLinksByPrefix corvusTapPrefix)
   mapM_ (delAndWarn "tap") taps
 
-  -- 4. Bridges last (after their slaves are gone).
+  -- 4. VXLAN VTEPs (must precede bridge delete: a bridge with a
+  -- slaved vxlan refuses to go away). Distinct prefix so the prefix
+  -- scan doesn't accidentally pick up bridges starting with
+  -- @corvus-vx*@ (none exist by convention).
+  vxlans <- liftIO (ipLinksByPrefix corvusVxlanPrefix)
+  mapM_ (delAndWarn "vxlan") vxlans
+
+  -- 5. Bridges last (after their slaves are gone).
   bridges <- liftIO (ipLinksByPrefix corvusBridgePrefix)
   mapM_ (delAndWarn "bridge") bridges
   where

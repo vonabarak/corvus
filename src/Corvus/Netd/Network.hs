@@ -54,14 +54,21 @@ import Corvus.Netd.IpLink
   , addrDel
   , bridgeAdd
   , bridgeDel
+  , fdbAppend
+  , fdbDel
+  , fdbList
+  , linkSetMaster
   , linkSetMtu
   , linkSetUp
+  , vxlanAdd
   )
+import qualified Corvus.Netd.IpLink as IpLink
 import qualified Corvus.Netd.Ledger as L
 import Corvus.Netd.Nftables (NftError (..), RuleHandle)
 import qualified Corvus.Netd.Nftables as Nft
 import Data.Foldable (for_)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Word (Word32)
 
@@ -197,7 +204,11 @@ createFromScratch ledger spec = do
   let name = nsName spec
   -- ip link add … type bridge
   unwrapIp =<< bridgeAdd name
-  let rollback = void (bridgeDel name)
+  let rollback = do
+        case nsOverlay spec of
+          OverlayVxlan v -> void (IpLink.bridgeDel (vxlanIfaceName (vsVni v)))
+          OverlayNone -> pure ()
+        void (bridgeDel name)
   withRollback rollback $ do
     -- MTU (default is 1500 — only set if different)
     when (nsMtu spec /= 1500) $
@@ -205,6 +216,9 @@ createFromScratch ledger spec = do
     -- CIDR (optional)
     unless (T.null (nsCidr spec)) $
       unwrapIp =<< addrAdd (nsCidr spec) name
+    -- VXLAN overlay (optional) — must be in place before linkSetUp
+    -- on the bridge so the agent observes a consistent ledger state.
+    applyOverlayCreate spec
     -- Bring up
     unwrapIp =<< linkSetUp name
   -- NAT (optional)
@@ -249,6 +263,8 @@ reconcile ledger oldSpec oldState newSpec
       -- MTU change
       when (nsMtu oldSpec /= nsMtu newSpec) $
         unwrapIp =<< linkSetMtu name (nsMtu newSpec)
+      -- Overlay delta (VXLAN device + flood FDB)
+      reconcileOverlay oldSpec newSpec
       -- NAT delta
       newHandle <- reconcileNat oldSpec oldState newSpec
       -- DHCP delta
@@ -335,7 +351,78 @@ teardown :: NetworkSpec -> NetworkLiveState -> IO ()
 teardown spec state = do
   for_ (lsDnsmasq state) Dn.stopDnsmasq
   for_ (lsNatHandle state) (ignoreNft <=< Nft.deleteRule)
+  case nsOverlay spec of
+    OverlayVxlan v -> void (IpLink.bridgeDel (vxlanIfaceName (vsVni v)))
+    OverlayNone -> pure ()
   void (bridgeDel (nsName spec))
+
+-- ---------------------------------------------------------------------------
+-- Overlay (VXLAN) reconciliation
+
+-- | Linux ifname for a VXLAN VTEP. Distinct prefix so 'Cleanup' can
+-- pick it up on agent startup / shutdown. With VNI base 10000 in
+-- base-10 we stay inside IFNAMSIZ-1 for any VNI up to 9 999 999.
+vxlanIfaceName :: Word32 -> T.Text
+vxlanIfaceName vni = "corvus-vx" <> T.pack (show vni)
+
+-- | The "all zeros" MAC the kernel's bridge code interprets as a
+-- BUM flood entry. One entry per peer VTEP gives head-end
+-- replication.
+floodMac :: T.Text
+floodMac = "00:00:00:00:00:00"
+
+-- | Create the VXLAN device + initial flood FDB. Called from the
+-- fresh-create path only; reconcile uses 'reconcileOverlay'.
+applyOverlayCreate :: NetworkSpec -> IO ()
+applyOverlayCreate spec = case nsOverlay spec of
+  OverlayNone -> pure ()
+  OverlayVxlan v -> do
+    let vxIface = vxlanIfaceName (vsVni v)
+    unwrapIp =<< vxlanAdd vxIface (vsVni v) (vsLocalIp v)
+    -- MTU on the vxlan device: the bridge picks up the smallest
+    -- member MTU, so this ends up constraining what guests can
+    -- send without fragmenting.
+    when (nsMtu spec /= 1500) $
+      unwrapIp =<< linkSetMtu vxIface (nsMtu spec)
+    unwrapIp =<< linkSetMaster vxIface (nsName spec)
+    unwrapIp =<< linkSetUp vxIface
+    mapM_ (\p -> unwrapIp =<< fdbAppend floodMac vxIface p) (vsPeerIps v)
+
+-- | Reconcile VXLAN state when the spec changes. Four cases:
+--
+--   * none → none: nothing to do.
+--   * none → vxlan: create + populate (same as fresh).
+--   * vxlan → none: destroy.
+--   * vxlan → vxlan: VNI / localIp changed → recreate; otherwise
+--     just reconcile the flood FDB.
+reconcileOverlay :: NetworkSpec -> NetworkSpec -> IO ()
+reconcileOverlay oldSpec newSpec = case (nsOverlay oldSpec, nsOverlay newSpec) of
+  (OverlayNone, OverlayNone) -> pure ()
+  (OverlayNone, OverlayVxlan _) -> applyOverlayCreate newSpec
+  (OverlayVxlan v, OverlayNone) ->
+    void (IpLink.bridgeDel (vxlanIfaceName (vsVni v)))
+  (OverlayVxlan vOld, OverlayVxlan vNew)
+    | vsVni vOld /= vsVni vNew || vsLocalIp vOld /= vsLocalIp vNew -> do
+        -- VNI or local-ip changed: blow it away and recreate.
+        void (IpLink.bridgeDel (vxlanIfaceName (vsVni vOld)))
+        applyOverlayCreate newSpec
+    | otherwise -> reconcileFlood (vxlanIfaceName (vsVni vNew)) (vsPeerIps vNew)
+
+-- | Make the flood FDB on @dev@ match @desired@ (the set of peer
+-- VTEP IPs). Adds missing entries, deletes stale ones. We only
+-- manage flood entries (MAC = '00:00:00:00:00:00') — unicast
+-- entries get installed by the bridge's data-plane learning and
+-- are not our business.
+reconcileFlood :: T.Text -> [T.Text] -> IO ()
+reconcileFlood dev desired = do
+  entries <- unwrapIp =<< fdbList dev
+  let currentFlood =
+        Set.fromList [dst | (mac, dst) <- entries, mac == floodMac]
+      target = Set.fromList desired
+      toAdd = Set.difference target currentFlood
+      toRemove = Set.difference currentFlood target
+  mapM_ (\p -> unwrapIp =<< fdbAppend floodMac dev p) (Set.toList toAdd)
+  mapM_ (\p -> ignoreIp =<< fdbDel floodMac dev p) (Set.toList toRemove)
 
 -- ---------------------------------------------------------------------------
 -- Helpers

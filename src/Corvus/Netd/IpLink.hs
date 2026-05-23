@@ -34,6 +34,10 @@ module Corvus.Netd.IpLink
   , tapAdd
   , tapDel
   , linkSetMaster
+  , vxlanAdd
+  , fdbAppend
+  , fdbDel
+  , fdbList
   )
 where
 
@@ -121,19 +125,104 @@ linkSetMaster :: T.Text -> T.Text -> IO (Either IpLinkError ())
 linkSetMaster iface master =
   runIp ["link", "set", T.unpack iface, "master", T.unpack master]
 
+-- | @ip link add <name> type vxlan id <vni> local <ip> dstport 4789
+-- nolearning@. 'nolearning' disables the kernel's data-plane MAC
+-- learning on the vxlan device itself — the bridge still learns
+-- (data-plane learning happens on the BRIDGE port, not the vxlan
+-- port). This keeps the agent's view of the FDB authoritative.
+vxlanAdd :: T.Text -> Word32 -> T.Text -> IO (Either IpLinkError ())
+vxlanAdd name vni localIp =
+  runIp
+    [ "link"
+    , "add"
+    , T.unpack name
+    , "type"
+    , "vxlan"
+    , "id"
+    , show vni
+    , "local"
+    , T.unpack localIp
+    , "dstport"
+    , "4789"
+    , "nolearning"
+    ]
+
+-- | @bridge fdb append <mac> dev <dev> dst <ip>@. Used for BUM
+-- (broadcast / unknown-unicast / multicast) head-end replication —
+-- the magic MAC "00:00:00:00:00:00" creates a flood entry that
+-- replicates frames to every peer in the list. Idempotent at the
+-- kernel level only via 'append' semantics; the caller must reconcile.
+fdbAppend :: T.Text -> T.Text -> T.Text -> IO (Either IpLinkError ())
+fdbAppend mac dev dst =
+  runBridge
+    [ "fdb"
+    , "append"
+    , T.unpack mac
+    , "dev"
+    , T.unpack dev
+    , "dst"
+    , T.unpack dst
+    ]
+
+-- | @bridge fdb del <mac> dev <dev> dst <ip>@. Symmetric inverse of
+-- 'fdbAppend' for reconcile.
+fdbDel :: T.Text -> T.Text -> T.Text -> IO (Either IpLinkError ())
+fdbDel mac dev dst =
+  runBridge
+    [ "fdb"
+    , "del"
+    , T.unpack mac
+    , "dev"
+    , T.unpack dev
+    , "dst"
+    , T.unpack dst
+    ]
+
+-- | @bridge fdb show dev <dev>@, parsed into @(mac, dst)@ pairs.
+-- The bridge tool's output looks like
+-- @\"00:00:00:00:00:00 dst 192.0.2.20 self permanent\"@.
+fdbList :: T.Text -> IO (Either IpLinkError [(T.Text, T.Text)])
+fdbList dev = do
+  (code, stdout, stderr) <-
+    readProcessWithExitCode "bridge" ["fdb", "show", "dev", T.unpack dev] ""
+  case code of
+    ExitSuccess -> pure (Right (parseFdb (T.pack stdout)))
+    ExitFailure n ->
+      pure $
+        Left
+          IpLinkError
+            { ileArgs = T.pack <$> ["bridge", "fdb", "show", "dev", T.unpack dev]
+            , ileExitCode = n
+            , ileStderr = T.strip (T.pack stderr)
+            }
+  where
+    parseFdb txt =
+      [ (mac, dst)
+      | line <- T.lines txt
+      , let ws = T.words line
+      , (mac : rest) <- [ws]
+      , (dst : _) <- [drop 1 (dropWhile (/= "dst") rest)]
+      ]
+
 -- ---------------------------------------------------------------------------
 -- Internal
 
 runIp :: [String] -> IO (Either IpLinkError ())
-runIp args = do
-  (code, _stdout, stderr) <- readProcessWithExitCode "ip" args ""
+runIp args = runTool "ip" args
+
+runBridge :: [String] -> IO (Either IpLinkError ())
+runBridge args = runTool "bridge" args
+
+runTool :: String -> [String] -> IO (Either IpLinkError ())
+runTool tool args = do
+  (code, _stdout, stderr) <- readProcessWithExitCode tool args ""
   case code of
     ExitSuccess -> pure (Right ())
     ExitFailure n ->
       pure $
         Left
           IpLinkError
-            { ileArgs = map T.pack ("ip" : args)
+            { ileArgs = map T.pack (tool : args)
             , ileExitCode = n
             , ileStderr = T.strip (T.pack stderr)
             }
