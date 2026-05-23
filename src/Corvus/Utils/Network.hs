@@ -10,6 +10,12 @@ module Corvus.Utils.Network
   , prefixLength
   , subnetMask
 
+    -- * Lower-level helpers (re-used by daemon IPAM)
+  , parseCidr
+  , parseIpv4
+  , ipToText
+  , prefixToMask
+
     -- * MAC address generation
   , generateMacAddress
   )

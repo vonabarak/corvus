@@ -48,6 +48,7 @@ library
       Corvus.Handlers.NetIf
       Corvus.Handlers.SshKey
       Corvus.Handlers.Network
+      Corvus.Handlers.Network.Ipam
       Corvus.Handlers.Node
       Corvus.Handlers.Resolve
       Corvus.Handlers.Scheduler
@@ -564,6 +565,7 @@ test-suite corvus-test
       Corvus.GuestAgentSpec
       Corvus.GuestExecSpec
       Corvus.ImageSpec
+      Corvus.IpamSpec
       Corvus.NetdLedgerSpec
       Corvus.NetIfSpec
       Corvus.NetworkSpec
