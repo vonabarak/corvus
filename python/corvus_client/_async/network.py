@@ -102,3 +102,15 @@ class AsyncNetwork:
 
     async def delete(self) -> None:
         await self._cap.delete()
+
+    async def attach_node(self, node: int | str) -> None:
+        """Add a peer node to a multi-node overlay network."""
+        params = _schema.network.NetworkPeerParams.new_message()
+        params.node = entity_ref(node)
+        await self._cap.attachNode(params=params)
+
+    async def detach_node(self, node: int | str) -> None:
+        """Remove a peer node from a multi-node overlay network."""
+        params = _schema.network.NetworkPeerParams.new_message()
+        params.node = entity_ref(node)
+        await self._cap.detachNode(params=params)

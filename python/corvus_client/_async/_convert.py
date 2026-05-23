@@ -113,6 +113,7 @@ def net_if_info(r) -> t.NetIfInfo:
         network_id=_nz_int(r.networkId),
         network_name=_nz_text(r.networkName),
         guest_ip_addresses=_nz_text(r.guestIpAddresses),
+        ip_address=_nz_text(r.ipAddress),
     )
 
 
@@ -271,6 +272,8 @@ def network_info(r) -> t.NetworkInfo:
         dnsmasq_pid=_nz_int(r.dnsmasqPid),
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
         autostart=r.autostart,
+        vni=_nz_int(r.vni),
+        peer_node_ids=tuple(r.peerNodeIds),
     )
 
 

@@ -41,3 +41,9 @@ class SyncNetwork(LoopBoundResource):
 
     def delete(self):
         return self._rl.run(self._a.delete())
+
+    def attach_node(self, node: int | str):
+        return self._rl.run(self._a.attach_node(node))
+
+    def detach_node(self, node: int | str):
+        return self._rl.run(self._a.detach_node(node))

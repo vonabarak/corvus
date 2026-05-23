@@ -89,6 +89,7 @@ class NetIfInfo:
     network_id: int | None = None
     network_name: str | None = None
     guest_ip_addresses: str | None = None
+    ip_address: str | None = None
 
 
 @dataclass(frozen=True)
@@ -258,6 +259,8 @@ class NetworkInfo:
     autostart: bool
     created_at: datetime
     dnsmasq_pid: int | None = None
+    vni: int | None = None
+    peer_node_ids: tuple[int, ...] = ()
 
 
 # ---------------------------------------------------------------------------
