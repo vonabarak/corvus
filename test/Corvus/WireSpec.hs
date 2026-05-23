@@ -223,4 +223,5 @@ sampleTaskInfo =
     , PT.tiCommand = "create"
     , PT.tiResult = M.TaskSuccess
     , PT.tiMessage = Just "ok"
+    , PT.tiClientName = "alice"
     }

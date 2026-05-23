@@ -191,6 +191,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
                 , taskCommand = "build"
                 , taskResult = TaskRunning
                 , taskMessage = Nothing
+                , taskClientName = "system"
                 }
           )
           pool

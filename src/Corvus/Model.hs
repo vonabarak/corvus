@@ -761,6 +761,7 @@ Task
     command Text
     result TaskResult
     message Text Maybe
+    clientName Text
     deriving Show Eq Generic
 
 CloudInit

@@ -26,6 +26,7 @@ data TaskInfo = TaskInfo
   , tiCommand :: !Text
   , tiResult :: !TaskResult
   , tiMessage :: !(Maybe Text)
+  , tiClientName :: !Text
   }
   deriving (Eq, Show, Generic)
 

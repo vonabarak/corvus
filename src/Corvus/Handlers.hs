@@ -107,6 +107,7 @@ toTaskInfoWith tid th =
     , tiCommand = taskCommand th
     , tiResult = taskResult th
     , tiMessage = taskMessage th
+    , tiClientName = taskClientName th
     }
 
 -- | Helper to filter out Nothing values

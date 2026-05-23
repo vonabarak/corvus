@@ -357,6 +357,7 @@ class TaskInfo:
     subsystem: str
     command: str
     result: str
+    client_name: str = "local"
     parent_id: int | None = None
     finished_at: datetime | None = None
     entity_id: int | None = None

@@ -28,6 +28,7 @@ toCapnpTaskInfo P.TaskInfo {..} =
     , CGTask.command = tiCommand
     , CGTask.result = toCapnpTaskResult tiResult
     , CGTask.message = fromMaybe mempty tiMessage
+    , CGTask.clientName = tiClientName
     }
 
 fromCapnpTaskInfo :: C.Parsed CGTask.TaskInfo -> Either WireError P.TaskInfo
@@ -46,4 +47,5 @@ fromCapnpTaskInfo CGTask.TaskInfo {..} = do
       , P.tiCommand = command
       , P.tiResult = res
       , P.tiMessage = if message == mempty then Nothing else Just message
+      , P.tiClientName = clientName
       }

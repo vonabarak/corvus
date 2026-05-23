@@ -967,6 +967,7 @@ runProvisioner state parentTaskId sink vmId sd cEnv stepIdx p = do
               , taskCommand = kind
               , taskResult = TaskRunning
               , taskMessage = Nothing
+              , taskClientName = "system"
               }
         )
         (ssDbPool state)

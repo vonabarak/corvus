@@ -36,6 +36,7 @@ spec = sequential $ withTestDb $ do
               , taskCommand = "start"
               , taskResult = TaskRunning
               , taskMessage = Nothing
+              , taskClientName = "alice"
               }
         pure ()
 
@@ -141,6 +142,7 @@ spec = sequential $ withTestDb $ do
               , taskCommand = "old-task"
               , taskResult = TaskSuccess
               , taskMessage = Nothing
+              , taskClientName = "system"
               }
         pure ()
 
@@ -168,6 +170,7 @@ spec = sequential $ withTestDb $ do
               , taskCommand = "import"
               , taskResult = TaskRunning
               , taskMessage = Nothing
+              , taskClientName = "alice"
               }
         pure ()
 

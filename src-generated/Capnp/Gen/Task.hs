@@ -41,7 +41,7 @@ instance (C.HasTypeId TaskInfo) where
     typeId  = 12448351927280309598
 instance (C.TypedStruct TaskInfo) where
     numStructWords  = 6
-    numStructPtrs  = 3
+    numStructPtrs  = 4
 instance (C.Allocate TaskInfo) where
     type AllocHint TaskInfo = ()
     new _ = C.newTypedStruct
@@ -61,7 +61,8 @@ data instance C.Parsed TaskInfo
         ,entityName :: (RP.Parsed Basics.Text)
         ,command :: (RP.Parsed Basics.Text)
         ,result :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.TaskResult)
-        ,message :: (RP.Parsed Basics.Text)}
+        ,message :: (RP.Parsed Basics.Text)
+        ,clientName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TaskInfo))
 deriving instance (Std_.Eq (C.Parsed TaskInfo))
@@ -75,7 +76,8 @@ instance (C.Parse TaskInfo (C.Parsed TaskInfo)) where
                            <*> (GH.parseField #entityName raw_)
                            <*> (GH.parseField #command raw_)
                            <*> (GH.parseField #result raw_)
-                           <*> (GH.parseField #message raw_))
+                           <*> (GH.parseField #message raw_)
+                           <*> (GH.parseField #clientName raw_))
 instance (C.Marshal TaskInfo (C.Parsed TaskInfo)) where
     marshalInto raw_ TaskInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -88,6 +90,7 @@ instance (C.Marshal TaskInfo (C.Parsed TaskInfo)) where
         (GH.encodeField #command command raw_)
         (GH.encodeField #result result raw_)
         (GH.encodeField #message message raw_)
+        (GH.encodeField #clientName clientName raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TaskInfo Std_.Int64) where
@@ -110,6 +113,8 @@ instance (GH.HasField "result" GH.Slot TaskInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d
     fieldByLabel  = (GH.dataField 16 4 16 0)
 instance (GH.HasField "message" GH.Slot TaskInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "clientName" GH.Slot TaskInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 3)
 data TaskListParams 
 type instance (R.ReprFor TaskListParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TaskListParams) where

@@ -183,6 +183,10 @@ runActionAsSubtask state action parentId = do
 --------------------------------------------------------------------------------
 
 -- | Create a task record in the database.
+--
+-- 'taskClientName' is hardcoded to @"system"@ in Slice 1; Slice 2
+-- threads the real value (mTLS CN suffix, @"local"@, or @"system"@)
+-- in from the RPC layer.
 createTaskRecord :: (Action a) => ServerState -> a -> Maybe TaskId -> IO TaskId
 createTaskRecord state action mParent = do
   now <- getCurrentTime
@@ -198,6 +202,7 @@ createTaskRecord state action mParent = do
           , taskCommand = actionCommand action
           , taskResult = TaskRunning
           , taskMessage = Nothing
+          , taskClientName = "system"
           }
     )
     (ssDbPool state)

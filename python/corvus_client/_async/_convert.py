@@ -377,6 +377,7 @@ def task_info(r) -> t.TaskInfo:
         command=r.command,
         result=str(r.result),
         message=_nz_text(r.message),
+        client_name=r.clientName,
     )
 
 

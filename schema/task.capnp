@@ -18,6 +18,7 @@ struct TaskInfo {
   command     @7  :Text;
   result      @8  :Enums.TaskResult;
   message     @9  :Text;    # empty == no message
+  clientName  @10 :Text;    # "local", "system", or the client cert CN suffix
 }
 
 struct TaskListParams {
