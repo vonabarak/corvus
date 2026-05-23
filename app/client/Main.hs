@@ -1,9 +1,10 @@
 module Main where
 
-import Corvus.Client (optsInfo, runCommand)
+import Corvus.Client (optsInfo, readClientDefaults, runCommand)
 import Options.Applicative (execParser)
 
 main :: IO ()
 main = do
-  opts <- execParser optsInfo
+  defs <- readClientDefaults
+  opts <- execParser (optsInfo defs)
   runCommand opts

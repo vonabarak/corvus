@@ -37,27 +37,27 @@ spec = do
   describe "resolveGrantHost" $ do
     it "leaves a non-wildcard host untouched even when the client is on TCP" $ do
       let grant = baseGrant {vgHost = "10.0.0.5"}
-          opts = baseOpts {optTcp = True, optHost = "10.1.1.1"}
+          opts = baseOpts {optUnix = False, optHost = "10.1.1.1"}
       vgHost (resolveGrantHost opts grant) `shouldBe` "10.0.0.5"
 
     it "substitutes a wildcard host with optHost when the client is on TCP" $ do
       let grant = baseGrant {vgHost = "0.0.0.0"}
-          opts = baseOpts {optTcp = True, optHost = "daemon.example.com"}
+          opts = baseOpts {optUnix = False, optHost = "daemon.example.com"}
       vgHost (resolveGrantHost opts grant) `shouldBe` "daemon.example.com"
 
     it "treats an empty host as wildcard and substitutes it" $ do
       let grant = baseGrant {vgHost = ""}
-          opts = baseOpts {optTcp = True, optHost = "10.0.0.9"}
+          opts = baseOpts {optUnix = False, optHost = "10.0.0.9"}
       vgHost (resolveGrantHost opts grant) `shouldBe` "10.0.0.9"
 
     it "substitutes an IPv6 wildcard (::) with optHost when on TCP" $ do
       let grant = baseGrant {vgHost = "::"}
-          opts = baseOpts {optTcp = True, optHost = "2001:db8::1"}
+          opts = baseOpts {optUnix = False, optHost = "2001:db8::1"}
       vgHost (resolveGrantHost opts grant) `shouldBe` "2001:db8::1"
 
     it "leaves the wildcard intact when the client is on a Unix socket" $ do
       let grant = baseGrant {vgHost = "0.0.0.0"}
-          opts = baseOpts {optTcp = False, optHost = "ignored"}
+          opts = baseOpts {optUnix = True, optHost = "ignored"}
       vgHost (resolveGrantHost opts grant) `shouldBe` "0.0.0.0"
 
   describe "grantToJson" $ do
@@ -90,7 +90,7 @@ baseOpts :: Options
 baseOpts =
   Options
     { optSocket = Nothing
-    , optTcp = False
+    , optUnix = True
     , optHost = "127.0.0.1"
     , optPort = 9876
     , optOutput = TextOutput

@@ -1,12 +1,15 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | Cap'n Proto RPC listener — the daemon's sole wire endpoint.
+-- | Cap'n Proto RPC listener — one listener per 'ListenAddress'.
 --
--- The Unix socket path is @\$XDG_RUNTIME_DIR\/corvus\/corvus.sock@
--- by default; a host\/port can be passed for TCP. Each accepted
--- connection gets its own 'handleConn' loop with the 'Daemon' cap
--- as the bootstrap interface.
+-- The daemon spawns one of these per enabled endpoint (Unix
+-- socket and/or TCP) so a single daemon can serve local Unix
+-- clients alongside remote TCP/mTLS clients. The Unix socket
+-- path is @\$XDG_RUNTIME_DIR\/corvus\/corvus.sock@ by default;
+-- a host\/port can be passed for TCP. Each accepted connection
+-- gets its own 'handleConn' loop with the 'Daemon' cap as the
+-- bootstrap interface.
 module Corvus.Rpc.Server
   ( runCapnpServer
   )

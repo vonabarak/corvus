@@ -107,7 +107,7 @@ systemctl --user status corvus
 journalctl --user -u corvus -f
 ```
 
-The service listens on `$XDG_RUNTIME_DIR/corvus/corvus.sock` by default and restarts automatically on failure.
+The service listens on **both** `$XDG_RUNTIME_DIR/corvus/corvus.sock` and TCP `0.0.0.0:9876` by default, and restarts automatically on failure. Pass `--no-unix` or `--no-tcp` to disable either listener; `--socket PATH` overrides the Unix socket path, `--host HOST` / `--port PORT` override the TCP bind.
 
 ### Creating Your First VM
 
@@ -136,21 +136,25 @@ crv vm start my-vm --wait
 ### Connection Options
 
 ```bash
-# Unix socket (default)
+# TCP to 127.0.0.1:9876 (default)
 crv vm list
 
-# Custom socket path
-crv --socket /tmp/corvus.sock vm list
+# Custom TCP host / port — equivalently set CORVUS_HOST / CORVUS_PORT
+crv --host daemon.example.com --port 9876 vm list
+CORVUS_HOST=daemon.example.com crv vm list
 
-# TCP connection
-crv --tcp --host 127.0.0.1 --port 9876 vm list
+# Unix socket (default path)
+crv --unix vm list
+
+# Custom Unix socket path — implies --unix; equivalently set CORVUS_SOCKET
+crv --socket /tmp/corvus.sock vm list
 ```
 
 ### Network Transparency
 
-Every `crv` command — including `vm view`, `vm monitor`, `vm exec`, `serial console`, and `apply` — runs over the daemon's RPC socket, so pointing `crv` at a daemon on another host with `--tcp --host <ip>` Just Works. The daemon relays serial and HMP I/O through the RPC connection using per-VM ring buffers; `vm view` for graphical VMs returns a short-lived SPICE host/port/password grant that `remote-viewer` on the client uses. Disk registration, import, and shared-directory paths are always interpreted on the daemon host (they refer to the daemon's filesystem).
+Every `crv` command — including `vm view`, `vm monitor`, `vm exec`, `serial console`, and `apply` — runs over the daemon's RPC socket, so pointing `crv` at a daemon on another host with `--host <ip>` Just Works. The daemon relays serial and HMP I/O through the RPC connection using per-VM ring buffers; `vm view` for graphical VMs returns a short-lived SPICE host/port/password grant that `remote-viewer` on the client uses. Disk registration, import, and shared-directory paths are always interpreted on the daemon host (they refer to the daemon's filesystem).
 
-The RPC socket has no built-in authentication, so binding the daemon to a non-loopback address exposes it to anyone who can reach that port. Restrict access with firewall rules, a VPN, or a reverse proxy with auth.
+The TCP listener requires mutual TLS — `corvus-admin deploy` provisions a per-host CA and per-client certificates, and the daemon rejects any peer whose CN doesn't begin with `corvus-client:`. Pass `--no-tls` on both the daemon and the client to bypass it in dev. The Unix socket relies on filesystem permissions, and TLS is skipped there even when configured.
 
 ### Output Formats
 

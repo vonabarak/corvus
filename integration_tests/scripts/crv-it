@@ -8,7 +8,7 @@
 # Looks up the VM in the outer daemon, finds the per-class CA's host-side
 # client cert dir under /tmp/corvus-it-pki-<class>-*/host/<short_name>/,
 # and execs:
-#   crv --tcp --host <vm_ip> --tls-cert-dir <dir> <args...>
+#   crv --host <vm_ip> --tls-cert-dir <dir> <args...>
 #
 # Cert dirs are wiped by Topology.finalize() on clean teardown; this
 # script only works while the test is paused (e.g. pdb) or after a
@@ -83,4 +83,4 @@ if [[ ! $vm_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 echo "crv-it: $vm_name → $vm_ip  (certs: $cert_dir)" >&2
-exec crv --tcp --host "$vm_ip" --tls-cert-dir "$cert_dir" "$@"
+exec crv --host "$vm_ip" --tls-cert-dir "$cert_dir" "$@"

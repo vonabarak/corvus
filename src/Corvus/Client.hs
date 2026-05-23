@@ -17,6 +17,8 @@ module Corvus.Client
     -- * Argument parsing
   , optionsParser
   , optsInfo
+  , ClientDefaults (..)
+  , readClientDefaults
 
     -- * Command execution
   , runCommand

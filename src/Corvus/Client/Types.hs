@@ -28,10 +28,16 @@ data WaitOptions = WaitOptions
   }
   deriving (Show, Eq)
 
--- | Command line options
+-- | Command line options.
+--
+-- The client defaults to TCP at 127.0.0.1:9876. '--unix' (or a
+-- '--socket PATH') switches to a Unix socket connection; the
+-- 'CORVUS_HOST' / 'CORVUS_PORT' / 'CORVUS_SOCKET' env vars
+-- override the corresponding defaults but are themselves
+-- overridden by explicit CLI flags.
 data Options = Options
   { optSocket :: Maybe FilePath
-  , optTcp :: Bool
+  , optUnix :: Bool
   , optHost :: String
   , optPort :: Int
   , optOutput :: OutputFormat

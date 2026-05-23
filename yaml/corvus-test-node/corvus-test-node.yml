@@ -291,8 +291,7 @@ pipeline:
               # invoke it bare (alias expansion is off inside the
               # completion function). The daemon listens on TCP via
               # the vsock-to-TCP relay; CORVUS_HOST / CORVUS_PORT let
-              # the entity-name completer (Corvus.Client.Completion)
-              # reach it without `--tcp` on the inner call.
+              # crv (and the entity-name completer) target it.
               if [ -d /opt/corvus/bin ]; then
                 case ":$PATH:" in
                   *:/opt/corvus/bin:*) ;;
@@ -303,7 +302,7 @@ pipeline:
                 export CORVUS_PORT=9876
               fi
 
-              alias crv='/opt/corvus/bin/crv --tcp'
+              alias crv='/opt/corvus/bin/crv'
               alias crv-log='journalctl -u corvus -f --since "5 min ago"'
               alias crv-status='systemctl status --no-pager corvus'
               alias crv-psql='psql -U corvus corvus'

@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
@@ -5,7 +6,7 @@ module Main where
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel, poll)
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
-import Control.Monad (unless)
+import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN)
 import Corvus.Model (migrateAll)
@@ -30,6 +31,7 @@ import Corvus.Types
   )
 import Data.ByteString.Char8 (pack)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (catMaybes)
 import qualified Data.Text as T
 import Database.Persist.Postgresql (createPostgresqlPool, runMigrationUnsafe, runSqlPool)
 import Options.Applicative
@@ -39,10 +41,16 @@ import System.FilePath (takeDirectory)
 import System.IO (BufferMode (LineBuffering), hSetBuffering, stderr, stdout)
 import System.Posix.Signals (Handler (Catch), installHandler, sigINT, sigTERM)
 
--- | Command line options for the daemon
+-- | Command line options for the daemon.
+--
+-- The daemon listens on BOTH a Unix socket and TCP by default;
+-- '--no-unix' / '--no-tcp' disable each individually. TLS over
+-- TCP keeps a network-reachable listener safe (the listener
+-- refuses to start without certs unless '--no-tls' was passed).
 data Options = Options
   { optSocket :: Maybe FilePath
-  , optTcp :: Bool
+  , optNoUnix :: Bool
+  , optNoTcp :: Bool
   , optHost :: String
   , optPort :: Int
   , optDbUri :: String
@@ -65,15 +73,19 @@ optionsParser =
           )
       )
     <*> switch
-      ( long "tcp"
-          <> help "Use TCP instead of Unix socket"
+      ( long "no-unix"
+          <> help "Do not listen on the Unix socket"
+      )
+    <*> switch
+      ( long "no-tcp"
+          <> help "Do not listen on TCP"
       )
     <*> strOption
       ( long "host"
           <> short 'H'
           <> metavar "HOST"
-          <> value "127.0.0.1"
-          <> help "Host to bind to when using --tcp (default: 127.0.0.1)"
+          <> value "0.0.0.0"
+          <> help "Host to bind to for the TCP listener (default: 0.0.0.0)"
       )
     <*> option
       auto
@@ -81,7 +93,7 @@ optionsParser =
           <> short 'p'
           <> metavar "PORT"
           <> value 9876
-          <> help "Port to listen on when using --tcp (default: 9876)"
+          <> help "Port to listen on for the TCP listener (default: 9876)"
       )
     <*> strOption
       ( long "database"
@@ -101,7 +113,7 @@ optionsParser =
       ( strOption
           ( long "spice-bind"
               <> metavar "ADDR"
-              <> help "Address QEMU binds SPICE to (default: mirrors --host in --tcp mode, else 127.0.0.1)"
+              <> help "Address QEMU binds SPICE to (default: mirrors --host when the TCP listener is enabled, else 127.0.0.1)"
           )
       )
     <*> switch
@@ -140,10 +152,14 @@ main = do
     liftIO $ runSqlPool (runMigrationUnsafe migrateAll) pool
     logInfoN "Migrations complete."
 
+    -- SPICE bind: defaults to the TCP listener's bind host when the
+    -- TCP listener is enabled (so remote clients reaching the
+    -- daemon over TCP can also reach SPICE), and to 127.0.0.1
+    -- otherwise (Unix-only daemon means SPICE is local-only too).
     let spiceBind = case optSpiceBind opts of
           Just a -> T.pack a
           Nothing
-            | optTcp opts -> T.pack (optHost opts)
+            | not (optNoTcp opts) -> T.pack (optHost opts)
             | otherwise -> "127.0.0.1"
         qemuConfig = defaultQemuConfig {qcSpiceBindAddress = spiceBind}
     state <- liftIO $ newServerState pool qemuConfig
@@ -165,47 +181,55 @@ main = do
     liftIO $ installHandler sigTERM (Catch shutdownHandler) Nothing
     liftIO $ installHandler sigINT (Catch shutdownHandler) Nothing
 
-    listenAddr <- liftIO $ getListenAddr opts
-    case listenAddr of
-      UnixAddress path -> liftIO $ createDirectoryIfMissing True (takeDirectory path)
-      TcpAddress _ _ -> pure ()
+    listenAddrs <- liftIO $ getListenAddrs opts
+    when (null listenAddrs) $
+      liftIO $
+        error "Corvus daemon: both --no-unix and --no-tcp set; no listener to start."
+    liftIO $
+      mapM_
+        ( \case
+            UnixAddress path -> createDirectoryIfMissing True (takeDirectory path)
+            TcpAddress _ _ -> pure ()
+        )
+        listenAddrs
 
-    logInfoN $ "Starting Cap'n Proto RPC server on " <> formatListenAddr listenAddr
-    capnpThread <- liftIO $ async $ runCapnpServer state' listenAddr
+    mapM_
+      (logInfoN . ("Starting Cap'n Proto RPC server on " <>) . formatListenAddr)
+      listenAddrs
+    capnpThreads <-
+      liftIO $
+        mapM (async . runCapnpServer state') listenAddrs
 
     -- Boot-time: spawn one supervisor per registered Node. The
     -- 'crv node add' / 'crv node delete' handlers spawn/cancel
     -- additional supervisors at runtime.
     nodeSupervisors <- liftIO $ spawnAllNodeSupervisors state'
 
-    -- Wait for either a shutdown signal OR the listener thread
-    -- dying. If 'capnpThread' exits for any reason while we're
-    -- not shutting down, the process must exit non-zero so
-    -- systemd ('Restart=on-failure' / '=always') restarts us
-    -- cleanly. The previous code waited only on 'ssShutdownFlag'
-    -- and so could end up in a zombie state — process alive,
-    -- listener dead — with the Unix-socket file unlinked by
-    -- 'runCapnpServer's bracket cleanup. Operators saw this as
-    -- "ENOENT on the daemon socket" with no obvious way to
-    -- recover short of manually 'systemctl restart'-ing.
-    liftIO $ waitForShutdownOrListenerDeath state' capnpThread
+    -- Wait for either a shutdown signal OR ANY listener thread
+    -- dying. If a listener exits for any reason while we're not
+    -- shutting down, the process must exit non-zero so systemd
+    -- ('Restart=on-failure' / '=always') restarts us cleanly.
+    liftIO $ waitForShutdownOrListenerDeath state' capnpThreads
 
-    -- Re-check the listener: if it died, surface a fatal log
-    -- line BEFORE the rest of the teardown so the journal makes
-    -- the cause obvious. Then exit non-zero.
-    listenerDied <- liftIO $ poll capnpThread
-    case listenerDied of
-      Just (Left e) ->
-        logInfoN $
-          "Listener thread died unexpectedly: "
-            <> T.pack (show e)
-            <> "; exiting so systemd can restart the daemon"
-      Just (Right _) ->
-        logInfoN "Listener thread exited cleanly; exiting"
-      Nothing -> pure ()
+    -- Re-check the listeners: surface a fatal log line for any
+    -- that died BEFORE the rest of the teardown so the journal
+    -- makes the cause obvious.
+    listenerStatuses <- liftIO $ mapM poll capnpThreads
+    mapM_
+      ( \case
+          Just (Left e) ->
+            logInfoN $
+              "Listener thread died unexpectedly: "
+                <> T.pack (show e)
+                <> "; exiting so systemd can restart the daemon"
+          Just (Right _) ->
+            logInfoN "Listener thread exited cleanly; exiting"
+          Nothing -> pure ()
+      )
+      listenerStatuses
 
     logInfoN "Shutting down..."
-    liftIO $ cancel capnpThread
+    liftIO $ mapM_ cancel capnpThreads
     -- Cancel every supervisor in the registry — covers both
     -- the boot-time set and any added at runtime via @crv node
     -- add@. 'cancel' is idempotent on already-cancelled
@@ -219,19 +243,35 @@ main = do
     liftIO $ mapM_ cancel nodeSupervisors
 
     liftIO $ handleGracefulShutdown state'
-    -- Exit non-zero if the listener died and we're here only
+    -- Exit non-zero if any listener died and we're here only
     -- because of that. Otherwise normal shutdown is success.
-    listenerDied' <- liftIO $ poll capnpThread
-    case listenerDied' of
-      Just (Left _) -> liftIO (exitWith (ExitFailure 1))
-      _ -> liftIO exitSuccess
+    finalStatuses <- liftIO $ mapM poll capnpThreads
+    if any isCrash finalStatuses
+      then liftIO (exitWith (ExitFailure 1))
+      else liftIO exitSuccess
+  where
+    isCrash (Just (Left _)) = True
+    isCrash _ = False
 
-getListenAddr :: Options -> IO ListenAddress
-getListenAddr opts
-  | optTcp opts = pure $ TcpAddress (optHost opts) (optPort opts)
-  | otherwise = case optSocket opts of
-      Just path -> pure $ UnixAddress path
-      Nothing -> UnixAddress <$> getDefaultSocketPath
+-- | Listen-address list derived from CLI flags. Both Unix and
+-- TCP listeners are enabled by default; '--no-unix' / '--no-tcp'
+-- disable each individually. The caller (main) refuses to start
+-- if both are disabled.
+getListenAddrs :: Options -> IO [ListenAddress]
+getListenAddrs opts = do
+  unix <-
+    if optNoUnix opts
+      then pure Nothing
+      else
+        Just
+          <$> case optSocket opts of
+            Just path -> pure (UnixAddress path)
+            Nothing -> UnixAddress <$> getDefaultSocketPath
+  let tcp =
+        if optNoTcp opts
+          then Nothing
+          else Just (TcpAddress (optHost opts) (optPort opts))
+  pure $ catMaybes [unix, tcp]
 
 waitForShutdown :: ServerState -> IO ()
 waitForShutdown state = do
@@ -240,24 +280,26 @@ waitForShutdown state = do
     threadDelay 100000
     waitForShutdown state
 
--- | Like 'waitForShutdown', but also returns if the supplied
--- listener 'Async' exits for any reason. The exit code path
--- in 'main' polls the async after this returns to decide
+-- | Like 'waitForShutdown', but also returns if ANY of the
+-- supplied listener 'Async's exits for any reason. The exit code
+-- path in 'main' polls the asyncs after this returns to decide
 -- between clean exit and a non-zero failure.
-waitForShutdownOrListenerDeath :: ServerState -> Async a -> IO ()
-waitForShutdownOrListenerDeath state listener = go
+waitForShutdownOrListenerDeath :: ServerState -> [Async a] -> IO ()
+waitForShutdownOrListenerDeath state listeners = go
   where
     go = do
       shouldShutdown <- readTVarIO (ssShutdownFlag state)
       if shouldShutdown
         then pure ()
         else do
-          listenerStatus <- poll listener
-          case listenerStatus of
-            Just _ -> pure () -- listener exited; let main exit
-            Nothing -> do
+          listenerStatuses <- mapM poll listeners
+          if any isJust listenerStatuses
+            then pure () -- one listener exited; let main exit
+            else do
               threadDelay 100000
               go
+    isJust (Just _) = True
+    isJust Nothing = False
 
 parseLogLevel :: ReadM LogLevel
 parseLogLevel = eitherReader $ \s -> case s of

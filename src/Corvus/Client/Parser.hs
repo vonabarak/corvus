@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 -- | Command-line argument parsing for the Corvus client.
 --
@@ -8,6 +9,10 @@ module Corvus.Client.Parser
   ( -- * Parsers
     optionsParser
   , optsInfo
+
+    -- * Env-var-derived defaults
+  , ClientDefaults (..)
+  , readClientDefaults
   )
 where
 
@@ -26,8 +31,11 @@ import Corvus.Client.Parser.Template (templateCommandParser)
 import Corvus.Client.Parser.Vm (vmCommandParser)
 import Corvus.Client.Types
 import Data.Char (toLower)
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Options.Applicative
+import System.Environment (lookupEnv)
+import Text.Read (readMaybe)
 
 --------------------------------------------------------------------------------
 -- Misc Top-level Command Parsers
@@ -117,36 +125,71 @@ commandParser =
           (info taskCommandParser (progDesc "Task history commands"))
     )
 
--- | Parser for global options
-optionsParser :: Parser Options
-optionsParser =
+-- | Defaults derived from environment variables.
+--
+-- Resolved once before option parsing; the parser uses these as
+-- the 'value' for the corresponding 'option', so explicit CLI
+-- flags still win. The env var convention mirrors
+-- 'Corvus.Client.Completion.getCompletionAddress' so the shell
+-- completer and the main CLI see the same address.
+data ClientDefaults = ClientDefaults
+  { cdSocket :: !(Maybe FilePath)
+  , cdHost :: !String
+  , cdPort :: !Int
+  }
+  deriving (Show)
+
+-- | Resolve env vars into 'ClientDefaults'.
+--
+-- 'CORVUS_SOCKET' is treated as a "pinned Unix socket": when
+-- set, the client uses Unix mode targeting that path (overrides
+-- the default TCP host/port unless the caller explicitly
+-- restores TCP via '--no-unix' or by passing '--host').
+readClientDefaults :: IO ClientDefaults
+readClientDefaults = do
+  mSocket <- lookupEnv "CORVUS_SOCKET"
+  mHost <- lookupEnv "CORVUS_HOST"
+  mPort <- lookupEnv "CORVUS_PORT"
+  pure
+    ClientDefaults
+      { cdSocket = mSocket
+      , cdHost = fromMaybe "127.0.0.1" mHost
+      , cdPort = fromMaybe 9876 (mPort >>= readMaybe)
+      }
+
+-- | Parser for global options, parameterised by 'ClientDefaults'
+-- so the env-var-derived defaults can flow into the 'value'
+-- slots without polluting the parser with 'IO'.
+optionsParser :: ClientDefaults -> Parser Options
+optionsParser ClientDefaults {..} =
   Options
     <$> optional
       ( strOption
           ( long "socket"
               <> short 's'
               <> metavar "PATH"
-              <> help "Unix socket path (default: $XDG_RUNTIME_DIR/corvus/corvus.sock)"
+              <> maybe mempty value cdSocket
+              <> help "Unix socket path (default: $XDG_RUNTIME_DIR/corvus/corvus.sock; env: CORVUS_SOCKET)"
           )
       )
     <*> switch
-      ( long "tcp"
-          <> help "Use TCP instead of Unix socket"
+      ( long "unix"
+          <> help "Connect via Unix socket instead of TCP (uses --socket / CORVUS_SOCKET if set, else the default socket path)"
       )
     <*> strOption
       ( long "host"
           <> short 'H'
           <> metavar "HOST"
-          <> value "127.0.0.1"
-          <> help "Host to connect to when using --tcp (default: 127.0.0.1)"
+          <> value cdHost
+          <> help ("TCP host to connect to (default: " <> cdHost <> "; env: CORVUS_HOST)")
       )
     <*> option
       auto
       ( long "port"
           <> short 'p'
           <> metavar "PORT"
-          <> value 9876
-          <> help "Port to connect to when using --tcp (default: 9876)"
+          <> value cdPort
+          <> help ("TCP port to connect to (default: " <> show cdPort <> "; env: CORVUS_PORT)")
       )
     <*> outputFormatParser
     <*> bordersParser
@@ -230,11 +273,12 @@ readOutputFormat = eitherReader $ \s -> case map toLower s of
   "yaml" -> Right YamlOutput
   _ -> Left $ "Unknown output format: " ++ s ++ " (use text, json, or yaml)"
 
--- | Full parser with info
-optsInfo :: ParserInfo Options
-optsInfo =
+-- | Full parser with info, parameterised by the env-derived
+-- 'ClientDefaults' so the help text shows the resolved defaults.
+optsInfo :: ClientDefaults -> ParserInfo Options
+optsInfo defs =
   info
-    (optionsParser <**> helper)
+    (optionsParser defs <**> helper)
     ( fullDesc
         <> progDesc "Corvus client - interact with the corvus daemon"
         <> header "crv - corvus client for VM management"

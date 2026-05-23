@@ -54,6 +54,7 @@ import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (Value, object, toJSON, (.=))
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
@@ -61,13 +62,19 @@ import Options.Applicative.BashCompletion (bashCompletionScript, fishCompletionS
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
--- | Get the listen address from options
+-- | Get the listen address from options.
+--
+-- Defaults to TCP at the resolved host/port (see 'Options' /
+-- 'Corvus.Client.Parser.readClientDefaults'). Switches to Unix
+-- when '--unix' was passed OR when '--socket' / 'CORVUS_SOCKET'
+-- gave an explicit socket path.
 getListenAddress :: Options -> IO ListenAddress
 getListenAddress opts
-  | optTcp opts = pure $ TcpAddress (optHost opts) (optPort opts)
-  | otherwise = case optSocket opts of
-      Just path -> pure $ UnixAddress path
-      Nothing -> UnixAddress <$> getDefaultSocketPath
+  | optUnix opts || isJust (optSocket opts) =
+      case optSocket opts of
+        Just path -> pure (UnixAddress path)
+        Nothing -> UnixAddress <$> getDefaultSocketPath
+  | otherwise = pure $ TcpAddress (optHost opts) (optPort opts)
 
 -- | Execute the selected command
 runCommand :: Options -> IO ()
@@ -413,14 +420,17 @@ handleGraphicalViewGrant opts fmt conn vmRef vmName = do
           runRemoteViewer defaultClientConfig grant
 
 -- | Replace wildcard SPICE hosts with the client's @--host@ when
--- the client is connected via TCP.
+-- the client is connected via TCP. Unix-socket connections
+-- always leave the grant host untouched (the daemon and the
+-- viewer share a host, so a literal wildcard is harmless).
 resolveGrantHost :: Options -> ViewGrant -> ViewGrant
 resolveGrantHost opts grant
-  | isWildcard (vgHost grant) && optTcp opts =
+  | isWildcard (vgHost grant) && not (isUnixConnection opts) =
       grant {vgHost = T.pack (optHost opts)}
   | otherwise = grant
   where
     isWildcard h = h `elem` ["0.0.0.0", "::", ""]
+    isUnixConnection o = optUnix o || isJust (optSocket o)
 
 -- | JSON projection of a grant for @--output json|yaml@.
 grantToJson :: ViewGrant -> Value
