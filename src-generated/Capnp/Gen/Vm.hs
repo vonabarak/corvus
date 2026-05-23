@@ -345,7 +345,7 @@ instance (C.HasTypeId NetIfInfo) where
     typeId  = 12350622186082163555
 instance (C.TypedStruct NetIfInfo) where
     numStructWords  = 3
-    numStructPtrs  = 4
+    numStructPtrs  = 5
 instance (C.Allocate NetIfInfo) where
     type AllocHint NetIfInfo = ()
     new _ = C.newTypedStruct
@@ -362,7 +362,8 @@ data instance C.Parsed NetIfInfo
         ,macAddress :: (RP.Parsed Basics.Text)
         ,networkId :: (RP.Parsed Std_.Int64)
         ,networkName :: (RP.Parsed Basics.Text)
-        ,guestIpAddresses :: (RP.Parsed Basics.Text)}
+        ,guestIpAddresses :: (RP.Parsed Basics.Text)
+        ,ipAddress :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetIfInfo))
 deriving instance (Std_.Eq (C.Parsed NetIfInfo))
@@ -373,7 +374,8 @@ instance (C.Parse NetIfInfo (C.Parsed NetIfInfo)) where
                             <*> (GH.parseField #macAddress raw_)
                             <*> (GH.parseField #networkId raw_)
                             <*> (GH.parseField #networkName raw_)
-                            <*> (GH.parseField #guestIpAddresses raw_))
+                            <*> (GH.parseField #guestIpAddresses raw_)
+                            <*> (GH.parseField #ipAddress raw_))
 instance (C.Marshal NetIfInfo (C.Parsed NetIfInfo)) where
     marshalInto raw_ NetIfInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -383,6 +385,7 @@ instance (C.Marshal NetIfInfo (C.Parsed NetIfInfo)) where
         (GH.encodeField #networkId networkId raw_)
         (GH.encodeField #networkName networkName raw_)
         (GH.encodeField #guestIpAddresses guestIpAddresses raw_)
+        (GH.encodeField #ipAddress ipAddress raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot NetIfInfo Std_.Int64) where
@@ -399,6 +402,8 @@ instance (GH.HasField "networkName" GH.Slot NetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "guestIpAddresses" GH.Slot NetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
+instance (GH.HasField "ipAddress" GH.Slot NetIfInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 4)
 data SharedDirInfo 
 type instance (R.ReprFor SharedDirInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId SharedDirInfo) where

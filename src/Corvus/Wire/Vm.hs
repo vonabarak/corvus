@@ -143,6 +143,7 @@ toCapnpNetIfInfo P.NetIfInfo {..} =
     , CGVm.networkId = fromMaybe 0 niNetworkId
     , CGVm.networkName = fromMaybe mempty niNetworkName
     , CGVm.guestIpAddresses = fromMaybe mempty niGuestIpAddresses
+    , CGVm.ipAddress = fromMaybe mempty niIpAddress
     }
 
 fromCapnpNetIfInfo :: C.Parsed CGVm.NetIfInfo -> Either WireError P.NetIfInfo
@@ -158,6 +159,8 @@ fromCapnpNetIfInfo CGVm.NetIfInfo {..} = do
       , P.niNetworkName = if networkName == mempty then Nothing else Just networkName
       , P.niGuestIpAddresses =
           if guestIpAddresses == mempty then Nothing else Just guestIpAddresses
+      , P.niIpAddress =
+          if ipAddress == mempty then Nothing else Just ipAddress
       }
 
 -- ---------------------------------------------------------------------

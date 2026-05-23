@@ -469,6 +469,7 @@ insertNetwork name subnet = do
           , networkDnsmasqPid = Nothing
           , networkCreatedAt = now
           , networkAutostart = False
+          , networkVni = Nothing
           }
   pure $ fromSqlKey key
 
@@ -494,6 +495,7 @@ insertNetworkInterface vmId ifaceType hostDevice macAddress = do
           , networkInterfaceMacAddress = macAddress
           , networkInterfaceNetworkId = Nothing
           , networkInterfaceGuestIpAddresses = Nothing
+          , networkInterfaceIpAddress = Nothing
           }
   pure $ fromSqlKey key
 

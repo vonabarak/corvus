@@ -82,7 +82,8 @@ struct NetIfInfo {
   macAddress        @3 :Text;
   networkId         @4 :Int64;  # 0 == none
   networkName       @5 :Text;   # empty == none
-  guestIpAddresses  @6 :Text;   # empty == none
+  guestIpAddresses  @6 :Text;   # empty == none; observed by QGA
+  ipAddress         @7 :Text;   # empty == none; daemon IPAM allocation
 }
 
 struct SharedDirInfo {

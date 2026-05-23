@@ -124,6 +124,7 @@ addNetIf vmId ifaceType hostDevice macAddress mNetworkKey = do
               , networkInterfaceMacAddress = macAddress
               , networkInterfaceNetworkId = nwKey
               , networkInterfaceGuestIpAddresses = Nothing
+              , networkInterfaceIpAddress = Nothing
               }
       netIfKey <- insert netIf
       pure $ Just $ Right $ fromSqlKey netIfKey
@@ -174,6 +175,7 @@ listNetIfs vmId = do
           , niNetworkId = fromSqlKey <$> networkInterfaceNetworkId netIf
           , niNetworkName = mNetworkName
           , niGuestIpAddresses = networkInterfaceGuestIpAddresses netIf
+          , niIpAddress = networkInterfaceIpAddress netIf
           }
 
 --------------------------------------------------------------------------------

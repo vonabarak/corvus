@@ -1176,6 +1176,7 @@ getVmDetails config vmId = do
         , niNetworkId = fromSqlKey <$> networkInterfaceNetworkId netIf
         , niNetworkName = Nothing -- Not resolved in VM details view
         , niGuestIpAddresses = networkInterfaceGuestIpAddresses netIf
+        , niIpAddress = networkInterfaceIpAddress netIf
         }
 
 -- | Edit VM properties. Only updates fields that are Just.

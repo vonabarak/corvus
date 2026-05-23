@@ -657,7 +657,17 @@ Network
     dnsmasqPid Int Maybe
     createdAt UTCTime
     autostart Bool default=false
+    -- VXLAN VNI for multi-node overlays. NULL while the network has
+    -- no peer nodes (single-node behavior); allocated on first
+    -- attach-node and reused for the network's lifetime.
+    vni Int Maybe default=NULL
     UniqueNetworkPerNode nodeId name
+    deriving Show Eq Generic
+
+NetworkPeer
+    networkId NetworkId
+    nodeId NodeId
+    UniqueNetworkPeer networkId nodeId
     deriving Show Eq Generic
 
 NetworkInterface
@@ -667,6 +677,12 @@ NetworkInterface
     macAddress Text
     networkId NetworkId Maybe
     guestIpAddresses Text Maybe default=NULL
+    -- v4 address allocated by the daemon's IPAM and reserved on
+    -- dnsmasq via --dhcp-host. Populated when the NIC is attached to
+    -- a managed network; NULL for unmanaged interfaces. Distinct
+    -- from 'guestIpAddresses' which reflects what the guest agent
+    -- observes; this one is the daemon's intent.
+    ipAddress Text Maybe default=NULL
     deriving Show Eq Generic
 
 SharedDir

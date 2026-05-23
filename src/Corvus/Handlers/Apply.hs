@@ -442,6 +442,7 @@ createNetIfs state nwMap vmId netIfs vmName = go netIfs
                   , networkInterfaceMacAddress = mac
                   , networkInterfaceNetworkId = fmap toSqlKey networkId
                   , networkInterfaceGuestIpAddresses = Nothing
+                  , networkInterfaceIpAddress = Nothing
                   }
             )
             (ssDbPool state)

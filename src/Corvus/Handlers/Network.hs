@@ -107,6 +107,7 @@ handleNetworkCreate state name nodeRefText subnet dhcp nat autostart =
                               , networkDnsmasqPid = Nothing
                               , networkCreatedAt = now
                               , networkAutostart = autostart
+                              , networkVni = Nothing
                               }
                       result <- runSqlPool (insertUnique network) pool
                       case result of

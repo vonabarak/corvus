@@ -375,7 +375,7 @@ finishInstantiation state vmId newVmName details parentTaskId = runServerLogging
   -- Network
   forM_ (tvdNetIfs details) $ \tni -> do
     mac <- liftIO generateMacAddress
-    liftIO $ runSqlPool (insert_ $ NetworkInterface vmId (tvniType tni) (fromMaybe "" (tvniHostDevice tni)) mac Nothing Nothing) (ssDbPool state)
+    liftIO $ runSqlPool (insert_ $ NetworkInterface vmId (tvniType tni) (fromMaybe "" (tvniHostDevice tni)) mac Nothing Nothing Nothing) (ssDbPool state)
 
   -- SSH Keys
   forM_ (tvdSshKeys details) $ \tsk -> do

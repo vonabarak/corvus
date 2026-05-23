@@ -62,6 +62,7 @@ data NetIfInfo = NetIfInfo
   , niNetworkId :: !(Maybe Int64)
   , niNetworkName :: !(Maybe Text)
   , niGuestIpAddresses :: !(Maybe Text)
+  , niIpAddress :: !(Maybe Text)
   }
   deriving (Eq, Show, Generic)
 
