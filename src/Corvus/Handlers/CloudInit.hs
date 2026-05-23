@@ -55,9 +55,12 @@ import Database.Persist.Sql (fromSqlKey, toSqlKey)
 -- Handlers
 --------------------------------------------------------------------------------
 
--- | Set or update cloud-init config for a VM
-handleCloudInitSet :: ServerState -> Int64 -> Maybe Text -> Maybe Text -> Bool -> IO Response
-handleCloudInitSet state vmId mUserData mNetworkConfig injectKeys = runServerLogging state $ do
+-- | Set or update cloud-init config for a VM.
+-- 'clientName' is propagated to the inner 'RegenerateCloudInit'
+-- task so the regeneration row reflects the same caller as the
+-- CloudInitSet action that triggered it.
+handleCloudInitSet :: ServerState -> Text -> Int64 -> Maybe Text -> Maybe Text -> Bool -> IO Response
+handleCloudInitSet state clientName vmId mUserData mNetworkConfig injectKeys = runServerLogging state $ do
   logInfoN $ "Setting cloud-init config for VM " <> T.pack (show vmId)
 
   let pool = ssDbPool state
@@ -89,7 +92,7 @@ handleCloudInitSet state vmId mUserData mNetworkConfig injectKeys = runServerLog
               )
               pool
           -- Regenerate ISO with new config
-          ciResp <- liftIO $ runAction state (RegenerateCloudInit vmId (vmName vm))
+          ciResp <- liftIO $ runAction state clientName (RegenerateCloudInit vmId (vmName vm))
           case ciResp of
             RespError err -> pure $ RespError $ "Cloud-init ISO regeneration failed: " <> err
             _ -> pure RespCloudInitOk
@@ -117,9 +120,10 @@ handleCloudInitGet state vmId = do
                   , ciiInjectSshKeys = cloudInitInjectSshKeys ci
                   }
 
--- | Delete custom cloud-init config for a VM (revert to defaults)
-handleCloudInitDelete :: ServerState -> Int64 -> IO Response
-handleCloudInitDelete state vmId = runServerLogging state $ do
+-- | Delete custom cloud-init config for a VM (revert to defaults).
+-- 'clientName' is forwarded to the inner regeneration task.
+handleCloudInitDelete :: ServerState -> Text -> Int64 -> IO Response
+handleCloudInitDelete state clientName vmId = runServerLogging state $ do
   logInfoN $ "Deleting cloud-init config for VM " <> T.pack (show vmId)
 
   let pool = ssDbPool state
@@ -135,7 +139,7 @@ handleCloudInitDelete state vmId = runServerLogging state $ do
           -- Delete the custom config
           liftIO $ runSqlPool (deleteBy (UniqueCloudInitVm vmKey)) pool
           -- Regenerate ISO with defaults
-          ciResp <- liftIO $ runAction state (RegenerateCloudInit vmId (vmName vm))
+          ciResp <- liftIO $ runAction state clientName (RegenerateCloudInit vmId (vmName vm))
           case ciResp of
             RespError err -> pure $ RespError $ "Cloud-init ISO regeneration failed: " <> err
             _ -> pure RespCloudInitOk
@@ -155,7 +159,7 @@ instance Action CloudInitSet where
   actionSubsystem _ = SubVm
   actionCommand _ = "cloud-init-set"
   actionEntityId = Just . fromIntegral . cisVmId
-  actionExecute ctx a = handleCloudInitSet (acState ctx) (cisVmId a) (cisUserData a) (cisNetworkConfig a) (cisInjectKeys a)
+  actionExecute ctx a = handleCloudInitSet (acState ctx) (acClientName ctx) (cisVmId a) (cisUserData a) (cisNetworkConfig a) (cisInjectKeys a)
 
 newtype CloudInitDelete = CloudInitDelete {cidVmId :: Int64}
 
@@ -163,7 +167,7 @@ instance Action CloudInitDelete where
   actionSubsystem _ = SubVm
   actionCommand _ = "cloud-init-delete"
   actionEntityId = Just . fromIntegral . cidVmId
-  actionExecute ctx a = handleCloudInitDelete (acState ctx) (cidVmId a)
+  actionExecute ctx a = handleCloudInitDelete (acState ctx) (acClientName ctx) (cidVmId a)
 
 -- | Regenerate cloud-init ISO for a VM (collects SSH keys + config from DB).
 data RegenerateCloudInit = RegenerateCloudInit

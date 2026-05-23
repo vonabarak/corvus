@@ -87,18 +87,22 @@ runCapnpServer state addr = withSupervisor $ \sup ->
 
 -- | Plain (Unix-socket) connection: no TLS regardless of
 -- 'ssTlsConfig'. Filesystem permissions on the socket file
--- remain authoritative for local-only access.
+-- remain authoritative for local-only access. Task records made
+-- by this connection carry the @clientName@ @"local"@.
 runOneUnixConn :: ServerState -> Supervisor -> Socket -> IO ()
 runOneUnixConn state sup sock =
-  runHandler state sup (socketTransport sock defaultLimit)
+  runHandler state sup "local" (socketTransport sock defaultLimit)
 
 -- | TCP connection: wrap with mTLS if 'ssTlsConfig' is set,
 -- validate the peer CN, then hand the transport to 'handleConn'.
+-- The @clientName@ stamped on this connection's task records is:
+-- the @<name>@ suffix of the peer CN over TLS, or @"local"@ when
+-- TLS is disabled or the CN can't be read.
 runOneTcpConn :: ServerState -> Supervisor -> Socket -> IO ()
 runOneTcpConn state sup sock =
   case ssTlsConfig state of
     Nothing ->
-      runHandler state sup (socketTransport sock defaultLimit)
+      runHandler state sup "local" (socketTransport sock defaultLimit)
     Just cfg -> do
       r <- tryWrap cfg
       case r of
@@ -113,8 +117,12 @@ runOneTcpConn state sup sock =
               Tls.closeTlsContext ctx
               close sock
             Right () -> do
+              mCN <- Tls.readPeerCNRef ref
+              let clientName = case mCN of
+                    Just cn -> Tls.peerNameFromCN (Tls.tcExpectedPeerPrefix cfg) cn
+                    Nothing -> "local"
               transport <- Tls.tlsTransport ctx defaultLimit
-              runHandler state sup transport
+              runHandler state sup clientName transport
                 `catch` \(e :: IOError) ->
                   hPutStrLn stderr ("TCP/TLS connection error: " <> show e)
               Tls.closeTlsContext ctx
@@ -130,9 +138,11 @@ logTlsRejection what why =
 -- | Hand a Cap'n Proto 'Transport' (TLS-wrapped or plain) to the
 -- daemon's RPC machinery. Allocates a fresh 'Daemon' cap so each
 -- client session has its own cap-graph rooted at the bootstrap.
-runHandler :: ServerState -> Supervisor -> Transport -> IO ()
-runHandler state sup transport = do
-  daemonCap <- newDaemonCap state sup
+-- The 'clientName' is propagated into every cap created off the
+-- daemon cap so 'runAction' calls can stamp it on the task row.
+runHandler :: ServerState -> Supervisor -> T.Text -> Transport -> IO ()
+runHandler state sup clientName transport = do
+  daemonCap <- newDaemonCap state sup clientName
   bootClient <- export @CGCorvus.Daemon sup daemonCap
   handleConn
     transport

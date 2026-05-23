@@ -22,8 +22,10 @@ import Corvus.Types
 
 -- | Run startup tasks: clean stale state, start namespace, autostart networks and VMs.
 -- Delegates to the Startup action which records itself as a task with subtasks.
+-- The recorded @clientName@ is the literal @"system"@ — there's no
+-- connecting client at boot time.
 handleStartup :: ServerState -> Int -> IO ()
-handleStartup state retentionDays = void $ runAction state (Startup retentionDays)
+handleStartup state retentionDays = void $ runAction state "system" (Startup retentionDays)
 
 --------------------------------------------------------------------------------
 -- Graceful Shutdown Handler
@@ -31,5 +33,6 @@ handleStartup state retentionDays = void $ runAction state (Startup retentionDay
 
 -- | Gracefully shut down all running VMs and networks.
 -- Delegates to the GracefulShutdown action which records itself as a task.
+-- The recorded @clientName@ is the literal @"system"@.
 handleGracefulShutdown :: ServerState -> IO ()
-handleGracefulShutdown state = void $ runAction state GracefulShutdown
+handleGracefulShutdown state = void $ runAction state "system" GracefulShutdown

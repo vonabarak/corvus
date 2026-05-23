@@ -320,7 +320,7 @@ runPipelineStep state parentTaskId sink step = case step of
   PipelineApply cfg -> do
     logInfoN "Applying environment configuration (pipeline step)"
     liftIO $ sink (BuildLogLine "applying environment configuration")
-    resp <- liftIO $ runActionAsSubtask state (ApplyAction cfg False) parentTaskId
+    resp <- liftIO $ runActionAsSubtask (ActionContext state parentTaskId "system") (ApplyAction cfg False)
     let one = case resp of
           RespApplyResult _ ->
             BuildOne {boName = "apply", boArtifactDiskId = Nothing, boError = Nothing}
@@ -517,14 +517,13 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
           mVmId <-
             liftIO $
               runActionAsSubtask
-                state
+                (ActionContext state parentTaskId "system")
                 ( TemplateInstantiate
                     { tiTemplateId = templateId
                     , tiName = bakeVmName
                     , tiNodeRef = buildNode b
                     }
                 )
-                parentTaskId
           case mVmId of
             RespTemplateInstantiated vmIdLong -> do
               liftIO $
@@ -572,15 +571,14 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
                   diskResp <-
                     liftIO $
                       runActionAsSubtask
-                        state
+                        (ActionContext state parentTaskId "system")
                         (DiskCreate targetTmpName (btFormat target) sizeMb Nothing False)
-                        parentTaskId
                   case diskResp of
                     RespDiskCreated diskIdLong -> do
                       attachResp <-
                         liftIO $
                           runActionAsSubtask
-                            state
+                            (ActionContext state parentTaskId "system")
                             ( DiskAttach
                                 vmIdLong
                                 diskIdLong
@@ -590,7 +588,6 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
                                 False
                                 CacheWriteback
                             )
-                            parentTaskId
                       case attachResp of
                         RespDiskAttached _ -> pure $ Right (diskIdLong, False)
                         RespError err -> do
@@ -600,9 +597,8 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
                             push stack "orphan-target-disk" $ do
                               _ <-
                                 runActionAsSubtask
-                                  state
+                                  (ActionContext state parentTaskId "system")
                                   (DiskDelete diskIdLong)
-                                  parentTaskId
                               pure ()
                           pure $ Left $ "attach target disk: " <> err
                         _ -> pure $ Left "attach target disk: unexpected response"
@@ -628,7 +624,7 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
                       --    so VmStart returns as soon as QEMU is up.
                       startResp <-
                         liftIO $
-                          runActionAsSubtask state (VmStart vmIdLong) parentTaskId
+                          runActionAsSubtask (ActionContext state parentTaskId "system") (VmStart vmIdLong)
                       case classifyStartResp startResp of
                         Left err -> pure $ Left $ "start bake VM: " <> err
                         Right () -> case strategy of
@@ -651,7 +647,7 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
                                 -- 6. Stop the VM gracefully
                                 stopResp <-
                                   liftIO $
-                                    runActionAsSubtask state (VmStop vmIdLong) parentTaskId
+                                    runActionAsSubtask (ActionContext state parentTaskId "system") (VmStop vmIdLong)
                                 case classifyStopResp stopResp of
                                   Left err -> pure $ Left $ "stop bake VM: " <> err
                                   Right () -> do
@@ -757,12 +753,12 @@ attachBuildFloppy state parentTaskId stack vmIdLong prefix b = case buildFloppy 
             -- destructor here rather than only on success.
             liftIO $
               push stack "build-floppy" $ do
-                _ <- runActionAsSubtask state (DiskDelete diskIdLong) parentTaskId
+                _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (DiskDelete diskIdLong)
                 pure ()
             attachResp <-
               liftIO $
                 runActionAsSubtask
-                  state
+                  (ActionContext state parentTaskId "system")
                   ( DiskAttach
                       vmIdLong
                       diskIdLong
@@ -772,7 +768,6 @@ attachBuildFloppy state parentTaskId stack vmIdLong prefix b = case buildFloppy 
                       False
                       CacheNone
                   )
-                  parentTaskId
             case attachResp of
               RespDiskAttached _ -> pure $ Right ()
               RespError err -> pure $ Left $ "attach build floppy: " <> err
@@ -1326,7 +1321,7 @@ publishArtifact state parentTaskId vmId diskId target needFlatten = do
   -- 1. Detach the drive so VmDelete doesn't take the disk down with it.
   detachResp <-
     liftIO $
-      runActionAsSubtask state (DiskDetachByDisk vmId diskId) parentTaskId
+      runActionAsSubtask (ActionContext state parentTaskId "system") (DiskDetachByDisk vmId diskId)
   case detachResp of
     RespDiskOk -> pure ()
     RespError err -> logWarnN $ "detach artifact drive: " <> err
@@ -1361,9 +1356,8 @@ publishArtifactCore state parentTaskId diskId target needFlatten = do
             r <-
               liftIO $
                 runActionAsSubtask
-                  state
+                  (ActionContext state parentTaskId "system")
                   (DiskRebase diskId Nothing False)
-                  parentTaskId
             case r of
               RespDiskOk -> pure $ Right ()
               RespError err -> pure $ Left $ "flatten artifact: " <> err
@@ -1521,7 +1515,7 @@ deleteOverwriteTargetIfNeeded state parentTaskId target
               logInfoN $ "target.ifExists: deleting existing disk '" <> btName target <> "' (overwrite)"
               resp <-
                 liftIO $
-                  runActionAsSubtask state (DiskDelete (fromSqlKey existingId)) parentTaskId
+                  runActionAsSubtask (ActionContext state parentTaskId "system") (DiskDelete (fromSqlKey existingId))
               case resp of
                 RespDiskOk -> pure $ Right ()
                 RespError err ->
@@ -1622,11 +1616,11 @@ compactDisk state diskId = do
 cleanupBakeVm :: ServerState -> TaskId -> Int64 -> IO ()
 cleanupBakeVm state parentTaskId vmIdLong = do
   -- Best-effort stop first; VmDelete refuses while running.
-  _ <- runActionAsSubtask state (VmStop vmIdLong) parentTaskId
+  _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (VmStop vmIdLong)
   -- Find ephemeral disks attached to this VM (named __build_*).
   ephemeralIds <- runSqlPool (collectEphemeralDiskIds vmIdLong) (ssDbPool state)
-  _ <- runActionAsSubtask state (VmDelete vmIdLong False) parentTaskId
-  mapM_ (\did -> runActionAsSubtask state (DiskDelete did) parentTaskId) ephemeralIds
+  _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (VmDelete vmIdLong False)
+  mapM_ (runActionAsSubtask (ActionContext state parentTaskId "system") . DiskDelete) ephemeralIds
 
 -- | Walk the bake VM's drives and return IDs of disks whose name starts
 -- with @__build_@ — those were created by the build pipeline (overlay,

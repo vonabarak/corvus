@@ -94,28 +94,29 @@ import Supervisors (Supervisor)
 data VmManagerCap = VmManagerCap
   { vmgState :: !ServerState
   , vmgSup :: !Supervisor
+  , vmgClientName :: !T.Text
   }
 
-newVmManagerCap :: ServerState -> Supervisor -> IO VmManagerCap
-newVmManagerCap st sup = pure (VmManagerCap st sup)
+newVmManagerCap :: ServerState -> Supervisor -> T.Text -> IO VmManagerCap
+newVmManagerCap st sup cn = pure (VmManagerCap st sup cn)
 
 instance SomeServer VmManagerCap
 
 instance CGVm.VmManager'server_ VmManagerCap where
-  vmManager'list (VmManagerCap st _) = handleParsed $ \_ -> do
+  vmManager'list (VmManagerCap st _ _) = handleParsed $ \_ -> do
     resp <- handleVmList st
     case resp of
       RespVmList vms -> pure CGVm.VmManager'list'results {CGVm.vms = map toCapnpVmInfo vms}
       RespError msg -> throwFailed msg
       _ -> throwFailed "vmManager'list: unexpected response"
 
-  vmManager'get (VmManagerCap st sup) = handleParsed $ \CGVm.VmManager'get'params {..} -> do
+  vmManager'get (VmManagerCap st sup cn) = handleParsed $ \CGVm.VmManager'get'params {..} -> do
     ref' <- capnpRefToRef ref
     eid <- failOnLeft =<< resolveVm ref' (ssDbPool st)
-    client <- export @CGVm.Vm sup (VmCap st sup eid)
+    client <- export @CGVm.Vm sup (VmCap st sup eid cn)
     pure CGVm.VmManager'get'results {CGVm.vm = client}
 
-  vmManager'create (VmManagerCap st sup) =
+  vmManager'create (VmManagerCap st sup cn) =
     handleParsed $ \CGVm.VmManager'create'params {params = CGVm.VmCreateParams {..}} -> do
       nodeRef' <- capnpRefToRef node
       let act =
@@ -131,10 +132,10 @@ instance CGVm.VmManager'server_ VmManagerCap where
               , vcrAutostart = autostart
               , vcrRebootQuirk = rebootQuirk
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespVmCreated newId -> do
-          client <- export @CGVm.Vm sup (VmCap st sup newId)
+          client <- export @CGVm.Vm sup (VmCap st sup newId cn)
           pure CGVm.VmManager'create'results {CGVm.vm = client}
         RespError msg -> throwFailed msg
         _ -> throwFailed (T.pack ("vmManager'create: unexpected response: " <> show resp))
@@ -147,12 +148,13 @@ data VmCap = VmCap
   { vmState :: !ServerState
   , _vmSup :: !Supervisor
   , vmId :: !Int64
+  , vmClientName :: !T.Text
   }
 
 instance SomeServer VmCap
 
 instance CGVm.Vm'server_ VmCap where
-  vm'show (VmCap st _ eid) = handleParsed $ \_ -> do
+  vm'show (VmCap st _ eid cn) = handleParsed $ \_ -> do
     detResp <- handleVmShow st eid
     case detResp of
       RespVmDetails det -> do
@@ -165,37 +167,37 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'show: unexpected response"
 
-  vm'start (VmCap st _ eid) = handleParsed $ \CGVm.Vm'start'params {wait = wait'} -> do
+  vm'start (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'start'params {wait = wait'} -> do
     resp <-
       if wait'
-        then runAction st (VmStart eid)
-        else runActionAsync st (VmStart eid) (RespVmStateChanged M.VmStarting)
+        then runAction st cn (VmStart eid)
+        else runActionAsync st cn (VmStart eid) (RespVmStateChanged M.VmStarting)
     case resp of
       RespError msg -> throwFailed msg
       _ -> pure CGVm.Vm'start'results {CGVm.status = toStatusOrThrow resp}
 
-  vm'stop (VmCap st _ eid) = handleParsed $ \CGVm.Vm'stop'params {wait = wait'} -> do
+  vm'stop (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'stop'params {wait = wait'} -> do
     resp <-
       if wait'
-        then runAction st (VmStop eid)
-        else runActionAsync st (VmStop eid) (RespVmStateChanged M.VmStopping)
+        then runAction st cn (VmStop eid)
+        else runActionAsync st cn (VmStop eid) (RespVmStateChanged M.VmStopping)
     case resp of
       RespError msg -> throwFailed msg
       _ -> pure CGVm.Vm'stop'results {CGVm.status = toStatusOrThrow resp}
 
-  vm'pause (VmCap st _ eid) = handleParsed $ \_ -> do
-    resp <- runAction st (VmPause eid)
+  vm'pause (VmCap st _ eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (VmPause eid)
     case resp of
       RespError msg -> throwFailed msg
       _ -> pure CGVm.Vm'pause'results {CGVm.status = toStatusOrThrow resp}
 
-  vm'reset (VmCap st _ eid) = handleParsed $ \_ -> do
-    resp <- runAction st (VmReset eid)
+  vm'reset (VmCap st _ eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (VmReset eid)
     case resp of
       RespError msg -> throwFailed msg
       _ -> pure CGVm.Vm'reset'results {CGVm.status = toStatusOrThrow resp}
 
-  vm'edit (VmCap st _ eid) =
+  vm'edit (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'edit'params {params = CGVm.VmEditParams {..}} -> do
       let act =
             VmEdit
@@ -209,15 +211,15 @@ instance CGVm.Vm'server_ VmCap where
               , vedAutostart = if hasAutostart then Just autostart else Nothing
               , vedRebootQuirk = if hasRebootQuirk then Just rebootQuirk else Nothing
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespVmEdited -> pure CGVm.Vm'edit'results
         RespVmNotFound -> throwFailed "VM not found"
         RespError msg -> throwFailed msg
         _ -> throwFailed "vm'edit: unexpected response"
 
-  vm'delete (VmCap st _ eid) = handleParsed $ \CGVm.Vm'delete'params {..} -> do
-    resp <- runAction st (VmDelete {vdelVmId = eid, vdelKeepDisks = keepDisks})
+  vm'delete (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'delete'params {..} -> do
+    resp <- runAction st cn (VmDelete {vdelVmId = eid, vdelKeepDisks = keepDisks})
     case resp of
       RespVmDeleted -> pure CGVm.Vm'delete'results
       RespVmNotFound -> throwFailed "VM not found"
@@ -228,8 +230,8 @@ instance CGVm.Vm'server_ VmCap where
   -- Misc read / one-shot
   -- -------------------------------------------------------------------
 
-  vm'cloudInit (VmCap st _ eid) = handleParsed $ \_ -> do
-    resp <- handleVmCloudInit st eid
+  vm'cloudInit (VmCap st _ eid cn) = handleParsed $ \_ -> do
+    resp <- handleVmCloudInit st cn eid
     let emptyInfo =
           PCI.CloudInitInfo
             { PCI.ciiUserData = Nothing
@@ -244,7 +246,7 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'cloudInit: unexpected response"
 
-  vm'viewGrant (VmCap st _ eid) = handleParsed $ \_ -> do
+  vm'viewGrant (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleVmViewGrant st eid
     case resp of
       RespVmViewGrant host port password ttl ->
@@ -265,8 +267,8 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'viewGrant: unexpected response"
 
-  vm'guestExec (VmCap st _ eid) = handleParsed $ \CGVm.Vm'guestExec'params {..} -> do
-    resp <- runAction st (GuestExec {geVmId = eid, geCommand = command})
+  vm'guestExec (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'guestExec'params {..} -> do
+    resp <- runAction st cn (GuestExec {geVmId = eid, geCommand = command})
     case resp of
       RespGuestExecResult code outT errT ->
         pure
@@ -290,7 +292,7 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'guestExec: unexpected response"
 
-  vm'sendCtrlAltDel (VmCap st _ eid) = handleParsed $ \_ -> do
+  vm'sendCtrlAltDel (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleVmSendCtrlAltDel st eid
     case resp of
       RespOk -> pure CGVm.Vm'sendCtrlAltDel'results
@@ -308,7 +310,7 @@ instance CGVm.Vm'server_ VmCap where
   -- ring-buffer contents through it and returns an input
   -- 'ByteSink' the client can write into to forward bytes to
   -- QEMU.
-  vm'serialConsole (VmCap st _sup eid) =
+  vm'serialConsole (VmCap st _sup eid _cn) =
     handleParsed $ \CGVm.Vm'serialConsole'params {CGVm.sink = sinkClient} -> do
       -- Validator first, so rejections preserve the rich
       -- pre-Cap'n-Proto messages ("VM is not running ...",
@@ -329,7 +331,7 @@ instance CGVm.Vm'server_ VmCap where
 
   -- HMP monitor: identical shape to serialConsole but rides the
   -- per-VM monitor buffer. Same validator-first dispatch.
-  vm'hmpMonitor (VmCap st _sup eid) =
+  vm'hmpMonitor (VmCap st _sup eid _cn) =
     handleParsed $ \CGVm.Vm'hmpMonitor'params {CGVm.sink = sinkClient} -> do
       resp <- handleHmpMonitor st eid
       case resp of
@@ -349,7 +351,7 @@ instance CGVm.Vm'server_ VmCap where
   -- subscriber list. Returns an empty 'Handle' cap; when the
   -- client drops it (or the sink itself), the next push attempt
   -- raises and the subscriber is pruned from the list.
-  vm'subscribeGuestAgent (VmCap st sup eid) =
+  vm'subscribeGuestAgent (VmCap st sup eid _cn) =
     handleParsed $ \CGVm.Vm'subscribeGuestAgent'params {CGVm.sink = sinkClient} -> do
       atomically $
         modifyTVar' (ssGuestAgentSubs st) $
@@ -357,7 +359,7 @@ instance CGVm.Vm'server_ VmCap where
       handle <- export @CGS.Handle sup EmptyHandle
       pure CGVm.Vm'subscribeGuestAgent'results {CGVm.handle = handle}
 
-  vm'serialConsoleFlush (VmCap st _ eid) = handleParsed $ \_ -> do
+  vm'serialConsoleFlush (VmCap st _ eid cn) = handleParsed $ \_ -> do
     -- Validator first; proxy to the agent on success.
     _ <- handleSerialConsoleFlush st eid
     r <- withVmNodeAgent st eid $ \nac -> NOA.flushSerialConsole nac eid
@@ -366,7 +368,7 @@ instance CGVm.Vm'server_ VmCap where
       Right (Left e) -> throwFailed (T.pack (show e))
       Right (Right ()) -> pure CGVm.Vm'serialConsoleFlush'results
 
-  vm'hmpMonitorFlush (VmCap st _ eid) = handleParsed $ \_ -> do
+  vm'hmpMonitorFlush (VmCap st _ eid cn) = handleParsed $ \_ -> do
     _ <- handleHmpMonitorFlush st eid
     r <- withVmNodeAgent st eid $ \nac -> NOA.flushHmpMonitor nac eid
     case r of
@@ -378,7 +380,7 @@ instance CGVm.Vm'server_ VmCap where
   -- Disk attach / detach
   -- -------------------------------------------------------------------
 
-  vm'attachDisk (VmCap st _ eid) =
+  vm'attachDisk (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'attachDisk'params {params = CGVm.DriveAttachParams {..}} -> do
       diskRef' <- capnpRefToRef diskRef
       diskId <- failOnLeft =<< resolveDisk diskRef' (ssDbPool st)
@@ -395,7 +397,7 @@ instance CGVm.Vm'server_ VmCap where
               , datDiscard = discard
               , datCache = cache
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespDiskAttached driveId ->
           pure CGVm.Vm'attachDisk'results {CGVm.driveId = driveId}
@@ -404,7 +406,7 @@ instance CGVm.Vm'server_ VmCap where
         RespError msg -> throwFailed msg
         _ -> throwFailed "vm'attachDisk: unexpected response"
 
-  vm'detachDisk (VmCap st _ eid) = handleParsed $ \CGVm.Vm'detachDisk'params {..} -> do
+  vm'detachDisk (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'detachDisk'params {..} -> do
     -- The schema's driveId is the row id of the Drive table
     -- (i.e. a specific attachment instance). The existing
     -- DiskDetachByDisk Action operates on the disk-image id; look
@@ -413,7 +415,7 @@ instance CGVm.Vm'server_ VmCap where
     case mDrive of
       Just drv | M.driveVmId drv == toSqlKey eid -> do
         let diskImageId = fromSqlKey (M.driveDiskImageId drv)
-        resp <- runAction st (DiskDetachByDisk {ddbVmId = eid, ddbDiskId = diskImageId})
+        resp <- runAction st cn (DiskDetachByDisk {ddbVmId = eid, ddbDiskId = diskImageId})
         case resp of
           RespOk -> pure CGVm.Vm'detachDisk'results
           RespDiskOk -> pure CGVm.Vm'detachDisk'results
@@ -427,7 +429,7 @@ instance CGVm.Vm'server_ VmCap where
   -- Net interfaces
   -- -------------------------------------------------------------------
 
-  vm'addNetIf (VmCap st _ eid) =
+  vm'addNetIf (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'addNetIf'params {params = CGVm.NetIfAddParams {..}} -> do
       iface <- enumOrThrow (fromCapnpNetInterfaceType type_)
       mNetId <- case fromCapnpRefMaybe networkRef of
@@ -441,15 +443,15 @@ instance CGVm.Vm'server_ VmCap where
               , niaMacAddress = if macAddress == "" then Nothing else Just macAddress
               , niaNetworkId = mNetId
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespNetIfAdded nid -> pure CGVm.Vm'addNetIf'results {CGVm.netIfId = nid}
         RespVmNotFound -> throwFailed "VM not found"
         RespError msg -> throwFailed msg
         _ -> throwFailed "vm'addNetIf: unexpected response"
 
-  vm'removeNetIf (VmCap st _ eid) = handleParsed $ \CGVm.Vm'removeNetIf'params {..} -> do
-    resp <- runAction st (NetIfRemove {nirVmId = eid, nirNetIfId = netIfId})
+  vm'removeNetIf (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'removeNetIf'params {..} -> do
+    resp <- runAction st cn (NetIfRemove {nirVmId = eid, nirNetIfId = netIfId})
     case resp of
       RespOk -> pure CGVm.Vm'removeNetIf'results
       RespNetIfNotFound -> throwFailed "Net-if not found"
@@ -457,7 +459,7 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'removeNetIf: unexpected response"
 
-  vm'listNetIfs (VmCap st _ eid) = handleParsed $ \_ -> do
+  vm'listNetIfs (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleNetIfList st eid
     case resp of
       RespNetIfList nis ->
@@ -470,7 +472,7 @@ instance CGVm.Vm'server_ VmCap where
   -- Shared directories
   -- -------------------------------------------------------------------
 
-  vm'addSharedDir (VmCap st _ eid) =
+  vm'addSharedDir (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'addSharedDir'params {params = CGVm.SharedDirAddParams {..}} -> do
       cacheVal <- enumOrThrow (fromCapnpSharedDirCache cache)
       let act =
@@ -481,7 +483,7 @@ instance CGVm.Vm'server_ VmCap where
               , sdaCache = cacheVal
               , sdaReadOnly = readOnly
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespSharedDirAdded sid ->
           pure CGVm.Vm'addSharedDir'results {CGVm.sharedDirId = sid}
@@ -489,8 +491,8 @@ instance CGVm.Vm'server_ VmCap where
         RespError msg -> throwFailed msg
         _ -> throwFailed "vm'addSharedDir: unexpected response"
 
-  vm'removeSharedDir (VmCap st _ eid) = handleParsed $ \CGVm.Vm'removeSharedDir'params {..} -> do
-    resp <- runAction st (SharedDirRemove {sdrVmId = eid, sdrDirId = sharedDirId})
+  vm'removeSharedDir (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'removeSharedDir'params {..} -> do
+    resp <- runAction st cn (SharedDirRemove {sdrVmId = eid, sdrDirId = sharedDirId})
     case resp of
       RespOk -> pure CGVm.Vm'removeSharedDir'results
       RespSharedDirOk -> pure CGVm.Vm'removeSharedDir'results
@@ -499,7 +501,7 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'removeSharedDir: unexpected response"
 
-  vm'listSharedDirs (VmCap st _ eid) = handleParsed $ \_ -> do
+  vm'listSharedDirs (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleSharedDirList st eid
     case resp of
       RespSharedDirList sds ->
@@ -512,10 +514,10 @@ instance CGVm.Vm'server_ VmCap where
   -- SSH keys attached to the VM
   -- -------------------------------------------------------------------
 
-  vm'attachSshKey (VmCap st _ eid) = handleParsed $ \CGVm.Vm'attachSshKey'params {..} -> do
+  vm'attachSshKey (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'attachSshKey'params {..} -> do
     keyRef' <- capnpRefToRef keyRef
     keyId <- failOnLeft =<< resolveSshKey keyRef' (ssDbPool st)
-    resp <- runAction st (SshKeyAttach {skaVmId = eid, skaKeyId = keyId})
+    resp <- runAction st cn (SshKeyAttach {skaVmId = eid, skaKeyId = keyId})
     case resp of
       RespSshKeyOk -> pure CGVm.Vm'attachSshKey'results
       RespOk -> pure CGVm.Vm'attachSshKey'results
@@ -524,10 +526,10 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'attachSshKey: unexpected response"
 
-  vm'detachSshKey (VmCap st _ eid) = handleParsed $ \CGVm.Vm'detachSshKey'params {..} -> do
+  vm'detachSshKey (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'detachSshKey'params {..} -> do
     keyRef' <- capnpRefToRef keyRef
     keyId <- failOnLeft =<< resolveSshKey keyRef' (ssDbPool st)
-    resp <- runAction st (SshKeyDetach {skdetVmId = eid, skdetKeyId = keyId})
+    resp <- runAction st cn (SshKeyDetach {skdetVmId = eid, skdetKeyId = keyId})
     case resp of
       RespSshKeyOk -> pure CGVm.Vm'detachSshKey'results
       RespOk -> pure CGVm.Vm'detachSshKey'results
@@ -536,7 +538,7 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'detachSshKey: unexpected response"
 
-  vm'listSshKeys (VmCap st _ eid) = handleParsed $ \_ -> do
+  vm'listSshKeys (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleSshKeyListForVm st eid
     case resp of
       RespSshKeyList keys ->
@@ -551,12 +553,12 @@ instance CGVm.Vm'server_ VmCap where
   vm'snapshotList _ = methodUnimplemented
   vm'snapshotGet _ = methodUnimplemented
 
-  vm'migrate (VmCap st _ eid) =
+  vm'migrate (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'migrate'params {params = CGVm.VmMigrateParams {..}} -> do
       nr <- capnpRefToRef toNodeRef
       destNode <- failOnLeft =<< resolveNode nr (ssDbPool st)
       let act = VmMigrate {vmiVmId = eid, vmiDestNodeId = destNode}
-      resp <- runActionAsyncWithId st act RespDiskTransferStarted
+      resp <- runActionAsyncWithId st cn act RespDiskTransferStarted
       case resp of
         RespDiskTransferStarted tid ->
           pure CGVm.Vm'migrate'results {CGVm.taskId = tid}

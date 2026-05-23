@@ -63,15 +63,16 @@ import Supervisors (Supervisor)
 data DiskManagerCap = DiskManagerCap
   { dmState :: !ServerState
   , dmSup :: !Supervisor
+  , dmClientName :: !T.Text
   }
 
-newDiskManagerCap :: ServerState -> Supervisor -> IO DiskManagerCap
-newDiskManagerCap st sup = pure (DiskManagerCap st sup)
+newDiskManagerCap :: ServerState -> Supervisor -> T.Text -> IO DiskManagerCap
+newDiskManagerCap st sup cn = pure (DiskManagerCap st sup cn)
 
 instance SomeServer DiskManagerCap
 
 instance CGDisk.DiskManager'server_ DiskManagerCap where
-  diskManager'list (DiskManagerCap st _) = handleParsed $ \_ -> do
+  diskManager'list (DiskManagerCap st _ cn) = handleParsed $ \_ -> do
     resp <- handleDiskList st
     case resp of
       RespDiskList disks ->
@@ -79,14 +80,14 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "diskManager'list: unexpected response"
 
-  diskManager'get (DiskManagerCap st sup) =
+  diskManager'get (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'get'params {..} -> do
       ref' <- capnpRefToRef ref
       eid <- failOnLeft =<< resolveDisk ref' (ssDbPool st)
-      client <- export @CGDisk.Disk sup (DiskCap st sup eid)
+      client <- export @CGDisk.Disk sup (DiskCap st sup eid cn)
       pure CGDisk.DiskManager'get'results {CGDisk.disk = client}
 
-  diskManager'create (DiskManagerCap st sup) =
+  diskManager'create (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'create'params {params = CGDisk.DiskCreateParams {..}} -> do
       fmt <- enumOrThrow (fromCapnpDriveFormat format)
       let act =
@@ -97,15 +98,15 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , dcrPath = Nothing
               , dcrEphemeral = ephemeral
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespDiskCreated newId -> do
-          client <- export @CGDisk.Disk sup (DiskCap st sup newId)
+          client <- export @CGDisk.Disk sup (DiskCap st sup newId cn)
           pure CGDisk.DiskManager'create'results {CGDisk.disk = client}
         RespError msg -> throwFailed msg
         _ -> throwFailed (T.pack ("diskManager'create: unexpected response: " <> show resp))
 
-  diskManager'register (DiskManagerCap st sup) =
+  diskManager'register (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'register'params {params = CGDisk.DiskRegisterParams {..}} -> do
       fmt <- enumOrThrow (fromCapnpDriveFormat format)
       let act =
@@ -116,15 +117,15 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , drgBackingDiskId = Nothing
               , drgEphemeral = ephemeral
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespDiskCreated newId -> do
-          client <- export @CGDisk.Disk sup (DiskCap st sup newId)
+          client <- export @CGDisk.Disk sup (DiskCap st sup newId cn)
           pure CGDisk.DiskManager'register'results {CGDisk.disk = client}
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'register: unexpected response"
 
-  diskManager'createOverlay (DiskManagerCap st sup) =
+  diskManager'createOverlay (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'createOverlay'params {params = CGDisk.DiskCreateOverlayParams {..}} -> do
       baseRef' <- capnpRefToRef backingDiskRef
       baseId <- failOnLeft =<< resolveDisk baseRef' (ssDbPool st)
@@ -136,15 +137,15 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , dcoPath = Nothing
               , dcoEphemeral = ephemeral
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespDiskCreated newId -> do
-          client <- export @CGDisk.Disk sup (DiskCap st sup newId)
+          client <- export @CGDisk.Disk sup (DiskCap st sup newId cn)
           pure CGDisk.DiskManager'createOverlay'results {CGDisk.disk = client}
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'createOverlay: unexpected response"
 
-  diskManager'clone (DiskManagerCap st sup) =
+  diskManager'clone (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'clone'params {params = CGDisk.DiskCloneParams {..}} -> do
       srcRef' <- capnpRefToRef sourceRef
       srcId <- failOnLeft =<< resolveDisk srcRef' (ssDbPool st)
@@ -160,16 +161,16 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , dclPath = mPath
               , dclEphemeral = ephemeral
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespDiskCreated newId -> do
-          client <- export @CGDisk.Disk sup (DiskCap st sup newId)
+          client <- export @CGDisk.Disk sup (DiskCap st sup newId cn)
           pure CGDisk.DiskManager'clone'results {CGDisk.disk = client}
         RespVmMustBeStopped -> throwFailed "VM must be stopped"
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'clone: unexpected response"
 
-  diskManager'rebase (DiskManagerCap st _) =
+  diskManager'rebase (DiskManagerCap st _ cn) =
     handleParsed $ \CGDisk.DiskManager'rebase'params {params = CGDisk.DiskRebaseParams {..}} -> do
       diskRef' <- capnpRefToRef diskRef
       diskId' <- failOnLeft =<< resolveDisk diskRef' (ssDbPool st)
@@ -181,14 +182,14 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , drbNewBackingId = Just backingId
               , drbUnsafe = False
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespDiskOk -> pure CGDisk.DiskManager'rebase'results
         RespVmMustBeStopped -> throwFailed "VM must be stopped"
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'rebase: unexpected response"
 
-  diskManager'flatten (DiskManagerCap st _) =
+  diskManager'flatten (DiskManagerCap st _ cn) =
     handleParsed $ \CGDisk.DiskManager'flatten'params {..} -> do
       diskRef' <- capnpRefToRef diskRef
       diskId' <- failOnLeft =<< resolveDisk diskRef' (ssDbPool st)
@@ -200,14 +201,14 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , drbNewBackingId = Nothing
               , drbUnsafe = False
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespDiskOk -> pure CGDisk.DiskManager'flatten'results
         RespVmMustBeStopped -> throwFailed "VM must be stopped"
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'flatten: unexpected response"
 
-  diskManager'importUrl (DiskManagerCap st _) =
+  diskManager'importUrl (DiskManagerCap st _ cn) =
     handleParsed $ \CGDisk.DiskManager'importUrl'params {params = CGDisk.DiskImportUrlParams {..}} -> do
       let act =
             DiskImportUrl
@@ -216,14 +217,14 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , diuFormat = Nothing
               , diuEphemeral = ephemeral
               }
-      resp <- runActionAsyncWithId st act RespDiskImportStarted
+      resp <- runActionAsyncWithId st cn act RespDiskImportStarted
       case resp of
         RespDiskImportStarted tid ->
           pure CGDisk.DiskManager'importUrl'results {CGDisk.taskId = tid}
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'importUrl: unexpected response"
 
-  diskManager'import_ (DiskManagerCap st sup) =
+  diskManager'import_ (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'import'params {params = CGDisk.DiskImportParams {..}} -> do
       let act =
             DiskImportAction
@@ -234,36 +235,36 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , diaMd5 = Nothing
               , diaEphemeral = ephemeral
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespDiskCreated newId -> do
-          client <- export @CGDisk.Disk sup (DiskCap st sup newId)
+          client <- export @CGDisk.Disk sup (DiskCap st sup newId cn)
           pure CGDisk.DiskManager'import'results {CGDisk.disk = client}
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'import: unexpected response"
 
-  diskManager'copy (DiskManagerCap st _) =
+  diskManager'copy (DiskManagerCap st _ cn) =
     handleParsed $ \CGDisk.DiskManager'copy'params {params = CGDisk.DiskCopyParams {..}} -> do
       dr <- capnpRefToRef diskRef
       diskId <- failOnLeft =<< resolveDisk dr (ssDbPool st)
       nr <- capnpRefToRef toNodeRef
       nodeId <- failOnLeft =<< resolveNode nr (ssDbPool st)
       let act = DiskCopy {dcpDiskId = diskId, dcpDestNodeId = nodeId}
-      resp <- runActionAsyncWithId st act RespDiskTransferStarted
+      resp <- runActionAsyncWithId st cn act RespDiskTransferStarted
       case resp of
         RespDiskTransferStarted tid ->
           pure CGDisk.DiskManager'copy'results {CGDisk.taskId = tid}
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'copy: unexpected response"
 
-  diskManager'move (DiskManagerCap st _) =
+  diskManager'move (DiskManagerCap st _ cn) =
     handleParsed $ \CGDisk.DiskManager'move'params {params = CGDisk.DiskMoveParams {..}} -> do
       dr <- capnpRefToRef diskRef
       diskId <- failOnLeft =<< resolveDisk dr (ssDbPool st)
       nr <- capnpRefToRef toNodeRef
       nodeId <- failOnLeft =<< resolveNode nr (ssDbPool st)
       let act = DiskMove {dmvDiskId = diskId, dmvDestNodeId = nodeId}
-      resp <- runActionAsyncWithId st act RespDiskTransferStarted
+      resp <- runActionAsyncWithId st cn act RespDiskTransferStarted
       case resp of
         RespDiskTransferStarted tid ->
           pure CGDisk.DiskManager'move'results {CGDisk.taskId = tid}
@@ -278,12 +279,13 @@ data DiskCap = DiskCap
   { dskState :: !ServerState
   , dskSup :: !Supervisor
   , dskId :: !Int64
+  , dskClientName :: !T.Text
   }
 
 instance SomeServer DiskCap
 
 instance CGDisk.Disk'server_ DiskCap where
-  disk'show (DiskCap st _ eid) = handleParsed $ \_ -> do
+  disk'show (DiskCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleDiskShow st eid
     case resp of
       RespDiskInfo info ->
@@ -292,8 +294,8 @@ instance CGDisk.Disk'server_ DiskCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "disk'show: unexpected response"
 
-  disk'delete (DiskCap st _ eid) = handleParsed $ \_ -> do
-    resp <- runAction st (DiskDelete eid)
+  disk'delete (DiskCap st _ eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (DiskDelete eid)
     case resp of
       RespDiskOk -> pure CGDisk.Disk'delete'results
       RespDiskNotFound -> throwFailed "Disk not found"
@@ -302,8 +304,8 @@ instance CGDisk.Disk'server_ DiskCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "disk'delete: unexpected response"
 
-  disk'resize (DiskCap st _ eid) = handleParsed $ \CGDisk.Disk'resize'params {..} -> do
-    resp <- runAction st (DiskResize {drzDiskId = eid, drzNewSizeMb = newSizeMb})
+  disk'resize (DiskCap st _ eid cn) = handleParsed $ \CGDisk.Disk'resize'params {..} -> do
+    resp <- runAction st cn (DiskResize {drzDiskId = eid, drzNewSizeMb = newSizeMb})
     case resp of
       RespDiskOk -> pure CGDisk.Disk'resize'results
       RespDiskNotFound -> throwFailed "Disk not found"
@@ -311,19 +313,19 @@ instance CGDisk.Disk'server_ DiskCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "disk'resize: unexpected response"
 
-  disk'snapshotCreate (DiskCap st sup eid) =
+  disk'snapshotCreate (DiskCap st sup eid cn) =
     handleParsed $ \CGDisk.Disk'snapshotCreate'params {..} -> do
-      resp <- runAction st (SnapshotCreate {scrDiskId = eid, scrName = name})
+      resp <- runAction st cn (SnapshotCreate {scrDiskId = eid, scrName = name})
       case resp of
         RespSnapshotCreated sid -> do
-          client <- export @CGDisk.Snapshot sup (SnapshotCap st eid sid)
+          client <- export @CGDisk.Snapshot sup (SnapshotCap st eid sid cn)
           pure CGDisk.Disk'snapshotCreate'results {CGDisk.snapshot = client}
         RespDiskNotFound -> throwFailed "Disk not found"
         RespVmMustBeStopped -> throwFailed "VM must be stopped"
         RespError msg -> throwFailed msg
         _ -> throwFailed "disk'snapshotCreate: unexpected response"
 
-  disk'snapshotList (DiskCap st _ eid) = handleParsed $ \_ -> do
+  disk'snapshotList (DiskCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleSnapshotList st eid
     case resp of
       RespSnapshotList snaps ->
@@ -332,15 +334,15 @@ instance CGDisk.Disk'server_ DiskCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "disk'snapshotList: unexpected response"
 
-  disk'snapshotGet (DiskCap st sup eid) =
+  disk'snapshotGet (DiskCap st sup eid cn) =
     handleParsed $ \CGDisk.Disk'snapshotGet'params {..} -> do
       ref' <- capnpRefToRef ref
       sid <- failOnLeft =<< resolveSnapshot ref' eid (ssDbPool st)
-      client <- export @CGDisk.Snapshot sup (SnapshotCap st eid sid)
+      client <- export @CGDisk.Snapshot sup (SnapshotCap st eid sid cn)
       pure CGDisk.Disk'snapshotGet'results {CGDisk.snapshot = client}
 
-  disk'refresh (DiskCap st _ eid) = handleParsed $ \_ -> do
-    resp <- runAction st (DiskRefresh eid)
+  disk'refresh (DiskCap st _ eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (DiskRefresh eid)
     case resp of
       RespDiskInfo info ->
         pure CGDisk.Disk'refresh'results {CGDisk.info = toCapnpDiskImageInfo info}
@@ -363,12 +365,13 @@ data SnapshotCap = SnapshotCap
   { _snState :: !ServerState
   , _snDiskId :: !Int64
   , _snId :: !Int64
+  , _snClientName :: !T.Text
   }
 
 instance SomeServer SnapshotCap
 
 instance CGDisk.Snapshot'server_ SnapshotCap where
-  snapshot'show (SnapshotCap st diskId sid) = handleParsed $ \_ -> do
+  snapshot'show (SnapshotCap st diskId sid cn) = handleParsed $ \_ -> do
     resp <- handleSnapshotList st diskId
     case resp of
       RespSnapshotList snaps ->
@@ -379,23 +382,23 @@ instance CGDisk.Snapshot'server_ SnapshotCap where
       RespDiskNotFound -> throwFailed "Disk not found"
       RespError msg -> throwFailed msg
       _ -> throwFailed "snapshot'show: unexpected response"
-  snapshot'delete (SnapshotCap st diskId sid) = handleParsed $ \_ -> do
-    resp <- runAction st (SnapshotDelete {sdelDiskId = diskId, sdelSnapRef = P.Ref (T.pack (show sid))})
+  snapshot'delete (SnapshotCap st diskId sid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (SnapshotDelete {sdelDiskId = diskId, sdelSnapRef = P.Ref (T.pack (show sid))})
     case resp of
       RespSnapshotOk -> pure CGDisk.Snapshot'delete'results
       RespSnapshotNotFound -> throwFailed "Snapshot not found"
       RespError msg -> throwFailed msg
       _ -> throwFailed "snapshot'delete: unexpected response"
-  snapshot'rollback (SnapshotCap st diskId sid) = handleParsed $ \_ -> do
-    resp <- runAction st (SnapshotRollback {srlDiskId = diskId, srlSnapRef = P.Ref (T.pack (show sid))})
+  snapshot'rollback (SnapshotCap st diskId sid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (SnapshotRollback {srlDiskId = diskId, srlSnapRef = P.Ref (T.pack (show sid))})
     case resp of
       RespSnapshotOk -> pure CGDisk.Snapshot'rollback'results
       RespSnapshotNotFound -> throwFailed "Snapshot not found"
       RespVmMustBeStopped -> throwFailed "VM must be stopped"
       RespError msg -> throwFailed msg
       _ -> throwFailed "snapshot'rollback: unexpected response"
-  snapshot'merge (SnapshotCap st diskId sid) = handleParsed $ \_ -> do
-    resp <- runAction st (SnapshotMerge {smrDiskId = diskId, smrSnapRef = P.Ref (T.pack (show sid))})
+  snapshot'merge (SnapshotCap st diskId sid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (SnapshotMerge {smrDiskId = diskId, smrSnapRef = P.Ref (T.pack (show sid))})
     case resp of
       RespSnapshotOk -> pure CGDisk.Snapshot'merge'results
       RespSnapshotNotFound -> throwFailed "Snapshot not found"

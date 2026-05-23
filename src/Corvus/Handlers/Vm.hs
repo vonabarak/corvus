@@ -197,7 +197,7 @@ handleVmDelete ctx vmId keepDisks = do
           -- Delete VM and its associations (drives, netifs, etc.)
           runSqlPool (deleteVm vmId) (ssDbPool state)
           -- Reap each ephemeral disk as a subtask.
-          mapM_ (\diskId -> runActionAsSubtask state (DiskDelete diskId) (acTaskId ctx)) disksToDelete
+          mapM_ (runActionAsSubtask ctx . DiskDelete) disksToDelete
           pure RespVmDeleted
 
 -- | Validate that a VM can be started. Returns the VM and current status, or an error response.
@@ -234,8 +234,9 @@ handleVmStartValidate state vmId = do
 -- returns successfully, the VM is fully booted and the guest
 -- agent is reachable. So there's no longer a separate
 -- @waitForFirstPing@ step in the daemon.
-handleVmStartExecute :: ServerState -> Int64 -> TaskId -> IO Response
-handleVmStartExecute state vmId parentTaskId = do
+handleVmStartExecute :: ActionContext -> Int64 -> IO Response
+handleVmStartExecute ctx vmId = do
+  let state = acState ctx
   validated <- handleVmStartValidate state vmId
   case validated of
     Left errResp -> pure errResp
@@ -243,7 +244,7 @@ handleVmStartExecute state vmId parentTaskId = do
       case currentStatus of
         VmPaused -> runServerLogging state $ resumeFromPaused state vmId
         _ -> runServerLogging state $ do
-          resp <- startQemuAndMonitor state vmId vm parentTaskId
+          resp <- startQemuAndMonitor ctx vmId vm
           case resp of
             RespVmStateChanged VmStarting ->
               -- The agent's vmStart now returns after QEMU spawn,
@@ -336,16 +337,17 @@ resumeFromPaused state vmId = do
 --      (including blocking for first QGA ping).
 --   6. 'attachVmMonitor' to watch for QEMU exit.
 --   7. Wire up the chardev ring buffers.
-startQemuAndMonitor :: ServerState -> Int64 -> Vm -> TaskId -> LoggingT IO Response
-startQemuAndMonitor state vmId vm parentTaskId = do
-  let pool = ssDbPool state
+startQemuAndMonitor :: ActionContext -> Int64 -> Vm -> LoggingT IO Response
+startQemuAndMonitor ctx vmId vm = do
+  let state = acState ctx
+      pool = ssDbPool state
 
   -- 1. Cloud-init ISO regeneration.
   when (vmCloudInit vm) $ do
     hasCloudInitDisk <- liftIO $ runSqlPool (hasCloudInitIso vmId) pool
     unless hasCloudInitDisk $ do
       logInfoN $ "Generating cloud-init ISO for VM " <> T.pack (show vmId)
-      _ <- liftIO $ runActionAsSubtask state (RegenerateCloudInit vmId (vmName vm)) parentTaskId
+      _ <- liftIO $ runActionAsSubtask ctx (RegenerateCloudInit vmId (vmName vm))
       pure ()
 
   -- 2. SPICE port allocation + persist.
@@ -717,8 +719,8 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutos
               pure RespVmEdited
 
 -- | Handle cloud-init ISO generation/regeneration for a VM
-handleVmCloudInit :: ServerState -> Int64 -> IO Response
-handleVmCloudInit state vmId = do
+handleVmCloudInit :: ServerState -> Text -> Int64 -> IO Response
+handleVmCloudInit state clientName vmId = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
@@ -726,7 +728,7 @@ handleVmCloudInit state vmId = do
       if not (vmCloudInit vm)
         then pure $ RespError "Cloud-init is not enabled on this VM"
         else do
-          ciResp <- runAction state (RegenerateCloudInit vmId (vmName vm))
+          ciResp <- runAction state clientName (RegenerateCloudInit vmId (vmName vm))
           case ciResp of
             RespError err -> pure $ RespError $ "Cloud-init ISO generation failed: " <> err
             _ -> pure RespVmEdited
@@ -1396,7 +1398,7 @@ instance Action VmStart where
     pure $ case result of
       Left errResp -> Just errResp
       Right _ -> Nothing
-  actionExecute ctx a = handleVmStartExecute (acState ctx) (vsVmId a) (acTaskId ctx)
+  actionExecute ctx a = handleVmStartExecute ctx (vsVmId a)
 
 newtype VmStop = VmStop {vstpVmId :: Int64}
 

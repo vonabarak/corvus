@@ -54,11 +54,13 @@ module Corvus.Tls
   , wrapClientSocket
   , tlsTransport
   , closeTlsContext
+  , readPeerCNRef
 
     -- * Validation
   , validatePeerCN
   , validatePeerCNAnyRole
   , checkPrefixAndName
+  , peerNameFromCN
   )
 where
 
@@ -320,6 +322,18 @@ newPeerCNRef = PeerCNRef <$> newIORef Nothing
 
 readPeerCNRef :: PeerCNRef -> IO (Maybe T.Text)
 readPeerCNRef (PeerCNRef ref) = readIORef ref
+
+-- | Strip the role's CN prefix and return the @<name>@ suffix.
+-- For a CN of @corvus-client:alice@ with 'RoleClient' this returns
+-- @alice@. If the CN doesn't actually start with the role's prefix
+-- the full CN is returned unchanged — the caller has already
+-- validated the prefix at handshake time, so the input is trusted.
+peerNameFromCN :: TlsRole -> T.Text -> T.Text
+peerNameFromCN role cn =
+  let prefix = roleCNPrefix role
+   in if prefix `T.isPrefixOf` cn
+        then T.drop (T.length prefix) cn
+        else cn
 
 writePeerCNRef :: PeerCNRef -> T.Text -> IO ()
 writePeerCNRef (PeerCNRef ref) cn = writeIORef ref (Just cn)

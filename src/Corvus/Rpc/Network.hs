@@ -40,15 +40,16 @@ import Supervisors (Supervisor)
 data NetworkManagerCap = NetworkManagerCap
   { nmState :: !ServerState
   , nmSup :: !Supervisor
+  , nmClientName :: !T.Text
   }
 
-newNetworkManagerCap :: ServerState -> Supervisor -> IO NetworkManagerCap
-newNetworkManagerCap st sup = pure (NetworkManagerCap st sup)
+newNetworkManagerCap :: ServerState -> Supervisor -> T.Text -> IO NetworkManagerCap
+newNetworkManagerCap st sup cn = pure (NetworkManagerCap st sup cn)
 
 instance SomeServer NetworkManagerCap
 
 instance CGNet.NetworkManager'server_ NetworkManagerCap where
-  networkManager'list (NetworkManagerCap st _) = handleParsed $ \_ -> do
+  networkManager'list (NetworkManagerCap st _ _) = handleParsed $ \_ -> do
     resp <- handleNetworkList st
     case resp of
       RespNetworkList nets ->
@@ -56,14 +57,14 @@ instance CGNet.NetworkManager'server_ NetworkManagerCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "networkManager'list: unexpected response"
 
-  networkManager'get (NetworkManagerCap st sup) =
+  networkManager'get (NetworkManagerCap st sup cn) =
     handleParsed $ \CGNet.NetworkManager'get'params {..} -> do
       ref' <- capnpRefToRef ref
       eid <- failOnLeft =<< resolveNetwork ref' (ssDbPool st)
-      client <- export @CGNet.Network sup (NetworkCap st eid)
+      client <- export @CGNet.Network sup (NetworkCap st eid cn)
       pure CGNet.NetworkManager'get'results {CGNet.network = client}
 
-  networkManager'create (NetworkManagerCap st sup) =
+  networkManager'create (NetworkManagerCap st sup cn) =
     handleParsed $ \CGNet.NetworkManager'create'params {params = CGNet.NetworkCreateParams {..}} -> do
       nodeRef' <- capnpRefToRef node
       let act =
@@ -75,10 +76,10 @@ instance CGNet.NetworkManager'server_ NetworkManagerCap where
               , ncrNat = nat
               , ncrAutostart = autostart
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespNetworkCreated nid -> do
-          client <- export @CGNet.Network sup (NetworkCap st nid)
+          client <- export @CGNet.Network sup (NetworkCap st nid cn)
           pure CGNet.NetworkManager'create'results {CGNet.network = client}
         RespError msg -> throwFailed msg
         _ -> throwFailed (T.pack ("networkManager'create: unexpected response: " <> show resp))
@@ -86,12 +87,13 @@ instance CGNet.NetworkManager'server_ NetworkManagerCap where
 data NetworkCap = NetworkCap
   { nwState :: !ServerState
   , nwId :: !Int64
+  , nwClientName :: !T.Text
   }
 
 instance SomeServer NetworkCap
 
 instance CGNet.Network'server_ NetworkCap where
-  network'show (NetworkCap st eid) = handleParsed $ \_ -> do
+  network'show (NetworkCap st eid cn) = handleParsed $ \_ -> do
     resp <- handleNetworkShow st eid
     case resp of
       RespNetworkDetails info ->
@@ -100,8 +102,8 @@ instance CGNet.Network'server_ NetworkCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "network'show: unexpected response"
 
-  network'start (NetworkCap st eid) = handleParsed $ \_ -> do
-    resp <- runAction st (NetworkStart eid)
+  network'start (NetworkCap st eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (NetworkStart eid)
     case resp of
       RespNetworkStarted -> pure CGNet.Network'start'results
       RespNetworkNotFound -> throwFailed "Network not found"
@@ -110,8 +112,8 @@ instance CGNet.Network'server_ NetworkCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "network'start: unexpected response"
 
-  network'stop (NetworkCap st eid) = handleParsed $ \CGNet.Network'stop'params {..} -> do
-    resp <- runAction st (NetworkStop {nstopNetworkId = eid, nstopForce = force})
+  network'stop (NetworkCap st eid cn) = handleParsed $ \CGNet.Network'stop'params {..} -> do
+    resp <- runAction st cn (NetworkStop {nstopNetworkId = eid, nstopForce = force})
     case resp of
       RespNetworkStopped -> pure CGNet.Network'stop'results
       RespNetworkNotFound -> throwFailed "Network not found"
@@ -121,7 +123,7 @@ instance CGNet.Network'server_ NetworkCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "network'stop: unexpected response"
 
-  network'edit (NetworkCap st eid) =
+  network'edit (NetworkCap st eid cn) =
     handleParsed $ \CGNet.Network'edit'params {params = CGNet.NetworkEditParams {..}} -> do
       let act =
             NetworkEdit
@@ -131,15 +133,15 @@ instance CGNet.Network'server_ NetworkCap where
               , nedNat = if hasNat then Just nat else Nothing
               , nedAutostart = if hasAutostart then Just autostart else Nothing
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespNetworkEdited -> pure CGNet.Network'edit'results
         RespNetworkNotFound -> throwFailed "Network not found"
         RespError msg -> throwFailed msg
         _ -> throwFailed "network'edit: unexpected response"
 
-  network'delete (NetworkCap st eid) = handleParsed $ \_ -> do
-    resp <- runAction st (NetworkDelete eid)
+  network'delete (NetworkCap st eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (NetworkDelete eid)
     case resp of
       RespNetworkDeleted -> pure CGNet.Network'delete'results
       RespNetworkNotFound -> throwFailed "Network not found"
@@ -147,11 +149,11 @@ instance CGNet.Network'server_ NetworkCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "network'delete: unexpected response"
 
-  network'attachNode (NetworkCap st eid) =
+  network'attachNode (NetworkCap st eid cn) =
     handleParsed $ \CGNet.Network'attachNode'params {params = CGNet.NetworkPeerParams {..}} -> do
       nodeRef' <- capnpRefToRef node
       resp <-
-        runAction st $
+        runAction st cn $
           NetworkAttachNode {nanNetworkId = eid, nanNodeRef = P.unRef nodeRef'}
       case resp of
         RespNetworkPeerAttached -> pure CGNet.Network'attachNode'results
@@ -160,11 +162,11 @@ instance CGNet.Network'server_ NetworkCap where
         RespError msg -> throwFailed msg
         _ -> throwFailed "network'attachNode: unexpected response"
 
-  network'detachNode (NetworkCap st eid) =
+  network'detachNode (NetworkCap st eid cn) =
     handleParsed $ \CGNet.Network'detachNode'params {params = CGNet.NetworkPeerParams {..}} -> do
       nodeRef' <- capnpRefToRef node
       resp <-
-        runAction st $
+        runAction st cn $
           NetworkDetachNode {ndnNetworkId = eid, ndnNodeRef = P.unRef nodeRef'}
       case resp of
         RespNetworkPeerDetached -> pure CGNet.Network'detachNode'results

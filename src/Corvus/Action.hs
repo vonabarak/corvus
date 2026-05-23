@@ -62,11 +62,16 @@ import Database.Persist.Sql (fromSqlKey)
 --------------------------------------------------------------------------------
 
 -- | Context passed to every action execution.
--- Contains the server state and this action's own task ID
--- (for creating subtasks in composite operations).
+-- Carries the server state, this action's own task ID (used as the
+-- parent when spawning subtasks), and the caller's name — the
+-- @<name>@ suffix of the mTLS CN, the literal @"local"@ for
+-- Unix-socket / no-TLS callers, or @"system"@ for daemon-internal
+-- work. Subtasks inherit the parent's 'acClientName' so the audit
+-- trail is consistent across composite operations.
 data ActionContext = ActionContext
   { acState :: !ServerState
   , acTaskId :: !TaskId
+  , acClientName :: !Text
   }
 
 --------------------------------------------------------------------------------
@@ -104,51 +109,56 @@ class Action a where
 
 -- | Run an action as a top-level task (synchronous).
 -- Validates first (no task record on failure), creates task, executes, updates task.
-runAction :: (Action a) => ServerState -> a -> IO Response
-runAction state action = do
+runAction :: (Action a) => ServerState -> Text -> a -> IO Response
+runAction state clientName action = do
   mErr <- actionValidate state action
   case mErr of
     Just errResp -> pure errResp
     Nothing -> do
-      taskKey <- createTaskRecord state action Nothing
-      let ctx = ActionContext state taskKey
+      taskKey <- createTaskRecord state clientName action Nothing
+      let ctx = ActionContext state taskKey clientName
       runAndFinalize state ctx action
 
 -- | Run an action asynchronously.
 -- Validates synchronously, forks execution, returns interim response.
-runActionAsync :: (Action a) => ServerState -> a -> Response -> IO Response
-runActionAsync state action interimResponse = do
+runActionAsync :: (Action a) => ServerState -> Text -> a -> Response -> IO Response
+runActionAsync state clientName action interimResponse = do
   mErr <- actionValidate state action
   case mErr of
     Just errResp -> pure errResp
     Nothing -> do
-      taskKey <- createTaskRecord state action Nothing
-      let ctx = ActionContext state taskKey
+      taskKey <- createTaskRecord state clientName action Nothing
+      let ctx = ActionContext state taskKey clientName
       _ <- forkIO $ runAndFinalize_ state ctx action
       pure interimResponse
 
 -- | Run an action asynchronously, passing the new task ID to a function that
 -- produces the interim response. Used by Apply which returns RespApplyStarted taskId.
-runActionAsyncWithId :: (Action a) => ServerState -> a -> (Int64 -> Response) -> IO Response
-runActionAsyncWithId state action mkInterimResponse = do
+runActionAsyncWithId :: (Action a) => ServerState -> Text -> a -> (Int64 -> Response) -> IO Response
+runActionAsyncWithId state clientName action mkInterimResponse = do
   mErr <- actionValidate state action
   case mErr of
     Just errResp -> pure errResp
     Nothing -> do
-      taskKey <- createTaskRecord state action Nothing
-      let ctx = ActionContext state taskKey
+      taskKey <- createTaskRecord state clientName action Nothing
+      let ctx = ActionContext state taskKey clientName
       _ <- forkIO $ runAndFinalize_ state ctx action
       pure $ mkInterimResponse (fromSqlKey taskKey)
 
 -- | Run an action as a subtask of a parent task.
--- On failure, cancels remaining sibling subtasks.
-runActionAsSubtask :: (Action a) => ServerState -> a -> TaskId -> IO Response
-runActionAsSubtask state action parentId = do
+-- On failure, cancels remaining sibling subtasks. The subtask
+-- inherits the parent's 'acClientName' so the audit trail is
+-- consistent across composite operations.
+runActionAsSubtask :: (Action a) => ActionContext -> a -> IO Response
+runActionAsSubtask parentCtx action = do
+  let state = acState parentCtx
+      parentId = acTaskId parentCtx
+      clientName = acClientName parentCtx
   mErr <- actionValidate state action
   case mErr of
     Just errResp -> do
       -- Record the failed validation as a subtask
-      taskKey <- createTaskRecord state action (Just parentId)
+      taskKey <- createTaskRecord state clientName action (Just parentId)
       now <- getCurrentTime
       let (taskResult, message) = classifyResponse errResp
       runSqlPool
@@ -163,8 +173,8 @@ runActionAsSubtask state action parentId = do
       cancelRemainingSubtasks (ssDbPool state) parentId
       pure errResp
     Nothing -> do
-      taskKey <- createTaskRecord state action (Just parentId)
-      let ctx = ActionContext state taskKey
+      taskKey <- createTaskRecord state clientName action (Just parentId)
+      let ctx = ActionContext state taskKey clientName
       result <- runAndFinalizeResult state ctx action
       case result of
         Left errResp -> do
@@ -184,11 +194,12 @@ runActionAsSubtask state action parentId = do
 
 -- | Create a task record in the database.
 --
--- 'taskClientName' is hardcoded to @"system"@ in Slice 1; Slice 2
--- threads the real value (mTLS CN suffix, @"local"@, or @"system"@)
--- in from the RPC layer.
-createTaskRecord :: (Action a) => ServerState -> a -> Maybe TaskId -> IO TaskId
-createTaskRecord state action mParent = do
+-- 'clientName' is the caller's identity as recorded on the row: the
+-- @<name>@ suffix of the connected client's mTLS CN, the literal
+-- @"local"@ for Unix-socket / no-TLS callers, or @"system"@ for
+-- daemon-internal work.
+createTaskRecord :: (Action a) => ServerState -> Text -> a -> Maybe TaskId -> IO TaskId
+createTaskRecord state clientName action mParent = do
   now <- getCurrentTime
   runSqlPool
     ( insert
@@ -202,7 +213,7 @@ createTaskRecord state action mParent = do
           , taskCommand = actionCommand action
           , taskResult = TaskRunning
           , taskMessage = Nothing
-          , taskClientName = "system"
+          , taskClientName = clientName
           }
     )
     (ssDbPool state)
@@ -274,9 +285,12 @@ orElse Nothing b = b
 -- Returns Left on error (including exceptions), Right with entity ID on success.
 -- Useful for orchestrators (Apply, Template) that manage their own subtask lifecycle
 -- and need to call action logic without going through the full runAction runner.
-executeCreate :: (Action a) => ServerState -> a -> TaskId -> IO (Either Text Int64)
-executeCreate state action taskId = do
-  result <- try $ actionExecute (ActionContext state taskId) action
+-- The parent's 'ActionContext' supplies 'acClientName' so the inner work shares
+-- the audit identity of the outer action.
+executeCreate :: (Action a) => ActionContext -> a -> TaskId -> IO (Either Text Int64)
+executeCreate parentCtx action taskId = do
+  let ctx = ActionContext (acState parentCtx) taskId (acClientName parentCtx)
+  result <- try $ actionExecute ctx action
   case result of
     Left (err :: SomeException) -> pure $ Left $ T.pack $ show err
     Right resp -> do

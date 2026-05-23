@@ -154,8 +154,9 @@ handleTemplateDelete state tidLong = runServerLogging state $ do
   liftIO $ runSqlPool (deleteTemplate tid) (ssDbPool state)
   pure RespTemplateDeleted
 
-handleTemplateInstantiate :: ServerState -> Int64 -> Text -> Text -> TaskId -> IO Response
-handleTemplateInstantiate state tidLong newVmName nodeRef parentTaskId = runServerLogging state $ do
+handleTemplateInstantiate :: ActionContext -> Int64 -> Text -> Text -> IO Response
+handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acState ctx) $ do
+  let state = acState ctx
   logInfoN $ "Instantiating template " <> T.pack (show tidLong) <> " as '" <> newVmName <> "'"
   let pool = ssDbPool state
 
@@ -168,7 +169,7 @@ handleTemplateInstantiate state tidLong newVmName nodeRef parentTaskId = runServ
       vmResp <-
         liftIO $
           runActionAsSubtask
-            state
+            ctx
             ( VmCreate
                 newVmName
                 nodeRef
@@ -181,7 +182,6 @@ handleTemplateInstantiate state tidLong newVmName nodeRef parentTaskId = runServ
                 (tvdAutostart details)
                 (tvdRebootQuirk details)
             )
-            parentTaskId
       case vmResp of
         RespVmCreated vmIdLong -> do
           let vmId = toSqlKey vmIdLong :: VmId
@@ -189,7 +189,7 @@ handleTemplateInstantiate state tidLong newVmName nodeRef parentTaskId = runServ
           -- Subtask per drive: Instantiate drives
           driveResults <- forM (tvdDrives details) $ \td ->
             liftIO $ do
-              resp <- runActionAsSubtask state (InstantiateDrive vmId newVmName td) parentTaskId
+              resp <- runActionAsSubtask ctx (InstantiateDrive vmId newVmName td)
               pure $ classifyResponse resp
 
           let errors = [err | (TaskError, Just err) <- driveResults]
@@ -200,7 +200,7 @@ handleTemplateInstantiate state tidLong newVmName nodeRef parentTaskId = runServ
               pure $ RespError msg
             else do
               -- Subtask: Finish instantiation (Net, SSH, cloud-init)
-              liftIO $ finishInstantiation state vmId newVmName details parentTaskId
+              liftIO $ finishInstantiation ctx vmId newVmName details
               logInfoN $ "Instantiated VM with ID: " <> T.pack (show $ fromSqlKey vmId)
               pure $ RespTemplateInstantiated (fromSqlKey vmId)
         RespError err -> pure $ RespError err
@@ -372,8 +372,9 @@ deleteTemplate tid = do
   deleteBy (UniqueTemplateCloudInitVm tid)
   delete tid
 
-finishInstantiation :: ServerState -> VmId -> Text -> TemplateDetails -> TaskId -> IO ()
-finishInstantiation state vmId newVmName details parentTaskId = runServerLogging state $ do
+finishInstantiation :: ActionContext -> VmId -> Text -> TemplateDetails -> IO ()
+finishInstantiation ctx vmId newVmName details = runServerLogging (acState ctx) $ do
+  let state = acState ctx
   -- Network
   forM_ (tvdNetIfs details) $ \tni -> do
     mac <- liftIO generateMacAddress
@@ -399,7 +400,7 @@ finishInstantiation state vmId newVmName details parentTaskId = runServerLogging
   -- Generate cloud-init ISO if cloud-init is enabled (tracked as subtask)
   when (tvdCloudInit details) $ do
     logInfoN "Generating cloud-init ISO for instantiated VM"
-    resp <- liftIO $ runActionAsSubtask state (RegenerateCloudInit (fromSqlKey vmId) newVmName) parentTaskId
+    resp <- liftIO $ runActionAsSubtask ctx (RegenerateCloudInit (fromSqlKey vmId) newVmName)
     case resp of
       RespError err -> logWarnN $ "Failed to generate cloud-init ISO: " <> err
       _ -> logInfoN "Cloud-init ISO generated and attached"
@@ -415,7 +416,7 @@ instantiateDriveIO ctx vmId vmName td = do
       vmIdLong = fromSqlKey vmId
       nameSuffix = fromMaybe "disk" (tvdiDiskImageName td)
       vmDir = Just (vmName <> "/")
-      attachDisk newDiskId = runActionAsSubtask state (DiskAttach vmIdLong newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiDiscard td) (tvdiCacheType td)) parentTaskId
+      attachDisk newDiskId = runActionAsSubtask ctx (DiskAttach vmIdLong newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiDiscard td) (tvdiCacheType td))
       -- Disks materialised during template instantiation are scoped to
       -- this VM by default — clone/overlay/create branches all produce
       -- a fresh image named after the VM. Direct strategy attaches an
@@ -439,7 +440,7 @@ instantiateDriveIO ctx vmId vmName td = do
       Nothing -> pure $ Left "clone strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix
-        resp <- runActionAsSubtask state (DiskClone newName diskIdLong (tvdiSizeMb td) vmDir ephem) parentTaskId
+        resp <- runActionAsSubtask ctx (DiskClone newName diskIdLong (tvdiSizeMb td) vmDir ephem)
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -452,7 +453,7 @@ instantiateDriveIO ctx vmId vmName td = do
       Nothing -> pure $ Left "overlay strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix <> "-overlay"
-        resp <- runActionAsSubtask state (DiskCreateOverlay newName diskIdLong (tvdiSizeMb td) vmDir ephem) parentTaskId
+        resp <- runActionAsSubtask ctx (DiskCreateOverlay newName diskIdLong (tvdiSizeMb td) vmDir ephem)
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -464,7 +465,7 @@ instantiateDriveIO ctx vmId vmName td = do
     StrategyCreate -> case (tvdiFormat td, tvdiSizeMb td) of
       (Just fmt, Just sizeMb) -> do
         let newName = vmName <> "-" <> nameSuffix
-        resp <- runActionAsSubtask state (DiskCreate newName fmt (fromIntegral sizeMb) vmDir ephem) parentTaskId
+        resp <- runActionAsSubtask ctx (DiskCreate newName fmt (fromIntegral sizeMb) vmDir ephem)
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -517,7 +518,7 @@ instance Action TemplateInstantiate where
   actionSubsystem _ = SubTemplate
   actionCommand _ = "instantiate"
   actionEntityId = Just . fromIntegral . tiTemplateId
-  actionExecute ctx a = handleTemplateInstantiate (acState ctx) (tiTemplateId a) (tiName a) (tiNodeRef a) (acTaskId ctx)
+  actionExecute ctx a = handleTemplateInstantiate ctx (tiTemplateId a) (tiName a) (tiNodeRef a)
 
 -- | Instantiate a single template drive (clone, overlay, or direct attach).
 data InstantiateDrive = InstantiateDrive

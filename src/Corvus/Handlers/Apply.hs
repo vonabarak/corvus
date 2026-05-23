@@ -89,11 +89,11 @@ handleApplyValidate state yamlContent = runServerLogging state $ do
 -- forces skip when present) and the YAML's @ifExists: skip@. Absent
 -- on both means @ifExists: error@ — the default — and any duplicate
 -- resource fails the apply.
-handleApplyExecute :: ServerState -> ApplyConfig -> Bool -> TaskId -> IO Response
-handleApplyExecute state config cliSkipExisting parentTaskId = runServerLogging state $ do
+handleApplyExecute :: ActionContext -> ApplyConfig -> Bool -> IO Response
+handleApplyExecute ctx config cliSkipExisting = runServerLogging (acState ctx) $ do
   logInfoN "Applying environment configuration..."
   let effectiveSkip = cliSkipExisting || acIfExists config == IfExistsSkip
-  result <- liftIO $ executeApply state config effectiveSkip parentTaskId
+  result <- liftIO $ executeApply ctx config effectiveSkip
   case result of
     Left err -> do
       logWarnN $ "Apply failed: " <> err
@@ -192,15 +192,15 @@ effectiveCloudInit v = case avCloudInit v of
 --------------------------------------------------------------------------------
 
 -- | Execute apply: create resources in dependency order using Action subtasks.
-executeApply :: ServerState -> ApplyConfig -> Bool -> TaskId -> IO (Either Text ApplyResult)
-executeApply state config skipExisting parentId = do
+executeApply :: ActionContext -> ApplyConfig -> Bool -> IO (Either Text ApplyResult)
+executeApply ctx config skipExisting = do
   -- Phase 1: SSH keys
   keyResult <- runSequentialCreate (acSshKeys config) Map.empty $ \k _keyMap -> do
     mExisting <- if skipExisting then resolveByName state UniqueSshKeyName Map.empty (askName k) else pure Nothing
     case mExisting of
       Just eid -> pure $ Right (askName k, eid)
       Nothing -> do
-        resp <- runActionAsSubtask state (SshKeyCreate (askName k) (askPublicKey k)) parentId
+        resp <- runActionAsSubtask ctx (SshKeyCreate (askName k) (askPublicKey k))
         extractCreatedResult (askName k) resp
   case keyResult of
     Left err -> pure $ Left err
@@ -211,7 +211,7 @@ executeApply state config skipExisting parentId = do
         case mExisting of
           Just eid -> pure $ Right (adName d, eid)
           Nothing -> do
-            resp <- runActionAsSubtask state (ApplyDiskCreate d diskMap) parentId
+            resp <- runActionAsSubtask ctx (ApplyDiskCreate d diskMap)
             extractCreatedResult (adName d) resp
       case diskResult of
         Left err -> pure $ Left err
@@ -222,7 +222,7 @@ executeApply state config skipExisting parentId = do
             case mExisting of
               Just eid -> pure $ Right (anName n, eid)
               Nothing -> do
-                resp <- runActionAsSubtask state (NetworkCreate (anName n) (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n)) parentId
+                resp <- runActionAsSubtask ctx (NetworkCreate (anName n) (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n))
                 extractCreatedResult (anName n) resp
           case nwResult of
             Left err -> pure $ Left err
@@ -241,7 +241,7 @@ executeApply state config skipExisting parentId = do
                     case mExisting of
                       Just eid -> pure $ Right (tyName ty, eid)
                       Nothing -> do
-                        resp <- runActionAsSubtask state (ApplyTemplateCreate ty) parentId
+                        resp <- runActionAsSubtask ctx (ApplyTemplateCreate ty)
                         extractCreatedResult (tyName ty) resp
                   case tmplResult of
                     Left err -> pure $ Left err
@@ -256,6 +256,8 @@ executeApply state config skipExisting parentId = do
                             , arTemplates = tmplCreated
                             }
   where
+    state = acState ctx
+
     -- Run items sequentially, building a name→ID map.
     runSequentialCreate
       :: [a]
@@ -287,7 +289,7 @@ executeApply state config skipExisting parentId = do
           case mExisting of
             Just _existingId -> go vs acc
             Nothing -> do
-              resp <- runActionAsSubtask state (ApplyVmCreate keyMap diskMap nwMap v) parentId
+              resp <- runActionAsSubtask ctx (ApplyVmCreate keyMap diskMap nwMap v)
               case resp of
                 RespVmCreated vmId -> go vs (ApplyCreated (avName v) vmId : acc)
                 RespError err -> pure $ Left $ "VM '" <> avName v <> "': " <> err
@@ -309,18 +311,19 @@ executeApply state config skipExisting parentId = do
 --------------------------------------------------------------------------------
 
 createOneVm
-  :: ServerState
+  :: ActionContext
   -> Map.Map Text Int64
   -> Map.Map Text Int64
   -> Map.Map Text Int64
   -> ApplyVm
   -> IO (Either Text Int64)
-createOneVm state keyMap diskMap nwMap v = do
+createOneVm ctx keyMap diskMap nwMap v = do
   -- Use a dummy TaskId since VM creation doesn't create subtasks
   let dummyTaskId = toSqlKey 0
+      state = acState ctx
   vmResult <-
     executeCreate
-      state
+      ctx
       ( VmCreate
           (avName v)
           (avNode v)
@@ -336,17 +339,18 @@ createOneVm state keyMap diskMap nwMap v = do
       dummyTaskId
   case vmResult of
     Left err -> pure $ Left $ "VM '" <> avName v <> "': " <> err
-    Right vmId -> createOneVmAttachments state keyMap diskMap nwMap v (toSqlKey vmId)
+    Right vmId -> createOneVmAttachments ctx keyMap diskMap nwMap v (toSqlKey vmId)
 
 createOneVmAttachments
-  :: ServerState
+  :: ActionContext
   -> Map.Map Text Int64
   -> Map.Map Text Int64
   -> Map.Map Text Int64
   -> ApplyVm
   -> VmId
   -> IO (Either Text Int64)
-createOneVmAttachments state keyMap diskMap nwMap v vmId = do
+createOneVmAttachments ctx keyMap diskMap nwMap v vmId = do
+  let state = acState ctx
   -- Attach drives
   driveResult <- attachDrives state diskMap vmId (avDrives v) (avName v)
   case driveResult of
@@ -389,7 +393,7 @@ createOneVmAttachments state keyMap diskMap nwMap v vmId = do
                   (ssDbPool state)
               -- Generate cloud-init ISO if cloud-init is enabled
               when (effectiveCloudInit v) $ do
-                _ <- runAction state (RegenerateCloudInit (fromSqlKey vmId) (avName v))
+                _ <- runAction state (acClientName ctx) (RegenerateCloudInit (fromSqlKey vmId) (avName v))
                 pure ()
               pure $ Right $ fromSqlKey vmId
 
@@ -526,7 +530,7 @@ data ApplyAction = ApplyAction
 instance Action ApplyAction where
   actionSubsystem _ = SubApply
   actionCommand _ = "apply"
-  actionExecute ctx a = handleApplyExecute (acState ctx) (aaConfig a) (aaSkipExisting a) (acTaskId ctx)
+  actionExecute ctx a = handleApplyExecute ctx (aaConfig a) (aaSkipExisting a)
 
 -- | Apply-specific disk creation that handles overlay/clone name resolution.
 data ApplyDiskCreate = ApplyDiskCreate
@@ -584,7 +588,7 @@ instance Action ApplyVmCreate where
   actionCommand _ = "create"
   actionEntityName = Just . avName . avcVm
   actionExecute ctx a = do
-    result <- createOneVm (acState ctx) (avcKeyMap a) (avcDiskMap a) (avcNwMap a) (avcVm a)
+    result <- createOneVm ctx (avcKeyMap a) (avcDiskMap a) (avcNwMap a) (avcVm a)
     case result of
       Left err -> pure $ RespError err
       Right vmId -> pure $ RespVmCreated vmId

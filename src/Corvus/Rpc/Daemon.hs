@@ -63,15 +63,19 @@ import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (fromSqlKey)
 import Supervisors (Supervisor)
 
--- | The root Daemon cap, parameterised over the shared server state
--- and a supervisor for sub-cap export.
+-- | The root Daemon cap, parameterised over the shared server state,
+-- a supervisor for sub-cap export, and the name of the connected
+-- client. The 'dcClientName' is propagated through every sub-cap
+-- this Daemon creates so 'runAction' calls can stamp it on each
+-- task row.
 data DaemonCap = DaemonCap
   { dcState :: !ServerState
   , dcSup :: !Supervisor
+  , dcClientName :: !T.Text
   }
 
-newDaemonCap :: ServerState -> Supervisor -> IO DaemonCap
-newDaemonCap st sup = pure (DaemonCap st sup)
+newDaemonCap :: ServerState -> Supervisor -> T.Text -> IO DaemonCap
+newDaemonCap st sup clientName = pure (DaemonCap st sup clientName)
 
 instance SomeServer DaemonCap
 
@@ -80,54 +84,54 @@ instance CGCorvus.Daemon'server_ DaemonCap where
     _ <- handlePing
     pure CGCorvus.Daemon'ping'results
 
-  daemon'status (DaemonCap st _) = handleParsed $ \_ -> do
+  daemon'status (DaemonCap st _ _) = handleParsed $ \_ -> do
     resp <- handleStatus st
     case resp of
       RespStatus info ->
         pure CGCorvus.Daemon'status'results {CGCorvus.info = toCapnpStatusInfo info}
       _ -> throwFailed "daemon'status: unexpected response"
 
-  daemon'shutdown (DaemonCap st _) = handleParsed $ \_ -> do
+  daemon'shutdown (DaemonCap st _ _) = handleParsed $ \_ -> do
     _ <- handleShutdown st
     pure CGCorvus.Daemon'shutdown'results
 
-  daemon'vms (DaemonCap st sup) = handleParsed $ \_ -> do
-    impl <- newVmManagerCap st sup
+  daemon'vms (DaemonCap st sup cn) = handleParsed $ \_ -> do
+    impl <- newVmManagerCap st sup cn
     client <- export @CGVm.VmManager sup impl
     pure CGCorvus.Daemon'vms'results {CGCorvus.mgr = client}
 
-  daemon'disks (DaemonCap st sup) = handleParsed $ \_ -> do
-    impl <- newDiskManagerCap st sup
+  daemon'disks (DaemonCap st sup cn) = handleParsed $ \_ -> do
+    impl <- newDiskManagerCap st sup cn
     client <- export @CGDisk.DiskManager sup impl
     pure CGCorvus.Daemon'disks'results {CGCorvus.mgr = client}
 
-  daemon'networks (DaemonCap st sup) = handleParsed $ \_ -> do
-    impl <- newNetworkManagerCap st sup
+  daemon'networks (DaemonCap st sup cn) = handleParsed $ \_ -> do
+    impl <- newNetworkManagerCap st sup cn
     client <- export @CGNet.NetworkManager sup impl
     pure CGCorvus.Daemon'networks'results {CGCorvus.mgr = client}
 
-  daemon'nodes (DaemonCap st sup) = handleParsed $ \_ -> do
-    impl <- newNodeManagerCap st sup
+  daemon'nodes (DaemonCap st sup cn) = handleParsed $ \_ -> do
+    impl <- newNodeManagerCap st sup cn
     client <- export @CGNode.NodeManager sup impl
     pure CGCorvus.Daemon'nodes'results {CGCorvus.mgr = client}
 
-  daemon'sshKeys (DaemonCap st sup) = handleParsed $ \_ -> do
-    impl <- newSshKeyManagerCap st sup
+  daemon'sshKeys (DaemonCap st sup cn) = handleParsed $ \_ -> do
+    impl <- newSshKeyManagerCap st sup cn
     client <- export @CGSsh.SshKeyManager sup impl
     pure CGCorvus.Daemon'sshKeys'results {CGCorvus.mgr = client}
 
-  daemon'templates (DaemonCap st sup) = handleParsed $ \_ -> do
-    impl <- newTemplateManagerCap st sup
+  daemon'templates (DaemonCap st sup cn) = handleParsed $ \_ -> do
+    impl <- newTemplateManagerCap st sup cn
     client <- export @CGTmpl.TemplateManager sup impl
     pure CGCorvus.Daemon'templates'results {CGCorvus.mgr = client}
 
-  daemon'tasks (DaemonCap st sup) = handleParsed $ \_ -> do
+  daemon'tasks (DaemonCap st sup _) = handleParsed $ \_ -> do
     impl <- newTaskManagerCap st sup
     client <- export @CGTask.TaskManager sup impl
     pure CGCorvus.Daemon'tasks'results {CGCorvus.mgr = client}
 
-  daemon'cloudInit (DaemonCap st sup) = handleParsed $ \_ -> do
-    impl <- newCloudInitManagerCap st sup
+  daemon'cloudInit (DaemonCap st sup cn) = handleParsed $ \_ -> do
+    impl <- newCloudInitManagerCap st sup cn
     client <- export @CGCI.CloudInitManager sup impl
     pure CGCorvus.Daemon'cloudInit'results {CGCorvus.mgr = client}
 
@@ -135,7 +139,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
   -- returns the populated @result@; with @wait=False@ kicks off an
   -- async task and returns the parent @taskId@ with an empty
   -- @result@.
-  daemon'apply (DaemonCap st _) =
+  daemon'apply (DaemonCap st _ cn) =
     handleParsed $ \CGCorvus.Daemon'apply'params {CGCorvus.yaml = yamlText, CGCorvus.skipExisting = skipExisting, CGCorvus.wait = wait} -> do
       validated <- handleApplyValidate st yamlText
       case validated of
@@ -144,7 +148,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
         Right cfg ->
           if wait
             then do
-              resp <- runAction st (ApplyAction cfg skipExisting)
+              resp <- runAction st cn (ApplyAction cfg skipExisting)
               case resp of
                 RespApplyResult ar ->
                   pure
@@ -158,6 +162,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
               resp <-
                 runActionAsyncWithId
                   st
+                  cn
                   (ApplyAction cfg skipExisting)
                   RespApplyStarted
               case resp of
@@ -174,7 +179,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
   -- create the parent task synchronously, then kick the pipeline
   -- off on an async that pushes each 'BuildEvent' through
   -- @sink.push@ and terminates with @sink.end@.
-  daemon'build (DaemonCap st _) =
+  daemon'build (DaemonCap st _ cn) =
     handleParsed $ \CGCorvus.Daemon'build'params {CGCorvus.yaml = yamlText, CGCorvus.sink = sinkClient} -> do
       startedAt <- getCurrentTime
       let pool = ssDbPool st
@@ -191,7 +196,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
                 , taskCommand = "build"
                 , taskResult = TaskRunning
                 , taskMessage = Nothing
-                , taskClientName = "system"
+                , taskClientName = cn
                 }
           )
           pool

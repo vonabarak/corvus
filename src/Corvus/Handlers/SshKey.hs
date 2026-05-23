@@ -139,8 +139,8 @@ handleSshKeyList state = runServerLogging state $ do
 
 -- | Attach an SSH key to a VM
 -- This also regenerates the cloud-init ISO and registers/attaches it as a disk
-handleSshKeyAttach :: ServerState -> Int64 -> Int64 -> IO Response
-handleSshKeyAttach state vmId keyId = runServerLogging state $ do
+handleSshKeyAttach :: ServerState -> Text -> Int64 -> Int64 -> IO Response
+handleSshKeyAttach state clientName vmId keyId = runServerLogging state $ do
   logInfoN $ "Attaching SSH key " <> T.pack (show keyId) <> " to VM " <> T.pack (show vmId)
 
   let pool = ssDbPool state
@@ -187,7 +187,7 @@ handleSshKeyAttach state vmId keyId = runServerLogging state $ do
                   logInfoN "SSH key attached"
 
                   -- Regenerate cloud-init ISO
-                  result <- liftIO $ classifyRegenResponse <$> runAction state (RegenerateCloudInit vmId (vmName vm))
+                  result <- liftIO $ classifyRegenResponse <$> runAction state clientName (RegenerateCloudInit vmId (vmName vm))
                   case result of
                     Left err -> do
                       logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -198,8 +198,8 @@ handleSshKeyAttach state vmId keyId = runServerLogging state $ do
 
 -- | Detach an SSH key from a VM
 -- This also regenerates/removes the cloud-init ISO
-handleSshKeyDetach :: ServerState -> Int64 -> Int64 -> IO Response
-handleSshKeyDetach state vmId keyId = runServerLogging state $ do
+handleSshKeyDetach :: ServerState -> Text -> Int64 -> Int64 -> IO Response
+handleSshKeyDetach state clientName vmId keyId = runServerLogging state $ do
   logInfoN $ "Detaching SSH key " <> T.pack (show keyId) <> " from VM " <> T.pack (show vmId)
 
   let pool = ssDbPool state
@@ -227,7 +227,7 @@ handleSshKeyDetach state vmId keyId = runServerLogging state $ do
           -- Regenerate cloud-init ISO if cloud-init is enabled
           if vmCloudInit vm
             then do
-              result <- liftIO $ classifyRegenResponse <$> runAction state (RegenerateCloudInit vmId (vmName vm))
+              result <- liftIO $ classifyRegenResponse <$> runAction state clientName (RegenerateCloudInit vmId (vmName vm))
               case result of
                 Left err -> do
                   logWarnN $ "Failed to regenerate cloud-init ISO: " <> err
@@ -309,7 +309,7 @@ instance Action SshKeyAttach where
   actionSubsystem _ = SubSshKey
   actionCommand _ = "attach"
   actionEntityId = Just . fromIntegral . skaKeyId
-  actionExecute ctx a = handleSshKeyAttach (acState ctx) (skaVmId a) (skaKeyId a)
+  actionExecute ctx a = handleSshKeyAttach (acState ctx) (acClientName ctx) (skaVmId a) (skaKeyId a)
 
 data SshKeyDetach = SshKeyDetach
   { skdetVmId :: Int64
@@ -320,7 +320,7 @@ instance Action SshKeyDetach where
   actionSubsystem _ = SubSshKey
   actionCommand _ = "detach"
   actionEntityId = Just . fromIntegral . skdetKeyId
-  actionExecute ctx a = handleSshKeyDetach (acState ctx) (skdetVmId a) (skdetKeyId a)
+  actionExecute ctx a = handleSshKeyDetach (acState ctx) (acClientName ctx) (skdetVmId a) (skdetKeyId a)
 
 --------------------------------------------------------------------------------
 -- Internal Helpers

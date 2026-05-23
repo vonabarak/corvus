@@ -38,15 +38,16 @@ import Supervisors (Supervisor)
 data NodeManagerCap = NodeManagerCap
   { nmState :: !ServerState
   , nmSup :: !Supervisor
+  , nmClientName :: !T.Text
   }
 
-newNodeManagerCap :: ServerState -> Supervisor -> IO NodeManagerCap
-newNodeManagerCap st sup = pure (NodeManagerCap st sup)
+newNodeManagerCap :: ServerState -> Supervisor -> T.Text -> IO NodeManagerCap
+newNodeManagerCap st sup cn = pure (NodeManagerCap st sup cn)
 
 instance SomeServer NodeManagerCap
 
 instance CGNode.NodeManager'server_ NodeManagerCap where
-  nodeManager'list (NodeManagerCap st _) = handleParsed $ \_ -> do
+  nodeManager'list (NodeManagerCap st _ _) = handleParsed $ \_ -> do
     resp <- handleNodeList st
     case resp of
       RespNodeList nodes ->
@@ -54,14 +55,14 @@ instance CGNode.NodeManager'server_ NodeManagerCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "nodeManager'list: unexpected response"
 
-  nodeManager'get (NodeManagerCap st sup) =
+  nodeManager'get (NodeManagerCap st sup cn) =
     handleParsed $ \CGNode.NodeManager'get'params {..} -> do
       ref' <- capnpRefToRef ref
       eid <- failOnLeft =<< Resolve.resolveNode ref' (ssDbPool st)
-      client <- export @CGNode.Node sup (NodeCap st eid)
+      client <- export @CGNode.Node sup (NodeCap st eid cn)
       pure CGNode.NodeManager'get'results {CGNode.node = client}
 
-  nodeManager'create (NodeManagerCap st sup) =
+  nodeManager'create (NodeManagerCap st sup cn) =
     handleParsed $ \CGNode.NodeManager'create'params {params = CGNode.NodeAddParams {..}} -> do
       adminSt <- failOnEnum (fromCapnpNodeAdminState adminState)
       let act =
@@ -74,10 +75,10 @@ instance CGNode.NodeManager'server_ NodeManagerCap where
               , naDescription = if T.null description then Nothing else Just description
               , naAdminState = adminSt
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespNodeCreated nid -> do
-          client <- export @CGNode.Node sup (NodeCap st nid)
+          client <- export @CGNode.Node sup (NodeCap st nid cn)
           pure CGNode.NodeManager'create'results {CGNode.node = client}
         RespError msg -> throwFailed msg
         _ -> throwFailed (T.pack ("nodeManager'create: unexpected response: " <> show resp))
@@ -85,12 +86,13 @@ instance CGNode.NodeManager'server_ NodeManagerCap where
 data NodeCap = NodeCap
   { ncState :: !ServerState
   , ncId :: !Int64
+  , ncClientName :: !T.Text
   }
 
 instance SomeServer NodeCap
 
 instance CGNode.Node'server_ NodeCap where
-  node'show (NodeCap st eid) = handleParsed $ \_ -> do
+  node'show (NodeCap st eid cn) = handleParsed $ \_ -> do
     resp <- handleNodeShow st eid
     case resp of
       RespNodeDetails det ->
@@ -99,7 +101,7 @@ instance CGNode.Node'server_ NodeCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "node'show: unexpected response"
 
-  node'edit (NodeCap st eid) =
+  node'edit (NodeCap st eid cn) =
     handleParsed $ \CGNode.Node'edit'params {params = CGNode.NodeEditParams {..}} -> do
       mAdminSt <-
         if hasAdminState
@@ -120,23 +122,23 @@ instance CGNode.Node'server_ NodeCap where
               , nedDescription = descUpdate
               , nedAdminState = mAdminSt
               }
-      resp <- runAction st act
+      resp <- runAction st cn act
       case resp of
         RespNodeEdited -> pure CGNode.Node'edit'results
         RespNodeNotFound -> throwFailed "Node not found"
         RespError msg -> throwFailed msg
         _ -> throwFailed "node'edit: unexpected response"
 
-  node'drain (NodeCap st eid) = handleParsed $ \_ -> do
-    resp <- runAction st (NodeDrain eid)
+  node'drain (NodeCap st eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (NodeDrain eid)
     case resp of
       RespNodeEdited -> pure CGNode.Node'drain'results
       RespNodeNotFound -> throwFailed "Node not found"
       RespError msg -> throwFailed msg
       _ -> throwFailed "node'drain: unexpected response"
 
-  node'delete (NodeCap st eid) = handleParsed $ \_ -> do
-    resp <- runAction st (NodeDelete eid)
+  node'delete (NodeCap st eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (NodeDelete eid)
     case resp of
       RespNodeDeleted -> pure CGNode.Node'delete'results
       RespNodeNotFound -> throwFailed "Node not found"

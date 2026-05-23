@@ -44,15 +44,16 @@ import Supervisors (Supervisor)
 data TemplateManagerCap = TemplateManagerCap
   { tmState :: !ServerState
   , tmSup :: !Supervisor
+  , tmClientName :: !T.Text
   }
 
-newTemplateManagerCap :: ServerState -> Supervisor -> IO TemplateManagerCap
-newTemplateManagerCap st sup = pure (TemplateManagerCap st sup)
+newTemplateManagerCap :: ServerState -> Supervisor -> T.Text -> IO TemplateManagerCap
+newTemplateManagerCap st sup cn = pure (TemplateManagerCap st sup cn)
 
 instance SomeServer TemplateManagerCap
 
 instance CGT.TemplateManager'server_ TemplateManagerCap where
-  templateManager'list (TemplateManagerCap st _) = handleParsed $ \_ -> do
+  templateManager'list (TemplateManagerCap st _ _) = handleParsed $ \_ -> do
     resp <- handleTemplateList st
     case resp of
       RespTemplateList templates ->
@@ -63,19 +64,19 @@ instance CGT.TemplateManager'server_ TemplateManagerCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "templateManager'list: unexpected response"
 
-  templateManager'get (TemplateManagerCap st sup) =
+  templateManager'get (TemplateManagerCap st sup cn) =
     handleParsed $ \CGT.TemplateManager'get'params {..} -> do
       ref' <- capnpRefToRef ref
       eid <- failOnLeft =<< resolveTemplate ref' (ssDbPool st)
-      client <- export @CGT.Template sup (TemplateCap st sup eid)
+      client <- export @CGT.Template sup (TemplateCap st sup eid cn)
       pure CGT.TemplateManager'get'results {CGT.template = client}
 
-  templateManager'create (TemplateManagerCap st sup) =
+  templateManager'create (TemplateManagerCap st sup cn) =
     handleParsed $ \CGT.TemplateManager'create'params {..} -> do
-      resp <- runAction st (TemplateCreate {tcrYaml = yaml})
+      resp <- runAction st cn (TemplateCreate {tcrYaml = yaml})
       case resp of
         RespTemplateCreated tid -> do
-          client <- export @CGT.Template sup (TemplateCap st sup tid)
+          client <- export @CGT.Template sup (TemplateCap st sup tid cn)
           pure CGT.TemplateManager'create'results {CGT.template = client}
         RespError msg -> throwFailed msg
         _ -> throwFailed (T.pack ("templateManager'create: unexpected: " <> show resp))
@@ -84,12 +85,13 @@ data TemplateCap = TemplateCap
   { _tmplState :: !ServerState
   , _tmplSup :: !Supervisor
   , _tmplId :: !Int64
+  , _tmplClientName :: !T.Text
   }
 
 instance SomeServer TemplateCap
 
 instance CGT.Template'server_ TemplateCap where
-  template'show (TemplateCap st _ eid) = handleParsed $ \_ -> do
+  template'show (TemplateCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleTemplateShow st eid
     case resp of
       RespTemplateInfo det ->
@@ -98,29 +100,30 @@ instance CGT.Template'server_ TemplateCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "template'show: unexpected response"
 
-  template'delete (TemplateCap st _ eid) = handleParsed $ \_ -> do
-    resp <- runAction st (TemplateDelete eid)
+  template'delete (TemplateCap st _ eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (TemplateDelete eid)
     case resp of
       RespTemplateDeleted -> pure CGT.Template'delete'results
       RespTemplateNotFound -> throwFailed "Template not found"
       RespError msg -> throwFailed msg
       _ -> throwFailed "template'delete: unexpected response"
 
-  template'update (TemplateCap st _ eid) =
+  template'update (TemplateCap st _ eid cn) =
     handleParsed $ \CGT.Template'update'params {..} -> do
-      resp <- runAction st (TemplateUpdate {tupOldId = eid, tupYaml = yaml})
+      resp <- runAction st cn (TemplateUpdate {tupOldId = eid, tupYaml = yaml})
       case resp of
         RespTemplateUpdated _ -> pure CGT.Template'update'results
         RespTemplateNotFound -> throwFailed "Template not found"
         RespError msg -> throwFailed msg
         _ -> throwFailed "template'update: unexpected response"
 
-  template'instantiate (TemplateCap st sup eid) =
+  template'instantiate (TemplateCap st sup eid cn) =
     handleParsed $ \CGT.Template'instantiate'params {..} -> do
       nodeRef' <- capnpRefToRef node
       resp <-
         runAction
           st
+          cn
           ( TemplateInstantiate
               { tiTemplateId = eid
               , tiName = name
@@ -129,7 +132,7 @@ instance CGT.Template'server_ TemplateCap where
           )
       case resp of
         RespTemplateInstantiated newVmId -> do
-          client <- export @CGVm.Vm sup (VmCap st sup newVmId)
+          client <- export @CGVm.Vm sup (VmCap st sup newVmId cn)
           pure CGT.Template'instantiate'results {CGT.vm = client}
         RespTemplateNotFound -> throwFailed "Template not found"
         RespError msg -> throwFailed msg

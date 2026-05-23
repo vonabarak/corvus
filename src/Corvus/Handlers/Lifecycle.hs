@@ -94,7 +94,7 @@ instance Action Startup where
         logInfoN $ "Autostarting " <> T.pack (show (length autostartNetworks)) <> " network(s)"
         liftIO $ forM_ autostartNetworks $ \(Entity nwKey nw) -> do
           let nwId = fromSqlKey nwKey
-          nwResp <- runActionAsSubtask state (NetworkStart nwId) taskKey
+          nwResp <- runActionAsSubtask ctx (NetworkStart nwId)
           runServerLogging state $ case classifyResponse nwResp of
             (TaskError, Just err) -> logWarnN $ "Failed to autostart network " <> networkName nw <> ": " <> err
             _ -> logInfoN $ "Autostarted network " <> networkName nw
@@ -110,7 +110,7 @@ instance Action Startup where
             -- Reset error state VMs to stopped first
             when (vmStatus vm == VmError) $
               runSqlPool (update vmKey [M.VmStatus =. VmStopped]) pool
-            vmResp <- runActionAsSubtask state (VmStart vmId) taskKey
+            vmResp <- runActionAsSubtask ctx (VmStart vmId)
             runServerLogging state $ case classifyResponse vmResp of
               (TaskError, Just err) -> logWarnN $ "Failed to autostart VM " <> vmName vm <> ": " <> err
               _ -> logInfoN $ "Autostarted VM " <> vmName vm
