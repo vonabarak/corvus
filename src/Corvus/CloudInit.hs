@@ -21,6 +21,10 @@ module Corvus.CloudInit
   , renderUserData
   , generateMetaData
   , isRawUserDataScript
+
+    -- * Auto-generated network-config (slice 10 — overlay IPAM)
+  , StaticNicConfig (..)
+  , generateStaticNetworkConfig
   )
 where
 
@@ -163,6 +167,52 @@ generateMetaData config =
         instance-id: #{ciInstanceId config}
         local-hostname: #{ciHostname config}
       |]
+
+-- | Per-NIC static configuration produced by the daemon's IPAM
+-- for a NoCloud network-config v2 file. @prefix@ is the CIDR
+-- prefix length; @gateway@ is the L3 gateway on the network's
+-- owner node ("" to omit, e.g. for an L2-only segment).
+data StaticNicConfig = StaticNicConfig
+  { snicMac :: !Text
+  , snicIp :: !Text
+  , snicPrefix :: !Int
+  , snicGateway :: !Text
+  }
+  deriving (Eq, Show)
+
+-- | Build a cloud-init NoCloud @network-config@ (version 2 schema)
+-- with one Ethernet stanza per NIC, matched by MAC. Returns
+-- 'Nothing' for an empty input so callers can short-circuit and
+-- leave the file unwritten.
+--
+-- DHCP still serves the same lease via the dnsmasq host
+-- reservation; the static stanza is belt-and-braces for guests
+-- without a DHCP client or with aggressive lease-cache eviction.
+generateStaticNetworkConfig :: [StaticNicConfig] -> Maybe Text
+generateStaticNetworkConfig [] = Nothing
+generateStaticNetworkConfig nics =
+  Just $ "version: 2\nethernets:\n" <> T.concat (zipWith renderNic [0 :: Int ..] nics)
+  where
+    renderNic ix nic =
+      let key = "eth" <> T.pack (show ix)
+          gwLine =
+            if T.null (snicGateway nic)
+              then ""
+              else "    gateway4: " <> snicGateway nic <> "\n"
+       in "  "
+            <> key
+            <> ":\n"
+            <> "    match:\n"
+            <> "      macaddress: "
+            <> snicMac nic
+            <> "\n"
+            <> "    addresses:\n"
+            <> "      - "
+            <> snicIp nic
+            <> "/"
+            <> T.pack (show (snicPrefix nic))
+            <> "\n"
+            <> gwLine
 
 --------------------------------------------------------------------------------
 -- SSH key injection

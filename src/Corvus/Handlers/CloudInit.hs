@@ -24,8 +24,10 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.CloudInit
   ( CloudInitConfig (..)
+  , StaticNicConfig (..)
   , defaultCloudInitConfig
   , generateMetaData
+  , generateStaticNetworkConfig
   , getCloudInitDir
   , renderUserData
   )
@@ -37,6 +39,7 @@ import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
 import Corvus.Types
+import qualified Corvus.Utils.Network as Net
 import Data.Int (Int64)
 import Data.Maybe (catMaybes)
 import Data.Pool (Pool)
@@ -204,19 +207,27 @@ regenerateCloudInitIsoForVm state vmId vmName = do
   mCustomConfig <- runSqlPool (getBy (UniqueCloudInitVm vmKey)) pool
 
   vmDir <- getCloudInitDir qemuConfig vmName
+  -- Auto-generate a NoCloud network-config v2 stanza for every
+  -- managed NIC the daemon's IPAM assigned an IP to. Only used
+  -- when the operator didn't supply a custom networkConfig of
+  -- their own (we never silently overwrite explicit intent).
+  autoNet <- buildAutoNetworkConfig pool vmKey
   let config = case mCustomConfig of
         Just (Entity _ ci) ->
           defaultCloudInitConfig
             { ciHostname = vmName
             , ciInstanceId = "corvus-" <> T.pack (show vmId)
             , ciCustomUserData = cloudInitUserData ci
-            , ciNetworkConfig = cloudInitNetworkConfig ci
+            , ciNetworkConfig = case cloudInitNetworkConfig ci of
+                Just txt -> Just txt
+                Nothing -> autoNet
             , ciInjectSshKeys = cloudInitInjectSshKeys ci
             }
         Nothing ->
           defaultCloudInitConfig
             { ciHostname = vmName
             , ciInstanceId = "corvus-" <> T.pack (show vmId)
+            , ciNetworkConfig = autoNet
             }
       userData = renderUserData config publicKeys
       metaData = generateMetaData config
@@ -235,6 +246,43 @@ regenerateCloudInitIsoForVm state vmId vmName = do
       Right isoPath -> do
         ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel
         pure $ Right ()
+
+-- | Read every managed NIC attached to the VM that has a daemon
+-- IPAM allocation, resolve its network's CIDR + gateway, and
+-- render the result as a NoCloud network-config v2 YAML.
+-- Returns 'Nothing' when the VM has no IPAM-backed NICs so the
+-- caller can keep the file unwritten.
+buildAutoNetworkConfig :: Pool SqlBackend -> VmId -> IO (Maybe Text)
+buildAutoNetworkConfig pool vmKey = do
+  nics <- runSqlPool (selectList [NetworkInterfaceVmId ==. vmKey] []) pool
+  stanzas <- mapM (resolveNic pool) nics
+  pure $ generateStaticNetworkConfig (catMaybes stanzas)
+
+resolveNic
+  :: Pool SqlBackend -> Entity NetworkInterface -> IO (Maybe StaticNicConfig)
+resolveNic pool (Entity _ nic) =
+  case (networkInterfaceNetworkId nic, networkInterfaceIpAddress nic) of
+    (Just nwKey, Just ip) -> do
+      mNw <- runSqlPool (get nwKey) pool
+      case mNw of
+        Nothing -> pure Nothing
+        Just nw
+          | T.null (networkSubnet nw) -> pure Nothing
+          | otherwise -> case (Net.prefixLength (networkSubnet nw), Net.gatewayAddress (networkSubnet nw)) of
+              (Right pfxText, Right gw) ->
+                let pfx = case reads (T.unpack pfxText) :: [(Int, String)] of
+                      ((n, _) : _) -> n
+                      _ -> 24
+                 in pure $
+                      Just
+                        StaticNicConfig
+                          { snicMac = networkInterfaceMacAddress nic
+                          , snicIp = ip
+                          , snicPrefix = pfx
+                          , snicGateway = gw
+                          }
+              _ -> pure Nothing
+    _ -> pure Nothing
 
 -- | Ensure cloud-init disk is registered and attached to VM as CDROM.
 --
