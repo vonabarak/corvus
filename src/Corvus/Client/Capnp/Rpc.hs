@@ -113,6 +113,8 @@ module Corvus.Client.Capnp.Rpc
     -- * Network lifecycle
   , rpcNetworkCreate
   , rpcNetworkStart
+  , rpcNetworkAttachNode
+  , rpcNetworkDetachNode
   , rpcNetworkStop
   , rpcNetworkDelete
   , rpcNetworkEdit
@@ -574,6 +576,30 @@ rpcNetworkDelete :: CapnpConnection -> EntityRef -> IO ()
 rpcNetworkDelete conn ref = do
   nClient <- getNetworkClient conn ref
   _ <- callOn #delete CGNet.Network'delete'params nClient
+  pure ()
+
+rpcNetworkAttachNode :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
+rpcNetworkAttachNode conn nwRef nodeRef = do
+  nClient <- getNetworkClient conn nwRef
+  let params =
+        CGNet.NetworkPeerParams {CGNet.node = toCapnpEntityRef nodeRef}
+  _ <-
+    callOn
+      #attachNode
+      CGNet.Network'attachNode'params {CGNet.params = params}
+      nClient
+  pure ()
+
+rpcNetworkDetachNode :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
+rpcNetworkDetachNode conn nwRef nodeRef = do
+  nClient <- getNetworkClient conn nwRef
+  let params =
+        CGNet.NetworkPeerParams {CGNet.node = toCapnpEntityRef nodeRef}
+  _ <-
+    callOn
+      #detachNode
+      CGNet.Network'detachNode'params {CGNet.params = params}
+      nClient
   pure ()
 
 -- =====================================================================

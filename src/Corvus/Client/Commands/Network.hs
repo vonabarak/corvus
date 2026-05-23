@@ -11,6 +11,8 @@ module Corvus.Client.Commands.Network
   , handleNetworkList
   , handleNetworkShow
   , handleNetworkEdit
+  , handleNetworkAttachNode
+  , handleNetworkDetachNode
   )
 where
 
@@ -127,6 +129,15 @@ handleNetworkShow fmt conn nwRef = do
         case nwiDnsmasqPid info of
           Just pid -> printField "DHCP PID" (show pid)
           Nothing -> pure ()
+        case nwiVni info of
+          Just v -> printField "VXLAN VNI" (show v)
+          Nothing -> pure ()
+        case nwiPeerNodeIds info of
+          [] -> pure ()
+          ps ->
+            printField
+              "Peer nodes"
+              (unwords (map show ps))
       pure True
     Left e -> do
       emitError fmt "rpc_error" (T.pack (show e)) $
@@ -142,6 +153,7 @@ networkColumns =
   , Column "DHCP" LeftAlign (\i -> if nwiDhcp i then "yes" else "no")
   , Column "NAT" LeftAlign (\i -> if nwiNat i then "yes" else "no")
   , Column "STATUS" LeftAlign (\i -> if nwiRunning i then "running" else "stopped")
+  , Column "PEERS" RightAlign (show . length . nwiPeerNodeIds)
   , Column "AS" LeftAlign (\i -> if nwiAutostart i then "+" else "-")
   ]
 
@@ -156,4 +168,50 @@ handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart = do
     Left e -> do
       emitError fmt "rpc_error" (T.pack (show e)) $
         putStrLn ("Failed to edit network: " ++ show e)
+      pure False
+
+-- | Handle network attach-node command
+handleNetworkAttachNode
+  :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleNetworkAttachNode fmt conn nwRef nodeRef = do
+  r <-
+    try
+      ( CR.rpcNetworkAttachNode
+          conn
+          (entityRefFromText nwRef)
+          (entityRefFromText nodeRef)
+      )
+      :: IO (Either SomeException ())
+  case r of
+    Right () -> do
+      emitOk fmt $
+        putStrLn $
+          "Node '" ++ T.unpack nodeRef ++ "' attached to network '" ++ T.unpack nwRef ++ "'."
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Failed to attach node: " ++ show e)
+      pure False
+
+-- | Handle network detach-node command
+handleNetworkDetachNode
+  :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleNetworkDetachNode fmt conn nwRef nodeRef = do
+  r <-
+    try
+      ( CR.rpcNetworkDetachNode
+          conn
+          (entityRefFromText nwRef)
+          (entityRefFromText nodeRef)
+      )
+      :: IO (Either SomeException ())
+  case r of
+    Right () -> do
+      emitOk fmt $
+        putStrLn $
+          "Node '" ++ T.unpack nodeRef ++ "' detached from network '" ++ T.unpack nwRef ++ "'."
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Failed to detach node: " ++ show e)
       pure False

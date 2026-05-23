@@ -183,6 +183,10 @@ data Command
     NetworkShow !Text
   | -- | Edit network properties (networkRef, subnet, dhcp, nat, autostart)
     NetworkEdit !Text !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
+  | -- | Add a peer node to a network (networkRef, nodeRef)
+    NetworkAttachNode !Text !Text
+  | -- | Remove a peer node from a network (networkRef, nodeRef)
+    NetworkDetachNode !Text !Text
   | -- Node commands
 
     -- | Add a node (name, host, nodeAgentPort, netAgentPort, basePath, description, adminState)

@@ -147,6 +147,40 @@ networkEditCommand =
           )
       )
 
+-- | Parser for network attach-node
+networkAttachNodeCommand :: Parser Command
+networkAttachNodeCommand =
+  NetworkAttachNode
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NETWORK"
+          <> help "Name or ID of the network"
+          <> completer networkCompleter
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "NODE"
+          <> help "Name or ID of the node to add as a peer"
+          <> completer nodeCompleter
+      )
+
+-- | Parser for network detach-node
+networkDetachNodeCommand :: Parser Command
+networkDetachNodeCommand =
+  NetworkDetachNode
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "NETWORK"
+          <> help "Name or ID of the network"
+          <> completer networkCompleter
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "NODE"
+          <> help "Name or ID of the peer node to remove"
+          <> completer nodeCompleter
+      )
+
 -- | Parser for all network subcommands
 networkCommandParser :: Parser Command
 networkCommandParser =
@@ -172,4 +206,10 @@ networkCommandParser =
         <> command
           "edit"
           (info networkEditCommand (progDesc "Edit virtual network properties"))
+        <> command
+          "attach-node"
+          (info networkAttachNodeCommand (progDesc "Add a peer node to a network"))
+        <> command
+          "detach-node"
+          (info networkDetachNodeCommand (progDesc "Remove a peer node from a network"))
     )

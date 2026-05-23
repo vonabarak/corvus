@@ -236,6 +236,8 @@ runCommand opts = do
       NetworkList -> handleNetworkList fmt tableOpts conn
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
       NetworkEdit nwRef mSubnet mDhcp mNat mAutostart -> handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart
+      NetworkAttachNode nwRef nodeRef -> handleNetworkAttachNode fmt conn nwRef nodeRef
+      NetworkDetachNode nwRef nodeRef -> handleNetworkDetachNode fmt conn nwRef nodeRef
       -- Node commands
       NodeAdd name host nodeAgentPort netAgentPort basePath mDesc adminState ->
         CmdNode.handleNodeAdd fmt conn name host nodeAgentPort netAgentPort basePath mDesc adminState
