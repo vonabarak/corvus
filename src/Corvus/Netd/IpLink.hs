@@ -208,10 +208,10 @@ fdbList dev = do
 -- Internal
 
 runIp :: [String] -> IO (Either IpLinkError ())
-runIp args = runTool "ip" args
+runIp = runTool "ip"
 
 runBridge :: [String] -> IO (Either IpLinkError ())
-runBridge args = runTool "bridge" args
+runBridge = runTool "bridge"
 
 runTool :: String -> [String] -> IO (Either IpLinkError ())
 runTool tool args = do

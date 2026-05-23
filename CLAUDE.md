@@ -141,8 +141,8 @@ Stack + Hpack (`package.yaml` → `corvus.cabal`), LTS-23.28 resolver.
 |---|---|
 | `make build` | Stack build |
 | `make install` | Install binaries to `~/.local/bin/` + shell completions + pipx-install corvus-admin. Run `corvus-admin quickstart` after for a turn-key single-node setup. |
-| `make format` | Fourmolu formatting (in-place) |
-| `make lint` | HLint static analysis |
+| `make format` | Fourmolu (Haskell) + Ruff (Python) formatting, in-place |
+| `make lint` | HLint + fourmolu `--check` (Haskell) + Ruff check, Ruff `format --check`, mypy (Python). Also flags any formatting violations — read-only; run `make format` first to fix them. |
 | `make unit-tests` | Haskell unit tests (the full Haskell suite — no integration tests left here) |
 | `make integration-tests` | Pytest integration suite under `integration_tests/`; accepts `MATCH=<pytest -k expr>` |
 | `make all-tests` | Alias for `make unit-tests` |
@@ -188,7 +188,7 @@ Read-only operations (list, show, get) are the exception — they are dispatched
 
 ### After any code changes
 
-Always run `make format` and `make lint` after modifying Haskell source files. Fix all lint warnings before committing.
+Always run `make format` and `make lint` after modifying Haskell source files. `make lint` is read-only and covers both static analysis (hlint, ruff, mypy) and a formatter `--check` pass for both Haskell (fourmolu) and Python (ruff) — so run `make format` first to fix any formatting before `make lint` flags it. Fix all lint warnings before committing.
 
 ```
 make format

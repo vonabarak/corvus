@@ -319,7 +319,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
         attach-node the daemon should refuse the NetIf.add."""
         nw_name = _uniq("vx-nopeer")
         vm_name = _uniq("vx-vm-nopeer")
-        nw = self.client_alpha.networks.create(
+        self.client_alpha.networks.create(
             nw_name, subnet="10.99.7.0/24", node=self.alpha_name
         )
         try:
@@ -391,7 +391,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
         nw_name = _uniq("vx-mig-no")
         vm_name = _uniq("vx-mig-no-vm")
         disk_name = _uniq("vx-mig-no-disk")
-        nw = self.client_alpha.networks.create(
+        self.client_alpha.networks.create(
             nw_name, subnet="10.99.9.0/24", node=self.alpha_name
         )
         try:

@@ -28,7 +28,7 @@ import Corvus.NetAgentClient.Spec (corvusBridgeName)
 import qualified Corvus.Utils.Network as N
 import Data.Int (Int64)
 import qualified Data.List as L
-import Data.Maybe (mapMaybe)
+import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), get, selectList, (==.))
@@ -138,7 +138,7 @@ collectNetworkMembers network networkKey = do
     Just owner -> do
       peerRows <- selectList [M.NetworkPeerNetworkId ==. networkKey] []
       let peerNodeIds = map (M.networkPeerNodeId . entityVal) peerRows
-      peers <- mapMaybe id <$> mapM lookupPeer peerNodeIds
+      peers <- catMaybes <$> mapM lookupPeer peerNodeIds
       pure $ Right ((ownerId, owner), peers)
   where
     lookupPeer nid = do

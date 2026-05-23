@@ -19,6 +19,7 @@ where
 
 import Corvus.Action
 
+import Control.Applicative ((<|>))
 import Control.Monad (forM)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel, LoggingT, logDebugN, logInfoN, logWarnN)
@@ -218,9 +219,7 @@ regenerateCloudInitIsoForVm state vmId vmName = do
             { ciHostname = vmName
             , ciInstanceId = "corvus-" <> T.pack (show vmId)
             , ciCustomUserData = cloudInitUserData ci
-            , ciNetworkConfig = case cloudInitNetworkConfig ci of
-                Just txt -> Just txt
-                Nothing -> autoNet
+            , ciNetworkConfig = cloudInitNetworkConfig ci <|> autoNet
             , ciInjectSshKeys = cloudInitInjectSshKeys ci
             }
         Nothing ->

@@ -74,7 +74,7 @@ def test_netd_user_mode_is_rejected():
 def test_unknown_component_raises():
     with pytest.raises(ValueError):
         systemd_mod.render_unit(
-            "ghost",  # type: ignore[arg-type]
+            "ghost",
             mode="user",
             binary_path="/x/y/z",
         )

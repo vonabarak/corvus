@@ -350,9 +350,7 @@ class TestDisk(SingleNodeCase):
         """
         ephem_name = _uniq("eph-yes")
         persist_name = _uniq("eph-no")
-        self.client.disks.create(
-            ephem_name, size_mb=8, format="qcow2", ephemeral=True
-        )
+        self.client.disks.create(ephem_name, size_mb=8, format="qcow2", ephemeral=True)
         self.client.disks.create(
             persist_name, size_mb=8, format="qcow2", ephemeral=False
         )

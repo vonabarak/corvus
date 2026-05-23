@@ -388,7 +388,7 @@ applyOverlayCreate spec = case nsOverlay spec of
       unwrapIp =<< linkSetMtu vxIface (nsMtu spec)
     unwrapIp =<< linkSetMaster vxIface (nsName spec)
     unwrapIp =<< linkSetUp vxIface
-    mapM_ (\p -> unwrapIp =<< fdbAppend floodMac vxIface p) (vsPeerIps v)
+    mapM_ (unwrapIp <=< fdbAppend floodMac vxIface) (vsPeerIps v)
 
 -- | Reconcile VXLAN state when the spec changes. Four cases:
 --
@@ -423,8 +423,8 @@ reconcileFlood dev desired = do
       target = Set.fromList desired
       toAdd = Set.difference target currentFlood
       toRemove = Set.difference currentFlood target
-  mapM_ (\p -> unwrapIp =<< fdbAppend floodMac dev p) (Set.toList toAdd)
-  mapM_ (\p -> ignoreIp =<< fdbDel floodMac dev p) (Set.toList toRemove)
+  mapM_ (unwrapIp <=< fdbAppend floodMac dev) (Set.toList toAdd)
+  mapM_ (ignoreIp <=< fdbDel floodMac dev) (Set.toList toRemove)
 
 -- ---------------------------------------------------------------------------
 -- Helpers

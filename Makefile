@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format check capnp python-test
+.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -272,24 +272,17 @@ format:
 	fourmolu --mode inplace $(shell find src app test -name '*.hs')
 
 
-# Lint Python (ruff check + mypy) + Haskell (hlint). Mypy lives here
-# so a single `make lint` covers both style and types end-to-end.
+# Read-only verification. Lints Python (ruff check + mypy) and Haskell
+# (hlint), plus a `--check` pass of every formatter (Ruff + fourmolu)
+# that exits non-zero if any file would be reformatted. Does NOT edit
+# code — suited for CI / pre-merge gates and pre-push hooks. Run
+# `make format` first to fix any formatting violations this flags.
 lint:
-	$(RUFF) check python integration_tests
-	$(MYPY) python integration_tests
 	hlint src app test
-
-
-# Read-only verification. Runs every check `make lint` does, plus a
-# `--check` pass of every formatter (Ruff + fourmolu) that exits
-# non-zero if any file would be reformatted. Does NOT edit code —
-# suited for CI / pre-merge gates and pre-push hooks.
-check:
+	fourmolu --mode check $(shell find src app test -name '*.hs')
 	$(RUFF) check python integration_tests
 	$(RUFF) format --check python integration_tests
 	$(MYPY) python integration_tests
-	hlint src app test
-	fourmolu --mode check $(shell find src app test -name '*.hs')
 
 
 # Place Haskell binaries on $PATH, install shell completions, and
