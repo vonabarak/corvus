@@ -2,21 +2,23 @@
 
 Ports `WindowsIntegrationSpec` from
 [`doc/integration-tests-pre-capnp.md`](../../doc/integration-tests-pre-capnp.md).
-Split into two methods because attaching a virtiofs shared dir to a
-UEFI Windows VM at boot reproducibly hangs OVMF (the guest sits on
-the TianoCore splash forever) — combining virtiofs with the
-NoCloud datasource ISO + OVMF appears to be a firmware-side issue
-that needs separate debugging. Until that's fixed:
+A single combined test (`test_lifecycle_cloud_init_and_shared_directory`)
+exercises every property of the Windows path in one VM boot:
 
-  * `test_lifecycle_and_cloud_init` — cloud-init enabled, no shared
-    dir. Covers properties 1a/1b (status + healthcheck renewal),
-    2 (guest-exec) and 3 (`#ps1_sysnative` user-data executes).
+  * (1a/1b) VM status + healthcheck renewal,
+  * (2) `guest_exec` round-trip,
+  * (3) `#ps1_sysnative` user-data executes via cloudbase-init,
+  * (4) virtiofs share round-trip read/write (after a forced
+        `reboot_quirk` bounce so the vhost-user-fs handshake is
+        redone — see the test docstring for the firmware history).
 
-  * `test_shared_directory` — virtiofs shared dir attached, cloud-init
-    disabled. Covers property 4 (round-trip read/write through the
-    auto-assigned viofs drive letter).
+The properties were originally split across two methods because
+attaching virtio-fs to UEFI Windows reproducibly hung OVMF on the
+second boot (tianocore/edk2#12441). The `reboot_quirk` flag added
+in commit `eeb6ef4` (and the newer OVMF on the test image since
+`94b5841`) lets us do everything in one boot.
 
-Both tests rely on:
+Relies on:
   * QGA + cloudbase-init + WinFSP + the virtio-fs driver baked into
     `windows-server-2025-eval` (see `autounattend.xml` FirstLogon
     Order 2–11).
@@ -56,12 +58,13 @@ pytestmark = [pytest.mark.slow]
 
 
 class TestWindows(SingleNodeCase):
-    """Two boots: cloud-init path; virtiofs path."""
+    """One boot covering every Windows property."""
 
     # Windows-on-nested-KVM is glacial: 2-4 min boot + cloud-init,
     # then per-`guest_exec` round-trip ~5-10 s (QGA polls exec-status
-    # asynchronously). 25 min ceiling covers either test method,
-    # comfortably above the project-wide default `timeout = 600`.
+    # asynchronously). The combined test adds a `reboot_quirk` bounce
+    # (~4-5 min) plus the share-mount poll loop, so the budget is
+    # roughly the sum of the two predecessors plus slack.
 
     # ---- virtiofs helpers --------------------------------------------------
 
@@ -183,17 +186,33 @@ class TestWindows(SingleNodeCase):
 
     # ---- tests -------------------------------------------------------------
 
-    @pytest.mark.timeout(1500)
-    def test_lifecycle_and_cloud_init(self):
-        """VM-lifecycle properties + cloud-init `#ps1_sysnative`.
+    @pytest.mark.timeout(2500)
+    def test_lifecycle_cloud_init_and_shared_directory(self):
+        """All Windows properties covered in a single VM boot.
 
-        No shared dir attached — the UEFI + virtiofs combination
-        currently hangs OVMF. `test_shared_directory` covers the
-        virtiofs path separately, without cloud-init.
+        Folds together what used to be `test_lifecycle_and_cloud_init`
+        and `test_shared_directory`. The lifecycle + cloud-init
+        checks (1a/1b/2/3) run first, then the virtiofs round-trip
+        (4) once cloudbase-init has finished its first-boot work
+        (which includes a reboot — that bounce is what redoes the
+        vhost-user-fs handshake and lets the share bind).
+
+        `reboot_quirk` stays on as belt-and-suspenders against any
+        residual instance of the OVMF second-boot hang
+        (tianocore/edk2#12441); see the module docstring for the
+        firmware history.
         """
         marker_token = secrets.token_hex(4)
+        share_path = f"/tmp/win-share-{secrets.token_hex(4)}"
+        self.node.run(f"mkdir -p {share_path}")
+        self.node.run(f"echo HOST-WROTE > {share_path}/from-host.txt")
 
-        class _WinCI(VmWindows):
+        class _WinAll(VmWindows):
+            # Required to defang the OVMF second-boot hang on the
+            # forced `shutdown /r` below (see step 2 in the
+            # docstring).
+            reboot_quirk = True
+
             def _cloud_init_config(_self):
                 user_data = (
                     "#ps1_sysnative\r\n"
@@ -202,236 +221,147 @@ class TestWindows(SingleNodeCase):
                 )
                 return {"user_data": user_data}
 
-        with _WinCI(self) as vm:
-            # ---- (1a) VM status -------------------------------------
-            # `__enter__` only returns once start(wait=True) sees the
-            # first QGA ping (daemon transitions to `running`).
-            # Belt-and-suspenders: explicitly observe.
-            assert vm.cap.show().status == "running"
-
-            # ---- (1b) Healthcheck renewal ---------------------------
-            # Subscribe to the guest-agent push stream and collect
-            # `last_healthcheck` timestamps; the daemon ticks every
-            # ~10 s, so two distinct timestamps must arrive within
-            # ~25 s. The callback runs on the runloop thread, so we
-            # guard the list with a lock.
-            hc_events: list = []
-            hc_lock = threading.Lock()
-
-            def _on_status(ev):
-                with hc_lock:
-                    hc_events.append(ev.last_healthcheck)
-
-            sub = vm.cap.subscribe_guest_agent(_on_status)
-            try:
-                deadline = time.monotonic() + 25.0
-                saw_renewal = False
-                while time.monotonic() < deadline:
-                    with hc_lock:
-                        distinct = sorted({t for t in hc_events if t is not None})
-                    if len(distinct) >= 2:
-                        assert distinct[1] > distinct[0], distinct
-                        saw_renewal = True
-                        break
-                    time.sleep(1.0)
-                if not saw_renewal:
-                    with hc_lock:
-                        snapshot = list(hc_events)
-                    raise AssertionError(
-                        f"guest-agent healthcheck did not renew "
-                        f"within 25 s; events={snapshot!r} — "
-                        "Windows healthcheck-poller regression?"
-                    )
-            finally:
-                try:
-                    sub.close()
-                except Exception:
-                    pass
-
-            # ---- (2) guest-exec works -------------------------------
-            r = vm.cap.guest_exec("cmd.exe /c echo windows-test-ok")
-            assert r.exit_code == 0, r
-            assert "windows-test-ok" in r.stdout, r
-
-            # ---- (3) Custom #ps1_sysnative user-data ran ------------
-            # cloudbase-init's first-boot processing can outlast QGA's
-            # first ping by minutes (it installs plugins, parses the
-            # NoCloud datasource, then runs user-data). Each
-            # `guest_exec` round-trip is itself several seconds on
-            # Windows; while cloudbase-init is actively running, QGA's
-            # process-spawning path can be slow enough that the
-            # daemon's 60-s QGA timeout fires and `guest_exec` raises
-            # ServerError with body `Connection failed: <<timeout>>`.
-            # Treat those as "QGA-busy, try again later" — the
-            # underlying healthcheck (`guest-ping`) is much lighter and
-            # keeps working through the storm. Poll sparsely: 30 iters
-            # × 10 s sleep + ~6 s exec = ~8 min budget.
-            marker_path = "C:\\corvus-marker.txt"
-            found = False
-            last_r = None
-            last_err: Exception | None = None
-            for _ in range(30):
-                try:
-                    last_r = vm.cap.guest_exec(f"cmd.exe /c type {marker_path}")
-                except ServerError as e:
-                    last_err = e
-                    time.sleep(10)
-                    continue
-                if last_r.exit_code == 0 and f"ci-ok-{marker_token}" in last_r.stdout:
-                    found = True
-                    break
-                time.sleep(10)
-            if not found:
-                # Gather diagnostics from the guest so the failure log
-                # tells us whether cloudbase-init even ran. Each helper
-                # is wrapped in its own try — if QGA is still flaky we
-                # want partial info, not a swallowed ServerError.
-                def _probe(cmd: str) -> str:
-                    try:
-                        rr = vm.cap.guest_exec(cmd)
-                        return (
-                            f"exit={rr.exit_code} "
-                            f"stdout={rr.stdout!r} stderr={rr.stderr!r}"
-                        )
-                    except ServerError as e:
-                        return f"ServerError({e!r})"
-
-                svc = _probe(_ps("(Get-Service cloudbase-init).Status"))
-                log_tail = _probe(
-                    _ps(
-                        "$p = 'C:\\Program Files\\Cloudbase Solutions"
-                        "\\Cloudbase-Init\\log\\cloudbase-init.log'; "
-                        "if (Test-Path $p) "
-                        "{ Get-Content -Tail 40 -Path $p } "
-                        "else { 'log not present' }"
-                    )
-                )
-                last_desc = (
-                    f"last err: {last_err!r}"
-                    if last_err is not None
-                    else (
-                        f"last `type {marker_path}` "
-                        f"exit={last_r.exit_code} "
-                        f"stdout={last_r.stdout!r} "
-                        f"stderr={last_r.stderr!r}"
-                        if last_r is not None
-                        else "no exec attempted"
-                    )
-                )
-                raise AssertionError(
-                    f"cloud-init #ps1_sysnative didn't run; "
-                    f"{last_desc}\n"
-                    f"cloudbase-init service: {svc}\n"
-                    f"cloudbase-init.log tail probe: {log_tail}"
-                )
-
-    @pytest.mark.timeout(1500)
-    def test_shared_directory(self):
-        """Virtiofs shared dir round-trips through the guest.
-
-        Two intertwined firmware-side issues are at play:
-
-        1. The share doesn't bind on first boot under nested-KVM
-           even though `VirtIO FS Device` reports `Status=OK` and
-           both `VirtioFsSvc` / `WinFsp.Launcher` are running —
-           the vhost-user-fs handshake between the inner QEMU and
-           virtiofsd silently fails. The natural fix is a full
-           VM power-cycle so the handshake is redone from
-           scratch.
-        2. That power-cycle then trips tianocore/edk2#12441 —
-           OVMF hangs on in-place reboot with virtio-fs attached.
-
-        The `reboot_quirk` flag (added in commit `eeb6ef4`)
-        sidesteps (2): with it on, QEMU runs with `-no-reboot`
-        and the agent re-spawns QEMU after each guest-initiated
-        exit. The guest sees a normal reboot; firmware sees a
-        cold boot. With (2) defanged we can use the (1)
-        workaround safely: boot, reboot, mount.
-
-        Verifies the quirk path by capturing
-        ``Win32_OperatingSystem.LastBootUpTime`` before and
-        after issuing ``shutdown /r`` and asserting it advanced
-        — the reboot must actually happen for the bind to work
-        AND for the test to mean anything. A baked image that
-        already ran cloudbase-init at build time has no reason
-        to reboot itself on subsequent boots, so without the
-        explicit force-reboot here the test could pass simply
-        because the share bound on first try, never exercising
-        the quirk path.
-        """
-        share_path = f"/tmp/win-share-{secrets.token_hex(4)}"
-        self.node.run(f"mkdir -p {share_path}")
-        self.node.run(f"echo HOST-WROTE > {share_path}/from-host.txt")
-
-        class _WinShare(VmWindows):
-            # See the test docstring: the OVMF reboot hang
-            # blocks the (1) workaround. `reboot_quirk` makes
-            # the bounce safe.
-            reboot_quirk = True
-
             def _shared_dirs(_self):
                 return [{"path": share_path, "tag": "winshare"}]
 
         try:
-            with _WinShare(self) as vm:
-                # Capture the guest's pre-reboot boot time. The
-                # baked image already ran cloudbase-init at
-                # build time, so subsequent boots typically
-                # don't reboot themselves — we have to force
-                # the bounce explicitly to exercise the quirk
-                # path. LastBootUpTime is monotonic across a
-                # reboot on Windows, same role as Linux's
-                # /proc/sys/kernel/random/boot_id in the
-                # other reboot-quirk tests.
-                boot_time_1 = self._read_last_boot_time(vm)
+            with _WinAll(self) as vm:
+                # ---- (1a) VM status ---------------------------------
+                # `__enter__` only returns once start(wait=True) sees
+                # the first QGA ping (daemon transitions to `running`).
+                # Belt-and-suspenders: explicitly observe.
+                assert vm.cap.show().status == "running"
 
-                # Force the share-bind workaround: issue a
-                # guest-initiated reboot. With `reboot_quirk`
-                # on the agent re-spawns QEMU transparently;
-                # from the daemon's perspective the DB row
-                # stays `running` and the QGA socket
-                # reconnects under the hood. From OVMF's
-                # perspective it's a cold boot, dodging
-                # edk2#12441.
+                # ---- (1b) Healthcheck renewal -----------------------
+                # Subscribe to the guest-agent push stream and collect
+                # `last_healthcheck` timestamps; the daemon ticks every
+                # ~10 s, so two distinct timestamps must arrive within
+                # ~25 s. The callback runs on the runloop thread, so
+                # we guard the list with a lock.
+                hc_events: list = []
+                hc_lock = threading.Lock()
+
+                def _on_status(ev):
+                    with hc_lock:
+                        hc_events.append(ev.last_healthcheck)
+
+                sub = vm.cap.subscribe_guest_agent(_on_status)
                 try:
-                    vm.cap.guest_exec("cmd.exe /c shutdown /r /t 0 /f")
-                except ServerError:
-                    # `shutdown` initiates the bounce
-                    # asynchronously; QGA can disconnect mid-
-                    # call before returning a clean exit code.
-                    # That's fine — the wait loop below gates
-                    # on the actual outcome.
-                    pass
-
-                # Wait for QGA to come back on the re-spawned
-                # QEMU and for the new boot to register a
-                # later LastBootUpTime. Budget covers the
-                # Windows shutdown + cold boot under nested
-                # KVM (~4–5 min typical).
-                boot_time_2: str | None = None
-                deadline = time.monotonic() + 10 * 60.0
-                while time.monotonic() < deadline:
+                    deadline = time.monotonic() + 25.0
+                    saw_renewal = False
+                    while time.monotonic() < deadline:
+                        with hc_lock:
+                            distinct = sorted({t for t in hc_events if t is not None})
+                        if len(distinct) >= 2:
+                            assert distinct[1] > distinct[0], distinct
+                            saw_renewal = True
+                            break
+                        time.sleep(1.0)
+                    if not saw_renewal:
+                        with hc_lock:
+                            snapshot = list(hc_events)
+                        raise AssertionError(
+                            f"guest-agent healthcheck did not renew "
+                            f"within 25 s; events={snapshot!r} — "
+                            "Windows healthcheck-poller regression?"
+                        )
+                finally:
                     try:
-                        t = self._read_last_boot_time(vm)
-                    except ServerError:
-                        t = None
-                    if t is not None and t != boot_time_1:
-                        boot_time_2 = t
+                        sub.close()
+                    except Exception:
+                        pass
+
+                # ---- (2) guest-exec works ---------------------------
+                r = vm.cap.guest_exec("cmd.exe /c echo windows-test-ok")
+                assert r.exit_code == 0, r
+                assert "windows-test-ok" in r.stdout, r
+
+                # ---- (3) Custom #ps1_sysnative user-data ran --------
+                # cloudbase-init's first-boot processing can outlast
+                # QGA's first ping by minutes (it installs plugins,
+                # parses the NoCloud datasource, then runs user-data).
+                # Each `guest_exec` round-trip is itself several
+                # seconds on Windows; while cloudbase-init is actively
+                # running, QGA's process-spawning path can be slow
+                # enough that the daemon's 60-s QGA timeout fires and
+                # `guest_exec` raises ServerError with body
+                # `Connection failed: <<timeout>>`. Treat those as
+                # "QGA-busy, try again later" — the underlying
+                # healthcheck (`guest-ping`) is much lighter and keeps
+                # working through the storm. Poll sparsely: 30 iters
+                # × 10 s sleep + ~6 s exec = ~8 min budget.
+                marker_path = "C:\\corvus-marker.txt"
+                found = False
+                last_r = None
+                last_err: Exception | None = None
+                for _ in range(30):
+                    try:
+                        last_r = vm.cap.guest_exec(f"cmd.exe /c type {marker_path}")
+                    except ServerError as e:
+                        last_err = e
+                        time.sleep(10)
+                        continue
+                    if (
+                        last_r.exit_code == 0
+                        and f"ci-ok-{marker_token}" in last_r.stdout
+                    ):
+                        found = True
                         break
-                    time.sleep(15)
+                    time.sleep(10)
+                if not found:
+                    # Gather diagnostics from the guest so the failure
+                    # log tells us whether cloudbase-init even ran.
+                    # Each helper is wrapped in its own try — if QGA
+                    # is still flaky we want partial info, not a
+                    # swallowed ServerError.
+                    def _probe(cmd: str) -> str:
+                        try:
+                            rr = vm.cap.guest_exec(cmd)
+                            return (
+                                f"exit={rr.exit_code} "
+                                f"stdout={rr.stdout!r} stderr={rr.stderr!r}"
+                            )
+                        except ServerError as e:
+                            return f"ServerError({e!r})"
 
-                assert boot_time_2 is not None, (
-                    "guest never reported a new LastBootUpTime "
-                    "after `shutdown /r` — either the reboot-"
-                    "quirk re-spawn never fired or QGA never "
-                    "came back within the 10 min budget"
-                )
+                    svc = _probe(_ps("(Get-Service cloudbase-init).Status"))
+                    log_tail = _probe(
+                        _ps(
+                            "$p = 'C:\\Program Files\\Cloudbase Solutions"
+                            "\\Cloudbase-Init\\log\\cloudbase-init.log'; "
+                            "if (Test-Path $p) "
+                            "{ Get-Content -Tail 40 -Path $p } "
+                            "else { 'log not present' }"
+                        )
+                    )
+                    last_desc = (
+                        f"last err: {last_err!r}"
+                        if last_err is not None
+                        else (
+                            f"last `type {marker_path}` "
+                            f"exit={last_r.exit_code} "
+                            f"stdout={last_r.stdout!r} "
+                            f"stderr={last_r.stderr!r}"
+                            if last_r is not None
+                            else "no exec attempted"
+                        )
+                    )
+                    raise AssertionError(
+                        f"cloud-init #ps1_sysnative didn't run; "
+                        f"{last_desc}\n"
+                        f"cloudbase-init service: {svc}\n"
+                        f"cloudbase-init.log tail probe: {log_tail}"
+                    )
 
-                # Now that the cold boot landed, poll
-                # `_find_share_drive`. The viofs driver
-                # sometimes still needs a `VirtioFsSvc`
-                # restart on top of the cold boot (helper
-                # already does that on each call).
+                # ---- (4) virtiofs round-trip ------------------------
+                # cloudbase-init reboots the VM on first boot as part
+                # of its sysprep finalisation, so by the time the
+                # marker check above succeeded the guest has already
+                # bounced through the vhost-user-fs handshake at
+                # least once — that's enough to bind the share. Just
+                # poll `_find_share_drive`; the helper restarts
+                # `VirtioFsSvc` on each call if the driver hasn't
+                # picked up the device yet.
                 drive: str | None = None
                 find_deadline = time.monotonic() + 5 * 60.0
                 while time.monotonic() < find_deadline:
@@ -464,25 +394,3 @@ class TestWindows(SingleNodeCase):
                 assert f"GUEST-WROTE-{guest_token}" in out
         finally:
             self.node.run(f"rm -rf {share_path}", check=False)
-
-    @staticmethod
-    def _read_last_boot_time(vm) -> str | None:
-        """Read `Win32_OperatingSystem.LastBootUpTime` via QGA.
-
-        The CIM datetime string the cmdlet returns is the closest
-        cross-process proxy for "QEMU has been restarted" — the
-        Python client can't see the agent-private QEMU pid
-        directly, so we observe the guest-visible side effect
-        instead. Returns ``None`` if the cmdlet doesn't produce
-        a parseable line.
-        """
-        r = vm.cap.guest_exec(
-            _ps(
-                "(Get-CimInstance Win32_OperatingSystem)."
-                "LastBootUpTime.ToString('o')"
-            )
-        )
-        if r.exit_code != 0:
-            return None
-        line = r.stdout.strip()
-        return line or None
