@@ -27,13 +27,13 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Control.Monad (forM_, unless)
+import Control.Monad (filterM, forM_, unless)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import qualified Corvus.Handlers.Network.PeerSpec as PS
 import Corvus.Handlers.Vm (reattachVmMonitors)
 import Corvus.Handlers.VmStatusSink (newDaemonVmStatusSink)
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
-import qualified Corvus.NetAgentClient.Spec as Spec
 import qualified Corvus.NodeAgentClient as NOA
 import qualified Corvus.Tls as Tls
 import Corvus.Types
@@ -45,9 +45,10 @@ import Corvus.Types
   , runFilteredLogging
   )
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
-import Database.Persist (Entity (..), selectList, (==.))
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist (Entity (..), get, selectList, (==.))
+import Database.Persist.Postgresql (SqlPersistT, runSqlPool)
 import Database.Persist.Sql (fromSqlKey)
 import Supervisors (withSupervisor)
 import System.Posix.User (getRealUserID)
@@ -250,49 +251,93 @@ runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
       clearNetConn state nodeKey
       pure (Right ())
 
--- | Re-apply networks belonging to this node. The agent is
--- stateless, so this rebuilds its kernel-side ledger to match
--- the daemon's intent for this node.
+-- | Re-apply every running network this node participates in (as
+-- owner or peer). The agent is stateless, so this rebuilds its
+-- kernel-side ledger from the daemon's DB intent: bridge, VXLAN
+-- VTEP, BUM FDB, dnsmasq, NAT. For peer-side specs we strip CIDR /
+-- NAT / DHCP (only the owner runs those), so the agent sees the
+-- L2-only flavor.
 reapplyRunningNetworks
   :: ServerState -> M.NodeId -> T.Text -> NA.NetAgentClient -> IO ()
 reapplyRunningNetworks state nodeKey nodeLabel nac = do
-  nets <-
+  let pool = ssDbPool state
+  -- Networks where this node is the owner.
+  ownedRows <-
     runSqlPool
       ( selectList
           [M.NetworkRunning ==. True, M.NetworkNodeId ==. nodeKey]
           []
       )
-      (ssDbPool state)
-  forM_ nets $ \(Entity nwKey nw) ->
-    case Spec.networkToSpec (fromSqlKey nwKey) nw of
-      Left err ->
-        runFilteredLogging (ssLogLevel state) $
-          logWarnN $
-            "node "
-              <> nodeLabel
-              <> " re-apply skip network "
-              <> T.pack (show (fromSqlKey nwKey))
-              <> ": "
-              <> err
-      Right spec -> do
-        result <- NA.applyNetwork nac spec
-        case result of
-          Right _ ->
-            runFilteredLogging (ssLogLevel state) $
-              logInfoN $
-                "node "
-                  <> nodeLabel
-                  <> " re-applied network "
-                  <> M.networkName nw
-          Left e ->
-            runFilteredLogging (ssLogLevel state) $
-              logWarnN $
-                "node "
-                  <> nodeLabel
-                  <> " re-apply failed for "
-                  <> M.networkName nw
-                  <> ": "
-                  <> T.pack (show e)
+      pool
+  -- Networks where this node is a peer (lookup via NetworkPeer).
+  peerRows <- runSqlPool peerNetworksFor pool
+  let owned = [(PS.RoleOwner, e) | e <- ownedRows]
+      peered = [(PS.RolePeer, e) | e <- peerRows]
+  forM_ (owned <> peered) $ \(role, Entity nwKey nw) -> reapplyOne role nwKey nw
+  where
+    peerNetworksFor :: SqlPersistT IO [Entity M.Network]
+    peerNetworksFor = do
+      pe <- selectList [M.NetworkPeerNodeId ==. nodeKey] []
+      let nwKeys = map (M.networkPeerNetworkId . entityVal) pe
+      -- Persistent doesn't have a built-in 'in' filter against keys
+      -- that's compatible across our setup; do an in-memory lookup.
+      mapM (\k -> Entity k . fromMaybe (error "missing network row") <$> get k)
+        =<< filterM
+          ( \k -> do
+              mNw <- get k
+              pure (maybe False M.networkRunning mNw)
+          )
+          nwKeys
+
+    reapplyOne :: PS.PeerRole -> M.NetworkId -> M.Network -> IO ()
+    reapplyOne role nwKey nw = do
+      let nwIdInt = fromSqlKey nwKey
+      collected <-
+        runSqlPool (PS.collectNetworkMembers nw nwKey) (ssDbPool state)
+      case collected of
+        Left err -> warn ("collect members: " <> err) nw nwKey
+        Right (owner, peers) -> do
+          reservations <- case role of
+            PS.RoleOwner ->
+              runSqlPool (PS.collectHostReservations nwKey) (ssDbPool state)
+            PS.RolePeer -> pure []
+          -- The Node row passed to buildPeerSpec needs to be THIS
+          -- node's row, not the owner's. Find it in members.
+          let thisMember =
+                case role of
+                  PS.RoleOwner -> Just owner
+                  PS.RolePeer -> case filter ((== nodeKey) . fst) peers of
+                    (m : _) -> Just m
+                    [] -> Nothing
+          case thisMember of
+            Nothing -> warn "this node has no NetworkPeer row" nw nwKey
+            Just m ->
+              case PS.buildPeerSpec nw nwIdInt role m (owner : peers) reservations of
+                Left err -> warn ("build spec: " <> err) nw nwKey
+                Right spec -> do
+                  result <- NA.applyNetwork nac spec
+                  case result of
+                    Right _ ->
+                      info ("re-applied network " <> M.networkName nw)
+                    Left e ->
+                      warn
+                        ("applyNetwork failed: " <> T.pack (show e))
+                        nw
+                        nwKey
+
+    warn msg _nw nwKey =
+      runFilteredLogging (ssLogLevel state) $
+        logWarnN $
+          "node "
+            <> nodeLabel
+            <> " re-apply network "
+            <> T.pack (show (fromSqlKey nwKey))
+            <> ": "
+            <> msg
+    info msg =
+      runFilteredLogging (ssLogLevel state) $
+        logInfoN $
+          "node " <> nodeLabel <> " " <> msg
 
 -- | Spin until 'ssShutdownFlag' flips. Lets the per-node loops
 -- block their bracket bodies so the TCP sockets stay open until
