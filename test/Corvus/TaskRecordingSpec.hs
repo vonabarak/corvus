@@ -67,3 +67,12 @@ spec = sequential $ withTestDb $ do
       when_ $ whenVmCreate "b" 1 256 Nothing
       when_ $ whenSshKeyCreate "k" "ssh-ed25519 AAAA-k"
       then_ $ taskCount 3
+
+    testCase "runAction stamps clientName on the Task row" $ do
+      -- The DSL's whenVmCreate runs through `runAction state "alice" …`,
+      -- so the recorded row should carry "alice".
+      when_ $ whenVmCreate "named-vm" 1 256 Nothing
+      mTask <- getLastTask
+      liftIO $ case mTask of
+        Just (Entity _ t) -> taskClientName t `shouldBe` "alice"
+        Nothing -> fail "expected one Task row, found none"

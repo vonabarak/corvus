@@ -183,6 +183,7 @@ taskColumns now =
   , Column "SUBSYSTEM" LeftAlign (T.unpack . enumToText . tiSubsystem)
   , Column "COMMAND" LeftAlign (T.unpack . tiCommand)
   , Column "ENTITY" LeftAlign entityLabel
+  , Column "CLIENT" LeftAlign (T.unpack . tiClientName)
   , Column "RESULT" LeftAlign (T.unpack . enumToText . tiResult)
   , Column "STARTED" LeftAlign (formatTimestamp . tiStartedAt)
   , Column "DURATION" RightAlign (durationLabel now)
@@ -211,6 +212,7 @@ printTaskDetail info = do
   putStrLn $ "Subsystem:  " ++ T.unpack (enumToText (tiSubsystem info))
   putStrLn $ "Command:    " ++ T.unpack (tiCommand info)
   putStrLn $ "Entity:     " ++ entityLabel info
+  putStrLn $ "Client:     " ++ T.unpack (tiClientName info)
   putStrLn $ "Result:     " ++ T.unpack (enumToText (tiResult info))
   putStrLn $ "Started:    " ++ formatTimestamp (tiStartedAt info)
   putStrLn $ "Finished:   " ++ maybe "-" formatTimestamp (tiFinishedAt info)

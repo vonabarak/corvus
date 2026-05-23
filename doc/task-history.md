@@ -1,8 +1,21 @@
 # Task History
 
-Every mutating operation in Corvus (creating a VM, importing a disk, applying a config, etc.) is recorded as a **task** in the database. Tasks track when an operation started, when it finished, whether it succeeded or failed, and any error messages.
+Every mutating operation in Corvus (creating a VM, importing a disk, applying a config, etc.) is recorded as a **task** in the database. Tasks track when an operation started, when it finished, whether it succeeded or failed, and any error messages — plus the name of the client that initiated the work.
 
 Async operations (e.g., `crv disk import` without `--wait`, `crv apply` without `--wait`) return a task ID immediately. Use `crv task wait` to block until completion.
+
+## Client identity
+
+Each Task row carries the `client_name` of the caller, surfaced as the `CLIENT` column in `crv task list` and as `Client:` in `crv task show`:
+
+| Caller | `client_name` |
+|--------|---------------|
+| TLS client with CN `corvus-client:alice` | `alice` (the suffix after the role prefix) |
+| TCP connection with TLS disabled | `local` |
+| Unix-socket connection | `local` |
+| Daemon-internal work (startup, graceful shutdown, supervisor reapply, …) | `system` |
+
+The CN suffix is read out of the validated peer certificate during the TLS handshake, so the recorded identity matches the credentials the client actually presented.
 
 ## Commands
 

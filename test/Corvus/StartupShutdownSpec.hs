@@ -124,6 +124,7 @@ spec = sequential $ withTestDb $ do
           (Entity _ t : _) -> do
             liftIO $ taskSubsystem t `shouldBe` SubSystem
             liftIO $ isJust (taskFinishedAt t) `shouldBe` True
+            liftIO $ taskClientName t `shouldBe` "system"
           _ -> pure ()
 
     testCase "deletes old task entries" $ do
