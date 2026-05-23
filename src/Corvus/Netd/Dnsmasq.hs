@@ -61,6 +61,10 @@ data DnsmasqStartParams = DnsmasqStartParams
   , dspDhcpRange :: !T.Text
   , dspDomain :: !T.Text
   , dspExtraArgs :: ![T.Text]
+  , dspHostReservations :: ![(T.Text, T.Text)]
+  -- ^ MAC-keyed reservations. Each entry becomes one
+  -- @--dhcp-host=<mac>,<ip>@ flag, so the daemon's IPAM allocation
+  -- sticks to the same VM across DHCP renews and node migrations.
   }
   deriving (Show)
 
@@ -126,8 +130,12 @@ startDnsmasq p = do
       domainArgs
         | T.null (dspDomain p) = []
         | otherwise = ["--domain=" <> T.unpack (dspDomain p)]
+      reservationArgs =
+        [ "--dhcp-host=" <> T.unpack mac <> "," <> T.unpack ip
+        | (mac, ip) <- dspHostReservations p
+        ]
       extraArgs = T.unpack <$> dspExtraArgs p
-      allArgs = baseArgs <> rangeArgs <> domainArgs <> extraArgs
+      allArgs = baseArgs <> rangeArgs <> domainArgs <> reservationArgs <> extraArgs
   spawnResult <-
     E.try @E.SomeException $
       createProcess

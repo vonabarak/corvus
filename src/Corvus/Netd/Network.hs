@@ -332,6 +332,8 @@ startDnsmasqFor spec = do
           , Dn.dspDhcpRange = dhcpRange
           , Dn.dspDomain = dhcpDomain dhcp
           , Dn.dspExtraArgs = dhcpExtraArgs dhcp
+          , Dn.dspHostReservations =
+              [(dhrMac r, dhrIp r) | r <- dhcpHostReservations dhcp]
           }
   Dn.startDnsmasq params >>= \case
     Right dn -> pure dn
