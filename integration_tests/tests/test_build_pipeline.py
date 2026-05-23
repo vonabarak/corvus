@@ -24,7 +24,7 @@ are NOT caught by `make integration-clean-py` (which only
 matches `corvus-it-*`). If a test dies mid-bake, clean by hand:
   ssh corvus@<test-node-ip> 'crv -o json vm list \\
     | jq -r ".[] | select(.name|startswith(\\"__build_\\")) | .name" \\
-    | xargs -I{} crv vm delete --delete-disks {}'
+    | xargs -I{} crv vm delete {}'
 """
 
 from __future__ import annotations

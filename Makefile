@@ -79,14 +79,15 @@ integration-tests: build
 # pycapnp 2.x sometimes triggers SIGABRT on inner-daemon disconnects,
 # which kills pytest before fixture teardown — VMs stay around. Names
 # always start with `corvus-it-`; this target lists them and deletes
-# each with --delete-disks (overlay rootfs goes too).
+# each (the harness marks overlay rootfs disks as ephemeral, so they
+# go with the VM by default).
 integration-tests-clean:
 	@names=$$(crv -o json vm list 2>/dev/null | jq -r '.[].name | select(startswith("corvus-it-"))'); \
 	if [ -z "$$names" ]; then echo "no corvus-it-* VMs"; exit 0; fi; \
 	echo "$$names" | while read -r n; do \
 	  echo "deleting $$n"; \
 	  crv vm reset "$$n" 2>/dev/null || true; \
-	  crv vm delete --delete-disks "$$n" || true; \
+	  crv vm delete "$$n" || true; \
 	done
 
 # Run the Haskell unit-test suite. Integration tests have moved to
@@ -241,9 +242,11 @@ dev-node-vm: build
 
 
 # Reset + delete the manual-testing VM and its overlay disk.
+# The overlay is template-instantiated, so it's ephemeral by default
+# and `vm delete` reaps it together with the VM.
 dev-node-vm-clean:
 	-crv vm reset $(DEV_NODE_VM)
-	-crv vm delete --delete-disks $(DEV_NODE_VM)
+	-crv vm delete $(DEV_NODE_VM)
 
 
 # SSH into the dev VM over VSOCK. Pulls the CID from `crv vm show`

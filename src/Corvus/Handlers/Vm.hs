@@ -992,8 +992,12 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit a
   key <- insert vm
   pure $ fromSqlKey key
 
--- | Get disk IDs attached to this VM that are eligible for cleanup
--- under @vm.delete --delete-disks@.
+-- | Get disk IDs writable-attached to this VM that aren't shared with
+-- another VM or referenced by a template — i.e. exclusively owned by
+-- this VM. The post-ephemeral @vm.delete@ path uses
+-- 'getEphemeralAttachedDisks' instead; this query is kept available
+-- for any future caller that needs the stricter exclusive-ownership
+-- predicate.
 --
 -- A disk qualifies when:
 --

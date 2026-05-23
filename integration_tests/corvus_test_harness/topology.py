@@ -17,8 +17,8 @@ born with the share attached — no post-creation `shared-dir add`,
 no template (Corvus templates currently don't carry sharedDirs).
 
 On exit, the topology tears everything down in reverse: close clients
-→ stop relays → stop + delete nodes (`--delete-disks` removes the
-per-node overlays too).
+→ stop relays → stop + delete nodes (the per-node overlays are
+created as ephemeral, so `vm delete` reaps them along with the VM).
 
 Tests get a `TestNode` handle per node and call `.client()` to reach
 the inner daemon running on it.
@@ -281,7 +281,7 @@ class Topology:
                     f"[harness] clean up manually with: "
                     f"`make integration-tests-clean` "
                     "or "
-                    f"`for n in {names}; do crv vm delete --delete-disks $n; done`"
+                    f"`for n in {names}; do crv vm delete $n; done`"
                 )
             return
 

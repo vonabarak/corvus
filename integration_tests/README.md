@@ -105,7 +105,8 @@ KVM. Target: self-hosted runners or bare-metal CI with `kvm_*.nested=1`.
   min to bake the base.
 - The harness deletes its VMs on test exit, but not on hard crash.
   Orphan cleanup: `crv vm list | grep ^corvus-it- | xargs -n1 crv vm
-  delete --delete-disks`.
+  delete` (the harness marks its overlay disks ephemeral, so they go
+  with the VM automatically).
 - The inner daemon listens on `0.0.0.0:9876` inside its VM. The VM has
   no external network exposure by default; the VSOCK CID is the only
   way in.

@@ -14,7 +14,7 @@ build: update-image
 	crv build gentoo-test.yml --wait
 
 clean:
-	crv vm delete --delete-disks gentoo-corvus-test
+	crv vm delete gentoo-corvus-test
 	crv template delete gentoo-headless
 	crv disk delete gentoo-base-headless
 	crv template delete gentoo-cloud
