@@ -1,17 +1,16 @@
 """End-to-end smoke test + VM lifecycle scenarios against the INNER daemon.
 
-Each method in this class runs against the same Corvus daemon executing
-inside a single nested VM (built from the freshly compiled binary on
-the host). The outer Corvus only orchestrates the test VM; what we're
-really testing is the inner daemon — which runs as root, has nested-KVM
-access, and can exercise code paths the outer (unprivileged) deployment
-cannot.
+The tests in this file are grouped into several sibling `SingleNodeCase`
+subclasses so xdist (`--dist=loadscope` in `pyproject.toml`) can spread
+them across workers. Within each class methods still run sequentially
+on one inner-daemon node, but the classes themselves run in parallel.
 
-`test_inner_daemon_reachable` is the canary: if it passes, the whole
-virtiofs + VSOCK transport chain is wired up correctly and the rest of
-the methods in this class are meaningful. If it fails, the suite-wide
-skip-on-first-failure machinery skips the rest of the class for a
-single coherent reason instead of producing nine spurious failures.
+Every method creates and deletes its own VMs under unique names, so
+classes are mutually independent. If the class-scoped fixture itself
+fails (node boot, cert deploy, first client open), the conftest hooks
+in `integration_tests/conftest.py` skip every method in that class
+with a coherent reason — no per-class daemon-reachability canary is
+needed on top.
 """
 
 from __future__ import annotations
@@ -61,10 +60,13 @@ def _drain_serial_until(stream, needle: bytes, *, timeout: float) -> bytes:
     )
 
 
-class TestVmLifecycle(SingleNodeCase):
-    """All methods share one inner daemon. Each creates + deletes its
-    own vms under unique names, so the methods are mutually
-    independent despite sharing the node."""
+class _VmLifecycleBase(SingleNodeCase):
+    """Shared helpers for the VM-lifecycle test classes.
+
+    Not collected by pytest (the leading underscore keeps it out of
+    the `Test*` collection rule); each concrete subclass below
+    inherits the wait/observe/pgrep helpers.
+    """
 
     def _wait_status(
         self,
@@ -116,6 +118,37 @@ class TestVmLifecycle(SingleNodeCase):
         raise TimeoutError(
             f"VM never reached {target!r} within {timeout_sec}s; observed={observed!r}"
         )
+
+    def _read_qemu_pid(self, vm_id: int) -> int | None:
+        """Return the QEMU pid on the node whose argv contains
+        ``corvus-vm-<vm_id>``, or ``None`` if no such process exists.
+
+        Corvus launches QEMU with ``-name <name>,process=corvus-vm-<id>``
+        (see ``src/Corvus/Node/Command.hs``), so the per-VM id is
+        always embedded in the command line and makes the process
+        directly grep-able.
+        """
+        r = self.nodes[0].run(
+            f"pgrep -f 'corvus-vm-{vm_id}' || true",
+            check=False,
+            timeout_sec=10.0,
+        )
+        out = r.stdout.decode("utf-8", errors="replace").strip()
+        if not out:
+            return None
+        # pgrep prints one pid per line; the first match is enough.
+        # The shell that wraps this command runs `pgrep` directly via
+        # exec, so it does not appear in the result set.
+        return int(out.splitlines()[0].strip())
+
+
+class TestVmSmokeAndCrud(_VmLifecycleBase):
+    """Diagnostics + VM CRUD without booting QEMU.
+
+    These finish in seconds; bundling them in one class amortizes
+    the class-fixture cost (one nested-KVM node boot) across all
+    eight cheap tests.
+    """
 
     def test_inner_daemon_reachable(self):
         """Smoke test: the inner daemon answers `status()` after first boot.
@@ -258,6 +291,10 @@ class TestVmLifecycle(SingleNodeCase):
         assert details.ram_mb == 512
         assert details.description == "from python integration tests"
         vm.delete()
+
+
+class TestVmBootBasics(_VmLifecycleBase):
+    """Basic guest lifecycle: one boot per method."""
 
     def test_vm(self):
         """Full vm lifecycle with SSH-driven assertions.
@@ -450,6 +487,11 @@ class TestVmLifecycle(SingleNodeCase):
             assert r.exit_code == 0
             assert "Boot" in r.stdout
 
+
+class TestVmEditWhileRunning(_VmLifecycleBase):
+    """Edits that require a stop / edit / start cycle — two boots
+    per method, so this class lands its own worker."""
+
     def test_headless_swap_cycle(self):
         """Headless ↔ non-headless edit cycle on the same VM.
 
@@ -552,6 +594,10 @@ class TestVmLifecycle(SingleNodeCase):
                 assert int(shell.run("nproc").stdout.strip()) == 4
                 mem_kb = _mem_total_kb(shell)
                 assert mem_kb >= 0.85 * 2 * 1024 * 1024
+
+
+class TestVmPauseResetPowerOff(_VmLifecycleBase):
+    """Pause / resume / reset / guest-initiated poweroff scenarios."""
 
     def test_pause_resume_reset_stop(self):
         """Combined exercise of all four VM lifecycle actions:
@@ -706,6 +752,12 @@ class TestVmLifecycle(SingleNodeCase):
                     f"and no new QEMU was spawned"
                 )
 
+
+class TestVmRebootQuirk(_VmLifecycleBase):
+    """The four ``reboot_quirk`` scenarios share the
+    ``_RebootQuirkVm`` / ``_NoQuirkVm`` mixin pattern and the
+    QEMU-pid scrape helper, so they live together."""
+
     def test_reboot_quirk_restart_on_guest_reboot(self):
         """With ``reboot_quirk=True``, a guest-initiated reboot
         bounces QEMU transparently.
@@ -819,28 +871,6 @@ class TestVmLifecycle(SingleNodeCase):
                     f"VM bounced back to {status!r} after a daemon-"
                     f"initiated stop — quirk-suppression failed"
                 )
-
-    def _read_qemu_pid(self, vm_id: int) -> int | None:
-        """Return the QEMU pid on the node whose argv contains
-        ``corvus-vm-<vm_id>``, or ``None`` if no such process exists.
-
-        Corvus launches QEMU with ``-name <name>,process=corvus-vm-<id>``
-        (see ``src/Corvus/Node/Command.hs``), so the per-VM id is
-        always embedded in the command line and makes the process
-        directly grep-able.
-        """
-        r = self.nodes[0].run(
-            f"pgrep -f 'corvus-vm-{vm_id}' || true",
-            check=False,
-            timeout_sec=10.0,
-        )
-        out = r.stdout.decode("utf-8", errors="replace").strip()
-        if not out:
-            return None
-        # pgrep prints one pid per line; the first match is enough.
-        # The shell that wraps this command runs `pgrep` directly via
-        # exec, so it does not appear in the result set.
-        return int(out.splitlines()[0].strip())
 
     def test_reboot_quirk_qemu_pid_changes_on_reboot(self):
         """With ``reboot_quirk=True`` a guest-initiated reboot must
