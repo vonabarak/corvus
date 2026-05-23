@@ -568,11 +568,15 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
                       pure $ Right (fromSqlKey (driveDiskImageId drv), False)
                 BuildStrategyFromScratch -> do
                   let sizeMb = fromIntegral (btSizeGb target) * 1024
+                  -- ephemeral=True so a failed build (no publish) lets
+                  -- the bake-VM teardown auto-reap this target disk.
+                  -- 'publishArtifactCore' flips it back to False on a
+                  -- successful publish so the artifact survives onward.
                   diskResp <-
                     liftIO $
                       runActionAsSubtask
                         (ActionContext state parentTaskId "system")
-                        (DiskCreate targetTmpName (btFormat target) sizeMb Nothing False)
+                        (DiskCreate targetTmpName (btFormat target) sizeMb Nothing True)
                   case diskResp of
                     RespDiskCreated diskIdLong -> do
                       attachResp <-
@@ -663,11 +667,11 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
                                     case publishResult of
                                       Left err -> pure $ Left err
                                       Right () ->
-                                        -- The artifact has been detached from the
-                                        -- bake VM and renamed. The remaining
-                                        -- cleanup pass will VmDelete the bake VM
-                                        -- with deleteDisks=true; the artifact is
-                                        -- no longer attached so it survives.
+                                        -- The artifact has been detached and had its
+                                        -- ephemeral flag cleared by publishArtifactCore;
+                                        -- the cleanup pass's VmDelete keepDisks=False
+                                        -- reaps the remaining bake-VM disks but the
+                                        -- artifact survives.
                                         pure $ Right artifactDiskId
             RespError err -> pure $ Left $ "instantiate template: " <> err
             other ->
@@ -678,10 +682,11 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
 --------------------------------------------------------------------------------
 
 -- | If the build supplies a 'Floppy', materialise the FAT12 image,
--- register a 'DiskImage' for it, and attach it to the bake VM via
--- 'DiskAttach' as @if=floppy,readonly=on@. The disk's name uses the
--- @__build_<taskId>_*@ prefix so the standard ephemeral cleanup path
--- ('collectEphemeralDiskIds') drops it on success or failure.
+-- register a 'DiskImage' for it (marked @ephemeral=True@ so the bake-
+-- VM teardown auto-reaps it), and attach it to the bake VM via
+-- 'DiskAttach' as @if=floppy,readonly=on@. The @__build_<taskId>_*@
+-- name prefix is kept for diagnostic clarity only — cleanup is driven
+-- by the ephemeral flag, not the name.
 --
 -- A 'Nothing' floppy is a no-op (returns @Right ()@), so this can be
 -- called unconditionally.
@@ -1343,11 +1348,11 @@ publishArtifactCore
   -> Bool
   -> LoggingT IO (Either Text ())
 publishArtifactCore state parentTaskId diskId target needFlatten = do
-  -- Rename the disk in-DB.
+  -- Promote the disk row: rename + drop the ephemeral flag.
   renameRes <-
-    liftIO $ renameDiskByName state diskId (btName target)
+    liftIO $ publishArtifactDiskRow state diskId (btName target)
   case renameRes of
-    Left err -> pure $ Left $ "rename artifact: " <> err
+    Left err -> pure $ Left $ "publish artifact row: " <> err
     Right () -> do
       -- 3. Flatten if needed.
       flattenResult <-
@@ -1539,8 +1544,11 @@ vmsAttachedToDisk diskId = do
   vms <- mapM get vmIds
   pure [vmName v | Just v <- vms]
 
-renameDiskByName :: ServerState -> Int64 -> Text -> IO (Either Text ())
-renameDiskByName state diskId newName = do
+-- | Promote a build-internal disk to a published artifact: rename it
+-- to the target name and clear the ephemeral flag so a future VM
+-- that attaches it doesn't reap it on delete.
+publishArtifactDiskRow :: ServerState -> Int64 -> Text -> IO (Either Text ())
+publishArtifactDiskRow state diskId newName = do
   case validateName "Disk" newName of
     Left err -> pure $ Left err
     Right () -> do
@@ -1549,7 +1557,10 @@ renameDiskByName state diskId newName = do
         Just _ -> pure $ Left $ "disk name '" <> newName <> "' already in use"
         Nothing -> do
           runSqlPool
-            (update (toSqlKey diskId :: DiskImageId) [DiskImageName =. newName])
+            ( update
+                (toSqlKey diskId :: DiskImageId)
+                [DiskImageName =. newName, DiskImageEphemeral =. False]
+            )
             (ssDbPool state)
           pure $ Right ()
 
@@ -1602,42 +1613,23 @@ compactDisk state diskId = do
 
 -- | Tear down the bake VM safely.
 --
--- Plain @VmDelete deleteDisks=True@ is too aggressive: 'getExclusiveDisks'
--- treats every disk attached only to this VM as fair game, including
--- user-registered shared disks (the OVMF firmware, the imported base
--- image of a one-off template) that the build did NOT create. Deleting
--- those would also unlink the underlying file from disk.
+-- Stops the VM and runs @VmDelete keepDisks=False@. The delete reaps
+-- every disk still attached with @DiskImage.ephemeral=True@ — which
+-- covers every disk the build pipeline creates: the template-
+-- instantiated overlay/clone/create-strategy disks, the from-scratch
+-- target disk, the build floppy and any cloud-init ISO. Shared
+-- infrastructure (direct-strategy template disks, registered base
+-- images) is created with @ephemeral=False@ and is preserved.
 --
--- Instead we collect the bake VM's drives, classify them by whether the
--- disk's name starts with the @__build_@ prefix (which is how all
--- ephemeral disks created during this build are named), delete only the
--- ephemeral ones explicitly via 'DiskDelete', and then run @VmDelete@
--- with @deleteDisks=False@.
+-- On the success path the artifact disk has already been detached and
+-- had its ephemeral flag cleared by 'publishArtifactCore', so it
+-- survives this teardown.
 cleanupBakeVm :: ServerState -> TaskId -> Int64 -> IO ()
 cleanupBakeVm state parentTaskId vmIdLong = do
   -- Best-effort stop first; VmDelete refuses while running.
   _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (VmStop vmIdLong)
-  -- Find ephemeral disks attached to this VM (named __build_*).
-  ephemeralIds <- runSqlPool (collectEphemeralDiskIds vmIdLong) (ssDbPool state)
   _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (VmDelete vmIdLong False)
-  mapM_ (runActionAsSubtask (ActionContext state parentTaskId "system") . DiskDelete) ephemeralIds
-
--- | Walk the bake VM's drives and return IDs of disks whose name starts
--- with @__build_@ — those were created by the build pipeline (overlay,
--- cloned firmware vars, generated cloud-init ISO, …) and are safe to
--- delete. Registered base disks and shared firmware are filtered out.
-collectEphemeralDiskIds :: Int64 -> SqlPersistT IO [Int64]
-collectEphemeralDiskIds vmIdLong = do
-  drives <- selectList [DriveVmId ==. toSqlKey vmIdLong] []
-  let diskKeys = map (driveDiskImageId . entityVal) drives
-  fmap (map fromSqlKey . catEphemerals) (mapM lookupNamed diskKeys)
-  where
-    lookupNamed key = do
-      mDisk <- get key
-      pure (key, fmap diskImageName mDisk)
-    catEphemerals = map fst . filter isEphemeral
-    isEphemeral (_, Just name) = "__build_" `T.isPrefixOf` name
-    isEphemeral _ = False
+  pure ()
 
 --------------------------------------------------------------------------------
 -- Resolving and validating the source template
