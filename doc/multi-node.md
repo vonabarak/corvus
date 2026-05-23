@@ -93,8 +93,9 @@ but existing VMs / networks / disks on the node keep running.
 ### `crv node delete <NODE>`
 
 Refuses while any VM, network, or `disk_image_node` row still
-references the node. Move the workloads off (`crv vm
-delete --delete-disks` for one-shot cleanup; `crv vm edit
+references the node. Move the workloads off (`crv vm delete`
+reaps attached ephemeral disks automatically; non-ephemeral
+disks need a separate `crv disk delete`; `crv vm edit
 --node <NEW>` is a future ergonomic) before retrying.
 
 ## Scheduler

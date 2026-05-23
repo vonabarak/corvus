@@ -541,34 +541,35 @@ instance Action ApplyDiskCreate where
   actionExecute ctx a =
     let d = adcConfig a
         state = acState ctx
+        ephem = adEphemeral d
      in case (adImport d, adOverlay d, adClone d, adRegister d) of
           (Just importPath, _, _, _) ->
-            actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)) (adMd5 d))
+            actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)) (adMd5 d) ephem)
           (_, _, _, Just registerPath)
             | isHttpUrl registerPath -> pure $ RespError $ "Disk '" <> adName d <> "': register requires a local path, not a URL"
             | otherwise -> do
                 let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath registerPath)
                 case adBacking d of
-                  Nothing -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) Nothing)
+                  Nothing -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) Nothing ephem)
                   Just backingName -> do
                     mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
                     case mBackingId of
                       Nothing -> pure $ RespError $ "backing disk '" <> backingName <> "' not found"
-                      Just backingId -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) (Just backingId))
+                      Just backingId -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) (Just backingId) ephem)
           (_, Just backingName, _, _) -> do
             mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
             case mBackingId of
               Nothing -> pure $ RespError $ "backing disk '" <> backingName <> "' not found"
-              Just backingId -> actionExecute ctx (DiskCreateOverlay (adName d) backingId (adSizeMb d) (adPath d))
+              Just backingId -> actionExecute ctx (DiskCreateOverlay (adName d) backingId (adSizeMb d) (adPath d) ephem)
           (_, _, Just cloneName, _) -> do
             mSourceId <- resolveByName state UniqueDiskImageName (adcDiskMap a) cloneName
             case mSourceId of
               Nothing -> pure $ RespError $ "source disk '" <> cloneName <> "' not found"
-              Just sourceId -> actionExecute ctx (DiskClone (adName d) sourceId Nothing (adPath d))
+              Just sourceId -> actionExecute ctx (DiskClone (adName d) sourceId Nothing (adPath d) ephem)
           _ ->
             let format = fromMaybe FormatQcow2 (adFormat d)
                 sizeMb = fromMaybe 10240 (adSizeMb d)
-             in actionExecute ctx (DiskCreate (adName d) format (fromIntegral sizeMb) (adPath d))
+             in actionExecute ctx (DiskCreate (adName d) format (fromIntegral sizeMb) (adPath d) ephem)
 
 -- | Apply-specific VM creation with attachments (drives, netifs, SSH keys, cloud-init).
 data ApplyVmCreate = ApplyVmCreate

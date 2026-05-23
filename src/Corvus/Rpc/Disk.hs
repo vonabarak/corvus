@@ -95,6 +95,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , dcrFormat = fmt
               , dcrSizeMb = sizeMb
               , dcrPath = Nothing
+              , dcrEphemeral = ephemeral
               }
       resp <- runAction st act
       case resp of
@@ -113,6 +114,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , drgPath = filePath
               , drgFormat = Just fmt
               , drgBackingDiskId = Nothing
+              , drgEphemeral = ephemeral
               }
       resp <- runAction st act
       case resp of
@@ -132,6 +134,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , dcoBaseDiskId = baseId
               , dcoResizeMb = Nothing
               , dcoPath = Nothing
+              , dcoEphemeral = ephemeral
               }
       resp <- runAction st act
       case resp of
@@ -155,6 +158,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , dclBaseDiskId = srcId
               , dclResizeMb = Nothing
               , dclPath = mPath
+              , dclEphemeral = ephemeral
               }
       resp <- runAction st act
       case resp of
@@ -210,6 +214,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               { diuName = name
               , diuUrl = url
               , diuFormat = Nothing
+              , diuEphemeral = ephemeral
               }
       resp <- runActionAsyncWithId st act RespDiskImportStarted
       case resp of
@@ -227,6 +232,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , diaDestPath = Nothing
               , diaFormat = Nothing
               , diaMd5 = Nothing
+              , diaEphemeral = ephemeral
               }
       resp <- runAction st act
       case resp of

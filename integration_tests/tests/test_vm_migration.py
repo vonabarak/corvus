@@ -153,7 +153,7 @@ class TestVmMigration(OneDaemonTwoNodesCase):
 
     def _delete_silent_vm(self, name: str) -> None:
         try:
-            self.client_alpha.vms.get(name).delete(delete_disks=True)
+            self.client_alpha.vms.get(name).delete()
         except Exception:
             pass
 
@@ -595,6 +595,8 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
-            # The cloud-init disk is best-effort: vm.delete with
-            # delete_disks=True attempts it; clean residue otherwise.
+            # The cloud-init disk is ephemeral and normally reaped by
+            # vm.delete; this is a best-effort cleanup for the case
+            # where vm.delete didn't run (e.g. the test failed before
+            # we got that far).
             self._delete_silent_disk(f"{vm_name}-cloud-init")

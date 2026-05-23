@@ -5,9 +5,10 @@ A test method that needs a booted VM otherwise has to chain
 → `vms.create` → `vm.attach_disk` (`vms.create` only creates the
 bare VM record; drives, network interfaces, SSH keys, and
 cloud-init are attached afterward) → `vm.start(wait=True)` → use
-the VM → `vm.stop` → `vm.delete(delete_disks=True)` → belt-and-
-suspenders disk cleanup. Multiplied across many tests that's a
-lot of boilerplate.
+the VM → `vm.stop` → `vm.delete()` (the harness's overlay is
+created with `ephemeral=True` so it gets reaped automatically) →
+belt-and-suspenders disk cleanup. Multiplied across many tests
+that's a lot of boilerplate.
 
 Two classes live here:
 
@@ -137,7 +138,9 @@ class Vm:
         # `pytest.skip` — run cleanup before re-raising so we don't leak
         # a half-built VM + overlay.
         try:
-            self.client.disks.create_overlay(self.name, base_disk)
+            # Mark the per-VM overlay as ephemeral so `vm.delete()`
+            # reaps it without the test having to chase it down.
+            self.client.disks.create_overlay(self.name, base_disk, ephemeral=True)
             self._overlay_created = True
             self.cap = self.client.vms.create(
                 self.name,
@@ -191,14 +194,15 @@ class Vm:
             except Exception:
                 pass
             try:
-                self.cap.delete(delete_disks=True)
+                self.cap.delete()
             except Exception:
                 pass
             self.cap = None
         if self._overlay_created:
-            # If vm.delete ran with delete_disks=True the overlay is
-            # gone; if it didn't (e.g. vm.create raised before we got
-            # there), the overlay is still in the inner daemon's DB.
+            # If vm.delete ran successfully the overlay (which we
+            # registered as ephemeral) is already gone; if it didn't
+            # (e.g. vm.create raised before we got there), the
+            # overlay is still in the inner daemon's DB.
             try:
                 self.client.disks.get(self.name).delete()
             except Exception:
@@ -351,8 +355,8 @@ class VmUefi(VmSsh):
     registrations point at system files under `/usr/share/edk2/`
     and are **never** deleted — `disks.delete` would unlink the
     underlying file. The overlays are owned by the daemon (live
-    under its `basePath`) and are reaped by `delete_disks=True`
-    on VM teardown.
+    under its `basePath`), are created with ``ephemeral=True``, and
+    are reaped by ``vm.delete()`` on teardown.
 
     The same daemon-side overlay-refcount protection that's already
     in `handleDiskDelete` (returns `RespDiskHasOverlays` when a
@@ -379,8 +383,12 @@ class VmUefi(VmSsh):
 
         self._code_overlay = f"{self.name}-ovmf-code"
         self._vars_overlay = f"{self.name}-ovmf-vars"
-        self.client.disks.create_overlay(self._code_overlay, "ovmf-code")
-        self.client.disks.create_overlay(self._vars_overlay, "ovmf-vars")
+        self.client.disks.create_overlay(
+            self._code_overlay, "ovmf-code", ephemeral=True
+        )
+        self.client.disks.create_overlay(
+            self._vars_overlay, "ovmf-vars", ephemeral=True
+        )
 
     def _drives(self) -> list[dict]:
         return super()._drives() + [
@@ -442,8 +450,12 @@ class VmWindows(Vm):
 
         self._code_overlay = f"{self.name}-ovmf-code"
         self._vars_overlay = f"{self.name}-ovmf-vars"
-        self.client.disks.create_overlay(self._code_overlay, "ovmf-code")
-        self.client.disks.create_overlay(self._vars_overlay, "ovmf-vars")
+        self.client.disks.create_overlay(
+            self._code_overlay, "ovmf-code", ephemeral=True
+        )
+        self.client.disks.create_overlay(
+            self._vars_overlay, "ovmf-vars", ephemeral=True
+        )
 
     def _drives(self) -> list[dict]:
         return super()._drives() + [

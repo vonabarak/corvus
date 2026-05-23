@@ -246,11 +246,11 @@ class Crv:
         return self.run(*args, timeout=180)
 
     def vm_delete(
-        self, name_or_id: str | int, *, delete_disks: bool = False
+        self, name_or_id: str | int, *, keep_disks: bool = False
     ) -> dict[str, Any]:
         args = ["vm", "delete", str(name_or_id)]
-        if delete_disks:
-            args.append("--delete-disks")
+        if keep_disks:
+            args.append("--keep-disks")
         return self.run(*args, timeout=120)
 
     def vm_exec(

@@ -97,6 +97,8 @@ toCapnpTemplateDriveInfo P.TemplateDriveInfo {..} =
     , CGT.sizeMb = maybe 0 fromIntegral tvdiSizeMb
     , CGT.hasFormat = isJust tvdiFormat
     , CGT.format = maybe (toCapnpDriveFormat minBound) toCapnpDriveFormat tvdiFormat
+    , CGT.hasEphemeral = isJust tvdiEphemeral
+    , CGT.ephemeral = fromMaybe False tvdiEphemeral
     }
 
 fromCapnpTemplateDriveInfo
@@ -126,6 +128,7 @@ fromCapnpTemplateDriveInfo CGT.TemplateDriveInfo {..} = do
       , P.tvdiCloneStrategy = strat
       , P.tvdiSizeMb = if sizeMb == 0 then Nothing else Just (fromIntegral sizeMb)
       , P.tvdiFormat = fmt
+      , P.tvdiEphemeral = if hasEphemeral then Just ephemeral else Nothing
       }
 
 -- ---------------------------------------------------------------------

@@ -175,6 +175,7 @@ class DiskImageInfo:
     size_mb: int | None = None
     backing_image_id: int | None = None
     backing_image_name: str | None = None
+    ephemeral: bool = False
 
 
 @dataclass(frozen=True)

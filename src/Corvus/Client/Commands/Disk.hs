@@ -82,9 +82,9 @@ parseMedia = enumFromText
 -- legacy @mPath@ argument and silently ignore it for backwards
 -- compatibility with the CLI parser; an explicit path will be
 -- reintroduced when @DiskCreateParams@ gains a @path@ field.
-handleDiskCreate :: OutputFormat -> CapnpConnection -> Text -> DriveFormat -> Int64 -> Maybe Text -> IO Bool
-handleDiskCreate fmt conn name format sizeMb _mPath = do
-  r <- try @SomeException (CR.rpcDiskCreate conn name sizeMb (toCapnpDriveFormat format))
+handleDiskCreate :: OutputFormat -> CapnpConnection -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> IO Bool
+handleDiskCreate fmt conn name format sizeMb _mPath ephemeral = do
+  r <- try @SomeException (CR.rpcDiskCreate conn name sizeMb (toCapnpDriveFormat format) ephemeral)
   case r of
     Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
@@ -97,9 +97,9 @@ handleDiskCreate fmt conn name format sizeMb _mPath = do
       pure False
 
 -- | Handle disk overlay command
-handleDiskCreateOverlay :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> IO Bool
-handleDiskCreateOverlay fmt conn name baseDiskRef _optDirPath = do
-  r <- try @SomeException (CR.rpcDiskCreateOverlay conn name (entityRefFromText baseDiskRef))
+handleDiskCreateOverlay :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Bool -> IO Bool
+handleDiskCreateOverlay fmt conn name baseDiskRef _optDirPath ephemeral = do
+  r <- try @SomeException (CR.rpcDiskCreateOverlay conn name (entityRefFromText baseDiskRef) ephemeral)
   case r of
     Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
@@ -114,8 +114,8 @@ handleDiskCreateOverlay fmt conn name baseDiskRef _optDirPath = do
 -- | Handle disk register command (registers local file in DB without
 -- copying). The format must be supplied since the Cap'n Proto schema
 -- doesn't carry the auto-detect path yet.
-handleDiskRegister :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Maybe Text -> Maybe Text -> IO Bool
-handleDiskRegister fmt conn name path mFormatStr _mBackingRef = do
+handleDiskRegister :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Maybe Text -> Maybe Text -> Bool -> IO Bool
+handleDiskRegister fmt conn name path mFormatStr _mBackingRef ephemeral = do
   exists <- doesFileExist path
   if not exists
     then do
@@ -132,7 +132,7 @@ handleDiskRegister fmt conn name path mFormatStr _mBackingRef = do
           (putStrLn "Error: --format must be supplied for disk register.")
         pure False
       Just fmt' -> do
-        r <- try @SomeException (CR.rpcDiskRegister conn name (T.pack path) fmt')
+        r <- try @SomeException (CR.rpcDiskRegister conn name (T.pack path) fmt' ephemeral)
         case r of
           Right diskId -> do
             emitOkWith fmt [("id", toJSON diskId)] $
@@ -149,8 +149,8 @@ handleDiskRegister fmt conn name path mFormatStr _mBackingRef = do
 -- and @--wait@ are not threaded through the wrapper. The legacy
 -- 'WaitOptions' / format arguments are accepted to keep the CLI
 -- parser happy.
-handleDiskImport :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Maybe Text -> WaitOptions -> IO Bool
-handleDiskImport fmt conn name source _mPath mFormatStr _waitOpts = do
+handleDiskImport :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Maybe Text -> Bool -> WaitOptions -> IO Bool
+handleDiskImport fmt conn name source _mPath mFormatStr ephemeral _waitOpts = do
   case mFormatStr >>= eitherToMaybe . parseFormat of
     Nothing -> do
       emitError
@@ -160,7 +160,7 @@ handleDiskImport fmt conn name source _mPath mFormatStr _waitOpts = do
         (putStrLn "Error: --format must be supplied for disk import.")
       pure False
     Just fmt' -> do
-      r <- try @SomeException (CR.rpcDiskImport conn name source fmt')
+      r <- try @SomeException (CR.rpcDiskImport conn name source fmt' ephemeral)
       case r of
         Right diskId -> do
           emitOkWith fmt [("id", toJSON diskId)] $
@@ -228,9 +228,9 @@ handleDiskShow fmt conn diskRef = do
       pure False
 
 -- | Handle disk clone command
-handleDiskClone :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> IO Bool
-handleDiskClone fmt conn name baseDiskRef _optionalPath = do
-  r <- try @SomeException (CR.rpcDiskClone conn (entityRefFromText baseDiskRef) name)
+handleDiskClone :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Bool -> IO Bool
+handleDiskClone fmt conn name baseDiskRef _optionalPath ephemeral = do
+  r <- try @SomeException (CR.rpcDiskClone conn (entityRefFromText baseDiskRef) name ephemeral)
   case r of
     Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
@@ -430,6 +430,7 @@ diskColumns =
   , Column "NAME" LeftAlign (T.unpack . diiName)
   , Column "FORMAT" LeftAlign (T.unpack . enumToText . diiFormat)
   , Column "SIZE_MB" RightAlign (maybe "-" show . diiSizeMb)
+  , Column "EPH" LeftAlign (\d -> if diiEphemeral d then "yes" else "-")
   , Column "ATTACHED_TO" LeftAlign formatAttached
   ]
   where
@@ -458,6 +459,7 @@ printDiskDetails d = do
     )
   printField "Format" (T.unpack (enumToText $ diiFormat d))
   printField "Size (MB)" (maybe "(unknown)" show (diiSizeMb d))
+  printField "Ephemeral" (if diiEphemeral d then "true" else "false")
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d))
   printField "Attached to" (if null (diiAttachedTo d) then "(none)" else T.unpack (T.intercalate ", " (map snd (diiAttachedTo d))))
   case diiBackingImageName d of

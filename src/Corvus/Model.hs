@@ -613,6 +613,7 @@ DiskImage
     sizeMb Int Maybe
     createdAt UTCTime
     backingImageId DiskImageId Maybe
+    ephemeral Bool default=false
     UniqueDiskImageName name
     deriving Show Eq Generic
 
@@ -735,6 +736,7 @@ TemplateDrive
     cloneStrategy TemplateCloneStrategy
     sizeMb Int Maybe
     format DriveFormat Maybe
+    ephemeral Bool Maybe
     deriving Show Eq Generic
 
 TemplateNetworkInterface

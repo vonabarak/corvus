@@ -324,6 +324,16 @@ class TestWindows(SingleNodeCase):
                         except ServerError as e:
                             return f"ServerError({e!r})"
 
+                    # Read the daemon's view of the VM first. If
+                    # `guest_exec` is failing with "VM is stopping"
+                    # / "VM is stopped" then the agent's
+                    # reboot_quirk re-spawn never landed and probing
+                    # the guest is pointless.
+                    try:
+                        daemon_status = vm.cap.show().status
+                    except Exception as e:
+                        daemon_status = f"<show failed: {e!r}>"
+
                     svc = _probe(_ps("(Get-Service cloudbase-init).Status"))
                     log_tail = _probe(
                         _ps(
@@ -349,6 +359,7 @@ class TestWindows(SingleNodeCase):
                     raise AssertionError(
                         f"cloud-init #ps1_sysnative didn't run; "
                         f"{last_desc}\n"
+                        f"daemon-side VM status: {daemon_status}\n"
                         f"cloudbase-init service: {svc}\n"
                         f"cloudbase-init.log tail probe: {log_tail}"
                     )

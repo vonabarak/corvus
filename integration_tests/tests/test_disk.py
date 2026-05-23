@@ -336,6 +336,47 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(data_disk)
 
+    # ---- ephemeral cleanup on vm delete -------------------------------------
+
+    def test_vm_delete_reaps_ephemeral_keeps_non_ephemeral(self):
+        """`vm.delete()` with no flags must reap every ephemeral disk
+        attached to the VM and leave non-ephemeral disks alone.
+
+        Attaches one of each to a harness VM, then exits the
+        ``with`` block — the harness's ``__exit__`` does
+        ``vm.cap.reset()`` + ``vm.cap.delete()``, which is exactly the
+        default delete path. The ephemeral disk must be gone after
+        and the non-ephemeral one must still be listed.
+        """
+        ephem_name = _uniq("eph-yes")
+        persist_name = _uniq("eph-no")
+        self.client.disks.create(
+            ephem_name, size_mb=8, format="qcow2", ephemeral=True
+        )
+        self.client.disks.create(
+            persist_name, size_mb=8, format="qcow2", ephemeral=False
+        )
+        try:
+            with Vm(self) as vm:
+                # Hot-attach both data disks; the harness already
+                # attached its own (ephemeral) root overlay.
+                vm.cap.attach_disk(ephem_name, interface="virtio")
+                vm.cap.attach_disk(persist_name, interface="virtio")
+            # Exiting `with` ran `vm.cap.reset()` + `vm.cap.delete()`
+            # in the harness's `__exit__`. The default delete path
+            # reaps ephemeral attached disks; non-ephemeral ones
+            # survive.
+            names = {d.name for d in self.client.disks.list()}
+            assert ephem_name not in names, (
+                f"ephemeral disk {ephem_name!r} was not reaped on vm.delete()"
+            )
+            assert persist_name in names, (
+                f"non-ephemeral disk {persist_name!r} was unexpectedly reaped"
+            )
+        finally:
+            self._delete_silent(ephem_name)
+            self._delete_silent(persist_name)
+
     # ---- resize -------------------------------------------------------------
 
     def test_resize_grows_disk(self):

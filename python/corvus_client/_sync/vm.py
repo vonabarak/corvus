@@ -106,8 +106,8 @@ class SyncVm(LoopBoundResource):
     def edit(self, **kwargs):
         return self._rl.run(self._a.edit(**kwargs))
 
-    def delete(self, *, delete_disks: bool = False):
-        return self._rl.run(self._a.delete(delete_disks=delete_disks))
+    def delete(self, *, keep_disks: bool = False):
+        return self._rl.run(self._a.delete(keep_disks=keep_disks))
 
     def migrate(self, to_node_ref) -> int:
         return self._rl.run(self._a.migrate(to_node_ref))

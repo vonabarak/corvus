@@ -573,7 +573,7 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
                     liftIO $
                       runActionAsSubtask
                         state
-                        (DiskCreate targetTmpName (btFormat target) sizeMb Nothing)
+                        (DiskCreate targetTmpName (btFormat target) sizeMb Nothing False)
                         parentTaskId
                   case diskResp of
                     RespDiskCreated diskIdLong -> do
@@ -743,6 +743,11 @@ attachBuildFloppy state parentTaskId stack vmIdLong prefix b = case buildFloppy 
                         , diskImageSizeMb = Just 2
                         , diskImageCreatedAt = now
                         , diskImageBackingImageId = Nothing
+                        , -- Floppy ISO is generated per-build for the
+                          -- bake VM and only carries that build's
+                          -- credentials/script; reaped together with
+                          -- the bake VM on success or failure.
+                          diskImageEphemeral = True
                         }
                   )
                   (ssDbPool state)

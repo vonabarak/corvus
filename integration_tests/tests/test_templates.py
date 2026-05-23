@@ -115,7 +115,7 @@ class TestTemplates(SingleNodeCase):
                 vm.stop(wait=True)
             finally:
                 vm.reset()  # idempotent hard-stop
-                vm.delete(delete_disks=True)
+                vm.delete()
         finally:
             tpl.delete()
 
@@ -171,7 +171,7 @@ class TestTemplates(SingleNodeCase):
                     assert len(keys) == 1
                     assert keys[0].name == key_name
                 finally:
-                    vm.delete(delete_disks=True)
+                    vm.delete()
             finally:
                 tpl.delete()
         finally:

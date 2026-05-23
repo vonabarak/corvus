@@ -21,6 +21,11 @@ struct DiskImageInfo {
   attachedTo      @6 :List(DiskAttachment);
   backingImageId  @7 :Int64;            # 0 == none
   backingImageName @8 :Text;            # empty == none
+  # Ephemeral disks are auto-deleted together with the VM they are
+  # attached to. Cloud-init ISOs and disks created during template
+  # instantiation (clone/overlay/create strategies) default to
+  # ephemeral; everything else defaults to non-ephemeral.
+  ephemeral       @9 :Bool;
 }
 
 struct DiskImagePlacement {
@@ -48,9 +53,10 @@ struct SnapshotInfo {
 struct DiskCreateParams {
   # `name` and `sizeMb` are mandatory; `format` defaults to qcow2
   # to match `crv disk create`.
-  name    @0 :Text;
-  sizeMb  @1 :Int64;
-  format  @2 :Enums.DriveFormat = qcow2;
+  name      @0 :Text;
+  sizeMb    @1 :Int64;
+  format    @2 :Enums.DriveFormat = qcow2;
+  ephemeral @3 :Bool = false;
 }
 
 struct DiskRegisterParams {
@@ -58,14 +64,16 @@ struct DiskRegisterParams {
   # value when registering raw / vmdk / ... files; the daemon does
   # NOT auto-detect at the wire level (the CLI's auto-detection is
   # a client-side convenience).
-  name     @0 :Text;
-  filePath @1 :Text;
-  format   @2 :Enums.DriveFormat = qcow2;
+  name      @0 :Text;
+  filePath  @1 :Text;
+  format    @2 :Enums.DriveFormat = qcow2;
+  ephemeral @3 :Bool = false;
 }
 
 struct DiskCreateOverlayParams {
   name           @0 :Text;
   backingDiskRef @1 :Common.EntityRef;
+  ephemeral      @2 :Bool = false;
 }
 
 struct DiskCloneParams {
@@ -77,6 +85,7 @@ struct DiskCloneParams {
   # (relative paths resolve against the daemon's basePath; absolute
   # paths are honoured as-is).
   path      @2 :Text;
+  ephemeral @3 :Bool = false;
 }
 
 struct DiskRebaseParams {
@@ -85,16 +94,18 @@ struct DiskRebaseParams {
 }
 
 struct DiskImportUrlParams {
-  name   @0 :Text;
-  url    @1 :Text;
-  format @2 :Enums.DriveFormat = qcow2;
-  sizeMb @3 :Int64;                         # 0 == no resize after import
+  name      @0 :Text;
+  url       @1 :Text;
+  format    @2 :Enums.DriveFormat = qcow2;
+  sizeMb    @3 :Int64;                         # 0 == no resize after import
+  ephemeral @4 :Bool = false;
 }
 
 struct DiskImportParams {
-  name    @0 :Text;
-  srcPath @1 :Text;
-  format  @2 :Enums.DriveFormat = qcow2;
+  name      @0 :Text;
+  srcPath   @1 :Text;
+  format    @2 :Enums.DriveFormat = qcow2;
+  ephemeral @3 :Bool = false;
 }
 
 # Copy a logical disk image from its current placement on one node

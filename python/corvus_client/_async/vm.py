@@ -144,8 +144,15 @@ class AsyncVm:
         _set_optional(params, "hasRebootQuirk", "rebootQuirk", reboot_quirk)
         await self._cap.edit(params=params)
 
-    async def delete(self, *, delete_disks: bool = False) -> None:
-        await self._cap.delete(deleteDisks=delete_disks)
+    async def delete(self, *, keep_disks: bool = False) -> None:
+        """Delete this VM.
+
+        By default reaps ephemeral disks attached to the VM
+        (cloud-init ISOs, template-instantiated disks). Pass
+        ``keep_disks=True`` to leave them in place — useful when
+        debugging an instance's state after the VM is gone.
+        """
+        await self._cap.delete(keepDisks=keep_disks)
 
     # ---- migration ---------------------------------------------------------
 

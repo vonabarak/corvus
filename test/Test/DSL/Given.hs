@@ -281,6 +281,7 @@ insertDiskImage name path format = do
           , diskImageSizeMb = Nothing
           , diskImageCreatedAt = now
           , diskImageBackingImageId = Nothing
+          , diskImageEphemeral = False
           }
   pure $ fromSqlKey key
 
@@ -302,6 +303,7 @@ insertDiskImageFull name path format sizeMb = do
           , diskImageSizeMb = sizeMb
           , diskImageCreatedAt = now
           , diskImageBackingImageId = Nothing
+          , diskImageEphemeral = False
           }
   pure $ fromSqlKey key
 
@@ -324,6 +326,7 @@ insertDiskImageWithBacking name path format sizeMb mBackingId = do
           , diskImageSizeMb = sizeMb
           , diskImageCreatedAt = now
           , diskImageBackingImageId = fmap toSqlKey mBackingId
+          , diskImageEphemeral = False
           }
   pure $ fromSqlKey key
 
@@ -345,6 +348,7 @@ insertDiskImageOnTestNode name path format = do
           , diskImageSizeMb = Nothing
           , diskImageCreatedAt = now
           , diskImageBackingImageId = Nothing
+          , diskImageEphemeral = False
           }
   _ <-
     runDb $
@@ -367,6 +371,7 @@ defaultDiskImage = do
       , diskImageSizeMb = Just 10240
       , diskImageCreatedAt = now
       , diskImageBackingImageId = Nothing
+      , diskImageEphemeral = False
       }
 
 --------------------------------------------------------------------------------

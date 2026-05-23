@@ -61,7 +61,7 @@ data Command
   | VmShow !Text
   | -- | Create a new VM (name, nodeRef, cpuCount, ramMb, description, headless, guestAgent, cloudInit, autostart, rebootQuirk)
     VmCreate !Text !Text !Int !Int !(Maybe Text) !Bool !Bool !Bool !Bool !Bool
-  | -- | Delete a VM (vmRef, deleteDisks)
+  | -- | Delete a VM (vmRef, keepDisks)
     VmDelete !Text !Bool
   | VmStart !Text !WaitOptions
   | VmStop !Text !WaitOptions
@@ -81,14 +81,14 @@ data Command
     VmMigrate !Text !Text
   | -- Disk image commands
 
-    -- | Create disk image (name, format, sizeMb, optionalPath)
-    DiskCreate !Text !Text !Int64 !(Maybe Text)
-  | -- | Register existing disk image in DB without copying (name, path, optional format, optional backing image ref)
-    DiskRegisterCmd !Text !FilePath !(Maybe Text) !(Maybe Text)
-  | -- | Import disk image with copy/download (name, source, destPath, format, waitOptions)
-    DiskImport !Text !Text !(Maybe Text) !(Maybe Text) !WaitOptions
-  | -- | Create overlay disk image (name, baseDiskRef, optionalDirPath)
-    DiskCreateOverlay !Text !Text !(Maybe Text)
+    -- | Create disk image (name, format, sizeMb, optionalPath, ephemeral)
+    DiskCreate !Text !Text !Int64 !(Maybe Text) !Bool
+  | -- | Register existing disk image in DB without copying (name, path, optional format, optional backing image ref, ephemeral)
+    DiskRegisterCmd !Text !FilePath !(Maybe Text) !(Maybe Text) !Bool
+  | -- | Import disk image with copy/download (name, source, destPath, format, ephemeral, waitOptions)
+    DiskImport !Text !Text !(Maybe Text) !(Maybe Text) !Bool !WaitOptions
+  | -- | Create overlay disk image (name, baseDiskRef, optionalDirPath, ephemeral)
+    DiskCreateOverlay !Text !Text !(Maybe Text) !Bool
   | -- | Refresh disk image size from qemu-img info
     DiskRefresh !Text
   | -- | Delete disk image
@@ -99,8 +99,8 @@ data Command
     DiskList
   | -- | Show disk image details
     DiskShow !Text
-  | -- | Clone disk image (name, baseDiskRef, optionalPath)
-    DiskClone !Text !Text !(Maybe Text)
+  | -- | Clone disk image (name, baseDiskRef, optionalPath, ephemeral)
+    DiskClone !Text !Text !(Maybe Text) !Bool
   | -- | Rebase overlay to new backing or flatten (diskRef, newBackingRef, unsafe)
     DiskRebase !Text !(Maybe Text) !Bool
   | -- | Attach disk to VM (vmRef, diskRef, interface, media, readOnly, discard, cache)

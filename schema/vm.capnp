@@ -196,13 +196,15 @@ interface VmManager {
 interface Vm {
   show           @0  () -> (details :VmDetails);
   # Inline-param defaults mirror the CLI: start/stop return
-  # immediately by default; `delete` does not cascade to disks.
+  # immediately by default; `delete` reaps attached ephemeral disks
+  # (cloud-init ISOs, template-instantiated disks) unless
+  # `keepDisks` is set.
   start          @1  (wait :Bool = false) -> (status :Enums.VmStatus);
   stop           @2  (wait :Bool = false) -> (status :Enums.VmStatus);
   pause          @3  () -> (status :Enums.VmStatus);
   reset          @4  () -> (status :Enums.VmStatus);
   edit           @5  (params :VmEditParams) -> ();
-  delete         @6  (deleteDisks :Bool = false) -> ();
+  delete         @6  (keepDisks :Bool = false) -> ();
   cloudInit      @7  () -> (config :CloudInit.CloudInitInfo);
   viewGrant      @8  () -> (grant :Common.ViewGrant);
   guestExec      @9  (command :Text) -> (result :GuestExecResult);

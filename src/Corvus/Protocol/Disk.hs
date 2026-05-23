@@ -47,6 +47,10 @@ data DiskImageInfo = DiskImageInfo
   -- ^ Backing image ID (if this is an overlay)
   , diiBackingImageName :: !(Maybe Text)
   -- ^ Backing image name (if this is an overlay)
+  , diiEphemeral :: !Bool
+  -- ^ Ephemeral disks are auto-deleted with the VM they are attached
+  -- to. Cloud-init ISOs and template-instantiated disks default to
+  -- ephemeral; everything else defaults to non-ephemeral.
   }
   deriving (Eq, Show, Generic)
 

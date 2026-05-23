@@ -193,6 +193,7 @@ def disk_image_info(r) -> t.DiskImageInfo:
         attached_to=[disk_attachment(a) for a in r.attachedTo],
         backing_image_id=_nz_int(r.backingImageId),
         backing_image_name=_nz_text(r.backingImageName),
+        ephemeral=r.ephemeral,
     )
 
 

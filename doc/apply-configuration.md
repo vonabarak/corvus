@@ -150,6 +150,7 @@ disks:
     path: <string>            # Optional destination path for import/overlay/clone/create output file.
     backing: <string>         # Optional backing disk name (only valid with `register`, for overlays).
     md5: <string>             # Optional 32-hex MD5 (only valid with `import`); see below.
+    ephemeral: <bool>         # Optional. Default false. When true, the disk is auto-deleted with the VM it ends up attached to.
 ```
 
 Exactly one creation strategy must be specified:

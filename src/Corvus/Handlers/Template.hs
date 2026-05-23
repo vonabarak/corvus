@@ -263,6 +263,7 @@ insertTemplateYaml ty now = do
                       (tdyStrategy tdy)
                       (tdySizeMb tdy)
                       (tdyFormat tdy)
+                      (tdyEphemeral tdy)
 
                 forM_ (tyNetworkInterfaces ty) $ \tny ->
                   insert_ $ TemplateNetworkInterface tid (tnyType tny) (tnyHostDevice tny)
@@ -318,6 +319,7 @@ getTemplateDetails tid = do
             , tvdiCloneStrategy = templateDriveCloneStrategy td
             , tvdiSizeMb = templateDriveSizeMb td
             , tvdiFormat = templateDriveFormat td
+            , tvdiEphemeral = templateDriveEphemeral td
             }
 
       netIfs <- selectList [TemplateNetworkInterfaceTemplateId ==. tid] []
@@ -414,6 +416,17 @@ instantiateDriveIO ctx vmId vmName td = do
       nameSuffix = fromMaybe "disk" (tvdiDiskImageName td)
       vmDir = Just (vmName <> "/")
       attachDisk newDiskId = runActionAsSubtask state (DiskAttach vmIdLong newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiDiscard td) (tvdiCacheType td)) parentTaskId
+      -- Disks materialised during template instantiation are scoped to
+      -- this VM by default — clone/overlay/create branches all produce
+      -- a fresh image named after the VM. Direct strategy attaches an
+      -- existing image and leaves its ephemeral flag alone (the field
+      -- is unused on this branch). YAML can override via `ephemeral:`.
+      defaultEphemeral = case tvdiCloneStrategy td of
+        StrategyDirect -> False
+        StrategyClone -> True
+        StrategyOverlay -> True
+        StrategyCreate -> True
+      ephem = fromMaybe defaultEphemeral (tvdiEphemeral td)
   case tvdiCloneStrategy td of
     StrategyDirect -> case tvdiDiskImageId td of
       Nothing -> pure $ Left "direct strategy requires a disk image"
@@ -426,7 +439,7 @@ instantiateDriveIO ctx vmId vmName td = do
       Nothing -> pure $ Left "clone strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix
-        resp <- runActionAsSubtask state (DiskClone newName diskIdLong (tvdiSizeMb td) vmDir) parentTaskId
+        resp <- runActionAsSubtask state (DiskClone newName diskIdLong (tvdiSizeMb td) vmDir ephem) parentTaskId
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -439,7 +452,7 @@ instantiateDriveIO ctx vmId vmName td = do
       Nothing -> pure $ Left "overlay strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix <> "-overlay"
-        resp <- runActionAsSubtask state (DiskCreateOverlay newName diskIdLong (tvdiSizeMb td) vmDir) parentTaskId
+        resp <- runActionAsSubtask state (DiskCreateOverlay newName diskIdLong (tvdiSizeMb td) vmDir ephem) parentTaskId
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -451,7 +464,7 @@ instantiateDriveIO ctx vmId vmName td = do
     StrategyCreate -> case (tvdiFormat td, tvdiSizeMb td) of
       (Just fmt, Just sizeMb) -> do
         let newName = vmName <> "-" <> nameSuffix
-        resp <- runActionAsSubtask state (DiskCreate newName fmt (fromIntegral sizeMb) vmDir) parentTaskId
+        resp <- runActionAsSubtask state (DiskCreate newName fmt (fromIntegral sizeMb) vmDir ephem) parentTaskId
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId

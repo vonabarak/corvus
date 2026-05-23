@@ -97,8 +97,8 @@ import System.FilePath (takeExtension, takeFileName, (</>))
 --------------------------------------------------------------------------------
 
 -- | Create a new disk image
-handleDiskCreate :: ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> IO Response
-handleDiskCreate state name format sizeMb mPath = runServerLogging state $ do
+handleDiskCreate :: ServerState -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> IO Response
+handleDiskCreate state name format sizeMb mPath ephemeral = runServerLogging state $ do
   logInfoN $ "Creating disk image: " <> name <> " (" <> T.pack (show sizeMb) <> " MB)"
 
   -- Sanitize the name to prevent path traversal attacks
@@ -142,6 +142,7 @@ handleDiskCreate state name format sizeMb mPath = runServerLogging state $ do
                               , diskImageSizeMb = Just (fromIntegral sizeMb)
                               , diskImageCreatedAt = now
                               , diskImageBackingImageId = Nothing
+                              , diskImageEphemeral = ephemeral
                               }
                         recordDiskImageNode dkey nid storedPath
                         pure dkey
@@ -159,8 +160,9 @@ handleDiskRegister
   -> Text
   -> Maybe DriveFormat
   -> Maybe Int64
+  -> Bool
   -> IO Response
-handleDiskRegister state name filePath mFormat mBackingDiskId =
+handleDiskRegister state name filePath mFormat mBackingDiskId ephemeral =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -234,6 +236,7 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
                                 , diskImageSizeMb = sizeMb
                                 , diskImageCreatedAt = now
                                 , diskImageBackingImageId = fmap toSqlKey mBackingDiskId
+                                , diskImageEphemeral = ephemeral
                                 }
                           recordDiskImageNode dkey nid storedPath
                           pure dkey
@@ -261,8 +264,8 @@ handleDiskRegister state name filePath mFormat mBackingDiskId =
                     Nothing -> pure $ RespError $ "Failed to register disk image: " <> name
 
 -- | Create a qcow2 overlay backed by an existing disk image
-handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe Int -> Maybe T.Text -> IO Response
-handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath = runServerLogging state $ do
+handleDiskCreateOverlay :: ServerState -> T.Text -> Int64 -> Maybe Int -> Maybe T.Text -> Bool -> IO Response
+handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath ephemeral = runServerLogging state $ do
   logInfoN $ "Creating overlay '" <> name <> "' backed by disk " <> T.pack (show baseDiskId)
 
   case sanitizeDiskName name of
@@ -329,6 +332,7 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath = runServerLo
                                           , diskImageSizeMb = diskImageSizeMb baseDisk
                                           , diskImageCreatedAt = now
                                           , diskImageBackingImageId = Just (toSqlKey baseDiskId)
+                                          , diskImageEphemeral = ephemeral
                                           }
                                     recordDiskImageNode dkey nid storedOverlay
                                     pure dkey
@@ -347,8 +351,8 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath = runServerLo
                           pure $ RespDiskCreated $ fromSqlKey diskId
 
 -- | Clone a disk image
-handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Int -> Maybe Text -> IO Response
-handleDiskClone state name baseDiskId mResizeMb optionalPath = runServerLogging state $ do
+handleDiskClone :: ServerState -> Text -> Int64 -> Maybe Int -> Maybe Text -> Bool -> IO Response
+handleDiskClone state name baseDiskId mResizeMb optionalPath ephemeral = runServerLogging state $ do
   logInfoN $ "Cloning disk image " <> T.pack (show baseDiskId) <> " to '" <> name <> "'"
 
   case sanitizeDiskName name of
@@ -403,6 +407,7 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath = runServerLogging 
                                           , diskImageSizeMb = diskImageSizeMb baseDisk
                                           , diskImageCreatedAt = now
                                           , diskImageBackingImageId = diskImageBackingImageId baseDisk
+                                          , diskImageEphemeral = ephemeral
                                           }
                                     recordDiskImageNode dId nid storedDest
                                     -- Clone snapshots as well
@@ -588,39 +593,42 @@ data DiskCreate = DiskCreate
   , dcrFormat :: DriveFormat
   , dcrSizeMb :: Int64
   , dcrPath :: Maybe Text
+  , dcrEphemeral :: Bool
   }
 
 instance Action DiskCreate where
   actionSubsystem _ = SubDisk
   actionCommand _ = "create"
   actionEntityName = Just . dcrName
-  actionExecute ctx a = handleDiskCreate (acState ctx) (dcrName a) (dcrFormat a) (dcrSizeMb a) (dcrPath a)
+  actionExecute ctx a = handleDiskCreate (acState ctx) (dcrName a) (dcrFormat a) (dcrSizeMb a) (dcrPath a) (dcrEphemeral a)
 
 data DiskCreateOverlay = DiskCreateOverlay
   { dcoName :: Text
   , dcoBaseDiskId :: Int64
   , dcoResizeMb :: Maybe Int
   , dcoPath :: Maybe Text
+  , dcoEphemeral :: Bool
   }
 
 instance Action DiskCreateOverlay where
   actionSubsystem _ = SubDisk
   actionCommand _ = "overlay"
   actionEntityName = Just . dcoName
-  actionExecute ctx a = handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResizeMb a) (dcoPath a)
+  actionExecute ctx a = handleDiskCreateOverlay (acState ctx) (dcoName a) (dcoBaseDiskId a) (dcoResizeMb a) (dcoPath a) (dcoEphemeral a)
 
 data DiskRegister = DiskRegister
   { drgName :: Text
   , drgPath :: Text
   , drgFormat :: Maybe DriveFormat
   , drgBackingDiskId :: Maybe Int64
+  , drgEphemeral :: Bool
   }
 
 instance Action DiskRegister where
   actionSubsystem _ = SubDisk
   actionCommand _ = "register"
   actionEntityName = Just . drgName
-  actionExecute ctx a = handleDiskRegister (acState ctx) (drgName a) (drgPath a) (drgFormat a) (drgBackingDiskId a)
+  actionExecute ctx a = handleDiskRegister (acState ctx) (drgName a) (drgPath a) (drgFormat a) (drgBackingDiskId a) (drgEphemeral a)
 
 newtype DiskDelete = DiskDelete {ddelDiskId :: Int64}
 
@@ -646,13 +654,14 @@ data DiskClone = DiskClone
   , dclBaseDiskId :: Int64
   , dclResizeMb :: Maybe Int
   , dclPath :: Maybe Text
+  , dclEphemeral :: Bool
   }
 
 instance Action DiskClone where
   actionSubsystem _ = SubDisk
   actionCommand _ = "clone"
   actionEntityName = Just . dclName
-  actionExecute ctx a = handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResizeMb a) (dclPath a)
+  actionExecute ctx a = handleDiskClone (acState ctx) (dclName a) (dclBaseDiskId a) (dclResizeMb a) (dclPath a) (dclEphemeral a)
 
 newtype DiskRefresh = DiskRefresh {drfDiskId :: Int64}
 

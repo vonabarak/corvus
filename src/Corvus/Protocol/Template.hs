@@ -49,6 +49,10 @@ data TemplateDriveInfo = TemplateDriveInfo
   , tvdiCloneStrategy :: !TemplateCloneStrategy
   , tvdiSizeMb :: !(Maybe Int)
   , tvdiFormat :: !(Maybe DriveFormat)
+  , tvdiEphemeral :: !(Maybe Bool)
+  -- ^ Per-drive override for the ephemeral flag on disks materialised
+  -- during instantiation. 'Nothing' picks the strategy-driven default
+  -- (True for clone/overlay/create, False for direct).
   }
   deriving (Eq, Show, Generic)
 

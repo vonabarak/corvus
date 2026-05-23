@@ -100,6 +100,6 @@ class TestVmStartFailures(SingleNodeCase):
             except Exception:
                 pass
             try:
-                vm.delete(delete_disks=True)
+                vm.delete()
             except Exception:
                 pass

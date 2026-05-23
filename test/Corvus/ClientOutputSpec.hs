@@ -74,7 +74,7 @@ spec = sequential $ do
 
     describe "DiskImageInfo" $ do
       it "serializes with all fields" $ do
-        let disk = DiskImageInfo 1 "boot" [DiskImagePlacement 1 "test-node" "/path/boot.qcow2"] FormatQcow2 (Just 10240) testTime [(1, "vm1"), (2, "vm2")] Nothing Nothing
+        let disk = DiskImageInfo 1 "boot" [DiskImagePlacement 1 "test-node" "/path/boot.qcow2"] FormatQcow2 (Just 10240) testTime [(1, "vm1"), (2, "vm2")] Nothing Nothing False
             val = toJSON disk
         case val of
           Object obj -> do
@@ -85,7 +85,7 @@ spec = sequential $ do
           _ -> fail "Expected JSON object"
 
       it "serializes overlay backing info" $ do
-        let disk = DiskImageInfo 2 "overlay" [DiskImagePlacement 1 "test-node" "/path/overlay.qcow2"] FormatQcow2 Nothing testTime [] (Just 1) (Just "base")
+        let disk = DiskImageInfo 2 "overlay" [DiskImagePlacement 1 "test-node" "/path/overlay.qcow2"] FormatQcow2 Nothing testTime [] (Just 1) (Just "base") False
             val = toJSON disk
         case val of
           Object obj -> do

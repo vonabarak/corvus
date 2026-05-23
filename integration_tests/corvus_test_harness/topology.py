@@ -300,7 +300,7 @@ class Topology:
                 if "not running" not in str(e).lower():
                     cleanup_errors.append(f"stop {node.name}: {e}")
             try:
-                self.crv.vm_delete(node.name, delete_disks=True)
+                self.crv.vm_delete(node.name)
             except CrvError as e:
                 cleanup_errors.append(f"delete {node.name}: {e}")
         if cleanup_errors:

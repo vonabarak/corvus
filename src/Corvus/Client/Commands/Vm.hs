@@ -116,11 +116,11 @@ handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent cl
 
 -- | Handle VM deletion
 handleVmDelete :: OutputFormat -> CapnpConnection -> Text -> Bool -> IO Bool
-handleVmDelete fmt conn vmRef deleteDisks =
+handleVmDelete fmt conn vmRef keepDisks =
   tryRpcUnit
     fmt
     (putStrLn $ "VM '" ++ T.unpack vmRef ++ "' deleted.")
-    (CR.rpcVmDelete conn (entityRefFromText vmRef) deleteDisks)
+    (CR.rpcVmDelete conn (entityRefFromText vmRef) keepDisks)
 
 -- | Generic VM action shim. Kept for compatibility with the
 -- dispatcher in 'Corvus.Client.Commands' which threads an

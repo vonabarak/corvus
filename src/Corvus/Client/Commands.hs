@@ -141,7 +141,7 @@ runCommand opts = do
               putStrLn ("Error: " ++ show e)
             pure False
       VmCreate name nodeRef cpuCount ramMb mDesc headless ga ci as rq -> handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless ga ci as rq
-      VmDelete vmRef deleteDisks -> handleVmDelete fmt conn vmRef deleteDisks
+      VmDelete vmRef keepDisks -> handleVmDelete fmt conn vmRef keepDisks
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
       VmPause vmRef ->
@@ -154,21 +154,21 @@ runCommand opts = do
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef
       VmMigrate vmRef toNodeRef -> handleVmMigrate fmt conn vmRef toNodeRef
       -- Disk commands
-      DiskCreate name formatStr sizeMb mPath -> do
+      DiskCreate name formatStr sizeMb mPath ephemeral -> do
         case parseFormat formatStr of
           Left err -> do
             emitError fmt "invalid_format" err $ putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right format -> handleDiskCreate fmt conn name format sizeMb mPath
-      DiskCreateOverlay name baseDiskRef optDirPath -> handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath
-      DiskRegisterCmd name path mFormatStr mBackingRef -> handleDiskRegister fmt conn name path mFormatStr mBackingRef
-      DiskImport name source mPath mFormatStr waitOpts -> handleDiskImport fmt conn name source mPath mFormatStr waitOpts
+          Right format -> handleDiskCreate fmt conn name format sizeMb mPath ephemeral
+      DiskCreateOverlay name baseDiskRef optDirPath ephemeral -> handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath ephemeral
+      DiskRegisterCmd name path mFormatStr mBackingRef ephemeral -> handleDiskRegister fmt conn name path mFormatStr mBackingRef ephemeral
+      DiskImport name source mPath mFormatStr ephemeral waitOpts -> handleDiskImport fmt conn name source mPath mFormatStr ephemeral waitOpts
       DiskRefresh diskRef -> handleDiskRefresh fmt conn diskRef
       DiskDelete diskRef -> handleDiskDelete fmt conn diskRef
       DiskResize diskRef newSizeMb -> handleDiskResize fmt conn diskRef newSizeMb
       DiskList -> handleDiskList fmt tableOpts conn
       DiskShow diskRef -> handleDiskShow fmt conn diskRef
-      DiskClone name baseDiskRef optionalPath -> handleDiskClone fmt conn name baseDiskRef optionalPath
+      DiskClone name baseDiskRef optionalPath ephemeral -> handleDiskClone fmt conn name baseDiskRef optionalPath ephemeral
       DiskRebase diskRef mNewBacking unsafe -> handleDiskRebase fmt conn diskRef mNewBacking unsafe
       DiskAttach vmRef diskRef ifaceStr media readOnly discard cacheStr -> do
         case parseInterface ifaceStr of

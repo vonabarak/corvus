@@ -59,8 +59,8 @@ import System.FilePath (takeDirectory, takeFileName, (</>))
 -- | Import a disk image from an HTTP/HTTPS URL.
 -- Downloads the file to the base images directory, decompresses @.xz@ if
 -- needed, and registers it in the database.
-handleDiskImportUrl :: ServerState -> Text -> Text -> Maybe Text -> IO Response
-handleDiskImportUrl state name url mFormatStr =
+handleDiskImportUrl :: ServerState -> Text -> Text -> Maybe Text -> Bool -> IO Response
+handleDiskImportUrl state name url mFormatStr ephemeral =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -68,7 +68,7 @@ handleDiskImportUrl state name url mFormatStr =
       let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
       -- importDiskFromUrlIO performs its own pickNodeForDisk
       -- lookup internally (Phase 1 fallback).
-      result <- liftIO $ importDiskFromUrlIO state name url mExplicitFmt Nothing
+      result <- liftIO $ importDiskFromUrlIO state name url mExplicitFmt Nothing ephemeral
       case result of
         Left err -> do
           logWarnN $ "URL import failed: " <> err
@@ -86,8 +86,8 @@ handleDiskImportUrl state name url mFormatStr =
 -- the download is skipped; on mismatch the import fails without
 -- overwriting. Fresh downloads are retried up to 'maxImportAttempts'
 -- times on hash mismatch.
-handleDiskImportCopy :: ServerState -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> IO Response
-handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
+handleDiskImportCopy :: ServerState -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Bool -> IO Response
+handleDiskImportCopy state name source mDestPath mFormatStr mMd5 ephemeral =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -140,7 +140,7 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
                         Left err -> do
                           logWarnN err
                           pure $ RespError err
-                        Right diskPath -> registerImportedFile state nid basePath safeName format diskPath
+                        Right diskPath -> registerImportedFile state nid basePath safeName format diskPath ephemeral
                     else do
                       -- Local file copy
                       let srcPath = T.unpack source
@@ -160,7 +160,7 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
                               logInfoN $ "Copying " <> T.pack canonSrc <> " to " <> T.pack canonDest
                               copyResult <- liftIO $ cloneImageViaAgent state nid canonSrc canonDest
                               case copyResult of
-                                ImageSuccess -> registerImportedFile state nid basePath safeName format canonDest
+                                ImageSuccess -> registerImportedFile state nid basePath safeName format canonDest ephemeral
                                 ImageError err -> do
                                   logWarnN $ "Copy failed: " <> err
                                   pure $ RespError $ "Copy failed: " <> err
@@ -169,7 +169,7 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
   where
     isXzUrl t = ".xz?" `T.isInfixOf` t
 
-    registerImportedFile state' nid basePath safeName format diskPath = do
+    registerImportedFile state' nid basePath safeName format diskPath ephem = do
       sizeMb <- liftIO $ getImageSizeMbViaAgent state' nid diskPath
       now <- liftIO getCurrentTime
       let storedPath = makeRelativeToBase basePath diskPath
@@ -185,6 +185,7 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
                       , diskImageSizeMb = sizeMb
                       , diskImageCreatedAt = now
                       , diskImageBackingImageId = Nothing
+                      , diskImageEphemeral = ephem
                       }
                 recordDiskImageNode dkey nid storedPath
                 pure dkey
@@ -205,8 +206,8 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 =
 --
 -- Exposed outside the Action typeclass so @crv apply@ can reuse it
 -- directly when walking a YAML config.
-importDiskFromUrlIO :: ServerState -> Text -> Text -> Maybe DriveFormat -> Maybe Text -> IO (Either Text Int64)
-importDiskFromUrlIO state name url mFormat mMd5 = do
+importDiskFromUrlIO :: ServerState -> Text -> Text -> Maybe DriveFormat -> Maybe Text -> Bool -> IO (Either Text Int64)
+importDiskFromUrlIO state name url mFormat mMd5 ephemeral = do
   case sanitizeDiskName name of
     Left err -> pure $ Left err
     Right safeName -> do
@@ -261,6 +262,7 @@ importDiskFromUrlIO state name url mFormat mMd5 = do
                             , diskImageSizeMb = sizeMb
                             , diskImageCreatedAt = now
                             , diskImageBackingImageId = Nothing
+                            , diskImageEphemeral = ephemeral
                             }
                       recordDiskImageNode dkey nid storedPath
                       pure dkey
@@ -379,22 +381,24 @@ data DiskImportAction = DiskImportAction
   , diaDestPath :: Maybe Text
   , diaFormat :: Maybe Text
   , diaMd5 :: Maybe Text
+  , diaEphemeral :: Bool
   }
 
 instance Action DiskImportAction where
   actionSubsystem _ = SubDisk
   actionCommand _ = "import"
   actionEntityName = Just . diaName
-  actionExecute ctx a = handleDiskImportCopy (acState ctx) (diaName a) (diaSource a) (diaDestPath a) (diaFormat a) (diaMd5 a)
+  actionExecute ctx a = handleDiskImportCopy (acState ctx) (diaName a) (diaSource a) (diaDestPath a) (diaFormat a) (diaMd5 a) (diaEphemeral a)
 
 data DiskImportUrl = DiskImportUrl
   { diuName :: Text
   , diuUrl :: Text
   , diuFormat :: Maybe Text
+  , diuEphemeral :: Bool
   }
 
 instance Action DiskImportUrl where
   actionSubsystem _ = SubDisk
   actionCommand _ = "import-url"
   actionEntityName = Just . diuName
-  actionExecute ctx a = handleDiskImportUrl (acState ctx) (diuName a) (diuUrl a) (diuFormat a)
+  actionExecute ctx a = handleDiskImportUrl (acState ctx) (diuName a) (diuUrl a) (diuFormat a) (diuEphemeral a)

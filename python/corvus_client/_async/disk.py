@@ -35,6 +35,7 @@ class AsyncDiskManager:
         size_mb: int,
         *,
         format: str | None = None,
+        ephemeral: bool = False,
     ) -> AsyncDisk:
         mgr = await self._ensure()
         params = _schema.disk.DiskCreateParams.new_message()
@@ -42,6 +43,7 @@ class AsyncDiskManager:
         params.sizeMb = size_mb
         if format is not None:
             params.format = format
+        params.ephemeral = ephemeral
         resp = await mgr.create(params=params)
         return AsyncDisk(resp.disk)
 
@@ -51,6 +53,7 @@ class AsyncDiskManager:
         file_path: str,
         *,
         format: str | None = None,
+        ephemeral: bool = False,
     ) -> AsyncDisk:
         mgr = await self._ensure()
         params = _schema.disk.DiskRegisterParams.new_message()
@@ -58,6 +61,7 @@ class AsyncDiskManager:
         params.filePath = file_path
         if format is not None:
             params.format = format
+        params.ephemeral = ephemeral
         resp = await mgr.register(params=params)
         return AsyncDisk(resp.disk)
 
@@ -65,11 +69,14 @@ class AsyncDiskManager:
         self,
         name: str,
         backing_disk_ref: int | str,
+        *,
+        ephemeral: bool = False,
     ) -> AsyncDisk:
         mgr = await self._ensure()
         params = _schema.disk.DiskCreateOverlayParams.new_message()
         params.name = name
         params.backingDiskRef = entity_ref(backing_disk_ref)
+        params.ephemeral = ephemeral
         resp = await mgr.createOverlay(params=params)
         return AsyncDisk(resp.disk)
 
@@ -79,6 +86,7 @@ class AsyncDiskManager:
         new_name: str,
         *,
         path: str | None = None,
+        ephemeral: bool = False,
     ) -> AsyncDisk:
         """Clone an existing disk to a new disk record.
 
@@ -87,6 +95,9 @@ class AsyncDiskManager:
         `<basePath>/<new_name>.<ext>`. Relative paths are resolved
         against the daemon's basePath; absolute paths are honoured
         as-is.
+
+        Pass ``ephemeral=True`` to mark the clone for auto-deletion
+        with the VM it ends up attached to.
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskCloneParams.new_message()
@@ -94,6 +105,7 @@ class AsyncDiskManager:
         params.newName = new_name
         if path is not None:
             params.path = path
+        params.ephemeral = ephemeral
         resp = await mgr.clone(params=params)
         return AsyncDisk(resp.disk)
 
@@ -124,6 +136,7 @@ class AsyncDiskManager:
         *,
         format: str | None = None,
         size_mb: int | None = None,
+        ephemeral: bool = False,
     ) -> int:
         """Returns the task id; the disk is created asynchronously."""
         mgr = await self._ensure()
@@ -134,6 +147,7 @@ class AsyncDiskManager:
             params.format = format
         if size_mb is not None:
             params.sizeMb = size_mb
+        params.ephemeral = ephemeral
         resp = await mgr.importUrl(params=params)
         return resp.taskId
 
@@ -143,6 +157,7 @@ class AsyncDiskManager:
         src_path: str,
         *,
         format: str | None = None,
+        ephemeral: bool = False,
     ) -> AsyncDisk:
         mgr = await self._ensure()
         params = _schema.disk.DiskImportParams.new_message()
@@ -150,6 +165,7 @@ class AsyncDiskManager:
         params.srcPath = src_path
         if format is not None:
             params.format = format
+        params.ephemeral = ephemeral
         # `import` is a Python keyword; pycapnp uses the schema name verbatim
         # as a method on the cap, so we call it through getattr.
         resp = await getattr(mgr, "import")(params=params)

@@ -140,10 +140,13 @@ class TestBuildPipeline(SingleNodeCase):
             assert not any(n.startswith("__build_") for n in vm_names), vm_names
 
             # Verify: fresh boot of the artifact reads the marker.
-            # Attach via overlay so `vm.delete(delete_disks=True)`
-            # only touches the overlay; the artifact stays for
-            # explicit deletion below.
-            self.client.disks.create_overlay(verify_overlay, artifact_name)
+            # Attach via overlay so `vm.delete()` reaps the overlay
+            # (it's marked ephemeral) and the artifact stays for
+            # explicit deletion below — deleting the artifact first
+            # would fail with `DiskHasOverlays`.
+            self.client.disks.create_overlay(
+                verify_overlay, artifact_name, ephemeral=True
+            )
             verify_vm = self.client.vms.create(
                 f"corvus-it-build-vm-{token}",
                 cpu_count=1,
@@ -161,7 +164,7 @@ class TestBuildPipeline(SingleNodeCase):
                 verify_vm.stop(wait=True)
             finally:
                 verify_vm.reset()
-                verify_vm.delete(delete_disks=True)
+                verify_vm.delete()
 
             # Drop the artifact disk so cleanup is complete.
             self.client.disks.get(artifact_name, by_name=True).delete()

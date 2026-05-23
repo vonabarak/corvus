@@ -96,8 +96,8 @@ vmDeleteCommand =
           <> completer vmCompleter
       )
     <*> switch
-      ( long "delete-disks"
-          <> help "Also delete disks that are exclusively attached to this VM"
+      ( long "keep-disks"
+          <> help "Do not delete ephemeral disks (cloud-init ISOs, template-instantiated disks) attached to this VM"
       )
 
 -- | Parser for vm show

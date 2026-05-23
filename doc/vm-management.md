@@ -87,11 +87,20 @@ VMs with `guestAgent: true` transition through a `starting` state and become `ru
 ## Deleting a VM
 
 ```bash
-crv vm delete my-vm                # Delete VM record only
-crv vm delete my-vm --delete-disks # Also delete all attached disk images
+crv vm delete my-vm              # Delete VM record + reap attached ephemeral disks
+crv vm delete my-vm --keep-disks # Delete VM record only; leave every disk in place
 ```
 
-The VM must be stopped before deletion. With `--delete-disks`, all disk images attached to the VM are also removed from the database and filesystem.
+The VM must be stopped before deletion. By default, `vm delete` also
+removes every **ephemeral** disk attached to the VM — that's cloud-init
+ISOs, disks created during template instantiation (clone / overlay /
+create strategies), and anything else created with `ephemeral=true`.
+Non-ephemeral disks are never auto-deleted, even if exclusively attached;
+remove them with `crv disk delete`.
+
+Pass `--keep-disks` when debugging an instance's state and you need the
+ISO or overlay to outlive the VM record. See
+[disk-management.md](disk-management.md) for the `ephemeral` flag.
 
 ## Display and Console
 

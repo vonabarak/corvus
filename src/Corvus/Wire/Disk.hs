@@ -34,6 +34,7 @@ toCapnpDiskImageInfo P.DiskImageInfo {..} =
     , CGDisk.attachedTo = map mkAttachment diiAttachedTo
     , CGDisk.backingImageId = fromMaybe 0 diiBackingImageId
     , CGDisk.backingImageName = fromMaybe mempty diiBackingImageName
+    , CGDisk.ephemeral = diiEphemeral
     }
   where
     mkAttachment (vid, vname) =
@@ -72,6 +73,7 @@ fromCapnpDiskImageInfo CGDisk.DiskImageInfo {..} = do
       , P.diiBackingImageId = if backingImageId == 0 then Nothing else Just backingImageId
       , P.diiBackingImageName =
           if backingImageName == mempty then Nothing else Just backingImageName
+      , P.diiEphemeral = ephemeral
       }
 
 -- ---------------------------------------------------------------------

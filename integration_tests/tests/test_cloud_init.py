@@ -278,7 +278,7 @@ class TestCloudInit(SingleNodeCase):
             assert info.inject_ssh_keys is False, info
         finally:
             try:
-                vm.delete(delete_disks=True)
+                vm.delete()
             except Exception:
                 pass
 

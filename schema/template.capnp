@@ -34,6 +34,11 @@ struct TemplateDriveInfo {
   sizeMb         @9  :Int64;   # 0 == not specified
   hasFormat      @10 :Bool;
   format         @11 :Enums.DriveFormat;
+  # Per-drive override for the ephemeral flag on disks created during
+  # instantiation. `hasEphemeral` distinguishes "user did not specify"
+  # (use strategy-driven default) from "user explicitly set to false".
+  hasEphemeral   @12 :Bool;
+  ephemeral      @13 :Bool;
 }
 
 struct TemplateNetIfInfo {

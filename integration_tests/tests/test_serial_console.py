@@ -173,7 +173,7 @@ class TestSerialConsole(SingleNodeCase):
             assert "not running" in msg, msg
             assert "stopped" in msg, msg
         finally:
-            vm_cap.delete(delete_disks=False)
+            vm_cap.delete(keep_disks=True)
 
     def test_view_session_banner(self):
         """`crv vm view` prints connection banner + keybinding help.

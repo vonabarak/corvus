@@ -145,7 +145,7 @@ spec = withTestDb $ do
 
     it "Disk lifecycle: create → list → delete → list (empty)" $ \env -> do
       withCapnpDaemon env $ \conn -> do
-        did <- CR.rpcDiskCreate conn "spec-disk" 10 CapnpEnums.DriveFormat'qcow2
+        did <- CR.rpcDiskCreate conn "spec-disk" 10 CapnpEnums.DriveFormat'qcow2 False
         ds <- CR.rpcDiskList conn
         length ds `shouldBe` 1
         CR.rpcDiskDelete conn (WC.RefById did)

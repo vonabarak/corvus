@@ -44,6 +44,7 @@ diskCreateCommand =
               <> help "Destination path. Trailing / = directory (filename auto-generated). Relative paths resolve against base images path."
           )
       )
+    <*> ephemeralSwitch
 
 -- | Parser for disk delete
 diskDeleteCommand :: Parser Command
@@ -188,6 +189,7 @@ diskRegisterCommand =
                 <> completer diskCompleter
             )
       )
+    <*> ephemeralSwitch
 
 -- | Parser for disk import (copies local file or downloads URL)
 diskImportCommand :: Parser Command
@@ -222,6 +224,7 @@ diskImportCommand =
                 <> completeWith ["qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx"]
             )
       )
+    <*> ephemeralSwitch
     <*> waitOptionsParser
 
 -- | Parser for disk overlay
@@ -247,6 +250,7 @@ diskOverlayCommand =
               <> help "Destination path. Trailing / = directory (filename auto-generated). Relative paths resolve against base images path."
           )
       )
+    <*> ephemeralSwitch
 
 -- | Parser for disk clone
 diskCloneCommand :: Parser Command
@@ -271,6 +275,7 @@ diskCloneCommand =
               <> help "Destination path. Trailing / = directory (filename auto-generated). Relative paths resolve against base images path."
           )
       )
+    <*> ephemeralSwitch
 
 -- | Parser for disk rebase
 diskRebaseCommand :: Parser Command
@@ -340,6 +345,15 @@ diskMoveCommand =
           <> help "Destination node (name or ID)"
           <> completer nodeCompleter
       )
+
+-- | Shared @--ephemeral@ flag for disk-creating subcommands. An
+-- ephemeral disk is auto-deleted with the VM it is attached to.
+ephemeralSwitch :: Parser Bool
+ephemeralSwitch =
+  switch
+    ( long "ephemeral"
+        <> help "Mark this disk as ephemeral (auto-deleted with the VM it is attached to)"
+    )
 
 -- | Parser for all disk subcommands
 diskCommandParser :: Parser Command

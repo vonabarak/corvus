@@ -3,11 +3,11 @@
 ## Commands
 
 ```bash
-crv disk create <name> --size <MB> [--format <fmt>] [--path <path>]
-crv disk register <name> <path> [--format <fmt>] [--backing <disk>]
-crv disk import <name> <source> [--path <dest>] [--format <fmt>] [--wait]
-crv disk overlay <name> <base_disk> [--path <path>]
-crv disk clone <name> <base_disk> [--path <path>]
+crv disk create <name> --size <MB> [--format <fmt>] [--path <path>] [--ephemeral]
+crv disk register <name> <path> [--format <fmt>] [--backing <disk>] [--ephemeral]
+crv disk import <name> <source> [--path <dest>] [--format <fmt>] [--ephemeral] [--wait]
+crv disk overlay <name> <base_disk> [--path <path>] [--ephemeral]
+crv disk clone <name> <base_disk> [--path <path>] [--ephemeral]
 crv disk rebase <disk> [--backing <new_backing>] [--unsafe]
 crv disk resize <disk> --size <MB>
 crv disk refresh <disk>
@@ -56,7 +56,32 @@ fallback). Multi-node operators are responsible for explicit
 crv disk create boot --size 20480 --format qcow2
 crv disk create data --size 102400 -f raw
 crv disk create scratch --size 4096 --path project/
+crv disk create test-overlay --size 8192 --ephemeral
 ```
+
+## Ephemeral disks
+
+Mark a disk **ephemeral** to have it deleted automatically when the VM
+it is attached to is deleted (`crv vm delete`). Useful for per-VM
+artifacts that have no value outside the VM's lifetime.
+
+* Cloud-init ISOs (`<vm>-cloud-init`) are always ephemeral — the
+  daemon sets the flag when it generates them.
+* Disks materialised by `crv template instantiate` via the
+  `create`, `clone`, or `overlay` strategy are ephemeral by default;
+  the template YAML can override per-drive with `ephemeral: false`.
+* Disks created from the apply schema, the CLI, or the Python client
+  default to **non-ephemeral**. Add `--ephemeral` / `ephemeral: true`
+  to opt in.
+
+`crv vm delete --keep-disks` overrides the auto-reap and keeps every
+attached disk, ephemeral or not. The ephemeral flag itself is visible
+in `crv disk show <name>` (the `Ephemeral` field) and in `crv disk
+list` (the `EPH` column).
+
+Non-ephemeral disks attached exclusively to a VM are **not**
+auto-deleted on `vm delete` — remove them with `crv disk delete` after
+the VM is gone, or attach them with `ephemeral=true` from the start.
 
 ## Registering Existing Files
 

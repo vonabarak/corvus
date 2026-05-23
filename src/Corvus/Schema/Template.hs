@@ -63,6 +63,11 @@ data TemplateDriveYaml = TemplateDriveYaml
   , tdyStrategy :: TemplateCloneStrategy
   , tdySizeMb :: Maybe Int
   , tdyFormat :: Maybe DriveFormat
+  , tdyEphemeral :: Maybe Bool
+  -- ^ Override the strategy-driven ephemeral default. 'Nothing' picks
+  -- the default for the strategy: True for clone/overlay/create
+  -- (disks materialised during instantiation), False for direct
+  -- (an existing image is attached as-is).
   }
   deriving (Show, Generic)
 
@@ -78,6 +83,7 @@ instance FromJSON TemplateDriveYaml where
       <*> o .: "strategy"
       <*> o .:? "sizeMb"
       <*> o .:? "format"
+      <*> o .:? "ephemeral"
 
 data TemplateNetworkInterfaceYaml = TemplateNetworkInterfaceYaml
   { tnyType :: NetInterfaceType

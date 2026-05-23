@@ -264,25 +264,25 @@ vmReset vmId = withState (\st -> runAction st (VmReset vmId))
 
 diskCreate :: Text -> DriveFormat -> Int64 -> TestM Response
 diskCreate name format sizeMb =
-  withState (\st -> runAction st (DiskCreate name format sizeMb Nothing))
+  withState (\st -> runAction st (DiskCreate name format sizeMb Nothing False))
 
 diskCreateOverlay :: Text -> Int64 -> Maybe Text -> TestM Response
 diskCreateOverlay name baseDiskId mPath =
-  withState (\st -> runAction st (DiskCreateOverlay name baseDiskId Nothing mPath))
+  withState (\st -> runAction st (DiskCreateOverlay name baseDiskId Nothing mPath False))
 
 diskRegister :: Text -> Text -> DriveFormat -> TestM Response
 diskRegister name filePath format =
-  withState (\st -> runAction st (DiskRegister name filePath (Just format) Nothing))
+  withState (\st -> runAction st (DiskRegister name filePath (Just format) Nothing False))
 
 diskRegisterWithBacking :: Text -> Text -> DriveFormat -> Text -> TestM Response
 diskRegisterWithBacking name filePath format backingRef =
   withState $ \st -> do
     backingId <- resolveDiskId st (Ref backingRef)
-    runAction st (DiskRegister name filePath (Just format) (Just backingId))
+    runAction st (DiskRegister name filePath (Just format) (Just backingId) False)
 
 diskClone :: Text -> Int64 -> Maybe Text -> TestM Response
 diskClone name baseDiskId mPath =
-  withState (\st -> runAction st (DiskClone name baseDiskId Nothing mPath))
+  withState (\st -> runAction st (DiskClone name baseDiskId Nothing mPath False))
 
 diskRebase :: Int64 -> Maybe Int64 -> Bool -> TestM Response
 diskRebase diskId mNewBackingId unsafe =
@@ -290,7 +290,7 @@ diskRebase diskId mNewBackingId unsafe =
 
 diskImport :: Text -> Text -> Maybe Text -> Maybe Text -> Bool -> TestM Response
 diskImport name source mPath mFormat _wait =
-  withState (\st -> runAction st (DiskImportAction name source mPath mFormat Nothing))
+  withState (\st -> runAction st (DiskImportAction name source mPath mFormat Nothing False))
 
 diskDelete :: Int64 -> TestM Response
 diskDelete diskId = withState (\st -> runAction st (DiskDelete diskId))

@@ -325,6 +325,12 @@ ensureCloudInitDiskRegistered pool qemuConfig vmId vmName isoPath logLevel = run
                   , diskImageSizeMb = Nothing
                   , diskImageCreatedAt = now
                   , diskImageBackingImageId = Nothing
+                  , -- Cloud-init ISOs are scoped to the lifetime of
+                    -- their VM: the ISO encodes per-VM hostname, SSH
+                    -- keys and any custom user-data, and is never
+                    -- reused by another VM. Reaped automatically when
+                    -- the VM is deleted (unless --keep-disks).
+                    diskImageEphemeral = True
                   }
             )
             pool

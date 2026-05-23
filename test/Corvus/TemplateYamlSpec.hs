@@ -52,6 +52,7 @@ sampleDetails =
             , tvdiCloneStrategy = StrategyOverlay
             , tvdiSizeMb = Just 20480
             , tvdiFormat = Nothing
+            , tvdiEphemeral = Just True
             }
         ]
     , tvdNetIfs =
@@ -94,6 +95,7 @@ spec = do
           tdyDiscard d `shouldBe` Just True
           tdyStrategy d `shouldBe` StrategyOverlay
           tdySizeMb d `shouldBe` Just 20480
+          tdyEphemeral d `shouldBe` Just True
           length (tyNetworkInterfaces ty) `shouldBe` 1
           let [n] = tyNetworkInterfaces ty
           tnyType n `shouldBe` NetUser
@@ -117,6 +119,7 @@ spec = do
                       , tvdiCloneStrategy = StrategyCreate
                       , tvdiSizeMb = Just 10240
                       , tvdiFormat = Just FormatQcow2
+                      , tvdiEphemeral = Nothing
                       }
                   ]
               }

@@ -79,6 +79,7 @@ Each entry in `drives` configures a disk that will be attached to VMs instantiat
 | `readOnly` | bool | no | `false` | Attach as read-only. |
 | `cacheType` | enum | no | `none` | Cache mode: `none`, `writeback`, `writethrough`, `directsync`, `unsafe`. |
 | `discard` | bool | no | `false` | Enable discard/TRIM support. |
+| `ephemeral` | bool | no | strategy-driven | Mark the materialised disk as ephemeral (auto-deleted with the VM). Defaults to `true` for `clone`, `overlay`, and `create`; `false` for `direct`. Override either way. |
 
 ### Drive Strategies
 

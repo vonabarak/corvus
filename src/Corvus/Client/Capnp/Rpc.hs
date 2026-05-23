@@ -471,9 +471,9 @@ rpcVmReset conn ref = do
   pure ()
 
 rpcVmDelete :: CapnpConnection -> EntityRef -> Bool -> IO ()
-rpcVmDelete conn ref deleteDisks = do
+rpcVmDelete conn ref keepDisks = do
   vmClient <- getVmClient conn ref
-  _ <- callOn #delete CGVm.Vm'delete'params {CGVm.deleteDisks = deleteDisks} vmClient
+  _ <- callOn #delete CGVm.Vm'delete'params {CGVm.keepDisks = keepDisks} vmClient
   pure ()
 
 -- | Migrate a stopped VM to another node. Returns the task id so
@@ -499,11 +499,13 @@ rpcDiskCreate
   -- ^ size (MB)
   -> CGE.DriveFormat
   -- ^ format (wire-side enum)
+  -> Bool
+  -- ^ ephemeral
   -> IO Int64
-rpcDiskCreate conn name sizeMb fmt = do
+rpcDiskCreate conn name sizeMb fmt ephemeral = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
-  let inner = CGDisk.DiskCreateParams {CGDisk.name = name, CGDisk.sizeMb = sizeMb, CGDisk.format = fmt}
+  let inner = CGDisk.DiskCreateParams {CGDisk.name = name, CGDisk.sizeMb = sizeMb, CGDisk.format = fmt, CGDisk.ephemeral = ephemeral}
   CGDisk.DiskManager'create'results {CGDisk.disk = diskClient} <-
     callOn #create CGDisk.DiskManager'create'params {CGDisk.params = inner} mgr
   CGDisk.Disk'show'results {CGDisk.info = info} <-
@@ -792,14 +794,15 @@ rpcGuestExec conn ref cmd = do
 -- Disk additional wrappers
 -- =====================================================================
 
-rpcDiskCreateOverlay :: CapnpConnection -> Text -> EntityRef -> IO Int64
-rpcDiskCreateOverlay conn name baseRef = do
+rpcDiskCreateOverlay :: CapnpConnection -> Text -> EntityRef -> Bool -> IO Int64
+rpcDiskCreateOverlay conn name baseRef ephemeral = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let inner =
         CGDisk.DiskCreateOverlayParams
           { CGDisk.name = name
           , CGDisk.backingDiskRef = toCapnpEntityRef baseRef
+          , CGDisk.ephemeral = ephemeral
           }
   CGDisk.DiskManager'createOverlay'results {CGDisk.disk = dClient} <-
     callOn #createOverlay CGDisk.DiskManager'createOverlay'params {CGDisk.params = inner} mgr
@@ -812,8 +815,9 @@ rpcDiskRegister
   -> Text
   -> Text
   -> DriveFormat
+  -> Bool
   -> IO Int64
-rpcDiskRegister conn name filePath fmt = do
+rpcDiskRegister conn name filePath fmt ephemeral = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
@@ -821,6 +825,7 @@ rpcDiskRegister conn name filePath fmt = do
           { CGDisk.name = name
           , CGDisk.filePath = filePath
           , CGDisk.format = capnpDriveFormat fmt
+          , CGDisk.ephemeral = ephemeral
           }
   CGDisk.DiskManager'register'results {CGDisk.disk = dClient} <-
     callOn #register CGDisk.DiskManager'register'params {CGDisk.params = p} mgr
@@ -844,8 +849,10 @@ rpcDiskImport
   -- ^ srcPath
   -> DriveFormat
   -- ^ format
+  -> Bool
+  -- ^ ephemeral
   -> IO Int64
-rpcDiskImport conn name srcPath fmt = do
+rpcDiskImport conn name srcPath fmt ephemeral = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
@@ -853,6 +860,7 @@ rpcDiskImport conn name srcPath fmt = do
           { CGDisk.name = name
           , CGDisk.srcPath = srcPath
           , CGDisk.format = capnpDriveFormat fmt
+          , CGDisk.ephemeral = ephemeral
           }
   CGDisk.DiskManager'import'results {CGDisk.disk = dClient} <-
     callOn #import_ CGDisk.DiskManager'import'params {CGDisk.params = p} mgr
@@ -860,14 +868,15 @@ rpcDiskImport conn name srcPath fmt = do
     callOn #show CGDisk.Disk'show'params dClient
   case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
 
-rpcDiskClone :: CapnpConnection -> EntityRef -> Text -> IO Int64
-rpcDiskClone conn srcRef newName = do
+rpcDiskClone :: CapnpConnection -> EntityRef -> Text -> Bool -> IO Int64
+rpcDiskClone conn srcRef newName ephemeral = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
         CGDisk.DiskCloneParams
           { CGDisk.sourceRef = toCapnpEntityRef srcRef
           , CGDisk.newName = newName
+          , CGDisk.ephemeral = ephemeral
           }
   CGDisk.DiskManager'clone'results {CGDisk.disk = dClient} <-
     callOn #clone CGDisk.DiskManager'clone'params {CGDisk.params = p} mgr

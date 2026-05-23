@@ -64,6 +64,7 @@ driveToValue d =
         , optPair "media" (tvdiMedia d)
         , optPair "sizeMb" (tvdiSizeMb d)
         , optPair "format" (tvdiFormat d)
+        , optPair "ephemeral" (tvdiEphemeral d)
         ]
 
 netIfToValue :: TemplateNetIfInfo -> Value

@@ -136,7 +136,7 @@ class TestVirtiofs(SingleNodeCase):
                 )
             finally:
                 try:
-                    vm.delete(delete_disks=True)
+                    vm.delete()
                 except Exception:
                     pass
         finally:

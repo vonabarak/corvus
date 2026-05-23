@@ -16,25 +16,56 @@ class SyncDiskManager:
     def get(self, ref: int | str, *, by_name: bool = False):
         return SyncDisk(self._rl.run(self._a.get(ref, by_name=by_name)), self._rl)
 
-    def create(self, name: str, size_mb: int, *, format: str | None = None):
+    def create(
+        self,
+        name: str,
+        size_mb: int,
+        *,
+        format: str | None = None,
+        ephemeral: bool = False,
+    ):
         return SyncDisk(
-            self._rl.run(self._a.create(name, size_mb, format=format)), self._rl
-        )
-
-    def register(self, name: str, file_path: str, *, format: str | None = None):
-        return SyncDisk(
-            self._rl.run(self._a.register(name, file_path, format=format)), self._rl
-        )
-
-    def create_overlay(self, name: str, backing_disk_ref):
-        return SyncDisk(
-            self._rl.run(self._a.create_overlay(name, backing_disk_ref)),
+            self._rl.run(
+                self._a.create(name, size_mb, format=format, ephemeral=ephemeral)
+            ),
             self._rl,
         )
 
-    def clone(self, source_ref, new_name: str, *, path: str | None = None):
+    def register(
+        self,
+        name: str,
+        file_path: str,
+        *,
+        format: str | None = None,
+        ephemeral: bool = False,
+    ):
         return SyncDisk(
-            self._rl.run(self._a.clone(source_ref, new_name, path=path)),
+            self._rl.run(
+                self._a.register(name, file_path, format=format, ephemeral=ephemeral)
+            ),
+            self._rl,
+        )
+
+    def create_overlay(self, name: str, backing_disk_ref, *, ephemeral: bool = False):
+        return SyncDisk(
+            self._rl.run(
+                self._a.create_overlay(name, backing_disk_ref, ephemeral=ephemeral)
+            ),
+            self._rl,
+        )
+
+    def clone(
+        self,
+        source_ref,
+        new_name: str,
+        *,
+        path: str | None = None,
+        ephemeral: bool = False,
+    ):
+        return SyncDisk(
+            self._rl.run(
+                self._a.clone(source_ref, new_name, path=path, ephemeral=ephemeral)
+            ),
             self._rl,
         )
 
@@ -51,14 +82,31 @@ class SyncDiskManager:
         *,
         format: str | None = None,
         size_mb: int | None = None,
+        ephemeral: bool = False,
     ) -> int:
         return self._rl.run(
-            self._a.import_url(name, url, format=format, size_mb=size_mb)
+            self._a.import_url(
+                name,
+                url,
+                format=format,
+                size_mb=size_mb,
+                ephemeral=ephemeral,
+            )
         )
 
-    def import_(self, name: str, src_path: str, *, format: str | None = None):
+    def import_(
+        self,
+        name: str,
+        src_path: str,
+        *,
+        format: str | None = None,
+        ephemeral: bool = False,
+    ):
         return SyncDisk(
-            self._rl.run(self._a.import_(name, src_path, format=format)), self._rl
+            self._rl.run(
+                self._a.import_(name, src_path, format=format, ephemeral=ephemeral)
+            ),
+            self._rl,
         )
 
     def copy(

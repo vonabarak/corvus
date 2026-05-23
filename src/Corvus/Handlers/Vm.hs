@@ -176,9 +176,12 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
               reserveRam state nodeKey ramMb
               pure $ RespVmCreated vmId
 
--- | Handle VM delete command
+-- | Handle VM delete command. Reaps ephemeral disks attached to the
+-- VM (cloud-init ISOs, template-instantiated disks) unless 'keepDisks'
+-- is set. Non-ephemeral disks are never auto-deleted — the operator
+-- removes those manually with @crv disk delete@.
 handleVmDelete :: ActionContext -> Int64 -> Bool -> IO Response
-handleVmDelete ctx vmId deleteDisks = do
+handleVmDelete ctx vmId keepDisks = do
   let state = acState ctx
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
@@ -187,14 +190,13 @@ handleVmDelete ctx vmId deleteDisks = do
       if status `elem` [VmRunning, VmStarting, VmStopping, VmPaused]
         then pure RespVmRunning
         else do
-          -- Collect disks to delete before removing drives
           disksToDelete <-
-            if deleteDisks
-              then runSqlPool (getExclusiveDisks vmId) (ssDbPool state)
-              else pure []
+            if keepDisks
+              then pure []
+              else runSqlPool (getEphemeralAttachedDisks vmId) (ssDbPool state)
           -- Delete VM and its associations (drives, netifs, etc.)
           runSqlPool (deleteVm vmId) (ssDbPool state)
-          -- Delete exclusive disks as subtasks
+          -- Reap each ephemeral disk as a subtask.
           mapM_ (\diskId -> runActionAsSubtask state (DiskDelete diskId) (acTaskId ctx)) disksToDelete
           pure RespVmDeleted
 
@@ -1037,6 +1039,31 @@ getExclusiveDisks vmId = do
               byName <- selectList [M.TemplateDriveDiskName ==. Just (diskImageName disk)] [LimitTo 1]
               pure $ not (null byName)
 
+-- | Return the IDs of every ephemeral 'DiskImage' attached to this
+-- VM. Used by the default 'vm delete' path to reap cloud-init ISOs
+-- and template-instantiated disks together with their VM. An
+-- ephemeral image that is somehow also attached to another VM is
+-- excluded (defence in depth — sharing an ephemeral isn't expected,
+-- but if it happens we must not yank it out from under a sibling).
+getEphemeralAttachedDisks :: Int64 -> SqlPersistT IO [Int64]
+getEphemeralAttachedDisks vmId = do
+  let key = toSqlKey vmId :: VmId
+  drives <- selectList [M.DriveVmId ==. key] []
+  let diskKeys = map (driveDiskImageId . entityVal) drives
+  ephemKeys <- filterM isEphemeral diskKeys
+  let ephemIds = map fromSqlKey ephemKeys
+  filterM (fmap not . isSharedDisk vmId) ephemIds
+  where
+    isEphemeral :: DiskImageId -> SqlPersistT IO Bool
+    isEphemeral dk = do
+      mDisk <- get dk
+      pure $ maybe False diskImageEphemeral mDisk
+
+    isSharedDisk :: Int64 -> Int64 -> SqlPersistT IO Bool
+    isSharedDisk thisVmId diskId = do
+      otherDrives <- selectList [M.DriveDiskImageId ==. toSqlKey diskId, M.DriveVmId !=. toSqlKey thisVmId] [LimitTo 1]
+      pure $ not (null otherDrives)
+
 -- | Delete a VM and all associated resources
 deleteVm :: Int64 -> SqlPersistT IO ()
 deleteVm vmId = do
@@ -1298,14 +1325,18 @@ instance Action VmCreate where
 
 data VmDelete = VmDelete
   { vdelVmId :: Int64
-  , vdelDeleteDisks :: Bool
+  , vdelKeepDisks :: Bool
+  -- ^ When 'False' (default), delete every ephemeral disk attached
+  -- to the VM (cloud-init ISOs, template-instantiated disks). When
+  -- 'True', leave all attached disks in place — including ephemeral
+  -- ones — so the operator can debug or re-use them.
   }
 
 instance Action VmDelete where
   actionSubsystem _ = SubVm
   actionCommand _ = "delete"
   actionEntityId = Just . fromIntegral . vdelVmId
-  actionExecute ctx a = handleVmDelete ctx (vdelVmId a) (vdelDeleteDisks a)
+  actionExecute ctx a = handleVmDelete ctx (vdelVmId a) (vdelKeepDisks a)
 
 data VmEdit = VmEdit
   { vedVmId :: Int64

@@ -164,6 +164,7 @@ listDiskImages = do
         , diiAttachedTo = attachedVms
         , diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk)
         , diiBackingImageName = backingName
+        , diiEphemeral = diskImageEphemeral disk
         }
 
 -- | Get disk image info for a single disk.
@@ -189,6 +190,7 @@ getDiskImageInfo diskId = do
             , diiAttachedTo = attachedVms
             , diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk)
             , diiBackingImageName = backingName
+            , diiEphemeral = diskImageEphemeral disk
             }
 
 -- | Insert (or update) the 'DiskImageNode' row that locates a

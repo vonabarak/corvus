@@ -217,7 +217,7 @@ instance CGVm.Vm'server_ VmCap where
         _ -> throwFailed "vm'edit: unexpected response"
 
   vm'delete (VmCap st _ eid) = handleParsed $ \CGVm.Vm'delete'params {..} -> do
-    resp <- runAction st (VmDelete {vdelVmId = eid, vdelDeleteDisks = deleteDisks})
+    resp <- runAction st (VmDelete {vdelVmId = eid, vdelKeepDisks = keepDisks})
     case resp of
       RespVmDeleted -> pure CGVm.Vm'delete'results
       RespVmNotFound -> throwFailed "VM not found"
@@ -280,6 +280,13 @@ instance CGVm.Vm'server_ VmCap where
             }
       RespGuestAgentNotEnabled -> throwFailed "Guest agent not enabled"
       RespGuestAgentError msg -> throwFailed msg
+      -- VM is mid-transition (e.g. an in-flight reboot_quirk
+      -- re-spawn, or a reset/stop in progress). Surface the
+      -- actual state so callers can decide whether to back off
+      -- and retry.
+      RespInvalidTransition status msg ->
+        throwFailed $ "VM is " <> M.enumToText status <> "; " <> msg
+      RespVmNotFound -> throwFailed "VM not found"
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'guestExec: unexpected response"
 

@@ -143,7 +143,7 @@ class TestVxlanOverlay(OneDaemonTwoNodesCase):
 
     def _delete_silent_vm(self, name: str) -> None:
         try:
-            self.client_alpha.vms.get(name).delete(delete_disks=True)
+            self.client_alpha.vms.get(name).delete()
         except Exception:
             pass
 

@@ -69,8 +69,10 @@ class TestApply(SingleNodeCase):
             disks:
               - name: {root1}
                 overlay: {base_disk}
+                ephemeral: true
               - name: {root2}
                 overlay: {base_disk}
+                ephemeral: true
             networks:
               - name: {net_name}
                 subnet: ""
@@ -135,7 +137,7 @@ class TestApply(SingleNodeCase):
                 try:
                     v = self.client.vms.get(name, by_name=True)
                     v.reset()
-                    v.delete(delete_disks=True)
+                    v.delete()
                 except Exception:
                     pass
             try:
@@ -171,6 +173,7 @@ class TestApply(SingleNodeCase):
               - name: {root_name}
                 overlay: {base_disk}
                 sizeMb: 2048
+                ephemeral: true
             vms:
               - name: {vm_name}
                 cpuCount: 1
@@ -211,7 +214,7 @@ class TestApply(SingleNodeCase):
             try:
                 v = self.client.vms.get(vm_name, by_name=True)
                 v.reset()
-                v.delete(delete_disks=True)
+                v.delete()
             except Exception:
                 pass
             try:
@@ -242,6 +245,7 @@ class TestApply(SingleNodeCase):
               - name: {root_name}
                 overlay: {base_disk}
                 sizeMb: 2048
+                ephemeral: true
             vms:
               - name: {vm_name}
                 cpuCount: 1
@@ -303,7 +307,7 @@ class TestApply(SingleNodeCase):
             try:
                 v = self.client.vms.get(vm_name, by_name=True)
                 v.reset()
-                v.delete(delete_disks=True)
+                v.delete()
             except Exception:
                 pass
             try:
@@ -329,6 +333,7 @@ class TestApply(SingleNodeCase):
               - name: {root_name}
                 overlay: {base_disk}
                 sizeMb: 1024
+                ephemeral: true
             networks:
               - name: {net_name}
                 subnet: ""
@@ -362,7 +367,7 @@ class TestApply(SingleNodeCase):
             self.client.vms.get(vm_name, by_name=True)
         finally:
             try:
-                self.client.vms.get(vm_name, by_name=True).delete(delete_disks=True)
+                self.client.vms.get(vm_name, by_name=True).delete()
             except Exception:
                 pass
             try:
@@ -405,6 +410,6 @@ class TestApply(SingleNodeCase):
             try:
                 v = self.client.vms.get(vm_name, by_name=True)
                 v.reset()
-                v.delete(delete_disks=True)
+                v.delete()
             except Exception:
                 pass
