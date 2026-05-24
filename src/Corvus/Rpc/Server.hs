@@ -27,7 +27,7 @@ import Capnp.Rpc
 import Capnp.TraversalLimit (defaultLimit)
 import Control.Concurrent (forkFinally)
 import Control.Exception (bracket, catch)
-import Control.Monad (forever, void)
+import Control.Monad (forever, unless, void)
 import Corvus.Rpc.Daemon (newDaemonCap)
 import qualified Corvus.Tls as Tls
 import Corvus.Types (ListenAddress (..), ServerState (..), getDefaultSocketPath)
@@ -51,7 +51,7 @@ import Supervisors (Supervisor, withSupervisor)
 import System.Directory (createDirectoryIfMissing, removeFile)
 import System.FilePath (takeDirectory)
 import System.IO (hPutStrLn, stderr)
-import System.IO.Error (IOError)
+import System.IO.Error (IOError, isEOFError)
 
 -- | Run the Cap'n Proto RPC server on the given address.
 -- Blocks the calling thread; spawns a fresh handler per connection.
@@ -127,13 +127,17 @@ runOneTcpConn state sup sock peerAddr =
               transport <- Tls.tlsTransport ctx defaultLimit
               runHandler state sup clientName transport
                 `catch` \(e :: IOError) ->
-                  hPutStrLn stderr $
-                    "TCP/TLS RPC session error from "
-                      <> show peerAddr
-                      <> " (client="
-                      <> T.unpack clientName
-                      <> "): "
-                      <> show e
+                  -- A clean end-of-session (EOF at a message boundary)
+                  -- is the normal way every short-lived client exits;
+                  -- only mid-message truncations are worth surfacing.
+                  unless (isEOFError e) $
+                    hPutStrLn stderr $
+                      "TCP/TLS RPC session error from "
+                        <> show peerAddr
+                        <> " (client="
+                        <> T.unpack clientName
+                        <> "): "
+                        <> show e
               Tls.closeTlsContext ctx
   where
     tryWrap cfg =

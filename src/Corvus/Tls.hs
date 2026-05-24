@@ -88,6 +88,7 @@ import qualified Network.TLS.Extra.Cipher as TLSC
 import System.Directory (Permissions, doesFileExist, getPermissions, readable)
 import System.Environment (lookupEnv)
 import System.FilePath ((</>))
+import System.IO.Error (eofErrorType, mkIOError)
 
 -- ---------------------------------------------------------------------------
 -- Roles + CN convention
@@ -618,8 +619,17 @@ readSegment ctx buf words_ = do
   pure (CM.fromByteString bs)
 
 -- | Pull exactly @n@ bytes off the TLS context, buffering any
--- residual chunk for the next call. EOF before @n@ bytes is an
--- IO error.
+-- residual chunk for the next call.
+--
+-- EOF is interpreted in two ways:
+--
+-- * Clean close at a message boundary (no buffered or partial bytes
+--   accumulated yet) — throws an 'IOError' of 'eofErrorType' so
+--   callers (and our connection log) can recognise it as a normal
+--   end-of-session.
+-- * EOF mid-message (partial bytes already read) — throws a
+--   'userError' describing the truncation; this is an actual
+--   protocol error worth surfacing.
 readExactly :: TLS.Context -> MVar BS.ByteString -> Int -> IO BS.ByteString
 readExactly ctx buf n = do
   stash <- readMVar buf
@@ -635,8 +645,11 @@ readExactly ctx buf n = do
           if BS.null chunk
             then
               E.throwIO $
-                userError $
-                  "Corvus.Tls.readExactly: TLS peer closed before "
-                    <> show n
-                    <> " bytes were available"
+                if BS.null acc
+                  then mkIOError eofErrorType "Corvus.Tls.readExactly" Nothing Nothing
+                  else
+                    userError $
+                      "Corvus.Tls.readExactly: TLS peer closed before "
+                        <> show n
+                        <> " bytes were available"
             else go (acc <> chunk)
