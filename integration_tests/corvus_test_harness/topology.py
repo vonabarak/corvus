@@ -504,6 +504,12 @@ class Topology:
                 {
                     "name": overlay_name,
                     "overlay": self.image.disk_name,
+                    # Reaped together with the test-node VM on
+                    # topology teardown. Without this flag, every
+                    # integration-test session would leave a
+                    # `<prefix>-<class>-<run>-<node>-rootfs` qcow2
+                    # behind under the operator's $HOME/VMs.
+                    "ephemeral": True,
                 }
             ],
             "vms": [
