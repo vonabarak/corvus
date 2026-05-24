@@ -37,13 +37,13 @@ disks:
     import: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
     format: qcow2
     path: BaseImages/Debian/
-    md5: 178d60602f4a4db34b3cea710a577cff
+    md5: 74c84d14fae3e3cf019a4079885d6bd0
 
   - name: ubuntu-24.04-server-base
     import: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
     format: qcow2
     path: BaseImages/Ubuntu/
-    md5: 43a22d3a1533fd0c70b9f4e8c406cf98
+    # md5: 43a22d3a1533fd0c70b9f4e8c406cf98
 
   - name: almalinux-10-base
     import: "https://repo.almalinux.org/almalinux/10/cloud/x86_64_v2/images/AlmaLinux-10-GenericCloud-10.1-20251125.0.x86_64_v2.qcow2"
@@ -60,7 +60,7 @@ disks:
   - name: alpine-3.21-base
     import: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2"
     format: qcow2
-    path: BaseImages/AlpineCloud/
+    path: BaseImages/Alpine/
     md5: 7551b7bda2c43d335223fcf0af8fe591
 
 # ── YAML anchors for shared template settings ──────────────────────────
