@@ -47,8 +47,15 @@ import Supervisors (Supervisor, withSupervisor)
 import System.IO (stderr)
 import System.IO.Error (IOError)
 
+-- | Default bind address. Mirrors the daemon's default of binding
+-- on every interface — multi-node deploys need the agent
+-- reachable from the daemon's host AND from peer nodes (the
+-- destination side of an inter-agent disk transfer dials the
+-- source's nodeagent directly). Operators who want a tighter bind
+-- (loopback-only single-host setups, behind-firewall hosts) pass
+-- @--host 127.0.0.1@.
 defaultNodeAgentHost :: String
-defaultNodeAgentHost = "127.0.0.1"
+defaultNodeAgentHost = "0.0.0.0"
 
 defaultNodeAgentPort :: Int
 defaultNodeAgentPort = 9878

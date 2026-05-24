@@ -49,8 +49,14 @@ import Supervisors (Supervisor, withSupervisor)
 import System.IO (stderr)
 import System.IO.Error (IOError)
 
+-- | Default bind address. Mirrors the daemon's default of binding
+-- on every interface — multi-node deploys need netd reachable
+-- from the daemon's host, which on a remote node is not
+-- loopback. mTLS gates who can speak to it. Operators who want
+-- a tighter bind (loopback-only single-host setups, behind-
+-- firewall hosts) pass @--host 127.0.0.1@.
 defaultNetdHost :: String
-defaultNetdHost = "127.0.0.1"
+defaultNetdHost = "0.0.0.0"
 
 defaultNetdPort :: Int
 defaultNetdPort = 9877

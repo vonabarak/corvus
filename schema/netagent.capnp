@@ -15,10 +15,10 @@
 #   * nftables: table `inet corvus_fw`
 #   * dnsmasq:  identified by `--interface=corvus-br*` in argv
 #
-# Authentication: out of scope for v1. The agent binds to
-# 127.0.0.1:9877 and trusts every connection. Caller-claimed `owner`
-# strings partition the agent's ledger but are not a security
-# boundary.
+# Authentication: mTLS gates the listener. The agent binds to
+# 0.0.0.0:9877 by default; override the bind address via the
+# binary's --host flag. Caller-claimed `owner` strings partition
+# the agent's ledger but are not a security boundary.
 
 # ---------------------------------------------------------------------
 # Bootstrap interface

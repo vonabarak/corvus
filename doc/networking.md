@@ -113,7 +113,7 @@ Examples:
 
 ### Agent Architecture
 
-`corvus-netd` runs as a separate system service (root, `CAP_NET_ADMIN`); the user-facing `corvus` daemon runs unprivileged. The two communicate over Cap'n Proto on `127.0.0.1:9877` (no authentication in v1; the security boundary is the host).
+`corvus-netd` runs as a separate system service (root, `CAP_NET_ADMIN`); the user-facing `corvus` daemon runs unprivileged. The two communicate over Cap'n Proto on `0.0.0.0:9877` by default (override the bind address with `--host`); mTLS gates the listener.
 
 The agent is **stateless** and **declarative**:
 

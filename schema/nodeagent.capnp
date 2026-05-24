@@ -22,8 +22,9 @@ using Streams = import "streams.capnp";
 #   * virtiofsd processes: `virtiofsd ... --shared-dir=*corvus*`
 #   * runtime sockets:    `$XDG_RUNTIME_DIR/corvus/<vm>/`
 #
-# Authentication: out of scope for v1. The agent binds to
-# 127.0.0.1:9878 and trusts every connection.
+# Authentication: mTLS gates the listener. The agent binds to
+# 0.0.0.0:9878 by default; override the bind address via the
+# binary's --host flag.
 
 # ---------------------------------------------------------------------
 # Bootstrap interface
