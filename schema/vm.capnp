@@ -28,6 +28,12 @@ struct VmInfo {
   # poweroff). Daemon-initiated stop/reset continues to actually
   # stop the VM. Used to dodge OVMF firmware reboot hangs.
   rebootQuirk     @10 :Bool;
+  # FK to the Node row hosting this VM, plus the node's display
+  # name. The daemon resolves the name daemon-side so list-view
+  # clients don't have to follow a second RPC; empty name signals
+  # the (rare) race where the Node row was removed under the VM.
+  nodeId          @11 :Int64;
+  nodeName        @12 :Text;
 }
 
 struct VmDetails {
@@ -60,6 +66,10 @@ struct VmDetails {
   lastErrorAt         @22 :Int64;
   # See `VmInfo.rebootQuirk`.
   rebootQuirk         @23 :Bool;
+  # FK to the Node row hosting this VM + the node's display name.
+  # See `VmInfo.nodeId` / `VmInfo.nodeName` for the sentinel.
+  nodeId              @24 :Int64;
+  nodeName            @25 :Text;
 }
 
 struct DriveInfo {

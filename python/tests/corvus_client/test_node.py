@@ -185,13 +185,17 @@ def test_vm_create_without_node_uses_scheduler(daemon_socket):
         self_id = next(n.id for n in nodes if n.name == "self")
 
         vm = await c.vms.create("py-vm-sched", cpu_count=1, ram_mb=128)
-        # 'crv vm show' / VmDetails don't surface the node FK
-        # directly yet (Phase-3 follow-up), so check the row
-        # made it into the list and clean up.
+        # Both list-view and detail-view DTOs carry the node FK
+        # and the resolved name; verify the scheduler landed the
+        # VM on the single online node.
+        details = await vm.show()
+        assert details.node_id == self_id
+        assert details.node_name == "self"
         listed = await c.vms.list()
-        assert any(v.name == "py-vm-sched" for v in listed)
+        sched = next(v for v in listed if v.name == "py-vm-sched")
+        assert sched.node_id == self_id
+        assert sched.node_name == "self"
         await vm.delete()
-        del self_id
 
     run(go)
 

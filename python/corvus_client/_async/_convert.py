@@ -77,6 +77,8 @@ def vm_info(r) -> t.VmInfo:
     return t.VmInfo(
         id=r.id,
         name=r.name,
+        node_id=r.nodeId,
+        node_name=r.nodeName,
         status=str(r.status),
         cpu_count=r.cpuCount,
         ram_mb=r.ramMb,
@@ -132,6 +134,8 @@ def vm_details(r) -> t.VmDetails:
     return t.VmDetails(
         id=r.id,
         name=r.name,
+        node_id=r.nodeId,
+        node_name=r.nodeName,
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
         status=str(r.status),
         cpu_count=r.cpuCount,

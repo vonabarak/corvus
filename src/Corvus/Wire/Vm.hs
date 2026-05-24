@@ -58,6 +58,8 @@ toCapnpVmInfo P.VmInfo {..} =
   CGVm.VmInfo
     { CGVm.id = viId
     , CGVm.name = viName
+    , CGVm.nodeId = viNodeId
+    , CGVm.nodeName = viNodeName
     , CGVm.status = toCapnpVmStatus viStatus
     , CGVm.cpuCount = fromIntegral viCpuCount
     , CGVm.ramMb = fromIntegral viRamMb
@@ -76,6 +78,8 @@ fromCapnpVmInfo CGVm.VmInfo {..} = do
     P.VmInfo
       { P.viId = id
       , P.viName = name
+      , P.viNodeId = nodeId
+      , P.viNodeName = nodeName
       , P.viStatus = status'
       , P.viCpuCount = fromIntegral cpuCount
       , P.viRamMb = fromIntegral ramMb
@@ -179,6 +183,8 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs =
   CGVm.VmDetails
     { CGVm.id = vdId
     , CGVm.name = vdName
+    , CGVm.nodeId = vdNodeId
+    , CGVm.nodeName = vdNodeName
     , CGVm.createdAt = utcTimeToNanos vdCreatedAt
     , CGVm.status = toCapnpVmStatus vdStatus
     , CGVm.cpuCount = fromIntegral vdCpuCount
@@ -220,6 +226,8 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
     ( P.VmDetails
         { P.vdId = id
         , P.vdName = name
+        , P.vdNodeId = nodeId
+        , P.vdNodeName = nodeName
         , P.vdCreatedAt = nanosToUtcTime createdAt
         , P.vdStatus = status'
         , P.vdCpuCount = fromIntegral cpuCount

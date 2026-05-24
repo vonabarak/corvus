@@ -44,8 +44,8 @@ type instance (R.ReprFor VmInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmInfo) where
     typeId  = 14337324896033347465
 instance (C.TypedStruct VmInfo) where
-    numStructWords  = 4
-    numStructPtrs  = 1
+    numStructWords  = 5
+    numStructPtrs  = 2
 instance (C.Allocate VmInfo) where
     type AllocHint VmInfo = ()
     new _ = C.newTypedStruct
@@ -66,7 +66,9 @@ data instance C.Parsed VmInfo
         ,cloudInit :: (RP.Parsed Std_.Bool)
         ,lastHealthcheck :: (RP.Parsed Std_.Int64)
         ,autostart :: (RP.Parsed Std_.Bool)
-        ,rebootQuirk :: (RP.Parsed Std_.Bool)}
+        ,rebootQuirk :: (RP.Parsed Std_.Bool)
+        ,nodeId :: (RP.Parsed Std_.Int64)
+        ,nodeName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmInfo))
 deriving instance (Std_.Eq (C.Parsed VmInfo))
@@ -81,7 +83,9 @@ instance (C.Parse VmInfo (C.Parsed VmInfo)) where
                          <*> (GH.parseField #cloudInit raw_)
                          <*> (GH.parseField #lastHealthcheck raw_)
                          <*> (GH.parseField #autostart raw_)
-                         <*> (GH.parseField #rebootQuirk raw_))
+                         <*> (GH.parseField #rebootQuirk raw_)
+                         <*> (GH.parseField #nodeId raw_)
+                         <*> (GH.parseField #nodeName raw_))
 instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
     marshalInto raw_ VmInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -95,6 +99,8 @@ instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
         (GH.encodeField #lastHealthcheck lastHealthcheck raw_)
         (GH.encodeField #autostart autostart raw_)
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
+        (GH.encodeField #nodeId nodeId raw_)
+        (GH.encodeField #nodeName nodeName raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmInfo Std_.Int64) where
@@ -119,13 +125,17 @@ instance (GH.HasField "autostart" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 19 1 1 0)
 instance (GH.HasField "rebootQuirk" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 20 1 1 0)
+instance (GH.HasField "nodeId" GH.Slot VmInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 4 64 0)
+instance (GH.HasField "nodeName" GH.Slot VmInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
 data VmDetails 
 type instance (R.ReprFor VmDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDetails) where
     typeId  = 12709035652582668216
 instance (C.TypedStruct VmDetails) where
-    numStructWords  = 7
-    numStructPtrs  = 10
+    numStructWords  = 8
+    numStructPtrs  = 11
 instance (C.Allocate VmDetails) where
     type AllocHint VmDetails = ()
     new _ = C.newTypedStruct
@@ -159,7 +169,9 @@ data instance C.Parsed VmDetails
         ,autostart :: (RP.Parsed Std_.Bool)
         ,errorMessage :: (RP.Parsed Basics.Text)
         ,lastErrorAt :: (RP.Parsed Std_.Int64)
-        ,rebootQuirk :: (RP.Parsed Std_.Bool)}
+        ,rebootQuirk :: (RP.Parsed Std_.Bool)
+        ,nodeId :: (RP.Parsed Std_.Int64)
+        ,nodeName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmDetails))
 deriving instance (Std_.Eq (C.Parsed VmDetails))
@@ -187,7 +199,9 @@ instance (C.Parse VmDetails (C.Parsed VmDetails)) where
                             <*> (GH.parseField #autostart raw_)
                             <*> (GH.parseField #errorMessage raw_)
                             <*> (GH.parseField #lastErrorAt raw_)
-                            <*> (GH.parseField #rebootQuirk raw_))
+                            <*> (GH.parseField #rebootQuirk raw_)
+                            <*> (GH.parseField #nodeId raw_)
+                            <*> (GH.parseField #nodeName raw_))
 instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
     marshalInto raw_ VmDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -214,6 +228,8 @@ instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
         (GH.encodeField #errorMessage errorMessage raw_)
         (GH.encodeField #lastErrorAt lastErrorAt raw_)
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
+        (GH.encodeField #nodeId nodeId raw_)
+        (GH.encodeField #nodeName nodeName raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmDetails Std_.Int64) where
@@ -264,6 +280,10 @@ instance (GH.HasField "lastErrorAt" GH.Slot VmDetails Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 6 64 0)
 instance (GH.HasField "rebootQuirk" GH.Slot VmDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 20 2 1 0)
+instance (GH.HasField "nodeId" GH.Slot VmDetails Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 7 64 0)
+instance (GH.HasField "nodeName" GH.Slot VmDetails Basics.Text) where
+    fieldByLabel  = (GH.ptrField 10)
 data DriveInfo 
 type instance (R.ReprFor DriveInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DriveInfo) where

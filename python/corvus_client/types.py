@@ -55,6 +55,8 @@ class CloudInitInfo:
 class VmInfo:
     id: int
     name: str
+    node_id: int
+    node_name: str
     status: str
     cpu_count: int
     ram_mb: int
@@ -106,6 +108,8 @@ class SharedDirInfo:
 class VmDetails:
     id: int
     name: str
+    node_id: int
+    node_name: str
     created_at: datetime
     status: str
     cpu_count: int

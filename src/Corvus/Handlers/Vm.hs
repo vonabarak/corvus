@@ -1091,12 +1091,19 @@ deleteVm vmId = do
 listVms :: SqlPersistT IO [VmInfo]
 listVms = do
   vms <- selectList [] [Asc M.VmName]
-  pure $ map toVmInfo vms
+  -- Bulk-fetch the nodes so we can stamp the display name on each
+  -- VM row without an N+1 of single-row gets. Empty fallback for
+  -- a (rare) Vm whose Node row has been deleted under it.
+  nodes <- selectList [] []
+  let nameOf = Map.fromList [(entityKey n, M.nodeName (entityVal n)) | n <- nodes]
+  pure $ map (toVmInfo nameOf) vms
   where
-    toVmInfo (Entity key vm) =
+    toVmInfo nameOf (Entity key vm) =
       VmInfo
         { viId = fromSqlKey key
         , viName = vmName vm
+        , viNodeId = fromSqlKey (vmNodeId vm)
+        , viNodeName = Map.findWithDefault "(deleted)" (vmNodeId vm) nameOf
         , viStatus = vmStatus vm
         , viCpuCount = vmCpuCount vm
         , viRamMb = vmRamMb vm
@@ -1120,6 +1127,10 @@ getVmDetails config vmId = do
     Just vm -> do
       drives <- selectList [M.DriveVmId ==. key] []
       netIfs <- selectList [M.NetworkInterfaceVmId ==. key] []
+      -- Look up the node name for display. Sentinel on a missing
+      -- row (race against a node delete) matches 'listVms'.
+      mNode <- get (vmNodeId vm)
+      let nodeName' = maybe "(deleted)" M.nodeName mNode
       -- Get socket paths
       monitorSock <- liftIO $ getMonitorSocket config vmId
       serialSock <- liftIO $ getSerialSocket config vmId
@@ -1143,6 +1154,8 @@ getVmDetails config vmId = do
           VmDetails
             { vdId = vmId
             , vdName = vmName vm
+            , vdNodeId = fromSqlKey (vmNodeId vm)
+            , vdNodeName = nodeName'
             , vdCreatedAt = vmCreatedAt vm
             , vdStatus = vmStatus vm
             , vdCpuCount = vmCpuCount vm

@@ -436,6 +436,7 @@ vmColumns :: UTCTime -> [Column VmInfo]
 vmColumns now =
   [ Column "ID" RightAlign (show . viId)
   , Column "NAME" LeftAlign (T.unpack . viName)
+  , Column "NODE" LeftAlign (T.unpack . viNodeName)
   , Column "STATUS" LeftAlign (T.unpack . enumToText . viStatus)
   , Column "CPUS" RightAlign (show . viCpuCount)
   , Column "RAM_MB" RightAlign (show . viRamMb)
@@ -449,6 +450,7 @@ printVmDetails :: VmDetails -> IO ()
 printVmDetails vm = do
   printField "VM ID" (show (vdId vm))
   printField "Name" (T.unpack (vdName vm))
+  printField "Node" (T.unpack (vdNodeName vm))
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (vdCreatedAt vm))
   printField "Status" (T.unpack (enumToText $ vdStatus vm))
   case vdErrorMessage vm of

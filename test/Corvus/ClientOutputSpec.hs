@@ -47,7 +47,7 @@ spec = sequential $ do
 
     describe "VmInfo" $ do
       it "serializes with correct field names and enum values" $ do
-        let vm = VmInfo 1 "my-vm" VmRunning 4 2048 False False False Nothing False False
+        let vm = VmInfo 1 "my-vm" 7 "alpha" VmRunning 4 2048 False False False Nothing False False
             val = toJSON vm
         -- 'omitNothingFields = True' in 'innerOptions' drops the
         -- Nothing-valued 'healthcheck' entirely rather than serialising
@@ -57,6 +57,8 @@ spec = sequential $ do
           `shouldBe` object
             [ "id" .= (1 :: Int)
             , "name" .= ("my-vm" :: String)
+            , "node_id" .= (7 :: Int)
+            , "node_name" .= ("alpha" :: String)
             , "status" .= ("running" :: String)
             , "cpu_count" .= (4 :: Int)
             , "ram_mb" .= (2048 :: Int)
@@ -68,7 +70,7 @@ spec = sequential $ do
             ]
 
       it "serializes stopped status correctly" $ do
-        let vm = VmInfo 2 "test" VmStopped 1 512 False False False Nothing False False
+        let vm = VmInfo 2 "test" 1 "alpha" VmStopped 1 512 False False False Nothing False False
             json = encode vm
         BL.unpack json `shouldSatisfy` isInfixOf "\"stopped\""
 
@@ -159,7 +161,10 @@ spec = sequential $ do
         encode ([] :: [VmInfo]) `shouldBe` "[]"
 
       it "VM list serializes as JSON array" $ do
-        let vms = [VmInfo 1 "a" VmRunning 1 512 False False False Nothing False False, VmInfo 2 "b" VmStopped 2 1024 False False False Nothing False False]
+        let vms =
+              [ VmInfo 1 "a" 1 "alpha" VmRunning 1 512 False False False Nothing False False
+              , VmInfo 2 "b" 2 "beta" VmStopped 2 1024 False False False Nothing False False
+              ]
             val = toJSON vms
         case val of
           Array arr -> length arr `shouldBe` 2
