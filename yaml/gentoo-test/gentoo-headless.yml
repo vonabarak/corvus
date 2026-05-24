@@ -16,7 +16,7 @@ pipeline:
           format: qcow2
 
         - name: gentoo-base-cloud
-          import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260517T170110Z.qcow2"
+          import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260524T170105Z.qcow2"
           format: qcow2
           path: BaseImages/Gentoo/
 
