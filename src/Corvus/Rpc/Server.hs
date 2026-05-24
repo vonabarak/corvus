@@ -65,8 +65,8 @@ runCapnpServer :: ServerState -> ListenAddress -> IO ()
 runCapnpServer state addr = withSupervisor $ \sup ->
   case addr of
     TcpAddress host port ->
-      TCP.serve (TCP.Host host) (show port) $ \(sock, _) ->
-        runOneTcpConn state sup sock
+      TCP.serve (TCP.Host host) (show port) $
+        uncurry (runOneTcpConn state sup)
     UnixAddress path -> do
       createDirectoryIfMissing True (takeDirectory path)
       removeIgnore path
@@ -101,8 +101,8 @@ runOneUnixConn state sup sock =
 -- The @clientName@ stamped on this connection's task records is:
 -- the @<name>@ suffix of the peer CN over TLS, or @"local"@ when
 -- TLS is disabled or the CN can't be read.
-runOneTcpConn :: ServerState -> Supervisor -> Socket -> IO ()
-runOneTcpConn state sup sock =
+runOneTcpConn :: ServerState -> Supervisor -> Socket -> SockAddr -> IO ()
+runOneTcpConn state sup sock peerAddr =
   case ssTlsConfig state of
     Nothing ->
       runHandler state sup "local" (socketTransport sock defaultLimit)
@@ -110,13 +110,13 @@ runOneTcpConn state sup sock =
       r <- tryWrap cfg
       case r of
         Left e -> do
-          logTlsRejection "TLS handshake failed" e
+          logTlsRejection "TLS handshake failed" peerAddr e
           close sock
         Right (ctx, ref) -> do
           v <- Tls.validatePeerCN cfg ref
           case v of
             Left msg -> do
-              logTlsRejection "TLS peer rejected" (T.unpack msg)
+              logTlsRejection "TLS peer rejected" peerAddr (T.unpack msg)
               Tls.closeTlsContext ctx
               close sock
             Right () -> do
@@ -127,16 +127,23 @@ runOneTcpConn state sup sock =
               transport <- Tls.tlsTransport ctx defaultLimit
               runHandler state sup clientName transport
                 `catch` \(e :: IOError) ->
-                  hPutStrLn stderr ("TCP/TLS connection error: " <> show e)
+                  hPutStrLn stderr $
+                    "TCP/TLS RPC session error from "
+                      <> show peerAddr
+                      <> " (client="
+                      <> T.unpack clientName
+                      <> "): "
+                      <> show e
               Tls.closeTlsContext ctx
   where
     tryWrap cfg =
       (Right <$> Tls.wrapServerSocket cfg sock)
         `catch` \(e :: IOError) -> pure (Left (show e))
 
-logTlsRejection :: String -> String -> IO ()
-logTlsRejection what why =
-  TIO.hPutStrLn stderr $ T.pack (what <> ": " <> why)
+logTlsRejection :: String -> SockAddr -> String -> IO ()
+logTlsRejection what peerAddr why =
+  TIO.hPutStrLn stderr $
+    T.pack (what <> " from " <> show peerAddr <> ": " <> why)
 
 -- | Hand a Cap'n Proto 'Transport' (TLS-wrapped or plain) to the
 -- daemon's RPC machinery. Allocates a fresh 'Daemon' cap so each
