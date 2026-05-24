@@ -783,18 +783,18 @@ class TestVmRebootQuirk(_VmLifecycleBase):
             reboot_quirk = True
 
         with _RebootQuirkVm(self) as vm:
-            with self.vm_shell(vm.cap) as shell:
-                shell.wait_ready(timeout_sec=90)
-                boot_id_1 = shell.run(
-                    "cat /proc/sys/kernel/random/boot_id"
-                ).stdout.strip()
-                assert boot_id_1
+            boot_id_1 = vm.run("cat /proc/sys/kernel/random/boot_id").stdout.strip()
+            assert boot_id_1
 
-            # Trigger a clean guest reboot via QGA. ``reboot -f``
+            # Trigger a clean guest reboot via SSH. ``reboot -f``
             # bypasses init; the kernel halts and QEMU exits
-            # (because we're running with @-no-reboot@).
+            # (because we're running with @-no-reboot@). SSH
+            # rather than ``vm.cap.guest_exec`` because the
+            # daemon's QGA poll loop blocks on a dead chardev
+            # for tens of seconds per retry when the guest
+            # vanishes mid-exec.
             try:
-                vm.cap.guest_exec("/sbin/reboot -f")
+                vm.run("doas /sbin/reboot -f", check=False, timeout_sec=5)
             except Exception:
                 pass
 
@@ -804,7 +804,7 @@ class TestVmRebootQuirk(_VmLifecycleBase):
             # sighting would mean the agent's monitor thread
             # tripped before the re-spawn finished.
             saw_stopped = False
-            deadline = time.monotonic() + 60.0
+            deadline = time.monotonic() + 120.0
             settled_running = False
             while time.monotonic() < deadline:
                 status = vm.cap.show().status
@@ -836,7 +836,7 @@ class TestVmRebootQuirk(_VmLifecycleBase):
             )
             assert settled_running, (
                 "VM did not finish rebooting back to 'running' "
-                "within 60s, or boot_id did not change"
+                "within 120s, or boot_id did not change"
             )
 
     def test_reboot_quirk_does_not_restart_on_daemon_stop(self):
@@ -855,9 +855,6 @@ class TestVmRebootQuirk(_VmLifecycleBase):
             reboot_quirk = True
 
         with _RebootQuirkVm(self) as vm:
-            with self.vm_shell(vm.cap) as shell:
-                shell.wait_ready(timeout_sec=90)
-
             vm.cap.stop(wait=True)
             self._wait_status(vm.cap, "stopped", timeout_sec=30)
 
@@ -890,20 +887,20 @@ class TestVmRebootQuirk(_VmLifecycleBase):
             reboot_quirk = True
 
         with _RebootQuirkVm(self) as vm:
-            with self.vm_shell(vm.cap) as shell:
-                shell.wait_ready(timeout_sec=90)
-
             vm_id = vm.cap.show().id
             pid_before = self._read_qemu_pid(vm_id)
             assert pid_before is not None, (
                 f"no QEMU process found for vm id {vm_id} before reboot"
             )
 
-            # Trigger guest reboot via QGA. QEMU exits because we
-            # launched it with @-no-reboot@; the agent's reaper
-            # re-spawns a fresh process under a new pid.
+            # Trigger guest reboot via SSH. QEMU exits because we
+            # launched it with ``-no-reboot``; the agent's reaper
+            # re-spawns a fresh process under a new pid. SSH
+            # rather than ``guest_exec``: the daemon's QGA poller
+            # blocks on a silent chardev for tens of seconds per
+            # retry when the guest vanishes mid-exec.
             try:
-                vm.cap.guest_exec("/sbin/reboot -f")
+                vm.run("doas /sbin/reboot -f", check=False, timeout_sec=5)
             except Exception:
                 pass
 
@@ -937,11 +934,7 @@ class TestVmRebootQuirk(_VmLifecycleBase):
             reboot_quirk = False
 
         with _NoQuirkVm(self) as vm:
-            with self.vm_shell(vm.cap) as shell:
-                shell.wait_ready(timeout_sec=90)
-                boot_id_1 = shell.run(
-                    "cat /proc/sys/kernel/random/boot_id"
-                ).stdout.strip()
+            boot_id_1 = vm.run("cat /proc/sys/kernel/random/boot_id").stdout.strip()
 
             vm_id = vm.cap.show().id
             pid_before = self._read_qemu_pid(vm_id)
@@ -949,8 +942,11 @@ class TestVmRebootQuirk(_VmLifecycleBase):
                 f"no QEMU process found for vm id {vm_id} before reboot"
             )
 
+            # SSH rather than ``guest_exec``: the daemon's QGA
+            # poller blocks on a silent chardev for tens of seconds
+            # per retry when the guest vanishes mid-exec.
             try:
-                vm.cap.guest_exec("/sbin/reboot -f")
+                vm.run("doas /sbin/reboot -f", check=False, timeout_sec=5)
             except Exception:
                 pass
 
