@@ -30,6 +30,7 @@ module Corvus.NodeAgentClient
   , ping
   , sessionPing
   , agentVersion
+  , agentDefaultBasePath
 
     -- * Result types (mirrors of agent-side ADTs)
   , DiskOpResult (..)
@@ -275,6 +276,17 @@ agentVersion nac = remote $ do
     callOn #version CGNA.NodeAgent'version'params (nacAgent nac)
   let CGNA.AgentInfo {CGNA.semver = sv, CGNA.capabilities = caps} = info_
   pure (sv, caps)
+
+-- | Ask the remote nodeagent for its preferred @basePath@. The
+-- agent resolves @$HOME/VMs@ against its own process environment,
+-- so a heterogeneous cluster (different users running the agent
+-- on each node) gets per-node-correct defaults without the
+-- operator needing to know each user's home.
+agentDefaultBasePath :: NodeAgentClient -> IO (Either NodeAgentError T.Text)
+agentDefaultBasePath nac = remote $ do
+  CGNA.NodeAgent'defaultBasePath'results {CGNA.path = p} <-
+    callOn #defaultBasePath CGNA.NodeAgent'defaultBasePath'params (nacAgent nac)
+  pure p
 
 -- ---------------------------------------------------------------------------
 -- Internals

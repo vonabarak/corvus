@@ -195,8 +195,11 @@ data Command
     NetworkDetachNode !Text !Text
   | -- Node commands
 
-    -- | Add a node (name, host, nodeAgentPort, netAgentPort, basePath, description, adminState)
-    NodeAdd !Text !Text !Int !Int !Text !(Maybe Text) !Text
+    -- | Add a node (name, host, nodeAgentPort, netAgentPort, basePath, description, adminState).
+    -- 'basePath' is 'Nothing' when the operator did not pass
+    -- @--base-path@; the command handler resolves that to
+    -- @$HOME/VMs@ on the admin host.
+    NodeAdd !Text !Text !Int !Int !(Maybe Text) !(Maybe Text) !Text
   | -- | List all nodes
     NodeList
   | -- | Show node details (nodeRef)

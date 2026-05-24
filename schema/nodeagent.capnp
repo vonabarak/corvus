@@ -38,6 +38,15 @@ interface NodeAgent {
   # Liveness + capability probe.
   ping    @1 () -> ();
   version @2 () -> (info :AgentInfo);
+
+  # Resolved `$HOME/VMs` of the user the agent is running as, used
+  # as the default `basePath` for `crv node add` when the operator
+  # did not pass `--base-path` explicitly. Each agent answers for
+  # itself, so a heterogeneous cluster (alpha runs as alice, beta
+  # runs as bob) naturally lands `/home/alice/VMs` vs
+  # `/home/bob/VMs` without the operator having to know either
+  # user's home.
+  defaultBasePath @3 () -> (path :Text);
 }
 
 struct AgentInfo {

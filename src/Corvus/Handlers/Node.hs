@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | Node-management handlers (multi-node Phase 1).
@@ -33,13 +34,16 @@ import Corvus.Action
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model (Node (..))
 import qualified Corvus.Model as M
+import qualified Corvus.NodeAgentClient as NAC
 import Corvus.NodeSupervisor (spawnNodeSupervisor)
 import Corvus.Protocol
+import qualified Corvus.Tls as Tls
 import Corvus.Types
   ( NodeConns (..)
   , ServerState (..)
   , removeNodeConns
   , runServerLogging
+  , ssTlsConfig
   )
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
@@ -51,6 +55,7 @@ import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (fromSqlKey, toSqlKey)
+import System.Posix.User (getRealUserID)
 
 --------------------------------------------------------------------------------
 -- handleNodeAdd
@@ -81,47 +86,98 @@ handleNodeAdd state name host nodeAgentPort netAgentPort basePath mDesc adminSta
     Right () -> runServerLogging state $ do
       logInfoN $ "Adding node: " <> name <> " (" <> host <> ":" <> T.pack (show nodeAgentPort) <> ")"
       now <- liftIO getCurrentTime
-      let node =
-            Node
-              { nodeName = name
-              , nodeHost = host
-              , nodeNodeAgentPort = nodeAgentPort
-              , nodeNetAgentPort = netAgentPort
-              , nodeBasePath = basePath
-              , nodeDescription = mDesc
-              , nodeAdminState = adminState
-              , nodeCreatedAt = now
-              , nodeCpuCount = Nothing
-              , nodeRamMbTotal = Nothing
-              , nodeRamMbFree = Nothing
-              , nodeStorageBytesTotal = Nothing
-              , nodeStorageBytesFree = Nothing
-              , nodeLoadAvg1 = Nothing
-              , nodeLoadAvg5 = Nothing
-              , nodeLoadAvg15 = Nothing
-              , nodeKernelRelease = Nothing
-              , nodeAgentVersion = Nothing
-              , nodeNodeAgentHealthcheck = Nothing
-              , nodeNetAgentHealthcheck = Nothing
-              }
-      result <- liftIO $ runSqlPool (insertUnique node) (ssDbPool state)
-      case result of
-        Just key -> do
-          -- Fork the per-node reconnect supervisor right away so
-          -- the operator doesn't need to restart the daemon
-          -- before the new node starts accepting workloads.
-          _ <- liftIO $ spawnNodeSupervisor state (Entity key node)
-          pure $ RespNodeCreated (fromSqlKey key)
-        Nothing ->
-          pure $
-            RespError $
-              "Node with name '"
-                <> name
-                <> "' or address '"
+      resolved <-
+        if T.null basePath
+          then liftIO $ resolveBasePathFromAgent state name host nodeAgentPort
+          else pure (Right basePath)
+      case resolved of
+        Left err -> pure (RespError err)
+        Right effectiveBasePath -> do
+          let node =
+                Node
+                  { nodeName = name
+                  , nodeHost = host
+                  , nodeNodeAgentPort = nodeAgentPort
+                  , nodeNetAgentPort = netAgentPort
+                  , nodeBasePath = effectiveBasePath
+                  , nodeDescription = mDesc
+                  , nodeAdminState = adminState
+                  , nodeCreatedAt = now
+                  , nodeCpuCount = Nothing
+                  , nodeRamMbTotal = Nothing
+                  , nodeRamMbFree = Nothing
+                  , nodeStorageBytesTotal = Nothing
+                  , nodeStorageBytesFree = Nothing
+                  , nodeLoadAvg1 = Nothing
+                  , nodeLoadAvg5 = Nothing
+                  , nodeLoadAvg15 = Nothing
+                  , nodeKernelRelease = Nothing
+                  , nodeAgentVersion = Nothing
+                  , nodeNodeAgentHealthcheck = Nothing
+                  , nodeNetAgentHealthcheck = Nothing
+                  }
+          result <- liftIO $ runSqlPool (insertUnique node) (ssDbPool state)
+          case result of
+            Just key -> do
+              -- Fork the per-node reconnect supervisor right away so
+              -- the operator doesn't need to restart the daemon
+              -- before the new node starts accepting workloads.
+              _ <- liftIO $ spawnNodeSupervisor state (Entity key node)
+              pure $ RespNodeCreated (fromSqlKey key)
+            Nothing ->
+              pure $
+                RespError $
+                  "Node with name '"
+                    <> name
+                    <> "' or address '"
+                    <> host
+                    <> ":"
+                    <> T.pack (show nodeAgentPort)
+                    <> "' already exists"
+
+-- | Dial the remote nodeagent at @host:port@ and ask it for its
+-- preferred @basePath@. Used by 'handleNodeAdd' when the operator
+-- did not pass @--base-path@.
+--
+-- The TLS config is the daemon's own material with the peer's
+-- expected CN swapped to @corvus-node:<name>@, mirroring what
+-- 'Corvus.NodeSupervisor.runNodeSupervisor' does for the
+-- steady-state connect loop. A registration that arrives before
+-- the agent's cert is deployed will fail the TLS handshake — the
+-- operator gets a clear "TLS peer rejected" diagnostic and can
+-- re-run after running @corvus-admin deploy node@.
+resolveBasePathFromAgent
+  :: ServerState
+  -> Text
+  -- ^ node name (for the TLS peer expectation)
+  -> Text
+  -- ^ host
+  -> Int
+  -- ^ port
+  -> IO (Either Text Text)
+resolveBasePathFromAgent state nodeLabel host port = do
+  uid <- getRealUserID
+  let owner = T.pack (show uid)
+      mTls = Tls.withPeerExpectation Tls.RoleNode (Just nodeLabel) <$> ssTlsConfig state
+  NAC.withNodeAgentClient (T.unpack host) port owner mTls $ \case
+    Left e ->
+      pure
+        ( Left
+            ( "could not reach nodeagent at "
                 <> host
                 <> ":"
-                <> T.pack (show nodeAgentPort)
-                <> "' already exists"
+                <> T.pack (show port)
+                <> ": "
+                <> T.pack (show e)
+            )
+        )
+    Right nac -> do
+      r <- NAC.agentDefaultBasePath nac
+      case r of
+        Left e -> pure (Left ("nodeagent rejected defaultBasePath: " <> T.pack (show e)))
+        Right p
+          | T.null p -> pure (Left "nodeagent returned an empty basePath")
+          | otherwise -> pure (Right p)
 
 --------------------------------------------------------------------------------
 -- handleNodeDelete

@@ -45,21 +45,26 @@ instance (GH.Export NodeAgent) where
     type Server NodeAgent = NodeAgent'server_
     methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(NodeAgent)) [(GH.toUntypedMethodHandler ((nodeAgent'session) s_))
                                                                            ,(GH.toUntypedMethodHandler ((nodeAgent'ping) s_))
-                                                                           ,(GH.toUntypedMethodHandler ((nodeAgent'version) s_))] [])
+                                                                           ,(GH.toUntypedMethodHandler ((nodeAgent'version) s_))
+                                                                           ,(GH.toUntypedMethodHandler ((nodeAgent'defaultBasePath) s_))] [])
 class (NodeAgent'server_ s_) where
-    {-# MINIMAL nodeAgent'session,nodeAgent'ping,nodeAgent'version #-}
+    {-# MINIMAL nodeAgent'session,nodeAgent'ping,nodeAgent'version,nodeAgent'defaultBasePath #-}
     nodeAgent'session :: s_ -> (GH.MethodHandler NodeAgent'session'params NodeAgent'session'results)
     nodeAgent'session _ = GH.methodUnimplemented
     nodeAgent'ping :: s_ -> (GH.MethodHandler NodeAgent'ping'params NodeAgent'ping'results)
     nodeAgent'ping _ = GH.methodUnimplemented
     nodeAgent'version :: s_ -> (GH.MethodHandler NodeAgent'version'params NodeAgent'version'results)
     nodeAgent'version _ = GH.methodUnimplemented
+    nodeAgent'defaultBasePath :: s_ -> (GH.MethodHandler NodeAgent'defaultBasePath'params NodeAgent'defaultBasePath'results)
+    nodeAgent'defaultBasePath _ = GH.methodUnimplemented
 instance (GH.HasMethod "session" NodeAgent NodeAgent'session'params NodeAgent'session'results) where
     methodByLabel  = (GH.Method 15897469928431442643 0)
 instance (GH.HasMethod "ping" NodeAgent NodeAgent'ping'params NodeAgent'ping'results) where
     methodByLabel  = (GH.Method 15897469928431442643 1)
 instance (GH.HasMethod "version" NodeAgent NodeAgent'version'params NodeAgent'version'results) where
     methodByLabel  = (GH.Method 15897469928431442643 2)
+instance (GH.HasMethod "defaultBasePath" NodeAgent NodeAgent'defaultBasePath'params NodeAgent'defaultBasePath'results) where
+    methodByLabel  = (GH.Method 15897469928431442643 3)
 data NodeAgent'session'params 
 type instance (R.ReprFor NodeAgent'session'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAgent'session'params) where
@@ -224,6 +229,61 @@ instance (C.Marshal NodeAgent'version'results (C.Parsed NodeAgent'version'result
         (Std_.pure ())
         )
 instance (GH.HasField "info" GH.Slot NodeAgent'version'results AgentInfo) where
+    fieldByLabel  = (GH.ptrField 0)
+data NodeAgent'defaultBasePath'params 
+type instance (R.ReprFor NodeAgent'defaultBasePath'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId NodeAgent'defaultBasePath'params) where
+    typeId  = 16608591501214317651
+instance (C.TypedStruct NodeAgent'defaultBasePath'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate NodeAgent'defaultBasePath'params) where
+    type AllocHint NodeAgent'defaultBasePath'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc NodeAgent'defaultBasePath'params (C.Parsed NodeAgent'defaultBasePath'params))
+instance (C.AllocateList NodeAgent'defaultBasePath'params) where
+    type ListAllocHint NodeAgent'defaultBasePath'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc NodeAgent'defaultBasePath'params (C.Parsed NodeAgent'defaultBasePath'params))
+data instance C.Parsed NodeAgent'defaultBasePath'params
+    = NodeAgent'defaultBasePath'params 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed NodeAgent'defaultBasePath'params))
+deriving instance (Std_.Eq (C.Parsed NodeAgent'defaultBasePath'params))
+instance (C.Parse NodeAgent'defaultBasePath'params (C.Parsed NodeAgent'defaultBasePath'params)) where
+    parse raw_ = (Std_.pure NodeAgent'defaultBasePath'params)
+instance (C.Marshal NodeAgent'defaultBasePath'params (C.Parsed NodeAgent'defaultBasePath'params)) where
+    marshalInto _raw (NodeAgent'defaultBasePath'params) = (Std_.pure ())
+data NodeAgent'defaultBasePath'results 
+type instance (R.ReprFor NodeAgent'defaultBasePath'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId NodeAgent'defaultBasePath'results) where
+    typeId  = 14042383546414730042
+instance (C.TypedStruct NodeAgent'defaultBasePath'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate NodeAgent'defaultBasePath'results) where
+    type AllocHint NodeAgent'defaultBasePath'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc NodeAgent'defaultBasePath'results (C.Parsed NodeAgent'defaultBasePath'results))
+instance (C.AllocateList NodeAgent'defaultBasePath'results) where
+    type ListAllocHint NodeAgent'defaultBasePath'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc NodeAgent'defaultBasePath'results (C.Parsed NodeAgent'defaultBasePath'results))
+data instance C.Parsed NodeAgent'defaultBasePath'results
+    = NodeAgent'defaultBasePath'results 
+        {path :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed NodeAgent'defaultBasePath'results))
+deriving instance (Std_.Eq (C.Parsed NodeAgent'defaultBasePath'results))
+instance (C.Parse NodeAgent'defaultBasePath'results (C.Parsed NodeAgent'defaultBasePath'results)) where
+    parse raw_ = (NodeAgent'defaultBasePath'results <$> (GH.parseField #path raw_))
+instance (C.Marshal NodeAgent'defaultBasePath'results (C.Parsed NodeAgent'defaultBasePath'results)) where
+    marshalInto raw_ NodeAgent'defaultBasePath'results{..} = (do
+        (GH.encodeField #path path raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "path" GH.Slot NodeAgent'defaultBasePath'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 data AgentInfo 
 type instance (R.ReprFor AgentInfo) = (R.Ptr (Std_.Just R.Struct))

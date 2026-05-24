@@ -70,14 +70,16 @@ struct NodeDetails {
 
 # Inline-param defaults mirror `crv node add`. Only `name` and
 # `host` are mandatory; ports default to the netd/nodeagent
-# convention (9877/9878) and basePath to `/home/corvus/VMs`
-# (matching the existing service unit's working dir).
+# convention (9877/9878). basePath has no wire-level default —
+# the CLI resolves it to `$HOME/VMs` on the admin host before
+# sending; pass an explicit absolute path here when calling from
+# a non-CLI client.
 struct NodeAddParams {
   name           @0 :Text;
   host           @1 :Text;
   nodeAgentPort  @2 :Int32 = 9878;
   netAgentPort   @3 :Int32 = 9877;
-  basePath       @4 :Text  = "/home/corvus/VMs";
+  basePath       @4 :Text;
   description    @5 :Text;          # empty == none
   adminState     @6 :Enums.NodeAdminState = online;
 }

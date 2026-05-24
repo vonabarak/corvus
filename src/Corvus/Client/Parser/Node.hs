@@ -37,14 +37,20 @@ nodeAddCommand =
           <> value 9877
           <> help "TCP port for corvus-netd (default: 9877)"
       )
-    <*> ( T.pack
-            <$> strOption
-              ( long "base-path"
-                  <> metavar "PATH"
-                  <> value "/home/corvus/VMs"
-                  <> help "Daemon basePath on the node (where VM images live)"
-              )
-        )
+    <*> optional
+      ( T.pack
+          <$> strOption
+            ( long "base-path"
+                <> metavar "PATH"
+                <> help
+                  ( "Daemon basePath on the node (where VM images live). "
+                      <> "Defaults to $HOME/VMs resolved on the admin host — "
+                      <> "the common case where admin and node run as the "
+                      <> "same user. Pass an explicit absolute path when the "
+                      <> "node's daemon-user differs."
+                  )
+            )
+      )
     <*> optional
       ( strOption
           ( long "description"

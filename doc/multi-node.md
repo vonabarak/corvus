@@ -28,7 +28,7 @@ scheduler picks the one available node.
 ```
 crv node add <NAME> --host <IP> [--node-agent-port 9878] \
                                 [--net-agent-port 9877] \
-                                [--base-path /home/corvus/VMs] \
+                                [--base-path PATH] \
                                 [--description TEXT] \
                                 [--admin-state online|draining|maintenance]
 ```
@@ -44,7 +44,11 @@ crv node add <NAME> --host <IP> [--node-agent-port 9878] \
     systemd units.
   * **--base-path** — daemon basePath on the node (where VM
     images live). Disk file paths the daemon records in the
-    `disk_image_node` join are resolved against this base.
+    `disk_image_node` join are resolved against this base. When
+    omitted, defaults to `$HOME/VMs` resolved on the admin host —
+    the common case for single-user / `--user-service` setups
+    where admin and node run as the same user. Pass an explicit
+    absolute path when the node's daemon-user differs.
   * **--admin-state** — `online` (default), `maintenance`
     (refuse new VM placements), or `draining` (same as
     `maintenance`, but also a strong signal that ops is about

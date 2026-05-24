@@ -35,6 +35,8 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Supervisors (Supervisor)
+import System.Directory (getHomeDirectory)
+import System.FilePath ((</>))
 
 -- | Bootstrap-cap state. Holds the supervisor for child caps, the
 -- process-wide VM ledger, the status-subscriber registry, the
@@ -115,6 +117,18 @@ instance CGNA.NodeAgent'server_ NodeAgentCap where
           (nacTlsConfig nac)
       client <- export @CGNA.Session (nacSup nac) impl
       pure CGNA.NodeAgent'session'results {CGNA.session = client}
+
+  nodeAgent'defaultBasePath _ = handleParsed $ \_ -> do
+    logLine "defaultBasePath"
+    -- Resolves against the agent process's own $HOME — so a node
+    -- whose nodeagent runs as alice answers /home/alice/VMs and
+    -- a node whose nodeagent runs as bob answers /home/bob/VMs,
+    -- regardless of which user is invoking the daemon CLI.
+    home <- getHomeDirectory
+    pure
+      CGNA.NodeAgent'defaultBasePath'results
+        { CGNA.path = T.pack (home </> "VMs")
+        }
 
 -- ----------------------------------------------------------------------
 -- Constants

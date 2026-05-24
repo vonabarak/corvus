@@ -39,17 +39,20 @@ handleNodeAdd
   -> Text
   -> Int
   -> Int
-  -> Text
+  -> Maybe Text
   -> Maybe Text
   -> Text
   -- ^ admin state, as parsed text
   -> IO Bool
-handleNodeAdd fmt conn name host nodeAgentPort netAgentPort basePath mDesc adminStateText =
+handleNodeAdd fmt conn name host nodeAgentPort netAgentPort mBasePath mDesc adminStateText =
   case enumFromText adminStateText :: Either Text NodeAdminState of
     Left err -> do
       emitError fmt "bad_arg" err $ putStrLn ("Invalid admin-state: " ++ T.unpack err)
       pure False
     Right adminState -> do
+      -- An empty basePath on the wire is the signal to the daemon
+      -- to ask the target nodeagent for its preferred $HOME/VMs.
+      let basePath = fromMaybe T.empty mBasePath
       r <-
         try @SomeException
           (CR.rpcNodeAdd conn name host nodeAgentPort netAgentPort basePath mDesc adminState)
