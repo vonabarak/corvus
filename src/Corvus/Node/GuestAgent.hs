@@ -36,6 +36,8 @@ module Corvus.Node.GuestAgent
     -- * Internal (exposed for tests)
   , parseGuestInterfaces
   , splitLines
+  , pollStatus
+  , pollRecvTimeoutMicros
   )
 where
 
@@ -83,6 +85,19 @@ import System.Timeout (timeout)
 --   * @Nothing@ — not connected (will connect on next operation)
 --   * @Just sock@ — persistent connection ready for commands
 type GuestAgentConns = TVar (Map.Map Int64 (MVar (Maybe Socket)))
+
+-- | Per-recv timeout used inside the @guest-exec-status@ /
+-- @guest-file-read@ poll loops and other short single-round-trip
+-- commands. QEMU keeps the host-side chardev socket open across a
+-- guest reboot or qemu-ga crash, so a plain @recv@ blocks until the
+-- outer 'withPersistentConn' timeout (90 s for the default
+-- 60 s-budget exec) fires — multiplied by 5 retries that's ~7.5 min
+-- per @vm.cap.guest_exec(...)@ call on a vanished agent. A 5 s
+-- per-recv bound shortens that window without ever tripping on
+-- healthy guests (the slowest QGAs we've measured — FreeBSD on
+-- nested KVM — respond to status queries inside a few hundred ms).
+pollRecvTimeoutMicros :: Int
+pollRecvTimeoutMicros = 5000000
 
 -- | Result of a guest-exec command
 data GuestExecResult
@@ -374,36 +389,59 @@ guestExecStream
   -- ^ stderr chunks (unused on POSIX; populated only on Windows fallback)
   -> IO GuestExecResult
 guestExecStream conns config vmId command mStdin maxPolls onOut onErr = do
-  let connTimeoutMicros = max 15000000 (maxPolls * 100000 + 30000000)
-  mResult <- withPersistentConn conns config vmId 5 connTimeoutMicros $ \sock -> do
+  let pollConnTimeoutMicros = max 15000000 (maxPolls * 100000 + 30000000)
+  -- Phase 1 (dispatch, retries=5): detect the guest shell and send
+  -- the @guest-exec@ command. On POSIX guests we also open a
+  -- per-step log file for the streaming tail; on Windows we fall
+  -- back to the aggregating @pollStatus@ path. The result carries
+  -- the dispatched pid plus (POSIX) the log read handle.
+  eDispatch <- withPersistentConn conns config vmId 5 30000000 $ \sock -> do
     (shellPath, shellArgs) <- detectGuestShell sock
     if shellPath == "cmd.exe"
-      then runGuestExecWindowsFallback sock shellPath shellArgs command mStdin maxPolls onOut onErr
-      else runGuestExecLogTail sock shellPath shellArgs command mStdin maxPolls onOut
-  case mResult of
+      then dispatchWindowsExec sock shellPath shellArgs command mStdin
+      else dispatchLogTailExec sock shellPath shellArgs command mStdin
+  case eDispatch of
     Left err -> pure $ GuestExecConnectionFailed err
-    Right r -> pure r
+    Right (Left e) -> pure $ GuestExecError e
+    Right (Right disp) -> do
+      -- Phase 2 (poll, retries=1): wait for the dispatched process
+      -- to exit, streaming output along the way. Per-recv timeouts
+      -- inside 'pollStatus' / 'pollWithLogTail' / 'guestFileRead'
+      -- guard against a vanished QGA; on a timeout the action
+      -- throws and the retries=1 budget surfaces it to the caller
+      -- without re-dispatching the (already-running) command.
+      ePoll <- withPersistentConn conns config vmId 1 pollConnTimeoutMicros $ \sock ->
+        case disp of
+          DispatchedWindows pid ->
+            pollStatus sock pid 0 maxPolls onOut onErr
+          DispatchedPosix pid logHandle -> do
+            r <- pollWithLogTail sock pid logHandle 0 maxPolls onOut
+            _ <- guestFileClose sock logHandle
+            pure r
+      case ePoll of
+        Left err -> pure $ GuestExecConnectionFailed err
+        Right r -> pure r
 
--- | Path used by the streaming RPC on POSIX guests. Wraps the
--- user's command to redirect all output into a guest-side log
--- file, then polls 'guest-file-read' to stream those bytes back
--- through @onOut@ while the command runs. @guest-exec-status@
--- is polled only to detect process exit.
-runGuestExecLogTail
+-- | Outcome of the dispatch phase of 'guestExecStream'.
+data DispatchedExec
+  = -- | POSIX: pid of the wrapped command + open log read handle.
+    DispatchedPosix !Int !Int
+  | -- | Windows: pid of the wrapped command (no log tail).
+    DispatchedWindows !Int
+
+-- | Dispatch the @guest-exec@ on a POSIX guest with an output log
+-- file. Returns @Left@ on QGA-side parse failure or file-open error
+-- (no retry-worthy condition); @Right (DispatchedPosix pid handle)@
+-- on success. The handle is owned by the caller and must be closed
+-- once the poll loop finishes.
+dispatchLogTailExec
   :: Socket
   -> Text
-  -- ^ shell path (e.g. @/bin/sh@)
   -> [Text]
-  -- ^ shell flags (e.g. @[\"-c\"]@)
   -> Text
-  -- ^ user-supplied command body
   -> Maybe BS.ByteString
-  -- ^ stdin bytes for the guest process
-  -> Int
-  -- ^ max polls (100 ms ticks)
-  -> ChunkSink
-  -> IO GuestExecResult
-runGuestExecLogTail sock shellPath shellArgs command mStdin maxPolls onOut = do
+  -> IO (Either Text DispatchedExec)
+dispatchLogTailExec sock shellPath shellArgs command mStdin = do
   let logPath = "/tmp/.corvus-build-step.log" :: Text
   -- Open the log handle for reading. The shell wrapper truncates
   -- and writes to the SAME path via fs (not via this handle), so
@@ -418,12 +456,12 @@ runGuestExecLogTail sock shellPath shellArgs command mStdin maxPolls onOut = do
   -- shell wrapper would race the agent's first read.
   truncResult <- guestFileOpenForTruncate sock logPath
   case truncResult of
-    Left e -> pure $ GuestExecError ("guest-file-open(truncate): " <> e)
+    Left e -> pure $ Left ("guest-file-open(truncate): " <> e)
     Right truncHandle -> do
       _ <- guestFileClose sock truncHandle
       readResult <- guestFileOpenForRead sock logPath
       case readResult of
-        Left e -> pure $ GuestExecError ("guest-file-open(read): " <> e)
+        Left e -> pure $ Left ("guest-file-open(read): " <> e)
         Right readHandle -> do
           let wrappedBody =
                 "exec >>" <> shellQuote logPath <> " 2>&1\n" <> command
@@ -448,28 +486,20 @@ runGuestExecLogTail sock shellPath shellArgs command mStdin maxPolls onOut = do
             Nothing -> do
               _ <- guestFileClose sock readHandle
               pure $
-                GuestExecError $
-                  "Failed to parse guest-exec response: " <> T.pack (show execResp)
-            Just pid -> do
-              r <- pollWithLogTail sock pid readHandle 0 maxPolls onOut
-              _ <- guestFileClose sock readHandle
-              pure r
+                Left
+                  ("Failed to parse guest-exec response: " <> T.pack (show execResp))
+            Just pid -> pure $ Right (DispatchedPosix pid readHandle)
 
--- | Windows fallback for the streaming RPC: behaves exactly like
--- 'guestExecImpl' (aggregate everything, emit at the end). The
--- caller's @onOut@ / @onErr@ still fire — just in one big chunk
--- per stream, after the guest process exits.
-runGuestExecWindowsFallback
+-- | Dispatch the @guest-exec@ on a Windows guest (no log file —
+-- @pollStatus@ aggregates output and emits it at process exit).
+dispatchWindowsExec
   :: Socket
   -> Text
   -> [Text]
   -> Text
   -> Maybe BS.ByteString
-  -> Int
-  -> ChunkSink
-  -> ChunkSink
-  -> IO GuestExecResult
-runGuestExecWindowsFallback sock shellPath shellArgs command mStdin maxPolls onOut onErr = do
+  -> IO (Either Text DispatchedExec)
+dispatchWindowsExec sock shellPath shellArgs command mStdin = do
   let stdinField = case mStdin of
         Nothing -> []
         Just bs -> ["input-data" .= decodeUtf8 (B64.encode bs)]
@@ -490,9 +520,8 @@ runGuestExecWindowsFallback sock shellPath shellArgs command mStdin maxPolls onO
   case parsePid execResp of
     Nothing ->
       pure $
-        GuestExecError $
-          "Failed to parse guest-exec response: " <> T.pack (show execResp)
-    Just pid -> pollStatus sock pid 0 maxPolls onOut onErr
+        Left ("Failed to parse guest-exec response: " <> T.pack (show execResp))
+    Just pid -> pure $ Right (DispatchedWindows pid)
 
 -- | One poll cycle: drain any new bytes from the log file, then
 -- check whether the guest process exited. On exit, do a final
@@ -521,7 +550,14 @@ pollWithLogTail sock pid logHandle attempts maxAttempts onOut
               , "arguments" .= Aeson.object ["pid" .= pid]
               ]
       sendJson sock statusCmd
-      statusResp <- recvJson sock
+      -- Per-recv timeout: see 'pollStatus' for the rationale. Throws
+      -- via 'userError' so the outer 'withPersistentConn' (called
+      -- with retries=1 for the poll phase) closes the socket and
+      -- surfaces a clear "agent vanished" error to the caller.
+      mStatusResp <- timeout pollRecvTimeoutMicros (recvJson sock)
+      statusResp <- case mStatusResp of
+        Nothing -> ioError (userError "guest agent stopped responding mid-exec")
+        Just r -> pure r
       case parseExecStatus statusResp of
         Just (True, exitcode, _, _) -> do
           -- Drain anything written between our drainLog above
@@ -607,7 +643,16 @@ guestFileRead sock handle count = do
             , "count" .= count
             ]
       ]
-  resp <- recvJson sock
+  -- Per-recv timeout: 'drainLog' calls this inside the streaming
+  -- poll loop, and we don't want a vanished QGA to leave the
+  -- drain blocked. A timeout fires 'userError' so the enclosing
+  -- 'withPersistentConn' (called with retries=1 in the poll phase
+  -- of 'guestExecStream') closes the socket and returns to the
+  -- caller; matches the behaviour in 'pollWithLogTail'.
+  mResp <- timeout pollRecvTimeoutMicros (recvJson sock)
+  resp <- case mResp of
+    Nothing -> ioError (userError "guest agent stopped responding mid-exec")
+    Just r -> pure r
   case parseRead resp of
     Just (bs, eof) -> pure (Right (bs, eof))
     Nothing -> pure $ Left ("guest-file-read: " <> T.pack (show resp))
@@ -656,14 +701,23 @@ runGuestExecWithSinks
   -> ChunkSink
   -> IO GuestExecResult
 runGuestExecWithSinks conns config vmId command mStdin maxPolls onOut onErr = do
-  -- The persistent-connection timeout has to cover the entire polling
-  -- loop (pollStatus sleeps 100 ms between guest-exec-status calls).
-  -- A 15 s default kills long shell provisioners (apt-get install nginx
-  -- can comfortably take a minute on a cold cache); scale with the
-  -- caller's @maxPolls@ budget plus a 30 s headroom for the initial
-  -- exec dispatch and OS-detection round-trip.
-  let connTimeoutMicros = max 15000000 (maxPolls * 100000 + 30000000)
-  mResult <- withPersistentConn conns config vmId 5 connTimeoutMicros $ \sock -> do
+  -- Split into two 'withPersistentConn' phases:
+  --
+  --   * Phase 1 (dispatch) — retries=5, 30 s per attempt.  Covers
+  --     the connect + sync handshake, OS detection, and the initial
+  --     @guest-exec@ round-trip.  Retries here are safe (re-dispatch
+  --     is harmless before the command has been spawned).
+  --   * Phase 2 (poll) — retries=1, with a per-recv timeout inside
+  --     'pollStatus'.  Retries here would *re-execute* the command
+  --     (think @reboot -f@), so the poll loop instead reports
+  --     "agent stopped responding" and surfaces it to the caller
+  --     unchanged.
+  --
+  -- The socket is shared between phases via 'withPersistentConn''s
+  -- 'connVar' cache: Phase 1 leaves a healthy socket; Phase 2 picks
+  -- it up without reconnecting.
+  let pollConnTimeoutMicros = max 15000000 (maxPolls * 100000 + 30000000)
+  eDispatch <- withPersistentConn conns config vmId 5 30000000 $ \sock -> do
     (shellPath, shellArgs) <- detectGuestShell sock
     let stdinField = case mStdin of
           Nothing -> []
@@ -683,11 +737,17 @@ runGuestExecWithSinks conns config vmId command mStdin maxPolls onOut onErr = do
     sendJson sock execCmd
     execResp <- recvJson sock
     case parsePid execResp of
-      Nothing -> pure $ GuestExecError $ "Failed to parse guest-exec response: " <> T.pack (show execResp)
-      Just pid -> pollStatus sock pid 0 maxPolls onOut onErr
-  case mResult of
+      Nothing -> pure (Left ("Failed to parse guest-exec response: " <> T.pack (show execResp)))
+      Just pid -> pure (Right pid)
+  case eDispatch of
     Left err -> pure $ GuestExecConnectionFailed err
-    Right r -> pure r
+    Right (Left parseErr) -> pure $ GuestExecError parseErr
+    Right (Right pid) -> do
+      ePoll <- withPersistentConn conns config vmId 1 pollConnTimeoutMicros $ \sock ->
+        pollStatus sock pid 0 maxPolls onOut onErr
+      case ePoll of
+        Left err -> pure $ GuestExecConnectionFailed err
+        Right r -> pure r
 
 -- | Ping the guest agent to check if it's available.
 -- Single attempt: the caller (usually a polling loop) retries on its own
@@ -701,9 +761,13 @@ guestPing :: GuestAgentConns -> QemuConfig -> Int64 -> IO Bool
 guestPing conns config vmId = do
   mResult <- withPersistentConn conns config vmId 1 15000000 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-ping" :: Text)]
-    resp <- recvJson sock
-    case resp of
-      Just (Object obj) -> pure $ KM.member "return" obj
+    -- Per-recv timeout: ping is the healthcheck poller's signal of
+    -- "agent reachable", so we want a snappy "no" when QGA has
+    -- vanished — bounded by 'pollRecvTimeoutMicros' instead of the
+    -- outer 15 s connection timeout.
+    mResp <- timeout pollRecvTimeoutMicros (recvJson sock)
+    case mResp of
+      Just (Just (Object obj)) -> pure $ KM.member "return" obj
       _ -> pure False
   case mResult of
     Left _ -> pure False
@@ -892,18 +956,27 @@ pollStatus sock pid attempts maxAttempts onOut onErr
               , "arguments" .= Aeson.object ["pid" .= pid]
               ]
       sendJson sock statusCmd
-      statusResp <- recvJson sock
-
-      case parseExecStatus statusResp of
-        Just (exited, exitcode, outBs, errBs) -> do
-          unless (BS.null outBs) (onOut outBs)
-          unless (BS.null errBs) (onErr errBs)
-          if exited
-            then pure $ GuestExecSuccess exitcode T.empty T.empty
-            else do
-              threadDelay 100000 -- 100ms
-              pollStatus sock pid (attempts + 1) maxAttempts onOut onErr
-        Nothing -> pure $ GuestExecError "Failed to parse guest-exec-status response"
+      -- Per-recv timeout. QEMU keeps the chardev open across a guest
+      -- reboot / qemu-ga crash, so recvJson would otherwise block
+      -- until the outer 'withPersistentConn' timeout fires (~90 s).
+      -- A timeout here throws via 'userError'; 'withPersistentConn'
+      -- treats that as a connection failure, closes the socket, and
+      -- — since the caller passes retries=1 for the poll phase —
+      -- propagates a Left to the caller without re-dispatching the
+      -- (already-executed) guest-exec command.
+      mStatusResp <- timeout pollRecvTimeoutMicros (recvJson sock)
+      case mStatusResp of
+        Nothing -> ioError (userError "guest agent stopped responding mid-exec")
+        Just statusResp -> case parseExecStatus statusResp of
+          Just (exited, exitcode, outBs, errBs) -> do
+            unless (BS.null outBs) (onOut outBs)
+            unless (BS.null errBs) (onErr errBs)
+            if exited
+              then pure $ GuestExecSuccess exitcode T.empty T.empty
+              else do
+                threadDelay 100000 -- 100ms
+                pollStatus sock pid (attempts + 1) maxAttempts onOut onErr
+          Nothing -> pure $ GuestExecError "Failed to parse guest-exec-status response"
 
 -- | Parse a @guest-exec-status@ response.
 --

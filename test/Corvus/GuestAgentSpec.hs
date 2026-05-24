@@ -7,11 +7,20 @@
 -- including newline-delimited streams and 0xFF framing bytes.
 module Corvus.GuestAgentSpec (spec) where
 
+import Control.Concurrent (forkIO)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Exception (try)
+import Control.Monad (unless)
 import Corvus.Node.GuestAgent (GuestIpAddress (..), GuestNetIf (..), parseGuestInterfaces)
+import qualified Corvus.Node.GuestAgent as GA
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
+import Data.Time (diffUTCTime, getCurrentTime)
 import Data.Word (Word8)
+import Network.Socket (Family (..), SocketType (..), close, defaultProtocol, socketPair)
+import Network.Socket.ByteString (recv)
+import System.IO.Error (isUserError)
 import Test.Hspec
 
 spec :: Spec
@@ -168,6 +177,49 @@ spec = do
       parseGuestInterfaces (Aeson.decodeStrict json)
         `shouldBe` Just
           [GuestNetIf {gniHardwareAddress = "52:54:00:12:34:56", gniIpAddresses = []}]
+
+  describe "pollStatus per-recv timeout" $ do
+    it "throws userError when the QGA stops responding mid-exec" $ do
+      -- Simulates QEMU keeping the chardev open while qemu-ga has
+      -- died: the daemon-side socket is healthy but no reply ever
+      -- arrives. 'pollStatus' must throw within
+      -- 'pollRecvTimeoutMicros' + slack rather than block until the
+      -- outer 'withPersistentConn' timeout.
+      (sockClient, sockServer) <- socketPair AF_UNIX Stream defaultProtocol
+      -- Drain whatever pollStatus sends so its sendJson doesn't
+      -- block on a full kernel buffer (the socketpair default
+      -- backlog is small). The drainer exits cleanly when the
+      -- client side closes (recv returns BS.null).
+      drained <- newEmptyMVar
+      _ <- forkIO $ do
+        let loop = do
+              chunk <- recv sockServer 4096
+              unless (BS.null chunk) loop
+        loop
+        putMVar drained ()
+      t0 <- getCurrentTime
+      eResult <-
+        try $ GA.pollStatus sockClient 1234 0 600 (\_ -> pure ()) (\_ -> pure ())
+      t1 <- getCurrentTime
+      -- Close client first so the drainer sees EOF and exits before
+      -- we close the server side (closing a socket another thread
+      -- is blocked on triggers a "Bad file descriptor" warning).
+      close sockClient
+      takeMVar drained
+      close sockServer
+      let elapsed = realToFrac (diffUTCTime t1 t0) :: Double
+          slackSec = 2.5 -- 5 s timeout + slack for scheduling
+          floorSec = fromIntegral GA.pollRecvTimeoutMicros / (1000000 :: Double) - 0.5
+      elapsed `shouldSatisfy` (< (fromIntegral GA.pollRecvTimeoutMicros / 1000000 + slackSec))
+      elapsed `shouldSatisfy` (> floorSec)
+      case eResult of
+        Left ioe | isUserError ioe -> pure ()
+        Left e ->
+          expectationFailure
+            ("expected a userError IOException; got: " <> show e)
+        Right r ->
+          expectationFailure
+            ("expected pollStatus to throw on silent QGA; got: " <> show r)
 
   describe "sync ID range" $ do
     it "bounded sync IDs fit in 32-bit integers" $ do
