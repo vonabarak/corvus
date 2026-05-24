@@ -55,11 +55,20 @@ class Runner(ABC):
     privesc: privesc.PrivEsc | None
 
     @abstractmethod
-    def copy_bytes(self, data: bytes, remote_path: str, *, mode: int) -> None:
+    def copy_bytes(
+        self,
+        data: bytes,
+        remote_path: str,
+        *,
+        mode: int,
+        sudo: bool = True,
+    ) -> None:
         """Write *data* (as binary) to *remote_path* with the given
         Unix mode. Existing files are overwritten atomically.
         Intermediate directories must already exist (see
-        :meth:`mkdir_p`)."""
+        :meth:`mkdir_p`). When ``sudo`` is False, the final install
+        step skips privilege escalation — required for user-service
+        deploys whose target directory is owned by the SSH user."""
 
     @abstractmethod
     def run(
@@ -82,6 +91,15 @@ class Runner(ABC):
     @abstractmethod
     def mkdir_p(self, path: str, *, mode: int = 0o755, sudo: bool = False) -> None:
         """Equivalent of ``install -d -m <mode> <path>``."""
+
+    @abstractmethod
+    def which(self, name: str) -> str | None:
+        """Return the absolute path of *name* on the target's $PATH,
+        or None if it isn't found. The lookup matches what an
+        interactive login shell would see, so user-installed
+        binaries under ``~/.local/bin`` are visible. Used by the
+        deploy step to bake an absolute ``ExecStart=`` into rendered
+        systemd units (systemd does not expand ``~``)."""
 
 
 def _privesc_prefix(pe: privesc.PrivEsc | None) -> list[str]:
@@ -113,7 +131,14 @@ class LocalRunner(Runner):
             self._is_root = False
         self.privesc = privesc_tool if privesc_tool is not None else privesc.detect()
 
-    def copy_bytes(self, data: bytes, remote_path: str, *, mode: int) -> None:
+    def copy_bytes(
+        self,
+        data: bytes,
+        remote_path: str,
+        *,
+        mode: int,
+        sudo: bool = True,
+    ) -> None:
         path = Path(os.path.expanduser(remote_path))
         tmp = path.with_suffix(path.suffix + ".tmp")
         # If the target needs root and we're not root, write to a
@@ -128,6 +153,8 @@ class LocalRunner(Runner):
             os.replace(tmp, path)
             os.chmod(path, mode)
         except PermissionError:
+            if not sudo:
+                raise
             # Tier 2: write into /tmp, then `install` with privesc.
             # We don't blindly try sudo on the original path —
             # that mixes user-id authority into a flow the admin
@@ -197,6 +224,9 @@ class LocalRunner(Runner):
             sudo=True,
         )
 
+    def which(self, name: str) -> str | None:
+        return shutil.which(name)
+
 
 # ---------------------------------------------------------------------------
 # SSH
@@ -233,6 +263,7 @@ class SshRunner(Runner):
         self.target = target
         self.label = f"ssh:{target}"
         self.privesc = privesc_tool if privesc_tool is not None else privesc.detect()
+        self._remote_home: str | None = None
 
     # Shared base args. -o BatchMode=yes refuses to prompt for a
     # password — the admin's key needs to be in agent before
@@ -240,16 +271,53 @@ class SshRunner(Runner):
     _SSH_BASE = ("ssh", "-o", "BatchMode=yes")
     _SCP_BASE = ("scp", "-q", "-o", "BatchMode=yes")
 
-    def copy_bytes(self, data: bytes, remote_path: str, *, mode: int) -> None:
+    def _expand_home(self, path: str) -> str:
+        """Resolve a leading ``~`` against the SSH user's remote
+        ``$HOME``. shlex.join quotes ``~`` so we can't rely on the
+        remote shell expanding it once the argv is reassembled.
+
+        The first call shells out via ssh to capture ``$HOME``; the
+        result is cached for subsequent calls. Paths that don't
+        start with ``~`` are returned unchanged."""
+
+        if not (path == "~" or path.startswith("~/")):
+            return path
+        if self._remote_home is None:
+            # Bypass shlex.join: pass the remote command as a raw
+            # string so $HOME survives unquoted and the remote
+            # shell expands it.
+            full = [*self._SSH_BASE, self.target, 'printf %s "$HOME"']
+            proc = subprocess.run(full, check=False, text=True, capture_output=True)
+            if proc.returncode != 0 or not proc.stdout.strip():
+                raise RunnerError(
+                    f"could not resolve $HOME on {self.target} "
+                    f"(rc={proc.returncode}): {proc.stderr.strip()}",
+                    stderr=proc.stderr,
+                )
+            self._remote_home = proc.stdout.strip()
+        if path == "~":
+            return self._remote_home
+        return self._remote_home + path[1:]
+
+    def copy_bytes(
+        self,
+        data: bytes,
+        remote_path: str,
+        *,
+        mode: int,
+        sudo: bool = True,
+    ) -> None:
         import tempfile
+
+        remote_path = self._expand_home(remote_path)
 
         with tempfile.NamedTemporaryFile(delete=False, prefix="corvus-admin-") as t:
             t.write(data)
             staging = t.name
         try:
             # scp into a staging path the agent definitely owns,
-            # then privesc-install into the real spot with the
-            # right mode. Doing both in one shot via
+            # then optionally-privesc-install into the real spot
+            # with the right mode. Doing both in one shot via
             # `ssh sudo tee` is tempting but routes the bytes
             # through sudo's stdin and trips its tty heuristics on
             # some configs.
@@ -265,7 +333,7 @@ class SshRunner(Runner):
                     remote_staging,
                     remote_path,
                 ],
-                sudo=True,
+                sudo=sudo,
             )
             self.run(["rm", "-f", remote_staging], sudo=False, check=False)
         finally:
@@ -308,9 +376,25 @@ class SshRunner(Runner):
 
     def mkdir_p(self, path: str, *, mode: int = 0o755, sudo: bool = False) -> None:
         self.run(
-            ["install", "-d", "-m", oct(mode)[2:], path],
+            ["install", "-d", "-m", oct(mode)[2:], self._expand_home(path)],
             sudo=sudo,
         )
+
+    def which(self, name: str) -> str | None:
+        # `command -v` is POSIX and works in any reasonable shell;
+        # wrapping it in `sh -lc` runs a login shell so the
+        # remote's ~/.profile is sourced and ~/.local/bin appears
+        # on $PATH (the typical `make install` layout). We bypass
+        # this runner's `run()` because the command needs to flow
+        # through the remote shell unquoted — shlex.join would
+        # quote the inner string and defeat `-lc`'s parse.
+        remote = f"sh -lc {shlex.quote('command -v ' + shlex.quote(name))}"
+        full = [*self._SSH_BASE, self.target, remote]
+        proc = subprocess.run(full, check=False, text=True, capture_output=True)
+        if proc.returncode != 0:
+            return None
+        out = proc.stdout.strip()
+        return out or None
 
     def _scp(self, local_src: str, remote_dest: str) -> None:
         full = [*self._SCP_BASE, local_src, f"{self.target}:{remote_dest}"]

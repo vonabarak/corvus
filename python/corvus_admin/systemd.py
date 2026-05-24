@@ -17,6 +17,39 @@ import jinja2
 
 from corvus_admin.runner import Runner
 
+# Default install locations for the Haskell binaries on the target
+# host. The user-mode default mirrors `make install`'s
+# `stack install --local-bin-path ~/.local/bin`. The system-mode
+# default matches the typical sysadmin layout for hand-built
+# binaries; distro packages usually land in /usr/bin and operators
+# pass `--binary-path /usr/bin/<bin>` to override.
+_DEFAULT_BIN_DIR_USER = "~/.local/bin"
+_DEFAULT_BIN_DIR_SYSTEM = "/usr/local/bin"
+_BINARY_NAMES: dict[str, str] = {
+    "daemon": "corvus",
+    "nodeagent": "corvus-nodeagent",
+    "netd": "corvus-netd",
+}
+
+
+def default_binary_path(component: str, *, mode: InstallMode) -> str:
+    """Return the default absolute path of *component*'s binary on
+    the target host. Component is one of ``daemon`` /
+    ``nodeagent`` / ``netd``; mode picks the bin dir
+    (``~/.local/bin`` for user, ``/usr/local/bin`` for system)."""
+
+    if component not in _BINARY_NAMES:
+        raise ValueError(f"unknown systemd component {component!r}")
+    bin_dir = _DEFAULT_BIN_DIR_USER if mode == "user" else _DEFAULT_BIN_DIR_SYSTEM
+    return f"{bin_dir}/{_BINARY_NAMES[component]}"
+
+
+# Install locations for the rendered unit file on the target host.
+# Exposed as module-level constants so tests can redirect them to
+# a tmpdir without monkey-patching the install_unit helper itself.
+SYSTEMD_USER_DIR = "~/.config/systemd/user"
+SYSTEMD_SYSTEM_DIR = "/etc/systemd/system"
+
 InstallMode = Literal["user", "system"]
 
 
@@ -104,22 +137,24 @@ def install_unit(
     Returns the absolute install path so callers can include it
     in progress output. In user mode the path is
     ``~/.config/systemd/user/<unit>``; in system mode
-    ``/etc/systemd/system/<unit>``."""
+    ``/etc/systemd/system/<unit>``.
+
+    The ``~/`` prefix is preserved in the path string so the
+    runner can expand it against the right home — LocalRunner uses
+    ``os.path.expanduser`` for the admin's own home; SshRunner
+    queries the remote ``$HOME`` once and substitutes."""
 
     unit = unit_filename(component)
-    if mode == "user":
-        # Expand ~ on the runner's side. LocalRunner is the only
-        # case this matters for today; SSH runners always target
-        # remote system-mode installs in the current shape.
-        target_dir = str(Path.home() / ".config/systemd/user")
-        runner.mkdir_p(target_dir, mode=0o755, sudo=False)
-        target = f"{target_dir}/{unit}"
-        runner.copy_bytes(content.encode("utf-8"), target, mode=0o644)
-    else:
-        target_dir = "/etc/systemd/system"
-        runner.mkdir_p(target_dir, mode=0o755, sudo=True)
-        target = f"{target_dir}/{unit}"
-        runner.copy_bytes(content.encode("utf-8"), target, mode=0o644)
+    user_mode = mode == "user"
+    target_dir = SYSTEMD_USER_DIR if user_mode else SYSTEMD_SYSTEM_DIR
+    runner.mkdir_p(target_dir, mode=0o755, sudo=not user_mode)
+    target = f"{target_dir}/{unit}"
+    runner.copy_bytes(
+        content.encode("utf-8"),
+        target,
+        mode=0o644,
+        sudo=not user_mode,
+    )
     return target
 
 

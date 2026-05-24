@@ -1,10 +1,9 @@
-"""Tests for the renew code path. Uses the same LocalRunner +
-fake-systemctl/sudo fixture pattern as test_deploy."""
+"""Tests for the renew code path. Uses the shared
+``fake_paths`` fixture from ``conftest.py``."""
 
 from __future__ import annotations
 
 import datetime as dt
-import os
 
 import pytest
 from corvus_admin import ca, deploy, store
@@ -15,28 +14,6 @@ from corvus_admin.runner import LocalRunner
 def initialised_store(admin_store):
     ca.init_ca(admin_store)
     return admin_store
-
-
-@pytest.fixture()
-def fake_paths(tmp_path, monkeypatch):
-    """Same recipe as tests/test_deploy.py — redirect SYSTEM_CERT_DIR
-    and stub out systemctl/sudo so the deploy + renew code paths
-    don't need real systemd."""
-
-    etc = tmp_path / "etc-corvus"
-    monkeypatch.setattr(deploy, "SYSTEM_CERT_DIR", str(etc))
-
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    log = bin_dir / "systemctl.log"
-    sysctl = bin_dir / "systemctl"
-    sysctl.write_text(f'#!/bin/sh\necho "$@" >> {log!s}\n')
-    sysctl.chmod(0o755)
-    sudo = bin_dir / "sudo"
-    sudo.write_text('#!/bin/sh\nexec "$@"\n')
-    sudo.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
-    return etc, log
 
 
 def test_renew_daemon_reuses_existing_uuid(initialised_store, fake_paths):

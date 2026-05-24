@@ -44,13 +44,20 @@ class NodeShellRunner(Runner):
     # ------------------------------------------------------------------
     # File copy
 
-    def copy_bytes(self, data: bytes, remote_path: str, *, mode: int) -> None:
+    def copy_bytes(
+        self,
+        data: bytes,
+        remote_path: str,
+        *,
+        mode: int,
+        sudo: bool = True,
+    ) -> None:
         """Push *data* to *remote_path* with the given Unix mode.
 
         Done in three SSH round-trips: base64-encode locally,
         decode into a staging file (the corvus user writes), then
-        ``sudo install`` it atomically into the final path with
-        the right mode + owner. The base64 step lets us ship the
+        ``install`` it atomically into the final path with the
+        right mode + owner. The base64 step lets us ship the
         bytes through ``NodeShell.run``'s positional-string argv
         without worrying about quoting, and keeps key files
         intact even when OpenSSL writes 8-bit PEM.
@@ -65,8 +72,14 @@ class NodeShellRunner(Runner):
         fatal for the production system-service path because
         ``corvus-netd`` is the only system service today and it
         runs as root.
+
+        ``sudo=False`` is accepted to satisfy the base-class
+        contract; the harness still installs through ``sudo``
+        because the test image only grants the ``corvus`` user
+        write access to ``/tmp``.
         """
 
+        del sudo  # always sudo through to /etc/corvus/* on the test node
         if not isinstance(remote_path, str) or not remote_path:
             raise ValueError(f"invalid remote_path {remote_path!r}")
         encoded = base64.b64encode(data).decode("ascii")
@@ -157,6 +170,18 @@ class NodeShellRunner(Runner):
             ["install", "-d", "-m", oct(mode)[2:], path],
             sudo=sudo,
         )
+
+    def which(self, name: str) -> str | None:
+        """Resolve *name* on the test node's $PATH. The test image
+        bakes corvus binaries into /opt/corvus/bin (mounted via
+        virtiofs from the host stack-install dir), which is on
+        every shell's $PATH — no login-shell trick required."""
+
+        proc = self._shell.run(f"command -v {shlex.quote(name)}", check=False)
+        if proc.returncode != 0:
+            return None
+        out = proc.stdout.decode("utf-8", errors="replace").strip()
+        return out or None
 
 
 # ---------------------------------------------------------------------------

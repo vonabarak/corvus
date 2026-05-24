@@ -9,8 +9,6 @@ VM (Phase 2 verification).
 
 from __future__ import annotations
 
-import os
-
 import pytest
 from corvus_admin import ca, deploy
 from corvus_admin.runner import LocalRunner
@@ -21,31 +19,6 @@ from cryptography import x509
 def initialised_store(admin_store):
     ca.init_ca(admin_store)
     return admin_store
-
-
-@pytest.fixture()
-def fake_paths(tmp_path, monkeypatch):
-    """Redirect SYSTEM_CERT_DIR to tmp_path/etc-corvus and stub
-    systemctl with a script that just logs its argv."""
-
-    etc = tmp_path / "etc-corvus"
-    monkeypatch.setattr(deploy, "SYSTEM_CERT_DIR", str(etc))
-
-    # Fake systemctl: write its argv to a log file and exit 0.
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    log = bin_dir / "systemctl.log"
-    sysctl = bin_dir / "systemctl"
-    sysctl.write_text(f'#!/bin/sh\necho "$@" >> {log!s}\n')
-    sysctl.chmod(0o755)
-    sudo = bin_dir / "sudo"
-    # Make `sudo …` a passthrough — the runner no longer passes
-    # ``-n`` (so the operator can be prompted for a password); the
-    # fake passes the args through as-is.
-    sudo.write_text('#!/bin/sh\nexec "$@"\n')
-    sudo.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
-    return etc, log
 
 
 def test_deploy_daemon_drops_three_files_with_right_modes(
@@ -125,3 +98,174 @@ def test_deploy_client_does_not_invoke_systemctl(
     deploy.deploy_client(initialised_store, name="alice")
     # Client deploy is purely local; systemctl should never run.
     assert not log.exists() or log.read_text() == ""
+
+
+class _RecordingRunner:
+    """Captures every mkdir_p / copy_bytes / run call so tests can
+    assert sudo was (or wasn't) requested. Behaviour-light: no FS
+    side effects, no subprocess shells — just bookkeeping."""
+
+    label = "rec"
+    privesc = None
+
+    def __init__(self) -> None:
+        self.mkdirs: list[tuple[str, int, bool]] = []
+        self.copies: list[tuple[str, int, bool]] = []
+        self.runs: list[tuple[list[str], bool]] = []
+
+    def mkdir_p(self, path: str, *, mode: int = 0o755, sudo: bool = False) -> None:
+        self.mkdirs.append((path, mode, sudo))
+
+    def which(self, name: str) -> str | None:
+        # Deterministic stub: pretend the binary lives at
+        # /opt/corvus/bin/<name>. Real LocalRunner.which would call
+        # shutil.which, which would depend on the developer's
+        # $PATH.
+        return f"/opt/corvus/bin/{name}"
+
+    def copy_bytes(
+        self,
+        data: bytes,
+        remote_path: str,
+        *,
+        mode: int,
+        sudo: bool = True,
+    ) -> None:
+        del data
+        self.copies.append((remote_path, mode, sudo))
+
+    def run(
+        self,
+        argv: list[str],
+        *,
+        check: bool = True,
+        sudo: bool = False,
+        capture: bool = False,
+    ) -> object:
+        del check, capture
+        self.runs.append((list(argv), sudo))
+
+        class _R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return _R()
+
+
+def test_deploy_node_user_service_does_not_escalate(initialised_store):
+    """Regression: `corvus-admin deploy node ... --user-service` must
+    not invoke sudo for any step. The bug surfaced as `sudo: a
+    password is required` on remote SSH targets where the operator
+    expected an unprivileged drop into ~/.config/corvus/ and a
+    `systemctl --user` restart."""
+
+    runner = _RecordingRunner()
+    deploy.deploy_node(
+        initialised_store,
+        runner,
+        name="tobacco",
+        ip="192.168.1.16",
+        user_service=True,
+    )
+    # mkdir_p covers both ~/.config/corvus and ~/.config/systemd/user.
+    assert runner.mkdirs, "no mkdir_p recorded"
+    for path, _mode, sudo in runner.mkdirs:
+        assert path.startswith("~/"), path
+        assert sudo is False, f"mkdir_p on {path!r} requested sudo=True"
+    # Four file drops: ca.crt, role.crt, role.key, and the unit file.
+    assert len(runner.copies) == 4, runner.copies
+    for path, _mode, sudo in runner.copies:
+        assert sudo is False, f"copy_bytes to {path!r} requested sudo=True"
+    # Every systemctl invocation must be `systemctl --user …` and
+    # unprivileged.
+    systemctl_calls = [
+        (argv, sudo) for argv, sudo in runner.runs if argv[:1] == ["systemctl"]
+    ]
+    assert systemctl_calls, "no systemctl calls recorded"
+    for argv, sudo in systemctl_calls:
+        assert argv[1] == "--user", argv
+        assert sudo is False, argv
+
+
+def test_deploy_node_system_service_escalates(initialised_store):
+    """Counter-check: without --user-service the system-mode deploy
+    escalates for mkdir, copy, and systemctl."""
+
+    runner = _RecordingRunner()
+    deploy.deploy_node(
+        initialised_store,
+        runner,
+        name="tobacco",
+        ip="192.168.1.16",
+        user_service=False,
+    )
+    for _path, _mode, sudo in runner.mkdirs:
+        assert sudo is True
+    for _path, _mode, sudo in runner.copies:
+        assert sudo is True
+    # systemctl (no --user) for the system path must escalate.
+    assert any(
+        argv[:1] == ["systemctl"] and "--user" not in argv and sudo is True
+        for argv, sudo in runner.runs
+    ), runner.runs
+
+
+def test_deploy_node_installs_unit_file(initialised_store, fake_paths, tmp_path):
+    """The deploy step writes a rendered systemd unit to the
+    install directory, baking an absolute ExecStart path
+    discovered via `command -v` on the runner. fake_paths puts
+    fake corvus binaries on $PATH so shutil.which finds them
+    deterministically."""
+
+    runner = LocalRunner()
+    deploy.deploy_node(
+        initialised_store,
+        runner,
+        name="alpha",
+        ip="10.0.0.21",
+        user_service=False,
+    )
+    unit_path = tmp_path / "etc-systemd" / "corvus-nodeagent.service"
+    assert unit_path.is_file(), f"unit not written to {unit_path}"
+    content = unit_path.read_text()
+    # ExecStart must be absolute (systemd does not expand ~) and
+    # must point at the fake binary set up by fake_paths.
+    expected_bin = str(tmp_path / "bin" / "corvus-nodeagent")
+    assert f"ExecStart={expected_bin}" in content, content
+    assert "WantedBy=multi-user.target" in content, content
+
+
+def test_deploy_node_unit_file_picks_up_binary_path_override(
+    initialised_store, fake_paths, tmp_path
+):
+    """--binary-path overrides the default binary location in the
+    rendered unit."""
+
+    runner = LocalRunner()
+    deploy.deploy_node(
+        initialised_store,
+        runner,
+        name="alpha",
+        ip="10.0.0.21",
+        user_service=False,
+        binary_path="/opt/corvus/bin/corvus-nodeagent",
+    )
+    unit_path = tmp_path / "etc-systemd" / "corvus-nodeagent.service"
+    content = unit_path.read_text()
+    assert "ExecStart=/opt/corvus/bin/corvus-nodeagent" in content, content
+
+
+def test_deploy_daemon_unit_file_carries_database_url(
+    initialised_store, fake_paths, tmp_path
+):
+    runner = LocalRunner()
+    deploy.deploy_daemon(
+        initialised_store,
+        runner,
+        listen_ip="127.0.0.1",
+        database_url="postgresql://db.internal/corvus",
+    )
+    unit_path = tmp_path / "etc-systemd" / "corvus.service"
+    content = unit_path.read_text()
+    assert "--database postgresql://db.internal/corvus" in content, content

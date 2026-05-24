@@ -103,3 +103,21 @@ def test_run_with_sudo_raises_when_no_privesc():
     with pytest.raises(RunnerError) as exc:
         runner.run(["true"], sudo=True)
     assert "sudo or doas" in str(exc.value)
+
+
+def test_which_finds_binary_on_path(tmp_path, monkeypatch):
+    """`Runner.which` returns the absolute path of a binary on the
+    runner's $PATH; the deploy step uses this to bake a usable
+    `ExecStart=` into the rendered systemd unit."""
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    target = bin_dir / "made-up-binary"
+    target.write_text("#!/bin/sh\nexit 0\n")
+    target.chmod(0o755)
+    import os
+
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    runner = LocalRunner()
+    assert runner.which("made-up-binary") == str(target)
+    assert runner.which("definitely-not-installed-zzzz") is None

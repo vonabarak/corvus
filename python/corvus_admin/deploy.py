@@ -74,12 +74,24 @@ def deploy_daemon(
     listen_ip: str | None,
     user_service: bool = False,
     reuse_uuid: str | None = None,
+    binary_path: str | None = None,
+    database_url: str = "postgresql://localhost/corvus",
+    log_level: str = "info",
+    install_unit: bool = True,
 ) -> DeployPlan:
     """Mint a daemon cert (CN ``corvus-daemon:<uuid>``) and deploy
     it to *runner*'s target. The UUID is fresh each call unless
     *reuse_uuid* is passed; rotating the daemon's identity by
     accident would orphan every node row, so the CLI surfaces
     this as ``--rotate-identity``.
+
+    Installs the systemd unit (rendered against ``binary_path``,
+    ``database_url`` and ``log_level``) before restarting. The
+    default ``binary_path`` is ``~/.local/bin/corvus`` for user
+    mode and ``/usr/local/bin/corvus`` for system mode. Pass
+    ``install_unit=False`` to keep an existing custom unit on the
+    target — the deploy still pushes certs and restarts the
+    service, but does not rewrite the unit file.
     """
 
     if reuse_uuid is not None:
@@ -101,7 +113,15 @@ def deploy_daemon(
         service_unit="corvus.service",
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
-    _systemd_restart(runner, plan)
+    _install_and_restart(
+        runner,
+        plan,
+        component="daemon",
+        binary_path=binary_path,
+        database_url=database_url,
+        log_level=log_level,
+        install_unit=install_unit,
+    )
     issued.record.deployed_to = runner.label
     issued.record.user_service = user_service
     admin_store.record(issued.record)
@@ -119,8 +139,19 @@ def deploy_node(
     name: str,
     ip: str | None,
     user_service: bool = False,
+    binary_path: str | None = None,
+    log_level: str = "info",
+    install_unit: bool = True,
 ) -> DeployPlan:
-    """Mint and deploy a ``corvus-node:<name>`` cert."""
+    """Mint and deploy a ``corvus-node:<name>`` cert.
+
+    Installs the systemd unit (rendered against ``binary_path`` and
+    ``log_level``) before restarting. The default ``binary_path``
+    is ``~/.local/bin/corvus-nodeagent`` for user mode and
+    ``/usr/local/bin/corvus-nodeagent`` for system mode. Pass
+    ``install_unit=False`` to keep an existing custom unit on the
+    target.
+    """
 
     issued = ca.issue_cert(
         admin_store,
@@ -136,7 +167,14 @@ def deploy_node(
         service_unit="corvus-nodeagent.service",
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
-    _systemd_restart(runner, plan)
+    _install_and_restart(
+        runner,
+        plan,
+        component="nodeagent",
+        binary_path=binary_path,
+        log_level=log_level,
+        install_unit=install_unit,
+    )
     issued.record.deployed_to = runner.label
     issued.record.user_service = user_service
     admin_store.record(issued.record)
@@ -154,8 +192,18 @@ def deploy_netd(
     name: str,
     ip: str | None,
     user_service: bool = False,
+    binary_path: str | None = None,
+    log_level: str = "info",
+    install_unit: bool = True,
 ) -> DeployPlan:
-    """Mint and deploy a ``corvus-netd:<name>`` cert."""
+    """Mint and deploy a ``corvus-netd:<name>`` cert.
+
+    netd needs ``CAP_NET_ADMIN`` and so always runs as a system
+    service; passing ``user_service=True`` will fail at unit
+    render time. ``binary_path`` defaults to
+    ``/usr/local/bin/corvus-netd``. Pass ``install_unit=False`` to
+    keep an existing custom unit on the target.
+    """
 
     issued = ca.issue_cert(
         admin_store,
@@ -171,7 +219,14 @@ def deploy_netd(
         service_unit="corvus-netd.service",
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
-    _systemd_restart(runner, plan)
+    _install_and_restart(
+        runner,
+        plan,
+        component="netd",
+        binary_path=binary_path,
+        log_level=log_level,
+        install_unit=install_unit,
+    )
     issued.record.deployed_to = runner.label
     issued.record.user_service = user_service
     admin_store.record(issued.record)
@@ -265,26 +320,113 @@ def _drop_cert_trio(
         ca_pem,
         f"{plan.cert_dir}/ca.crt",
         mode=SYSTEM_CERT_MODE,
+        sudo=sudo,
     )
     runner.copy_bytes(
         issued.cert_pem,
         f"{plan.cert_dir}/{cert_basename}.crt",
         mode=SYSTEM_CERT_MODE,
+        sudo=sudo,
     )
     runner.copy_bytes(
         issued.key_pem,
         f"{plan.cert_dir}/{cert_basename}.key",
         mode=SYSTEM_KEY_MODE,
+        sudo=sudo,
     )
 
 
-def _systemd_restart(runner: Runner, plan: DeployPlan) -> None:
+def _install_and_restart(
+    runner: Runner,
+    plan: DeployPlan,
+    *,
+    component: str,
+    binary_path: str | None,
+    log_level: str = "info",
+    database_url: str | None = None,
+    install_unit: bool = True,
+) -> None:
+    """Render + install the systemd unit (when ``install_unit`` is
+    True), daemon-reload, then enable-now + restart. The unit file
+    is rewritten on every deploy so renewals automatically pick up
+    binary-path or database-url changes. Setting ``install_unit``
+    False keeps an existing custom unit on the target; the deploy
+    still pushes certs and restarts the service."""
+
     mode: systemd_mod.InstallMode = "user" if plan.user_service else "system"
+    if install_unit:
+        effective_bin = _resolve_binary_path(runner, component, mode, binary_path)
+        # Only the daemon template consumes database_url; the
+        # helper's default keeps the other components from
+        # accidentally depending on it.
+        render_kwargs: dict[str, str] = {
+            "binary_path": effective_bin,
+            "log_level": log_level,
+        }
+        if database_url is not None:
+            render_kwargs["database_url"] = database_url
+        unit_text = systemd_mod.render_unit(component, mode=mode, **render_kwargs)
+        systemd_mod.install_unit(
+            runner, component=component, mode=mode, content=unit_text
+        )
+        systemd_mod.daemon_reload(runner, mode=mode)
     # `enable --now` is friendlier than `restart` for first-time
     # deploys (the unit may not be enabled yet); follow it with an
     # explicit restart to pick up any cert rotation.
     systemd_mod.enable_now(runner, unit=plan.service_unit, mode=mode)
     systemd_mod.restart(runner, unit=plan.service_unit, mode=mode)
+
+
+_BINARY_NAMES: dict[str, str] = {
+    "daemon": "corvus",
+    "nodeagent": "corvus-nodeagent",
+    "netd": "corvus-netd",
+}
+
+
+def _resolve_binary_path(
+    runner: Runner,
+    component: str,
+    mode: systemd_mod.InstallMode,
+    explicit: str | None,
+) -> str:
+    """Pick the absolute binary path to bake into ``ExecStart=``.
+
+    systemd does not expand ``~`` in ``ExecStart``, so we MUST
+    produce an absolute path here. Resolution order:
+
+    1. ``explicit`` (operator passed ``--binary-path``).
+    2. ``runner.which(<binary>)`` — asks the target host where the
+       binary actually lives on its $PATH. Picks up package
+       installs (``/usr/bin/<bin>``) and ``make install`` layouts
+       (``~/.local/bin/<bin>``) alike, and returns the right
+       absolute path even on remote SSH targets.
+    3. ``systemd_mod.default_binary_path(...)`` as a last resort,
+       but only when it's already an absolute path. The ``~/``
+       defaults are skipped at this stage — they'd just produce a
+       broken ``ExecStart=``.
+
+    Raises :class:`RunnerError` when none of the above produce an
+    absolute path.
+    """
+
+    if explicit is not None:
+        return explicit
+    binary_name = _BINARY_NAMES[component]
+    found = runner.which(binary_name)
+    if found:
+        return found
+    default = systemd_mod.default_binary_path(component, mode=mode)
+    if default.startswith("/"):
+        return default
+    from corvus_admin.runner import RunnerError
+
+    raise RunnerError(
+        f"could not locate {binary_name!r} on {runner.label} "
+        f"(`command -v {binary_name}` returned nothing). "
+        f"Install it on the target or pass --binary-path "
+        f"explicitly."
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -164,6 +164,7 @@ def deploy_full_stack(
         name=node_name,
         ip=node_ip,
         user_service=False,
+        install_unit=False,
     )
     deploy.deploy_node(
         ca_ctx.store,
@@ -171,12 +172,14 @@ def deploy_full_stack(
         name=node_name,
         ip=node_ip,
         user_service=False,
+        install_unit=False,
     )
     deploy.deploy_daemon(
         ca_ctx.store,
         runner,
         listen_ip=node_ip,
         user_service=False,
+        install_unit=False,
     )
     return _write_host_cert_dir(ca_ctx, host_cert_root, node_name)
 
@@ -208,6 +211,7 @@ def deploy_agents_only(
         name=node_name,
         ip=node_ip,
         user_service=False,
+        install_unit=False,
     )
     deploy.deploy_node(
         ca_ctx.store,
@@ -215,6 +219,7 @@ def deploy_agents_only(
         name=node_name,
         ip=node_ip,
         user_service=False,
+        install_unit=False,
     )
 
 

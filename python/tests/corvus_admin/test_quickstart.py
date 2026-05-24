@@ -26,7 +26,15 @@ class _FakeRunner:
         self.calls: list[tuple[str, tuple, dict]] = []
         self.copies: list[tuple[str, int]] = []
 
-    def copy_bytes(self, data: bytes, remote_path: str, *, mode: int) -> None:
+    def copy_bytes(
+        self,
+        data: bytes,
+        remote_path: str,
+        *,
+        mode: int,
+        sudo: bool = True,
+    ) -> None:
+        del data, sudo
         self.copies.append((remote_path, mode))
 
     def run(
@@ -42,6 +50,12 @@ class _FakeRunner:
 
     def mkdir_p(self, path: str, *, mode: int = 0o755, sudo: bool = False) -> None:
         self.calls.append(("mkdir_p", (path,), {"mode": mode, "sudo": sudo}))
+
+    def which(self, name: str) -> str | None:
+        # Quickstart's binary resolution goes through binaries.find_all
+        # (which uses shutil.which on the host), not the runner —
+        # this stub only exists to satisfy the Runner ABC.
+        return f"/opt/corvus/bin/{name}"
 
 
 @pytest.fixture()
@@ -87,13 +101,13 @@ def patched_quickstart(monkeypatch, tmp_path, xdg_home):
 
     monkeypatch.setattr(register, "register_node", fake_register)
 
-    # Re-route both _drop_cert_trio and _systemd_restart to no-ops
+    # Re-route both _drop_cert_trio and _install_and_restart to no-ops
     # so cert minting still happens (real CA gets generated) but no
     # systemctl is invoked.
     from corvus_admin import deploy
 
     monkeypatch.setattr(deploy, "_drop_cert_trio", lambda *args, **kwargs: None)
-    monkeypatch.setattr(deploy, "_systemd_restart", lambda *args, **kwargs: None)
+    monkeypatch.setattr(deploy, "_install_and_restart", lambda *args, **kwargs: None)
 
     return fake_runner
 
@@ -151,7 +165,7 @@ def test_quickstart_skips_netd_when_no_privesc(monkeypatch, tmp_path, xdg_home):
     from corvus_admin import deploy
 
     monkeypatch.setattr(deploy, "_drop_cert_trio", lambda *a, **k: None)
-    monkeypatch.setattr(deploy, "_systemd_restart", lambda *a, **k: None)
+    monkeypatch.setattr(deploy, "_install_and_restart", lambda *a, **k: None)
 
     log_lines: list[str] = []
     result = quickstart.run(

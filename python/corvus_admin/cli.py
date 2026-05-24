@@ -264,11 +264,39 @@ main.add_command(deploy_group, name="deploy")
     default=False,
     help="Use the systemd `--user` flow (cert dir ~/.config/corvus, unit started with systemctl --user). Default: system service in /etc/corvus.",
 )
+@click.option(
+    "--binary-path",
+    default=None,
+    show_default=False,
+    help="Path to the corvus binary on the target. Default: ~/.local/bin/corvus (user-service) or /usr/local/bin/corvus (system-service).",
+)
+@click.option(
+    "--database-url",
+    default="postgresql://localhost/corvus",
+    show_default=True,
+    help="Postgres connection URL baked into the rendered systemd unit.",
+)
+@click.option(
+    "--log-level",
+    default="info",
+    show_default=True,
+    help="Log level passed to the daemon via --log-level.",
+)
+@click.option(
+    "--install-unit/--no-install-unit",
+    default=True,
+    show_default=True,
+    help="Render and install the systemd unit on the target. Pass --no-install-unit to keep a pre-existing custom unit; the deploy still pushes certs and restarts the service.",
+)
 def deploy_daemon(
     ca_dir: Path | None,
     target: str,
     listen_ip: str | None,
     user_service: bool,
+    binary_path: str | None,
+    database_url: str,
+    log_level: str,
+    install_unit: bool,
 ) -> None:
     """Mint and deploy the daemon cert."""
 
@@ -280,6 +308,10 @@ def deploy_daemon(
             runner,
             listen_ip=listen_ip,
             user_service=user_service,
+            binary_path=binary_path,
+            database_url=database_url,
+            log_level=log_level,
+            install_unit=install_unit,
         )
     except RunnerError as e:
         click.echo(f"deploy daemon failed: {e}", err=True)
@@ -307,12 +339,33 @@ def deploy_daemon(
     default=False,
     help="Use the systemd `--user` flow. Default: system service.",
 )
+@click.option(
+    "--binary-path",
+    default=None,
+    show_default=False,
+    help="Path to the corvus-nodeagent binary on the target. Default: ~/.local/bin/corvus-nodeagent (user-service) or /usr/local/bin/corvus-nodeagent (system-service).",
+)
+@click.option(
+    "--log-level",
+    default="info",
+    show_default=True,
+    help="Log level passed to the nodeagent via --log-level.",
+)
+@click.option(
+    "--install-unit/--no-install-unit",
+    default=True,
+    show_default=True,
+    help="Render and install the systemd unit on the target. Pass --no-install-unit to keep a pre-existing custom unit.",
+)
 def deploy_node(
     ca_dir: Path | None,
     name: str,
     target: str,
     ip: str | None,
     user_service: bool,
+    binary_path: str | None,
+    log_level: str,
+    install_unit: bool,
 ) -> None:
     """Mint and deploy a corvus-nodeagent cert for the named node."""
 
@@ -325,6 +378,9 @@ def deploy_node(
             name=name,
             ip=ip,
             user_service=user_service,
+            binary_path=binary_path,
+            log_level=log_level,
+            install_unit=install_unit,
         )
     except RunnerError as e:
         click.echo(f"deploy node failed: {e}", err=True)
@@ -345,18 +401,37 @@ def deploy_node(
     "--ip", default=None, show_default=False, help="IP SAN for the netd cert."
 )
 @click.option(
-    "--user-service/--system-service",
-    default=False,
-    help="Use the systemd `--user` flow. Default: system service.",
+    "--binary-path",
+    default=None,
+    show_default=False,
+    help="Path to the corvus-netd binary on the target. Default: /usr/local/bin/corvus-netd.",
+)
+@click.option(
+    "--log-level",
+    default="info",
+    show_default=True,
+    help="Log level passed to corvus-netd via --log-level.",
+)
+@click.option(
+    "--install-unit/--no-install-unit",
+    default=True,
+    show_default=True,
+    help="Render and install the systemd unit on the target. Pass --no-install-unit to keep a pre-existing custom unit.",
 )
 def deploy_netd(
     ca_dir: Path | None,
     name: str,
     target: str,
     ip: str | None,
-    user_service: bool,
+    binary_path: str | None,
+    log_level: str,
+    install_unit: bool,
 ) -> None:
-    """Mint and deploy a corvus-netd cert for the named node."""
+    """Mint and deploy a corvus-netd cert for the named node.
+
+    netd needs CAP_NET_ADMIN and is always installed as a system
+    service; no --user-service flag is offered.
+    """
 
     st = _ensure_initialised(ca_dir)
     runner = for_target(target)
@@ -366,7 +441,10 @@ def deploy_netd(
             runner,
             name=name,
             ip=ip,
-            user_service=user_service,
+            user_service=False,
+            binary_path=binary_path,
+            log_level=log_level,
+            install_unit=install_unit,
         )
     except RunnerError as e:
         click.echo(f"deploy netd failed: {e}", err=True)
