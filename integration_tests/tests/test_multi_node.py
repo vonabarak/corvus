@@ -200,9 +200,3 @@ class TestMultiNodeDispatch(OneDaemonTwoNodesCase):
                 remote.delete()
             except Exception:
                 pass
-
-
-@pytest.mark.skip(reason="TODO: design once shared-network across VMs is wired up")
-class TestTwoNodesOnSharedNetwork(OneDaemonTwoNodesCase):
-    def test_shared_network(self):
-        raise NotImplementedError
