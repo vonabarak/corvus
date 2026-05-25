@@ -2318,7 +2318,12 @@ dropConnExport conn client' = do
         M.delete eid exports
         freeExport conn' eid
     Nothing ->
-      error "BUG: tried to drop an export that doesn't exist."
+      -- The export is already gone (e.g. the peer already released
+      -- it via a Finish with releaseResultCaps=True, or stopConn is
+      -- dropping a bootstrap that the peer never imported). The
+      -- post-condition "this client is not exported on this conn"
+      -- already holds, so this is a no-op rather than a bug.
+      pure ()
 
 clientExportMap :: Client' -> STM ExportMap
 clientExportMap LocalClient {exportMap} = pure exportMap
