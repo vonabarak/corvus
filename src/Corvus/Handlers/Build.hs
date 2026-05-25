@@ -731,52 +731,71 @@ attachBuildFloppy state parentTaskId stack vmIdLong prefix b = case buildFloppy 
           Left err -> pure $ Left $ "build floppy: " <> err
           Right () -> do
             now <- liftIO getCurrentTime
-            -- TODO(multi-node Phase 3): record 'storedPath' in
-            -- DiskImageNode on the bake VM's node.
-            let _ = storedPath
-            diskKey <-
+            -- Insert the DiskImage row AND pin it to the bake VM's
+            -- node in one transaction. 'buildFloppyImage' just wrote
+            -- the .img to the daemon's base path; in the single-node
+            -- setup that is the only place builds run today the
+            -- daemon host is also the bake VM's node, so the
+            -- 'storedPath' we record here resolves to a real file
+            -- when qemu opens it. Without the DiskImageNode row the
+            -- same-node check in 'handleDiskAttach' fails and the
+            -- floppy can't be attached.
+            mResult <-
               liftIO $
                 runSqlPool
-                  ( insert
-                      DiskImage
-                        { diskImageName = diskName
-                        , diskImageFormat = FormatRaw
-                        , diskImageSizeMb = Just 2
-                        , diskImageCreatedAt = now
-                        , diskImageBackingImageId = Nothing
-                        , -- Floppy ISO is generated per-build for the
-                          -- bake VM and only carries that build's
-                          -- credentials/script; reaped together with
-                          -- the bake VM on success or failure.
-                          diskImageEphemeral = True
-                        }
+                  ( do
+                      mvm <- get (toSqlKey vmIdLong :: VmId)
+                      case mvm of
+                        Nothing -> pure Nothing
+                        Just bakeVm -> do
+                          dkey <-
+                            insert
+                              DiskImage
+                                { diskImageName = diskName
+                                , diskImageFormat = FormatRaw
+                                , diskImageSizeMb = Just 2
+                                , diskImageCreatedAt = now
+                                , diskImageBackingImageId = Nothing
+                                , -- Floppy ISO is generated per-build for the
+                                  -- bake VM and only carries that build's
+                                  -- credentials/script; reaped together with
+                                  -- the bake VM on success or failure.
+                                  diskImageEphemeral = True
+                                }
+                          recordDiskImageNode dkey (vmNodeId bakeVm) storedPath
+                          pure $ Just dkey
                   )
                   (ssDbPool state)
-            let diskIdLong = fromSqlKey diskKey
-            -- Attach as floppy. If the bake VM rejects the attach we
-            -- still want the DiskImage row dropped, hence the cleanup
-            -- destructor here rather than only on success.
-            liftIO $
-              push stack "build-floppy" $ do
-                _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (DiskDelete diskIdLong)
-                pure ()
-            attachResp <-
-              liftIO $
-                runActionAsSubtask
-                  (ActionContext state parentTaskId "system")
-                  ( DiskAttach
-                      vmIdLong
-                      diskIdLong
-                      InterfaceFloppy
-                      Nothing
-                      True -- readOnly
-                      False
-                      CacheNone
-                  )
-            case attachResp of
-              RespDiskAttached _ -> pure $ Right ()
-              RespError err -> pure $ Left $ "attach build floppy: " <> err
-              _ -> pure $ Left "attach build floppy: unexpected response"
+            case mResult of
+              Nothing ->
+                pure $
+                  Left "build floppy: bake VM not found when registering disk"
+              Just diskKey -> do
+                let diskIdLong = fromSqlKey diskKey
+                -- Attach as floppy. If the bake VM rejects the attach we
+                -- still want the DiskImage row dropped, hence the cleanup
+                -- destructor here rather than only on success.
+                liftIO $
+                  push stack "build-floppy" $ do
+                    _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (DiskDelete diskIdLong)
+                    pure ()
+                attachResp <-
+                  liftIO $
+                    runActionAsSubtask
+                      (ActionContext state parentTaskId "system")
+                      ( DiskAttach
+                          vmIdLong
+                          diskIdLong
+                          InterfaceFloppy
+                          Nothing
+                          True -- readOnly
+                          False
+                          CacheNone
+                      )
+                case attachResp of
+                  RespDiskAttached _ -> pure $ Right ()
+                  RespError err -> pure $ Left $ "attach build floppy: " <> err
+                  _ -> pure $ Left "attach build floppy: unexpected response"
 
 --------------------------------------------------------------------------------
 -- Installer-strategy phase
