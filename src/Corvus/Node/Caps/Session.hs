@@ -1251,30 +1251,47 @@ doVmStart sc spec = do
             CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
 
 -- | Reboot-quirk re-spawn: after the agent's reaper observed
--- QEMU exit AND the stop wasn't daemon-initiated, evict the
--- stale ledger entry (with all its now-defunct virtiofsd
--- helpers and cached QGA socket) and call back into
--- 'doVmStart' with the original spec to lay down a fresh
--- entry — new QEMU process, new virtiofsd processes, new
--- buffer threads, new reaper, new first-ping watcher. The
--- daemon's status push sees the brief @QGA unreachable@ window
--- as a regular reboot blip and never flips the DB row out of
--- 'VmRunning'.
+-- QEMU exit AND the stop wasn't daemon-initiated, reap the
+-- stale virtiofsd helpers and call back into 'doVmStart' with
+-- the original spec — new QEMU process, new virtiofsd
+-- processes, new buffer threads, new reaper, new first-ping
+-- watcher.
 --
--- Failures in 'doVmStart' (e.g. QEMU spawn rejected for OOM
--- after a long uptime) bubble up as a 'throwFailed' — caught
--- and logged here. We do NOT write 'vlsLastExitCode' on
--- failure because at this point the old entry is already gone;
--- the daemon's monitor will see 'VmAgentUnknown' on its next
--- poll and reconcile via 'reapplyVm'.
+-- We deliberately DO NOT remove the old ledger entry first.
+-- The reaper took the quirk branch and left
+-- 'vlsLastExitCode' as 'Nothing', so 'handleVmStatus' keeps
+-- reporting 'VmAgentRunning' for the stale entry until
+-- 'doVmStart's 'insertVm' ('Map.insert') atomically replaces
+-- it with the fresh one. Without this overlap the daemon's
+-- 1 s 'pollVmUntilExit' poll catches the gap between
+-- 'removeVm' and 'insertVm', reads 'VmAgentUnknown', maps
+-- that to 'ExitVanished', and permanently flips the VM's DB
+-- row to 'VmStopped' (Vm.hs:1456, 1511) — which is exactly
+-- the failure mode 'Ledger.hs' lines 50-52 warn against.
+--
+-- Failure path: if 'doVmStart' throws before its 'insertVm'
+-- could replace the stale entry, the daemon would otherwise
+-- keep seeing 'VmAgentRunning' on a corpse forever. Write
+-- 'Just 1' to the captured old 'vlsLastExitCode' TVar so the
+-- next 'handleVmStatus' returns 'VmAgentErrored' and the
+-- daemon's monitor reconciles via 'setVmError'. If
+-- 'doVmStart' had already replaced the entry before throwing
+-- (downstream failure), the captured TVar is no longer
+-- referenced from the ledger and the write is a harmless
+-- no-op on a garbage-collectable orphan.
 respawnAfterExit :: SessionCap -> VS.VmSpec -> IO ()
 respawnAfterExit sc spec = do
   let vmId = VS.vsVmId spec
-  -- Evict the dead entry. Anything we read off it (virtiofsd
-  -- list etc.) is dead too — QEMU's vhost-user socket closed
-  -- when QEMU exited, taking the helpers with it.
-  mLive <- atomically $ L.removeVm (scVmLedger sc) vmId
-  forM_ mLive $ \live ->
+  -- Look up — don't remove. We need the virtiofsd handles for
+  -- reaping AND we need the entry to stay in the ledger so
+  -- 'handleVmStatus' keeps reporting 'VmAgentRunning' until
+  -- 'doVmStart' replaces it.
+  mOldLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  -- Reap the now-dead virtiofsd helpers — QEMU's vhost-user
+  -- socket closed when QEMU exited, taking the helpers with
+  -- it; we just need a bounded 'waitpid' so they don't linger
+  -- as zombies.
+  forM_ mOldLive $ \live ->
     forM_ (L.vlsVirtiofsd live) reapEntryGracefully
   -- Drop the cached QGA socket: the new QEMU re-opens the
   -- chardev under the same path but it's a fresh fd; talking
@@ -1282,19 +1299,22 @@ respawnAfterExit sc spec = do
   atomically $ modifyTVar' (scQgaConns sc) (Map.delete vmId)
   -- Re-execute the full spawn path. Discard the wire result
   -- (no caller is waiting on it — the daemon's original
-  -- vmStart already returned long ago).
+  -- vmStart already returned long ago). doVmStart's
+  -- 'insertVm' atomically replaces the stale entry.
   r <- E.try @E.SomeException (doVmStart sc spec)
   case r of
     Right _ ->
       runStderrLoggingT . logInfoN $
         "[nodeagent] vm-" <> tshow vmId <> ": reboot-quirk re-spawn succeeded"
-    Left e ->
+    Left e -> do
+      forM_ mOldLive $ \live ->
+        atomically $ writeTVar (L.vlsLastExitCode live) (Just 1)
       runStderrLoggingT . logWarnN $
         "[nodeagent] vm-"
           <> tshow vmId
           <> ": reboot-quirk re-spawn FAILED: "
           <> T.pack (show e)
-          <> "; daemon will reconcile via VmAgentUnknown"
+          <> "; old entry marked errored so daemon will reconcile"
 
 -- | Spawn one virtiofsd helper for a shared dir. Returns the PID
 -- + 'ProcessHandle' on success, or an error string on failure
