@@ -71,10 +71,21 @@ def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
 
     Each image is exposed under its sanitised filename stem (e.g.
     `gentoo-base-headless`, `almalinux-10-base`). When a directory
-    contains multiple images, the alphabetically-first one ALSO gets
-    the sanitised dir-name as an alias (e.g. `gentoo`, `almalinux`) —
-    so existing tests that say `images.get("alpine")` keep working
-    while new tests can address sibling files by stem.
+    contains multiple images, ONE also gets the sanitised dir-name
+    as an alias (e.g. `gentoo`, `almalinux`) — picked so that
+    `Vm(self)`'s default `base_image_key = "alpine"` keeps resolving
+    to the bake-time `corvus-test-vm.qcow2` even when an unrelated
+    `alpine-*-base.qcow2` upstream cloud image is dropped into the
+    same directory.
+
+    Selection rule for the dir alias, in priority order:
+
+      1. A file whose stem starts with ``corvus-test-`` — these are
+         the harness's bespoke bake-time images that ship qemu-ga,
+         the baked SSH key, and the VSOCK sshd relay. Tests that
+         resolve the dir alias (`Vm`, `VmSsh`, …) rely on those
+         additions.
+      2. Otherwise, the alphabetically-first image in the directory.
 
     Files ending in `.bak.qcow2` are skipped (backup snapshots).
     Subdirectories with no recognisable image file are skipped
@@ -91,18 +102,23 @@ def discover(host_dir: Path = HOST_BASE_IMAGES_DIR) -> dict[str, BaseImage]:
         if not files:
             continue
         dir_key = _sanitize_name(subdir.name)
-        for i, image_file in enumerate(files):
+        alias_file = _pick_alias_target(files)
+        for image_file in files:
             stem_key = _sanitize_name(image_file.stem)
             # The disk-name registered with the inner daemon is the
             # filename stem — unique per file.
             guest_path = GUEST_BASE_IMAGES_PATH / subdir.name / image_file.name
             base = BaseImage(name=stem_key, guest_path=guest_path, host_path=image_file)
             images[stem_key] = base
-            # Backwards-compat alias: the dir-name key resolves to the
-            # first file in the directory (alphabetical sort order).
-            if i == 0 and dir_key not in images:
+            if image_file == alias_file and dir_key not in images:
                 images[dir_key] = base
     return images
+
+
+def _pick_alias_target(files: list[Path]) -> Path:
+    """Pick which file the dir-name alias should resolve to."""
+    bake = next((f for f in files if f.stem.startswith("corvus-test-")), None)
+    return bake if bake is not None else files[0]
 
 
 def _image_files(d: Path) -> Iterator[Path]:
