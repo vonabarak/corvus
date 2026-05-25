@@ -38,6 +38,18 @@ DEFAULT_YAML = (
     / "corvus-test-node.yml"
 )
 
+# The synthetic-installer ISO consumed by
+# `test_build_installer.py`. Registered out-of-band by
+# `scripts/build-synthetic-installer.sh` (via `make
+# test-image-installer`).
+INSTALLER_DISK_NAME = "corvus-test-installer-iso"
+INSTALLER_YAML = (
+    Path(__file__).resolve().parents[2]
+    / "yaml"
+    / "corvus-test-installer"
+    / "corvus-test-installer.yml"
+)
+
 
 @dataclass(frozen=True)
 class ImageReady:
@@ -69,6 +81,42 @@ class ImageReady:
                 f"with the outer daemon. Run `make test-image` (or "
                 f"`make test-image-node` for just this one) before "
                 f"`make integration-tests`."
+            )
+        return cls(disk_name=disk_name, yaml_path=path)
+
+
+@dataclass(frozen=True)
+class InstallerImageReady:
+    """Precondition check for the synthetic-installer ISO.
+
+    Mirrors `ImageReady` but checks for `corvus-test-installer-iso`,
+    the tiny boot ISO used by `test_build_installer.py` to exercise
+    the installer build strategy without spinning up a real vendor
+    installer. The ISO itself is assembled out-of-band by
+    `scripts/build-synthetic-installer.sh`; the harness only
+    verifies it's registered with the outer daemon.
+    """
+
+    disk_name: str
+    yaml_path: Path
+
+    @classmethod
+    def ensure(
+        cls,
+        crv: Crv,
+        *,
+        yaml_path: Path | None = None,
+        disk_name: str = INSTALLER_DISK_NAME,
+    ) -> InstallerImageReady:
+        path = yaml_path or INSTALLER_YAML
+        if not path.is_file():
+            raise FileNotFoundError(f"installer-build YAML not found at {path}")
+        if not _disk_exists(crv, disk_name):
+            raise RuntimeError(
+                f"Synthetic installer ISO {disk_name!r} is not "
+                f"registered with the outer daemon. Run "
+                f"`make test-image-installer` (or `make test-image` "
+                f"for the full set) before `make integration-tests`."
             )
         return cls(disk_name=disk_name, yaml_path=path)
 

@@ -181,6 +181,27 @@ def register_all(
         try:
             client.disks.get(image.name)
         except DiskNotFound:
-            client.disks.register(image.name, str(image.guest_path))
+            # Pass a format hint derived from the extension. The
+            # daemon's agent-side `qemu-img info` auto-detection
+            # currently mis-classifies some raw images (notably
+            # ISO9660 disks like the synthetic installer) as
+            # qcow2, which then breaks `qemu -drive
+            # format=qcow2,...`. The hint sidesteps that path.
+            fmt = _format_from_suffix(image.host_path.suffix.lower())
+            client.disks.register(image.name, str(image.guest_path), format=fmt)
         registered[key] = image.name
     return registered
+
+
+def _format_from_suffix(suffix: str) -> str | None:
+    """Map a filename suffix to the matching DriveFormat string.
+
+    Returns None when we don't have a strong hint (the daemon then
+    auto-detects via qemu-img). Mirrors the daemon-side mapping in
+    `Corvus.Node.Image.detectFormatFromPath`.
+    """
+    if suffix == ".qcow2":
+        return "qcow2"
+    if suffix in (".raw", ".img", ".iso"):
+        return "raw"
+    return None

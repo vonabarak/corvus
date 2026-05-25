@@ -64,6 +64,8 @@ pipeline:
                 net-firewall/nftables \
                 app-emulation/virtiofsd \
                 app-cdr/cdrtools \
+                sys-fs/dosfstools \
+                sys-fs/mtools \
                 sys-firmware/edk2-bin \
                 dev-db/postgresql \
                 dev-vcs/git \

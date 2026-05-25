@@ -189,6 +189,16 @@ buildCommandWithSockets QemuConfig {..} vmId vm basePath monitorSock qmpSock ser
       , concatMap (driveArgs basePath) (zip [0 ..] drives)
       , concatMap netArgs (zip [0 ..] netIfs)
       , concatMap (sharedDirArgs vmRuntimeDir) (zip [0 ..] sharedDirs)
+      , -- Prefer CD-ROM boot when one is attached: SeaBIOS's
+        -- default order tries the first HD first, which on
+        -- installer-strategy bake VMs is a blank disk that
+        -- never falls through to the bootable ISO. `order=dc`
+        -- picks CD first and falls through to HD if no
+        -- bootable medium is found, so VMs with a non-
+        -- bootable data CD still start cleanly.
+        if any (\(d, _) -> driveMedia d == Just MediaCdrom) drives
+          then ["-boot", "order=dc"]
+          else []
       ]
   )
   where
@@ -504,6 +514,11 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       , concatMap driveArgsSpec (zip [0 ..] (VS.vsDrives spec))
       , concatMap netArgsSpec (zip [0 ..] (VS.vsNetIfs spec))
       , concatMap sharedDirArgsSpec (zip [0 ..] (VS.vsSharedDirs spec))
+      , -- Prefer CD-ROM boot when one is attached; see the
+        -- matching block in `buildCommandWithSockets`.
+        if any (\d -> VS.vdsMedia d == "cdrom") (VS.vsDrives spec)
+          then ["-boot", "order=dc"]
+          else []
       , -- Reboot-quirk: make QEMU exit on guest-initiated
         -- reboot instead of resetting in place. The agent's
         -- reaper notices the exit and re-spawns QEMU

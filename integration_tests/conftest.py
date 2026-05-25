@@ -35,6 +35,7 @@ from corvus_test_harness import (
     Crv,
     HostBinary,
     ImageReady,
+    InstallerImageReady,
     check_nested_kvm,
     check_outer_version,
 )
@@ -84,6 +85,18 @@ def host_binary() -> HostBinary:
 def image_ready(crv: Crv, outer_version) -> ImageReady:
     """Ensure the integration-test image + template are applied."""
     return ImageReady.ensure(crv)
+
+
+@pytest.fixture(scope="session")
+def installer_image_ready(crv: Crv) -> InstallerImageReady:
+    """Confirm the synthetic-installer ISO is registered with the outer daemon.
+
+    Consumed only by `test_build_installer.py`. Session-scoped so a
+    fresh checkout running `make integration-tests MATCH=
+    test_build_installer` fails fast with a single ERROR message
+    rather than once per test.
+    """
+    return InstallerImageReady.ensure(crv)
 
 
 # ---------------------------------------------------------------------------

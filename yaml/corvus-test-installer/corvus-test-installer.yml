@@ -1,0 +1,106 @@
+---
+# Synthetic installer-strategy bake — integration-test asset.
+#
+# Exercises Corvus's `installer` build path end-to-end without any
+# vendor installer in the loop. The bake VM boots a tiny ISO9660
+# image (corvus-test-installer-iso) whose PID 1 mounts the floppy
+# supplied by `crv build`, copies the marker payload onto /dev/vda,
+# and powers off. The daemon then publishes /dev/vda as the
+# artifact.
+#
+# The asset graph:
+#
+#   * `corvus-test-installer-iso` — registered out-of-band by
+#     `scripts/build-synthetic-installer.sh` (see
+#     `make test-image-installer`). Not declared here so the bake
+#     can run on a host that doesn't have mkisofs / a kernel cache.
+#
+#   * `corvus-test-installer` template — defined below. A blank
+#     virtio disk as the bake artifact + the ISO as a CD-ROM. No
+#     pflash drives: BIOS boot via seabios is the path we want for
+#     a tiny synthetic installer.
+#
+# The test feeds this YAML to `crv build` after patching
+# `build.target.name` and `build.floppy.contentBase64` for the
+# specific run.
+#
+# Usage (test-driven; not for manual runs unless debugging):
+#   crv build yaml/corvus-test-installer/corvus-test-installer.yml --wait
+
+pipeline:
+  - apply:
+      ifExists: skip
+      templates:
+        - name: corvus-test-installer
+          description: "Synthetic installer-strategy bake (integration-test fixture)"
+          cpuCount: 1
+          ramMb: 256
+          headless: true
+          cloudInit: false
+          # Installer strategy: no QGA inside the bake VM. The build
+          # waits for guest-initiated poweroff, not for a guest-agent
+          # ping.
+          guestAgent: false
+          drives:
+            # The artifact: a small blank raw disk. The build's
+            # `installer` strategy treats the bake VM's first drive
+            # as the artifact, detaches it once the guest powers
+            # off, and registers it under build.target.name.
+            - interface: virtio
+              media: disk
+              strategy: create
+              format: raw
+              sizeMb: 64
+            # The synthetic-installer ISO. BIOS boot via seabios —
+            # corvus's command builder emits `-boot order=dc` when
+            # any drive has `media: cdrom`, so seabios tries this
+            # ISO before the (blank) virtio target above.
+            - diskImageName: corvus-test-installer-iso
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
+
+  - build:
+      name: corvus-test-installer
+      description: "Synthetic installer bake — exercises floppy + waitForShutdown + publish"
+      template: corvus-test-installer
+
+      target:
+        # ifExists: error so a stale artifact in the daemon fails
+        # loudly rather than masking a regression. The test scopes
+        # `target.name` to a per-run UUID, so collisions only
+        # happen on bugs.
+        ifExists: error
+        name: corvus-test-installer-artifact
+        format: raw
+        # No compaction — raw input, raw output.
+        compact: false
+
+      strategy: installer
+
+      vm:
+        cpuCount: 1
+        ramMb: 256
+
+      # No firmware prompt to dismiss — seabios boots isolinux
+      # straight through. Leaving this empty is the explicit
+      # answer, not a missing field.
+      bootKeys: []
+
+      # 120 s is generous: a busybox initramfs boots in ~3-5 s on
+      # KVM and the init script finishes in milliseconds. Anything
+      # past this budget is a regression.
+      waitForShutdownSec: 120
+
+      # Floppy payload is supplied by the test as `contentBase64`
+      # carrying a per-run UUID. We deliberately leave it unset
+      # here so a stray `crv build <this-file>` fails fast at
+      # attach time with "floppy missing contentBase64" rather
+      # than silently baking with an empty marker.
+      floppy:
+        filename: marker.txt
+
+      provisioners: []
+
+      cleanup: always

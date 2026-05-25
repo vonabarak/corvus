@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean lint format capnp python-test
+.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -118,7 +118,7 @@ unit-tests:
 # fast otherwise — see `ImageReady.ensure()` and the
 # `register_base_images()` flow. The build path lives here so the
 # bake never races between pytest-xdist workers.
-test-image: test-image-node test-image-vm test-image-multi-os test-image-windows
+test-image: test-image-node test-image-vm test-image-multi-os test-image-windows test-image-installer
 
 # Fetch the multi-OS cloud images (Debian, Ubuntu, AlmaLinux, FreeBSD,
 # Alpine) used by the cloud-init integration test class. Idempotent:
@@ -206,6 +206,30 @@ test-image-windows:
 test-image-windows-clean:
 	crv disk delete windows-server-2025-eval || true
 	crv template delete windows-server-2025 || true
+
+# Build the synthetic installer-strategy ISO used by
+# `integration_tests/tests/test_build_installer.py`.
+#
+# The ISO is tiny (~13 MB): an Alpine `linux-virt` kernel +
+# busybox-static initramfs + isolinux. Its PID 1 (sourced from
+# yaml/corvus-test-installer/init.sh) mounts the floppy supplied
+# by `crv build`, copies the marker payload onto /dev/vda, and
+# powers off — exercising Corvus's `installer` build path
+# end-to-end without any vendor installer.
+#
+# The bake itself lives in `scripts/build-synthetic-installer.sh`
+# (kernel + busybox + syslinux fetched from Alpine's CDN and
+# cached under `build/synthetic-installer-cache/`), not in a
+# `crv build` pipeline — assembling a 13 MB ISO from scratch in a
+# bake VM would be many minutes for no benefit. Idempotent: a
+# `crv disk show` guard skips the assembly when the disk is
+# already registered.
+test-image-installer:
+	@crv -o json disk show corvus-test-installer-iso >/dev/null 2>&1 || \
+	  scripts/build-synthetic-installer.sh
+test-image-installer-clean:
+	crv disk delete corvus-test-installer-iso || true
+	crv template delete corvus-test-installer || true
 
 
 # Instantiate a one-off VM from the `corvus-test-node` template

@@ -32,7 +32,7 @@ from .cases import (
 )
 from .component_deploy import CaContext
 from .host_binary import HostBinary
-from .images import ImageReady
+from .images import ImageReady, InstallerImageReady
 from .inner import open_client
 from .netd_client import NetdClient
 from .outer import Crv
@@ -54,6 +54,7 @@ __all__ = [
     "Crv",
     "HostBinary",
     "ImageReady",
+    "InstallerImageReady",
     "IntegrationTestCase",
     "NestedKvmStatus",
     "NetdClient",
