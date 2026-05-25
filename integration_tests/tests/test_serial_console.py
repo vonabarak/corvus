@@ -36,8 +36,6 @@ from corvus_client import ServerError
 from corvus_client.exceptions import VmRunning
 from corvus_test_harness import SingleNodeCase, Vm
 
-pytestmark = pytest.mark.slow
-
 LOGIN_PROMPT = b"login:"
 
 

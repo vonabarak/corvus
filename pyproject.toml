@@ -202,4 +202,14 @@ markers = [
     "slow: tests that take more than a minute (boot cycle, image build)",
     "rootful: tests that exercise root-only paths inside the inner VM",
 ]
-addopts = "--dist=loadscope --import-mode=importlib"
+# `--dist=worksteal`: idle workers steal pending tests from busy workers'
+# queues, so a single slow class (TestWindows etc.) doesn't leave the rest
+# of the pool sitting idle. `loadscope` was the previous default; it kept
+# class fixtures pinned to one worker but had no rebalancing — when a worker
+# finished its assigned scope and the workqueue was empty, it shut down,
+# even while other workers were 25+ minutes from done. Worksteal trades
+# class-affinity for fairness: a class whose tests get stolen mid-run will
+# have its autouse Topology fixture re-run on the stealing worker (one
+# extra outer test-node boot per steal), which is still a net win when the
+# alternative is idle workers.
+addopts = "--dist=worksteal --import-mode=importlib"

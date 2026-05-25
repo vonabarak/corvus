@@ -15,8 +15,6 @@ import pytest
 from corvus_client import VmMustBeStopped
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
 
-pytestmark = pytest.mark.slow
-
 
 def _uniq(stem: str) -> str:
     """6-hex-char suffix to keep concurrent runs / leak hunts trivial."""

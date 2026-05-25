@@ -24,9 +24,6 @@ import pytest
 from corvus_client.exceptions import CorvusError
 from corvus_test_harness import SingleNodeCase
 
-pytestmark = pytest.mark.slow
-
-
 # Dummy ed25519 public key for templates that reference an SSH key.
 # The daemon stores the text as-is — it never verifies the key is
 # cryptographically valid, so a static literal is fine for tests.

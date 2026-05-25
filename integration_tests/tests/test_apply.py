@@ -30,7 +30,7 @@ import pytest
 from corvus_client.exceptions import CorvusError
 from corvus_test_harness import SingleNodeCase
 
-pytestmark = [pytest.mark.slow, pytest.mark.timeout(1200)]
+pytestmark = pytest.mark.timeout(1200)
 
 
 # Module-level helper: raises with a useful message on non-zero exit.

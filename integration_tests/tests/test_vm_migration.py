@@ -25,8 +25,6 @@ import pytest
 from corvus_client import ServerError
 from corvus_test_harness import OneDaemonTwoNodesCase
 
-pytestmark = pytest.mark.slow
-
 
 def _uniq(stem: str) -> str:
     return f"{stem}-{secrets.token_hex(3)}"

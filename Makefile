@@ -5,8 +5,10 @@
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
 
-# Number of parallel test jobs (override with: make unit-tests JOBS=8)
-JOBS ?= 6
+# Worker count for `make integration-tests`. When unset, the recipe auto-detects
+# from host CPU + MemAvailable via integration_tests/scripts/detect_workers.py;
+# override explicitly with: make integration-tests WORKERS=4
+WORKERS ?=
 
 # Default target: build
 all: build
@@ -59,11 +61,19 @@ python-test: build
 # session run will `crv build` the integration-test image YAML
 # (~30-60 min cold). Requires nested-KVM on the host.
 #
-# No arguments: runs the whole suite in parallel (-n auto).
+# No arguments: runs the whole suite in parallel, with the worker count
+# chosen by integration_tests/scripts/detect_workers.py — the smaller of
+# (logical CPUs / 2) and (MemAvailable / 4 GiB), minimum 1. Each worker
+# boots a nested VM, so RAM is the usual bottleneck and a naive
+# `-n auto` (one worker per logical CPU) tends to OOM the host.
+#
 # MATCH=<expr>: runs the pytest -k filter (substring or boolean expr).
+#               Suppresses `-n` so the matched tests run sequentially.
+# WORKERS=<N>:  bypass the detector and pin the worker count.
 #
 # Examples:
 #   make integration-tests
+#   make integration-tests WORKERS=4
 #   make integration-tests MATCH=test_apply
 #   make integration-tests MATCH="lifecycle and not edit"
 integration-tests: build
@@ -72,8 +82,13 @@ integration-tests: build
 	# replaces the three separate installs (corvus_client, corvus_admin,
 	# corvus_test_harness now ship as a single distribution).
 	integration_tests/.venv/bin/pip install -q -e .[harness]
-	integration_tests/.venv/bin/pytest integration_tests/tests -v \
-	  $(if $(MATCH),-k "$(MATCH)",-n auto)
+	@workers="$(WORKERS)"; \
+	  if [ -z "$$workers" ]; then \
+	    workers=$$(python3 integration_tests/scripts/detect_workers.py --explain); \
+	  fi; \
+	  echo "integration tests: $$workers parallel workers"; \
+	  integration_tests/.venv/bin/pytest integration_tests/tests -v \
+	    $(if $(MATCH),-k "$(MATCH)",-n $$workers)
 
 # Sweep orphan integration-test VMs left behind by aborted test runs.
 # pycapnp 2.x sometimes triggers SIGABRT on inner-daemon disconnects,
@@ -92,7 +107,9 @@ integration-tests-clean:
 
 # Run the Haskell unit-test suite. Integration tests have moved to
 # pytest under integration_tests/ (see `make integration-tests`);
-# the Haskell test/ tree is unit-tests-only now.
+# the Haskell test/ tree is unit-tests-only now. Hspec job count
+# auto-detects from `nproc` — pure-Haskell tests are CPU-bound, so
+# one worker per logical CPU is the right default.
 #
 # No arguments: runs the whole suite.
 # MATCH=<expr>: runs only tests whose name matches <expr>.
@@ -104,7 +121,7 @@ integration-tests-clean:
 #
 # Uses script(1) to provide a pseudo-terminal, preventing hangs when piping output.
 unit-tests:
-	script -qec 'stack test --test-arguments "--jobs=$(JOBS)$(if $(MATCH), --match \"$(MATCH)\",)"' /dev/null
+	script -qec 'stack test --test-arguments "--jobs=$(shell nproc)$(if $(MATCH), --match \"$(MATCH)\",)"' /dev/null
 
 # Umbrella: build (or no-op) every disk the integration-test suite
 # needs — the corvus test-node, the inner Alpine test-vm, the

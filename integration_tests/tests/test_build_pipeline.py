@@ -46,7 +46,7 @@ from corvus_test_harness.host_binary import REPO_ROOT
 
 import yaml as yamlmod
 
-pytestmark = [pytest.mark.slow, pytest.mark.timeout(1800)]
+pytestmark = pytest.mark.timeout(1800)
 
 
 _BAKE_TEMPLATE = textwrap.dedent("""

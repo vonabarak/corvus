@@ -363,15 +363,26 @@ def _bootstrap_node(node):
     sys.stderr.flush()
     # The virtiofs mount is read-only, but setuptools' egg_info step
     # wants to write `corvus.egg-info/` inside the source dir. Copy
-    # to a writable scratch dir first. --break-system-packages is
-    # required so PEP 668 doesn't refuse a user-site install on
-    # distros that ship the EXTERNALLY-MANAGED marker.
+    # to a writable scratch dir first.
+    #
+    # * `cp -rL` dereferences the `python/corvus_client/schema ->
+    #   ../../schema` repo-level symlink so setuptools 82's
+    #   package-data copy step sees real `.capnp` files instead of a
+    #   dangling-looking symlink ("can't copy ...: doesn't exist or not
+    #   a regular file").
+    # * `--no-build-isolation` reuses the node-installed setuptools
+    #   instead of fetching one from pypi — the test-node has no
+    #   internet, so build-env bootstrap would otherwise fail with a
+    #   NameResolutionError on `pypi.org`.
+    # * `--break-system-packages` so PEP 668 doesn't refuse a
+    #   user-site install on distros that ship EXTERNALLY-MANAGED.
     _shrun(
         node,
         (
             "rm -rf /tmp/corvus-src && "
-            f"cp -r {SRC_MOUNT} /tmp/corvus-src && "
-            "python3 -m pip install --user --quiet --break-system-packages /tmp/corvus-src"
+            f"cp -rL {SRC_MOUNT} /tmp/corvus-src && "
+            "python3 -m pip install --user --quiet "
+            "--break-system-packages --no-build-isolation /tmp/corvus-src"
         ),
         timeout_sec=300.0,
     )

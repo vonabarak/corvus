@@ -16,19 +16,32 @@ node(s) from the class fixture by inheriting from `SingleNodeCase`,
 
 The hooks below enforce the suite-wide behaviour:
 
+The hooks below enforce the suite-wide behaviour:
+
   * Tests within a class run in source-line order (the pytest default,
     re-asserted defensively so xdist worker-side ordering can't drift).
+  * Classes carrying `@pytest.mark.slow` float to the head of the
+    collected-items queue. With `--dist=worksteal` xdist dispatches
+    chunks of pending tests in items[] order at startup, so slow
+    classes get assigned to workers first — classic LPT scheduling
+    that keeps the run from finishing with one worker still chewing
+    on a long class while the others idle.
   * The first failed/errored method in a class marks every subsequent
     method as skipped — the cascade hides the real bug less.
   * If the class fixture itself fails to set up, every method skips
     with a single coherent reason; the partially-booted topology is
     left alive for inspection.
-  * With `pytest-xdist`'s `--dist=loadscope` (default in
-    `pyproject.toml`), each class lands on a single worker for the
-    full duration. Tests within a class never run in parallel.
+  * Under `--dist=worksteal` (set in `pyproject.toml`) idle workers
+    steal tests from busy workers' queues. A class whose tests get
+    stolen mid-run will have its autouse Topology fixture re-run on
+    the stealing worker — one extra outer test-node VM boot per
+    steal, in exchange for not leaving 9 workers idle while 3 finish
+    long classes.
 """
 
 from __future__ import annotations
+
+import os
 
 import pytest
 from corvus_test_harness import (
@@ -110,47 +123,138 @@ def _is_class_based(item: pytest.Item) -> bool:
     return isinstance(cls, type) and issubclass(cls, IntegrationTestCase)
 
 
-@pytest.hookimpl(tryfirst=True)
+def _lineno(item: pytest.Item) -> int:
+    obj = getattr(item, "function", None)
+    if obj is None:
+        return 0
+    code = getattr(obj, "__code__", None)
+    return getattr(code, "co_firstlineno", 0)
+
+
+def _xdist_num_workers(config: pytest.Config) -> int | None:
+    """Best-effort read of the configured xdist worker count.
+
+    Two sources, in priority order:
+
+    1. `$PYTEST_XDIST_WORKER_COUNT` — xdist sets this in every worker
+       process at bootstrap (see `xdist.remote.remote_initconfig`).
+       This is the *only* reliable signal inside a worker, because
+       xdist deliberately clears `config.option.numprocesses` there
+       (see `xdist.remote.setup_config`) so plugins don't try to
+       re-shard from inside a worker.
+    2. `config.option.numprocesses` — set on the master / single-
+       process pytest invocations. Honours `-n N` from the CLI.
+    """
+    env = os.environ.get("PYTEST_XDIST_WORKER_COUNT")
+    if env:
+        try:
+            v = int(env)
+        except ValueError:
+            pass
+        else:
+            if v > 0:
+                return v
+    n = getattr(config.option, "numprocesses", None)
+    if isinstance(n, int) and n > 0:
+        return n
+    if isinstance(n, str):
+        try:
+            v = int(n)
+        except ValueError:
+            return None
+        return v if v > 0 else None
+    return None
+
+
+def _xdist_chunk_boundaries(total: int, num_workers: int) -> list[int]:
+    """Reproduce worksteal's initial chunk boundaries.
+
+    Mirrors the loop in `xdist.scheduler.worksteal.check_schedule`:
+    each iteration sends `pending // nodes_remaining` items, so chunk
+    sizes are not uniform (e.g. for 141 items / 12 workers it's
+    11,11,11,12,…,12). Returns the index where worker i's chunk
+    starts, for i in [0, num_workers).
+    """
+    boundaries = []
+    pos, remaining = 0, total
+    for i in range(num_workers):
+        boundaries.append(pos)
+        nodes_remaining = num_workers - i
+        if nodes_remaining == 0:
+            break
+        chunk = remaining // nodes_remaining
+        pos += chunk
+        remaining -= chunk
+    return boundaries
+
+
+@pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Re-assert source-line order within each IntegrationTestCase class.
+    """Source-line order within each class; slow classes pinned to
+    worksteal chunk starts so they begin at t=0 on separate workers.
 
-    Pytest's default *is* source-line order, but enforcing it here keeps
-    the suite robust against external plugins (or xdist worker-side
-    behaviour) that might otherwise reshuffle. We run with `tryfirst`
-    so subsequent reorderings (e.g. `--lf`) win for non-class tests
-    while class tests keep their declared sequence.
+    Runs `trylast` so this is the final word on item order: any other
+    plugin that reshuffles items (e.g. `--lf`'s last-failed-first) has
+    already run, and we reapply both invariants on top.
+
+    Under `--dist=worksteal` xdist sends each worker a contiguous
+    prefix of items[] as its initial chunk (see
+    `xdist.scheduler.worksteal._send_tests`). Simply putting every
+    slow class at the head of the list bundles them all into
+    worker 0's chunk and worker 0 only starts the second slow class
+    once the first is done. To get every slow class running at t=0
+    on a different worker we have to place each slow group at the
+    *start* of a different worker's chunk and pad between them with
+    fast items.
     """
-    # Group items by their class while preserving the inter-class order
-    # pytest already picked. Standalone (non-class) items stay where
-    # they are.
-    indexed: list[tuple[int, pytest.Item]] = list(enumerate(items))
-    by_class: dict[type, list[tuple[int, pytest.Item]]] = {}
-    for idx, item in indexed:
-        if not _is_class_based(item):
-            continue
-        by_class.setdefault(item.cls, []).append((idx, item))
+    by_class: dict[type, list[pytest.Item]] = {}
+    standalone: list[pytest.Item] = []
+    for item in items:
+        if _is_class_based(item):
+            by_class.setdefault(item.cls, []).append(item)
+        else:
+            standalone.append(item)
 
-    for _cls, group in by_class.items():
-        # Sort by source-line number of the underlying function. Items
-        # already share a file (one class lives in one file), so name
-        # alone would also work — but lineno is the property the user
-        # actually wants.
-        def _lineno(pair: tuple[int, pytest.Item]) -> int:
-            _, it = pair
-            obj = getattr(it, "function", None)
-            if obj is None:
-                return 0
-            code = getattr(obj, "__code__", None)
-            return getattr(code, "co_firstlineno", 0)
+    slow_groups: list[list[pytest.Item]] = []
+    fast_groups: list[list[pytest.Item]] = []
+    for group in by_class.values():
+        group.sort(key=_lineno)
+        # `pytestmark` at module scope propagates to every collected
+        # item in the module, so checking the first item is enough.
+        if group[0].get_closest_marker("slow") is not None:
+            slow_groups.append(group)
+        else:
+            fast_groups.append(group)
 
-        group_sorted = sorted(group, key=_lineno)
-        # Splice the sorted methods back into items[] at the original
-        # positions, in their new order.
-        positions = [orig_idx for orig_idx, _ in group]
-        for pos, (_, new_item) in zip(positions, group_sorted, strict=False):
-            items[pos] = new_item
+    pool: list[pytest.Item] = [it for g in fast_groups for it in g] + standalone
+    num_workers = _xdist_num_workers(config)
+
+    # No worker count, single worker, or 0–1 slow classes → the
+    # chunk-boundary trick is moot; just put slow classes first.
+    if num_workers is None or num_workers <= 1 or len(slow_groups) <= 1:
+        items[:] = [it for g in slow_groups for it in g] + pool
+        return
+
+    total = len(items)
+    boundaries = _xdist_chunk_boundaries(total, num_workers)
+    pool_iter = iter(pool)
+    reordered: list[pytest.Item] = []
+    for i, slow_group in enumerate(slow_groups):
+        if i < len(boundaries):
+            target = boundaries[i]
+            while len(reordered) < target:
+                try:
+                    reordered.append(next(pool_iter))
+                except StopIteration:
+                    # Pool exhausted before reaching the target boundary.
+                    # The remaining slow classes will land contiguously;
+                    # nothing more we can do without inventing items.
+                    break
+        reordered.extend(slow_group)
+    reordered.extend(pool_iter)
+    items[:] = reordered
 
 
 @pytest.hookimpl(hookwrapper=True)

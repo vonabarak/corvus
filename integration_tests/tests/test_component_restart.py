@@ -39,7 +39,7 @@ import time
 import pytest
 from corvus_test_harness import SingleNodeCase
 
-pytestmark = [pytest.mark.slow, pytest.mark.timeout(300)]
+pytestmark = pytest.mark.timeout(300)
 
 # Production unit names — see component_deploy.DAEMON_UNIT etc.
 DAEMON_UNIT = "corvus.service"

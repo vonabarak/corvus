@@ -25,9 +25,6 @@ import pytest
 from corvus_client import Client
 from corvus_test_harness import SingleNodeCase, VmSsh
 
-pytestmark = [pytest.mark.slow]
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 
