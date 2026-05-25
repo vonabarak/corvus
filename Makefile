@@ -106,7 +106,18 @@ integration-tests-clean:
 unit-tests:
 	script -qec 'stack test --test-arguments "--jobs=$(JOBS)$(if $(MATCH), --match \"$(MATCH)\",)"' /dev/null
 
-# Build all test images via `crv build`
+# Umbrella: build (or no-op) every disk the integration-test suite
+# needs — the corvus test-node, the inner Alpine test-vm, the
+# multi-OS cloud base images, and Windows Server 2025. Each
+# prerequisite is individually idempotent (a `crv disk show` guard
+# wraps every bake), so re-running this target on a warm tree
+# costs a handful of `crv disk show` calls; on a cold tree first
+# run is ~2 hours total (Gentoo + Windows are the long bakes).
+#
+# The pytest harness expects these images to be present and fails
+# fast otherwise — see `ImageReady.ensure()` and the
+# `register_base_images()` flow. The build path lives here so the
+# bake never races between pytest-xdist workers.
 test-image: test-image-node test-image-vm test-image-multi-os test-image-windows
 
 # Fetch the multi-OS cloud images (Debian, Ubuntu, AlmaLinux, FreeBSD,
@@ -130,44 +141,49 @@ test-image-key:
 # Build the minimal Alpine test-VM image (the inner VM the harness
 # boots inside the outer test node).
 #
-# Steps:
-#   1. Make sure the shared SSH keypair exists at
+# Prereqs (declared as make deps so we don't redo them each invocation):
+#   1. test-image-key — the shared SSH keypair at
 #      integration_tests/keys/corvus-test-key{,.pub}.
-#   2. Apply the multi-OS template library (provides the `debian12`
-#      bake VM template — it bootstraps Alpine via apk-tools-static
-#      from inside the bake VM, so it doesn't need any pre-cached ISO).
-#   3. Run `crv build`. The artifact is registered as a Corvus disk
-#      named `corvus-test-vm` under the daemon's BaseImages tree at
-#      `BaseImages/Alpine/corvus-test-vm.qcow2`. The build's `file:` step
-#      reads the pubkey directly out of `integration_tests/keys/`.
-test-image-vm: test-image-key
-	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
-	crv build yaml/corvus-test-vm/corvus-test-vm.yml --wait
+#   2. test-image-multi-os — registers the `debian12` bake template
+#      this VM is overlaid on (it bootstraps Alpine via
+#      apk-tools-static from inside the bake VM, so it doesn't need
+#      any pre-cached ISO).
+#
+# Idempotent: a `crv disk show` guard skips the bake when
+# `corvus-test-vm` is already registered. The artifact lands at
+# `BaseImages/Alpine/corvus-test-vm.qcow2` under the daemon's
+# BaseImages tree. The build's `file:` step reads the pubkey
+# directly out of `integration_tests/keys/`.
+test-image-vm: test-image-key test-image-multi-os
+	@crv -o json disk show corvus-test-vm >/dev/null 2>&1 || \
+	  crv build yaml/corvus-test-vm/corvus-test-vm.yml --wait
 test-image-vm-clean:
 	crv disk delete corvus-test-vm || true
 
 # Build the Gentoo test-node image (the harness's outer VM).
 #
-# Steps:
-#   1. Make sure the shared SSH keypair exists at
-#      integration_tests/keys/corvus-test-key{,.pub} — the image
-#      bakes its public half into /home/corvus/.ssh/authorized_keys.
-#   2. Drop any prior `corvus-test-node` disk so the build always
-#      rebakes (the YAML changes we land here only take effect
-#      after a fresh bake).
-#   3. Run yaml/gentoo-test/gentoo-headless.yml — registers the
-#      OVMF + gentoo-base-cloud disks and bakes both the
-#      `gentoo-cloud` and `gentoo-headless` templates the
-#      test-node build is an overlay on. First-run cost is
-#      the headless bake itself (~30-60 min: kernel + stage3 +
-#      emerges); later runs no-op via `ifExists: skip`.
-#   4. Run `crv build` on yaml/corvus-test-node/corvus-test-node.yml.
-#      The artifact is registered as a Corvus disk named
-#      `corvus-test-node`. The pytest harness's `ImageReady.ensure()`
-#      reuses it instead of baking a fresh one on first run.
+# Prereq: test-image-key — the shared SSH keypair at
+# integration_tests/keys/corvus-test-key{,.pub}, baked into
+# /home/corvus/.ssh/authorized_keys.
+#
+# Two independently-guarded bakes (each skipped when its target
+# disk is already registered):
+#   1. yaml/gentoo-test/gentoo-headless.yml — produces the
+#      `gentoo-base-headless` disk plus the `gentoo-cloud` and
+#      `gentoo-headless` templates the test-node build is an
+#      overlay on. First-run cost is the headless bake itself
+#      (~30-60 min: kernel + stage3 + emerges).
+#   2. yaml/corvus-test-node/corvus-test-node.yml — produces the
+#      `corvus-test-node` disk consumed by the harness's
+#      `ImageReady.ensure()` check.
+#
+# To force a rebake, `crv disk delete <name>` first; the guard
+# will then re-run the corresponding `crv build`.
 test-image-node: test-image-key
-	crv build yaml/gentoo-test/gentoo-headless.yml --wait
-	crv build yaml/corvus-test-node/corvus-test-node.yml --wait
+	@crv -o json disk show gentoo-base-headless >/dev/null 2>&1 || \
+	  crv build yaml/gentoo-test/gentoo-headless.yml --wait
+	@crv -o json disk show corvus-test-node >/dev/null 2>&1 || \
+	  crv build yaml/corvus-test-node/corvus-test-node.yml --wait
 test-image-node-clean:
 	crv template delete corvus-test-node || true
 	crv disk delete corvus-test-node || true
@@ -185,7 +201,8 @@ test-image-node-clean:
 # manual mkfs.fat/mcopy. Bake takes 45–55 min on KVM. The artifact
 # lands at ~/VMs/BaseImages/WindowsServer2025/.
 test-image-windows:
-	crv build yaml/windows-server-2025/windows-server-2025.yml --wait
+	@crv -o json disk show windows-server-2025-eval >/dev/null 2>&1 || \
+	  crv build yaml/windows-server-2025/windows-server-2025.yml --wait
 test-image-windows-clean:
 	crv disk delete windows-server-2025-eval || true
 	crv template delete windows-server-2025 || true

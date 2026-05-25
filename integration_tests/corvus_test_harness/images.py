@@ -1,23 +1,23 @@
 """Session-scoped check that the integration-test image is in place.
 
-The harness leaves image bake-out to `crv build`, which Corvus already
-makes idempotent via `ifExists: skip` on every YAML stage. Our job
-here is just to:
-
-  1. Detect whether the base disk the suite needs is already registered
-     in the outer daemon (fast path).
-  2. If not, run `crv build` on
-     [yaml/corvus-test-node/corvus-test-node.yml](../../yaml/corvus-test-node/corvus-test-node.yml)
-     (a `pipeline:`-rooted document — apply + build steps) and wait
-     for the bake to finish.
+This module is a *precondition check only* — it confirms the
+`corvus-test-node` disk is already registered with the outer daemon
+and fails fast otherwise. Image baking lives entirely in the
+Makefile (`make test-image` / `make test-image-node`); running it
+from inside a pytest fixture used to race under pytest-xdist
+because session scope is per-worker, so two workers could both
+spawn `crv build` against the same outer daemon when the disk was
+missing.
 
 The YAML doesn't declare a VM template — Corvus templates don't yet
 support `sharedDirs`, and every test VM needs a per-run share-dir
 attached at create time. The harness builds each VM from the base
 disk via an inline `apply` YAML; see `topology.py`.
 
-First run takes 30-60 min (kernel + stage3 + emerges); subsequent runs
-return in milliseconds.
+Build path (run once per machine, lives outside pytest):
+
+    make test-image            # umbrella: all integration-test images
+    make test-image-node       # just this one
 """
 
 from __future__ import annotations
@@ -52,15 +52,24 @@ class ImageReady:
         yaml_path: Path | None = None,
         disk_name: str = DISK_NAME,
     ) -> ImageReady:
+        """Confirm `disk_name` is registered with the outer daemon.
+
+        Returns an `ImageReady` record on success. Raises
+        `RuntimeError` with a pointer to the right `make` target
+        when the disk is missing — the build path lives in the
+        Makefile, not here, so two pytest-xdist workers can't race
+        on it.
+        """
         path = yaml_path or DEFAULT_YAML
         if not path.is_file():
             raise FileNotFoundError(f"integration-test YAML not found at {path}")
         if not _disk_exists(crv, disk_name):
-            crv.build(path, wait=True, timeout_sec=4 * 3600)
-            if not _disk_exists(crv, disk_name):
-                raise RuntimeError(
-                    f"`crv build {path}` finished but disk {disk_name!r} not registered"
-                )
+            raise RuntimeError(
+                f"Integration-test image {disk_name!r} is not registered "
+                f"with the outer daemon. Run `make test-image` (or "
+                f"`make test-image-node` for just this one) before "
+                f"`make integration-tests`."
+            )
         return cls(disk_name=disk_name, yaml_path=path)
 
 
