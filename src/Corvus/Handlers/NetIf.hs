@@ -83,7 +83,7 @@ handleNetIfRemove state vmId netIfId = do
   case result of
     Nothing -> pure RespVmNotFound
     Just False -> pure RespNetIfNotFound
-    Just True -> pure RespNetIfOk
+    Just True -> pure RespOk
 
 -- | List network interfaces for a VM
 handleNetIfList :: ServerState -> Int64 -> IO Response

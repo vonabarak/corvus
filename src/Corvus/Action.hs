@@ -377,7 +377,6 @@ classifyResponse = \case
   RespSharedDirAdded did -> (TaskSuccess, Just $ "Dir ID " <> T.pack (show did))
   RespSharedDirOk -> (TaskSuccess, Nothing)
   RespNetIfAdded nid -> (TaskSuccess, Just $ "NetIf ID " <> T.pack (show nid))
-  RespNetIfOk -> (TaskSuccess, Nothing)
   RespGuestExecResult code _ _ -> (TaskSuccess, Just $ "Exit code " <> T.pack (show code))
   RespCloudInitOk -> (TaskSuccess, Nothing)
   RespStartupComplete -> (TaskSuccess, Just "Startup complete")

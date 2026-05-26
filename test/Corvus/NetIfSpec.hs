@@ -120,7 +120,7 @@ spec = sequential $ withTestDb $ do
         pure ()
       when_ $ whenNetIfRemove 1 1
       then_ $ do
-        responseIs (== RespNetIfOk)
+        responseIs (== RespOk)
       when_ $ whenNetIfList 1
       then_ $ responseIs $ \case
         RespNetIfList [] -> True

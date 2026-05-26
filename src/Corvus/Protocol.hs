@@ -170,8 +170,6 @@ data Response
     RespNetIfList {netIfs :: ![NetIfInfo]}
   | -- | Network interface added
     RespNetIfAdded {id :: !Int64}
-  | -- | Network interface operation successful
-    RespNetIfOk
   | -- | Network interface not found
     RespNetIfNotFound
   | -- | List of SSH keys
