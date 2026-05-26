@@ -71,6 +71,34 @@ spec = sequential $ withTestDb $ do
         RespNetIfList [n] -> niMacAddress n == "52:54:00:de:ad:01"
         _ -> False
 
+    testCase "bridge type requires --host-device" $ do
+      given $ do
+        _ <- insertVm "v" VmStopped
+        pure ()
+      when_ $ whenNetIfAdd 1 NetBridge "" Nothing
+      then_ $ responseIs $ \case
+        RespError msg -> "bridge interface requires" `T.isInfixOf` msg
+        _ -> False
+      -- And nothing got inserted.
+      when_ $ whenNetIfList 1
+      then_ $ responseIs $ \case
+        RespNetIfList [] -> True
+        _ -> False
+
+    testCase "bridge type accepts a non-empty host bridge name" $ do
+      given $ do
+        _ <- insertVm "v" VmStopped
+        pure ()
+      when_ $ whenNetIfAdd 1 NetBridge "br0" Nothing
+      then_ $ responseIs $ \case
+        RespNetIfAdded _ -> True
+        _ -> False
+      when_ $ whenNetIfList 1
+      then_ $ responseIs $ \case
+        RespNetIfList [n] ->
+          niType n == NetBridge && niHostDevice n == "br0"
+        _ -> False
+
   describe "whenNetIfRemove" $ do
     testCase "returns VmNotFound when the VM doesn't exist" $ do
       when_ $ whenNetIfRemove 999 1

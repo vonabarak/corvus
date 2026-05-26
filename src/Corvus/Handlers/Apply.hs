@@ -425,32 +425,39 @@ createNetIfs :: ServerState -> Map.Map Text Int64 -> VmId -> [ApplyNetIf] -> Tex
 createNetIfs state nwMap vmId netIfs vmName = go netIfs
   where
     go [] = pure $ Right ()
-    go (ni : nis) = do
-      mNetworkId <- case aniNetwork ni of
-        Nothing -> pure $ Right Nothing
-        Just nwName -> do
-          mId <- resolveByNameFilter state (\nm -> [NetworkName ==. nm]) nwMap nwName
-          case mId of
-            Nothing -> pure $ Left $ "VM '" <> vmName <> "': network '" <> nwName <> "' not found"
-            Just nid -> pure $ Right $ Just nid
-      case mNetworkId of
-        Left err -> pure $ Left err
-        Right networkId -> do
-          mac <- maybe generateMacAddress pure (aniMac ni)
-          runSqlPool
-            ( insert_
-                NetworkInterface
-                  { networkInterfaceVmId = vmId
-                  , networkInterfaceInterfaceType = aniType ni
-                  , networkInterfaceHostDevice = fromMaybe "" (aniHostDevice ni)
-                  , networkInterfaceMacAddress = mac
-                  , networkInterfaceNetworkId = fmap toSqlKey networkId
-                  , networkInterfaceGuestIpAddresses = Nothing
-                  , networkInterfaceIpAddress = Nothing
-                  }
-            )
-            (ssDbPool state)
-          go nis
+    go (ni : nis) = case validateNetIf ni of
+      Just err -> pure $ Left ("VM '" <> vmName <> "': " <> err)
+      Nothing -> do
+        mNetworkId <- case aniNetwork ni of
+          Nothing -> pure $ Right Nothing
+          Just nwName -> do
+            mId <- resolveByNameFilter state (\nm -> [NetworkName ==. nm]) nwMap nwName
+            case mId of
+              Nothing -> pure $ Left $ "VM '" <> vmName <> "': network '" <> nwName <> "' not found"
+              Just nid -> pure $ Right $ Just nid
+        case mNetworkId of
+          Left err -> pure $ Left err
+          Right networkId -> do
+            mac <- maybe generateMacAddress pure (aniMac ni)
+            runSqlPool
+              ( insert_
+                  NetworkInterface
+                    { networkInterfaceVmId = vmId
+                    , networkInterfaceInterfaceType = aniType ni
+                    , networkInterfaceHostDevice = fromMaybe "" (aniHostDevice ni)
+                    , networkInterfaceMacAddress = mac
+                    , networkInterfaceNetworkId = fmap toSqlKey networkId
+                    , networkInterfaceGuestIpAddresses = Nothing
+                    , networkInterfaceIpAddress = Nothing
+                    }
+              )
+              (ssDbPool state)
+            go nis
+    validateNetIf ni = case aniType ni of
+      NetBridge
+        | maybe True T.null (aniHostDevice ni) ->
+            Just "bridge interface requires hostDevice (the host bridge name)"
+      _ -> Nothing
 
 attachSshKeys :: ServerState -> Map.Map Text Int64 -> VmId -> [Text] -> Text -> IO (Either Text ())
 attachSshKeys state keyMap vmId keyNames vmName = go keyNames

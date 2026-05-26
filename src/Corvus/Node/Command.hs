@@ -393,7 +393,13 @@ netArgs (idx, netIf) =
       NetTap ->
         ["-netdev", "tap,id=" ++ netId ++ ",ifname=" ++ hostDev ++ ",script=no,downscript=no"]
       NetBridge ->
-        ["-netdev", "bridge,id=" ++ netId ++ ",br=" ++ hostDev]
+        -- hostDev is the persistent TAP ifname the daemon
+        -- pre-allocated via netd (slaved to the user's bridge);
+        -- not the bridge name. Same shape as NetManaged below;
+        -- QEMU's '-netdev bridge,br=' path (which would invoke
+        -- the setuid qemu-bridge-helper) is intentionally not
+        -- used: the agent runs unprivileged.
+        ["-netdev", "tap,id=" ++ netId ++ ",ifname=" ++ hostDev ++ ",script=no,downscript=no"]
       NetMacvtap ->
         ["-netdev", "tap,id=" ++ netId ++ ",fd=3"] -- macvtap uses fd passing
       NetVde ->
@@ -684,10 +690,12 @@ driveArgsSpec (_idx, d) =
     ifForQemu other = other
 
 -- | Per-NIC argv assembly for 'buildQemuCommandFromSpec'.
--- For managed NICs the daemon's @assembleVmSpec@ pre-resolves the
--- TAP name via netd, so @vnsHostDevice@ is the persistent TAP
--- ifname by the time the agent sees the spec — no agent ↔ netd
--- cross-talk needed.
+-- For managed and bridge NICs the daemon's @assembleVmSpec@
+-- pre-resolves the TAP name via netd, so @vnsHostDevice@ is the
+-- persistent TAP ifname by the time the agent sees the spec — no
+-- agent ↔ netd cross-talk needed. Bridge NICs use the same TAP
+-- shape as managed; the difference (which host bridge the TAP is
+-- slaved to) is fully handled netd-side.
 netArgsSpec :: (Int, VS.VmNetIfSpec) -> [String]
 netArgsSpec (idx, n) =
   let netId = "net" ++ show idx
@@ -700,7 +708,7 @@ netArgsSpec (idx, n) =
         "tap" ->
           ["-netdev", "tap,id=" ++ netId ++ ",ifname=" ++ hostDev ++ ",script=no,downscript=no"]
         "bridge" ->
-          ["-netdev", "bridge,id=" ++ netId ++ ",br=" ++ hostDev]
+          ["-netdev", "tap,id=" ++ netId ++ ",ifname=" ++ hostDev ++ ",script=no,downscript=no"]
         "macvtap" ->
           ["-netdev", "tap,id=" ++ netId ++ ",fd=3"]
         "vde" ->

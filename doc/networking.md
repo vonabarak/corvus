@@ -68,7 +68,7 @@ crv net-if remove <vm> <netif_id>       # Remove a network interface
 | `user` | QEMU user-mode networking with built-in NAT | Optional: QEMU netdev options (e.g., `hostfwd=...`) |
 | `managed` | Bridge + TAP owned by `corvus-netd` (host root netns) | Auto (set via `--network`) |
 | `tap` | Pre-configured TAP device on host | Required: TAP device name |
-| `bridge` | Pre-configured bridge on host | Required: bridge name |
+| `bridge` | Pre-configured (user-managed) bridge on host; Corvus creates a TAP and slaves it to the bridge for the VM's lifetime | Required: bridge name |
 | `vde` | External VDE virtual switch | Required: VDE socket path |
 | `macvtap` | MACVTAP device | N/A (uses fd passing) |
 
@@ -97,6 +97,20 @@ crv net-if add my-vm --type user --mac 52:54:00:12:34:56
 ```
 
 Each interface gets a VirtIO NIC with an auto-generated MAC address unless `--mac` is specified.
+
+### Bridge Type — Attaching to a Host-Managed Bridge
+
+`type=bridge` attaches a VM to a Linux bridge **you create and manage yourself** (with `ip link add type bridge`, NetworkManager, `systemd-networkd`, …). Corvus does not create, configure, or delete the bridge.
+
+For each `bridge` NIC, Corvus:
+
+1. Asks `corvus-netd` to create a TAP named `corvus-tap-<base36(ifaceId)>` and enslave it to the bridge named in `--host-device`. The TAP is `TUNSETOWNER`'d to the daemon's uid/gid so the unprivileged QEMU process can re-open it by ifname.
+2. Hands QEMU `-netdev tap,ifname=<tap>,script=no,downscript=no` — the same code path used for managed (Corvus-owned) networks.
+3. Deletes the TAP when the VM stops; the bridge itself is left untouched.
+
+Because the TAP lifecycle goes through `corvus-netd`, the daemon must have an active netd connection on the VM's node when the VM starts. If the bridge doesn't exist in the kernel at start time, `ip link set <tap> master <bridge>` fails and the error propagates back through `crv vm start`.
+
+This means QEMU's `-netdev bridge,br=` path (which would shell out to the setuid `qemu-bridge-helper` against `/etc/qemu/bridge.conf`) is **not** used. There's no need to install the helper or whitelist bridges in `bridge.conf` — Corvus handles the bridge enslavement directly via netd.
 
 ### Port Forwarding (User Mode)
 

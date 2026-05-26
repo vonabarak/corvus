@@ -44,30 +44,37 @@ handleNetIfAdd
   -> Maybe Int64
   -> IO Response
 handleNetIfAdd state vmId ifaceType hostDevice mMacAddress mNetworkId = do
-  mac <- case mMacAddress of
-    Just m | not (T.null m) -> pure m
-    _ -> generateMacAddress
   let networkKey = toSqlKey <$> mNetworkId :: Maybe M.NetworkId
       -- When a network is specified, force managed type
       actualType = case mNetworkId of
         Just _ -> NetManaged
         Nothing -> ifaceType
-  result <- runSqlPool (addNetIf vmId actualType hostDevice mac networkKey) (ssDbPool state)
-  case result of
-    Nothing -> pure RespVmNotFound
-    Just (Left err) -> pure $ RespError err
-    Just (Right (netIfId, mNetworkKey, refreshNetworkSpec)) -> do
-      -- The DB insert succeeded; if it created a NIC on a managed
-      -- network whose IP allocation changed, push the updated
-      -- spec out so dnsmasq picks up the new --dhcp-host
-      -- reservation. Best-effort: a failure here doesn't fail the
-      -- add (the supervisor reapply will catch up later).
-      case (refreshNetworkSpec, mNetworkKey) of
-        (True, Just key) -> do
-          _ <- NetworkH.pushNetworkToAllMembers state key
-          pure ()
-        _ -> pure ()
-      pure $ RespNetIfAdded netIfId
+  case actualType of
+    NetBridge
+      | T.null hostDevice ->
+          pure $
+            RespError
+              "bridge interface requires --host-device (the host bridge name)"
+    _ -> do
+      mac <- case mMacAddress of
+        Just m | not (T.null m) -> pure m
+        _ -> generateMacAddress
+      result <- runSqlPool (addNetIf vmId actualType hostDevice mac networkKey) (ssDbPool state)
+      case result of
+        Nothing -> pure RespVmNotFound
+        Just (Left err) -> pure $ RespError err
+        Just (Right (netIfId, mNetworkKey, refreshNetworkSpec)) -> do
+          -- The DB insert succeeded; if it created a NIC on a managed
+          -- network whose IP allocation changed, push the updated
+          -- spec out so dnsmasq picks up the new --dhcp-host
+          -- reservation. Best-effort: a failure here doesn't fail the
+          -- add (the supervisor reapply will catch up later).
+          case (refreshNetworkSpec, mNetworkKey) of
+            (True, Just key) -> do
+              _ <- NetworkH.pushNetworkToAllMembers state key
+              pure ()
+            _ -> pure ()
+          pure $ RespNetIfAdded netIfId
 
 -- | Remove a network interface from a VM
 handleNetIfRemove :: ServerState -> Int64 -> Int64 -> IO Response

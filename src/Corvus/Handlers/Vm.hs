@@ -388,17 +388,17 @@ launchVmViaAgent
   -> Pool SqlBackend
   -> LoggingT IO Response
 launchVmViaAgent state vmId vm pool = do
-  -- Managed NICs need the netd cap so 'assembleVmSpec' can
-  -- pre-allocate persistent TAPs. If the VM has none, we don't
-  -- care whether netd is up.
-  hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
+  -- Managed and bridge NICs need the netd cap so
+  -- 'assembleVmSpec' can pre-allocate persistent TAPs. If the VM
+  -- has none, we don't care whether netd is up.
+  needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf vmId) pool
   mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
-  when (hasManagedNic && isNothing mNetAgent) $
+  when (needsNetd && isNothing mNetAgent) $
     logWarnN $
       "VM "
         <> T.pack (show vmId)
-        <> " needs managed NIC but netd is unavailable"
-  let netAgentForSpec = if hasManagedNic then mNetAgent else Nothing
+        <> " has a managed or bridge NIC but netd is unavailable"
+  let netAgentForSpec = if needsNetd then mNetAgent else Nothing
   -- Wait-for-first-ping budget for the agent's vmStart. Covers
   -- cold boot through QGA's first response.
   --
@@ -563,9 +563,11 @@ handleVmStopExecute state vmId = do
           Right res -> case NOA.vsrKind res of
             NOA.VmStopStopped -> do
               liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+              liftIO $ releaseManagedTaps state vmId
               pure $ RespVmStateChanged VmStopped
             NOA.VmStopAlreadyStopped -> do
               liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+              liftIO $ releaseManagedTaps state vmId
               pure $ RespVmStateChanged VmStopped
             NOA.VmStopTimeout -> do
               logWarnN $
@@ -579,6 +581,7 @@ handleVmStopExecute state vmId = do
                 Right rh -> case rh of
                   Right _ -> do
                     liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+                    liftIO $ releaseManagedTaps state vmId
                     pure $ RespVmStateChanged VmStopped
                   Left e ->
                     pure $ RespInvalidTransition currentStatus ("vmStopHard: " <> T.pack (show e))
@@ -664,6 +667,11 @@ handleVmReset state vmId = runServerLogging state $ do
               logDebugN $ "VM " <> T.pack (show vmId) <> " was not in the agent's ledger"
             _ ->
               logWarnN $ "vmStopHard returned: " <> NOA.vsrMessage res
+
+      -- Drop netd-allocated TAPs synchronously *before* returning,
+      -- so a follow-up @vmDelete@ that wipes the NIC rows doesn't
+      -- race the background monitor's own (now no-op) cleanup pass.
+      liftIO $ releaseManagedTaps state vmId
 
       pure $ RespVmStateChanged VmStopped
 
@@ -1253,36 +1261,43 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mReboot
     [] -> pure ()
     us -> update key us
 
--- | Check if a VM has any managed (NetManaged) network interfaces with a networkId.
-hasManagedNetworkInterface :: Int64 -> SqlPersistT IO Bool
-hasManagedNetworkInterface vmId = do
+-- | Check if a VM has any netd-mediated network interface: a
+-- managed NIC (attached to a Corvus virtual network) or a bridge
+-- NIC (attached to a user-managed host bridge). Both go through
+-- the same netd applyTap path during 'assembleVmSpec'.
+hasNetdMediatedNetIf :: Int64 -> SqlPersistT IO Bool
+hasNetdMediatedNetIf vmId = do
   let vmKey = toSqlKey vmId :: VmId
-  cnt <- count [M.NetworkInterfaceVmId ==. vmKey, M.NetworkInterfaceNetworkId !=. Nothing]
-  pure $ cnt > 0
+  nics <- selectList [M.NetworkInterfaceVmId ==. vmKey] []
+  pure $ any (isNetdMediated . entityVal) nics
+  where
+    isNetdMediated ni =
+      M.networkInterfaceInterfaceType ni == M.NetBridge
+        || isJust (M.networkInterfaceNetworkId ni)
 
--- | Tell the agent to drop every managed TAP attached to the
--- given VM. Used by the post-QEMU-exit supervisor thread.
--- Best-effort: errors are logged via the agent client, not
--- propagated to the caller — the VM is gone either way.
+-- | Tell the agent to drop every netd-allocated TAP attached to
+-- the given VM (both managed and bridge NICs). Used by the post-
+-- QEMU-exit supervisor thread. Best-effort: errors are logged via
+-- the agent client, not propagated to the caller — the VM is
+-- gone either way.
 releaseManagedTaps :: ServerState -> Int64 -> IO ()
 releaseManagedTaps state vmId = do
   let vmKey = toSqlKey vmId :: VmId
   ifaces <-
     runSqlPool
-      ( selectList
-          [ M.NetworkInterfaceVmId ==. vmKey
-          , M.NetworkInterfaceNetworkId !=. Nothing
-          ]
-          []
-      )
+      (selectList [M.NetworkInterfaceVmId ==. vmKey] [])
       (ssDbPool state)
+  let netdMediated = filter (isNetdMediated . entityVal) ifaces
+      isNetdMediated ni =
+        M.networkInterfaceInterfaceType ni == M.NetBridge
+          || isJust (M.networkInterfaceNetworkId ni)
   _ <- withVmNetAgent state vmId $ \nac ->
     mapM_
       ( \(Entity ifaceKey _) ->
           let tapName = Spec.corvusTapName (fromSqlKey ifaceKey)
            in Control.Monad.void (NA.deleteTap nac tapName)
       )
-      ifaces
+      netdMediated
   pure ()
 
 -- | Check if all networks referenced by a VM's network interfaces are running.
@@ -1601,8 +1616,8 @@ reapplyVm state nac vmId vm = do
   let pool = ssDbPool state
       cfg = ssQemuConfig state
   mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
-  hasManagedNic <- liftIO $ runSqlPool (hasManagedNetworkInterface vmId) pool
-  let netAgentForSpec = if hasManagedNic then mNetAgent else Nothing
+  needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf vmId) pool
+  let netAgentForSpec = if needsNetd then mNetAgent else Nothing
       waitMs =
         if vmGuestAgent vm then 300000 else 0
   mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs

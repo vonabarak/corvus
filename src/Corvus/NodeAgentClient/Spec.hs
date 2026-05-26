@@ -185,22 +185,34 @@ encodeSharedDirSpec d =
     }
 
 -- | Resolve a 'NetworkInterface' for transit on the wire.
--- Managed NICs get a persistent TAP allocated via netd (the agent
--- never sees a 'NetManaged' NIC with empty 'hostDevice'); other
--- types pass through unchanged.
+--
+-- For netd-mediated NICs — 'NetManaged' (attached to a Corvus
+-- virtual network) and 'NetBridge' (attached to a user-managed
+-- host bridge) — a persistent TAP is allocated via netd and the
+-- TAP ifname is written into 'hostDevice' so the agent's QEMU
+-- argv builder uses it verbatim. Other types pass through
+-- unchanged.
+--
+-- The only difference between the two netd-mediated cases is the
+-- bridge the TAP is slaved to: managed NICs use the Corvus-owned
+-- @corvus-br-<base36>@ bridge; bridge NICs use the user-supplied
+-- bridge name from 'hostDevice' (validated non-empty at NIC-add
+-- time).
 resolveNetIf
   :: Maybe NA.NetAgentClient -> Entity NetworkInterface -> IO NetworkInterface
 resolveNetIf mAgent (Entity ifaceKey netIf) =
-  case (networkInterfaceNetworkId netIf, mAgent) of
-    (Just nwKey, Just nac) -> do
+  case (mAgent, bridgeForNetdMediatedNic netIf) of
+    (Just nac, Just bridgeName) -> applyOnNetd nac bridgeName
+    _ -> pure netIf
+  where
+    applyOnNetd nac bridgeName = do
       uid <- getEffectiveUserID
       gid <- getEffectiveGroupID
-      let bridge = NS.corvusBridgeName (fromSqlKey nwKey)
-          tapName = NS.corvusTapName (fromSqlKey ifaceKey)
+      let tapName = NS.corvusTapName (fromSqlKey ifaceKey)
           spec =
             NA.TapSpec
               { NA.tsName = tapName
-              , NA.tsBridge = bridge
+              , NA.tsBridge = bridgeName
               , NA.tsUid = fromIntegral uid
               , NA.tsGid = fromIntegral gid
               }
@@ -208,4 +220,18 @@ resolveNetIf mAgent (Entity ifaceKey netIf) =
       case result of
         Right _ -> pure (netIf {networkInterfaceHostDevice = tapName})
         Left _ -> pure netIf
-    _ -> pure netIf
+
+-- | Decide whether a NIC needs netd to pre-allocate a TAP, and if
+-- so which host bridge to slave the TAP to. 'Nothing' means the
+-- NIC is not netd-mediated (user/tap/macvtap/vde, or a bridge
+-- with empty hostDevice — the latter should have been rejected
+-- at add time).
+bridgeForNetdMediatedNic :: NetworkInterface -> Maybe T.Text
+bridgeForNetdMediatedNic netIf =
+  case networkInterfaceInterfaceType netIf of
+    NetManaged ->
+      fmap (NS.corvusBridgeName . fromSqlKey) (networkInterfaceNetworkId netIf)
+    NetBridge ->
+      let hd = networkInterfaceHostDevice netIf
+       in if T.null hd then Nothing else Just hd
+    _ -> Nothing
