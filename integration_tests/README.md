@@ -54,8 +54,8 @@ selects the new-feature tests. `-n 4` parallelises via pytest-xdist
 (each worker namespaces its VMs).
 
 `make integration-tests` picks the worker count automatically: each
-nested VM needs roughly 2 logical CPUs and 4 GiB of RAM, so the recipe
-runs `min(logical_cpus // 2, MemAvailable // 4 GiB)` workers (minimum 1)
+nested VM needs roughly 2 logical CPUs and 3 GiB of RAM, so the recipe
+runs `min(logical_cpus // 2, MemAvailable // 3 GiB)` workers (minimum 1)
 via [`scripts/detect_workers.py`](scripts/detect_workers.py). That
 keeps the host from OOMing on memory-bound runs where the default
 `pytest-xdist -n auto` (one worker per logical CPU) would oversubscribe.

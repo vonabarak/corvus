@@ -1,11 +1,11 @@
 """End-to-end smoke test + VM lifecycle scenarios against the INNER daemon.
 
 The tests in this file are grouped into several sibling `SingleNodeCase`
-subclasses so xdist (`--dist=worksteal` in `pyproject.toml`) can spread
-them across workers. Within a single worker each class's methods run
-sequentially on one inner-daemon node, but classes run in parallel and
-under worksteal a busy class's pending tests can be redistributed to
-idle workers (at the cost of re-running the class fixture there).
+subclasses so xdist (`--dist=loadscope` in `pyproject.toml`) can spread
+them across workers. Within each class methods run sequentially on one
+inner-daemon node, but classes themselves run in parallel — each class
+is pinned to one worker for its full duration so the class-scoped
+Topology fixture only boots a test-node VM once per class.
 
 Every method creates and deletes its own VMs under unique names, so
 classes are mutually independent. If the class-scoped fixture itself

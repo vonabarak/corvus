@@ -151,6 +151,13 @@ exclude = [
 module = "capnp"
 ignore_missing_imports = true
 
+# pytest-xdist ships without a py.typed marker. We only touch the
+# scheduler surface via a small subclass in integration_tests/conftest.py;
+# treating the package as untyped at the import boundary is correct.
+[[tool.mypy.overrides]]
+module = "xdist.*"
+ignore_missing_imports = true
+
 # corvus_admin — strict-annotated module. Keep the gate tight here:
 # the admin CLI is small (~3k LoC, single subsystem) and every
 # function already has reasonably narrow types thanks to Click.
@@ -189,7 +196,7 @@ disallow_incomplete_defs = false
 module = ["tests.*", "corvus_test_harness.*", "conftest"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
-disable_error_code = ["attr-defined", "arg-type", "union-attr", "call-arg", "unreachable", "misc", "assignment"]
+disable_error_code = ["attr-defined", "arg-type", "union-attr", "call-arg", "unreachable", "misc", "assignment", "has-type"]
 
 [tool.pytest.ini_options]
 # Both /python/tests and /integration_tests/tests are discoverable
@@ -202,14 +209,17 @@ markers = [
     "slow: tests that take more than a minute (boot cycle, image build)",
     "rootful: tests that exercise root-only paths inside the inner VM",
 ]
-# `--dist=worksteal`: idle workers steal pending tests from busy workers'
-# queues, so a single slow class (TestWindows etc.) doesn't leave the rest
-# of the pool sitting idle. `loadscope` was the previous default; it kept
-# class fixtures pinned to one worker but had no rebalancing — when a worker
-# finished its assigned scope and the workqueue was empty, it shut down,
-# even while other workers were 25+ minutes from done. Worksteal trades
-# class-affinity for fairness: a class whose tests get stolen mid-run will
-# have its autouse Topology fixture re-run on the stealing worker (one
-# extra outer test-node boot per steal), which is still a net win when the
-# alternative is idle workers.
-addopts = "--dist=worksteal --import-mode=importlib"
+# `--dist=loadscope`: each test class is pinned to one worker for its
+# entire run, so the class-scoped autouse Topology fixture (one outer
+# test-node VM boot per class) happens exactly once per class — not
+# once per worker that happens to pick up a piece of it. `--dist=worksteal`
+# was tried and rejected: stealing fires at the test level, so a stolen
+# test re-runs the class fixture on the stealing worker, multiplying
+# the test-node VM count beyond the number of classes.
+#
+# `--no-loadscope-reorder` keeps the inter-class order we set in the
+# conftest hook (slow classes first → dispatched to xdist workers first).
+# Without it, xdist 3.8+ silently re-sorts scopes by descending test
+# count and the one-test TestWindows class lands at the tail of the
+# queue, defeating longest-pole-first scheduling.
+addopts = "--dist=loadscope --no-loadscope-reorder --import-mode=importlib"

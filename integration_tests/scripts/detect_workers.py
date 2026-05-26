@@ -3,7 +3,7 @@
 The integration suite boots one or more nested VMs per worker, so the
 default `pytest-xdist -n auto` (one worker per logical CPU) routinely
 oversubscribes RAM and OOMs the host. This detector applies the smaller
-of two budgets: one worker per 2 logical CPUs, one worker per 4 GiB of
+of two budgets: one worker per 2 logical CPUs, one worker per 3 GiB of
 MemAvailable. Linux-only — same constraint the suite already has.
 
 Stdout is always a single integer (the worker count) so it can be
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 CPUS_PER_WORKER = 2
-GIB_PER_WORKER = 4
+GIB_PER_WORKER = 3
 MEMINFO_PATH = Path("/proc/meminfo")
 
 

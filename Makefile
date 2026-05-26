@@ -63,7 +63,7 @@ python-test: build
 #
 # No arguments: runs the whole suite in parallel, with the worker count
 # chosen by integration_tests/scripts/detect_workers.py — the smaller of
-# (logical CPUs / 2) and (MemAvailable / 4 GiB), minimum 1. Each worker
+# (logical CPUs / 2) and (MemAvailable / 3 GiB), minimum 1. Each worker
 # boots a nested VM, so RAM is the usual bottleneck and a naive
 # `-n auto` (one worker per logical CPU) tends to OOM the host.
 #
