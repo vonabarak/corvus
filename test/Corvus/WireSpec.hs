@@ -182,6 +182,8 @@ sampleNodeInfo =
     , PN.noiLoadAvg1 = Just 0.42
     , PN.noiLastNodeAgentPushAt = Just sampleUtc1
     , PN.noiLastNetAgentPushAt = Just sampleUtc1
+    , PN.noiNetdDisabled = False
+    , PN.noiNetdConnected = True
     }
 
 sampleNodeDetails :: PN.NodeDetails
@@ -208,6 +210,8 @@ sampleNodeDetails =
     , PN.nodAgentVersion = Just "0.10.0.0"
     , PN.nodLastNodeAgentPushAt = Just sampleUtc1
     , PN.nodLastNetAgentPushAt = Just sampleUtc1
+    , PN.nodNetdDisabled = False
+    , PN.nodNetdConnected = True
     }
 
 sampleTaskInfo :: PT.TaskInfo

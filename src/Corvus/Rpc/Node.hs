@@ -74,6 +74,7 @@ instance CGNode.NodeManager'server_ NodeManagerCap where
               , naBasePath = basePath
               , naDescription = if T.null description then Nothing else Just description
               , naAdminState = adminSt
+              , naNetdDisabled = netdDisabled
               }
       resp <- runAction st cn act
       case resp of
@@ -121,6 +122,7 @@ instance CGNode.Node'server_ NodeCap where
               , nedBasePath = if hasBasePath then Just basePath else Nothing
               , nedDescription = descUpdate
               , nedAdminState = mAdminSt
+              , nedNetdDisabled = if hasNetdDisabled then Just netdDisabled else Nothing
               }
       resp <- runAction st cn act
       case resp of

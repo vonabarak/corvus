@@ -1637,8 +1637,10 @@ rpcNodeAdd
   -> Maybe Text
   -- ^ description (Nothing → empty string on the wire)
   -> NodeAdminState
+  -> Bool
+  -- ^ netd-disabled
   -> IO Int64
-rpcNodeAdd conn name host nodeAgentPort netAgentPort basePath mDesc adminSt = do
+rpcNodeAdd conn name host nodeAgentPort netAgentPort basePath mDesc adminSt netdDisabled = do
   CGCorvus.Daemon'nodes'results {CGCorvus.mgr = mgr} <-
     callOn #nodes CGCorvus.Daemon'nodes'params (ccDaemon conn)
   let inner =
@@ -1650,6 +1652,7 @@ rpcNodeAdd conn name host nodeAgentPort netAgentPort basePath mDesc adminSt = do
           , CGNode.basePath = basePath
           , CGNode.description = Data.Maybe.fromMaybe "" mDesc
           , CGNode.adminState = toCapnpNodeAdminState adminSt
+          , CGNode.netdDisabled = netdDisabled
           }
   CGNode.NodeManager'create'results {CGNode.node = nClient} <-
     callOn #create CGNode.NodeManager'create'params {CGNode.params = inner} mgr
@@ -1668,8 +1671,10 @@ rpcNodeEdit
   -> Maybe (Maybe Text)
   -- ^ description: 'Nothing' = leave; 'Just Nothing' = clear; 'Just (Just t)' = set.
   -> Maybe NodeAdminState
+  -> Maybe Bool
+  -- ^ netd-disabled: Nothing = leave unchanged.
   -> IO ()
-rpcNodeEdit conn ref mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminSt = do
+rpcNodeEdit conn ref mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminSt mNetdDisabled = do
   nClient <- getNodeClient conn ref
   let (hasDesc, descText) = case mDesc of
         Nothing -> (False, "")
@@ -1693,6 +1698,8 @@ rpcNodeEdit conn ref mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mA
           , -- Schema default = 'online'; encoder still needs a
             -- legal value when 'hasAdminState' is False.
             CGNode.adminState = maybe (toCapnpNodeAdminState NodeOnline) toCapnpNodeAdminState mAdminSt
+          , CGNode.hasNetdDisabled = Data.Maybe.isJust mNetdDisabled
+          , CGNode.netdDisabled = Data.Maybe.fromMaybe False mNetdDisabled
           }
   _ <- callOn #edit CGNode.Node'edit'params {CGNode.params = p} nClient
   pure ()

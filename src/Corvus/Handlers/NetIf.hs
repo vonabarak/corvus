@@ -8,6 +8,10 @@ module Corvus.Handlers.NetIf
   , handleNetIfAdd
   , handleNetIfRemove
   , handleNetIfList
+
+    -- * Validators
+  , checkVmNodeAllowsNicType
+  , checkNodeAllowsNicType
   )
 where
 
@@ -49,32 +53,36 @@ handleNetIfAdd state vmId ifaceType hostDevice mMacAddress mNetworkId = do
       actualType = case mNetworkId of
         Just _ -> NetManaged
         Nothing -> ifaceType
-  case actualType of
-    NetBridge
-      | T.null hostDevice ->
-          pure $
-            RespError
-              "bridge interface requires --host-device (the host bridge name)"
-    _ -> do
-      mac <- case mMacAddress of
-        Just m | not (T.null m) -> pure m
-        _ -> generateMacAddress
-      result <- runSqlPool (addNetIf vmId actualType hostDevice mac networkKey) (ssDbPool state)
-      case result of
-        Nothing -> pure RespVmNotFound
-        Just (Left err) -> pure $ RespError err
-        Just (Right (netIfId, mNetworkKey, refreshNetworkSpec)) -> do
-          -- The DB insert succeeded; if it created a NIC on a managed
-          -- network whose IP allocation changed, push the updated
-          -- spec out so dnsmasq picks up the new --dhcp-host
-          -- reservation. Best-effort: a failure here doesn't fail the
-          -- add (the supervisor reapply will catch up later).
-          case (refreshNetworkSpec, mNetworkKey) of
-            (True, Just key) -> do
-              _ <- NetworkH.pushNetworkToAllMembers state key
-              pure ()
-            _ -> pure ()
-          pure $ RespNetIfAdded netIfId
+  gateResult <-
+    runSqlPool (checkVmNodeAllowsNicType (toSqlKey vmId :: VmId) actualType) (ssDbPool state)
+  case gateResult of
+    Just err -> pure $ RespError err
+    Nothing -> case actualType of
+      NetBridge
+        | T.null hostDevice ->
+            pure $
+              RespError
+                "bridge interface requires --host-device (the host bridge name)"
+      _ -> do
+        mac <- case mMacAddress of
+          Just m | not (T.null m) -> pure m
+          _ -> generateMacAddress
+        result <- runSqlPool (addNetIf vmId actualType hostDevice mac networkKey) (ssDbPool state)
+        case result of
+          Nothing -> pure RespVmNotFound
+          Just (Left err) -> pure $ RespError err
+          Just (Right (netIfId, mNetworkKey, refreshNetworkSpec)) -> do
+            -- The DB insert succeeded; if it created a NIC on a managed
+            -- network whose IP allocation changed, push the updated
+            -- spec out so dnsmasq picks up the new --dhcp-host
+            -- reservation. Best-effort: a failure here doesn't fail the
+            -- add (the supervisor reapply will catch up later).
+            case (refreshNetworkSpec, mNetworkKey) of
+              (True, Just key) -> do
+                _ <- NetworkH.pushNetworkToAllMembers state key
+                pure ()
+              _ -> pure ()
+            pure $ RespNetIfAdded netIfId
 
 -- | Remove a network interface from a VM
 handleNetIfRemove :: ServerState -> Int64 -> Int64 -> IO Response
@@ -176,6 +184,34 @@ addNetIf vmId ifaceType hostDevice macAddress mNetworkKey = do
             (Just _, Just _) -> True
             _ -> False
       pure $ Just $ Right (fromSqlKey netIfKey, nwKey, needsRefresh)
+
+-- | Pre-condition for attaching a NIC of a given type to a VM:
+-- if the VM's node has @netdDisabled = True@, only 'NetUser' and
+-- 'NetVde' are allowed. Returns 'Nothing' when the placement is
+-- accepted, or @Just err@ with a caller-displayable message.
+checkVmNodeAllowsNicType :: VmId -> NetInterfaceType -> SqlPersistT IO (Maybe Text)
+checkVmNodeAllowsNicType vmKey t = do
+  mVm <- get vmKey
+  case mVm of
+    Nothing -> pure Nothing -- VM-not-found is surfaced later by the insert path.
+    Just vm -> checkNodeAllowsNicType (vmNodeId vm) t
+
+-- | As 'checkVmNodeAllowsNicType' but takes the node directly,
+-- for paths that already know the placement target.
+checkNodeAllowsNicType :: M.NodeId -> NetInterfaceType -> SqlPersistT IO (Maybe Text)
+checkNodeAllowsNicType nid t = do
+  mNode <- get nid
+  case mNode of
+    Just n
+      | M.nodeNetdDisabled n && t `notElem` [NetUser, NetVde] ->
+          pure $
+            Just $
+              "Network interface type '"
+                <> M.enumToText t
+                <> "' requires netd, but node '"
+                <> M.nodeName n
+                <> "' has netdDisabled=true. Only 'user' and 'vde' types are allowed."
+    _ -> pure Nothing
 
 -- | Remove a network interface from a VM
 removeNetIf :: Int64 -> Int64 -> SqlPersistT IO (Maybe Bool)

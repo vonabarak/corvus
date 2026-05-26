@@ -246,12 +246,12 @@ runCommand opts = do
       NetworkAttachNode nwRef nodeRef -> handleNetworkAttachNode fmt conn nwRef nodeRef
       NetworkDetachNode nwRef nodeRef -> handleNetworkDetachNode fmt conn nwRef nodeRef
       -- Node commands
-      NodeAdd name host nodeAgentPort netAgentPort mBasePath mDesc adminState ->
-        CmdNode.handleNodeAdd fmt conn name host nodeAgentPort netAgentPort mBasePath mDesc adminState
+      NodeAdd name host nodeAgentPort netAgentPort mBasePath mDesc adminState netdDisabled ->
+        CmdNode.handleNodeAdd fmt conn name host nodeAgentPort netAgentPort mBasePath mDesc adminState netdDisabled
       NodeList -> CmdNode.handleNodeList fmt tableOpts conn
       NodeShow nRef -> CmdNode.handleNodeShow fmt conn nRef
-      NodeEdit nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState ->
-        CmdNode.handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState
+      NodeEdit nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState mNetdDisabled ->
+        CmdNode.handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState mNetdDisabled
       NodeDrain nRef -> CmdNode.handleNodeDrain fmt conn nRef
       NodeDelete nRef -> CmdNode.handleNodeDelete fmt conn nRef
       -- Cloud-init config

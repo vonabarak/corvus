@@ -102,6 +102,7 @@ runNodeSupervisor state nodeKey node = do
       netdTls =
         Tls.withPeerExpectation Tls.RoleNetd (Just nodeLabel)
           <$> ssTlsConfig state
+  let netdDisabled = M.nodeNetdDisabled node
   runFilteredLogging (ssLogLevel state) $
     logInfoN $
       "node "
@@ -109,12 +110,14 @@ runNodeSupervisor state nodeKey node = do
         <> " supervisor starting (nodeagent "
         <> T.pack (show noaPort)
         <> ", netd "
-        <> T.pack (show netPort)
+        <> (if netdDisabled then "disabled" else T.pack (show netPort))
         <> ")"
   nodeAgentChild <-
     async $ runNodeAgentLoop state nodeKey nodeLabel host noaPort owner nodeagentTls
   netdChild <-
-    async $ runNetdLoop state nodeKey nodeLabel host netPort owner netdTls
+    if netdDisabled
+      then async (pure ())
+      else async $ runNetdLoop state nodeKey nodeLabel host netPort owner netdTls
   blockUntilShutdown state
   cancel nodeAgentChild
   cancel netdChild

@@ -54,6 +54,7 @@ import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
+import qualified Database.Persist.Postgresql
 import Database.Persist.Sql (fromSqlKey, toSqlKey)
 import System.Posix.User (getRealUserID)
 
@@ -79,8 +80,10 @@ handleNodeAdd
   -> Maybe Text
   -- ^ free-form description
   -> M.NodeAdminState
+  -> Bool
+  -- ^ netd-disabled
   -> IO Response
-handleNodeAdd state name host nodeAgentPort netAgentPort basePath mDesc adminState =
+handleNodeAdd state name host nodeAgentPort netAgentPort basePath mDesc adminState netdDisabled =
   case validateName "Node" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -115,6 +118,7 @@ handleNodeAdd state name host nodeAgentPort netAgentPort basePath mDesc adminSta
                   , nodeAgentVersion = Nothing
                   , nodeNodeAgentHealthcheck = Nothing
                   , nodeNetAgentHealthcheck = Nothing
+                  , nodeNetdDisabled = netdDisabled
                   }
           result <- liftIO $ runSqlPool (insertUnique node) (ssDbPool state)
           case result of
@@ -240,46 +244,62 @@ handleNodeEdit
   -> Maybe (Maybe Text)
   -- ^ description: 'Nothing' = leave unchanged; 'Just Nothing' = clear; 'Just (Just t)' = set.
   -> Maybe M.NodeAdminState
+  -> Maybe Bool
+  -- ^ netd-disabled: 'Nothing' = leave unchanged.
   -> IO Response
-handleNodeEdit state nodeId mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState = runServerLogging state $ do
+handleNodeEdit state nodeId mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminState mNetdDisabled = runServerLogging state $ do
   let key = toSqlKey nodeId :: M.NodeId
       pool = ssDbPool state
   mNode <- liftIO $ runSqlPool (get key) pool
   case mNode of
     Nothing -> pure RespNodeNotFound
-    Just _ -> do
-      let updates =
-            maybe [] (\v -> [M.NodeName =. v]) mName
-              ++ maybe [] (\v -> [M.NodeHost =. v]) mHost
-              ++ maybe [] (\v -> [M.NodeNodeAgentPort =. v]) mNodeAgentPort
-              ++ maybe [] (\v -> [M.NodeNetAgentPort =. v]) mNetAgentPort
-              ++ maybe [] (\v -> [M.NodeBasePath =. v]) mBasePath
-              ++ maybe [] (\v -> [M.NodeDescription =. v]) mDesc
-              ++ maybe [] (\v -> [M.NodeAdminState =. v]) mAdminState
-      case updates of
-        [] -> pure RespNodeEdited
-        us -> do
-          liftIO $ runSqlPool (update key us) pool
-          -- A host or port change moves the agent endpoint, so
-          -- the existing supervisor's dial loop targets the
-          -- old address. Cancel it and respawn against the
-          -- fresh row so the daemon picks up the new endpoint
-          -- immediately. Other fields (name, description,
-          -- admin-state, basePath) leave the connection alone.
-          let connectionMoved =
-                Data.Maybe.isJust mHost
-                  || Data.Maybe.isJust mNodeAgentPort
-                  || Data.Maybe.isJust mNetAgentPort
-          Control.Monad.when connectionMoved $ do
-            liftIO $ cancelNodeSupervisor state key
-            mNodeRefreshed <- liftIO $ runSqlPool (get key) pool
-            case mNodeRefreshed of
-              Just refreshed ->
-                liftIO $
-                  Control.Monad.void $
-                    spawnNodeSupervisor state (Entity key refreshed)
-              Nothing -> pure ()
-          pure RespNodeEdited
+    Just node -> do
+      let flippingToDisabled =
+            mNetdDisabled == Just True && not (M.nodeNetdDisabled node)
+      blockReason <-
+        if flippingToDisabled
+          then liftIO $ checkNetdDisableAllowed pool key
+          else pure Nothing
+      case blockReason of
+        Just msg -> do
+          logWarnN msg
+          pure (RespError msg)
+        Nothing -> do
+          let updates =
+                maybe [] (\v -> [M.NodeName =. v]) mName
+                  ++ maybe [] (\v -> [M.NodeHost =. v]) mHost
+                  ++ maybe [] (\v -> [M.NodeNodeAgentPort =. v]) mNodeAgentPort
+                  ++ maybe [] (\v -> [M.NodeNetAgentPort =. v]) mNetAgentPort
+                  ++ maybe [] (\v -> [M.NodeBasePath =. v]) mBasePath
+                  ++ maybe [] (\v -> [M.NodeDescription =. v]) mDesc
+                  ++ maybe [] (\v -> [M.NodeAdminState =. v]) mAdminState
+                  ++ maybe [] (\v -> [M.NodeNetdDisabled =. v]) mNetdDisabled
+          case updates of
+            [] -> pure RespNodeEdited
+            us -> do
+              liftIO $ runSqlPool (update key us) pool
+              -- A host/port change moves the agent endpoint, and
+              -- flipping netdDisabled changes which child loops
+              -- the supervisor needs to fork. Either way, cancel
+              -- and respawn against the fresh row so the daemon
+              -- picks up the new shape immediately. Other fields
+              -- (name, description, admin-state, basePath) leave
+              -- the connection alone.
+              let supervisorMoved =
+                    Data.Maybe.isJust mHost
+                      || Data.Maybe.isJust mNodeAgentPort
+                      || Data.Maybe.isJust mNetAgentPort
+                      || Data.Maybe.isJust mNetdDisabled
+              Control.Monad.when supervisorMoved $ do
+                liftIO $ cancelNodeSupervisor state key
+                mNodeRefreshed <- liftIO $ runSqlPool (get key) pool
+                case mNodeRefreshed of
+                  Just refreshed ->
+                    liftIO $
+                      Control.Monad.void $
+                        spawnNodeSupervisor state (Entity key refreshed)
+                  Nothing -> pure ()
+              pure RespNodeEdited
 
 --------------------------------------------------------------------------------
 -- handleNodeDrain
@@ -299,6 +319,58 @@ handleNodeDrain state nodeId =
     Nothing
     Nothing
     (Just M.NodeDraining)
+    Nothing
+
+--------------------------------------------------------------------------------
+-- Toggle-block check
+--------------------------------------------------------------------------------
+
+-- | Pre-condition for flipping 'NodeNetdDisabled' from 'False' to
+-- 'True'. Refuses while the node still owns managed networks or
+-- has VMs with netd-dependent NIC types attached, because those
+-- resources stop working the moment netd is disabled. Returns a
+-- caller-displayable error message, or 'Nothing' if the flip is
+-- safe.
+checkNetdDisableAllowed
+  :: Database.Persist.Postgresql.ConnectionPool
+  -> M.NodeId
+  -> IO (Maybe Text)
+checkNetdDisableAllowed pool nid = do
+  nets <-
+    runSqlPool
+      (selectList [M.NetworkNodeId ==. nid] [Asc M.NetworkName, LimitTo 5])
+      pool
+  if not (null nets)
+    then
+      pure $
+        Just $
+          "Cannot disable netd: node still owns "
+            <> T.pack (show (length nets))
+            <> "+ managed network(s): "
+            <> T.intercalate ", " (map (M.networkName . entityVal) nets)
+            <> ". Delete them first."
+    else do
+      vmsHere <- runSqlPool (selectList [M.VmNodeId ==. nid] []) pool
+      let vmKeys = map entityKey vmsHere
+      offendingNics <-
+        runSqlPool
+          ( selectList
+              [ M.NetworkInterfaceVmId <-. vmKeys
+              , M.NetworkInterfaceInterfaceType
+                  <-. [M.NetManaged, M.NetTap, M.NetBridge, M.NetMacvtap]
+              ]
+              [LimitTo 5]
+          )
+          pool
+      if not (null offendingNics)
+        then
+          pure $
+            Just $
+              "Cannot disable netd: node has "
+                <> T.pack (show (length offendingNics))
+                <> "+ VM network interface(s) of netd-dependent type "
+                <> "(managed/tap/bridge/macvtap). Detach them first."
+        else pure Nothing
 
 --------------------------------------------------------------------------------
 -- handleNodeList
@@ -307,7 +379,11 @@ handleNodeDrain state nodeId =
 handleNodeList :: ServerState -> IO Response
 handleNodeList state = do
   nodes <- runSqlPool (selectList [] [Asc M.NodeName]) (ssDbPool state)
-  pure $ RespNodeList $ map toNodeInfo nodes
+  agents <- readTVarIO (ssAgents state)
+  let connected k = case Map.lookup k agents of
+        Just nc -> Data.Maybe.isJust (ncNetAgent nc)
+        Nothing -> False
+  pure $ RespNodeList $ map (\e -> toNodeInfo (connected (entityKey e)) e) nodes
 
 handleNodeShow :: ServerState -> Int64 -> IO Response
 handleNodeShow state nodeId = do
@@ -315,7 +391,12 @@ handleNodeShow state nodeId = do
   mNode <- runSqlPool (get key) (ssDbPool state)
   case mNode of
     Nothing -> pure RespNodeNotFound
-    Just node -> pure $ RespNodeDetails $ toNodeDetails nodeId node
+    Just node -> do
+      agents <- readTVarIO (ssAgents state)
+      let connected = case Map.lookup key agents of
+            Just nc -> Data.Maybe.isJust (ncNetAgent nc)
+            Nothing -> False
+      pure $ RespNodeDetails $ toNodeDetails nodeId node connected
 
 --------------------------------------------------------------------------------
 -- Supervisor lifecycle
@@ -339,8 +420,8 @@ cancelNodeSupervisor state nid = do
 -- DTO converters
 --------------------------------------------------------------------------------
 
-toNodeInfo :: Entity Node -> NodeInfo
-toNodeInfo (Entity key node) =
+toNodeInfo :: Bool -> Entity Node -> NodeInfo
+toNodeInfo netdConnected (Entity key node) =
   NodeInfo
     { noiId = fromSqlKey key
     , noiName = nodeName node
@@ -357,10 +438,16 @@ toNodeInfo (Entity key node) =
     , noiLoadAvg1 = nodeLoadAvg1 node
     , noiLastNodeAgentPushAt = nodeNodeAgentHealthcheck node
     , noiLastNetAgentPushAt = nodeNetAgentHealthcheck node
+    , noiNetdDisabled = nodeNetdDisabled node
+    , -- A disabled node never has a live netd cap (the supervisor
+      -- skips the loop); clamp the derived flag to false so a stray
+      -- registry entry can't show "online" against an operator's
+      -- explicit decision.
+      noiNetdConnected = not (nodeNetdDisabled node) && netdConnected
     }
 
-toNodeDetails :: Int64 -> Node -> NodeDetails
-toNodeDetails nodeId node =
+toNodeDetails :: Int64 -> Node -> Bool -> NodeDetails
+toNodeDetails nodeId node netdConnected =
   NodeDetails
     { nodId = nodeId
     , nodName = nodeName node
@@ -383,6 +470,8 @@ toNodeDetails nodeId node =
     , nodAgentVersion = nodeAgentVersion node
     , nodLastNodeAgentPushAt = nodeNodeAgentHealthcheck node
     , nodLastNetAgentPushAt = nodeNetAgentHealthcheck node
+    , nodNetdDisabled = nodeNetdDisabled node
+    , nodNetdConnected = not (nodeNetdDisabled node) && netdConnected
     }
 
 --------------------------------------------------------------------------------
@@ -397,6 +486,7 @@ data NodeAdd = NodeAdd
   , naBasePath :: !Text
   , naDescription :: !(Maybe Text)
   , naAdminState :: !M.NodeAdminState
+  , naNetdDisabled :: !Bool
   }
 
 instance Action NodeAdd where
@@ -413,6 +503,7 @@ instance Action NodeAdd where
       (naBasePath a)
       (naDescription a)
       (naAdminState a)
+      (naNetdDisabled a)
 
 newtype NodeDelete = NodeDelete {ndelNodeId :: Int64}
 
@@ -432,6 +523,7 @@ data NodeEdit = NodeEdit
   , nedDescription :: !(Maybe (Maybe Text))
   -- ^ 'Nothing' = leave unchanged; 'Just Nothing' = clear; 'Just (Just t)' = set.
   , nedAdminState :: !(Maybe M.NodeAdminState)
+  , nedNetdDisabled :: !(Maybe Bool)
   }
 
 instance Action NodeEdit where
@@ -449,6 +541,7 @@ instance Action NodeEdit where
       (nedBasePath a)
       (nedDescription a)
       (nedAdminState a)
+      (nedNetdDisabled a)
 
 newtype NodeDrain = NodeDrain {ndrNodeId :: Int64}
 

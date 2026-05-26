@@ -43,6 +43,10 @@ module Test.DSL.Given
   , givenSshKeyExists
   , attachSshKeyToVm
 
+    -- * Node setup
+  , seedTestNode
+  , setTestNodeNetdDisabled
+
     -- * Utilities
   , defaultVm
   , defaultDiskImage
@@ -58,6 +62,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist (Key, getBy, insert)
+import qualified Database.Persist
 import Database.Persist.Sql (Entity (..), fromSqlKey, toSqlKey)
 import Test.DSL.Core (TestM, runDb)
 
@@ -99,7 +104,19 @@ seedTestNode = do
             , nodeAgentVersion = Nothing
             , nodeNodeAgentHealthcheck = Nothing
             , nodeNetAgentHealthcheck = Nothing
+            , nodeNetdDisabled = False
             }
+
+-- | Flip the seeded test node's 'nodeNetdDisabled' flag. Tests
+-- that exercise the netd-disabled gates call this after the
+-- 'seedTestNode' (or any helper that triggers it via FK) ran.
+setTestNodeNetdDisabled :: Bool -> TestM ()
+setTestNodeNetdDisabled disabled = do
+  nid <- seedTestNode
+  runDb $
+    Database.Persist.update
+      nid
+      [M.NodeNetdDisabled Database.Persist.=. disabled]
 
 --------------------------------------------------------------------------------
 -- VM Setup

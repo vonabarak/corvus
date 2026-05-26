@@ -43,8 +43,10 @@ handleNodeAdd
   -> Maybe Text
   -> Text
   -- ^ admin state, as parsed text
+  -> Bool
+  -- ^ netd-disabled
   -> IO Bool
-handleNodeAdd fmt conn name host nodeAgentPort netAgentPort mBasePath mDesc adminStateText =
+handleNodeAdd fmt conn name host nodeAgentPort netAgentPort mBasePath mDesc adminStateText netdDisabled =
   case enumFromText adminStateText :: Either Text NodeAdminState of
     Left err -> do
       emitError fmt "bad_arg" err $ putStrLn ("Invalid admin-state: " ++ T.unpack err)
@@ -55,7 +57,7 @@ handleNodeAdd fmt conn name host nodeAgentPort netAgentPort mBasePath mDesc admi
       let basePath = fromMaybe T.empty mBasePath
       r <-
         try @SomeException
-          (CR.rpcNodeAdd conn name host nodeAgentPort netAgentPort basePath mDesc adminState)
+          (CR.rpcNodeAdd conn name host nodeAgentPort netAgentPort basePath mDesc adminState netdDisabled)
       case r of
         Right nid -> do
           emitOkWith fmt [("id", toJSON nid)] $
@@ -125,6 +127,11 @@ handleNodeShow fmt conn nRef = do
         maybe "(never)" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S") (nodLastNodeAgentPushAt d)
       printField "Netd last push" $
         maybe "(never)" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S") (nodLastNetAgentPushAt d)
+      printField "Netd disabled" (if nodNetdDisabled d then "true" else "false")
+      printField "Netd connected" $
+        if nodNetdDisabled d
+          then "(disabled)"
+          else if nodNetdConnected d then "yes" else "no"
 
     loadStr a b c = render a ++ " / " ++ render b ++ " / " ++ render c
     render = maybe "--" (formatRound . (\x -> x :: Double))
@@ -156,8 +163,10 @@ handleNodeEdit
   -- ^ description: Nothing = leave; Just Nothing = clear; Just (Just t) = set.
   -> Maybe Text
   -- ^ admin state text (online | draining | maintenance)
+  -> Maybe Bool
+  -- ^ netd-disabled: Nothing = leave unchanged.
   -> IO Bool
-handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminText = do
+handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath mDesc mAdminText mNetdDisabled = do
   case traverse parseAdminState mAdminText of
     Left err -> do
       emitError fmt "bad_arg" err $ putStrLn ("Invalid admin-state: " ++ T.unpack err)
@@ -175,6 +184,7 @@ handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath 
             mBasePath
             mDesc
             mAdminSt
+            mNetdDisabled
       case r of
         Right () -> do
           emitOk fmt $ putStrLn "Node updated."
@@ -228,6 +238,7 @@ nodeColumns =
   , Column "NAME" LeftAlign (T.unpack . noiName)
   , Column "HOST" LeftAlign (T.unpack . noiHost)
   , Column "STATE" LeftAlign (T.unpack . enumToText . noiAdminState)
+  , Column "NETD" LeftAlign netdState
   , Column "CPUS" RightAlign (maybe "--" show . noiCpuCount)
   , Column "RAM_FREE" RightAlign (maybe "--" show . noiRamMbFree)
   , Column "DISK_FREE_GB" RightAlign $ \n ->
@@ -241,6 +252,10 @@ nodeColumns =
     formatLoad x =
       let s = (round (x * 100) :: Int)
        in show (fromIntegral s / (100 :: Double))
+    netdState n
+      | noiNetdDisabled n = "disabled"
+      | noiNetdConnected n = "online"
+      | otherwise = "offline"
 
 -- | Suppress unused-import warning for 'M.NodeOnline'-style
 -- module-qualified references the parser-side text → enum

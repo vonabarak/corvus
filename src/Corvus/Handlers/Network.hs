@@ -92,37 +92,49 @@ handleNetworkCreate state name nodeRefText subnet dhcp nat autostart =
       case eNodeKey of
         Left err -> pure $ RespNetworkError err
         Right nodeKey -> do
-          -- Validate subnet if provided
-          let validatedSubnet
-                | T.null subnet = Right ""
-                | otherwise = validateSubnet subnet
-          case validatedSubnet of
-            Left err -> pure $ RespNetworkError $ "Invalid subnet: " <> err
-            Right normalizedSubnet -> do
-              if dhcp && T.null normalizedSubnet
-                then pure $ RespNetworkError "DHCP requires a subnet"
-                else
-                  if nat && T.null normalizedSubnet
-                    then pure $ RespNetworkError "NAT requires a subnet"
-                    else do
-                      now <- getCurrentTime
-                      let network =
-                            Network
-                              { networkName = name
-                              , networkNodeId = nodeKey
-                              , networkSubnet = normalizedSubnet
-                              , networkDhcp = dhcp
-                              , networkNat = nat
-                              , networkRunning = False
-                              , networkDnsmasqPid = Nothing
-                              , networkCreatedAt = now
-                              , networkAutostart = autostart
-                              , networkVni = Nothing
-                              }
-                      result <- runSqlPool (insertUnique network) pool
-                      case result of
-                        Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
-                        Just key -> pure $ RespNetworkCreated $ fromSqlKey key
+          mNode <- runSqlPool (get nodeKey) pool
+          case mNode of
+            Just n
+              | M.nodeNetdDisabled n ->
+                  pure $
+                    RespNetworkError $
+                      "Node '"
+                        <> M.nodeName n
+                        <> "' has netdDisabled=true; managed networks are not allowed."
+            _ -> createWithSubnet nodeKey
+  where
+    createWithSubnet nodeKey = do
+      let pool = ssDbPool state
+          validatedSubnet
+            | T.null subnet = Right ""
+            | otherwise = validateSubnet subnet
+      case validatedSubnet of
+        Left err -> pure $ RespNetworkError $ "Invalid subnet: " <> err
+        Right normalizedSubnet -> do
+          if dhcp && T.null normalizedSubnet
+            then pure $ RespNetworkError "DHCP requires a subnet"
+            else
+              if nat && T.null normalizedSubnet
+                then pure $ RespNetworkError "NAT requires a subnet"
+                else do
+                  now <- getCurrentTime
+                  let network =
+                        Network
+                          { networkName = name
+                          , networkNodeId = nodeKey
+                          , networkSubnet = normalizedSubnet
+                          , networkDhcp = dhcp
+                          , networkNat = nat
+                          , networkRunning = False
+                          , networkDnsmasqPid = Nothing
+                          , networkCreatedAt = now
+                          , networkAutostart = autostart
+                          , networkVni = Nothing
+                          }
+                  result <- runSqlPool (insertUnique network) pool
+                  case result of
+                    Nothing -> pure $ RespNetworkError $ "Network with name '" <> name <> "' already exists"
+                    Just key -> pure $ RespNetworkCreated $ fromSqlKey key
 
 -- | Delete a virtual network
 handleNetworkDelete :: ServerState -> Int64 -> IO Response

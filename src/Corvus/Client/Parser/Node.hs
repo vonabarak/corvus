@@ -6,6 +6,7 @@ module Corvus.Client.Parser.Node
   )
 where
 
+import Corvus.Client.Parser.Utility (readBool)
 import Corvus.Client.Types
 import qualified Data.Text as T
 import Options.Applicative
@@ -66,6 +67,15 @@ nodeAddCommand =
           <> help "Initial admin state: online | draining | maintenance (default: online)"
           <> completeWith ["online", "draining", "maintenance"]
       )
+    <*> switch
+      ( long "netd-disabled"
+          <> help
+            ( "Mark this node as operating without a corvus-netd agent. "
+                <> "The daemon won't try to connect to netd, and only "
+                <> "'user' and 'vde' network interfaces are allowed; "
+                <> "managed networks are rejected."
+            )
+      )
 
 -- | Parser for @crv node list@.
 nodeListCommand :: Parser Command
@@ -112,6 +122,15 @@ nodeEditCommand =
                 <> help "online | draining | maintenance"
                 <> completeWith ["online", "draining", "maintenance"]
             )
+      )
+    <*> optional
+      ( option
+          readBool
+          ( long "netd-disabled"
+              <> metavar "BOOL"
+              <> help "Enable/disable netd for this node (true/false)"
+              <> completeWith ["true", "false"]
+          )
       )
 
 -- | Parser for @crv node drain@.

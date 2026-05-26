@@ -37,6 +37,11 @@ data NodeInfo = NodeInfo
   , noiLoadAvg1 :: !(Maybe Double)
   , noiLastNodeAgentPushAt :: !(Maybe UTCTime)
   , noiLastNetAgentPushAt :: !(Maybe UTCTime)
+  , noiNetdDisabled :: !Bool
+  -- ^ Persistent flag: this node operates without a netd agent.
+  , noiNetdConnected :: !Bool
+  -- ^ Derived live state: daemon currently holds a netd cap for this
+  -- node. Always 'False' when 'noiNetdDisabled' is 'True'.
   }
   deriving (Eq, Show, Generic)
 
@@ -66,6 +71,8 @@ data NodeDetails = NodeDetails
   , nodAgentVersion :: !(Maybe Text)
   , nodLastNodeAgentPushAt :: !(Maybe UTCTime)
   , nodLastNetAgentPushAt :: !(Maybe UTCTime)
+  , nodNetdDisabled :: !Bool
+  , nodNetdConnected :: !Bool
   }
   deriving (Eq, Show, Generic)
 

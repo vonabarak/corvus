@@ -37,6 +37,11 @@ struct NodeInfo {
   loadAvg1             @12 :Float64;
   lastNodeAgentPushAt  @13 :Int64;  # POSIX nanoseconds; 0 == never
   lastNetAgentPushAt   @14 :Int64;
+  # Persistent flag: this node operates without a netd agent.
+  netdDisabled         @15 :Bool;
+  # Derived live state: the daemon currently holds an open netd
+  # cap for this node. Always false when `netdDisabled` is true.
+  netdConnected        @16 :Bool;
 }
 
 # Full per-node detail surfaced by `crv node show`.
@@ -62,6 +67,8 @@ struct NodeDetails {
   agentVersion         @18 :Text;   # empty == none
   lastNodeAgentPushAt  @19 :Int64;
   lastNetAgentPushAt   @20 :Int64;
+  netdDisabled         @21 :Bool;
+  netdConnected        @22 :Bool;
 }
 
 # ---------------------------------------------------------------------
@@ -82,6 +89,7 @@ struct NodeAddParams {
   basePath       @4 :Text;
   description    @5 :Text;          # empty == none
   adminState     @6 :Enums.NodeAdminState = online;
+  netdDisabled   @7 :Bool;
 }
 
 # Optional-by-presence-flag edits, mirroring the existing
@@ -101,6 +109,8 @@ struct NodeEditParams {
   description      @11 :Text;
   hasAdminState    @12 :Bool;
   adminState       @13 :Enums.NodeAdminState;
+  hasNetdDisabled  @14 :Bool;
+  netdDisabled     @15 :Bool;
 }
 
 # ---------------------------------------------------------------------

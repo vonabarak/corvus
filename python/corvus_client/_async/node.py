@@ -45,6 +45,7 @@ class AsyncNodeManager:
         base_path: str = "/home/corvus/VMs",
         description: str | None = None,
         admin_state: str = "online",
+        netd_disabled: bool = False,
     ) -> AsyncNode:
         """Register a new node.
 
@@ -65,6 +66,7 @@ class AsyncNodeManager:
         if description is not None:
             params.description = description
         params.adminState = admin_state
+        params.netdDisabled = netd_disabled
         resp = await mgr.create(params=params)
         return AsyncNode(resp.node)
 
@@ -88,12 +90,16 @@ class AsyncNode:
         base_path: str | None = None,
         description: str | None = None,
         admin_state: str | None = None,
+        netd_disabled: bool | None = None,
     ) -> None:
         """Mutate a subset of fields. Pass ``None`` (the default) to
         leave a field unchanged. Pass an empty string for
         ``description`` to clear it. Changing ``host`` /
         ``node_agent_port`` / ``net_agent_port`` triggers a daemon-side
-        supervisor respawn against the new endpoint.
+        supervisor respawn against the new endpoint. Flipping
+        ``netd_disabled`` from ``False`` to ``True`` is refused while
+        the node still owns managed networks or has VMs with
+        netd-dependent NICs.
         """
         params = _schema.node.NodeEditParams.new_message()
         if name is not None:
@@ -117,6 +123,9 @@ class AsyncNode:
         if admin_state is not None:
             params.hasAdminState = True
             params.adminState = admin_state
+        if netd_disabled is not None:
+            params.hasNetdDisabled = True
+            params.netdDisabled = netd_disabled
         await self._cap.edit(params=params)
 
     async def drain(self) -> None:

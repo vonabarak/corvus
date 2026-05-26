@@ -581,6 +581,11 @@ Node
     agentVersion Text Maybe default=NULL
     nodeAgentHealthcheck UTCTime Maybe default=NULL
     netAgentHealthcheck UTCTime Maybe default=NULL
+    -- When true, the daemon skips the corvus-netd reconnect loop
+    -- for this node and rejects netd-dependent NIC types
+    -- (managed/tap/bridge/macvtap) and managed-network creation.
+    -- Only user-mode and vde NICs are allowed.
+    netdDisabled Bool default=false
     UniqueNodeName name
     UniqueNodeAddress host nodeAgentPort
     deriving Show Eq Generic

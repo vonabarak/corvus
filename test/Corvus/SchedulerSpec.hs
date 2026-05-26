@@ -87,6 +87,7 @@ insertNode name adminState ramFree storageFree loadAvg = do
         , M.nodeAgentVersion = Nothing
         , M.nodeNodeAgentHealthcheck = Nothing
         , M.nodeNetAgentHealthcheck = Nothing
+        , M.nodeNetdDisabled = False
         }
 
 -- | Build a fresh 'ServerState' against the test pool. Skips

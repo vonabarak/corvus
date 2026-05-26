@@ -66,7 +66,9 @@ data instance C.Parsed NodeInfo
         ,storageBytesFree :: (RP.Parsed Std_.Int64)
         ,loadAvg1 :: (RP.Parsed Std_.Double)
         ,lastNodeAgentPushAt :: (RP.Parsed Std_.Int64)
-        ,lastNetAgentPushAt :: (RP.Parsed Std_.Int64)}
+        ,lastNetAgentPushAt :: (RP.Parsed Std_.Int64)
+        ,netdDisabled :: (RP.Parsed Std_.Bool)
+        ,netdConnected :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeInfo))
 deriving instance (Std_.Eq (C.Parsed NodeInfo))
@@ -85,7 +87,9 @@ instance (C.Parse NodeInfo (C.Parsed NodeInfo)) where
                            <*> (GH.parseField #storageBytesFree raw_)
                            <*> (GH.parseField #loadAvg1 raw_)
                            <*> (GH.parseField #lastNodeAgentPushAt raw_)
-                           <*> (GH.parseField #lastNetAgentPushAt raw_))
+                           <*> (GH.parseField #lastNetAgentPushAt raw_)
+                           <*> (GH.parseField #netdDisabled raw_)
+                           <*> (GH.parseField #netdConnected raw_))
 instance (C.Marshal NodeInfo (C.Parsed NodeInfo)) where
     marshalInto raw_ NodeInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -103,6 +107,8 @@ instance (C.Marshal NodeInfo (C.Parsed NodeInfo)) where
         (GH.encodeField #loadAvg1 loadAvg1 raw_)
         (GH.encodeField #lastNodeAgentPushAt lastNodeAgentPushAt raw_)
         (GH.encodeField #lastNetAgentPushAt lastNetAgentPushAt raw_)
+        (GH.encodeField #netdDisabled netdDisabled raw_)
+        (GH.encodeField #netdConnected netdConnected raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot NodeInfo Std_.Int64) where
@@ -135,6 +141,10 @@ instance (GH.HasField "lastNodeAgentPushAt" GH.Slot NodeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 8 64 0)
 instance (GH.HasField "lastNetAgentPushAt" GH.Slot NodeInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 9 64 0)
+instance (GH.HasField "netdDisabled" GH.Slot NodeInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 16 2 1 0)
+instance (GH.HasField "netdConnected" GH.Slot NodeInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 17 2 1 0)
 data NodeDetails 
 type instance (R.ReprFor NodeDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeDetails) where
@@ -172,7 +182,9 @@ data instance C.Parsed NodeDetails
         ,kernelRelease :: (RP.Parsed Basics.Text)
         ,agentVersion :: (RP.Parsed Basics.Text)
         ,lastNodeAgentPushAt :: (RP.Parsed Std_.Int64)
-        ,lastNetAgentPushAt :: (RP.Parsed Std_.Int64)}
+        ,lastNetAgentPushAt :: (RP.Parsed Std_.Int64)
+        ,netdDisabled :: (RP.Parsed Std_.Bool)
+        ,netdConnected :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeDetails))
 deriving instance (Std_.Eq (C.Parsed NodeDetails))
@@ -197,7 +209,9 @@ instance (C.Parse NodeDetails (C.Parsed NodeDetails)) where
                               <*> (GH.parseField #kernelRelease raw_)
                               <*> (GH.parseField #agentVersion raw_)
                               <*> (GH.parseField #lastNodeAgentPushAt raw_)
-                              <*> (GH.parseField #lastNetAgentPushAt raw_))
+                              <*> (GH.parseField #lastNetAgentPushAt raw_)
+                              <*> (GH.parseField #netdDisabled raw_)
+                              <*> (GH.parseField #netdConnected raw_))
 instance (C.Marshal NodeDetails (C.Parsed NodeDetails)) where
     marshalInto raw_ NodeDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -221,6 +235,8 @@ instance (C.Marshal NodeDetails (C.Parsed NodeDetails)) where
         (GH.encodeField #agentVersion agentVersion raw_)
         (GH.encodeField #lastNodeAgentPushAt lastNodeAgentPushAt raw_)
         (GH.encodeField #lastNetAgentPushAt lastNetAgentPushAt raw_)
+        (GH.encodeField #netdDisabled netdDisabled raw_)
+        (GH.encodeField #netdConnected netdConnected raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot NodeDetails Std_.Int64) where
@@ -265,6 +281,10 @@ instance (GH.HasField "lastNodeAgentPushAt" GH.Slot NodeDetails Std_.Int64) wher
     fieldByLabel  = (GH.dataField 0 10 64 0)
 instance (GH.HasField "lastNetAgentPushAt" GH.Slot NodeDetails Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 11 64 0)
+instance (GH.HasField "netdDisabled" GH.Slot NodeDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 16 2 1 0)
+instance (GH.HasField "netdConnected" GH.Slot NodeDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 17 2 1 0)
 data NodeAddParams 
 type instance (R.ReprFor NodeAddParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeAddParams) where
@@ -288,7 +308,8 @@ data instance C.Parsed NodeAddParams
         ,netAgentPort :: (RP.Parsed Std_.Int32)
         ,basePath :: (RP.Parsed Basics.Text)
         ,description :: (RP.Parsed Basics.Text)
-        ,adminState :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState)}
+        ,adminState :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState)
+        ,netdDisabled :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeAddParams))
 deriving instance (Std_.Eq (C.Parsed NodeAddParams))
@@ -299,7 +320,8 @@ instance (C.Parse NodeAddParams (C.Parsed NodeAddParams)) where
                                 <*> (GH.parseField #netAgentPort raw_)
                                 <*> (GH.parseField #basePath raw_)
                                 <*> (GH.parseField #description raw_)
-                                <*> (GH.parseField #adminState raw_))
+                                <*> (GH.parseField #adminState raw_)
+                                <*> (GH.parseField #netdDisabled raw_))
 instance (C.Marshal NodeAddParams (C.Parsed NodeAddParams)) where
     marshalInto raw_ NodeAddParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -309,6 +331,7 @@ instance (C.Marshal NodeAddParams (C.Parsed NodeAddParams)) where
         (GH.encodeField #basePath basePath raw_)
         (GH.encodeField #description description raw_)
         (GH.encodeField #adminState adminState raw_)
+        (GH.encodeField #netdDisabled netdDisabled raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot NodeAddParams Basics.Text) where
@@ -325,6 +348,8 @@ instance (GH.HasField "description" GH.Slot NodeAddParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "adminState" GH.Slot NodeAddParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState) where
     fieldByLabel  = (GH.dataField 0 1 16 0)
+instance (GH.HasField "netdDisabled" GH.Slot NodeAddParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 16 1 1 0)
 data NodeEditParams 
 type instance (R.ReprFor NodeEditParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NodeEditParams) where
@@ -355,7 +380,9 @@ data instance C.Parsed NodeEditParams
         ,hasDescription :: (RP.Parsed Std_.Bool)
         ,description :: (RP.Parsed Basics.Text)
         ,hasAdminState :: (RP.Parsed Std_.Bool)
-        ,adminState :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState)}
+        ,adminState :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState)
+        ,hasNetdDisabled :: (RP.Parsed Std_.Bool)
+        ,netdDisabled :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NodeEditParams))
 deriving instance (Std_.Eq (C.Parsed NodeEditParams))
@@ -373,7 +400,9 @@ instance (C.Parse NodeEditParams (C.Parsed NodeEditParams)) where
                                  <*> (GH.parseField #hasDescription raw_)
                                  <*> (GH.parseField #description raw_)
                                  <*> (GH.parseField #hasAdminState raw_)
-                                 <*> (GH.parseField #adminState raw_))
+                                 <*> (GH.parseField #adminState raw_)
+                                 <*> (GH.parseField #hasNetdDisabled raw_)
+                                 <*> (GH.parseField #netdDisabled raw_))
 instance (C.Marshal NodeEditParams (C.Parsed NodeEditParams)) where
     marshalInto raw_ NodeEditParams{..} = (do
         (GH.encodeField #hasName hasName raw_)
@@ -390,6 +419,8 @@ instance (C.Marshal NodeEditParams (C.Parsed NodeEditParams)) where
         (GH.encodeField #description description raw_)
         (GH.encodeField #hasAdminState hasAdminState raw_)
         (GH.encodeField #adminState adminState raw_)
+        (GH.encodeField #hasNetdDisabled hasNetdDisabled raw_)
+        (GH.encodeField #netdDisabled netdDisabled raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "hasName" GH.Slot NodeEditParams Std_.Bool) where
@@ -420,6 +451,10 @@ instance (GH.HasField "hasAdminState" GH.Slot NodeEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 6 0 1 0)
 instance (GH.HasField "adminState" GH.Slot NodeEditParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.NodeAdminState) where
     fieldByLabel  = (GH.dataField 16 0 16 0)
+instance (GH.HasField "hasNetdDisabled" GH.Slot NodeEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 7 0 1 0)
+instance (GH.HasField "netdDisabled" GH.Slot NodeEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 8 0 1 0)
 data NodeManager 
 type instance (R.ReprFor NodeManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId NodeManager) where

@@ -167,6 +167,7 @@ insertOtherNode name port = do
         , M.nodeAgentVersion = Nothing
         , M.nodeNodeAgentHealthcheck = Nothing
         , M.nodeNetAgentHealthcheck = Nothing
+        , M.nodeNetdDisabled = False
         }
 
 -- | Insert a 'Vm' against an explicit node (bypass the default

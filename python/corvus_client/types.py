@@ -219,6 +219,8 @@ class NodeInfo:
     load_avg1: float | None = None
     last_node_agent_push_at: datetime | None = None
     last_net_agent_push_at: datetime | None = None
+    netd_disabled: bool = False
+    netd_connected: bool = False
 
 
 @dataclass(frozen=True)
@@ -246,6 +248,8 @@ class NodeDetails:
     agent_version: str | None = None
     last_node_agent_push_at: datetime | None = None
     last_net_agent_push_at: datetime | None = None
+    netd_disabled: bool = False
+    netd_connected: bool = False
 
 
 # ---------------------------------------------------------------------------

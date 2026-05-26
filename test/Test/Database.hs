@@ -142,6 +142,7 @@ insertDefaultTestNode = do
       , M.nodeAgentVersion = Nothing
       , M.nodeNodeAgentHealthcheck = Nothing
       , M.nodeNetAgentHealthcheck = Nothing
+      , M.nodeNetdDisabled = False
       }
 
 -- | Destroy the test database

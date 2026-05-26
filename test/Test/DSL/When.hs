@@ -76,6 +76,9 @@ module Test.DSL.When
   , whenNetworkList
   , whenNetworkShow
 
+    -- * Node commands
+  , whenNodeEditNetdDisabled
+
     -- * Template commands
   , whenTemplateCreate
   , whenTemplateUpdate
@@ -125,6 +128,7 @@ import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), 
 import Corvus.Handlers.GuestExec (GuestExec (..))
 import Corvus.Handlers.NetIf (NetIfAdd (..), NetIfRemove (..), handleNetIfList)
 import Corvus.Handlers.Network (NetworkCreate (..), NetworkDelete (..), handleNetworkList, handleNetworkShow)
+import Corvus.Handlers.Node (NodeEdit (..))
 import Corvus.Handlers.Resolve
 import Corvus.Handlers.SharedDir (SharedDirAdd (..), SharedDirRemove (..), handleSharedDirList)
 import Corvus.Handlers.SshKey (SshKeyAttach (..), SshKeyCreate (..), SshKeyDelete (..), SshKeyDetach (..), handleSshKeyList, handleSshKeyListForVm)
@@ -453,6 +457,31 @@ whenNetworkList = withState handleNetworkList
 
 whenNetworkShow :: Int64 -> TestM Response
 whenNetworkShow nwId = withState (`handleNetworkShow` nwId)
+
+-- | Toggle the persistent 'netdDisabled' flag on a node, exercising
+-- the full 'NodeEdit' action path (including the pre-condition that
+-- blocks the flip while netd-dependent resources still reference
+-- the node).
+whenNodeEditNetdDisabled :: Int64 -> Bool -> TestM Response
+whenNodeEditNetdDisabled nodeId disabled =
+  withState
+    ( \st ->
+        runAction
+          st
+          "alice"
+          ( NodeEdit
+              { nedNodeId = nodeId
+              , nedName = Nothing
+              , nedHost = Nothing
+              , nedNodeAgentPort = Nothing
+              , nedNetAgentPort = Nothing
+              , nedBasePath = Nothing
+              , nedDescription = Nothing
+              , nedAdminState = Nothing
+              , nedNetdDisabled = Just disabled
+              }
+          )
+    )
 
 --------------------------------------------------------------------------------
 -- Template Commands

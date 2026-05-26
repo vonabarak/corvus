@@ -98,6 +98,31 @@ crv net-if add my-vm --type user --mac 52:54:00:12:34:56
 
 Each interface gets a VirtIO NIC with an auto-generated MAC address unless `--mac` is specified.
 
+## Disabling netd per node
+
+Some nodes are deliberately run without the privileged `corvus-netd` agent — for example test or demo machines that only need user-mode forwarding and a VDE switch. Mark such a node with the `--netd-disabled` flag and the daemon will:
+
+- skip the per-node `corvus-netd` reconnect loop (no retry noise in the logs),
+- reject `crv network create` on the node (managed networks need `netd`),
+- reject `crv net-if add` of type `managed`, `tap`, `bridge`, or `macvtap` on VMs placed on the node — only `user` and `vde` are allowed,
+- show `disabled` in the new `NETD` column of `crv node list`.
+
+```bash
+# Register a netd-less node up front.
+crv node add nd-test --host 10.0.0.5 --netd-disabled
+
+# Toggle later (refuses if the node still owns managed networks
+# or has netd-dependent NICs attached — clean those up first).
+crv node edit nd-test --netd-disabled true
+crv node edit nd-test --netd-disabled false
+```
+
+The `NETD` column in `crv node list` reports one of three states:
+
+- **`online`** — the daemon currently holds a live `corvus-netd` Cap'n Proto cap for the node,
+- **`offline`** — netd is enabled but the daemon has no live cap (agent down, network partition, restart in progress),
+- **`disabled`** — `netdDisabled = true`; the daemon never attempts to dial.
+
 ### Bridge Type — Attaching to a Host-Managed Bridge
 
 `type=bridge` attaches a VM to a Linux bridge **you create and manage yourself** (with `ip link add type bridge`, NetworkManager, `systemd-networkd`, …). Corvus does not create, configure, or delete the bridge.

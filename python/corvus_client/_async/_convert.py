@@ -232,6 +232,8 @@ def node_info(r) -> t.NodeInfo:
         load_avg1=_nz_float(r.loadAvg1),
         last_node_agent_push_at=_ts(r.lastNodeAgentPushAt),
         last_net_agent_push_at=_ts(r.lastNetAgentPushAt),
+        netd_disabled=r.netdDisabled,
+        netd_connected=r.netdConnected,
     )
 
 
@@ -258,6 +260,8 @@ def node_details(r) -> t.NodeDetails:
         agent_version=_nz_text(r.agentVersion),
         last_node_agent_push_at=_ts(r.lastNodeAgentPushAt),
         last_net_agent_push_at=_ts(r.lastNetAgentPushAt),
+        netd_disabled=r.netdDisabled,
+        netd_connected=r.netdConnected,
     )
 
 

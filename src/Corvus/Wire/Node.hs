@@ -41,6 +41,8 @@ toCapnpNodeInfo P.NodeInfo {..} =
     , CGNode.loadAvg1 = fromMaybe 0 noiLoadAvg1
     , CGNode.lastNodeAgentPushAt = utcTimeToNanosMaybe noiLastNodeAgentPushAt
     , CGNode.lastNetAgentPushAt = utcTimeToNanosMaybe noiLastNetAgentPushAt
+    , CGNode.netdDisabled = noiNetdDisabled
+    , CGNode.netdConnected = noiNetdConnected
     }
 
 fromCapnpNodeInfo :: C.Parsed CGNode.NodeInfo -> Either WireError P.NodeInfo
@@ -63,6 +65,8 @@ fromCapnpNodeInfo CGNode.NodeInfo {..} = do
       , P.noiLoadAvg1 = if loadAvg1 == 0 then Nothing else Just loadAvg1
       , P.noiLastNodeAgentPushAt = nanosToUtcTimeMaybe lastNodeAgentPushAt
       , P.noiLastNetAgentPushAt = nanosToUtcTimeMaybe lastNetAgentPushAt
+      , P.noiNetdDisabled = netdDisabled
+      , P.noiNetdConnected = netdConnected
       }
 
 -- ---------------------------------------------------------------------
@@ -93,6 +97,8 @@ toCapnpNodeDetails P.NodeDetails {..} =
     , CGNode.agentVersion = fromMaybe mempty nodAgentVersion
     , CGNode.lastNodeAgentPushAt = utcTimeToNanosMaybe nodLastNodeAgentPushAt
     , CGNode.lastNetAgentPushAt = utcTimeToNanosMaybe nodLastNetAgentPushAt
+    , CGNode.netdDisabled = nodNetdDisabled
+    , CGNode.netdConnected = nodNetdConnected
     }
 
 fromCapnpNodeDetails :: C.Parsed CGNode.NodeDetails -> Either WireError P.NodeDetails
@@ -121,6 +127,8 @@ fromCapnpNodeDetails CGNode.NodeDetails {..} = do
       , P.nodAgentVersion = emptyToNothing agentVersion
       , P.nodLastNodeAgentPushAt = nanosToUtcTimeMaybe lastNodeAgentPushAt
       , P.nodLastNetAgentPushAt = nanosToUtcTimeMaybe lastNetAgentPushAt
+      , P.nodNetdDisabled = netdDisabled
+      , P.nodNetdConnected = netdConnected
       }
 
 -- ---------------------------------------------------------------------
