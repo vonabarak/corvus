@@ -1,0 +1,21 @@
+sshKeys:
+  - name: corvus
+    publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
+
+disks:
+  # Shared UEFI firmware code (read-only, from edk2 package)
+  - name: ovmf-code
+    register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
+    format: qcow2
+
+  # OVMF UEFI vars template (cloned per-VM by each template)
+  - name: ovmf-vars
+    register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
+    format: qcow2
+
+networks:
+  - name: corvus
+    subnet: 192.168.72.0/22
+    dhcp: true
+    nat: true
+    autostart: true

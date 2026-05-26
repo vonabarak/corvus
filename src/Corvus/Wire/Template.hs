@@ -140,6 +140,7 @@ toCapnpTemplateNetIfInfo P.TemplateNetIfInfo {..} =
   CGT.TemplateNetIfInfo
     { CGT.type_ = toCapnpNetInterfaceType tvniType
     , CGT.hostDevice = fromMaybe mempty tvniHostDevice
+    , CGT.network = fromMaybe mempty tvniNetwork
     }
 
 fromCapnpTemplateNetIfInfo
@@ -151,6 +152,7 @@ fromCapnpTemplateNetIfInfo CGT.TemplateNetIfInfo {..} = do
     P.TemplateNetIfInfo
       { P.tvniType = t
       , P.tvniHostDevice = if hostDevice == mempty then Nothing else Just hostDevice
+      , P.tvniNetwork = if network == mempty then Nothing else Just network
       }
 
 -- ---------------------------------------------------------------------

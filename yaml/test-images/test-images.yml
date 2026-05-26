@@ -54,8 +54,7 @@ vms:
       - disk: alpine-test-ovmf-vars
         interface: pflash
     networkInterfaces:
-      - type: vde
-        hostDevice: /run/vde2/switch.ctl
+      - network: corvus
 
   - name: windows-server-2025
     cpuCount: 4
@@ -91,5 +90,4 @@ vms:
         cacheType: writeback
         discard: true
     networkInterfaces:
-      - type: vde
-        hostDevice: /run/vde2/switch.ctl
+      - network: corvus

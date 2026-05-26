@@ -71,7 +71,10 @@ netIfToValue :: TemplateNetIfInfo -> Value
 netIfToValue n =
   object $
     ("type" .= tvniType n)
-      : catMaybes [optPair "hostDevice" (tvniHostDevice n)]
+      : catMaybes
+        [ optPair "hostDevice" (tvniHostDevice n)
+        , optPair "network" (tvniNetwork n)
+        ]
 
 sshKeyToValue :: TemplateSshKeyInfo -> Value
 sshKeyToValue k =

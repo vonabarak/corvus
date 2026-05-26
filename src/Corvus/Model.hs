@@ -748,6 +748,12 @@ TemplateNetworkInterface
     templateId TemplateVmId
     interfaceType NetInterfaceType
     hostDevice Text Maybe
+    -- Managed-network NICs reference the network by name; the
+    -- instantiation path resolves this to a NetworkId on the new
+    -- VM's NetworkInterface row. Stored by name (not id) so the
+    -- template doesn't carry a foreign key into the live Network
+    -- table — networks can be created/destroyed independently.
+    networkName Text Maybe
     deriving Show Eq Generic
 
 TemplateSshKey

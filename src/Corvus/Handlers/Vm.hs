@@ -426,10 +426,15 @@ launchVmViaAgent state vmId vm pool = do
 
   mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
   case mSpec of
-    Nothing -> do
-      logWarnN $ "VM " <> T.pack (show vmId) <> " disappeared from DB during start"
-      pure RespVmNotFound
-    Just spec -> do
+    Left err
+      | "disappeared from DB" `T.isInfixOf` err -> do
+          logWarnN $ "VM " <> T.pack (show vmId) <> " disappeared from DB during start"
+          pure RespVmNotFound
+      | otherwise -> do
+          logWarnN $ "VM " <> T.pack (show vmId) <> ": assembleVmSpec: " <> err
+          liftIO $ runSqlPool (setVmError vmId err) pool
+          pure $ RespError err
+    Right spec -> do
       -- Set 'VmStarting' before invoking the agent. The agent's
       -- 'vmStart' RPC blocks for QEMU spawn and (when guestAgent
       -- is set) the first QGA ping — that window can run from
@@ -1622,13 +1627,18 @@ reapplyVm state nac vmId vm = do
         if vmGuestAgent vm then 300000 else 0
   mSpec <- liftIO $ NSpec.assembleVmSpec pool cfg netAgentForSpec vmId waitMs
   case mSpec of
-    Nothing -> do
-      logWarnN $
-        "VM "
-          <> vmName vm
-          <> " disappeared from DB during reapply; marking stopped"
-      liftIO $ runSqlPool (setVmStopped vmId) pool
-    Just spec -> do
+    Left err
+      | "disappeared from DB" `T.isInfixOf` err -> do
+          logWarnN $
+            "VM "
+              <> vmName vm
+              <> " disappeared from DB during reapply; marking stopped"
+          liftIO $ runSqlPool (setVmStopped vmId) pool
+      | otherwise -> do
+          logWarnN $
+            "VM " <> vmName vm <> " reapply: assembleVmSpec failed: " <> err
+          liftIO $ runSqlPool (setVmError vmId err) pool
+    Right spec -> do
       r <- liftIO $ NOA.vmStart nac spec
       case r of
         Right info -> do

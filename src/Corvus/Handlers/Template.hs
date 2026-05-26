@@ -217,72 +217,91 @@ insertTemplateYaml :: TemplateYaml -> UTCTime -> SqlPersistT IO (Either Text Tem
 insertTemplateYaml ty now = do
   -- Validate drive definitions
   let driveErrs = concatMap validateDrive (tyDrives ty)
+      nicErrs = concatMap validateNetIf (tyNetworkInterfaces ty)
   if not (null driveErrs)
     then pure $ Left $ T.intercalate "; " driveErrs
-    else do
-      -- Resolve disk images (only for non-create strategies)
-      mDiskIds <- forM (tyDrives ty) $ \tdy ->
-        case tdyStrategy tdy of
-          StrategyCreate -> pure $ Right Nothing
-          _ -> case tdyDiskImageName tdy of
-            Nothing -> pure $ Left "diskImageName is required for clone/overlay/direct strategies"
-            Just diskName -> do
-              mDisk <- getBy (UniqueDiskImageName diskName)
-              case mDisk of
-                Nothing -> pure $ Left $ "Disk image not found: " <> diskName
-                Just (Entity did _) -> pure $ Right (Just did)
+    else
+      if not (null nicErrs)
+        then pure $ Left $ T.intercalate "; " nicErrs
+        else do
+          -- Resolve disk images (only for non-create strategies)
+          mDiskIds <- forM (tyDrives ty) $ \tdy ->
+            case tdyStrategy tdy of
+              StrategyCreate -> pure $ Right Nothing
+              _ -> case tdyDiskImageName tdy of
+                Nothing -> pure $ Left "diskImageName is required for clone/overlay/direct strategies"
+                Just diskName -> do
+                  mDisk <- getBy (UniqueDiskImageName diskName)
+                  case mDisk of
+                    Nothing -> pure $ Left $ "Disk image not found: " <> diskName
+                    Just (Entity did _) -> pure $ Right (Just did)
 
-      -- Resolve SSH keys
-      mKeyIds <- forM (tySshKeys ty) $ \tky -> do
-        mKey <- getBy (UniqueSshKeyName (tkyName tky))
-        case mKey of
-          Nothing -> pure $ Left $ "SSH key not found: " <> tkyName tky
-          Just (Entity kid _) -> pure $ Right kid
+          -- Resolve SSH keys
+          mKeyIds <- forM (tySshKeys ty) $ \tky -> do
+            mKey <- getBy (UniqueSshKeyName (tkyName tky))
+            case mKey of
+              Nothing -> pure $ Left $ "SSH key not found: " <> tkyName tky
+              Just (Entity kid _) -> pure $ Right kid
 
-      -- Validate: SSH keys require cloud-init
-      let hasKeys = not (null (tySshKeys ty))
-      if hasKeys && not (tyCloudInit ty)
-        then pure $ Left "Template has SSH keys but cloud-init is not enabled"
-        else case (sequence mDiskIds, sequence mKeyIds) of
-          (Right diskIds, Right keyIds) -> do
-            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyAutostart ty) (tyRebootQuirk ty) now
-            case mTid of
-              Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
-              Just tid -> do
-                forM_ (zip diskIds (tyDrives ty)) $ \(mDiskId, tdy) ->
-                  insert_ $
-                    TemplateDrive
-                      tid
-                      mDiskId
-                      (tdyDiskImageName tdy)
-                      (tdyInterface tdy)
-                      (tdyMedia tdy)
-                      (fromMaybe False (tdyReadOnly tdy))
-                      (fromMaybe CacheNone (tdyCacheType tdy))
-                      (fromMaybe False (tdyDiscard tdy))
-                      (tdyStrategy tdy)
-                      (tdySizeMb tdy)
-                      (tdyFormat tdy)
-                      (tdyEphemeral tdy)
+          -- Validate: SSH keys require cloud-init
+          let hasKeys = not (null (tySshKeys ty))
+          if hasKeys && not (tyCloudInit ty)
+            then pure $ Left "Template has SSH keys but cloud-init is not enabled"
+            else case (sequence mDiskIds, sequence mKeyIds) of
+              (Right diskIds, Right keyIds) -> do
+                mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyAutostart ty) (tyRebootQuirk ty) now
+                case mTid of
+                  Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
+                  Just tid -> do
+                    forM_ (zip diskIds (tyDrives ty)) $ \(mDiskId, tdy) ->
+                      insert_ $
+                        TemplateDrive
+                          tid
+                          mDiskId
+                          (tdyDiskImageName tdy)
+                          (tdyInterface tdy)
+                          (tdyMedia tdy)
+                          (fromMaybe False (tdyReadOnly tdy))
+                          (fromMaybe CacheNone (tdyCacheType tdy))
+                          (fromMaybe False (tdyDiscard tdy))
+                          (tdyStrategy tdy)
+                          (tdySizeMb tdy)
+                          (tdyFormat tdy)
+                          (tdyEphemeral tdy)
 
-                forM_ (tyNetworkInterfaces ty) $ \tny ->
-                  insert_ $ TemplateNetworkInterface tid (tnyType tny) (tnyHostDevice tny)
+                    forM_ (tyNetworkInterfaces ty) $ \tny ->
+                      -- Mirror NetIf-add: if a network is named, force
+                      -- type=managed; if type=managed, network must be
+                      -- non-empty so the instantiator can resolve it.
+                      -- Validation is done at this layer (rather than
+                      -- in 'validateNetIf' inside the lambda) so the
+                      -- error names the offending field/value if the
+                      -- write path ever sees it.
+                      let effectiveType = case tnyNetwork tny of
+                            Just nm | not (T.null nm) -> NetManaged
+                            _ -> tnyType tny
+                       in insert_ $
+                            TemplateNetworkInterface
+                              tid
+                              effectiveType
+                              (tnyHostDevice tny)
+                              (tnyNetwork tny)
 
-                forM_ keyIds $ \keyId ->
-                  insert_ $ TemplateSshKey tid keyId
+                    forM_ keyIds $ \keyId ->
+                      insert_ $ TemplateSshKey tid keyId
 
-                -- Insert cloud-init config if provided
-                forM_ (tyCloudInitConfig ty) $ \cic ->
-                  insert_ $
-                    TemplateCloudInit
-                      tid
-                      (cicyUserData cic)
-                      (cicyNetworkConfig cic)
-                      (cicyInjectSshKeys cic)
+                    -- Insert cloud-init config if provided
+                    forM_ (tyCloudInitConfig ty) $ \cic ->
+                      insert_ $
+                        TemplateCloudInit
+                          tid
+                          (cicyUserData cic)
+                          (cicyNetworkConfig cic)
+                          (cicyInjectSshKeys cic)
 
-                pure $ Right tid
-          (Left err, _) -> pure $ Left err
-          (_, Left err) -> pure $ Left err
+                    pure $ Right tid
+              (Left err, _) -> pure $ Left err
+              (_, Left err) -> pure $ Left err
   where
     validateDrive tdy = case tdyStrategy tdy of
       StrategyCreate ->
@@ -291,6 +310,14 @@ insertTemplateYaml ty now = do
          in errs1 ++ errs2
       _ ->
         ["diskImageName is required for '" <> enumToText (tdyStrategy tdy) <> "' strategy" | isNothing (tdyDiskImageName tdy)]
+
+    validateNetIf tny =
+      let typeIsManaged = tnyType tny == NetManaged
+          hasNetwork = maybe False (not . T.null) (tnyNetwork tny)
+          typeIsBridge = tnyType tny == NetBridge
+          hasHostDev = maybe False (not . T.null) (tnyHostDevice tny)
+       in ["network is required for 'managed' network interfaces" | typeIsManaged && not hasNetwork]
+            ++ ["hostDevice is required for 'bridge' network interfaces" | typeIsBridge && not hasHostDev]
 
 getTemplateDetails :: TemplateVmId -> SqlPersistT IO (Maybe TemplateDetails)
 getTemplateDetails tid = do
@@ -323,7 +350,15 @@ getTemplateDetails tid = do
             }
 
       netIfs <- selectList [TemplateNetworkInterfaceTemplateId ==. tid] []
-      let netIfInfos = map (\(Entity _ tni) -> TemplateNetIfInfo (templateNetworkInterfaceInterfaceType tni) (templateNetworkInterfaceHostDevice tni)) netIfs
+      let netIfInfos =
+            map
+              ( \(Entity _ tni) ->
+                  TemplateNetIfInfo
+                    (templateNetworkInterfaceInterfaceType tni)
+                    (templateNetworkInterfaceHostDevice tni)
+                    (templateNetworkInterfaceNetworkName tni)
+              )
+              netIfs
 
       sshKeys <- selectList [TemplateSshKeyTemplateId ==. tid] []
       sshKeyInfos <- forM sshKeys $ \(Entity _ tsk) -> do
@@ -378,7 +413,37 @@ finishInstantiation ctx vmId newVmName details = runServerLogging (acState ctx) 
   -- Network
   forM_ (tvdNetIfs details) $ \tni -> do
     mac <- liftIO generateMacAddress
-    liftIO $ runSqlPool (insert_ $ NetworkInterface vmId (tvniType tni) (fromMaybe "" (tvniHostDevice tni)) mac Nothing Nothing Nothing) (ssDbPool state)
+    -- For managed NICs the template carries the network name;
+    -- resolve it to a NetworkId here. A missing network is loud:
+    -- without a NetworkId the daemon's TAP-resolution silently
+    -- emits an empty ifname and QEMU refuses to start.
+    mNetKey <- case tvniNetwork tni of
+      Just name | not (T.null name) -> do
+        mE <- liftIO $ runSqlPool (selectList [NetworkName ==. name] [LimitTo 1]) (ssDbPool state)
+        case mE of
+          (Entity k _ : _) -> pure (Just k)
+          [] -> do
+            logWarnN $
+              "Template instantiation for VM "
+                <> newVmName
+                <> ": managed network '"
+                <> name
+                <> "' not found; NIC will be created without a network link"
+            pure Nothing
+      _ -> pure Nothing
+    liftIO $
+      runSqlPool
+        ( insert_ $
+            NetworkInterface
+              vmId
+              (tvniType tni)
+              (fromMaybe "" (tvniHostDevice tni))
+              mac
+              mNetKey
+              Nothing
+              Nothing
+        )
+        (ssDbPool state)
 
   -- SSH Keys
   forM_ (tvdSshKeys details) $ \tsk -> do

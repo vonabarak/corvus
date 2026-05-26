@@ -208,7 +208,7 @@ instance (C.HasTypeId TemplateNetIfInfo) where
     typeId  = 15385606902103944014
 instance (C.TypedStruct TemplateNetIfInfo) where
     numStructWords  = 1
-    numStructPtrs  = 1
+    numStructPtrs  = 2
 instance (C.Allocate TemplateNetIfInfo) where
     type AllocHint TemplateNetIfInfo = ()
     new _ = C.newTypedStruct
@@ -220,23 +220,28 @@ instance (C.EstimateListAlloc TemplateNetIfInfo (C.Parsed TemplateNetIfInfo))
 data instance C.Parsed TemplateNetIfInfo
     = TemplateNetIfInfo 
         {type_ :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetInterfaceType)
-        ,hostDevice :: (RP.Parsed Basics.Text)}
+        ,hostDevice :: (RP.Parsed Basics.Text)
+        ,network :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateNetIfInfo))
 deriving instance (Std_.Eq (C.Parsed TemplateNetIfInfo))
 instance (C.Parse TemplateNetIfInfo (C.Parsed TemplateNetIfInfo)) where
     parse raw_ = (TemplateNetIfInfo <$> (GH.parseField #type_ raw_)
-                                    <*> (GH.parseField #hostDevice raw_))
+                                    <*> (GH.parseField #hostDevice raw_)
+                                    <*> (GH.parseField #network raw_))
 instance (C.Marshal TemplateNetIfInfo (C.Parsed TemplateNetIfInfo)) where
     marshalInto raw_ TemplateNetIfInfo{..} = (do
         (GH.encodeField #type_ type_ raw_)
         (GH.encodeField #hostDevice hostDevice raw_)
+        (GH.encodeField #network network raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "type_" GH.Slot TemplateNetIfInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetInterfaceType) where
     fieldByLabel  = (GH.dataField 0 0 16 0)
 instance (GH.HasField "hostDevice" GH.Slot TemplateNetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "network" GH.Slot TemplateNetIfInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
 data TemplateSshKeyInfo 
 type instance (R.ReprFor TemplateSshKeyInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateSshKeyInfo) where

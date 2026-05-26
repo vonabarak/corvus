@@ -62,12 +62,12 @@ assembleVmSpec
   -> Maybe NA.NetAgentClient
   -> Int64
   -> Word32
-  -> IO (Maybe VS.VmSpec)
+  -> IO (Either T.Text VS.VmSpec)
 assembleVmSpec pool config mNetAgent vmId waitMs = do
   let vmKey = toSqlKey vmId :: VmId
   mVm <- runSqlPool (get vmKey) pool
   case mVm of
-    Nothing -> pure Nothing
+    Nothing -> pure (Left "VM disappeared from DB before assembleVmSpec")
     Just vm -> do
       basePath <- getEffectiveBasePath config
       let vmNode = vmNodeId vm
@@ -83,34 +83,41 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
               pure (dimg, nIfs, sds)
           )
           pool
-      -- For each managed NIC, ask netd to allocate a persistent
-      -- TAP and substitute the resolved ifname.
-      resolvedNetIfs <- mapM (resolveNetIf mNetAgent) netIfs
-      let driveSpecs =
-            [ encodeDriveSpec basePath drive di placement
-            | (drive, Just di, Just placement) <- drives
-            ]
-          netIfSpecs = map encodeNetIfSpec resolvedNetIfs
-          sharedDirSpecs = map (encodeSharedDirSpec . entityVal) sharedDirs
-          spec =
-            VS.VmSpec
-              { VS.vsVmId = vmId
-              , VS.vsName = vmName vm
-              , VS.vsCpuCount = fromIntegral (vmCpuCount vm) :: Int32
-              , VS.vsRamMb = fromIntegral (vmRamMb vm) :: Int32
-              , VS.vsHeadless = vmHeadless vm
-              , VS.vsGuestAgent = vmGuestAgent vm
-              , VS.vsVsockCid = fmap fromIntegral (vmVsockCid vm)
-              , VS.vsSpicePort = fmap fromIntegral (vmSpicePort vm)
-              , VS.vsDrives = driveSpecs
-              , VS.vsNetIfs = netIfSpecs
-              , VS.vsSharedDirs = sharedDirSpecs
-              , VS.vsWaitForGuestAgentMs =
-                  if vmGuestAgent vm then waitMs else 0
-              , VS.vsRebootQuirk = vmRebootQuirk vm
-              , VS.vsSpiceBindAddr = qcSpiceBindAddress config
-              }
-      pure (Just spec)
+      -- For each managed/bridge NIC, ask netd to allocate a
+      -- persistent TAP and substitute the resolved ifname. A
+      -- failure here (netd down, bridge missing because the
+      -- network isn't started, …) propagates as @Left@ so the
+      -- caller surfaces a clean error instead of launching QEMU
+      -- with @ifname=@ and getting EPERM from /dev/net/tun.
+      resolvedE <- traverse (resolveNetIf mNetAgent) netIfs
+      case sequence resolvedE of
+        Left err -> pure (Left err)
+        Right resolvedNetIfs -> do
+          let driveSpecs =
+                [ encodeDriveSpec basePath drive di placement
+                | (drive, Just di, Just placement) <- drives
+                ]
+              netIfSpecs = map encodeNetIfSpec resolvedNetIfs
+              sharedDirSpecs = map (encodeSharedDirSpec . entityVal) sharedDirs
+              spec =
+                VS.VmSpec
+                  { VS.vsVmId = vmId
+                  , VS.vsName = vmName vm
+                  , VS.vsCpuCount = fromIntegral (vmCpuCount vm) :: Int32
+                  , VS.vsRamMb = fromIntegral (vmRamMb vm) :: Int32
+                  , VS.vsHeadless = vmHeadless vm
+                  , VS.vsGuestAgent = vmGuestAgent vm
+                  , VS.vsVsockCid = fmap fromIntegral (vmVsockCid vm)
+                  , VS.vsSpicePort = fmap fromIntegral (vmSpicePort vm)
+                  , VS.vsDrives = driveSpecs
+                  , VS.vsNetIfs = netIfSpecs
+                  , VS.vsSharedDirs = sharedDirSpecs
+                  , VS.vsWaitForGuestAgentMs =
+                      if vmGuestAgent vm then waitMs else 0
+                  , VS.vsRebootQuirk = vmRebootQuirk vm
+                  , VS.vsSpiceBindAddr = qcSpiceBindAddress config
+                  }
+          pure (Right spec)
 
 -- | Load the 'DiskImage' row and the per-node placement
 -- ('DiskImageNode'.filePath) each 'Drive' references. The
@@ -199,11 +206,22 @@ encodeSharedDirSpec d =
 -- bridge name from 'hostDevice' (validated non-empty at NIC-add
 -- time).
 resolveNetIf
-  :: Maybe NA.NetAgentClient -> Entity NetworkInterface -> IO NetworkInterface
+  :: Maybe NA.NetAgentClient
+  -> Entity NetworkInterface
+  -> IO (Either T.Text NetworkInterface)
 resolveNetIf mAgent (Entity ifaceKey netIf) =
   case (mAgent, bridgeForNetdMediatedNic netIf) of
     (Just nac, Just bridgeName) -> applyOnNetd nac bridgeName
-    _ -> pure netIf
+    (Nothing, Just _) ->
+      pure $
+        Left $
+          "NIC "
+            <> T.pack (show (fromSqlKey ifaceKey))
+            <> " ("
+            <> ifTypeText (networkInterfaceInterfaceType netIf)
+            <> "): netd is required to allocate a TAP but the daemon "
+            <> "has no live netd connection (is corvus-netd running?)"
+    _ -> pure (Right netIf)
   where
     applyOnNetd nac bridgeName = do
       uid <- getEffectiveUserID
@@ -218,8 +236,20 @@ resolveNetIf mAgent (Entity ifaceKey netIf) =
               }
       result <- NA.applyTap nac spec
       case result of
-        Right _ -> pure (netIf {networkInterfaceHostDevice = tapName})
-        Left _ -> pure netIf
+        Right _ ->
+          pure $ Right (netIf {networkInterfaceHostDevice = tapName})
+        Left e ->
+          pure $
+            Left $
+              "NIC "
+                <> T.pack (show (fromSqlKey ifaceKey))
+                <> " ("
+                <> ifTypeText (networkInterfaceInterfaceType netIf)
+                <> "): netd applyTap to bridge "
+                <> bridgeName
+                <> " failed: "
+                <> T.pack (show e)
+                <> " (is the network started? `crv network list`)"
 
 -- | Decide whether a NIC needs netd to pre-allocate a TAP, and if
 -- so which host bridge to slave the TAP to. 'Nothing' means the

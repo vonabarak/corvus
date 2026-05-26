@@ -111,8 +111,7 @@ pipeline:
             # automatically).
           networkInterfaces:
             # Outbound internet for cloudbase-init MSI download.
-            - type: vde
-              hostDevice: /run/vde2/switch.ctl
+            - network: corvus
 
   - build:
       name: windows-server-2025
@@ -196,5 +195,4 @@ pipeline:
               discard: true
               sizeMb: 40960
           networkInterfaces:
-            - type: vde
-              hostDevice: /run/vde2/switch.ctl
+            - network: corvus

@@ -471,10 +471,12 @@ resolveNetIfDevice mAgent (Entity ifaceKey netIf) =
         Right _ ->
           pure (netIf {networkInterfaceHostDevice = tapName})
         Left _ ->
-          -- Best-effort: leave hostDevice empty so QEMU's argv is
-          -- malformed (script=no,downscript=no,ifname=) and the
-          -- launch fails with a visible error. Phase 3.x can plumb
-          -- the failure back into VM start more gracefully.
+          -- This helper is only reached from the preview / argv
+          -- preview path now; the live VM-start flow goes through
+          -- 'NodeAgentClient.Spec.resolveNetIf', which propagates
+          -- the netd error as 'Left' so the operator sees a real
+          -- message instead of an EPERM from QEMU. Preview callers
+          -- already tolerate an empty hostDevice.
           pure netIf
     _ -> pure netIf
 

@@ -44,6 +44,10 @@ struct TemplateDriveInfo {
 struct TemplateNetIfInfo {
   type       @0 :Enums.NetInterfaceType;
   hostDevice @1 :Text;   # empty == auto
+  # Managed-network NICs reference the network by name. Resolved
+  # to a NetworkId at template-instantiation time. Empty for
+  # non-managed types.
+  network    @2 :Text;
 }
 
 struct TemplateSshKeyInfo {

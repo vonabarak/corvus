@@ -2,19 +2,7 @@ pipeline:
   - apply:
       ifExists: skip
 
-      sshKeys:
-        - name: corvus
-          publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDpO6w7latI2iS1Q7SctsaIXa/p4K9DbJfNTmuQwDVOD"
-
       disks:
-        - name: ovmf-code
-          register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
-          format: qcow2
-
-        - name: ovmf-vars
-          register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
-          format: qcow2
-
         - name: gentoo-base-cloud
           import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260524T170105Z.qcow2"
           format: qcow2
@@ -47,8 +35,7 @@ pipeline:
               interface: pflash
               strategy: clone
           networkInterfaces:
-            - type: vde
-              hostDevice: /run/vde2/switch.ctl
+            - network: corvus
           sshKeys:
             - name: corvus
 
@@ -335,7 +322,6 @@ pipeline:
               discard: true
               sizeMb: 40960
           networkInterfaces:
-            - type: vde
-              hostDevice: /run/vde2/switch.ctl
+            - network: corvus
           sshKeys:
             - name: corvus

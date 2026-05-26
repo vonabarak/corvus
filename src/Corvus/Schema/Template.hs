@@ -88,14 +88,31 @@ instance FromJSON TemplateDriveYaml where
 data TemplateNetworkInterfaceYaml = TemplateNetworkInterfaceYaml
   { tnyType :: NetInterfaceType
   , tnyHostDevice :: Maybe Text
+  , tnyNetwork :: Maybe Text
+  -- ^ Name of the managed network to attach this NIC to.
+  -- Required for @type: managed@; ignored otherwise.
   }
   deriving (Show, Generic)
 
 instance FromJSON TemplateNetworkInterfaceYaml where
-  parseJSON = withObject "TemplateNetworkInterfaceYaml" $ \o ->
-    TemplateNetworkInterfaceYaml
-      <$> o .: "type"
-      <*> o .:? "hostDevice"
+  parseJSON = withObject "TemplateNetworkInterfaceYaml" $ \o -> do
+    mType <- o .:? "type"
+    hostDevice <- o .:? "hostDevice"
+    network <- o .:? "network"
+    -- Mirror the 'ApplyNetIf' contract: omitting 'type' is fine
+    -- when 'network' is set ('managed' is the only legal pairing).
+    -- 'type: managed' without 'network' is rejected later by the
+    -- validator in 'Handlers.Template.insertTemplateYaml'.
+    ifType <- case (mType, network) of
+      (Nothing, Just _) -> pure NetManaged
+      (Just t, Just _)
+        | t /= NetManaged ->
+            fail "network interface with 'network' must have type 'managed' or omit 'type'"
+        | otherwise -> pure NetManaged
+      (Just t, Nothing) -> pure t
+      (Nothing, Nothing) ->
+        fail "network interface must specify 'type' (or 'network' for a managed NIC)"
+    pure (TemplateNetworkInterfaceYaml ifType hostDevice network)
 
 newtype TemplateSshKeyYaml = TemplateSshKeyYaml
   { tkyName :: Text

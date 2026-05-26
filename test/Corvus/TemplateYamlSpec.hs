@@ -59,6 +59,7 @@ sampleDetails =
         [ TemplateNetIfInfo
             { tvniType = NetUser
             , tvniHostDevice = Nothing
+            , tvniNetwork = Nothing
             }
         ]
     , tvdSshKeys =

@@ -60,6 +60,8 @@ data TemplateDriveInfo = TemplateDriveInfo
 data TemplateNetIfInfo = TemplateNetIfInfo
   { tvniType :: !NetInterfaceType
   , tvniHostDevice :: !(Maybe Text)
+  , tvniNetwork :: !(Maybe Text)
+  -- ^ Managed-network name; 'Nothing' for non-managed types.
   }
   deriving (Eq, Show, Generic)
 
