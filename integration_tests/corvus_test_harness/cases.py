@@ -118,7 +118,9 @@ class IntegrationTestCase:
         return "shared"
 
     @pytest.fixture(scope="class", autouse=True)
-    def _class_topology(self, request, crv, image_ready, host_binary):
+    def _class_topology(
+        self, request, crv, image_ready, host_binary, session_test_network
+    ):
         """Bring up the class-scoped Topology + nodes.
 
         Setup failure is recorded on the class state so the
@@ -137,7 +139,11 @@ class IntegrationTestCase:
         topology: Topology | None = None
         try:
             topology = Topology(
-                crv, image_ready, host_binary, class_name=cls.__name__
+                crv,
+                image_ready,
+                host_binary,
+                class_name=cls.__name__,
+                network_name=session_test_network,
             ).__enter__()
             # Build the per-class CA(s) first so add() can stash
             # the right CA key on each TestNode. Sorting de-duped

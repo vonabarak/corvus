@@ -230,10 +230,14 @@ class Vm:
 
     def _net_ifs(self) -> list[dict]:
         """Return the list of `vm.add_net_if` kwarg dicts to call
-        after drives are attached. Default empty (VM boots with no
-        NIC; SSH happens over VSOCK). Cloud-init tests override to
-        add a user-mode NIC with a host-port forward."""
-        return []
+        after drives are attached. Default: a single user-mode NIC
+        so VMs have outbound networking (DNS, internet) out of the
+        box. Tests that genuinely need no NIC override to return
+        ``[]``. SSH to the guest still rides over VSOCK in
+        :class:`VmSsh`; the user NIC is unrelated to the SSH
+        transport. Cloud-init subclasses override to add a hostfwd
+        for SSH-over-IP."""
+        return [{"type": "user"}]
 
     def _shared_dirs(self) -> list[dict]:
         """Return the list of `vm.add_shared_dir` kwarg dicts to call

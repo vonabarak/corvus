@@ -50,8 +50,14 @@ The hooks below enforce the suite-wide behaviour:
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import os
+import secrets
 import sys
+import tempfile
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from corvus_test_harness import (
@@ -64,6 +70,8 @@ from corvus_test_harness import (
 )
 from corvus_test_harness.cases import IntegrationTestCase, state_for
 from xdist.scheduler.loadscope import LoadScopeScheduling
+
+import yaml as _yaml
 
 # ---------------------------------------------------------------------------
 # Session-scoped preconditions
@@ -121,6 +129,131 @@ def installer_image_ready(crv: Crv) -> InstallerImageReady:
     rather than once per test.
     """
     return InstallerImageReady.ensure(crv)
+
+
+@pytest.fixture(scope="session")
+def session_test_network(
+    tmp_path_factory: pytest.TempPathFactory,
+    worker_id: str,
+    crv: Crv,
+    outer_version: dict,
+) -> Iterator[str]:
+    """One Corvus managed network shared by every test-node across
+    every xdist worker in a single pytest invocation.
+
+    `tmp_path_factory.getbasetemp().parent` is the dir pytest-xdist
+    creates for cross-worker coordination — same path for every
+    worker in this run. We store the network's name there along
+    with a refcount of how many worker sessions still hold the
+    fixture; the last to leave deletes the network.
+
+    Crashed workers leak the refcount; the leaked network itself
+    is reaped by `make integration-tests-clean` on the next
+    invocation. Functional correctness during a running session is
+    unaffected — workers read the *name* out of the shared file,
+    not the refcount.
+
+    When pytest runs without xdist, `worker_id == "master"` and we
+    take a trivial single-process create/delete path.
+    """
+    if worker_id == "master":
+        name = _create_session_network(crv)
+        try:
+            yield name
+        finally:
+            _delete_session_network(crv, name)
+        return
+
+    root = tmp_path_factory.getbasetemp().parent
+    name_file = root / "corvus_it_session_network.name"
+    refcount_file = root / "corvus_it_session_network.refcount"
+    lock_path = str(root / "corvus_it_session_network.lock")
+
+    # Create-or-attach (refcount++)
+    with _flock(lock_path):
+        if name_file.exists():
+            name = name_file.read_text().strip()
+        else:
+            name = _create_session_network(crv)
+            name_file.write_text(name)
+        n = int(refcount_file.read_text()) if refcount_file.exists() else 0
+        refcount_file.write_text(str(n + 1))
+
+    try:
+        yield name
+    finally:
+        with _flock(lock_path):
+            n = int(refcount_file.read_text()) - 1
+            if n <= 0:
+                _delete_session_network(crv, name)
+                name_file.unlink(missing_ok=True)
+                refcount_file.unlink(missing_ok=True)
+            else:
+                refcount_file.write_text(str(n))
+
+
+def _create_session_network(crv: Crv) -> str:
+    """Apply a one-shot ApplyConfig that creates the network, then
+    explicitly start it. ``ApplyNetwork`` has no ``running`` field
+    (only ``autostart``, which only fires on daemon boot), so the
+    explicit start is the canonical way to bring the network up
+    in the current session."""
+    name = f"corvus-it-session-{secrets.token_hex(3)}"
+    apply_doc = {
+        "ifExists": "skip",
+        "networks": [
+            {
+                "name": name,
+                "subnet": "10.91.0.0/24",
+                "dhcp": True,
+                "nat": True,
+            }
+        ],
+    }
+    with tempfile.NamedTemporaryFile(
+        "w", suffix=".yml", prefix="corvus-it-session-", delete=False
+    ) as tmp:
+        _yaml.safe_dump(apply_doc, tmp)
+        tmp_path = Path(tmp.name)
+    try:
+        crv.apply(tmp_path, skip_existing=True, wait=True)
+    finally:
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+    crv.network_start(name)
+    return name
+
+
+def _delete_session_network(crv: Crv, name: str) -> None:
+    """Best-effort teardown: leaked VMs on the network make delete
+    fail; `make integration-tests-clean` catches the orphan on the
+    next invocation."""
+    try:
+        crv.network_stop(name, force=True)
+    except Exception:
+        pass
+    try:
+        crv.network_delete(name)
+    except Exception:
+        pass
+
+
+@contextlib.contextmanager
+def _flock(path: str) -> Iterator[None]:
+    """Exclusive file lock on `path` using stdlib `fcntl.flock` —
+    no third-party dep needed. Linux-only; integration tests are
+    Linux-only (nested KVM)."""
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
 
 
 # ---------------------------------------------------------------------------

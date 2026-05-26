@@ -121,7 +121,9 @@ class TestQuickstart(IntegrationTestCase):
     # ---- Class fixture override ----------------------------------------
 
     @pytest.fixture(scope="class", autouse=True)
-    def _class_topology(self, request, crv, image_ready, host_binary):
+    def _class_topology(
+        self, request, crv, image_ready, host_binary, session_test_network
+    ):
         """Bring up the bare node + install corvus-admin from source.
 
         Differs from the default :class:`IntegrationTestCase`
@@ -144,6 +146,7 @@ class TestQuickstart(IntegrationTestCase):
                 image_ready,
                 host_binary,
                 class_name=cls.__name__,
+                network_name=session_test_network,
                 attach_source=True,
             ).__enter__()
             # init_cas is required by Topology's invariants even

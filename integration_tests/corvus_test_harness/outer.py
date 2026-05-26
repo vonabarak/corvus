@@ -324,6 +324,23 @@ class Crv:
             args.append("--wait")
         return self.run(*args, timeout=timeout_sec)
 
+    # ---- network subsystem -----------------------------------------------
+
+    def network_list(self) -> list[dict[str, Any]]:
+        return _as_list(self.run("network", "list"), key="networks")
+
+    def network_start(self, name: str) -> dict[str, Any]:
+        return self.run("network", "start", name)
+
+    def network_stop(self, name: str, *, force: bool = False) -> dict[str, Any]:
+        args = ["network", "stop", name]
+        if force:
+            args.append("--force")
+        return self.run(*args)
+
+    def network_delete(self, name: str) -> dict[str, Any]:
+        return self.run("network", "delete", name)
+
     def build(
         self,
         yaml_path: str | Path,

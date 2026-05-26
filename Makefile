@@ -98,12 +98,25 @@ integration-tests: build
 # go with the VM by default).
 integration-tests-clean:
 	@names=$$(crv -o json vm list 2>/dev/null | jq -r '.[].name | select(startswith("corvus-it-"))'); \
-	if [ -z "$$names" ]; then echo "no corvus-it-* VMs"; exit 0; fi; \
-	echo "$$names" | while read -r n; do \
-	  echo "deleting $$n"; \
-	  crv vm reset "$$n" 2>/dev/null || true; \
-	  crv vm delete "$$n" || true; \
-	done
+	if [ -n "$$names" ]; then \
+	  echo "$$names" | while read -r n; do \
+	    echo "deleting VM $$n"; \
+	    crv vm reset "$$n" 2>/dev/null || true; \
+	    crv vm delete "$$n" || true; \
+	  done; \
+	else \
+	  echo "no corvus-it-* VMs"; \
+	fi
+	@nets=$$(crv -o json network list 2>/dev/null | jq -r '.[].name | select(startswith("corvus-it-"))'); \
+	if [ -n "$$nets" ]; then \
+	  echo "$$nets" | while read -r n; do \
+	    echo "deleting network $$n"; \
+	    crv network stop "$$n" --force 2>/dev/null || true; \
+	    crv network delete "$$n" || true; \
+	  done; \
+	else \
+	  echo "no corvus-it-* networks"; \
+	fi
 
 # Run the Haskell unit-test suite. Integration tests have moved to
 # pytest under integration_tests/ (see `make integration-tests`);

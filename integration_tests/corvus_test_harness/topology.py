@@ -199,12 +199,18 @@ class Topology:
         host_binary: HostBinary,
         *,
         class_name: str,
+        network_name: str,
         run_id: str | None = None,
         attach_source: bool = False,
     ) -> None:
         self.crv = crv
         self.image = image
         self.host_binary = host_binary
+        # The managed network all test-nodes attach to for their
+        # outer NIC. Created session-wide by the
+        # `session_test_network` fixture in conftest.py and shared
+        # across every Topology in this pytest invocation.
+        self.network_name = network_name
         # Test class name (e.g. "TestVmLifecycle") embedded into every
         # node name so `crv vm list` on the outer daemon shows which
         # test class owns which node.
@@ -537,8 +543,8 @@ class Topology:
                     ],
                     "networkInterfaces": [
                         {
-                            "type": "vde",
-                            "hostDevice": "/run/vde2/switch.ctl",
+                            "type": "managed",
+                            "network": self.network_name,
                         }
                     ],
                     "sharedDirs": shared_dirs,

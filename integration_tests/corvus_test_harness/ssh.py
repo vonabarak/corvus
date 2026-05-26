@@ -96,15 +96,18 @@ class NodeShell:
         return out.stdout.decode("utf-8", errors="replace")
 
     def outer_ip(self, *, timeout_sec: float = 60.0, poll_sec: float = 1.0) -> str:
-        """Return the node's DHCP-leased IP on the host's VDE switch.
+        """Return the node's DHCP-leased IP on the harness's managed network.
 
         Each test-node has two IPv4 global-scope addresses inside
-        the guest: an outer NIC reached via the host's VDE
-        switch, and a virtual ``vde0`` on ``192.168.92.0/24``
-        that the test-node uses for its OWN nested children.
-        The outer one is what the harness uses for cross-node
-        connections (daemon-on-alpha → nodeagent-on-beta) and
-        for embedding into the deployed cert's IP SAN.
+        the guest: an outer NIC on the harness's session-wide
+        ``corvus-it-session-*`` managed network (10.91.0.0/24,
+        DHCP+NAT served by corvus-netd), and a virtual ``vde0`` on
+        ``192.168.92.0/24`` that the test-node uses for its OWN
+        nested children that have ``type=vde`` NICs (only the
+        dedicated VDE test does). The outer one is what the
+        harness uses for cross-node connections (daemon-on-alpha →
+        nodeagent-on-beta) and for embedding into the deployed
+        cert's IP SAN.
 
         Polls because ``crv vm_start --wait`` blocks on the
         guest-agent ping (VSOCK-only, no networking) — the outer
@@ -121,7 +124,7 @@ class NodeShell:
             r = self.run("ip -4 -o addr show scope global", check=False)
             last_text = r.stdout.decode("utf-8", errors="replace")
             for line in last_text.splitlines():
-                # "2: enp0s4    inet 192.168.89.197/22 brd … scope global …"
+                # "2: enp0s4    inet 10.91.0.42/24 brd … scope global …"
                 parts = line.split()
                 if len(parts) < 4:
                     continue
@@ -131,7 +134,7 @@ class NodeShell:
                 return ip
             time.sleep(poll_sec)
         raise RuntimeError(
-            f"could not find an outer VDE IP on cid {self.cid} "
+            f"could not find an outer-network IP on cid {self.cid} "
             f"within {timeout_sec:.0f}s; last `ip -4 -o addr show` returned:\n"
             f"{last_text}"
         )
