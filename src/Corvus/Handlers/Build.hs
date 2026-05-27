@@ -498,184 +498,250 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
       target = buildTarget b
       strategy = buildStrategy b
 
-  -- 1. Resolve template
-  templateIdResult <- liftIO $ resolveTemplateIdOrErr state (buildTemplate b)
-  case templateIdResult of
+  tplR <- resolveTemplateAndValidate state strategy (buildTemplate b)
+  case tplR of
     Left err -> pure $ Left err
-    Right (templateId, hasGuestAgent) ->
-      -- The installer strategy boots a vendor installer ISO and waits for
-      -- the guest to shut itself down; QGA isn't available until the
-      -- installer reaches first-logon. The other strategies drive
-      -- provisioners over QGA and cannot proceed without it.
-      if strategy /= BuildStrategyInstaller && not hasGuestAgent
-        then
-          pure $
-            Left $
-              "template '" <> buildTemplate b <> "' must have guestAgent: true"
-        else do
-          -- 2. Instantiate template → bake VM
-          mVmId <-
-            liftIO $
-              runActionAsSubtask
-                (ActionContext state parentTaskId "system")
-                ( TemplateInstantiate
-                    { tiTemplateId = templateId
-                    , tiName = bakeVmName
-                    , tiNodeRef = buildNode b
-                    }
-                )
-          case mVmId of
-            RespTemplateInstantiated vmIdLong -> do
-              liftIO $
-                push stack "bake-vm" $
-                  cleanupBakeVm state parentTaskId vmIdLong
-              -- 3. From-scratch strategy: create empty target disk + attach
-              targetSetup <- case strategy of
-                BuildStrategyOverlay -> do
-                  -- Identify the artifact drive: first drive of the bake VM.
-                  mDrive <-
-                    liftIO $
-                      runSqlPool
-                        ( selectFirst
-                            [DriveVmId ==. toSqlKey vmIdLong]
-                            [Asc DriveId]
-                        )
-                        (ssDbPool state)
-                  case mDrive of
-                    Nothing -> pure $ Left "instantiated bake VM has no drives"
-                    Just (Entity _ drv) ->
-                      pure $
-                        Right
-                          ( fromSqlKey (driveDiskImageId drv)
-                          , True -- needs flatten on overlay strategy
-                          )
-                BuildStrategyInstaller -> do
-                  -- Installer's artifact is the bake VM's first drive
-                  -- (a fresh blank disk created by the template's first
-                  -- drive having strategy: create). No flatten needed —
-                  -- there is no backing chain to collapse.
-                  mDrive <-
-                    liftIO $
-                      runSqlPool
-                        ( selectFirst
-                            [DriveVmId ==. toSqlKey vmIdLong]
-                            [Asc DriveId]
-                        )
-                        (ssDbPool state)
-                  case mDrive of
-                    Nothing -> pure $ Left "instantiated bake VM has no drives"
-                    Just (Entity _ drv) ->
-                      pure $ Right (fromSqlKey (driveDiskImageId drv), False)
-                BuildStrategyFromScratch -> do
-                  let sizeMb = fromIntegral (btSizeGb target) * 1024
-                  -- ephemeral=True so a failed build (no publish) lets
-                  -- the bake-VM teardown auto-reap this target disk.
-                  -- 'publishArtifactCore' flips it back to False on a
-                  -- successful publish so the artifact survives onward.
-                  diskResp <-
-                    liftIO $
-                      runActionAsSubtask
-                        (ActionContext state parentTaskId "system")
-                        (DiskCreate targetTmpName (btFormat target) sizeMb Nothing True)
-                  case diskResp of
-                    RespDiskCreated diskIdLong -> do
-                      attachResp <-
-                        liftIO $
-                          runActionAsSubtask
-                            (ActionContext state parentTaskId "system")
-                            ( DiskAttach
-                                vmIdLong
-                                diskIdLong
-                                InterfaceVirtio
-                                Nothing
-                                False
-                                False
-                                CacheWriteback
-                            )
-                      case attachResp of
-                        RespDiskAttached _ -> pure $ Right (diskIdLong, False)
-                        RespError err -> do
-                          -- The disk was created but couldn't attach: register
-                          -- a cleanup so a failed attach doesn't strand it.
-                          liftIO $
-                            push stack "orphan-target-disk" $ do
-                              _ <-
-                                runActionAsSubtask
-                                  (ActionContext state parentTaskId "system")
-                                  (DiskDelete diskIdLong)
-                              pure ()
-                          pure $ Left $ "attach target disk: " <> err
-                        _ -> pure $ Left "attach target disk: unexpected response"
-                    RespError err -> pure $ Left $ "create target disk: " <> err
-                    _ -> pure $ Left "create target disk: unexpected response"
-
-              case targetSetup of
+    Right templateId -> do
+      vmR <- instantiateBakeVm state parentTaskId stack templateId bakeVmName (buildNode b)
+      case vmR of
+        Left err -> pure $ Left err
+        Right vmIdLong -> do
+          tgtR <- setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName
+          case tgtR of
+            Left err -> pure $ Left err
+            Right (artifactDiskId, needFlatten) -> do
+              floppyR <- attachBuildFloppy state parentTaskId stack vmIdLong prefix b
+              case floppyR of
                 Left err -> pure $ Left err
-                Right (artifactDiskId, needFlatten) -> do
-                  -- 3.5. Build + attach the autounattend / kickstart
-                  --      floppy if the build supplied one. Done after
-                  --      template instantiation so its drive entry is
-                  --      part of the bake VM's hardware before VmStart
-                  --      generates the QEMU command line.
-                  floppyResult <-
-                    attachBuildFloppy state parentTaskId stack vmIdLong prefix b
-                  case floppyResult of
-                    Left err -> pure $ Left err
-                    Right () -> do
-                      -- 4. Start the bake VM. For QGA-driven strategies this
-                      --    blocks until the guest agent first-pings; for the
-                      --    installer strategy the template has guestAgent:false
-                      --    so VmStart returns as soon as QEMU is up.
-                      startResp <-
-                        liftIO $
-                          runActionAsSubtask (ActionContext state parentTaskId "system") (VmStart vmIdLong)
-                      case classifyStartResp startResp of
-                        Left err -> pure $ Left $ "start bake VM: " <> err
-                        Right () -> case strategy of
-                          BuildStrategyInstaller ->
-                            runInstallerPhase
-                              state
-                              parentTaskId
-                              sink
-                              vmIdLong
-                              artifactDiskId
-                              target
-                              needFlatten
-                              b
-                          _ -> do
-                            -- 5. Run provisioners + provenance
-                            provResult <- runProvisioners state parentTaskId sink vmIdLong b startTime
-                            case provResult of
-                              Left err -> pure $ Left err
-                              Right () -> do
-                                -- 6. Stop the VM gracefully
-                                stopResp <-
-                                  liftIO $
-                                    runActionAsSubtask (ActionContext state parentTaskId "system") (VmStop vmIdLong)
-                                case classifyStopResp stopResp of
-                                  Left err -> pure $ Left $ "stop bake VM: " <> err
-                                  Right () -> do
-                                    -- 7. Detach artifact, rename, optional flatten + compact, relocate
-                                    publishResult <-
-                                      publishArtifact
-                                        state
-                                        parentTaskId
-                                        vmIdLong
-                                        artifactDiskId
-                                        target
-                                        needFlatten
-                                    case publishResult of
-                                      Left err -> pure $ Left err
-                                      Right () ->
-                                        -- The artifact has been detached and had its
-                                        -- ephemeral flag cleared by publishArtifactCore;
-                                        -- the cleanup pass's VmDelete keepDisks=False
-                                        -- reaps the remaining bake-VM disks but the
-                                        -- artifact survives.
-                                        pure $ Right artifactDiskId
-            RespError err -> pure $ Left $ "instantiate template: " <> err
-            other ->
-              pure $ Left $ "instantiate template: unexpected response: " <> T.pack (show other)
+                Right () ->
+                  runBakeAndPublish
+                    state
+                    parentTaskId
+                    sink
+                    vmIdLong
+                    strategy
+                    artifactDiskId
+                    target
+                    needFlatten
+                    startTime
+                    b
+
+-- | Phase 1: resolve the build's template by name and enforce the
+-- guest-agent precondition. The installer strategy doesn't need QGA
+-- (vendor autounattend drives everything); every other strategy does.
+resolveTemplateAndValidate
+  :: ServerState
+  -> BuildStrategy
+  -> Text
+  -- ^ template name
+  -> LoggingT IO (Either Text Int64)
+resolveTemplateAndValidate state strategy tplName = do
+  r <- liftIO $ resolveTemplateIdOrErr state tplName
+  pure $ case r of
+    Left err -> Left err
+    Right (templateId, hasGuestAgent)
+      | strategy /= BuildStrategyInstaller && not hasGuestAgent ->
+          Left ("template '" <> tplName <> "' must have guestAgent: true")
+      | otherwise -> Right templateId
+
+-- | Phase 2: instantiate the template into a bake VM and register
+-- its cleanup destructor immediately so a later failure tears it down.
+instantiateBakeVm
+  :: ServerState
+  -> TaskId
+  -> CleanupStack
+  -> Int64
+  -- ^ template id
+  -> Text
+  -- ^ bake VM name
+  -> Text
+  -- ^ node reference
+  -> LoggingT IO (Either Text Int64)
+instantiateBakeVm state parentTaskId stack templateId bakeVmName nodeRef = do
+  resp <-
+    liftIO $
+      runActionAsSubtask
+        (ActionContext state parentTaskId "system")
+        ( TemplateInstantiate
+            { tiTemplateId = templateId
+            , tiName = bakeVmName
+            , tiNodeRef = nodeRef
+            }
+        )
+  case resp of
+    RespTemplateInstantiated vmIdLong -> do
+      liftIO $
+        push stack "bake-vm" $
+          cleanupBakeVm state parentTaskId vmIdLong
+      pure $ Right vmIdLong
+    RespError err -> pure $ Left $ "instantiate template: " <> err
+    other ->
+      pure $ Left $ "instantiate template: unexpected response: " <> T.pack (show other)
+
+-- | Phase 3: prepare the target disk for the artifact, per strategy.
+-- Returns @(artifactDiskId, needFlatten)@:
+--
+--   * overlay   — the bake VM's first drive is the artifact; the
+--                 backing chain must be flattened at publish time.
+--   * installer — same, but the drive was freshly created so there
+--                 is no chain to flatten.
+--   * fromScratch — create a new empty target disk sized from the
+--                 build's @target.sizeGb@ and attach it to the bake VM.
+setupTargetDisk
+  :: ServerState
+  -> TaskId
+  -> CleanupStack
+  -> Int64
+  -- ^ bake VM id
+  -> BuildStrategy
+  -> BuildTarget
+  -> Text
+  -- ^ ephemeral target name
+  -> LoggingT IO (Either Text (Int64, Bool))
+setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName = case strategy of
+  BuildStrategyOverlay -> firstDriveAsArtifact True
+  BuildStrategyInstaller -> firstDriveAsArtifact False
+  BuildStrategyFromScratch -> createAndAttachTarget
+  where
+    firstDriveAsArtifact needFlatten = do
+      mDrive <-
+        liftIO $
+          runSqlPool
+            ( selectFirst
+                [DriveVmId ==. toSqlKey vmIdLong]
+                [Asc DriveId]
+            )
+            (ssDbPool state)
+      case mDrive of
+        Nothing -> pure $ Left "instantiated bake VM has no drives"
+        Just (Entity _ drv) ->
+          pure $ Right (fromSqlKey (driveDiskImageId drv), needFlatten)
+
+    createAndAttachTarget = do
+      let sizeMb = fromIntegral (btSizeGb target) * 1024
+      -- ephemeral=True so a failed build (no publish) lets the
+      -- bake-VM teardown auto-reap this target disk.
+      -- 'publishArtifactCore' flips it back to False on a successful
+      -- publish so the artifact survives onward.
+      diskResp <-
+        liftIO $
+          runActionAsSubtask
+            (ActionContext state parentTaskId "system")
+            (DiskCreate targetTmpName (btFormat target) sizeMb Nothing True)
+      case diskResp of
+        RespDiskCreated diskIdLong -> attachTarget diskIdLong
+        RespError err -> pure $ Left $ "create target disk: " <> err
+        _ -> pure $ Left "create target disk: unexpected response"
+
+    attachTarget diskIdLong = do
+      attachResp <-
+        liftIO $
+          runActionAsSubtask
+            (ActionContext state parentTaskId "system")
+            ( DiskAttach
+                vmIdLong
+                diskIdLong
+                InterfaceVirtio
+                Nothing
+                False
+                False
+                CacheWriteback
+            )
+      case attachResp of
+        RespDiskAttached _ -> pure $ Right (diskIdLong, False)
+        RespError err -> do
+          -- The disk was created but couldn't attach: register a
+          -- cleanup so a failed attach doesn't strand it.
+          liftIO $
+            push stack "orphan-target-disk" $ do
+              _ <-
+                runActionAsSubtask
+                  (ActionContext state parentTaskId "system")
+                  (DiskDelete diskIdLong)
+              pure ()
+          pure $ Left $ "attach target disk: " <> err
+        _ -> pure $ Left "attach target disk: unexpected response"
+
+-- | Phase 4: start the bake VM, run the strategy-specific work
+-- (installer wait OR QGA-driven provisioners + clean stop), then
+-- publish the artifact.
+runBakeAndPublish
+  :: ServerState
+  -> TaskId
+  -> BuildSink
+  -> Int64
+  -- ^ bake VM id
+  -> BuildStrategy
+  -> Int64
+  -- ^ artifact disk id
+  -> BuildTarget
+  -> Bool
+  -- ^ needs flatten?
+  -> UTCTime
+  -> Build
+  -> LoggingT IO (Either Text Int64)
+runBakeAndPublish state parentTaskId sink vmIdLong strategy artifactDiskId target needFlatten startTime b = do
+  -- For QGA-driven strategies VmStart blocks until the guest agent
+  -- first-pings; for the installer strategy the template has
+  -- guestAgent:false so VmStart returns as soon as QEMU is up.
+  startResp <-
+    liftIO $
+      runActionAsSubtask (ActionContext state parentTaskId "system") (VmStart vmIdLong)
+  case classifyStartResp startResp of
+    Left err -> pure $ Left $ "start bake VM: " <> err
+    Right () -> case strategy of
+      BuildStrategyInstaller ->
+        runInstallerPhase
+          state
+          parentTaskId
+          sink
+          vmIdLong
+          artifactDiskId
+          target
+          needFlatten
+          b
+      _ -> runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId target needFlatten startTime b
+
+-- | The non-installer tail of phase 4: run user provisioners over
+-- QGA, gracefully stop the bake VM, then publish.
+runProvisionersStopAndPublish
+  :: ServerState
+  -> TaskId
+  -> BuildSink
+  -> Int64
+  -> Int64
+  -> BuildTarget
+  -> Bool
+  -> UTCTime
+  -> Build
+  -> LoggingT IO (Either Text Int64)
+runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId target needFlatten startTime b = do
+  provResult <- runProvisioners state parentTaskId sink vmIdLong b startTime
+  case provResult of
+    Left err -> pure $ Left err
+    Right () -> do
+      stopResp <-
+        liftIO $
+          runActionAsSubtask (ActionContext state parentTaskId "system") (VmStop vmIdLong)
+      case classifyStopResp stopResp of
+        Left err -> pure $ Left $ "stop bake VM: " <> err
+        Right () -> do
+          -- Detach artifact, rename, optional flatten + compact, relocate.
+          -- On success the artifact's ephemeral flag is cleared inside
+          -- 'publishArtifactCore', so the bake-VM teardown's
+          -- @VmDelete keepDisks=False@ reaps everything else but the
+          -- artifact survives.
+          publishResult <-
+            publishArtifact
+              state
+              parentTaskId
+              vmIdLong
+              artifactDiskId
+              target
+              needFlatten
+          case publishResult of
+            Left err -> pure $ Left err
+            Right () -> pure $ Right artifactDiskId
 
 --------------------------------------------------------------------------------
 -- Build floppy attachment
