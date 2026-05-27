@@ -534,15 +534,17 @@ class TestManagedNetworking(SingleNodeCase):
                 f"network start hung for {elapsed:.1f}s with no agent"
             )
             msg = str(exc_info.value)
-            # Either "netd unavailable" (ssNetAgent cleared by the
-            # reconnect-and-hold async) or a Cap'n Proto disconnect
-            # error (the daemon's cached client just saw the agent's
-            # listener go away). Both prove the daemon didn't fall
-            # back to a legacy path.
-            assert re.search(r"netd unavailable", msg, re.IGNORECASE) or re.search(
+            # Either "netd … unavailable" (ncNetAgent cleared by the
+            # supervisor's liveness ping after the agent's listener
+            # went away — daemon-side error is the verbose "netd for
+            # node N unavailable") or a Cap'n Proto disconnect error
+            # (the daemon's cached client surfaces the dead socket
+            # before the supervisor's next ping). Both prove the
+            # daemon didn't fall back to a legacy path.
+            assert re.search(r"netd.*unavailable", msg, re.IGNORECASE) or re.search(
                 r"disconnect", msg, re.IGNORECASE
             ), (
-                f"unexpected error (no 'netd unavailable' or "
+                f"unexpected error (no 'netd ... unavailable' or "
                 f"disconnect substring): {msg!r}"
             )
         finally:

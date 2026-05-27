@@ -590,6 +590,7 @@ test-suite corvus-test
       Corvus.TlsSpec
       Corvus.ViewGrantSpec
       Corvus.VmSpec
+      Corvus.VmStatusSinkSpec
       Corvus.VmTransitionSpec
       Corvus.WireSpec
       SpecHook

@@ -24,6 +24,7 @@
 module Corvus.Handlers.VmStatusSink
   ( DaemonVmStatusSink (..)
   , newDaemonVmStatusSink
+  , applyNodeStats
   )
 where
 
@@ -288,6 +289,16 @@ applyNodeStats state nid stats snapMs = do
       maybeIfNonZero x = if x == 0 then Nothing else Just (fromIntegral x)
       maybeIfNonZeroD x = if x == 0 then Nothing else Just x
       maybeText t = if T.null t then Nothing else Just t
+  -- Capture the previously-recorded agent version BEFORE the
+  -- update so 'refuseMismatchedAgent' can tell a brand-new
+  -- mismatch (agent rebuilt to a different but still-skewed
+  -- hash) from an already-known one (operator just flipped
+  -- admin state back to 'online' without rebuilding). Without
+  -- this guard the auto-drain would silently re-fire on every
+  -- ~10 s push and undo the manual edit.
+  prevAgentVersion <- do
+    mPrev <- runSqlPool (get nid) (ssDbPool state)
+    pure $ mPrev >>= M.nodeAgentVersion
   runSqlPool
     ( update
         nid
@@ -313,18 +324,29 @@ applyNodeStats state nid stats snapMs = do
   -- same library, so 'NS.agentVersion' is the local truth. On
   -- mismatch we flip the node to 'NodeDraining' so the
   -- scheduler skips it but existing VMs / network state survive
-  -- — and log loudly so the operator notices.
-  when (not (T.null ver) && ver /= NS.agentVersion) $
-    refuseMismatchedAgent state nid ver
+  -- — and log loudly so the operator notices. Only fire on a
+  -- NEW mismatch (previous version differs from current) so an
+  -- operator's manual @crv node edit --admin-state online@ is
+  -- sticky across subsequent pushes from the same agent build.
+  when
+    ( not (T.null ver)
+        && ver /= NS.agentVersion
+        && prevAgentVersion /= Just ver
+    )
+    $ refuseMismatchedAgent state nid ver
   where
     maybeIfNonZero64 :: Int64 -> Maybe Int
     maybeIfNonZero64 x = if x == 0 then Nothing else Just (fromIntegral x)
 
--- | Flip a mismatched-agent node to 'NodeDraining' the first
--- time we observe the mismatch. Subsequent pushes are no-ops
--- because the admin state is no longer 'NodeOnline'. Operators
--- who rebuild the agent to match can manually flip it back with
--- @crv node edit <NAME> --admin-state online@.
+-- | Flip a mismatched-agent node to 'NodeDraining' on a newly-
+-- observed agent version that differs from the daemon. The
+-- caller ('applyNodeStats') gates this on
+-- @prevAgentVersion \/= Just ver@, so this only fires when the
+-- agent build changes (first push, or a rebuild that still
+-- doesn't match). A manual @crv node edit --admin-state online@
+-- without an agent rebuild leaves the stored version equal to
+-- the current snapshot's version, so the gate skips the call
+-- and the operator's intent sticks.
 refuseMismatchedAgent :: ServerState -> M.NodeId -> Text -> IO ()
 refuseMismatchedAgent state nid agentVer = do
   mNode <- runSqlPool (get nid) (ssDbPool state)

@@ -27,6 +27,7 @@ import qualified Capnp.Gen.Nodeagent as CGNA
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
+import qualified Control.Exception as E
 import Control.Monad (filterM, forM_, unless)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import qualified Corvus.Handlers.Network.PeerSpec as PS
@@ -52,6 +53,7 @@ import Database.Persist.Postgresql (SqlPersistT, runSqlPool)
 import Database.Persist.Sql (fromSqlKey)
 import Supervisors (withSupervisor)
 import System.Posix.User (getRealUserID)
+import System.Timeout (timeout)
 
 -- | Boot-time: read every 'Node' row and fork its supervisor.
 -- Returns the list of supervisor 'Async's so the daemon can
@@ -250,8 +252,16 @@ runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
           Nothing -> m
           Just nc -> Map.insert nodeKey nc {ncNetAgent = Just nac} m
       reapplyRunningNetworks state nodeKey nodeLabel nac
-      blockUntilShutdown state
-      clearNetConn state nodeKey
+      -- Block until the daemon shuts down OR the netd socket
+      -- dies. The 'finally' is load-bearing: when the underlying
+      -- TCP connection drops, 'withConn' (further up the stack
+      -- in 'withNetAgentClient') interrupts this body with an
+      -- async exception. Without 'finally', 'clearNetConn'
+      -- would be skipped on that path and the cap would remain
+      -- in 'ssAgents' — exactly the bug 'blockUntilShutdownOr-
+      -- NetdDead' is meant to close.
+      blockUntilShutdownOrNetdDead state nodeLabel nac
+        `E.finally` clearNetConn state nodeKey
       pure (Right ())
 
 -- | Re-apply every running network this node participates in (as
@@ -351,3 +361,49 @@ blockUntilShutdown state = do
   unless shouldStop $ do
     threadDelay 200000
     blockUntilShutdown state
+
+-- | Variant of 'blockUntilShutdown' that also returns when the
+-- supplied netd client stops answering pings. The daemon's
+-- 'handleNodeList' surfaces a node as netd-connected iff
+-- 'ncNetAgent' is 'Just', so when the netd process dies the
+-- supervisor needs to clear that cap and re-enter the dial loop
+-- — otherwise the registry holds a stale capability and
+-- @crv node list@ reports a dead agent as "online".
+--
+-- We poll 'NA.ping' every 5 s (matches the existing 5 s
+-- reconnect backoff). The ping itself is bounded by 'timeout':
+-- when the peer dies ungracefully (SIGKILL, network drop) the
+-- TLS read can stall indefinitely waiting for a 'close_notify'
+-- that will never arrive — without the timeout, the loop would
+-- block on the first failed ping and the cap would never be
+-- cleared. Any ping error or a 10 s no-response is treated as
+-- "dead", causes the caller's body to return so 'clearNetConn'
+-- runs and the outer loop reconnects.
+blockUntilShutdownOrNetdDead
+  :: ServerState -> T.Text -> NA.NetAgentClient -> IO ()
+blockUntilShutdownOrNetdDead state nodeLabel nac = loop
+  where
+    pingTimeoutMicros = 10000000 -- 10 s
+    loop = do
+      shouldStop <- readTVarIO (ssShutdownFlag state)
+      unless shouldStop $ do
+        threadDelay 5000000
+        r <- timeout pingTimeoutMicros (NA.ping nac)
+        case r of
+          Nothing ->
+            runFilteredLogging (ssLogLevel state) $
+              logWarnN $
+                "node "
+                  <> nodeLabel
+                  <> " netd liveness ping timed out (>"
+                  <> T.pack (show (pingTimeoutMicros `div` 1000000))
+                  <> "s); dropping stale cap"
+          Just (Left e) ->
+            runFilteredLogging (ssLogLevel state) $
+              logWarnN $
+                "node "
+                  <> nodeLabel
+                  <> " netd liveness ping failed: "
+                  <> T.pack (show e)
+                  <> "; dropping stale cap"
+          Just (Right ()) -> loop
