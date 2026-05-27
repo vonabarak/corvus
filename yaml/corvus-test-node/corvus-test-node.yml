@@ -34,9 +34,9 @@ pipeline:
         - shell:
             inline: |
               mkdir -p /var/cache/distfiles /var/db/repos /var/cache/binpkgs
-              mount -oro 192.168.88.1:/data/portage/distfiles /var/cache/distfiles
-              mount -oro 192.168.88.1:/data/portage/binpkgs /var/cache/binpkgs 
-              mount -oro 192.168.88.1:/var/db/repos /var/db/repos
+              mount -oro 192.168.72.1:/data/portage/distfiles /var/cache/distfiles
+              mount -oro 192.168.72.1:/data/portage/binpkgs /var/cache/binpkgs 
+              mount -oro 192.168.72.1:/var/db/repos /var/db/repos
             timeoutSec: 60
 
         - shell:
