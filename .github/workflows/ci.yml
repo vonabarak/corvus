@@ -11,8 +11,23 @@ concurrency:
 
 env:
   LANG: C.UTF-8
+  # Pass to every `make` step that invokes stack so the Makefile
+  # tells stack to reuse `haskell-actions/setup@v2`'s pre-provisioned
+  # GHC instead of trying to install its own. Honoured by `build`,
+  # `unit-tests`, `release` via the Makefile's STACK_BUILD_FLAGS.
+  STACK_BUILD_FLAGS: '--system-ghc --no-install-ghc'
 
 jobs:
+  # Drives the same Makefile targets a developer runs locally
+  # (`make build`, `make lint`, `make unit-tests`). Keeping CI on
+  # the Makefile means a green CI run ⇔ `make lint && make
+  # unit-tests` green on a developer's machine — no drift between
+  # the two surfaces.
+  #
+  # `make python-test` and `make integration-tests` are NOT run
+  # here: both boot QEMU/KVM in nested VMs to spawn a real daemon,
+  # and GitHub-hosted runners don't ship nested-virt. They remain
+  # developer-driven targets.
   build-and-test:
     runs-on: ubuntu-latest
 
@@ -34,50 +49,150 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `capnproto` is a build-time need: `make capnp` and any
+      # schema regeneration runs the `capnp` CLI. The other
+      # packages cover existing runtime / test needs.
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libvdeplug-dev qemu-utils postgresql-client genisoimage
+          sudo apt-get install -y \
+            libvdeplug-dev \
+            qemu-utils \
+            postgresql-client \
+            genisoimage \
+            capnproto
 
       - uses: haskell-actions/setup@v2
         with:
           ghc-version: '9.8.4'
           enable-stack: true
           stack-version: 'latest'
+          # Don't let stack fall back to its own GHC install
+          # — use the one this action just provisioned.
+          stack-no-install-ghc: true
 
+      # ----- Caches -----------------------------------------------------
+
+      # `-v2` suffix on the cache keys busts any cache poisoned
+      # by an earlier (broken) build, after which subsequent
+      # restores would otherwise prolong the failure.
       - name: Cache Stack global
         uses: actions/cache@v4
         with:
           path: ~/.stack
-          key: stack-global-${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
-          restore-keys: stack-global-${{ runner.os }}-
+          key: stack-global-v2-${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
+          restore-keys: stack-global-v2-${{ runner.os }}-
 
       - name: Cache Stack work
         uses: actions/cache@v4
         with:
           path: .stack-work
-          key: stack-work-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-${{ github.sha }}
+          key: stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-${{ github.sha }}
           restore-keys: |
-            stack-work-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-
-            stack-work-${{ runner.os }}-
+            stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-
+            stack-work-v2-${{ runner.os }}-
 
+      # Make stack's defaults match the dev tree's: use the GHC
+      # the runner already has, never try to install another
+      # one. `stack config set --global` is the canonical way to
+      # update ~/.stack/config.yaml without risking malformed
+      # YAML from naive appends.
+      #
+      # IMPORTANT: this step runs AFTER the Stack global cache
+      # restore. A cached `~/.stack/config.yaml` from an older
+      # run will overwrite anything we wrote earlier — putting
+      # the `stack config set` calls here guarantees the right
+      # values are in place for the subsequent build / test /
+      # release steps regardless of cache state.
+      - name: Configure Stack
+        run: |
+          set -ex
+          stack config set system-ghc --global true
+          stack config set install-ghc --global false
+          cat ~/.stack/config.yaml
+          stack --version
+          ghc --version
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
+          restore-keys: pip-${{ runner.os }}-
+
+      # ----- Lint tooling -----------------------------------------------
+
+      # `hlint` + `fourmolu` get installed to ~/.local/bin/, which
+      # the Makefile prepends to PATH (top of Makefile). Use
+      # whatever versions the lts-23.28 resolver ships so we
+      # don't need an extra-deps entry; the dev tree pins are
+      # advisory.
+      - name: Install Haskell lint tools
+        run: |
+          set -ex
+          mkdir -p ~/.local/bin
+          stack install hlint fourmolu \
+            --system-ghc --no-install-ghc \
+            --local-bin-path ~/.local/bin
+          ls -la ~/.local/bin
+          ~/.local/bin/hlint --version
+          ~/.local/bin/fourmolu --version
+
+      # The Makefile's `lint` target prefers the project venv
+      # (`python/.venv-corvus-py/`) for `ruff` and `mypy` so they
+      # resolve against the project's own pinned third-party
+      # types; create it the same way `make python-test` /
+      # `make integration-tests` do. `pip install -e .` pulls in
+      # pycapnp + cryptography + click + jinja2 + PyYAML — mypy
+      # needs them on PYTHONPATH to resolve third-party stubs.
+      # Mirrors the dev venv: ruff + mypy + types-PyYAML (so
+      # mypy resolves yaml.safe_load et al), plus the project
+      # installed with the [harness] extra so `pytest` is on
+      # PYTHONPATH — mypy walks every `python/tests/*.py` and
+      # `integration_tests/**/*.py` and needs the stubs.
+      - name: Bootstrap Python toolchain
+        run: |
+          set -ex
+          python3 -m venv python/.venv-corvus-py
+          python/.venv-corvus-py/bin/pip install --upgrade pip
+          python/.venv-corvus-py/bin/pip install ruff mypy types-PyYAML
+          python/.venv-corvus-py/bin/pip install -e '.[harness]'
+
+      # Cheap one-shot diagnostic that lands in the run summary —
+      # `which` lines + PATH dump make the most common CI-vs-dev
+      # divergences visible without log download.
+      - name: Diagnostic
+        run: |
+          set -ex
+          echo "PATH=$PATH"
+          which make stack ghc hlint fourmolu ruff mypy capnp python3 || true
+          make --version | head -1
+          stack --version
+          ghc --version
+          cat ~/.stack/config.yaml
+
+      # ----- Build / lint / test ----------------------------------------
+
+      # `make build` is a thin wrapper around `stack build` today
+      # but keeps CI and dev surface in lockstep for future
+      # changes (e.g. if the recipe ever picks up extra targets).
       - name: Build
-        run: stack build --system-ghc --no-install-ghc
+        run: make build
 
+      # `make lint` runs hlint + fourmolu --mode check + ruff
+      # check + ruff format --check + mypy. Read-only — same as
+      # the developer's pre-push gate.
       - name: Lint
-        run: |
-          stack install hlint --system-ghc --no-install-ghc 2>/dev/null || true
-          hlint src app test
+        run: make lint
 
-      - name: Format check
-        run: |
-          stack install fourmolu --system-ghc --no-install-ghc 2>/dev/null || true
-          fourmolu --mode check src app test
-
+      # `make unit-tests` auto-scales `--jobs` to nproc. The
+      # Haskell test/ tree is unit-only post-refactor; the older
+      # `--skip Integration` flag the previous CI carried is
+      # stale (no spec is tagged that way in the current tree).
       - name: Unit tests
         env:
           TEST_DB_HOST: localhost
           TEST_DB_PORT: "5432"
           TEST_DB_USER: corvus
           TEST_DB_PASSWORD: corvus
-        run: stack test --system-ghc --no-install-ghc --test-arguments "--skip Integration"
+        run: make unit-tests

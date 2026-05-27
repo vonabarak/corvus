@@ -32,3 +32,4 @@ integration_tests/keys/
 # scripts/build-synthetic-installer.sh; the final .raw lives under
 # ~/VMs/BaseImages/SyntheticInstaller/ and is not in-tree).
 build/
+release/

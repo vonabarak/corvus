@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test
+.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -10,12 +10,20 @@ export PATH := $(HOME)/.local/bin:$(PATH)
 # override explicitly with: make integration-tests WORKERS=4
 WORKERS ?=
 
+# Extra flags appended to every stack invocation. Empty for the
+# dev tree (ghcup + stack do the right thing); CI overrides
+# with `STACK_BUILD_FLAGS='--system-ghc --no-install-ghc'` so
+# stack reuses the runner-provisioned GHC instead of trying to
+# install its own. Honoured by `build`, `unit-tests`, `capnp`,
+# `install`, `release` — the targets that invoke `stack`.
+STACK_BUILD_FLAGS ?=
+
 # Default target: build
 all: build
 
 # Build the project
 build:
-	stack build
+	stack build $(STACK_BUILD_FLAGS)
 
 # Regenerate src-generated/Capnp/Gen/*.hs from schema/*.capnp.
 # The capnp CLI invokes the `capnpc-haskell` plugin shipped with the
@@ -134,7 +142,7 @@ integration-tests-clean:
 #
 # Uses script(1) to provide a pseudo-terminal, preventing hangs when piping output.
 unit-tests:
-	script -qec 'stack test --test-arguments "--jobs=$(shell nproc)$(if $(MATCH), --match \"$(MATCH)\",)"' /dev/null
+	script -qec 'stack test $(STACK_BUILD_FLAGS) --test-arguments "--jobs=$(shell nproc)$(if $(MATCH), --match \"$(MATCH)\",)"' /dev/null
 
 # Umbrella: build (or no-op) every disk the integration-test suite
 # needs — the corvus test-node, the inner Alpine test-vm, the
@@ -417,3 +425,120 @@ uninstall:
 cleanup:
 	stack clean
 	rm -rf .test-cache
+
+
+# Stage a self-contained release tree under release/ and tarball it.
+# Same recipe the GitHub Release workflow runs; producing it
+# locally is the way to dry-run a release before pushing the tag.
+#
+# Layout (per the release workflow's docstring):
+#
+#   release/
+#     corvus-<VERSION>-linux-amd64/
+#       bin/                    # 4 stripped Haskell binaries
+#       completions/{bash,zsh,fish}/
+#       python/                 # corvus-<pyver>.{whl,tar.gz}
+#       doc/                    # verbatim from the source tree
+#       yaml/                   # every example
+#       schema/                 # capnp schemas pycapnp loads at runtime
+#       scripts/build-synthetic-installer.sh
+#       README.md
+#       INSTALL.md
+#       VERSION
+#     corvus-<VERSION>-linux-amd64.tar.gz   # the tarball
+#     python/                   # standalone python release assets
+#       corvus-<pyver>-py3-none-any.whl
+#       corvus-<pyver>.tar.gz
+#
+# VERSION default is derived from the cabal/package.yaml version
+# field; CI overrides it from the git tag via `make release
+# VERSION=0.10.1`. The Python wheel/sdist version is independent
+# (lives in pyproject.toml).
+VERSION ?= $(shell awk '/^version:/ {print $$2; exit}' package.yaml)
+RELEASE_DIR := release/corvus-$(VERSION)-linux-amd64
+RELEASE_TARBALL := release/corvus-$(VERSION)-linux-amd64.tar.gz
+
+release: build
+	# Fresh staging tree on every invocation.
+	rm -rf release
+	mkdir -p $(RELEASE_DIR)/bin
+	mkdir -p $(RELEASE_DIR)/completions/bash
+	mkdir -p $(RELEASE_DIR)/completions/zsh
+	mkdir -p $(RELEASE_DIR)/completions/fish
+	mkdir -p $(RELEASE_DIR)/python
+	mkdir -p $(RELEASE_DIR)/scripts
+	mkdir -p release/python
+	#
+	# 1. Binaries. `stack path --local-install-root` resolves to
+	#    the same prefix the integration-test harness and
+	#    `make install` use. STACK_BUILD_FLAGS must be passed here
+	#    too — `stack path` reads the same platform-tag logic
+	#    `stack build` does, and on CI without `--system-ghc` it
+	#    refuses with "No compiler found, expected minor version
+	#    match with ghc-9.8.4 (x86_64-tinfo6)" even when the
+	#    global config has `system-ghc: true` (stack 3.x quirk).
+	@bindir=$$(stack $(STACK_BUILD_FLAGS) path --local-install-root)/bin; \
+	  for b in corvus crv corvus-netd corvus-nodeagent; do \
+	    cp $$bindir/$$b $(RELEASE_DIR)/bin/$$b; \
+	    strip $(RELEASE_DIR)/bin/$$b; \
+	  done
+	#
+	# 2. Shell completions. Re-use the binary's own completion
+	#    generator (same source the `install` target uses).
+	$(RELEASE_DIR)/bin/crv completion bash > $(RELEASE_DIR)/completions/bash/crv
+	$(RELEASE_DIR)/bin/crv completion zsh  > $(RELEASE_DIR)/completions/zsh/_crv
+	$(RELEASE_DIR)/bin/crv completion fish > $(RELEASE_DIR)/completions/fish/crv.fish
+	#
+	# 3. Python wheel + sdist. The standard PEP 517 frontend
+	#    drives the build via the project's setuptools backend
+	#    (see pyproject.toml). Copies land both inside the
+	#    tarball-staged tree AND in release/python/ for upload
+	#    as standalone GitHub Release assets. The `build`
+	#    package is installed into the project venv at
+	#    python/.venv-corvus-py/ (the same venv `make lint` /
+	#    `make python-test` use); create it if missing.
+	@if [ ! -x python/.venv-corvus-py/bin/python3 ]; then \
+	  python3 -m venv python/.venv-corvus-py ; \
+	fi
+	python/.venv-corvus-py/bin/pip install --quiet --upgrade pip build
+	python/.venv-corvus-py/bin/python3 -m build --sdist --wheel --outdir release/python .
+	cp release/python/*.whl release/python/*.tar.gz $(RELEASE_DIR)/python/
+	#
+	# 4. Verbatim source trees: docs, every YAML example, the
+	#    Cap'n Proto schemas pycapnp loads at runtime, the
+	#    synthetic-installer helper script, and the top-level
+	#    README.
+	cp -r doc $(RELEASE_DIR)/doc
+	cp -r yaml $(RELEASE_DIR)/yaml
+	cp -r schema $(RELEASE_DIR)/schema
+	cp scripts/build-synthetic-installer.sh $(RELEASE_DIR)/scripts/
+	cp README.md $(RELEASE_DIR)/README.md
+	#
+	# 5. Version stamp + a short pointer to the existing docs.
+	echo "$(VERSION)" > $(RELEASE_DIR)/VERSION
+	@printf '%s\n' \
+	  '# Corvus $(VERSION)' \
+	  '' \
+	  '1. Drop `bin/*` somewhere on `$$PATH` (e.g. `/usr/local/bin`).' \
+	  '2. `pip install python/corvus-*.whl` for the client library + `corvus-admin` CLI.' \
+	  '3. Run `corvus-admin quickstart` for a single-node setup, or follow `doc/multi-node.md` for a cluster.' \
+	  '' \
+	  'Shell completions are under `completions/{bash,zsh,fish}/`.' \
+	  'See `doc/INDEX.md` for the full documentation tree.' \
+	  > $(RELEASE_DIR)/INSTALL.md
+	#
+	# 6. Tarball. `--owner=root --group=root` keeps the archive
+	#    portable so untar on the operator's host doesn't carry
+	#    the build user's uid.
+	tar -czf $(RELEASE_TARBALL) \
+	  --owner=root --group=root \
+	  -C release \
+	  corvus-$(VERSION)-linux-amd64
+	@echo ""
+	@echo "Release artifacts:"
+	@echo "  $(RELEASE_TARBALL)"
+	@ls release/python/
+
+# Remove the staged release tree.
+release-clean:
+	rm -rf release

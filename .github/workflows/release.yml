@@ -6,8 +6,22 @@ on:
 
 env:
   LANG: C.UTF-8
+  STACK_BUILD_FLAGS: '--system-ghc --no-install-ghc'
 
 jobs:
+  # Builds a single self-contained tarball that bundles every
+  # component an operator needs to deploy Corvus from scratch
+  # (the four Haskell binaries, the Python client + admin CLI
+  # as wheel + sdist, the full documentation tree, every
+  # apply/build YAML example, the Cap'n Proto schemas pycapnp
+  # loads at runtime, and the shell completions `make install`
+  # generates). The Python wheel + sdist are also uploaded as
+  # standalone release assets so `pip install` from GitHub
+  # releases works without untarring.
+  #
+  # Heavy lifting is delegated to `make release`, which is the
+  # same recipe a developer runs locally to produce identical
+  # artifacts for verification before tagging.
   release:
     runs-on: ubuntu-latest
     permissions:
@@ -16,36 +30,99 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libvdeplug-dev \
+            qemu-utils \
+            capnproto
+
       - uses: haskell-actions/setup@v2
         with:
           ghc-version: '9.8.4'
           enable-stack: true
           stack-version: 'latest'
+          stack-no-install-ghc: true
 
       - name: Cache Stack global
         uses: actions/cache@v4
         with:
           path: ~/.stack
-          key: stack-global-${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
-          restore-keys: stack-global-${{ runner.os }}-
+          key: stack-global-v2-${{ runner.os }}-${{ hashFiles('stack.yaml.lock') }}
+          restore-keys: stack-global-v2-${{ runner.os }}-
 
-      - name: Build
-        run: stack build --system-ghc --no-install-ghc
+      - name: Cache Stack work
+        uses: actions/cache@v4
+        with:
+          path: .stack-work
+          key: stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            stack-work-v2-${{ runner.os }}-${{ hashFiles('package.yaml', 'stack.yaml') }}-
+            stack-work-v2-${{ runner.os }}-
 
-      - name: Package binaries
+      # Same stack-config override as CI — never let stack
+      # bootstrap a private GHC.
+      #
+      # IMPORTANT: runs AFTER the cache restore so a cached
+      # `~/.stack/config.yaml` doesn't clobber these settings.
+      # The Makefile's `release` target calls `stack path
+      # --local-install-root` without flags; without these
+      # globals set, that call would fail with "No compiler
+      # found, expected minor version match with ghc-9.8.4".
+      - name: Configure Stack
         run: |
-          BINDIR=$(stack path --system-ghc --no-install-ghc --local-install-root)/bin
-          VERSION=${GITHUB_REF_NAME#v}
-          mkdir -p release
-          cp ${BINDIR}/corvus ${BINDIR}/crv release/
-          strip release/corvus release/crv
-          cp doc/apply-examples/example-apply.yml release/
-          tar czf corvus-${VERSION}-linux-amd64.tar.gz -C release \
-            corvus crv example-apply.yml
+          set -ex
+          stack config set system-ghc --global true
+          stack config set install-ghc --global false
+          cat ~/.stack/config.yaml
+          stack --version
+          ghc --version
 
+      # `python3-build` is the PEP 517 frontend `make release`
+      # uses to produce the wheel + sdist (installed into the
+      # project venv inside the recipe; just ensure pip is
+      # current here).
+      - name: Install Python build tooling
+        run: |
+          set -ex
+          python3 -m pip install --upgrade pip
+          which make python3 capnp stack ghc
+          make --version | head -1
+
+      # `make release` does the actual work: stages binaries +
+      # completions + Python distributions + doc/yaml/schema
+      # trees, writes VERSION + INSTALL.md, and tarballs the
+      # whole thing. Outputs land under release/ at the repo
+      # root. Same recipe a developer runs locally.
+      - name: Build release artifacts
+        env:
+          # Pass the tag down so the recipe writes the right
+          # VERSION file and tarball name. Strip the leading
+          # `v` (`v0.10.1` → `0.10.1`).
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -ex
+          export VERSION="${VERSION#v}"
+          make release
+
+      # Three artifacts uploaded to the release page:
+      #
+      #   * corvus-<version>-linux-amd64.tar.gz — the
+      #     bundled drop with every component.
+      #   * corvus-<pyver>-py3-none-any.whl — wheel suitable
+      #     for `pip install <url>` directly.
+      #   * corvus-<pyver>.tar.gz — Python sdist for source
+      #     installs.
+      #
+      # The Python `<pyver>` follows `pyproject.toml` (Python
+      # project version, currently 0.2.0), separate from the
+      # Haskell tag-driven `<version>` for the combined tarball.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            corvus-*.tar.gz
+            release/corvus-*-linux-amd64.tar.gz
+            release/python/corvus-*-py3-none-any.whl
+            release/python/corvus-*.tar.gz
           generate_release_notes: true
