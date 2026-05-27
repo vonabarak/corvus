@@ -45,7 +45,8 @@ defaultVniBase :: Int
 defaultVniBase = 10000
 
 -- | Pick the next free VNI given the set of in-use ones, starting at
--- 'defaultVniBase'.
+-- 'defaultVniBase'. The candidate list is infinite, so 'head' is
+-- safe — there is always a free slot above the in-use ones.
 vniFromPool :: [Int] -> Int
 vniFromPool used =
   let s = Set.fromList used
