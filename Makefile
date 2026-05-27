@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean
+.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -542,3 +542,45 @@ release: build
 # Remove the staged release tree.
 release-clean:
 	rm -rf release
+
+
+# Bump the project version in every file that carries it. Three
+# files hold the source of truth and must stay in lockstep so
+# the released Haskell binaries, the Python wheel/sdist, and the
+# release-page tarball all advertise the same number:
+#
+#   * package.yaml            — Haskell source-of-truth (hpack)
+#   * corvus.cabal            — generated from package.yaml,
+#                               but bumped inline here so the
+#                               edit is visible in `git diff`
+#                               without a `stack build` round-trip
+#   * pyproject.toml          — Python package version
+#
+# Usage:
+#   make set-version VERSION=0.12.0.0
+#
+# Pick a 4-component PVP-style number (`major.major.minor.patch`)
+# so it works as both a Haskell PVP version and a PEP 440 Python
+# version. Matches the existing release tag convention
+# (`vX.Y.Z.W`).
+# Detect whether VERSION was explicitly passed on the command
+# line — needed because the `release` target already defaults
+# VERSION from package.yaml, so a bare `test -n "$(VERSION)"`
+# would always pass and silently no-op `set-version`.
+ifeq ($(origin VERSION),command line)
+VERSION_CMDLINE := 1
+endif
+
+set-version:
+	@test -n "$(VERSION_CMDLINE)" || { \
+	  echo "Usage: make set-version VERSION=X.Y.Z.W" >&2; \
+	  echo "   e.g. make set-version VERSION=0.12.0.0" >&2; \
+	  exit 1; \
+	}
+	@echo "Bumping to $(VERSION)..."
+	sed -i 's/^version: .*/version: $(VERSION)/' package.yaml
+	sed -i 's/^\(version:[[:space:]]\+\).*/\1$(VERSION)/' corvus.cabal
+	sed -i 's/^version = "[^"]*"/version = "$(VERSION)"/' pyproject.toml
+	@echo
+	@echo "Updated:"
+	@grep -H '^version' package.yaml corvus.cabal pyproject.toml

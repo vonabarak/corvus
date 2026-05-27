@@ -146,6 +146,8 @@ Stack + Hpack (`package.yaml` → `corvus.cabal`), LTS-23.28 resolver.
 | `make unit-tests` | Haskell unit tests (the full Haskell suite — no integration tests left here) |
 | `make integration-tests` | Pytest integration suite under `integration_tests/`; accepts `MATCH=<pytest -k expr>` |
 | `make all-tests` | Alias for `make unit-tests` |
+| `make set-version VERSION=X.Y.Z.W` | Bump the project version in lockstep across `package.yaml`, `corvus.cabal`, and `pyproject.toml`. Use this whenever the user says "bump version" / "set version" / "release X.Y.Z.W" — do NOT hand-edit those files. |
+| `make release` | Stage a self-contained release tree under `release/` and tarball it (4 binaries, completions, Python wheel + sdist, doc, yaml, schema). Same recipe the GitHub Release workflow runs; use it for a local dry-run before tagging. |
 
 ### Build Dependencies
 

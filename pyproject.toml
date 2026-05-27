@@ -1,6 +1,6 @@
 [project]
 name = "corvus"
-version = "0.2.0"
+version = "0.11.0.0"
 description = "Corvus VM manager — Python client, admin CLI, and integration-test harness."
 requires-python = ">=3.10"
 dependencies = [
