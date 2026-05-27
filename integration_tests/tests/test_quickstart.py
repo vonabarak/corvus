@@ -368,24 +368,36 @@ def _bootstrap_node(node):
     # wants to write `corvus.egg-info/` inside the source dir. Copy
     # to a writable scratch dir first.
     #
-    # * `cp -rL` dereferences the `python/corvus_client/schema ->
-    #   ../../schema` repo-level symlink so setuptools 82's
-    #   package-data copy step sees real `.capnp` files instead of a
-    #   dangling-looking symlink ("can't copy ...: doesn't exist or not
-    #   a regular file").
-    # * `--no-build-isolation` reuses the node-installed setuptools
-    #   instead of fetching one from pypi — the test-node has no
-    #   internet, so build-env bootstrap would otherwise fail with a
-    #   NameResolutionError on `pypi.org`.
-    # * `--break-system-packages` so PEP 668 doesn't refuse a
+    # * Target ``$HOME`` (ext4, 40 GiB free) rather than ``/tmp``
+    #   (tmpfs, 3.9 GiB total) — a full repo copy easily exceeds
+    #   the tmpfs ceiling once host build caches are dereferenced
+    #   ("cp: error writing ...: Disk quota exceeded").
+    # * ``rsync -aL`` dereferences the
+    #   ``python/corvus_client/schema -> ../../schema`` repo-level
+    #   symlink so setuptools 82's package-data copy step sees real
+    #   ``.capnp`` files. ``--exclude`` keeps host-side build
+    #   caches (``.stack-work`` ~2 GiB, ``.mypy_cache``, dev
+    #   venvs, etc.) out of the copy — pip doesn't need them.
+    # * ``--no-build-isolation`` reuses the node-installed
+    #   setuptools instead of fetching one from pypi — the
+    #   test-node has no internet, so build-env bootstrap would
+    #   otherwise fail with a NameResolutionError on ``pypi.org``.
+    # * ``--break-system-packages`` so PEP 668 doesn't refuse a
     #   user-site install on distros that ship EXTERNALLY-MANAGED.
     _shrun(
         node,
         (
-            "rm -rf /tmp/corvus-src && "
-            f"cp -rL {SRC_MOUNT} /tmp/corvus-src && "
+            "rm -rf $HOME/corvus-src && "
+            "rsync -aL "
+            "--exclude=.mypy_cache "
+            "--exclude=.stack-work "
+            "--exclude=.git "
+            "--exclude='__pycache__' "
+            "--exclude='.venv*' "
+            "--exclude=dist-newstyle "
+            f"{SRC_MOUNT}/ $HOME/corvus-src/ && "
             "python3 -m pip install --user --quiet "
-            "--break-system-packages --no-build-isolation /tmp/corvus-src"
+            "--break-system-packages --no-build-isolation $HOME/corvus-src"
         ),
         timeout_sec=300.0,
     )

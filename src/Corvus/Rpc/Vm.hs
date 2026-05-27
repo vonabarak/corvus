@@ -242,6 +242,12 @@ instance CGVm.Vm'server_ VmCap where
       RespCloudInitConfig mInfo ->
         let cfg = toCapnpCloudInitInfo (Data.Maybe.fromMaybe emptyInfo mInfo)
          in pure CGVm.Vm'cloudInit'results {CGVm.config = cfg}
+      -- @handleVmCloudInit@ returns @RespVmEdited@ after a
+      -- successful regenerate; the schema's @config@ field is
+      -- not load-bearing for this call (the CLI only checks the
+      -- exit code), so an empty payload is fine.
+      RespVmEdited ->
+        pure CGVm.Vm'cloudInit'results {CGVm.config = toCapnpCloudInitInfo emptyInfo}
       RespVmNotFound -> throwFailed "VM not found"
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'cloudInit: unexpected response"

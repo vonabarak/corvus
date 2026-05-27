@@ -283,6 +283,54 @@ class IntegrationTestCase:
         )
         return state.base_images_cache
 
+    def install_node_client_certs(self, *, node_index: int = 0) -> None:
+        """Push the host-side client cert trio into the ``corvus``
+        user's ``~/.config/corvus`` on a test-node.
+
+        Required for tests that drive the **inner** ``crv`` CLI
+        (``/opt/corvus/bin/crv …``) over SSH — :meth:`deploy_certs`
+        only installs daemon/agent certs into ``/etc/corvus/``;
+        client certs are written to a host-side dir for the
+        harness's pycapnp client, not pushed to the VM. Without
+        this step, the inner ``crv`` exits with
+        ``TlsFilesNotFound "corvus-client"`` because TLS-CLI
+        material is looked up in ``$XDG_CONFIG_HOME/corvus`` only
+        (see ``doc/security.md``).
+
+        Idempotent: a second call rewrites the same trio. Mirrors
+        the inline block in ``test_vde_networking.py``.
+        """
+        from .runner import NodeShellRunner
+        from .ssh import HOST_ALPINE_KEY_PATH, NodeShell
+
+        node = self.nodes[node_index]
+        cert_dir = node._client_cert_dir
+        if cert_dir is None:
+            raise RuntimeError(
+                f"node {node.short_name!r} has no host-side client cert dir; "
+                "did the class fixture's deploy_certs() run?"
+            )
+        runner = NodeShellRunner(
+            NodeShell(cid=node.cid, user="corvus", key_path=HOST_ALPINE_KEY_PATH),
+            label=f"vsock:{node.short_name}",
+        )
+        # ``~/.config/corvus`` is owned by corvus; no sudo needed
+        # for the directory. The files themselves go through the
+        # runner's copy_bytes (which sudo-installs and chowns to
+        # corvus:corvus) so they're readable by the inner CLI.
+        remote_xdg = "/home/corvus/.config/corvus"
+        runner.mkdir_p(remote_xdg, mode=0o755, sudo=False)
+        for filename, mode in (
+            ("ca.crt", 0o644),
+            ("corvus-client.crt", 0o644),
+            ("corvus-client.key", 0o600),
+        ):
+            runner.copy_bytes(
+                (cert_dir / filename).read_bytes(),
+                f"{remote_xdg}/{filename}",
+                mode=mode,
+            )
+
     # ---- Task polling ------------------------------------------------------
 
     def wait_for_task(

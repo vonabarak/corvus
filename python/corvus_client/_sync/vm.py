@@ -139,6 +139,19 @@ class SyncVm(LoopBoundResource):
     def serial_console_flush(self):
         return self._rl.run(self._a.serial_console_flush())
 
+    def hmp_monitor(self) -> SyncByteStream:
+        """Open a bidirectional HMP monitor stream.
+
+        Mirrors `serial_console()`: bytes from the daemon's HMP
+        chardev arrive via `read()`, and bytes written via
+        `write(chunk)` are forwarded to QEMU's monitor. Use as a
+        context manager (closes the input side on exit) or call
+        `close()` manually. Raises `VmRunning` if the VM is
+        stopped.
+        """
+        async_stream = self._rl.run(self._a.hmp_monitor())
+        return SyncByteStream(async_stream, self._rl)
+
     def hmp_monitor_flush(self):
         return self._rl.run(self._a.hmp_monitor_flush())
 
