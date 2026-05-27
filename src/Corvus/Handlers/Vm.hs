@@ -341,44 +341,61 @@ startQemuAndMonitor :: ActionContext -> Int64 -> Vm -> LoggingT IO Response
 startQemuAndMonitor ctx vmId vm = do
   let state = acState ctx
       pool = ssDbPool state
-
-  -- 1. Cloud-init ISO regeneration.
-  when (vmCloudInit vm) $ do
-    hasCloudInitDisk <- liftIO $ runSqlPool (hasCloudInitIso vmId) pool
-    unless hasCloudInitDisk $ do
-      logInfoN $ "Generating cloud-init ISO for VM " <> T.pack (show vmId)
-      _ <- liftIO $ runActionAsSubtask ctx (RegenerateCloudInit vmId (vmName vm))
-      pure ()
-
-  -- 2. SPICE port allocation + persist.
-  spiceResult <-
-    if vmHeadless vm
-      then pure (Right Nothing)
-      else do
-        alloc <- liftIO $
-          withAllocatedSpicePort state $ \port -> do
-            runSqlPool (update (toSqlKey vmId :: VmId) [M.VmSpicePort =. Just port]) pool
-            pure port
-        case alloc of
-          Left err -> pure (Left err)
-          Right port -> pure (Right (Just port))
-
+  ensureCloudInitIso ctx vmId vm
+  spiceResult <- allocateSpicePortIfNeeded state vmId vm
   case spiceResult of
-    Left err -> do
-      let msg = "Failed to allocate SPICE port: " <> err
-      logWarnN $ "SPICE port allocation failed: " <> err
-      liftIO $ runSqlPool (setVmError vmId msg) pool
-      pure $ RespError msg
+    Left err -> recordPreStartFailure state vmId pool "Failed to allocate SPICE port" err
     Right _ -> do
-      -- 3. CID re-validation.
       cidResult <- liftIO $ ensureFreeVsockCid state vmId vm
       case cidResult of
-        Left err -> do
-          let msg = "Failed to secure a free vsock CID: " <> err
-          logWarnN $ "Vsock CID re-allocation failed: " <> err
-          liftIO $ runSqlPool (setVmError vmId msg) pool
-          pure $ RespError msg
+        Left err ->
+          recordPreStartFailure state vmId pool "Failed to secure a free vsock CID" err
         Right _ -> launchVmViaAgent state vmId vm pool
+
+-- | Generate the NoCloud cloud-init ISO for this VM (if cloud-init
+-- is enabled and the ISO isn't already attached). Failures are
+-- non-fatal — the subtask records its own error.
+ensureCloudInitIso :: ActionContext -> Int64 -> Vm -> LoggingT IO ()
+ensureCloudInitIso ctx vmId vm = when (vmCloudInit vm) $ do
+  hasIso <- liftIO $ runSqlPool (hasCloudInitIso vmId) (ssDbPool (acState ctx))
+  unless hasIso $ do
+    logInfoN $ "Generating cloud-init ISO for VM " <> T.pack (show vmId)
+    _ <- liftIO $ runActionAsSubtask ctx (RegenerateCloudInit vmId (vmName vm))
+    pure ()
+
+-- | When the VM is not headless, allocate a SPICE port and persist
+-- it on the VM row. Headless VMs short-circuit to 'Right Nothing'.
+allocateSpicePortIfNeeded
+  :: ServerState
+  -> Int64
+  -> Vm
+  -> LoggingT IO (Either Text (Maybe Int))
+allocateSpicePortIfNeeded state vmId vm
+  | vmHeadless vm = pure (Right Nothing)
+  | otherwise = liftIO $ do
+      alloc <- withAllocatedSpicePort state $ \port -> do
+        runSqlPool (update (toSqlKey vmId :: VmId) [M.VmSpicePort =. Just port]) (ssDbPool state)
+        pure port
+      pure $ case alloc of
+        Left err -> Left err
+        Right port -> Right (Just port)
+
+-- | A pre-launch step failed: log, persist the error on the VM row,
+-- and produce the wire response.
+recordPreStartFailure
+  :: ServerState
+  -> Int64
+  -> Pool SqlBackend
+  -> Text
+  -- ^ message prefix (\"Failed to …\")
+  -> Text
+  -- ^ underlying error
+  -> LoggingT IO Response
+recordPreStartFailure _state vmId pool prefix err = do
+  let msg = prefix <> ": " <> err
+  logWarnN msg
+  liftIO $ runSqlPool (setVmError vmId msg) pool
+  pure $ RespError msg
 
 -- | Assemble 'VmSpec' from DB rows and call 'NOA.vmStart'.
 launchVmViaAgent
