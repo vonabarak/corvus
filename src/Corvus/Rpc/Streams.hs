@@ -47,7 +47,6 @@ import Corvus.Types (SocketBufferHandle (..))
 import qualified Data.ByteString as BS
 import Data.Foldable (for_)
 import Data.Function ((&))
-import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Text.Encoding.Error (lenientDecode)
@@ -291,8 +290,3 @@ runByteSinkRelay sup sbh clientSink = do
               case r of
                 Left _ -> pure ()
                 Right () -> streamLive buf newPos client shutdownVar
-
--- Suppress unused-import warning for 'Int64' (used implicitly via
--- the SocketBuffer helpers).
-_unused :: Int64 -> ()
-_unused _ = ()

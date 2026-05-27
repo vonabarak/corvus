@@ -25,7 +25,6 @@ import Corvus.Types (ServerState (..))
 import Data.Foldable (foldl')
 import Data.Int (Int64)
 import qualified Data.List as L
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), count, get, selectList, (==.))
@@ -268,8 +267,3 @@ sumPlanSizeMb ops = do
       pure $ case mDisk of
         Just d -> maybe 0 fromIntegral (M.diskImageSizeMb d)
         Nothing -> 0
-
--- Suppress unused-import warning for 'fromMaybe' (kept for
--- future error-message refinements).
-_unusedFromMaybe :: Maybe a -> a -> a
-_unusedFromMaybe = flip fromMaybe

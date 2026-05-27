@@ -47,7 +47,6 @@ import Corvus.Types
   )
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
 import qualified Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -550,8 +549,3 @@ instance Action NodeDrain where
   actionCommand _ = "drain"
   actionEntityId = Just . fromIntegral . ndrNodeId
   actionExecute ctx a = handleNodeDrain (acState ctx) (ndrNodeId a)
-
--- 'fromMaybe' is re-exported here to keep the import set tight
--- if future edits drop the local use.
-_unused :: a -> Maybe a -> a
-_unused = fromMaybe

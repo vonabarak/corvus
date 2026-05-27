@@ -80,7 +80,6 @@ import qualified Data.ByteString as BS
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Word (Word8)
 import Numeric (showHex)
 import System.IO
   ( BufferMode (..)
@@ -311,8 +310,3 @@ signalDone :: FileWriterSink -> Maybe Text -> IO ()
 signalDone fws result = do
   let FileWriterDone mv = fwsDone fws
   void $ tryPutMVar mv result
-
--- Suppress unused-import warnings if any of the variants above
--- aren't referenced by every build configuration.
-_unusedImports :: (Word8, BS.ByteString -> IO ()) -> ()
-_unusedImports _ = ()

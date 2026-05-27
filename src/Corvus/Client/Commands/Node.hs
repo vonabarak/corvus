@@ -256,10 +256,3 @@ nodeColumns =
       | noiNetdDisabled n = "disabled"
       | noiNetdConnected n = "online"
       | otherwise = "offline"
-
--- | Suppress unused-import warning for 'M.NodeOnline'-style
--- module-qualified references the parser-side text → enum
--- conversion already covers — kept for documentation parity
--- with the @crv node@ man pages.
-_unusedAdminStates :: NodeAdminState
-_unusedAdminStates = fromMaybe M.NodeOnline (Just M.NodeOnline)
