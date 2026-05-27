@@ -283,6 +283,85 @@ class TestVmMigration(OneDaemonTwoNodesCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
 
+    def test_migrate_preserves_subdirectory_disk_path(self):
+        """A disk whose stored path includes a subdirectory (e.g. a
+        baked artifact placed under a target-specific subdir) must
+        keep that subdirectory on the destination after migration;
+        otherwise QEMU on the destination fails to find the image.
+
+        Regression coverage for the bug where ``runOp`` in
+        ``Vm/Migrate.hs`` used ``takeFileName srcAbs`` to derive the
+        destination path, silently flattening any source-side
+        subdirectory layout. The rest of the migration tests use
+        ``disks.create(name, size_mb=…)`` with no path option, which
+        always yields a top-level file — so the flattening was
+        invisible because basename == stored path.
+        """
+        vm_name = _uniq("mig-sub")
+        base_disk = _uniq("mig-sub-base")
+        cloned_disk = _uniq("mig-sub-disk")
+        subdir = _uniq("migsub")
+        try:
+            self.client_alpha.disks.create(base_disk, size_mb=8, format="qcow2")
+            # ``path`` with a trailing slash is interpreted as "this
+            # is a directory; append the auto-generated filename",
+            # so the resulting ``diskImageNodeFilePath`` is
+            # ``<subdir>/<cloned_disk>.qcow2`` — a relative path
+            # that genuinely carries a subdirectory component.
+            self.client_alpha.disks.clone(base_disk, cloned_disk, path=f"{subdir}/")
+            info_before = self.client_alpha.disks.get(cloned_disk).show()
+            placements_before = {
+                p.node_name: p.file_path for p in info_before.placements
+            }
+            assert subdir in placements_before[self.alpha_name], (
+                f"setup: stored file_path on alpha doesn't contain "
+                f"the subdir {subdir!r}: {placements_before!r}"
+            )
+            vm = self.client_alpha.vms.create(
+                vm_name,
+                cpu_count=1,
+                ram_mb=128,
+                node=self.alpha_name,
+                headless=True,
+                guest_agent=False,
+                cloud_init=False,
+            )
+            vm.attach_disk(cloned_disk, interface="virtio")
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            info_after = self.client_alpha.disks.get(cloned_disk).show()
+            placements_after = {p.node_name: p.file_path for p in info_after.placements}
+            assert set(placements_after.keys()) == {self.beta_name}, (
+                f"placement should be on beta only after move: {placements_after!r}"
+            )
+            assert subdir in placements_after[self.beta_name], (
+                f"subdirectory was flattened during migration; "
+                f"destination file_path is {placements_after[self.beta_name]!r} "
+                f"(expected to contain {subdir!r})"
+            )
+            # Boot on beta. Without the fix, QEMU on beta cannot
+            # find the disk at ``<basePath>/<cloned_disk>.qcow2``
+            # (the file actually lives under
+            # ``<basePath>/<subdir>/<cloned_disk>.qcow2``) and the
+            # process fails to start.
+            _retry_start(vm)
+            _poll_until(
+                lambda: _qemu_count(self.node_beta, vm_name) == 1,
+                timeout_sec=15.0,
+                msg=f"qemu for {vm_name!r} did not spawn on beta",
+            )
+            assert _qemu_count(self.node_alpha, vm_name) == 0
+            vm.reset()
+            _poll_until(
+                lambda: _qemu_count(self.node_beta, vm_name) == 0,
+                timeout_sec=15.0,
+                msg=f"qemu for {vm_name!r} did not exit on beta after reset",
+            )
+        finally:
+            self._delete_silent_vm(vm_name)
+            self._delete_silent_disk(cloned_disk)
+            self._delete_silent_disk(base_disk)
+
     def test_migrate_with_user_netif(self):
         """A VM with a `user`-type NIC migrates successfully and the
         NIC follows."""

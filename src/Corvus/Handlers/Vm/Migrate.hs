@@ -162,8 +162,15 @@ runOp
 runOp _ _ _ _ acc@(Left _) _ = pure acc
 runOp state srcNode destNode basePath (Right created) op = do
   let diskKey = opDiskKey op
-  -- Resolve source-side path.
+  -- Resolve source-side absolute path AND the source's stored
+  -- (relative-or-absolute) DiskImageNode.filePath. The latter is
+  -- what carries any subdirectory layout (e.g. baked artifacts
+  -- placed under a target-specific @templates/<name>/@ subdir);
+  -- using @takeFileName srcAbs@ would flatten those paths and
+  -- QEMU on the destination would fail to find the images.
   srcAbs <- DP.resolveDiskPath (ssDbPool state) (ssQemuConfig state) diskKey srcNode
+  mSrcStored <-
+    runSqlPool (DDb.diskImageNodeFilePathFor diskKey srcNode) (ssDbPool state)
   if null srcAbs
     then
       pure $
@@ -177,8 +184,18 @@ runOp state srcNode destNode basePath (Right created) op = do
       -- agent's effective base for that host.
       mDest <- runSqlPool (get destNode) (ssDbPool state)
       let destBase = maybe basePath (T.unpack . M.nodeBasePath) mDest
-          destAbs = destBase </> takeFileName srcAbs
-          destRel = T.pack (takeFileName srcAbs)
+          -- Preserve the source's relative subdirectory. If the
+          -- source's stored path is absolute (off-base imported
+          -- disk), an arbitrary absolute path is rarely writable
+          -- on a different node, so fall back to placing it under
+          -- destBase with the source basename.
+          (destAbs, destRel) = case mSrcStored of
+            Just stored
+              | not ("/" `T.isPrefixOf` stored) ->
+                  (destBase </> T.unpack stored, stored)
+            _ ->
+              let bn = takeFileName srcAbs
+               in (destBase </> bn, T.pack bn)
       tResult <-
         DT.transferImageBetweenNodes
           state
@@ -212,12 +229,18 @@ commitMigration
   -> MigrationPlan
   -> [(M.DiskImageId, T.Text)]
   -> LoggingT IO Response
-commitMigration state vmId destNode plan _created = do
+commitMigration state vmId destNode plan created = do
   let pool = ssDbPool state
       moves =
         [ d
         | OpMove d <- mpDriveOps plan
         ]
+      -- Stored (relative-or-absolute) paths captured by 'runOp'
+      -- mirror what was on the source's DiskImageNode row. Use
+      -- them to construct the source-side delete paths; the
+      -- source row itself is deleted in the same transaction
+      -- below, so we can't go back and read it.
+      storedByDisk = created
   liftIO $
     runSqlPool
       ( do
@@ -233,22 +256,17 @@ commitMigration state vmId destNode plan _created = do
       )
       pool
   -- Best-effort source-side file delete for moved disks.
-  basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+  daemonBase <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+  mSrcRow <- liftIO $ runSqlPool (get (mpSrcNode plan)) pool
+  let srcBase = maybe daemonBase (T.unpack . M.nodeBasePath) mSrcRow
   forM_ moves $ \d -> do
-    -- The source row is gone now, so we can't ask
-    -- 'resolveDiskPath' for the moved-out path; reconstruct it
-    -- from the source basename and base path.
-    mDestPath <-
-      liftIO $
-        runSqlPool
-          (DDb.diskImageNodeFilePathFor d destNode)
-          pool
-    let bn = case mDestPath of
-          Just p -> takeFileName (T.unpack p)
+    let srcPath = case lookup d storedByDisk of
+          Just stored ->
+            let raw = T.unpack stored
+             in if "/" `isPrefixOf` raw
+                  then raw
+                  else srcBase </> raw
           Nothing -> ""
-        srcPath
-          | null bn = ""
-          | otherwise = basePath </> bn
     unless (null srcPath) $ do
       r <- liftIO $ DA.deleteImageViaAgent state (mpSrcNode plan) srcPath
       case r of
@@ -271,13 +289,15 @@ rollbackCreated
   -> [(M.DiskImageId, T.Text)]
   -> IO ()
 rollbackCreated state destNode created = do
-  basePath <- getEffectiveBasePath (ssQemuConfig state)
+  daemonBase <- getEffectiveBasePath (ssQemuConfig state)
+  mDestRow <- runSqlPool (get destNode) (ssDbPool state)
+  let destBase = maybe daemonBase (T.unpack . M.nodeBasePath) mDestRow
   forM_ created $ \(d, relPath) -> do
     let raw = T.unpack relPath
         absPath =
           if "/" `isPrefixOf` raw
             then raw
-            else basePath </> raw
+            else destBase </> raw
     -- Drop the file first (so a leftover on the agent doesn't
     -- collide with a future retry).
     _ <- DA.deleteImageViaAgent state destNode absPath
