@@ -48,6 +48,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Disk (DiskDelete (..))
+import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor)
 import Corvus.Handlers.Resolve (resolveNode, validateName)
 import Corvus.Handlers.Scheduler (pickNodeForVm)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
@@ -67,6 +68,7 @@ import Corvus.Types
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64.URL as B64URL
 import Data.Int (Int64)
+import Data.List (isPrefixOf)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust, isNothing)
 import Data.Pool (Pool)
@@ -78,6 +80,7 @@ import Data.Word (Word32)
 import Database.Persist
 import Database.Persist.Postgresql (SqlBackend, runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
+import System.FilePath ((</>))
 import System.IO (IOMode (ReadMode), withBinaryFile)
 
 -- | VM statuses in which a user may attach to the console, HMP monitor,
@@ -978,10 +981,9 @@ setVmStatus vmId status = do
         , M.VmLastErrorAt =. Nothing
         ]
 
--- | Create a new VM.
--- TODO(multi-node slice 1c): the placeholder 'nodeKey' below
--- becomes a parameter once 'crv vm create --node' is wired
--- through the CLI / apply / RPC surfaces.
+-- | Insert a 'Vm' row on the resolved node. The caller
+-- ('handleVmCreate') is responsible for resolving the node ref
+-- (or deferring to the scheduler) before invoking this.
 createVm
   :: Text
   -> M.NodeId
@@ -1161,12 +1163,18 @@ getVmDetails config vmId = do
       -- row (race against a node delete) matches 'listVms'.
       mNode <- get (vmNodeId vm)
       let nodeName' = maybe "(deleted)" M.nodeName mNode
+          -- VM's node basePath is used to absolutise relative
+          -- DiskImageNode paths for the user-facing 'DriveInfo'
+          -- — same convention as 'handleDiskShow' (drives lie on
+          -- the VM's node, so anchor against its basePath, not
+          -- the daemon's).
+          vmNodeBasePath = maybe "" (T.unpack . M.nodeBasePath) mNode
       -- Get socket paths
       monitorSock <- liftIO $ getMonitorSocket config vmId
       serialSock <- liftIO $ getSerialSocket config vmId
       guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
       -- Build drive info by fetching disk images
-      driveInfos <- mapM toDriveInfo drives
+      driveInfos <- mapM (toDriveInfo (vmNodeId vm) vmNodeBasePath) drives
       -- Get custom cloud-init config if present
       mCiConfig <- getBy (M.UniqueCloudInitVm key)
       let ciInfo =
@@ -1209,7 +1217,7 @@ getVmDetails config vmId = do
             , vdRebootQuirk = vmRebootQuirk vm
             }
   where
-    toDriveInfo (Entity driveKey drive) = do
+    toDriveInfo vmNode vmNodeBasePath (Entity driveKey drive) = do
       let diskImageKey = driveDiskImageId drive
       mDiskImage <- get diskImageKey
       case mDiskImage of
@@ -1227,16 +1235,31 @@ getVmDetails config vmId = do
               , diCacheType = driveCacheType drive
               , diDiscard = driveDiscard drive
               }
-        Just diskImage ->
+        Just diskImage -> do
+          -- Resolve the file path from the DiskImageNode row for
+          -- the VM's node — single-node deployments produce exactly
+          -- one row, multi-node deployments resolve to the path on
+          -- the VM's host. Stored form is relative-to-basePath
+          -- (or absolute when registered outside basePath); we
+          -- absolutise here against the VM's node basePath so the
+          -- DTO matches what 'disks.show()' returns. Missing row
+          -- yields the empty string, which the CLI renders as
+          -- "(not present)".
+          mPath <- diskImageNodeFilePathFor diskImageKey vmNode
+          let absPath = case mPath of
+                Nothing -> T.empty
+                Just stored ->
+                  let raw = T.unpack stored
+                   in if "/" `isPrefixOf` raw
+                        then stored
+                        else T.pack (vmNodeBasePath </> raw)
           pure
             DriveInfo
               { diId = fromSqlKey driveKey
               , diDiskImageId = fromSqlKey diskImageKey
               , diDiskImageName = diskImageName diskImage
               , diInterface = driveInterface drive
-              , -- TODO(multi-node Phase 3): resolve per-node path
-                -- via DiskImageNode keyed by (image, vm.nodeId).
-                diFilePath = T.empty
+              , diFilePath = absPath
               , diFormat = diskImageFormat diskImage
               , diMedia = driveMedia drive
               , diReadOnly = driveReadOnly drive
@@ -1348,9 +1371,10 @@ checkNetworksRunning vmId = do
 data VmCreate = VmCreate
   { vcrName :: Text
   , vcrNodeRef :: Text
-  -- ^ Reference to the target node (name or numeric id). Resolved
-  -- to 'NodeId' inside 'handleVmCreate'. Required as of multi-node
-  -- slice 1c — there is no scheduler yet.
+  -- ^ Reference to the target node (name or numeric id). Empty
+  -- string / @"0"@ defers to
+  -- 'Corvus.Handlers.Scheduler.pickNodeForVm'; non-empty is
+  -- resolved by 'handleVmCreate'.
   , vcrCpuCount :: Int
   , vcrRamMb :: Int
   , vcrDescription :: Maybe Text

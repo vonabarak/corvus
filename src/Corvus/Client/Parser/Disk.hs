@@ -45,6 +45,7 @@ diskCreateCommand =
           )
       )
     <*> ephemeralSwitch
+    <*> nodeOption
 
 -- | Parser for disk delete
 diskDeleteCommand :: Parser Command
@@ -190,6 +191,7 @@ diskRegisterCommand =
             )
       )
     <*> ephemeralSwitch
+    <*> nodeOption
 
 -- | Parser for disk import (copies local file or downloads URL)
 diskImportCommand :: Parser Command
@@ -225,6 +227,7 @@ diskImportCommand =
             )
       )
     <*> ephemeralSwitch
+    <*> nodeOption
     <*> waitOptionsParser
 
 -- | Parser for disk overlay
@@ -328,6 +331,7 @@ diskCopyCommand =
           <> help "Destination node (name or ID)"
           <> completer nodeCompleter
       )
+    <*> toPathOption
 
 -- | Parser for disk move (cross-node placement swap).
 diskMoveCommand :: Parser Command
@@ -345,6 +349,27 @@ diskMoveCommand =
           <> help "Destination node (name or ID)"
           <> completer nodeCompleter
       )
+    <*> toPathOption
+
+-- | Shared @--to-path@ option for `disk copy` and `disk move`.
+-- Mandatory when the source path is absolute; optional (and the
+-- daemon preserves the source's relative path) otherwise. Same
+-- trailing-@/@ semantics as @--path@ on @disk create@.
+toPathOption :: Parser (Maybe T.Text)
+toPathOption =
+  optional
+    ( T.pack
+        <$> strOption
+          ( long "to-path"
+              <> metavar "PATH"
+              <> help
+                ( "Destination path on the target node. "
+                    <> "Trailing / = directory (filename auto-generated). "
+                    <> "Relative paths resolve against the target's basePath. "
+                    <> "Required when the source's stored path is absolute."
+                )
+          )
+    )
 
 -- | Shared @--ephemeral@ flag for disk-creating subcommands. An
 -- ephemeral disk is auto-deleted with the VM it is attached to.
@@ -353,6 +378,18 @@ ephemeralSwitch =
   switch
     ( long "ephemeral"
         <> help "Mark this disk as ephemeral (auto-deleted with the VM it is attached to)"
+    )
+
+-- | Shared @--node@ option: target node (name or ID) for new
+-- disk placements. Empty string defers to the daemon's scheduler.
+nodeOption :: Parser T.Text
+nodeOption =
+  strOption
+    ( long "node"
+        <> metavar "NODE"
+        <> value ""
+        <> help "Target node (name or ID). Defaults to the scheduler's pick."
+        <> completer nodeCompleter
     )
 
 -- | Parser for all disk subcommands

@@ -34,7 +34,7 @@ import Corvus.Handlers.Disk.Agent
   )
 import Corvus.Handlers.Disk.Db (recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, sanitizeDiskName)
-import Corvus.Handlers.Resolve (validateName)
+import Corvus.Handlers.Resolve (resolveNode, validateName)
 
 import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
@@ -56,19 +56,27 @@ import Database.Persist.Postgresql (runSqlPool)
 import System.Directory (canonicalizePath, doesFileExist)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 
+-- | Resolve a (possibly empty) node-ref text used by every
+-- import path. Empty / @"0"@ defers to 'pickNodeForDisk';
+-- everything else parses as a 'Ref' and looks up via 'resolveNode'.
+resolveImportTargetNode :: ServerState -> Text -> IO (Either Text M.NodeId)
+resolveImportTargetNode state nodeRefText
+  | T.null nodeRefText || nodeRefText == "0" = pickNodeForDisk state
+  | otherwise = do
+      r <- resolveNode (Ref nodeRefText) (ssDbPool state)
+      pure $ fmap (M.toSqlKey :: Int64 -> M.NodeId) r
+
 -- | Import a disk image from an HTTP/HTTPS URL.
 -- Downloads the file to the base images directory, decompresses @.xz@ if
 -- needed, and registers it in the database.
-handleDiskImportUrl :: ServerState -> Text -> Text -> Maybe Text -> Bool -> IO Response
-handleDiskImportUrl state name url mFormatStr ephemeral =
+handleDiskImportUrl :: ServerState -> Text -> Text -> Maybe Text -> Bool -> Text -> IO Response
+handleDiskImportUrl state name url mFormatStr ephemeral nodeRefText =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
       logInfoN $ "Importing disk image from URL: " <> name <> " <- " <> url
       let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
-      -- importDiskFromUrlIO performs its own pickNodeForDisk
-      -- lookup internally (Phase 1 fallback).
-      result <- liftIO $ importDiskFromUrlIO state name url mExplicitFmt Nothing ephemeral
+      result <- liftIO $ importDiskFromUrlIO state name url mExplicitFmt Nothing ephemeral nodeRefText
       case result of
         Left err -> do
           logWarnN $ "URL import failed: " <> err
@@ -86,8 +94,8 @@ handleDiskImportUrl state name url mFormatStr ephemeral =
 -- the download is skipped; on mismatch the import fails without
 -- overwriting. Fresh downloads are retried up to 'maxImportAttempts'
 -- times on hash mismatch.
-handleDiskImportCopy :: ServerState -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Bool -> IO Response
-handleDiskImportCopy state name source mDestPath mFormatStr mMd5 ephemeral =
+handleDiskImportCopy :: ServerState -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Bool -> Text -> IO Response
+handleDiskImportCopy state name source mDestPath mFormatStr mMd5 ephemeral nodeRefText =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -98,9 +106,7 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 ephemeral =
           logWarnN $ "Invalid disk name: " <> err
           pure $ RespError err
         Right safeName -> do
-          -- TODO(multi-node Phase 3): refine pickNodeForDisk with
-          -- DiskImageNode-aware placement instead of first-online-node.
-          mNid <- liftIO $ pickNodeForDisk state
+          mNid <- liftIO $ resolveImportTargetNode state nodeRefText
           case mNid of
             Left err -> pure $ RespError err
             Right nid -> do
@@ -206,14 +212,12 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 ephemeral =
 --
 -- Exposed outside the Action typeclass so @crv apply@ can reuse it
 -- directly when walking a YAML config.
-importDiskFromUrlIO :: ServerState -> Text -> Text -> Maybe DriveFormat -> Maybe Text -> Bool -> IO (Either Text Int64)
-importDiskFromUrlIO state name url mFormat mMd5 ephemeral = do
+importDiskFromUrlIO :: ServerState -> Text -> Text -> Maybe DriveFormat -> Maybe Text -> Bool -> Text -> IO (Either Text Int64)
+importDiskFromUrlIO state name url mFormat mMd5 ephemeral nodeRefText = do
   case sanitizeDiskName name of
     Left err -> pure $ Left err
     Right safeName -> do
-      -- TODO(multi-node Phase 3): refine pickNodeForDisk with
-      -- DiskImageNode-aware placement instead of first-online-node.
-      mNid <- pickNodeForDisk state
+      mNid <- resolveImportTargetNode state nodeRefText
       case mNid of
         Left err -> pure $ Left err
         Right nid -> importOnNode safeName nid
@@ -382,23 +386,29 @@ data DiskImportAction = DiskImportAction
   , diaFormat :: Maybe Text
   , diaMd5 :: Maybe Text
   , diaEphemeral :: Bool
+  , diaNodeRef :: Text
+  -- ^ Node where the import lands. Empty / @"0"@ defers to
+  -- 'Corvus.Handlers.Scheduler.pickNodeForDisk'.
   }
 
 instance Action DiskImportAction where
   actionSubsystem _ = SubDisk
   actionCommand _ = "import"
   actionEntityName = Just . diaName
-  actionExecute ctx a = handleDiskImportCopy (acState ctx) (diaName a) (diaSource a) (diaDestPath a) (diaFormat a) (diaMd5 a) (diaEphemeral a)
+  actionExecute ctx a = handleDiskImportCopy (acState ctx) (diaName a) (diaSource a) (diaDestPath a) (diaFormat a) (diaMd5 a) (diaEphemeral a) (diaNodeRef a)
 
 data DiskImportUrl = DiskImportUrl
   { diuName :: Text
   , diuUrl :: Text
   , diuFormat :: Maybe Text
   , diuEphemeral :: Bool
+  , diuNodeRef :: Text
+  -- ^ Node where the import lands. Empty / @"0"@ defers to
+  -- 'Corvus.Handlers.Scheduler.pickNodeForDisk'.
   }
 
 instance Action DiskImportUrl where
   actionSubsystem _ = SubDisk
   actionCommand _ = "import-url"
   actionEntityName = Just . diuName
-  actionExecute ctx a = handleDiskImportUrl (acState ctx) (diuName a) (diuUrl a) (diuFormat a) (diuEphemeral a)
+  actionExecute ctx a = handleDiskImportUrl (acState ctx) (diuName a) (diuUrl a) (diuFormat a) (diuEphemeral a) (diuNodeRef a)

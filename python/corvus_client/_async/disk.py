@@ -36,7 +36,14 @@ class AsyncDiskManager:
         *,
         format: str | None = None,
         ephemeral: bool = False,
+        node: int | str | None = None,
     ) -> AsyncDisk:
+        """Create a new disk image.
+
+        Pass ``node=`` to pin the placement to a specific node
+        (name or numeric id). When omitted, the daemon's scheduler
+        picks one.
+        """
         mgr = await self._ensure()
         params = _schema.disk.DiskCreateParams.new_message()
         params.name = name
@@ -44,6 +51,8 @@ class AsyncDiskManager:
         if format is not None:
             params.format = format
         params.ephemeral = ephemeral
+        if node is not None:
+            params.node = entity_ref(node)
         resp = await mgr.create(params=params)
         return AsyncDisk(resp.disk)
 
@@ -54,7 +63,14 @@ class AsyncDiskManager:
         *,
         format: str | None = None,
         ephemeral: bool = False,
+        node: int | str | None = None,
     ) -> AsyncDisk:
+        """Register an existing file as a disk image.
+
+        Pass ``node=`` to declare which node hosts the file at
+        ``file_path``. Omit it and the daemon's scheduler picks
+        (useful for single-node deployments).
+        """
         mgr = await self._ensure()
         params = _schema.disk.DiskRegisterParams.new_message()
         params.name = name
@@ -62,6 +78,8 @@ class AsyncDiskManager:
         if format is not None:
             params.format = format
         params.ephemeral = ephemeral
+        if node is not None:
+            params.node = entity_ref(node)
         resp = await mgr.register(params=params)
         return AsyncDisk(resp.disk)
 
@@ -137,8 +155,13 @@ class AsyncDiskManager:
         format: str | None = None,
         size_mb: int | None = None,
         ephemeral: bool = False,
+        node: int | str | None = None,
     ) -> int:
-        """Returns the task id; the disk is created asynchronously."""
+        """Returns the task id; the disk is created asynchronously.
+
+        Pass ``node=`` to direct the import to a specific node;
+        defaults to the scheduler's pick.
+        """
         mgr = await self._ensure()
         params = _schema.disk.DiskImportUrlParams.new_message()
         params.name = name
@@ -148,6 +171,8 @@ class AsyncDiskManager:
         if size_mb is not None:
             params.sizeMb = size_mb
         params.ephemeral = ephemeral
+        if node is not None:
+            params.node = entity_ref(node)
         resp = await mgr.importUrl(params=params)
         return resp.taskId
 
@@ -158,7 +183,13 @@ class AsyncDiskManager:
         *,
         format: str | None = None,
         ephemeral: bool = False,
+        node: int | str | None = None,
     ) -> AsyncDisk:
+        """Import (copy) a local file as a new disk image.
+
+        Pass ``node=`` to direct the import to a specific node;
+        defaults to the scheduler's pick.
+        """
         mgr = await self._ensure()
         params = _schema.disk.DiskImportParams.new_message()
         params.name = name
@@ -166,6 +197,8 @@ class AsyncDiskManager:
         if format is not None:
             params.format = format
         params.ephemeral = ephemeral
+        if node is not None:
+            params.node = entity_ref(node)
         # `import` is a Python keyword; pycapnp uses the schema name verbatim
         # as a method on the cap, so we call it through getattr.
         resp = await getattr(mgr, "import")(params=params)
@@ -175,6 +208,8 @@ class AsyncDiskManager:
         self,
         disk_ref: int | str,
         to_node_ref: int | str,
+        *,
+        to_path: str | None = None,
     ) -> int:
         """Copy a disk image's bytes to another node.
 
@@ -183,11 +218,19 @@ class AsyncDiskManager:
         daemon orchestrates but does not relay. Returns the task
         id so the caller can poll `tasks.get(tid).show()` for
         completion.
+
+        ``to_path`` is the destination path on the new node.
+        Leave ``None`` to preserve the source's relative path;
+        an absolute source path requires an explicit ``to_path``,
+        otherwise the daemon refuses the copy. Trailing ``/``
+        means "this is a directory; pick the source basename".
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskCopyParams.new_message()
         params.diskRef = entity_ref(disk_ref)
         params.toNodeRef = entity_ref(to_node_ref)
+        if to_path is not None:
+            params.toPath = to_path
         resp = await mgr.copy(params=params)
         return resp.taskId
 
@@ -195,17 +238,23 @@ class AsyncDiskManager:
         self,
         disk_ref: int | str,
         to_node_ref: int | str,
+        *,
+        to_path: str | None = None,
     ) -> int:
         """Move a disk image's bytes to another node.
 
         Adds a `DiskImageNode` placement on the destination and
         drops the source placement + file on success. Same byte
         path as :meth:`copy`. Returns the task id.
+
+        ``to_path`` semantics match :meth:`copy`.
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskMoveParams.new_message()
         params.diskRef = entity_ref(disk_ref)
         params.toNodeRef = entity_ref(to_node_ref)
+        if to_path is not None:
+            params.toPath = to_path
         resp = await mgr.move(params=params)
         return resp.taskId
 

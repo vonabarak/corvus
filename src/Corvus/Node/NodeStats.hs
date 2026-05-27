@@ -14,6 +14,7 @@
 -- cycle. The agent always has *some* values to attach.
 module Corvus.Node.NodeStats
   ( readNodeStats
+  , agentVersion
   )
 where
 

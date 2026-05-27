@@ -87,12 +87,12 @@ data Command
     VmMigrate !Text !Text
   | -- Disk image commands
 
-    -- | Create disk image (name, format, sizeMb, optionalPath, ephemeral)
-    DiskCreate !Text !Text !Int64 !(Maybe Text) !Bool
-  | -- | Register existing disk image in DB without copying (name, path, optional format, optional backing image ref, ephemeral)
-    DiskRegisterCmd !Text !FilePath !(Maybe Text) !(Maybe Text) !Bool
-  | -- | Import disk image with copy/download (name, source, destPath, format, ephemeral, waitOptions)
-    DiskImport !Text !Text !(Maybe Text) !(Maybe Text) !Bool !WaitOptions
+    -- | Create disk image (name, format, sizeMb, optionalPath, ephemeral, nodeRef)
+    DiskCreate !Text !Text !Int64 !(Maybe Text) !Bool !Text
+  | -- | Register existing disk image in DB without copying (name, path, optional format, optional backing image ref, ephemeral, nodeRef)
+    DiskRegisterCmd !Text !FilePath !(Maybe Text) !(Maybe Text) !Bool !Text
+  | -- | Import disk image with copy/download (name, source, destPath, format, ephemeral, nodeRef, waitOptions)
+    DiskImport !Text !Text !(Maybe Text) !(Maybe Text) !Bool !Text !WaitOptions
   | -- | Create overlay disk image (name, baseDiskRef, optionalDirPath, ephemeral)
     DiskCreateOverlay !Text !Text !(Maybe Text) !Bool
   | -- | Refresh disk image size from qemu-img info
@@ -113,10 +113,10 @@ data Command
     DiskAttach !Text !Text !Text !(Maybe Text) !Bool !Bool !Text
   | -- | Detach disk from VM (vmRef, diskRef)
     DiskDetach !Text !Text
-  | -- | Copy a disk image to another node (diskRef, toNodeRef)
-    DiskCopy !Text !Text
-  | -- | Move a disk image to another node (diskRef, toNodeRef)
-    DiskMove !Text !Text
+  | -- | Copy a disk image to another node (diskRef, toNodeRef, optional toPath)
+    DiskCopy !Text !Text !(Maybe Text)
+  | -- | Move a disk image to another node (diskRef, toNodeRef, optional toPath)
+    DiskMove !Text !Text !(Maybe Text)
   | -- Shared directory commands
 
     -- | Add shared directory to VM (vmRef, path, tag, cache, readOnly)

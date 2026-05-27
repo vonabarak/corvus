@@ -35,10 +35,12 @@ import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Control.Exception as E
 import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Logger (logWarnN)
 import qualified Corvus.Model as M
+import qualified Corvus.Node.NodeStats as NS
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (callSink)
-import Corvus.Types (ServerState (..), clearReservation)
+import Corvus.Types (ServerState (..), clearReservation, runServerLogging)
 import qualified Corvus.Types
 import Data.Int (Int64)
 import Data.List (find)
@@ -305,9 +307,42 @@ applyNodeStats state nid stats snapMs = do
     (ssDbPool state)
   -- See note above re: re-counting.
   Corvus.Types.clearReservation state nid
+  -- Refuse to schedule onto a node whose agent build differs
+  -- from the daemon's. The agent reports its short git hash in
+  -- 'NodeStats.agentVersion'; the daemon was built from the
+  -- same library, so 'NS.agentVersion' is the local truth. On
+  -- mismatch we flip the node to 'NodeDraining' so the
+  -- scheduler skips it but existing VMs / network state survive
+  -- — and log loudly so the operator notices.
+  when (not (T.null ver) && ver /= NS.agentVersion) $
+    refuseMismatchedAgent state nid ver
   where
     maybeIfNonZero64 :: Int64 -> Maybe Int
     maybeIfNonZero64 x = if x == 0 then Nothing else Just (fromIntegral x)
+
+-- | Flip a mismatched-agent node to 'NodeDraining' the first
+-- time we observe the mismatch. Subsequent pushes are no-ops
+-- because the admin state is no longer 'NodeOnline'. Operators
+-- who rebuild the agent to match can manually flip it back with
+-- @crv node edit <NAME> --admin-state online@.
+refuseMismatchedAgent :: ServerState -> M.NodeId -> Text -> IO ()
+refuseMismatchedAgent state nid agentVer = do
+  mNode <- runSqlPool (get nid) (ssDbPool state)
+  case mNode of
+    Just n | M.nodeAdminState n == M.NodeOnline -> do
+      runSqlPool
+        (update nid [M.NodeAdminState =. M.NodeDraining])
+        (ssDbPool state)
+      runServerLogging state $
+        logWarnN $
+          "node "
+            <> M.nodeName n
+            <> " agent version "
+            <> agentVer
+            <> " does not match daemon "
+            <> NS.agentVersion
+            <> "; marking draining so the scheduler skips it"
+    _ -> pure ()
 
 millisToUtc :: Int64 -> UTCTime
 millisToUtc ms =

@@ -38,10 +38,6 @@ module Corvus.Qemu
   , qmpBlockdevDel
   , qmpQQ
 
-    -- * Command generation (daemon-side preview path; agent has its own builder)
-  , generateQemuCommand
-  , generateQemuCommandIO
-
     -- * Disk image management (read-only helpers; mutating ops go through the agent)
   , createImage
   , deleteImage

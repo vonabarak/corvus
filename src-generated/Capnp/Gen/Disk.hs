@@ -236,7 +236,7 @@ instance (C.HasTypeId DiskCreateParams) where
     typeId  = 16178903223577522352
 instance (C.TypedStruct DiskCreateParams) where
     numStructWords  = 2
-    numStructPtrs  = 1
+    numStructPtrs  = 2
 instance (C.Allocate DiskCreateParams) where
     type AllocHint DiskCreateParams = ()
     new _ = C.newTypedStruct
@@ -250,7 +250,8 @@ data instance C.Parsed DiskCreateParams
         {name :: (RP.Parsed Basics.Text)
         ,sizeMb :: (RP.Parsed Std_.Int64)
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
-        ,ephemeral :: (RP.Parsed Std_.Bool)}
+        ,ephemeral :: (RP.Parsed Std_.Bool)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskCreateParams))
 deriving instance (Std_.Eq (C.Parsed DiskCreateParams))
@@ -258,13 +259,15 @@ instance (C.Parse DiskCreateParams (C.Parsed DiskCreateParams)) where
     parse raw_ = (DiskCreateParams <$> (GH.parseField #name raw_)
                                    <*> (GH.parseField #sizeMb raw_)
                                    <*> (GH.parseField #format raw_)
-                                   <*> (GH.parseField #ephemeral raw_))
+                                   <*> (GH.parseField #ephemeral raw_)
+                                   <*> (GH.parseField #node raw_))
 instance (C.Marshal DiskCreateParams (C.Parsed DiskCreateParams)) where
     marshalInto raw_ DiskCreateParams{..} = (do
         (GH.encodeField #name name raw_)
         (GH.encodeField #sizeMb sizeMb raw_)
         (GH.encodeField #format format raw_)
         (GH.encodeField #ephemeral ephemeral raw_)
+        (GH.encodeField #node node raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot DiskCreateParams Basics.Text) where
@@ -275,13 +278,15 @@ instance (GH.HasField "format" GH.Slot DiskCreateParams Capnp.Gen.ById.Xbf9b09f6
     fieldByLabel  = (GH.dataField 0 1 16 0)
 instance (GH.HasField "ephemeral" GH.Slot DiskCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 1 1 0)
+instance (GH.HasField "node" GH.Slot DiskCreateParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 1)
 data DiskRegisterParams 
 type instance (R.ReprFor DiskRegisterParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskRegisterParams) where
     typeId  = 17240446815621875179
 instance (C.TypedStruct DiskRegisterParams) where
     numStructWords  = 1
-    numStructPtrs  = 2
+    numStructPtrs  = 3
 instance (C.Allocate DiskRegisterParams) where
     type AllocHint DiskRegisterParams = ()
     new _ = C.newTypedStruct
@@ -295,7 +300,8 @@ data instance C.Parsed DiskRegisterParams
         {name :: (RP.Parsed Basics.Text)
         ,filePath :: (RP.Parsed Basics.Text)
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
-        ,ephemeral :: (RP.Parsed Std_.Bool)}
+        ,ephemeral :: (RP.Parsed Std_.Bool)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskRegisterParams))
 deriving instance (Std_.Eq (C.Parsed DiskRegisterParams))
@@ -303,13 +309,15 @@ instance (C.Parse DiskRegisterParams (C.Parsed DiskRegisterParams)) where
     parse raw_ = (DiskRegisterParams <$> (GH.parseField #name raw_)
                                      <*> (GH.parseField #filePath raw_)
                                      <*> (GH.parseField #format raw_)
-                                     <*> (GH.parseField #ephemeral raw_))
+                                     <*> (GH.parseField #ephemeral raw_)
+                                     <*> (GH.parseField #node raw_))
 instance (C.Marshal DiskRegisterParams (C.Parsed DiskRegisterParams)) where
     marshalInto raw_ DiskRegisterParams{..} = (do
         (GH.encodeField #name name raw_)
         (GH.encodeField #filePath filePath raw_)
         (GH.encodeField #format format raw_)
         (GH.encodeField #ephemeral ephemeral raw_)
+        (GH.encodeField #node node raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot DiskRegisterParams Basics.Text) where
@@ -320,6 +328,8 @@ instance (GH.HasField "format" GH.Slot DiskRegisterParams Capnp.Gen.ById.Xbf9b09
     fieldByLabel  = (GH.dataField 0 0 16 0)
 instance (GH.HasField "ephemeral" GH.Slot DiskRegisterParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 0 1 0)
+instance (GH.HasField "node" GH.Slot DiskRegisterParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 2)
 data DiskCreateOverlayParams 
 type instance (R.ReprFor DiskCreateOverlayParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCreateOverlayParams) where
@@ -446,7 +456,7 @@ instance (C.HasTypeId DiskImportUrlParams) where
     typeId  = 13524245572784434207
 instance (C.TypedStruct DiskImportUrlParams) where
     numStructWords  = 2
-    numStructPtrs  = 2
+    numStructPtrs  = 3
 instance (C.Allocate DiskImportUrlParams) where
     type AllocHint DiskImportUrlParams = ()
     new _ = C.newTypedStruct
@@ -461,7 +471,8 @@ data instance C.Parsed DiskImportUrlParams
         ,url :: (RP.Parsed Basics.Text)
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
         ,sizeMb :: (RP.Parsed Std_.Int64)
-        ,ephemeral :: (RP.Parsed Std_.Bool)}
+        ,ephemeral :: (RP.Parsed Std_.Bool)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskImportUrlParams))
 deriving instance (Std_.Eq (C.Parsed DiskImportUrlParams))
@@ -470,7 +481,8 @@ instance (C.Parse DiskImportUrlParams (C.Parsed DiskImportUrlParams)) where
                                       <*> (GH.parseField #url raw_)
                                       <*> (GH.parseField #format raw_)
                                       <*> (GH.parseField #sizeMb raw_)
-                                      <*> (GH.parseField #ephemeral raw_))
+                                      <*> (GH.parseField #ephemeral raw_)
+                                      <*> (GH.parseField #node raw_))
 instance (C.Marshal DiskImportUrlParams (C.Parsed DiskImportUrlParams)) where
     marshalInto raw_ DiskImportUrlParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -478,6 +490,7 @@ instance (C.Marshal DiskImportUrlParams (C.Parsed DiskImportUrlParams)) where
         (GH.encodeField #format format raw_)
         (GH.encodeField #sizeMb sizeMb raw_)
         (GH.encodeField #ephemeral ephemeral raw_)
+        (GH.encodeField #node node raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot DiskImportUrlParams Basics.Text) where
@@ -490,13 +503,15 @@ instance (GH.HasField "sizeMb" GH.Slot DiskImportUrlParams Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
 instance (GH.HasField "ephemeral" GH.Slot DiskImportUrlParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 0 1 0)
+instance (GH.HasField "node" GH.Slot DiskImportUrlParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 2)
 data DiskImportParams 
 type instance (R.ReprFor DiskImportParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskImportParams) where
     typeId  = 16137633644853007213
 instance (C.TypedStruct DiskImportParams) where
     numStructWords  = 1
-    numStructPtrs  = 2
+    numStructPtrs  = 3
 instance (C.Allocate DiskImportParams) where
     type AllocHint DiskImportParams = ()
     new _ = C.newTypedStruct
@@ -510,7 +525,8 @@ data instance C.Parsed DiskImportParams
         {name :: (RP.Parsed Basics.Text)
         ,srcPath :: (RP.Parsed Basics.Text)
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
-        ,ephemeral :: (RP.Parsed Std_.Bool)}
+        ,ephemeral :: (RP.Parsed Std_.Bool)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskImportParams))
 deriving instance (Std_.Eq (C.Parsed DiskImportParams))
@@ -518,13 +534,15 @@ instance (C.Parse DiskImportParams (C.Parsed DiskImportParams)) where
     parse raw_ = (DiskImportParams <$> (GH.parseField #name raw_)
                                    <*> (GH.parseField #srcPath raw_)
                                    <*> (GH.parseField #format raw_)
-                                   <*> (GH.parseField #ephemeral raw_))
+                                   <*> (GH.parseField #ephemeral raw_)
+                                   <*> (GH.parseField #node raw_))
 instance (C.Marshal DiskImportParams (C.Parsed DiskImportParams)) where
     marshalInto raw_ DiskImportParams{..} = (do
         (GH.encodeField #name name raw_)
         (GH.encodeField #srcPath srcPath raw_)
         (GH.encodeField #format format raw_)
         (GH.encodeField #ephemeral ephemeral raw_)
+        (GH.encodeField #node node raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot DiskImportParams Basics.Text) where
@@ -535,13 +553,15 @@ instance (GH.HasField "format" GH.Slot DiskImportParams Capnp.Gen.ById.Xbf9b09f6
     fieldByLabel  = (GH.dataField 0 0 16 0)
 instance (GH.HasField "ephemeral" GH.Slot DiskImportParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 0 1 0)
+instance (GH.HasField "node" GH.Slot DiskImportParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 2)
 data DiskCopyParams 
 type instance (R.ReprFor DiskCopyParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCopyParams) where
     typeId  = 10673387965178120780
 instance (C.TypedStruct DiskCopyParams) where
     numStructWords  = 0
-    numStructPtrs  = 2
+    numStructPtrs  = 3
 instance (C.Allocate DiskCopyParams) where
     type AllocHint DiskCopyParams = ()
     new _ = C.newTypedStruct
@@ -553,30 +573,35 @@ instance (C.EstimateListAlloc DiskCopyParams (C.Parsed DiskCopyParams))
 data instance C.Parsed DiskCopyParams
     = DiskCopyParams 
         {diskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
-        ,toNodeRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+        ,toNodeRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
+        ,toPath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskCopyParams))
 deriving instance (Std_.Eq (C.Parsed DiskCopyParams))
 instance (C.Parse DiskCopyParams (C.Parsed DiskCopyParams)) where
     parse raw_ = (DiskCopyParams <$> (GH.parseField #diskRef raw_)
-                                 <*> (GH.parseField #toNodeRef raw_))
+                                 <*> (GH.parseField #toNodeRef raw_)
+                                 <*> (GH.parseField #toPath raw_))
 instance (C.Marshal DiskCopyParams (C.Parsed DiskCopyParams)) where
     marshalInto raw_ DiskCopyParams{..} = (do
         (GH.encodeField #diskRef diskRef raw_)
         (GH.encodeField #toNodeRef toNodeRef raw_)
+        (GH.encodeField #toPath toPath raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "diskRef" GH.Slot DiskCopyParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "toNodeRef" GH.Slot DiskCopyParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "toPath" GH.Slot DiskCopyParams Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
 data DiskMoveParams 
 type instance (R.ReprFor DiskMoveParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskMoveParams) where
     typeId  = 12946892671933591168
 instance (C.TypedStruct DiskMoveParams) where
     numStructWords  = 0
-    numStructPtrs  = 2
+    numStructPtrs  = 3
 instance (C.Allocate DiskMoveParams) where
     type AllocHint DiskMoveParams = ()
     new _ = C.newTypedStruct
@@ -588,23 +613,28 @@ instance (C.EstimateListAlloc DiskMoveParams (C.Parsed DiskMoveParams))
 data instance C.Parsed DiskMoveParams
     = DiskMoveParams 
         {diskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
-        ,toNodeRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+        ,toNodeRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
+        ,toPath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskMoveParams))
 deriving instance (Std_.Eq (C.Parsed DiskMoveParams))
 instance (C.Parse DiskMoveParams (C.Parsed DiskMoveParams)) where
     parse raw_ = (DiskMoveParams <$> (GH.parseField #diskRef raw_)
-                                 <*> (GH.parseField #toNodeRef raw_))
+                                 <*> (GH.parseField #toNodeRef raw_)
+                                 <*> (GH.parseField #toPath raw_))
 instance (C.Marshal DiskMoveParams (C.Parsed DiskMoveParams)) where
     marshalInto raw_ DiskMoveParams{..} = (do
         (GH.encodeField #diskRef diskRef raw_)
         (GH.encodeField #toNodeRef toNodeRef raw_)
+        (GH.encodeField #toPath toPath raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "diskRef" GH.Slot DiskMoveParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "toNodeRef" GH.Slot DiskMoveParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "toPath" GH.Slot DiskMoveParams Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
 data DiskManager 
 type instance (R.ReprFor DiskManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskManager) where

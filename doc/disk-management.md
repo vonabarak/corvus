@@ -155,8 +155,8 @@ crv disk detach my-vm 3   # By drive ID (from `crv vm show`)
 ## Moving / Copying Disks Between Nodes
 
 ```bash
-crv disk copy <disk> --to-node <node>   # add a placement, source intact
-crv disk move <disk> --to-node <node>   # add destination, drop source
+crv disk copy <disk> --to-node <node> [--to-path <path>]   # add a placement, source intact
+crv disk move <disk> --to-node <node> [--to-path <path>]   # add destination, drop source
 ```
 
 Both commands run asynchronously and return a task id; bytes
@@ -171,6 +171,38 @@ the backing image first.
 For migrating a whole VM (which moves r/w drives and copies
 r/o drives in one orchestrated step), see
 [doc/vm-migration.md](vm-migration.md).
+
+### Destination path
+
+By default the daemon **preserves the source disk's stored
+path** on the destination — if the disk lives at
+`templates/ubuntu-24.qcow2` on the source node, the copy lands
+at `templates/ubuntu-24.qcow2` (relative to the destination
+node's `basePath`) on the target. The destination agent
+creates any missing parent directories automatically.
+
+`--to-path` overrides that default. It accepts the same shapes
+as `--path` on `disk create` (see [Path Resolution](#path-resolution)):
+
+| `--to-path` value | Result on the destination |
+|-------------------|---------------------------|
+| *(omitted)* | preserve the source's relative path; refuse if source path is absolute |
+| `staging/x.qcow2` | `<destBase>/staging/x.qcow2` (stored relative) |
+| `staging/` | `<destBase>/staging/<sourceBasename>` (trailing `/` = directory) |
+| `/srv/data/x.qcow2` | absolute, stored verbatim |
+
+**Absolute-source rule.** If the source disk was registered
+with an absolute path *outside* the source node's `basePath`,
+copy / move refuses unless `--to-path` is supplied. The same
+absolute path on a different node is rarely writable, and
+silently retargeting under the destination's `basePath` would
+diverge the storage form between the two placements. The
+operator must pick the destination explicitly.
+
+**Collision guard.** If the resolved destination path already
+holds a different `DiskImageNode` placement on the target, the
+command refuses cleanly with `destination path '<P>' already
+in use by disk id <N>` — no constraint-violation stack.
 
 | Option | Values | Default |
 |--------|--------|---------|

@@ -268,7 +268,7 @@ vmReset vmId = withState (\st -> runAction st "alice" (VmReset vmId))
 
 diskCreate :: Text -> DriveFormat -> Int64 -> TestM Response
 diskCreate name format sizeMb =
-  withState (\st -> runAction st "alice" (DiskCreate name format sizeMb Nothing False))
+  withState (\st -> runAction st "alice" (DiskCreate name format sizeMb Nothing False ""))
 
 diskCreateOverlay :: Text -> Int64 -> Maybe Text -> TestM Response
 diskCreateOverlay name baseDiskId mPath =
@@ -276,13 +276,13 @@ diskCreateOverlay name baseDiskId mPath =
 
 diskRegister :: Text -> Text -> DriveFormat -> TestM Response
 diskRegister name filePath format =
-  withState (\st -> runAction st "alice" (DiskRegister name filePath (Just format) Nothing False))
+  withState (\st -> runAction st "alice" (DiskRegister name filePath (Just format) Nothing False ""))
 
 diskRegisterWithBacking :: Text -> Text -> DriveFormat -> Text -> TestM Response
 diskRegisterWithBacking name filePath format backingRef =
   withState $ \st -> do
     backingId <- resolveDiskId st (Ref backingRef)
-    runAction st "alice" (DiskRegister name filePath (Just format) (Just backingId) False)
+    runAction st "alice" (DiskRegister name filePath (Just format) (Just backingId) False "")
 
 diskClone :: Text -> Int64 -> Maybe Text -> TestM Response
 diskClone name baseDiskId mPath =
@@ -294,7 +294,7 @@ diskRebase diskId mNewBackingId unsafe =
 
 diskImport :: Text -> Text -> Maybe Text -> Maybe Text -> Bool -> TestM Response
 diskImport name source mPath mFormat _wait =
-  withState (\st -> runAction st "alice" (DiskImportAction name source mPath mFormat Nothing False))
+  withState (\st -> runAction st "alice" (DiskImportAction name source mPath mFormat Nothing False ""))
 
 diskDelete :: Int64 -> TestM Response
 diskDelete diskId = withState (\st -> runAction st "alice" (DiskDelete diskId))

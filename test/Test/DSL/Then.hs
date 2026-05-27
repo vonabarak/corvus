@@ -160,15 +160,32 @@ vmNotExists vmId = do
   mVm <- runDb $ get (toSqlKey vmId :: VmId)
   liftIO $ mVm `shouldSatisfy` isNothing
 
+-- | Assert that the disk has at least one 'DiskImageNode'
+-- placement whose stored 'filePath' matches @expectedPath@. The
+-- match is exact against the stored value (the daemon normalises
+-- paths under @basePath@ to a relative form before insert, so
+-- callers should pass the same relative form).
 diskImageHasPath :: Int64 -> Text -> TestM ()
-diskImageHasPath diskId _expectedPath = do
-  -- TODO(multi-node Phase 3): assert against the per-node row in
-  -- DiskImageNode for (diskId, test-node). The cluster-wide
-  -- DiskImage.filePath was dropped in slice 1a.
+diskImageHasPath diskId expectedPath = do
   mDisk <- runDb $ get (toSqlKey diskId :: DiskImageId)
   case mDisk of
     Nothing -> liftIO $ fail $ "Disk image not found: " <> show diskId
-    Just _ -> pure ()
+    Just _ -> do
+      placements <-
+        runDb $
+          selectList
+            [DiskImageNodeDiskImageId ==. toSqlKey diskId]
+            []
+      let paths = map (diskImageNodeFilePath . entityVal) placements
+      liftIO $
+        unless (expectedPath `elem` paths) $
+          fail $
+            "Disk "
+              <> show diskId
+              <> " has no placement with path "
+              <> show expectedPath
+              <> "; placements: "
+              <> show paths
 
 vmHasStatus :: Int64 -> VmStatus -> TestM ()
 vmHasStatus vmId expectedStatus = do

@@ -23,10 +23,17 @@ class SyncDiskManager:
         *,
         format: str | None = None,
         ephemeral: bool = False,
+        node: int | str | None = None,
     ):
         return SyncDisk(
             self._rl.run(
-                self._a.create(name, size_mb, format=format, ephemeral=ephemeral)
+                self._a.create(
+                    name,
+                    size_mb,
+                    format=format,
+                    ephemeral=ephemeral,
+                    node=node,
+                )
             ),
             self._rl,
         )
@@ -38,10 +45,17 @@ class SyncDiskManager:
         *,
         format: str | None = None,
         ephemeral: bool = False,
+        node: int | str | None = None,
     ):
         return SyncDisk(
             self._rl.run(
-                self._a.register(name, file_path, format=format, ephemeral=ephemeral)
+                self._a.register(
+                    name,
+                    file_path,
+                    format=format,
+                    ephemeral=ephemeral,
+                    node=node,
+                )
             ),
             self._rl,
         )
@@ -83,6 +97,7 @@ class SyncDiskManager:
         format: str | None = None,
         size_mb: int | None = None,
         ephemeral: bool = False,
+        node: int | str | None = None,
     ) -> int:
         return self._rl.run(
             self._a.import_url(
@@ -91,6 +106,7 @@ class SyncDiskManager:
                 format=format,
                 size_mb=size_mb,
                 ephemeral=ephemeral,
+                node=node,
             )
         )
 
@@ -101,10 +117,17 @@ class SyncDiskManager:
         *,
         format: str | None = None,
         ephemeral: bool = False,
+        node: int | str | None = None,
     ):
         return SyncDisk(
             self._rl.run(
-                self._a.import_(name, src_path, format=format, ephemeral=ephemeral)
+                self._a.import_(
+                    name,
+                    src_path,
+                    format=format,
+                    ephemeral=ephemeral,
+                    node=node,
+                )
             ),
             self._rl,
         )
@@ -113,15 +136,19 @@ class SyncDiskManager:
         self,
         disk_ref: int | str,
         to_node_ref: int | str,
+        *,
+        to_path: str | None = None,
     ) -> int:
-        return self._rl.run(self._a.copy(disk_ref, to_node_ref))
+        return self._rl.run(self._a.copy(disk_ref, to_node_ref, to_path=to_path))
 
     def move(
         self,
         disk_ref: int | str,
         to_node_ref: int | str,
+        *,
+        to_path: str | None = None,
     ) -> int:
-        return self._rl.run(self._a.move(disk_ref, to_node_ref))
+        return self._rl.run(self._a.move(disk_ref, to_node_ref, to_path=to_path))
 
 
 class SyncDisk(LoopBoundResource):

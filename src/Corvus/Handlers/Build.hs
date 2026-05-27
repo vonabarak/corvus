@@ -47,7 +47,7 @@ import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
 import Corvus.Handlers.Resolve (validateName)
-import Corvus.Handlers.Scheduler (pickNodeForDisk)
+import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..), getVmDetails)
 import Corvus.Model
@@ -506,7 +506,7 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
       case vmR of
         Left err -> pure $ Left err
         Right vmIdLong -> do
-          tgtR <- setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName
+          tgtR <- setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName (buildNode b)
           case tgtR of
             Left err -> pure $ Left err
             Right (artifactDiskId, needFlatten) -> do
@@ -597,8 +597,11 @@ setupTargetDisk
   -> BuildTarget
   -> Text
   -- ^ ephemeral target name
+  -> Text
+  -- ^ build's target node (passes through to DiskCreate so the
+  -- target lands on the same kernel as the bake VM)
   -> LoggingT IO (Either Text (Int64, Bool))
-setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName = case strategy of
+setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName buildNodeRef = case strategy of
   BuildStrategyOverlay -> firstDriveAsArtifact True
   BuildStrategyInstaller -> firstDriveAsArtifact False
   BuildStrategyFromScratch -> createAndAttachTarget
@@ -627,7 +630,7 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
         liftIO $
           runActionAsSubtask
             (ActionContext state parentTaskId "system")
-            (DiskCreate targetTmpName (btFormat target) sizeMb Nothing True)
+            (DiskCreate targetTmpName (btFormat target) sizeMb Nothing True buildNodeRef)
       case diskResp of
         RespDiskCreated diskIdLong -> attachTarget diskIdLong
         RespError err -> pure $ Left $ "create target disk: " <> err
@@ -1655,9 +1658,7 @@ publishArtifactDiskRow state diskId newName = do
 -- requirement.
 compactDisk :: ServerState -> Int64 -> LoggingT IO ()
 compactDisk state diskId = do
-  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
-  -- DiskImageNode-aware placement instead of first-online-node.
-  mNid <- liftIO $ pickNodeForDisk state
+  mNid <- liftIO $ pickNodeForExistingDisk state (toSqlKey diskId :: DiskImageId)
   case mNid of
     Left err -> logWarnN $ "compact: cannot resolve node: " <> err
     Right nid -> do

@@ -70,8 +70,9 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
 import GHC.Clock (getMonotonicTime)
 import Supervisors (Supervisor)
-import System.Directory (getFileSize, renameFile)
+import System.Directory (createDirectoryIfMissing, getFileSize, renameFile)
 import System.Exit (ExitCode (..))
+import System.FilePath (takeDirectory)
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
 import System.Posix.Types (CPid (..))
 import System.Process
@@ -695,6 +696,12 @@ importFromPeer
   -- to plaintext (the agent was started with @--no-tls@).
   -> IO ()
 importFromPeer sc partPath host port token mTls = do
+  -- Ensure the parent directory exists before the writer tries
+  -- to open the file. The daemon's @disk copy --to-path
+  -- subdir/x.qcow2@ flow expects the destination agent to create
+  -- @subdir/@ on demand; without this, @openBinaryFile@ inside
+  -- 'NTr.newFileWriterSink' fails with ENOENT.
+  createDirectoryIfMissing True (takeDirectory partPath)
   (sinkImpl, done) <- NTr.newFileWriterSink partPath
   sinkClient <- C.export @CGS.ByteSink (scSup sc) sinkImpl
   NOA.withNodeAgentClient host port (scOwner sc) mTls $ \case

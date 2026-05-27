@@ -124,6 +124,7 @@ data ApplyDisk = ApplyDisk
   , adBacking :: Maybe Text
   , adMd5 :: Maybe Text
   , adEphemeral :: Bool
+  , adNode :: Text
   }
   deriving (Show)
 
@@ -141,6 +142,7 @@ instance FromJSON ApplyDisk where
       <*> o .:? "backing"
       <*> o .:? "md5"
       <*> o .:? "ephemeral" .!= False
+      <*> o .:? "node" .!= ""
 
 data ApplyNetwork = ApplyNetwork
   { anName :: Text

@@ -68,10 +68,22 @@ resolveDiskPath pool config diskId nodeId = do
 
 -- | Convert an absolute file path to a relative path if it falls within
 -- the base directory. Paths outside the base directory are returned as-is.
+--
+-- Trailing slashes on @basePath@ (e.g. when a node was
+-- registered with @\/home\/kvm\/VMs\/@) are normalised away
+-- first so the prefix check matches regardless of how the
+-- caller wrote it.
 makeRelativeToBase :: FilePath -> FilePath -> Text
 makeRelativeToBase basePath filePath
-  | (basePath ++ "/") `isPrefixOf` filePath = T.pack $ drop (length basePath + 1) filePath
+  | (b ++ "/") `isPrefixOf` filePath = T.pack $ drop (length b + 1) filePath
   | otherwise = T.pack filePath
+  where
+    b = stripTrailingSlashes basePath
+    stripTrailingSlashes :: FilePath -> FilePath
+    stripTrailingSlashes [] = []
+    stripTrailingSlashes s
+      | last s == '/' = stripTrailingSlashes (init s)
+      | otherwise = s
 
 -- | Resolve an optional path for a disk image file.
 --

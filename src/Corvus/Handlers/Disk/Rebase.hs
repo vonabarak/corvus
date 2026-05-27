@@ -23,7 +23,7 @@ import Corvus.Handlers.Disk.Path (resolveDiskPath)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk.Agent (getImageSizeMbViaAgent, rebaseImageViaAgent)
-import Corvus.Handlers.Scheduler (pickNodeForDisk)
+import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
 import Corvus.Protocol
@@ -38,9 +38,7 @@ handleDiskRebase :: ServerState -> Int64 -> Maybe Int64 -> Bool -> IO Response
 handleDiskRebase state diskId mNewBackingId unsafe = runServerLogging state $ do
   logInfoN $ "Rebasing disk image: " <> T.pack (show diskId)
 
-  -- TODO(multi-node Phase 3): refine pickNodeForDisk with
-  -- DiskImageNode-aware placement instead of first-online-node.
-  mNid <- liftIO $ pickNodeForDisk state
+  mNid <- liftIO $ pickNodeForExistingDisk state (toSqlKey diskId :: DiskImageId)
   case mNid of
     Left err -> pure $ RespError err
     Right nid -> do

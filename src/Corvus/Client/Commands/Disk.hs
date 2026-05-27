@@ -82,9 +82,9 @@ parseMedia = enumFromText
 -- legacy @mPath@ argument and silently ignore it for backwards
 -- compatibility with the CLI parser; an explicit path will be
 -- reintroduced when @DiskCreateParams@ gains a @path@ field.
-handleDiskCreate :: OutputFormat -> CapnpConnection -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> IO Bool
-handleDiskCreate fmt conn name format sizeMb _mPath ephemeral = do
-  r <- try @SomeException (CR.rpcDiskCreate conn name sizeMb (toCapnpDriveFormat format) ephemeral)
+handleDiskCreate :: OutputFormat -> CapnpConnection -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> Text -> IO Bool
+handleDiskCreate fmt conn name format sizeMb _mPath ephemeral nodeRef = do
+  r <- try @SomeException (CR.rpcDiskCreate conn name sizeMb (toCapnpDriveFormat format) ephemeral (entityRefFromText nodeRef))
   case r of
     Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
@@ -114,8 +114,8 @@ handleDiskCreateOverlay fmt conn name baseDiskRef _optDirPath ephemeral = do
 -- | Handle disk register command (registers local file in DB without
 -- copying). The format must be supplied since the Cap'n Proto schema
 -- doesn't carry the auto-detect path yet.
-handleDiskRegister :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Maybe Text -> Maybe Text -> Bool -> IO Bool
-handleDiskRegister fmt conn name path mFormatStr _mBackingRef ephemeral = do
+handleDiskRegister :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Maybe Text -> Maybe Text -> Bool -> Text -> IO Bool
+handleDiskRegister fmt conn name path mFormatStr _mBackingRef ephemeral nodeRef = do
   exists <- doesFileExist path
   if not exists
     then do
@@ -132,7 +132,7 @@ handleDiskRegister fmt conn name path mFormatStr _mBackingRef ephemeral = do
           (putStrLn "Error: --format must be supplied for disk register.")
         pure False
       Just fmt' -> do
-        r <- try @SomeException (CR.rpcDiskRegister conn name (T.pack path) fmt' ephemeral)
+        r <- try @SomeException (CR.rpcDiskRegister conn name (T.pack path) fmt' ephemeral (entityRefFromText nodeRef))
         case r of
           Right diskId -> do
             emitOkWith fmt [("id", toJSON diskId)] $
@@ -149,8 +149,8 @@ handleDiskRegister fmt conn name path mFormatStr _mBackingRef ephemeral = do
 -- and @--wait@ are not threaded through the wrapper. The legacy
 -- 'WaitOptions' / format arguments are accepted to keep the CLI
 -- parser happy.
-handleDiskImport :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Maybe Text -> Bool -> WaitOptions -> IO Bool
-handleDiskImport fmt conn name source _mPath mFormatStr ephemeral _waitOpts = do
+handleDiskImport :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Maybe Text -> Bool -> Text -> WaitOptions -> IO Bool
+handleDiskImport fmt conn name source _mPath mFormatStr ephemeral nodeRef _waitOpts = do
   case mFormatStr >>= eitherToMaybe . parseFormat of
     Nothing -> do
       emitError
@@ -160,7 +160,7 @@ handleDiskImport fmt conn name source _mPath mFormatStr ephemeral _waitOpts = do
         (putStrLn "Error: --format must be supplied for disk import.")
       pure False
     Just fmt' -> do
-      r <- try @SomeException (CR.rpcDiskImport conn name source fmt' ephemeral)
+      r <- try @SomeException (CR.rpcDiskImport conn name source fmt' ephemeral (entityRefFromText nodeRef))
       case r of
         Right diskId -> do
           emitOkWith fmt [("id", toJSON diskId)] $
@@ -489,12 +489,16 @@ readMaybeInt64 s = case reads s of
   [(n, "")] -> Just n
   _ -> Nothing
 
--- | Handle @crv disk copy <DISK> --to-node <NODE>@.
-handleDiskCopy :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
-handleDiskCopy fmt conn diskRef toNodeRef = do
+-- | Handle @crv disk copy <DISK> --to-node <NODE> [--to-path PATH]@.
+handleDiskCopy :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> IO Bool
+handleDiskCopy fmt conn diskRef toNodeRef mToPath = do
   r <-
     try @SomeException $
-      CR.rpcDiskCopy conn (entityRefFromText diskRef) (entityRefFromText toNodeRef)
+      CR.rpcDiskCopy
+        conn
+        (entityRefFromText diskRef)
+        (entityRefFromText toNodeRef)
+        mToPath
   case r of
     Right tid -> do
       emitOkWith fmt [("taskId", toJSON tid)] $
@@ -506,12 +510,16 @@ handleDiskCopy fmt conn diskRef toNodeRef = do
         putStrLn ("Error copying disk: " ++ show e)
       pure False
 
--- | Handle @crv disk move <DISK> --to-node <NODE>@.
-handleDiskMove :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
-handleDiskMove fmt conn diskRef toNodeRef = do
+-- | Handle @crv disk move <DISK> --to-node <NODE> [--to-path PATH]@.
+handleDiskMove :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> IO Bool
+handleDiskMove fmt conn diskRef toNodeRef mToPath = do
   r <-
     try @SomeException $
-      CR.rpcDiskMove conn (entityRefFromText diskRef) (entityRefFromText toNodeRef)
+      CR.rpcDiskMove
+        conn
+        (entityRefFromText diskRef)
+        (entityRefFromText toNodeRef)
+        mToPath
   case r of
     Right tid -> do
       emitOkWith fmt [("taskId", toJSON tid)] $

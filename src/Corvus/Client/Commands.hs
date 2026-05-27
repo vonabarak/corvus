@@ -161,15 +161,15 @@ runCommand opts = do
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef
       VmMigrate vmRef toNodeRef -> handleVmMigrate fmt conn vmRef toNodeRef
       -- Disk commands
-      DiskCreate name formatStr sizeMb mPath ephemeral -> do
+      DiskCreate name formatStr sizeMb mPath ephemeral nodeRef -> do
         case parseFormat formatStr of
           Left err -> do
             emitError fmt "invalid_format" err $ putStrLn $ "Error: " ++ T.unpack err
             pure False
-          Right format -> handleDiskCreate fmt conn name format sizeMb mPath ephemeral
+          Right format -> handleDiskCreate fmt conn name format sizeMb mPath ephemeral nodeRef
       DiskCreateOverlay name baseDiskRef optDirPath ephemeral -> handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath ephemeral
-      DiskRegisterCmd name path mFormatStr mBackingRef ephemeral -> handleDiskRegister fmt conn name path mFormatStr mBackingRef ephemeral
-      DiskImport name source mPath mFormatStr ephemeral waitOpts -> handleDiskImport fmt conn name source mPath mFormatStr ephemeral waitOpts
+      DiskRegisterCmd name path mFormatStr mBackingRef ephemeral nodeRef -> handleDiskRegister fmt conn name path mFormatStr mBackingRef ephemeral nodeRef
+      DiskImport name source mPath mFormatStr ephemeral nodeRef waitOpts -> handleDiskImport fmt conn name source mPath mFormatStr ephemeral nodeRef waitOpts
       DiskRefresh diskRef -> handleDiskRefresh fmt conn diskRef
       DiskDelete diskRef -> handleDiskDelete fmt conn diskRef
       DiskResize diskRef newSizeMb -> handleDiskResize fmt conn diskRef newSizeMb
@@ -196,8 +196,8 @@ runCommand opts = do
                       pure False
                     Right parsedMedia -> handleDiskAttach fmt conn vmRef diskRef iface (Just parsedMedia) readOnly discard cache
       DiskDetach vmRef diskRef -> handleDiskDetach fmt conn vmRef diskRef
-      DiskCopy diskRef toNodeRef -> handleDiskCopy fmt conn diskRef toNodeRef
-      DiskMove diskRef toNodeRef -> handleDiskMove fmt conn diskRef toNodeRef
+      DiskCopy diskRef toNodeRef mToPath -> handleDiskCopy fmt conn diskRef toNodeRef mToPath
+      DiskMove diskRef toNodeRef mToPath -> handleDiskMove fmt conn diskRef toNodeRef mToPath
       -- Shared directory commands
       SharedDirAdd vmRef path tag cacheStr readOnly -> do
         case parseSharedDirCache cacheStr of

@@ -493,6 +493,13 @@ instantiateDriveIO ctx vmId vmName td = do
         StrategyOverlay -> True
         StrategyCreate -> True
       ephem = fromMaybe defaultEphemeral (tvdiEphemeral td)
+  -- Disks instantiated here are attached to @vmId@, so they must
+  -- land on that VM's node — pass the node id straight through
+  -- to the disk handler as the explicit @--node@.
+  mVm <- runSqlPool (get vmId) (ssDbPool state)
+  let vmNodeRef = case mVm of
+        Just v -> T.pack (show (fromSqlKey (vmNodeId v)))
+        Nothing -> ""
   case tvdiCloneStrategy td of
     StrategyDirect -> case tvdiDiskImageId td of
       Nothing -> pure $ Left "direct strategy requires a disk image"
@@ -530,7 +537,7 @@ instantiateDriveIO ctx vmId vmName td = do
     StrategyCreate -> case (tvdiFormat td, tvdiSizeMb td) of
       (Just fmt, Just sizeMb) -> do
         let newName = vmName <> "-" <> nameSuffix
-        resp <- runActionAsSubtask ctx (DiskCreate newName fmt (fromIntegral sizeMb) vmDir ephem)
+        resp <- runActionAsSubtask ctx (DiskCreate newName fmt (fromIntegral sizeMb) vmDir ephem vmNodeRef)
         case resp of
           RespDiskCreated newDiskId -> do
             attachResp <- attachDisk newDiskId
@@ -575,8 +582,9 @@ data TemplateInstantiate = TemplateInstantiate
   { tiTemplateId :: Int64
   , tiName :: Text
   , tiNodeRef :: Text
-  -- ^ Node to place the instantiated VM on. Required as of
-  -- multi-node slice 1c.
+  -- ^ Node to place the instantiated VM on. Empty string / @"0"@
+  -- defers to 'Corvus.Handlers.Scheduler.pickNodeForVm' via the
+  -- 'VmCreate' subtask.
   }
 
 instance Action TemplateInstantiate where

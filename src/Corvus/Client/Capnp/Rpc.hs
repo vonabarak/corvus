@@ -501,11 +501,20 @@ rpcDiskCreate
   -- ^ format (wire-side enum)
   -> Bool
   -- ^ ephemeral
+  -> EntityRef
+  -- ^ target node (unset = scheduler picks)
   -> IO Int64
-rpcDiskCreate conn name sizeMb fmt ephemeral = do
+rpcDiskCreate conn name sizeMb fmt ephemeral nodeRef = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
-  let inner = CGDisk.DiskCreateParams {CGDisk.name = name, CGDisk.sizeMb = sizeMb, CGDisk.format = fmt, CGDisk.ephemeral = ephemeral}
+  let inner =
+        CGDisk.DiskCreateParams
+          { CGDisk.name = name
+          , CGDisk.sizeMb = sizeMb
+          , CGDisk.format = fmt
+          , CGDisk.ephemeral = ephemeral
+          , CGDisk.node = toCapnpEntityRef nodeRef
+          }
   CGDisk.DiskManager'create'results {CGDisk.disk = diskClient} <-
     callOn #create CGDisk.DiskManager'create'params {CGDisk.params = inner} mgr
   CGDisk.Disk'show'results {CGDisk.info = info} <-
@@ -816,8 +825,10 @@ rpcDiskRegister
   -> Text
   -> DriveFormat
   -> Bool
+  -> EntityRef
+  -- ^ target node (unset = scheduler picks)
   -> IO Int64
-rpcDiskRegister conn name filePath fmt ephemeral = do
+rpcDiskRegister conn name filePath fmt ephemeral nodeRef = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
@@ -826,6 +837,7 @@ rpcDiskRegister conn name filePath fmt ephemeral = do
           , CGDisk.filePath = filePath
           , CGDisk.format = capnpDriveFormat fmt
           , CGDisk.ephemeral = ephemeral
+          , CGDisk.node = toCapnpEntityRef nodeRef
           }
   CGDisk.DiskManager'register'results {CGDisk.disk = dClient} <-
     callOn #register CGDisk.DiskManager'register'params {CGDisk.params = p} mgr
@@ -851,8 +863,10 @@ rpcDiskImport
   -- ^ format
   -> Bool
   -- ^ ephemeral
+  -> EntityRef
+  -- ^ target node (unset = scheduler picks)
   -> IO Int64
-rpcDiskImport conn name srcPath fmt ephemeral = do
+rpcDiskImport conn name srcPath fmt ephemeral nodeRef = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
@@ -861,6 +875,7 @@ rpcDiskImport conn name srcPath fmt ephemeral = do
           , CGDisk.srcPath = srcPath
           , CGDisk.format = capnpDriveFormat fmt
           , CGDisk.ephemeral = ephemeral
+          , CGDisk.node = toCapnpEntityRef nodeRef
           }
   CGDisk.DiskManager'import'results {CGDisk.disk = dClient} <-
     callOn #import_ CGDisk.DiskManager'import'params {CGDisk.params = p} mgr
@@ -899,14 +914,20 @@ rpcDiskRebase conn diskRef newBackingRef = do
 -- | Copy a disk image to another node. Returns the task id for
 -- progress observation; the actual byte transfer happens
 -- agent-to-agent in the background.
-rpcDiskCopy :: CapnpConnection -> EntityRef -> EntityRef -> IO Int64
-rpcDiskCopy conn diskRef toNodeRef = do
+--
+-- @toPath@ is the destination path on the new node. Pass
+-- 'Nothing' (or @Just ""@) to preserve the source's relative
+-- path; an absolute source path requires an explicit
+-- destination, otherwise the daemon refuses the copy.
+rpcDiskCopy :: CapnpConnection -> EntityRef -> EntityRef -> Maybe Text -> IO Int64
+rpcDiskCopy conn diskRef toNodeRef mToPath = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
         CGDisk.DiskCopyParams
           { CGDisk.diskRef = toCapnpEntityRef diskRef
           , CGDisk.toNodeRef = toCapnpEntityRef toNodeRef
+          , CGDisk.toPath = Data.Maybe.fromMaybe T.empty mToPath
           }
   CGDisk.DiskManager'copy'results {CGDisk.taskId = tid} <-
     callOn #copy CGDisk.DiskManager'copy'params {CGDisk.params = p} mgr
@@ -915,14 +936,15 @@ rpcDiskCopy conn diskRef toNodeRef = do
 -- | Move a disk image to another node. Same byte path as
 -- 'rpcDiskCopy', but the daemon deletes the source-side placement
 -- (and the file) on success.
-rpcDiskMove :: CapnpConnection -> EntityRef -> EntityRef -> IO Int64
-rpcDiskMove conn diskRef toNodeRef = do
+rpcDiskMove :: CapnpConnection -> EntityRef -> EntityRef -> Maybe Text -> IO Int64
+rpcDiskMove conn diskRef toNodeRef mToPath = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
         CGDisk.DiskMoveParams
           { CGDisk.diskRef = toCapnpEntityRef diskRef
           , CGDisk.toNodeRef = toCapnpEntityRef toNodeRef
+          , CGDisk.toPath = Data.Maybe.fromMaybe T.empty mToPath
           }
   CGDisk.DiskManager'move'results {CGDisk.taskId = tid} <-
     callOn #move CGDisk.DiskManager'move'params {CGDisk.params = p} mgr

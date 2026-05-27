@@ -52,22 +52,27 @@ struct SnapshotInfo {
 
 struct DiskCreateParams {
   # `name` and `sizeMb` are mandatory; `format` defaults to qcow2
-  # to match `crv disk create`.
+  # to match `crv disk create`. `node` is the target placement
+  # (unset/byId 0 → defer to the scheduler).
   name      @0 :Text;
   sizeMb    @1 :Int64;
   format    @2 :Enums.DriveFormat = qcow2;
   ephemeral @3 :Bool = false;
+  node      @4 :Common.EntityRef;
 }
 
 struct DiskRegisterParams {
   # `format` is left as the schema default (qcow2). Pass an explicit
   # value when registering raw / vmdk / ... files; the daemon does
   # NOT auto-detect at the wire level (the CLI's auto-detection is
-  # a client-side convenience).
+  # a client-side convenience). `node` is the node that hosts the
+  # file referenced by `filePath` (unset/byId 0 → defer to the
+  # scheduler).
   name      @0 :Text;
   filePath  @1 :Text;
   format    @2 :Enums.DriveFormat = qcow2;
   ephemeral @3 :Bool = false;
+  node      @4 :Common.EntityRef;
 }
 
 struct DiskCreateOverlayParams {
@@ -99,6 +104,7 @@ struct DiskImportUrlParams {
   format    @2 :Enums.DriveFormat = qcow2;
   sizeMb    @3 :Int64;                         # 0 == no resize after import
   ephemeral @4 :Bool = false;
+  node      @5 :Common.EntityRef;
 }
 
 struct DiskImportParams {
@@ -106,6 +112,7 @@ struct DiskImportParams {
   srcPath   @1 :Text;
   format    @2 :Enums.DriveFormat = qcow2;
   ephemeral @3 :Bool = false;
+  node      @4 :Common.EntityRef;
 }
 
 # Copy a logical disk image from its current placement on one node
@@ -114,19 +121,31 @@ struct DiskImportParams {
 # disk is attached read-write to a VM, when an overlay's backing
 # chain isn't already present on the target, or when the target
 # path collides with an existing placement.
+#
+# `toPath` is the optional destination path on the new node.
+# Empty string means: preserve the source's relative path if it
+# is relative; refuse the operation if the source path is
+# absolute (operators must pick a destination explicitly because
+# the same absolute path on a different node is rarely writable
+# and almost never the intent). Non-empty value follows the same
+# rules as `--path` on `disk create`: relative is anchored at the
+# destination node's `basePath`, absolute is honoured verbatim,
+# trailing `/` means "directory; pick the source's basename".
 struct DiskCopyParams {
   diskRef   @0 :Common.EntityRef;
   toNodeRef @1 :Common.EntityRef;
+  toPath    @2 :Text;
 }
 
 # Move a logical disk image from one node to another. The source's
 # `DiskImageNode` row is deleted and the file unlinked on success.
 # Refused for any disk that is currently attached to a VM (use
 # `vm.migrate` for that path) — for non-attached disks both copy
-# and move are allowed.
+# and move are allowed. `toPath` semantics match `DiskCopyParams`.
 struct DiskMoveParams {
   diskRef   @0 :Common.EntityRef;
   toNodeRef @1 :Common.EntityRef;
+  toPath    @2 :Text;
 }
 
 # ---------------------------------------------------------------------

@@ -31,6 +31,7 @@
 module Corvus.Handlers.Scheduler
   ( pickNodeForVm
   , pickNodeForDisk
+  , pickNodeForExistingDisk
   , pickNodeForNetwork
   , hasCapacityFor
   )
@@ -40,11 +41,11 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Corvus.Model as M
 import Corvus.Types (ServerState (..), reservedRamFor)
 import Data.List (sortBy)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Ord (Down (..), comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Persist (Entity (..), selectList, (==.))
+import Database.Persist (Entity (..), get, selectList, (==.))
 import Database.Persist.Postgresql (runSqlPool)
 
 tshow :: (Show a) => a -> Text
@@ -164,12 +165,49 @@ hasCapacityFor state nodeId requestedRamMb = do
                         <> tshow (requestedRamMb + ramSafetyMb)
                         <> " MiB with safety margin)"
 
--- | Pick a node to host a new disk image. No objective criteria
--- yet (Phase 3 will replace this with proper 'DiskImageNode'
--- lookups across the cluster); for now we pick the lowest-id
--- online non-draining node.
+-- | Pick a node to host a new disk image. No backing-image
+-- affinity to take into account, so we pick the lowest-id
+-- online non-draining node. For operations on an existing disk
+-- (overlay, clone, snapshot, rebase, compact) use
+-- 'pickNodeForExistingDisk' instead — the file must live on the
+-- node the operation runs on.
 pickNodeForDisk :: (MonadIO m) => ServerState -> m (Either Text M.NodeId)
 pickNodeForDisk = firstOnlineNode "disk"
+
+-- | Pick a node that already hosts the given disk image and is
+-- 'NodeOnline'. Used by every disk handler that operates on an
+-- existing file (snapshot, rebase, overlay, clone, compact) —
+-- those operations need the file open locally, so the picker
+-- must respect the disk's existing 'DiskImageNode' placements
+-- rather than picking blindly.
+--
+-- Returns 'Left' with a diagnostic when the disk has zero online
+-- placements (the operator's fix is `crv disk copy --to-node` to
+-- replicate the file onto a healthy node first).
+pickNodeForExistingDisk
+  :: (MonadIO m) => ServerState -> M.DiskImageId -> m (Either Text M.NodeId)
+pickNodeForExistingDisk state diskId = liftIO $ do
+  placements <-
+    runSqlPool
+      (selectList [M.DiskImageNodeDiskImageId ==. diskId] [])
+      (ssDbPool state)
+  let nodeIds = map (M.diskImageNodeNodeId . entityVal) placements
+  nodes <- runSqlPool (traverse getOnlineNode nodeIds) (ssDbPool state)
+  pure $ case sortBy (comparing entityKey) (catMaybes nodes) of
+    [] ->
+      Left $
+        "disk "
+          <> tshow (M.fromSqlKey diskId)
+          <> " has no online placement (copy it to an online node first)"
+    (Entity k _ : _) -> Right k
+  where
+    getOnlineNode nid = do
+      mn <- get nid
+      pure $ case mn of
+        Just n
+          | M.nodeAdminState n == M.NodeOnline ->
+              Just (Entity nid n)
+        _ -> Nothing
 
 -- | Pick a node to host a new virtual network. Same simple
 -- "first online node by id" policy as 'pickNodeForDisk'.

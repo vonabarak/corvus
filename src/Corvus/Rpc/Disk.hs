@@ -90,6 +90,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
   diskManager'create (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'create'params {params = CGDisk.DiskCreateParams {..}} -> do
       fmt <- enumOrThrow (fromCapnpDriveFormat format)
+      nodeRef' <- capnpRefToRef node
       let act =
             DiskCreate
               { dcrName = name
@@ -97,6 +98,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , dcrSizeMb = sizeMb
               , dcrPath = Nothing
               , dcrEphemeral = ephemeral
+              , dcrNodeRef = P.unRef nodeRef'
               }
       resp <- runAction st cn act
       case resp of
@@ -109,6 +111,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
   diskManager'register (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'register'params {params = CGDisk.DiskRegisterParams {..}} -> do
       fmt <- enumOrThrow (fromCapnpDriveFormat format)
+      nodeRef' <- capnpRefToRef node
       let act =
             DiskRegister
               { drgName = name
@@ -116,6 +119,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , drgFormat = Just fmt
               , drgBackingDiskId = Nothing
               , drgEphemeral = ephemeral
+              , drgNodeRef = P.unRef nodeRef'
               }
       resp <- runAction st cn act
       case resp of
@@ -210,12 +214,14 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
 
   diskManager'importUrl (DiskManagerCap st _ cn) =
     handleParsed $ \CGDisk.DiskManager'importUrl'params {params = CGDisk.DiskImportUrlParams {..}} -> do
+      nodeRef' <- capnpRefToRef node
       let act =
             DiskImportUrl
               { diuName = name
               , diuUrl = url
               , diuFormat = Nothing
               , diuEphemeral = ephemeral
+              , diuNodeRef = P.unRef nodeRef'
               }
       resp <- runActionAsyncWithId st cn act RespDiskImportStarted
       case resp of
@@ -226,6 +232,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
 
   diskManager'import_ (DiskManagerCap st sup cn) =
     handleParsed $ \CGDisk.DiskManager'import'params {params = CGDisk.DiskImportParams {..}} -> do
+      nodeRef' <- capnpRefToRef node
       let act =
             DiskImportAction
               { diaName = name
@@ -234,6 +241,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , diaFormat = Nothing
               , diaMd5 = Nothing
               , diaEphemeral = ephemeral
+              , diaNodeRef = P.unRef nodeRef'
               }
       resp <- runAction st cn act
       case resp of
@@ -249,7 +257,12 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
       diskId <- failOnLeft =<< resolveDisk dr (ssDbPool st)
       nr <- capnpRefToRef toNodeRef
       nodeId <- failOnLeft =<< resolveNode nr (ssDbPool st)
-      let act = DiskCopy {dcpDiskId = diskId, dcpDestNodeId = nodeId}
+      let act =
+            DiskCopy
+              { dcpDiskId = diskId
+              , dcpDestNodeId = nodeId
+              , dcpToPath = emptyToNothing toPath
+              }
       resp <- runActionAsyncWithId st cn act RespDiskTransferStarted
       case resp of
         RespDiskTransferStarted tid ->
@@ -263,13 +276,25 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
       diskId <- failOnLeft =<< resolveDisk dr (ssDbPool st)
       nr <- capnpRefToRef toNodeRef
       nodeId <- failOnLeft =<< resolveNode nr (ssDbPool st)
-      let act = DiskMove {dmvDiskId = diskId, dmvDestNodeId = nodeId}
+      let act =
+            DiskMove
+              { dmvDiskId = diskId
+              , dmvDestNodeId = nodeId
+              , dmvToPath = emptyToNothing toPath
+              }
       resp <- runActionAsyncWithId st cn act RespDiskTransferStarted
       case resp of
         RespDiskTransferStarted tid ->
           pure CGDisk.DiskManager'move'results {CGDisk.taskId = tid}
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'move: unexpected response"
+
+-- | Treat the wire's empty-string default as 'Nothing'. Cap'n
+-- Proto can't represent @Maybe Text@ natively without adding a
+-- group; using @""@ as the unset sentinel is the convention used
+-- elsewhere in the daemon (see e.g. @VmCreateParams@ handling).
+emptyToNothing :: T.Text -> Maybe T.Text
+emptyToNothing t = if T.null t then Nothing else Just t
 
 -- ---------------------------------------------------------------------
 -- Disk resource cap

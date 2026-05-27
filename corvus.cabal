@@ -572,6 +572,7 @@ test-suite corvus-test
       Corvus.NetworkSpec
       Corvus.NodeNetdDisabledSpec
       Corvus.NodeRoutingSpec
+      Corvus.PlanTransferSpec
       Corvus.ProcessSpec
       Corvus.QmpSpec
       Corvus.ResolveSpec

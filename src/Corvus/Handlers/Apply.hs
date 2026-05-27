@@ -26,7 +26,7 @@ import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Disk (DiskClone (..), DiskCreate (..), DiskCreateOverlay (..), DiskImportAction (..), DiskRegister (..))
 import qualified Corvus.Handlers.NetIf as NetIfH
 import Corvus.Handlers.Network (NetworkCreate (..))
-import Corvus.Handlers.Resolve (validateName)
+import Corvus.Handlers.Resolve (resolveNode, validateName)
 import Corvus.Handlers.SshKey (SshKeyCreate (..))
 import Corvus.Handlers.Template (insertTemplateYaml)
 import Corvus.Handlers.Vm (VmCreate (..))
@@ -118,8 +118,11 @@ validateConfig config = do
     _ -> Right ()
   checkDuplicates "SSH key" $ map askName (acSshKeys config)
   checkDuplicates "disk" $ map adName (acDisks config)
-  checkDuplicates "network" $ map anName (acNetworks config)
-  checkDuplicates "VM" $ map avName (acVms config)
+  -- VMs and networks are unique per-node (UniqueVmNamePerNode /
+  -- UniqueNetworkNamePerNode), so two same-named entries on
+  -- different nodes are legal. Dedupe by the (name, node) pair.
+  checkDuplicatesPerNode "VM" [(avName v, avNode v) | v <- acVms config]
+  checkDuplicatesPerNode "network" [(anName n, anNode n) | n <- acNetworks config]
   checkDuplicates "template" $ map tyName (acTemplates config)
   forM_ (acSshKeys config) $ \k -> validateName "SSH key" (askName k)
   forM_ (acDisks config) $ \d -> validateName "Disk" (adName d)
@@ -135,7 +138,27 @@ validateConfig config = do
         Nothing -> Right ()
         Just d -> Left $ "Duplicate " <> kind <> " name: " <> d
 
-    findDuplicate :: [Text] -> Maybe Text
+    -- \| Dedup key is the (name, nodeRef) pair so same-named
+    -- VMs / networks on different nodes are allowed. An empty
+    -- node-ref (scheduler defers) is treated as its own bucket
+    -- — if two entries both omit @node:@ the scheduler can't
+    -- guarantee they land on different hosts, so we still
+    -- refuse those as ambiguous duplicates.
+    checkDuplicatesPerNode :: Text -> [(Text, Text)] -> Either Text ()
+    checkDuplicatesPerNode kind pairs =
+      case findDuplicate pairs of
+        Nothing -> Right ()
+        Just (nm, nd) ->
+          Left $
+            "Duplicate "
+              <> kind
+              <> " name '"
+              <> nm
+              <> "' on node '"
+              <> (if T.null nd then "(scheduler)" else nd)
+              <> "'"
+
+    findDuplicate :: (Eq a) => [a] -> Maybe a
     findDuplicate [] = Nothing
     findDuplicate (x : xs)
       | x `elem` xs = Just x
@@ -219,7 +242,7 @@ executeApply ctx config skipExisting = do
         Right (diskMap, diskCreated) -> do
           -- Phase 3: Networks
           nwResult <- runSequentialCreate (acNetworks config) Map.empty $ \n _nwMap -> do
-            mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [NetworkName ==. nm]) Map.empty (anName n) else pure Nothing
+            mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [NetworkName ==. nm]) (\nid -> [NetworkNodeId ==. nid]) Map.empty (anName n) (anNode n) else pure Nothing
             case mExisting of
               Just eid -> pure $ Right (anName n, eid)
               Nothing -> do
@@ -286,7 +309,7 @@ executeApply ctx config skipExisting = do
       where
         go [] acc = pure $ Right $ reverse acc
         go (v : vs) acc = do
-          mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [VmName ==. nm]) Map.empty (avName v) else pure Nothing
+          mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [VmName ==. nm]) (\nid -> [VmNodeId ==. nid]) Map.empty (avName v) (avNode v) else pure Nothing
           case mExisting of
             Just _existingId -> go vs acc
             Nothing -> do
@@ -358,7 +381,7 @@ createOneVmAttachments ctx keyMap diskMap nwMap v vmId = do
     Left err -> pure $ Left err
     Right () -> do
       -- Create network interfaces
-      niResult <- createNetIfs state nwMap vmId (avNetworkInterfaces v) (avName v)
+      niResult <- createNetIfs state nwMap vmId (avNetworkInterfaces v) (avName v) (avNode v)
       case niResult of
         Left err -> pure $ Left err
         Right () -> do
@@ -422,8 +445,8 @@ attachDrives state diskMap vmId drives vmName = go drives
             (ssDbPool state)
           go ds
 
-createNetIfs :: ServerState -> Map.Map Text Int64 -> VmId -> [ApplyNetIf] -> Text -> IO (Either Text ())
-createNetIfs state nwMap vmId netIfs vmName = go netIfs
+createNetIfs :: ServerState -> Map.Map Text Int64 -> VmId -> [ApplyNetIf] -> Text -> Text -> IO (Either Text ())
+createNetIfs state nwMap vmId netIfs vmName vmNodeRef = go netIfs
   where
     go [] = pure $ Right ()
     go (ni : nis) = case validateNetIf ni of
@@ -437,7 +460,7 @@ createNetIfs state nwMap vmId netIfs vmName = go netIfs
       mNetworkId <- case aniNetwork ni of
         Nothing -> pure $ Right Nothing
         Just nwName -> do
-          mId <- resolveByNameFilter state (\nm -> [NetworkName ==. nm]) nwMap nwName
+          mId <- resolveByNameFilter state (\nm -> [NetworkName ==. nm]) (\nid -> [NetworkNodeId ==. nid]) nwMap nwName vmNodeRef
           case mId of
             Nothing -> pure $ Left $ "VM '" <> vmName <> "': network '" <> nwName <> "' not found"
             Just nid -> pure $ Right $ Just nid
@@ -513,23 +536,43 @@ resolveByName state mkUnique localMap name = case Map.lookup name localMap of
 -- of a 'Unique' constructor — needed for entities (Vm, Network)
 -- whose uniqueness is now composite (per-node) and so don't
 -- expose a single-field name constraint.
--- TODO(multi-node slice 1c): when 'apply' learns about nodes,
--- thread the apply's node-id through here and add it to the
--- filter so name conflicts across nodes resolve unambiguously.
+--
+-- @mNodeRef@ disambiguates name collisions across nodes. When set,
+-- the caller is expected to pass the apply's @node:@ value as a
+-- name or numeric id; the resolved 'NodeId' is appended to the
+-- filter so two VMs named @web@ on different nodes resolve to the
+-- correct one. Empty @mNodeRef@ falls back to "name only" — fine
+-- for single-node deployments where the name is globally unique.
 resolveByNameFilter
   :: (PersistEntity record, PersistEntityBackend record ~ SqlBackend, ToBackendKey SqlBackend record)
   => ServerState
   -> (Text -> [Filter record])
+  -- ^ name-only filter constructor
+  -> (NodeId -> [Filter record])
+  -- ^ node-only filter constructor (combined with @mkFilter name@
+  -- via list concatenation when @nodeRef@ resolves)
   -> Map.Map Text Int64
   -> Text
+  -- ^ entity name
+  -> Text
+  -- ^ node ref (empty == no node filter)
   -> IO (Maybe Int64)
-resolveByNameFilter state mkFilter localMap name = case Map.lookup name localMap of
-  Just rid -> pure $ Just rid
-  Nothing -> do
-    entities <- runSqlPool (selectList (mkFilter name) []) (ssDbPool state)
-    case entities of
-      [e] -> pure $ Just (fromSqlKey (entityKey e))
-      _ -> pure Nothing
+resolveByNameFilter state mkFilter mkNodeFilter localMap name nodeRef =
+  case Map.lookup name localMap of
+    Just rid -> pure $ Just rid
+    Nothing -> do
+      nodeFilter <-
+        if T.null nodeRef
+          then pure []
+          else do
+            mNid <- resolveNode (Ref nodeRef) (ssDbPool state)
+            pure $ case mNid of
+              Right n -> mkNodeFilter (toSqlKey n :: NodeId)
+              Left _ -> []
+      entities <- runSqlPool (selectList (mkFilter name ++ nodeFilter) []) (ssDbPool state)
+      case entities of
+        [e] -> pure $ Just (fromSqlKey (entityKey e))
+        _ -> pure Nothing
 
 --------------------------------------------------------------------------------
 -- Action Types
@@ -559,20 +602,21 @@ instance Action ApplyDiskCreate where
     let d = adcConfig a
         state = acState ctx
         ephem = adEphemeral d
+        nodeRef = adNode d
      in case (adImport d, adOverlay d, adClone d, adRegister d) of
           (Just importPath, _, _, _) ->
-            actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)) (adMd5 d) ephem)
+            actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)) (adMd5 d) ephem nodeRef)
           (_, _, _, Just registerPath)
             | isHttpUrl registerPath -> pure $ RespError $ "Disk '" <> adName d <> "': register requires a local path, not a URL"
             | otherwise -> do
                 let format = fromMaybe FormatQcow2 (adFormat d <|> detectFormatFromPath registerPath)
                 case adBacking d of
-                  Nothing -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) Nothing ephem)
+                  Nothing -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) Nothing ephem nodeRef)
                   Just backingName -> do
                     mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
                     case mBackingId of
                       Nothing -> pure $ RespError $ "backing disk '" <> backingName <> "' not found"
-                      Just backingId -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) (Just backingId) ephem)
+                      Just backingId -> actionExecute ctx (DiskRegister (adName d) registerPath (Just format) (Just backingId) ephem nodeRef)
           (_, Just backingName, _, _) -> do
             mBackingId <- resolveByName state UniqueDiskImageName (adcDiskMap a) backingName
             case mBackingId of
@@ -586,7 +630,7 @@ instance Action ApplyDiskCreate where
           _ ->
             let format = fromMaybe FormatQcow2 (adFormat d)
                 sizeMb = fromMaybe 10240 (adSizeMb d)
-             in actionExecute ctx (DiskCreate (adName d) format (fromIntegral sizeMb) (adPath d) ephem)
+             in actionExecute ctx (DiskCreate (adName d) format (fromIntegral sizeMb) (adPath d) ephem nodeRef)
 
 -- | Apply-specific VM creation with attachments (drives, netifs, SSH keys, cloud-init).
 data ApplyVmCreate = ApplyVmCreate

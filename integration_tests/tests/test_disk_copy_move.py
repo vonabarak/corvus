@@ -117,7 +117,15 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
 
     def test_copy_detached_disk(self):
         """Create a small disk on alpha; copy to beta. Both
-        placements exist, both files present, bytes identical."""
+        placements exist, both files present, bytes identical.
+
+        Storage-form invariant: with no ``to_path``, the daemon
+        preserves the source's stored filePath verbatim — alpha's
+        placement and beta's placement record the SAME relative
+        string. Before the path-preservation fix this happened to
+        be true by coincidence (default disks live at
+        ``<name>.qcow2``); the assertion now makes it
+        load-bearing so a regression flips the test."""
         name = _uniq("copy")
         self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
         try:
@@ -125,6 +133,12 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             tid = self.client_alpha.disks.copy(name, self.beta_name)
             self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
             assert self._placement_nodes(name) == {self.alpha_name, self.beta_name}
+            info = self.client_alpha.disks.get(name).show()
+            stored_by_node = {p.node_name: p.file_path for p in info.placements}
+            # The daemon stores filePath relative-to-basePath; for
+            # a freshly created disk that means just the basename
+            # — identical on both nodes.
+            assert stored_by_node[self.alpha_name] == stored_by_node[self.beta_name]
             alpha_path = self._placement_path_on(name, self.alpha_name)
             beta_path = self._placement_path_on(name, self.beta_name)
             assert self._file_exists(self.node_alpha, alpha_path)
@@ -400,6 +414,365 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             )
         finally:
             self._delete_silent(name)
+
+    # ----------------------------------------------------------------------
+    # --to-path support + path-preservation + collision-guard tests.
+    #
+    # Each test's docstring tags the numbered issue from the
+    # original change request (1-4) so a future regression is easy
+    # to trace back to the requirement that caused the test.
+    # ----------------------------------------------------------------------
+
+    def _alpha_base(self) -> str:
+        return self.client_alpha.nodes.get(self.alpha_name).show().base_path
+
+    def _beta_base(self) -> str:
+        return self.client_alpha.nodes.get(self.beta_name).show().base_path
+
+    def _stage_qcow2(self, node, path: str, size_mb: int = 4) -> None:
+        """Create a real qcow2 file at `path` on `node` (parent
+        directory is created if missing)."""
+        parent = path.rsplit("/", 1)[0] if "/" in path else "."
+        node.run(f"mkdir -p {parent!r}", check=True, timeout_sec=10.0)
+        node.run(
+            f"qemu-img create -f qcow2 {path!r} {size_mb}M",
+            check=True,
+            timeout_sec=15.0,
+        )
+
+    def _expect_task_error(
+        self,
+        task_id: int,
+        message_must_match,
+        *,
+        timeout_sec: float = 30.0,
+    ) -> None:
+        """Variant of `_assert_transfer_fails` that takes the
+        already-returned `task_id` (so callers that pass kwargs
+        like ``to_path`` to ``disks.copy`` can drive the failure
+        check)."""
+        with pytest.raises(AssertionError) as ei:
+            self.wait_for_task(self.client_alpha, task_id, timeout_sec=timeout_sec)
+        lowered = str(ei.value).lower()
+        assert any(p.lower() in lowered for p in message_must_match), (
+            f"unexpected task error message: {ei.value!r} "
+            f"(expected one of: {message_must_match!r})"
+        )
+
+    # ---- Issue 1: --to-path accepted for copy + move ---------------------
+
+    def test_copy_with_to_path_relative(self):
+        """[Issue 1] `to_path="staging/x.qcow2"` lands the copy
+        under `<beta.basePath>/staging/`.
+
+        Note: ``disks.show()`` absolutises every placement's
+        file_path for display (see
+        ``Handlers/Disk.absolutizeDiskFilePath``), so the
+        assertion compares against the resolved absolute path —
+        the relative storage form is verified indirectly by
+        checking the file lives at ``<beta.basePath>/staging/x.qcow2``.
+        """
+        name = _uniq("tp-rel")
+        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        try:
+            tid = self.client_alpha.disks.copy(
+                name, self.beta_name, to_path="staging/x.qcow2"
+            )
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
+            beta_abs = f"{self._beta_base()}/staging/x.qcow2"
+            assert self._placement_path_on(name, self.beta_name) == beta_abs
+            assert self._file_exists(self.node_beta, beta_abs)
+        finally:
+            self._delete_silent(name)
+
+    def test_copy_with_to_path_absolute(self):
+        """[Issue 1] An absolute `to_path` is honoured verbatim
+        and the placement records the absolute string (which
+        `resolveDiskPath` will treat as already-absolute on the
+        next operation)."""
+        name = _uniq("tp-abs")
+        abs_dest = f"/tmp/explicit-{name}.qcow2"
+        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        try:
+            tid = self.client_alpha.disks.copy(name, self.beta_name, to_path=abs_dest)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
+            assert self._placement_path_on(name, self.beta_name) == abs_dest
+            assert self._file_exists(self.node_beta, abs_dest)
+        finally:
+            self.node_beta.run(f"rm -f {abs_dest!r}", check=False, timeout_sec=5.0)
+            self._delete_silent(name)
+
+    def test_move_with_to_path_relative(self):
+        """[Issue 1] Move with `to_path`: source row + file gone,
+        destination at the requested path."""
+        name = _uniq("mv-tp")
+        self.client_alpha.disks.create(name, size_mb=16, format="qcow2")
+        try:
+            # `disks.show()` returns the placement path already
+            # absolutised, so it's safe to use directly with `test -f`.
+            alpha_abs = self._placement_path_on(name, self.alpha_name)
+            tid = self.client_alpha.disks.move(
+                name, self.beta_name, to_path="moved/y.qcow2"
+            )
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
+            assert self._placement_nodes(name) == {self.beta_name}
+            beta_abs = f"{self._beta_base()}/moved/y.qcow2"
+            assert self._placement_path_on(name, self.beta_name) == beta_abs
+            assert self._file_exists(self.node_beta, beta_abs)
+            assert not self._file_exists(self.node_alpha, alpha_abs), (
+                "source file still present after move with --to-path"
+            )
+        finally:
+            self._delete_silent(name)
+
+    # ---- Issue 2: absolute source path mandates --to-path ----------------
+
+    def test_copy_absolute_source_requires_to_path(self):
+        """[Issue 2] A disk registered with an absolute path
+        outside `basePath` cannot be copied without `to_path` —
+        the daemon refuses with a clear message naming both
+        'absolute' and '--to-path'."""
+        name = _uniq("abs-need")
+        abs_src = f"/tmp/abs-{name}.qcow2"
+        self._stage_qcow2(self.node_alpha, abs_src)
+        try:
+            self.client_alpha.disks.register(
+                name, abs_src, format="qcow2", node=self.alpha_name
+            )
+            try:
+                # No `to_path`: the daemon must refuse via the
+                # async task error mechanism.
+                tid = self.client_alpha.disks.copy(name, self.beta_name)
+                self._expect_task_error(
+                    tid, message_must_match=["absolute", "--to-path"]
+                )
+                # Source placement intact.
+                assert self._placement_nodes(name) == {self.alpha_name}
+            finally:
+                self._delete_silent(name)
+        finally:
+            self.node_alpha.run(f"rm -f {abs_src!r}", check=False, timeout_sec=5.0)
+
+    def test_move_absolute_source_requires_to_path(self):
+        """[Issue 2] Same property for move."""
+        name = _uniq("mv-abs-need")
+        abs_src = f"/tmp/abs-{name}.qcow2"
+        self._stage_qcow2(self.node_alpha, abs_src)
+        try:
+            self.client_alpha.disks.register(
+                name, abs_src, format="qcow2", node=self.alpha_name
+            )
+            try:
+                tid = self.client_alpha.disks.move(name, self.beta_name)
+                self._expect_task_error(
+                    tid, message_must_match=["absolute", "--to-path"]
+                )
+                # Source row + file still present.
+                assert self._placement_nodes(name) == {self.alpha_name}
+                assert self._file_exists(self.node_alpha, abs_src)
+            finally:
+                self._delete_silent(name)
+        finally:
+            self.node_alpha.run(f"rm -f {abs_src!r}", check=False, timeout_sec=5.0)
+
+    def test_copy_absolute_source_with_to_path_succeeds(self):
+        """[Issue 2] An absolute source disk *can* be copied as
+        long as the operator supplies `--to-path`. The result is a
+        clean beta-side placement at the requested path."""
+        name = _uniq("abs-ok")
+        abs_src = f"/tmp/abs-ok-{name}.qcow2"
+        self._stage_qcow2(self.node_alpha, abs_src)
+        try:
+            self.client_alpha.disks.register(
+                name, abs_src, format="qcow2", node=self.alpha_name
+            )
+            try:
+                tid = self.client_alpha.disks.copy(
+                    name, self.beta_name, to_path="abs-relocated.qcow2"
+                )
+                self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
+                assert self._placement_nodes(name) == {
+                    self.alpha_name,
+                    self.beta_name,
+                }
+                beta_abs = f"{self._beta_base()}/abs-relocated.qcow2"
+                # `disks.show()` returns the absolutised display
+                # form; the relative storage form is verified
+                # indirectly by checking the file lives at
+                # ``<beta.basePath>/abs-relocated.qcow2``.
+                assert self._placement_path_on(name, self.beta_name) == beta_abs
+                assert self._file_exists(self.node_beta, beta_abs)
+            finally:
+                self._delete_silent(name)
+        finally:
+            self.node_alpha.run(f"rm -f {abs_src!r}", check=False, timeout_sec=5.0)
+
+    # ---- Issue 3: relative path preserved across copy/move ----------------
+
+    def test_copy_preserves_relative_subdir(self):
+        """[Issue 3] A disk stored as `sub/foo.qcow2` on alpha
+        ends up at `sub/foo.qcow2` (relative to beta's basePath)
+        on beta — not flattened to `foo.qcow2`.
+
+        ``disks.show()`` returns absolute paths; the file living
+        at ``<beta.basePath>/sub/<name>.qcow2`` is what proves
+        the relative storage form was preserved (a flattened
+        copy would land at ``<beta.basePath>/<name>.qcow2``)."""
+        name = _uniq("rel-pres")
+        rel = f"sub/{name}.qcow2"
+        alpha_abs = f"{self._alpha_base()}/{rel}"
+        beta_abs = f"{self._beta_base()}/{rel}"
+        self._stage_qcow2(self.node_alpha, alpha_abs)
+        try:
+            self.client_alpha.disks.register(
+                name, alpha_abs, format="qcow2", node=self.alpha_name
+            )
+            try:
+                # Sanity: alpha's display form is the absolutised
+                # version of the relative storage (= alpha_abs).
+                assert self._placement_path_on(name, self.alpha_name) == alpha_abs
+                tid = self.client_alpha.disks.copy(name, self.beta_name)
+                self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
+                # Beta resolves the SAME relative form against its
+                # own basePath — load-bearing assertion: a flatten
+                # bug would produce <beta_base>/<name>.qcow2 here.
+                assert self._placement_path_on(name, self.beta_name) == beta_abs
+                assert self._file_exists(self.node_beta, beta_abs)
+            finally:
+                self._delete_silent(name)
+        finally:
+            self.node_alpha.run(
+                f"rm -rf {self._alpha_base()}/sub", check=False, timeout_sec=5.0
+            )
+
+    def test_move_preserves_relative_subdir(self):
+        """[Issue 3] Same property as the copy version, for move."""
+        name = _uniq("rel-pres-mv")
+        rel = f"sub/{name}.qcow2"
+        alpha_abs = f"{self._alpha_base()}/{rel}"
+        beta_abs = f"{self._beta_base()}/{rel}"
+        self._stage_qcow2(self.node_alpha, alpha_abs)
+        try:
+            self.client_alpha.disks.register(
+                name, alpha_abs, format="qcow2", node=self.alpha_name
+            )
+            try:
+                tid = self.client_alpha.disks.move(name, self.beta_name)
+                self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
+                assert self._placement_nodes(name) == {self.beta_name}
+                assert self._placement_path_on(name, self.beta_name) == beta_abs
+                assert self._file_exists(self.node_beta, beta_abs)
+                # Source file unlinked.
+                assert not self._file_exists(self.node_alpha, alpha_abs)
+            finally:
+                self._delete_silent(name)
+        finally:
+            self.node_alpha.run(
+                f"rm -rf {self._alpha_base()}/sub", check=False, timeout_sec=5.0
+            )
+
+    def test_copy_creates_missing_subdir_on_dest(self):
+        """[Issue 3 / agent mkdir] When the destination
+        subdirectory does not yet exist on beta, `importFromPeer`
+        must `mkdir -p` it before opening the writer. Regression
+        check for the agent-side `createDirectoryIfMissing` —
+        without it, `openBinaryFile` fails with ENOENT."""
+        name = _uniq("mkdir-p")
+        rel = f"nested/deep/{name}.qcow2"
+        alpha_abs = f"{self._alpha_base()}/{rel}"
+        self._stage_qcow2(self.node_alpha, alpha_abs)
+        try:
+            self.client_alpha.disks.register(
+                name, alpha_abs, format="qcow2", node=self.alpha_name
+            )
+            try:
+                # Confirm beta has no nested/ dir at all to start.
+                check_before = self.node_beta.run(
+                    f"test -d {self._beta_base()}/nested",
+                    check=False,
+                    timeout_sec=5.0,
+                )
+                assert check_before.returncode != 0, (
+                    "test fixture wasn't clean: beta already has nested/"
+                )
+                tid = self.client_alpha.disks.copy(name, self.beta_name)
+                self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
+                # nested/deep/ must exist and the file must be inside.
+                assert self._file_exists(self.node_beta, f"{self._beta_base()}/{rel}")
+            finally:
+                self._delete_silent(name)
+        finally:
+            self.node_alpha.run(
+                f"rm -rf {self._alpha_base()}/nested",
+                check=False,
+                timeout_sec=5.0,
+            )
+            self.node_beta.run(
+                f"rm -rf {self._beta_base()}/nested",
+                check=False,
+                timeout_sec=5.0,
+            )
+
+    # ---- Issue 4: collision guard fires cleanly --------------------------
+
+    def test_copy_to_path_collision_refused(self):
+        """[Issue 4] A second copy targeting the same `to_path`
+        on the same node refuses cleanly with an "already in use"
+        error — not via a leaked unique-constraint exception."""
+        a = _uniq("col-a")
+        b = _uniq("col-b")
+        contended = "contended/x.qcow2"
+        self.client_alpha.disks.create(a, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(b, size_mb=16, format="qcow2")
+        try:
+            tid_a = self.client_alpha.disks.copy(a, self.beta_name, to_path=contended)
+            self.wait_for_task(self.client_alpha, tid_a, timeout_sec=60.0)
+            # The second copy must refuse with a clean error.
+            tid_b = self.client_alpha.disks.copy(b, self.beta_name, to_path=contended)
+            self._expect_task_error(
+                tid_b,
+                message_must_match=["already in use", "destination path"],
+            )
+            # Disk A's beta placement untouched.
+            assert self.beta_name in self._placement_nodes(a)
+            contended_abs = f"{self._beta_base()}/{contended}"
+            assert self._placement_path_on(a, self.beta_name) == contended_abs
+        finally:
+            self.node_beta.run(
+                f"rm -rf {self._beta_base()}/contended",
+                check=False,
+                timeout_sec=5.0,
+            )
+            self._delete_silent(a)
+            self._delete_silent(b)
+
+    def test_move_to_path_collision_refused(self):
+        """[Issue 4] Same property for move."""
+        a = _uniq("mv-col-a")
+        b = _uniq("mv-col-b")
+        contended = "contended-mv/x.qcow2"
+        self.client_alpha.disks.create(a, size_mb=16, format="qcow2")
+        self.client_alpha.disks.create(b, size_mb=16, format="qcow2")
+        try:
+            # First move places disk A at the contended path.
+            tid_a = self.client_alpha.disks.move(a, self.beta_name, to_path=contended)
+            self.wait_for_task(self.client_alpha, tid_a, timeout_sec=60.0)
+            # Second move (a different source disk) must refuse.
+            tid_b = self.client_alpha.disks.move(b, self.beta_name, to_path=contended)
+            self._expect_task_error(
+                tid_b,
+                message_must_match=["already in use", "destination path"],
+            )
+            # Disk B's source placement remains intact (move rolled back).
+            assert self.alpha_name in self._placement_nodes(b)
+        finally:
+            self.node_beta.run(
+                f"rm -rf {self._beta_base()}/contended-mv",
+                check=False,
+                timeout_sec=5.0,
+            )
+            self._delete_silent(a)
+            self._delete_silent(b)
 
 
 def _wait_until_node_ready(client, node_name: str, *, timeout_sec: float = 30.0):
