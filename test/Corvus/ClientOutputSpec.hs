@@ -47,7 +47,7 @@ spec = sequential $ do
 
     describe "VmInfo" $ do
       it "serializes with correct field names and enum values" $ do
-        let vm = VmInfo 1 "my-vm" 7 "alpha" VmRunning 4 2048 False False False Nothing False False
+        let vm = VmInfo 1 "my-vm" 7 "alpha" VmRunning 4 2048 False False False Nothing False False "host"
             val = toJSON vm
         -- 'omitNothingFields = True' in 'innerOptions' drops the
         -- Nothing-valued 'healthcheck' entirely rather than serialising
@@ -67,10 +67,11 @@ spec = sequential $ do
             , "cloud_init" .= False
             , "autostart" .= False
             , "reboot_quirk" .= False
+            , "cpu_model" .= ("host" :: String)
             ]
 
       it "serializes stopped status correctly" $ do
-        let vm = VmInfo 2 "test" 1 "alpha" VmStopped 1 512 False False False Nothing False False
+        let vm = VmInfo 2 "test" 1 "alpha" VmStopped 1 512 False False False Nothing False False "host"
             json = encode vm
         BL.unpack json `shouldSatisfy` isInfixOf "\"stopped\""
 
@@ -162,8 +163,8 @@ spec = sequential $ do
 
       it "VM list serializes as JSON array" $ do
         let vms =
-              [ VmInfo 1 "a" 1 "alpha" VmRunning 1 512 False False False Nothing False False
-              , VmInfo 2 "b" 2 "beta" VmStopped 2 1024 False False False Nothing False False
+              [ VmInfo 1 "a" 1 "alpha" VmRunning 1 512 False False False Nothing False False "host"
+              , VmInfo 2 "b" 2 "beta" VmStopped 2 1024 False False False Nothing False False "host"
               ]
             val = toJSON vms
         case val of

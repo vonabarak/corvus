@@ -55,7 +55,7 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       (filter (not . null))
       [ ["-name", T.unpack (VS.vsName spec) ++ ",process=corvus-vm-" ++ show (VS.vsVmId spec)]
       , ["-machine", "type=q35,accel=kvm"]
-      , ["-cpu", "host"]
+      , ["-cpu", T.unpack (VS.vsCpuModel spec)]
       , ["-enable-kvm"]
       , memoryArgs
       , ["-smp", show (VS.vsCpuCount spec)]

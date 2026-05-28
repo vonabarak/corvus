@@ -422,8 +422,10 @@ rpcVmCreate
   -- ^ autostart
   -> Bool
   -- ^ rebootQuirk
+  -> Text
+  -- ^ cpuModel
   -> IO Int64
-rpcVmCreate conn name nodeRef cpus ram desc headless ga ci autostart rq = do
+rpcVmCreate conn name nodeRef cpus ram desc headless ga ci autostart rq cm = do
   CGCorvus.Daemon'vms'results {CGCorvus.mgr = mgr} <-
     callOn #vms CGCorvus.Daemon'vms'params (ccDaemon conn)
   let inner =
@@ -438,6 +440,7 @@ rpcVmCreate conn name nodeRef cpus ram desc headless ga ci autostart rq = do
           , CGVm.cloudInit = ci
           , CGVm.autostart = autostart
           , CGVm.rebootQuirk = rq
+          , CGVm.cpuModel = cm
           }
   CGVm.VmManager'create'results {CGVm.vm = vmClient} <-
     callOn #create CGVm.VmManager'create'params {CGVm.params = inner} mgr
@@ -727,8 +730,10 @@ rpcVmEdit
   -- ^ new autostart
   -> Maybe Bool
   -- ^ new rebootQuirk
+  -> Maybe Text
+  -- ^ new cpuModel
   -> IO ()
-rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mCi mAs mRq = do
+rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mCi mAs mRq mCm = do
   vmClient <- getVmClient conn ref
   let p =
         CGVm.VmEditParams
@@ -750,6 +755,8 @@ rpcVmEdit conn ref mCpus mRam mDesc mHeadless mGa mCi mAs mRq = do
           , CGVm.autostart = Data.Maybe.fromMaybe False mAs
           , CGVm.hasRebootQuirk = Data.Maybe.isJust mRq
           , CGVm.rebootQuirk = Data.Maybe.fromMaybe False mRq
+          , CGVm.hasCpuModel = Data.Maybe.isJust mCm
+          , CGVm.cpuModel = Data.Maybe.fromMaybe "" mCm
           }
   _ <- callOn #edit CGVm.Vm'edit'params {CGVm.params = p} vmClient
   pure ()

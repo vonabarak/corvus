@@ -132,12 +132,18 @@ handleVmCreate
   -> Bool
   -> Bool
   -- ^ rebootQuirk
+  -> Text
+  -- ^ cpuModel (empty == "host")
   -> IO Response
-handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk =
+handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk cpuModel0 =
   case validateName "VM" name of
     Left err -> pure $ RespError err
     Right () -> do
       let pool = ssDbPool state
+          -- Empty wire string is the operator's "use the default"
+          -- signal — fall back to "host" so existing callers and
+          -- older wire clients keep working unchanged.
+          cpuModel = if T.null cpuModel0 then "host" else cpuModel0
       -- Empty text == operator did not pass @--node@; capnp's
       -- unset-EntityRef default ('byId 0') also lands here.
       -- Either way, defer to the scheduler.
@@ -161,14 +167,14 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
             r <-
               withAllocatedVsockCid state nodeKey $ \cid ->
                 runSqlPool
-                  (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk (Just cid))
+                  (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk cpuModel (Just cid))
                   pool
             case r of
               Right vmId -> pure (Right vmId)
               Left _ -> do
                 vmId <-
                   runSqlPool
-                    (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk Nothing)
+                    (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk cpuModel Nothing)
                     pool
                 pure (Right vmId)
           case eVmId of
@@ -851,16 +857,19 @@ handleVmEdit
   -> Maybe Bool
   -> Maybe Bool
   -- ^ rebootQuirk
+  -> Maybe Text
+  -- ^ cpuModel
   -> IO Response
-handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk = do
+handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk mCpuModel = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
     Just (_, status) ->
-      -- 'rebootQuirk' is consumed only at the next 'vmStart' (via
-      -- 'VmSpec'), so flipping it on a running VM has no effect
-      -- until the next start; allow it without forcing a stop —
-      -- matches 'autostart's relaxed-edit semantics.
+      -- 'rebootQuirk' and 'cpuModel' are consumed only at the next
+      -- 'vmStart' (via 'VmSpec'), so flipping them on a running VM
+      -- has no effect until the next start; allow it without
+      -- forcing a stop — matches 'autostart's relaxed-edit
+      -- semantics.
       let hasRuntimeEdits =
             or
               [ isJust mCpus
@@ -884,6 +893,7 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutos
                     mCloudInit
                     mAutostart
                     mRebootQuirk
+                    mCpuModel
                 )
                 (ssDbPool state)
               pure RespVmEdited
@@ -1133,9 +1143,11 @@ createVm
   -> Bool
   -> Bool
   -- ^ rebootQuirk
+  -> Text
+  -- ^ cpuModel
   -> Maybe Int
   -> SqlPersistT IO Int64
-createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk vsockCid = do
+createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk cpuModel vsockCid = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -1157,6 +1169,7 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit a
           , vmLastErrorAt = Nothing
           , vmMigrating = False
           , vmRebootQuirk = rebootQuirk
+          , vmCpuModel = cpuModel
           }
   key <- insert vm
   pure $ fromSqlKey key
@@ -1282,6 +1295,7 @@ listVms = do
         , viHealthcheck = vmHealthcheck vm
         , viAutostart = vmAutostart vm
         , viRebootQuirk = vmRebootQuirk vm
+        , viCpuModel = vmCpuModel vm
         }
 
 -- | Get full VM details. Re-exported so 'Corvus.Handlers.Build' can
@@ -1352,6 +1366,7 @@ getVmDetails config vmId = do
             , vdErrorMessage = vmErrorMessage vm
             , vdLastErrorAt = vmLastErrorAt vm
             , vdRebootQuirk = vmRebootQuirk vm
+            , vdCpuModel = vmCpuModel vm
             }
   where
     toDriveInfo vmNode vmNodeBasePath (Entity driveKey drive) = do
@@ -1427,8 +1442,10 @@ editVm
   -> Maybe Bool
   -> Maybe Bool
   -- ^ rebootQuirk
+  -> Maybe Text
+  -- ^ cpuModel
   -> SqlPersistT IO ()
-editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk = do
+editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk mCpuModel = do
   let key = toSqlKey vmId :: VmId
       updates =
         maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
@@ -1439,6 +1456,7 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mReboot
           ++ maybe [] (\ci -> [M.VmCloudInit =. ci]) mCloudInit
           ++ maybe [] (\a -> [M.VmAutostart =. a]) mAutostart
           ++ maybe [] (\rq -> [M.VmRebootQuirk =. rq]) mRebootQuirk
+          ++ maybe [] (\cm -> [M.VmCpuModel =. cm]) mCpuModel
   case updates of
     [] -> pure ()
     us -> update key us
@@ -1520,6 +1538,11 @@ data VmCreate = VmCreate
   , vcrCloudInit :: Bool
   , vcrAutostart :: Bool
   , vcrRebootQuirk :: Bool
+  , vcrCpuModel :: Text
+  -- ^ QEMU @-cpu@ model. Empty == use the daemon default
+  -- ('host'); see the schema field comment on
+  -- @schema/vm.capnp::VmInfo.cpuModel@ for the
+  -- migration-safety trade-off.
   }
 
 instance Action VmCreate where
@@ -1539,6 +1562,7 @@ instance Action VmCreate where
       (vcrCloudInit a)
       (vcrAutostart a)
       (vcrRebootQuirk a)
+      (vcrCpuModel a)
 
 data VmDelete = VmDelete
   { vdelVmId :: Int64
@@ -1565,6 +1589,7 @@ data VmEdit = VmEdit
   , vedCloudInit :: Maybe Bool
   , vedAutostart :: Maybe Bool
   , vedRebootQuirk :: Maybe Bool
+  , vedCpuModel :: Maybe Text
   }
 
 instance Action VmEdit where
@@ -1583,6 +1608,7 @@ instance Action VmEdit where
       (vedCloudInit a)
       (vedAutostart a)
       (vedRebootQuirk a)
+      (vedCpuModel a)
 
 newtype VmPause = VmPause {vpVmId :: Int64}
 

@@ -611,6 +611,7 @@ Vm
     lastErrorAt UTCTime Maybe default=NULL
     migrating Bool default=false
     rebootQuirk Bool default=false
+    cpuModel Text default='host'
     UniqueVmNamePerNode nodeId name
     deriving Show Eq Generic
 

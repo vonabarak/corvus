@@ -68,6 +68,13 @@ data VmSpec = VmSpec
   -- restore a previously-saved RAM image, polls @query-migrate@
   -- for completion, issues @cont@, and unlinks the state file.
   -- @False@ (the default) means a normal cold boot.
+  , vsCpuModel :: !T.Text
+  -- ^ QEMU @-cpu@ model. Default @"host"@ for best perf but not
+  -- migration-safe across non-identical hosts; operators set this
+  -- to a stable model (e.g. @"qemu64"@, @"Westmere-v3"@) per VM
+  -- when cross-host migration matters. Empty Text falls back to
+  -- @"host"@ in the agent's argv builder so older daemons
+  -- without this field on the wire keep working.
   }
   deriving (Eq, Show)
 

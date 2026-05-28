@@ -34,6 +34,11 @@ struct VmInfo {
   # the (rare) race where the Node row was removed under the VM.
   nodeId          @11 :Int64;
   nodeName        @12 :Text;
+  # QEMU `-cpu` model. Default `"host"` exposes the host CPU
+  # (best perf, NOT migration-safe across non-identical hosts);
+  # set to a stable model (`qemu64`, `Westmere-v3`, …) for safe
+  # cross-host migration.
+  cpuModel        @13 :Text;
 }
 
 struct VmDetails {
@@ -70,6 +75,8 @@ struct VmDetails {
   # See `VmInfo.nodeId` / `VmInfo.nodeName` for the sentinel.
   nodeId              @24 :Int64;
   nodeName            @25 :Text;
+  # See `VmInfo.cpuModel`.
+  cpuModel            @26 :Text;
 }
 
 struct DriveInfo {
@@ -131,6 +138,10 @@ struct VmCreateParams {
   # (no scheduler yet). Resolved as `node-by-name` or `id:N`.
   node            @8  :Common.EntityRef;
   rebootQuirk     @9  :Bool = false;
+  # QEMU `-cpu` model. Empty string == use the daemon default
+  # ("host"). See `VmInfo.cpuModel` for the migration-safety
+  # trade-off.
+  cpuModel        @10 :Text;
 }
 
 struct VmEditParams {
@@ -154,6 +165,8 @@ struct VmEditParams {
   autostart          @15 :Bool;
   hasRebootQuirk     @16 :Bool;
   rebootQuirk        @17 :Bool;
+  hasCpuModel        @18 :Bool;
+  cpuModel           @19 :Text;
 }
 
 struct DriveAttachParams {

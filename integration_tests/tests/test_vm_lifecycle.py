@@ -221,6 +221,41 @@ class TestVmSmokeAndCrud(_VmLifecycleBase):
         with pytest.raises(VmNotFound):
             self.client.vms.get("doubly-nested")
 
+    def test_cpu_model_defaults_to_host(self):
+        """`vms.create` without an explicit `cpu_model` lands at
+        the documented default `"host"`. The CLI exposes this for
+        operators who prefer raw guest performance over cross-host
+        migration safety; the agent renders it into `-cpu host` on
+        the QEMU argv (see ``src/Corvus/Node/Command.hs``)."""
+        vm = self.client.vms.create(
+            "cpu-default", cpu_count=1, ram_mb=64, headless=True
+        )
+        try:
+            assert vm.show().cpu_model == "host"
+        finally:
+            vm.delete()
+
+    def test_cpu_model_round_trip_qemu64(self):
+        """Operator-supplied `cpu_model="qemu64"` round-trips
+        through create → show → edit → show. Proves the field
+        threads through the CLI/RPC/wire/DB plumbing end-to-end,
+        and that `vm edit --cpu-model …` updates it on the
+        stopped VM (the agent only reads the field at start, so
+        editing while stopped is the supported path)."""
+        vm = self.client.vms.create(
+            "cpu-roundtrip",
+            cpu_count=1,
+            ram_mb=64,
+            headless=True,
+            cpu_model="qemu64",
+        )
+        try:
+            assert vm.show().cpu_model == "qemu64"
+            vm.edit(cpu_model="Westmere-v3")
+            assert vm.show().cpu_model == "Westmere-v3"
+        finally:
+            vm.delete()
+
     def test_edit_noop(self):
         """vm.edit() with no fields set.
 

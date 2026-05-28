@@ -121,6 +121,7 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
                     -- start handler when the VM row is in `saved` status;
                     -- otherwise a cold boot.
                     VS.vsLoadFromSavedState = vmStatus vm == M.VmSaved
+                  , VS.vsCpuModel = vmCpuModel vm
                   }
           pure (Right spec)
 

@@ -165,7 +165,9 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
   case mDetails of
     Nothing -> pure RespTemplateNotFound
     Just details -> do
-      -- Subtask 1: Create VM record (delegates to VmCreate action)
+      -- Subtask 1: Create VM record (delegates to VmCreate action).
+      -- Templates don't yet carry their own cpuModel — pass "" so
+      -- @handleVmCreate@ falls back to the daemon default ("host").
       vmResp <-
         liftIO $
           runActionAsSubtask
@@ -181,6 +183,7 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
                 (tvdCloudInit details)
                 (tvdAutostart details)
                 (tvdRebootQuirk details)
+                ""
             )
       case vmResp of
         RespVmCreated vmIdLong -> do

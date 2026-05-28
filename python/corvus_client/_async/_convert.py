@@ -88,6 +88,7 @@ def vm_info(r) -> t.VmInfo:
         autostart=r.autostart,
         last_healthcheck=_ts(r.lastHealthcheck),
         reboot_quirk=r.rebootQuirk,
+        cpu_model=r.cpuModel,
     )
 
 
@@ -158,6 +159,7 @@ def vm_details(r) -> t.VmDetails:
         error_message=_nz_text(r.errorMessage),
         last_error_at=_ts(r.lastErrorAt),
         reboot_quirk=r.rebootQuirk,
+        cpu_model=r.cpuModel,
     )
 
 

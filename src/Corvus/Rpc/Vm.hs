@@ -132,6 +132,7 @@ instance CGVm.VmManager'server_ VmManagerCap where
               , vcrCloudInit = cloudInit
               , vcrAutostart = autostart
               , vcrRebootQuirk = rebootQuirk
+              , vcrCpuModel = cpuModel
               }
       resp <- runAction st cn act
       case resp of
@@ -217,6 +218,7 @@ instance CGVm.Vm'server_ VmCap where
               , vedCloudInit = if hasCloudInit then Just cloudInit else Nothing
               , vedAutostart = if hasAutostart then Just autostart else Nothing
               , vedRebootQuirk = if hasRebootQuirk then Just rebootQuirk else Nothing
+              , vedCpuModel = if hasCpuModel then Just cpuModel else Nothing
               }
       resp <- runAction st cn act
       case resp of

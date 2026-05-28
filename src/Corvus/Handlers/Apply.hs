@@ -359,6 +359,7 @@ createOneVm ctx keyMap diskMap nwMap v = do
           (effectiveCloudInit v)
           (avAutostart v)
           (avRebootQuirk v)
+          (avCpuModel v)
       )
       dummyTaskId
   case vmResult of

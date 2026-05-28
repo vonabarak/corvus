@@ -66,6 +66,7 @@ class VmInfo:
     autostart: bool
     last_healthcheck: datetime | None = None
     reboot_quirk: bool = False
+    cpu_model: str = "host"
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,7 @@ class VmDetails:
     error_message: str | None = None
     last_error_at: datetime | None = None
     reboot_quirk: bool = False
+    cpu_model: str = "host"
 
 
 @dataclass(frozen=True)

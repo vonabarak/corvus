@@ -659,6 +659,7 @@ encodeVmSpec s =
     , CGNA.rebootQuirk = vsRebootQuirk s
     , CGNA.spiceBindAddr = vsSpiceBindAddr s
     , CGNA.loadFromSavedState = vsLoadFromSavedState s
+    , CGNA.cpuModel = vsCpuModel s
     }
 
 encodeVmDriveSpec :: VmDriveSpec -> CGNA.Parsed CGNA.VmDriveSpec

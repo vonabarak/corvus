@@ -29,7 +29,34 @@ crv vm create my-vm 2 2048 --guest-agent      # Enable guest agent
 crv vm create my-vm 2 2048 --autostart        # Auto-start on daemon startup
 crv vm create my-vm 2 2048 -d "Web server"    # With description
 crv vm create my-vm 2 2048 --node alpha       # Pin to a specific node
+crv vm create my-vm 2 2048 --cpu-model qemu64 # Migratable CPU model (see below)
 ```
+
+### `--cpu-model` and cross-host migration
+
+`--cpu-model` (default `host`) selects the QEMU `-cpu` model. The
+default `host` passes through every feature of the underlying CPU —
+fastest, but the saved-state stream encodes feature bits that the
+destination CPU may not have, and `crv vm migrate` to a different
+host will fail at the `KVM_SET_SREGS` restore step with `Invalid
+argument`.
+
+For VMs that may need to migrate across non-identical hosts, pick a
+stable model:
+
+- `qemu64` — lowest common denominator, works on every x86-64 host
+- `Nehalem`, `Westmere-v3`, `Skylake-Client-v1`, … — named models
+  that expose progressively newer feature sets, picked to be the
+  intersection of CPUs in your fleet
+
+The field is editable on a stopped VM:
+
+```bash
+crv vm edit my-vm --cpu-model qemu64
+```
+
+Takes effect on next start (the agent reads the field only when
+spawning QEMU).
 
 `--node` (alias `-n`) is optional. When omitted the daemon's
 scheduler picks a node — filtered to `admin_state = online`,
@@ -49,6 +76,7 @@ The VM must be stopped to edit.
 ```bash
 crv vm edit my-vm --cpus 4                    # Change CPU count
 crv vm edit my-vm --ram 8192                  # Change RAM
+crv vm edit my-vm --cpu-model qemu64          # Change QEMU CPU model (see Creating a VM)
 crv vm edit my-vm --cloud-init true           # Enable cloud-init
 crv vm edit my-vm --guest-agent true          # Enable guest agent
 crv vm edit my-vm --headless true             # Switch to serial console

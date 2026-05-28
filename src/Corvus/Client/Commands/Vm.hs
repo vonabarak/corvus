@@ -99,9 +99,11 @@ handleVmCreate
   -> Bool
   -> Bool
   -- ^ rebootQuirk
+  -> Text
+  -- ^ cpuModel
   -> IO Bool
-handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart rebootQuirk = do
-  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart rebootQuirk)
+handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart rebootQuirk cpuModel = do
+  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart rebootQuirk cpuModel)
   case r of
     Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $
@@ -172,12 +174,14 @@ handleVmEdit
   -> Maybe Bool
   -> Maybe Bool
   -- ^ rebootQuirk
+  -> Maybe Text
+  -- ^ cpuModel
   -> IO Bool
-handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk =
+handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk mCpuModel =
   tryRpcUnit
     fmt
     (putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated.")
-    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk)
+    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk mCpuModel)
 
 -- | Handle @crv vm migrate <VM> --to-node <NODE>@.
 handleVmMigrate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
@@ -471,6 +475,7 @@ printVmDetails vm = do
       putStrLn $ "                " ++ indented
     Nothing -> pure ()
   printField "CPUs" (show (vdCpuCount vm))
+  printField "CPU Model" (T.unpack (vdCpuModel vm))
   printField "RAM (MB)" (show (vdRamMb vm))
   printField "Description" (maybe "(none)" T.unpack (vdDescription vm))
   printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")

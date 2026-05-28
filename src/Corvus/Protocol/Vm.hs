@@ -41,6 +41,10 @@ data VmInfo = VmInfo
   , viHealthcheck :: !(Maybe UTCTime)
   , viAutostart :: !Bool
   , viRebootQuirk :: !Bool
+  , viCpuModel :: !Text
+  -- ^ QEMU @-cpu@ model. Default @"host"@ for back-compat; see
+  -- @schema/vm.capnp::VmInfo.cpuModel@ for migration-safety
+  -- trade-off.
   }
   deriving (Eq, Show, Generic)
 
@@ -121,6 +125,8 @@ data VmDetails = VmDetails
   -- ^ When true, QEMU runs with @-no-reboot@ and the agent
   -- re-spawns on each guest-initiated exit. Used to dodge OVMF
   -- firmware reboot hangs (tianocore/edk2#12441).
+  , vdCpuModel :: !Text
+  -- ^ See @viCpuModel@.
   }
   deriving (Eq, Show, Generic)
 

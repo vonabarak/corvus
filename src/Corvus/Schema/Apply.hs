@@ -180,6 +180,11 @@ data ApplyVm = ApplyVm
   , avSshKeys :: [Text]
   , avAutostart :: Bool
   , avRebootQuirk :: Bool
+  , avCpuModel :: Text
+  -- ^ QEMU @-cpu@ model. Default @"host"@ exposes the host CPU
+  -- (best perf, not safe for cross-host migration); set to a
+  -- stable model (e.g. @"qemu64"@) per VM for migratable
+  -- workloads.
   }
   deriving (Show)
 
@@ -201,6 +206,7 @@ instance FromJSON ApplyVm where
       <*> o .:? "sshKeys" .!= []
       <*> o .:? "autostart" .!= False
       <*> o .:? "rebootQuirk" .!= False
+      <*> o .:? "cpuModel" .!= "host"
 
 data ApplyDrive = ApplyDrive
   { adrDisk :: Text

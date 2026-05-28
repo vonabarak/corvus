@@ -95,6 +95,7 @@ spec = sequential $ withTestDb $ do
                     , M.vmLastErrorAt = Nothing
                     , M.vmMigrating = False
                     , M.vmRebootQuirk = False
+                    , M.vmCpuModel = "host"
                     }
               )
               pool
@@ -152,6 +153,7 @@ insertRunningVm name port = do
           , M.vmLastErrorAt = Nothing
           , M.vmMigrating = False
           , M.vmRebootQuirk = False
+          , M.vmCpuModel = "host"
           }
   pure ()
 

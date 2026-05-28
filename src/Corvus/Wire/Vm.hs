@@ -69,6 +69,7 @@ toCapnpVmInfo P.VmInfo {..} =
     , CGVm.lastHealthcheck = utcTimeToNanosMaybe viHealthcheck
     , CGVm.autostart = viAutostart
     , CGVm.rebootQuirk = viRebootQuirk
+    , CGVm.cpuModel = viCpuModel
     }
 
 fromCapnpVmInfo :: C.Parsed CGVm.VmInfo -> Either WireError P.VmInfo
@@ -89,6 +90,7 @@ fromCapnpVmInfo CGVm.VmInfo {..} = do
       , P.viHealthcheck = nanosToUtcTimeMaybe lastHealthcheck
       , P.viAutostart = autostart
       , P.viRebootQuirk = rebootQuirk
+      , P.viCpuModel = cpuModel
       }
 
 -- ---------------------------------------------------------------------
@@ -208,6 +210,7 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs =
     , CGVm.errorMessage = fromMaybe mempty vdErrorMessage
     , CGVm.lastErrorAt = utcTimeToNanosMaybe vdLastErrorAt
     , CGVm.rebootQuirk = vdRebootQuirk
+    , CGVm.cpuModel = vdCpuModel
     }
 
 -- | Reverse direction. Returns shared-dirs separately so the caller
@@ -249,6 +252,7 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
         , P.vdErrorMessage = if errorMessage == mempty then Nothing else Just errorMessage
         , P.vdLastErrorAt = nanosToUtcTimeMaybe lastErrorAt
         , P.vdRebootQuirk = rebootQuirk
+        , P.vdCpuModel = cpuModel
         }
     , sharedDirs'
     )

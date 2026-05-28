@@ -149,6 +149,7 @@ insertVm name status = do
           , vmLastErrorAt = Nothing
           , vmMigrating = False
           , vmRebootQuirk = False
+          , vmCpuModel = "host"
           }
   pure $ fromSqlKey key
 
@@ -181,6 +182,7 @@ insertRunningVmWithGuestAgent name = do
           , vmLastErrorAt = Nothing
           , vmMigrating = False
           , vmRebootQuirk = False
+          , vmCpuModel = "host"
           }
   pure $ fromSqlKey key
 
@@ -212,6 +214,7 @@ insertHeadlessVm name status = do
           , vmLastErrorAt = Nothing
           , vmMigrating = False
           , vmRebootQuirk = False
+          , vmCpuModel = "host"
           }
   pure $ fromSqlKey key
 
@@ -249,6 +252,7 @@ insertVmFull name status cpus ramMb desc _pid = do
           , vmLastErrorAt = Nothing
           , vmMigrating = False
           , vmRebootQuirk = False
+          , vmCpuModel = "host"
           }
   pure $ fromSqlKey key
 
@@ -279,6 +283,7 @@ defaultVm = do
       , vmLastErrorAt = Nothing
       , vmMigrating = False
       , vmRebootQuirk = False
+      , vmCpuModel = "host"
       }
 
 --------------------------------------------------------------------------------
@@ -581,6 +586,7 @@ givenCloudInitVmExists name = do
           , vmLastErrorAt = Nothing
           , vmMigrating = False
           , vmRebootQuirk = False
+          , vmCpuModel = "host"
           }
   pure $ fromSqlKey key
 

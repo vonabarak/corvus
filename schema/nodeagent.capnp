@@ -454,6 +454,13 @@ struct VmSpec {
   # unlinks the state file. False (the default) means a normal
   # cold boot. Path is conventional — no Text field on the wire.
   loadFromSavedState @16 :Bool;
+  # QEMU `-cpu` model. Default `"host"` exposes the host CPU
+  # (best perf, NOT migration-safe across non-identical hosts);
+  # daemons that care about cross-host migration set this to a
+  # stable model (`qemu64`, `Westmere-v3`, …). Empty string
+  # falls back to `"host"` for forward-wire compatibility with
+  # older daemons that don't yet send this field.
+  cpuModel @17 :Text;
 }
 
 struct VmDriveSpec {

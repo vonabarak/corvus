@@ -57,6 +57,7 @@ class AsyncVmManager:
         cloud_init: bool = False,
         autostart: bool = False,
         reboot_quirk: bool = False,
+        cpu_model: str = "host",
     ) -> AsyncVm:
         """Create a bare VM record.
 
@@ -84,6 +85,7 @@ class AsyncVmManager:
         params.cloudInit = cloud_init
         params.autostart = autostart
         params.rebootQuirk = reboot_quirk
+        params.cpuModel = cpu_model
         resp = await mgr.create(params=params)
         return AsyncVm(resp.vm)
 
@@ -135,6 +137,7 @@ class AsyncVm:
         cloud_init: bool | None = None,
         autostart: bool | None = None,
         reboot_quirk: bool | None = None,
+        cpu_model: str | None = None,
     ) -> None:
         params = _schema.vm.VmEditParams.new_message()
         _set_optional(params, "hasName", "name", name)
@@ -146,6 +149,7 @@ class AsyncVm:
         _set_optional(params, "hasCloudInit", "cloudInit", cloud_init)
         _set_optional(params, "hasAutostart", "autostart", autostart)
         _set_optional(params, "hasRebootQuirk", "rebootQuirk", reboot_quirk)
+        _set_optional(params, "hasCpuModel", "cpuModel", cpu_model)
         await self._cap.edit(params=params)
 
     async def delete(self, *, keep_disks: bool = False) -> None:

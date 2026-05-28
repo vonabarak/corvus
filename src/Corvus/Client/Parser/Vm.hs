@@ -84,6 +84,20 @@ vmCreateCommand =
             \around the OVMF firmware second-boot hang \
             \(tianocore/edk2#12441)."
       )
+    <*> ( T.pack
+            <$> strOption
+              ( long "cpu-model"
+                  <> metavar "MODEL"
+                  <> value "host"
+                  <> showDefault
+                  <> help
+                    "QEMU `-cpu` model. Default `host` exposes the host CPU \
+                    \(best perf, NOT migration-safe across non-identical \
+                    \hosts). For cross-host migration safety, set a stable \
+                    \model such as `qemu64`, `Nehalem`, `Westmere-v3`, or \
+                    \`Skylake-Client-v1`."
+              )
+        )
 
 -- | Parser for vm delete
 vmDeleteCommand :: Parser Command
@@ -250,6 +264,16 @@ vmEditCommand =
                 \workarounds (true/false). Takes effect on next start."
               <> completeWith ["true", "false"]
           )
+      )
+    <*> optional
+      ( T.pack
+          <$> strOption
+            ( long "cpu-model"
+                <> metavar "MODEL"
+                <> help
+                  "New QEMU `-cpu` model (e.g. `host`, `qemu64`, \
+                  \`Westmere-v3`). Takes effect on next start."
+            )
       )
 
 -- | Parser for vm view

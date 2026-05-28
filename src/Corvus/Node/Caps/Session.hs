@@ -831,6 +831,7 @@ decodeVmSpec
     , CGNA.rebootQuirk = rq
     , CGNA.spiceBindAddr = sba
     , CGNA.loadFromSavedState = lfs
+    , CGNA.cpuModel = cm
     } =
     VS.VmSpec
       { VS.vsVmId = vid
@@ -848,6 +849,7 @@ decodeVmSpec
       , VS.vsRebootQuirk = rq
       , VS.vsSpiceBindAddr = sba
       , VS.vsLoadFromSavedState = lfs
+      , VS.vsCpuModel = if T.null cm then "host" else cm
       }
 
 decodeVmDriveSpec :: CGNA.Parsed CGNA.VmDriveSpec -> VS.VmDriveSpec
