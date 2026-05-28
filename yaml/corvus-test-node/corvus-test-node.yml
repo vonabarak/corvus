@@ -478,4 +478,4 @@ pipeline:
               cacheType: writeback
               discard: true
           networkInterfaces:
-            - type: user
+            - network: corvus
