@@ -96,12 +96,19 @@ import qualified System.Random as Random
 -- ---------------------------------------------------------------------------
 -- Configuration
 
--- | Streaming chunk size for inter-agent disk transfer. 256 KiB
--- gives a reasonable balance between RPC overhead per chunk and
--- memory footprint per in-flight write. Tuned later if real
--- workloads need a different point.
+-- | Streaming chunk size for inter-agent disk transfer.
+--
+-- 16 MiB. The transfer is a strict per-chunk request/reply over
+-- Cap'n Proto over mTLS — each 'callSink' blocks on the reply
+-- before the next 'BS.hGet' runs, so wall-clock throughput is
+-- @chunkSize / (RTT + per-RPC overhead)@. With a 256 KiB chunk
+-- and ~80 ms of combined per-RPC cost on a real network we
+-- observed ~3 MiB/s; 16 MiB amortises that overhead 64× and gets
+-- close to wire speed without needing a full pipelining refactor.
+-- Memory cost is bounded — one inflight buffer per active
+-- transfer per direction.
 transferChunkBytes :: Int
-transferChunkBytes = 262144
+transferChunkBytes = 16 * 1024 * 1024
 
 -- ---------------------------------------------------------------------------
 -- Token registry
