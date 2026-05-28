@@ -332,6 +332,7 @@ diskCopyCommand =
           <> completer nodeCompleter
       )
     <*> toPathOption
+    <*> withBackingChainSwitch
 
 -- | Parser for disk move (cross-node placement swap).
 diskMoveCommand :: Parser Command
@@ -350,6 +351,23 @@ diskMoveCommand =
           <> completer nodeCompleter
       )
     <*> toPathOption
+    <*> withBackingChainSwitch
+
+-- | Shared @--with-backing-chain@ flag for @disk copy@ and
+-- @disk move@. When set, the daemon recursively stages every
+-- missing backing ancestor on the destination before the primary
+-- transfer. When unset, copying an overlay whose backing chain
+-- isn't already on the destination is refused (the historical
+-- behaviour, useful for catching unintended chain pulls).
+withBackingChainSwitch :: Parser Bool
+withBackingChainSwitch =
+  switch
+    ( long "with-backing-chain"
+        <> help
+          ( "Recursively copy every backing ancestor missing on the "
+              <> "destination before transferring the disk."
+          )
+    )
 
 -- | Shared @--to-path@ option for `disk copy` and `disk move`.
 -- Mandatory when the source path is absolute; optional (and the

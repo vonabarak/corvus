@@ -210,6 +210,7 @@ class AsyncDiskManager:
         to_node_ref: int | str,
         *,
         to_path: str | None = None,
+        with_backing_chain: bool = False,
     ) -> int:
         """Copy a disk image's bytes to another node.
 
@@ -224,6 +225,11 @@ class AsyncDiskManager:
         an absolute source path requires an explicit ``to_path``,
         otherwise the daemon refuses the copy. Trailing ``/``
         means "this is a directory; pick the source basename".
+
+        ``with_backing_chain``: when True, recursively copies
+        every backing ancestor missing on the destination before
+        transferring this disk. Default False keeps the historical
+        refuse-if-chain-missing behaviour.
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskCopyParams.new_message()
@@ -231,6 +237,7 @@ class AsyncDiskManager:
         params.toNodeRef = entity_ref(to_node_ref)
         if to_path is not None:
             params.toPath = to_path
+        params.withBackingChain = with_backing_chain
         resp = await mgr.copy(params=params)
         return resp.taskId
 
@@ -240,6 +247,7 @@ class AsyncDiskManager:
         to_node_ref: int | str,
         *,
         to_path: str | None = None,
+        with_backing_chain: bool = False,
     ) -> int:
         """Move a disk image's bytes to another node.
 
@@ -247,7 +255,10 @@ class AsyncDiskManager:
         drops the source placement + file on success. Same byte
         path as :meth:`copy`. Returns the task id.
 
-        ``to_path`` semantics match :meth:`copy`.
+        ``to_path`` and ``with_backing_chain`` semantics match
+        :meth:`copy`. Staged backing ancestors land as separate
+        placements (not moved — they may still have other
+        consumers on the source).
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskMoveParams.new_message()
@@ -255,6 +266,7 @@ class AsyncDiskManager:
         params.toNodeRef = entity_ref(to_node_ref)
         if to_path is not None:
             params.toPath = to_path
+        params.withBackingChain = with_backing_chain
         resp = await mgr.move(params=params)
         return resp.taskId
 

@@ -262,6 +262,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               { dcpDiskId = diskId
               , dcpDestNodeId = nodeId
               , dcpToPath = emptyToNothing toPath
+              , dcpWithBackingChain = withBackingChain
               }
       resp <- runActionAsyncWithId st cn act RespDiskTransferStarted
       case resp of
@@ -281,6 +282,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               { dmvDiskId = diskId
               , dmvDestNodeId = nodeId
               , dmvToPath = emptyToNothing toPath
+              , dmvWithBackingChain = withBackingChain
               }
       resp <- runActionAsyncWithId st cn act RespDiskTransferStarted
       case resp of

@@ -560,7 +560,7 @@ type instance (R.ReprFor DiskCopyParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCopyParams) where
     typeId  = 10673387965178120780
 instance (C.TypedStruct DiskCopyParams) where
-    numStructWords  = 0
+    numStructWords  = 1
     numStructPtrs  = 3
 instance (C.Allocate DiskCopyParams) where
     type AllocHint DiskCopyParams = ()
@@ -574,19 +574,22 @@ data instance C.Parsed DiskCopyParams
     = DiskCopyParams 
         {diskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
         ,toNodeRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
-        ,toPath :: (RP.Parsed Basics.Text)}
+        ,toPath :: (RP.Parsed Basics.Text)
+        ,withBackingChain :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskCopyParams))
 deriving instance (Std_.Eq (C.Parsed DiskCopyParams))
 instance (C.Parse DiskCopyParams (C.Parsed DiskCopyParams)) where
     parse raw_ = (DiskCopyParams <$> (GH.parseField #diskRef raw_)
                                  <*> (GH.parseField #toNodeRef raw_)
-                                 <*> (GH.parseField #toPath raw_))
+                                 <*> (GH.parseField #toPath raw_)
+                                 <*> (GH.parseField #withBackingChain raw_))
 instance (C.Marshal DiskCopyParams (C.Parsed DiskCopyParams)) where
     marshalInto raw_ DiskCopyParams{..} = (do
         (GH.encodeField #diskRef diskRef raw_)
         (GH.encodeField #toNodeRef toNodeRef raw_)
         (GH.encodeField #toPath toPath raw_)
+        (GH.encodeField #withBackingChain withBackingChain raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "diskRef" GH.Slot DiskCopyParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
@@ -595,12 +598,14 @@ instance (GH.HasField "toNodeRef" GH.Slot DiskCopyParams Capnp.Gen.ById.X9b1373e
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "toPath" GH.Slot DiskCopyParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "withBackingChain" GH.Slot DiskCopyParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
 data DiskMoveParams 
 type instance (R.ReprFor DiskMoveParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskMoveParams) where
     typeId  = 12946892671933591168
 instance (C.TypedStruct DiskMoveParams) where
-    numStructWords  = 0
+    numStructWords  = 1
     numStructPtrs  = 3
 instance (C.Allocate DiskMoveParams) where
     type AllocHint DiskMoveParams = ()
@@ -614,19 +619,22 @@ data instance C.Parsed DiskMoveParams
     = DiskMoveParams 
         {diskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
         ,toNodeRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
-        ,toPath :: (RP.Parsed Basics.Text)}
+        ,toPath :: (RP.Parsed Basics.Text)
+        ,withBackingChain :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskMoveParams))
 deriving instance (Std_.Eq (C.Parsed DiskMoveParams))
 instance (C.Parse DiskMoveParams (C.Parsed DiskMoveParams)) where
     parse raw_ = (DiskMoveParams <$> (GH.parseField #diskRef raw_)
                                  <*> (GH.parseField #toNodeRef raw_)
-                                 <*> (GH.parseField #toPath raw_))
+                                 <*> (GH.parseField #toPath raw_)
+                                 <*> (GH.parseField #withBackingChain raw_))
 instance (C.Marshal DiskMoveParams (C.Parsed DiskMoveParams)) where
     marshalInto raw_ DiskMoveParams{..} = (do
         (GH.encodeField #diskRef diskRef raw_)
         (GH.encodeField #toNodeRef toNodeRef raw_)
         (GH.encodeField #toPath toPath raw_)
+        (GH.encodeField #withBackingChain withBackingChain raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "diskRef" GH.Slot DiskMoveParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
@@ -635,6 +643,8 @@ instance (GH.HasField "toNodeRef" GH.Slot DiskMoveParams Capnp.Gen.ById.X9b1373e
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "toPath" GH.Slot DiskMoveParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "withBackingChain" GH.Slot DiskMoveParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
 data DiskManager 
 type instance (R.ReprFor DiskManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskManager) where

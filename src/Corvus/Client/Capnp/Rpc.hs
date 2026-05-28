@@ -926,8 +926,15 @@ rpcDiskRebase conn diskRef newBackingRef = do
 -- 'Nothing' (or @Just ""@) to preserve the source's relative
 -- path; an absolute source path requires an explicit
 -- destination, otherwise the daemon refuses the copy.
-rpcDiskCopy :: CapnpConnection -> EntityRef -> EntityRef -> Maybe Text -> IO Int64
-rpcDiskCopy conn diskRef toNodeRef mToPath = do
+rpcDiskCopy
+  :: CapnpConnection
+  -> EntityRef
+  -> EntityRef
+  -> Maybe Text
+  -> Bool
+  -- ^ recursively stage missing backing-chain ancestors on the destination
+  -> IO Int64
+rpcDiskCopy conn diskRef toNodeRef mToPath withBackingChain = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
@@ -935,6 +942,7 @@ rpcDiskCopy conn diskRef toNodeRef mToPath = do
           { CGDisk.diskRef = toCapnpEntityRef diskRef
           , CGDisk.toNodeRef = toCapnpEntityRef toNodeRef
           , CGDisk.toPath = Data.Maybe.fromMaybe T.empty mToPath
+          , CGDisk.withBackingChain = withBackingChain
           }
   CGDisk.DiskManager'copy'results {CGDisk.taskId = tid} <-
     callOn #copy CGDisk.DiskManager'copy'params {CGDisk.params = p} mgr
@@ -943,8 +951,15 @@ rpcDiskCopy conn diskRef toNodeRef mToPath = do
 -- | Move a disk image to another node. Same byte path as
 -- 'rpcDiskCopy', but the daemon deletes the source-side placement
 -- (and the file) on success.
-rpcDiskMove :: CapnpConnection -> EntityRef -> EntityRef -> Maybe Text -> IO Int64
-rpcDiskMove conn diskRef toNodeRef mToPath = do
+rpcDiskMove
+  :: CapnpConnection
+  -> EntityRef
+  -> EntityRef
+  -> Maybe Text
+  -> Bool
+  -- ^ recursively stage missing backing-chain ancestors on the destination
+  -> IO Int64
+rpcDiskMove conn diskRef toNodeRef mToPath withBackingChain = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
@@ -952,6 +967,7 @@ rpcDiskMove conn diskRef toNodeRef mToPath = do
           { CGDisk.diskRef = toCapnpEntityRef diskRef
           , CGDisk.toNodeRef = toCapnpEntityRef toNodeRef
           , CGDisk.toPath = Data.Maybe.fromMaybe T.empty mToPath
+          , CGDisk.withBackingChain = withBackingChain
           }
   CGDisk.DiskManager'move'results {CGDisk.taskId = tid} <-
     callOn #move CGDisk.DiskManager'move'params {CGDisk.params = p} mgr

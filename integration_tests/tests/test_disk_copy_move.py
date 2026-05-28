@@ -377,6 +377,55 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent(base_name)
 
+    def test_copy_with_backing_chain_stages_all_ancestors(self):
+        """``disks.copy(top, beta, with_backing_chain=True)`` walks
+        the backing chain and copies every missing ancestor to beta
+        before transferring the top overlay. Mirrors vm.migrate's
+        chain-auto-copy contract — uses synthetic 16 MiB disks for
+        determinism.
+
+        Two-level chain (base ← mid ← top) so the test proves the
+        recursion actually recurses; a single-parent overlay
+        wouldn't distinguish the recursive walk from the existing
+        one-step path.
+        """
+        base_name = _uniq("wbc-base")
+        mid_name = _uniq("wbc-mid")
+        top_name = _uniq("wbc-top")
+        self.client_alpha.disks.create(base_name, size_mb=16, format="qcow2")
+        try:
+            self.client_alpha.disks.create_overlay(mid_name, base_name)
+            try:
+                self.client_alpha.disks.create_overlay(top_name, mid_name)
+                try:
+                    # Pre-condition: every level alpha-only.
+                    assert self._placement_nodes(base_name) == {self.alpha_name}
+                    assert self._placement_nodes(mid_name) == {self.alpha_name}
+                    assert self._placement_nodes(top_name) == {self.alpha_name}
+                    tid = self.client_alpha.disks.copy(
+                        top_name, self.beta_name, with_backing_chain=True
+                    )
+                    self.wait_for_task(self.client_alpha, tid, timeout_sec=90.0)
+                    # Every level landed on beta. Source stays.
+                    assert self._placement_nodes(base_name) == {
+                        self.alpha_name,
+                        self.beta_name,
+                    }
+                    assert self._placement_nodes(mid_name) == {
+                        self.alpha_name,
+                        self.beta_name,
+                    }
+                    assert self._placement_nodes(top_name) == {
+                        self.alpha_name,
+                        self.beta_name,
+                    }
+                finally:
+                    self._delete_silent(top_name)
+            finally:
+                self._delete_silent(mid_name)
+        finally:
+            self._delete_silent(base_name)
+
     def test_refuses_target_not_online(self):
         """Drain beta, then attempt copy — should refuse. Restore
         beta to `online` before leaving so subsequent tests work."""

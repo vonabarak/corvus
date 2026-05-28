@@ -138,8 +138,16 @@ class SyncDiskManager:
         to_node_ref: int | str,
         *,
         to_path: str | None = None,
+        with_backing_chain: bool = False,
     ) -> int:
-        return self._rl.run(self._a.copy(disk_ref, to_node_ref, to_path=to_path))
+        return self._rl.run(
+            self._a.copy(
+                disk_ref,
+                to_node_ref,
+                to_path=to_path,
+                with_backing_chain=with_backing_chain,
+            )
+        )
 
     def move(
         self,
@@ -147,8 +155,16 @@ class SyncDiskManager:
         to_node_ref: int | str,
         *,
         to_path: str | None = None,
+        with_backing_chain: bool = False,
     ) -> int:
-        return self._rl.run(self._a.move(disk_ref, to_node_ref, to_path=to_path))
+        return self._rl.run(
+            self._a.move(
+                disk_ref,
+                to_node_ref,
+                to_path=to_path,
+                with_backing_chain=with_backing_chain,
+            )
+        )
 
 
 class SyncDisk(LoopBoundResource):

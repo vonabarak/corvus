@@ -489,9 +489,17 @@ readMaybeInt64 s = case reads s of
   [(n, "")] -> Just n
   _ -> Nothing
 
--- | Handle @crv disk copy <DISK> --to-node <NODE> [--to-path PATH]@.
-handleDiskCopy :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> IO Bool
-handleDiskCopy fmt conn diskRef toNodeRef mToPath = do
+-- | Handle @crv disk copy <DISK> --to-node <NODE> [--to-path PATH]
+-- [--with-backing-chain]@.
+handleDiskCopy
+  :: OutputFormat
+  -> CapnpConnection
+  -> Text
+  -> Text
+  -> Maybe Text
+  -> Bool
+  -> IO Bool
+handleDiskCopy fmt conn diskRef toNodeRef mToPath withBackingChain = do
   r <-
     try @SomeException $
       CR.rpcDiskCopy
@@ -499,6 +507,7 @@ handleDiskCopy fmt conn diskRef toNodeRef mToPath = do
         (entityRefFromText diskRef)
         (entityRefFromText toNodeRef)
         mToPath
+        withBackingChain
   case r of
     Right tid -> do
       emitOkWith fmt [("taskId", toJSON tid)] $
@@ -510,9 +519,17 @@ handleDiskCopy fmt conn diskRef toNodeRef mToPath = do
         putStrLn ("Error copying disk: " ++ show e)
       pure False
 
--- | Handle @crv disk move <DISK> --to-node <NODE> [--to-path PATH]@.
-handleDiskMove :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> IO Bool
-handleDiskMove fmt conn diskRef toNodeRef mToPath = do
+-- | Handle @crv disk move <DISK> --to-node <NODE> [--to-path PATH]
+-- [--with-backing-chain]@.
+handleDiskMove
+  :: OutputFormat
+  -> CapnpConnection
+  -> Text
+  -> Text
+  -> Maybe Text
+  -> Bool
+  -> IO Bool
+handleDiskMove fmt conn diskRef toNodeRef mToPath withBackingChain = do
   r <-
     try @SomeException $
       CR.rpcDiskMove
@@ -520,6 +537,7 @@ handleDiskMove fmt conn diskRef toNodeRef mToPath = do
         (entityRefFromText diskRef)
         (entityRefFromText toNodeRef)
         mToPath
+        withBackingChain
   case r of
     Right tid -> do
       emitOkWith fmt [("taskId", toJSON tid)] $

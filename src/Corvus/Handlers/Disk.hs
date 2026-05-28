@@ -77,7 +77,7 @@ import Corvus.Handlers.Disk.Import (DiskImportAction (..), DiskImportUrl (..), h
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Handlers.Disk.Rebase (DiskRebase (..), handleDiskRebase)
 import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), SnapshotMerge (..), SnapshotRollback (..), handleSnapshotCreate, handleSnapshotDelete, handleSnapshotList, handleSnapshotMerge, handleSnapshotRollback)
-import Corvus.Handlers.Disk.Transfer (transferImageBetweenNodes)
+import Corvus.Handlers.Disk.Transfer (stageBackingChain, transferImageBetweenNodes)
 import Corvus.Handlers.Resolve (resolveNode, validateName)
 import Corvus.Handlers.Scheduler (pickNodeForDisk, pickNodeForExistingDisk)
 import Corvus.Model
@@ -926,8 +926,15 @@ filterM p (x : xs) = do
 -- | Copy a disk image's bytes to another node, leaving the source
 -- placement intact. Records a new 'DiskImageNode' row on the
 -- destination after the transfer succeeds.
-handleDiskCopy :: ServerState -> Int64 -> Int64 -> Maybe Text -> IO Response
-handleDiskCopy state diskId destNodeRaw mToPath = runServerLogging state $ do
+--
+-- When @withBackingChain@ is 'True', every backing ancestor that
+-- isn't yet on the destination is staged first via
+-- 'stageBackingChain'. The historical refuse-if-chain-missing
+-- behaviour of 'planTransfer' (its check at the "backing image …
+-- is not present on the destination" line) then passes naturally
+-- because the chain is now in place.
+handleDiskCopy :: ServerState -> Int64 -> Int64 -> Maybe Text -> Bool -> IO Response
+handleDiskCopy state diskId destNodeRaw mToPath withBackingChain = runServerLogging state $ do
   let destNode = toSqlKey destNodeRaw :: M.NodeId
       diskKey = toSqlKey diskId :: DiskImageId
   logInfoN $
@@ -935,34 +942,69 @@ handleDiskCopy state diskId destNodeRaw mToPath = runServerLogging state $ do
       <> T.pack (show diskId)
       <> " → node "
       <> T.pack (show destNodeRaw)
-  ePlan <- liftIO $ planTransfer state diskId destNode True mToPath
-  case ePlan of
+      <> if withBackingChain then " (with backing chain)" else ""
+  eStaged <- liftIO $ stageChainIfRequested state diskKey destNode withBackingChain
+  case eStaged of
     Left err -> pure (RespError err)
-    Right plan -> do
-      tResult <-
-        liftIO $
-          transferImageBetweenNodes
-            state
-            (tpSrcNode plan)
-            destNode
-            (tpSrcAbsPath plan)
-            (tpDestAbsPath plan)
-      case tResult of
+    Right () -> do
+      ePlan <- liftIO $ planTransfer state diskId destNode True mToPath
+      case ePlan of
         Left err -> pure (RespError err)
-        Right () -> do
-          liftIO $
-            runSqlPool
-              (recordDiskImageNode diskKey destNode (tpDestRelPath plan))
-              (ssDbPool state)
-          logInfoN "disk copy complete"
-          pure RespDiskOk
+        Right plan -> do
+          tResult <-
+            liftIO $
+              transferImageBetweenNodes
+                state
+                (tpSrcNode plan)
+                destNode
+                (tpSrcAbsPath plan)
+                (tpDestAbsPath plan)
+          case tResult of
+            Left err -> pure (RespError err)
+            Right () -> do
+              liftIO $
+                runSqlPool
+                  (recordDiskImageNode diskKey destNode (tpDestRelPath plan))
+                  (ssDbPool state)
+              logInfoN "disk copy complete"
+              pure RespDiskOk
+
+-- | Resolve the source node for the chain walk (any existing
+-- placement that isn't the destination), then call
+-- 'stageBackingChain'. A no-op when @withBackingChain@ is 'False'
+-- or when the chain is empty. Errors from 'stageBackingChain'
+-- (including the "source placement vanished" case) propagate to
+-- the caller verbatim.
+stageChainIfRequested
+  :: ServerState
+  -> DiskImageId
+  -> M.NodeId
+  -> Bool
+  -> IO (Either Text ())
+stageChainIfRequested _ _ _ False = pure (Right ())
+stageChainIfRequested state diskKey destNode True = do
+  placements <- runSqlPool (listDiskImageNodes diskKey) (ssDbPool state)
+  case [M.diskImageNodeNodeId row | Entity _ row <- placements, M.diskImageNodeNodeId row /= destNode] of
+    [] ->
+      pure $
+        Left "no source placement available (target is the only node hosting this disk)"
+    srcNode : _ -> do
+      r <- stageBackingChain state diskKey srcNode destNode
+      pure $ case r of
+        Left err -> Left err
+        Right _ -> Right ()
 
 -- | Move a disk image's bytes to another node and delete the
 -- source-side placement + file on success. Refused for any disk
 -- still attached to a VM (the user must go through @vm migrate@
 -- for attached images).
-handleDiskMove :: ServerState -> Int64 -> Int64 -> Maybe Text -> IO Response
-handleDiskMove state diskId destNodeRaw mToPath = runServerLogging state $ do
+--
+-- See 'handleDiskCopy' for the @withBackingChain@ semantics; the
+-- staged ancestors land as separate 'DiskImageNode' rows on the
+-- destination (not moved — backing images may still have other
+-- consumers on the source).
+handleDiskMove :: ServerState -> Int64 -> Int64 -> Maybe Text -> Bool -> IO Response
+handleDiskMove state diskId destNodeRaw mToPath withBackingChain = runServerLogging state $ do
   let destNode = toSqlKey destNodeRaw :: M.NodeId
       diskKey = toSqlKey diskId :: DiskImageId
   logInfoN $
@@ -970,44 +1012,49 @@ handleDiskMove state diskId destNodeRaw mToPath = runServerLogging state $ do
       <> T.pack (show diskId)
       <> " → node "
       <> T.pack (show destNodeRaw)
-  ePlan <- liftIO $ planTransfer state diskId destNode False mToPath
-  case ePlan of
+      <> if withBackingChain then " (with backing chain)" else ""
+  eStaged <- liftIO $ stageChainIfRequested state diskKey destNode withBackingChain
+  case eStaged of
     Left err -> pure (RespError err)
-    Right plan -> do
-      tResult <-
-        liftIO $
-          transferImageBetweenNodes
-            state
-            (tpSrcNode plan)
-            destNode
-            (tpSrcAbsPath plan)
-            (tpDestAbsPath plan)
-      case tResult of
+    Right () -> do
+      ePlan <- liftIO $ planTransfer state diskId destNode False mToPath
+      case ePlan of
         Left err -> pure (RespError err)
-        Right () -> do
-          -- Insert destination row, drop source row.
-          liftIO $
-            runSqlPool
-              ( do
-                  recordDiskImageNode diskKey destNode (tpDestRelPath plan)
-                  deleteDiskImageNodeRow diskKey (tpSrcNode plan)
-              )
-              (ssDbPool state)
-          -- Best-effort: delete the source file. Failure here is
-          -- logged but doesn't roll back the DB swap — the move
-          -- is logically already done.
-          delResult <-
+        Right plan -> do
+          tResult <-
             liftIO $
-              deleteImageViaAgent state (tpSrcNode plan) (tpSrcAbsPath plan)
-          case delResult of
-            ImageSuccess -> pure ()
-            ImageNotFound -> pure ()
-            other ->
-              logWarnN $
-                "source file delete after move did not complete cleanly: "
-                  <> T.pack (show other)
-          logInfoN "disk move complete"
-          pure RespDiskOk
+              transferImageBetweenNodes
+                state
+                (tpSrcNode plan)
+                destNode
+                (tpSrcAbsPath plan)
+                (tpDestAbsPath plan)
+          case tResult of
+            Left err -> pure (RespError err)
+            Right () -> do
+              -- Insert destination row, drop source row.
+              liftIO $
+                runSqlPool
+                  ( do
+                      recordDiskImageNode diskKey destNode (tpDestRelPath plan)
+                      deleteDiskImageNodeRow diskKey (tpSrcNode plan)
+                  )
+                  (ssDbPool state)
+              -- Best-effort: delete the source file. Failure here is
+              -- logged but doesn't roll back the DB swap — the move
+              -- is logically already done.
+              delResult <-
+                liftIO $
+                  deleteImageViaAgent state (tpSrcNode plan) (tpSrcAbsPath plan)
+              case delResult of
+                ImageSuccess -> pure ()
+                ImageNotFound -> pure ()
+                other ->
+                  logWarnN $
+                    "source file delete after move did not complete cleanly: "
+                      <> T.pack (show other)
+              logInfoN "disk move complete"
+              pure RespDiskOk
 
 data DiskCopy = DiskCopy
   { dcpDiskId :: Int64
@@ -1017,23 +1064,41 @@ data DiskCopy = DiskCopy
   -- wire string the dispatcher converted) means "preserve the
   -- source's relative path; refuse if the source path is
   -- absolute".
+  , dcpWithBackingChain :: Bool
+  -- ^ When 'True', stage every missing backing ancestor on the
+  -- destination before transferring the primary disk; see
+  -- 'stageBackingChain'.
   }
 
 instance Action DiskCopy where
   actionSubsystem _ = SubDisk
   actionCommand _ = "copy"
   actionEntityId = Just . fromIntegral . dcpDiskId
-  actionExecute ctx a = handleDiskCopy (acState ctx) (dcpDiskId a) (dcpDestNodeId a) (dcpToPath a)
+  actionExecute ctx a =
+    handleDiskCopy
+      (acState ctx)
+      (dcpDiskId a)
+      (dcpDestNodeId a)
+      (dcpToPath a)
+      (dcpWithBackingChain a)
 
 data DiskMove = DiskMove
   { dmvDiskId :: Int64
   , dmvDestNodeId :: Int64
   , dmvToPath :: Maybe Text
   -- ^ Same semantics as 'dcpToPath'.
+  , dmvWithBackingChain :: Bool
+  -- ^ Same semantics as 'dcpWithBackingChain'.
   }
 
 instance Action DiskMove where
   actionSubsystem _ = SubDisk
   actionCommand _ = "move"
   actionEntityId = Just . fromIntegral . dmvDiskId
-  actionExecute ctx a = handleDiskMove (acState ctx) (dmvDiskId a) (dmvDestNodeId a) (dmvToPath a)
+  actionExecute ctx a =
+    handleDiskMove
+      (acState ctx)
+      (dmvDiskId a)
+      (dmvDestNodeId a)
+      (dmvToPath a)
+      (dmvWithBackingChain a)

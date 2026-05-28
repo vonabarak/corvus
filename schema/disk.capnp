@@ -131,21 +131,30 @@ struct DiskImportParams {
 # rules as `--path` on `disk create`: relative is anchored at the
 # destination node's `basePath`, absolute is honoured verbatim,
 # trailing `/` means "directory; pick the source's basename".
+# `withBackingChain`, when true, asks the daemon to recursively
+# stage every backing ancestor of the source disk that's missing
+# on the destination before transferring the disk itself. Default
+# (false) keeps the historical refuse-if-chain-missing behaviour.
+# Mirrors what `vm.migrate` does automatically for the disks of a
+# VM that has overlays in its backing chain.
 struct DiskCopyParams {
-  diskRef   @0 :Common.EntityRef;
-  toNodeRef @1 :Common.EntityRef;
-  toPath    @2 :Text;
+  diskRef          @0 :Common.EntityRef;
+  toNodeRef        @1 :Common.EntityRef;
+  toPath           @2 :Text;
+  withBackingChain @3 :Bool;
 }
 
 # Move a logical disk image from one node to another. The source's
 # `DiskImageNode` row is deleted and the file unlinked on success.
 # Refused for any disk that is currently attached to a VM (use
 # `vm.migrate` for that path) — for non-attached disks both copy
-# and move are allowed. `toPath` semantics match `DiskCopyParams`.
+# and move are allowed. `toPath` and `withBackingChain` semantics
+# match `DiskCopyParams`.
 struct DiskMoveParams {
-  diskRef   @0 :Common.EntityRef;
-  toNodeRef @1 :Common.EntityRef;
-  toPath    @2 :Text;
+  diskRef          @0 :Common.EntityRef;
+  toNodeRef        @1 :Common.EntityRef;
+  toPath           @2 :Text;
+  withBackingChain @3 :Bool;
 }
 
 # ---------------------------------------------------------------------
