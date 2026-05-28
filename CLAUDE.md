@@ -159,6 +159,16 @@ No external C libraries required.
 - Networking tests drive a `corvus-netd` instance (the privileged agent), which needs `CAP_NET_ADMIN`; the netd smoke test launches it via `systemd-run` on the test node and tunnels Cap'n Proto over SSH so the pytest process itself stays unprivileged.
 - Log level during tests is controlled by `CORVUS_TEST_LOG_LEVEL` env var (default: `info`). Use `CORVUS_TEST_LOG_LEVEL=debug` for verbose output.
 
+### Integration test scheduling
+
+The custom xdist scheduler in [`integration_tests/conftest.py`](integration_tests/conftest.py) (`_LoadScopeShutdownSingleton`) enforces two invariants every new test must respect:
+
+1. **Class atomicity.** Every test method in a class runs on the same worker. The class-scoped `topology` fixture in `IntegrationTestCase` boots one outer test-node VM per class and relies on this. Design tests so that all state shared across methods of a class is held by the class fixture; never assume coordination between methods on different workers.
+
+2. **On-demand scope dispatch.** A test class is assigned to a worker only when that worker is down to one pending test (the running one) — the absolute minimum lookahead xdist's worker design permits. A slow class does NOT accumulate a backlog of queued classes behind it on the same worker; idle workers pick up queued classes from the global queue first. Design tests so they don't depend on a specific cross-class execution order; the scheduler reorders fast/slow classes and dispatches opportunistically.
+
+When writing a multi-minute test class, mark it `@pytest.mark.slow` so it floats to the head of the dispatch queue (see [`conftest.py`](integration_tests/conftest.py) `pytest_collection_modifyitems`) and starts at t=0 on its own worker.
+
 ## Documentation
 
 User-facing documentation lives in `doc/`. See `doc/INDEX.md` for the full list.

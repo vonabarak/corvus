@@ -70,6 +70,7 @@ from corvus_test_harness import (
 )
 from corvus_test_harness.cases import IntegrationTestCase, state_for
 from xdist.scheduler.loadscope import LoadScopeScheduling
+from xdist.workermanage import WorkerController
 
 import yaml as _yaml
 
@@ -361,31 +362,70 @@ def pytest_collection_modifyitems(
 
 
 class _LoadScopeShutdownSingleton(LoadScopeScheduling):
-    """LoadScopeScheduling that *does not* trap a fast class behind a
-    single-test slow class.
+    """LoadScopeScheduling with on-demand scope dispatch.
 
-    Background: xdist's worker main loop calls ``torun.get()`` a
-    second time *before* running the current test, so it can pass
-    ``nextitem`` to the runtest hooks. A worker whose initial scope
-    has only one test blocks forever on that second get() — nothing
-    will ever be sent. Stock loadscope works around this with the
-    GH-277 second pass, which hands every single-test worker a
-    *bonus scope* from the workqueue head so the second get() has
-    something to return. For slow single-test scopes (TestWindows:
-    1 test, ~5 min) the bonus scope is then trapped behind the slow
-    class on the same worker — even if a dozen other workers are
-    idle and could have run it in parallel.
+    Two invariants the suite relies on:
 
-    We replace the second pass: workers with exactly one pending
-    test get a SHUTDOWN sentinel (via ``node.shutdown()``) instead
-    of a bonus scope. They cleanly exit after their one test, and
-    the would-be-bonus stays in the global queue where the next
-    multi-test worker to free up picks it up. Workers with two or
-    more pending tests fall back to parent's ``_reschedule`` —
-    they don't deadlock because their second torun.get() returns
-    the second test immediately, and ``mark_test_complete`` after
-    the first test triggers a regular bonus assignment.
+    1. **Class atomicity.** Every method in a test class runs on the
+       same worker (the loadscope default). Class-scoped fixtures
+       (``IntegrationTestCase.topology`` — one outer test-node VM
+       per class) depend on this.
+
+    2. **On-demand dispatch.** A scope is assigned to a worker only
+       when that worker is down to one pending test (the running
+       one). Stock LoadScopeScheduling pre-assigns when pending ≤ 2
+       — that extra lookahead drains the workqueue while a slow
+       worker still has plenty of work, so the other workers see an
+       empty queue when they finish their own scopes, shutdown, and
+       the pre-assigned classes end up running sequentially behind
+       the slow class on a single worker instead of in parallel.
+       We override ``_reschedule`` with threshold "> 1" — the
+       absolute minimum xdist's worker design permits without
+       deadlocking on ``torun.get()``.
+
+    Single-test scopes still need special handling at startup.
+    xdist's worker main loop calls ``torun.get()`` a second time
+    *before* running the current test, so it can pass ``nextitem``
+    to the runtest hooks. A worker whose initial scope has only
+    one test blocks forever on that second get() unless we send
+    something. Stock loadscope handles this with the GH-277 second
+    pass that hands every single-test worker a *bonus scope* —
+    which traps the bonus on the same worker behind the slow test.
+    We override the second pass instead: workers with exactly one
+    pending test get a SHUTDOWN sentinel, exit cleanly after their
+    one test, and the would-be-bonus stays in the global queue
+    where the next free worker picks it up.
     """
+
+    def _reschedule(self, node: WorkerController) -> None:
+        """On-demand scope assignment with minimum pre-assignment.
+
+        Threshold is "> 1" (vs stock LoadScopeScheduling's "> 2"):
+        the next scope is only sent to a worker once that worker
+        is down to one pending test — the test currently running.
+        At that exact moment xdist's worker has already
+        lookahead-fetched the last item from its queue, finished
+        the second-to-last test's sendevent, looped back into
+        ``run_one_test`` for the last item, and is about to call
+        ``torun.get()`` for the test-after-that. We MUST send
+        something (next scope's items or SHUTDOWN); without it
+        the worker deadlocks waiting for an item that never
+        arrives. Any tighter threshold (pending=0) would deadlock
+        before the worker can even run its last test.
+
+        Looser thresholds (xdist's stock "> 2") pre-assign the
+        next scope when the worker still has 2 tests pending,
+        trapping a fast scope on a possibly-slow worker even when
+        other workers could have picked it up after they free up.
+        """
+        if node.shutting_down:
+            return
+        if not self.workqueue:
+            node.shutdown()
+            return
+        if self._pending_of(self.assigned_work[node]) > 1:
+            return
+        self._assign_work_unit(node)
 
     def schedule(self) -> None:
         assert self.collection_is_completed
