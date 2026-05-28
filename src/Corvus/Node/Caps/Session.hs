@@ -1840,7 +1840,7 @@ handleVmSave sc vmId = do
       createDirectoryIfMissing True (takeDirectory statePath)
       -- Prevent the reaper from re-spawning when QEMU exits below.
       atomically $ writeTVar (L.vlsStopRequested live) True
-      migrateRes <- NQ.qmpMigrate cfg vmId statePath
+      migrateRes <- qmpMigrateWithConnectGrace cfg vmId statePath
       case migrateRes of
         NQ.QmpError err -> do
           atomically $ writeTVar (L.vlsStopRequested live) False
@@ -1920,6 +1920,40 @@ pollOutgoingMigrate cfg vmId timeoutSec = go (timeoutSec * 2) (connectGraceTicks
       T.isInfixOf "does not exist" t
         || T.isInfixOf "Connection refused" t
         || T.isInfixOf "No such file or directory" t
+
+-- | Issue @qmpMigrate@, tolerating "qmp.sock does not exist" for ~5 s
+-- after a fresh VM start.
+--
+-- The daemon promotes a no-QGA VM's row from @VmStarting@ to
+-- @VmRunning@ as soon as the agent's @vmStart@ RPC returns
+-- (see @Corvus.Handlers.Vm@'s no-QGA branch around the
+-- @setVmStarted vmId VmRunning pid@ call), which can outrun
+-- QEMU's @qmp.sock@ chardev creation by a few hundred ms. A
+-- @vm.migrate@ that auto-saves the just-started VM lands inside
+-- that window and hits @connect: does not exist@; the failure
+-- bubbles up as @QmpConnectionFailed@. Mirrors the ENOENT-absorb
+-- pattern 'pollOutgoingMigrate' already uses on the query-migrate
+-- side. 10 ticks × 500 ms = 5 s — same budget, same justification.
+qmpMigrateWithConnectGrace
+  :: QemuConfig
+  -> Int64
+  -> FilePath
+  -> IO NQ.QmpResult
+qmpMigrateWithConnectGrace cfg vmId path = go connectGraceTicks
+  where
+    pollIntervalMicros :: Int
+    pollIntervalMicros = 500000
+    connectGraceTicks :: Int
+    connectGraceTicks = 10
+    go :: Int -> IO NQ.QmpResult
+    go 0 = NQ.qmpMigrate cfg vmId path
+    go grace = do
+      r <- NQ.qmpMigrate cfg vmId path
+      case r of
+        NQ.QmpConnectionFailed _ -> do
+          threadDelay pollIntervalMicros
+          go (grace - 1)
+        _ -> pure r
 
 -- | After QMP @quit@, wait for the QEMU process to actually exit
 -- (the reaper's @waitForProcess@ races us), then drop the ledger
