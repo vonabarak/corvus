@@ -139,7 +139,7 @@ import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, Ne
 import qualified Corvus.Model as M
 import Corvus.Protocol (Ref (..), Response (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
-import Corvus.Types (NodeConns (..), ServerState (..), registerNodeConns)
+import Corvus.Types (NodeConns (..), ServerState (..), newAutostartFlags, registerNodeConns)
 import Data.Int (Int64)
 import Data.Pool (Pool)
 import Data.Text (Text)
@@ -193,10 +193,17 @@ createTestServerState pool basePath = do
   -- 'ncSupervisor' is a no-op async because no real reconnect
   -- loop runs in unit tests.
   stubSup <- async (pure ())
+  (vmAS, netAS) <- newAutostartFlags
   registerNodeConns
     state
     (toSqlKey 1 :: M.NodeId)
-    NodeConns {ncNodeAgent = Nothing, ncNetAgent = Nothing, ncSupervisor = stubSup}
+    NodeConns
+      { ncNodeAgent = Nothing
+      , ncNetAgent = Nothing
+      , ncSupervisor = stubSup
+      , ncVmAutostartFired = vmAS
+      , ncNetAutostartFired = netAS
+      }
   pure state
 
 -- | Build a fresh test-server state for the current 'TestM'.

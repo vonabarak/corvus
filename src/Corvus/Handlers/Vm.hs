@@ -21,6 +21,7 @@ module Corvus.Handlers.Vm
   , handleVmDelete
   , attachVmMonitor
   , reattachVmMonitors
+  , autostartVmsOnNode
   , handleVmPause
   , handleVmSave
   , handleVmEdit
@@ -1807,6 +1808,48 @@ reattachVmMonitors state = do
                 <> vmName vm
                 <> ": "
                 <> T.pack (show e)
+
+-- | Per-node autostart pass. Called by the per-node supervisor's
+-- nodeagent @onConnect@ callback the FIRST time it lands a
+-- successful dial after the supervisor spawned — see
+-- 'claimAutostartSlot' for the once-per-supervisor-lifetime gate.
+--
+-- By the time we get here, 'ssAgents' has the node's nodeagent
+-- cap registered, so 'VmStart' downstream can allocate vsock
+-- CIDs against the node without racing the daemon's startup task
+-- (the pre-fix bug had the autostart loop firing before any agent
+-- had connected). 'reattachVmMonitors' has also already run, so
+-- any VMs the agent still has alive are getting their monitor
+-- back; autostart strictly handles the @{stopped, saved}@ side.
+autostartVmsOnNode :: ServerState -> M.NodeId -> IO ()
+autostartVmsOnNode state nodeId = do
+  let pool = ssDbPool state
+  vms <-
+    runSqlPool
+      ( selectList
+          [ M.VmAutostart ==. True
+          , M.VmNodeId ==. nodeId
+          , M.VmStatus <-. [M.VmStopped, M.VmSaved]
+          ]
+          [Asc M.VmName]
+      )
+      pool
+  runServerLogging state $
+    unless (null vms) $ do
+      logInfoN $
+        "Autostarting " <> T.pack (show (length vms)) <> " VM(s) on node " <> T.pack (show (fromSqlKey nodeId))
+      Control.Monad.forM_ vms $ \(Entity vmKey vm) -> do
+        resp <- liftIO $ runAction state autostartClientName (VmStart (fromSqlKey vmKey))
+        case classifyResponse resp of
+          (TaskError, Just err) ->
+            logWarnN $ "Failed to autostart VM " <> vmName vm <> ": " <> err
+          _ -> logInfoN $ "Autostarted VM " <> vmName vm
+
+-- | @client_name@ on task rows produced by per-node autostart.
+-- Surfaces in @crv task history@ so operators can tell
+-- autostart-driven starts apart from operator-issued ones.
+autostartClientName :: Text
+autostartClientName = "system-autostart"
 
 -- | Re-issue 'vmStart' for one VM. Assembles 'VmSpec' from the
 -- DB (same path 'launchVmViaAgent' uses on a cold start),

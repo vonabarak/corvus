@@ -21,6 +21,7 @@ import Corvus.Types
   , clearReservation
   , lookupNetAgentMaybe
   , lookupNodeAgent
+  , newAutostartFlags
   , registerNodeConns
   , removeNodeConns
   , reserveRam
@@ -52,7 +53,15 @@ mkState = do
 stubConns :: IO NodeConns
 stubConns = do
   sup <- async (pure ())
-  pure NodeConns {ncNodeAgent = Nothing, ncNetAgent = Nothing, ncSupervisor = sup}
+  (vmAS, netAS) <- newAutostartFlags
+  pure
+    NodeConns
+      { ncNodeAgent = Nothing
+      , ncNetAgent = Nothing
+      , ncSupervisor = sup
+      , ncVmAutostartFired = vmAS
+      , ncNetAutostartFired = netAS
+      }
 
 spec :: Spec
 spec = sequential $ withTestDb $ do

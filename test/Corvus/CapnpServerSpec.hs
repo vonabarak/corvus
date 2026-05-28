@@ -39,6 +39,7 @@ import Corvus.Types
   ( ListenAddress (..)
   , NodeConns (..)
   , ServerState (..)
+  , newAutostartFlags
   , newServerState
   , registerNodeConns
   )
@@ -218,6 +219,7 @@ withCapnpDaemon env action =
             -- bracket controls the connection lifetime, not the
             -- supervisor.
             stubSup <- async (pure ())
+            (vmAS, netAS) <- newAutostartFlags
             registerNodeConns
               state
               (toSqlKey 1 :: M.NodeId)
@@ -225,6 +227,8 @@ withCapnpDaemon env action =
                 { ncNodeAgent = Just nac
                 , ncNetAgent = Nothing
                 , ncSupervisor = stubSup
+                , ncVmAutostartFired = vmAS
+                , ncNetAutostartFired = netAS
                 }
             bracket
               (async (runCapnpServer state (UnixAddress sockPath)))

@@ -15,6 +15,8 @@ module Corvus.Types
   , lookupNodeAgent
   , lookupNetAgentMaybe
   , registerNodeConns
+  , newAutostartFlags
+  , claimAutostartSlot
   , clearNodeConn
   , clearNetConn
   , removeNodeConns
@@ -149,6 +151,17 @@ data NodeConns = NodeConns
   -- ^ The async that holds both connections open and reconnects
   -- on drop. Cancelled when the node is deleted via @crv node
   -- delete@ or when the daemon shuts down.
+  , ncVmAutostartFired :: !(TVar Bool)
+  -- ^ \"Has the VM-autostart loop already fired for this node\
+  -- since this supervisor started?\" Flipped True on the first
+  -- successful nodeagent connect; reset to False only when the
+  -- supervisor is torn down + respawned (e.g. node delete or
+  -- a re-registration). Prevents an unrelated nodeagent flap
+  -- from re-issuing 'vm start' on autostart VMs that the
+  -- operator may have stopped post-startup.
+  , ncNetAutostartFired :: !(TVar Bool)
+  -- ^ Same gate as 'ncVmAutostartFired' but for the netd /
+  -- network-autostart side.
   }
 
 -- | Create a new server state
@@ -250,6 +263,47 @@ lookupNetAgentMaybe state nid = do
 registerNodeConns :: ServerState -> M.NodeId -> NodeConns -> IO ()
 registerNodeConns state nid nc =
   atomically $ modifyTVar' (ssAgents state) (Map.insert nid nc)
+
+-- | Allocate the two autostart-fired TVars a fresh 'NodeConns'
+-- needs. Separated from the record literal so the supervisor's
+-- call site stays terse and the default ('False') is in one
+-- place. Both flags start unfired; the supervisor's onConnect
+-- callbacks flip them to True via 'claimAutostartSlot' on the
+-- first successful agent dial.
+newAutostartFlags :: IO (TVar Bool, TVar Bool)
+newAutostartFlags = do
+  vm <- newTVarIO False
+  net <- newTVarIO False
+  pure (vm, net)
+
+-- | Race-free \"fire this autostart kind once per supervisor
+-- lifetime\". Returns 'True' on the first call for the given node
+-- + flag accessor; 'False' on every subsequent call. The atomic
+-- read-modify-write happens inside a single 'atomically' so two
+-- onConnect callbacks racing for the same flag (impossible in
+-- practice — each agent has its own loop — but cheap to make
+-- safe) can't both observe 'True'.
+--
+-- If the node has no 'NodeConns' entry yet (node was deleted
+-- between the supervisor's connect and this call), returns
+-- 'False' so the caller skips the autostart work harmlessly.
+claimAutostartSlot
+  :: ServerState
+  -> M.NodeId
+  -> (NodeConns -> TVar Bool)
+  -> IO Bool
+claimAutostartSlot state nid flagOf = do
+  m <- readTVarIO (ssAgents state)
+  case Map.lookup nid m of
+    Nothing -> pure False
+    Just nc ->
+      atomically $ do
+        fired <- readTVar (flagOf nc)
+        if fired
+          then pure False
+          else do
+            writeTVar (flagOf nc) True
+            pure True
 
 -- | Clear the nodeagent half of a node's connection bundle (the
 -- supervisor sets this on disconnect; another connect attempt

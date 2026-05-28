@@ -28,10 +28,11 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (Async, async, cancel)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Control.Exception as E
-import Control.Monad (filterM, forM_, unless)
+import Control.Monad (filterM, forM_, unless, when)
 import Control.Monad.Logger (logInfoN, logWarnN)
+import Corvus.Handlers.Network (autostartNetworksOnNode)
 import qualified Corvus.Handlers.Network.PeerSpec as PS
-import Corvus.Handlers.Vm (reattachVmMonitors)
+import Corvus.Handlers.Vm (autostartVmsOnNode, reattachVmMonitors)
 import Corvus.Handlers.VmStatusSink (newDaemonVmStatusSink)
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
@@ -40,8 +41,10 @@ import qualified Corvus.Tls as Tls
 import Corvus.Types
   ( NodeConns (..)
   , ServerState (..)
+  , claimAutostartSlot
   , clearNetConn
   , clearNodeConn
+  , newAutostartFlags
   , registerNodeConns
   , runFilteredLogging
   )
@@ -79,10 +82,17 @@ spawnAllNodeSupervisors state = do
 spawnNodeSupervisor :: ServerState -> Entity M.Node -> IO (Async ())
 spawnNodeSupervisor state (Entity nodeKey node) = do
   sup <- async (runNodeSupervisor state nodeKey node)
+  (vmAS, netAS) <- newAutostartFlags
   registerNodeConns
     state
     nodeKey
-    NodeConns {ncNodeAgent = Nothing, ncNetAgent = Nothing, ncSupervisor = sup}
+    NodeConns
+      { ncNodeAgent = Nothing
+      , ncNetAgent = Nothing
+      , ncSupervisor = sup
+      , ncVmAutostartFired = vmAS
+      , ncNetAutostartFired = netAS
+      }
   pure sup
 
 -- | Per-node supervisor body: fan out two reconnect loops, one
@@ -200,6 +210,18 @@ runNodeAgentLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
                   logInfoN $
                     "node " <> nodeLabel <> " subscribed to VM status push"
             reattachVmMonitors state
+            -- First-connect-only per-node VM autostart. Gated by
+            -- 'claimAutostartSlot' so a subsequent nodeagent flap
+            -- (reconnect on the same supervisor) does NOT re-issue
+            -- 'vm start' on VMs the operator may have stopped
+            -- between the initial autostart and the flap. The
+            -- guard is on 'NodeConns', which lives for the
+            -- supervisor's lifetime — a node delete+respawn or a
+            -- daemon restart is what resets the flag to False.
+            shouldFireVmAutostart <-
+              claimAutostartSlot state nodeKey ncVmAutostartFired
+            when shouldFireVmAutostart $
+              autostartVmsOnNode state nodeKey
             blockUntilShutdown state
           clearNodeConn state nodeKey
           pure (Right ())
@@ -252,6 +274,18 @@ runNetdLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
           Nothing -> m
           Just nc -> Map.insert nodeKey nc {ncNetAgent = Just nac} m
       reapplyRunningNetworks state nodeKey nodeLabel nac
+      -- First-connect-only per-node network autostart. Mirrors
+      -- the VM-autostart hook on the nodeagent side: gated by
+      -- 'claimAutostartSlot' so a netd flap doesn't re-issue
+      -- 'network start' on networks the operator may have
+      -- stopped post-startup. 'reapplyRunningNetworks' above
+      -- already covers the "was-running before the flap" set;
+      -- this hook strictly handles "marked autostart but not
+      -- yet running".
+      shouldFireNetAutostart <-
+        claimAutostartSlot state nodeKey ncNetAutostartFired
+      when shouldFireNetAutostart $
+        autostartNetworksOnNode state nodeKey
       -- Block until the daemon shuts down OR the netd socket
       -- dies. The 'finally' is load-bearing: when the underlying
       -- TCP connection drops, 'withConn' (further up the stack

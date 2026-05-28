@@ -30,19 +30,20 @@ module Corvus.Handlers.Network
 
     -- * Shared helpers (used by NetIf + NodeSupervisor)
   , pushNetworkToAllMembers
+  , autostartNetworksOnNode
   )
 where
 
 import Corvus.Action
 
-import Control.Monad (forM_)
+import Control.Monad (forM_, unless)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import qualified Corvus.Handlers.Network.Ipam as Ipam
 import qualified Corvus.Handlers.Network.PeerSpec as PS
 import Corvus.Handlers.Resolve (resolveNode, validateName)
 import Corvus.Handlers.Scheduler (pickNodeForNetwork)
-import Corvus.Model (Network (..), TaskId, TaskSubsystem (..), Vm (..), VmStatus (..))
+import Corvus.Model (Network (..), TaskId, TaskResult (..), TaskSubsystem (..), Vm (..), VmStatus (..))
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import Corvus.NetAgentClient.Spec (corvusBridgeName, networkToSpec)
@@ -515,6 +516,50 @@ handleNetworkDetachNode state networkId nodeRefText = runServerLogging state $ d
       pure (length ns)
 
 -- | Build the per-node 'NA.NetworkSpec' for every member and push
+-- | Per-node network autostart pass. Called by the per-node
+-- supervisor's netd @onConnect@ callback the FIRST time it lands
+-- a successful dial — see 'claimAutostartSlot' for the
+-- once-per-supervisor-lifetime gate.
+--
+-- By the time we get here, @ncNetAgent@ for this node is in
+-- 'ssAgents', so 'NetworkStart' downstream can reach the netd
+-- without the daemon-startup race the global autostart loop hit.
+-- 'reapplyRunningNetworks' has also already run, re-applying
+-- kernel state for networks marked @running=True@; autostart
+-- strictly handles the @running=False, autostart=True@ side.
+autostartNetworksOnNode :: ServerState -> M.NodeId -> IO ()
+autostartNetworksOnNode state nodeId = do
+  let pool = ssDbPool state
+  nws <-
+    runSqlPool
+      ( selectList
+          [ M.NetworkAutostart ==. True
+          , M.NetworkNodeId ==. nodeId
+          , M.NetworkRunning ==. False
+          ]
+          [Asc M.NetworkName]
+      )
+      pool
+  runServerLogging state $
+    unless (null nws) $ do
+      logInfoN $
+        "Autostarting "
+          <> T.pack (show (length nws))
+          <> " network(s) on node "
+          <> T.pack (show (M.fromSqlKey nodeId))
+      forM_ nws $ \(Entity nwKey nw) -> do
+        resp <- liftIO $ runAction state autostartClientName (NetworkStart (M.fromSqlKey nwKey))
+        case classifyResponse resp of
+          (TaskError, Just err) ->
+            logWarnN $ "Failed to autostart network " <> M.networkName nw <> ": " <> err
+          _ -> logInfoN $ "Autostarted network " <> M.networkName nw
+
+-- | @client_name@ on task rows produced by per-node autostart.
+-- Surfaces in @crv task history@ so operators can tell
+-- autostart-driven starts apart from operator-issued ones.
+autostartClientName :: Text
+autostartClientName = "system-autostart"
+
 -- via 'withNetAgent'. Called from 'handleNetworkStart' (initial
 -- apply), 'handleNetworkAttachNode' / 'handleNetworkDetachNode' (peer
 -- set changed), and the NodeSupervisor reconnect path (slice 8).

@@ -88,34 +88,19 @@ instance Action Startup where
         then logInfoN "corvus-netd connection ready (one or more nodes)"
         else logWarnN "corvus-netd not yet connected; networking will retry once agent is up"
 
-      -- Autostart networks (before VMs, since VMs may depend on networks)
-      autostartNetworks <- liftIO $ runSqlPool (selectList [M.NetworkAutostart ==. True] [Asc M.NetworkName]) pool
-      unless (null autostartNetworks) $ do
-        logInfoN $ "Autostarting " <> T.pack (show (length autostartNetworks)) <> " network(s)"
-        liftIO $ forM_ autostartNetworks $ \(Entity nwKey nw) -> do
-          let nwId = fromSqlKey nwKey
-          nwResp <- runActionAsSubtask ctx (NetworkStart nwId)
-          runServerLogging state $ case classifyResponse nwResp of
-            (TaskError, Just err) -> logWarnN $ "Failed to autostart network " <> networkName nw <> ": " <> err
-            _ -> logInfoN $ "Autostarted network " <> networkName nw
-
-      -- Autostart VMs (after networks are up)
-      autostartVms <- liftIO $ runSqlPool (selectList [M.VmAutostart ==. True] [Asc M.VmName]) pool
-      unless (null autostartVms) $ do
-        logInfoN $ "Autostarting " <> T.pack (show (length autostartVms)) <> " VM(s)"
-        liftIO $ forM_ autostartVms $ \(Entity vmKey vm) -> do
-          let vmId = fromSqlKey vmKey
-          -- Only autostart VMs that are stopped or saved. VmStart on a
-          -- VmSaved row resumes from the saved-state file (the same verb
-          -- handles both cold boot and resume).
-          when (vmStatus vm `elem` [VmStopped, VmSaved]) $ do
-            -- Reset error state VMs to stopped first
-            when (vmStatus vm == VmError) $
-              runSqlPool (update vmKey [M.VmStatus =. VmStopped]) pool
-            vmResp <- runActionAsSubtask ctx (VmStart vmId)
-            runServerLogging state $ case classifyResponse vmResp of
-              (TaskError, Just err) -> logWarnN $ "Failed to autostart VM " <> vmName vm <> ": " <> err
-              _ -> logInfoN $ "Autostarted VM " <> vmName vm
+      -- Autostart (both VMs and networks) has moved to the
+      -- per-node supervisor's onConnect callbacks: see
+      -- 'autostartVmsOnNode' / 'autostartNetworksOnNode' wired
+      -- in 'Corvus.NodeSupervisor.runNodeAgentLoop' and
+      -- 'runNetdLoop'. The startup-task autostart used to race
+      -- the supervisor's first dial — by the time it asked the
+      -- node-agent for a vsock CID the registry was empty and
+      -- the VM landed in 'VmError'. Firing autostart from the
+      -- onConnect callback closes that race: 'ssAgents' is
+      -- guaranteed populated before the autostart query runs.
+      -- Each per-node hook is gated by 'claimAutostartSlot' so
+      -- it fires exactly once per supervisor lifetime, not on
+      -- every reconnect.
 
       -- Delete old task entries
       when (retentionDays > 0) $ do

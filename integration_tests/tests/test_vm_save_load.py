@@ -346,7 +346,12 @@ class TestVmMigrateSaved(OneDaemonTwoNodesCase):
             )
 
             tid = vm.migrate(self.beta_name)
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
+            # 300 s budget: the first migrate in the class also
+            # ferries the ~2 GiB Alpine base image to beta (the
+            # overlay's backing chain). Same headroom
+            # test_vm_migration.py uses for its base-image-including
+            # cloud-init migrate.
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=300.0)
 
             details = vm.show()
             assert details.status == "saved", (
@@ -406,7 +411,9 @@ class TestVmMigrateSaved(OneDaemonTwoNodesCase):
             assert r.exit_code == 0, r
 
             tid = vm.migrate(self.beta_name)
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
+            # 300 s budget: see comment on the equivalent call in
+            # ``test_migrate_already_saved_vm_round_trip``.
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=300.0)
 
             details = vm.show()
             assert details.status == "saved"
@@ -453,7 +460,9 @@ class TestVmMigrateSaved(OneDaemonTwoNodesCase):
             )
 
             tid = vm.migrate(self.beta_name)
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
+            # 300 s budget: see comment on the equivalent call in
+            # ``test_migrate_already_saved_vm_round_trip``.
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=300.0)
 
             details = vm.show()
             assert details.status == "saved"
@@ -472,92 +481,8 @@ class TestVmMigrateSaved(OneDaemonTwoNodesCase):
             self._cleanup_silent(vm, vm_name, overlay_name)
 
 
-class TestVmSaveAutostartResumes(SingleNodeCase):
-    """A saved VM with autostart=True resumes after a daemon restart.
-
-    The daemon's autostart loop's filter was widened from
-    `status == VmStopped` to `status IN (VmStopped, VmSaved)` so
-    this works for free. We restart the inner daemon via
-    systemctl, then poll until the VM is running again and the
-    sentinel survived.
-    """
-
-    @pytest.mark.skip(
-        reason="Pre-existing daemon-startup race in the autostart loop: "
-        "it fires before the local-node supervisor populates "
-        "`ssAgents`, so VsockCid allocation fails with "
-        "`node not registered with daemon` for both cold-boot AND "
-        "saved-VM autostart. The save→start path itself is "
-        "exercised by TestVmSaveLoadRoundtrip; the autostart filter "
-        "widening (Lifecycle.hs) is covered by code review until "
-        "the underlying startup race is fixed."
-    )
-    def test_autostart_resumes_saved_vm(self):
-        with Vm(self) as vm:
-            # Flip autostart on. The VM was created with default
-            # autostart=False; `vm edit` requires stopped, so we
-            # stop, edit, then start again (faster than running
-            # the full Vm.__enter__ over).
-            vm.cap.reset()
-            _poll_until(
-                lambda: vm.cap.show().status == "stopped",
-                timeout_sec=15.0,
-                msg="reset did not land at stopped before autostart edit",
-            )
-            vm.cap.edit(autostart=True)
-            vm.cap.start(wait=True)
-            _poll_until(
-                lambda: vm.cap.show().status == "running",
-                timeout_sec=60.0,
-                msg="VM did not return to running after autostart edit",
-            )
-
-            sentinel = f"corvus-autostart-{int(time.monotonic_ns())}"
-            r = vm.cap.guest_exec(
-                f"/bin/sh -c {shlex.quote(f'echo {sentinel} > /tmp/sentinel')}"
-            )
-            assert r.exit_code == 0, r
-
-            vm.cap.save()
-            _poll_until(
-                lambda: vm.cap.show().status == "saved",
-                timeout_sec=10.0,
-                msg="vm.show().status did not become 'saved'",
-            )
-
-            # Restart the inner daemon. The harness lazily memoises
-            # the pycapnp client per TestNode — drop it so the next
-            # `self.client` call re-dials.
-            self.node.run("sudo systemctl restart corvus", check=True)
-            if self.node._client is not None:
-                try:
-                    self.node._client.close()
-                except Exception:
-                    pass
-                self.node._client = None
-
-            # Give the daemon some time to come back up and run the
-            # autostart loop. The startup sequence: persistent
-            # migrate, network autostart, VM autostart. On a single
-            # VM with no networks this is fast — but the agent
-            # reconnect + the load (read state file + cont) adds
-            # measurable time. Generous 90 s budget.
-            client = self.client
-            _poll_until(
-                lambda: client.vms.get(vm.name).show().status == "running",
-                timeout_sec=90.0,
-                msg=f"VM {vm.name!r} did not resume after daemon restart",
-            )
-            _poll_until(
-                lambda: _qemu_count(self.node, vm.name) == 1,
-                timeout_sec=10.0,
-                msg=f"qemu for {vm.name!r} not running after autostart resume",
-            )
-
-            # Sentinel must survive the autostart-driven resume.
-            r = client.vms.get(vm.name).guest_exec("/bin/cat /tmp/sentinel")
-            assert r.exit_code == 0, r
-            assert sentinel in r.stdout, (
-                f"sentinel {sentinel!r} did not survive autostart resume; "
-                f"guest stdout={r.stdout!r}"
-            )
+# Autostart coverage (cold boot + resume-from-saved) moved to
+# integration_tests/tests/test_autostart.py once the daemon-startup
+# race that previously made the resume case undeterministic was
+# fixed (autostart now fires per-node on agent connect, not at
+# daemon startup).
