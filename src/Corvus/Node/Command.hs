@@ -13,6 +13,7 @@ module Corvus.Node.Command
   )
 where
 
+import Corvus.Node.Runtime (shellQuotePath)
 import qualified Corvus.Node.VmSpec as VS
 import Corvus.Qemu.Config (QemuConfig (..))
 import Data.List (intercalate)
@@ -79,12 +80,15 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
         -- second-boot hang (tianocore/edk2#12441).
         ["-no-reboot" | VS.vsRebootQuirk spec]
       , -- Resume from a previously-saved RAM image. QEMU starts
-        -- in @postmigrate@ state once the file is read in; the
-        -- agent's post-spawn coordinator issues QMP @cont@ once
-        -- @query-migrate@ reports completion, then unlinks the
-        -- state file.
+        -- in @postmigrate@ state once the migration stream is
+        -- consumed; the agent's post-spawn coordinator issues
+        -- QMP @cont@ once @query-migrate@ reports completion,
+        -- then unlinks the state file. The @exec:zstdcat@ URI
+        -- matches the @exec:zstd@ used by
+        -- 'Corvus.Node.Qmp.qmpMigrate' on the save side — the
+        -- state file is a zstd-compressed migration stream.
         if VS.vsLoadFromSavedState spec
-          then ["-incoming", "file:" ++ savedStateFile]
+          then ["-incoming", "exec:zstdcat " ++ shellQuotePath savedStateFile]
           else []
       ]
   )

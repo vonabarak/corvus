@@ -37,10 +37,12 @@ def _saved_state_path(client, node_name: str, vm_name: str) -> str:
     Mirrors `Corvus.Node.Runtime.getSavedStateFile` — the daemon
     publishes the per-node `basePath` via `nodes.get(name).show()`,
     so we can compute the same path the agent computes without
-    parsing config files on the node.
+    parsing config files on the node. The `.zst` extension reflects
+    the on-disk format: QEMU's `migrate "exec:zstd …"` writes a
+    zstd-compressed migration stream.
     """
     base = client.nodes.get(node_name).show().base_path.rstrip("/")
-    return f"{base}/{vm_name}/state.qemu"
+    return f"{base}/{vm_name}/state.qemu.zst"
 
 
 def _file_exists_on(node, path: str) -> bool:

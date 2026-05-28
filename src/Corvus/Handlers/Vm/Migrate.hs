@@ -216,10 +216,15 @@ driveTransfers state vmId destNode plan = do
             Right () -> commitMigration state vmId destNode plan created
         else commitMigration state vmId destNode plan created
 
--- | Move @\<basePath\>\/\<vmName\>\/state.qemu@ from the source node
--- to the destination, reusing the same agent-to-agent byte path
--- the disk transfers use. The destination's
+-- | Move @\<basePath\>\/\<vmName\>\/state.qemu.zst@ from the source
+-- node to the destination, reusing the same agent-to-agent byte
+-- path the disk transfers use. The destination's
 -- @diskImportFromPeer@ @mkdir -p@s the parent before writing.
+--
+-- Filename must stay in lockstep with the agent's
+-- 'Corvus.Node.Runtime.getSavedStateFile' — the daemon recomputes
+-- the path here rather than asking the agent, so a rename has to
+-- touch both sites.
 transferStateFile :: ServerState -> MigrationPlan -> FilePath -> IO (Either T.Text ())
 transferStateFile state plan daemonBase = do
   let pool = ssDbPool state
@@ -234,8 +239,8 @@ transferStateFile state plan daemonBase = do
       let srcBase = maybe daemonBase (T.unpack . M.nodeBasePath) mSrc
           destBase = maybe daemonBase (T.unpack . M.nodeBasePath) mDest
           name = T.unpack (M.vmName vm)
-          srcPath = srcBase </> name </> "state.qemu"
-          destPath = destBase </> name </> "state.qemu"
+          srcPath = srcBase </> name </> "state.qemu.zst"
+          destPath = destBase </> name </> "state.qemu.zst"
       tResult <-
         DT.transferImageBetweenNodes
           state

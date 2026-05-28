@@ -70,6 +70,7 @@ pipeline:
                 dev-db/postgresql \
                 dev-vcs/git \
                 net-misc/curl \
+                app-arch/zstd \
                 sys-process/htop \
                 app-misc/jq \
                 dev-python/pip \

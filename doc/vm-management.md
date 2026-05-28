@@ -89,15 +89,23 @@ VMs with `guestAgent: true` transition through a `starting` state and become `ru
 ### Save / Resume
 
 `crv vm save` writes the VM's RAM image to disk via QEMU's external
-migration (`migrate file:…`), then terminates QEMU. Disks are
-unchanged. `crv vm start` on a `saved` VM spawns a fresh QEMU with
-`-incoming "file:…"`, waits for the restore to finish, and resumes
-execution — same command as a cold boot.
+migration piped through `zstd` (`migrate "exec:zstd -T0 > …"`), then
+terminates QEMU. Disks are unchanged. `crv vm start` on a `saved` VM
+spawns a fresh QEMU with `-incoming "exec:zstdcat …"`, waits for the
+restore to finish, and resumes execution — same command as a cold
+boot.
 
-The state file lives at `<basePath>/<vmName>/state.qemu` on the node
-that was hosting the VM. To discard a save without resuming, use
-`crv vm reset` — `crv vm stop` refuses on a saved VM and points
+The state file lives at `<basePath>/<vmName>/state.qemu.zst` on the
+node that was hosting the VM (zstd-compressed; multi-threaded compress
+and decompress via `zstd -T0`). To discard a save without resuming,
+use `crv vm reset` — `crv vm stop` refuses on a saved VM and points
 operators at `start` (resume) or `reset` (discard).
+
+**Node dependency**: the `zstd` binary (zstandard) must be on the
+node's `PATH` — the agent shells out to it via QEMU's `exec:` URI.
+Present by default on every major distro (`apk add zstd`,
+`apt install zstd`, `emerge app-arch/zstd`). If missing, `vm save`
+fails with a QMP error and the VM stays in its pre-save state.
 
 Autostart picks up saved VMs the same way it picks up stopped ones:
 on daemon restart, any VM with `autostart=true` and `status in

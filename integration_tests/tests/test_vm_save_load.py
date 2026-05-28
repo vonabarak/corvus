@@ -36,10 +36,12 @@ def _saved_state_path(client, node_name: str, vm_name: str) -> str:
     Mirrors `Corvus.Node.Runtime.getSavedStateFile` — the daemon
     publishes the per-node `basePath` via `nodes.get(name).show()`,
     so we can compute the same path the agent computes without
-    parsing config files on the node.
+    parsing config files on the node. The `.zst` extension reflects
+    the on-disk format: QEMU's `migrate "exec:zstd …"` writes a
+    zstd-compressed migration stream.
     """
     base = client.nodes.get(node_name).show().base_path.rstrip("/")
-    return f"{base}/{vm_name}/state.qemu"
+    return f"{base}/{vm_name}/state.qemu.zst"
 
 
 def _file_exists_on(node, path: str) -> bool:
@@ -213,6 +215,37 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
             )
             assert not _file_exists_on(self.node, state_path), (
                 "reset on saved VM did not unlink the state file"
+            )
+
+    def test_saved_state_file_is_zstd_compressed(self):
+        """The saved-state file on disk is zstd-compressed, not raw
+        QEMU migration stream. The agent's `qmpMigrate` issues
+        `migrate "exec:zstd …"`, so the file's first 4 bytes must
+        be the zstd frame magic (0x28 0xb5 0x2f 0xfd, little-endian).
+
+        Cheap structural check — proves the URI switch from
+        `file:` to `exec:zstd` actually reached QEMU. The full
+        round-trip (sentinel survives save → start) in
+        ``test_save_then_start_preserves_ram`` covers the
+        decompression side.
+        """
+        with Vm(self) as vm:
+            vm.cap.save()
+            _poll_until(
+                lambda: vm.cap.show().status == "saved",
+                timeout_sec=10.0,
+                msg="vm.show().status did not become 'saved'",
+            )
+            state_path = _saved_state_path(self.client, self.node.short_name, vm.name)
+            # `xxd -p -l 4` keeps the output to 8 hex chars, no
+            # newlines — easy to compare. Quote the path to defend
+            # against operator base-paths with spaces (no agent
+            # control over this from the test side).
+            r = self.node.run(f"xxd -p -l 4 {shlex.quote(state_path)}")
+            magic = r.stdout.decode("utf-8", errors="replace").strip()
+            assert magic == "28b52ffd", (
+                f"saved state file at {state_path} is not zstd-compressed: "
+                f"first-4-bytes magic={magic!r} (expected '28b52ffd')"
             )
 
 

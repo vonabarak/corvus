@@ -45,7 +45,7 @@ import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, SomeException, bracket, catch, try)
 import Corvus.Model (DriveFormat (..), DriveInterface (..), EnumText (..))
 import Corvus.Node.QmpQQ (qmpQQ)
-import Corvus.Node.Runtime (getQmpSocket)
+import Corvus.Node.Runtime (getQmpSocket, shellQuotePath)
 import Corvus.Qemu.Config (QemuConfig)
 import qualified Data.ByteString.Char8 as BS
 import Data.Int (Int64)
@@ -112,11 +112,21 @@ data QmpMigrationStatus
   | MigFailed !Text
   deriving (Eq, Show)
 
--- | Issue @migrate "file:<path>"@. QMP returns immediately on
--- accepting the command; the actual transfer happens asynchronously
--- — poll 'qmpQueryMigrate' for completion. We use the @file:@ URI
--- (QEMU >= 6.0) rather than @exec:cat > …@ to avoid forking a shell
--- per save.
+-- | Issue @migrate "exec:zstd -T0 > <path>"@. QMP returns
+-- immediately on accepting the command; the actual transfer
+-- happens asynchronously — poll 'qmpQueryMigrate' for completion.
+--
+-- The @exec:@ URI pipes the migration stream through @zstd@
+-- (multi-threaded, default level 3) so the saved RAM image lands
+-- compressed. For a typical guest with mostly-zero or
+-- highly-redundant RAM this shrinks the on-disk file by ~5–10×
+-- and shrinks the cross-host transfer in 'crv vm migrate' by the
+-- same factor; CPU cost is comfortably below the network or
+-- disk bandwidth on every realistic host.
+--
+-- The path is single-quoted via 'shellQuotePath' — QEMU spawns
+-- the command via @\/bin\/sh -c@, so unquoted spaces or shell
+-- metachars in @basePath@ would tear the command apart.
 qmpMigrate :: QemuConfig -> Int64 -> FilePath -> IO QmpResult
 qmpMigrate config vmId path =
   sendQmpCommand
@@ -126,7 +136,7 @@ qmpMigrate config vmId path =
       {
         "execute": "migrate",
         "arguments": {
-          "uri": #{T.pack ("file:" <> path)}
+          "uri": #{T.pack ("exec:zstd -T0 > " <> shellQuotePath path)}
         }
       }
     |]
