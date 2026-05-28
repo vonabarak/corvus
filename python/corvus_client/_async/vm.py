@@ -119,6 +119,10 @@ class AsyncVm:
         resp = await self._cap.reset()
         return str(resp.status)
 
+    async def save(self) -> str:
+        resp = await self._cap.save()
+        return str(resp.status)
+
     async def edit(
         self,
         *,

@@ -13,6 +13,7 @@ enum VmStatus {
   stopping @3;
   paused   @4;
   error    @5;
+  saved    @6;
 }
 
 enum DriveInterface {

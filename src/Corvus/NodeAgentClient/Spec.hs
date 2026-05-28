@@ -116,6 +116,11 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
                       if vmGuestAgent vm then waitMs else 0
                   , VS.vsRebootQuirk = vmRebootQuirk vm
                   , VS.vsSpiceBindAddr = qcSpiceBindAddress config
+                  , -- Whether the agent should QEMU with `-incoming` to
+                    -- restore a saved RAM image. Flipped by the daemon's
+                    -- start handler when the VM row is in `saved` status;
+                    -- otherwise a cold boot.
+                    VS.vsLoadFromSavedState = vmStatus vm == M.VmSaved
                   }
           pure (Right spec)
 

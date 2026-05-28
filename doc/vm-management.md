@@ -10,8 +10,9 @@ crv vm edit <vm>                  # Edit VM settings
 crv vm delete <vm>                # Delete a VM
 crv vm start <vm>                 # Start a stopped/paused VM
 crv vm stop <vm>                  # Graceful shutdown
-crv vm pause <vm>                 # Pause execution
-crv vm reset <vm>                 # Force stop (SIGKILL)
+crv vm pause <vm>                 # Pause execution (in-RAM, not persistent)
+crv vm save <vm>                  # Save running/paused state to disk and stop QEMU
+crv vm reset <vm>                 # Force stop (SIGKILL); drops saved-state file
 crv vm view <vm>                  # Open SPICE viewer or serial console
 crv vm monitor <vm>               # Connect to HMP monitor
 ```
@@ -71,18 +72,40 @@ crv vm reset my-vm          # Force stop (any state -> stopped)
 
 VMs follow a strict state machine:
 
-| Current State | Start | Stop | Pause | Reset |
-|---------------|-------|------|-------|-------|
-| **stopped** | running/starting | error | error | stopped |
-| **starting** | error | stopping | error | stopped |
-| **running** | error | stopping | paused | stopped |
-| **stopping** | error | error | error | stopped |
-| **paused** | running | error | error | stopped |
-| **error** | error | error | error | stopped |
+| Current State | Start | Stop | Pause | Save | Reset |
+|---------------|-------|------|-------|------|-------|
+| **stopped** | running/starting | error | error | error | stopped |
+| **starting** | error | stopping | error | error | stopped |
+| **running** | error | stopping | paused | saved | stopped |
+| **stopping** | error | error | error | error | stopped |
+| **paused** | running | error | error | saved | stopped |
+| **saved** | running (resume) | error | error | error | stopped (drops state file) |
+| **error** | error | error | error | error | stopped |
 
 VMs with `guestAgent: true` transition through a `starting` state and become `running` once the first guest agent health check succeeds. VMs without the guest agent go directly to `running`.
 
 `reset` always returns the VM to `stopped` regardless of current state.
+
+### Save / Resume
+
+`crv vm save` writes the VM's RAM image to disk via QEMU's external
+migration (`migrate file:…`), then terminates QEMU. Disks are
+unchanged. `crv vm start` on a `saved` VM spawns a fresh QEMU with
+`-incoming "file:…"`, waits for the restore to finish, and resumes
+execution — same command as a cold boot.
+
+The state file lives at `<basePath>/<vmName>/state.qemu` on the node
+that was hosting the VM. To discard a save without resuming, use
+`crv vm reset` — `crv vm stop` refuses on a saved VM and points
+operators at `start` (resume) or `reset` (discard).
+
+Autostart picks up saved VMs the same way it picks up stopped ones:
+on daemon restart, any VM with `autostart=true` and `status in
+{stopped, saved}` is started — saved ones via the resume path.
+
+Cross-host migration of saved state is not supported. To move a
+saved VM to another node: `vm start` it (resume) on the current
+node, `vm stop` it cleanly, then `vm migrate`.
 
 ## Deleting a VM
 

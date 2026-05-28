@@ -68,6 +68,7 @@ module Corvus.Client.Capnp.Rpc
   , rpcVmStop
   , rpcVmPause
   , rpcVmReset
+  , rpcVmSave
   , rpcVmDelete
   , rpcVmMigrate
   , rpcVmEdit
@@ -468,6 +469,12 @@ rpcVmReset :: CapnpConnection -> EntityRef -> IO ()
 rpcVmReset conn ref = do
   vmClient <- getVmClient conn ref
   _ <- callOn #reset CGVm.Vm'reset'params vmClient
+  pure ()
+
+rpcVmSave :: CapnpConnection -> EntityRef -> IO ()
+rpcVmSave conn ref = do
+  vmClient <- getVmClient conn ref
+  _ <- callOn #save CGVm.Vm'save'params vmClient
   pure ()
 
 rpcVmDelete :: CapnpConnection -> EntityRef -> Bool -> IO ()

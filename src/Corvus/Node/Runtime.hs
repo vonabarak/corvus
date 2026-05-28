@@ -13,11 +13,15 @@ module Corvus.Node.Runtime
   , getQmpSocket
   , getSerialSocket
   , getGuestAgentSocket
+
+    -- * Persistent per-VM files (basePath, not runtimeDir)
+  , getSavedStateFile
   )
 where
 
-import Corvus.Qemu.Config (QemuConfig, getEffectiveRuntimeDir)
+import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath, getEffectiveRuntimeDir)
 import Data.Int (Int64)
+import qualified Data.Text as T
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
 
@@ -66,3 +70,18 @@ getGuestAgentSocket :: QemuConfig -> Int64 -> IO FilePath
 getGuestAgentSocket config vmId = do
   vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "qga.sock"
+
+--------------------------------------------------------------------------------
+-- Persistent per-VM Files
+--------------------------------------------------------------------------------
+
+-- | Path to the per-VM saved-state file, anchored at @basePath@
+-- (where disk images live) — NOT @runtimeDir@ — because the file
+-- must survive host reboots to be useful. Convention matches the
+-- per-VM directory used for cloud-init ISOs:
+-- @\<basePath\>/\<vmName\>/state.qemu@. No directory is created
+-- here; callers that write the file ensure the parent exists.
+getSavedStateFile :: QemuConfig -> T.Text -> IO FilePath
+getSavedStateFile config vmName = do
+  basePath <- getEffectiveBasePath config
+  pure $ basePath </> T.unpack vmName </> "state.qemu"

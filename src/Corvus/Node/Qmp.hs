@@ -7,11 +7,17 @@
 module Corvus.Node.Qmp
   ( -- * Types
     QmpResult (..)
+  , QmpMigrationStatus (..)
 
     -- * Commands
   , qmpShutdown
   , qmpContinue
   , qmpStop
+  , qmpQuit
+
+    -- * Migration (save / load coordination)
+  , qmpMigrate
+  , qmpQueryMigrate
 
     -- * SPICE ticket commands
   , qmpSetSpicePassword
@@ -79,6 +85,92 @@ qmpContinue config vmId =
 qmpStop :: QemuConfig -> Int64 -> IO QmpResult
 qmpStop config vmId =
   sendQmpCommand config vmId [qmpQQ| { "execute": "stop" } |]
+
+-- | Send the QMP @quit@ command, asking QEMU to exit cleanly. Used
+-- by the save flow once the outgoing @migrate@ has reported
+-- @completed@.
+qmpQuit :: QemuConfig -> Int64 -> IO QmpResult
+qmpQuit config vmId =
+  sendQmpCommand config vmId [qmpQQ| { "execute": "quit" } |]
+
+--------------------------------------------------------------------------------
+-- Migration (save / load coordination)
+--------------------------------------------------------------------------------
+
+-- | Status returned by QMP @query-migrate@. The full QEMU vocabulary
+-- ('none', 'setup', 'cancelling', 'cancelled', 'active',
+-- 'postcopy-active', 'postcopy-paused', 'postcopy-recover-setup',
+-- 'postcopy-recover', 'completed', 'failed', 'colo',
+-- 'pre-switchover', 'device', 'wait-unplug') is collapsed into the
+-- four states the save/load coordinator actually cares about. Any
+-- terminal failure (including @cancelled@) lands in 'MigFailed' with
+-- the verbatim response payload for the daemon to surface.
+data QmpMigrationStatus
+  = MigInactive
+  | MigActive
+  | MigCompleted
+  | MigFailed !Text
+  deriving (Eq, Show)
+
+-- | Issue @migrate "file:<path>"@. QMP returns immediately on
+-- accepting the command; the actual transfer happens asynchronously
+-- — poll 'qmpQueryMigrate' for completion. We use the @file:@ URI
+-- (QEMU >= 6.0) rather than @exec:cat > …@ to avoid forking a shell
+-- per save.
+qmpMigrate :: QemuConfig -> Int64 -> FilePath -> IO QmpResult
+qmpMigrate config vmId path =
+  sendQmpCommand
+    config
+    vmId
+    [qmpQQ|
+      {
+        "execute": "migrate",
+        "arguments": {
+          "uri": #{T.pack ("file:" <> path)}
+        }
+      }
+    |]
+
+-- | Issue @query-migrate@ and classify the response. Detection is
+-- substring-based on the JSON payload — matches the existing
+-- 'classifyQmpResponse' style and avoids pulling aeson into this
+-- module. The QMP wire format guarantees the literal
+-- @"status": "<value>"@ key appears in the @return@ object (modulo
+-- whitespace, which QEMU does not emit).
+qmpQueryMigrate :: QemuConfig -> Int64 -> IO (Either Text QmpMigrationStatus)
+qmpQueryMigrate config vmId = do
+  qmpSock <- getQmpSocket config vmId
+  result <- try $ withUnixSocket qmpSock $ \sock -> do
+    _ <- recv sock 4096
+    sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
+    _ <- drainUntilReply sock BS.empty
+    sendAll sock [qmpQQ| { "execute": "query-migrate" } |]
+    drainUntilReply sock BS.empty
+  pure $ case result of
+    Left (e :: SomeException) -> Left $ T.pack $ show e
+    Right response
+      | BS.isInfixOf "\"error\"" response ->
+          Left $ T.pack $ BS.unpack response
+      | BS.isInfixOf "\"status\": \"completed\"" response ->
+          Right MigCompleted
+      | BS.isInfixOf "\"status\": \"failed\"" response ->
+          Right (MigFailed (T.pack (BS.unpack response)))
+      | BS.isInfixOf "\"status\": \"cancelled\"" response ->
+          Right (MigFailed "migration cancelled")
+      | BS.isInfixOf "\"status\": \"cancelling\"" response ->
+          Right (MigFailed "migration cancelling")
+      | BS.isInfixOf "\"status\": \"active\"" response
+          || BS.isInfixOf "\"status\": \"setup\"" response
+          || BS.isInfixOf "\"status\": \"device\"" response
+          || BS.isInfixOf "\"status\": \"pre-switchover\"" response
+          || BS.isInfixOf "\"status\": \"wait-unplug\"" response ->
+          Right MigActive
+      | BS.isInfixOf "\"status\": \"none\"" response ->
+          Right MigInactive
+      -- Anything else (e.g. postcopy variants we don't trigger):
+      -- treat as still-running so the caller keeps polling. If it
+      -- never resolves, the caller's own timeout fires.
+      | otherwise -> Right MigActive
 
 -- | Install a fresh SPICE password on a running VM via QMP. Uses
 -- @connected: "keep"@ so an already-connected viewer is not dropped when

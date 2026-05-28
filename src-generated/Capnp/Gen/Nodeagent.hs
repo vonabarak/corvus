@@ -363,9 +363,11 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'diskOpenRead) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'attachReader) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'diskImportFromPeer) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'vmGuestExecStream) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmGuestExecStream) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmSave) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'deleteSavedState) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -436,6 +438,10 @@ class (Session'server_ s_) where
     session'diskImportFromPeer _ = GH.methodUnimplemented
     session'vmGuestExecStream :: s_ -> (GH.MethodHandler Session'vmGuestExecStream'params Session'vmGuestExecStream'results)
     session'vmGuestExecStream _ = GH.methodUnimplemented
+    session'vmSave :: s_ -> (GH.MethodHandler Session'vmSave'params Session'vmSave'results)
+    session'vmSave _ = GH.methodUnimplemented
+    session'deleteSavedState :: s_ -> (GH.MethodHandler Session'deleteSavedState'params Session'deleteSavedState'results)
+    session'deleteSavedState _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -506,6 +512,10 @@ instance (GH.HasMethod "diskImportFromPeer" Session Session'diskImportFromPeer'p
     methodByLabel  = (GH.Method 11450192344861352079 33)
 instance (GH.HasMethod "vmGuestExecStream" Session Session'vmGuestExecStream'params Session'vmGuestExecStream'results) where
     methodByLabel  = (GH.Method 11450192344861352079 34)
+instance (GH.HasMethod "vmSave" Session Session'vmSave'params Session'vmSave'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 35)
+instance (GH.HasMethod "deleteSavedState" Session Session'deleteSavedState'params Session'deleteSavedState'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 36)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -2726,6 +2736,116 @@ instance (C.Marshal Session'vmGuestExecStream'results (C.Parsed Session'vmGuestE
         )
 instance (GH.HasField "info" GH.Slot Session'vmGuestExecStream'results VmGuestExecInfo) where
     fieldByLabel  = (GH.ptrField 0)
+data Session'vmSave'params 
+type instance (R.ReprFor Session'vmSave'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmSave'params) where
+    typeId  = 10510390357778605881
+instance (C.TypedStruct Session'vmSave'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmSave'params) where
+    type AllocHint Session'vmSave'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmSave'params (C.Parsed Session'vmSave'params))
+instance (C.AllocateList Session'vmSave'params) where
+    type ListAllocHint Session'vmSave'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmSave'params (C.Parsed Session'vmSave'params))
+data instance C.Parsed Session'vmSave'params
+    = Session'vmSave'params 
+        {vmId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmSave'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmSave'params))
+instance (C.Parse Session'vmSave'params (C.Parsed Session'vmSave'params)) where
+    parse raw_ = (Session'vmSave'params <$> (GH.parseField #vmId raw_))
+instance (C.Marshal Session'vmSave'params (C.Parsed Session'vmSave'params)) where
+    marshalInto raw_ Session'vmSave'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'vmSave'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Session'vmSave'results 
+type instance (R.ReprFor Session'vmSave'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmSave'results) where
+    typeId  = 18091016661478486259
+instance (C.TypedStruct Session'vmSave'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmSave'results) where
+    type AllocHint Session'vmSave'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmSave'results (C.Parsed Session'vmSave'results))
+instance (C.AllocateList Session'vmSave'results) where
+    type ListAllocHint Session'vmSave'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmSave'results (C.Parsed Session'vmSave'results))
+data instance C.Parsed Session'vmSave'results
+    = Session'vmSave'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmSave'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmSave'results))
+instance (C.Parse Session'vmSave'results (C.Parsed Session'vmSave'results)) where
+    parse raw_ = (Std_.pure Session'vmSave'results)
+instance (C.Marshal Session'vmSave'results (C.Parsed Session'vmSave'results)) where
+    marshalInto _raw (Session'vmSave'results) = (Std_.pure ())
+data Session'deleteSavedState'params 
+type instance (R.ReprFor Session'deleteSavedState'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'deleteSavedState'params) where
+    typeId  = 13578646548577570901
+instance (C.TypedStruct Session'deleteSavedState'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'deleteSavedState'params) where
+    type AllocHint Session'deleteSavedState'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'deleteSavedState'params (C.Parsed Session'deleteSavedState'params))
+instance (C.AllocateList Session'deleteSavedState'params) where
+    type ListAllocHint Session'deleteSavedState'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'deleteSavedState'params (C.Parsed Session'deleteSavedState'params))
+data instance C.Parsed Session'deleteSavedState'params
+    = Session'deleteSavedState'params 
+        {vmName :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'deleteSavedState'params))
+deriving instance (Std_.Eq (C.Parsed Session'deleteSavedState'params))
+instance (C.Parse Session'deleteSavedState'params (C.Parsed Session'deleteSavedState'params)) where
+    parse raw_ = (Session'deleteSavedState'params <$> (GH.parseField #vmName raw_))
+instance (C.Marshal Session'deleteSavedState'params (C.Parsed Session'deleteSavedState'params)) where
+    marshalInto raw_ Session'deleteSavedState'params{..} = (do
+        (GH.encodeField #vmName vmName raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmName" GH.Slot Session'deleteSavedState'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'deleteSavedState'results 
+type instance (R.ReprFor Session'deleteSavedState'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'deleteSavedState'results) where
+    typeId  = 11447949880474079985
+instance (C.TypedStruct Session'deleteSavedState'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'deleteSavedState'results) where
+    type AllocHint Session'deleteSavedState'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'deleteSavedState'results (C.Parsed Session'deleteSavedState'results))
+instance (C.AllocateList Session'deleteSavedState'results) where
+    type ListAllocHint Session'deleteSavedState'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'deleteSavedState'results (C.Parsed Session'deleteSavedState'results))
+data instance C.Parsed Session'deleteSavedState'results
+    = Session'deleteSavedState'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'deleteSavedState'results))
+deriving instance (Std_.Eq (C.Parsed Session'deleteSavedState'results))
+instance (C.Parse Session'deleteSavedState'results (C.Parsed Session'deleteSavedState'results)) where
+    parse raw_ = (Std_.pure Session'deleteSavedState'results)
+instance (C.Marshal Session'deleteSavedState'results (C.Parsed Session'deleteSavedState'results)) where
+    marshalInto _raw (Session'deleteSavedState'results) = (Std_.pure ())
 data DiskReader 
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where
@@ -3129,7 +3249,8 @@ data instance C.Parsed VmSpec
         ,sharedDirs :: (RP.Parsed (R.List VmSharedDirSpec))
         ,waitForGuestAgentMs :: (RP.Parsed Std_.Word32)
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
-        ,spiceBindAddr :: (RP.Parsed Basics.Text)}
+        ,spiceBindAddr :: (RP.Parsed Basics.Text)
+        ,loadFromSavedState :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmSpec))
 deriving instance (Std_.Eq (C.Parsed VmSpec))
@@ -3149,7 +3270,8 @@ instance (C.Parse VmSpec (C.Parsed VmSpec)) where
                          <*> (GH.parseField #sharedDirs raw_)
                          <*> (GH.parseField #waitForGuestAgentMs raw_)
                          <*> (GH.parseField #rebootQuirk raw_)
-                         <*> (GH.parseField #spiceBindAddr raw_))
+                         <*> (GH.parseField #spiceBindAddr raw_)
+                         <*> (GH.parseField #loadFromSavedState raw_))
 instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
     marshalInto raw_ VmSpec{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -3168,6 +3290,7 @@ instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
         (GH.encodeField #waitForGuestAgentMs waitForGuestAgentMs raw_)
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (GH.encodeField #spiceBindAddr spiceBindAddr raw_)
+        (GH.encodeField #loadFromSavedState loadFromSavedState raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmSpec Std_.Int64) where
@@ -3202,6 +3325,8 @@ instance (GH.HasField "rebootQuirk" GH.Slot VmSpec Std_.Bool) where
     fieldByLabel  = (GH.dataField 4 2 1 0)
 instance (GH.HasField "spiceBindAddr" GH.Slot VmSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 4)
+instance (GH.HasField "loadFromSavedState" GH.Slot VmSpec Std_.Bool) where
+    fieldByLabel  = (GH.dataField 5 2 1 0)
 data VmDriveSpec 
 type instance (R.ReprFor VmDriveSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDriveSpec) where

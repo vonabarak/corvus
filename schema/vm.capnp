@@ -264,6 +264,13 @@ interface Vm {
   # none at all). Returns a task id for long-running progress
   # observation.
   migrate @30 (params :VmMigrateParams) -> (taskId :Int64);
+
+  # Save the VM's running state to disk and terminate the QEMU
+  # process. The agent issues QMP `migrate file:<conventional-path>`,
+  # waits for completion, then `quit`s QEMU. Allowed from `running`
+  # or `paused`. Resume later with `start` — same verb as a cold
+  # boot. Drop the saved state with `reset`.
+  save @31 () -> (status :Enums.VmStatus);
 }
 
 # Parameters for `Vm.migrate`. The VM is identified by the

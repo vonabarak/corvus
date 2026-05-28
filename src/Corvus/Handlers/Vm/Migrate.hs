@@ -96,29 +96,41 @@ handleVmMigrate state vmIdRaw destNodeRaw = runServerLogging state $ do
   -- across backends, so we fetch + check + set inside a single
   -- transaction; concurrent migrations serialise on the row lock
   -- the read takes.
-  acquired <-
-    liftIO $
-      runSqlPool
-        ( do
-            mVm <- get vmId
-            case mVm of
-              Just vm
-                | M.vmStatus vm == M.VmStopped && not (M.vmMigrating vm) -> do
-                    update vmId [M.VmMigrating =. True]
-                    pure True
-              _ -> pure False
-        )
-        pool
-  if not acquired
-    then pure (RespError "VM is not stopped or another migration is in progress")
-    else do
-      -- (2) Pre-check.
-      ePlan <- liftIO $ validateMigration state vmId destNode
-      case ePlan of
-        Left err -> do
-          liftIO $ clearMigrating state vmId
-          pure (RespError err)
-        Right plan -> driveTransfers state vmId destNode plan
+  -- Surface a specific message for saved VMs BEFORE the generic
+  -- "not stopped" rejection below — otherwise operators get a
+  -- misleading hint pointing them at @vm stop@, which the FSM
+  -- explicitly refuses on saved VMs.
+  mPreStatus <- liftIO $ runSqlPool (get vmId) pool
+  let savedRefusal =
+        case mPreStatus of
+          Just vm | M.vmStatus vm == M.VmSaved -> Just "VM has saved state; 'vm start' to resume, then stop, then migrate"
+          _ -> Nothing
+  case savedRefusal of
+    Just msg -> pure (RespError msg)
+    Nothing -> do
+      acquired <-
+        liftIO $
+          runSqlPool
+            ( do
+                mVm <- get vmId
+                case mVm of
+                  Just vm
+                    | M.vmStatus vm == M.VmStopped && not (M.vmMigrating vm) -> do
+                        update vmId [M.VmMigrating =. True]
+                        pure True
+                  _ -> pure False
+            )
+            pool
+      if not acquired
+        then pure (RespError "VM is not stopped or another migration is in progress")
+        else do
+          -- (2) Pre-check.
+          ePlan <- liftIO $ validateMigration state vmId destNode
+          case ePlan of
+            Left err -> do
+              liftIO $ clearMigrating state vmId
+              pure (RespError err)
+            Right plan -> driveTransfers state vmId destNode plan
 
 -- | Run the transfers and, on success, commit the DB swap. On any
 -- error during transfers, roll back destination-side state and

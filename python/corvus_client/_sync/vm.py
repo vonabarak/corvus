@@ -103,6 +103,9 @@ class SyncVm(LoopBoundResource):
     def reset(self):
         return self._rl.run(self._a.reset())
 
+    def save(self):
+        return self._rl.run(self._a.save())
+
     def edit(self, **kwargs):
         return self._rl.run(self._a.edit(**kwargs))
 

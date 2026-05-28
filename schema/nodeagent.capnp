@@ -175,6 +175,21 @@ interface Session {
   # QMP `cont` — resume from pause.
   vmResume @19 (vmId :Int64) -> ();
 
+  # QMP `migrate "file:<basePath>/<vmName>/state.qemu"` + poll
+  # `query-migrate` for completion + QMP `quit`. The agent then
+  # cleans up the ledger entry the way `vmStopHard` does. Throws
+  # on migration failure (leaving the partial file in place) so
+  # the daemon keeps the VM in `saved` state for the operator to
+  # retry or reset. No path on the wire — the agent derives it
+  # from the vmName recorded in its ledger.
+  vmSave @35 (vmId :Int64) -> ();
+
+  # Unlink the saved-state file for `vmName`. Idempotent — a
+  # missing file is success. Called by the daemon from
+  # `handleVmReset` (drop the save explicitly) and from
+  # `handleVmDelete` (clean up when removing a saved VM).
+  deleteSavedState @36 (vmName :Text) -> ();
+
   # Execute a command via QGA on the running VM. Agent locates
   # the QGA socket from the ledger entry for req.vmId.
   vmGuestExec @20 (req :VmGuestExecReq) -> (info :VmGuestExecInfo);
@@ -432,6 +447,13 @@ struct VmSpec {
   # reports back to clients in vmViewGrant. Ignored when
   # spicePort is 0 (headless VMs have no SPICE listener).
   spiceBindAddr @15 :Text;
+  # When true, the agent spawns QEMU with
+  # `-incoming "file:<basePath>/<name>/state.qemu"` to restore
+  # a previously-saved RAM image. The agent waits for the
+  # incoming migration to complete, issues QMP `cont`, and
+  # unlinks the state file. False (the default) means a normal
+  # cold boot. Path is conventional — no Text field on the wire.
+  loadFromSavedState @16 :Bool;
 }
 
 struct VmDriveSpec {

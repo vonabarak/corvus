@@ -62,6 +62,12 @@ data VmSpec = VmSpec
   -- daemon from its @--spice-bind@ / @--host@ flags; the agent
   -- substitutes it into @-spice addr=…@. Ignored when
   -- 'vsSpicePort' is 'Nothing'.
+  , vsLoadFromSavedState :: !Bool
+  -- ^ When @True@, the agent runs QEMU with
+  -- @-incoming \"file:\<basePath\>\/\<name\>\/state.qemu\"@ to
+  -- restore a previously-saved RAM image, polls @query-migrate@
+  -- for completion, issues @cont@, and unlinks the state file.
+  -- @False@ (the default) means a normal cold boot.
   }
   deriving (Eq, Show)
 

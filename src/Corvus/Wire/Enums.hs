@@ -69,6 +69,7 @@ toCapnpVmStatus = \case
   M.VmRunning -> CGE.VmStatus'running
   M.VmStopping -> CGE.VmStatus'stopping
   M.VmPaused -> CGE.VmStatus'paused
+  M.VmSaved -> CGE.VmStatus'saved
   M.VmError -> CGE.VmStatus'error
 
 fromCapnpVmStatus :: CGE.VmStatus -> Either WireError M.VmStatus
@@ -78,6 +79,7 @@ fromCapnpVmStatus = \case
   CGE.VmStatus'running -> Right M.VmRunning
   CGE.VmStatus'stopping -> Right M.VmStopping
   CGE.VmStatus'paused -> Right M.VmPaused
+  CGE.VmStatus'saved -> Right M.VmSaved
   CGE.VmStatus'error -> Right M.VmError
   CGE.VmStatus'unknown' n -> Left (WireUnknownEnum "VmStatus" n)
 

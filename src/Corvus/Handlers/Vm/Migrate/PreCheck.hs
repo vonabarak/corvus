@@ -81,6 +81,17 @@ validateMigration state vmId destNode = do
       -- @vm.migrating@ is now @True@. The lock acquisition is
       -- the single source of truth for "another migration is in
       -- progress" — see Corvus.Handlers.Vm.Migrate.handleVmMigrate.
+      --
+      -- Saved VMs are refused with a specific message: their
+      -- saved-state file is host-local (RAM image bound to QEMU
+      -- version + machine type) and cross-host migration of state
+      -- files is intentionally out of scope. Operators load the
+      -- VM first (back to running), stop it cleanly, then migrate.
+      | M.vmStatus vm == M.VmSaved ->
+          pure
+            ( Left
+                "VM has saved state; 'vm start' to resume, then stop, then migrate"
+            )
       | M.vmStatus vm /= M.VmStopped ->
           pure (Left "VM must be stopped before migrating")
       | M.vmNodeId vm == destNode ->

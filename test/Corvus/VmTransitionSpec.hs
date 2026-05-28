@@ -20,6 +20,8 @@ spec = do
       validateTransition VmStopped ActionStop `shouldSatisfy` isLeft
     it "stopped + pause = error" $
       validateTransition VmStopped ActionPause `shouldSatisfy` isLeft
+    it "stopped + save = error" $
+      validateTransition VmStopped ActionSave `shouldSatisfy` isLeft
 
     -- Valid transitions from Starting
     it "starting + stop = stopping" $
@@ -40,6 +42,8 @@ spec = do
       validateTransition VmRunning ActionReset `shouldBe` Right VmStopped
     it "running + start = error" $
       validateTransition VmRunning ActionStart `shouldSatisfy` isLeft
+    it "running + save = saved" $
+      validateTransition VmRunning ActionSave `shouldBe` Right VmSaved
 
     -- Valid transitions from Stopping
     it "stopping + reset = stopped" $
@@ -60,6 +64,30 @@ spec = do
       validateTransition VmPaused ActionStop `shouldSatisfy` isLeft
     it "paused + pause = error" $
       validateTransition VmPaused ActionPause `shouldSatisfy` isLeft
+    it "paused + save = saved" $
+      validateTransition VmPaused ActionSave `shouldBe` Right VmSaved
+
+    -- Valid transitions from Saved. 'start' resumes from the on-disk
+    -- state file (handleVmStart flips loadFromSavedState on the spec);
+    -- 'reset' drops the file and lands at stopped; 'stop' is *not* a
+    -- discard verb here — it refuses with a message pointing operators
+    -- at start (resume) or reset (discard).
+    it "saved + start = running (resume from saved-state file)" $
+      validateTransition VmSaved ActionStart `shouldBe` Right VmRunning
+    it "saved + reset = stopped" $
+      validateTransition VmSaved ActionReset `shouldBe` Right VmStopped
+    it "saved + stop = error (points at start / reset)" $ do
+      let r = validateTransition VmSaved ActionStop
+      r `shouldSatisfy` isLeft
+      case r of
+        Left msg -> do
+          msg `shouldSatisfy` T.isInfixOf "start"
+          msg `shouldSatisfy` T.isInfixOf "reset"
+        Right _ -> expectationFailure "expected Left"
+    it "saved + pause = error" $
+      validateTransition VmSaved ActionPause `shouldSatisfy` isLeft
+    it "saved + save = error (already saved)" $
+      validateTransition VmSaved ActionSave `shouldSatisfy` isLeft
 
     -- Valid transitions from Error
     it "error + reset = stopped" $
@@ -70,6 +98,8 @@ spec = do
       validateTransition VmError ActionStop `shouldSatisfy` isLeft
     it "error + pause = error" $
       validateTransition VmError ActionPause `shouldSatisfy` isLeft
+    it "error + save = error" $
+      validateTransition VmError ActionSave `shouldSatisfy` isLeft
 
     -- Reset is always allowed (any state)
     it "any + reset = stopped" $ do
@@ -78,6 +108,7 @@ spec = do
       validateTransition VmRunning ActionReset `shouldBe` Right VmStopped
       validateTransition VmStopping ActionReset `shouldBe` Right VmStopped
       validateTransition VmPaused ActionReset `shouldBe` Right VmStopped
+      validateTransition VmSaved ActionReset `shouldBe` Right VmStopped
       validateTransition VmError ActionReset `shouldBe` Right VmStopped
 
   describe "validateTransition (properties)" $ do
@@ -113,7 +144,7 @@ instance Arbitrary VmStatus where
   shrink _ = []
 
 instance Arbitrary VmAction where
-  arbitrary = elements [ActionStart, ActionStop, ActionPause, ActionReset]
+  arbitrary = elements [ActionStart, ActionStop, ActionPause, ActionReset, ActionSave]
   shrink _ = []
 
 isLeft :: Either a b -> Bool

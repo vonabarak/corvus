@@ -43,8 +43,12 @@ buildQemuCommandFromSpec
   -- ^ guest-agent socket
   -> FilePath
   -- ^ VM runtime dir (for virtiofsd chardev paths)
+  -> FilePath
+  -- ^ saved-state file path (used as @-incoming \"file:…\"@ when
+  -- @vsLoadFromSavedState@ is set; ignored otherwise — pass any
+  -- valid string for a cold boot)
   -> (FilePath, [String])
-buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir =
+buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock guestAgentSock vmRuntimeDir savedStateFile =
   ( qcQemuBinary
   , concatMap
       (filter (not . null))
@@ -74,6 +78,14 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
         -- firmware sees a cold boot — works around the OVMF
         -- second-boot hang (tianocore/edk2#12441).
         ["-no-reboot" | VS.vsRebootQuirk spec]
+      , -- Resume from a previously-saved RAM image. QEMU starts
+        -- in @postmigrate@ state once the file is read in; the
+        -- agent's post-spawn coordinator issues QMP @cont@ once
+        -- @query-migrate@ reports completion, then unlinks the
+        -- state file.
+        if VS.vsLoadFromSavedState spec
+          then ["-incoming", "file:" ++ savedStateFile]
+          else []
       ]
   )
   where

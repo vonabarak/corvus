@@ -105,8 +105,10 @@ instance Action Startup where
         logInfoN $ "Autostarting " <> T.pack (show (length autostartVms)) <> " VM(s)"
         liftIO $ forM_ autostartVms $ \(Entity vmKey vm) -> do
           let vmId = fromSqlKey vmKey
-          -- Only autostart VMs that are stopped
-          when (vmStatus vm == VmStopped) $ do
+          -- Only autostart VMs that are stopped or saved. VmStart on a
+          -- VmSaved row resumes from the saved-state file (the same verb
+          -- handles both cold boot and resume).
+          when (vmStatus vm `elem` [VmStopped, VmSaved]) $ do
             -- Reset error state VMs to stopped first
             when (vmStatus vm == VmError) $
               runSqlPool (update vmKey [M.VmStatus =. VmStopped]) pool

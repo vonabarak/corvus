@@ -39,6 +39,7 @@ data VmStatus
     | VmStatus'stopping 
     | VmStatus'paused 
     | VmStatus'error 
+    | VmStatus'saved 
     | VmStatus'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -60,6 +61,8 @@ instance (Std_.Enum VmStatus) where
             VmStatus'paused
         5 ->
             VmStatus'error
+        6 ->
+            VmStatus'saved
         tag_ ->
             (VmStatus'unknown' (Std_.fromIntegral tag_))
     fromEnum value_ = case value_ of
@@ -75,6 +78,8 @@ instance (Std_.Enum VmStatus) where
             4
         (VmStatus'error) ->
             5
+        (VmStatus'saved) ->
+            6
         (VmStatus'unknown' tag_) ->
             (Std_.fromIntegral tag_)
 instance (C.IsWord VmStatus) where

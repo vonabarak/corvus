@@ -155,6 +155,8 @@ runCommand opts = do
         handleVmAction fmt "pause" vmRef (CR.rpcVmPause conn (entityRefFromText vmRef))
       VmReset vmRef ->
         handleVmAction fmt "reset" vmRef (CR.rpcVmReset conn (entityRefFromText vmRef))
+      VmSave vmRef ->
+        handleVmAction fmt "save" vmRef (CR.rpcVmSave conn (entityRefFromText vmRef))
       VmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi mAs mRq -> handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mCi mAs mRq
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> handleVmView opts fmt conn vmRef

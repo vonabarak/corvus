@@ -157,6 +157,17 @@ vmResetCommand =
           <> completer vmCompleter
       )
 
+-- | Parser for vm save
+vmSaveCommand :: Parser Command
+vmSaveCommand =
+  VmSave
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to save"
+          <> completer vmCompleter
+      )
+
 -- | Parser for vm edit
 vmEditCommand :: Parser Command
 vmEditCommand =
@@ -314,7 +325,12 @@ vmCommandParser =
           (info vmShowCommand (progDesc "Show VM details"))
         <> command
           "start"
-          (info vmStartCommand (progDesc "Start a VM (stopped/paused -> running)"))
+          ( info
+              vmStartCommand
+              ( progDesc
+                  "Start a VM. Cold-boots from stopped, resumes from paused (QMP cont), or restores from saved state (file:incoming + cont)."
+              )
+          )
         <> command
           "stop"
           (info vmStopCommand (progDesc "Stop a VM (running -> stopped). Use --wait to block until stopped."))
@@ -323,7 +339,15 @@ vmCommandParser =
           (info vmPauseCommand (progDesc "Pause a VM (running -> paused)"))
         <> command
           "reset"
-          (info vmResetCommand (progDesc "Reset a VM to stopped state (any -> stopped)"))
+          (info vmResetCommand (progDesc "Reset a VM to stopped state (any -> stopped). For saved VMs this also drops the saved-state file."))
+        <> command
+          "save"
+          ( info
+              vmSaveCommand
+              ( progDesc
+                  "Save the VM's running state to disk (running/paused -> saved). Resume later with 'vm start'."
+              )
+          )
         <> command
           "edit"
           (info vmEditCommand (progDesc "Edit VM properties (VM must be stopped)"))

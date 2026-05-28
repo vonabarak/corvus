@@ -77,6 +77,8 @@ module Corvus.NodeAgentClient
   , vmStopHard
   , vmPause
   , vmResume
+  , vmSave
+  , deleteSavedState
   , vmGuestExec
   , vmGuestExecStream
   , vmStatus
@@ -656,6 +658,7 @@ encodeVmSpec s =
     , CGNA.waitForGuestAgentMs = vsWaitForGuestAgentMs s
     , CGNA.rebootQuirk = vsRebootQuirk s
     , CGNA.spiceBindAddr = vsSpiceBindAddr s
+    , CGNA.loadFromSavedState = vsLoadFromSavedState s
     }
 
 encodeVmDriveSpec :: VmDriveSpec -> CGNA.Parsed CGNA.VmDriveSpec
@@ -810,6 +813,31 @@ vmResume nac vmId = remote $ do
     callOn
       #vmResume
       CGNA.Session'vmResume'params {CGNA.vmId = vmId}
+      (nacSession nac)
+  pure ()
+
+-- | Ask the agent to save the VM's running state to disk
+-- (QMP @migrate file:…@), wait for completion, then terminate
+-- QEMU. The agent owns the path convention; the daemon only
+-- needs to know which VM to save. Throws on migration failure.
+vmSave :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError ())
+vmSave nac vmId = remote $ do
+  _ :: C.Parsed CGNA.Session'vmSave'results <-
+    callOn
+      #vmSave
+      CGNA.Session'vmSave'params {CGNA.vmId = vmId}
+      (nacSession nac)
+  pure ()
+
+-- | Ask the agent to unlink the per-VM saved-state file. Used by
+-- the daemon's reset-from-saved and delete-saved paths.
+-- Idempotent on the agent — a missing file is success.
+deleteSavedState :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError ())
+deleteSavedState nac vmName = remote $ do
+  _ :: C.Parsed CGNA.Session'deleteSavedState'results <-
+    callOn
+      #deleteSavedState
+      CGNA.Session'deleteSavedState'params {CGNA.vmName = vmName}
       (nacSession nac)
   pure ()
 

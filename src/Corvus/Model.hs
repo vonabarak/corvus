@@ -162,6 +162,7 @@ data VmStatus
   | VmRunning
   | VmStopping
   | VmPaused
+  | VmSaved
   | VmError
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
@@ -173,6 +174,7 @@ instance EnumText VmStatus where
     , (VmRunning, "running")
     , (VmStopping, "stopping")
     , (VmPaused, "paused")
+    , (VmSaved, "saved")
     , (VmError, "error")
     ]
 

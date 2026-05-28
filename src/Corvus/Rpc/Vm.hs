@@ -43,6 +43,7 @@ import Corvus.Handlers.Vm
   , VmEdit (..)
   , VmPause (..)
   , VmReset (..)
+  , VmSave (..)
   , VmStart (..)
   , VmStop (..)
   , handleHmpMonitor
@@ -196,6 +197,12 @@ instance CGVm.Vm'server_ VmCap where
     case resp of
       RespError msg -> throwFailed msg
       _ -> pure CGVm.Vm'reset'results {CGVm.status = toStatusOrThrow resp}
+
+  vm'save (VmCap st _ eid cn) = handleParsed $ \_ -> do
+    resp <- runAction st cn (VmSave eid)
+    case resp of
+      RespError msg -> throwFailed msg
+      _ -> pure CGVm.Vm'save'results {CGVm.status = toStatusOrThrow resp}
 
   vm'edit (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'edit'params {params = CGVm.VmEditParams {..}} -> do

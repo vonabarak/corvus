@@ -70,7 +70,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
 import GHC.Clock (getMonotonicTime)
 import Supervisors (Supervisor)
-import System.Directory (createDirectoryIfMissing, getFileSize, renameFile)
+import System.Directory (createDirectoryIfMissing, getFileSize, removeFile, renameFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
@@ -335,6 +335,14 @@ instance CGNA.Session'server_ SessionCap where
   session'vmResume sc =
     handleParsed $ \CGNA.Session'vmResume'params {CGNA.vmId = vid} ->
       handleVmResume sc vid
+
+  session'vmSave sc =
+    handleParsed $ \CGNA.Session'vmSave'params {CGNA.vmId = vid} ->
+      handleVmSave sc vid
+
+  session'deleteSavedState sc =
+    handleParsed $ \CGNA.Session'deleteSavedState'params {CGNA.vmName = name} ->
+      handleDeleteSavedState sc name
 
   session'vmGuestExec sc =
     -- Async dispatch: a single guest-exec can run for many
@@ -822,6 +830,7 @@ decodeVmSpec
     , CGNA.waitForGuestAgentMs = wms
     , CGNA.rebootQuirk = rq
     , CGNA.spiceBindAddr = sba
+    , CGNA.loadFromSavedState = lfs
     } =
     VS.VmSpec
       { VS.vsVmId = vid
@@ -838,6 +847,7 @@ decodeVmSpec
       , VS.vsWaitForGuestAgentMs = wms
       , VS.vsRebootQuirk = rq
       , VS.vsSpiceBindAddr = sba
+      , VS.vsLoadFromSavedState = lfs
       }
 
 decodeVmDriveSpec :: CGNA.Parsed CGNA.VmDriveSpec -> VS.VmDriveSpec
@@ -1031,6 +1041,10 @@ doVmStart sc spec = do
   qmpSock <- NR.getQmpSocket cfg vmId
   serialSock <- NR.getSerialSocket cfg vmId
   guestAgentSock <- NR.getGuestAgentSocket cfg vmId
+  -- Conventional saved-state file path; the value is only inserted
+  -- into the QEMU argv (@-incoming file:…@) when the spec requests
+  -- a load. For a cold boot the builder ignores it.
+  savedStateFile <- NR.getSavedStateFile cfg (VS.vsName spec)
 
   -- 1. Spawn virtiofsd per shared dir
   virtiofsdResults <-
@@ -1056,6 +1070,7 @@ doVmStart sc spec = do
           serialSock
           guestAgentSock
           vmRuntimeDir
+          savedStateFile
   runStderrLoggingT $ do
     logInfoN $
       "[nodeagent] vm-" <> tshow vmId <> ": spawning QEMU (" <> T.pack binary <> ")"
@@ -1194,66 +1209,146 @@ doVmStart sc spec = do
           -- once" bottleneck. Forking here decouples the
           -- session's RPC dispatcher from each VM's individual
           -- first-ping latency.
-          when (VS.vsWaitForGuestAgentMs spec > 0) $
+          -- Post-spawn coordinator. Two optional steps in order:
+          --
+          --   (a) Incoming migration. When loading from a saved-state
+          --       file, QEMU starts in @postmigrate@ and won't run
+          --       the guest until we issue QMP @cont@. Poll
+          --       @query-migrate@ until @completed@, then @cont@,
+          --       then unlink the file. If anything in this dance
+          --       fails, kill QEMU and leave the file in place so
+          --       the operator can retry or reset.
+          --
+          --   (b) First-QGA-ping watch. Same loop as before — see
+          --       the long comment below. It now runs sequentially
+          --       AFTER the migration step so we don't race QGA
+          --       against a paused-via-postmigrate guest that won't
+          --       respond until after @cont@.
+          --
+          -- Both steps are conditional: a normal cold boot with GA
+          -- on runs only (b); a save/load on a GA-off VM runs only
+          -- (a); a save/load on a GA-on VM runs both. A cold boot
+          -- with GA off skips the whole fork.
+          let needIncoming = VS.vsLoadFromSavedState spec
+              needGaWait = VS.vsWaitForGuestAgentMs spec > 0
+              tearDownIncoming reason = do
+                logWarnN $
+                  "[nodeagent] vm-"
+                    <> tshow vmId
+                    <> ": incoming-migration coordinator: "
+                    <> reason
+                -- Same teardown shape as the QGA-fail path: set
+                -- the daemon-initiated flag so the reaper doesn't
+                -- respawn, SIGTERM-then-SIGKILL via stopProcess,
+                -- push an errored status snapshot, then remove
+                -- the ledger entry. The state file is
+                -- intentionally NOT unlinked — operator can retry.
+                liftIO $ atomically $ writeTVar stopRequestedVar True
+                let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
+                stopRes <-
+                  P.stopProcess
+                    qemuLabel
+                    (CPid (fromIntegral qemuPidW))
+                    Nothing
+                    0
+                    5
+                case stopRes of
+                  P.NotRunning -> pure ()
+                  _ -> P.waitForProcessBounded qemuLabel 5 qemuPh
+                liftIO $
+                  SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
+                _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
+                liftIO $ forM_ virtiofsdEntries reapEntryGracefully
+              runIncomingStep = do
+                pollRes <- liftIO $ pollOutgoingMigrate cfg vmId outgoingMigrateTimeoutSec
+                case pollRes of
+                  Left reason -> do
+                    tearDownIncoming ("query-migrate: " <> reason)
+                    pure False
+                  Right () -> do
+                    contRes <- liftIO $ NQ.qmpContinue cfg vmId
+                    case contRes of
+                      NQ.QmpSuccess -> do
+                        logInfoN $
+                          "[nodeagent] vm-"
+                            <> tshow vmId
+                            <> ": loaded saved state and resumed"
+                        -- File served its purpose; unlink so a
+                        -- later vmSave isn't blocked by the
+                        -- existing file (QEMU's migrate refuses
+                        -- to overwrite). Best-effort.
+                        _ <- liftIO $ E.try @E.SomeException (removeFile savedStateFile)
+                        pure True
+                      NQ.QmpError err -> do
+                        tearDownIncoming ("cont after incoming-migrate failed: " <> err)
+                        pure False
+                      NQ.QmpConnectionFailed err -> do
+                        tearDownIncoming ("cont QMP connect failed: " <> err)
+                        pure False
+              runGaStep = do
+                result <-
+                  liftIO $
+                    waitForFirstQgaPing
+                      (scQgaConns sc)
+                      cfg
+                      vmId
+                      lastExitVar
+                      stderrTailVar
+                      (VS.vsWaitForGuestAgentMs spec)
+                case result of
+                  Right () -> do
+                    logInfoN $
+                      "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping landed"
+                    liftIO $
+                      SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
+                  Left reason -> do
+                    logWarnN $
+                      "[nodeagent] vm-"
+                        <> tshow vmId
+                        <> ": first QGA ping failed: "
+                        <> reason
+                    -- Suppress reboot-quirk auto-restart on
+                    -- the impending QEMU teardown: this is an
+                    -- agent-initiated stop (the first-ping
+                    -- watcher gave up), not a guest-initiated
+                    -- exit. Without this flag the reaper would
+                    -- treat the kill as "guest rebooted" and
+                    -- re-spawn QEMU on a quirk-enabled VM,
+                    -- looping forever while the daemon's
+                    -- watcher fires the same timeout each
+                    -- pass.
+                    liftIO $ atomically $ writeTVar stopRequestedVar True
+                    let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
+                    stopRes <-
+                      P.stopProcess
+                        qemuLabel
+                        (CPid (fromIntegral qemuPidW))
+                        Nothing
+                        0
+                        5
+                    case stopRes of
+                      P.NotRunning -> pure ()
+                      _ -> P.waitForProcessBounded qemuLabel 5 qemuPh
+                    -- Push the errored snapshot BEFORE removing
+                    -- the entry: 'buildEntry' reads
+                    -- 'vlsLastExitCode' (now set by the reaper)
+                    -- and emits VmAgentState'errored, which the
+                    -- sink translates to setVmError. After
+                    -- removal the next 10 s tick reports
+                    -- nothing for this VM (the entry list just
+                    -- doesn't contain it) — fine for steady
+                    -- state.
+                    liftIO $
+                      SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
+                    _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
+                    liftIO $ forM_ virtiofsdEntries reapEntryGracefully
+          when (needIncoming || needGaWait) $
             void $
               forkIO $
                 runStderrLoggingT $ do
-                  result <-
-                    liftIO $
-                      waitForFirstQgaPing
-                        (scQgaConns sc)
-                        cfg
-                        vmId
-                        lastExitVar
-                        stderrTailVar
-                        (VS.vsWaitForGuestAgentMs spec)
-                  case result of
-                    Right () -> do
-                      logInfoN $
-                        "[nodeagent] vm-" <> tshow vmId <> ": first QGA ping landed"
-                      liftIO $
-                        SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
-                    Left reason -> do
-                      logWarnN $
-                        "[nodeagent] vm-"
-                          <> tshow vmId
-                          <> ": first QGA ping failed: "
-                          <> reason
-                      -- Suppress reboot-quirk auto-restart on
-                      -- the impending QEMU teardown: this is an
-                      -- agent-initiated stop (the first-ping
-                      -- watcher gave up), not a guest-initiated
-                      -- exit. Without this flag the reaper would
-                      -- treat the kill as "guest rebooted" and
-                      -- re-spawn QEMU on a quirk-enabled VM,
-                      -- looping forever while the daemon's
-                      -- watcher fires the same timeout each
-                      -- pass.
-                      liftIO $ atomically $ writeTVar stopRequestedVar True
-                      let qemuLabel = "vm-" <> tshow vmId <> "-qemu"
-                      stopRes <-
-                        P.stopProcess
-                          qemuLabel
-                          (CPid (fromIntegral qemuPidW))
-                          Nothing
-                          0
-                          5
-                      case stopRes of
-                        P.NotRunning -> pure ()
-                        _ -> P.waitForProcessBounded qemuLabel 5 qemuPh
-                      -- Push the errored snapshot BEFORE removing
-                      -- the entry: 'buildEntry' reads
-                      -- 'vlsLastExitCode' (now set by the reaper)
-                      -- and emits VmAgentState'errored, which the
-                      -- sink translates to setVmError. After
-                      -- removal the next 10 s tick reports
-                      -- nothing for this VM (the entry list just
-                      -- doesn't contain it) — fine for steady
-                      -- state.
-                      liftIO $
-                        SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
-                      _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
-                      liftIO $ forM_ virtiofsdEntries reapEntryGracefully
+                  incomingOk <-
+                    if needIncoming then runIncomingStep else pure True
+                  when (incomingOk && needGaWait) runGaStep
           pure
             CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
 
@@ -1709,6 +1804,169 @@ handleVmResume sc vmId = do
         NQ.QmpError err -> throwFailed ("qmpContinue: " <> err)
         NQ.QmpConnectionFailed err ->
           throwFailed ("qmpContinue connect: " <> err)
+
+-- | Save the VM's running state to disk and terminate QEMU.
+--
+-- Steps:
+--   1. Look up the live VM; refuse if not in the ledger.
+--   2. Derive the conventional state-file path from the vmName
+--      already recorded in the ledger's spec; @mkdir -p@ the parent
+--      so a fresh VM gets its @<basePath>/<vmName>/@ directory.
+--   3. Set 'vlsStopRequested' BEFORE issuing migrate so the reaper
+--      treats the upcoming QEMU exit as daemon-initiated (no
+--      reboot-quirk respawn).
+--   4. Issue QMP @migrate file:…@. QEMU starts the file write
+--      asynchronously and returns from the command immediately.
+--   5. Poll QMP @query-migrate@ every 500 ms (up to 5 min) for
+--      @completed@. On 'MigFailed' / 'MigInactive' (the
+--      latter shouldn't happen post-migrate but defends against
+--      a wedged guest): unlink the partial file, clear
+--      'vlsStopRequested' (so the operator can recover the VM via
+--      normal stop/reset), and throw with the QMP error.
+--   6. Issue QMP @quit@. The reaper observes QEMU exit, sees
+--      'vlsStopRequested', and tidies the ledger entry the same
+--      way 'handleVmStopHard' does — no respawn, no leftover
+--      virtiofsd.
+handleVmSave
+  :: SessionCap -> Int64 -> IO (CGNA.Parsed CGNA.Session'vmSave'results)
+handleVmSave sc vmId = do
+  mLive <- atomically $ L.lookupVm (scVmLedger sc) vmId
+  case mLive of
+    Nothing -> throwFailed ("vmSave: unknown vmId " <> tshow vmId)
+    Just live -> do
+      let cfg = agentQemuConfig
+          vmName = VS.vsName (L.vlsSpec live)
+      statePath <- NR.getSavedStateFile cfg vmName
+      createDirectoryIfMissing True (takeDirectory statePath)
+      -- Prevent the reaper from re-spawning when QEMU exits below.
+      atomically $ writeTVar (L.vlsStopRequested live) True
+      migrateRes <- NQ.qmpMigrate cfg vmId statePath
+      case migrateRes of
+        NQ.QmpError err -> do
+          atomically $ writeTVar (L.vlsStopRequested live) False
+          _ <- E.try @E.SomeException (removeFile statePath)
+          throwFailed ("vmSave: qmp migrate failed: " <> err)
+        NQ.QmpConnectionFailed err -> do
+          atomically $ writeTVar (L.vlsStopRequested live) False
+          throwFailed ("vmSave: qmp migrate connect failed: " <> err)
+        NQ.QmpSuccess -> do
+          pollRes <- pollOutgoingMigrate cfg vmId outgoingMigrateTimeoutSec
+          case pollRes of
+            Left err -> do
+              atomically $ writeTVar (L.vlsStopRequested live) False
+              _ <- E.try @E.SomeException (removeFile statePath)
+              throwFailed ("vmSave: " <> err)
+            Right () -> do
+              quitRes <- NQ.qmpQuit cfg vmId
+              case quitRes of
+                NQ.QmpSuccess -> do
+                  -- Reap the QEMU process and clear the ledger
+                  -- entry. The reaper sets 'vlsLastExitCode' on its
+                  -- own; here we just wait for the exit so the next
+                  -- vmStart on this id can re-create the ledger row
+                  -- without colliding with the stale one.
+                  reapEntryAfterQuit sc vmId live
+                  pure CGNA.Session'vmSave'results
+                NQ.QmpError err ->
+                  throwFailed ("vmSave: qmp quit failed: " <> err)
+                NQ.QmpConnectionFailed err ->
+                  throwFailed ("vmSave: qmp quit connect failed: " <> err)
+
+-- | 5 minutes. Empirically generous: a 4 GiB VM with a tmpfs
+-- destination clocks in under 10 s; this leaves headroom for
+-- slow disks and large RAM. Hitting this cap means something is
+-- wrong with the guest or storage and the operator should know.
+outgoingMigrateTimeoutSec :: Int
+outgoingMigrateTimeoutSec = 300
+
+-- | Wait for @query-migrate@ to report @completed@. 500 ms cadence,
+-- bounded by the supplied second budget. Returns @Right ()@ on
+-- success, @Left reason@ on failure / timeout. Used by both the
+-- save path (outgoing) and the load path (incoming) — the QMP
+-- shape is the same in both directions.
+--
+-- Early connect failures (typically "qmp.sock does not exist" right
+-- after a fresh spawn while QEMU is still initialising) are
+-- absorbed for the first ~5 s; after that they surface as
+-- genuine errors. Without this absorber the incoming-migration
+-- coordinator races QEMU's chardev creation and tears the VM
+-- down before it has a chance to start the file read.
+pollOutgoingMigrate :: QemuConfig -> Int64 -> Int -> IO (Either Text ())
+pollOutgoingMigrate cfg vmId timeoutSec = go (timeoutSec * 2) (connectGraceTicks :: Int)
+  where
+    pollIntervalMicros :: Int
+    pollIntervalMicros = 500000
+    -- 10 ticks * 500 ms = 5 s grace for QEMU to come up.
+    connectGraceTicks :: Int
+    connectGraceTicks = 10
+    go :: Int -> Int -> IO (Either Text ())
+    go 0 _ = pure (Left "timed out waiting for migration to complete")
+    go ticks grace = do
+      r <- NQ.qmpQueryMigrate cfg vmId
+      case r of
+        Left err
+          | grace > 0 && isConnectFailure err -> do
+              threadDelay pollIntervalMicros
+              go (ticks - 1) (grace - 1)
+          | otherwise -> pure (Left ("query-migrate: " <> err))
+        Right NQ.MigCompleted -> pure (Right ())
+        Right (NQ.MigFailed reason) -> pure (Left ("migration failed: " <> reason))
+        Right NQ.MigInactive -> pure (Left "migration never started")
+        Right NQ.MigActive -> do
+          threadDelay pollIntervalMicros
+          go (ticks - 1) 0 -- once QMP responds, no further grace
+    isConnectFailure :: Text -> Bool
+    isConnectFailure t =
+      T.isInfixOf "does not exist" t
+        || T.isInfixOf "Connection refused" t
+        || T.isInfixOf "No such file or directory" t
+
+-- | After QMP @quit@, wait for the QEMU process to actually exit
+-- (the reaper's @waitForProcess@ races us), then drop the ledger
+-- entry and reap any virtiofsd helpers — mirroring
+-- 'handleVmStopHard'\'s tail. Best-effort: a stuck QEMU after
+-- @quit@ is rare but not the save path's job to escalate; the
+-- 5 s bound matches the existing stop helpers.
+reapEntryAfterQuit :: SessionCap -> Int64 -> L.VmLiveState -> IO ()
+reapEntryAfterQuit sc vmId live = do
+  runStderrLoggingT $
+    P.waitForProcessBounded ("vm-" <> tshow vmId <> "-qemu (save)") 5 (L.vlsQemuHandle live)
+  forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+  _ <- atomically $ L.removeVm (scVmLedger sc) vmId
+  atomically $ modifyTVar' (scQgaConns sc) (Map.delete vmId)
+
+-- | Unlink @\<basePath\>/\<vmName\>/state.qemu@. Idempotent: a
+-- missing file is success. Lives behind a Cap'n Proto method so the
+-- daemon doesn't poke at the agent's filesystem directly; the
+-- daemon calls this from @handleVmReset@ (operator explicit
+-- discard) and @handleVmDelete@ (saved VM being removed). The
+-- @vmName@ is sanitised to defend against an over-clever daemon —
+-- the daemon already enforces VM-name validity, but the node should
+-- not trust the wire blindly.
+handleDeleteSavedState
+  :: SessionCap
+  -> Text
+  -> IO (CGNA.Parsed CGNA.Session'deleteSavedState'results)
+handleDeleteSavedState _sc vmName = do
+  case sanitiseVmName vmName of
+    Left err -> throwFailed ("deleteSavedState: " <> err)
+    Right safeName -> do
+      path <- NR.getSavedStateFile agentQemuConfig safeName
+      _ <- E.try @E.SomeException (removeFile path)
+      pure CGNA.Session'deleteSavedState'results
+
+-- | Reject names that could escape the @basePath/<vmName>/@
+-- directory: empty, absolute, contains @..@, contains a path
+-- separator. The daemon already enforces a stricter name policy
+-- (@validateName@); this is the agent's safety net.
+sanitiseVmName :: Text -> Either Text Text
+sanitiseVmName n
+  | T.null n = Left "vmName is empty"
+  | T.isInfixOf ".." n = Left "vmName contains '..'"
+  | T.isInfixOf "/" n = Left "vmName contains '/'"
+  | T.isInfixOf "\\" n = Left "vmName contains backslash"
+  | T.isInfixOf "\0" n = Left "vmName contains NUL"
+  | otherwise = Right n
 
 -- | Execute a command via QGA. The agent locates the QGA socket
 -- from the VM's runtime layout; a fresh 'GuestAgentConns' is
