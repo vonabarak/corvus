@@ -19,6 +19,7 @@ fast state/DB checks so the class's wall-clock time stays bounded.
 from __future__ import annotations
 
 import secrets
+import shlex
 import time
 
 import pytest
@@ -28,6 +29,29 @@ from corvus_test_harness import OneDaemonTwoNodesCase
 
 def _uniq(stem: str) -> str:
     return f"{stem}-{secrets.token_hex(3)}"
+
+
+def _saved_state_path(client, node_name: str, vm_name: str) -> str:
+    """Reproduce the conventional saved-state path the node-agent uses.
+
+    Mirrors `Corvus.Node.Runtime.getSavedStateFile` — the daemon
+    publishes the per-node `basePath` via `nodes.get(name).show()`,
+    so we can compute the same path the agent computes without
+    parsing config files on the node.
+    """
+    base = client.nodes.get(node_name).show().base_path.rstrip("/")
+    return f"{base}/{vm_name}/state.qemu"
+
+
+def _file_exists_on(node, path: str) -> bool:
+    """SSH into the test node, return True iff `path` exists.
+
+    Plain `test -f` returns non-zero when missing — we wrap with
+    `|| echo MISSING` so the SSH call itself stays green and the
+    presence/absence shows up in stdout.
+    """
+    r = node.run(f"test -f {shlex.quote(path)} && echo PRESENT || echo MISSING")
+    return r.stdout.decode("utf-8", errors="replace").strip() == "PRESENT"
 
 
 def _qemu_count(node, vm_name: str) -> int:
@@ -104,8 +128,15 @@ def _wait_until_node_stats(client, node_name: str, *, timeout_sec: float = 30.0)
     )
 
 
-class TestVmMigration(OneDaemonTwoNodesCase):
-    """End-to-end `vm.migrate` against the two-node fixture."""
+class _MigrationCase(OneDaemonTwoNodesCase):
+    """Shared scaffolding for every class in this file: register beta
+    with alpha's daemon at class scope, plus the small set of
+    per-test helpers (silent deletion, placement queries, bootable
+    Alpine VM construction) that two or more classes here reuse.
+
+    Not a test class itself — pytest skips classes whose name doesn't
+    start with ``Test``.
+    """
 
     # ---- class-scoped setup ------------------------------------------------
 
@@ -159,30 +190,13 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         info = self.client_alpha.disks.get(disk_name).show()
         return {p.node_name for p in info.placements}
 
-    def _assert_migrate_fails(self, vm, to_node: str, *, message_must_match):
-        """Drive vm.migrate(to_node) and assert the resulting task
-        ends in ``error`` with a message matching any of the
-        substrings in ``message_must_match``. Mirrors the
-        equivalent helper in test_disk_copy_move.py — vm.migrate is
-        an async taskId-returning RPC, so the failure surfaces via
-        ``wait_for_task`` rather than synchronously from the
-        ``migrate`` call itself.
-        """
-        tid = vm.migrate(to_node)
-        with pytest.raises(AssertionError) as ei:
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=30.0)
-        lowered = str(ei.value).lower()
-        assert any(p.lower() in lowered for p in message_must_match), (
-            f"unexpected migrate task error message: {ei.value!r} "
-            f"(expected one of: {message_must_match!r})"
-        )
-
     def _make_bootable_vm(
         self,
         vm_name: str,
         overlay_name: str,
         *,
         guest_agent: bool = True,
+        ephemeral_overlay: bool = False,
     ):
         """Build a bootable VM on alpha by creating a qcow2 overlay
         on top of the standard `corvus-test-vm` base image (Alpine
@@ -202,7 +216,9 @@ class TestVmMigration(OneDaemonTwoNodesCase):
                 "alpine (corvus-test-vm) base image not registered — "
                 "run `make test-image-vm` to bake it on the host"
             )
-        self.client_alpha.disks.create_overlay(overlay_name, base_disk)
+        self.client_alpha.disks.create_overlay(
+            overlay_name, base_disk, ephemeral=ephemeral_overlay
+        )
         vm = self.client_alpha.vms.create(
             vm_name,
             cpu_count=1,
@@ -214,6 +230,31 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         )
         vm.attach_disk(overlay_name, interface="virtio")
         return vm
+
+
+class TestVmMigration(_MigrationCase):
+    """End-to-end `vm.migrate` against the two-node fixture, exercising
+    the fast, blank-disk path. Bootable-guest variants live in
+    :class:`TestVmMigrationBootableGuest` below.
+    """
+
+    def _assert_migrate_fails(self, vm, to_node: str, *, message_must_match):
+        """Drive vm.migrate(to_node) and assert the resulting task
+        ends in ``error`` with a message matching any of the
+        substrings in ``message_must_match``. Mirrors the
+        equivalent helper in test_disk_copy_move.py — vm.migrate is
+        an async taskId-returning RPC, so the failure surfaces via
+        ``wait_for_task`` rather than synchronously from the
+        ``migrate`` call itself.
+        """
+        tid = vm.migrate(to_node)
+        with pytest.raises(AssertionError) as ei:
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=30.0)
+        lowered = str(ei.value).lower()
+        assert any(p.lower() in lowered for p in message_must_match), (
+            f"unexpected migrate task error message: {ei.value!r} "
+            f"(expected one of: {message_must_match!r})"
+        )
 
     def _make_stopped_vm_with_disk(
         self,
@@ -244,44 +285,6 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         return vm
 
     # ---- happy paths -------------------------------------------------------
-
-    def test_migrate_minimal_vm_and_boot(self):
-        """End-to-end: create a stopped VM on alpha, migrate to beta,
-        assert the boot disk's placement moved, then start the VM
-        on the destination and verify QEMU spawned only on beta."""
-        vm_name = _uniq("mig-boot")
-        disk_name = _uniq("mig-boot-disk")
-        vm = self._make_stopped_vm_with_disk(vm_name, disk_name)
-        try:
-            tid = vm.migrate(self.beta_name)
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
-            # r/w drive must have moved to beta (and only beta).
-            assert self._placement_nodes(disk_name) == {self.beta_name}
-            # VSOCK + SPICE cleared so the next start re-allocates
-            # against beta's pools.
-            details = vm.show()
-            assert details.vsock_cid is None
-            assert details.spice_port is None
-            # Bring the VM up on beta — qemu must spawn on beta,
-            # and NOT on alpha.
-            _retry_start(vm)
-            _poll_until(
-                lambda: _qemu_count(self.node_beta, vm_name) == 1,
-                timeout_sec=15.0,
-                msg=f"qemu for {vm_name!r} did not spawn on beta",
-            )
-            assert _qemu_count(self.node_alpha, vm_name) == 0, (
-                f"qemu for {vm_name!r} leaked onto alpha after migration"
-            )
-            vm.reset()
-            _poll_until(
-                lambda: _qemu_count(self.node_beta, vm_name) == 0,
-                timeout_sec=15.0,
-                msg=f"qemu for {vm_name!r} did not exit on beta after reset",
-            )
-        finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(disk_name)
 
     def test_migrate_preserves_subdirectory_disk_path(self):
         """A disk whose stored path includes a subdirectory (e.g. a
@@ -405,85 +408,6 @@ class TestVmMigration(OneDaemonTwoNodesCase):
         finally:
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(rw_disk)
-
-    def test_migrate_clears_vsock_and_spice(self):
-        """A VM that was started once on alpha (allocating its
-        VSOCK CID) has that field cleared after migration; the
-        next start re-allocates against beta.
-
-        Uses the standard `corvus-test-vm` Alpine image so the
-        guest actually boots and runs qemu-guest-agent — the
-        daemon needs the first QGA ping to land before it
-        transitions the row to ``running`` and allocates the
-        VSOCK CID. With a non-bootable disk QGA never replies and
-        ``vm.start(wait=True)`` hangs to the daemon timeout
-        without ever producing the "ran once with vsock_cid set"
-        state this test asserts on.
-
-        SPICE port allocation is opt-in (headless VMs don't get
-        one); this test runs headless so spice_port is None both
-        before and after — we still assert it stays None.
-        """
-        vm_name = _uniq("mig-alloc")
-        overlay_name = _uniq("mig-alloc-ovl")
-        vm = self._make_bootable_vm(vm_name, overlay_name, guest_agent=True)
-        try:
-            # ``wait=True`` makes the daemon block until the agent
-            # reports the first QGA ping — when this returns, the
-            # row's status is committed as ``running`` and the
-            # VSOCK CID has been re-validated against the host
-            # kernel.
-            vm.start(wait=True)
-            _poll_until(
-                lambda: _qemu_count(self.node_alpha, vm_name) == 1,
-                timeout_sec=15.0,
-                msg=f"qemu for {vm_name!r} did not spawn on alpha",
-            )
-            details_before = vm.show()
-            # With guest_agent=True + a guest that runs qemu-ga,
-            # the daemon's per-node allocator always assigns a
-            # CID; if vsock_cid is None here something is wrong
-            # with the test infra (no /dev/vhost-vsock on the
-            # node kernel) and the assertions below would be
-            # vacuous. Fail fast with a clear message.
-            assert details_before.vsock_cid is not None, (
-                f"VM {vm_name!r} started with guest_agent=True but no "
-                f"vsock_cid was allocated; node kernel may be missing "
-                f"/dev/vhost-vsock"
-            )
-            # Cleanly stop so we can migrate. Use reset (hard
-            # kill) — reset commits status=stopped synchronously,
-            # works from any state, and doesn't depend on the
-            # guest acking ACPI.
-            vm.reset()
-            _poll_until(
-                lambda: _qemu_count(self.node_alpha, vm_name) == 0,
-                timeout_sec=15.0,
-                msg=f"qemu for {vm_name!r} did not exit on alpha after reset",
-            )
-            _poll_until(
-                lambda: vm.show().status == "stopped",
-                timeout_sec=15.0,
-                msg=f"vm.show().status for {vm_name!r} did not settle on stopped",
-            )
-            # Migrate.
-            tid = vm.migrate(self.beta_name)
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=300.0)
-            details_after = vm.show()
-            # The orchestrator must clear both fields; the next
-            # ``vm.start`` will re-allocate against beta's per-node
-            # pools.
-            assert details_after.vsock_cid is None, (
-                f"vsock_cid still set after migration: {details_after.vsock_cid}"
-            )
-            assert details_after.spice_port is None
-            # The pre-migration vsock_cid value was set; the post
-            # one is cleared — proves the orchestrator nulled it
-            # rather than incidentally returning the same value.
-            assert details_before.vsock_cid != details_after.vsock_cid
-        finally:
-            self._delete_silent_vm(vm_name)
-            self._delete_silent_disk(overlay_name)
 
     # ---- refusals ----------------------------------------------------------
 
@@ -693,3 +617,430 @@ class TestVmMigration(OneDaemonTwoNodesCase):
             # where vm.delete didn't run (e.g. the test failed before
             # we got that far).
             self._delete_silent_disk(f"{vm_name}-cloud-init")
+
+    def test_migrate_copies_missing_backing_image(self):
+        """An overlay-backed VM migrates correctly even when the
+        backing image isn't on the destination. PreCheck appends
+        the missing ancestor to the migration plan as an ``OpCopy``,
+        the bytes follow, and QEMU can launch on the destination
+        because the backing chain resolves locally. Synthetic 16
+        MiB base + overlay: cheap and deterministic.
+
+        Contrasts with ``crv disk copy``, which refuses an overlay
+        whose backing isn't already staged on the destination (see
+        ``test_disk_copy_move.TestDiskCopyMove::test_refuses_overlay_missing_backing``).
+        The migration path's policy is to auto-stage; this test
+        pins that contract.
+        """
+        base = _uniq("chain-base")
+        overlay = _uniq("chain-ovl")
+        vm_name = _uniq("chain-vm")
+        self.client_alpha.disks.create(base, size_mb=16, format="qcow2")
+        try:
+            self.client_alpha.disks.create_overlay(overlay, base)
+            # Pre-condition: backing has a placement on alpha only.
+            assert self._placement_nodes(base) == {self.alpha_name}, (
+                f"setup: backing already on beta: {self._placement_nodes(base)!r}"
+            )
+            vm = self.client_alpha.vms.create(
+                vm_name,
+                cpu_count=1,
+                ram_mb=128,
+                node=self.alpha_name,
+                headless=True,
+                guest_agent=False,
+                cloud_init=False,
+            )
+            try:
+                vm.attach_disk(overlay, interface="virtio")
+                tid = vm.migrate(self.beta_name)
+                self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
+                # Both placements landed on beta — the backing got
+                # auto-copied as part of the migration plan.
+                assert self.beta_name in self._placement_nodes(base), (
+                    f"backing not staged on beta after migrate: "
+                    f"{self._placement_nodes(base)!r}"
+                )
+                # The overlay (r/w) moved — alpha placement gone, beta
+                # placement present.
+                assert self._placement_nodes(overlay) == {self.beta_name}
+                # QEMU launches on beta — proves the backing chain
+                # resolves on the destination path layout.
+                _retry_start(vm)
+                _poll_until(
+                    lambda: _qemu_count(self.node_beta, vm_name) == 1,
+                    timeout_sec=15.0,
+                    msg=f"qemu for {vm_name!r} did not spawn on beta",
+                )
+                assert _qemu_count(self.node_alpha, vm_name) == 0
+                vm.reset()
+                _poll_until(
+                    lambda: _qemu_count(self.node_beta, vm_name) == 0,
+                    timeout_sec=15.0,
+                    msg=f"qemu for {vm_name!r} did not exit on beta after reset",
+                )
+            finally:
+                self._delete_silent_vm(vm_name)
+                self._delete_silent_disk(overlay)
+        finally:
+            self._delete_silent_disk(base)
+
+
+@pytest.mark.slow
+class TestVmMigrationBootableGuest(_MigrationCase):
+    """Migrate tests that boot a real Alpine guest end-to-end.
+
+    The class fixture pre-stages the Alpine base image on BOTH alpha
+    and beta — both nodes mount the same ``/home/corvus/VMs/BaseImages``
+    virtiofs share, so adding a ``DiskImageNode`` placement on beta
+    costs zero bytes (handled by the daemon's ``mExisting`` branch in
+    ``handleDiskRegister``). With both nodes carrying a placement for
+    the Alpine row, ``vm.migrate``'s PreCheck appends zero chain-ops
+    to the migration plan, so every test in this class only transfers
+    the per-test overlay (+ state file for the saved-VM tests). That
+    drops the first-test cost from ~30–90 s of base-image transfer to
+    near-zero.
+
+    Tests here are deliberately the only ones that pay the Alpine
+    boot-to-QGA cost (~30 s per start); the rest of the migrate
+    coverage lives in :class:`TestVmMigration` with blank disks.
+    """
+
+    @pytest.fixture(scope="class", autouse=True)
+    def _stage_alpine_on_beta(self):
+        # Inherits ``_register_beta`` from ``_MigrationCase``; pytest
+        # runs class-scoped fixtures in dependency order, so by the
+        # time this fires beta is already registered with the daemon.
+        self.register_base_images()  # alpha placement
+        self.stage_base_images_on(node_index=1)  # beta placement
+        yield
+
+    def test_migrate_minimal_vm_and_boot(self):
+        """End-to-end: create a real Alpine VM on alpha, migrate to
+        beta, then start the VM on the destination. Asserts the
+        guest actually boots (qemu-guest-agent responds to a guest
+        exec) — not just that QEMU spawned on beta. This is the
+        canonical "does migrate end-to-end work for a real guest"
+        smoke test.
+
+        Uses ``_make_bootable_vm`` (Alpine + QGA). With the Alpine
+        base pre-staged on beta by the class fixture, the migration
+        plan only carries the per-test overlay.
+        """
+        vm_name = _uniq("mig-boot")
+        overlay_name = _uniq("mig-boot-ovl")
+        vm = self._make_bootable_vm(vm_name, overlay_name, guest_agent=True)
+        try:
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            # Overlay moved to beta (and only beta).
+            assert self._placement_nodes(overlay_name) == {self.beta_name}
+            # Bring the VM up on beta with wait=True — the daemon
+            # blocks until QGA pings back, which transitions the row
+            # to ``running``.
+            _retry_start(vm)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg=f"vm {vm_name!r} did not reach 'running' on beta",
+            )
+            assert _qemu_count(self.node_beta, vm_name) == 1, (
+                f"qemu for {vm_name!r} did not spawn on beta"
+            )
+            assert _qemu_count(self.node_alpha, vm_name) == 0, (
+                f"qemu for {vm_name!r} leaked onto alpha after migration"
+            )
+            # QGA liveness check — proves the agent path works
+            # end-to-end on the destination, not just that the daemon
+            # flipped status to ``running``.
+            r = vm.guest_exec("/bin/true")
+            assert r.exit_code == 0, (
+                f"guest_exec failed after migrate: exit={r.exit_code!r}, "
+                f"stderr={r.stderr!r}"
+            )
+            vm.reset()
+            _poll_until(
+                lambda: _qemu_count(self.node_beta, vm_name) == 0,
+                timeout_sec=15.0,
+                msg=f"qemu for {vm_name!r} did not exit on beta after reset",
+            )
+        finally:
+            self._delete_silent_vm(vm_name)
+            self._delete_silent_disk(overlay_name)
+
+    def test_migrate_clears_vsock_and_spice(self):
+        """A VM that was started once on alpha (allocating its
+        VSOCK CID) has that field cleared after migration; the
+        next start re-allocates against beta.
+
+        Uses the standard `corvus-test-vm` Alpine image so the
+        guest actually boots and runs qemu-guest-agent — the
+        daemon needs the first QGA ping to land before it
+        transitions the row to ``running`` and allocates the
+        VSOCK CID. With a non-bootable disk QGA never replies and
+        ``vm.start(wait=True)`` hangs to the daemon timeout
+        without ever producing the "ran once with vsock_cid set"
+        state this test asserts on.
+
+        SPICE port allocation is opt-in (headless VMs don't get
+        one); this test runs headless so spice_port is None both
+        before and after — we still assert it stays None.
+        """
+        vm_name = _uniq("mig-alloc")
+        overlay_name = _uniq("mig-alloc-ovl")
+        vm = self._make_bootable_vm(vm_name, overlay_name, guest_agent=True)
+        try:
+            # ``wait=True`` makes the daemon block until the agent
+            # reports the first QGA ping — when this returns, the
+            # row's status is committed as ``running`` and the
+            # VSOCK CID has been re-validated against the host
+            # kernel.
+            vm.start(wait=True)
+            _poll_until(
+                lambda: _qemu_count(self.node_alpha, vm_name) == 1,
+                timeout_sec=15.0,
+                msg=f"qemu for {vm_name!r} did not spawn on alpha",
+            )
+            details_before = vm.show()
+            # With guest_agent=True + a guest that runs qemu-ga,
+            # the daemon's per-node allocator always assigns a
+            # CID; if vsock_cid is None here something is wrong
+            # with the test infra (no /dev/vhost-vsock on the
+            # node kernel) and the assertions below would be
+            # vacuous. Fail fast with a clear message.
+            assert details_before.vsock_cid is not None, (
+                f"VM {vm_name!r} started with guest_agent=True but no "
+                f"vsock_cid was allocated; node kernel may be missing "
+                f"/dev/vhost-vsock"
+            )
+            # Cleanly stop so we can migrate. Use reset (hard
+            # kill) — reset commits status=stopped synchronously,
+            # works from any state, and doesn't depend on the
+            # guest acking ACPI.
+            vm.reset()
+            _poll_until(
+                lambda: _qemu_count(self.node_alpha, vm_name) == 0,
+                timeout_sec=15.0,
+                msg=f"qemu for {vm_name!r} did not exit on alpha after reset",
+            )
+            _poll_until(
+                lambda: vm.show().status == "stopped",
+                timeout_sec=15.0,
+                msg=f"vm.show().status for {vm_name!r} did not settle on stopped",
+            )
+            # Migrate. With Alpine pre-staged on beta the budget
+            # comes back down to 120 s (no base-image transfer; only
+            # the per-test overlay moves).
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            details_after = vm.show()
+            # The orchestrator must clear both fields; the next
+            # ``vm.start`` will re-allocate against beta's per-node
+            # pools.
+            assert details_after.vsock_cid is None, (
+                f"vsock_cid still set after migration: {details_after.vsock_cid}"
+            )
+            assert details_after.spice_port is None
+            # The pre-migration vsock_cid value was set; the post
+            # one is cleared — proves the orchestrator nulled it
+            # rather than incidentally returning the same value.
+            assert details_before.vsock_cid != details_after.vsock_cid
+        finally:
+            self._delete_silent_vm(vm_name)
+            self._delete_silent_disk(overlay_name)
+
+    def test_migrate_already_saved_vm_round_trip(self):
+        """Pre-save the VM on alpha, write a sentinel into RAM before
+        saving, migrate, then start on beta. The sentinel must
+        survive the save+transfer+load round trip on the destination.
+
+        Originally lived in test_vm_save_load.py — moved here
+        alongside the other bootable-guest migrate tests so the class
+        fixture's Alpine pre-staging removes the base-image transfer
+        cost.
+        """
+        vm_name = _uniq("mig-saved")
+        overlay_name = _uniq("mig-saved-ovl")
+        vm = self._make_bootable_vm(
+            vm_name, overlay_name, guest_agent=True, ephemeral_overlay=True
+        )
+        try:
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not become running before save",
+            )
+
+            sentinel = f"corvus-mig-saved-{int(time.monotonic_ns())}"
+            r = vm.guest_exec(
+                f"/bin/sh -c {shlex.quote(f'echo {sentinel} > /tmp/sentinel')}"
+            )
+            assert r.exit_code == 0, r
+
+            vm.save()
+            _poll_until(
+                lambda: vm.show().status == "saved",
+                timeout_sec=10.0,
+                msg="vm.show().status did not become 'saved' before migrate",
+            )
+
+            tid = vm.migrate(self.beta_name)
+            # 120 s budget: the Alpine base is pre-staged on beta so
+            # only the per-test overlay and the ~512 MiB state file
+            # transfer here.
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+
+            details = vm.show()
+            assert details.status == "saved", (
+                f"after migrate, expected status=saved; got {details.status!r}"
+            )
+            assert details.node_name == self.beta_name
+
+            # Source state file is gone (best-effort delete in commit).
+            src_path = _saved_state_path(self.client_alpha, self.alpha_name, vm_name)
+            assert not _file_exists_on(self.node_alpha, src_path), (
+                f"source state file not removed after migrate: {src_path}"
+            )
+            # Destination state file is in place (until vm start consumes it).
+            dst_path = _saved_state_path(self.client_alpha, self.beta_name, vm_name)
+            assert _file_exists_on(self.node_beta, dst_path), (
+                f"destination state file missing after migrate: {dst_path}"
+            )
+
+            # Resume on beta: vm.start spawns QEMU with -incoming and
+            # the post-spawn coordinator cont+unlinks the file.
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not become running on beta after migrate+start",
+            )
+            assert not _file_exists_on(self.node_beta, dst_path)
+
+            # Sentinel survived the cross-host round trip.
+            r = vm.guest_exec("/bin/cat /tmp/sentinel")
+            assert r.exit_code == 0, r
+            assert sentinel in r.stdout, (
+                f"sentinel {sentinel!r} did not survive migrate; "
+                f"guest stdout={r.stdout!r}"
+            )
+        finally:
+            try:
+                vm.reset()
+            except Exception:
+                pass
+            self._delete_silent_vm(vm_name)
+            self._delete_silent_disk(overlay_name)
+
+    def test_migrate_running_alpine_vm_auto_saves(self):
+        """Migrate a *running* VM — the daemon auto-saves first as
+        a child task, then runs the standard transfer+commit. End
+        state on the destination is status=saved; vm.start resumes
+        execution. Sentinel-survives-RAM proves the auto-save was a
+        real RAM dump, not a freeze-and-throw-away.
+
+        Originally test_vm_save_load.py::test_migrate_running_vm_auto_saves;
+        renamed when moving to disambiguate from the blank-disk
+        variant of the same name in :class:`TestVmMigration`.
+        """
+        vm_name = _uniq("mig-running")
+        overlay_name = _uniq("mig-running-ovl")
+        vm = self._make_bootable_vm(
+            vm_name, overlay_name, guest_agent=True, ephemeral_overlay=True
+        )
+        try:
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not become running before migrate",
+            )
+            sentinel = f"corvus-mig-running-{int(time.monotonic_ns())}"
+            r = vm.guest_exec(
+                f"/bin/sh -c {shlex.quote(f'echo {sentinel} > /tmp/sentinel')}"
+            )
+            assert r.exit_code == 0, r
+
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+
+            details = vm.show()
+            assert details.status == "saved"
+            assert details.node_name == self.beta_name
+
+            # Resume on beta and check RAM survived the implicit save.
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not resume on beta after auto-save migrate",
+            )
+            r = vm.guest_exec("/bin/cat /tmp/sentinel")
+            assert r.exit_code == 0, r
+            assert sentinel in r.stdout, (
+                f"sentinel {sentinel!r} did not survive auto-save migrate; "
+                f"guest stdout={r.stdout!r}"
+            )
+        finally:
+            try:
+                vm.reset()
+            except Exception:
+                pass
+            self._delete_silent_vm(vm_name)
+            self._delete_silent_disk(overlay_name)
+
+    def test_migrate_paused_vm_auto_saves(self):
+        """Same as the running case but the VM is paused (QMP stop)
+        when migrate fires. Auto-save must still kick in.
+
+        Originally test_vm_save_load.py::test_migrate_paused_vm_auto_saves.
+        """
+        vm_name = _uniq("mig-paused")
+        overlay_name = _uniq("mig-paused-ovl")
+        vm = self._make_bootable_vm(
+            vm_name, overlay_name, guest_agent=True, ephemeral_overlay=True
+        )
+        try:
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not become running before pause",
+            )
+            sentinel = f"corvus-mig-paused-{int(time.monotonic_ns())}"
+            r = vm.guest_exec(
+                f"/bin/sh -c {shlex.quote(f'echo {sentinel} > /tmp/sentinel')}"
+            )
+            assert r.exit_code == 0, r
+
+            vm.pause()
+            _poll_until(
+                lambda: vm.show().status == "paused",
+                timeout_sec=10.0,
+                msg="vm did not become paused before migrate",
+            )
+
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+
+            details = vm.show()
+            assert details.status == "saved"
+            assert details.node_name == self.beta_name
+
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not resume on beta after paused-source migrate",
+            )
+            r = vm.guest_exec("/bin/cat /tmp/sentinel")
+            assert r.exit_code == 0, r
+            assert sentinel in r.stdout
+        finally:
+            try:
+                vm.reset()
+            except Exception:
+                pass
+            self._delete_silent_vm(vm_name)
+            self._delete_silent_disk(overlay_name)

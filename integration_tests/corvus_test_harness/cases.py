@@ -283,6 +283,32 @@ class IntegrationTestCase:
         )
         return state.base_images_cache
 
+    def stage_base_images_on(self, node_index: int) -> None:
+        """Add a `DiskImageNode` placement on `self.nodes[node_index]`
+        for every base image already registered via
+        :meth:`register_base_images`. Idempotent. No bytes move — both
+        nodes mount the same BaseImages virtiofs share, so the daemon
+        just records the new placement.
+
+        Call after :meth:`register_base_images`. Useful in two-node
+        migration tests that want to skip the first-test backing-image
+        transfer cost: with both nodes carrying a placement for the
+        Alpine base, ``vm.migrate``'s PreCheck appends zero chain-ops
+        to the migration plan.
+        """
+        target = self.nodes[node_index]
+        # Inner daemon talks to nodes by short_name (see the per-class
+        # ``_register_beta`` fixture pattern that registers the second
+        # node under its short name). Host-side ``crv`` addresses VMs
+        # by their full prefixed ``name`` though, so the virtiofs
+        # mount step needs the outer name.
+        _base_images.stage_on_node(
+            self.nodes[0].client(),
+            self.topology.crv,
+            inner_node_name=target.short_name,
+            outer_vm_name=target.name,
+        )
+
     def install_node_client_certs(self, *, node_index: int = 0) -> None:
         """Push the host-side client cert trio into the ``corvus``
         user's ``~/.config/corvus`` on a test-node.

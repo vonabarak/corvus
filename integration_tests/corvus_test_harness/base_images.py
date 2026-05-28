@@ -193,6 +193,50 @@ def register_all(
     return registered
 
 
+def stage_on_node(
+    client: Client,
+    crv: Crv,
+    *,
+    inner_node_name: str,
+    outer_vm_name: str,
+    host_dir: Path = HOST_BASE_IMAGES_DIR,
+) -> None:
+    """Ensure every discovered base image has a `DiskImageNode` placement
+    on `inner_node_name`. Idempotent. No bytes move — both nodes mount
+    the same BaseImages virtiofs share at the same path, so the
+    daemon's `mExisting` branch in `handleDiskRegister`
+    (``src/Corvus/Handlers/Disk.hs:226``) records the placement and
+    we're done.
+
+    Two names are needed because the host-side ``crv`` (used to mount
+    virtiofs into the guest) addresses VMs by their full prefixed
+    ``outer_vm_name``, while the *inner* daemon talks to the
+    ``inner_node_name`` it was registered under (typically the short
+    name of the test node, e.g. ``"beta"``).
+
+    Caller must have already registered the disk rows with the daemon
+    (typically via ``register_all`` against the FIRST node). This
+    function then adds a placement on `inner_node_name` for each one.
+    Disk-name collisions are silently skipped; placements that already
+    exist are silently skipped.
+    """
+    images = discover(host_dir)
+    if not images:
+        return
+    ensure_mounted(crv, outer_vm_name)
+    for image in images.values():
+        try:
+            info = client.disks.get(image.name).show()
+        except DiskNotFound:
+            continue
+        if any(p.node_name == inner_node_name for p in info.placements):
+            continue
+        fmt = _format_from_suffix(image.host_path.suffix.lower())
+        client.disks.register(
+            image.name, str(image.guest_path), format=fmt, node=inner_node_name
+        )
+
+
 def _format_from_suffix(suffix: str) -> str | None:
     """Map a filename suffix to the matching DriveFormat string.
 
