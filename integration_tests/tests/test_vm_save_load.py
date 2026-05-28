@@ -217,10 +217,19 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
             )
 
 
-class TestVmSaveLoadMigrateRefused(OneDaemonTwoNodesCase):
-    """Cross-host migration of saved state is intentionally out of
-    scope; the PreCheck refuses with a message pointing the
-    operator at the load → stop → migrate path."""
+class TestVmMigrateSaved(OneDaemonTwoNodesCase):
+    """Cross-host migration of saved state. The state file follows
+    the disks to the destination; running/paused VMs are auto-saved
+    first as a child task. End state on the destination is always
+    `status=saved` — operator runs `vm start` on the destination to
+    resume execution from where the source left off.
+
+    Builds VMs inline rather than via the `Vm` context manager —
+    `Vm` reaches for `case.client`, which the two-node case
+    doesn't expose (it has `client_alpha` / `client_beta`
+    instead). Mirrors the pattern from
+    test_vm_migration.py::TestVmMigration._make_bootable_vm.
+    """
 
     @pytest.fixture(scope="class", autouse=True)
     def _register_beta(self, request):
@@ -238,7 +247,7 @@ class TestVmSaveLoadMigrateRefused(OneDaemonTwoNodesCase):
                 beta_ip,
                 node_agent_port=9878,
                 net_agent_port=9877,
-                description="alpha→beta save/load migrate refusal",
+                description="alpha→beta migrate-saved tests",
             )
         else:
             cls.beta_node = client.nodes.get(beta_name)
@@ -260,21 +269,15 @@ class TestVmSaveLoadMigrateRefused(OneDaemonTwoNodesCase):
         except Exception:
             pass
 
-    def test_migrate_refuses_saved_vm(self):
-        """Save a VM on alpha, then attempt `vm migrate` to beta.
-        The PreCheck must reject before the disk-transfer loop
-        starts, with a message naming `saved` so the operator
-        knows what to do.
+    # ---- per-test plumbing ----------------------------------------------
 
-        Builds the VM inline rather than via the `Vm` context
-        manager — `Vm` reaches for `case.client`, which the
-        two-node case doesn't expose (it has
-        `client_alpha` / `client_beta` instead).
+    def _make_bootable_alpha_vm(self, label: str):
+        """Build a bootable Alpine VM on alpha, return ``(vm, vm_name,
+        overlay_name)``. Caller is responsible for the
+        ``vm.reset() / vm.delete() / disk.delete()`` cleanup in a
+        ``finally`` block. ``label`` is a short prefix used to keep
+        per-test artefact names distinct in the inner DB.
         """
-        images = self.client_alpha.disks.list()
-        # Reuse the existing test-image registration check from
-        # `register_base_images` to fail loud if the alpine image
-        # isn't baked.
         base_disks = self.register_base_images()
         base_disk = base_disks.get("alpine")
         if base_disk is None:
@@ -282,65 +285,191 @@ class TestVmSaveLoadMigrateRefused(OneDaemonTwoNodesCase):
                 "alpine (corvus-test-vm) base image not registered — "
                 "run `make test-image-vm` to bake it on the host"
             )
-        # Uniqueness: secrets.token_hex on the class fixture would
-        # collide with parallel runs of this same class. Use the
-        # node-list-derived freshness instead — every test class
-        # boots its own topology, so `len(images)` is monotonic
-        # within the class.
-        suffix = f"m{len(images)}-{int(time.monotonic_ns()) % 100000}"
-        vm_name = f"mig-saved-{suffix}"
-        overlay_name = f"mig-saved-ovl-{suffix}"
+        suffix = f"{label}-{int(time.monotonic_ns()) % 100000}"
+        vm_name = f"mig-{suffix}"
+        overlay_name = f"mig-ovl-{suffix}"
+        self.client_alpha.disks.create_overlay(overlay_name, base_disk, ephemeral=True)
+        vm = self.client_alpha.vms.create(
+            vm_name,
+            cpu_count=1,
+            ram_mb=512,
+            node=self.alpha_name,
+            headless=True,
+            guest_agent=True,
+            cloud_init=False,
+        )
+        vm.attach_disk(overlay_name, interface="virtio")
+        return vm, vm_name, overlay_name
+
+    def _cleanup_silent(self, vm, vm_name: str, overlay_name: str) -> None:
         try:
-            self.client_alpha.disks.create_overlay(
-                overlay_name, base_disk, ephemeral=True
-            )
-            vm = self.client_alpha.vms.create(
-                vm_name,
-                cpu_count=1,
-                ram_mb=512,
-                node=self.alpha_name,
-                headless=True,
-                guest_agent=True,
-                cloud_init=False,
-            )
-            vm.attach_disk(overlay_name, interface="virtio")
+            vm.reset()
+        except Exception:
+            pass
+        try:
+            vm.delete()
+        except Exception:
+            pass
+        try:
+            self.client_alpha.disks.get(overlay_name).delete()
+        except Exception:
+            pass
+
+    # ---- happy-path tests ------------------------------------------------
+
+    def test_migrate_already_saved_vm_round_trip(self):
+        """Pre-save the VM on alpha, write a sentinel into the RAM
+        before saving, migrate, then start on beta. Sentinel must
+        survive the save+transfer+load round trip on the
+        destination.
+        """
+        vm, vm_name, overlay_name = self._make_bootable_alpha_vm("saved")
+        try:
             vm.start(wait=True)
             _poll_until(
                 lambda: vm.show().status == "running",
                 timeout_sec=60.0,
                 msg="vm did not become running before save",
             )
+
+            sentinel = f"corvus-mig-saved-{int(time.monotonic_ns())}"
+            r = vm.guest_exec(
+                f"/bin/sh -c {shlex.quote(f'echo {sentinel} > /tmp/sentinel')}"
+            )
+            assert r.exit_code == 0, r
+
             vm.save()
             _poll_until(
                 lambda: vm.show().status == "saved",
                 timeout_sec=10.0,
-                msg="vm.show().status did not become 'saved'",
+                msg="vm.show().status did not become 'saved' before migrate",
             )
 
             tid = vm.migrate(self.beta_name)
-            with pytest.raises(AssertionError) as ei:
-                self.wait_for_task(self.client_alpha, tid, timeout_sec=30.0)
-            lowered = str(ei.value).lower()
-            assert "saved" in lowered, (
-                f"migrate refusal didn't mention 'saved': {ei.value!r}"
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
+
+            details = vm.show()
+            assert details.status == "saved", (
+                f"after migrate, expected status=saved; got {details.status!r}"
+            )
+            # The disk follows; the VM should now be on beta.
+            assert details.node_name == self.beta_name
+
+            # Source state file is gone (best-effort delete in commit).
+            src_path = _saved_state_path(self.client_alpha, self.alpha_name, vm_name)
+            assert not _file_exists_on(self.node_alpha, src_path), (
+                f"source state file not removed after migrate: {src_path}"
+            )
+            # Destination state file is in place (until vm start consumes it).
+            dst_path = _saved_state_path(self.client_alpha, self.beta_name, vm_name)
+            assert _file_exists_on(self.node_beta, dst_path), (
+                f"destination state file missing after migrate: {dst_path}"
             )
 
-            # Status remains saved; the PreCheck refusal must not
-            # touch the row.
-            assert vm.show().status == "saved"
+            # Resume on beta: vm.start spawns QEMU with -incoming
+            # and the post-spawn coordinator cont+unlinks the file.
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not become running on beta after migrate+start",
+            )
+            assert not _file_exists_on(self.node_beta, dst_path)
+
+            # Sentinel survived the cross-host round trip.
+            r = vm.guest_exec("/bin/cat /tmp/sentinel")
+            assert r.exit_code == 0, r
+            assert sentinel in r.stdout, (
+                f"sentinel {sentinel!r} did not survive migrate; "
+                f"guest stdout={r.stdout!r}"
+            )
         finally:
-            try:
-                vm.reset()
-            except Exception:
-                pass
-            try:
-                vm.delete()
-            except Exception:
-                pass
-            try:
-                self.client_alpha.disks.get(overlay_name).delete()
-            except Exception:
-                pass
+            self._cleanup_silent(vm, vm_name, overlay_name)
+
+    def test_migrate_running_vm_auto_saves(self):
+        """Migrate a *running* VM — the daemon auto-saves first as
+        a child task, then runs the standard transfer+commit. End
+        state on the destination is the same as the pre-saved
+        case: status=saved, vm.start resumes execution."""
+        vm, vm_name, overlay_name = self._make_bootable_alpha_vm("running")
+        try:
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not become running before migrate",
+            )
+            sentinel = f"corvus-mig-running-{int(time.monotonic_ns())}"
+            r = vm.guest_exec(
+                f"/bin/sh -c {shlex.quote(f'echo {sentinel} > /tmp/sentinel')}"
+            )
+            assert r.exit_code == 0, r
+
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
+
+            details = vm.show()
+            assert details.status == "saved"
+            assert details.node_name == self.beta_name
+
+            # Resume on beta and check RAM survived the implicit save.
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not resume on beta after auto-save migrate",
+            )
+            r = vm.guest_exec("/bin/cat /tmp/sentinel")
+            assert r.exit_code == 0, r
+            assert sentinel in r.stdout, (
+                f"sentinel {sentinel!r} did not survive auto-save migrate; "
+                f"guest stdout={r.stdout!r}"
+            )
+        finally:
+            self._cleanup_silent(vm, vm_name, overlay_name)
+
+    def test_migrate_paused_vm_auto_saves(self):
+        """Same as the running case but the VM is paused (QMP stop)
+        when migrate fires. Auto-save must still kick in."""
+        vm, vm_name, overlay_name = self._make_bootable_alpha_vm("paused")
+        try:
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not become running before pause",
+            )
+            sentinel = f"corvus-mig-paused-{int(time.monotonic_ns())}"
+            r = vm.guest_exec(
+                f"/bin/sh -c {shlex.quote(f'echo {sentinel} > /tmp/sentinel')}"
+            )
+            assert r.exit_code == 0, r
+
+            vm.pause()
+            _poll_until(
+                lambda: vm.show().status == "paused",
+                timeout_sec=10.0,
+                msg="vm did not become paused before migrate",
+            )
+
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
+
+            details = vm.show()
+            assert details.status == "saved"
+            assert details.node_name == self.beta_name
+
+            vm.start(wait=True)
+            _poll_until(
+                lambda: vm.show().status == "running",
+                timeout_sec=60.0,
+                msg="vm did not resume on beta after paused-source migrate",
+            )
+            r = vm.guest_exec("/bin/cat /tmp/sentinel")
+            assert r.exit_code == 0, r
+            assert sentinel in r.stdout
+        finally:
+            self._cleanup_silent(vm, vm_name, overlay_name)
 
 
 class TestVmSaveAutostartResumes(SingleNodeCase):

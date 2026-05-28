@@ -50,6 +50,13 @@ data MigrationPlan = MigrationPlan
   , mpSrcNode :: !M.NodeId
   , mpDestNode :: !M.NodeId
   , mpDriveOps :: ![MigrationDriveOp]
+  , mpStateFile :: !Bool
+  -- ^ True iff the source VM is in 'M.VmSaved' status. The
+  -- orchestrator transfers
+  -- @\<srcBasePath\>\/\<vmName\>\/state.qemu@ to the destination
+  -- after all drive transfers complete, and deletes it from the
+  -- source on commit. The destination ends up with
+  -- @status = VmSaved@ — same row state the source had.
   }
   deriving (Eq, Show)
 
@@ -82,18 +89,13 @@ validateMigration state vmId destNode = do
       -- the single source of truth for "another migration is in
       -- progress" — see Corvus.Handlers.Vm.Migrate.handleVmMigrate.
       --
-      -- Saved VMs are refused with a specific message: their
-      -- saved-state file is host-local (RAM image bound to QEMU
-      -- version + machine type) and cross-host migration of state
-      -- files is intentionally out of scope. Operators load the
-      -- VM first (back to running), stop it cleanly, then migrate.
-      | M.vmStatus vm == M.VmSaved ->
-          pure
-            ( Left
-                "VM has saved state; 'vm start' to resume, then stop, then migrate"
-            )
-      | M.vmStatus vm /= M.VmStopped ->
-          pure (Left "VM must be stopped before migrating")
+      -- @vm migrate@ accepts stopped VMs (no state file) and
+      -- saved VMs (state file follows to the destination). Running
+      -- and paused VMs are auto-saved by the orchestrator BEFORE
+      -- this PreCheck runs, so by the time we read the row here
+      -- it's one of the two acceptable terminal states.
+      | M.vmStatus vm `notElem` [M.VmStopped, M.VmSaved] ->
+          pure (Left "VM must be stopped or saved before migrating")
       | M.vmNodeId vm == destNode ->
           pure (Left "destination is the VM's current node")
       | otherwise -> do
@@ -252,6 +254,7 @@ buildPlanFromDrives state vmId vm destNode destRow = do
                 , mpSrcNode = M.vmNodeId vm
                 , mpDestNode = destNode
                 , mpDriveOps = allOps
+                , mpStateFile = M.vmStatus vm == M.VmSaved
                 }
 
 -- ---------------------------------------------------------------------------

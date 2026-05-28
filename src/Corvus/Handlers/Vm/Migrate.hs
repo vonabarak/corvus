@@ -37,13 +37,14 @@ where
 
 import Corvus.Action
 
-import Control.Monad (foldM, forM_, unless, when)
+import Control.Monad (foldM, forM_, unless, void, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import qualified Corvus.Handlers.Disk.Agent as DA
 import qualified Corvus.Handlers.Disk.Db as DDb
 import qualified Corvus.Handlers.Disk.Path as DP
 import qualified Corvus.Handlers.Disk.Transfer as DT
+import qualified Corvus.Handlers.Vm as HVm
 import Corvus.Handlers.Vm.Migrate.PreCheck
   ( MigrationDriveOp (..)
   , MigrationPlan (..)
@@ -52,9 +53,10 @@ import Corvus.Handlers.Vm.Migrate.PreCheck
 import Corvus.Model (fromSqlKey, toSqlKey)
 import qualified Corvus.Model as M
 import Corvus.Node.Image (ImageResult (..))
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
-import Corvus.Types (ServerState (..), runServerLogging)
+import Corvus.Types (ServerState (..), runServerLogging, withNodeAgent)
 import Data.Int (Int64)
 import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
@@ -76,38 +78,36 @@ instance Action VmMigrate where
   actionSubsystem _ = M.SubMigration
   actionCommand _ = "migrate"
   actionEntityId = Just . fromIntegral . vmiVmId
-  actionExecute ctx a = handleVmMigrate (acState ctx) (vmiVmId a) (vmiDestNodeId a)
+  actionExecute ctx a = handleVmMigrate ctx (vmiVmId a) (vmiDestNodeId a)
 
 -- ---------------------------------------------------------------------------
 -- Handler
 
-handleVmMigrate :: ServerState -> Int64 -> Int64 -> IO Response
-handleVmMigrate state vmIdRaw destNodeRaw = runServerLogging state $ do
-  let pool = ssDbPool state
-      vmId = toSqlKey vmIdRaw :: M.VmId
+handleVmMigrate :: ActionContext -> Int64 -> Int64 -> IO Response
+handleVmMigrate ctx vmIdRaw destNodeRaw = runServerLogging state $ do
+  let vmId = toSqlKey vmIdRaw :: M.VmId
       destNode = toSqlKey destNodeRaw :: M.NodeId
   logInfoN $
     "vm migrate: vm "
       <> T.pack (show vmIdRaw)
       <> " → node "
       <> T.pack (show destNodeRaw)
-  -- (1) Conditional lock acquisition. Persistent has no
-  -- "update WHERE … returning rowcount" combinator we trust
-  -- across backends, so we fetch + check + set inside a single
-  -- transaction; concurrent migrations serialise on the row lock
-  -- the read takes.
-  -- Surface a specific message for saved VMs BEFORE the generic
-  -- "not stopped" rejection below — otherwise operators get a
-  -- misleading hint pointing them at @vm stop@, which the FSM
-  -- explicitly refuses on saved VMs.
-  mPreStatus <- liftIO $ runSqlPool (get vmId) pool
-  let savedRefusal =
-        case mPreStatus of
-          Just vm | M.vmStatus vm == M.VmSaved -> Just "VM has saved state; 'vm start' to resume, then stop, then migrate"
-          _ -> Nothing
-  case savedRefusal of
-    Just msg -> pure (RespError msg)
-    Nothing -> do
+  -- (1) Auto-save running/paused VMs as a child task. The save
+  -- runs through the same VmSave Action 'crv vm save' uses, so
+  -- the FSM gate + node-side migrate-quit-reap flow is shared.
+  -- 'runActionAsSubtask' records the save as a child of the
+  -- migrate task so 'crv task history' shows the full causality.
+  saveOutcome <- liftIO (autoSaveIfLive ctx vmId)
+  case saveOutcome of
+    Left err -> pure (RespError err)
+    Right () -> do
+      -- (2) Conditional lock acquisition. Persistent has no
+      -- "update WHERE … returning rowcount" combinator we trust
+      -- across backends, so we fetch + check + set inside a single
+      -- transaction; concurrent migrations serialise on the row
+      -- lock the read takes. By this point the row's status is
+      -- either 'VmStopped' (cold migrate) or 'VmSaved' (either
+      -- pre-existing or just produced by the auto-save above).
       acquired <-
         liftIO $
           runSqlPool
@@ -115,22 +115,61 @@ handleVmMigrate state vmIdRaw destNodeRaw = runServerLogging state $ do
                 mVm <- get vmId
                 case mVm of
                   Just vm
-                    | M.vmStatus vm == M.VmStopped && not (M.vmMigrating vm) -> do
+                    | M.vmStatus vm `elem` [M.VmStopped, M.VmSaved]
+                    , not (M.vmMigrating vm) -> do
                         update vmId [M.VmMigrating =. True]
                         pure True
                   _ -> pure False
             )
             pool
       if not acquired
-        then pure (RespError "VM is not stopped or another migration is in progress")
+        then
+          pure
+            ( RespError
+                "VM must be stopped or saved (running/paused are auto-saved); another migration may be in progress"
+            )
         else do
-          -- (2) Pre-check.
+          -- (3) Pre-check.
           ePlan <- liftIO $ validateMigration state vmId destNode
           case ePlan of
             Left err -> do
               liftIO $ clearMigrating state vmId
               pure (RespError err)
             Right plan -> driveTransfers state vmId destNode plan
+  where
+    state = acState ctx
+    pool = ssDbPool state
+
+-- | If the VM row is currently 'VmRunning' or 'VmPaused', invoke
+-- 'VmSave' as a child task so the existing save path (FSM gate,
+-- node-side migrate + quit + reap, DB pre-commit + race fix) does
+-- the work. Returns 'Right ()' when the row is now in a
+-- migrate-eligible state ('VmStopped' or 'VmSaved'), or 'Left'
+-- with a diagnostic when the save itself failed.
+--
+-- Stopped and saved rows fall through without touching anything.
+-- A row in @starting@ / @stopping@ / @error@ is left alone here —
+-- the subsequent lock-acquire produces the proper "not in an
+-- eligible status" rejection.
+autoSaveIfLive :: ActionContext -> M.VmId -> IO (Either T.Text ())
+autoSaveIfLive ctx vmId = do
+  let state = acState ctx
+  mVm <- runSqlPool (get vmId) (ssDbPool state)
+  case mVm of
+    Just vm | M.vmStatus vm `elem` [M.VmRunning, M.VmPaused] -> do
+      resp <- runActionAsSubtask ctx (HVm.VmSave (fromSqlKey vmId))
+      pure $ case resp of
+        RespVmStateChanged M.VmSaved -> Right ()
+        RespError msg -> Left ("auto-save before migrate failed: " <> msg)
+        RespInvalidTransition curr msg ->
+          Left
+            ( "auto-save before migrate refused (current status "
+                <> M.enumToText curr
+                <> "): "
+                <> msg
+            )
+        other -> Left ("auto-save before migrate returned unexpected response: " <> T.pack (show other))
+    _ -> pure (Right ())
 
 -- | Run the transfers and, on success, commit the DB swap. On any
 -- error during transfers, roll back destination-side state and
@@ -144,8 +183,9 @@ driveTransfers
 driveTransfers state vmId destNode plan = do
   let srcNode = mpSrcNode plan
       ops = mpDriveOps plan
-  -- Stage 1: byte transfers. We accumulate a list of "what we
-  -- created on the destination" so we can roll back on failure.
+  -- Stage 1: per-drive byte transfers. We accumulate a list of
+  -- "what we created on the destination" so we can roll back on
+  -- failure.
   basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
   result <-
     liftIO $
@@ -155,10 +195,57 @@ driveTransfers state vmId destNode plan = do
         ops
   case result of
     Left (err, created) -> do
-      liftIO $ rollbackCreated state destNode created
+      liftIO $ rollbackCreated state plan destNode created
       liftIO $ clearMigrating state vmId
       pure (RespError err)
-    Right created -> commitMigration state vmId destNode plan created
+    Right created -> do
+      -- Stage 2: state-file transfer for saved VMs. The PreCheck
+      -- set 'mpStateFile' iff the source row was 'VmSaved' (either
+      -- pre-existing or produced by the auto-save in
+      -- 'handleVmMigrate'). Disks are already on the destination
+      -- at this point — a failure here rolls back everything via
+      -- the same path the disk-transfer failure uses.
+      if mpStateFile plan
+        then do
+          stateRes <- liftIO $ transferStateFile state plan basePath
+          case stateRes of
+            Left err -> do
+              liftIO $ rollbackCreated state plan destNode created
+              liftIO $ clearMigrating state vmId
+              pure (RespError err)
+            Right () -> commitMigration state vmId destNode plan created
+        else commitMigration state vmId destNode plan created
+
+-- | Move @\<basePath\>\/\<vmName\>\/state.qemu@ from the source node
+-- to the destination, reusing the same agent-to-agent byte path
+-- the disk transfers use. The destination's
+-- @diskImportFromPeer@ @mkdir -p@s the parent before writing.
+transferStateFile :: ServerState -> MigrationPlan -> FilePath -> IO (Either T.Text ())
+transferStateFile state plan daemonBase = do
+  let pool = ssDbPool state
+      srcNode = mpSrcNode plan
+      destNode = mpDestNode plan
+  mVm <- runSqlPool (get (mpVmId plan)) pool
+  case mVm of
+    Nothing -> pure (Left "internal: VM row vanished mid-state-transfer")
+    Just vm -> do
+      mSrc <- runSqlPool (get srcNode) pool
+      mDest <- runSqlPool (get destNode) pool
+      let srcBase = maybe daemonBase (T.unpack . M.nodeBasePath) mSrc
+          destBase = maybe daemonBase (T.unpack . M.nodeBasePath) mDest
+          name = T.unpack (M.vmName vm)
+          srcPath = srcBase </> name </> "state.qemu"
+          destPath = destBase </> name </> "state.qemu"
+      tResult <-
+        DT.transferImageBetweenNodes
+          state
+          srcNode
+          destNode
+          srcPath
+          destPath
+      pure $ case tResult of
+        Left err -> Left ("state-file transfer: " <> err)
+        Right () -> Right ()
 
 -- | Per-op transfer step. Carries (Right placements-so-far) on
 -- success or (Left (err, placements-so-far)) on the first failure
@@ -288,19 +375,40 @@ commitMigration state vmId destNode plan created = do
           logWarnN $
             "source-side file delete after move did not complete cleanly: "
               <> T.pack (show other)
+  -- Best-effort source-side state-file delete for saved VMs. The
+  -- destination already has its own copy from the state-file
+  -- transfer step; leaving the source's around would be a long-
+  -- lived leak across migrations of the same VM. Idempotent on
+  -- the agent, so unreachable source is harmless (a leftover file
+  -- gets reaped on the next migrate or on agent cleanup).
+  when (mpStateFile plan) $ do
+    mVm <- liftIO $ runSqlPool (get vmId) pool
+    forM_ mVm $ \vm -> do
+      delR <-
+        liftIO $
+          deleteSavedStateOnNode state (mpSrcNode plan) (M.vmName vm)
+      case delR of
+        Right () -> pure ()
+        Left err ->
+          logWarnN $
+            "source-side state-file delete after migrate did not complete: "
+              <> err
   logInfoN "vm migrate complete"
   pure RespOk
 
 -- | Best-effort rollback: delete every destination-side file +
--- DiskImageNode row we created during a failed transfer pass.
--- Used by 'driveTransfers' when one of the transfers fails so the
--- destination doesn't end up with half a workload.
+-- DiskImageNode row we created during a failed transfer pass, and
+-- (for saved VMs) drop the destination state file if it landed
+-- before the failure. Used by 'driveTransfers' when one of the
+-- transfers fails so the destination doesn't end up with half a
+-- workload.
 rollbackCreated
   :: ServerState
+  -> MigrationPlan
   -> M.NodeId
   -> [(M.DiskImageId, T.Text)]
   -> IO ()
-rollbackCreated state destNode created = do
+rollbackCreated state plan destNode created = do
   daemonBase <- getEffectiveBasePath (ssQemuConfig state)
   mDestRow <- runSqlPool (get destNode) (ssDbPool state)
   let destBase = maybe daemonBase (T.unpack . M.nodeBasePath) mDestRow
@@ -314,6 +422,16 @@ rollbackCreated state destNode created = do
     -- collide with a future retry).
     _ <- DA.deleteImageViaAgent state destNode absPath
     runSqlPool (DDb.deleteDiskImageNodeRow d destNode) (ssDbPool state)
+  -- For saved-VM migrations, the state-file transfer step may have
+  -- already written the destination's state.qemu before another
+  -- step failed. 'deleteSavedState' is idempotent on the agent
+  -- (a missing file is success), so unconditional invocation when
+  -- 'mpStateFile' is set is safe even if the state-file step never
+  -- ran.
+  when (mpStateFile plan) $ do
+    mVm <- runSqlPool (get (mpVmId plan)) (ssDbPool state)
+    forM_ mVm $ \vm ->
+      void $ deleteSavedStateOnNode state destNode (M.vmName vm)
 
 -- | Clear the @migrating@ flag back to False. Standalone helper
 -- used both on pre-check failure and as part of rollback (the
@@ -327,3 +445,19 @@ clearMigrating state vmId =
 opDiskKey :: MigrationDriveOp -> M.DiskImageId
 opDiskKey (OpCopy d) = d
 opDiskKey (OpMove d) = d
+
+-- | Ask the named node's agent to unlink the saved-state file for
+-- @vmName@. Idempotent on the agent (missing file is success); the
+-- daemon-side caller can ignore the result. Returns 'Left' iff the
+-- agent itself is unreachable, so callers that care can log it.
+deleteSavedStateOnNode
+  :: ServerState
+  -> M.NodeId
+  -> T.Text
+  -> IO (Either T.Text ())
+deleteSavedStateOnNode state nid vmName = do
+  r <- withNodeAgent state nid (`NOA.deleteSavedState` vmName)
+  pure $ case r of
+    Left err -> Left err
+    Right (Left e) -> Left (T.pack (show e))
+    Right (Right ()) -> Right ()

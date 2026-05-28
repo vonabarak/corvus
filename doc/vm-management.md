@@ -103,9 +103,25 @@ Autostart picks up saved VMs the same way it picks up stopped ones:
 on daemon restart, any VM with `autostart=true` and `status in
 {stopped, saved}` is started — saved ones via the resume path.
 
-Cross-host migration of saved state is not supported. To move a
-saved VM to another node: `vm start` it (resume) on the current
-node, `vm stop` it cleanly, then `vm migrate`.
+Cross-host migration carries the saved state with it. `crv vm migrate`
+accepts saved VMs directly: the state file streams to the destination
+alongside the disks, and the row lands on the destination with
+`status=saved` — operator runs `vm start` on the destination to
+resume execution from where the source left off.
+
+Running and paused VMs are auto-saved before migration: `vm migrate`
+on a running VM records a child `vm/save` task in `crv task history`,
+then proceeds with the now-saved VM. The end state is the same as
+migrating an already-saved VM. If the auto-save fails (e.g. node
+disconnected mid-flight), the migrate task surfaces the error and the
+VM stays where it was.
+
+The destination must run a compatible QEMU version with a compatible
+CPU model: the saved RAM image is bound to the source's `-machine` /
+`-cpu` settings. The defaults (`q35` + `-cpu host`) make heterogeneous
+host-CPU clusters the practical risk. If your cluster mixes CPU
+generations, stop the VM cleanly before `vm migrate` so QEMU cold-boots
+on the destination instead of trying to resume incompatible state.
 
 ## Deleting a VM
 

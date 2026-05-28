@@ -487,8 +487,19 @@ class TestVmMigration(OneDaemonTwoNodesCase):
 
     # ---- refusals ----------------------------------------------------------
 
-    def test_migrate_refuses_running_vm(self):
-        """A running VM can't be migrated."""
+    def test_migrate_running_vm_auto_saves(self):
+        """A running VM is auto-saved before migrate, then the
+        usual disk + state-file transfer runs. End state on the
+        destination is ``status=saved`` — the operator runs
+        ``vm start`` on beta to resume.
+
+        Uses the migrate suite's fixture (no QGA, no Alpine
+        bootable image) to prove the auto-save path doesn't
+        depend on a guest agent; the test_vm_save_load.py
+        ``TestVmMigrateSaved`` suite exercises the same path with
+        a real Alpine guest and a sentinel-survives-RAM assertion.
+        Here we just need: migrate succeeds → row on beta → saved.
+        """
         vm_name = _uniq("mig-run")
         disk_name = _uniq("mig-run-disk")
         vm = self._make_stopped_vm_with_disk(vm_name, disk_name)
@@ -499,20 +510,25 @@ class TestVmMigration(OneDaemonTwoNodesCase):
                 timeout_sec=15.0,
                 msg=f"qemu for {vm_name!r} did not spawn on alpha",
             )
-            try:
-                self._assert_migrate_fails(
-                    vm,
-                    self.beta_name,
-                    message_must_match=["stopped", "another migration"],
-                )
-            finally:
-                vm.reset()
-                _poll_until(
-                    lambda: _qemu_count(self.node_alpha, vm_name) == 0,
-                    timeout_sec=15.0,
-                    msg=f"qemu for {vm_name!r} did not exit on alpha after reset",
-                )
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            details = vm.show()
+            assert details.status == "saved", (
+                f"after migrate of running VM, expected status=saved; got "
+                f"{details.status!r}"
+            )
+            # The disk follows; the VM should now be on beta.
+            assert details.node_name == self.beta_name
+            # QEMU on alpha must be gone — auto-save quit it.
+            assert _qemu_count(self.node_alpha, vm_name) == 0
         finally:
+            # `vm reset` on a saved VM drops the state file and
+            # lands at stopped. `_delete_silent_vm` then reaps the
+            # row + ephemeral disk.
+            try:
+                vm.reset()
+            except Exception:
+                pass
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
 
