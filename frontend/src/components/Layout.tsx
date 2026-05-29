@@ -34,6 +34,9 @@ export default function Layout() {
             <NavLink to="/ssh-keys" className={navItemClass}>
               SSH keys
             </NavLink>
+            <NavLink to="/tasks" className={navItemClass}>
+              Tasks
+            </NavLink>
           </nav>
         </div>
       </header>

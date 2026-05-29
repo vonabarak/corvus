@@ -1,7 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
-import { Activity, AlertCircle, Server, Plug } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Activity, AlertCircle, Plug, Server } from "lucide-react";
 import { getStatus, type StatusInfo } from "@/api/system";
+import { listTasks, type TaskInfo } from "@/api/tasks";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { TaskResultBadge } from "@/components/TaskResultBadge";
+import { subsystemEntityRoute } from "@/lib/entityLink";
 
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
@@ -28,6 +40,82 @@ function Tile({ label, value, icon }: TileProps) {
       </CardHeader>
       <CardContent>
         <div className="text-2xl font-semibold">{value}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RecentTasksCard() {
+  const { data, error } = useQuery<TaskInfo[]>({
+    queryKey: ["tasks", "recent"],
+    queryFn: ({ signal }) => listTasks({ limit: 10 }, signal),
+    refetchInterval: 3000,
+  });
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Recent tasks</CardTitle>
+        <CardDescription>
+          Last 10 mutating RPCs the daemon received.{" "}
+          <Link to="/tasks" className="text-foreground hover:underline">
+            All tasks →
+          </Link>
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="p-0">
+        {error ? (
+          <p className="px-6 pb-6 text-sm text-destructive">{(error as Error).message}</p>
+        ) : !data || data.length === 0 ? (
+          <p className="px-6 pb-6 text-sm text-muted-foreground">No tasks recorded yet.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>ID</TableHead>
+                <TableHead>Subsystem</TableHead>
+                <TableHead>Command</TableHead>
+                <TableHead>Entity</TableHead>
+                <TableHead>Result</TableHead>
+                <TableHead>Started</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.map((t) => {
+                const route = subsystemEntityRoute(t.subsystem, t.entity_id);
+                return (
+                  <TableRow key={t.id}>
+                    <TableCell>
+                      <Link to={`/tasks/${t.id}`} className="font-mono text-xs hover:underline">
+                        #{t.id}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{t.subsystem}</TableCell>
+                    <TableCell className="font-mono text-xs">{t.command}</TableCell>
+                    <TableCell>
+                      {t.entity_name ? (
+                        route ? (
+                          <Link to={route} className="hover:underline">
+                            {t.entity_name}
+                          </Link>
+                        ) : (
+                          <span>{t.entity_name}</span>
+                        )
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <TaskResultBadge result={t.result} />
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(t.started_at).toLocaleString()}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
     </Card>
   );
@@ -82,6 +170,7 @@ export default function Dashboard() {
           icon={<Server className="h-4 w-4" />}
         />
       </div>
+      <RecentTasksCard />
     </div>
   );
 }
