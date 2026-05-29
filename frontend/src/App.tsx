@@ -12,6 +12,7 @@ import SshKeyList from "./pages/SshKeyList";
 import SshKeyDetail from "./pages/SshKeyDetail";
 import TemplateList from "./pages/TemplateList";
 import TemplateDetail from "./pages/TemplateDetail";
+import TemplateEdit from "./pages/TemplateEdit";
 import TaskList from "./pages/TaskList";
 import TaskDetail from "./pages/TaskDetail";
 import Apply from "./pages/Apply";
@@ -39,7 +40,9 @@ export default function App() {
         <Route path="ssh-keys" element={<SshKeyList />} />
         <Route path="ssh-keys/:id" element={<SshKeyDetail />} />
         <Route path="templates" element={<TemplateList />} />
+        <Route path="templates/new" element={<TemplateEdit />} />
         <Route path="templates/:id" element={<TemplateDetail />} />
+        <Route path="templates/:id/edit" element={<TemplateEdit />} />
         <Route path="tasks" element={<TaskList />} />
         <Route path="tasks/:id" element={<TaskDetail />} />
         <Route path="nodes" element={<NodeList />} />

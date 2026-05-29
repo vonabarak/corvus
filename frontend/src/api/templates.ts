@@ -75,6 +75,18 @@ export function instantiateTemplate(
   return apiSend<{ id: number; name: string }>("POST", `/templates/${id}/instantiate`, body);
 }
 
+export function getTemplateYaml(id: number, signal?: AbortSignal): Promise<{ yaml: string }> {
+  return apiGet<{ yaml: string }>(`/templates/${id}/yaml`, signal);
+}
+
+export function createTemplate(yaml: string): Promise<TemplateDetails> {
+  return apiSend<TemplateDetails>("POST", "/templates", { yaml });
+}
+
+export function updateTemplate(id: number, yaml: string): Promise<TemplateDetails> {
+  return apiSend<TemplateDetails>("PUT", `/templates/${id}`, { yaml });
+}
+
 export function deleteTemplate(id: number): Promise<{ status: string }> {
   return apiSend<{ status: string }>("DELETE", `/templates/${id}`);
 }

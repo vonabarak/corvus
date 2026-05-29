@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { AlertCircle, Cpu, FileCode } from "lucide-react";
+import { AlertCircle, Cpu, FileCode, Plus } from "lucide-react";
 import { listTemplates, type TemplateVmInfo } from "@/api/templates";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -63,13 +64,21 @@ export default function TemplateList() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Templates</h1>
-        <p className="text-sm text-muted-foreground">
-          {templates.length === 0
-            ? "No templates yet."
-            : `${templates.length} template${templates.length === 1 ? "" : "s"} registered.`}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Templates</h1>
+          <p className="text-sm text-muted-foreground">
+            {templates.length === 0
+              ? "No templates yet."
+              : `${templates.length} template${templates.length === 1 ? "" : "s"} registered.`}
+          </p>
+        </div>
+        <Button size="sm" asChild>
+          <Link to="/templates/new">
+            <Plus className="h-3.5 w-3.5" />
+            New template
+          </Link>
+        </Button>
       </div>
       <Card>
         <Table>

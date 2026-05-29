@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
 import {
   deleteTemplate,
   getTemplate,
@@ -150,6 +150,12 @@ export default function TemplateDetail() {
 
       <div className="flex flex-wrap gap-2">
         <InstantiateButton t={t} />
+        <Button variant="outline" size="sm" asChild>
+          <Link to={`/templates/${t.id}/edit`}>
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </Link>
+        </Button>
         <DeleteButton t={t} />
       </div>
 
