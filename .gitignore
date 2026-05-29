@@ -33,3 +33,16 @@ integration_tests/keys/
 # ~/VMs/BaseImages/SyntheticInstaller/ and is not in-tree).
 build/
 release/
+# Frontend (vite) build outputs. The repo keeps source under frontend/;
+# build artefacts (frontend/dist and the staged copy under
+# python/corvus_web/static/) are produced by `make web-build` and
+# shipped only inside the Python wheel.
+frontend/node_modules/
+frontend/dist/
+# tsc -b emits incremental-build state plus a compiled vite.config.{js,d.ts}
+# alongside the source — none of which is shipped or imported anywhere.
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+python/corvus_web/static/*
+!python/corvus_web/static/.gitkeep

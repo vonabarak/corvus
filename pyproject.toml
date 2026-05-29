@@ -19,6 +19,11 @@ dependencies = [
     # Jinja2 renders the systemd unit-file templates that
     # corvus-admin generates during `quickstart` / `deploy`.
     "jinja2>=3",
+    # FastAPI + uvicorn power the `corvus-web` HTTP gateway.
+    # The gateway is a thin REST + WebSocket bridge to the daemon's
+    # Cap'n Proto RPC, built on top of `corvus_client.AsyncClient`.
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -32,14 +37,15 @@ harness = [
 
 [project.scripts]
 corvus-admin = "corvus_admin.cli:main"
+corvus-web = "corvus_web.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-# Three top-level packages, source dirs in two different trees.
-# `corvus_client` and `corvus_admin` live under /python; the
-# integration-test harness lives under /integration_tests.
+# Four top-level packages, source dirs in two different trees.
+# `corvus_client`, `corvus_admin`, and `corvus_web` live under /python;
+# the integration-test harness lives under /integration_tests.
 [tool.setuptools]
 packages = [
     "corvus_client",
@@ -47,6 +53,8 @@ packages = [
     "corvus_client._sync",
     "corvus_admin",
     "corvus_test_harness",
+    "corvus_web",
+    "corvus_web.routes",
 ]
 
 [tool.setuptools.package-dir]
@@ -55,6 +63,8 @@ corvus_client = "python/corvus_client"
 "corvus_client._sync" = "python/corvus_client/_sync"
 corvus_admin = "python/corvus_admin"
 corvus_test_harness = "integration_tests/corvus_test_harness"
+corvus_web = "python/corvus_web"
+"corvus_web.routes" = "python/corvus_web/routes"
 
 [tool.setuptools.package-data]
 corvus_client = ["schema/*.capnp"]
@@ -63,6 +73,11 @@ corvus_client = ["schema/*.capnp"]
 # the repo-root `systemd/` symlink points at the same directory for
 # operator visibility.
 corvus_admin = ["_systemd_templates/*.j2"]
+# Frontend SPA bundle. The `make web-build` target drops vite output
+# into python/corvus_web/static/; the wheel ships it so a single
+# `pip install corvus` gives the operator everything corvus-web needs
+# to serve the UI. The directory is gitignored — populated by build.
+corvus_web = ["static/**/*"]
 
 [tool.ruff]
 target-version = "py310"
@@ -175,6 +190,16 @@ disallow_incomplete_defs = true
 module = ["corvus_client.*"]
 disallow_untyped_defs = false
 disallow_incomplete_defs = false
+
+# corvus_web — strict-annotated module, same gate as corvus_admin.
+# The web gateway is small (FastAPI routes + lifespan), all hand-written,
+# and the call surface into corvus_client has typed dataclass returns
+# (see python/corvus_client/types.py). Keep the gate tight from day one
+# so type drift doesn't accumulate.
+[[tool.mypy.overrides]]
+module = ["corvus_web.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
 
 # Tests + harness + the top-level conftest at integration_tests/
 # (which mypy sees as bare module `conftest`): looser bar. The

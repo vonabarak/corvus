@@ -28,6 +28,7 @@
 ## Protocol & Integrations
 
 - [RPC Protocol](rpc-protocol.md) -- Cap'n Proto schema overview, capability tree, streaming sinks, pycapnp client example
+- [Web Interface (`corvus-web`)](web-interface.md) -- Browser UI: dashboard, VM/disk/network management, live task feed, serial console
 - [Python Client (`corvus_client`)](../python/README.md) -- pycapnp-based client shipping with this tree
 - [Integration Test Suite](../integration_tests/README.md) -- Python harness that runs the freshly-compiled Corvus inside nested VMs
 

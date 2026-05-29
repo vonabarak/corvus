@@ -20,6 +20,7 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 - **Virtual Networks**: Bridge-based virtual networks with dnsmasq DHCP/DNS, owned by the privileged `corvus-netd` agent (host root netns)
 - **Shared Directories**: virtiofs support for sharing host directories with guests
 - **Task History**: Every mutating operation is tracked with timestamps, results, and error messages
+- **Web Interface**: Browser-based dashboard, VM/disk/network management, in-browser serial console, and live task feed via the `corvus-web` gateway ([web-interface.md](web-interface.md))
 
 ## Installation
 

@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version
+.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -347,11 +347,19 @@ dev-node-vm-ssh:
 # globally (e.g. via pipx) and never created the venv.
 MYPY  ?= $(if $(wildcard python/.venv-corvus-py/bin/mypy),python/.venv-corvus-py/bin/mypy,mypy)
 RUFF  ?= $(if $(wildcard python/.venv-corvus-py/bin/ruff),python/.venv-corvus-py/bin/ruff,ruff)
+CORVUS_WEB ?= $(if $(wildcard python/.venv-corvus-py/bin/corvus-web),python/.venv-corvus-py/bin/corvus-web,corvus-web)
 
-# Format Python (ruff) + Haskell (fourmolu) sources in place.
+# Format Python (ruff) + Haskell (fourmolu) sources in place. When
+# `frontend/node_modules/` is present (operator has run
+# `make web-build` or `npm install`), also run the frontend's
+# prettier formatter — kept gated so the dev workflow for someone
+# touching only the Haskell/Python side doesn't require Node.
 format:
 	$(RUFF) format python integration_tests
 	fourmolu --mode inplace $(shell find src app test -name '*.hs')
+	@if [ -d frontend/node_modules ]; then \
+	  $(MAKE) web-format ; \
+	fi
 
 
 # Read-only verification. Lints Python (ruff check + mypy) and Haskell
@@ -359,12 +367,91 @@ format:
 # that exits non-zero if any file would be reformatted. Does NOT edit
 # code — suited for CI / pre-merge gates and pre-push hooks. Run
 # `make format` first to fix any formatting violations this flags.
+# Frontend lint piggybacks on `frontend/node_modules/` being present;
+# CI runs `make web-build` (which `npm ci`s) before `make lint`.
 lint:
 	hlint src app test
 	fourmolu --mode check $(shell find src app test -name '*.hs')
 	$(RUFF) check python integration_tests
 	$(RUFF) format --check python integration_tests
 	$(MYPY) python integration_tests
+	@if [ -d frontend/node_modules ]; then \
+	  $(MAKE) web-lint ; \
+	fi
+
+
+# Frontend (Vite + React + TS) build + dev workflow. The SPA lives
+# under /frontend; `make web-build` produces /frontend/dist and copies
+# it to /python/corvus_web/static/ so the Python wheel ships it as
+# package data. Everything is gated on `npm` being available — none
+# of the Haskell/Python targets needs Node, but a release tarball or
+# `make install` that wants the UI does.
+NPM ?= npm
+
+web-build:
+	@command -v $(NPM) >/dev/null 2>&1 || { \
+	  echo "error: '$(NPM)' not on PATH (install Node.js + npm to build the web UI)" >&2; \
+	  exit 1; \
+	}
+	# `npm ci` is the reproducible install (lockfile is authoritative,
+	# fails on drift) and is what CI / release builds want. It requires
+	# a pre-existing package-lock.json *in sync* with package.json.
+	# We pick the right mode automatically:
+	#   * no lockfile yet         -> npm install (cold bootstrap)
+	#   * package.json newer      -> npm install (lockfile is stale,
+	#                                e.g. a dep was just added)
+	#   * lockfile up-to-date     -> npm ci (reproducible)
+	# Commit the resulting package-lock.json so CI gets the strict path.
+	cd frontend && \
+	  if [ ! -f package-lock.json ]; then \
+	    echo "no package-lock.json — bootstrapping with 'npm install'"; \
+	    $(NPM) install --no-audit --no-fund ; \
+	  elif [ package.json -nt package-lock.json ]; then \
+	    echo "package.json newer than lockfile — refreshing with 'npm install'"; \
+	    $(NPM) install --no-audit --no-fund ; \
+	  else \
+	    $(NPM) ci --no-audit --no-fund ; \
+	  fi
+	cd frontend && $(NPM) run build
+	rm -rf python/corvus_web/static
+	mkdir -p python/corvus_web/static
+	cp -r frontend/dist/. python/corvus_web/static/
+	@echo
+	@echo "Built web UI -> python/corvus_web/static/"
+
+# Vite dev server. Proxies /api and /ws to the corvus-web gateway
+# at 127.0.0.1:8080, so you need both running:
+#   terminal 1:  make web-serve
+#   terminal 2:  make web-dev
+web-dev:
+	cd frontend && $(NPM) run dev
+
+# Run the corvus-web gateway against the local daemon (the same
+# default Unix socket `crv` uses: $XDG_RUNTIME_DIR/corvus/corvus.sock).
+# Pair with `make web-dev` in another terminal for the vite SPA dev
+# server (HMR + /api and /ws proxied through to this gateway).
+#
+# No auto-reload: the asyncio + Cap'n Proto kj_loop integration in the
+# FastAPI lifespan re-entry under uvicorn --reload is fragile, and the
+# gateway is small enough that ctrl-C + re-run is fine. Tweak the
+# daemon transport with FLAGS=, e.g.:
+#   make web-serve FLAGS="--daemon-host 1.2.3.4 --no-daemon-tls"
+web-serve:
+	$(CORVUS_WEB) --log-level debug $(FLAGS)
+
+web-lint:
+	cd frontend && $(NPM) run lint
+	cd frontend && $(NPM) run format:check
+	cd frontend && $(NPM) run typecheck
+
+web-format:
+	cd frontend && $(NPM) run format
+
+web-clean:
+	rm -rf frontend/dist frontend/node_modules
+	rm -rf python/corvus_web/static
+	mkdir -p python/corvus_web/static
+	touch python/corvus_web/static/.gitkeep
 
 
 # Place Haskell binaries on $PATH, install shell completions, and
@@ -375,8 +462,18 @@ lint:
 #
 # The CA private key corvus-admin manages lives under
 # $XDG_CONFIG_HOME/corvus/admin/ — see python/corvus_admin/.
+#
+# Web UI: if Node.js + npm are available and the operator has a
+# frontend/ tree, we build the SPA so the pipx-installed wheel ships
+# the assets. Skipped silently otherwise — operators who only want
+# the daemon + CLI don't need Node.
 install:
 	stack install
+	@if command -v $(NPM) >/dev/null 2>&1 && [ -f frontend/package.json ]; then \
+	  $(MAKE) web-build ; \
+	else \
+	  echo "skip: web UI build (npm or frontend/ missing) — corvus-web will serve a 404 placeholder"; \
+	fi
 
 	# Shell completions
 	mkdir -p $(HOME)/.local/share/bash-completion/completions
@@ -402,8 +499,9 @@ install:
 	$(HOME)/.local/bin/corvus-admin completion fish > $(HOME)/.config/fish/completions/corvus-admin.fish
 
 	@echo ""
-	@echo "Haskell binaries + corvus-admin installed."
+	@echo "Haskell binaries + corvus-admin + corvus-web installed."
 	@echo "Next step: run 'corvus-admin quickstart' to set up a single-node deployment."
+	@echo "Then run 'corvus-web' for the browser UI (defaults to http://127.0.0.1:8080)."
 
 # Remove the binaries that `make install` placed. Service teardown
 # is corvus-admin's job (`systemctl --user disable corvus.service`
@@ -423,6 +521,7 @@ uninstall:
 	@echo "  rm -rf ~/.config/corvus /etc/corvus"
 	rm -f $(HOME)/.local/bin/corvus-netd
 	rm -f $(HOME)/.local/bin/corvus-nodeagent
+	rm -f $(HOME)/.local/bin/corvus-web
 	rm -f $(HOME)/.local/share/bash-completion/completions/crv
 	rm -f $(HOME)/.local/share/zsh/site-functions/_crv
 	rm -f $(HOME)/.config/fish/completions/crv.fish
@@ -469,6 +568,15 @@ RELEASE_DIR := release/corvus-$(VERSION)-linux-amd64
 RELEASE_TARBALL := release/corvus-$(VERSION)-linux-amd64.tar.gz
 
 release: build
+	# Web UI: build the frontend bundle so it's bundled into the
+	# wheel's package data (see pyproject.toml's
+	# `corvus_web = ["static/**/*"]`). Skipped silently when npm
+	# isn't on PATH — CI release jobs install Node explicitly.
+	@if command -v $(NPM) >/dev/null 2>&1 && [ -f frontend/package.json ]; then \
+	  $(MAKE) web-build ; \
+	else \
+	  echo "skip: web UI build (npm or frontend/ missing)"; \
+	fi
 	# Fresh staging tree on every invocation.
 	rm -rf release
 	mkdir -p $(RELEASE_DIR)/bin
