@@ -4,6 +4,7 @@ import VmList from "./pages/VmList";
 import VmDetail from "./pages/VmDetail";
 import DiskList from "./pages/DiskList";
 import DiskDetail from "./pages/DiskDetail";
+import DiskCreate from "./pages/DiskCreate";
 import NetworkList from "./pages/NetworkList";
 import NetworkDetail from "./pages/NetworkDetail";
 import SshKeyList from "./pages/SshKeyList";
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="vms/:id" element={<VmDetail />} />
         <Route path="vms/:id/console" element={<Console />} />
         <Route path="disks" element={<DiskList />} />
+        <Route path="disks/new" element={<DiskCreate />} />
         <Route path="disks/:id" element={<DiskDetail />} />
         <Route path="networks" element={<NetworkList />} />
         <Route path="networks/:id" element={<NetworkDetail />} />

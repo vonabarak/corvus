@@ -38,6 +38,54 @@ export function listDisks(signal?: AbortSignal): Promise<DiskImageInfo[]> {
   return apiGet<DiskImageInfo[]>("/disks", signal);
 }
 
+/** Bodies + responses for the four New-Disk flows.
+ * Match python/corvus_web/routes/disks.py Disk*Body classes. */
+export interface DiskCreateBody {
+  name: string;
+  size_mb: number;
+  format?: string | null;
+  ephemeral?: boolean;
+  node?: string | null;
+}
+
+export interface DiskOverlayBody {
+  name: string;
+  backing_disk_ref: string;
+  ephemeral?: boolean;
+}
+
+export interface DiskCloneBody {
+  source_ref: string;
+  new_name: string;
+  path?: string | null;
+  ephemeral?: boolean;
+}
+
+export interface DiskImportUrlBody {
+  name: string;
+  url: string;
+  format?: string | null;
+  size_mb?: number | null;
+  ephemeral?: boolean;
+  node?: string | null;
+}
+
+export function createDisk(body: DiskCreateBody): Promise<DiskImageInfo> {
+  return apiSend<DiskImageInfo>("POST", "/disks", body);
+}
+
+export function createOverlay(body: DiskOverlayBody): Promise<DiskImageInfo> {
+  return apiSend<DiskImageInfo>("POST", "/disks/overlay", body);
+}
+
+export function cloneDisk(body: DiskCloneBody): Promise<DiskImageInfo> {
+  return apiSend<DiskImageInfo>("POST", "/disks/clone", body);
+}
+
+export function importDiskUrl(body: DiskImportUrlBody): Promise<{ task_id: number }> {
+  return apiSend<{ task_id: number }>("POST", "/disks/import-url", body);
+}
+
 export function getDisk(id: number, signal?: AbortSignal): Promise<DiskImageInfo> {
   return apiGet<DiskImageInfo>(`/disks/${id}`, signal);
 }
