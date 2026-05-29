@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { AlertCircle, Cpu, HardDrive } from "lucide-react";
+import { AlertCircle, Cpu, HardDrive, Plus } from "lucide-react";
 import { listVms, type VmInfo } from "@/api/vms";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -68,13 +69,21 @@ export default function VmList() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Virtual Machines</h1>
-        <p className="text-sm text-muted-foreground">
-          {vms.length === 0
-            ? "No VMs yet."
-            : `${vms.length} VM${vms.length === 1 ? "" : "s"} registered.`}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Virtual Machines</h1>
+          <p className="text-sm text-muted-foreground">
+            {vms.length === 0
+              ? "No VMs yet."
+              : `${vms.length} VM${vms.length === 1 ? "" : "s"} registered.`}
+          </p>
+        </div>
+        <Button size="sm" asChild>
+          <Link to="/vms/new">
+            <Plus className="h-3.5 w-3.5" />
+            New VM
+          </Link>
+        </Button>
       </div>
       <Card>
         <Table>

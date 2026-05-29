@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from corvus_client.exceptions import CorvusError, VmNotFound
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
 
 from ..deps import get_client
 
@@ -47,6 +48,62 @@ async def list_vms(client: ClientDep) -> list[dict[str, Any]]:
     """List every VM. Mirrors ``crv vm list``."""
     vms = await client.vms.list()
     return [_as_dict(v) for v in vms]
+
+
+class VmCreateBody(BaseModel):
+    """Mirrors corvus_client.AsyncVmManager.create kwargs.
+
+    `node` accepts a node name or numeric id as a string — the daemon's
+    EntityRef resolver handles both. Leave blank to let the scheduler
+    pick (lowest free-RAM penalty, ties broken by node name).
+    """
+
+    name: str = Field(..., min_length=1, description="VM name (unique).")
+    node: str | None = Field(None, description="Pin to a specific node by name or id.")
+    cpu_count: int = Field(1, ge=1, le=256)
+    ram_mb: int = Field(1024, ge=64)
+    description: str | None = Field(None, max_length=1024)
+    headless: bool = False
+    guest_agent: bool = False
+    cloud_init: bool = False
+    autostart: bool = False
+    reboot_quirk: bool = False
+    cpu_model: str = Field(
+        "host",
+        description=(
+            "QEMU -cpu value. Default `host` exposes every available "
+            "host CPU feature; pick a stable model name "
+            "(e.g. `Westmere`) for migration between dissimilar nodes."
+        ),
+    )
+
+
+@router.post("")
+async def create_vm(body: VmCreateBody, client: ClientDep) -> dict[str, Any]:
+    """Create a bare VM record. Drives, NICs, SSH keys, cloud-init are
+    attached after the fact (or in one shot via /api/apply). Returns
+    the new VM's detail payload so the frontend can route straight to
+    it."""
+    try:
+        vm = await client.vms.create(
+            body.name,
+            node=body.node,
+            cpu_count=body.cpu_count,
+            ram_mb=body.ram_mb,
+            description=body.description,
+            headless=body.headless,
+            guest_agent=body.guest_agent,
+            cloud_init=body.cloud_init,
+            autostart=body.autostart,
+            reboot_quirk=body.reboot_quirk,
+            cpu_model=body.cpu_model,
+        )
+    except CorvusError as exc:
+        # Most likely a name collision or unknown node — surface as 400
+        # so the form can re-render with the daemon's message.
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    details = await vm.show()
+    return _as_dict(details)
 
 
 @router.get("/{vm_id}")

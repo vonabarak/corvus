@@ -14,6 +14,9 @@ import TaskList from "./pages/TaskList";
 import TaskDetail from "./pages/TaskDetail";
 import Apply from "./pages/Apply";
 import Console from "./pages/Console";
+import VmCreate from "./pages/VmCreate";
+import NodeList from "./pages/NodeList";
+import NodeDetail from "./pages/NodeDetail";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -22,6 +25,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route index element={<Dashboard />} />
         <Route path="vms" element={<VmList />} />
+        <Route path="vms/new" element={<VmCreate />} />
         <Route path="vms/:id" element={<VmDetail />} />
         <Route path="vms/:id/console" element={<Console />} />
         <Route path="disks" element={<DiskList />} />
@@ -34,6 +38,8 @@ export default function App() {
         <Route path="templates/:id" element={<TemplateDetail />} />
         <Route path="tasks" element={<TaskList />} />
         <Route path="tasks/:id" element={<TaskDetail />} />
+        <Route path="nodes" element={<NodeList />} />
+        <Route path="nodes/:id" element={<NodeDetail />} />
         <Route path="apply" element={<Apply />} />
       </Route>
     </Routes>

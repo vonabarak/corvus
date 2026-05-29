@@ -78,6 +78,25 @@ export function getVm(id: number, signal?: AbortSignal): Promise<VmDetails> {
   return apiGet<VmDetails>(`/vms/${id}`, signal);
 }
 
+/** Body for POST /api/vms — matches python/corvus_web/routes/vms.py VmCreateBody. */
+export interface VmCreateBody {
+  name: string;
+  node?: string | null;
+  cpu_count?: number;
+  ram_mb?: number;
+  description?: string | null;
+  headless?: boolean;
+  guest_agent?: boolean;
+  cloud_init?: boolean;
+  autostart?: boolean;
+  reboot_quirk?: boolean;
+  cpu_model?: string;
+}
+
+export function createVm(body: VmCreateBody): Promise<VmDetails> {
+  return apiSend<VmDetails>("POST", "/vms", body);
+}
+
 export type VmAction = "start" | "stop" | "pause" | "reset" | "save" | "send-ctrl-alt-del";
 
 export function vmAction(id: number, action: VmAction): Promise<{ status: string }> {

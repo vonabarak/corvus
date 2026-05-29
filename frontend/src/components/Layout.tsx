@@ -28,6 +28,9 @@ export default function Layout() {
             <NavLink to="/networks" className={navItemClass}>
               Networks
             </NavLink>
+            <NavLink to="/nodes" className={navItemClass}>
+              Nodes
+            </NavLink>
             <NavLink to="/templates" className={navItemClass}>
               Templates
             </NavLink>
