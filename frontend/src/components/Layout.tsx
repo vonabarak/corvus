@@ -19,6 +19,9 @@ export default function Layout() {
             <NavLink to="/" end className={navItemClass}>
               Dashboard
             </NavLink>
+            <NavLink to="/vms" className={navItemClass}>
+              VMs
+            </NavLink>
           </nav>
         </div>
       </header>
