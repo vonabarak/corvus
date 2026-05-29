@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { AlertCircle, History } from "lucide-react";
+import { AlertCircle, ChevronDown, History } from "lucide-react";
 import { listTasks, type TaskInfo } from "@/api/tasks";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -12,6 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { TaskResultBadge } from "@/components/TaskResultBadge";
 import { subsystemEntityRoute } from "@/lib/entityLink";
 
@@ -31,6 +32,18 @@ const SUBSYSTEMS = [
 ] as const;
 
 const RESULTS = ["", "running", "success", "error"] as const;
+
+// Pagination policy.
+//
+// The daemon's TaskListParams only carries a `limit` (no offset, no
+// cursor — see corvus_client._async.task.AsyncTaskManager.list), so a
+// classic page-number UI would mean refetching the prefix every time.
+// Instead we grow the limit on demand: each "Load more" click bumps it
+// by PAGE_SIZE. The corvus-web /api/tasks endpoint caps `limit` at 500
+// (Query(50, ge=1, le=500) in routes/tasks.py), which is also the hard
+// ceiling here.
+const PAGE_SIZE = 50;
+const MAX_LIMIT = 500;
 
 function FilterSelect<T extends string>({
   value,
@@ -74,13 +87,21 @@ function durationMs(start: string, finish: string | null): string {
 export default function TaskList() {
   const [subsystem, setSubsystem] = useState<(typeof SUBSYSTEMS)[number]>("");
   const [result, setResult] = useState<(typeof RESULTS)[number]>("");
+  const [limit, setLimit] = useState<number>(PAGE_SIZE);
+
+  // Reset to the first page when the filter changes — otherwise the
+  // grown limit carries across an unrelated filter and the operator
+  // sees more rows than they asked for.
+  useEffect(() => {
+    setLimit(PAGE_SIZE);
+  }, [subsystem, result]);
 
   const { data, error, isLoading } = useQuery<TaskInfo[]>({
-    queryKey: ["tasks", subsystem, result],
+    queryKey: ["tasks", subsystem, result, limit],
     queryFn: ({ signal }) =>
       listTasks(
         {
-          limit: 100,
+          limit,
           ...(subsystem ? { subsystem } : {}),
           ...(result ? { result } : {}),
         },
@@ -106,6 +127,12 @@ export default function TaskList() {
     );
   }
   const tasks = data ?? [];
+  // If the daemon returned fewer rows than we asked for, there are no
+  // older tasks to load — disable the button. Same logic at the hard
+  // cap MAX_LIMIT.
+  const reachedEnd = tasks.length < limit;
+  const reachedCap = limit >= MAX_LIMIT;
+  const canLoadMore = !reachedEnd && !reachedCap;
 
   return (
     <div className="space-y-6">
@@ -184,6 +211,29 @@ export default function TaskList() {
           </TableBody>
         </Table>
       </Card>
+      <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <span>
+          Showing {tasks.length} task{tasks.length === 1 ? "" : "s"}
+          {reachedEnd ? " (all)" : ""}
+          {reachedCap && !reachedEnd ? ` (capped at ${MAX_LIMIT})` : ""}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!canLoadMore}
+          onClick={() => setLimit((l) => Math.min(l + PAGE_SIZE, MAX_LIMIT))}
+          title={
+            reachedEnd
+              ? "No more tasks to load."
+              : reachedCap
+                ? `Hit the daemon's ${MAX_LIMIT}-row cap; narrow the filter to see older tasks.`
+                : undefined
+          }
+        >
+          <ChevronDown className="h-3.5 w-3.5" />
+          Load {PAGE_SIZE} more
+        </Button>
+      </div>
     </div>
   );
 }
