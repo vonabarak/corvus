@@ -37,6 +37,9 @@ export default function Layout() {
             <NavLink to="/tasks" className={navItemClass}>
               Tasks
             </NavLink>
+            <NavLink to="/apply" className={navItemClass}>
+              Apply
+            </NavLink>
           </nav>
         </div>
       </header>

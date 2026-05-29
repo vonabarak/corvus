@@ -12,6 +12,7 @@ import TemplateList from "./pages/TemplateList";
 import TemplateDetail from "./pages/TemplateDetail";
 import TaskList from "./pages/TaskList";
 import TaskDetail from "./pages/TaskDetail";
+import Apply from "./pages/Apply";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="templates/:id" element={<TemplateDetail />} />
         <Route path="tasks" element={<TaskList />} />
         <Route path="tasks/:id" element={<TaskDetail />} />
+        <Route path="apply" element={<Apply />} />
       </Route>
     </Routes>
   );
