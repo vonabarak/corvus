@@ -1,8 +1,8 @@
-"""Network endpoints: list, detail, start/stop, delete.
+"""Network endpoints: list, detail, create, start/stop, delete.
 
-Thin shell over ``corvus_client.AsyncClient.networks``. Create and
-edit flows need form UI; peer attach/detach belong with the
-multi-node UI. Both stay out of this slice.
+Thin shell over ``corvus_client.AsyncClient.networks``. Edit (rename,
+re-CIDR, toggle DHCP/NAT/autostart) and peer attach/detach for
+multi-node overlays are still TODO.
 """
 
 from __future__ import annotations
@@ -10,8 +10,9 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
-from corvus_client.exceptions import NetworkNotFound
+from corvus_client.exceptions import CorvusError, NetworkNotFound
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
 from ..deps import get_client
 
@@ -38,6 +39,59 @@ def _as_dict(obj: Any) -> Any:
 async def list_networks(client: ClientDep) -> list[dict[str, Any]]:
     """Mirrors ``crv network list``."""
     return [_as_dict(n) for n in await client.networks.list()]
+
+
+class NetworkCreateBody(BaseModel):
+    """Mirrors corvus_client.AsyncNetworkManager.create kwargs.
+
+    Networks are per-node (the bridge + dnsmasq instance live on one
+    host's root netns). Pass ``node`` to pin, or leave it null to let
+    the daemon's scheduler pick.
+    """
+
+    name: str = Field(..., min_length=1, description="Unique network name.")
+    subnet: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "CIDR for the bridge's gateway IP and the DHCP pool, e.g. ``10.10.0.0/24``."
+        ),
+    )
+    node: str | None = Field(
+        None, description="Node name or id; null = scheduler picks."
+    )
+    dhcp: bool = Field(
+        False,
+        description="Start a dnsmasq DHCP server bound to the bridge.",
+    )
+    nat: bool = Field(
+        False,
+        description="Add an nftables masquerade for traffic leaving the bridge.",
+    )
+    autostart: bool = Field(
+        False,
+        description="Start the bridge whenever the daemon comes up.",
+    )
+
+
+@router.post("")
+async def create_network(body: NetworkCreateBody, client: ClientDep) -> dict[str, Any]:
+    """Create a virtual network record. Returns the new NetworkInfo
+    so the frontend can route straight to the detail page. The bridge
+    is not started here — call POST /api/networks/{id}/start (or set
+    autostart=true at create time) to bring it up."""
+    try:
+        net = await client.networks.create(
+            body.name,
+            body.subnet,
+            node=body.node or None,
+            dhcp=body.dhcp,
+            nat=body.nat,
+            autostart=body.autostart,
+        )
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _as_dict(await net.show())
 
 
 @router.get("/{network_id}")

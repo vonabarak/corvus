@@ -15,8 +15,21 @@ export interface NetworkInfo {
   peer_node_ids: number[];
 }
 
+export interface NetworkCreateBody {
+  name: string;
+  subnet: string;
+  node?: string | null;
+  dhcp?: boolean;
+  nat?: boolean;
+  autostart?: boolean;
+}
+
 export function listNetworks(signal?: AbortSignal): Promise<NetworkInfo[]> {
   return apiGet<NetworkInfo[]>("/networks", signal);
+}
+
+export function createNetwork(body: NetworkCreateBody): Promise<NetworkInfo> {
+  return apiSend<NetworkInfo>("POST", "/networks", body);
 }
 
 export function getNetwork(id: number, signal?: AbortSignal): Promise<NetworkInfo> {

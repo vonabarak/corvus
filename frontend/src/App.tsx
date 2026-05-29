@@ -7,6 +7,7 @@ import DiskDetail from "./pages/DiskDetail";
 import DiskCreate from "./pages/DiskCreate";
 import NetworkList from "./pages/NetworkList";
 import NetworkDetail from "./pages/NetworkDetail";
+import NetworkCreate from "./pages/NetworkCreate";
 import SshKeyList from "./pages/SshKeyList";
 import SshKeyDetail from "./pages/SshKeyDetail";
 import TemplateList from "./pages/TemplateList";
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="disks/new" element={<DiskCreate />} />
         <Route path="disks/:id" element={<DiskDetail />} />
         <Route path="networks" element={<NetworkList />} />
+        <Route path="networks/new" element={<NetworkCreate />} />
         <Route path="networks/:id" element={<NetworkDetail />} />
         <Route path="ssh-keys" element={<SshKeyList />} />
         <Route path="ssh-keys/:id" element={<SshKeyDetail />} />
