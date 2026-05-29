@@ -17,6 +17,7 @@ import TaskList from "./pages/TaskList";
 import TaskDetail from "./pages/TaskDetail";
 import Apply from "./pages/Apply";
 import Console from "./pages/Console";
+import SpiceConsole from "./pages/SpiceConsole";
 import VmCreate from "./pages/VmCreate";
 import NodeList from "./pages/NodeList";
 import NodeDetail from "./pages/NodeDetail";
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="vms/new" element={<VmCreate />} />
         <Route path="vms/:id" element={<VmDetail />} />
         <Route path="vms/:id/console" element={<Console />} />
+        <Route path="vms/:id/spice" element={<SpiceConsole />} />
         <Route path="disks" element={<DiskList />} />
         <Route path="disks/new" element={<DiskCreate />} />
         <Route path="disks/:id" element={<DiskDetail />} />

@@ -164,3 +164,19 @@ export function deleteVm(id: number, keepDisks = false): Promise<{ status: strin
   const qs = keepDisks ? "?keep_disks=true" : "";
   return apiSend<{ status: string }>("DELETE", `/vms/${id}${qs}`);
 }
+
+// ---- SPICE console -------------------------------------------------------
+
+export interface SpiceSession {
+  session_id: string;
+  password: string;
+  ttl_seconds: number;
+}
+
+/** Mint a single-use SPICE console session. The daemon pushes a fresh
+ * random password to QEMU via QMP and returns it here; the same call
+ * stashes host:port server-side under ``session_id`` for the WS to
+ * consume. */
+export function createSpiceSession(vmId: number): Promise<SpiceSession> {
+  return apiSend<SpiceSession>("POST", `/vms/${vmId}/spice`);
+}

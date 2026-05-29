@@ -23,6 +23,7 @@ from .routes import (
     networks,
     nodes,
     spa,
+    spice,
     ssh_keys,
     system,
     tasks,
@@ -87,6 +88,7 @@ def create_app(config: CorvusWebConfig) -> FastAPI:
     app.include_router(tasks.router, prefix="/api")
     app.include_router(apply.router, prefix="/api")
     app.include_router(nodes.router, prefix="/api")
+    app.include_router(spice.router, prefix="/api")
     app.include_router(spa.build_router(config.frontend_dir))
 
     return app

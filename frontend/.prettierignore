@@ -1,0 +1,4 @@
+dist
+node_modules
+# Vendored upstream code — refreshed via src/lib/spice/README.md.
+src/lib/spice

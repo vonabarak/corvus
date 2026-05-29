@@ -255,14 +255,16 @@ export default function VmDetail() {
           icon={<Save className="h-3.5 w-3.5" />}
           label="Save"
         />
-        {vm.headless && (
-          <Button variant="outline" size="sm" asChild disabled={vm.status === "stopped"}>
-            <Link to={`/vms/${vm.id}/console`}>
-              <TerminalIcon className="h-3.5 w-3.5" />
-              Console
-            </Link>
-          </Button>
-        )}
+        {/* Console kind tracks the VM's display mode: headless VMs
+            get the xterm.js serial console, graphical VMs get the
+            spice-html5 page. Both are disabled while the VM is
+            stopped — neither makes sense before QEMU launches. */}
+        <Button variant="outline" size="sm" asChild disabled={vm.status === "stopped"}>
+          <Link to={vm.headless ? `/vms/${vm.id}/console` : `/vms/${vm.id}/spice`}>
+            <TerminalIcon className="h-3.5 w-3.5" />
+            {vm.headless ? "Serial console" : "Graphical console"}
+          </Link>
+        </Button>
         <DeleteButton vm={vm} />
       </div>
 

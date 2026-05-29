@@ -15,6 +15,9 @@ export default tseslint.config(
       "*.config.js",
       "*.config.ts",
       "vite.config.d.ts",
+      // Vendored upstream code (LGPL spice-html5) — don't apply our
+      // lint rules; refresh via the script in src/lib/spice/README.md.
+      "src/lib/spice/**",
     ],
   },
   js.configs.recommended,

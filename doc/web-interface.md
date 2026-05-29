@@ -53,13 +53,37 @@ What works today:
 - `crv apply` from the browser via a Monaco-hosted YAML editor.
 - Task history + live task progress over WebSocket.
 - In-browser serial console for headless VMs (xterm.js over WebSocket); ring-buffer replay on reconnect.
+- In-browser graphical console for non-headless VMs ([spice-html5](https://gitlab.freedesktop.org/spice/spice-html5) over WebSocket). See "Graphical console" below for the limitations.
 
 What v1 does **not** include:
 
 - **No authentication.** The gateway is localhost-only by design; tunnel via SSH for remote use. Auth lands in v2.
-- **No browser graphical console.** Use `crv vm view <vm>` for SPICE; browser-side VNC/SPICE-html5 is on the v2 list.
 - **No build-pipeline UI** (`Daemon.build` / `crv build`).
 - **No multi-user RBAC.**
+
+## Graphical console (SPICE)
+
+Click **Graphical console** on the detail page of a non-headless running VM. The gateway:
+
+1. Calls the daemon's `viewGrant` (the same RPC `crv vm view` uses), which generates a fresh 120-second password and pushes it into QEMU via QMP `set_spice_password`.
+2. Stashes the SPICE host:port server-side under a single-use opaque session id and returns the password + session id to the browser.
+3. The browser opens a WebSocket to `/api/vms/{id}/spice/ws?session=<token>`. The gateway proxies binary frames to QEMU's SPICE TCP port; `spice-html5` runs the SPICE handshake against the previously-set ticket.
+
+Operational constraints:
+
+- **The gateway must run on the same host as the daemon.** QEMU binds the SPICE port to the daemon's configured bind address (defaults to `127.0.0.1`), so the WebSocket-to-TCP proxy needs local network reach to it. The same constraint already applies to `crv vm view`.
+- **The password never appears in a URL.** The session token in the WS query string is a one-shot opaque value; the actual SPICE password is delivered in a JSON response body.
+- **Sessions die with the gateway process.** Outstanding session tokens are kept in process memory; restarting `corvus-web` invalidates them. The browser just calls `POST /api/vms/{id}/spice` again on the next user interaction.
+
+Known limitations vs. `crv vm view`:
+
+- No audio.
+- No USB redirect.
+- No 3D acceleration.
+- Locale-specific keyboard keys may misbehave (non-US layouts).
+- No clipboard or file transfer (could be enabled later — spice-html5 has partial support behind feature flags).
+
+For serious work on a graphical guest, use `crv vm view`. The in-browser console is for quick fixes, install screens, and BIOS-level interaction.
 
 ## Development
 
