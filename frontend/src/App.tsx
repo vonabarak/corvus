@@ -13,6 +13,7 @@ import TemplateDetail from "./pages/TemplateDetail";
 import TaskList from "./pages/TaskList";
 import TaskDetail from "./pages/TaskDetail";
 import Apply from "./pages/Apply";
+import Console from "./pages/Console";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="vms" element={<VmList />} />
         <Route path="vms/:id" element={<VmDetail />} />
+        <Route path="vms/:id/console" element={<Console />} />
         <Route path="disks" element={<DiskList />} />
         <Route path="disks/:id" element={<DiskDetail />} />
         <Route path="networks" element={<NetworkList />} />

@@ -1,6 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { AlertCircle, ArrowLeft, Pause, Play, RotateCcw, Save, Square, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Pause,
+  Play,
+  RotateCcw,
+  Save,
+  Square,
+  Terminal as TerminalIcon,
+  Trash2,
+} from "lucide-react";
 import { deleteVm, getVm, vmAction, type VmAction, type VmDetails } from "@/api/vms";
 import { getVmCloudInit, type CloudInitInfo } from "@/api/templates";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -225,6 +235,14 @@ export default function VmDetail() {
           icon={<Save className="h-3.5 w-3.5" />}
           label="Save"
         />
+        {vm.headless && (
+          <Button variant="outline" size="sm" asChild disabled={vm.status === "stopped"}>
+            <Link to={`/vms/${vm.id}/console`}>
+              <TerminalIcon className="h-3.5 w-3.5" />
+              Console
+            </Link>
+          </Button>
+        )}
         <DeleteButton vm={vm} />
       </div>
 

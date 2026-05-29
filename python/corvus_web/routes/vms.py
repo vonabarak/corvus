@@ -8,11 +8,14 @@ one) or just the final status string, so the frontend can subscribe to
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from contextlib import suppress
 from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
-from corvus_client.exceptions import VmNotFound
-from fastapi import APIRouter, Depends, HTTPException
+from corvus_client.exceptions import CorvusError, VmNotFound
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 
 from ..deps import get_client
 
@@ -22,6 +25,8 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/vms", tags=["vms"])
 
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
+
+logger = logging.getLogger(__name__)
 
 
 def _as_dict(obj: Any) -> Any:
@@ -156,3 +161,99 @@ async def get_cloud_init(vm_id: int, client: ClientDep) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     info = await vm.cloud_init()
     return _as_dict(info)
+
+
+# ---- serial console WebSocket --------------------------------------------
+
+
+@router.websocket("/{vm_id}/serial/ws")
+async def serial_console_ws(ws: WebSocket, vm_id: int) -> None:
+    """Bidirectional serial console over WebSocket.
+
+    Wire shape:
+      * Server → client: binary frames of raw bytes from the daemon
+        (serial output: kernel boot, login prompt, shell stdout, …).
+        Includes the ring-buffer replay on connect — the daemon
+        emits the last ~1 MB of console history so reload doesn't
+        lose context.
+      * Client → server: binary frames of keystrokes (xterm.js
+        emits these via ``onData`` after UTF-8-encoding).
+      * Text frames in either direction are ignored — keeps the
+        wire shape unambiguous and matches the daemon's ``ByteSink``.
+
+    The two directions run as concurrent tasks; whichever ends first
+    cancels the other. The daemon's ``ByteStream`` is closed in the
+    ``finally`` so the daemon's ring-buffer subscriber count is
+    correctly decremented even on abrupt client disconnects.
+
+    Dependency injection: we read the client off ``ws.app.state``
+    directly. The ``ClientDep`` shape is HTTP-Request-shaped; WS
+    endpoints would need a parallel dep that takes ``WebSocket``,
+    which is overkill for a single endpoint.
+    """
+    client = ws.app.state.client
+
+    await ws.accept()
+
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound:
+        await ws.close(code=1008, reason="VM not found")
+        return
+    except CorvusError as exc:
+        logger.warning("serial WS: vm lookup failed: %s", exc)
+        await ws.close(code=1011, reason=str(exc))
+        return
+
+    try:
+        stream = await vm.serial_console()
+    except CorvusError as exc:
+        logger.warning("serial WS: open failed for vm %d: %s", vm_id, exc)
+        # 1008 (policy violation) is the closest standard close code
+        # for "the daemon refused (e.g. VM not running)".
+        await ws.close(code=1008, reason=str(exc))
+        return
+
+    async def daemon_to_ws() -> None:
+        while True:
+            chunk = await stream.read()
+            if chunk is None:
+                return  # daemon closed the stream
+            try:
+                await ws.send_bytes(chunk)
+            except (WebSocketDisconnect, RuntimeError):
+                return  # client gone
+
+    async def ws_to_daemon() -> None:
+        while True:
+            try:
+                msg = await ws.receive()
+            except WebSocketDisconnect:
+                return
+            if msg["type"] == "websocket.disconnect":
+                return
+            data = msg.get("bytes")
+            if data:
+                with suppress(CorvusError):
+                    await stream.write(data)
+                continue
+            # Text frames are ignored; xterm.js sends binary by
+            # default after we encode keystrokes ourselves.
+
+    tasks = [
+        asyncio.create_task(daemon_to_ws(), name=f"serial-d2c-{vm_id}"),
+        asyncio.create_task(ws_to_daemon(), name=f"serial-c2d-{vm_id}"),
+    ]
+    try:
+        # Whichever side finishes first (EOF from daemon, or client
+        # disconnect) cancels the other so we don't leak a task.
+        _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await t
+    finally:
+        with suppress(Exception):
+            await stream.close()
+        with suppress(Exception):
+            await ws.close()
