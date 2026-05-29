@@ -38,9 +38,9 @@ def test_probe_all_returns_one_row_per_record(initialised_store, xdg_home):
 
 
 def test_probe_target_handles_missing_ip(initialised_store):
-    """A daemon record minted without an IP SAN has no probe
-    target — status should report it as unreachable with a
-    helpful diagnostic, not crash."""
+    """A daemon record minted without an IP SAN AND without a
+    deploy target has no probe target — status should report it
+    as unreachable with a helpful diagnostic, not crash."""
 
     ca.issue_cert(initialised_store, role=ca.ROLE_DAEMON, name="noip", ip=None)
     [report] = [
@@ -51,6 +51,40 @@ def test_probe_target_handles_missing_ip(initialised_store):
     assert report.reachable is False
     assert report.handshake_error is not None
     assert "no probe target" in report.handshake_error
+
+
+def test_probe_target_falls_back_to_deployed_to_local(initialised_store):
+    """A record minted without --ip but later deployed to `local`
+    should still get a probe target — 127.0.0.1 on the per-role
+    port. The probe attempt will fail (nothing's listening on
+    PORT_DAEMON in the test), but the failure mode is "connection
+    refused" / "unreachable", not "no probe target"."""
+
+    issued = ca.issue_cert(initialised_store, role=ca.ROLE_DAEMON, name="noip", ip=None)
+    issued.record.deployed_to = "local"
+    initialised_store.record(issued.record)
+    [report] = [
+        r
+        for r in status_mod.probe_all(initialised_store)
+        if r.cn == "corvus-daemon:noip"
+    ]
+    assert report.reachable is False
+    assert report.handshake_error is not None
+    assert "no probe target" not in report.handshake_error
+
+
+def test_host_from_deploy_label_extracts_ssh_host():
+    f = status_mod._host_from_deploy_label
+    assert f("local") == "127.0.0.1"
+    assert f("ssh:tobacco") == "tobacco"
+    assert f("ssh:bobr@tobacco") == "tobacco"
+    assert f("ssh:bobr@tobacco:2222") == "tobacco"
+    assert f("ssh:[fe80::1]:9876") == "fe80::1"
+    # Client cert deploys store an absolute path here; not probable.
+    assert f("local:/home/bobr/.config/corvus") is None
+    # Garbage in → None (don't crash).
+    assert f("") is None
+    assert f("???") is None
 
 
 @contextmanager

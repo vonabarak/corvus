@@ -103,11 +103,12 @@ def _probe(rec: store.IssuedRecord, admin_store: store.AdminStore) -> ProbeRepor
 
 
 def _probe_target(rec: store.IssuedRecord) -> tuple[str, int] | None:
-    """Resolve (host, port) the cert points at. Uses the SAN IP
-    we stored at issue time + the conventional per-role port."""
+    """Resolve (host, port) the cert points at. Prefers the SAN IP
+    recorded at issue time (when the operator passed --ip /
+    --listen-ip); falls back to parsing the runner label stored in
+    ``deployed_to`` so certs minted without an IP SAN can still be
+    probed."""
 
-    if rec.ip is None:
-        return None
     port_by_role = {
         ca.ROLE_DAEMON: PORT_DAEMON,
         ca.ROLE_NODE: PORT_NODE_AGENT,
@@ -116,7 +117,39 @@ def _probe_target(rec: store.IssuedRecord) -> tuple[str, int] | None:
     port = port_by_role.get(rec.role)
     if port is None:
         return None
-    return rec.ip, port
+    host: str | None = rec.ip
+    if host is None and rec.deployed_to:
+        host = _host_from_deploy_label(rec.deployed_to)
+    if host is None:
+        return None
+    return host, port
+
+
+def _host_from_deploy_label(label: str) -> str | None:
+    """Extract a dial-able host from a stored runner label.
+
+    * ``"local"`` → ``127.0.0.1`` (the daemon/agent listens on
+      loopback in single-host setups).
+    * ``"ssh:user@host"`` / ``"ssh:host"`` / ``"ssh:host:port"`` →
+      the host portion (we ignore the port — the per-role default
+      applies).
+    * ``"ssh:[ipv6]:port"`` → the bracketed IPv6 literal.
+    * ``"local:<path>"`` and anything else → ``None`` (no probe).
+    """
+
+    if label == "local":
+        return "127.0.0.1"
+    if not label.startswith("ssh:"):
+        return None
+    target = label[len("ssh:") :]
+    if "@" in target:
+        target = target.rsplit("@", 1)[1]
+    if target.startswith("[") and "]" in target:
+        # IPv6 literal — strip the brackets, drop any trailing :port.
+        return target[1 : target.index("]")]
+    if target.count(":") == 1:
+        target = target.split(":", 1)[0]
+    return target or None
 
 
 def _try_handshake(host: str, port: int, admin_store: store.AdminStore) -> str | None:
