@@ -22,6 +22,9 @@ export default function Layout() {
             <NavLink to="/vms" className={navItemClass}>
               VMs
             </NavLink>
+            <NavLink to="/disks" className={navItemClass}>
+              Disks
+            </NavLink>
           </nav>
         </div>
       </header>
