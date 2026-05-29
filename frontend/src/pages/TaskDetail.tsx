@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
-import { AlertCircle, ArrowLeft } from "lucide-react";
+import { AlertCircle, ArrowLeft, Radio } from "lucide-react";
 import { getTask, listTaskChildren, type TaskInfo } from "@/api/tasks";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -14,6 +15,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { TaskResultBadge } from "@/components/TaskResultBadge";
 import { subsystemEntityRoute } from "@/lib/entityLink";
+import { useWebSocketJson } from "@/hooks/useWebSocketJson";
+
+// Wire-format mirror of python/corvus_web/routes/tasks.py
+// _task_progress_event_to_dict — one frame per daemon push.
+type ProgressFrame =
+  | { type: "started"; task_id: number; command: string; subsystem: string }
+  | {
+      type: "progress";
+      task_id: number;
+      completed: number;
+      total: number | null;
+      label: string | null;
+    }
+  | { type: "finished"; task_id: number; result: string; message: string | null }
+  | { type: "unknown"; payload: string };
 
 interface FieldProps {
   label: string;
@@ -42,6 +58,7 @@ function duration(start: string, finish: string | null): string {
 export default function TaskDetail() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const queryClient = useQueryClient();
 
   const {
     data: task,
@@ -50,22 +67,43 @@ export default function TaskDetail() {
   } = useQuery<TaskInfo>({
     queryKey: ["task", id],
     queryFn: ({ signal }) => getTask(id, signal),
-    // While a task is running, poll fast; once it's terminal the
-    // refetchInterval auto-stops because TanStack Query honours a
-    // false return from the function form.
-    refetchInterval: (q) => {
-      const t = q.state.data;
-      return t && t.result !== "running" ? false : 1000;
-    },
     enabled: Number.isFinite(id),
   });
 
+  // Live progress events from the daemon's TaskProgressSink. The
+  // backend closes the WS after the `finished` frame; once that
+  // happens we invalidate the task query so finished_at + message
+  // + final result land on screen.
+  const wsEnabled = Number.isFinite(id) && !!task && task.result === "running";
+  const { last: progress, state: wsState } = useWebSocketJson<ProgressFrame>(
+    `/api/tasks/${id}/ws`,
+    wsEnabled,
+  );
+
+  // Cache the most recent progress frame so the panel keeps showing
+  // it even after the WS closes (TanStack Query unmount semantics
+  // would otherwise drop the last value on transition).
+  const [latestProgress, setLatestProgress] = useState<ProgressFrame | null>(null);
+  useEffect(() => {
+    if (progress) setLatestProgress(progress);
+  }, [progress]);
+
+  // When the daemon emits `finished`, refresh the task + children so
+  // the page shows the final result/finished_at/message.
+  useEffect(() => {
+    if (progress?.type === "finished") {
+      queryClient.invalidateQueries({ queryKey: ["task", id] });
+      queryClient.invalidateQueries({ queryKey: ["task-children", id] });
+    }
+  }, [progress, id, queryClient]);
+
+  // Children: poll only while the parent task is running (the set may
+  // grow). Once terminal, refresh on the same invalidate that runs
+  // after `finished`.
   const { data: children } = useQuery<TaskInfo[]>({
     queryKey: ["task-children", id],
     queryFn: ({ signal }) => listTaskChildren(id, signal),
-    // Poll fast while the parent task is still running (child set may
-    // grow); slow down once it's terminal.
-    refetchInterval: task && task.result === "running" ? 1500 : 5000,
+    refetchInterval: task && task.result === "running" ? 2000 : false,
     enabled: Number.isFinite(id) && !!task,
   });
 
@@ -155,6 +193,53 @@ export default function TaskDetail() {
           )}
         </CardContent>
       </Card>
+
+      {task.result === "running" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Radio
+                className={`h-4 w-4 ${wsState === "open" ? "text-emerald-400" : "text-muted-foreground"}`}
+              />
+              Live progress
+            </CardTitle>
+            <CardDescription>
+              {wsState === "open"
+                ? "Subscribed to the daemon's task-progress stream."
+                : wsState === "connecting"
+                  ? "Connecting…"
+                  : "Disconnected — refresh to reconnect."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {latestProgress?.type === "progress" ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">
+                    {latestProgress.label ?? "working…"}
+                  </span>
+                  <span className="font-mono tabular-nums">
+                    {latestProgress.completed}
+                    {latestProgress.total !== null ? ` / ${latestProgress.total}` : ""}
+                  </span>
+                </div>
+                {latestProgress.total !== null && latestProgress.total > 0 && (
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full bg-primary transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.round((latestProgress.completed / latestProgress.total) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Waiting for the first progress event…</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {task.message && (
         <Card>

@@ -13,6 +13,16 @@ import {
 } from "lucide-react";
 import { deleteVm, getVm, vmAction, type VmAction, type VmDetails } from "@/api/vms";
 import { getVmCloudInit, type CloudInitInfo } from "@/api/templates";
+import { useWebSocketJson } from "@/hooks/useWebSocketJson";
+import { Badge } from "@/components/ui/badge";
+
+interface GuestAgentFrame {
+  vm_id: number;
+  enabled: boolean;
+  reachable: boolean;
+  last_healthcheck: string | null;
+  message: string | null;
+}
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -153,6 +163,16 @@ export default function VmDetail() {
     enabled: Number.isFinite(id),
   });
 
+  // Live guest-agent reachability. The daemon's poller pushes a
+  // GuestAgentStatus every poll cycle (~5 s) to each subscriber; we
+  // overlay it on the static VM record so the badge updates instantly
+  // without waiting for the next /api/vms/{id} poll.
+  const guestAgentEnabled = Number.isFinite(id) && !!vm?.guest_agent;
+  const { last: guestAgent } = useWebSocketJson<GuestAgentFrame>(
+    `/api/vms/${id}/guest-agent/ws`,
+    guestAgentEnabled,
+  );
+
   // Cloud-init read is per-VM and only meaningful when the VM has
   // cloud-init enabled. The detail endpoint returns ``has_user_data``
   // / ``has_network_config`` so the panel can decide whether to render.
@@ -196,6 +216,11 @@ export default function VmDetail() {
           <h1 className="text-2xl font-semibold tracking-tight">{vm.name}</h1>
           <span className="text-sm text-muted-foreground">#{vm.id}</span>
           <VmStatusBadge status={vm.status} />
+          {vm.guest_agent && (
+            <Badge variant={guestAgent?.reachable ? "success" : "muted"}>
+              QGA: {guestAgent ? (guestAgent.reachable ? "reachable" : "unreachable") : "…"}
+            </Badge>
+          )}
         </div>
       </div>
 

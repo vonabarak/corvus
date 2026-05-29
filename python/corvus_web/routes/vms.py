@@ -257,3 +257,74 @@ async def serial_console_ws(ws: WebSocket, vm_id: int) -> None:
             await stream.close()
         with suppress(Exception):
             await ws.close()
+
+
+# ---- guest-agent status WebSocket ----------------------------------------
+
+
+@router.websocket("/{vm_id}/guest-agent/ws")
+async def guest_agent_ws(ws: WebSocket, vm_id: int) -> None:
+    """Subscribe to per-VM guest-agent reachability events.
+
+    The daemon's poller emits a ``GuestAgentStatus`` on every poll
+    cycle (default: 5 s) per subscriber. We forward each as one JSON
+    frame:
+
+        {"vm_id": 7, "enabled": true, "reachable": true,
+         "last_healthcheck": "2026-05-29T...", "message": null}
+
+    Closing the WS drops the subscription handle, which prunes us
+    from the daemon's subscriber list."""
+    client = ws.app.state.client
+    await ws.accept()
+
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound:
+        await ws.close(code=1008, reason="VM not found")
+        return
+
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+
+    async def on_event(status: Any) -> None:
+        await queue.put(status)
+
+    try:
+        subscription = await vm.subscribe_guest_agent(on_event)
+    except CorvusError as exc:
+        logger.warning("guest-agent WS: subscribe failed for vm %d: %s", vm_id, exc)
+        await ws.close(code=1011, reason=str(exc))
+        return
+
+    async def queue_to_ws() -> None:
+        while True:
+            status = await queue.get()
+            try:
+                await ws.send_json(_as_dict(status))
+            except (WebSocketDisconnect, RuntimeError):
+                return
+
+    async def watch_disconnect() -> None:
+        while True:
+            try:
+                msg = await ws.receive()
+            except WebSocketDisconnect:
+                return
+            if msg["type"] == "websocket.disconnect":
+                return
+
+    tasks_ = [
+        asyncio.create_task(queue_to_ws(), name=f"guest-agent-{vm_id}"),
+        asyncio.create_task(watch_disconnect(), name=f"guest-agent-watch-{vm_id}"),
+    ]
+    try:
+        _, pending = await asyncio.wait(tasks_, return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await t
+    finally:
+        with suppress(Exception):
+            await subscription.close()
+        with suppress(Exception):
+            await ws.close()
