@@ -15,6 +15,12 @@ import { deleteVm, getVm, vmAction, type VmAction, type VmDetails } from "@/api/
 import { getVmCloudInit, type CloudInitInfo } from "@/api/templates";
 import { useWebSocketJson } from "@/hooks/useWebSocketJson";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { VmStatusBadge } from "@/components/VmStatusBadge";
+import { DrivesCard } from "@/components/vm/DrivesCard";
+import { NetIfsCard } from "@/components/vm/NetIfsCard";
+import { SshKeysCard } from "@/components/vm/SshKeysCard";
 
 interface GuestAgentFrame {
   vm_id: number;
@@ -23,17 +29,6 @@ interface GuestAgentFrame {
   last_healthcheck: string | null;
   message: string | null;
 }
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { VmStatusBadge } from "@/components/VmStatusBadge";
 
 interface FieldProps {
   label: string;
@@ -298,83 +293,11 @@ export default function VmDetail() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Drives</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {vm.drives.length === 0 ? (
-            <p className="px-6 pb-6 text-sm text-muted-foreground">No drives attached.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Disk</TableHead>
-                  <TableHead>Interface</TableHead>
-                  <TableHead>Format</TableHead>
-                  <TableHead>Media</TableHead>
-                  <TableHead>Cache</TableHead>
-                  <TableHead>Flags</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {vm.drives.map((d) => (
-                  <TableRow key={d.id}>
-                    <TableCell>
-                      <div className="font-medium">{d.disk_image_name}</div>
-                      <div className="text-xs text-muted-foreground">{d.file_path}</div>
-                    </TableCell>
-                    <TableCell>{d.interface}</TableCell>
-                    <TableCell>{d.format}</TableCell>
-                    <TableCell>{d.media}</TableCell>
-                    <TableCell>{d.cache_type}</TableCell>
-                    <TableCell className="space-x-1">
-                      {d.read_only && <span className="text-xs text-muted-foreground">RO</span>}
-                      {d.discard && <span className="text-xs text-muted-foreground">discard</span>}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      <DrivesCard vm={vm} />
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Network interfaces</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {vm.net_ifs.length === 0 ? (
-            <p className="px-6 pb-6 text-sm text-muted-foreground">No network interfaces.</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Network</TableHead>
-                  <TableHead>MAC</TableHead>
-                  <TableHead>Host device</TableHead>
-                  <TableHead>Guest IPs</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {vm.net_ifs.map((n) => (
-                  <TableRow key={n.id}>
-                    <TableCell>{n.type}</TableCell>
-                    <TableCell>{n.network_name ?? "—"}</TableCell>
-                    <TableCell className="font-mono text-xs">{n.mac_address}</TableCell>
-                    <TableCell className="font-mono text-xs">{n.host_device || "—"}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {n.guest_ip_addresses ?? "—"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+      <NetIfsCard vm={vm} />
+
+      <SshKeysCard vmId={vm.id} />
 
       {vm.cloud_init && cloudInit && (
         <Card>

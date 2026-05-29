@@ -97,6 +97,63 @@ export function createVm(body: VmCreateBody): Promise<VmDetails> {
   return apiSend<VmDetails>("POST", "/vms", body);
 }
 
+// ---- attach / detach -----------------------------------------------------
+
+export interface DriveAttachBody {
+  disk_ref: string;
+  interface?: string | null;
+  media?: string | null;
+  read_only?: boolean;
+  cache_type?: string | null;
+  discard?: boolean;
+}
+
+export function attachDrive(vmId: number, body: DriveAttachBody): Promise<{ drive_id: number }> {
+  return apiSend<{ drive_id: number }>("POST", `/vms/${vmId}/drives`, body);
+}
+
+export function detachDrive(vmId: number, driveId: number): Promise<{ status: string }> {
+  return apiSend<{ status: string }>("DELETE", `/vms/${vmId}/drives/${driveId}`);
+}
+
+export interface NetIfAddBody {
+  type?: string | null;
+  host_device?: string | null;
+  mac_address?: string | null;
+  network_ref?: string | null;
+}
+
+export function addNetIf(vmId: number, body: NetIfAddBody): Promise<{ net_if_id: number }> {
+  return apiSend<{ net_if_id: number }>("POST", `/vms/${vmId}/net-ifs`, body);
+}
+
+export function removeNetIf(vmId: number, netIfId: number): Promise<{ status: string }> {
+  return apiSend<{ status: string }>("DELETE", `/vms/${vmId}/net-ifs/${netIfId}`);
+}
+
+/** Mirrors corvus_client.types.SshKeyInfo (subset surfaced on /api/vms/{id}/ssh-keys). */
+export interface VmSshKey {
+  id: number;
+  name: string;
+  public_key: string;
+  created_at: string;
+}
+
+export function listVmSshKeys(vmId: number, signal?: AbortSignal): Promise<VmSshKey[]> {
+  return apiGet<VmSshKey[]>(`/vms/${vmId}/ssh-keys`, signal);
+}
+
+export function attachVmSshKey(vmId: number, keyRef: string): Promise<{ status: string }> {
+  return apiSend<{ status: string }>("POST", `/vms/${vmId}/ssh-keys`, { key_ref: keyRef });
+}
+
+export function detachVmSshKey(vmId: number, keyRef: string): Promise<{ status: string }> {
+  return apiSend<{ status: string }>(
+    "DELETE",
+    `/vms/${vmId}/ssh-keys/${encodeURIComponent(keyRef)}`,
+  );
+}
+
 export type VmAction = "start" | "stop" | "pause" | "reset" | "save" | "send-ctrl-alt-del";
 
 export function vmAction(id: number, action: VmAction): Promise<{ status: string }> {

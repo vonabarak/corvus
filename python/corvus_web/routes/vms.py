@@ -220,6 +220,191 @@ async def get_cloud_init(vm_id: int, client: ClientDep) -> dict[str, Any]:
     return _as_dict(info)
 
 
+# ---- attach/detach: drives, NICs, SSH keys -------------------------------
+#
+# Mid-life mutations on a VM. The daemon usually requires the VM to be
+# stopped (drives) but tolerates hot-attach for some NIC types — we
+# leave that policy to the daemon and surface its error verbatim.
+
+
+def _coerce_ref(ref: str) -> int | str:
+    """`EntityRef` resolver accepts either an integer id or a name
+    string. Coerce numeric-looking strings so the dropdown's id value
+    takes the id path."""
+    try:
+        return int(ref)
+    except ValueError:
+        return ref
+
+
+class DriveAttachBody(BaseModel):
+    """Mirrors corvus_client.AsyncVm.attach_disk kwargs.
+
+    ``disk_ref`` is a disk id or name (the daemon resolves both via
+    ``EntityRef``). All other knobs are optional — the daemon picks
+    sensible defaults from the disk's existing format and the VM's
+    other drives.
+    """
+
+    disk_ref: str = Field(..., min_length=1, description="Disk id or name.")
+    interface: str | None = Field(
+        None, description="virtio (default) / scsi / ide / sata / floppy."
+    )
+    media: str | None = Field(None, description="disk (default) / cdrom / floppy.")
+    read_only: bool = False
+    cache_type: str | None = Field(
+        None, description="none / writethrough / writeback / directsync / unsafe."
+    )
+    discard: bool = False
+
+
+@router.post("/{vm_id}/drives")
+async def attach_drive(
+    vm_id: int, body: DriveAttachBody, client: ClientDep
+) -> dict[str, int]:
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        drive_id = await vm.attach_disk(
+            _coerce_ref(body.disk_ref),
+            interface=body.interface,
+            media=body.media,
+            read_only=body.read_only,
+            cache_type=body.cache_type,
+            discard=body.discard,
+        )
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"drive_id": drive_id}
+
+
+@router.delete("/{vm_id}/drives/{drive_id}")
+async def detach_drive(vm_id: int, drive_id: int, client: ClientDep) -> dict[str, str]:
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        await vm.detach_disk(drive_id)
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "detached"}
+
+
+class NetIfAddBody(BaseModel):
+    """Mirrors corvus_client.AsyncVm.add_net_if kwargs.
+
+    All fields are optional — the schema's defaults model the
+    common case (``type=user`` SLIRP-mode with a daemon-generated
+    MAC). ``network_ref`` is required for ``type=managed``; the
+    daemon refuses otherwise.
+    """
+
+    type: str | None = Field(
+        None, description="user (default) / tap / bridge / macvtap / managed."
+    )
+    host_device: str | None = Field(
+        None, description="Host-side device name for tap / bridge / macvtap."
+    )
+    mac_address: str | None = Field(
+        None,
+        description=(
+            "Override the auto-generated MAC. Use the prefix from "
+            "``crv network show`` to stay inside the managed range."
+        ),
+    )
+    network_ref: str | None = Field(
+        None, description="Managed-network id or name (required for type=managed)."
+    )
+
+
+@router.post("/{vm_id}/net-ifs")
+async def add_net_if(
+    vm_id: int, body: NetIfAddBody, client: ClientDep
+) -> dict[str, int]:
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        net_if_id = await vm.add_net_if(
+            type=body.type,
+            host_device=body.host_device,
+            mac_address=body.mac_address,
+            network_ref=_coerce_ref(body.network_ref) if body.network_ref else None,
+        )
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"net_if_id": net_if_id}
+
+
+@router.delete("/{vm_id}/net-ifs/{net_if_id}")
+async def remove_net_if(
+    vm_id: int, net_if_id: int, client: ClientDep
+) -> dict[str, str]:
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        await vm.remove_net_if(net_if_id)
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "removed"}
+
+
+class SshKeyAttachBody(BaseModel):
+    """SSH-key attach body. ``key_ref`` accepts id or name."""
+
+    key_ref: str = Field(..., min_length=1)
+
+
+@router.get("/{vm_id}/ssh-keys")
+async def list_vm_ssh_keys(vm_id: int, client: ClientDep) -> list[dict[str, Any]]:
+    """SSH keys attached to this VM. The VmDetails payload doesn't
+    carry the list, so the SSH-keys card on VmDetail fetches this
+    separately."""
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    keys = await vm.list_ssh_keys()
+    return [_as_dict(k) for k in keys]
+
+
+@router.post("/{vm_id}/ssh-keys")
+async def attach_ssh_key(
+    vm_id: int, body: SshKeyAttachBody, client: ClientDep
+) -> dict[str, str]:
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        await vm.attach_ssh_key(_coerce_ref(body.key_ref))
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "attached"}
+
+
+@router.delete("/{vm_id}/ssh-keys/{key_ref}")
+async def detach_ssh_key(vm_id: int, key_ref: str, client: ClientDep) -> dict[str, str]:
+    """``key_ref`` is a path parameter accepting either an integer id
+    or a name. The corvus_client EntityRef resolver picks the right
+    path."""
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        await vm.detach_ssh_key(_coerce_ref(key_ref))
+    except CorvusError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "detached"}
+
+
 # ---- serial console WebSocket --------------------------------------------
 
 
