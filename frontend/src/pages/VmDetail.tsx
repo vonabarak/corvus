@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Pause, Play, RotateCcw, Save, Square, Trash2 } from "lucide-react";
 import { deleteVm, getVm, vmAction, type VmAction, type VmDetails } from "@/api/vms";
+import { getVmCloudInit, type CloudInitInfo } from "@/api/templates";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -140,6 +141,15 @@ export default function VmDetail() {
     queryFn: ({ signal }) => getVm(id, signal),
     refetchInterval: 5000,
     enabled: Number.isFinite(id),
+  });
+
+  // Cloud-init read is per-VM and only meaningful when the VM has
+  // cloud-init enabled. The detail endpoint returns ``has_user_data``
+  // / ``has_network_config`` so the panel can decide whether to render.
+  const { data: cloudInit } = useQuery<CloudInitInfo>({
+    queryKey: ["vm-cloud-init", id],
+    queryFn: ({ signal }) => getVmCloudInit(id, signal),
+    enabled: Number.isFinite(id) && !!vm?.cloud_init,
   });
 
   if (!Number.isFinite(id)) {
@@ -322,6 +332,45 @@ export default function VmDetail() {
           )}
         </CardContent>
       </Card>
+
+      {vm.cloud_init && cloudInit && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Cloud-init</CardTitle>
+            <CardDescription>
+              Effective config the VM boots with. inject_ssh_keys:{" "}
+              {cloudInit.inject_ssh_keys ? "yes" : "no"}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {cloudInit.user_data && (
+              <div>
+                <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                  user-data
+                </div>
+                <pre className="max-h-64 overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono text-xs">
+                  {cloudInit.user_data}
+                </pre>
+              </div>
+            )}
+            {cloudInit.network_config && (
+              <div>
+                <div className="mb-1 text-xs uppercase tracking-wide text-muted-foreground">
+                  network-config
+                </div>
+                <pre className="max-h-64 overflow-auto rounded-md border border-border bg-muted/30 p-3 font-mono text-xs">
+                  {cloudInit.network_config}
+                </pre>
+              </div>
+            )}
+            {!cloudInit.user_data && !cloudInit.network_config && (
+              <p className="text-sm text-muted-foreground">
+                Default cloud-init (SSH key injection only).
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

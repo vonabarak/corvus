@@ -28,6 +28,12 @@ export default function Layout() {
             <NavLink to="/networks" className={navItemClass}>
               Networks
             </NavLink>
+            <NavLink to="/templates" className={navItemClass}>
+              Templates
+            </NavLink>
+            <NavLink to="/ssh-keys" className={navItemClass}>
+              SSH keys
+            </NavLink>
           </nav>
         </div>
       </header>

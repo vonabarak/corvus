@@ -140,3 +140,19 @@ async def delete_vm(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     await vm.delete(keep_disks=keep_disks)
     return {"status": "deleted"}
+
+
+# ---- per-VM cloud-init ---------------------------------------------------
+
+
+@router.get("/{vm_id}/cloud-init")
+async def get_cloud_init(vm_id: int, client: ClientDep) -> dict[str, Any]:
+    """Read the VM's effective cloud-init config (user-data,
+    network-config, inject_ssh_keys flag). Mirrors ``crv cloud-init
+    show <vm>``. Editing lands with the YAML-editor slice."""
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    info = await vm.cloud_init()
+    return _as_dict(info)

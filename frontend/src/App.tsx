@@ -6,6 +6,10 @@ import DiskList from "./pages/DiskList";
 import DiskDetail from "./pages/DiskDetail";
 import NetworkList from "./pages/NetworkList";
 import NetworkDetail from "./pages/NetworkDetail";
+import SshKeyList from "./pages/SshKeyList";
+import SshKeyDetail from "./pages/SshKeyDetail";
+import TemplateList from "./pages/TemplateList";
+import TemplateDetail from "./pages/TemplateDetail";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -19,6 +23,10 @@ export default function App() {
         <Route path="disks/:id" element={<DiskDetail />} />
         <Route path="networks" element={<NetworkList />} />
         <Route path="networks/:id" element={<NetworkDetail />} />
+        <Route path="ssh-keys" element={<SshKeyList />} />
+        <Route path="ssh-keys/:id" element={<SshKeyDetail />} />
+        <Route path="templates" element={<TemplateList />} />
+        <Route path="templates/:id" element={<TemplateDetail />} />
       </Route>
     </Routes>
   );
