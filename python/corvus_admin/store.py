@@ -194,5 +194,28 @@ class AdminStore:
         idx[rec.cn] = rec
         self.save_index(idx)
 
+    def remove_record(self, cn: str) -> IssuedRecord:
+        """Delete the index entry for *cn* and the matching cert file
+        under ``issued/``. Returns the removed record so the caller
+        can echo it back to the operator. Raises ``KeyError`` when
+        the CN is unknown.
+
+        The ca.key on the admin's disk is unchanged — there is no CRL
+        in Corvus, and nothing else consumes one. Revoking is purely
+        bookkeeping: the matching component on the remote host will
+        keep authenticating with the orphaned cert until its next
+        deploy / renew."""
+
+        idx = self.load_index()
+        if cn not in idx:
+            raise KeyError(cn)
+        rec = idx.pop(cn)
+        self.save_index(idx)
+        try:
+            self.issued_cert_path(cn).unlink()
+        except FileNotFoundError:
+            pass
+        return rec
+
     def iter_records(self) -> Iterator[IssuedRecord]:
         yield from self.load_index().values()

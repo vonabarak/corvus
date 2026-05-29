@@ -269,3 +269,65 @@ def test_deploy_daemon_unit_file_carries_database_url(
     unit_path = tmp_path / "etc-systemd" / "corvus.service"
     content = unit_path.read_text()
     assert "--database postgresql://db.internal/corvus" in content, content
+
+
+# ---------------------------------------------------------------------------
+# --dry-run
+
+
+def test_deploy_daemon_dry_run_does_not_touch_disk(
+    initialised_store, fake_paths, tmp_path
+):
+    """`--dry-run` short-circuits after computing the DeployPlan:
+    no cert is minted, no files are written, no systemctl invoked,
+    and the admin store's index gains nothing."""
+
+    etc, log = fake_paths
+    runner = LocalRunner()
+    plan = deploy.deploy_daemon(
+        initialised_store,
+        runner,
+        listen_ip="127.0.0.1",
+        dry_run=True,
+    )
+    # Plan still describes what would happen.
+    assert plan.role == "corvus-daemon"
+    assert plan.service_unit == "corvus.service"
+    # No cert files dropped.
+    assert not (etc / "ca.crt").exists()
+    assert not (etc / "corvus-daemon.crt").exists()
+    assert not (etc / "corvus-daemon.key").exists()
+    # No systemctl invocation.
+    assert not log.exists() or log.read_text() == ""
+    # No new record (admin store still only has whatever was there
+    # before — none, in this fixture).
+    assert list(initialised_store.iter_records()) == []
+
+
+def test_deploy_node_dry_run_does_not_record(initialised_store, fake_paths):
+    deploy.deploy_node(
+        initialised_store, LocalRunner(), name="alpha", ip="10.0.0.1", dry_run=True
+    )
+    assert list(initialised_store.iter_records()) == []
+
+
+def test_renew_node_dry_run_does_not_mint(initialised_store, fake_paths):
+    """Set up a node record, then renew it under --dry-run and check
+    no fresh cert overwrites the original in the issued/ dir."""
+
+    # Real deploy first to give us a record to renew.
+    deploy.deploy_node(initialised_store, LocalRunner(), name="alpha", ip="10.0.0.1")
+    original_serial = next(
+        r for r in initialised_store.iter_records() if r.cn == "corvus-node:alpha"
+    ).serial
+    # Renew under --dry-run with --force (the cert is freshly minted
+    # so it's not yet "due" — force is needed to bypass the window
+    # check).
+    deploy.renew_node(
+        initialised_store, name="alpha", target="local", force=True, dry_run=True
+    )
+    # Serial unchanged because no fresh cert was issued.
+    new_serial = next(
+        r for r in initialised_store.iter_records() if r.cn == "corvus-node:alpha"
+    ).serial
+    assert new_serial == original_serial

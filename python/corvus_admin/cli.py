@@ -9,20 +9,34 @@ Subcommands shipped:
 * ``deploy netd``        — mint netd cert + push + restart
 * ``deploy client``      — mint admin's own client cert (local)
 * ``renew {daemon,node,netd,client}`` — re-mint + redeploy
+* ``renew --due``        — sweep the admin store, renew everything
+                            expiring within ``--within`` days
 * ``register``           — `crv node add` shortcut
 * ``list``               — show every issued cert and its expiry
 * ``status``             — probe each cert's deploy target over TLS
+* ``revoke <CN>``        — drop a cert from the admin-store index
+* ``completion <SHELL>`` — emit a Click completion script
 
-Deferred to later phases per the plan: ``ca rotate``, ``revoke``.
+All ``deploy``/``renew`` subcommands accept ``--dry-run`` for a
+no-side-effects preview; ``deploy node`` / ``deploy netd`` accept
+``--targets t1,t2,…`` or ``@hosts.txt`` for parallel multi-host
+rollouts. ``list`` and ``status`` accept ``--output json`` for
+script-friendly output.
+
+Deferred to later phases per the plan: ``ca rotate``.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import getpass
+import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import click
+from click.shell_completion import BashComplete, FishComplete, ZshComplete
 
 from corvus_admin import (
     ca,
@@ -55,6 +69,134 @@ def _ca_dir_option(f: click.decorators.FC) -> click.decorators.FC:
             "Admin-store directory (CA cert+key + index). "
             "Default: $XDG_CONFIG_HOME/corvus/admin."
         ),
+    )(f)
+
+
+def _dry_run_option(f: click.decorators.FC) -> click.decorators.FC:
+    return click.option(
+        "--dry-run/--no-dry-run",
+        "dry_run",
+        default=False,
+        help=(
+            "Print what would be deployed but don't mint a cert, push "
+            "files, or restart any unit. Useful before touching prod."
+        ),
+    )(f)
+
+
+def _targets_option(f: click.decorators.FC) -> click.decorators.FC:
+    return click.option(
+        "--targets",
+        "targets_csv",
+        default=None,
+        show_default=False,
+        help=(
+            "Comma-separated list of targets to deploy to in parallel. "
+            "Mutually exclusive with the TARGET positional. Each target follows "
+            "the same `local` / `[user@]host[:port]` syntax."
+        ),
+    )(f)
+
+
+def _allow_shared_cn_option(f: click.decorators.FC) -> click.decorators.FC:
+    return click.option(
+        "--allow-shared-cn",
+        is_flag=True,
+        default=False,
+        help=(
+            "Deploy the same CN to every target. By default a multi-target "
+            "deploy with a single name is refused — see `doc/multi-node.md`."
+        ),
+    )(f)
+
+
+def _resolve_targets(target: str | None, targets_csv: str | None) -> list[str]:
+    """Decode an argv target into the list of targets to deploy to.
+
+    * ``--targets t1,t2,…`` wins when set; mutually exclusive with the
+      positional.
+    * A positional starting with ``@`` is read as a file of one
+      target per line (blank lines and ``#`` comments are skipped).
+    * Anything else is a single literal target.
+    """
+
+    if target is not None and targets_csv is not None:
+        raise click.UsageError("pass either TARGET or --targets, not both")
+    if targets_csv is not None:
+        targets = [t.strip() for t in targets_csv.split(",") if t.strip()]
+    elif target is None:
+        raise click.UsageError("missing TARGET (or --targets)")
+    elif target.startswith("@"):
+        targets = _read_targets_file(target[1:])
+    else:
+        targets = [target]
+    if not targets:
+        raise click.UsageError("no targets resolved")
+    return targets
+
+
+def _read_targets_file(path: str) -> list[str]:
+    targets: list[str] = []
+    with open(path) as f:
+        for line in f:
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+            targets.append(s)
+    return targets
+
+
+def _multi_target_deploy(
+    targets: list[str],
+    deploy_one: Callable[[str], str | None],
+    *,
+    label: str,
+    allow_shared_cn: bool,
+) -> int:
+    """Run ``deploy_one(target)`` for each target concurrently.
+
+    ``deploy_one`` returns ``None`` on success or a ``str`` error
+    message on failure. Returns the count of failed targets (so
+    callers can map it onto an exit code)."""
+
+    if len(targets) > 1 and not allow_shared_cn:
+        raise click.UsageError(
+            f"refusing to deploy the same {label} cert to {len(targets)} hosts; "
+            "pass --allow-shared-cn to override (see `doc/multi-node.md`)."
+        )
+    if len(targets) == 1:
+        # Single-target fast path keeps the existing per-target
+        # exit-code semantics for the common case.
+        err = deploy_one(targets[0])
+        return 0 if err is None else 1
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    failed = 0
+    with ThreadPoolExecutor(max_workers=min(len(targets), 16)) as pool:
+        futs = {pool.submit(deploy_one, t): t for t in targets}
+        for fut in futs:
+            target = futs[fut]
+            try:
+                err = fut.result()
+            except Exception as e:
+                err = f"{type(e).__name__}: {e}"
+            if err is None:
+                click.echo(f"  {target}: ok")
+            else:
+                click.echo(f"  {target}: FAILED — {err}", err=True)
+                failed += 1
+    return failed
+
+
+def _output_option(f: click.decorators.FC) -> click.decorators.FC:
+    return click.option(
+        "--output",
+        "output",
+        type=click.Choice(["text", "json"]),
+        default="text",
+        show_default=True,
+        help="Output format. `json` emits an array of records; `text` is the human-readable table.",
     )(f)
 
 
@@ -112,6 +254,7 @@ def init(ca_dir: Path | None, admin_name: str | None, force: bool) -> None:
 
     name = admin_name or _default_admin_name()
     rec = deploy.deploy_client(st, name=name)
+    assert rec is not None  # init never passes dry_run=True
     click.echo(
         f"Issued client cert {rec.cn} (expires {rec.expires_at}); "
         f"dropped into {store.default_client_dir()}."
@@ -288,6 +431,7 @@ main.add_command(deploy_group, name="deploy")
     show_default=True,
     help="Render and install the systemd unit on the target. Pass --no-install-unit to keep a pre-existing custom unit; the deploy still pushes certs and restarts the service.",
 )
+@_dry_run_option
 def deploy_daemon(
     ca_dir: Path | None,
     target: str,
@@ -297,6 +441,7 @@ def deploy_daemon(
     database_url: str,
     log_level: str,
     install_unit: bool,
+    dry_run: bool,
 ) -> None:
     """Mint and deploy the daemon cert."""
 
@@ -312,22 +457,22 @@ def deploy_daemon(
             database_url=database_url,
             log_level=log_level,
             install_unit=install_unit,
+            dry_run=dry_run,
         )
     except RunnerError as e:
         click.echo(f"deploy daemon failed: {e}", err=True)
         if e.stderr:
             click.echo(e.stderr, err=True)
         sys.exit(1)
-    click.echo(
-        f"Deployed daemon cert (CN corvus-daemon:{plan.name}) "
-        f"to {plan.target}:{plan.cert_dir}; restarted {plan.service_unit}."
-    )
+    _emit_deploy_result("daemon", plan, dry_run=dry_run)
 
 
 @deploy_group.command("node")
 @_ca_dir_option
 @click.argument("name")
-@click.argument("target")
+@click.argument("target", required=False)
+@_targets_option
+@_allow_shared_cn_option
 @click.option(
     "--ip",
     default=None,
@@ -357,46 +502,62 @@ def deploy_daemon(
     show_default=True,
     help="Render and install the systemd unit on the target. Pass --no-install-unit to keep a pre-existing custom unit.",
 )
+@_dry_run_option
 def deploy_node(
     ca_dir: Path | None,
     name: str,
-    target: str,
+    target: str | None,
+    targets_csv: str | None,
+    allow_shared_cn: bool,
     ip: str | None,
     user_service: bool,
     binary_path: str | None,
     log_level: str,
     install_unit: bool,
+    dry_run: bool,
 ) -> None:
-    """Mint and deploy a corvus-nodeagent cert for the named node."""
+    """Mint and deploy a corvus-nodeagent cert for the named node.
+
+    TARGET is `local`, an SSH target, or `@hosts.txt` for bulk multi-host
+    deploys (one target per line). For an explicit list use `--targets t1,t2`.
+    """
 
     st = _ensure_initialised(ca_dir)
-    runner = for_target(target)
-    try:
-        plan = deploy.deploy_node(
-            st,
-            runner,
-            name=name,
-            ip=ip,
-            user_service=user_service,
-            binary_path=binary_path,
-            log_level=log_level,
-            install_unit=install_unit,
-        )
-    except RunnerError as e:
-        click.echo(f"deploy node failed: {e}", err=True)
-        if e.stderr:
-            click.echo(e.stderr, err=True)
-        sys.exit(1)
-    click.echo(
-        f"Deployed node cert (CN corvus-node:{plan.name}) "
-        f"to {plan.target}:{plan.cert_dir}; restarted {plan.service_unit}."
+    targets = _resolve_targets(target, targets_csv)
+
+    def deploy_one(t: str) -> str | None:
+        runner = for_target(t)
+        try:
+            plan = deploy.deploy_node(
+                st,
+                runner,
+                name=name,
+                ip=ip,
+                user_service=user_service,
+                binary_path=binary_path,
+                log_level=log_level,
+                install_unit=install_unit,
+                dry_run=dry_run,
+            )
+        except RunnerError as e:
+            return str(e) + (f" — {e.stderr.strip()}" if e.stderr else "")
+        if len(targets) == 1:
+            _emit_deploy_result("node", plan, dry_run=dry_run)
+        return None
+
+    failed = _multi_target_deploy(
+        targets, deploy_one, label="node", allow_shared_cn=allow_shared_cn
     )
+    if failed:
+        sys.exit(1)
 
 
 @deploy_group.command("netd")
 @_ca_dir_option
 @click.argument("name")
-@click.argument("target")
+@click.argument("target", required=False)
+@_targets_option
+@_allow_shared_cn_option
 @click.option(
     "--ip", default=None, show_default=False, help="IP SAN for the netd cert."
 )
@@ -418,53 +579,74 @@ def deploy_node(
     show_default=True,
     help="Render and install the systemd unit on the target. Pass --no-install-unit to keep a pre-existing custom unit.",
 )
+@_dry_run_option
 def deploy_netd(
     ca_dir: Path | None,
     name: str,
-    target: str,
+    target: str | None,
+    targets_csv: str | None,
+    allow_shared_cn: bool,
     ip: str | None,
     binary_path: str | None,
     log_level: str,
     install_unit: bool,
+    dry_run: bool,
 ) -> None:
     """Mint and deploy a corvus-netd cert for the named node.
 
     netd needs CAP_NET_ADMIN and is always installed as a system
     service; no --user-service flag is offered.
+
+    TARGET is `local`, an SSH target, or `@hosts.txt` for bulk multi-host
+    deploys (one target per line). For an explicit list use `--targets t1,t2`.
     """
 
     st = _ensure_initialised(ca_dir)
-    runner = for_target(target)
-    try:
-        plan = deploy.deploy_netd(
-            st,
-            runner,
-            name=name,
-            ip=ip,
-            user_service=False,
-            binary_path=binary_path,
-            log_level=log_level,
-            install_unit=install_unit,
-        )
-    except RunnerError as e:
-        click.echo(f"deploy netd failed: {e}", err=True)
-        if e.stderr:
-            click.echo(e.stderr, err=True)
-        sys.exit(1)
-    click.echo(
-        f"Deployed netd cert (CN corvus-netd:{plan.name}) "
-        f"to {plan.target}:{plan.cert_dir}; restarted {plan.service_unit}."
+    targets = _resolve_targets(target, targets_csv)
+
+    def deploy_one(t: str) -> str | None:
+        runner = for_target(t)
+        try:
+            plan = deploy.deploy_netd(
+                st,
+                runner,
+                name=name,
+                ip=ip,
+                user_service=False,
+                binary_path=binary_path,
+                log_level=log_level,
+                install_unit=install_unit,
+                dry_run=dry_run,
+            )
+        except RunnerError as e:
+            return str(e) + (f" — {e.stderr.strip()}" if e.stderr else "")
+        if len(targets) == 1:
+            _emit_deploy_result("netd", plan, dry_run=dry_run)
+        return None
+
+    failed = _multi_target_deploy(
+        targets, deploy_one, label="netd", allow_shared_cn=allow_shared_cn
     )
+    if failed:
+        sys.exit(1)
 
 
 @deploy_group.command("client")
 @_ca_dir_option
 @click.argument("name")
-def deploy_client(ca_dir: Path | None, name: str) -> None:
+@_dry_run_option
+def deploy_client(ca_dir: Path | None, name: str, dry_run: bool) -> None:
     """Mint an admin client cert and drop it into $XDG_CONFIG_HOME/corvus."""
 
     st = _ensure_initialised(ca_dir)
+    if dry_run:
+        click.echo(
+            f"[DRY-RUN] would issue client cert corvus-client:{name}; "
+            f"would drop into {store.default_client_dir()}."
+        )
+        return
     rec = deploy.deploy_client(st, name=name)
+    assert rec is not None  # dry_run=False path always returns a record
     click.echo(
         f"Issued client cert {rec.cn} (expires {rec.expires_at}); "
         f"dropped into {store.default_client_dir()}."
@@ -475,10 +657,119 @@ def deploy_client(ca_dir: Path | None, name: str) -> None:
 # renew
 
 
-@main.group("renew")
-def renew_group() -> None:
+@main.group("renew", invoke_without_command=True)
+@click.option(
+    "--due",
+    is_flag=True,
+    default=False,
+    help="Walk the admin store and renew every cert expiring within --within DAYS. Mutually exclusive with naming an explicit role.",
+)
+@click.option(
+    "--within",
+    "within_days",
+    type=int,
+    default=30,
+    show_default=True,
+    help="Days-from-expiry threshold for --due.",
+)
+@_ca_dir_option
+@_dry_run_option
+@click.pass_context
+def renew_group(
+    ctx: click.Context,
+    due: bool,
+    within_days: int,
+    ca_dir: Path | None,
+    dry_run: bool,
+) -> None:
     """Re-mint and redeploy a cert. Refuses to renew certs that
-    are still >30 days from expiry unless ``--force`` is passed."""
+    are still >30 days from expiry unless ``--force`` is passed.
+
+    With ``--due``, sweeps the admin store and renews every record
+    expiring within ``--within`` days; exit code is non-zero if any
+    individual renewal failed.
+    """
+
+    if ctx.invoked_subcommand is not None:
+        if due:
+            raise click.UsageError(
+                "--due cannot be combined with an explicit role subcommand"
+            )
+        # Defer to the named subcommand; its own --ca-dir / --dry-run
+        # take precedence (the group-level flags exist only to drive
+        # the --due sweep).
+        return
+    if not due:
+        click.echo(ctx.get_help())
+        ctx.exit(2)
+    _run_renew_due(ca_dir=ca_dir, within_days=within_days, dry_run=dry_run)
+
+
+def _run_renew_due(*, ca_dir: Path | None, within_days: int, dry_run: bool) -> None:
+    import datetime as _dt
+
+    st = _ensure_initialised(ca_dir)
+    cutoff = _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=within_days)
+    due_records = sorted(
+        (
+            r
+            for r in st.iter_records()
+            if _dt.datetime.fromisoformat(r.expires_at) <= cutoff
+        ),
+        key=lambda r: r.expires_at,
+    )
+    if not due_records:
+        click.echo(f"No certs due for renewal within {within_days} days.")
+        return
+
+    failures: list[tuple[str, str]] = []
+    for rec in due_records:
+        try:
+            _renew_one(st, rec, dry_run=dry_run)
+        except (deploy.RenewError, RunnerError) as e:
+            failures.append((rec.cn, str(e)))
+            click.echo(f"renew {rec.cn} failed: {e}", err=True)
+
+    summary = f"{len(due_records) - len(failures)}/{len(due_records)} renewed"
+    if failures:
+        click.echo(summary + f" ({len(failures)} failed); see stderr above.", err=True)
+        sys.exit(1)
+    click.echo(summary + ".")
+
+
+# Dispatch table: role → callable that renews one record of that role.
+# Keeps `_renew_one` short and obviates a 4-arm match on the role string.
+_RENEW_DISPATCH = {
+    ca.ROLE_DAEMON: lambda st, rec, dr: deploy.renew_daemon(st, force=True, dry_run=dr),
+    ca.ROLE_NODE: lambda st, rec, dr: deploy.renew_node(
+        st, name=rec.name_or_uuid, force=True, dry_run=dr
+    ),
+    ca.ROLE_NETD: lambda st, rec, dr: deploy.renew_netd(
+        st, name=rec.name_or_uuid, force=True, dry_run=dr
+    ),
+    ca.ROLE_CLIENT: lambda st, rec, dr: deploy.renew_client(
+        st, name=rec.name_or_uuid, force=True, dry_run=dr
+    ),
+}
+
+
+def _renew_one(st: store.AdminStore, rec: store.IssuedRecord, *, dry_run: bool) -> None:
+    """Renew one record, picking the right deploy.renew_* by role.
+    Force-renews unconditionally — the caller already filtered on the
+    due-window."""
+
+    handler = _RENEW_DISPATCH.get(rec.role)
+    if handler is None:
+        raise deploy.RenewError(f"unknown role {rec.role!r} in record {rec.cn}")
+    result = handler(st, rec, dry_run)
+    if isinstance(result, deploy.DeployPlan):
+        # daemon / node / netd path — DeployPlan has the redeploy target.
+        verb = "would renew" if dry_run else "renewed"
+        click.echo(f"  {verb} {rec.cn} (redeploy → {result.target})")
+    else:
+        # client path — purely local, no DeployPlan.
+        verb = "would renew" if dry_run else "renewed"
+        click.echo(f"  {verb} {rec.cn} (local client cert)")
 
 
 @renew_group.command("daemon")
@@ -494,17 +785,17 @@ def renew_group() -> None:
     default=False,
     help="Renew even when the cert is more than 30 days from expiry.",
 )
-def renew_daemon(ca_dir: Path | None, target: str | None, force: bool) -> None:
+@_dry_run_option
+def renew_daemon(
+    ca_dir: Path | None, target: str | None, force: bool, dry_run: bool
+) -> None:
     st = _ensure_initialised(ca_dir)
     try:
-        plan = deploy.renew_daemon(st, target=target, force=force)
+        plan = deploy.renew_daemon(st, target=target, force=force, dry_run=dry_run)
     except (deploy.RenewError, RunnerError) as e:
         click.echo(f"renew daemon failed: {e}", err=True)
         sys.exit(1)
-    click.echo(
-        f"Renewed daemon cert (CN corvus-daemon:{plan.name}); "
-        f"redeployed to {plan.target}."
-    )
+    _emit_renew_result("daemon", plan, dry_run=dry_run)
 
 
 @renew_group.command("node")
@@ -512,16 +803,19 @@ def renew_daemon(ca_dir: Path | None, target: str | None, force: bool) -> None:
 @click.argument("name")
 @click.option("--target", default=None, show_default=False)
 @click.option("--force/--no-force", default=False)
-def renew_node(ca_dir: Path | None, name: str, target: str | None, force: bool) -> None:
+@_dry_run_option
+def renew_node(
+    ca_dir: Path | None, name: str, target: str | None, force: bool, dry_run: bool
+) -> None:
     st = _ensure_initialised(ca_dir)
     try:
-        plan = deploy.renew_node(st, name=name, target=target, force=force)
+        plan = deploy.renew_node(
+            st, name=name, target=target, force=force, dry_run=dry_run
+        )
     except (deploy.RenewError, RunnerError) as e:
         click.echo(f"renew node failed: {e}", err=True)
         sys.exit(1)
-    click.echo(
-        f"Renewed node cert (CN corvus-node:{plan.name}); redeployed to {plan.target}."
-    )
+    _emit_renew_result("node", plan, dry_run=dry_run)
 
 
 @renew_group.command("netd")
@@ -529,29 +823,40 @@ def renew_node(ca_dir: Path | None, name: str, target: str | None, force: bool) 
 @click.argument("name")
 @click.option("--target", default=None, show_default=False)
 @click.option("--force/--no-force", default=False)
-def renew_netd(ca_dir: Path | None, name: str, target: str | None, force: bool) -> None:
+@_dry_run_option
+def renew_netd(
+    ca_dir: Path | None, name: str, target: str | None, force: bool, dry_run: bool
+) -> None:
     st = _ensure_initialised(ca_dir)
     try:
-        plan = deploy.renew_netd(st, name=name, target=target, force=force)
+        plan = deploy.renew_netd(
+            st, name=name, target=target, force=force, dry_run=dry_run
+        )
     except (deploy.RenewError, RunnerError) as e:
         click.echo(f"renew netd failed: {e}", err=True)
         sys.exit(1)
-    click.echo(
-        f"Renewed netd cert (CN corvus-netd:{plan.name}); redeployed to {plan.target}."
-    )
+    _emit_renew_result("netd", plan, dry_run=dry_run)
 
 
 @renew_group.command("client")
 @_ca_dir_option
 @click.argument("name")
 @click.option("--force/--no-force", default=False)
-def renew_client(ca_dir: Path | None, name: str, force: bool) -> None:
+@_dry_run_option
+def renew_client(ca_dir: Path | None, name: str, force: bool, dry_run: bool) -> None:
     st = _ensure_initialised(ca_dir)
     try:
-        rec = deploy.renew_client(st, name=name, force=force)
+        rec = deploy.renew_client(st, name=name, force=force, dry_run=dry_run)
     except deploy.RenewError as e:
         click.echo(f"renew client failed: {e}", err=True)
         sys.exit(1)
+    if dry_run:
+        click.echo(
+            f"[DRY-RUN] would renew client cert corvus-client:{name}; "
+            f"would drop into {store.default_client_dir()}."
+        )
+        return
+    assert rec is not None  # dry_run=False path always returns a record
     click.echo(
         f"Renewed client cert {rec.cn} (expires {rec.expires_at}); "
         f"dropped into {store.default_client_dir()}."
@@ -639,7 +944,8 @@ def register_cmd(
 
 @main.command("list")
 @_ca_dir_option
-def list_cmd(ca_dir: Path | None) -> None:
+@_output_option
+def list_cmd(ca_dir: Path | None, output: str) -> None:
     """List every issued cert and where it was deployed."""
 
     st = _resolve_store(ca_dir)
@@ -647,18 +953,16 @@ def list_cmd(ca_dir: Path | None) -> None:
         click.echo(f"No CA at {st.root}. Run `corvus-admin init`.", err=True)
         sys.exit(1)
     records = sorted(st.iter_records(), key=lambda r: (r.role, r.name_or_uuid))
+    if output == "json":
+        click.echo(_records_to_json(records))
+        return
     if not records:
         click.echo("(no certs issued yet)")
         return
-    # Plain column layout — Phase 2 keeps the output minimal; a
-    # tabular formatter can come with `status` in Phase 4.
-    header = f"{'CN':40} {'EXPIRES':25} {'DEPLOYED-TO':30} IP"
-    click.echo(header)
-    click.echo("-" * len(header))
-    for r in records:
-        click.echo(
-            f"{r.cn:40} {r.expires_at:25} {(r.deployed_to or '-'):30} {r.ip or '-'}"
-        )
+    _print_table(
+        ("CN", "EXPIRES", "DEPLOYED-TO", "IP"),
+        [(r.cn, r.expires_at, r.deployed_to or "-", r.ip or "-") for r in records],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -667,7 +971,8 @@ def list_cmd(ca_dir: Path | None) -> None:
 
 @main.command("status")
 @_ca_dir_option
-def status_cmd(ca_dir: Path | None) -> None:
+@_output_option
+def status_cmd(ca_dir: Path | None, output: str) -> None:
     """Probe every deployed component over TLS and report
     reachability + days-to-expiry. Client certs are listed but
     not probed (no remote service to dial)."""
@@ -678,14 +983,17 @@ def status_cmd(ca_dir: Path | None) -> None:
         sys.exit(1)
 
     reports = status_mod.probe_all(st)
+    any_unhealthy = any(r.role != ca.ROLE_CLIENT and not r.reachable for r in reports)
+
+    if output == "json":
+        click.echo(_records_to_json(reports))
+        sys.exit(1 if any_unhealthy else 0)
+
     if not reports:
         click.echo("(no certs issued yet)")
         return
 
-    header = f"{'CN':40} {'DAYS-LEFT':>9} {'STATUS':12} DETAIL"
-    click.echo(header)
-    click.echo("-" * len(header))
-    any_unhealthy = False
+    rows: list[tuple[str, ...]] = []
     for r in reports:
         if r.role == ca.ROLE_CLIENT:
             status_word = "client"
@@ -696,9 +1004,81 @@ def status_cmd(ca_dir: Path | None) -> None:
         else:
             status_word = "UNREACHABLE"
             detail = r.handshake_error or "?"
-            any_unhealthy = True
-        click.echo(f"{r.cn:40} {r.days_remaining:>9} {status_word:12} {detail}")
+        rows.append((r.cn, str(r.days_remaining), status_word, detail))
+    _print_table(("CN", "DAYS-LEFT", "STATUS", "DETAIL"), rows)
     sys.exit(1 if any_unhealthy else 0)
+
+
+# ---------------------------------------------------------------------------
+# revoke
+
+
+@main.command("revoke")
+@_ca_dir_option
+@click.argument("cn")
+@click.option(
+    "--yes",
+    "yes",
+    is_flag=True,
+    default=False,
+    help="Skip the confirmation prompt.",
+)
+def revoke_cmd(ca_dir: Path | None, cn: str, yes: bool) -> None:
+    """Remove a cert from the admin store's index.
+
+    The matching component on its target host keeps authenticating
+    with its existing cert until you redeploy or renew. Corvus does
+    not consume a CRL — `revoke` is pure bookkeeping so the next
+    `corvus-admin list` no longer shows the row.
+    """
+
+    st = _ensure_initialised(ca_dir)
+    idx = st.load_index()
+    if cn not in idx:
+        click.echo(f"No such cert in index: {cn}", err=True)
+        sys.exit(1)
+    if not yes and not click.confirm(
+        f"Revoke {cn}? (the component on {idx[cn].deployed_to or '?'} "
+        f"will keep using its existing cert until next deploy/renew)",
+        default=False,
+    ):
+        click.echo("Aborted.")
+        return
+    rec = st.remove_record(cn)
+    click.echo(
+        f"Revoked {rec.cn} from the admin store. "
+        f"Issue a fresh cert with `corvus-admin deploy {rec.role.split('-', 1)[1]}` "
+        f"when you're ready to replace it."
+    )
+
+
+# ---------------------------------------------------------------------------
+# completion
+
+
+_COMPLETERS = {"bash": BashComplete, "zsh": ZshComplete, "fish": FishComplete}
+
+
+@main.command("completion")
+@click.argument("shell", type=click.Choice(list(_COMPLETERS)))
+def completion_cmd(shell: str) -> None:
+    """Emit a shell-completion script for SHELL (bash, zsh, fish).
+
+    Pipe the output into the appropriate location for your shell, e.g.:
+
+      corvus-admin completion bash > ~/.local/share/bash-completion/completions/corvus-admin
+      corvus-admin completion zsh  > ~/.local/share/zsh/site-functions/_corvus-admin
+      corvus-admin completion fish > ~/.config/fish/completions/corvus-admin.fish
+    """
+
+    cls = _COMPLETERS[shell]
+    completer = cls(
+        cli=main,
+        ctx_args={},
+        prog_name="corvus-admin",
+        complete_var="_CORVUS_ADMIN_COMPLETE",
+    )
+    click.echo(completer.source())
 
 
 # ---------------------------------------------------------------------------
@@ -714,6 +1094,70 @@ def _ensure_initialised(ca_dir: Path | None) -> store.AdminStore:
         )
         sys.exit(1)
     return st
+
+
+def _records_to_json(records: list) -> str:
+    """Serialize a list of dataclass records to JSON. `default=str`
+    catches anything dataclasses.asdict can't handle natively (Path,
+    datetime); records in this codebase only carry primitives, so the
+    fallback is just insurance."""
+
+    return json.dumps([dataclasses.asdict(r) for r in records], indent=2, default=str)
+
+
+def _print_table(header: tuple[str, ...], rows: list[tuple[str, ...]]) -> None:
+    """Width-aware columnar print. Picks each column's width from the
+    longest cell (header + body). Renders header + dashes-rule + rows."""
+
+    cols = len(header)
+    widths = [
+        max(len(header[i]), max((len(r[i]) for r in rows), default=0))
+        for i in range(cols)
+    ]
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    line = fmt.format(*header)
+    click.echo(line)
+    click.echo("-" * len(line))
+    for r in rows:
+        click.echo(fmt.format(*r))
+
+
+# Role → CN-prefix for the deploy / renew completion summaries. Keeps the
+# success line consistent across "Deployed", "Renewed", and "[DRY-RUN]
+# would deploy" wordings without scattering the role-to-prefix mapping.
+_ROLE_PREFIX: dict[str, str] = {
+    "daemon": "corvus-daemon",
+    "node": "corvus-node",
+    "netd": "corvus-netd",
+}
+
+
+def _emit_deploy_result(role: str, plan: deploy.DeployPlan, *, dry_run: bool) -> None:
+    cn_prefix = _ROLE_PREFIX[role]
+    if dry_run:
+        click.echo(
+            f"[DRY-RUN] would deploy {role} cert (CN {cn_prefix}:{plan.name}) "
+            f"to {plan.target}:{plan.cert_dir}; would restart {plan.service_unit}."
+        )
+        return
+    click.echo(
+        f"Deployed {role} cert (CN {cn_prefix}:{plan.name}) "
+        f"to {plan.target}:{plan.cert_dir}; restarted {plan.service_unit}."
+    )
+
+
+def _emit_renew_result(role: str, plan: deploy.DeployPlan, *, dry_run: bool) -> None:
+    cn_prefix = _ROLE_PREFIX[role]
+    if dry_run:
+        click.echo(
+            f"[DRY-RUN] would renew {role} cert (CN {cn_prefix}:{plan.name}); "
+            f"would redeploy to {plan.target}."
+        )
+        return
+    click.echo(
+        f"Renewed {role} cert (CN {cn_prefix}:{plan.name}); "
+        f"redeployed to {plan.target}."
+    )
 
 
 if __name__ == "__main__":

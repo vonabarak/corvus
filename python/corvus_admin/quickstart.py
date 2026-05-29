@@ -196,6 +196,7 @@ def run(
     except Exception:
         admin_name = "admin"
     client_rec = deploy.deploy_client(st, name=admin_name)
+    assert client_rec is not None  # quickstart never uses dry_run
     log(
         f"Issued client cert {client_rec.cn} for {admin_name}; "
         f"dropped into {store.default_client_dir()}."

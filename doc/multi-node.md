@@ -230,6 +230,29 @@ Cap'n Proto schema additions for multi-node:
     or move them off (the latter is a future ergonomic —
     Phase-3+).
 
+  * **Bulk cert rollout**. `corvus-admin deploy node <NAME>
+    @hosts.txt` (or `--targets t1,t2,t3`) pushes the same node
+    cert to every target in parallel. Because the CN is shared
+    across hosts in that form, the call refuses unless you pass
+    `--allow-shared-cn` — the common case is to script a per-host
+    invocation with a per-host name instead. Same flag exists on
+    `corvus-admin deploy netd`.
+
+  * **Cert renewal sweep**. `corvus-admin renew --due [--within
+    DAYS]` walks the admin store and re-mints every cert within
+    `DAYS` (default 30) of expiry. Combine with `--dry-run` to
+    preview what would be renewed without touching the wire.
+
+  * **Previewing a deploy**. Every `deploy …` and `renew …`
+    subcommand takes `--dry-run`: prints the would-do plan, does
+    not mint a cert, does not push files, does not restart any
+    unit. Useful before touching prod.
+
+  * **Revoking an issued cert**. `corvus-admin revoke <CN>`
+    removes the record from the admin store's index. The remote
+    component keeps using its existing cert until you redeploy
+    or renew — Corvus does not consume a CRL.
+
 ## Limitations (current Phase 1 shape)
 
   * **Auth / TLS** on daemon↔agent links is via mutual TLS;

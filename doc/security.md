@@ -167,6 +167,88 @@ re-type the SSH endpoint.
 The daemon's UUID is **stable** across renewals — the daemon
 identity stays the same, only the cert + key rotate.
 
+For a one-shot sweep that picks up everything within a renewal
+window:
+
+```
+corvus-admin renew --due --within 30          # default window
+corvus-admin renew --due --within 60 --dry-run
+```
+
+`--due` walks the admin store, runs every per-role renew
+(force=true, so no manual exemption is needed), and exits
+non-zero if any single host failed.
+
+## Previewing changes with --dry-run
+
+Every `deploy …` and `renew …` subcommand (including the
+`renew --due` sweep) takes `--dry-run`. It computes the plan,
+prints what would change, and exits — no cert is minted, no
+files are pushed, no systemd unit is restarted.
+
+```
+corvus-admin deploy node alpha 10.0.0.21 --dry-run
+corvus-admin renew --due --within 30 --dry-run
+```
+
+## Revoking certs
+
+`corvus-admin revoke <CN>` drops a record from the admin
+store's index and deletes the matching file under `issued/`:
+
+```
+corvus-admin revoke corvus-node:alpha
+```
+
+There is no CRL: the remote component keeps presenting its
+existing cert until the next `deploy …` or `renew …` overwrites
+the deployed material. `revoke` is purely bookkeeping so the
+next `corvus-admin list` no longer shows the row. Combine with
+`corvus-admin deploy node alpha …` to issue a fresh identity.
+
+## Shell completion
+
+corvus-admin emits Click-generated completion scripts:
+
+```
+corvus-admin completion bash > ~/.local/share/bash-completion/completions/corvus-admin
+corvus-admin completion zsh  > ~/.local/share/zsh/site-functions/_corvus-admin
+corvus-admin completion fish > ~/.config/fish/completions/corvus-admin.fish
+```
+
+`make install` installs all three automatically next to the
+matching `crv` completions.
+
+## Machine-readable output
+
+`list` and `status` support `--output json`, returning the full
+record set as a JSON array (`status` still exits non-zero when a
+deployed component is unreachable, so it stays usable as a
+healthcheck in a pipeline):
+
+```
+corvus-admin list --output json | jq '.[].cn'
+corvus-admin status --output json | jq '.[] | select(.reachable == false)'
+```
+
+## Bulk multi-host deploy
+
+For pushing the same role cert to a list of targets in parallel
+(the same CN goes to every host, which is the right shape for
+e.g. a node pool that is already homogeneous):
+
+```
+corvus-admin deploy node alpha @hosts.txt           --allow-shared-cn
+corvus-admin deploy netd alpha --targets t1,t2,t3   --allow-shared-cn
+```
+
+`@hosts.txt` reads one target per line (blank lines and `#`
+comments are skipped); `--targets` accepts a comma-list as an
+alternative. The deploy refuses without `--allow-shared-cn` —
+sharing a CN across hosts is almost always an operator error
+(use N invocations with N distinct names instead). Daemon and
+client deploys are inherently single-target.
+
 ## Disabling TLS for dev
 
 Every Corvus binary supports `--no-tls`, which makes TCP listeners

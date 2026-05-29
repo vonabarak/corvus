@@ -52,8 +52,10 @@ SYSTEM_DIR_MODE = 0o755
 
 @dataclass
 class DeployPlan:
-    """What deploy_* is about to do, before it does it. Useful for
-    `corvus-admin deploy --dry-run` (Phase 4) and for tests."""
+    """What deploy_* is about to do, before it does it. Returned
+    unconditionally from every deploy_* recipe (also under
+    ``dry_run=True``, where it's the only side-effect) so callers
+    can print a preview and tests can assert on the layout."""
 
     role: str
     name: str
@@ -78,6 +80,7 @@ def deploy_daemon(
     database_url: str = "postgresql://localhost/corvus",
     log_level: str = "info",
     install_unit: bool = True,
+    dry_run: bool = False,
 ) -> DeployPlan:
     """Mint a daemon cert (CN ``corvus-daemon:<uuid>``) and deploy
     it to *runner*'s target. The UUID is fresh each call unless
@@ -92,6 +95,11 @@ def deploy_daemon(
     ``install_unit=False`` to keep an existing custom unit on the
     target — the deploy still pushes certs and restarts the
     service, but does not rewrite the unit file.
+
+    When ``dry_run=True``, the function returns the DeployPlan
+    without minting a cert, pushing files, or restarting the
+    unit. The plan's CN is computable from the inputs, so the
+    caller still gets a meaningful preview.
     """
 
     if reuse_uuid is not None:
@@ -99,18 +107,21 @@ def deploy_daemon(
     else:
         daemon_uuid = str(uuid.uuid4())
 
-    issued = ca.issue_cert(
-        admin_store,
-        role=ca.ROLE_DAEMON,
-        name=daemon_uuid,
-        ip=listen_ip,
-    )
     plan = _plan(
         role=ca.ROLE_DAEMON,
         name=daemon_uuid,
         target=runner.label,
         user_service=user_service,
         service_unit="corvus.service",
+    )
+    if dry_run:
+        return plan
+
+    issued = ca.issue_cert(
+        admin_store,
+        role=ca.ROLE_DAEMON,
+        name=daemon_uuid,
+        ip=listen_ip,
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
     _install_and_restart(
@@ -142,6 +153,7 @@ def deploy_node(
     binary_path: str | None = None,
     log_level: str = "info",
     install_unit: bool = True,
+    dry_run: bool = False,
 ) -> DeployPlan:
     """Mint and deploy a ``corvus-node:<name>`` cert.
 
@@ -151,20 +163,26 @@ def deploy_node(
     ``/usr/local/bin/corvus-nodeagent`` for system mode. Pass
     ``install_unit=False`` to keep an existing custom unit on the
     target.
+
+    When ``dry_run=True``, returns the DeployPlan without minting
+    or touching the target.
     """
 
-    issued = ca.issue_cert(
-        admin_store,
-        role=ca.ROLE_NODE,
-        name=name,
-        ip=ip,
-    )
     plan = _plan(
         role=ca.ROLE_NODE,
         name=name,
         target=runner.label,
         user_service=user_service,
         service_unit="corvus-nodeagent.service",
+    )
+    if dry_run:
+        return plan
+
+    issued = ca.issue_cert(
+        admin_store,
+        role=ca.ROLE_NODE,
+        name=name,
+        ip=ip,
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
     _install_and_restart(
@@ -195,6 +213,7 @@ def deploy_netd(
     binary_path: str | None = None,
     log_level: str = "info",
     install_unit: bool = True,
+    dry_run: bool = False,
 ) -> DeployPlan:
     """Mint and deploy a ``corvus-netd:<name>`` cert.
 
@@ -203,20 +222,26 @@ def deploy_netd(
     render time. ``binary_path`` defaults to
     ``/usr/local/bin/corvus-netd``. Pass ``install_unit=False`` to
     keep an existing custom unit on the target.
+
+    When ``dry_run=True``, returns the DeployPlan without minting
+    or touching the target.
     """
 
-    issued = ca.issue_cert(
-        admin_store,
-        role=ca.ROLE_NETD,
-        name=name,
-        ip=ip,
-    )
     plan = _plan(
         role=ca.ROLE_NETD,
         name=name,
         target=runner.label,
         user_service=user_service,
         service_unit="corvus-netd.service",
+    )
+    if dry_run:
+        return plan
+
+    issued = ca.issue_cert(
+        admin_store,
+        role=ca.ROLE_NETD,
+        name=name,
+        ip=ip,
     )
     _drop_cert_trio(admin_store, runner, issued, plan)
     _install_and_restart(
@@ -241,7 +266,8 @@ def deploy_client(
     admin_store: store.AdminStore,
     *,
     name: str,
-) -> store.IssuedRecord:
+    dry_run: bool = False,
+) -> store.IssuedRecord | None:
     """Mint a client cert and drop it into the admin's own
     ``$XDG_CONFIG_HOME/corvus/`` so ``crv`` finds it without
     further flags. No service to restart, no remote — client
@@ -250,7 +276,14 @@ def deploy_client(
     The plan documents client certs as XDG-only (never
     /etc/corvus); this is enforced here by going through
     :func:`store.default_client_dir` and not the runner.
+
+    When ``dry_run=True`` returns ``None`` and writes nothing; the
+    caller is expected to print a synthetic preview built from
+    *name* and :func:`store.default_client_dir`.
     """
+
+    if dry_run:
+        return None
 
     issued = ca.issue_cert(
         admin_store,
@@ -506,6 +539,7 @@ def renew_daemon(
     *,
     target: str | None = None,
     force: bool = False,
+    dry_run: bool = False,
 ) -> DeployPlan:
     """Re-mint + redeploy the daemon cert. Reuses the existing
     daemon UUID so the identity stays stable across renewals.
@@ -526,6 +560,7 @@ def renew_daemon(
         listen_ip=rec.ip,
         user_service=bool(rec.user_service),
         reuse_uuid=rec.name_or_uuid,
+        dry_run=dry_run,
     )
 
 
@@ -535,6 +570,7 @@ def renew_node(
     name: str,
     target: str | None = None,
     force: bool = False,
+    dry_run: bool = False,
 ) -> DeployPlan:
     rec = find_record(admin_store, role=ca.ROLE_NODE, name=name)
     _check_due(rec, force=force)
@@ -545,6 +581,7 @@ def renew_node(
         name=name,
         ip=rec.ip,
         user_service=bool(rec.user_service),
+        dry_run=dry_run,
     )
 
 
@@ -554,6 +591,7 @@ def renew_netd(
     name: str,
     target: str | None = None,
     force: bool = False,
+    dry_run: bool = False,
 ) -> DeployPlan:
     rec = find_record(admin_store, role=ca.ROLE_NETD, name=name)
     _check_due(rec, force=force)
@@ -564,6 +602,7 @@ def renew_netd(
         name=name,
         ip=rec.ip,
         user_service=bool(rec.user_service),
+        dry_run=dry_run,
     )
 
 
@@ -572,10 +611,11 @@ def renew_client(
     *,
     name: str,
     force: bool = False,
-) -> store.IssuedRecord:
+    dry_run: bool = False,
+) -> store.IssuedRecord | None:
     rec = find_record(admin_store, role=ca.ROLE_CLIENT, name=name)
     _check_due(rec, force=force)
-    return deploy_client(admin_store, name=name)
+    return deploy_client(admin_store, name=name, dry_run=dry_run)
 
 
 def _check_due(record: store.IssuedRecord, *, force: bool) -> None:

@@ -394,6 +394,13 @@ install:
 	  python3 -m pip install --user --upgrade . ; \
 	fi
 
+	# corvus-admin completions (mirrors the crv block above; pipx
+	# placed corvus-admin under ~/.local/bin so the same target dirs
+	# work).
+	$(HOME)/.local/bin/corvus-admin completion bash > $(HOME)/.local/share/bash-completion/completions/corvus-admin
+	$(HOME)/.local/bin/corvus-admin completion zsh  > $(HOME)/.local/share/zsh/site-functions/_corvus-admin
+	$(HOME)/.local/bin/corvus-admin completion fish > $(HOME)/.config/fish/completions/corvus-admin.fish
+
 	@echo ""
 	@echo "Haskell binaries + corvus-admin installed."
 	@echo "Next step: run 'corvus-admin quickstart' to set up a single-node deployment."
@@ -419,6 +426,9 @@ uninstall:
 	rm -f $(HOME)/.local/share/bash-completion/completions/crv
 	rm -f $(HOME)/.local/share/zsh/site-functions/_crv
 	rm -f $(HOME)/.config/fish/completions/crv.fish
+	rm -f $(HOME)/.local/share/bash-completion/completions/corvus-admin
+	rm -f $(HOME)/.local/share/zsh/site-functions/_corvus-admin
+	rm -f $(HOME)/.config/fish/completions/corvus-admin.fish
 
 
 # Cleanup the project build artifacts and test cache
@@ -488,6 +498,11 @@ release: build
 	$(RELEASE_DIR)/bin/crv completion bash > $(RELEASE_DIR)/completions/bash/crv
 	$(RELEASE_DIR)/bin/crv completion zsh  > $(RELEASE_DIR)/completions/zsh/_crv
 	$(RELEASE_DIR)/bin/crv completion fish > $(RELEASE_DIR)/completions/fish/crv.fish
+	# corvus-admin completions: invoke the package via -m, no install
+	# needed. PYTHONPATH lets us run straight from the source tree.
+	PYTHONPATH=python python3 -m corvus_admin completion bash > $(RELEASE_DIR)/completions/bash/corvus-admin
+	PYTHONPATH=python python3 -m corvus_admin completion zsh  > $(RELEASE_DIR)/completions/zsh/_corvus-admin
+	PYTHONPATH=python python3 -m corvus_admin completion fish > $(RELEASE_DIR)/completions/fish/corvus-admin.fish
 	#
 	# 3. Python wheel + sdist. The standard PEP 517 frontend
 	#    drives the build via the project's setuptools backend
