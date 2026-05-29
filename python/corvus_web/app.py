@@ -17,7 +17,7 @@ from corvus_client import AsyncClient
 from fastapi import FastAPI
 
 from .config import CorvusWebConfig
-from .routes import disks, spa, system, vms
+from .routes import disks, networks, spa, system, vms
 
 
 def create_app(config: CorvusWebConfig) -> FastAPI:
@@ -70,6 +70,7 @@ def create_app(config: CorvusWebConfig) -> FastAPI:
     app.include_router(system.router, prefix="/api")
     app.include_router(vms.router, prefix="/api")
     app.include_router(disks.router, prefix="/api")
+    app.include_router(networks.router, prefix="/api")
     app.include_router(spa.build_router(config.frontend_dir))
 
     return app

@@ -4,6 +4,8 @@ import VmList from "./pages/VmList";
 import VmDetail from "./pages/VmDetail";
 import DiskList from "./pages/DiskList";
 import DiskDetail from "./pages/DiskDetail";
+import NetworkList from "./pages/NetworkList";
+import NetworkDetail from "./pages/NetworkDetail";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -15,6 +17,8 @@ export default function App() {
         <Route path="vms/:id" element={<VmDetail />} />
         <Route path="disks" element={<DiskList />} />
         <Route path="disks/:id" element={<DiskDetail />} />
+        <Route path="networks" element={<NetworkList />} />
+        <Route path="networks/:id" element={<NetworkDetail />} />
       </Route>
     </Routes>
   );
