@@ -264,9 +264,11 @@ instance C.AllocateList Data where
 instance C.EstimateListAlloc Data BS.ByteString
 
 instance C.Marshal Data BS.ByteString where
-  marshalInto (R.Raw list) bytes =
-    for_ [0 .. BS.length bytes - 1] $ \i ->
-      U.setIndex (BS.index bytes i) i list
+  -- Bulk-copy via the 'U.marshalBytes' helper rather than iterating
+  -- byte-by-byte through 'U.setIndex'. The byte-by-byte version
+  -- dominated wall-clock for multi-MiB 'Data' fields — see the
+  -- comment on 'U.marshalBytes' for why.
+  marshalInto (R.Raw list) bytes = U.marshalBytes list bytes
 
 -- Instances for AnyStruct
 instance C.Allocate AnyStruct where

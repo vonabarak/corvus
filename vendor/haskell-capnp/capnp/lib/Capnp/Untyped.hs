@@ -88,6 +88,7 @@ module Capnp.Untyped
     rootPtr,
     setRoot,
     rawBytes,
+    marshalBytes,
     ReadCtx,
     RWCtx,
     HasMessage (..),
@@ -136,9 +137,11 @@ import Control.Monad.ST (RealWorld)
 import Control.Monad.Trans.Class (MonadTrans (lift))
 import Data.Bits
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Internal as BSI
 import Data.Coerce (coerce)
 import Data.Function ((&))
 import Data.Kind (Type)
+import qualified Data.Vector.Storable as SV
 import qualified Data.Vector.Storable.Mutable as SMV
 import Data.Word
 import Internal.BuildPure (PureBuilder)
@@ -1435,6 +1438,31 @@ rawBytes (ListOf (NormalList M.WordPtr {pSegment, pAddr = WordAt {wordIndex}} le
   let bytes = M.toByteString pSegment
   let ByteCount byteOffset = wordsToBytes wordIndex
   pure $ BS.take len $ BS.drop byteOffset bytes
+
+-- | Bulk-copy a 'BS.ByteString' into a mutable @Data Sz8@ list. The
+-- destination list must already be allocated with at least
+-- @BS.length bytes@ elements. The copy bottoms out in 'SV.unsafeCopy'
+-- which is a single @memcpy@.
+--
+-- Symmetric in spirit to 'rawBytes' on the read side. The
+-- @Marshal Data BS.ByteString@ instance in "Capnp.Basics" used to
+-- iterate byte-by-byte via 'setIndex' — at large sizes (multi-MiB
+-- 'Data' fields, e.g. the 'ByteSink.write' RPC payload in
+-- streaming-bulk applications) that loop dominated wall-clock and
+-- capped throughput at single-digit MiB/s. This helper makes the
+-- write path proportional to a 'memcpy'.
+marshalBytes :: RWCtx m s => ListOf ('Data 'Sz8) ('Mut s) -> BS.ByteString -> m ()
+{-# INLINEABLE marshalBytes #-}
+marshalBytes (ListOf (NormalList M.WordPtr {pSegment, pAddr = WordAt {wordIndex}} _)) bytes = do
+  destWord64 <- M.segToVecMut pSegment
+  let destWord8 = SMV.unsafeCast destWord64
+      ByteCount byteOff = wordsToBytes wordIndex
+      srcLen = BS.length bytes
+      (srcFPtr, srcOff, _) = BSI.toForeignPtr bytes
+      srcVec :: SV.Vector Word8
+      srcVec = SV.unsafeFromForeignPtr srcFPtr srcOff srcLen
+      destSlice = SMV.unsafeSlice byteOff srcLen destWord8
+  SV.unsafeCopy destSlice srcVec
 
 -- | Returns the root pointer of a message.
 rootPtr :: ReadCtx m mut => M.Message mut -> m (Struct mut)

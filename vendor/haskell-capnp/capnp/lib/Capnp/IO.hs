@@ -70,17 +70,26 @@ sGetMsg socket limit =
     -- \| Like recv, but (1) never returns less than `count` bytes, (2)
     -- uses `socket`, rather than taking the socket as an argument, and (3)
     -- throws an EOF exception when the connection is closed.
+    --
+    -- Implementation note: the previous version built a right-leaning
+    -- chain of strict-ByteString @(<>)@ calls — each forced @<>@
+    -- allocates a buffer the size of both operands and @memcpy@s
+    -- both into it, so a 16 MiB segment arriving in N kernel chunks
+    -- cost O(N²) memory traffic to assemble. This version collects
+    -- the recv'd chunks in a list and concatenates once at the end
+    -- via 'BS.concat', which is O(total bytes) — single allocation,
+    -- single pass.
     recvFull :: Int -> IO BS.ByteString
-    recvFull !count = do
-      maybeBytes <- recv socket count
-      case maybeBytes of
-        Nothing ->
-          throwIO $ mkIOError eofErrorType "Remote socket closed" Nothing Nothing
-        Just bytes
-          | BS.length bytes == count ->
-              pure bytes
-          | otherwise ->
-              (bytes <>) <$> recvFull (count - BS.length bytes)
+    recvFull !total = go total []
+      where
+        go 0 acc = pure $! BS.concat (reverse acc)
+        go !remaining acc = do
+          maybeBytes <- recv socket remaining
+          case maybeBytes of
+            Nothing ->
+              throwIO $ mkIOError eofErrorType "Remote socket closed" Nothing Nothing
+            Just bytes ->
+              go (remaining - BS.length bytes) (bytes : acc)
 
 -- | Like 'hPutMsg', except that it takes a 'Socket' instead of a 'Handle'.
 sPutMsg :: Socket -> M.Message 'Const -> IO ()

@@ -98,17 +98,19 @@ import qualified System.Random as Random
 
 -- | Streaming chunk size for inter-agent disk transfer.
 --
--- 16 MiB. The transfer is a strict per-chunk request/reply over
--- Cap'n Proto over mTLS — each 'callSink' blocks on the reply
--- before the next 'BS.hGet' runs, so wall-clock throughput is
--- @chunkSize / (RTT + per-RPC overhead)@. With a 256 KiB chunk
--- and ~80 ms of combined per-RPC cost on a real network we
--- observed ~3 MiB/s; 16 MiB amortises that overhead 64× and gets
--- close to wire speed without needing a full pipelining refactor.
--- Memory cost is bounded — one inflight buffer per active
--- transfer per direction.
+-- 1 MiB. Source side is a strict per-chunk request/reply through
+-- the Cap'n Proto RPC pipeline, so wall-clock throughput is
+-- @chunkSize / per-RPC-latency@. With the bulk-memcpy
+-- 'Capnp.Untyped.marshalBytes' patch making the @Data@ field
+-- serialiser O(memcpy), the empirical sweet spot on a real network
+-- is ~1 MiB: small enough that one buffer per direction is a few
+-- MiB of overhead, large enough that per-RPC framing is fully
+-- amortised. Throughput plateaus around here against the
+-- haskell-capnp single-cap dispatch limit; smaller chunks (256
+-- KiB) measured identical, larger chunks (4 MiB, 16 MiB) measured
+-- progressively worse.
 transferChunkBytes :: Int
-transferChunkBytes = 16 * 1024 * 1024
+transferChunkBytes = 1024 * 1024
 
 -- ---------------------------------------------------------------------------
 -- Token registry
