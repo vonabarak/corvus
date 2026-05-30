@@ -24,6 +24,10 @@ dependencies = [
     # Cap'n Proto RPC, built on top of `corvus_client.AsyncClient`.
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    # Prometheus exposition format for the corvus-web /metrics
+    # endpoint (per-VM and per-node gauges / counters; see
+    # python/corvus_web/routes/metrics.py).
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]

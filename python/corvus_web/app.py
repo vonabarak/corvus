@@ -20,6 +20,7 @@ from .config import CorvusWebConfig
 from .routes import (
     apply,
     disks,
+    metrics,
     networks,
     nodes,
     spa,
@@ -65,7 +66,14 @@ def create_app(config: CorvusWebConfig) -> FastAPI:
             client = await stack.enter_async_context(AsyncClient(**client_kwargs))  # type: ignore[arg-type]
             app.state.client = client
             app.state.config = config
-            yield
+            # Background task polling the daemon's per-VM stats
+            # cache; populates the in-memory map the /metrics
+            # exposition endpoint walks on every scrape.
+            poller = await metrics.start_metrics_poller(app)
+            try:
+                yield
+            finally:
+                await metrics.shutdown_metrics_poller(poller)
 
     app = FastAPI(
         title="Corvus Web",
@@ -89,6 +97,7 @@ def create_app(config: CorvusWebConfig) -> FastAPI:
     app.include_router(apply.router, prefix="/api")
     app.include_router(nodes.router, prefix="/api")
     app.include_router(spice.router, prefix="/api")
+    app.include_router(metrics.router)
     app.include_router(spa.build_router(config.frontend_dir))
 
     return app
