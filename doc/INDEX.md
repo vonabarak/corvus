@@ -18,6 +18,7 @@
 - [Shared Directories](shared-directories.md) -- virtiofs host directory sharing
 - [Guest Execution](guest-exec.md) -- Execute commands inside VMs via guest agent
 - [Task History](task-history.md) -- Track async operations, query history
+- [Observability](observability.md) -- Per-VM resource metrics: CLI Resource Usage, WebUI sparklines, Prometheus `/metrics`
 
 ## Declarative Configuration
 

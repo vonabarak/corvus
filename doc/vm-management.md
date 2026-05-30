@@ -159,6 +159,52 @@ host-CPU clusters the practical risk. If your cluster mixes CPU
 generations, stop the VM cleanly before `vm migrate` so QEMU cold-boots
 on the destination instead of trying to resume incompatible state.
 
+## Inspecting Resource Usage
+
+```bash
+crv vm show my-vm
+```
+
+When the VM is `running`, `vm show` adds a **Resource Usage** section
+populated from the agent's `StatusPoller` (10-second cadence). The
+sample is the latest one the daemon's in-memory ring received from
+the agent — cached server-side, so the call is a quick cap-method
+round-trip, not a per-call sample.
+
+```
+Resource Usage (sampled 4s ago, 10.0s interval):
+  CPU                   142.7 s total
+  RAM (host RSS)        3.8 GiB
+  RAM (balloon)         3.0 GiB / 4.0 GiB
+  Disk I/O
+                  drive0: 48.2 GiB read / 12.1 GiB written (1240315 / 332108 ops)
+  Net I/O
+                  vmtap0: 31.7 GiB rx / 4.2 GiB tx
+```
+
+What each row reports:
+
+- **CPU** — cumulative user + system seconds across all vCPU threads
+  (host-thread accounting via `/proc/<qemu-pid>/stat`).
+- **RAM (host RSS)** — what the host pays for the QEMU process via
+  `/proc/<qemu-pid>/status:VmRSS`.
+- **RAM (balloon)** — `query-balloon` actual + the VM's configured
+  ceiling. Suppressed when the VM has no `virtio-balloon` device.
+- **Disk I/O** — per-drive cumulative bytes and operations from
+  QMP `query-blockstats`.
+- **Net I/O** — per-TAP cumulative bytes from
+  `/sys/class/net/<tap>/statistics/{rx,tx}_bytes`.
+
+Counters are cumulative since QEMU launch. Rates and per-second
+throughput aren't shown here (a single one-shot `show` doesn't have
+a prior sample to subtract from); for live rates, use the WebUI's
+Resource Usage panel (sparklines + 10-minute window) or Prometheus
+via corvus-web's `/metrics` endpoint — see [observability.md](observability.md).
+
+The Resource Usage block is omitted for `stopped`, `paused`, or
+otherwise-not-running VMs, and for VMs the daemon hasn't yet
+received a sample for (e.g. just-started VMs in the first 10s).
+
 ## Deleting a VM
 
 ```bash

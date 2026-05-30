@@ -522,6 +522,46 @@ class TestVmBootBasics(_VmLifecycleBase):
             assert r.exit_code == 0
             assert "Boot" in r.stdout
 
+    def test_resource_stats_populated_after_two_polls(self):
+        """The agent's StatusPoller pushes a VmStats sample every
+        ~10 s; after two cycles the daemon's cache should have a
+        non-zero sample and `vm.show().stats` should expose it.
+        Also exercise `get_stats_history` so the ring buffer is
+        guaranteed to grow past 1 entry before the assertion.
+        """
+        import time
+
+        class _StatsVm(VmSsh):
+            def _net_ifs(self):
+                # User-mode NIC so the agent has *some* tap to sample
+                # (we don't assert on net counters specifically — too
+                # racy for a smoke test — but the populated drives
+                # row guarantees the sampler runs at all).
+                return [{"type": "user"}]
+
+        with _StatsVm(self) as vm:
+            # Two 10 s poller cycles + a small buffer.
+            time.sleep(22)
+            details = vm.cap.show()
+            stats = details.stats
+            assert stats is not None, "VmDetails.stats was None"
+            assert stats.sampled_at_nanos > 0, (
+                "agent's StatusPoller never produced a non-zero sample "
+                "(sampled_at_nanos still 0)"
+            )
+            assert stats.clk_tck > 0, "clk_tck not stamped by the agent"
+            assert stats.host_rss_bytes > 0, (
+                "QEMU process has zero RSS — /proc read failed?"
+            )
+            assert stats.drives, "no per-drive stats — query-blockstats failed?"
+
+            history = vm.cap.get_stats_history()
+            assert len(history) >= 1, "stats history is empty"
+            # Oldest first by contract; the most recent must match
+            # the show() reading we just took (timestamps may differ
+            # if a poll cycle happened between calls — accept ≥).
+            assert history[-1].sampled_at_nanos >= stats.sampled_at_nanos
+
 
 class TestVmEditWhileRunning(_VmLifecycleBase):
     """Edits that require a stop / edit / start cycle — two boots
