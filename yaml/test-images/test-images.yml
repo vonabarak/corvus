@@ -1,16 +1,6 @@
 ---
 # An apply setup using test images (see the "scripts" directory for scripts to generate them)
 disks:
-  # Shared UEFI firmware code (read-only, from edk2 package)
-  - name: ovmf-code
-    register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.qcow2"
-    format: qcow2
-
-  # OVMF UEFI vars (for cloning)
-  - name: ovmf-vars
-    register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.qcow2"
-    format: qcow2
-
   - name: alpine-test-base
     register: "BaseImages/Alpine/corvus-test.qcow2"
     format: qcow2
