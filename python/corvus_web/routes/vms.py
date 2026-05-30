@@ -570,3 +570,82 @@ async def guest_agent_ws(ws: WebSocket, vm_id: int) -> None:
             await subscription.close()
         with suppress(Exception):
             await ws.close()
+
+
+# ---- VM resource stats: history + live WebSocket -------------------------
+
+
+@router.get("/{vm_id}/stats/history")
+async def vm_stats_history(
+    vm_id: int,
+    client: Annotated[Any, Depends(get_client)],
+) -> list[dict[str, Any]]:
+    """Return the daemon's stats ring buffer for one VM (up to 60
+    samples, oldest first). Empty when the VM is stopped or has
+    not been polled yet."""
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound:
+        raise HTTPException(404, "VM not found") from None
+    history = await vm.get_stats_history()
+    return [_as_dict(s) for s in history]
+
+
+@router.websocket("/{vm_id}/stats/ws")
+async def vm_stats_ws(ws: WebSocket, vm_id: int) -> None:
+    """Live `VmStats` push (~10s cadence). Each frame is a JSON
+    object mirroring the `VmStats` dataclass (snake_case fields,
+    cumulative counters)."""
+    client = ws.app.state.client
+    await ws.accept()
+
+    try:
+        vm = await client.vms.get(vm_id)
+    except VmNotFound:
+        await ws.close(code=1008, reason="VM not found")
+        return
+
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+
+    async def on_event(stats: Any) -> None:
+        await queue.put(stats)
+
+    try:
+        subscription = await vm.subscribe_stats(on_event)
+    except CorvusError as exc:
+        logger.warning("vm-stats WS: subscribe failed for vm %d: %s", vm_id, exc)
+        await ws.close(code=1011, reason=str(exc))
+        return
+
+    async def queue_to_ws() -> None:
+        while True:
+            stats = await queue.get()
+            try:
+                await ws.send_json(_as_dict(stats))
+            except (WebSocketDisconnect, RuntimeError):
+                return
+
+    async def watch_disconnect() -> None:
+        while True:
+            try:
+                msg = await ws.receive()
+            except WebSocketDisconnect:
+                return
+            if msg["type"] == "websocket.disconnect":
+                return
+
+    tasks_ = [
+        asyncio.create_task(queue_to_ws(), name=f"vm-stats-{vm_id}"),
+        asyncio.create_task(watch_disconnect(), name=f"vm-stats-watch-{vm_id}"),
+    ]
+    try:
+        _, pending = await asyncio.wait(tasks_, return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await t
+    finally:
+        with suppress(Exception):
+            await subscription.close()
+        with suppress(Exception):
+            await ws.close()

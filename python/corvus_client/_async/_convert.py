@@ -160,6 +160,39 @@ def vm_details(r) -> t.VmDetails:
         last_error_at=_ts(r.lastErrorAt),
         reboot_quirk=r.rebootQuirk,
         cpu_model=r.cpuModel,
+        stats=vm_stats(r.stats),
+    )
+
+
+def vm_stats(r) -> t.VmStats:
+    return t.VmStats(
+        sampled_at_nanos=r.sampledAtNanos,
+        interval_millis=r.intervalMillis,
+        cpu_jiffies_total=r.cpuJiffiesTotal,
+        clk_tck=r.clkTck,
+        host_rss_bytes=r.hostRssBytes,
+        balloon_actual_bytes=r.balloonActualBytes,
+        balloon_max_bytes=r.balloonMaxBytes,
+        drives=[drive_io(d) for d in r.drives],
+        nets=[net_io(n) for n in r.nets],
+    )
+
+
+def drive_io(r) -> t.DriveIo:
+    return t.DriveIo(
+        name=r.name,
+        read_bytes_total=r.readBytesTotal,
+        write_bytes_total=r.writeBytesTotal,
+        read_ops_total=r.readOpsTotal,
+        write_ops_total=r.writeOpsTotal,
+    )
+
+
+def net_io(r) -> t.NetIo:
+    return t.NetIo(
+        tap_name=r.tapName,
+        rx_bytes_total=r.rxBytesTotal,
+        tx_bytes_total=r.txBytesTotal,
     )
 
 

@@ -231,6 +231,26 @@ class AsyncVm:
 
         return await subscribe_guest_agent(self._cap, on_event)
 
+    async def subscribe_stats(self, on_event):
+        """Subscribe to live resource-stats push events (~10s cadence).
+
+        `on_event` is an async callable invoked with each `VmStats`.
+        The returned `VmStatsSubscription` keeps the subscription
+        alive; drop or close it to unsubscribe.
+        """
+        from .streams import subscribe_stats
+
+        return await subscribe_stats(self._cap, on_event)
+
+    async def get_stats_history(self) -> list:
+        """Fetch the daemon's ring buffer for this VM (up to 60
+        samples, oldest first). Empty when the VM is stopped or
+        has not been polled yet."""
+        from . import _convert as conv
+
+        resp = await self._cap.getStatsHistory()
+        return [conv.vm_stats(s) for s in resp.samples]
+
     # ---- drives -----------------------------------------------------------
 
     async def attach_disk(

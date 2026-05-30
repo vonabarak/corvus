@@ -68,6 +68,18 @@ class _GuestAgentStatusSinkServer(_schema.streams.GuestAgentStatusSink.Server):
 
 
 # ---------------------------------------------------------------------------
+# VM stats sink (live resource-consumption updates)
+
+
+class _VmStatsSinkServer(_schema.vm.VmStatsSink.Server):
+    def __init__(self, callback: Callable[[Any], Awaitable[None]]):
+        self._cb = callback
+
+    async def onStats(self, stats, _context):
+        await self._cb(conv.vm_stats(stats))
+
+
+# ---------------------------------------------------------------------------
 # Task progress sink
 # ---------------------------------------------------------------------------
 
@@ -141,6 +153,21 @@ async def subscribe_guest_agent(
     sink = _GuestAgentStatusSinkServer(on_event)
     resp = await vm_cap.subscribeGuestAgent(sink=sink)
     return GuestAgentSubscription(resp.handle, sink)
+
+
+class VmStatsSubscription(GuestAgentSubscription):
+    """Same lifecycle as `GuestAgentSubscription`; alias for clarity.
+
+    The daemon pushes one `VmStats` per agent poll cycle (~10 s)
+    until the handle is dropped (`close()` or out-of-scope)."""
+
+
+async def subscribe_stats(
+    vm_cap, on_event: Callable[[Any], Awaitable[None]]
+) -> VmStatsSubscription:
+    sink = _VmStatsSinkServer(on_event)
+    resp = await vm_cap.subscribeStats(sink=sink)
+    return VmStatsSubscription(resp.handle, sink)
 
 
 async def subscribe_task_progress(

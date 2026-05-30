@@ -134,6 +134,50 @@ class VmDetails:
     last_error_at: datetime | None = None
     reboot_quirk: bool = False
     cpu_model: str = "host"
+    stats: VmStats | None = None
+    # ^ Most-recent resource-consumption sample from the daemon.
+    # `None` only on legacy responses that predate the field.
+    # The daemon emits a zero-filled placeholder when the VM has no
+    # sample yet — callers should treat `stats.sampled_at_nanos == 0`
+    # as "no sample available".
+
+
+@dataclass(frozen=True)
+class DriveIo:
+    """Per-drive cumulative I/O counters from `query-blockstats`."""
+
+    name: str
+    read_bytes_total: int
+    write_bytes_total: int
+    read_ops_total: int
+    write_ops_total: int
+
+
+@dataclass(frozen=True)
+class NetIo:
+    """Per-TAP cumulative throughput counters from sysfs."""
+
+    tap_name: str
+    rx_bytes_total: int
+    tx_bytes_total: int
+
+
+@dataclass(frozen=True)
+class VmStats:
+    """One resource-consumption sample. Cumulative counters + instant
+    gauges; consumers compute rates as
+    `delta(counter) / interval_millis`. The agent samples every 10s
+    and the daemon caches the most recent 60 samples per VM."""
+
+    sampled_at_nanos: int
+    interval_millis: int
+    cpu_jiffies_total: int
+    clk_tck: int
+    host_rss_bytes: int
+    balloon_actual_bytes: int
+    balloon_max_bytes: int
+    drives: list[DriveIo] = field(default_factory=list)
+    nets: list[NetIo] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

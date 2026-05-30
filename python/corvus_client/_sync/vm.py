@@ -177,6 +177,24 @@ class SyncVm(LoopBoundResource):
         async_sub = self._rl.run(self._a.subscribe_guest_agent(_bridge))
         return SyncGuestAgentSubscription(async_sub, self._rl)
 
+    def subscribe_stats(self, on_event):
+        """Subscribe to per-VM resource-stats push events (~10s cadence).
+
+        See `subscribe_guest_agent` for the threading caveat: the
+        `on_event` callback runs on the runloop thread, not on the
+        caller's thread."""
+
+        async def _bridge(ev):
+            on_event(ev)
+
+        async_sub = self._rl.run(self._a.subscribe_stats(_bridge))
+        return SyncGuestAgentSubscription(async_sub, self._rl)
+
+    def get_stats_history(self) -> list:
+        """One-shot fetch of the daemon's stats ring (up to 60
+        samples, oldest first)."""
+        return self._rl.run(self._a.get_stats_history())
+
     # drives
     def attach_disk(self, disk_ref, **kwargs):
         return self._rl.run(self._a.attach_disk(disk_ref, **kwargs))
