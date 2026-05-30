@@ -30,6 +30,7 @@ import qualified Capnp.Classes as C
 import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
 import qualified Capnp.Gen.ById.X9bd452a518ed3917
+import qualified Capnp.Gen.ById.Xa7366eabdb0b1db4
 import qualified Prelude as Std_
 import qualified Data.Word as Std_
 import qualified Data.Int as Std_
@@ -3961,7 +3962,7 @@ instance (C.HasTypeId VmStatusEntry) where
     typeId  = 18089874872843444784
 instance (C.TypedStruct VmStatusEntry) where
     numStructWords  = 4
-    numStructPtrs  = 1
+    numStructPtrs  = 2
 instance (C.Allocate VmStatusEntry) where
     type AllocHint VmStatusEntry = ()
     new _ = C.newTypedStruct
@@ -3978,7 +3979,8 @@ data instance C.Parsed VmStatusEntry
         ,lastExitCode :: (RP.Parsed Std_.Int32)
         ,guestAgentOk :: (RP.Parsed Std_.Bool)
         ,lastPingMillis :: (RP.Parsed Std_.Int64)
-        ,netIfs :: (RP.Parsed (R.List GuestNetIf))}
+        ,netIfs :: (RP.Parsed (R.List GuestNetIf))
+        ,stats :: (RP.Parsed Capnp.Gen.ById.Xa7366eabdb0b1db4.VmStats)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmStatusEntry))
 deriving instance (Std_.Eq (C.Parsed VmStatusEntry))
@@ -3989,7 +3991,8 @@ instance (C.Parse VmStatusEntry (C.Parsed VmStatusEntry)) where
                                 <*> (GH.parseField #lastExitCode raw_)
                                 <*> (GH.parseField #guestAgentOk raw_)
                                 <*> (GH.parseField #lastPingMillis raw_)
-                                <*> (GH.parseField #netIfs raw_))
+                                <*> (GH.parseField #netIfs raw_)
+                                <*> (GH.parseField #stats raw_))
 instance (C.Marshal VmStatusEntry (C.Parsed VmStatusEntry)) where
     marshalInto raw_ VmStatusEntry{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -3999,6 +4002,7 @@ instance (C.Marshal VmStatusEntry (C.Parsed VmStatusEntry)) where
         (GH.encodeField #guestAgentOk guestAgentOk raw_)
         (GH.encodeField #lastPingMillis lastPingMillis raw_)
         (GH.encodeField #netIfs netIfs raw_)
+        (GH.encodeField #stats stats raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmStatusEntry Std_.Int64) where
@@ -4015,6 +4019,8 @@ instance (GH.HasField "lastPingMillis" GH.Slot VmStatusEntry Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
 instance (GH.HasField "netIfs" GH.Slot VmStatusEntry (R.List GuestNetIf)) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "stats" GH.Slot VmStatusEntry Capnp.Gen.ById.Xa7366eabdb0b1db4.VmStats) where
+    fieldByLabel  = (GH.ptrField 1)
 data GuestNetIf 
 type instance (R.ReprFor GuestNetIf) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId GuestNetIf) where

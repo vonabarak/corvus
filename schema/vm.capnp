@@ -77,6 +77,51 @@ struct VmDetails {
   nodeName            @25 :Text;
   # See `VmInfo.cpuModel`.
   cpuModel            @26 :Text;
+  # Most-recent resource-consumption sample from the agent's
+  # StatusPoller (10-second cadence). Zero-filled when the VM is
+  # not running. See `VmStats`.
+  stats               @27 :VmStats;
+}
+
+# Per-VM resource consumption sample. Cumulative counters + the
+# instant gauges; consumers compute rates client-side via
+# (counter_at_t - counter_at_t-1) / intervalMillis. Sampled by
+# the agent's StatusPoller and ridden up the agent → daemon push
+# channel; the daemon keeps the most recent 60 samples per VM (10
+# minutes at the 10-second cadence) so the WebUI sparkline panel
+# can seed itself on page load via `Vm.getStatsHistory`.
+struct VmStats {
+  sampledAtNanos     @0 :UInt64;   # epoch nanos at the agent
+  # Wall time since this VM's previous sample. 0 on the first
+  # sample after VM start.
+  intervalMillis     @1 :UInt32;
+
+  # CPU — cumulative jiffies since QEMU launch (utime + stime
+  # from /proc/<qemu-pid>/stat). Convert to seconds via clkTck.
+  cpuJiffiesTotal    @2 :UInt64;
+  clkTck             @3 :UInt32;   # _SC_CLK_TCK at agent startup
+
+  # RAM — instantaneous gauges.
+  hostRssBytes       @4 :UInt64;   # /proc/<pid>/status:VmRSS
+  balloonActualBytes @5 :UInt64;   # 0 == no balloon device
+  balloonMaxBytes    @6 :UInt64;   # 0 == no balloon device
+
+  drives             @7 :List(DriveIo);
+  nets               @8 :List(NetIo);
+}
+
+struct DriveIo {
+  name            @0 :Text;        # matches DriveInfo.diskImageName
+  readBytesTotal  @1 :UInt64;
+  writeBytesTotal @2 :UInt64;
+  readOpsTotal    @3 :UInt64;
+  writeOpsTotal   @4 :UInt64;
+}
+
+struct NetIo {
+  tapName      @0 :Text;           # vmtap0, ...
+  rxBytesTotal @1 :UInt64;
+  txBytesTotal @2 :UInt64;
 }
 
 struct DriveInfo {
@@ -284,6 +329,17 @@ interface Vm {
   # or `paused`. Resume later with `start` — same verb as a cold
   # boot. Drop the saved state with `reset`.
   save @31 () -> (status :Enums.VmStatus);
+
+  # One-shot fetch of the daemon's resource-stats ring buffer for
+  # this VM (up to 60 samples, oldest first). Empty when the VM
+  # has never been polled or is stopped. The WebUI uses this to
+  # seed its sparkline panel on page load; the CLI does not call
+  # it (the latest sample is already on `VmDetails.stats`).
+  getStatsHistory @32 () -> (samples :List(VmStats));
+
+  # Live stream of resource-stats samples — one per agent poll
+  # cycle (~10 s). Drop the returned `handle` to unsubscribe.
+  subscribeStats  @33 (sink :VmStatsSink) -> (handle :Streams.Handle);
 }
 
 # Parameters for `Vm.migrate`. The VM is identified by the
@@ -291,4 +347,10 @@ interface Vm {
 # is conveyed in the params struct.
 struct VmMigrateParams {
   toNodeRef @0 :Common.EntityRef;
+}
+
+# Live-stats subscription sink. The daemon calls `onStats` once per
+# 10-second poll cycle for the subscribed VM.
+interface VmStatsSink {
+  onStats @0 (stats :VmStats) -> ();
 }

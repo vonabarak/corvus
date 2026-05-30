@@ -1,6 +1,7 @@
 @0xbc08f7ad74ba3f78;
 
 using Streams = import "streams.capnp";
+using Vm = import "vm.capnp";
 
 # Cap'n Proto wire schema for `corvus-nodeagent`, the per-host
 # privileged agent that owns local-machine state: QEMU + virtiofsd
@@ -587,6 +588,9 @@ struct VmStatusEntry {
   guestAgentOk   @4 :Bool;               # last QGA ping in this tick succeeded
   lastPingMillis @5 :Int64;              # epoch ms; 0 if guestAgentOk is false
   netIfs         @6 :List(GuestNetIf);   # populated when guestAgentOk
+  # Resource-consumption sample (cumulative counters + instant
+  # gauges). Zero-filled when the VM is not running.
+  stats          @7 :Vm.VmStats;
 }
 
 struct GuestNetIf {
