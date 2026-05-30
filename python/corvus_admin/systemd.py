@@ -29,13 +29,14 @@ _BINARY_NAMES: dict[str, str] = {
     "daemon": "corvus",
     "nodeagent": "corvus-nodeagent",
     "netd": "corvus-netd",
+    "web": "corvus-web",
 }
 
 
 def default_binary_path(component: str, *, mode: InstallMode) -> str:
     """Return the default absolute path of *component*'s binary on
     the target host. Component is one of ``daemon`` /
-    ``nodeagent`` / ``netd``; mode picks the bin dir
+    ``nodeagent`` / ``netd`` / ``web``; mode picks the bin dir
     (``~/.local/bin`` for user, ``/usr/local/bin`` for system)."""
 
     if component not in _BINARY_NAMES:
@@ -58,6 +59,7 @@ _COMPONENTS: dict[str, tuple[str, str, bool]] = {
     "daemon": ("corvus.service.j2", "corvus.service", False),
     "nodeagent": ("corvus-nodeagent.service.j2", "corvus-nodeagent.service", False),
     "netd": ("corvus-netd.service.j2", "corvus-netd.service", True),
+    "web": ("corvus-web.service.j2", "corvus-web.service", False),
 }
 
 
@@ -96,11 +98,18 @@ def render_unit(
     binary_path: str,
     log_level: str = "info",
     database_url: str = "postgresql://localhost/corvus",
+    bind_host: str = "127.0.0.1",
+    bind_port: int = 8080,
 ) -> str:
     """Render a systemd unit for *component* (one of ``daemon``,
-    ``nodeagent``, ``netd``). The *binary_path* must be an
-    absolute path; the caller resolves it via
-    :func:`corvus_admin.binaries.find_all`.
+    ``nodeagent``, ``netd``, ``web``). The *binary_path* must be
+    an absolute path; the caller resolves it via
+    :func:`corvus_admin.binaries.find_all` or by passing
+    ``--binary-path`` explicitly.
+
+    ``bind_host`` / ``bind_port`` are consumed by the ``web``
+    template only — the others ignore them. ``database_url`` is
+    consumed by the ``daemon`` template only.
 
     Raises :class:`ValueError` when netd is requested in user mode
     (it can't be — netd needs CAP_NET_ADMIN and root)."""
@@ -123,6 +132,8 @@ def render_unit(
         binary_path=binary_path,
         log_level=log_level,
         database_url=database_url,
+        bind_host=bind_host,
+        bind_port=bind_port,
     )
 
 

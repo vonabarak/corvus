@@ -1,0 +1,31 @@
+[Unit]
+Description=Corvus web UI + REST/WS gateway
+After=network.target
+# Best-effort ordering: when corvus.service is present on the same
+# host we'd like to start after it so corvus-web's first daemon
+# dial finds a listening socket. Not a hard requires because the
+# daemon may live on a different host (then `Wants=` is a no-op).
+Wants=corvus.service
+
+[Service]
+Type=exec
+{%- if install_mode == "system" %}
+# Match the daemon's runtime directory so the default Unix socket
+# path (`/run/corvus/corvus.sock`) resolves to the same file on
+# both ends.
+RuntimeDirectory=corvus
+Environment=XDG_RUNTIME_DIR=/run/corvus
+{%- endif %}
+ExecStart={{ binary_path }} \
+    --bind-host {{ bind_host }} \
+    --bind-port {{ bind_port }} \
+    --log-level {{ log_level }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+{%- if install_mode == "user" %}
+WantedBy=default.target
+{%- else %}
+WantedBy=multi-user.target
+{%- endif %}

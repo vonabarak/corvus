@@ -311,6 +311,57 @@ def test_deploy_node_dry_run_does_not_record(initialised_store, fake_paths):
     assert list(initialised_store.iter_records()) == []
 
 
+def test_deploy_web_installs_user_unit_with_bind_options(fake_paths, tmp_path):
+    """`deploy_web` mints no cert, renders the systemd unit with
+    the operator's bind host/port, installs it under the user-
+    systemd directory, and runs `systemctl --user enable/restart`."""
+
+    _, log = fake_paths
+    runner = LocalRunner()
+    plan = deploy.deploy_web(
+        runner,
+        user_service=True,
+        bind_host="0.0.0.0",
+        bind_port=8123,
+    )
+    assert plan.service_unit == "corvus-web.service"
+    unit_path = tmp_path / "user-systemd" / "corvus-web.service"
+    assert unit_path.is_file()
+    content = unit_path.read_text()
+    assert "--bind-host 0.0.0.0" in content
+    assert "--bind-port 8123" in content
+    assert "WantedBy=default.target" in content
+    # Both lifecycle calls should land via `systemctl --user`.
+    lines = log.read_text().splitlines()
+    assert any(line == "--user enable --now corvus-web.service" for line in lines), (
+        lines
+    )
+    assert any(line == "--user restart corvus-web.service" for line in lines), lines
+
+
+def test_deploy_web_dry_run_writes_nothing(fake_paths, tmp_path):
+    _, log = fake_paths
+    runner = LocalRunner()
+    plan = deploy.deploy_web(runner, dry_run=True)
+    assert plan.service_unit == "corvus-web.service"
+    unit_path = tmp_path / "user-systemd" / "corvus-web.service"
+    assert not unit_path.exists()
+    assert not log.exists() or log.read_text() == ""
+
+
+def test_deploy_web_system_service_renders_system_target(fake_paths, tmp_path):
+    """`--system-service` flips the unit's WantedBy to
+    `multi-user.target` and lands the file under /etc/systemd/system."""
+
+    runner = LocalRunner()
+    deploy.deploy_web(runner, user_service=False, bind_port=9000)
+    unit_path = tmp_path / "etc-systemd" / "corvus-web.service"
+    assert unit_path.is_file()
+    content = unit_path.read_text()
+    assert "WantedBy=multi-user.target" in content
+    assert "--bind-port 9000" in content
+
+
 def test_renew_node_dry_run_does_not_mint(initialised_store, fake_paths):
     """Set up a node record, then renew it under --dry-run and check
     no fresh cert overwrites the original in the issued/ dir."""

@@ -46,6 +46,8 @@ class QuickstartResult:
     listen_ip: str
     privesc_tool: str | None
     netd_installed: bool
+    web_installed: bool
+    web_bind: str  # "host:port" if web installed, "" otherwise
     daemon_cert_cn: str
     node_cert_cn: str
     netd_cert_cn: str | None
@@ -126,6 +128,9 @@ def run(
     base_path: str | None = None,
     ca_dir: Path | None = None,
     skip_netd: bool = False,
+    skip_web: bool = False,
+    web_bind_host: str = "127.0.0.1",
+    web_bind_port: int = 8080,
     force: bool = False,
     healthcheck_timeout: float = 15.0,
     log_callback: Callable[[str], None] | None = None,
@@ -157,13 +162,37 @@ def run(
         log("Skipping corvus-netd (--skip-netd passed).")
 
     try:
-        bins = binaries.find_all(require_netd=netd_feasible)
+        # `require_web=False`: corvus-web is best-effort even when
+        # not skipped — a pure-agent host or a minimal stack install
+        # may not have it on $PATH. We log + continue without it
+        # rather than failing the whole quickstart.
+        bins = binaries.find_all(
+            require_netd=netd_feasible,
+            require_web=False,
+        )
     except binaries.BinaryNotFound as e:
         raise QuickstartError(str(e)) from e
     log(f"Using daemon binary at {bins.corvus}.")
     log(f"Using nodeagent binary at {bins.nodeagent}.")
     if bins.netd is not None:
         log(f"Using netd binary at {bins.netd}.")
+
+    # Resolve corvus-web separately so we can fall back gracefully.
+    import shutil
+
+    web_path: str | None = None
+    if not skip_web:
+        found = shutil.which("corvus-web")
+        if found is not None:
+            web_path = found
+            log(f"Using web binary at {web_path}.")
+        else:
+            log(
+                "WARNING: corvus-web not on $PATH. Skipping the WebUI install; "
+                "the daemon + nodeagent will come up without it. To enable later: "
+                "install corvus-web (`pipx install corvus`) and run "
+                "`corvus-admin deploy web local`."
+            )
 
     # ------------------------------------------------------------------
     # 2. Probe PostgreSQL — if it isn't up, the daemon's startup
@@ -286,6 +315,32 @@ def run(
             f"Deployed netd cert (CN {netd_cert_cn}); started {netd_plan.service_unit}."
         )
 
+    # corvus-web: install + start as a user service by default. No
+    # cert work — corvus-web reaches the local daemon over its Unix
+    # socket. Skip when --skip-web was passed or the binary wasn't
+    # located on $PATH (logged earlier).
+    web_installed = False
+    web_bind = ""
+    if web_path is not None:
+        web_plan = deploy.deploy_web(
+            runner,
+            user_service=True,
+            binary_path=web_path,
+            bind_host=web_bind_host,
+            bind_port=web_bind_port,
+        )
+        units_installed.append(
+            f"{systemd_mod.SYSTEMD_USER_DIR}/{systemd_mod.unit_filename('web')}"
+        )
+        web_installed = True
+        web_bind = f"{web_bind_host}:{web_bind_port}"
+        log(
+            f"Deployed corvus-web (listening on {web_bind}); "
+            f"started {web_plan.service_unit}."
+        )
+    elif skip_web:
+        log("Skipping corvus-web (--skip-web passed).")
+
     # ------------------------------------------------------------------
     # 6. Register node with daemon
 
@@ -314,6 +369,8 @@ def run(
         listen_ip=listen_ip,
         privesc_tool=pe.tool if pe is not None else None,
         netd_installed=netd_feasible and bins.netd is not None,
+        web_installed=web_installed,
+        web_bind=web_bind,
         daemon_cert_cn=f"corvus-daemon:{daemon_plan.name}",
         node_cert_cn=f"corvus-node:{name}",
         netd_cert_cn=netd_cert_cn,

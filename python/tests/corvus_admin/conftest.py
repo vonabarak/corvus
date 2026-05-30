@@ -79,7 +79,7 @@ def fake_paths(tmp_path, monkeypatch):
     # Fake corvus binaries so LocalRunner.which (used by deploy to
     # bake an absolute ExecStart= into the rendered unit) returns
     # a deterministic path regardless of the developer's $PATH.
-    for binary in ("corvus", "corvus-nodeagent", "corvus-netd"):
+    for binary in ("corvus", "corvus-nodeagent", "corvus-netd", "corvus-web"):
         stub = bin_dir / binary
         stub.write_text("#!/bin/sh\nexit 0\n")
         stub.chmod(0o755)

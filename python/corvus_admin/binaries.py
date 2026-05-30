@@ -22,23 +22,26 @@ class BinaryNotFound(RuntimeError):
 
 @dataclass(frozen=True)
 class BinaryPaths:
-    """Resolved absolute paths for the three Haskell binaries.
-    ``netd`` is optional: a privesc-less host installs without it."""
+    """Resolved absolute paths for the four corvus binaries.
+    ``netd`` and ``web`` are optional: a privesc-less host can skip
+    netd; a host that's only an agent (no WebUI) can skip web."""
 
     corvus: Path
     nodeagent: Path
     netd: Path | None
+    web: Path | None
 
 
 _BIN_DAEMON = "corvus"
 _BIN_NODEAGENT = "corvus-nodeagent"
 _BIN_NETD = "corvus-netd"
+_BIN_WEB = "corvus-web"
 
 
-def find_all(*, require_netd: bool) -> BinaryPaths:
-    """Resolve all three binaries from $PATH. ``netd`` is included
-    only when *require_netd* is True; otherwise the field is None
-    and a missing netd binary is silently tolerated.
+def find_all(*, require_netd: bool, require_web: bool = False) -> BinaryPaths:
+    """Resolve binaries from $PATH. ``netd`` is included only when
+    *require_netd* is True; ``web`` only when *require_web* is True.
+    Optional binaries silently land as ``None`` when missing.
 
     Raises :class:`BinaryNotFound` when a required binary can't be
     located, with a diagnostic that lists the binary name and a
@@ -50,7 +53,10 @@ def find_all(*, require_netd: bool) -> BinaryPaths:
     netd: Path | None = None
     if require_netd:
         netd = _which_required(_BIN_NETD)
-    return BinaryPaths(corvus=corvus, nodeagent=nodeagent, netd=netd)
+    web: Path | None = None
+    if require_web:
+        web = _which_required(_BIN_WEB)
+    return BinaryPaths(corvus=corvus, nodeagent=nodeagent, netd=netd, web=web)
 
 
 def _which_required(name: str) -> Path:

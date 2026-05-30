@@ -305,6 +305,25 @@ def _default_admin_name() -> str:
     help="Don't install corvus-netd even when sudo/doas is available.",
 )
 @click.option(
+    "--skip-web",
+    is_flag=True,
+    default=False,
+    help="Don't install corvus-web. By default quickstart brings it up as a user service bound to 127.0.0.1:8080.",
+)
+@click.option(
+    "--web-bind-host",
+    default="127.0.0.1",
+    show_default=True,
+    help="corvus-web HTTP bind host. Use 0.0.0.0 to expose on a routable address (firewall first!).",
+)
+@click.option(
+    "--web-bind-port",
+    type=int,
+    default=8080,
+    show_default=True,
+    help="corvus-web HTTP bind port.",
+)
+@click.option(
     "--force/--no-force",
     default=False,
     help="Overwrite an existing CA. Orphans previously issued certs.",
@@ -323,6 +342,9 @@ def quickstart(
     base_path: str | None,
     database_url: str,
     skip_netd: bool,
+    skip_web: bool,
+    web_bind_host: str,
+    web_bind_port: int,
     force: bool,
     healthcheck_timeout: float,
 ) -> None:
@@ -345,6 +367,9 @@ def quickstart(
             base_path=base_path,
             ca_dir=ca_dir,
             skip_netd=skip_netd,
+            skip_web=skip_web,
+            web_bind_host=web_bind_host,
+            web_bind_port=web_bind_port,
             force=force,
             healthcheck_timeout=healthcheck_timeout,
             database_url=database_url,
@@ -367,6 +392,8 @@ def quickstart(
     if result.netd_cert_cn:
         click.echo(f"  Netd cert:      {result.netd_cert_cn}")
     click.echo(f"  Client cert:    {result.client_cert_cn}")
+    if result.web_installed:
+        click.echo(f"  Web UI:         http://{result.web_bind}/")
     click.echo(
         f"  Healthcheck:    {'received' if result.healthy else 'pending (see logs)'}"
     )
@@ -651,6 +678,99 @@ def deploy_client(ca_dir: Path | None, name: str, dry_run: bool) -> None:
         f"Issued client cert {rec.cn} (expires {rec.expires_at}); "
         f"dropped into {store.default_client_dir()}."
     )
+
+
+@deploy_group.command("web")
+@click.argument("target", default="local")
+@click.option(
+    "--user-service/--system-service",
+    default=True,
+    show_default=True,
+    help=(
+        "User-mode (~/.config/systemd/user) vs system-mode "
+        "(/etc/systemd/system). corvus-web doesn't need root for the "
+        "common loopback-to-local-daemon setup, so the default is user."
+    ),
+)
+@click.option(
+    "--bind-host",
+    default="127.0.0.1",
+    show_default=True,
+    help="HTTP bind host. Use 0.0.0.0 to expose on a routable address (firewall first!).",
+)
+@click.option(
+    "--bind-port",
+    type=int,
+    default=8080,
+    show_default=True,
+    help="HTTP bind port.",
+)
+@click.option(
+    "--binary-path",
+    default=None,
+    show_default=False,
+    help="Path to the corvus-web binary on the target. Default: ~/.local/bin/corvus-web (user) or /usr/local/bin/corvus-web (system).",
+)
+@click.option(
+    "--log-level",
+    default="info",
+    show_default=True,
+    help="Log level passed to corvus-web via --log-level.",
+)
+@click.option(
+    "--install-unit/--no-install-unit",
+    default=True,
+    show_default=True,
+    help="Render and install the systemd unit on the target. Pass --no-install-unit to keep a pre-existing custom unit.",
+)
+@_dry_run_option
+def deploy_web(
+    target: str,
+    user_service: bool,
+    bind_host: str,
+    bind_port: int,
+    binary_path: str | None,
+    log_level: str,
+    install_unit: bool,
+    dry_run: bool,
+) -> None:
+    """Install + start the corvus-web HTTP/WS gateway as a systemd
+    service. No certificate is minted — corvus-web reaches the
+    daemon over its Unix socket by default and inherits the admin's
+    client cert from $XDG_CONFIG_HOME/corvus for TLS-over-TCP.
+
+    TARGET is `local` or an SSH target (same shape as deploy daemon).
+    """
+
+    runner = for_target(target)
+    try:
+        plan = deploy.deploy_web(
+            runner,
+            user_service=user_service,
+            binary_path=binary_path,
+            bind_host=bind_host,
+            bind_port=bind_port,
+            log_level=log_level,
+            install_unit=install_unit,
+            dry_run=dry_run,
+        )
+    except RunnerError as e:
+        click.echo(f"deploy web failed: {e}", err=True)
+        if e.stderr:
+            click.echo(e.stderr, err=True)
+        sys.exit(1)
+    if dry_run:
+        click.echo(
+            f"[DRY-RUN] would deploy corvus-web to {plan.target}:{plan.cert_dir}; "
+            f"would bind to {bind_host}:{bind_port}; "
+            f"would restart {plan.service_unit}."
+        )
+    else:
+        click.echo(
+            f"Deployed corvus-web to {plan.target}; "
+            f"listening on {bind_host}:{bind_port}; "
+            f"restarted {plan.service_unit}."
+        )
 
 
 # ---------------------------------------------------------------------------

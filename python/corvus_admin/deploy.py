@@ -259,6 +259,65 @@ def deploy_netd(
 
 
 # ---------------------------------------------------------------------------
+# Web (corvus-web — HTTP/WS gateway). No cert minted: corvus-web
+# talks to the local daemon over a Unix socket by default. When
+# the operator points it at a remote daemon over TCP, they configure
+# the client cert via @corvus-admin deploy client@ separately —
+# corvus-web picks it up from $XDG_CONFIG_HOME/corvus the same way
+# `crv` does.
+
+
+def deploy_web(
+    runner: Runner,
+    *,
+    user_service: bool = True,
+    binary_path: str | None = None,
+    bind_host: str = "127.0.0.1",
+    bind_port: int = 8080,
+    log_level: str = "info",
+    install_unit: bool = True,
+    dry_run: bool = False,
+) -> DeployPlan:
+    """Render and install the @corvus-web.service@ systemd unit
+    and (re)start it. Unlike daemon / node / netd this is a
+    cert-less deploy — corvus-web has no role in the mTLS PKI; it
+    runs as a thin HTTP gateway in front of an existing daemon
+    socket.
+
+    Defaults to a user-mode service: corvus-web binds to localhost
+    only and forwards to the local daemon's Unix socket, so it
+    rarely needs root. Pass ``user_service=False`` for the
+    system-systemd variant (cert dir under /etc/corvus,
+    /etc/systemd/system, enable via system systemctl).
+
+    When ``dry_run=True`` returns the DeployPlan without touching
+    the target.
+    """
+
+    plan = _plan(
+        role="corvus-web",
+        name="",
+        target=runner.label,
+        user_service=user_service,
+        service_unit="corvus-web.service",
+    )
+    if dry_run:
+        return plan
+
+    _install_and_restart(
+        runner,
+        plan,
+        component="web",
+        binary_path=binary_path,
+        log_level=log_level,
+        bind_host=bind_host,
+        bind_port=bind_port,
+        install_unit=install_unit,
+    )
+    return plan
+
+
+# ---------------------------------------------------------------------------
 # Client (admin's own client cert)
 
 
@@ -377,6 +436,8 @@ def _install_and_restart(
     binary_path: str | None,
     log_level: str = "info",
     database_url: str | None = None,
+    bind_host: str | None = None,
+    bind_port: int | None = None,
     install_unit: bool = True,
 ) -> None:
     """Render + install the systemd unit (when ``install_unit`` is
@@ -384,21 +445,28 @@ def _install_and_restart(
     is rewritten on every deploy so renewals automatically pick up
     binary-path or database-url changes. Setting ``install_unit``
     False keeps an existing custom unit on the target; the deploy
-    still pushes certs and restarts the service."""
+    still pushes certs and restarts the service.
+
+    ``bind_host`` / ``bind_port`` are consumed by the ``web``
+    template only — passing them for other components is a no-op
+    (the templates don't reference the variables)."""
 
     mode: systemd_mod.InstallMode = "user" if plan.user_service else "system"
     if install_unit:
         effective_bin = _resolve_binary_path(runner, component, mode, binary_path)
-        # Only the daemon template consumes database_url; the
-        # helper's default keeps the other components from
-        # accidentally depending on it.
-        render_kwargs: dict[str, str] = {
+        # Each template consumes a subset of these kwargs; the
+        # ones it doesn't reference are silently ignored by Jinja.
+        render_kwargs: dict[str, object] = {
             "binary_path": effective_bin,
             "log_level": log_level,
         }
         if database_url is not None:
             render_kwargs["database_url"] = database_url
-        unit_text = systemd_mod.render_unit(component, mode=mode, **render_kwargs)
+        if bind_host is not None:
+            render_kwargs["bind_host"] = bind_host
+        if bind_port is not None:
+            render_kwargs["bind_port"] = bind_port
+        unit_text = systemd_mod.render_unit(component, mode=mode, **render_kwargs)  # type: ignore[arg-type]
         systemd_mod.install_unit(
             runner, component=component, mode=mode, content=unit_text
         )
@@ -414,6 +482,7 @@ _BINARY_NAMES: dict[str, str] = {
     "daemon": "corvus",
     "nodeagent": "corvus-nodeagent",
     "netd": "corvus-netd",
+    "web": "corvus-web",
 }
 
 
