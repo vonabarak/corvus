@@ -2,6 +2,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | End-to-end smoke tests for the Cap'n Proto wire.
 --
@@ -26,7 +27,7 @@ import Capnp.Rpc
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (SomeException, bracket, bracket_, catch)
+import Control.Exception (SomeException, bracket, bracket_, catch, try)
 import qualified Corvus.Client.Capnp.Connection as CC
 import qualified Corvus.Client.Capnp.Rpc as CR
 import qualified Corvus.Model as M
@@ -46,6 +47,8 @@ import Corvus.Types
 import qualified Corvus.Wire.Common as WC
 import Data.Function ((&))
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+import Database.Persist (delete, update, (=.))
+import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (toSqlKey)
 import Network.Socket
   ( Family (..)
@@ -130,6 +133,48 @@ spec = withTestDb $ do
         CR.rpcVmDelete conn (WC.RefById vid) False
         vmsAfter <- CR.rpcVmList conn
         vmsAfter `shouldBe` []
+
+    it "vm start surfaces RespInvalidTransition as a typed RPC exception" $ \env -> do
+      -- Regression for the silent-OK bug: when validation rejects a
+      -- start (e.g. an attached managed network is stopped — the
+      -- exact scenario operators hit in the wild), the daemon used
+      -- to map the resulting 'RespInvalidTransition' to
+      -- 'VmStatus'error' and return a success-shaped wire reply.
+      -- The CLI then printed "OK" with no clue. Now any non-status
+      -- response must raise a typed RPC exception.
+      --
+      -- We trigger an invalid transition without standing up a
+      -- whole network — calling 'rpcVmStart' on a VM that's already
+      -- starting / running gets the same 'RespInvalidTransition'
+      -- via 'validateTransition'. Easier than spinning up an inner
+      -- corvus-netd in the in-process daemon fixture.
+      withCapnpDaemon env $ \conn -> do
+        vid <- CR.rpcVmCreate conn "bad-start" "" 1 1024 Nothing True False False False False "host"
+        -- Pretend it's already running so the next start is invalid.
+        runSqlPool
+          (update (toSqlKey vid :: M.VmId) [M.VmStatus =. M.VmRunning])
+          (tePool env)
+        r <-
+          try @SomeException $
+            CR.rpcVmStart conn (WC.RefById vid) False
+        case r of
+          Right () ->
+            expectationFailure
+              "vm.start on a running VM should raise; instead returned OK silently"
+          Left e ->
+            -- The exception text now carries the validation reason
+            -- verbatim. Don't pin on the full string (haskell-capnp
+            -- wraps it in 'Exception {reason = "…", …}'); just
+            -- check the substring the daemon throws.
+            show e `shouldContain` "invalid transition"
+        -- Cleanup via direct SQL DELETE: the SUT we just exercised
+        -- raises in the middle of a cap call, which sometimes leaves
+        -- the haskell-capnp client in a state where subsequent
+        -- 'rpcVmDelete' silently fails (and then the next test in
+        -- this describe sees the leftover row). Bypassing the RPC
+        -- layer keeps cleanup deterministic; this test's SUT is
+        -- 'vm'start, not 'vm'delete.
+        runSqlPool (delete (toSqlKey vid :: M.VmId)) (tePool env)
 
     it "SSH key lifecycle: create → list → delete → list (empty)" $ \env -> do
       withCapnpDaemon env $ \conn -> do

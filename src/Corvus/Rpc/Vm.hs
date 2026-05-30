@@ -181,36 +181,31 @@ instance CGVm.Vm'server_ VmCap where
       if wait'
         then runAction st cn (VmStart eid)
         else runActionAsync st cn (VmStart eid) (RespVmStateChanged M.VmStarting)
-    case resp of
-      RespError msg -> throwFailed msg
-      _ -> pure CGVm.Vm'start'results {CGVm.status = toStatusOrThrow resp}
+    status <- statusOrThrow resp
+    pure CGVm.Vm'start'results {CGVm.status = status}
 
   vm'stop (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'stop'params {wait = wait'} -> do
     resp <-
       if wait'
         then runAction st cn (VmStop eid)
         else runActionAsync st cn (VmStop eid) (RespVmStateChanged M.VmStopping)
-    case resp of
-      RespError msg -> throwFailed msg
-      _ -> pure CGVm.Vm'stop'results {CGVm.status = toStatusOrThrow resp}
+    status <- statusOrThrow resp
+    pure CGVm.Vm'stop'results {CGVm.status = status}
 
   vm'pause (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- runAction st cn (VmPause eid)
-    case resp of
-      RespError msg -> throwFailed msg
-      _ -> pure CGVm.Vm'pause'results {CGVm.status = toStatusOrThrow resp}
+    status <- statusOrThrow resp
+    pure CGVm.Vm'pause'results {CGVm.status = status}
 
   vm'reset (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- runAction st cn (VmReset eid)
-    case resp of
-      RespError msg -> throwFailed msg
-      _ -> pure CGVm.Vm'reset'results {CGVm.status = toStatusOrThrow resp}
+    status <- statusOrThrow resp
+    pure CGVm.Vm'reset'results {CGVm.status = status}
 
   vm'save (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- runAction st cn (VmSave eid)
-    case resp of
-      RespError msg -> throwFailed msg
-      _ -> pure CGVm.Vm'save'results {CGVm.status = toStatusOrThrow resp}
+    status <- statusOrThrow resp
+    pure CGVm.Vm'save'results {CGVm.status = status}
 
   vm'edit (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'edit'params {params = CGVm.VmEditParams {..}} -> do
@@ -609,11 +604,30 @@ instance CGVm.Vm'server_ VmCap where
 -- Helpers
 -- ---------------------------------------------------------------------
 
-toStatusOrThrow :: Response -> CGE.VmStatus
-toStatusOrThrow resp = case resp of
-  RespVmStateChanged s -> toCapnpVmStatus s
-  RespVmRunning -> toCapnpVmStatus M.VmRunning
-  _ -> CGE.VmStatus'error
+-- | Map a VM-lifecycle action response to either the new status
+-- (returned to the client on success) or a typed RPC exception.
+--
+-- The old @toStatusOrThrow@ silently mapped any unknown response
+-- to 'VmStatus'error', which the CLI's @rpcVm{Start,Stop,…}@
+-- wrapper interpreted as success — operators would see "OK"
+-- after a failed start when the real cause was, e.g., a
+-- not-running managed network. Every known failure shape now
+-- throws so the wire reply has @type_ = failed@ and the CLI
+-- surfaces the message verbatim.
+statusOrThrow :: Response -> IO CGE.VmStatus
+statusOrThrow resp = case resp of
+  RespVmStateChanged s -> pure (toCapnpVmStatus s)
+  RespVmRunning -> pure (toCapnpVmStatus M.VmRunning)
+  RespError msg -> throwFailed msg
+  RespInvalidTransition st reason ->
+    throwFailed $
+      "invalid transition from "
+        <> M.enumToText st
+        <> ": "
+        <> reason
+  RespVmNotFound -> throwFailed "VM not found"
+  RespVmMustBeStopped -> throwFailed "VM must be stopped for this operation"
+  _ -> throwFailed "vm action: unexpected response"
 
 enumOrThrow :: Either e a -> IO a
 enumOrThrow (Right a) = pure a
