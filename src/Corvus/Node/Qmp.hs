@@ -512,9 +512,9 @@ sendQmpCommand config vmId cmd = do
     Right response -> classifyQmpResponse response
 
 -- | Read from the QMP socket until the accumulated buffer contains a
--- command reply (either @"return"@ or @"error"@). Async events get
--- folded into the accumulator and stay there for the classifier to
--- ignore.
+-- COMPLETE command reply (either @"return"@ or @"error"@). Async
+-- events get folded into the accumulator and stay there for the
+-- classifier to ignore.
 --
 -- A single 'recv' call is not robust: QEMU emits state-change events
 -- (e.g. @RESUME@ after @cont@, @STOP@ after @stop@) BEFORE the
@@ -523,6 +523,16 @@ sendQmpCommand config vmId cmd = do
 -- with no @"return"@ substring, leaving 'classifyQmpResponse' to
 -- wrongly decide the command failed. Reading until we actually see
 -- a reply payload fixes it.
+--
+-- *Substring on @"return"@ is also not enough on its own.* A large
+-- reply (e.g. @query-blockstats@ on a multi-drive VM, which is
+-- ~8 KiB on a single line) arrives in multiple 4 KiB chunks; the
+-- first chunk contains @"return":@ at the start but the JSON line
+-- isn't complete yet. Returning early hands @sendQmpRaw@ a
+-- truncated payload that aeson then fails to decode. So we
+-- additionally require the buffer to end with @'\\n'@ — QMP
+-- terminates every message with a newline, so a trailing newline
+-- past the @"return"@ substring means the line is whole.
 drainUntilReply :: Socket -> BS.ByteString -> IO BS.ByteString
 drainUntilReply sock acc = do
   chunk <- recv sock 4096
@@ -530,8 +540,13 @@ drainUntilReply sock acc = do
     then pure acc
     else do
       let combined = acc <> chunk
-      if BS.isInfixOf "\"return\"" combined
-        || BS.isInfixOf "\"error\"" combined
+          hasReply =
+            BS.isInfixOf "\"return\"" combined
+              || BS.isInfixOf "\"error\"" combined
+          messageComplete = case BS.unsnoc combined of
+            Just (_, '\n') -> True
+            _ -> False
+      if hasReply && messageComplete
         then pure combined
         else drainUntilReply sock combined
 
