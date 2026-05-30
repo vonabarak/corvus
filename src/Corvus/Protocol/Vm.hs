@@ -10,6 +10,10 @@ module Corvus.Protocol.Vm
   , DriveInfo (..)
   , NetIfInfo (..)
   , VmDetails (..)
+  , VmStats (..)
+  , DriveIo (..)
+  , NetIo (..)
+  , zeroVmStats
   )
 where
 
@@ -20,6 +24,7 @@ import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
 import Data.Time (UTCTime)
+import Data.Word (Word32, Word64)
 import GHC.Generics (Generic)
 
 -- | VM summary for list view
@@ -127,8 +132,79 @@ data VmDetails = VmDetails
   -- firmware reboot hangs (tianocore/edk2#12441).
   , vdCpuModel :: !Text
   -- ^ See @viCpuModel@.
+  , vdStats :: !VmStats
+  -- ^ Most-recent resource-consumption sample from the agent's
+  -- StatusPoller. 'zeroVmStats' (all zeros, sampledAtNanos == 0)
+  -- when the VM is stopped or the daemon hasn't yet received its
+  -- first sample.
   }
   deriving (Eq, Show, Generic)
+
+-- | One resource-consumption sample. Cumulative counters +
+-- instant gauges; consumers compute rates as
+-- @delta(counter) / intervalMillis@. See @schema/vm.capnp::VmStats@
+-- for the wire shape and @doc/observability.md@ for the metric
+-- semantics.
+data VmStats = VmStats
+  { vstSampledAtNanos :: !Word64
+  -- ^ Epoch nanos at sample time. @0@ when no sample has landed
+  -- (zero placeholder).
+  , vstIntervalMillis :: !Word32
+  -- ^ Wall time since this VM's previous sample. @0@ on the
+  -- first sample after VM start.
+  , vstCpuJiffiesTotal :: !Word64
+  -- ^ Cumulative user + system jiffies since QEMU launch. Convert
+  -- to seconds via 'vstClkTck'.
+  , vstClkTck :: !Word32
+  -- ^ @_SC_CLK_TCK@ as observed on the agent host (typically 100).
+  , vstHostRssBytes :: !Word64
+  -- ^ /proc/<qemu-pid>/status:VmRSS — what the host pays for.
+  , vstBalloonActualBytes :: !Word64
+  -- ^ Current memory the guest sees, in bytes. @0@ when the VM
+  -- has no virtio-balloon device.
+  , vstBalloonMaxBytes :: !Word64
+  -- ^ VM's configured RAM ceiling. @0@ when no balloon device.
+  , vstDrives :: ![DriveIo]
+  , vstNets :: ![NetIo]
+  }
+  deriving (Eq, Show, Generic)
+
+-- | Per-drive cumulative I/O counters.
+data DriveIo = DriveIo
+  { dioName :: !Text
+  -- ^ QEMU device id (matches @-blockdev id=@).
+  , dioReadBytesTotal :: !Word64
+  , dioWriteBytesTotal :: !Word64
+  , dioReadOpsTotal :: !Word64
+  , dioWriteOpsTotal :: !Word64
+  }
+  deriving (Eq, Show, Generic)
+
+-- | Per-TAP cumulative throughput counters.
+data NetIo = NetIo
+  { nioTapName :: !Text
+  , nioRxBytesTotal :: !Word64
+  , nioTxBytesTotal :: !Word64
+  }
+  deriving (Eq, Show, Generic)
+
+-- | Empty-sample sentinel. Used by the daemon when a VM has no
+-- cached sample yet (e.g. newly created, just before the first
+-- agent push) and by 'fromCapnpVmDetails' when decoding a wire
+-- struct whose stats sub-struct is all zeros.
+zeroVmStats :: VmStats
+zeroVmStats =
+  VmStats
+    { vstSampledAtNanos = 0
+    , vstIntervalMillis = 0
+    , vstCpuJiffiesTotal = 0
+    , vstClkTck = 0
+    , vstHostRssBytes = 0
+    , vstBalloonActualBytes = 0
+    , vstBalloonMaxBytes = 0
+    , vstDrives = []
+    , vstNets = []
+    }
 
 instance ToJSON VmInfo where
   toJSON = genericToJSON innerOptions
@@ -140,4 +216,13 @@ instance ToJSON NetIfInfo where
   toJSON = genericToJSON innerOptions
 
 instance ToJSON VmDetails where
+  toJSON = genericToJSON innerOptions
+
+instance ToJSON VmStats where
+  toJSON = genericToJSON innerOptions
+
+instance ToJSON DriveIo where
+  toJSON = genericToJSON innerOptions
+
+instance ToJSON NetIo where
   toJSON = genericToJSON innerOptions

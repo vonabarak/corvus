@@ -45,7 +45,7 @@ import Corvus.Client.Config (ClientConfig (..))
 import Corvus.Client.Output (Align (..), Column (..), emitError, emitOk, emitOkWith, isStructured, printField)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
-import Corvus.Protocol (DriveInfo (..), NetIfInfo (..), VmDetails (..), VmInfo (..))
+import Corvus.Protocol (DriveInfo (..), DriveIo (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmStats (..))
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (toJSON)
 import qualified Data.ByteString as BS
@@ -54,6 +54,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import System.IO (BufferMode (..), hClose, hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
 import System.IO.Temp (withSystemTempFile)
 import System.Posix.Files (ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
@@ -509,6 +510,21 @@ printVmDetails vm = do
   if null (vdNetIfs vm)
     then putStrLn "  (none)"
     else mapM_ printNetIf (vdNetIfs vm)
+
+  -- Resource usage block: only meaningful when the VM is running
+  -- AND the daemon has received at least one stats sample. The
+  -- 'sampledAtNanos == 0' sentinel covers both "stopped VM" and
+  -- "running but not yet polled" cases.
+  let stats = vdStats vm
+  when (vdStatus vm == VmRunning && vstSampledAtNanos stats /= 0) $ do
+    nowPosixSec <-
+      realToFrac . utcTimeToPOSIXSeconds <$> getCurrentTime
+        :: IO Double
+    let sampleSec = fromIntegral (vstSampledAtNanos stats) / 1e9
+        ageSec = max 0 (nowPosixSec - sampleSec)
+    putStrLn ""
+    putStrLn ("Resource Usage" ++ usageHeader ageSec stats ++ ":")
+    printResourceUsage stats
   where
     printDrive d = do
       putStrLn $ "  - ID: " ++ show (diId d)
@@ -548,3 +564,98 @@ formatUptime secs
         ++ "h "
         ++ show ((secs `mod` 3600) `div` 60)
         ++ "m"
+
+-- ---------------------------------------------------------------------------
+-- Resource usage rendering (used by `crv vm show`)
+
+-- | Build the parenthetical that follows the "Resource Usage"
+-- heading: "(sampled <ago>, <interval> interval)". The caller
+-- computes the age in IO so the formatter stays pure.
+usageHeader :: Double -> VmStats -> String
+usageHeader ageSec stats =
+  let intervalSec =
+        fromIntegral (vstIntervalMillis stats) / 1000.0 :: Double
+   in " (sampled "
+        <> formatAge ageSec
+        <> " ago, "
+        <> printf1 intervalSec
+        <> "s interval)"
+
+formatAge :: Double -> String
+formatAge s
+  | s < 1 = "<1s"
+  | s < 60 = show (round s :: Int) <> "s"
+  | s < 3600 = show (round (s / 60) :: Int) <> "m"
+  | otherwise = show (round (s / 3600) :: Int) <> "h"
+
+-- | Render the body of the Resource Usage block.
+printResourceUsage :: VmStats -> IO ()
+printResourceUsage stats = do
+  let cpuSecs =
+        if vstClkTck stats == 0
+          then 0.0
+          else
+            fromIntegral (vstCpuJiffiesTotal stats)
+              / fromIntegral (vstClkTck stats)
+              :: Double
+  printField "  CPU" (printf1 cpuSecs <> " s total")
+  printField "  RAM (host RSS)" (formatBytes (vstHostRssBytes stats))
+  case (vstBalloonActualBytes stats, vstBalloonMaxBytes stats) of
+    (0, 0) -> pure ()
+    (a, m) ->
+      printField
+        "  RAM (balloon)"
+        (formatBytes a <> " / " <> formatBytes m)
+  case vstDrives stats of
+    [] -> pure ()
+    ds -> do
+      printField "  Disk I/O" ""
+      mapM_ (\d -> putStrLn ("                  " <> driveLine d)) ds
+  case vstNets stats of
+    [] -> pure ()
+    ns -> do
+      printField "  Net I/O" ""
+      mapM_ (\n -> putStrLn ("                  " <> netLine n)) ns
+  where
+    driveLine d =
+      T.unpack (dioName d)
+        <> ": "
+        <> formatBytes (dioReadBytesTotal d)
+        <> " read / "
+        <> formatBytes (dioWriteBytesTotal d)
+        <> " written ("
+        <> show (dioReadOpsTotal d)
+        <> " / "
+        <> show (dioWriteOpsTotal d)
+        <> " ops)"
+    netLine n =
+      T.unpack (nioTapName n)
+        <> ": "
+        <> formatBytes (nioRxBytesTotal n)
+        <> " rx / "
+        <> formatBytes (nioTxBytesTotal n)
+        <> " tx"
+
+-- | Render a byte count with the largest unit that yields a
+-- value >= 1. Mirrors what 'numfmt --to=iec' would emit for the
+-- common cases. Used by the CLI's resource-usage panel.
+formatBytes :: (Integral a) => a -> String
+formatBytes n
+  | x >= ti = printf1 (x / ti) <> " TiB"
+  | x >= gi = printf1 (x / gi) <> " GiB"
+  | x >= mi = printf1 (x / mi) <> " MiB"
+  | x >= ki = printf1 (x / ki) <> " KiB"
+  | otherwise = show (toInteger n) <> " B"
+  where
+    x = fromIntegral n :: Double
+    ki = 1024 :: Double
+    mi = ki * 1024
+    gi = mi * 1024
+    ti = gi * 1024
+
+-- | One-decimal-place formatter without pulling in printf.
+printf1 :: Double -> String
+printf1 d =
+  let scaled = round (d * 10) :: Integer
+      (q, r) = scaled `divMod` 10
+   in show q <> "." <> show r

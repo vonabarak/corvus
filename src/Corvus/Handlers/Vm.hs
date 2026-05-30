@@ -1367,8 +1367,13 @@ getVmDetails config vmId = do
             , vdLastErrorAt = vmLastErrorAt vm
             , vdRebootQuirk = vmRebootQuirk vm
             , vdCpuModel = vmCpuModel vm
+            , vdStats = Corvus.Protocol.zeroVmStats
             }
   where
+    -- \^ Daemon handlers don't fill vdStats; the RPC layer
+    -- looks up the latest sample from 'ssVmStatsRing' and
+    -- threads it into 'toCapnpVmDetails' separately.
+
     toDriveInfo vmNode vmNodeBasePath (Entity driveKey drive) = do
       let diskImageKey = driveDiskImageId drive
       mDiskImage <- get diskImageKey

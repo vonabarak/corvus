@@ -11,6 +11,7 @@ module Corvus.WireSpec (spec) where
 import qualified Corvus.Model as M
 import qualified Corvus.Protocol.Node as PN
 import qualified Corvus.Protocol.Task as PT
+import qualified Corvus.Protocol.Vm as PV
 import Corvus.Wire.Common
   ( EntityRef (..)
   , entityRefFromText
@@ -21,6 +22,7 @@ import Corvus.Wire.Enums
 import Corvus.Wire.Node (fromCapnpNodeDetails, fromCapnpNodeInfo, toCapnpNodeDetails, toCapnpNodeInfo)
 import Corvus.Wire.Task (fromCapnpTaskInfo, toCapnpTaskInfo)
 import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, utcTimeToNanosMaybe)
+import Corvus.Wire.Vm (fromCapnpVmStats, toCapnpVmStats)
 import Data.Time (UTCTime, addUTCTime, secondsToNominalDiffTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Test.Hspec
@@ -155,6 +157,15 @@ spec = do
               }
        in fromCapnpTaskInfo (toCapnpTaskInfo ti) `shouldBe` Right ti
 
+  describe "Wire.Vm.VmStats" $ do
+    it "round-trips a fully-populated VmStats sample" $
+      fromCapnpVmStats (toCapnpVmStats sampleVmStats)
+        `shouldBe` sampleVmStats
+
+    it "round-trips a stopped-VM (zero) sample" $
+      fromCapnpVmStats (toCapnpVmStats PV.zeroVmStats)
+        `shouldBe` PV.zeroVmStats
+
 -- | A fixed UTCTime that survives the nanos→ps→nanos round-trip
 -- exactly: posix-second granularity, no sub-second tail.
 sampleUtc :: UTCTime
@@ -228,4 +239,32 @@ sampleTaskInfo =
     , PT.tiResult = M.TaskSuccess
     , PT.tiMessage = Just "ok"
     , PT.tiClientName = "alice"
+    }
+
+sampleVmStats :: PV.VmStats
+sampleVmStats =
+  PV.VmStats
+    { PV.vstSampledAtNanos = 1700000000000000000
+    , PV.vstIntervalMillis = 10000
+    , PV.vstCpuJiffiesTotal = 142000
+    , PV.vstClkTck = 100
+    , PV.vstHostRssBytes = 4031733760
+    , PV.vstBalloonActualBytes = 3221225472
+    , PV.vstBalloonMaxBytes = 4294967296
+    , PV.vstDrives =
+        [ PV.DriveIo
+            { PV.dioName = "drive0"
+            , PV.dioReadBytesTotal = 51768954880
+            , PV.dioWriteBytesTotal = 12998545408
+            , PV.dioReadOpsTotal = 1240315
+            , PV.dioWriteOpsTotal = 332108
+            }
+        ]
+    , PV.vstNets =
+        [ PV.NetIo
+            { PV.nioTapName = "vmtap0"
+            , PV.nioRxBytesTotal = 34025467904
+            , PV.nioTxBytesTotal = 4509265920
+            }
+        ]
     }

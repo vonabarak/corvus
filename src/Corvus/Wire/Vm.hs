@@ -11,6 +11,8 @@ module Corvus.Wire.Vm
   , fromCapnpNetIfInfo
   , toCapnpVmDetails
   , fromCapnpVmDetails
+  , toCapnpVmStats
+  , fromCapnpVmStats
   , zeroVmStats
   )
 where
@@ -183,7 +185,9 @@ toCapnpVmDetails
   -> [PSD.SharedDirInfo]
   -> C.Parsed CGVm.VmStats
   -- ^ Latest cached resource sample (or 'zeroVmStats' when the
-  -- daemon hasn't seen one for this VM yet).
+  -- daemon hasn't seen one for this VM yet). The protocol-side
+  -- @vdStats@ field is ignored here; the daemon owns the
+  -- authoritative sample via its in-memory ring buffer.
   -> C.Parsed CGVm.VmDetails
 toCapnpVmDetails P.VmDetails {..} sharedDirs stats =
   CGVm.VmDetails
@@ -275,6 +279,74 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
         , P.vdLastErrorAt = nanosToUtcTimeMaybe lastErrorAt
         , P.vdRebootQuirk = rebootQuirk
         , P.vdCpuModel = cpuModel
+        , P.vdStats = fromCapnpVmStats stats
         }
     , sharedDirs'
     )
+
+-- ---------------------------------------------------------------------------
+-- VmStats converters
+
+toCapnpVmStats :: P.VmStats -> C.Parsed CGVm.VmStats
+toCapnpVmStats P.VmStats {..} =
+  CGVm.VmStats
+    { CGVm.sampledAtNanos = vstSampledAtNanos
+    , CGVm.intervalMillis = vstIntervalMillis
+    , CGVm.cpuJiffiesTotal = vstCpuJiffiesTotal
+    , CGVm.clkTck = vstClkTck
+    , CGVm.hostRssBytes = vstHostRssBytes
+    , CGVm.balloonActualBytes = vstBalloonActualBytes
+    , CGVm.balloonMaxBytes = vstBalloonMaxBytes
+    , CGVm.drives = map toCapnpDriveIo vstDrives
+    , CGVm.nets = map toCapnpNetIo vstNets
+    }
+
+fromCapnpVmStats :: C.Parsed CGVm.VmStats -> P.VmStats
+fromCapnpVmStats CGVm.VmStats {..} =
+  P.VmStats
+    { P.vstSampledAtNanos = sampledAtNanos
+    , P.vstIntervalMillis = intervalMillis
+    , P.vstCpuJiffiesTotal = cpuJiffiesTotal
+    , P.vstClkTck = clkTck
+    , P.vstHostRssBytes = hostRssBytes
+    , P.vstBalloonActualBytes = balloonActualBytes
+    , P.vstBalloonMaxBytes = balloonMaxBytes
+    , P.vstDrives = map fromCapnpDriveIo drives
+    , P.vstNets = map fromCapnpNetIo nets
+    }
+
+toCapnpDriveIo :: P.DriveIo -> C.Parsed CGVm.DriveIo
+toCapnpDriveIo P.DriveIo {..} =
+  CGVm.DriveIo
+    { CGVm.name = dioName
+    , CGVm.readBytesTotal = dioReadBytesTotal
+    , CGVm.writeBytesTotal = dioWriteBytesTotal
+    , CGVm.readOpsTotal = dioReadOpsTotal
+    , CGVm.writeOpsTotal = dioWriteOpsTotal
+    }
+
+fromCapnpDriveIo :: C.Parsed CGVm.DriveIo -> P.DriveIo
+fromCapnpDriveIo CGVm.DriveIo {..} =
+  P.DriveIo
+    { P.dioName = name
+    , P.dioReadBytesTotal = readBytesTotal
+    , P.dioWriteBytesTotal = writeBytesTotal
+    , P.dioReadOpsTotal = readOpsTotal
+    , P.dioWriteOpsTotal = writeOpsTotal
+    }
+
+toCapnpNetIo :: P.NetIo -> C.Parsed CGVm.NetIo
+toCapnpNetIo P.NetIo {..} =
+  CGVm.NetIo
+    { CGVm.tapName = nioTapName
+    , CGVm.rxBytesTotal = nioRxBytesTotal
+    , CGVm.txBytesTotal = nioTxBytesTotal
+    }
+
+fromCapnpNetIo :: C.Parsed CGVm.NetIo -> P.NetIo
+fromCapnpNetIo CGVm.NetIo {..} =
+  P.NetIo
+    { P.nioTapName = tapName
+    , P.nioRxBytesTotal = rxBytesTotal
+    , P.nioTxBytesTotal = txBytesTotal
+    }

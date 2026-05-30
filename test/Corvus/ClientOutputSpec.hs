@@ -75,6 +75,51 @@ spec = sequential $ do
             json = encode vm
         BL.unpack json `shouldSatisfy` isInfixOf "\"stopped\""
 
+    describe "VmStats" $ do
+      it "serializes the zero-sample sentinel cleanly" $ do
+        -- The zero placeholder is what 'crv vm show --output json'
+        -- emits when the daemon hasn't received an agent sample
+        -- yet — it must round-trip through aeson without surprises.
+        let val = toJSON zeroVmStats
+        case val of
+          Object obj -> do
+            KM.lookup "sampled_at_nanos" obj `shouldBe` Just (Number 0)
+            KM.lookup "interval_millis" obj `shouldBe` Just (Number 0)
+            KM.lookup "cpu_jiffies_total" obj `shouldBe` Just (Number 0)
+          _ -> fail "Expected JSON object"
+
+      it "serializes a populated sample with snake-case field names" $ do
+        let s =
+              VmStats
+                { vstSampledAtNanos = 1700000000000000000
+                , vstIntervalMillis = 10000
+                , vstCpuJiffiesTotal = 142000
+                , vstClkTck = 100
+                , vstHostRssBytes = 4031733760
+                , vstBalloonActualBytes = 3221225472
+                , vstBalloonMaxBytes = 4294967296
+                , vstDrives =
+                    [ DriveIo
+                        { dioName = "drive0"
+                        , dioReadBytesTotal = 51768954880
+                        , dioWriteBytesTotal = 12998545408
+                        , dioReadOpsTotal = 1240315
+                        , dioWriteOpsTotal = 332108
+                        }
+                    ]
+                , vstNets =
+                    [ NetIo
+                        { nioTapName = "vmtap0"
+                        , nioRxBytesTotal = 34025467904
+                        , nioTxBytesTotal = 4509265920
+                        }
+                    ]
+                }
+            json = encode s
+        BL.unpack json `shouldSatisfy` isInfixOf "\"clk_tck\":100"
+        BL.unpack json `shouldSatisfy` isInfixOf "\"drive0\""
+        BL.unpack json `shouldSatisfy` isInfixOf "\"vmtap0\""
+
     describe "DiskImageInfo" $ do
       it "serializes with all fields" $ do
         let disk = DiskImageInfo 1 "boot" [DiskImagePlacement 1 "test-node" "/path/boot.qcow2"] FormatQcow2 (Just 10240) testTime [(1, "vm1"), (2, "vm2")] Nothing Nothing False
