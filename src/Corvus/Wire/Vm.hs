@@ -11,6 +11,7 @@ module Corvus.Wire.Vm
   , fromCapnpNetIfInfo
   , toCapnpVmDetails
   , fromCapnpVmDetails
+  , zeroVmStats
   )
 where
 
@@ -180,8 +181,11 @@ fromCapnpNetIfInfo CGVm.NetIfInfo {..} = do
 toCapnpVmDetails
   :: P.VmDetails
   -> [PSD.SharedDirInfo]
+  -> C.Parsed CGVm.VmStats
+  -- ^ Latest cached resource sample (or 'zeroVmStats' when the
+  -- daemon hasn't seen one for this VM yet).
   -> C.Parsed CGVm.VmDetails
-toCapnpVmDetails P.VmDetails {..} sharedDirs =
+toCapnpVmDetails P.VmDetails {..} sharedDirs stats =
   CGVm.VmDetails
     { CGVm.id = vdId
     , CGVm.name = vdName
@@ -211,14 +215,12 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs =
     , CGVm.lastErrorAt = utcTimeToNanosMaybe vdLastErrorAt
     , CGVm.rebootQuirk = vdRebootQuirk
     , CGVm.cpuModel = vdCpuModel
-    , -- Slice 3 will populate this from the daemon-side stats
-      -- ring buffer; until then every VmDetails ships a
-      -- zero-filled sample so the wire encoder has the field.
-      CGVm.stats = zeroVmStats
+    , CGVm.stats = stats
     }
 
--- | Default zero-filled 'VmStats'. Used as a placeholder until the
--- daemon's stats-cache (slice 3) attaches a real sample.
+-- | Default zero-filled 'VmStats'. Used as a placeholder for VMs
+-- the daemon has no cached sample for yet (e.g. just-created VM
+-- before the agent's first push).
 zeroVmStats :: C.Parsed CGVm.VmStats
 zeroVmStats =
   CGVm.VmStats

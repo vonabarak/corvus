@@ -31,6 +31,7 @@ where
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
+import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import qualified Control.Exception as E
@@ -41,11 +42,17 @@ import qualified Corvus.Model as M
 import qualified Corvus.Node.NodeStats as NS
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (callSink)
-import Corvus.Types (ServerState (..), clearReservation, runServerLogging)
+import Corvus.Types
+  ( ServerState (..)
+  , clearReservation
+  , runServerLogging
+  , vmStatsRingCapacity
+  )
 import qualified Corvus.Types
 import Data.Int (Int64)
 import Data.List (find)
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime, nominalDiffTimeToSeconds)
@@ -99,8 +106,20 @@ processEntry state entry = do
         , CGNA.lastPingMillis = pingMillis
         , CGNA.lastExitCode = exitCode
         , CGNA.netIfs = ifs
+        , CGNA.stats = stats
         } = entry
       pool = ssDbPool state
+  -- Stats ring: keep the most recent 'vmStatsRingCapacity' samples
+  -- for running VMs, drop the ring entirely on stopped/errored.
+  -- A non-running VM still pushes a zero-filled VmStats; storing
+  -- those would just waste memory and confuse the WebUI.
+  case agentState of
+    CGNA.VmAgentState'running -> appendVmStats state vmId stats
+    _ -> dropVmStatsRing state vmId
+  -- Fan out the sample to live subscribers (always; subscribers
+  -- can observe the running → stopped transition via the
+  -- zero-filled sample).
+  pushVmStats state vmId stats
   -- Stamp healthcheck on successful ping; reflect MAC→IP map in
   -- the network_interface table.
   when ok $ do
@@ -207,6 +226,61 @@ formatIpAddresses :: [C.Parsed CGNA.GuestIpAddress] -> Text
 formatIpAddresses =
   T.intercalate ","
     . map (\ip -> CGNA.ipAddress ip <> "/" <> tshow (CGNA.prefix ip))
+
+-- ---------------------------------------------------------------------------
+-- VM stats ring + subscriber fanout
+
+-- | Append a 'VmStats' sample to the per-VM ring buffer, trimming
+-- to 'vmStatsRingCapacity' from the left (oldest-first) so the
+-- newest sample is always at the right.
+appendVmStats :: ServerState -> Int64 -> C.Parsed CGVm.VmStats -> IO ()
+appendVmStats state vmId stats =
+  atomically $
+    modifyTVar' (ssVmStatsRing state) $
+      Map.alter (Just . trim . maybe (Seq.singleton stats) (Seq.|> stats)) vmId
+  where
+    trim s =
+      let n = Seq.length s
+       in if n > vmStatsRingCapacity
+            then Seq.drop (n - vmStatsRingCapacity) s
+            else s
+
+-- | Forget the ring buffer for a VM that just transitioned out of
+-- running. Subscribers stay; they receive the zero-filled
+-- 'VmStats' from 'pushVmStats' so they can render "stopped" too.
+dropVmStatsRing :: ServerState -> Int64 -> IO ()
+dropVmStatsRing state vmId =
+  atomically $ modifyTVar' (ssVmStatsRing state) (Map.delete vmId)
+
+-- | Push a 'VmStats' to every 'vm.subscribeStats' subscriber
+-- registered for this VM. Dead sinks (push raises) are pruned
+-- from the registry on the spot. Mirrors 'pushGuestAgentStatus'.
+pushVmStats :: ServerState -> Int64 -> C.Parsed CGVm.VmStats -> IO ()
+pushVmStats state vmId stats = do
+  subs <- readTVarIO (ssVmStatsSubs state)
+  let sinks = Map.findWithDefault [] vmId subs
+  case sinks of
+    [] -> pure ()
+    _ -> do
+      let params = CGVm.VmStatsSink'onStats'params {CGVm.stats = stats}
+      alive <- traverse (tryPush params) sinks
+      atomically $
+        modifyTVar' (ssVmStatsSubs state) $
+          Map.insert vmId (map fst (filter snd (zip sinks alive)))
+  where
+    tryPush
+      :: C.Parsed CGVm.VmStatsSink'onStats'params
+      -> C.Client CGVm.VmStatsSink
+      -> IO Bool
+    tryPush params sink = do
+      r <-
+        E.try (callSink #onStats params sink)
+          :: IO (Either E.SomeException ())
+      pure $ case r of
+        Right () -> True
+        Left _ -> False
+
+-- ---------------------------------------------------------------------------
 
 -- | Push a 'GuestAgentStatus' to every @vm.subscribeGuestAgent@
 -- subscriber registered for this VM. Subscribers whose @push@

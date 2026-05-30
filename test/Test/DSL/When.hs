@@ -164,6 +164,8 @@ createTestServerState pool basePath = do
   agents <- newTVarIO mempty
   gaSubs <- newTVarIO mempty
   taskSubs <- newTVarIO mempty
+  vmStatsRing <- newTVarIO mempty
+  vmStatsSubs <- newTVarIO mempty
   vsockLocks <- newTVarIO mempty
   spiceLock <- newMVar ()
   reservedRam <- newTVarIO mempty
@@ -179,6 +181,8 @@ createTestServerState pool basePath = do
           , ssAgents = agents
           , ssGuestAgentSubs = gaSubs
           , ssTaskProgressSubs = taskSubs
+          , ssVmStatsRing = vmStatsRing
+          , ssVmStatsSubs = vmStatsSubs
           , ssVsockCidLocks = vsockLocks
           , ssSpicePortLock = spiceLock
           , ssReservedRam = reservedRam

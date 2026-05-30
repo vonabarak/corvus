@@ -26,6 +26,9 @@ module Corvus.Types
   , reservedRamFor
   , clearReservation
 
+    -- * VM stats cache
+  , vmStatsRingCapacity
+
     -- * Per-node serialisation locks
   , vsockCidLockFor
 
@@ -41,6 +44,7 @@ where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
+import qualified Capnp.Gen.Vm as CGVm
 import Control.Concurrent.Async (Async)
 import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
@@ -55,6 +59,7 @@ import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Pool (Pool)
+import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (UTCTime, getCurrentTime)
@@ -64,6 +69,15 @@ import Network.Socket (Socket)
 import System.Environment (lookupEnv)
 
 import System.FilePath ((</>))
+
+-- | Bound on the per-VM resource-stats ring buffer in
+-- 'ssVmStatsRing'. 60 samples at the agent's 10-second poll
+-- cadence is exactly 10 minutes — what the WebUI needs to seed
+-- its sparkline panel on page load. Memory cost is small:
+-- 60 × ~100 bytes × N VMs (≈600 KiB at 100 VMs); buffers are
+-- cleared when a VM transitions out of running.
+vmStatsRingCapacity :: Int
+vmStatsRingCapacity = 60
 
 -- | Shared server state
 data ServerState = ServerState
@@ -93,6 +107,17 @@ data ServerState = ServerState
   -- guest-agent poller pushes a 'GuestAgentStatus' to each sink
   -- after every poll cycle; dead sinks are pruned on the next
   -- push attempt.
+  , ssVmStatsRing :: TVar (Map.Map Int64 (Seq.Seq (C.Parsed CGVm.VmStats)))
+  -- ^ Per-VM resource-stats ring buffer (most recent 60 samples
+  -- == 10 minutes at the 10s poll cadence). The daemon-side
+  -- 'DaemonVmStatusSink' appends to the right on every agent
+  -- push; bounded by a trim to 'vmStatsRingCapacity'.
+  -- 'vm.show' reads the rightmost entry; 'vm.getStatsHistory'
+  -- returns the whole sequence (oldest first).
+  , ssVmStatsSubs :: TVar (Map.Map Int64 [C.Client CGVm.VmStatsSink])
+  -- ^ Per-VM 'vm.subscribeStats' subscriber lists. Each agent
+  -- snapshot fans out the matching entry's 'VmStats' to every
+  -- subscriber; dead sinks are pruned on the next push attempt.
   , ssTaskProgressSubs :: TVar (Map.Map Int64 [C.Client CGS.TaskProgressSink])
   -- ^ Per-task-id 'taskManager.subscribe' subscriber lists.
   -- The Action runtime pushes a 'TaskProgressEvent' to each
@@ -173,6 +198,8 @@ newServerState pool qemuConfig = do
   agents <- newTVarIO Map.empty
   gaSubs <- newTVarIO Map.empty
   taskSubs <- newTVarIO Map.empty
+  vmStatsRing <- newTVarIO Map.empty
+  vmStatsSubs <- newTVarIO Map.empty
   vsockLocks <- newTVarIO Map.empty
   spiceLock <- newMVar ()
   reservedRam <- newTVarIO Map.empty
@@ -187,6 +214,8 @@ newServerState pool qemuConfig = do
       , ssAgents = agents
       , ssGuestAgentSubs = gaSubs
       , ssTaskProgressSubs = taskSubs
+      , ssVmStatsRing = vmStatsRing
+      , ssVmStatsSubs = vmStatsSubs
       , ssVsockCidLocks = vsockLocks
       , ssSpicePortLock = spiceLock
       , ssReservedRam = reservedRam

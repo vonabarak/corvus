@@ -23,13 +23,14 @@ module Corvus.Rpc.Vm
 where
 
 import Capnp (export)
+import qualified Capnp as C
 import qualified Capnp.Gen.Common as CGCommon
 import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Vm as CGVm
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
-import Control.Concurrent.STM (atomically, modifyTVar')
+import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
 import Corvus.Action (runAction, runActionAsync, runActionAsyncWithId)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.GuestExec (GuestExec (..))
@@ -78,10 +79,12 @@ import Corvus.Wire.Enums
   )
 import Corvus.Wire.SharedDir (toCapnpSharedDirInfo)
 import Corvus.Wire.SshKey (toCapnpSshKeyInfo)
-import Corvus.Wire.Vm (toCapnpNetIfInfo, toCapnpVmDetails, toCapnpVmInfo)
+import Corvus.Wire.Vm (toCapnpNetIfInfo, toCapnpVmDetails, toCapnpVmInfo, zeroVmStats)
+import Data.Foldable (toList)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe
+import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Database.Persist (get)
 import Database.Persist.Postgresql (runSqlPool)
@@ -164,7 +167,11 @@ instance CGVm.Vm'server_ VmCap where
         let sds = case sharedResp of
               RespSharedDirList xs -> xs
               _ -> []
-        pure CGVm.Vm'show'results {CGVm.details = toCapnpVmDetails det sds}
+        stats <- latestVmStats st eid
+        pure
+          CGVm.Vm'show'results
+            { CGVm.details = toCapnpVmDetails det sds stats
+            }
       RespVmNotFound -> throwFailed "VM not found"
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'show: unexpected response"
@@ -580,11 +587,23 @@ instance CGVm.Vm'server_ VmCap where
         RespError msg -> throwFailed msg
         _ -> throwFailed "vm'migrate: unexpected response"
 
-  -- Per-VM resource stats subscribe + history fetch. Stubs in
-  -- slice 1 (schema only) — slice 3 wires them through the
-  -- daemon-side VmStatusSink cache.
-  vm'getStatsHistory _ = methodUnimplemented
-  vm'subscribeStats _ = methodUnimplemented
+  -- Per-VM resource stats subscribe + history fetch. The agent's
+  -- StatusPoller pushes one VmStats sample per VM every ~10 s up
+  -- the existing VmStatusSink channel; the daemon's
+  -- DaemonVmStatusSink (Corvus.Handlers.VmStatusSink) memoises
+  -- the most recent 60 samples per VM in 'ssVmStatsRing' and
+  -- fans the latest out to every subscriber in 'ssVmStatsSubs'.
+  vm'getStatsHistory (VmCap st _ eid _) = handleParsed $ \_ -> do
+    ring <- readVmStatsRing st eid
+    pure CGVm.Vm'getStatsHistory'results {CGVm.samples = ring}
+
+  vm'subscribeStats (VmCap st sup eid _) =
+    handleParsed $ \CGVm.Vm'subscribeStats'params {sink = sink'} -> do
+      atomically $
+        modifyTVar' (ssVmStatsSubs st) $
+          Map.insertWith (++) eid [sink']
+      h <- export @CGS.Handle sup EmptyHandle
+      pure CGVm.Vm'subscribeStats'results {CGVm.handle = h}
 
 -- ---------------------------------------------------------------------
 -- Helpers
@@ -611,3 +630,19 @@ fromCapnpRefMaybe r =
     CGCommon.EntityRef'id n -> Just (P.Ref (T.pack (show n)))
     CGCommon.EntityRef'name t -> Just (P.Ref t)
     CGCommon.EntityRef'unknown' _ -> Nothing
+
+-- | Look up the most recent cached 'VmStats' sample for a VM, or
+-- 'zeroVmStats' when the daemon hasn't seen one yet.
+latestVmStats :: ServerState -> Int64 -> IO (C.Parsed CGVm.VmStats)
+latestVmStats st vmId = do
+  ring <- readTVarIO (ssVmStatsRing st)
+  pure $ case Map.lookup vmId ring of
+    Just s | not (Seq.null s) -> Seq.index s (Seq.length s - 1)
+    _ -> zeroVmStats
+
+-- | Whole ring buffer for a VM, oldest first. Empty list when
+-- the VM was never sampled or has transitioned out of running.
+readVmStatsRing :: ServerState -> Int64 -> IO [C.Parsed CGVm.VmStats]
+readVmStatsRing st vmId = do
+  ring <- readTVarIO (ssVmStatsRing st)
+  pure (maybe [] toList (Map.lookup vmId ring))
