@@ -3181,7 +3181,7 @@ type instance (R.ReprFor Vm'save'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'save'params) where
     typeId  = 9926182892995479089
 instance (C.TypedStruct Vm'save'params) where
-    numStructWords  = 0
+    numStructWords  = 1
     numStructPtrs  = 0
 instance (C.Allocate Vm'save'params) where
     type AllocHint Vm'save'params = ()
@@ -3193,14 +3193,19 @@ instance (C.AllocateList Vm'save'params) where
 instance (C.EstimateListAlloc Vm'save'params (C.Parsed Vm'save'params))
 data instance C.Parsed Vm'save'params
     = Vm'save'params 
-        {}
+        {wait :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'save'params))
 deriving instance (Std_.Eq (C.Parsed Vm'save'params))
 instance (C.Parse Vm'save'params (C.Parsed Vm'save'params)) where
-    parse raw_ = (Std_.pure Vm'save'params)
+    parse raw_ = (Vm'save'params <$> (GH.parseField #wait raw_))
 instance (C.Marshal Vm'save'params (C.Parsed Vm'save'params)) where
-    marshalInto _raw (Vm'save'params) = (Std_.pure ())
+    marshalInto raw_ Vm'save'params{..} = (do
+        (GH.encodeField #wait wait raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "wait" GH.Slot Vm'save'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
 data Vm'save'results 
 type instance (R.ReprFor Vm'save'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'save'results) where

@@ -147,7 +147,6 @@ insertVm name status = do
           , vmVsockCid = Nothing
           , vmErrorMessage = Nothing
           , vmLastErrorAt = Nothing
-          , vmMigrating = False
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           }
@@ -180,7 +179,6 @@ insertRunningVmWithGuestAgent name = do
           , vmVsockCid = Nothing
           , vmErrorMessage = Nothing
           , vmLastErrorAt = Nothing
-          , vmMigrating = False
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           }
@@ -212,7 +210,6 @@ insertHeadlessVm name status = do
           , vmVsockCid = Nothing
           , vmErrorMessage = Nothing
           , vmLastErrorAt = Nothing
-          , vmMigrating = False
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           }
@@ -250,7 +247,6 @@ insertVmFull name status cpus ramMb desc _pid = do
           , vmVsockCid = Nothing
           , vmErrorMessage = Nothing
           , vmLastErrorAt = Nothing
-          , vmMigrating = False
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           }
@@ -281,7 +277,6 @@ defaultVm = do
       , vmVsockCid = Nothing
       , vmErrorMessage = Nothing
       , vmLastErrorAt = Nothing
-      , vmMigrating = False
       , vmRebootQuirk = False
       , vmCpuModel = "host"
       }
@@ -584,7 +579,6 @@ givenCloudInitVmExists name = do
           , vmVsockCid = Nothing
           , vmErrorMessage = Nothing
           , vmLastErrorAt = Nothing
-          , vmMigrating = False
           , vmRebootQuirk = False
           , vmCpuModel = "host"
           }

@@ -202,8 +202,11 @@ instance CGVm.Vm'server_ VmCap where
     status <- statusOrThrow resp
     pure CGVm.Vm'reset'results {CGVm.status = status}
 
-  vm'save (VmCap st _ eid cn) = handleParsed $ \_ -> do
-    resp <- runAction st cn (VmSave eid)
+  vm'save (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'save'params {wait = wait'} -> do
+    resp <-
+      if wait'
+        then runAction st cn (VmSave eid)
+        else runActionAsync st cn (VmSave eid) (RespVmStateChanged M.VmSaving)
     status <- statusOrThrow resp
     pure CGVm.Vm'save'results {CGVm.status = status}
 

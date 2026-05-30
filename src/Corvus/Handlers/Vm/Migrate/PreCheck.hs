@@ -82,18 +82,15 @@ validateMigration state vmId destNode = do
   case mVm of
     Nothing -> pure (Left "VM not found")
     Just vm
-      -- Note: the @migrating@ flag is intentionally NOT checked
-      -- here. The orchestrator's conditional update has already
-      -- acquired the lock by the time it calls this function;
-      -- @vm.migrating@ is now @True@. The lock acquisition is
-      -- the single source of truth for "another migration is in
-      -- progress" — see Corvus.Handlers.Vm.Migrate.handleVmMigrate.
-      --
       -- @vm migrate@ accepts stopped VMs (no state file) and
       -- saved VMs (state file follows to the destination). Running
       -- and paused VMs are auto-saved by the orchestrator BEFORE
       -- this PreCheck runs, so by the time we read the row here
-      -- it's one of the two acceptable terminal states.
+      -- it's one of the two acceptable terminal states. The FSM
+      -- lock acquisition (transition to 'VmMigrating') happens
+      -- AFTER this PreCheck returns successfully — concurrent
+      -- migrations / starts are rejected by 'validateTransition'
+      -- once the row is in 'VmMigrating'.
       | M.vmStatus vm `notElem` [M.VmStopped, M.VmSaved] ->
           pure (Left "VM must be stopped or saved before migrating")
       | M.vmNodeId vm == destNode ->

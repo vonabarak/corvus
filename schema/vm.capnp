@@ -328,7 +328,14 @@ interface Vm {
   # waits for completion, then `quit`s QEMU. Allowed from `running`
   # or `paused`. Resume later with `start` — same verb as a cold
   # boot. Drop the saved state with `reset`.
-  save @31 () -> (status :Enums.VmStatus);
+  #
+  # `wait=false` returns immediately with `status=saving`; the
+  # daemon completes the save in the background and flips the row
+  # to `saved` (or `error`) on completion. `wait=true` blocks
+  # until the save finishes and returns the terminal `saved` /
+  # `error` status — matches the established `start` / `stop`
+  # wait semantics.
+  save @31 (wait :Bool = false) -> (status :Enums.VmStatus);
 
   # One-shot fetch of the daemon's resource-stats ring buffer for
   # this VM (up to 60 samples, oldest first). Empty when the VM

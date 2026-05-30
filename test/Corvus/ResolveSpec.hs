@@ -195,7 +195,6 @@ insertVmOnNode name nodeKey = do
           , M.vmVsockCid = Nothing
           , M.vmErrorMessage = Nothing
           , M.vmLastErrorAt = Nothing
-          , M.vmMigrating = False
           , M.vmRebootQuirk = False
           , M.vmCpuModel = "host"
           }

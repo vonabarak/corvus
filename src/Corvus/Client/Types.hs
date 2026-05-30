@@ -73,7 +73,7 @@ data Command
   | VmStop !Text !WaitOptions
   | VmPause !Text
   | VmReset !Text
-  | VmSave !Text
+  | VmSave !Text !WaitOptions
   | -- | View VM via SPICE (runs remote-viewer)
     VmView !Text
   | -- | Connect to VM's HMP monitor

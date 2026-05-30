@@ -3,7 +3,8 @@ import { Badge } from "@/components/ui/badge";
 /**
  * Maps `Vm.status` strings (from src/Corvus/Model.hs `VmStatus`) to
  * shadcn Badge variants. Keep this in lockstep with the enum:
- * `stopped | starting | running | stopping | paused | saved | error`.
+ * `stopped | starting | running | stopping | paused | saved | error
+ *  | saving | loading | migrating`.
  */
 function variantFor(status: string): "success" | "warning" | "destructive" | "muted" | "default" {
   switch (status) {
@@ -11,6 +12,9 @@ function variantFor(status: string): "success" | "warning" | "destructive" | "mu
       return "success";
     case "starting":
     case "stopping":
+    case "saving":
+    case "loading":
+    case "migrating":
       return "warning";
     case "error":
       return "destructive";

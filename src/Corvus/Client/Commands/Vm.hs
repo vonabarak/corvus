@@ -20,6 +20,7 @@ module Corvus.Client.Commands.Vm
   , handleVmAction
   , handleVmStart
   , handleVmStop
+  , handleVmSave
   , handleVmEdit
   , handleVmMigrate
 
@@ -160,6 +161,18 @@ handleVmStop fmt conn vmRef waitOpts = do
       putStrLn $
         "Stopping VM '" ++ T.unpack vmRef ++ "' and waiting for it to stop..."
   handleVmAction fmt "stop" vmRef (CR.rpcVmStop conn (entityRefFromText vmRef) wait)
+
+-- | Handle VM save. With @--wait@, blocks until the daemon's save
+-- worker has finished and the row is in @saved@ (or @error@).
+-- Otherwise the RPC returns immediately with @saving@.
+handleVmSave :: OutputFormat -> CapnpConnection -> Text -> WaitOptions -> IO Bool
+handleVmSave fmt conn vmRef waitOpts = do
+  let wait = woWait waitOpts
+  unless (isStructured fmt) $
+    when wait $
+      putStrLn $
+        "Saving VM '" ++ T.unpack vmRef ++ "' and waiting for the snapshot to finish..."
+  handleVmAction fmt "save" vmRef (CR.rpcVmSave conn (entityRefFromText vmRef) wait)
 
 -- | Handle VM edit
 handleVmEdit

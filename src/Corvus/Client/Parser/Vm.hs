@@ -181,6 +181,7 @@ vmSaveCommand =
           <> help "Name or ID of the VM to save"
           <> completer vmCompleter
       )
+    <*> waitOptionsParser
 
 -- | Parser for vm edit
 vmEditCommand :: Parser Command

@@ -104,15 +104,24 @@ VMs follow a strict state machine:
 |---------------|-------|------|-------|------|-------|
 | **stopped** | running/starting | error | error | error | stopped |
 | **starting** | error | stopping | error | error | stopped |
-| **running** | error | stopping | paused | saved | stopped |
+| **running** | error | stopping | paused | saving | stopped |
 | **stopping** | error | error | error | error | stopped |
-| **paused** | running | error | error | saved | stopped |
-| **saved** | running (resume) | error | error | error | stopped (drops state file) |
+| **paused** | running | error | error | saving | stopped |
+| **saved** | loading (resume) | error | error | error | stopped (drops state file) |
 | **error** | error | error | error | error | stopped |
+| **saving** | error (in-flight) | error | error | error | stopped (cancel) |
+| **loading** | error (in-flight) | error | error | error | stopped (cancel) |
+| **migrating** | error (in-flight) | error | error | error | stopped (cancel) |
 
 VMs with `guestAgent: true` transition through a `starting` state and become `running` once the first guest agent health check succeeds. VMs without the guest agent go directly to `running`.
 
-`reset` always returns the VM to `stopped` regardless of current state.
+The three transient states — **`saving`**, **`loading`**, **`migrating`** — are write-locks owned by the daemon's background workers. While a VM is in one of these states:
+
+* Operator actions other than `reset` are rejected with a message naming the in-flight operation. This is what protects `vm start` on a half-saved VM (the bug that motivated the transient states).
+* Serial console / SPICE / monitor sessions cannot be opened against the VM — QEMU is either mid-save (will exit shortly), still loading the migration stream, or owned by the migration orchestrator on another node.
+* The state automatically transitions on completion: `saving → saved` (or `error`), `loading → running` (or `error`), `migrating → saved` (or rolled back to `saved` / `stopped` on failure).
+
+`reset` always returns the VM to `stopped` regardless of current state. From the transient states, reset doubles as a cancel verb: it aborts the in-flight operation (kills QEMU mid-save, kills QEMU mid-load, aborts the migration orchestrator) and lands the row in `stopped`. From `saved`, reset additionally unlinks the state file.
 
 ### Save / Resume
 
@@ -122,6 +131,18 @@ terminates QEMU. Disks are unchanged. `crv vm start` on a `saved` VM
 spawns a fresh QEMU with `-incoming "exec:zstdcat …"`, waits for the
 restore to finish, and resumes execution — same command as a cold
 boot.
+
+Save and resume are surfaced as **transient states** in the FSM so
+concurrent operations cannot race a half-completed snapshot:
+
+* `vm save` flips the row to **`saving`** and forks the QMP migrate
+  in the background. Pass `--wait` to block until the row reaches
+  `saved` (or `error`); without it the RPC returns immediately and
+  operators can watch the transition via `crv vm show`. Any
+  concurrent `vm start` against a row in `saving` is rejected.
+* `vm start` on a `saved` VM flips the row to **`loading`** and
+  spawns QEMU with `-incoming`. The status transitions to `running`
+  once the agent reports QMP `cont` succeeded.
 
 The state file lives at `<basePath>/<vmName>/state.qemu.zst` on the
 node that was hosting the VM (zstd-compressed; multi-threaded compress
@@ -139,18 +160,28 @@ Autostart picks up saved VMs the same way it picks up stopped ones:
 on daemon restart, any VM with `autostart=true` and `status in
 {stopped, saved}` is started — saved ones via the resume path.
 
-Cross-host migration carries the saved state with it. `crv vm migrate`
-accepts saved VMs directly: the state file streams to the destination
-alongside the disks, and the row lands on the destination with
-`status=saved` — operator runs `vm start` on the destination to
-resume execution from where the source left off.
+Cross-host migration carries the saved state with it. While the
+transfer is in flight the row is in the **`migrating`** transient
+state — see the FSM table above. `crv vm migrate` accepts saved VMs
+directly: the state file streams to the destination alongside the
+disks, and the row lands on the destination with `status=saved` —
+operator runs `vm start` on the destination to resume execution
+from where the source left off.
 
 Running and paused VMs are auto-saved before migration: `vm migrate`
 on a running VM records a child `vm/save` task in `crv task history`,
-then proceeds with the now-saved VM. The end state is the same as
-migrating an already-saved VM. If the auto-save fails (e.g. node
-disconnected mid-flight), the migrate task surfaces the error and the
-VM stays where it was.
+then proceeds with the now-saved VM. After the transfer commits, the
+orchestrator **auto-starts** the VM on the destination as a follow-up
+child task so the operator-observable state matches what they had
+pre-migrate — the row transitions
+`running → saving → saved → migrating → saved → loading → running`
+end-to-end. Saved and stopped source VMs are left in `saved` /
+`stopped` on the destination (no auto-restore). If the auto-save
+fails (e.g. node disconnected mid-flight), the migrate task surfaces
+the error and the VM stays where it was. If the post-migrate
+auto-start fails (network down on dest, image missing), the migration
+itself is still considered successful — the VM is recoverable
+manually with `crv vm start` on the destination.
 
 The destination must run a compatible QEMU version with a compatible
 CPU model: the saved RAM image is bound to the source's `-machine` /

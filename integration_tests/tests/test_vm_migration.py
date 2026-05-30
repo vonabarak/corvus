@@ -415,16 +415,18 @@ class TestVmMigration(_MigrationCase):
 
     def test_migrate_running_vm_auto_saves(self):
         """A running VM is auto-saved before migrate, then the
-        usual disk + state-file transfer runs. End state on the
-        destination is ``status=saved`` — the operator runs
-        ``vm start`` on beta to resume.
+        usual disk + state-file transfer runs, and the orchestrator
+        auto-starts the VM on the destination so the operator-
+        observable state matches what they had pre-migrate. The
+        full sequence on the row is `running → saving → saved →
+        migrating → saved → loading → running`.
 
         Uses the migrate suite's fixture (no QGA, no Alpine
-        bootable image) to prove the auto-save path doesn't
-        depend on a guest agent; the test_vm_save_load.py
-        ``TestVmMigrateSaved`` suite exercises the same path with
-        a real Alpine guest and a sentinel-survives-RAM assertion.
-        Here we just need: migrate succeeds → row on beta → saved.
+        bootable image) to prove the auto-save and post-migrate
+        restore paths don't depend on a guest agent; the
+        test_vm_save_load.py ``TestVmMigrateSaved`` suite exercises
+        the same path with a real Alpine guest and a sentinel-
+        survives-RAM assertion.
         """
         vm_name = _uniq("mig-run")
         disk_name = _uniq("mig-run-disk")
@@ -437,20 +439,24 @@ class TestVmMigration(_MigrationCase):
                 msg=f"qemu for {vm_name!r} did not spawn on alpha",
             )
             tid = vm.migrate(self.beta_name)
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            # 180 s covers transfer plus the post-migrate auto-start
+            # subtask (load-from-saved on a no-GA VM is fast — no
+            # cloud-init bootstrap to wait through).
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
             details = vm.show()
-            assert details.status == "saved", (
-                f"after migrate of running VM, expected status=saved; got "
+            assert details.status == "running", (
+                f"after migrate of running VM, expected post-migrate "
+                f"auto-restore to land on status=running; got "
                 f"{details.status!r}"
             )
             # The disk follows; the VM should now be on beta.
             assert details.node_name == self.beta_name
             # QEMU on alpha must be gone — auto-save quit it.
             assert _qemu_count(self.node_alpha, vm_name) == 0
+            # QEMU on beta must be alive — auto-restore respawned it.
+            assert _qemu_count(self.node_beta, vm_name) == 1
         finally:
-            # `vm reset` on a saved VM drops the state file and
-            # lands at stopped. `_delete_silent_vm` then reaps the
-            # row + ephemeral disk.
+            # Stop the auto-restored VM cleanly before delete.
             try:
                 vm.reset()
             except Exception:
@@ -880,7 +886,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             )
             assert r.exit_code == 0, r
 
-            vm.save()
+            vm.save(wait=True)
             _poll_until(
                 lambda: vm.show().status == "saved",
                 timeout_sec=10.0,
@@ -937,9 +943,12 @@ class TestVmMigrationBootableGuest(_MigrationCase):
 
     def test_migrate_running_alpine_vm_auto_saves(self):
         """Migrate a *running* VM — the daemon auto-saves first as
-        a child task, then runs the standard transfer+commit. End
-        state on the destination is status=saved; vm.start resumes
-        execution. Sentinel-survives-RAM proves the auto-save was a
+        a child task, then runs the standard transfer+commit, and
+        finally auto-starts the VM on the destination so the
+        operator-observable state matches what they had pre-migrate.
+        The full status sequence on the source row is:
+        `running → saving → saved → migrating → saved → loading →
+        running`. Sentinel-survives-RAM proves the auto-save was a
         real RAM dump, not a freeze-and-throw-away.
 
         Originally test_vm_save_load.py::test_migrate_running_vm_auto_saves;
@@ -965,19 +974,24 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             assert r.exit_code == 0, r
 
             tid = vm.migrate(self.beta_name)
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            # 180 s budget: covers transfer (~120 s) plus the
+            # post-migrate auto-start subtask (which waits for the
+            # guest agent's first ping on the destination, ~30-60 s).
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
 
             details = vm.show()
-            assert details.status == "saved"
-            assert details.node_name == self.beta_name
-
-            # Resume on beta and check RAM survived the implicit save.
-            vm.start(wait=True)
+            # Post-migrate auto-restore: the VM should now be running
+            # on beta. The migrate task completes only after the
+            # auto-start subtask, so by this point the row has
+            # transitioned all the way to 'running'.
             _poll_until(
                 lambda: vm.show().status == "running",
                 timeout_sec=60.0,
-                msg="vm did not resume on beta after auto-save migrate",
+                msg="vm did not auto-restore to 'running' on beta after migrate",
             )
+            details = vm.show()
+            assert details.node_name == self.beta_name
+
             r = vm.guest_exec("/bin/cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout, (
@@ -994,7 +1008,11 @@ class TestVmMigrationBootableGuest(_MigrationCase):
 
     def test_migrate_paused_vm_auto_saves(self):
         """Same as the running case but the VM is paused (QMP stop)
-        when migrate fires. Auto-save must still kick in.
+        when migrate fires. Auto-save must still kick in, and the
+        post-migrate restore auto-starts the VM on the destination
+        (paused VMs are auto-resumed too — the captured pre-migrate
+        status was 'paused', which the orchestrator treats as
+        'live' for restore purposes).
 
         Originally test_vm_save_load.py::test_migrate_paused_vm_auto_saves.
         """
@@ -1024,18 +1042,17 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             )
 
             tid = vm.migrate(self.beta_name)
-            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=180.0)
 
-            details = vm.show()
-            assert details.status == "saved"
-            assert details.node_name == self.beta_name
-
-            vm.start(wait=True)
+            # Auto-restore lands the VM in 'running' on beta.
             _poll_until(
                 lambda: vm.show().status == "running",
                 timeout_sec=60.0,
-                msg="vm did not resume on beta after paused-source migrate",
+                msg="vm did not auto-restore to 'running' on beta after paused migrate",
             )
+            details = vm.show()
+            assert details.node_name == self.beta_name
+
             r = vm.guest_exec("/bin/cat /tmp/sentinel")
             assert r.exit_code == 0, r
             assert sentinel in r.stdout

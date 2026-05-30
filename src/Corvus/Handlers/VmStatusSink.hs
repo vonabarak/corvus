@@ -138,7 +138,20 @@ processEntry state entry = do
   case agentState of
     CGNA.VmAgentState'running
       | ok ->
+          -- QGA pinged — definitively running. Promotes any
+          -- 'VmStarting' or 'VmLoading' row to 'VmRunning'.
           runSqlPool (promoteStartingToRunning vmId) pool
+      | otherwise ->
+          -- No QGA ping (either GA disabled, or first ping not
+          -- yet). For 'VmStarting' the daemon waits for QGA before
+          -- promoting; for 'VmLoading' the agent's
+          -- 'runIncomingStep' dispatches this snapshot AFTER QMP
+          -- 'cont' succeeded — so the row is genuinely running on
+          -- the QEMU side and we promote even without QGA. The
+          -- helper guards on the DB's from-status so a regular
+          -- steady-state tick doesn't accidentally re-write the
+          -- row.
+          runSqlPool (promoteLoadingToRunning vmId) pool
     CGNA.VmAgentState'errored ->
       runSqlPool (markErroredFromAgent vmId (fromIntegral exitCode)) pool
     _ -> pure ()
@@ -147,21 +160,22 @@ processEntry state entry = do
   -- 'pushGuestAgentStatus' helper.
   pushGuestAgentStatus state vmId ok pingMillis
 
--- | Promote @VmStarting@ to @VmRunning@. The push channel is the
--- only place the daemon learns that the agent finished bringing
--- the VM up: the agent's 'doVmStart' forks the first-QGA-ping
--- watcher and pushes a single-entry snapshot the moment it
--- succeeds. We guard on @VmStatus = 'VmStarting'@ so that a
--- regular 10 s tick for a steady-state VM doesn't accidentally
--- re-write its status (would clobber 'VmPaused' / mid-stop
--- transitions if the timing is unkind).
+-- | Promote @VmStarting@ or @VmLoading@ to @VmRunning@. Called on
+-- the agent's QGA-ping push for GA-enabled VMs. The push channel
+-- is the only place the daemon learns that the agent finished
+-- bringing the VM up: the agent's 'doVmStart' forks the
+-- first-QGA-ping watcher (cold boot) or its post-incoming
+-- coordinator (resume from saved) and pushes a single-entry
+-- snapshot the moment QEMU is live. We guard on the from-status
+-- so a regular 10 s tick for a steady-state VM doesn't accidentally
+-- re-write its status.
 promoteStartingToRunning :: Int64 -> SqlPersistT IO ()
 promoteStartingToRunning vmId = do
   let key = M.toSqlKey vmId :: M.VmId
   mVm <- get key
   case mVm of
     Just vm
-      | M.vmStatus vm == M.VmStarting ->
+      | M.vmStatus vm `elem` [M.VmStarting, M.VmLoading] ->
           update
             key
             [ M.VmStatus =. M.VmRunning
@@ -170,26 +184,62 @@ promoteStartingToRunning vmId = do
             ]
     _ -> pure ()
 
--- | Surface an agent-reported errored state into the DB. Only
--- transitions VMs that aren't already in a terminal state
--- ('VmStopped' / 'VmError') to avoid clobbering whatever an
--- earlier failure path already wrote.
+-- | Promote @VmLoading@ to @VmRunning@ without requiring a QGA
+-- ping. The agent's 'runIncomingStep' dispatches a status push
+-- after QMP 'cont' succeeds on a load-from-saved VM, signalling
+-- the load has completed. For non-GA VMs that's the only
+-- "ready" signal — QGA-enabled VMs additionally wait for the
+-- first ping via 'runGaStep' / 'promoteStartingToRunning'.
+--
+-- @VmStarting@ rows are NOT promoted here: a regular 10 s tick
+-- on a steady-state GA-disabled running VM has @ok=false@ too,
+-- but the daemon already wrote @VmRunning@ synchronously on
+-- cold-no-GA start so this code path is a no-op for them.
+promoteLoadingToRunning :: Int64 -> SqlPersistT IO ()
+promoteLoadingToRunning vmId = do
+  let key = M.toSqlKey vmId :: M.VmId
+  mVm <- get key
+  case mVm of
+    Just vm
+      | M.vmStatus vm == M.VmLoading ->
+          update
+            key
+            [ M.VmStatus =. M.VmRunning
+            , M.VmErrorMessage =. Nothing
+            , M.VmLastErrorAt =. Nothing
+            ]
+    _ -> pure ()
+
+-- | Surface an agent-reported errored state into the DB. Skips:
+--
+--   * Terminal states ('VmStopped' / 'VmError') so we don't
+--     clobber whatever an earlier failure path already wrote.
+--   * 'VmSaving' / 'VmMigrating' — the save executor and
+--     migration orchestrator each own their own terminal flips.
+--     A QEMU exit observed mid-save is expected (QMP @quit@) and
+--     mustn't be reflected here.
 markErroredFromAgent :: Int64 -> Int -> SqlPersistT IO ()
 markErroredFromAgent vmId exitCode = do
   let key = M.toSqlKey vmId :: M.VmId
   mVm <- get key
   case mVm of
-    Just vm | M.vmStatus vm `notElem` [M.VmStopped, M.VmError] -> do
-      now <- liftIO getCurrentTime
-      let msg = "QEMU exited with code " <> T.pack (show exitCode)
-      update
-        key
-        [ M.VmStatus =. M.VmError
-        , M.VmHealthcheck =. Nothing
-        , M.VmSpicePort =. Nothing
-        , M.VmErrorMessage =. Just msg
-        , M.VmLastErrorAt =. Just now
-        ]
+    Just vm
+      | M.vmStatus vm
+          `notElem` [ M.VmStopped
+                    , M.VmError
+                    , M.VmSaving
+                    , M.VmMigrating
+                    ] -> do
+          now <- liftIO getCurrentTime
+          let msg = "QEMU exited with code " <> T.pack (show exitCode)
+          update
+            key
+            [ M.VmStatus =. M.VmError
+            , M.VmHealthcheck =. Nothing
+            , M.VmSpicePort =. Nothing
+            , M.VmErrorMessage =. Just msg
+            , M.VmLastErrorAt =. Just now
+            ]
     _ -> pure ()
 
 -- | Update the healthcheck timestamp on the VM.

@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | VM management handlers.
@@ -23,7 +24,8 @@ module Corvus.Handlers.Vm
   , reattachVmMonitors
   , autostartVmsOnNode
   , handleVmPause
-  , handleVmSave
+  , handleVmSaveExecute
+  , handleVmSaveValidate
   , handleVmEdit
   , handleVmCloudInit
   , handleSerialConsole
@@ -199,7 +201,15 @@ handleVmDelete ctx vmId keepDisks = do
   case result of
     Nothing -> pure RespVmNotFound
     Just (vm, status) ->
-      if status `elem` [VmRunning, VmStarting, VmStopping, VmPaused]
+      if status
+        `elem` [ VmRunning
+               , VmStarting
+               , VmStopping
+               , VmPaused
+               , VmSaving
+               , VmLoading
+               , VmMigrating
+               ]
         then pure RespVmRunning
         else do
           -- For a saved VM, ask the agent to drop the per-VM
@@ -236,36 +246,50 @@ handleVmDelete ctx vmId keepDisks = do
           mapM_ (runActionAsSubtask ctx . DiskDelete) disksToDelete
           pure RespVmDeleted
 
--- | Validate that a VM can be started. Returns the VM and current status, or an error response.
--- Checks: VM exists, state transition valid, all referenced networks are running.
-handleVmStartValidate :: ServerState -> Int64 -> IO (Either Response (Vm, VmStatus))
+-- | Pick the right 'ActionStart' variant for a VM in its current
+-- state. The validator returns the correct intermediate status
+-- (VmRunning / VmStarting / VmLoading) per the chosen variant, so
+-- this is the only place in the codebase that has to know "what
+-- does start mean for this VM right now."
+startVariantFor :: Vm -> VmStatus -> VmAction
+startVariantFor vm = \case
+  VmPaused -> ActionStartResumePaused
+  VmSaved -> ActionStartResumeSaved
+  _
+    | vmGuestAgent vm -> ActionStartColdWithGA
+    | otherwise -> ActionStartCold
+
+-- | Validate that a VM can be started. Returns the VM, current
+-- status, and the intermediate status the validator picked (one of
+-- 'VmStarting', 'VmRunning', 'VmLoading') for the executor to commit.
+-- Checks: VM exists, state transition valid, all referenced networks
+-- are running.
+handleVmStartValidate
+  :: ServerState
+  -> Int64
+  -> IO (Either Response (Vm, VmStatus, VmStatus))
 handleVmStartValidate state vmId = do
   mVm <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
     Nothing -> pure $ Left RespVmNotFound
-    Just (vm, currentStatus)
-      | vmMigrating vm ->
-          pure $
-            Left $
-              RespError "VM is being migrated; wait for the migration to complete"
-      | otherwise ->
-          case validateTransition currentStatus ActionStart of
-            Left errMsg -> pure $ Left $ RespInvalidTransition currentStatus errMsg
-            Right _ -> do
-              -- Check that all referenced networks are running. Applies
-              -- equally to cold start (VmStopped → fresh QEMU) and
-              -- resume-from-saved (VmSaved → fresh QEMU with `-incoming`).
-              -- The paused-resume branch (VmPaused) is a QMP @cont@ on
-              -- the still-live QEMU and doesn't touch networking at the
-              -- agent level — skip the check there.
-              if currentStatus `elem` [VmStopped, VmSaved]
-                then do
-                  networkCheck <- runSqlPool (checkNetworksRunning vmId) (ssDbPool state)
-                  case networkCheck of
-                    Just networkName ->
-                      pure $ Left $ RespInvalidTransition currentStatus $ "Network '" <> networkName <> "' is not running"
-                    Nothing -> pure $ Right (vm, currentStatus)
-                else pure $ Right (vm, currentStatus)
+    Just (vm, currentStatus) ->
+      case validateTransition currentStatus (startVariantFor vm currentStatus) of
+        Left errMsg -> pure $ Left $ RespInvalidTransition currentStatus errMsg
+        Right nextStatus -> do
+          -- Check that all referenced networks are running. Applies
+          -- equally to cold start (VmStopped → fresh QEMU) and
+          -- resume-from-saved (VmSaved → fresh QEMU with `-incoming`).
+          -- The paused-resume branch (VmPaused) is a QMP @cont@ on
+          -- the still-live QEMU and doesn't touch networking at the
+          -- agent level — skip the check there.
+          if currentStatus `elem` [VmStopped, VmSaved]
+            then do
+              networkCheck <- runSqlPool (checkNetworksRunning vmId) (ssDbPool state)
+              case networkCheck of
+                Just networkName ->
+                  pure $ Left $ RespInvalidTransition currentStatus $ "Network '" <> networkName <> "' is not running"
+                Nothing -> pure $ Right (vm, currentStatus, nextStatus)
+            else pure $ Right (vm, currentStatus, nextStatus)
 
 -- | Execute VM start to completion (blocks until VmRunning).
 -- Used with --wait flag or in withTaskAsync.
@@ -281,24 +305,26 @@ handleVmStartExecute ctx vmId = do
   validated <- handleVmStartValidate state vmId
   case validated of
     Left errResp -> pure errResp
-    Right (vm, currentStatus) ->
+    Right (vm, currentStatus, nextStatus) ->
       case currentStatus of
         VmPaused -> runServerLogging state $ resumeFromPaused state vmId
         _ -> runServerLogging state $ do
-          resp <- startQemuAndMonitor ctx vmId vm
+          resp <- startQemuAndMonitor ctx vmId vm nextStatus
           case resp of
-            RespVmStateChanged VmStarting ->
-              -- The agent's vmStart now returns after QEMU spawn,
-              -- before the first QGA ping. Block here until the
-              -- push channel finishes the transition — either to
-              -- 'VmRunning' (ping landed) or 'VmError' (first
-              -- ping never came / QEMU crashed early). Without
-              -- this poll, callers passing @wait=true@ would see
-              -- the RPC return at 'VmStarting' and immediately
-              -- fail their first @vm.exec@ because QGA isn't yet
-              -- reachable.
-              liftIO $ waitForStartCompletion state vmId
-            RespVmStateChanged _ -> pure resp
+            RespVmStateChanged s
+              | s `elem` [VmStarting, VmLoading] ->
+                  -- The agent's vmStart returns after QEMU spawn,
+                  -- before the first QGA ping (cold start) or before
+                  -- QMP @cont@ on the incoming migration stream (load
+                  -- from saved). Block here until the push channel
+                  -- finishes the transition — either to 'VmRunning'
+                  -- (ping landed / load complete) or 'VmError' (first
+                  -- ping never came / QEMU crashed early). Without
+                  -- this poll, callers passing @wait=true@ would see
+                  -- the RPC return early and immediately fail their
+                  -- first @vm.exec@.
+                  liftIO $ waitForStartCompletion state vmId
+              | otherwise -> pure resp
             _ -> pure resp
 
 -- | Block until the DB row for @vmId@ leaves 'VmStarting'.
@@ -325,7 +351,7 @@ waitForStartCompletion state vmId = go (10 * 60 * 10)
           mStatus <- runSqlPool (getVmStatusOnly vmId) pool
           case mStatus of
             Nothing -> pure RespVmNotFound
-            Just VmStarting -> do
+            Just s | s `elem` [VmStarting, VmLoading] -> do
               threadDelay 100000
               go (remaining - 1)
             Just VmRunning -> pure $ RespVmStateChanged VmRunning
@@ -378,8 +404,8 @@ resumeFromPaused state vmId = do
 --      (including blocking for first QGA ping).
 --   6. 'attachVmMonitor' to watch for QEMU exit.
 --   7. Wire up the chardev ring buffers.
-startQemuAndMonitor :: ActionContext -> Int64 -> Vm -> LoggingT IO Response
-startQemuAndMonitor ctx vmId vm = do
+startQemuAndMonitor :: ActionContext -> Int64 -> Vm -> VmStatus -> LoggingT IO Response
+startQemuAndMonitor ctx vmId vm nextStatus = do
   let state = acState ctx
       pool = ssDbPool state
   ensureCloudInitIso ctx vmId vm
@@ -391,7 +417,7 @@ startQemuAndMonitor ctx vmId vm = do
       case cidResult of
         Left err ->
           recordPreStartFailure state vmId pool "Failed to secure a free vsock CID" err
-        Right _ -> launchVmViaAgent state vmId vm pool
+        Right _ -> launchVmViaAgent state vmId vm pool nextStatus
 
 -- | Generate the NoCloud cloud-init ISO for this VM (if cloud-init
 -- is enabled and the ISO isn't already attached). Failures are
@@ -439,13 +465,19 @@ recordPreStartFailure _state vmId pool prefix err = do
   pure $ RespError msg
 
 -- | Assemble 'VmSpec' from DB rows and call 'NOA.vmStart'.
+-- The @nextStatus@ is the intermediate status the validator picked
+-- (one of 'VmStarting', 'VmRunning', 'VmLoading'); the executor
+-- commits it before invoking the agent so 'crv vm show' can
+-- distinguish "still spawning" from "fully up" and "loading saved
+-- state" from "cold booting".
 launchVmViaAgent
   :: ServerState
   -> Int64
   -> Vm
   -> Pool SqlBackend
+  -> VmStatus
   -> LoggingT IO Response
-launchVmViaAgent state vmId vm pool = do
+launchVmViaAgent state vmId vm pool nextStatus = do
   -- Managed and bridge NICs need the netd cap so
   -- 'assembleVmSpec' can pre-allocate persistent TAPs. If the VM
   -- has none, we don't care whether netd is up.
@@ -493,16 +525,19 @@ launchVmViaAgent state vmId vm pool = do
           liftIO $ runSqlPool (setVmError vmId err) pool
           pure $ RespError err
     Right spec -> do
-      -- Set 'VmStarting' before invoking the agent. The agent's
-      -- 'vmStart' RPC blocks for QEMU spawn and (when guestAgent
-      -- is set) the first QGA ping — that window can run from
-      -- ~1 s up to the cloud-init bootstrap budget. Without this
-      -- pre-call write, the DB stays at 'VmStopped' for the
-      -- entire wait and then jumps straight to 'VmRunning' — so
-      -- 'crv vm show' can't distinguish "still spawning" from
-      -- "fully up". Mirrors how the stop path sets 'VmStopping'
-      -- before 'NOA.vmStopGraceful'.
-      liftIO $ runSqlPool (setVmStatus vmId VmStarting) pool
+      -- Commit the validator-picked intermediate status before
+      -- invoking the agent. For cold starts with GA enabled
+      -- nextStatus = VmStarting, for resume-from-saved
+      -- nextStatus = VmLoading, for cold-no-GA nextStatus = VmRunning
+      -- (overwritten with the same value below on success). The agent's
+      -- 'vmStart' RPC blocks for QEMU spawn and (when guestAgent is
+      -- set) the first QGA ping — that window can run from ~1 s up to
+      -- the cloud-init bootstrap budget. Without this pre-call write,
+      -- the DB would stay at 'VmStopped' / 'VmSaved' for the entire
+      -- wait and then jump straight to 'VmRunning' — so 'crv vm show'
+      -- couldn't distinguish "still spawning" from "fully up" or
+      -- "loading saved state" from "cold booting".
+      liftIO $ runSqlPool (setVmStatus vmId nextStatus) pool
       outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStart nac spec
       case outer of
         Left err -> do
@@ -514,10 +549,6 @@ launchVmViaAgent state vmId vm pool = do
             let msg = "vmStart: " <> T.pack (show e)
             logWarnN $ "vmStart failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
             liftIO $ runSqlPool (setVmError vmId msg) pool
-            -- 'RespError' (not 'RespInvalidTransition') so the Cap'n
-            -- Proto wire layer throws on the client; matches the
-            -- pre-Phase-4 daemon-side failure semantics that the
-            -- @start-virtiofsd@ subtask used to surface.
             pure $ RespError msg
           Right info -> do
             let pid = fromIntegral (NOA.vriQemuPid info) :: Int
@@ -528,18 +559,19 @@ launchVmViaAgent state vmId vm pool = do
             -- ping lands, the watcher dispatches a single-VM
             -- snapshot via the existing push channel and the
             -- daemon's 'VmStatusSink' promotes our DB row from
-            -- 'VmStarting' to 'VmRunning'. Goal: unblock the
-            -- agent's session RPC thread so it can process N
-            -- concurrent vmStart calls without queuing behind one
-            -- VM's first-boot latency.
+            -- 'VmStarting' or 'VmLoading' to 'VmRunning'.
             --
             -- VMs without a guest agent never trigger that push
             -- (the watcher only fires when 'waitForGuestAgentMs >
-            -- 0'); promote synchronously here for them.
+            -- 0'); promote synchronously here for them. Resume from
+            -- saved always uses the push channel — the agent's load
+            -- coordinator dispatches a snapshot when QMP 'cont'
+            -- succeeds.
             liftIO $ attachVmMonitor state vmId
-            if vmGuestAgent vm
-              then pure $ RespVmStateChanged VmStarting
-              else do
+            case nextStatus of
+              VmStarting -> pure $ RespVmStateChanged VmStarting
+              VmLoading -> pure $ RespVmStateChanged VmLoading
+              _ -> do
                 liftIO $ runSqlPool (setVmStarted vmId VmRunning pid) (ssDbPool state)
                 pure $ RespVmStateChanged VmRunning
 
@@ -691,157 +723,166 @@ handleVmPause state vmId = runServerLogging state $ do
                 liftIO $ runSqlPool (setVmStatus vmId VmPaused) (ssDbPool state)
                 pure $ RespVmStateChanged VmPaused
 
--- | Handle VM save command.
---
--- Asks the agent to issue QMP @migrate file:…@, wait for the
--- write to complete, then @quit@ QEMU. The agent owns the state
--- file path (\<basePath\>/\<vmName\>/state.qemu); the daemon only
--- knows whether a save exists by looking at @Vm.status == VmSaved@.
---
--- On success the daemon flips the row to 'VmSaved' and clears the
--- VSOCK CID + SPICE port — both are freed when QEMU exits, and
--- the next @vm start@ will allocate fresh ones. This mirrors how
--- 'commitMigration' resets those fields after an offline move.
-handleVmSave :: ServerState -> Int64 -> IO Response
-handleVmSave state vmId = runServerLogging state $ do
-  mVm <- liftIO $ runSqlPool (getVmWithStatus vmId) (ssDbPool state)
+-- | Validate that a VM can be saved. Returns the current status, or
+-- an error response. The status is forwarded to 'handleVmSaveExecute'
+-- so the executor can commit the validator-picked 'VmSaving'
+-- transition without re-reading the row.
+handleVmSaveValidate :: ServerState -> Int64 -> IO (Either Response VmStatus)
+handleVmSaveValidate state vmId = do
+  mVm <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case mVm of
-    Nothing -> pure RespVmNotFound
+    Nothing -> pure $ Left RespVmNotFound
     Just (_, currentStatus) ->
       case validateTransition currentStatus ActionSave of
-        Left errMsg -> pure $ RespInvalidTransition currentStatus errMsg
-        Right _ -> do
-          logInfoN $ "Saving VM " <> T.pack (show vmId) <> " state to disk"
-          -- Commit @status = VmSaved@ BEFORE asking the agent so
-          -- 'attachVmMonitor' (which polls the agent's ledger every
-          -- 1 s) sees the row as saved when the agent's reaper
-          -- clears the ledger entry post-quit, and skips its
-          -- "vanished → mark stopped" branch via the @Just VmSaved@
-          -- arm. Without this pre-commit there's a sub-millisecond
-          -- race in which the monitor's DB read still sees
-          -- @VmRunning@ and writes @VmStopped@ over our incoming
-          -- @VmSaved@. On a failed save we revert the row.
-          liftIO $
-            runSqlPool
-              ( update
-                  (toSqlKey vmId :: VmId)
-                  [ M.VmStatus =. VmSaved
-                  , M.VmVsockCid =. Nothing
-                  , M.VmSpicePort =. Nothing
-                  ]
-              )
-              (ssDbPool state)
-          outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmSave nac vmId
-          case outer of
-            Left err -> do
-              logWarnN $
-                "nodeagent unavailable; cannot save VM "
-                  <> T.pack (show vmId)
-                  <> ": "
-                  <> err
-              revertSavedTo currentStatus
-              pure $ RespInvalidTransition currentStatus err
-            Right r -> case r of
-              Left e -> do
-                logWarnN $
-                  "vmSave failed for VM "
-                    <> T.pack (show vmId)
-                    <> ": "
-                    <> T.pack (show e)
-                revertSavedTo currentStatus
-                pure $ RespInvalidTransition currentStatus ("vmSave: " <> T.pack (show e))
-              Right () -> do
-                logInfoN $ "VM " <> T.pack (show vmId) <> " saved"
-                pure $ RespVmStateChanged VmSaved
-  where
-    -- Revert the optimistic @VmSaved@ commit on save failure. The
-    -- agent still has the VM alive (the migrate either never
-    -- started or QEMU is still up after a refused migrate); flip
-    -- the row back to whatever it was before save was called so a
-    -- subsequent @vm pause@ / @vm stop@ from the operator behaves
-    -- correctly.
-    revertSavedTo :: VmStatus -> LoggingT IO ()
-    revertSavedTo prev =
+        Left errMsg -> pure $ Left $ RespInvalidTransition currentStatus errMsg
+        Right _ -> pure $ Right currentStatus
+
+-- | Execute the save flow.
+--
+-- Flips the row to 'VmSaving' (clearing VSOCK CID + SPICE port —
+-- both are freed when QEMU exits, and the next @vm start@ will
+-- allocate fresh ones), then asks the agent to issue QMP @migrate@
+-- to the state file, wait for the write to complete, and @quit@
+-- QEMU. The agent owns the state file path
+-- (\<basePath\>/\<vmName\>/state.qemu).
+--
+-- On success: 'ActionSaveDone' → 'VmSaved'.
+-- On failure: 'ActionSaveFail' → 'VmError'; QEMU may still be alive
+-- and an operator @vm reset@ is required to clean up.
+--
+-- 'attachVmMonitor' detects the QEMU exit via the agent's ledger
+-- but its 'VmSaving' arm short-circuits — the save executor owns the
+-- terminal flip.
+handleVmSaveExecute :: ServerState -> Int64 -> IO Response
+handleVmSaveExecute state vmId = runServerLogging state $ do
+  validated <- liftIO $ handleVmSaveValidate state vmId
+  case validated of
+    Left errResp -> pure errResp
+    Right currentStatus -> do
+      logInfoN $ "Saving VM " <> T.pack (show vmId) <> " state to disk"
       liftIO $
         runSqlPool
           ( update
               (toSqlKey vmId :: VmId)
-              [M.VmStatus =. prev]
+              [ M.VmStatus =. VmSaving
+              , M.VmVsockCid =. Nothing
+              , M.VmSpicePort =. Nothing
+              ]
           )
           (ssDbPool state)
+      outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmSave nac vmId
+      let finishWithFailure :: T.Text -> LoggingT IO Response
+          finishWithFailure msg = do
+            logWarnN $ "vmSave failed for VM " <> T.pack (show vmId) <> ": " <> msg
+            liftIO $ runSqlPool (setVmError vmId ("vmSave: " <> msg)) (ssDbPool state)
+            pure $ RespInvalidTransition currentStatus msg
+      case outer of
+        Left err -> finishWithFailure err
+        Right r -> case r of
+          Left e -> finishWithFailure (T.pack (show e))
+          Right () -> do
+            logInfoN $ "VM " <> T.pack (show vmId) <> " saved"
+            case validateTransition VmSaving ActionSaveDone of
+              Right next -> do
+                liftIO $ runSqlPool (setVmStatus vmId next) (ssDbPool state)
+                pure $ RespVmStateChanged next
+              Left e ->
+                -- Unreachable: VmSaving + ActionSaveDone is allowed.
+                pure $ RespError ("save-done validator rejected: " <> e)
 
--- | Handle VM reset command.
--- Asks the agent to SIGTERM-then-SIGKILL QEMU + every virtiofsd
--- helper for this vmId, then marks the VM stopped. With the agent
--- owning all PIDs, the daemon doesn't need to look them up.
+-- | Handle VM reset command — the universal escape hatch.
 --
--- The status is moved to 'VmStopped' before the @vmStopHard@ RPC
--- fires, so the background monitor thread observes the terminal
--- state when QEMU exits and skips its own reconciliation
--- (mirrors the old @clearVmPid@ signal that the @Vm.pid@ column
--- carried before it was dropped).
+-- Goes through 'validateTransition' so the FSM is the single
+-- source of truth ('ActionReset' always returns 'Right VmStopped').
+-- The per-from-state cancel side-effect dispatch lives here:
+--
+--   * 'VmRunning' / 'VmStarting' / 'VmStopping' / 'VmPaused' /
+--     'VmLoading' — SIGTERM-then-SIGKILL QEMU via 'NOA.vmStopHard'.
+--   * 'VmSaved' — drop the state file via 'NOA.deleteSavedState';
+--     no QEMU to kill.
+--   * 'VmSaving' — kill QEMU (in-flight QMP @migrate@ aborts when
+--     the process dies). The save executor observes the agent RPC
+--     failure and skips its own status flip (the row is already
+--     VmStopped by the time the executor returns).
+--   * 'VmMigrating' — kill QEMU on the source if any (the agent's
+--     vmStopHard is idempotent), drop the state file. Partial
+--     destination-side artifacts get cleaned up on the next
+--     migrate attempt; doing it now would require cross-node
+--     orchestration that the FSM lock no longer holds.
+--   * 'VmStopped' / 'VmError' — DB write only; idempotent.
+--
+-- The status is committed first so the monitor thread observes
+-- 'VmStopped' and skips its own reconciliation.
 handleVmReset :: ServerState -> Int64 -> IO Response
 handleVmReset state vmId = runServerLogging state $ do
   mVm <- liftIO $ runSqlPool (get (toSqlKey vmId :: VmId)) (ssDbPool state)
   case mVm of
     Nothing -> pure RespVmNotFound
-    Just vm -> do
-      -- Saved VMs have no live QEMU process; reset means "discard
-      -- the saved state file and go back to stopped." Ask the
-      -- agent to unlink the conventional state-file path. The
-      -- call is idempotent on the agent (missing file is OK), so
-      -- doing this before flipping the DB status is safe.
-      when (vmStatus vm == VmSaved) $ do
-        outerDel <-
-          liftIO $
-            withVmNodeAgent state vmId $ \nac ->
-              NOA.deleteSavedState nac (vmName vm)
-        case outerDel of
-          Left err ->
-            logWarnN $
-              "nodeagent unavailable; saved-state file may persist for VM "
-                <> T.pack (show vmId)
-                <> ": "
-                <> err
-          Right (Left e) ->
-            logWarnN $
-              "deleteSavedState failed for VM "
-                <> T.pack (show vmId)
-                <> ": "
-                <> T.pack (show e)
-          Right (Right ()) ->
-            logInfoN $ "Saved state for VM " <> T.pack (show vmId) <> " discarded"
+    Just vm -> case validateTransition (vmStatus vm) ActionReset of
+      Left errMsg ->
+        -- Unreachable: the FSM's universal Reset arm always
+        -- accepts. Defensive guard so a future FSM tweak that
+        -- adds a reject can't silently break this handler.
+        pure $ RespInvalidTransition (vmStatus vm) errMsg
+      Right nextStatus -> do
+        let fromStatus = vmStatus vm
+        -- Saved VMs (and Migrating with a state file): drop the
+        -- state file. The call is idempotent on the agent.
+        when (fromStatus `elem` [VmSaved, VmMigrating]) $ do
+          outerDel <-
+            liftIO $
+              withVmNodeAgent state vmId $ \nac ->
+                NOA.deleteSavedState nac (vmName vm)
+          case outerDel of
+            Left err ->
+              logWarnN $
+                "nodeagent unavailable; saved-state file may persist for VM "
+                  <> T.pack (show vmId)
+                  <> ": "
+                  <> err
+            Right (Left e) ->
+              logWarnN $
+                "deleteSavedState failed for VM "
+                  <> T.pack (show vmId)
+                  <> ": "
+                  <> T.pack (show e)
+            Right (Right ()) ->
+              logInfoN $ "Saved state for VM " <> T.pack (show vmId) <> " discarded"
 
-      -- Commit the terminal status first; the monitor checks
-      -- status before reconciling and will back off when it sees
-      -- the row is already stopped.
-      liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+        -- Commit the terminal status first; the monitor checks
+        -- status before reconciling and will back off when it sees
+        -- the row is already stopped.
+        liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
 
-      outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId
-      case outer of
-        Left err ->
-          logWarnN $
-            "nodeagent unavailable; reset only updates DB state for VM "
-              <> T.pack (show vmId)
-              <> ": "
-              <> err
-        Right r -> case r of
-          Left e ->
-            logWarnN $ "vmStopHard failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
-          Right res -> case NOA.vsrKind res of
-            NOA.VmStopStopped ->
-              logInfoN $ "VM " <> T.pack (show vmId) <> " process killed"
-            NOA.VmStopAlreadyStopped ->
-              logDebugN $ "VM " <> T.pack (show vmId) <> " was not in the agent's ledger"
-            _ ->
-              logWarnN $ "vmStopHard returned: " <> NOA.vsrMessage res
+        -- Kill QEMU when it might still be alive: any non-terminal
+        -- state. VmStopped is already stopped (no-op); VmError /
+        -- VmSaved have no live QEMU process to kill.
+        unless (fromStatus `elem` [VmStopped, VmError, VmSaved]) $ do
+          outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId
+          case outer of
+            Left err ->
+              logWarnN $
+                "nodeagent unavailable; reset only updates DB state for VM "
+                  <> T.pack (show vmId)
+                  <> ": "
+                  <> err
+            Right r -> case r of
+              Left e ->
+                logWarnN $ "vmStopHard failed for VM " <> T.pack (show vmId) <> ": " <> T.pack (show e)
+              Right res -> case NOA.vsrKind res of
+                NOA.VmStopStopped ->
+                  logInfoN $ "VM " <> T.pack (show vmId) <> " process killed"
+                NOA.VmStopAlreadyStopped ->
+                  logDebugN $ "VM " <> T.pack (show vmId) <> " was not in the agent's ledger"
+                _ ->
+                  logWarnN $ "vmStopHard returned: " <> NOA.vsrMessage res
 
-      -- Drop netd-allocated TAPs synchronously *before* returning,
-      -- so a follow-up @vmDelete@ that wipes the NIC rows doesn't
-      -- race the background monitor's own (now no-op) cleanup pass.
-      liftIO $ releaseManagedTaps state vmId
+        -- Drop netd-allocated TAPs synchronously *before* returning,
+        -- so a follow-up @vmDelete@ that wipes the NIC rows doesn't
+        -- race the background monitor's own (now no-op) cleanup pass.
+        liftIO $ releaseManagedTaps state vmId
 
-      pure $ RespVmStateChanged VmStopped
+        pure $ RespVmStateChanged nextStatus
 
 -- | Handle VM edit command
 -- Only allowed when VM is stopped. Updates only the provided fields.
@@ -1167,7 +1208,6 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit a
           , vmVsockCid = vsockCid
           , vmErrorMessage = Nothing
           , vmLastErrorAt = Nothing
-          , vmMigrating = False
           , vmRebootQuirk = rebootQuirk
           , vmCpuModel = cpuModel
           }
@@ -1629,7 +1669,12 @@ instance Action VmSave where
   actionSubsystem _ = SubVm
   actionCommand _ = "save"
   actionEntityId = Just . fromIntegral . vsaveVmId
-  actionExecute ctx a = handleVmSave (acState ctx) (vsaveVmId a)
+  actionValidate state a = do
+    result <- handleVmSaveValidate state (vsaveVmId a)
+    pure $ case result of
+      Left errResp -> Just errResp
+      Right _ -> Nothing
+  actionExecute ctx a = handleVmSaveExecute (acState ctx) (vsaveVmId a)
 
 newtype VmReset = VmReset {vrstVmId :: Int64}
 
@@ -1729,17 +1774,25 @@ attachVmMonitor state vmId = do
             <> T.pack (show vmId)
             <> " already marked error; skipping status update"
       Just VmSaved ->
-        -- handleVmSave commits VmSaved BEFORE the QEMU process exits
-        -- via QMP quit. The reaper then observes the exit and the
-        -- monitor reaches this point with the agent ledger entry
-        -- already cleared — but the row's terminal status is now
-        -- VmSaved, not VmRunning. Leaving it alone is the correct
-        -- behaviour: saved is a stable state until the operator
-        -- starts (resume) or resets (discard).
         logDebugN $
           "VM "
             <> T.pack (show vmId)
             <> " already marked saved; skipping status update"
+      Just VmSaving ->
+        -- The save executor owns the terminal flip from VmSaving to
+        -- VmSaved / VmError; the monitor only watches for unexpected
+        -- exits. QMP @quit@ is part of the save flow so an observed
+        -- exit here is expected — leave the row alone.
+        logDebugN $
+          "VM "
+            <> T.pack (show vmId)
+            <> " is being saved; skipping monitor status update"
+      Just VmMigrating ->
+        -- The migration orchestrator owns the terminal flip.
+        logDebugN $
+          "VM "
+            <> T.pack (show vmId)
+            <> " is being migrated; skipping monitor status update"
       Just _ -> case outcome of
         ExitClean -> do
           logInfoN $ "VM " <> T.pack (show vmId) <> " exited normally"
@@ -1792,7 +1845,7 @@ reattachVmMonitors state = do
     runSqlPool
       ( selectList
           [ M.VmStatus
-              <-. [VmStarting, VmRunning, VmPaused]
+              <-. [VmStarting, VmLoading, VmRunning, VmPaused]
           ]
           []
       )

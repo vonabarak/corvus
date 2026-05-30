@@ -105,7 +105,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
             # Save. The cap blocks until the agent has finished the
             # migrate + quit dance, so as soon as save() returns
             # the status is committed and QEMU is gone.
-            vm.cap.save()
+            vm.cap.save(wait=True)
             _poll_until(
                 lambda: vm.cap.show().status == "saved",
                 timeout_sec=10.0,
@@ -157,7 +157,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
         VM stays saved and the file remains.
         """
         with Vm(self) as vm:
-            vm.cap.save()
+            vm.cap.save(wait=True)
             _poll_until(
                 lambda: vm.cap.show().status == "saved",
                 timeout_sec=10.0,
@@ -198,7 +198,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
         the agent to unlink the state file, then flips the row to
         stopped. Idempotent: a missing file is still success."""
         with Vm(self) as vm:
-            vm.cap.save()
+            vm.cap.save(wait=True)
             _poll_until(
                 lambda: vm.cap.show().status == "saved",
                 timeout_sec=10.0,
@@ -230,7 +230,7 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
         decompression side.
         """
         with Vm(self) as vm:
-            vm.cap.save()
+            vm.cap.save(wait=True)
             _poll_until(
                 lambda: vm.cap.show().status == "saved",
                 timeout_sec=10.0,
@@ -246,6 +246,58 @@ class TestVmSaveLoadRoundtrip(SingleNodeCase):
             assert magic == "28b52ffd", (
                 f"saved state file at {state_path} is not zstd-compressed: "
                 f"first-4-bytes magic={magic!r} (expected '28b52ffd')"
+            )
+
+    def test_async_save_surfaces_saving_state_and_blocks_concurrent_start(self):
+        """With `wait=False`, `vm.save()` returns immediately with
+        `status=saving`. The DB row stays in `VmSaving` until the
+        agent's QMP migrate + quit dance completes. Any concurrent
+        operator action (start / pause / save) MUST be rejected by
+        the FSM while the row is in `VmSaving` — that's the whole
+        point of carving the transient state out from `VmSaved`.
+
+        We exercise the rejection on `start` because it's the one
+        that used to silently succeed under the old optimistic
+        pre-commit pattern (row flipped to `saved` before QEMU
+        finished writing the file, then `start` happily resumed
+        from a half-written file).
+        """
+        with Vm(self) as vm:
+            # Kick off the save without waiting. The RPC returns as
+            # soon as the daemon has committed the VmSaving row and
+            # forked the worker.
+            initial = vm.cap.save(wait=False)
+            assert initial == "saving", (
+                f"async vm.save() did not return 'saving'; got {initial!r}"
+            )
+
+            # Best-effort race: while the row is still 'saving',
+            # attempt a start. The FSM must refuse with a message
+            # naming 'saved'/'saving'. If save finishes before we
+            # observe 'saving' (small image, fast disk), skip the
+            # rejection assertion — the timing is hard to control
+            # on slow CI runners.
+            if vm.cap.show().status == "saving":
+                start_resp = None
+                start_exc: Exception | None = None
+                try:
+                    start_resp = vm.cap.start(wait=False)
+                except Exception as e:
+                    start_exc = e
+                assert start_resp not in {"running", "starting", "loading"}, (
+                    f"vm.start() during save reported {start_resp!r}; should refuse"
+                )
+                if start_exc is not None:
+                    msg = str(start_exc).lower()
+                    assert "saved" in msg or "saving" in msg, (
+                        f"start rejection didn't mention save state: {msg!r}"
+                    )
+
+            # The async save eventually completes; row lands at 'saved'.
+            _poll_until(
+                lambda: vm.cap.show().status == "saved",
+                timeout_sec=30.0,
+                msg="vm.show().status did not eventually become 'saved'",
             )
 
 

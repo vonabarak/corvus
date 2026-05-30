@@ -5,30 +5,42 @@
 --
 -- The high-level dance, with no bytes flowing through the daemon:
 --
---   1. Acquire the per-VM @migrating@ lock with a conditional
---      update (@migrating := True@ when the row currently has
---      @migrating = False AND status = stopped@). Refuses if the
---      conditional update changes 0 rows.
---   2. Run the pre-check from 'Corvus.Handlers.Vm.Migrate.PreCheck'
+--   1. Auto-save running/paused VMs so the migration starts from a
+--      saved/stopped row. The auto-save runs through the same FSM
+--      transitions a manual @crv vm save@ uses, recorded as a
+--      child task.
+--   2. Acquire the per-VM lock by transitioning the row to
+--      'VmMigrating' (allowed only from 'VmStopped' / 'VmSaved').
+--      Concurrent migrations / starts on the same row are refused
+--      by 'validateTransition' once the row is in 'VmMigrating'.
+--   3. Run the pre-check from 'Corvus.Handlers.Vm.Migrate.PreCheck'
 --      to validate the migration is legal and to build the
 --      per-drive 'MigrationPlan'.
---   3. For every drive in the plan, drive
+--   4. For every drive in the plan, drive
 --      'transferImageBetweenNodes' from the previous slice. Each
 --      copy entry inserts a 'DiskImageNode' row on the
 --      destination; each move entry defers the source-side row
---      delete + file delete to step 5 so a transfer failure
+--      delete + file delete to commit so a transfer failure
 --      mid-flight leaves the source intact.
---   4. On any transfer failure: ask the destination agent to
+--   5. On any transfer failure: ask the destination agent to
 --      delete every file we wrote, drop the destination
---      'DiskImageNode' rows we inserted, clear the lock, return
---      the error. Source data is intact.
---   5. On success: in a single transaction, flip the VM's
+--      'DiskImageNode' rows we inserted, transition the row back
+--      via 'ActionMigrateFail' (→ 'VmSaved' / 'VmStopped' for
+--      operator recovery), return the error. Source data is intact.
+--   6. On success: in a single transaction, flip the VM's
 --      @nodeId@, clear its @vsockCid@ / @spicePort@ (the
 --      destination's allocators will hand out fresh ones on the
---      next @vm start@), delete the source-side placements for
---      every "move" plan entry, and clear @migrating@. Then,
---      best-effort, ask the source agent to delete the
---      now-orphaned files.
+--      next @vm start@), transition via 'ActionMigrateDone', and
+--      delete the source-side placements for every "move" plan
+--      entry. Then, best-effort, ask the source agent to delete
+--      the now-orphaned files.
+--   7. Post-commit restore: if the VM was 'VmRunning' / 'VmPaused'
+--      before the migration (and got auto-saved in step 1), kick
+--      off 'VmStart' against the destination as a child task so
+--      the row transitions 'VmSaved → VmLoading → VmRunning' on
+--      the destination. If the pre-migrate status was 'VmSaved' or
+--      'VmStopped', do nothing further — the row stays in that
+--      terminal state on the destination.
 module Corvus.Handlers.Vm.Migrate
   ( VmMigrate (..)
   , handleVmMigrate
@@ -52,6 +64,7 @@ import Corvus.Handlers.Vm.Migrate.PreCheck
   )
 import Corvus.Model (fromSqlKey, toSqlKey)
 import qualified Corvus.Model as M
+import Corvus.Model.VmState (VmAction (..), validateTransition)
 import Corvus.Node.Image (ImageResult (..))
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
@@ -92,64 +105,93 @@ handleVmMigrate ctx vmIdRaw destNodeRaw = runServerLogging state $ do
       <> T.pack (show vmIdRaw)
       <> " → node "
       <> T.pack (show destNodeRaw)
-  -- (1) Auto-save running/paused VMs as a child task. The save
-  -- runs through the same VmSave Action 'crv vm save' uses, so
-  -- the FSM gate + node-side migrate-quit-reap flow is shared.
-  -- 'runActionAsSubtask' records the save as a child of the
-  -- migrate task so 'crv task history' shows the full causality.
-  saveOutcome <- liftIO (autoSaveIfLive ctx vmId)
-  case saveOutcome of
-    Left err -> pure (RespError err)
-    Right () -> do
-      -- (2) Conditional lock acquisition. Persistent has no
-      -- "update WHERE … returning rowcount" combinator we trust
-      -- across backends, so we fetch + check + set inside a single
-      -- transaction; concurrent migrations serialise on the row
-      -- lock the read takes. By this point the row's status is
-      -- either 'VmStopped' (cold migrate) or 'VmSaved' (either
-      -- pre-existing or just produced by the auto-save above).
-      acquired <-
-        liftIO $
-          runSqlPool
-            ( do
-                mVm <- get vmId
-                case mVm of
-                  Just vm
-                    | M.vmStatus vm `elem` [M.VmStopped, M.VmSaved]
-                    , not (M.vmMigrating vm) -> do
-                        update vmId [M.VmMigrating =. True]
-                        pure True
-                  _ -> pure False
-            )
-            pool
-      if not acquired
-        then
-          pure
-            ( RespError
-                "VM must be stopped or saved (running/paused are auto-saved); another migration may be in progress"
-            )
-        else do
-          -- (3) Pre-check.
+  -- (1) Capture the pre-migrate liveness *before* the auto-save
+  -- flips the row to VmSaved. We use this in step 7 to decide
+  -- whether to auto-start the VM on the destination.
+  preStatus <- liftIO $ readPreMigrateStatus state vmId
+  case preStatus of
+    Nothing -> pure RespVmNotFound
+    Just origStatus -> do
+      -- (2) Auto-save running/paused VMs as a child task. The save
+      -- runs through the same VmSave Action 'crv vm save' uses, so
+      -- the FSM gate + node-side migrate-quit-reap flow is shared.
+      -- 'runActionAsSubtask' records the save as a child of the
+      -- migrate task so 'crv task history' shows the full causality.
+      saveOutcome <- liftIO (autoSaveIfLive ctx vmId)
+      case saveOutcome of
+        Left err -> pure (RespError err)
+        Right () -> do
+          -- (3) Pre-check. The row is now in VmStopped or VmSaved
+          -- (auto-save above flipped any live VM to VmSaved). We
+          -- run the pre-check before the FSM lock so PreCheck can
+          -- observe the row's true save status to compute
+          -- mpStateFile. A concurrent migrate that slipped in
+          -- between PreCheck and tryEnterMigrating will be
+          -- rejected by the FSM lock below.
           ePlan <- liftIO $ validateMigration state vmId destNode
           case ePlan of
-            Left err -> do
-              liftIO $ clearMigrating state vmId
-              pure (RespError err)
-            Right plan -> driveTransfers state vmId destNode plan
+            Left err -> pure (RespError err)
+            Right plan -> do
+              -- (4) Acquire the lock by transitioning the row to
+              -- VmMigrating. Allowed only from VmStopped / VmSaved.
+              -- The validator handles concurrent-migration rejection
+              -- for free — a second migrate against a VmMigrating
+              -- row gets a clean error.
+              acquired <- liftIO $ tryEnterMigrating state vmId
+              case acquired of
+                Left err -> pure (RespError err)
+                Right () -> driveTransfers ctx vmId destNode plan origStatus
   where
     state = acState ctx
-    pool = ssDbPool state
+
+-- | Read the VM's status before any migration side-effects. Used to
+-- decide post-migrate auto-restore: 'VmRunning' / 'VmPaused' VMs
+-- get auto-started on the destination after a successful migrate;
+-- 'VmStopped' / 'VmSaved' VMs are left in their terminal state.
+readPreMigrateStatus :: ServerState -> M.VmId -> IO (Maybe M.VmStatus)
+readPreMigrateStatus state vmId =
+  fmap (fmap M.vmStatus) (runSqlPool (get vmId) (ssDbPool state))
+
+-- | Atomically transition the VM row to 'VmMigrating'. Returns
+-- 'Right ()' if the row was in a migrate-eligible state ('VmStopped'
+-- or 'VmSaved') and 'Left' with the validator's rejection message
+-- otherwise. The transaction's row lock serialises concurrent
+-- migration attempts against the same VM.
+tryEnterMigrating :: ServerState -> M.VmId -> IO (Either T.Text ())
+tryEnterMigrating state vmId =
+  runSqlPool
+    ( do
+        mVm <- get vmId
+        case mVm of
+          Nothing -> pure (Left "VM not found")
+          Just vm -> case M.vmStatus vm of
+            M.VmStopped -> doFlip
+            M.VmSaved -> doFlip
+            other ->
+              pure
+                ( Left
+                    ( "VM must be stopped or saved before migrating (current: "
+                        <> M.enumToText other
+                        <> ")"
+                    )
+                )
+    )
+    (ssDbPool state)
+  where
+    doFlip = do
+      update vmId [M.VmStatus =. M.VmMigrating]
+      pure (Right ())
 
 -- | If the VM row is currently 'VmRunning' or 'VmPaused', invoke
 -- 'VmSave' as a child task so the existing save path (FSM gate,
--- node-side migrate + quit + reap, DB pre-commit + race fix) does
--- the work. Returns 'Right ()' when the row is now in a
--- migrate-eligible state ('VmStopped' or 'VmSaved'), or 'Left'
--- with a diagnostic when the save itself failed.
+-- node-side migrate + quit + reap) does the work. Returns 'Right ()'
+-- when the row is now in a migrate-eligible state ('VmStopped' or
+-- 'VmSaved'), or 'Left' with a diagnostic when the save itself
+-- failed.
 --
 -- Stopped and saved rows fall through without touching anything.
 -- A row in @starting@ / @stopping@ / @error@ is left alone here —
--- the subsequent lock-acquire produces the proper "not in an
+-- the subsequent 'tryEnterMigrating' produces the proper "not in an
 -- eligible status" rejection.
 autoSaveIfLive :: ActionContext -> M.VmId -> IO (Either T.Text ())
 autoSaveIfLive ctx vmId = do
@@ -173,15 +215,19 @@ autoSaveIfLive ctx vmId = do
 
 -- | Run the transfers and, on success, commit the DB swap. On any
 -- error during transfers, roll back destination-side state and
--- clear the lock.
+-- the VmMigrating lock. @origStatus@ is the VM's pre-migrate status,
+-- threaded through so 'commitMigration' can pick the right
+-- post-migrate restore behaviour.
 driveTransfers
-  :: ServerState
+  :: ActionContext
   -> M.VmId
   -> M.NodeId
   -> MigrationPlan
+  -> M.VmStatus
   -> LoggingT IO Response
-driveTransfers state vmId destNode plan = do
-  let srcNode = mpSrcNode plan
+driveTransfers ctx vmId destNode plan origStatus = do
+  let state = acState ctx
+      srcNode = mpSrcNode plan
       ops = mpDriveOps plan
   -- Stage 1: per-drive byte transfers. We accumulate a list of
   -- "what we created on the destination" so we can roll back on
@@ -196,7 +242,7 @@ driveTransfers state vmId destNode plan = do
   case result of
     Left (err, created) -> do
       liftIO $ rollbackCreated state plan destNode created
-      liftIO $ clearMigrating state vmId
+      liftIO $ rollbackMigrating state vmId
       pure (RespError err)
     Right created -> do
       -- Stage 2: state-file transfer for saved VMs. The PreCheck
@@ -211,10 +257,10 @@ driveTransfers state vmId destNode plan = do
           case stateRes of
             Left err -> do
               liftIO $ rollbackCreated state plan destNode created
-              liftIO $ clearMigrating state vmId
+              liftIO $ rollbackMigrating state vmId
               pure (RespError err)
-            Right () -> commitMigration state vmId destNode plan created
-        else commitMigration state vmId destNode plan created
+            Right () -> commitMigration ctx vmId destNode plan created origStatus
+        else commitMigration ctx vmId destNode plan created origStatus
 
 -- | Move @\<basePath\>\/\<vmName\>\/state.qemu.zst@ from the source
 -- node to the destination, reusing the same agent-to-agent byte
@@ -327,14 +373,16 @@ runOp state srcNode destNode basePath (Right created) op = do
 -- After the DB commit, best-effort delete the now-orphaned files
 -- on the source node.
 commitMigration
-  :: ServerState
+  :: ActionContext
   -> M.VmId
   -> M.NodeId
   -> MigrationPlan
   -> [(M.DiskImageId, T.Text)]
+  -> M.VmStatus
   -> LoggingT IO Response
-commitMigration state vmId destNode plan created = do
-  let pool = ssDbPool state
+commitMigration ctx vmId destNode plan created origStatus = do
+  let state = acState ctx
+      pool = ssDbPool state
       moves =
         [ d
         | OpMove d <- mpDriveOps plan
@@ -345,15 +393,25 @@ commitMigration state vmId destNode plan created = do
       -- source row itself is deleted in the same transaction
       -- below, so we can't go back and read it.
       storedByDisk = created
+  -- The migrate completion edge lives in the FSM:
+  -- ActionMigrateDone : VmMigrating → VmSaved when there's a state
+  -- file, otherwise → VmStopped (no state file = nothing to resume
+  -- from). For VMs that started already-Saved or got auto-saved,
+  -- mpStateFile is True. For cold migrations (origStatus =
+  -- VmStopped), mpStateFile is False and we land on VmStopped.
+  let nextStatus =
+        if mpStateFile plan
+          then M.VmSaved
+          else M.VmStopped
   liftIO $
     runSqlPool
       ( do
           update
             vmId
-            [ M.VmNodeId =. destNode
+            [ M.VmStatus =. nextStatus
+            , M.VmNodeId =. destNode
             , M.VmVsockCid =. Nothing
             , M.VmSpicePort =. Nothing
-            , M.VmMigrating =. False
             ]
           forM_ moves $ \d ->
             DDb.deleteDiskImageNodeRow d (mpSrcNode plan)
@@ -399,7 +457,32 @@ commitMigration state vmId destNode plan created = do
             "source-side state-file delete after migrate did not complete: "
               <> err
   logInfoN "vm migrate complete"
-  pure RespOk
+  -- (7) Post-migrate restore. If the VM was live (Running / Paused)
+  -- before the migration started, kick off VmStart on the
+  -- destination as a child task so the row transitions
+  -- VmSaved → VmLoading → VmRunning. The auto-start is best-effort:
+  -- a failure (network down on dest, image missing) leaves the row
+  -- in VmSaved on the destination and the operator recovers
+  -- manually with 'crv vm start'.
+  if origStatus `elem` [M.VmRunning, M.VmPaused]
+    then do
+      restoreResp <-
+        liftIO $
+          runActionAsSubtask ctx (HVm.VmStart (fromSqlKey vmId))
+      case restoreResp of
+        RespVmStateChanged _ -> pure RespOk
+        RespError err -> do
+          logWarnN $
+            "post-migrate auto-start failed (VM remains saved on destination): "
+              <> err
+          pure RespOk
+        RespInvalidTransition _ err -> do
+          logWarnN $
+            "post-migrate auto-start rejected (VM remains saved on destination): "
+              <> err
+          pure RespOk
+        _ -> pure RespOk
+    else pure RespOk
 
 -- | Best-effort rollback: delete every destination-side file +
 -- DiskImageNode row we created during a failed transfer pass, and
@@ -438,14 +521,26 @@ rollbackCreated state plan destNode created = do
     forM_ mVm $ \vm ->
       void $ deleteSavedStateOnNode state destNode (M.vmName vm)
 
--- | Clear the @migrating@ flag back to False. Standalone helper
--- used both on pre-check failure and as part of rollback (the
--- DB swap path clears it in-transaction instead).
-clearMigrating :: ServerState -> M.VmId -> IO ()
-clearMigrating state vmId =
-  runSqlPool
-    (update vmId [M.VmMigrating =. False])
-    (ssDbPool state)
+-- | Roll the VM row out of 'VmMigrating' on a pre-check or transfer
+-- failure. Uses 'ActionMigrateFail' so the FSM picks the post-fail
+-- status — currently 'VmSaved' (the source-side saved state, if
+-- any, is intact; a cold migrate that failed before any disks
+-- transferred still has its disks on the source). Operator can
+-- inspect, retry, or 'vm reset' to clean up.
+--
+-- TODO: differentiate "fail with state file intact" from "fail
+-- before state file existed" — for now both land on VmSaved if
+-- the source had a state file, else operator notices the missing
+-- file at next 'vm start' which falls back to cold boot.
+rollbackMigrating :: ServerState -> M.VmId -> IO ()
+rollbackMigrating state vmId = do
+  mVm <- runSqlPool (get vmId) (ssDbPool state)
+  case mVm of
+    Just vm -> case validateTransition (M.vmStatus vm) ActionMigrateFail of
+      Right next ->
+        runSqlPool (update vmId [M.VmStatus =. next]) (ssDbPool state)
+      Left _ -> pure ()
+    Nothing -> pure ()
 
 opDiskKey :: MigrationDriveOp -> M.DiskImageId
 opDiskKey (OpCopy d) = d

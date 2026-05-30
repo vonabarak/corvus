@@ -474,10 +474,10 @@ rpcVmReset conn ref = do
   _ <- callOn #reset CGVm.Vm'reset'params vmClient
   pure ()
 
-rpcVmSave :: CapnpConnection -> EntityRef -> IO ()
-rpcVmSave conn ref = do
+rpcVmSave :: CapnpConnection -> EntityRef -> Bool -> IO ()
+rpcVmSave conn ref wait = do
   vmClient <- getVmClient conn ref
-  _ <- callOn #save CGVm.Vm'save'params vmClient
+  _ <- callOn #save CGVm.Vm'save'params {CGVm.wait = wait} vmClient
   pure ()
 
 rpcVmDelete :: CapnpConnection -> EntityRef -> Bool -> IO ()

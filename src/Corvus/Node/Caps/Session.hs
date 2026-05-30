@@ -1280,6 +1280,19 @@ doVmStart sc spec = do
                         -- existing file (QEMU's migrate refuses
                         -- to overwrite). Best-effort.
                         _ <- liftIO $ E.try @E.SomeException (removeFile savedStateFile)
+                        -- For non-GA VMs there's no follow-up
+                        -- 'runGaStep' to push a status snapshot —
+                        -- but the daemon's row is currently in
+                        -- VmLoading and the sink needs a signal to
+                        -- flip it to VmRunning. Push here when
+                        -- there's no GA wait queued. (For GA
+                        -- VMs, 'runGaStep' below dispatches after
+                        -- the first ping; sending an extra one
+                        -- here would only push 'ok=false' and the
+                        -- sink would ignore it.)
+                        unless needGaWait $
+                          liftIO $
+                            SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
                         pure True
                       NQ.QmpError err -> do
                         tearDownIncoming ("cont after incoming-migrate failed: " <> err)

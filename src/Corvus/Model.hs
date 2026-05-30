@@ -164,6 +164,9 @@ data VmStatus
   | VmPaused
   | VmSaved
   | VmError
+  | VmSaving
+  | VmLoading
+  | VmMigrating
   deriving (Show, Read, Eq, Ord, Enum, Bounded, Generic)
 
 instance EnumText VmStatus where
@@ -176,6 +179,9 @@ instance EnumText VmStatus where
     , (VmPaused, "paused")
     , (VmSaved, "saved")
     , (VmError, "error")
+    , (VmSaving, "saving")
+    , (VmLoading, "loading")
+    , (VmMigrating, "migrating")
     ]
 
 instance FromJSON VmStatus where
@@ -609,7 +615,6 @@ Vm
     vsockCid Int Maybe default=NULL
     errorMessage Text Maybe default=NULL
     lastErrorAt UTCTime Maybe default=NULL
-    migrating Bool default=false
     rebootQuirk Bool default=false
     cpuModel Text default='host'
     UniqueVmNamePerNode nodeId name

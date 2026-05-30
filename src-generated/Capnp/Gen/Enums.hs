@@ -40,6 +40,9 @@ data VmStatus
     | VmStatus'paused 
     | VmStatus'error 
     | VmStatus'saved 
+    | VmStatus'saving 
+    | VmStatus'loading 
+    | VmStatus'migrating 
     | VmStatus'unknown' Std_.Word16
     deriving(Std_.Eq
             ,Std_.Show
@@ -63,6 +66,12 @@ instance (Std_.Enum VmStatus) where
             VmStatus'error
         6 ->
             VmStatus'saved
+        7 ->
+            VmStatus'saving
+        8 ->
+            VmStatus'loading
+        9 ->
+            VmStatus'migrating
         tag_ ->
             (VmStatus'unknown' (Std_.fromIntegral tag_))
     fromEnum value_ = case value_ of
@@ -80,6 +89,12 @@ instance (Std_.Enum VmStatus) where
             5
         (VmStatus'saved) ->
             6
+        (VmStatus'saving) ->
+            7
+        (VmStatus'loading) ->
+            8
+        (VmStatus'migrating) ->
+            9
         (VmStatus'unknown' tag_) ->
             (Std_.fromIntegral tag_)
 instance (C.IsWord VmStatus) where

@@ -7,13 +7,16 @@
 # removed without breaking the wire format. Append-only.
 
 enum VmStatus {
-  stopped  @0;
-  starting @1;
-  running  @2;
-  stopping @3;
-  paused   @4;
-  error    @5;
-  saved    @6;
+  stopped   @0;
+  starting  @1;
+  running   @2;
+  stopping  @3;
+  paused    @4;
+  error     @5;
+  saved     @6;
+  saving    @7;
+  loading   @8;
+  migrating @9;
 }
 
 enum DriveInterface {
