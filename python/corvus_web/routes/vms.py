@@ -12,6 +12,7 @@ import asyncio
 import logging
 from contextlib import suppress
 from dataclasses import asdict, is_dataclass
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Annotated, Any
 
 from corvus_client.exceptions import CorvusError, VmNotFound
@@ -32,14 +33,23 @@ logger = logging.getLogger(__name__)
 
 def _as_dict(obj: Any) -> Any:
     """Recursively convert a frozen dataclass tree (incl. datetimes,
-    nested lists) into JSON-friendly primitives. FastAPI's default
-    JSON encoder handles datetime, but explicit conversion gives us
-    deterministic field naming and lets us strip ``None`` if we ever
-    want to."""
+    nested lists) into JSON-friendly primitives.
+
+    REST handlers used to rely on FastAPI's default JSON encoder to
+    stringify datetimes — but the WebSocket path goes through
+    Starlette's ``ws.send_json`` which calls plain ``json.dumps`` and
+    raises ``TypeError`` on a raw ``datetime``. Convert ISO 8601 here
+    so both surfaces emit the same string and the WS doesn't crash on
+    fields like ``GuestAgentStatus.last_healthcheck``.
+    """
     if is_dataclass(obj) and not isinstance(obj, type):
         return {k: _as_dict(v) for k, v in asdict(obj).items()}
     if isinstance(obj, list):
         return [_as_dict(v) for v in obj]
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, date):
+        return obj.isoformat()
     return obj
 
 
