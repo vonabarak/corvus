@@ -52,6 +52,38 @@ export interface SharedDirInfo {
   pid: number | null;
 }
 
+/** Per-drive cumulative I/O counters from QEMU query-blockstats. */
+export interface DriveIo {
+  name: string;
+  read_bytes_total: number;
+  write_bytes_total: number;
+  read_ops_total: number;
+  write_ops_total: number;
+}
+
+/** Per-TAP cumulative throughput counters from sysfs. */
+export interface NetIo {
+  tap_name: string;
+  rx_bytes_total: number;
+  tx_bytes_total: number;
+}
+
+/** One resource-consumption sample (cumulative counters + instant
+ * gauges). The agent polls every 10 s; the daemon keeps 60 samples
+ * per VM. Consumers compute rates as
+ * `delta(counter) / interval_millis`. */
+export interface VmStats {
+  sampled_at_nanos: number;
+  interval_millis: number;
+  cpu_jiffies_total: number;
+  clk_tck: number;
+  host_rss_bytes: number;
+  balloon_actual_bytes: number;
+  balloon_max_bytes: number;
+  drives: DriveIo[];
+  nets: NetIo[];
+}
+
 /** Detail view returned by `/api/vms/{id}`. Mirrors
  * corvus_client.types.VmDetails. */
 export interface VmDetails extends Omit<VmInfo, "last_healthcheck"> {
@@ -68,6 +100,11 @@ export interface VmDetails extends Omit<VmInfo, "last_healthcheck"> {
   last_healthcheck: string | null;
   error_message: string | null;
   last_error_at: string | null;
+  stats: VmStats | null;
+}
+
+export function getVmStatsHistory(id: number, signal?: AbortSignal): Promise<VmStats[]> {
+  return apiGet<VmStats[]>(`/vms/${id}/stats/history`, signal);
 }
 
 export function listVms(signal?: AbortSignal): Promise<VmInfo[]> {

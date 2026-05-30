@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { VmStatusBadge } from "@/components/VmStatusBadge";
 import { DrivesCard } from "@/components/vm/DrivesCard";
 import { NetIfsCard } from "@/components/vm/NetIfsCard";
+import { ResourceUsageCard } from "@/components/vm/ResourceUsageCard";
 import { SshKeysCard } from "@/components/vm/SshKeysCard";
 
 interface GuestAgentFrame {
@@ -294,6 +295,8 @@ export default function VmDetail() {
           )}
         </CardContent>
       </Card>
+
+      {vm.status === "running" && <ResourceUsageCard vmId={vm.id} vmCpuCount={vm.cpu_count} />}
 
       <DrivesCard vm={vm} />
 
