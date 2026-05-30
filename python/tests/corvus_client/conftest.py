@@ -381,6 +381,13 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
                         # nodeagent above; the daemon's outbound
                         # dial to it would also fail without one.
                         "--no-tls",
+                        # Tests use the Unix socket exclusively;
+                        # disable the TCP listener so the fixture
+                        # doesn't collide with a developer's
+                        # outer daemon already bound to 9876 (or
+                        # with another module's fixture running
+                        # under pytest-xdist).
+                        "--no-tcp",
                     ],
                     stdout=logf,
                     stderr=subprocess.STDOUT,
