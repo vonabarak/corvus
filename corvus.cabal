@@ -192,6 +192,7 @@ library
       Corvus.Handlers.Disk.Transfer
       Corvus.Handlers.Vm.Migrate
       Corvus.Handlers.Vm.Migrate.PreCheck
+      Corvus.Node.ProcStats
       Corvus.Node.QmpQQ
       Corvus.Node.Transfer
       Capnp.Gen.ById.X9b1373e2334a09e9

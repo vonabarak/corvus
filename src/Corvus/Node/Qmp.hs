@@ -8,6 +8,7 @@ module Corvus.Node.Qmp
   ( -- * Types
     QmpResult (..)
   , QmpMigrationStatus (..)
+  , BlockstatsRow (..)
 
     -- * Commands
   , qmpShutdown
@@ -33,6 +34,10 @@ module Corvus.Node.Qmp
   , qmpDeviceDel
   , qmpBlockdevDel
 
+    -- * Stats sampling
+  , qmpQueryBlockstats
+  , qmpQueryBalloon
+
     -- * Low-level
   , classifyQmpResponse
 
@@ -47,10 +52,13 @@ import Corvus.Model (DriveFormat (..), DriveInterface (..), EnumText (..))
 import Corvus.Node.QmpQQ (qmpQQ)
 import Corvus.Node.Runtime (getQmpSocket, shellQuotePath)
 import Corvus.Qemu.Config (QemuConfig)
+import qualified Data.Aeson as A
+import qualified Data.ByteString as BSWide
 import qualified Data.ByteString.Char8 as BS
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word (Word64)
 import GHC.IO.Exception (IOErrorType (..))
 import Network.Socket (Family (..), SockAddr (..), Socket, SocketType (..), close, connect, defaultProtocol, socket)
 import Network.Socket.ByteString (recv, sendAll)
@@ -386,6 +394,105 @@ qmpBlockdevDel config vmId nodeName =
 --------------------------------------------------------------------------------
 -- Low-level QMP Communication
 --------------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- Stats sampling
+
+-- | One row of @query-blockstats@. Names match the QMP wire field
+-- names for traceability: @bsrRdBytes@ / @bsrWrBytes@ are cumulative
+-- since QEMU launch.
+data BlockstatsRow = BlockstatsRow
+  { bsrDevice :: !Text
+  , bsrRdBytes :: !Word64
+  , bsrWrBytes :: !Word64
+  , bsrRdOps :: !Word64
+  , bsrWrOps :: !Word64
+  }
+  deriving (Eq, Show)
+
+-- | Issue @query-blockstats@ and decode the per-device counters.
+-- Used by the agent's StatusPoller to populate @VmStats.drives@.
+qmpQueryBlockstats :: QemuConfig -> Int64 -> IO (Either Text [BlockstatsRow])
+qmpQueryBlockstats config vmId = do
+  raw <- sendQmpRaw config vmId [qmpQQ| { "execute": "query-blockstats" } |]
+  pure $ do
+    bs <- raw
+    line <- extractReplyLine bs
+    case A.eitherDecodeStrict line of
+      Left e -> Left (T.pack ("query-blockstats decode: " <> e))
+      Right (BlockstatsReply rows) -> Right rows
+
+-- | Issue @query-balloon@. Returns @Right (Just bytes)@ when the
+-- VM has an active balloon device, @Right Nothing@ when the VM
+-- has no balloon (QEMU error @DeviceNotActive@ / @CommandNotFound@),
+-- or @Left@ for transport / decode failures.
+qmpQueryBalloon :: QemuConfig -> Int64 -> IO (Either Text (Maybe Word64))
+qmpQueryBalloon config vmId = do
+  raw <- sendQmpRaw config vmId [qmpQQ| { "execute": "query-balloon" } |]
+  pure $ do
+    bs <- raw
+    line <- extractReplyLine bs
+    if BSWide.isInfixOf "\"error\"" line
+      then Right Nothing
+      else case A.eitherDecodeStrict line of
+        Left e -> Left (T.pack ("query-balloon decode: " <> e))
+        Right (BalloonReply actual) -> Right (Just actual)
+
+-- | Raw QMP send that returns the response bytes without
+-- 'classifyQmpResponse' coercion. Used by commands whose reply
+-- carries structured data (counters, lists, …).
+sendQmpRaw
+  :: QemuConfig -> Int64 -> BS.ByteString -> IO (Either Text BS.ByteString)
+sendQmpRaw config vmId cmd = do
+  qmpSock <- getQmpSocket config vmId
+  result <- try $ withUnixSocket qmpSock $ \sock -> do
+    _ <- recv sock 4096
+    sendAll sock [qmpQQ| { "execute": "qmp_capabilities" } |]
+    _ <- drainUntilReply sock BS.empty
+    sendAll sock cmd
+    drainUntilReply sock BS.empty
+  pure $ case result of
+    Left (e :: SomeException) -> Left (T.pack (show e))
+    Right response -> Right response
+
+-- | Pick the line that carries @"return"@ or @"error"@ out of the
+-- QMP response buffer. QMP may interleave async events between
+-- the qmp_capabilities reply and our command's reply; the last
+-- reply line is the one we want.
+extractReplyLine :: BS.ByteString -> Either Text BS.ByteString
+extractReplyLine bs =
+  case reverse (filter isReply (BS.lines bs)) of
+    (x : _) -> Right x
+    [] -> Left "no QMP reply line in response"
+  where
+    isReply line =
+      BSWide.isInfixOf "\"return\"" line
+        || BSWide.isInfixOf "\"error\"" line
+
+newtype BlockstatsReply = BlockstatsReply [BlockstatsRow]
+
+instance A.FromJSON BlockstatsReply where
+  parseJSON = A.withObject "BlockstatsReply" $ \o ->
+    BlockstatsReply <$> o A..: "return"
+
+instance A.FromJSON BlockstatsRow where
+  parseJSON = A.withObject "BlockstatsRow" $ \o -> do
+    dev <- o A..: "device"
+    stats <- o A..: "stats"
+    BlockstatsRow dev
+      <$> stats A..: "rd_bytes"
+      <*> stats A..: "wr_bytes"
+      <*> stats A..: "rd_operations"
+      <*> stats A..: "wr_operations"
+
+newtype BalloonReply = BalloonReply Word64
+
+instance A.FromJSON BalloonReply where
+  parseJSON = A.withObject "BalloonReply" $ \o -> do
+    ret <- o A..: "return"
+    BalloonReply <$> ret A..: "actual"
+
+-- ---------------------------------------------------------------------------
 
 -- | Send a QMP command to a VM
 sendQmpCommand :: QemuConfig -> Int64 -> BS.ByteString -> IO QmpResult

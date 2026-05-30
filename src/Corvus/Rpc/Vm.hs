@@ -580,6 +580,12 @@ instance CGVm.Vm'server_ VmCap where
         RespError msg -> throwFailed msg
         _ -> throwFailed "vm'migrate: unexpected response"
 
+  -- Per-VM resource stats subscribe + history fetch. Stubs in
+  -- slice 1 (schema only) — slice 3 wires them through the
+  -- daemon-side VmStatusSink cache.
+  vm'getStatsHistory _ = methodUnimplemented
+  vm'subscribeStats _ = methodUnimplemented
+
 -- ---------------------------------------------------------------------
 -- Helpers
 -- ---------------------------------------------------------------------

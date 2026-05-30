@@ -211,6 +211,26 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs =
     , CGVm.lastErrorAt = utcTimeToNanosMaybe vdLastErrorAt
     , CGVm.rebootQuirk = vdRebootQuirk
     , CGVm.cpuModel = vdCpuModel
+    , -- Slice 3 will populate this from the daemon-side stats
+      -- ring buffer; until then every VmDetails ships a
+      -- zero-filled sample so the wire encoder has the field.
+      CGVm.stats = zeroVmStats
+    }
+
+-- | Default zero-filled 'VmStats'. Used as a placeholder until the
+-- daemon's stats-cache (slice 3) attaches a real sample.
+zeroVmStats :: C.Parsed CGVm.VmStats
+zeroVmStats =
+  CGVm.VmStats
+    { CGVm.sampledAtNanos = 0
+    , CGVm.intervalMillis = 0
+    , CGVm.cpuJiffiesTotal = 0
+    , CGVm.clkTck = 0
+    , CGVm.hostRssBytes = 0
+    , CGVm.balloonActualBytes = 0
+    , CGVm.balloonMaxBytes = 0
+    , CGVm.drives = []
+    , CGVm.nets = []
     }
 
 -- | Reverse direction. Returns shared-dirs separately so the caller
