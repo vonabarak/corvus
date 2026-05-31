@@ -384,6 +384,15 @@ def _bootstrap_node(node):
     #   otherwise fail with a NameResolutionError on ``pypi.org``.
     # * ``--break-system-packages`` so PEP 668 doesn't refuse a
     #   user-site install on distros that ship EXTERNALLY-MANAGED.
+    # * ``--no-deps`` skips dependency resolution entirely. The
+    #   test image's emerge step pre-installs every direct +
+    #   transitive dep corvus needs (pycapnp, pyyaml, cryptography,
+    #   click, jinja2, fastapi, uvicorn, ...) — so pip has nothing
+    #   to fetch. Without ``--no-deps``, pip sees ``uvicorn
+    #   [standard]>=0.30`` in pyproject.toml and tries to install
+    #   the `standard` extras' transitive deps (e.g.
+    #   python-dotenv) from PyPI — which fails with "Network is
+    #   unreachable" on the air-gapped test node.
     _shrun(
         node,
         (
@@ -397,7 +406,8 @@ def _bootstrap_node(node):
             "--exclude=dist-newstyle "
             f"{SRC_MOUNT}/ $HOME/corvus-src/ && "
             "python3 -m pip install --user --quiet "
-            "--break-system-packages --no-build-isolation $HOME/corvus-src"
+            "--break-system-packages --no-build-isolation --no-deps "
+            "$HOME/corvus-src"
         ),
         timeout_sec=300.0,
     )
