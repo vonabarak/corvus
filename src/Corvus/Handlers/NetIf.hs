@@ -245,19 +245,21 @@ listNetIfs vmId = do
       pure $ Just infos
   where
     toNetIfInfo (Entity key netIf) = do
-      mNetworkName <- case networkInterfaceNetworkId netIf of
+      networkRef <- case networkInterfaceNetworkId netIf of
         Nothing -> pure Nothing
         Just nwKey -> do
           mNetwork <- get nwKey
-          pure $ networkName <$> mNetwork
+          pure $
+            fmap
+              (\nw -> NamedRef {nrId = fromSqlKey nwKey, nrName = networkName nw})
+              mNetwork
       pure
         NetIfInfo
           { niId = fromSqlKey key
           , niType = networkInterfaceInterfaceType netIf
           , niHostDevice = networkInterfaceHostDevice netIf
           , niMacAddress = networkInterfaceMacAddress netIf
-          , niNetworkId = fromSqlKey <$> networkInterfaceNetworkId netIf
-          , niNetworkName = mNetworkName
+          , niNetwork = networkRef
           , niGuestIpAddresses = networkInterfaceGuestIpAddresses netIf
           , niIpAddress = networkInterfaceIpAddress netIf
           }

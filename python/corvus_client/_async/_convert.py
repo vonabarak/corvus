@@ -32,6 +32,19 @@ def _nz_float(x: float) -> float | None:
     return None if x == 0.0 else x
 
 
+def named_ref(r) -> t.NamedRef:
+    """Convert a ``Common.NamedRef`` capnp struct to the Python dataclass.
+    Use directly for required references."""
+    return t.NamedRef(id=r.id, name=r.name)
+
+
+def named_ref_or_none(r) -> t.NamedRef | None:
+    """Optional variant: the wire sentinel ``id == 0`` becomes ``None``."""
+    if r.id == 0:
+        return None
+    return t.NamedRef(id=r.id, name=r.name)
+
+
 # ---------------------------------------------------------------------------
 # Common
 # ---------------------------------------------------------------------------
@@ -77,8 +90,7 @@ def vm_info(r) -> t.VmInfo:
     return t.VmInfo(
         id=r.id,
         name=r.name,
-        node_id=r.nodeId,
-        node_name=r.nodeName,
+        node=named_ref(r.node),
         status=str(r.status),
         cpu_count=r.cpuCount,
         ram_mb=r.ramMb,
@@ -95,8 +107,7 @@ def vm_info(r) -> t.VmInfo:
 def drive_info(r) -> t.DriveInfo:
     return t.DriveInfo(
         id=r.id,
-        disk_image_id=r.diskImageId,
-        disk_image_name=r.diskImageName,
+        disk_image=named_ref(r.diskImage),
         interface=str(r.interface),
         file_path=r.filePath,
         format=str(r.format),
@@ -113,8 +124,7 @@ def net_if_info(r) -> t.NetIfInfo:
         type=str(r.type),
         host_device=r.hostDevice,
         mac_address=r.macAddress,
-        network_id=_nz_int(r.networkId),
-        network_name=_nz_text(r.networkName),
+        network=named_ref_or_none(r.network),
         guest_ip_addresses=_nz_text(r.guestIpAddresses),
         ip_address=_nz_text(r.ipAddress),
     )
@@ -135,8 +145,7 @@ def vm_details(r) -> t.VmDetails:
     return t.VmDetails(
         id=r.id,
         name=r.name,
-        node_id=r.nodeId,
-        node_name=r.nodeName,
+        node=named_ref(r.node),
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
         status=str(r.status),
         cpu_count=r.cpuCount,
@@ -210,13 +219,12 @@ def guest_exec_result(r) -> t.GuestExecResult:
 
 
 def disk_attachment(r) -> t.DiskAttachment:
-    return t.DiskAttachment(vm_id=r.vmId, vm_name=r.vmName)
+    return t.DiskAttachment(vm=named_ref(r.vm))
 
 
 def disk_image_placement(r) -> t.DiskImagePlacement:
     return t.DiskImagePlacement(
-        node_id=r.nodeId,
-        node_name=r.nodeName,
+        node=named_ref(r.node),
         file_path=r.filePath,
     )
 
@@ -230,8 +238,7 @@ def disk_image_info(r) -> t.DiskImageInfo:
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
         placements=[disk_image_placement(p) for p in r.placements],
         attached_to=[disk_attachment(a) for a in r.attachedTo],
-        backing_image_id=_nz_int(r.backingImageId),
-        backing_image_name=_nz_text(r.backingImageName),
+        backing_image=named_ref_or_none(r.backingImage),
         ephemeral=r.ephemeral,
     )
 
@@ -327,7 +334,7 @@ def network_info(r) -> t.NetworkInfo:
 
 
 def vm_attachment(r) -> t.VmAttachment:
-    return t.VmAttachment(vm_id=r.vmId, vm_name=r.vmName)
+    return t.VmAttachment(vm=named_ref(r.vm))
 
 
 def ssh_key_info(r) -> t.SshKeyInfo:
@@ -360,8 +367,7 @@ def template_vm_info(r) -> t.TemplateVmInfo:
 
 def template_drive_info(r) -> t.TemplateDriveInfo:
     return t.TemplateDriveInfo(
-        disk_image_id=_nz_int(r.diskImageId),
-        disk_image_name=_nz_text(r.diskImageName),
+        disk_image=named_ref_or_none(r.diskImage),
         interface=str(r.interface),
         media=str(r.media) if r.hasMedia else None,
         read_only=r.readOnly,
@@ -415,8 +421,7 @@ def task_info(r) -> t.TaskInfo:
         started_at=_ts(r.startedAt) or datetime.fromtimestamp(0, tz=timezone.utc),
         finished_at=_ts(r.finishedAt),
         subsystem=str(r.subsystem),
-        entity_id=_nz_int(r.entityId),
-        entity_name=_nz_text(r.entityName),
+        entity=named_ref_or_none(r.entity),
         command=r.command,
         result=str(r.result),
         message=_nz_text(r.message),

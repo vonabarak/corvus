@@ -1,12 +1,12 @@
 import { apiGet, apiSend } from "./client";
+import type { NamedRef } from "./refs";
 
 /** Subset of fields returned by `/api/vms` (list view). Mirrors
  * corvus_client.types.VmInfo. */
 export interface VmInfo {
   id: number;
   name: string;
-  node_id: number;
-  node_name: string;
+  node: NamedRef;
   status: string;
   cpu_count: number;
   ram_mb: number;
@@ -21,8 +21,7 @@ export interface VmInfo {
 
 export interface DriveInfo {
   id: number;
-  disk_image_id: number;
-  disk_image_name: string;
+  disk_image: NamedRef;
   interface: string;
   file_path: string;
   format: string;
@@ -37,8 +36,7 @@ export interface NetIfInfo {
   type: string;
   host_device: string;
   mac_address: string;
-  network_id: number | null;
-  network_name: string | null;
+  network: NamedRef | null;
   guest_ip_addresses: string | null;
   ip_address: string | null;
 }

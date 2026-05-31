@@ -47,7 +47,8 @@ spec = sequential $ do
 
     describe "VmInfo" $ do
       it "serializes with correct field names and enum values" $ do
-        let vm = VmInfo 1 "my-vm" 7 "alpha" VmRunning 4 2048 False False False Nothing False False "host"
+        let nodeRef = NamedRef {nrId = 7, nrName = "alpha"}
+            vm = VmInfo 1 "my-vm" nodeRef VmRunning 4 2048 False False False Nothing False False "host"
             val = toJSON vm
         -- 'omitNothingFields = True' in 'innerOptions' drops the
         -- Nothing-valued 'healthcheck' entirely rather than serialising
@@ -57,8 +58,7 @@ spec = sequential $ do
           `shouldBe` object
             [ "id" .= (1 :: Int)
             , "name" .= ("my-vm" :: String)
-            , "node_id" .= (7 :: Int)
-            , "node_name" .= ("alpha" :: String)
+            , "node" .= object ["id" .= (7 :: Int), "name" .= ("alpha" :: String)]
             , "status" .= ("running" :: String)
             , "cpu_count" .= (4 :: Int)
             , "ram_mb" .= (2048 :: Int)
@@ -71,7 +71,21 @@ spec = sequential $ do
             ]
 
       it "serializes stopped status correctly" $ do
-        let vm = VmInfo 2 "test" 1 "alpha" VmStopped 1 512 False False False Nothing False False "host"
+        let vm =
+              VmInfo
+                2
+                "test"
+                NamedRef {nrId = 1, nrName = "alpha"}
+                VmStopped
+                1
+                512
+                False
+                False
+                False
+                Nothing
+                False
+                False
+                "host"
             json = encode vm
         BL.unpack json `shouldSatisfy` isInfixOf "\"stopped\""
 
@@ -122,7 +136,13 @@ spec = sequential $ do
 
     describe "DiskImageInfo" $ do
       it "serializes with all fields" $ do
-        let disk = DiskImageInfo 1 "boot" [DiskImagePlacement 1 "test-node" "/path/boot.qcow2"] FormatQcow2 (Just 10240) testTime [(1, "vm1"), (2, "vm2")] Nothing Nothing False
+        let node = NamedRef {nrId = 1, nrName = "test-node"}
+            placement = DiskImagePlacement node "/path/boot.qcow2"
+            attached =
+              [ NamedRef {nrId = 1, nrName = "vm1"}
+              , NamedRef {nrId = 2, nrName = "vm2"}
+              ]
+            disk = DiskImageInfo 1 "boot" [placement] FormatQcow2 (Just 10240) testTime attached Nothing False
             val = toJSON disk
         case val of
           Object obj -> do
@@ -133,12 +153,16 @@ spec = sequential $ do
           _ -> fail "Expected JSON object"
 
       it "serializes overlay backing info" $ do
-        let disk = DiskImageInfo 2 "overlay" [DiskImagePlacement 1 "test-node" "/path/overlay.qcow2"] FormatQcow2 Nothing testTime [] (Just 1) (Just "base") False
+        let node = NamedRef {nrId = 1, nrName = "test-node"}
+            placement = DiskImagePlacement node "/path/overlay.qcow2"
+            backing = Just NamedRef {nrId = 1, nrName = "base"}
+            disk = DiskImageInfo 2 "overlay" [placement] FormatQcow2 Nothing testTime [] backing False
             val = toJSON disk
         case val of
-          Object obj -> do
-            KM.lookup "backing_image_id" obj `shouldBe` Just (Number 1)
-            KM.lookup "backing_image_name" obj `shouldBe` Just (String "base")
+          Object obj ->
+            -- backing_image is a nested object now, not flat id+name.
+            KM.lookup "backing_image" obj
+              `shouldBe` Just (object ["id" .= (1 :: Int), "name" .= ("base" :: String)])
           _ -> fail "Expected JSON object"
 
     describe "SnapshotInfo" $ do
@@ -164,7 +188,11 @@ spec = sequential $ do
 
     describe "SshKeyInfo" $ do
       it "serializes with attached VMs" $ do
-        let key = SshKeyInfo 1 "mykey" "ssh-ed25519 AAAA..." testTime [(1, "vm1"), (3, "vm3")]
+        let attached =
+              [ NamedRef {nrId = 1, nrName = "vm1"}
+              , NamedRef {nrId = 3, nrName = "vm3"}
+              ]
+            key = SshKeyInfo 1 "mykey" "ssh-ed25519 AAAA..." testTime attached
             val = toJSON key
         case val of
           Object obj -> do
@@ -174,7 +202,8 @@ spec = sequential $ do
 
     describe "DriveInfo" $ do
       it "serializes interface and cache enums" $ do
-        let drive = DriveInfo 1 10 "disk" InterfaceVirtio "/path/disk.qcow2" FormatQcow2 (Just MediaDisk) False CacheWriteback True
+        let diskRef = NamedRef {nrId = 10, nrName = "disk"}
+            drive = DriveInfo 1 diskRef InterfaceVirtio "/path/disk.qcow2" FormatQcow2 (Just MediaDisk) False CacheWriteback True
             val = toJSON drive
         case val of
           Object obj -> do
@@ -182,6 +211,9 @@ spec = sequential $ do
             KM.lookup "cache_type" obj `shouldBe` Just (String "writeback")
             KM.lookup "media" obj `shouldBe` Just (String "disk")
             KM.lookup "discard" obj `shouldBe` Just (Bool True)
+            -- disk_image is a nested object now.
+            KM.lookup "disk_image" obj
+              `shouldBe` Just (object ["id" .= (10 :: Int), "name" .= ("disk" :: String)])
           _ -> fail "Expected JSON object"
 
     describe "TemplateVmInfo" $ do
@@ -207,9 +239,11 @@ spec = sequential $ do
         encode ([] :: [VmInfo]) `shouldBe` "[]"
 
       it "VM list serializes as JSON array" $ do
-        let vms =
-              [ VmInfo 1 "a" 1 "alpha" VmRunning 1 512 False False False Nothing False False "host"
-              , VmInfo 2 "b" 2 "beta" VmStopped 2 1024 False False False Nothing False False "host"
+        let alpha = NamedRef {nrId = 1, nrName = "alpha"}
+            beta = NamedRef {nrId = 2, nrName = "beta"}
+            vms =
+              [ VmInfo 1 "a" alpha VmRunning 1 512 False False False Nothing False False "host"
+              , VmInfo 2 "b" beta VmStopped 2 1024 False False False Nothing False False "host"
               ]
             val = toJSON vms
         case val of

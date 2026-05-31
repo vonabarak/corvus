@@ -18,7 +18,7 @@ import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitResult, isStructured, printTable)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), TaskResult (..))
-import Corvus.Protocol (TaskInfo (..))
+import Corvus.Protocol (NamedRef (..), TaskInfo (..))
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -101,7 +101,7 @@ handleTaskWait fmt conn taskId mTimeout = do
                 ++ T.unpack (enumToText (tiSubsystem info))
                 ++ " "
                 ++ T.unpack (tiCommand info)
-                ++ maybe "" (\n -> " " ++ T.unpack n) (tiEntityName info)
+                ++ maybe "" (\e -> " " ++ T.unpack (nrName e)) (tiEntity info)
                 ++ ")..."
             hFlush stdout
           pollUntilDone fmt conn taskId startTime mTimeout
@@ -173,7 +173,7 @@ printCompletionMessage taskId info =
       ++ T.unpack (enumToText (tiSubsystem info))
       ++ " "
       ++ T.unpack (tiCommand info)
-      ++ maybe "" (\n -> " " ++ T.unpack n) (tiEntityName info)
+      ++ maybe "" (\e -> " " ++ T.unpack (nrName e)) (tiEntity info)
       ++ maybe "" (\m -> ": " ++ T.unpack m) (tiMessage info)
 
 -- | Column definitions for the @task list@ table.
@@ -220,11 +220,9 @@ printTaskDetail info = do
   putStrLn $ "Message:    " ++ T.unpack (fromMaybe "-" (tiMessage info))
 
 entityLabel :: TaskInfo -> String
-entityLabel info = case (tiEntityName info, tiEntityId info) of
-  (Just name, Just eid) -> T.unpack name ++ " (" ++ show eid ++ ")"
-  (Just name, Nothing) -> T.unpack name
-  (Nothing, Just eid) -> show eid
-  (Nothing, Nothing) -> "-"
+entityLabel info = case tiEntity info of
+  Just e -> T.unpack (nrName e) ++ " (" ++ show (nrId e) ++ ")"
+  Nothing -> "-"
 
 formatTimestamp :: UTCTime -> String
 formatTimestamp = formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S"

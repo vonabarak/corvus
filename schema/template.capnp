@@ -22,23 +22,24 @@ struct TemplateVmInfo {
 }
 
 struct TemplateDriveInfo {
-  diskImageId    @0  :Int64;   # 0 == not bound to a specific image
-  diskImageName  @1  :Text;    # empty when no specific image
-  interface      @2  :Enums.DriveInterface;
-  hasMedia       @3  :Bool;
-  media          @4  :Enums.DriveMedia;
-  readOnly       @5  :Bool;
-  cacheType      @6  :Enums.CacheType;
-  discard        @7  :Bool;
-  cloneStrategy  @8  :Enums.TemplateCloneStrategy;
-  sizeMb         @9  :Int64;   # 0 == not specified
-  hasFormat      @10 :Bool;
-  format         @11 :Enums.DriveFormat;
+  # Source disk image. `id == 0` => not bound to a specific image
+  # (e.g. clone/overlay strategies that create a new disk).
+  diskImage      @0  :Common.NamedRef;
+  interface      @1  :Enums.DriveInterface;
+  hasMedia       @2  :Bool;
+  media          @3  :Enums.DriveMedia;
+  readOnly       @4  :Bool;
+  cacheType      @5  :Enums.CacheType;
+  discard        @6  :Bool;
+  cloneStrategy  @7  :Enums.TemplateCloneStrategy;
+  sizeMb         @8  :Int64;   # 0 == not specified
+  hasFormat      @9  :Bool;
+  format         @10 :Enums.DriveFormat;
   # Per-drive override for the ephemeral flag on disks created during
   # instantiation. `hasEphemeral` distinguishes "user did not specify"
   # (use strategy-driven default) from "user explicitly set to false".
-  hasEphemeral   @12 :Bool;
-  ephemeral      @13 :Bool;
+  hasEphemeral   @11 :Bool;
+  ephemeral      @12 :Bool;
 }
 
 struct TemplateNetIfInfo {

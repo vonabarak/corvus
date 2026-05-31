@@ -216,7 +216,7 @@ export function NetIfsCard({ vm }: { vm: VmDetails }) {
               {vm.net_ifs.map((n) => (
                 <TableRow key={n.id}>
                   <TableCell>{n.type}</TableCell>
-                  <TableCell>{n.network_name ?? "—"}</TableCell>
+                  <TableCell>{n.network?.name ?? "—"}</TableCell>
                   <TableCell className="font-mono text-xs">{n.mac_address}</TableCell>
                   <TableCell className="font-mono text-xs">{n.host_device || "—"}</TableCell>
                   <TableCell className="font-mono text-xs">{n.guest_ip_addresses ?? "—"}</TableCell>

@@ -40,7 +40,7 @@ type instance (R.ReprFor DiskImageInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskImageInfo) where
     typeId  = 14053829785942251641
 instance (C.TypedStruct DiskImageInfo) where
-    numStructWords  = 5
+    numStructWords  = 4
     numStructPtrs  = 4
 instance (C.Allocate DiskImageInfo) where
     type AllocHint DiskImageInfo = ()
@@ -59,8 +59,7 @@ data instance C.Parsed DiskImageInfo
         ,sizeMb :: (RP.Parsed Std_.Int64)
         ,createdAt :: (RP.Parsed Std_.Int64)
         ,attachedTo :: (RP.Parsed (R.List DiskAttachment))
-        ,backingImageId :: (RP.Parsed Std_.Int64)
-        ,backingImageName :: (RP.Parsed Basics.Text)
+        ,backingImage :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,ephemeral :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskImageInfo))
@@ -73,8 +72,7 @@ instance (C.Parse DiskImageInfo (C.Parsed DiskImageInfo)) where
                                 <*> (GH.parseField #sizeMb raw_)
                                 <*> (GH.parseField #createdAt raw_)
                                 <*> (GH.parseField #attachedTo raw_)
-                                <*> (GH.parseField #backingImageId raw_)
-                                <*> (GH.parseField #backingImageName raw_)
+                                <*> (GH.parseField #backingImage raw_)
                                 <*> (GH.parseField #ephemeral raw_))
 instance (C.Marshal DiskImageInfo (C.Parsed DiskImageInfo)) where
     marshalInto raw_ DiskImageInfo{..} = (do
@@ -85,8 +83,7 @@ instance (C.Marshal DiskImageInfo (C.Parsed DiskImageInfo)) where
         (GH.encodeField #sizeMb sizeMb raw_)
         (GH.encodeField #createdAt createdAt raw_)
         (GH.encodeField #attachedTo attachedTo raw_)
-        (GH.encodeField #backingImageId backingImageId raw_)
-        (GH.encodeField #backingImageName backingImageName raw_)
+        (GH.encodeField #backingImage backingImage raw_)
         (GH.encodeField #ephemeral ephemeral raw_)
         (Std_.pure ())
         )
@@ -104,9 +101,7 @@ instance (GH.HasField "createdAt" GH.Slot DiskImageInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
 instance (GH.HasField "attachedTo" GH.Slot DiskImageInfo (R.List DiskAttachment)) where
     fieldByLabel  = (GH.ptrField 2)
-instance (GH.HasField "backingImageId" GH.Slot DiskImageInfo Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 4 64 0)
-instance (GH.HasField "backingImageName" GH.Slot DiskImageInfo Basics.Text) where
+instance (GH.HasField "backingImage" GH.Slot DiskImageInfo Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
     fieldByLabel  = (GH.ptrField 3)
 instance (GH.HasField "ephemeral" GH.Slot DiskImageInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 1 1 0)
@@ -115,7 +110,7 @@ type instance (R.ReprFor DiskImagePlacement) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskImagePlacement) where
     typeId  = 17704711645275117274
 instance (C.TypedStruct DiskImagePlacement) where
-    numStructWords  = 1
+    numStructWords  = 0
     numStructPtrs  = 2
 instance (C.Allocate DiskImagePlacement) where
     type AllocHint DiskImagePlacement = ()
@@ -127,26 +122,21 @@ instance (C.AllocateList DiskImagePlacement) where
 instance (C.EstimateListAlloc DiskImagePlacement (C.Parsed DiskImagePlacement))
 data instance C.Parsed DiskImagePlacement
     = DiskImagePlacement 
-        {nodeId :: (RP.Parsed Std_.Int64)
-        ,nodeName :: (RP.Parsed Basics.Text)
+        {node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,filePath :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskImagePlacement))
 deriving instance (Std_.Eq (C.Parsed DiskImagePlacement))
 instance (C.Parse DiskImagePlacement (C.Parsed DiskImagePlacement)) where
-    parse raw_ = (DiskImagePlacement <$> (GH.parseField #nodeId raw_)
-                                     <*> (GH.parseField #nodeName raw_)
+    parse raw_ = (DiskImagePlacement <$> (GH.parseField #node raw_)
                                      <*> (GH.parseField #filePath raw_))
 instance (C.Marshal DiskImagePlacement (C.Parsed DiskImagePlacement)) where
     marshalInto raw_ DiskImagePlacement{..} = (do
-        (GH.encodeField #nodeId nodeId raw_)
-        (GH.encodeField #nodeName nodeName raw_)
+        (GH.encodeField #node node raw_)
         (GH.encodeField #filePath filePath raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "nodeId" GH.Slot DiskImagePlacement Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 0 64 0)
-instance (GH.HasField "nodeName" GH.Slot DiskImagePlacement Basics.Text) where
+instance (GH.HasField "node" GH.Slot DiskImagePlacement Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "filePath" GH.Slot DiskImagePlacement Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
@@ -155,7 +145,7 @@ type instance (R.ReprFor DiskAttachment) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskAttachment) where
     typeId  = 16768680145487968521
 instance (C.TypedStruct DiskAttachment) where
-    numStructWords  = 1
+    numStructWords  = 0
     numStructPtrs  = 1
 instance (C.Allocate DiskAttachment) where
     type AllocHint DiskAttachment = ()
@@ -167,23 +157,18 @@ instance (C.AllocateList DiskAttachment) where
 instance (C.EstimateListAlloc DiskAttachment (C.Parsed DiskAttachment))
 data instance C.Parsed DiskAttachment
     = DiskAttachment 
-        {vmId :: (RP.Parsed Std_.Int64)
-        ,vmName :: (RP.Parsed Basics.Text)}
+        {vm :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DiskAttachment))
 deriving instance (Std_.Eq (C.Parsed DiskAttachment))
 instance (C.Parse DiskAttachment (C.Parsed DiskAttachment)) where
-    parse raw_ = (DiskAttachment <$> (GH.parseField #vmId raw_)
-                                 <*> (GH.parseField #vmName raw_))
+    parse raw_ = (DiskAttachment <$> (GH.parseField #vm raw_))
 instance (C.Marshal DiskAttachment (C.Parsed DiskAttachment)) where
     marshalInto raw_ DiskAttachment{..} = (do
-        (GH.encodeField #vmId vmId raw_)
-        (GH.encodeField #vmName vmName raw_)
+        (GH.encodeField #vm vm raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "vmId" GH.Slot DiskAttachment Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 0 64 0)
-instance (GH.HasField "vmName" GH.Slot DiskAttachment Basics.Text) where
+instance (GH.HasField "vm" GH.Slot DiskAttachment Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
     fieldByLabel  = (GH.ptrField 0)
 data SnapshotInfo 
 type instance (R.ReprFor SnapshotInfo) = (R.Ptr (Std_.Just R.Struct))

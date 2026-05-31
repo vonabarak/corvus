@@ -27,7 +27,7 @@ import Corvus.Client.Editor (editInEditor)
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printField, printTable, tableFormat)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..))
-import Corvus.Protocol (TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
+import Corvus.Protocol (NamedRef (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Text (Text)
@@ -213,7 +213,7 @@ printTemplateDetails t = do
       forM_ (tvdDrives t) $ \d ->
         printf
           ("  " ++ dFmt)
-          (maybe "-" T.unpack (tvdiDiskImageName d))
+          (maybe "-" (T.unpack . nrName) (tvdiDiskImage d))
           (T.unpack $ enumToText $ tvdiInterface d)
           (T.unpack $ enumToText $ tvdiCloneStrategy d)
           (show $ tvdiReadOnly d)

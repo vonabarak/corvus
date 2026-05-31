@@ -81,7 +81,7 @@ function RecentTasksCard() {
             </TableHeader>
             <TableBody>
               {data.map((t) => {
-                const route = subsystemEntityRoute(t.subsystem, t.entity_id);
+                const route = subsystemEntityRoute(t.subsystem, t.entity?.id ?? null);
                 return (
                   <TableRow key={t.id}>
                     <TableCell>
@@ -92,13 +92,13 @@ function RecentTasksCard() {
                     <TableCell className="font-mono text-xs">{t.subsystem}</TableCell>
                     <TableCell className="font-mono text-xs">{t.command}</TableCell>
                     <TableCell>
-                      {t.entity_name ? (
+                      {t.entity ? (
                         route ? (
                           <Link to={route} className="hover:underline">
-                            {t.entity_name}
+                            {t.entity.name}
                           </Link>
                         ) : (
-                          <span>{t.entity_name}</span>
+                          <span>{t.entity.name}</span>
                         )
                       ) : (
                         <span className="text-muted-foreground">—</span>

@@ -13,6 +13,7 @@ where
 
 import Corvus.Protocol
   ( CloudInitInfo (..)
+  , NamedRef (..)
   , TemplateDetails (..)
   , TemplateDriveInfo (..)
   , TemplateNetIfInfo (..)
@@ -60,7 +61,7 @@ driveToValue d =
     , "strategy" .= tvdiCloneStrategy d
     ]
       ++ catMaybes
-        [ optPair "diskImageName" (tvdiDiskImageName d)
+        [ optPair "diskImageName" (nrName <$> tvdiDiskImage d)
         , optPair "media" (tvdiMedia d)
         , optPair "sizeMb" (tvdiSizeMb d)
         , optPair "format" (tvdiFormat d)

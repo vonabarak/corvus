@@ -44,7 +44,7 @@ type instance (R.ReprFor VmInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmInfo) where
     typeId  = 14337324896033347465
 instance (C.TypedStruct VmInfo) where
-    numStructWords  = 5
+    numStructWords  = 4
     numStructPtrs  = 3
 instance (C.Allocate VmInfo) where
     type AllocHint VmInfo = ()
@@ -67,8 +67,7 @@ data instance C.Parsed VmInfo
         ,lastHealthcheck :: (RP.Parsed Std_.Int64)
         ,autostart :: (RP.Parsed Std_.Bool)
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
-        ,nodeId :: (RP.Parsed Std_.Int64)
-        ,nodeName :: (RP.Parsed Basics.Text)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,cpuModel :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmInfo))
@@ -85,8 +84,7 @@ instance (C.Parse VmInfo (C.Parsed VmInfo)) where
                          <*> (GH.parseField #lastHealthcheck raw_)
                          <*> (GH.parseField #autostart raw_)
                          <*> (GH.parseField #rebootQuirk raw_)
-                         <*> (GH.parseField #nodeId raw_)
-                         <*> (GH.parseField #nodeName raw_)
+                         <*> (GH.parseField #node raw_)
                          <*> (GH.parseField #cpuModel raw_))
 instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
     marshalInto raw_ VmInfo{..} = (do
@@ -101,8 +99,7 @@ instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
         (GH.encodeField #lastHealthcheck lastHealthcheck raw_)
         (GH.encodeField #autostart autostart raw_)
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
-        (GH.encodeField #nodeId nodeId raw_)
-        (GH.encodeField #nodeName nodeName raw_)
+        (GH.encodeField #node node raw_)
         (GH.encodeField #cpuModel cpuModel raw_)
         (Std_.pure ())
         )
@@ -128,9 +125,7 @@ instance (GH.HasField "autostart" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 19 1 1 0)
 instance (GH.HasField "rebootQuirk" GH.Slot VmInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 20 1 1 0)
-instance (GH.HasField "nodeId" GH.Slot VmInfo Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 4 64 0)
-instance (GH.HasField "nodeName" GH.Slot VmInfo Basics.Text) where
+instance (GH.HasField "node" GH.Slot VmInfo Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "cpuModel" GH.Slot VmInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
@@ -139,7 +134,7 @@ type instance (R.ReprFor VmDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDetails) where
     typeId  = 12709035652582668216
 instance (C.TypedStruct VmDetails) where
-    numStructWords  = 8
+    numStructWords  = 7
     numStructPtrs  = 13
 instance (C.Allocate VmDetails) where
     type AllocHint VmDetails = ()
@@ -175,8 +170,7 @@ data instance C.Parsed VmDetails
         ,errorMessage :: (RP.Parsed Basics.Text)
         ,lastErrorAt :: (RP.Parsed Std_.Int64)
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
-        ,nodeId :: (RP.Parsed Std_.Int64)
-        ,nodeName :: (RP.Parsed Basics.Text)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,cpuModel :: (RP.Parsed Basics.Text)
         ,stats :: (RP.Parsed VmStats)}
     deriving(Generics.Generic)
@@ -207,8 +201,7 @@ instance (C.Parse VmDetails (C.Parsed VmDetails)) where
                             <*> (GH.parseField #errorMessage raw_)
                             <*> (GH.parseField #lastErrorAt raw_)
                             <*> (GH.parseField #rebootQuirk raw_)
-                            <*> (GH.parseField #nodeId raw_)
-                            <*> (GH.parseField #nodeName raw_)
+                            <*> (GH.parseField #node raw_)
                             <*> (GH.parseField #cpuModel raw_)
                             <*> (GH.parseField #stats raw_))
 instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
@@ -237,8 +230,7 @@ instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
         (GH.encodeField #errorMessage errorMessage raw_)
         (GH.encodeField #lastErrorAt lastErrorAt raw_)
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
-        (GH.encodeField #nodeId nodeId raw_)
-        (GH.encodeField #nodeName nodeName raw_)
+        (GH.encodeField #node node raw_)
         (GH.encodeField #cpuModel cpuModel raw_)
         (GH.encodeField #stats stats raw_)
         (Std_.pure ())
@@ -291,9 +283,7 @@ instance (GH.HasField "lastErrorAt" GH.Slot VmDetails Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 6 64 0)
 instance (GH.HasField "rebootQuirk" GH.Slot VmDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 20 2 1 0)
-instance (GH.HasField "nodeId" GH.Slot VmDetails Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 7 64 0)
-instance (GH.HasField "nodeName" GH.Slot VmDetails Basics.Text) where
+instance (GH.HasField "node" GH.Slot VmDetails Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
     fieldByLabel  = (GH.ptrField 10)
 instance (GH.HasField "cpuModel" GH.Slot VmDetails Basics.Text) where
     fieldByLabel  = (GH.ptrField 11)
@@ -464,7 +454,7 @@ type instance (R.ReprFor DriveInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DriveInfo) where
     typeId  = 13983985780014021557
 instance (C.TypedStruct DriveInfo) where
-    numStructWords  = 4
+    numStructWords  = 3
     numStructPtrs  = 2
 instance (C.Allocate DriveInfo) where
     type AllocHint DriveInfo = ()
@@ -477,8 +467,7 @@ instance (C.EstimateListAlloc DriveInfo (C.Parsed DriveInfo))
 data instance C.Parsed DriveInfo
     = DriveInfo 
         {id :: (RP.Parsed Std_.Int64)
-        ,diskImageId :: (RP.Parsed Std_.Int64)
-        ,diskImageName :: (RP.Parsed Basics.Text)
+        ,diskImage :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,interface :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveInterface)
         ,filePath :: (RP.Parsed Basics.Text)
         ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
@@ -491,8 +480,7 @@ deriving instance (Std_.Show (C.Parsed DriveInfo))
 deriving instance (Std_.Eq (C.Parsed DriveInfo))
 instance (C.Parse DriveInfo (C.Parsed DriveInfo)) where
     parse raw_ = (DriveInfo <$> (GH.parseField #id raw_)
-                            <*> (GH.parseField #diskImageId raw_)
-                            <*> (GH.parseField #diskImageName raw_)
+                            <*> (GH.parseField #diskImage raw_)
                             <*> (GH.parseField #interface raw_)
                             <*> (GH.parseField #filePath raw_)
                             <*> (GH.parseField #format raw_)
@@ -503,8 +491,7 @@ instance (C.Parse DriveInfo (C.Parsed DriveInfo)) where
 instance (C.Marshal DriveInfo (C.Parsed DriveInfo)) where
     marshalInto raw_ DriveInfo{..} = (do
         (GH.encodeField #id id raw_)
-        (GH.encodeField #diskImageId diskImageId raw_)
-        (GH.encodeField #diskImageName diskImageName raw_)
+        (GH.encodeField #diskImage diskImage raw_)
         (GH.encodeField #interface interface raw_)
         (GH.encodeField #filePath filePath raw_)
         (GH.encodeField #format format raw_)
@@ -516,30 +503,28 @@ instance (C.Marshal DriveInfo (C.Parsed DriveInfo)) where
         )
 instance (GH.HasField "id" GH.Slot DriveInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
-instance (GH.HasField "diskImageId" GH.Slot DriveInfo Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 1 64 0)
-instance (GH.HasField "diskImageName" GH.Slot DriveInfo Basics.Text) where
+instance (GH.HasField "diskImage" GH.Slot DriveInfo Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "interface" GH.Slot DriveInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveInterface) where
-    fieldByLabel  = (GH.dataField 0 2 16 0)
+    fieldByLabel  = (GH.dataField 0 1 16 0)
 instance (GH.HasField "filePath" GH.Slot DriveInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "format" GH.Slot DriveInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat) where
-    fieldByLabel  = (GH.dataField 16 2 16 0)
+    fieldByLabel  = (GH.dataField 16 1 16 0)
 instance (GH.HasField "media" GH.Slot DriveInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveMedia) where
-    fieldByLabel  = (GH.dataField 32 2 16 0)
+    fieldByLabel  = (GH.dataField 32 1 16 0)
 instance (GH.HasField "readOnly" GH.Slot DriveInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 48 2 1 0)
+    fieldByLabel  = (GH.dataField 48 1 1 0)
 instance (GH.HasField "cacheType" GH.Slot DriveInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.CacheType) where
-    fieldByLabel  = (GH.dataField 0 3 16 0)
+    fieldByLabel  = (GH.dataField 0 2 16 0)
 instance (GH.HasField "discard" GH.Slot DriveInfo Std_.Bool) where
-    fieldByLabel  = (GH.dataField 49 2 1 0)
+    fieldByLabel  = (GH.dataField 49 1 1 0)
 data NetIfInfo 
 type instance (R.ReprFor NetIfInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NetIfInfo) where
     typeId  = 12350622186082163555
 instance (C.TypedStruct NetIfInfo) where
-    numStructWords  = 3
+    numStructWords  = 2
     numStructPtrs  = 5
 instance (C.Allocate NetIfInfo) where
     type AllocHint NetIfInfo = ()
@@ -555,8 +540,7 @@ data instance C.Parsed NetIfInfo
         ,type_ :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.NetInterfaceType)
         ,hostDevice :: (RP.Parsed Basics.Text)
         ,macAddress :: (RP.Parsed Basics.Text)
-        ,networkId :: (RP.Parsed Std_.Int64)
-        ,networkName :: (RP.Parsed Basics.Text)
+        ,network :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,guestIpAddresses :: (RP.Parsed Basics.Text)
         ,ipAddress :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
@@ -567,8 +551,7 @@ instance (C.Parse NetIfInfo (C.Parsed NetIfInfo)) where
                             <*> (GH.parseField #type_ raw_)
                             <*> (GH.parseField #hostDevice raw_)
                             <*> (GH.parseField #macAddress raw_)
-                            <*> (GH.parseField #networkId raw_)
-                            <*> (GH.parseField #networkName raw_)
+                            <*> (GH.parseField #network raw_)
                             <*> (GH.parseField #guestIpAddresses raw_)
                             <*> (GH.parseField #ipAddress raw_))
 instance (C.Marshal NetIfInfo (C.Parsed NetIfInfo)) where
@@ -577,8 +560,7 @@ instance (C.Marshal NetIfInfo (C.Parsed NetIfInfo)) where
         (GH.encodeField #type_ type_ raw_)
         (GH.encodeField #hostDevice hostDevice raw_)
         (GH.encodeField #macAddress macAddress raw_)
-        (GH.encodeField #networkId networkId raw_)
-        (GH.encodeField #networkName networkName raw_)
+        (GH.encodeField #network network raw_)
         (GH.encodeField #guestIpAddresses guestIpAddresses raw_)
         (GH.encodeField #ipAddress ipAddress raw_)
         (Std_.pure ())
@@ -591,9 +573,7 @@ instance (GH.HasField "hostDevice" GH.Slot NetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "macAddress" GH.Slot NetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
-instance (GH.HasField "networkId" GH.Slot NetIfInfo Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 2 64 0)
-instance (GH.HasField "networkName" GH.Slot NetIfInfo Basics.Text) where
+instance (GH.HasField "network" GH.Slot NetIfInfo Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "guestIpAddresses" GH.Slot NetIfInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)

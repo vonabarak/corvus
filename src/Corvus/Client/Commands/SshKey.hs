@@ -22,7 +22,7 @@ import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printTable)
 import Corvus.Client.Types (OutputFormat)
-import Corvus.Protocol (SshKeyInfo (..))
+import Corvus.Protocol (NamedRef (..), SshKeyInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Text (Text)
@@ -129,4 +129,4 @@ sshKeyColumns =
   where
     formatAttached k
       | null (skiAttachedVms k) = "-"
-      | otherwise = T.unpack (T.intercalate ", " (map snd (skiAttachedVms k)))
+      | otherwise = T.unpack (T.intercalate ", " (map nrName (skiAttachedVms k)))

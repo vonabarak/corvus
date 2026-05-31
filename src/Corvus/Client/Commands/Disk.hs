@@ -46,7 +46,7 @@ import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printField, printTable)
 import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
-import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), SnapshotInfo (..))
+import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), NamedRef (..), SnapshotInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Corvus.Wire.Enums (toCapnpDriveFormat)
 import Data.Aeson (toJSON)
@@ -436,7 +436,7 @@ diskColumns =
   where
     formatAttached d
       | null (diiAttachedTo d) = "-"
-      | otherwise = T.unpack (T.intercalate ", " (map snd (diiAttachedTo d)))
+      | otherwise = T.unpack (T.intercalate ", " (map nrName (diiAttachedTo d)))
 
 -- | Print disk image details
 printDiskDetails :: DiskImageInfo -> IO ()
@@ -454,18 +454,18 @@ printDiskDetails d = do
           T.unpack $
             T.intercalate "; " $
               map
-                (\p -> dipNodeName p <> ": " <> dipFilePath p)
+                (\p -> nrName (dipNode p) <> ": " <> dipFilePath p)
                 (diiPlacements d)
     )
   printField "Format" (T.unpack (enumToText $ diiFormat d))
   printField "Size (MB)" (maybe "(unknown)" show (diiSizeMb d))
   printField "Ephemeral" (if diiEphemeral d then "true" else "false")
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (diiCreatedAt d))
-  printField "Attached to" (if null (diiAttachedTo d) then "(none)" else T.unpack (T.intercalate ", " (map snd (diiAttachedTo d))))
-  case diiBackingImageName d of
+  printField "Attached to" (if null (diiAttachedTo d) then "(none)" else T.unpack (T.intercalate ", " (map nrName (diiAttachedTo d))))
+  case diiBackingImage d of
     Nothing -> pure ()
-    Just backingName ->
-      printField "Backing" (T.unpack backingName ++ " (ID: " ++ maybe "?" show (diiBackingImageId d) ++ ")")
+    Just backing ->
+      printField "Backing" (T.unpack (nrName backing) ++ " (ID: " ++ show (nrId backing) ++ ")")
 
 -- | Column definitions for the @disk snapshot list@ table.
 snapshotColumns :: [Column SnapshotInfo]

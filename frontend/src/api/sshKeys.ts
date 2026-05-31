@@ -1,8 +1,8 @@
 import { apiGet, apiSend } from "./client";
+import type { NamedRef } from "./refs";
 
 export interface VmAttachment {
-  vm_id: number;
-  vm_name: string;
+  vm: NamedRef;
 }
 
 /** Mirrors corvus_client.types.SshKeyInfo. */

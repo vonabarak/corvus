@@ -168,7 +168,7 @@ class TestNodes(SingleNodeCase):
             headless=True,
         )
         try:
-            assert vm.show().node_name == self_name
+            assert vm.show().node.name == self_name
         finally:
             vm.delete()
 

@@ -769,7 +769,7 @@ planTransfer state diskId destNode allowAttachedRO mToPath = do
                   attached <- runSqlPool (getAttachedVms diskId) pool
                   if not (null attached) && not allowAttachedRO
                     then case attached of
-                      ((_, n) : _) ->
+                      (NamedRef {nrName = n} : _) ->
                         pure $
                           Left $
                             "disk is attached to VM '"

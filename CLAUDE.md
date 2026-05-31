@@ -211,3 +211,23 @@ make lint
 ### Backwards compatibility
 
 Corvus is in early beta. Breaking changes — to YAML schemas, the binary RPC protocol, the database schema, the CLI, and anything else — are accepted without compatibility shims, deprecation paths, or transitional warnings. When renaming a field or removing a feature, change every call site outright; do not keep the old name as an alias and do not add migration code that detects and rewrites legacy inputs. Make the break clean and update the docs and examples in the same commit.
+
+### Cross-entity references
+
+Every JSON / REST response field that refers to a *different* entity must use the nested `{id, name}` shape, never flat `<role>_id` (+ `<role>_name`) fields. Use the shared `NamedRef` type:
+
+* **Cap'n Proto**: `Common.NamedRef` in [`schema/common.capnp`](schema/common.capnp).
+* **Haskell**: `Corvus.Protocol.NamedRef` (record with `nrId`, `nrName`).
+* **Python**: `corvus_client.types.NamedRef`.
+* **TypeScript**: `NamedRef` in [`frontend/src/api/refs.ts`](frontend/src/api/refs.ts).
+
+Optional references become `Maybe NamedRef` / `NamedRef | None` / `NamedRef | null`. On the wire the absence is encoded as `id == 0`; the language-level converters translate to the appropriate nullable type at the boundary so consumers never see the sentinel.
+
+The field name on the container is the **role**, not the entity's name: a drive's reference to its image is `disk_image: NamedRef`, not `image` or `disk_image_ref`. When in doubt, mirror the foreign-key column name in the database (`drive.disk_image_id` → field `disk_image`).
+
+Two narrow carve-outs:
+
+* `TaskInfo.parent_id` stays flat (`Maybe Int64`) — tasks don't carry a human-readable name field, so there's nothing to nest.
+* Input-side RPC lookups use `Common.EntityRef` (a separate `id`-OR-`name` union — see `Corvus.Wire.Common.EntityRef`). `NamedRef` is output-only.
+
+Database-only references (FKs that never surface in CLI / REST output, e.g. internal task-tracking columns) are exempt — this rule only applies to fields a user can see.

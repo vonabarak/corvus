@@ -43,15 +43,17 @@ import qualified Data.Text as T
 import Database.Persist
 import Database.Persist.Sql (SqlPersistT)
 
--- | Get VMs that have this disk attached (ID + name pairs).
-getAttachedVms :: Int64 -> SqlPersistT IO [(Int64, T.Text)]
+-- | Get VMs that have this disk attached, as 'NamedRef' values
+-- (id + display name). "(deleted)" name signals the rare race
+-- where a Drive row outlives its parent Vm row.
+getAttachedVms :: Int64 -> SqlPersistT IO [NamedRef]
 getAttachedVms diskId = do
   drives <- selectList [M.DriveDiskImageId ==. toSqlKey diskId] []
   let vmKeys = map (driveVmId . entityVal) drives
   forM vmKeys $ \vmKey -> do
     mVm <- get vmKey
     let name = maybe "(deleted)" vmName mVm
-    pure (fromSqlKey vmKey, name)
+    pure NamedRef {nrId = fromSqlKey vmKey, nrName = name}
 
 -- | Get VMs with active QEMU processes that have this disk attached.
 -- Both running and paused VMs have live QEMU processes holding disk files open.
@@ -79,11 +81,15 @@ getReadWriteAttachedVms diskId = do
     let name = maybe "(deleted)" vmName mVm
     pure (fromSqlKey vmKey, name)
 
--- | Get overlay disk (ID, name) pairs that reference this disk as a backing image.
-getOverlayIds :: Int64 -> SqlPersistT IO [(Int64, T.Text)]
+-- | Get overlays that reference this disk as a backing image, as
+-- 'NamedRef' values.
+getOverlayIds :: Int64 -> SqlPersistT IO [NamedRef]
 getOverlayIds diskId = do
   overlays <- selectList [M.DiskImageBackingImageId ==. Just (toSqlKey diskId)] []
-  pure $ map (\(Entity key d) -> (fromSqlKey key, diskImageName d)) overlays
+  pure $
+    map
+      (\(Entity key d) -> NamedRef {nrId = fromSqlKey key, nrName = diskImageName d})
+      overlays
 
 -- | Check if @newBackingId@ transitively depends on @diskId@ via the backing chain.
 -- Returns 'True' if making @diskId@ backed by @newBackingId@ would create a cycle.
@@ -107,13 +113,6 @@ deleteDiskAndSnapshots :: Int64 -> SqlPersistT IO ()
 deleteDiskAndSnapshots diskId = do
   deleteWhere [M.SnapshotDiskImageId ==. toSqlKey diskId]
   delete (toSqlKey diskId :: DiskImageId)
-
--- | Resolve backing image name from optional key.
-getBackingImageName :: Maybe DiskImageId -> SqlPersistT IO (Maybe T.Text)
-getBackingImageName Nothing = pure Nothing
-getBackingImageName (Just backingKey) = do
-  mBacking <- get backingKey
-  pure $ fmap diskImageName mBacking
 
 -- | Walk a disk image's backing chain and return every ancestor's
 -- 'DiskImageId' in nearest-first order. The disk itself is *not*
@@ -140,10 +139,19 @@ placementsFor diskId = do
     let nName = maybe "(deleted)" nodeName mNode
     pure
       DiskImagePlacement
-        { dipNodeId = fromSqlKey nKey
-        , dipNodeName = nName
+        { dipNode = NamedRef {nrId = fromSqlKey nKey, nrName = nName}
         , dipFilePath = diskImageNodeFilePath row
         }
+
+-- | Resolve the backing image of a disk image as a 'NamedRef'.
+-- Returns 'Nothing' when the disk has no backing or when the
+-- backing row has been deleted out from under it (rare race).
+backingImageRef
+  :: Maybe DiskImageId -> SqlPersistT IO (Maybe NamedRef)
+backingImageRef Nothing = pure Nothing
+backingImageRef (Just backingKey) = do
+  mBacking <- get backingKey
+  pure $ fmap (\b -> NamedRef {nrId = fromSqlKey backingKey, nrName = diskImageName b}) mBacking
 
 -- | List all disk images with attachment info.
 listDiskImages :: SqlPersistT IO [DiskImageInfo]
@@ -151,7 +159,7 @@ listDiskImages = do
   disks <- selectList [] [Asc M.DiskImageName]
   forM disks $ \(Entity key disk) -> do
     attachedVms <- getAttachedVms (fromSqlKey key)
-    backingName <- getBackingImageName (diskImageBackingImageId disk)
+    backing <- backingImageRef (diskImageBackingImageId disk)
     placements <- placementsFor key
     pure $
       DiskImageInfo
@@ -162,8 +170,7 @@ listDiskImages = do
         , diiSizeMb = diskImageSizeMb disk
         , diiCreatedAt = diskImageCreatedAt disk
         , diiAttachedTo = attachedVms
-        , diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk)
-        , diiBackingImageName = backingName
+        , diiBackingImage = backing
         , diiEphemeral = diskImageEphemeral disk
         }
 
@@ -176,7 +183,7 @@ getDiskImageInfo diskId = do
     Just disk -> do
       let key = toSqlKey diskId :: DiskImageId
       attachedVms <- getAttachedVms diskId
-      backingName <- getBackingImageName (diskImageBackingImageId disk)
+      backing <- backingImageRef (diskImageBackingImageId disk)
       placements <- placementsFor key
       pure $
         Just
@@ -188,8 +195,7 @@ getDiskImageInfo diskId = do
             , diiSizeMb = diskImageSizeMb disk
             , diiCreatedAt = diskImageCreatedAt disk
             , diiAttachedTo = attachedVms
-            , diiBackingImageId = fmap fromSqlKey (diskImageBackingImageId disk)
-            , diiBackingImageName = backingName
+            , diiBackingImage = backing
             , diiEphemeral = diskImageEphemeral disk
             }
 

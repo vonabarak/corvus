@@ -118,18 +118,18 @@ handleSshKeyList state = runServerLogging state $ do
   keys <- liftIO $ runSqlPool (selectList [] [Asc SshKeyName]) pool
   infos <- liftIO $ forM keys $ \(Entity keyId key) -> do
     attachments <- runSqlPool (selectList [VmSshKeySshKeyId ==. keyId] []) pool
-    vmPairs <- forM attachments $ \att -> do
+    vmRefs <- forM attachments $ \att -> do
       let vmKey = vmSshKeyVmId (entityVal att)
       mVm <- runSqlPool (get vmKey) pool
       let name = maybe "(deleted)" vmName mVm
-      pure (fromSqlKey vmKey, name)
+      pure NamedRef {nrId = fromSqlKey vmKey, nrName = name}
     pure
       SshKeyInfo
         { skiId = fromSqlKey keyId
         , skiName = sshKeyName key
         , skiPublicKey = sshKeyPublicKey key
         , skiCreatedAt = sshKeyCreatedAt key
-        , skiAttachedVms = vmPairs
+        , skiAttachedVms = vmRefs
         }
   pure $ RespSshKeyList infos
 
@@ -261,11 +261,11 @@ handleSshKeyListForVm state vmId = runServerLogging state $ do
           Just key -> do
             -- Get all VMs this key is attached to
             allAttachments <- runSqlPool (selectList [VmSshKeySshKeyId ==. sshKeyKey] []) pool
-            vmPairs <- forM allAttachments $ \att -> do
+            vmRefs <- forM allAttachments $ \att -> do
               let vmKey = vmSshKeyVmId (entityVal att)
               mVm <- runSqlPool (get vmKey) pool
               let vName = maybe "(deleted)" vmName mVm
-              pure (fromSqlKey vmKey, vName)
+              pure NamedRef {nrId = fromSqlKey vmKey, nrName = vName}
             pure $
               Just
                 SshKeyInfo
@@ -273,7 +273,7 @@ handleSshKeyListForVm state vmId = runServerLogging state $ do
                   , skiName = sshKeyName key
                   , skiPublicKey = sshKeyPublicKey key
                   , skiCreatedAt = sshKeyCreatedAt key
-                  , skiAttachedVms = vmPairs
+                  , skiAttachedVms = vmRefs
                   }
       pure $ RespSshKeyList $ map (\(Just x) -> x) $ filter (/= Nothing) infos
 

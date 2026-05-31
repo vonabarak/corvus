@@ -46,7 +46,7 @@ class TestDisk(SingleNodeCase):
             assert info.name == name
             assert info.format == "qcow2"
             assert info.size_mb == 16
-            assert info.backing_image_id is None
+            assert info.backing_image is None
             # Listed by the manager.
             assert any(d.name == name for d in self.client.disks.list())
         finally:
@@ -70,7 +70,7 @@ class TestDisk(SingleNodeCase):
                 # qcow2 is sparse, so the daemon reports the virtual
                 # size — exactly equal to the source's.
                 assert info.size_mb == 8
-                assert info.backing_image_id is None
+                assert info.backing_image is None
             finally:
                 clone.delete()
         finally:
@@ -153,8 +153,9 @@ class TestDisk(SingleNodeCase):
             try:
                 info = overlay.show()
                 assert info.name == overlay_name
-                assert info.backing_image_id == base.show().id
-                assert info.backing_image_name == base_name
+                assert info.backing_image is not None
+                assert info.backing_image.id == base.show().id
+                assert info.backing_image.name == base_name
                 # Overlay inherits the base's virtual size.
                 assert info.size_mb == 8
             finally:
@@ -176,10 +177,13 @@ class TestDisk(SingleNodeCase):
         try:
             ov = self.client.disks.create_overlay(overlay, base_a)
             try:
-                assert ov.show().backing_image_name == base_a
+                assert ov.show().backing_image is not None
+                assert ov.show().backing_image.name == base_a
                 self.client.disks.rebase(overlay, base_b)
-                assert ov.show().backing_image_name == base_b
-                assert ov.show().backing_image_id == b.show().id
+                show = ov.show()
+                assert show.backing_image is not None
+                assert show.backing_image.name == base_b
+                assert show.backing_image.id == b.show().id
             finally:
                 ov.delete()
         finally:
@@ -198,17 +202,15 @@ class TestDisk(SingleNodeCase):
             try:
                 # Sanity: overlay starts with a backing pointer.
                 info = overlay.show()
-                assert info.backing_image_id == base.show().id
-                assert info.backing_image_name == base_name
+                assert info.backing_image is not None
+                assert info.backing_image.id == base.show().id
+                assert info.backing_image.name == base_name
 
                 self.client.disks.flatten(overlay_name)
 
                 info = overlay.show()
-                assert info.backing_image_id is None, (
+                assert info.backing_image is None, (
                     f"flatten left a backing pointer: {info!r}"
-                )
-                assert info.backing_image_name is None, (
-                    f"flatten left a backing name: {info!r}"
                 )
                 # Same disk id, same name — only the backing fields changed.
                 assert info.name == overlay_name

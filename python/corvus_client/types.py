@@ -19,6 +19,29 @@ from datetime import datetime
 
 
 @dataclass(frozen=True)
+class NamedRef:
+    """Reference to another entity by ``id`` + display name.
+
+    Output-only counterpart to the (id-OR-name) RPC-input ``EntityRef``
+    in :mod:`corvus_client._async.entityref`. Used wherever one
+    response refers to a *different* entity (a drive's disk image, a
+    VM's node, a NIC's network, …) so callers see a structured
+    ``{id, name}`` object instead of paired flat ``<role>_id`` /
+    ``<role>_name`` keys.
+
+    Optional references are represented as ``NamedRef | None``; on the
+    wire the absence is encoded as ``id == 0`` and translated at the
+    converter boundary.
+
+    See CLAUDE.md ``## Project Rules / Cross-entity references`` for
+    the convention this type encodes.
+    """
+
+    id: int
+    name: str
+
+
+@dataclass(frozen=True)
 class StatusInfo:
     uptime_seconds: int
     connections: int
@@ -55,8 +78,7 @@ class CloudInitInfo:
 class VmInfo:
     id: int
     name: str
-    node_id: int
-    node_name: str
+    node: NamedRef
     status: str
     cpu_count: int
     ram_mb: int
@@ -72,8 +94,7 @@ class VmInfo:
 @dataclass(frozen=True)
 class DriveInfo:
     id: int
-    disk_image_id: int
-    disk_image_name: str
+    disk_image: NamedRef
     interface: str
     file_path: str
     format: str
@@ -89,8 +110,7 @@ class NetIfInfo:
     type: str
     host_device: str
     mac_address: str
-    network_id: int | None = None
-    network_name: str | None = None
+    network: NamedRef | None = None
     guest_ip_addresses: str | None = None
     ip_address: str | None = None
 
@@ -109,8 +129,7 @@ class SharedDirInfo:
 class VmDetails:
     id: int
     name: str
-    node_id: int
-    node_name: str
+    node: NamedRef
     created_at: datetime
     status: str
     cpu_count: int
@@ -194,8 +213,7 @@ class GuestExecResult:
 
 @dataclass(frozen=True)
 class DiskAttachment:
-    vm_id: int
-    vm_name: str
+    vm: NamedRef
 
 
 @dataclass(frozen=True)
@@ -209,8 +227,7 @@ class DiskImagePlacement:
     exactly one.
     """
 
-    node_id: int
-    node_name: str
+    node: NamedRef
     file_path: str
 
 
@@ -223,8 +240,7 @@ class DiskImageInfo:
     placements: list[DiskImagePlacement] = field(default_factory=list)
     attached_to: list[DiskAttachment] = field(default_factory=list)
     size_mb: int | None = None
-    backing_image_id: int | None = None
-    backing_image_name: str | None = None
+    backing_image: NamedRef | None = None
     ephemeral: bool = False
 
 
@@ -325,8 +341,7 @@ class NetworkInfo:
 
 @dataclass(frozen=True)
 class VmAttachment:
-    vm_id: int
-    vm_name: str
+    vm: NamedRef
 
 
 @dataclass(frozen=True)
@@ -362,8 +377,7 @@ class TemplateDriveInfo:
     cache_type: str
     discard: bool
     clone_strategy: str
-    disk_image_id: int | None = None
-    disk_image_name: str | None = None
+    disk_image: NamedRef | None = None
     media: str | None = None
     size_mb: int | None = None
     format: str | None = None
@@ -413,9 +427,11 @@ class TaskInfo:
     result: str
     client_name: str = "local"
     parent_id: int | None = None
+    # ^ Flat parent reference (no NamedRef): tasks don't have a
+    # human-readable name field, so there's nothing to nest. See
+    # CLAUDE.md ``## Project Rules / Cross-entity references``.
     finished_at: datetime | None = None
-    entity_id: int | None = None
-    entity_name: str | None = None
+    entity: NamedRef | None = None
     message: str | None = None
 
 

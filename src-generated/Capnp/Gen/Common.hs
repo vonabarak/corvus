@@ -103,6 +103,41 @@ instance (C.Marshal (GH.Which EntityRef) (C.Parsed (GH.Which EntityRef))) where
             (GH.encodeVariant #name arg_ (GH.unionStruct raw_))
         (EntityRef'unknown' tag_) ->
             (GH.encodeField GH.unionField tag_ (GH.unionStruct raw_))
+data NamedRef 
+type instance (R.ReprFor NamedRef) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId NamedRef) where
+    typeId  = 9929435162299174186
+instance (C.TypedStruct NamedRef) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate NamedRef) where
+    type AllocHint NamedRef = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc NamedRef (C.Parsed NamedRef))
+instance (C.AllocateList NamedRef) where
+    type ListAllocHint NamedRef = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc NamedRef (C.Parsed NamedRef))
+data instance C.Parsed NamedRef
+    = NamedRef 
+        {id :: (RP.Parsed Std_.Int64)
+        ,name :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed NamedRef))
+deriving instance (Std_.Eq (C.Parsed NamedRef))
+instance (C.Parse NamedRef (C.Parsed NamedRef)) where
+    parse raw_ = (NamedRef <$> (GH.parseField #id raw_)
+                           <*> (GH.parseField #name raw_))
+instance (C.Marshal NamedRef (C.Parsed NamedRef)) where
+    marshalInto raw_ NamedRef{..} = (do
+        (GH.encodeField #id id raw_)
+        (GH.encodeField #name name raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "id" GH.Slot NamedRef Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "name" GH.Slot NamedRef Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
 data StatusInfo 
 type instance (R.ReprFor StatusInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId StatusInfo) where

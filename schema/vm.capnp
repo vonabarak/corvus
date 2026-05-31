@@ -28,17 +28,14 @@ struct VmInfo {
   # poweroff). Daemon-initiated stop/reset continues to actually
   # stop the VM. Used to dodge OVMF firmware reboot hangs.
   rebootQuirk     @10 :Bool;
-  # FK to the Node row hosting this VM, plus the node's display
-  # name. The daemon resolves the name daemon-side so list-view
-  # clients don't have to follow a second RPC; empty name signals
-  # the (rare) race where the Node row was removed under the VM.
-  nodeId          @11 :Int64;
-  nodeName        @12 :Text;
+  # The Node hosting this VM. Empty name signals the (rare) race
+  # where the Node row was removed under the VM.
+  node            @11 :Common.NamedRef;
   # QEMU `-cpu` model. Default `"host"` exposes the host CPU
   # (best perf, NOT migration-safe across non-identical hosts);
   # set to a stable model (`qemu64`, `Westmere-v3`, …) for safe
   # cross-host migration.
-  cpuModel        @13 :Text;
+  cpuModel        @12 :Text;
 }
 
 struct VmDetails {
@@ -71,16 +68,14 @@ struct VmDetails {
   lastErrorAt         @22 :Int64;
   # See `VmInfo.rebootQuirk`.
   rebootQuirk         @23 :Bool;
-  # FK to the Node row hosting this VM + the node's display name.
-  # See `VmInfo.nodeId` / `VmInfo.nodeName` for the sentinel.
-  nodeId              @24 :Int64;
-  nodeName            @25 :Text;
+  # The Node hosting this VM. See `VmInfo.node` for the absent-sentinel.
+  node                @24 :Common.NamedRef;
   # See `VmInfo.cpuModel`.
-  cpuModel            @26 :Text;
+  cpuModel            @25 :Text;
   # Most-recent resource-consumption sample from the agent's
   # StatusPoller (10-second cadence). Zero-filled when the VM is
   # not running. See `VmStats`.
-  stats               @27 :VmStats;
+  stats               @26 :VmStats;
 }
 
 # Per-VM resource consumption sample. Cumulative counters + the
@@ -111,7 +106,7 @@ struct VmStats {
 }
 
 struct DriveIo {
-  name            @0 :Text;        # matches DriveInfo.diskImageName
+  name            @0 :Text;        # matches DriveInfo.diskImage.name
   readBytesTotal  @1 :UInt64;
   writeBytesTotal @2 :UInt64;
   readOpsTotal    @3 :UInt64;
@@ -126,15 +121,14 @@ struct NetIo {
 
 struct DriveInfo {
   id              @0  :Int64;
-  diskImageId     @1  :Int64;
-  diskImageName   @2  :Text;
-  interface       @3  :Enums.DriveInterface;
-  filePath        @4  :Text;
-  format          @5  :Enums.DriveFormat;
-  media           @6  :Enums.DriveMedia;
-  readOnly        @7  :Bool;
-  cacheType       @8  :Enums.CacheType;
-  discard         @9  :Bool;
+  diskImage       @1  :Common.NamedRef;
+  interface       @2  :Enums.DriveInterface;
+  filePath        @3  :Text;
+  format          @4  :Enums.DriveFormat;
+  media           @5  :Enums.DriveMedia;
+  readOnly        @6  :Bool;
+  cacheType       @7  :Enums.CacheType;
+  discard         @8  :Bool;
 }
 
 struct NetIfInfo {
@@ -142,10 +136,10 @@ struct NetIfInfo {
   type              @1 :Enums.NetInterfaceType;
   hostDevice        @2 :Text;
   macAddress        @3 :Text;
-  networkId         @4 :Int64;  # 0 == none
-  networkName       @5 :Text;   # empty == none
-  guestIpAddresses  @6 :Text;   # empty == none; observed by QGA
-  ipAddress         @7 :Text;   # empty == none; daemon IPAM allocation
+  # Attached network. `id == 0` => not attached (user-mode NIC, etc.).
+  network           @4 :Common.NamedRef;
+  guestIpAddresses  @5 :Text;   # empty == none; observed by QGA
+  ipAddress         @6 :Text;   # empty == none; daemon IPAM allocation
 }
 
 struct SharedDirInfo {

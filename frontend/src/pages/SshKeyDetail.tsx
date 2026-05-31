@@ -119,8 +119,8 @@ export default function SshKeyDetail() {
               ) : (
                 <div className="flex flex-wrap gap-1">
                   {key.attached_vms.map((v) => (
-                    <Link key={v.vm_id} to={`/vms/${v.vm_id}`} className="hover:underline">
-                      {v.vm_name}
+                    <Link key={v.vm.id} to={`/vms/${v.vm.id}`} className="hover:underline">
+                      {v.vm.name}
                     </Link>
                   ))}
                 </div>

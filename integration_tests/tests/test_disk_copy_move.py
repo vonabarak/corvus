@@ -92,16 +92,16 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
 
     def _placement_nodes(self, disk_name: str) -> set[str]:
         info = self.client_alpha.disks.get(disk_name).show()
-        return {p.node_name for p in info.placements}
+        return {p.node.name for p in info.placements}
 
     def _placement_path_on(self, disk_name: str, node_name: str) -> str:
         info = self.client_alpha.disks.get(disk_name).show()
         for p in info.placements:
-            if p.node_name == node_name:
+            if p.node.name == node_name:
                 return p.file_path
         raise AssertionError(
             f"disk {disk_name!r} has no placement on node {node_name!r}; "
-            f"placements: {[p.node_name for p in info.placements]!r}"
+            f"placements: {[p.node.name for p in info.placements]!r}"
         )
 
     def _file_exists(self, node, path: str) -> bool:
@@ -134,7 +134,7 @@ class TestDiskCopyMove(OneDaemonTwoNodesCase):
             self.wait_for_task(self.client_alpha, tid, timeout_sec=60.0)
             assert self._placement_nodes(name) == {self.alpha_name, self.beta_name}
             info = self.client_alpha.disks.get(name).show()
-            stored_by_node = {p.node_name: p.file_path for p in info.placements}
+            stored_by_node = {p.node.name: p.file_path for p in info.placements}
             # The daemon stores filePath relative-to-basePath; for
             # a freshly created disk that means just the basename
             # — identical on both nodes.

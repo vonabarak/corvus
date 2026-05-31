@@ -74,8 +74,8 @@ def _drive_to_dict(d: TemplateDriveInfo) -> dict[str, Any]:
         "discard": d.discard,
         "strategy": d.clone_strategy,
     }
-    if d.disk_image_name is not None:
-        out["diskImageName"] = d.disk_image_name
+    if d.disk_image is not None:
+        out["diskImageName"] = d.disk_image.name
     if d.media is not None:
         out["media"] = d.media
     if d.size_mb is not None:

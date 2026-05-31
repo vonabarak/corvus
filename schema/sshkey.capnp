@@ -15,8 +15,7 @@ struct SshKeyInfo {
 }
 
 struct VmAttachment {
-  vmId   @0 :Int64;
-  vmName @1 :Text;
+  vm @0 :Common.NamedRef;
 }
 
 # ---------------------------------------------------------------------

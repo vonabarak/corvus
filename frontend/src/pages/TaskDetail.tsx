@@ -128,7 +128,7 @@ export default function TaskDetail() {
   }
   if (!task) return null;
 
-  const entityRoute = subsystemEntityRoute(task.subsystem, task.entity_id);
+  const entityRoute = subsystemEntityRoute(task.subsystem, task.entity?.id ?? null);
 
   return (
     <div className="space-y-6">
@@ -155,13 +155,13 @@ export default function TaskDetail() {
           <Field
             label="Entity"
             value={
-              task.entity_name ? (
+              task.entity ? (
                 entityRoute ? (
                   <Link to={entityRoute} className="hover:underline">
-                    {task.entity_name}
+                    {task.entity.name}
                   </Link>
                 ) : (
-                  <span>{task.entity_name}</span>
+                  <span>{task.entity.name}</span>
                 )
               ) : (
                 <span className="text-muted-foreground">—</span>
@@ -279,7 +279,7 @@ export default function TaskDetail() {
               </TableHeader>
               <TableBody>
                 {children.map((c) => {
-                  const route = subsystemEntityRoute(c.subsystem, c.entity_id);
+                  const route = subsystemEntityRoute(c.subsystem, c.entity?.id ?? null);
                   return (
                     <TableRow key={c.id}>
                       <TableCell>
@@ -290,13 +290,13 @@ export default function TaskDetail() {
                       <TableCell className="font-mono text-xs">{c.subsystem}</TableCell>
                       <TableCell className="font-mono text-xs">{c.command}</TableCell>
                       <TableCell>
-                        {c.entity_name ? (
+                        {c.entity ? (
                           route ? (
                             <Link to={route} className="hover:underline">
-                              {c.entity_name}
+                              {c.entity.name}
                             </Link>
                           ) : (
-                            <span>{c.entity_name}</span>
+                            <span>{c.entity.name}</span>
                           )
                         ) : (
                           <span className="text-muted-foreground">—</span>

@@ -117,10 +117,15 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
                   , VS.vsRebootQuirk = vmRebootQuirk vm
                   , VS.vsSpiceBindAddr = qcSpiceBindAddress config
                   , -- Whether the agent should QEMU with `-incoming` to
-                    -- restore a saved RAM image. Flipped by the daemon's
-                    -- start handler when the VM row is in `saved` status;
-                    -- otherwise a cold boot.
-                    VS.vsLoadFromSavedState = vmStatus vm == M.VmSaved
+                    -- restore a saved RAM image. True when the row is
+                    -- either still in 'VmSaved' (resume-from-saved hasn't
+                    -- committed VmLoading yet) or already in 'VmLoading'
+                    -- (the start handler commits VmLoading before calling
+                    -- the agent so the WebUI badge flips on click — see
+                    -- 'handleVmStartExecute'). A row in any other status
+                    -- means cold boot.
+                    VS.vsLoadFromSavedState =
+                      vmStatus vm `elem` [M.VmSaved, M.VmLoading]
                   , VS.vsCpuModel = vmCpuModel vm
                   }
           pure (Right spec)

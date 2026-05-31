@@ -195,6 +195,7 @@ library
       Corvus.Node.ProcStats
       Corvus.Node.QmpQQ
       Corvus.Node.Transfer
+      Corvus.Protocol.NamedRef
       Capnp.Gen.ById.X9b1373e2334a09e9
       Capnp.Gen.ById.X9bd452a518ed3917
       Capnp.Gen.ById.Xa40f88677f695703

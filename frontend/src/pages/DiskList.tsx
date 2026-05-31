@@ -20,7 +20,7 @@ function PlacementSummary({ disk }: { disk: DiskImageInfo }) {
     return <span className="text-muted-foreground">—</span>;
   }
   if (disk.placements.length === 1) {
-    return <span>{disk.placements[0].node_name}</span>;
+    return <span>{disk.placements[0].node.name}</span>;
   }
   return <span>{disk.placements.length} nodes</span>;
 }
@@ -33,11 +33,11 @@ function AttachedSummary({ disk }: { disk: DiskImageInfo }) {
     <div className="flex flex-wrap gap-1">
       {disk.attached_to.map((a) => (
         <Link
-          key={a.vm_id}
-          to={`/vms/${a.vm_id}`}
+          key={a.vm.id}
+          to={`/vms/${a.vm.id}`}
           className="text-xs text-foreground hover:underline"
         >
-          {a.vm_name}
+          {a.vm.name}
         </Link>
       ))}
     </div>
@@ -119,12 +119,12 @@ export default function DiskList() {
                   <PlacementSummary disk={d} />
                 </TableCell>
                 <TableCell>
-                  {d.backing_image_id ? (
+                  {d.backing_image ? (
                     <Link
-                      to={`/disks/${d.backing_image_id}`}
+                      to={`/disks/${d.backing_image.id}`}
                       className="text-xs text-muted-foreground hover:underline"
                     >
-                      {d.backing_image_name}
+                      {d.backing_image.name}
                     </Link>
                   ) : (
                     <span className="text-muted-foreground">—</span>

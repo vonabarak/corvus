@@ -46,7 +46,7 @@ import Corvus.Client.Config (ClientConfig (..))
 import Corvus.Client.Output (Align (..), Column (..), emitError, emitOk, emitOkWith, isStructured, printField)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
-import Corvus.Protocol (DriveInfo (..), DriveIo (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmStats (..))
+import Corvus.Protocol (DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmStats (..))
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (toJSON)
 import qualified Data.ByteString as BS
@@ -454,7 +454,7 @@ vmColumns :: UTCTime -> [Column VmInfo]
 vmColumns now =
   [ Column "ID" RightAlign (show . viId)
   , Column "NAME" LeftAlign (T.unpack . viName)
-  , Column "NODE" LeftAlign (T.unpack . viNodeName)
+  , Column "NODE" LeftAlign (T.unpack . nrName . viNode)
   , Column "STATUS" LeftAlign (T.unpack . enumToText . viStatus)
   , Column "CPUS" RightAlign (show . viCpuCount)
   , Column "RAM_MB" RightAlign (show . viRamMb)
@@ -468,7 +468,7 @@ printVmDetails :: VmDetails -> IO ()
 printVmDetails vm = do
   printField "VM ID" (show (vdId vm))
   printField "Name" (T.unpack (vdName vm))
-  printField "Node" (T.unpack (vdNodeName vm))
+  printField "Node" (T.unpack (nrName (vdNode vm)))
   printField "Created" (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" (vdCreatedAt vm))
   printField "Status" (T.unpack (enumToText $ vdStatus vm))
   case vdErrorMessage vm of
@@ -541,7 +541,7 @@ printVmDetails vm = do
   where
     printDrive d = do
       putStrLn $ "  - ID: " ++ show (diId d)
-      putStrLn $ "    Disk Image: " ++ T.unpack (diDiskImageName d)
+      putStrLn $ "    Disk Image: " ++ T.unpack (nrName (diDiskImage d))
       putStrLn $ "    Interface: " ++ T.unpack (enumToText $ diInterface d)
       putStrLn $ "    Path: " ++ T.unpack (diFilePath d)
       putStrLn $ "    Format: " ++ T.unpack (enumToText $ diFormat d)

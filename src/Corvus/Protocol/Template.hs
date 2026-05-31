@@ -17,6 +17,7 @@ where
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, TemplateCloneStrategy)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
+import Corvus.Protocol.NamedRef (NamedRef)
 import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -39,8 +40,9 @@ data TemplateVmInfo = TemplateVmInfo
 
 -- | Template drive info for details view
 data TemplateDriveInfo = TemplateDriveInfo
-  { tvdiDiskImageId :: !(Maybe Int64)
-  , tvdiDiskImageName :: !(Maybe Text)
+  { tvdiDiskImage :: !(Maybe NamedRef)
+  -- ^ Source disk image. 'Nothing' for clone/overlay/create
+  -- strategies that materialise a new disk at instantiation time.
   , tvdiInterface :: !DriveInterface
   , tvdiMedia :: !(Maybe DriveMedia)
   , tvdiReadOnly :: !Bool

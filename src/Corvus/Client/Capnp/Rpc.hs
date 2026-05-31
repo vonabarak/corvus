@@ -1027,8 +1027,8 @@ rpcDiskDetachByDisk :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
 rpcDiskDetachByDisk conn vmRef diskRef = do
   details <- rpcVmShow conn vmRef
   let matches d = case diskRef of
-        WC.RefById did -> PV.diDiskImageId d == did
-        WC.RefByName name -> PV.diDiskImageName d == name
+        WC.RefById did -> P.nrId (PV.diDiskImage d) == did
+        WC.RefByName name -> P.nrName (PV.diDiskImage d) == name
   case filter matches (PV.vdDrives details) of
     (drive : _) -> rpcDiskDetach conn vmRef (PV.diId drive)
     [] -> fail ("no drive on VM with disk " <> show diskRef)

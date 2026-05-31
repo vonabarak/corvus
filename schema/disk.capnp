@@ -19,24 +19,22 @@ struct DiskImageInfo {
   sizeMb          @4 :Int64;            # 0 == unknown
   createdAt       @5 :Int64;            # POSIX nanoseconds
   attachedTo      @6 :List(DiskAttachment);
-  backingImageId  @7 :Int64;            # 0 == none
-  backingImageName @8 :Text;            # empty == none
+  # Backing image for qcow2 overlays. `id == 0` => no backing.
+  backingImage    @7 :Common.NamedRef;
   # Ephemeral disks are auto-deleted together with the VM they are
   # attached to. Cloud-init ISOs and disks created during template
   # instantiation (clone/overlay/create strategies) default to
   # ephemeral; everything else defaults to non-ephemeral.
-  ephemeral       @9 :Bool;
+  ephemeral       @8 :Bool;
 }
 
 struct DiskImagePlacement {
-  nodeId   @0 :Int64;
-  nodeName @1 :Text;
-  filePath @2 :Text;
+  node     @0 :Common.NamedRef;
+  filePath @1 :Text;
 }
 
 struct DiskAttachment {
-  vmId   @0 :Int64;
-  vmName @1 :Text;
+  vm @0 :Common.NamedRef;
 }
 
 struct SnapshotInfo {

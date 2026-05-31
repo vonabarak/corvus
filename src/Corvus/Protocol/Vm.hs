@@ -20,6 +20,7 @@ where
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, VmStatus)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
+import Corvus.Protocol.NamedRef (NamedRef)
 import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -31,12 +32,12 @@ import GHC.Generics (Generic)
 data VmInfo = VmInfo
   { viId :: !Int64
   , viName :: !Text
-  , viNodeId :: !Int64
-  , viNodeName :: !Text
-  -- ^ Display name of the node the VM lives on. "(deleted)" if
-  -- the Node row was removed out from under the VM (shouldn't
-  -- happen in practice — the FK is enforced — but the daemon
-  -- returns a sentinel rather than aborting the list).
+  , viNode :: !NamedRef
+  -- ^ The node hosting this VM. An empty 'nrName' signals the
+  -- (rare) race where the Node row was removed out from under the
+  -- VM — shouldn't happen in practice since the FK is enforced,
+  -- but the daemon returns a sentinel rather than aborting the
+  -- list.
   , viStatus :: !VmStatus
   , viCpuCount :: !Int
   , viRamMb :: !Int
@@ -56,8 +57,7 @@ data VmInfo = VmInfo
 -- | Drive info for details view
 data DriveInfo = DriveInfo
   { diId :: !Int64
-  , diDiskImageId :: !Int64
-  , diDiskImageName :: !Text
+  , diDiskImage :: !NamedRef
   , diInterface :: !DriveInterface
   , diFilePath :: !Text
   , diFormat :: !DriveFormat
@@ -74,8 +74,8 @@ data NetIfInfo = NetIfInfo
   , niType :: !NetInterfaceType
   , niHostDevice :: !Text
   , niMacAddress :: !Text
-  , niNetworkId :: !(Maybe Int64)
-  , niNetworkName :: !(Maybe Text)
+  , niNetwork :: !(Maybe NamedRef)
+  -- ^ Attached network. 'Nothing' for user-mode / unattached NICs.
   , niGuestIpAddresses :: !(Maybe Text)
   , niIpAddress :: !(Maybe Text)
   }
@@ -85,10 +85,9 @@ data NetIfInfo = NetIfInfo
 data VmDetails = VmDetails
   { vdId :: !Int64
   , vdName :: !Text
-  , vdNodeId :: !Int64
-  , vdNodeName :: !Text
-  -- ^ Display name of the node the VM lives on. See 'viNodeName'
-  -- for the deleted-row sentinel convention.
+  , vdNode :: !NamedRef
+  -- ^ The node hosting this VM. See 'viNode' for the deleted-row
+  -- sentinel convention.
   , vdCreatedAt :: !UTCTime
   , vdStatus :: !VmStatus
   , vdCpuCount :: !Int

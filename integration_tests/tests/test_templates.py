@@ -81,7 +81,8 @@ class TestTemplates(SingleNodeCase):
             assert details.cloud_init is True
             assert details.guest_agent is True
             assert len(details.drives) == 1
-            assert details.drives[0].disk_image_name == base_disk
+            assert details.drives[0].disk_image is not None
+            assert details.drives[0].disk_image.name == base_disk
             assert details.drives[0].clone_strategy == "overlay"
 
             ci = details.cloud_init_config

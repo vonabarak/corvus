@@ -29,6 +29,7 @@ import qualified Capnp.GenHelpers as GH
 import qualified Capnp.Classes as C
 import qualified GHC.Generics as Generics
 import qualified Capnp.GenHelpers.Rpc as GH
+import qualified Capnp.Gen.ById.X9b1373e2334a09e9
 import qualified Capnp.Gen.ById.X9bd452a518ed3917
 import qualified Capnp.Gen.ById.Xbf9b09f64c0dd40d
 import qualified Prelude as Std_
@@ -40,7 +41,7 @@ type instance (R.ReprFor TaskInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TaskInfo) where
     typeId  = 12448351927280309598
 instance (C.TypedStruct TaskInfo) where
-    numStructWords  = 6
+    numStructWords  = 5
     numStructPtrs  = 4
 instance (C.Allocate TaskInfo) where
     type AllocHint TaskInfo = ()
@@ -57,8 +58,7 @@ data instance C.Parsed TaskInfo
         ,startedAt :: (RP.Parsed Std_.Int64)
         ,finishedAt :: (RP.Parsed Std_.Int64)
         ,subsystem :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.TaskSubsystem)
-        ,entityId :: (RP.Parsed Std_.Int64)
-        ,entityName :: (RP.Parsed Basics.Text)
+        ,entity :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,command :: (RP.Parsed Basics.Text)
         ,result :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.TaskResult)
         ,message :: (RP.Parsed Basics.Text)
@@ -72,8 +72,7 @@ instance (C.Parse TaskInfo (C.Parsed TaskInfo)) where
                            <*> (GH.parseField #startedAt raw_)
                            <*> (GH.parseField #finishedAt raw_)
                            <*> (GH.parseField #subsystem raw_)
-                           <*> (GH.parseField #entityId raw_)
-                           <*> (GH.parseField #entityName raw_)
+                           <*> (GH.parseField #entity raw_)
                            <*> (GH.parseField #command raw_)
                            <*> (GH.parseField #result raw_)
                            <*> (GH.parseField #message raw_)
@@ -85,8 +84,7 @@ instance (C.Marshal TaskInfo (C.Parsed TaskInfo)) where
         (GH.encodeField #startedAt startedAt raw_)
         (GH.encodeField #finishedAt finishedAt raw_)
         (GH.encodeField #subsystem subsystem raw_)
-        (GH.encodeField #entityId entityId raw_)
-        (GH.encodeField #entityName entityName raw_)
+        (GH.encodeField #entity entity raw_)
         (GH.encodeField #command command raw_)
         (GH.encodeField #result result raw_)
         (GH.encodeField #message message raw_)
@@ -103,9 +101,7 @@ instance (GH.HasField "finishedAt" GH.Slot TaskInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 3 64 0)
 instance (GH.HasField "subsystem" GH.Slot TaskInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.TaskSubsystem) where
     fieldByLabel  = (GH.dataField 0 4 16 0)
-instance (GH.HasField "entityId" GH.Slot TaskInfo Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 5 64 0)
-instance (GH.HasField "entityName" GH.Slot TaskInfo Basics.Text) where
+instance (GH.HasField "entity" GH.Slot TaskInfo Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "command" GH.Slot TaskInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)

@@ -8,6 +8,7 @@ where
 
 import Corvus.Model (TaskResult, TaskSubsystem)
 import Corvus.Protocol.JsonOptions (innerOptions)
+import Corvus.Protocol.NamedRef (NamedRef)
 import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -18,11 +19,16 @@ import GHC.Generics (Generic)
 data TaskInfo = TaskInfo
   { tiId :: !Int64
   , tiParentId :: !(Maybe Int64)
+  -- ^ Parent task id — flat, NOT a 'NamedRef'. Tasks don't carry a
+  -- human-readable name field, so there's nothing to nest. See
+  -- @CLAUDE.md ## Project Rules / Cross-entity references@.
   , tiStartedAt :: !UTCTime
   , tiFinishedAt :: !(Maybe UTCTime)
   , tiSubsystem :: !TaskSubsystem
-  , tiEntityId :: !(Maybe Int)
-  , tiEntityName :: !(Maybe Text)
+  , tiEntity :: !(Maybe NamedRef)
+  -- ^ Subject of the task (VM / disk / etc. being acted on).
+  -- 'Nothing' for daemon-level tasks that don't act on a specific
+  -- entity (e.g. startup / shutdown).
   , tiCommand :: !Text
   , tiResult :: !TaskResult
   , tiMessage :: !(Maybe Text)

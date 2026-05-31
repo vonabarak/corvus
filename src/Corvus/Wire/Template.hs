@@ -20,6 +20,7 @@ import qualified Capnp.Gen.Template as CGT
 import qualified Corvus.Protocol.CloudInit as PCI
 import qualified Corvus.Protocol.Template as P
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
+import Corvus.Wire.Common (fromCapnpNamedRefOpt, toCapnpNamedRefOpt)
 import Corvus.Wire.Enums
   ( fromCapnpCacheType
   , fromCapnpDriveFormat
@@ -85,8 +86,7 @@ fromCapnpTemplateVmInfo CGT.TemplateVmInfo {..} =
 toCapnpTemplateDriveInfo :: P.TemplateDriveInfo -> C.Parsed CGT.TemplateDriveInfo
 toCapnpTemplateDriveInfo P.TemplateDriveInfo {..} =
   CGT.TemplateDriveInfo
-    { CGT.diskImageId = fromMaybe 0 tvdiDiskImageId
-    , CGT.diskImageName = fromMaybe mempty tvdiDiskImageName
+    { CGT.diskImage = toCapnpNamedRefOpt tvdiDiskImage
     , CGT.interface = toCapnpDriveInterface tvdiInterface
     , CGT.hasMedia = isJust tvdiMedia
     , CGT.media = maybe (toCapnpDriveMedia minBound) toCapnpDriveMedia tvdiMedia
@@ -118,8 +118,7 @@ fromCapnpTemplateDriveInfo CGT.TemplateDriveInfo {..} = do
       else pure Nothing
   pure
     P.TemplateDriveInfo
-      { P.tvdiDiskImageId = if diskImageId == 0 then Nothing else Just diskImageId
-      , P.tvdiDiskImageName = if diskImageName == mempty then Nothing else Just diskImageName
+      { P.tvdiDiskImage = fromCapnpNamedRefOpt diskImage
       , P.tvdiInterface = iface
       , P.tvdiMedia = med
       , P.tvdiReadOnly = readOnly

@@ -9,7 +9,8 @@ module Corvus.TemplateYamlSpec (spec) where
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
 import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), NetInterfaceType (..), TemplateCloneStrategy (..))
 import Corvus.Protocol
-  ( TemplateDetails (..)
+  ( NamedRef (..)
+  , TemplateDetails (..)
   , TemplateDriveInfo (..)
   , TemplateNetIfInfo (..)
   , TemplateSshKeyInfo (..)
@@ -42,8 +43,7 @@ sampleDetails =
     , tvdCreatedAt = UTCTime (fromGregorian 2026 1 1) (secondsToDiffTime 0)
     , tvdDrives =
         [ TemplateDriveInfo
-            { tvdiDiskImageId = Just 7
-            , tvdiDiskImageName = Just "base-disk"
+            { tvdiDiskImage = Just NamedRef {nrId = 7, nrName = "base-disk"}
             , tvdiInterface = InterfaceVirtio
             , tvdiMedia = Just MediaDisk
             , tvdiReadOnly = False
@@ -110,8 +110,7 @@ spec = do
             sampleDetails
               { tvdDrives =
                   [ TemplateDriveInfo
-                      { tvdiDiskImageId = Nothing
-                      , tvdiDiskImageName = Nothing
+                      { tvdiDiskImage = Nothing
                       , tvdiInterface = InterfaceVirtio
                       , tvdiMedia = Nothing
                       , tvdiReadOnly = False

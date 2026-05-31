@@ -1335,8 +1335,11 @@ listVms = do
       VmInfo
         { viId = fromSqlKey key
         , viName = vmName vm
-        , viNodeId = fromSqlKey (vmNodeId vm)
-        , viNodeName = Map.findWithDefault "(deleted)" (vmNodeId vm) nameOf
+        , viNode =
+            NamedRef
+              { nrId = fromSqlKey (vmNodeId vm)
+              , nrName = Map.findWithDefault "(deleted)" (vmNodeId vm) nameOf
+              }
         , viStatus = vmStatus vm
         , viCpuCount = vmCpuCount vm
         , viRamMb = vmRamMb vm
@@ -1377,6 +1380,8 @@ getVmDetails config vmId = do
       guestAgentSock <- liftIO $ getGuestAgentSocket config vmId
       -- Build drive info by fetching disk images
       driveInfos <- mapM (toDriveInfo (vmNodeId vm) vmNodeBasePath) drives
+      -- Build NIC info by resolving each NIC's network reference
+      netIfInfos <- mapM toNetIfInfo netIfs
       -- Get custom cloud-init config if present
       mCiConfig <- getBy (M.UniqueCloudInitVm key)
       let ciInfo =
@@ -1394,15 +1399,14 @@ getVmDetails config vmId = do
           VmDetails
             { vdId = vmId
             , vdName = vmName vm
-            , vdNodeId = fromSqlKey (vmNodeId vm)
-            , vdNodeName = nodeName'
+            , vdNode = NamedRef {nrId = fromSqlKey (vmNodeId vm), nrName = nodeName'}
             , vdCreatedAt = vmCreatedAt vm
             , vdStatus = vmStatus vm
             , vdCpuCount = vmCpuCount vm
             , vdRamMb = vmRamMb vm
             , vdDescription = vmDescription vm
             , vdDrives = driveInfos
-            , vdNetIfs = map toNetIfInfo netIfs
+            , vdNetIfs = netIfInfos
             , vdHeadless = vmHeadless vm
             , vdMonitorSocket = T.pack monitorSock
             , vdSpicePort = vmSpicePort vm
@@ -1433,8 +1437,8 @@ getVmDetails config vmId = do
           pure
             DriveInfo
               { diId = fromSqlKey driveKey
-              , diDiskImageId = fromSqlKey diskImageKey
-              , diDiskImageName = "(deleted)"
+              , diDiskImage =
+                  NamedRef {nrId = fromSqlKey diskImageKey, nrName = "(deleted)"}
               , diInterface = driveInterface drive
               , diFilePath = "(deleted)"
               , diFormat = FormatRaw
@@ -1464,8 +1468,11 @@ getVmDetails config vmId = do
           pure
             DriveInfo
               { diId = fromSqlKey driveKey
-              , diDiskImageId = fromSqlKey diskImageKey
-              , diDiskImageName = diskImageName diskImage
+              , diDiskImage =
+                  NamedRef
+                    { nrId = fromSqlKey diskImageKey
+                    , nrName = diskImageName diskImage
+                    }
               , diInterface = driveInterface drive
               , diFilePath = absPath
               , diFormat = diskImageFormat diskImage
@@ -1474,17 +1481,25 @@ getVmDetails config vmId = do
               , diCacheType = driveCacheType drive
               , diDiscard = driveDiscard drive
               }
-    toNetIfInfo (Entity netIfKey netIf) =
-      NetIfInfo
-        { niId = fromSqlKey netIfKey
-        , niType = networkInterfaceInterfaceType netIf
-        , niHostDevice = networkInterfaceHostDevice netIf
-        , niMacAddress = networkInterfaceMacAddress netIf
-        , niNetworkId = fromSqlKey <$> networkInterfaceNetworkId netIf
-        , niNetworkName = Nothing -- Not resolved in VM details view
-        , niGuestIpAddresses = networkInterfaceGuestIpAddresses netIf
-        , niIpAddress = networkInterfaceIpAddress netIf
-        }
+    toNetIfInfo (Entity netIfKey netIf) = do
+      networkRef <- case networkInterfaceNetworkId netIf of
+        Nothing -> pure Nothing
+        Just nwKey -> do
+          mNw <- get nwKey
+          pure $
+            fmap
+              (\nw -> NamedRef {nrId = fromSqlKey nwKey, nrName = networkName nw})
+              mNw
+      pure
+        NetIfInfo
+          { niId = fromSqlKey netIfKey
+          , niType = networkInterfaceInterfaceType netIf
+          , niHostDevice = networkInterfaceHostDevice netIf
+          , niMacAddress = networkInterfaceMacAddress netIf
+          , niNetwork = networkRef
+          , niGuestIpAddresses = networkInterfaceGuestIpAddresses netIf
+          , niIpAddress = networkInterfaceIpAddress netIf
+          }
 
 -- | Edit VM properties. Only updates fields that are Just.
 editVm

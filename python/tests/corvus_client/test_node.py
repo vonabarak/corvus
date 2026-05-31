@@ -189,12 +189,12 @@ def test_vm_create_without_node_uses_scheduler(daemon_socket):
         # and the resolved name; verify the scheduler landed the
         # VM on the single online node.
         details = await vm.show()
-        assert details.node_id == self_id
-        assert details.node_name == "self"
+        assert details.node.id == self_id
+        assert details.node.name == "self"
         listed = await c.vms.list()
         sched = next(v for v in listed if v.name == "py-vm-sched")
-        assert sched.node_id == self_id
-        assert sched.node_name == "self"
+        assert sched.node.id == self_id
+        assert sched.node.name == "self"
         await vm.delete()
 
     run(go)
@@ -211,7 +211,7 @@ def test_disk_create_without_node_uses_scheduler(daemon_socket):
             info = await disk.show()
             assert len(info.placements) == 1
             placement = info.placements[0]
-            assert placement.node_name == "self"
+            assert placement.node.name == "self"
             # The file_path is the agent-resolved path on the
             # node's basePath. We don't assert on its exact
             # value — the daemon's basePath logic is exercised

@@ -1,4 +1,5 @@
 import { apiGet, apiSend } from "./client";
+import type { NamedRef } from "./refs";
 
 export interface TemplateVmInfo {
   id: number;
@@ -17,8 +18,7 @@ export interface TemplateDriveInfo {
   cache_type: string;
   discard: boolean;
   clone_strategy: string;
-  disk_image_id: number | null;
-  disk_image_name: string | null;
+  disk_image: NamedRef | null;
   media: string | null;
   size_mb: number | null;
   format: string | null;

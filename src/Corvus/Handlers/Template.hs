@@ -330,17 +330,20 @@ getTemplateDetails tid = do
     Just t -> do
       drives <- selectList [TemplateDriveTemplateId ==. tid] []
       driveInfos <- forM drives $ \(Entity _ td) -> do
-        mDiskName <- case templateDriveDiskName td of
-          Just n -> pure $ Just n
-          Nothing -> case templateDriveDiskImageId td of
+        diskImageRef <- case templateDriveDiskImageId td of
+          Nothing -> case templateDriveDiskName td of
+            -- Strategy-driven disks (clone/overlay/create) may
+            -- record only a target name with no resolved id yet.
+            Just n -> pure $ Just NamedRef {nrId = 0, nrName = n}
             Nothing -> pure Nothing
-            Just diskId -> do
-              mDisk <- get diskId
-              pure $ Just $ maybe "unknown" diskImageName mDisk
+          Just diskId -> do
+            mDisk <- get diskId
+            let resolvedName = maybe "unknown" diskImageName mDisk
+            pure $
+              Just NamedRef {nrId = fromSqlKey diskId, nrName = resolvedName}
         pure $
           TemplateDriveInfo
-            { tvdiDiskImageId = fmap fromSqlKey (templateDriveDiskImageId td)
-            , tvdiDiskImageName = mDiskName
+            { tvdiDiskImage = diskImageRef
             , tvdiInterface = templateDriveInterface td
             , tvdiMedia = templateDriveMedia td
             , tvdiReadOnly = templateDriveReadOnly td
@@ -482,7 +485,7 @@ instantiateDriveIO ctx vmId vmName td = do
   let state = acState ctx
       parentTaskId = acTaskId ctx
       vmIdLong = fromSqlKey vmId
-      nameSuffix = fromMaybe "disk" (tvdiDiskImageName td)
+      nameSuffix = maybe "disk" nrName (tvdiDiskImage td)
       vmDir = Just (vmName <> "/")
       attachDisk newDiskId = runActionAsSubtask ctx (DiskAttach vmIdLong newDiskId (tvdiInterface td) (tvdiMedia td) (tvdiReadOnly td) (tvdiDiscard td) (tvdiCacheType td))
       -- Disks materialised during template instantiation are scoped to
@@ -503,15 +506,22 @@ instantiateDriveIO ctx vmId vmName td = do
   let vmNodeRef = case mVm of
         Just v -> T.pack (show (fromSqlKey (vmNodeId v)))
         Nothing -> ""
+  -- The strategies below need a resolved disk-image *id*; a name-
+  -- only reference (id == 0) is treated as missing too — the
+  -- instantiator can't attach a disk without a concrete row.
+  let resolvedDiskId = do
+        ref <- tvdiDiskImage td
+        let n = nrId ref
+        if n == 0 then Nothing else Just n
   case tvdiCloneStrategy td of
-    StrategyDirect -> case tvdiDiskImageId td of
+    StrategyDirect -> case resolvedDiskId of
       Nothing -> pure $ Left "direct strategy requires a disk image"
       Just diskIdLong -> do
         resp <- attachDisk diskIdLong
         case resp of
           RespError err -> pure $ Left err
           _ -> pure $ Right ()
-    StrategyClone -> case tvdiDiskImageId td of
+    StrategyClone -> case resolvedDiskId of
       Nothing -> pure $ Left "clone strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix
@@ -524,7 +534,7 @@ instantiateDriveIO ctx vmId vmName td = do
               _ -> pure $ Right ()
           RespError err -> pure $ Left err
           _ -> pure $ Left "Unexpected response from disk clone"
-    StrategyOverlay -> case tvdiDiskImageId td of
+    StrategyOverlay -> case resolvedDiskId of
       Nothing -> pure $ Left "overlay strategy requires a disk image"
       Just diskIdLong -> do
         let newName = vmName <> "-" <> nameSuffix <> "-overlay"
@@ -606,7 +616,7 @@ data InstantiateDrive = InstantiateDrive
 instance Action InstantiateDrive where
   actionSubsystem _ = SubDisk
   actionCommand _ = "instantiate"
-  actionEntityName a = tvdiDiskImageName (idDriveInfo a)
+  actionEntityName a = nrName <$> tvdiDiskImage (idDriveInfo a)
   actionExecute ctx a = do
     result <- instantiateDriveIO ctx (idVmId a) (idVmName a) (idDriveInfo a)
     case result of

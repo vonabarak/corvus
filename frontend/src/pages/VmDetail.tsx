@@ -277,7 +277,7 @@ export default function VmDetail() {
           <CardTitle className="text-base">Overview</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <Field label="Node" value={vm.node_name} />
+          <Field label="Node" value={vm.node.name} />
           <Field label="CPU" value={`${vm.cpu_count} × ${vm.cpu_model}`} />
           <Field label="RAM" value={`${vm.ram_mb} MB`} />
           <Field label="Created" value={new Date(vm.created_at).toLocaleString()} />

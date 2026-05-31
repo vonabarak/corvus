@@ -23,6 +23,12 @@ import qualified Corvus.Protocol.CloudInit as PCI
 import qualified Corvus.Protocol.SharedDir as PSD
 import qualified Corvus.Protocol.Vm as P
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
+import Corvus.Wire.Common
+  ( fromCapnpNamedRef
+  , fromCapnpNamedRefOpt
+  , toCapnpNamedRef
+  , toCapnpNamedRefOpt
+  )
 import Corvus.Wire.Enums
   ( fromCapnpCacheType
   , fromCapnpDriveFormat
@@ -61,8 +67,7 @@ toCapnpVmInfo P.VmInfo {..} =
   CGVm.VmInfo
     { CGVm.id = viId
     , CGVm.name = viName
-    , CGVm.nodeId = viNodeId
-    , CGVm.nodeName = viNodeName
+    , CGVm.node = toCapnpNamedRef viNode
     , CGVm.status = toCapnpVmStatus viStatus
     , CGVm.cpuCount = fromIntegral viCpuCount
     , CGVm.ramMb = fromIntegral viRamMb
@@ -82,8 +87,7 @@ fromCapnpVmInfo CGVm.VmInfo {..} = do
     P.VmInfo
       { P.viId = id
       , P.viName = name
-      , P.viNodeId = nodeId
-      , P.viNodeName = nodeName
+      , P.viNode = fromCapnpNamedRef node
       , P.viStatus = status'
       , P.viCpuCount = fromIntegral cpuCount
       , P.viRamMb = fromIntegral ramMb
@@ -107,8 +111,7 @@ toCapnpDriveInfo :: P.DriveInfo -> C.Parsed CGVm.DriveInfo
 toCapnpDriveInfo P.DriveInfo {..} =
   CGVm.DriveInfo
     { CGVm.id = diId
-    , CGVm.diskImageId = diDiskImageId
-    , CGVm.diskImageName = diDiskImageName
+    , CGVm.diskImage = toCapnpNamedRef diDiskImage
     , CGVm.interface = toCapnpDriveInterface diInterface
     , CGVm.filePath = diFilePath
     , CGVm.format = toCapnpDriveFormat diFormat
@@ -127,8 +130,7 @@ fromCapnpDriveInfo CGVm.DriveInfo {..} = do
   pure
     P.DriveInfo
       { P.diId = id
-      , P.diDiskImageId = diskImageId
-      , P.diDiskImageName = diskImageName
+      , P.diDiskImage = fromCapnpNamedRef diskImage
       , P.diInterface = iface
       , P.diFilePath = filePath
       , P.diFormat = fmt
@@ -149,8 +151,7 @@ toCapnpNetIfInfo P.NetIfInfo {..} =
     , CGVm.type_ = toCapnpNetInterfaceType niType
     , CGVm.hostDevice = niHostDevice
     , CGVm.macAddress = niMacAddress
-    , CGVm.networkId = fromMaybe 0 niNetworkId
-    , CGVm.networkName = fromMaybe mempty niNetworkName
+    , CGVm.network = toCapnpNamedRefOpt niNetwork
     , CGVm.guestIpAddresses = fromMaybe mempty niGuestIpAddresses
     , CGVm.ipAddress = fromMaybe mempty niIpAddress
     }
@@ -164,8 +165,7 @@ fromCapnpNetIfInfo CGVm.NetIfInfo {..} = do
       , P.niType = t
       , P.niHostDevice = hostDevice
       , P.niMacAddress = macAddress
-      , P.niNetworkId = if networkId == 0 then Nothing else Just networkId
-      , P.niNetworkName = if networkName == mempty then Nothing else Just networkName
+      , P.niNetwork = fromCapnpNamedRefOpt network
       , P.niGuestIpAddresses =
           if guestIpAddresses == mempty then Nothing else Just guestIpAddresses
       , P.niIpAddress =
@@ -193,8 +193,7 @@ toCapnpVmDetails P.VmDetails {..} sharedDirs stats =
   CGVm.VmDetails
     { CGVm.id = vdId
     , CGVm.name = vdName
-    , CGVm.nodeId = vdNodeId
-    , CGVm.nodeName = vdNodeName
+    , CGVm.node = toCapnpNamedRef vdNode
     , CGVm.createdAt = utcTimeToNanos vdCreatedAt
     , CGVm.status = toCapnpVmStatus vdStatus
     , CGVm.cpuCount = fromIntegral vdCpuCount
@@ -255,8 +254,7 @@ fromCapnpVmDetails CGVm.VmDetails {..} = do
     ( P.VmDetails
         { P.vdId = id
         , P.vdName = name
-        , P.vdNodeId = nodeId
-        , P.vdNodeName = nodeName
+        , P.vdNode = fromCapnpNamedRef node
         , P.vdCreatedAt = nanosToUtcTime createdAt
         , P.vdStatus = status'
         , P.vdCpuCount = fromIntegral cpuCount

@@ -44,6 +44,7 @@ import Corvus.Model
 import Corvus.Protocol
 import Corvus.Types
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (fromSqlKey, toSqlKey)
@@ -102,13 +103,22 @@ toTaskInfoWith tid th =
     , tiStartedAt = taskStartedAt th
     , tiFinishedAt = taskFinishedAt th
     , tiSubsystem = taskSubsystem th
-    , tiEntityId = taskEntityId th
-    , tiEntityName = taskEntityName th
+    , tiEntity = taskEntityRef th
     , tiCommand = taskCommand th
     , tiResult = taskResult th
     , tiMessage = taskMessage th
     , tiClientName = taskClientName th
     }
+  where
+    -- Build the entity 'NamedRef' from the two flat task columns.
+    -- 'taskEntityId' stores the foreign-key id for the subject of
+    -- the task (when applicable); 'taskEntityName' stores the
+    -- subject's display name captured at task-creation time so it
+    -- survives the entity later being renamed or deleted.
+    taskEntityRef t = case taskEntityId t of
+      Nothing -> Nothing
+      Just eid ->
+        Just NamedRef {nrId = fromIntegral eid, nrName = fromMaybe "" (taskEntityName t)}
 
 -- | Helper to filter out Nothing values
 catMaybes :: [Maybe a] -> [a]

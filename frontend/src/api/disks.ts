@@ -1,16 +1,15 @@
 import { apiGet, apiSend } from "./client";
+import type { NamedRef } from "./refs";
 
 /** Mirrors corvus_client.types.DiskImagePlacement. */
 export interface DiskImagePlacement {
-  node_id: number;
-  node_name: string;
+  node: NamedRef;
   file_path: string;
 }
 
 /** Mirrors corvus_client.types.DiskAttachment. */
 export interface DiskAttachment {
-  vm_id: number;
-  vm_name: string;
+  vm: NamedRef;
 }
 
 /** Mirrors corvus_client.types.DiskImageInfo (used by both list + detail). */
@@ -22,8 +21,7 @@ export interface DiskImageInfo {
   placements: DiskImagePlacement[];
   attached_to: DiskAttachment[];
   size_mb: number | null;
-  backing_image_id: number | null;
-  backing_image_name: string | null;
+  backing_image: NamedRef | null;
   ephemeral: boolean;
 }
 

@@ -288,7 +288,7 @@ class AsyncVm:
         """
         details = await self.show()
         for d in details.drives:
-            if d.disk_image_name == disk_name:
+            if d.disk_image.name == disk_name:
                 await self.detach_disk(d.id)
                 return
         raise ValueError(f"VM has no drive backed by disk {disk_name!r}")

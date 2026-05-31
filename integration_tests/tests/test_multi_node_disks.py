@@ -120,16 +120,16 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
 
     def _placement_nodes(self, disk_name: str) -> set[str]:
         info = self.client_alpha.disks.get(disk_name).show()
-        return {p.node_name for p in info.placements}
+        return {p.node.name for p in info.placements}
 
     def _placement_path_on(self, disk_name: str, node_name: str) -> str:
         info = self.client_alpha.disks.get(disk_name).show()
         for p in info.placements:
-            if p.node_name == node_name:
+            if p.node.name == node_name:
                 return p.file_path
         raise AssertionError(
             f"disk {disk_name!r} has no placement on {node_name!r}; "
-            f"placements: {[p.node_name for p in info.placements]!r}"
+            f"placements: {[p.node.name for p in info.placements]!r}"
         )
 
     def _node_for(self, short_name: str):
@@ -168,7 +168,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
         try:
             placements = self.client_alpha.disks.get(name).show().placements
             assert len(placements) == 1
-            chosen = placements[0].node_name
+            chosen = placements[0].node.name
             assert self._file_exists_on(chosen, placements[0].file_path)
         finally:
             self._delete_disk_silent(name)
@@ -350,7 +350,7 @@ class TestMultiNodeDiskPlacement(OneDaemonTwoNodesCase):
             created_ids = [v.id for v in r1.vms]
             # Sanity-check: the two rows are on different nodes.
             details = [self.client_alpha.vms.get(vid).show() for vid in created_ids]
-            assert {d.node_name for d in details} == {
+            assert {d.node.name for d in details} == {
                 self.alpha_name,
                 self.beta_name,
             }

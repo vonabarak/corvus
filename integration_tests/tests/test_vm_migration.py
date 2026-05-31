@@ -190,7 +190,7 @@ class _MigrationCase(OneDaemonTwoNodesCase):
 
     def _placement_nodes(self, disk_name: str) -> set[str]:
         info = self.client_alpha.disks.get(disk_name).show()
-        return {p.node_name for p in info.placements}
+        return {p.node.name for p in info.placements}
 
     def _make_bootable_vm(
         self,
@@ -316,7 +316,7 @@ class TestVmMigration(_MigrationCase):
             self.client_alpha.disks.clone(base_disk, cloned_disk, path=f"{subdir}/")
             info_before = self.client_alpha.disks.get(cloned_disk).show()
             placements_before = {
-                p.node_name: p.file_path for p in info_before.placements
+                p.node.name: p.file_path for p in info_before.placements
             }
             assert subdir in placements_before[self.alpha_name], (
                 f"setup: stored file_path on alpha doesn't contain "
@@ -335,7 +335,7 @@ class TestVmMigration(_MigrationCase):
             tid = vm.migrate(self.beta_name)
             self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
             info_after = self.client_alpha.disks.get(cloned_disk).show()
-            placements_after = {p.node_name: p.file_path for p in info_after.placements}
+            placements_after = {p.node.name: p.file_path for p in info_after.placements}
             assert set(placements_after.keys()) == {self.beta_name}, (
                 f"placement should be on beta only after move: {placements_after!r}"
             )
@@ -450,7 +450,7 @@ class TestVmMigration(_MigrationCase):
                 f"{details.status!r}"
             )
             # The disk follows; the VM should now be on beta.
-            assert details.node_name == self.beta_name
+            assert details.node.name == self.beta_name
             # QEMU on alpha must be gone — auto-save quit it.
             assert _qemu_count(self.node_alpha, vm_name) == 0
             # QEMU on beta must be alive — auto-restore respawned it.
@@ -903,7 +903,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
             assert details.status == "saved", (
                 f"after migrate, expected status=saved; got {details.status!r}"
             )
-            assert details.node_name == self.beta_name
+            assert details.node.name == self.beta_name
 
             # Source state file is gone (best-effort delete in commit).
             src_path = _saved_state_path(self.client_alpha, self.alpha_name, vm_name)
@@ -990,7 +990,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
                 msg="vm did not auto-restore to 'running' on beta after migrate",
             )
             details = vm.show()
-            assert details.node_name == self.beta_name
+            assert details.node.name == self.beta_name
 
             r = vm.guest_exec("/bin/cat /tmp/sentinel")
             assert r.exit_code == 0, r
@@ -1051,7 +1051,7 @@ class TestVmMigrationBootableGuest(_MigrationCase):
                 msg="vm did not auto-restore to 'running' on beta after paused migrate",
             )
             details = vm.show()
-            assert details.node_name == self.beta_name
+            assert details.node.name == self.beta_name
 
             r = vm.guest_exec("/bin/cat /tmp/sentinel")
             assert r.exit_code == 0, r

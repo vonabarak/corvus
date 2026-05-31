@@ -229,7 +229,7 @@ def stage_on_node(
             info = client.disks.get(image.name).show()
         except DiskNotFound:
             continue
-        if any(p.node_name == inner_node_name for p in info.placements):
+        if any(p.node.name == inner_node_name for p in info.placements):
             continue
         fmt = _format_from_suffix(image.host_path.suffix.lower())
         client.disks.register(

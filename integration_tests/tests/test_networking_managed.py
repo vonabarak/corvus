@@ -43,7 +43,7 @@ def _wait_for_vm_iface_ip(
     deadline = time.monotonic() + timeout_sec
     while time.monotonic() < deadline:
         for nif in vm.cap.list_net_ifs():
-            if nif.network_id != network_id:
+            if nif.network is None or nif.network.id != network_id:
                 continue
             ips = nif.guest_ip_addresses
             if not ips:

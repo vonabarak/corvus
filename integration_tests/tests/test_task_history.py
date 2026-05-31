@@ -77,14 +77,14 @@ class TestTaskHistory(SingleNodeCase):
         )
         try:
             disk_tasks = self.client.tasks.list(subsystem="disk", limit=50)
-            assert any(t.entity_name == disk_name for t in disk_tasks), [
-                (t.subsystem, t.command, t.entity_name) for t in disk_tasks
+            assert any(t.entity and t.entity.name == disk_name for t in disk_tasks), [
+                (t.subsystem, t.command, t.entity and t.entity.name) for t in disk_tasks
             ]
             assert all(t.subsystem == "disk" for t in disk_tasks)
 
             vm_tasks = self.client.tasks.list(subsystem="vm", limit=50)
-            assert any(t.entity_name == vm_name for t in vm_tasks), [
-                (t.subsystem, t.command, t.entity_name) for t in vm_tasks
+            assert any(t.entity and t.entity.name == vm_name for t in vm_tasks), [
+                (t.subsystem, t.command, t.entity and t.entity.name) for t in vm_tasks
             ]
             assert all(t.subsystem == "vm" for t in vm_tasks)
 
@@ -93,7 +93,7 @@ class TestTaskHistory(SingleNodeCase):
             assert all(t.subsystem == "vm" and t.result == "success" for t in ok_vm), [
                 (t.subsystem, t.result) for t in ok_vm
             ]
-            assert any(t.entity_name == vm_name for t in ok_vm)
+            assert any(t.entity and t.entity.name == vm_name for t in ok_vm)
         finally:
             try:
                 vm.delete()
@@ -142,10 +142,10 @@ class TestTaskHistory(SingleNodeCase):
                 subsystem="disk", result="success", limit=20
             )
             matching = [
-                t for t in disk_tasks if t.entity_name and "task-show" in t.entity_name
+                t for t in disk_tasks if t.entity and "task-show" in t.entity.name
             ]
             assert matching, [
-                (t.subsystem, t.command, t.entity_name) for t in disk_tasks
+                (t.subsystem, t.command, t.entity and t.entity.name) for t in disk_tasks
             ]
             tid = matching[0].id
 
@@ -247,7 +247,7 @@ class TestTaskHistory(SingleNodeCase):
             children = self.client.tasks.list_children(parent_id)
             # Disambiguate this run from any earlier apply by checking
             # our disk's entity_name appears in the children.
-            child_names = {c.entity_name for c in children if c.entity_name}
+            child_names = {c.entity.name for c in children if c.entity}
             assert disk_name in child_names, (
                 f"expected disk subtask {disk_name!r} among children, "
                 f"got {child_names!r}"

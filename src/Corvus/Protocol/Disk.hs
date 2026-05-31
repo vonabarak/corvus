@@ -10,6 +10,7 @@ where
 
 import Corvus.Model (DriveFormat)
 import Corvus.Protocol.JsonOptions (innerOptions)
+import Corvus.Protocol.NamedRef (NamedRef)
 import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -23,8 +24,7 @@ import GHC.Generics (Generic)
 -- intentional state once Phase 3 ships and an operator has
 -- replicated an image via @rsync@ + @crv disk register@).
 data DiskImagePlacement = DiskImagePlacement
-  { dipNodeId :: !Int64
-  , dipNodeName :: !Text
+  { dipNode :: !NamedRef
   , dipFilePath :: !Text
   }
   deriving (Eq, Show, Generic)
@@ -41,12 +41,10 @@ data DiskImageInfo = DiskImageInfo
   , diiFormat :: !DriveFormat
   , diiSizeMb :: !(Maybe Int)
   , diiCreatedAt :: !UTCTime
-  , diiAttachedTo :: ![(Int64, Text)]
-  -- ^ VM (ID, name) pairs this disk is attached to
-  , diiBackingImageId :: !(Maybe Int64)
-  -- ^ Backing image ID (if this is an overlay)
-  , diiBackingImageName :: !(Maybe Text)
-  -- ^ Backing image name (if this is an overlay)
+  , diiAttachedTo :: ![NamedRef]
+  -- ^ VMs this disk is attached to.
+  , diiBackingImage :: !(Maybe NamedRef)
+  -- ^ Backing image for overlays; 'Nothing' for standalone disks.
   , diiEphemeral :: !Bool
   -- ^ Ephemeral disks are auto-deleted with the VM they are attached
   -- to. Cloud-init ISOs and template-instantiated disks default to

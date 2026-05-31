@@ -160,11 +160,11 @@ export default function SshKeyList() {
                     <div className="flex flex-wrap gap-1">
                       {k.attached_vms.map((v) => (
                         <Link
-                          key={v.vm_id}
-                          to={`/vms/${v.vm_id}`}
+                          key={v.vm.id}
+                          to={`/vms/${v.vm.id}`}
                           className="text-xs hover:underline"
                         >
-                          {v.vm_name}
+                          {v.vm.name}
                         </Link>
                       ))}
                     </div>

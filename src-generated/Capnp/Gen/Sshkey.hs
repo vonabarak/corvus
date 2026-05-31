@@ -89,7 +89,7 @@ type instance (R.ReprFor VmAttachment) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmAttachment) where
     typeId  = 12003266486494357338
 instance (C.TypedStruct VmAttachment) where
-    numStructWords  = 1
+    numStructWords  = 0
     numStructPtrs  = 1
 instance (C.Allocate VmAttachment) where
     type AllocHint VmAttachment = ()
@@ -101,23 +101,18 @@ instance (C.AllocateList VmAttachment) where
 instance (C.EstimateListAlloc VmAttachment (C.Parsed VmAttachment))
 data instance C.Parsed VmAttachment
     = VmAttachment 
-        {vmId :: (RP.Parsed Std_.Int64)
-        ,vmName :: (RP.Parsed Basics.Text)}
+        {vm :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmAttachment))
 deriving instance (Std_.Eq (C.Parsed VmAttachment))
 instance (C.Parse VmAttachment (C.Parsed VmAttachment)) where
-    parse raw_ = (VmAttachment <$> (GH.parseField #vmId raw_)
-                               <*> (GH.parseField #vmName raw_))
+    parse raw_ = (VmAttachment <$> (GH.parseField #vm raw_))
 instance (C.Marshal VmAttachment (C.Parsed VmAttachment)) where
     marshalInto raw_ VmAttachment{..} = (do
-        (GH.encodeField #vmId vmId raw_)
-        (GH.encodeField #vmName vmName raw_)
+        (GH.encodeField #vm vm raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "vmId" GH.Slot VmAttachment Std_.Int64) where
-    fieldByLabel  = (GH.dataField 0 0 64 0)
-instance (GH.HasField "vmName" GH.Slot VmAttachment Basics.Text) where
+instance (GH.HasField "vm" GH.Slot VmAttachment Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
     fieldByLabel  = (GH.ptrField 0)
 data SshKeyCreateParams 
 type instance (R.ReprFor SshKeyCreateParams) = (R.Ptr (Std_.Just R.Struct))

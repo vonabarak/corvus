@@ -42,7 +42,8 @@ def test_disk_overlay_and_clone(daemon_socket):
 
         overlay = await c.disks.create_overlay("py-ovl", backing_disk_ref=base_info.id)
         ovl_info = await overlay.show()
-        assert ovl_info.backing_image_id == base_info.id
+        assert ovl_info.backing_image is not None
+        assert ovl_info.backing_image.id == base_info.id
 
         cloned = await c.disks.clone(source_ref="py-base", new_name="py-clone")
         cloned_info = await cloned.show()

@@ -24,6 +24,7 @@ module Corvus.Protocol
   , StatusInfo (..)
 
     -- * Per-subsystem response data (re-exported for convenience)
+  , module Corvus.Protocol.NamedRef
   , module Corvus.Protocol.Vm
   , module Corvus.Protocol.Disk
   , module Corvus.Protocol.SharedDir
@@ -48,6 +49,7 @@ import Corvus.Protocol.Build
 import Corvus.Protocol.CloudInit
 import Corvus.Protocol.Disk
 import Corvus.Protocol.JsonOptions (innerOptions)
+import Corvus.Protocol.NamedRef
 import Corvus.Protocol.Network
 import Corvus.Protocol.Node
 import Corvus.Protocol.SharedDir
@@ -155,9 +157,9 @@ data Response
   | -- | VM must be stopped for this operation
     RespVmMustBeStopped
   | -- | Disk is still attached to VMs
-    RespDiskInUse {attachedVms :: ![(Int64, Text)]}
+    RespDiskInUse {attachedVms :: ![NamedRef]}
   | -- | Disk is used as backing image for overlays
-    RespDiskHasOverlays {overlays :: ![(Int64, Text)]}
+    RespDiskHasOverlays {overlays :: ![NamedRef]}
   | -- | List of shared directories
     RespSharedDirList {sharedDirs :: ![SharedDirInfo]}
   | -- | Shared directory added

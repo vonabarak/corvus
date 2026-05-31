@@ -1,5 +1,6 @@
 @0xd3867de7dfe678c7;
 
+using Common = import "common.capnp";
 using Enums = import "enums.capnp";
 using Streams = import "streams.capnp";
 
@@ -9,16 +10,22 @@ using Streams = import "streams.capnp";
 
 struct TaskInfo {
   id          @0  :Int64;
+  # Parent task id, or 0 if this is a top-level task. Stays flat
+  # (no nested NamedRef) because tasks don't have a human-readable
+  # name field — there's nothing to nest. Operators chase the
+  # parent by id alone.
   parentId    @1  :Int64;   # 0 == no parent
   startedAt   @2  :Int64;   # POSIX nanoseconds
   finishedAt  @3  :Int64;   # 0 == still running
   subsystem   @4  :Enums.TaskSubsystem;
-  entityId    @5  :Int64;   # 0 == none
-  entityName  @6  :Text;    # empty == none
-  command     @7  :Text;
-  result      @8  :Enums.TaskResult;
-  message     @9  :Text;    # empty == no message
-  clientName  @10 :Text;    # "local", "system", or the client cert CN suffix
+  # Subject of the task (the VM / disk / etc. being acted on).
+  # `id == 0` => the task isn't about a specific entity (e.g.
+  # daemon-level startup/shutdown).
+  entity      @5  :Common.NamedRef;
+  command     @6  :Text;
+  result      @7  :Enums.TaskResult;
+  message     @8  :Text;    # empty == no message
+  clientName  @9  :Text;    # "local", "system", or the client cert CN suffix
 }
 
 struct TaskListParams {

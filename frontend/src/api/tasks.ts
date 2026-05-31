@@ -1,4 +1,5 @@
 import { apiGet } from "./client";
+import type { NamedRef } from "./refs";
 
 /** Mirrors corvus_client.types.TaskInfo. */
 export interface TaskInfo {
@@ -8,10 +9,12 @@ export interface TaskInfo {
   command: string;
   result: string;
   client_name: string;
+  // Flat parent reference (no NamedRef): tasks don't have a
+  // human-readable name field. See CLAUDE.md
+  // `## Project Rules / Cross-entity references`.
   parent_id: number | null;
   finished_at: string | null;
-  entity_id: number | null;
-  entity_name: string | null;
+  entity: NamedRef | null;
   message: string | null;
 }
 

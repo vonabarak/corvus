@@ -13,10 +13,16 @@ where
 import qualified Capnp.Classes as C
 import qualified Capnp.Gen.Disk as CGDisk
 import qualified Corvus.Protocol.Disk as P
+import Corvus.Wire.Common
+  ( fromCapnpNamedRef
+  , fromCapnpNamedRefOpt
+  , toCapnpNamedRef
+  , toCapnpNamedRefOpt
+  )
 import Corvus.Wire.Enums (fromCapnpDriveFormat, toCapnpDriveFormat)
 import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.Time (nanosToUtcTime, utcTimeToNanos)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (isJust)
 
 -- ---------------------------------------------------------------------
 -- Disk image
@@ -32,17 +38,15 @@ toCapnpDiskImageInfo P.DiskImageInfo {..} =
     , CGDisk.sizeMb = maybe 0 fromIntegral diiSizeMb
     , CGDisk.createdAt = utcTimeToNanos diiCreatedAt
     , CGDisk.attachedTo = map mkAttachment diiAttachedTo
-    , CGDisk.backingImageId = fromMaybe 0 diiBackingImageId
-    , CGDisk.backingImageName = fromMaybe mempty diiBackingImageName
+    , CGDisk.backingImage = toCapnpNamedRefOpt diiBackingImage
     , CGDisk.ephemeral = diiEphemeral
     }
   where
-    mkAttachment (vid, vname) =
-      CGDisk.DiskAttachment {CGDisk.vmId = vid, CGDisk.vmName = vname}
+    mkAttachment vmRef =
+      CGDisk.DiskAttachment {CGDisk.vm = toCapnpNamedRef vmRef}
     mkPlacement p =
       CGDisk.DiskImagePlacement
-        { CGDisk.nodeId = P.dipNodeId p
-        , CGDisk.nodeName = P.dipNodeName p
+        { CGDisk.node = toCapnpNamedRef (P.dipNode p)
         , CGDisk.filePath = P.dipFilePath p
         }
 
@@ -54,25 +58,18 @@ fromCapnpDiskImageInfo CGDisk.DiskImageInfo {..} = do
       { P.diiId = id
       , P.diiName = name
       , P.diiPlacements =
-          [ case p of
-            CGDisk.DiskImagePlacement {CGDisk.nodeId = nid, CGDisk.nodeName = nm, CGDisk.filePath = fp} ->
-              P.DiskImagePlacement
-                { P.dipNodeId = nid
-                , P.dipNodeName = nm
-                , P.dipFilePath = fp
-                }
-          | p <- placements
+          [ P.DiskImagePlacement
+            { P.dipNode = fromCapnpNamedRef nodeRef
+            , P.dipFilePath = fp
+            }
+          | CGDisk.DiskImagePlacement {CGDisk.node = nodeRef, CGDisk.filePath = fp} <-
+              placements
           ]
       , P.diiFormat = format'
       , P.diiSizeMb = if sizeMb == 0 then Nothing else Just (fromIntegral sizeMb)
       , P.diiCreatedAt = nanosToUtcTime createdAt
-      , P.diiAttachedTo =
-          [ (CGDisk.vmId a, CGDisk.vmName a)
-          | a <- attachedTo
-          ]
-      , P.diiBackingImageId = if backingImageId == 0 then Nothing else Just backingImageId
-      , P.diiBackingImageName =
-          if backingImageName == mempty then Nothing else Just backingImageName
+      , P.diiAttachedTo = [fromCapnpNamedRef (CGDisk.vm a) | a <- attachedTo]
+      , P.diiBackingImage = fromCapnpNamedRefOpt backingImage
       , P.diiEphemeral = ephemeral
       }
 

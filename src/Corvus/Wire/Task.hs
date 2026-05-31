@@ -10,10 +10,11 @@ where
 import qualified Capnp.Classes as C
 import qualified Capnp.Gen.Task as CGTask
 import qualified Corvus.Protocol.Task as P
+import Corvus.Wire.Common (fromCapnpNamedRefOpt, toCapnpNamedRefOpt)
 import Corvus.Wire.Enums (fromCapnpTaskResult, fromCapnpTaskSubsystem, toCapnpTaskResult, toCapnpTaskSubsystem)
 import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.Time (nanosToUtcTime, nanosToUtcTimeMaybe, utcTimeToNanos, utcTimeToNanosMaybe)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe)
 
 toCapnpTaskInfo :: P.TaskInfo -> C.Parsed CGTask.TaskInfo
 toCapnpTaskInfo P.TaskInfo {..} =
@@ -23,8 +24,7 @@ toCapnpTaskInfo P.TaskInfo {..} =
     , CGTask.startedAt = utcTimeToNanos tiStartedAt
     , CGTask.finishedAt = utcTimeToNanosMaybe tiFinishedAt
     , CGTask.subsystem = toCapnpTaskSubsystem tiSubsystem
-    , CGTask.entityId = maybe 0 fromIntegral tiEntityId
-    , CGTask.entityName = fromMaybe mempty tiEntityName
+    , CGTask.entity = toCapnpNamedRefOpt tiEntity
     , CGTask.command = tiCommand
     , CGTask.result = toCapnpTaskResult tiResult
     , CGTask.message = fromMaybe mempty tiMessage
@@ -42,8 +42,7 @@ fromCapnpTaskInfo CGTask.TaskInfo {..} = do
       , P.tiStartedAt = nanosToUtcTime startedAt
       , P.tiFinishedAt = nanosToUtcTimeMaybe finishedAt
       , P.tiSubsystem = sub
-      , P.tiEntityId = if entityId == 0 then Nothing else Just (fromIntegral entityId)
-      , P.tiEntityName = if entityName == mempty then Nothing else Just entityName
+      , P.tiEntity = fromCapnpNamedRefOpt entity
       , P.tiCommand = command
       , P.tiResult = res
       , P.tiMessage = if message == mempty then Nothing else Just message

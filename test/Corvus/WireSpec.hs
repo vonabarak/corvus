@@ -9,6 +9,7 @@
 module Corvus.WireSpec (spec) where
 
 import qualified Corvus.Model as M
+import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.Node as PN
 import qualified Corvus.Protocol.Task as PT
 import qualified Corvus.Protocol.Vm as PV
@@ -151,8 +152,7 @@ spec = do
             sampleTaskInfo
               { PT.tiParentId = Nothing
               , PT.tiFinishedAt = Nothing
-              , PT.tiEntityId = Nothing
-              , PT.tiEntityName = Nothing
+              , PT.tiEntity = Nothing
               , PT.tiMessage = Nothing
               }
        in fromCapnpTaskInfo (toCapnpTaskInfo ti) `shouldBe` Right ti
@@ -233,8 +233,7 @@ sampleTaskInfo =
     , PT.tiStartedAt = sampleUtc
     , PT.tiFinishedAt = Just sampleUtc1
     , PT.tiSubsystem = M.SubVm
-    , PT.tiEntityId = Just 42
-    , PT.tiEntityName = Just "web-1"
+    , PT.tiEntity = Just P.NamedRef {P.nrId = 42, P.nrName = "web-1"}
     , PT.tiCommand = "create"
     , PT.tiResult = M.TaskSuccess
     , PT.tiMessage = Just "ok"

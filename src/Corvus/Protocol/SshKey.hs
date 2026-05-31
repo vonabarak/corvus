@@ -7,6 +7,7 @@ module Corvus.Protocol.SshKey
 where
 
 import Corvus.Protocol.JsonOptions (innerOptions)
+import Corvus.Protocol.NamedRef (NamedRef)
 import Data.Aeson (ToJSON (..), genericToJSON)
 import Data.Int (Int64)
 import Data.Text (Text)
@@ -19,8 +20,8 @@ data SshKeyInfo = SshKeyInfo
   , skiName :: !Text
   , skiPublicKey :: !Text
   , skiCreatedAt :: !UTCTime
-  , skiAttachedVms :: ![(Int64, Text)]
-  -- ^ VM (ID, name) pairs this key is attached to
+  , skiAttachedVms :: ![NamedRef]
+  -- ^ VMs this key is attached to.
   }
   deriving (Eq, Show, Generic)
 

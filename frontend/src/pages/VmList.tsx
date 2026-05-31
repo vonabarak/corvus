@@ -109,7 +109,7 @@ export default function VmList() {
                   </Link>
                   <div className="text-xs text-muted-foreground">#{vm.id}</div>
                 </TableCell>
-                <TableCell className="text-muted-foreground">{vm.node_name}</TableCell>
+                <TableCell className="text-muted-foreground">{vm.node.name}</TableCell>
                 <TableCell>
                   <VmStatusBadge status={vm.status} />
                 </TableCell>

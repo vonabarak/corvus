@@ -301,9 +301,9 @@ export default function DiskDetail() {
           <Field
             label="Backing"
             value={
-              disk.backing_image_id ? (
-                <Link to={`/disks/${disk.backing_image_id}`} className="hover:underline">
-                  {disk.backing_image_name}
+              disk.backing_image ? (
+                <Link to={`/disks/${disk.backing_image.id}`} className="hover:underline">
+                  {disk.backing_image.name}
                 </Link>
               ) : (
                 <span className="text-muted-foreground">—</span>
@@ -331,8 +331,8 @@ export default function DiskDetail() {
               </TableHeader>
               <TableBody>
                 {disk.placements.map((p) => (
-                  <TableRow key={p.node_id}>
-                    <TableCell>{p.node_name}</TableCell>
+                  <TableRow key={p.node.id}>
+                    <TableCell>{p.node.name}</TableCell>
                     <TableCell className="font-mono text-xs">{p.file_path}</TableCell>
                   </TableRow>
                 ))}
@@ -359,13 +359,13 @@ export default function DiskDetail() {
               </TableHeader>
               <TableBody>
                 {disk.attached_to.map((a) => (
-                  <TableRow key={a.vm_id}>
+                  <TableRow key={a.vm.id}>
                     <TableCell>
-                      <Link to={`/vms/${a.vm_id}`} className="hover:underline">
-                        {a.vm_name}
+                      <Link to={`/vms/${a.vm.id}`} className="hover:underline">
+                        {a.vm.name}
                       </Link>
                     </TableCell>
-                    <TableCell className="text-right text-muted-foreground">#{a.vm_id}</TableCell>
+                    <TableCell className="text-right text-muted-foreground">#{a.vm.id}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

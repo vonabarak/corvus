@@ -270,9 +270,9 @@ export default function TemplateDetail() {
                 {t.drives.map((d, idx) => (
                   <TableRow key={idx}>
                     <TableCell>
-                      {d.disk_image_id !== null ? (
-                        <Link to={`/disks/${d.disk_image_id}`} className="hover:underline">
-                          {d.disk_image_name}
+                      {d.disk_image !== null ? (
+                        <Link to={`/disks/${d.disk_image.id}`} className="hover:underline">
+                          {d.disk_image.name}
                         </Link>
                       ) : (
                         <span className="text-muted-foreground">create new</span>

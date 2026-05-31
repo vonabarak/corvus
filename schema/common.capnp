@@ -7,12 +7,30 @@
 # Daemon's manager methods).
 
 # Reference to an entity by either numeric id or symbolic name.
-# Exactly one branch is set; the union enforces it at the schema level.
+# Used as an RPC INPUT — the caller picks the branch. The schema-level
+# union enforces "exactly one" so handlers don't have to reconcile both.
 struct EntityRef {
   union {
     id   @0 :Int64;
     name @1 :Text;
   }
+}
+
+# An entity's id paired with its display name. Used as an RPC OUTPUT
+# wherever one entity references another (a drive's disk image, a VM's
+# node, a network interface's network, etc.) — both halves travel
+# together so the JSON / WebUI can render a link + label without a
+# second round-trip.
+#
+# Optional references encode "absent" with the sentinel `id == 0`;
+# language-level converters (Haskell, Python, TypeScript) lift that
+# to a proper Maybe / None / null at the boundary.
+#
+# See CLAUDE.md `## Project Rules / Cross-entity references` for the
+# convention.
+struct NamedRef {
+  id   @0 :Int64;
+  name @1 :Text;
 }
 
 # Daemon-wide status.
