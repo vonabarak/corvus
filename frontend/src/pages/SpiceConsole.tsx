@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ArrowLeft, Circle, Keyboard, Zap } from "lucide-react";
+import { toast } from "sonner";
 import { createSpiceSession } from "@/api/vms";
 import { SpiceMainConn } from "@/lib/spice/main.js";
 import { sendCtrlAltDel } from "@/lib/spice/inputs.js";
@@ -141,7 +142,7 @@ export default function SpiceConsole() {
     try {
       sendCtrlAltDel(scRef.current);
     } catch (e) {
-      window.alert(`Ctrl-Alt-Del failed: ${(e as Error).message}`);
+      toast.error("Ctrl-Alt-Del failed", { description: (e as Error).message });
     }
   }, []);
 

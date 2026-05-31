@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "sonner";
 import App from "./App";
 import "./index.css";
 
@@ -27,6 +28,12 @@ ReactDOM.createRoot(root).render(
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <App />
+        {/* Single Toaster mounted at the root drives every `toast(...)`
+            call site in the app. Top-right keeps it out of the way of
+            the page chrome and the action buttons. `richColors` opts
+            in to sonner's accent styling so `toast.error` actually
+            looks like an error without per-call styling. */}
+        <Toaster position="top-right" richColors closeButton />
       </BrowserRouter>
     </QueryClientProvider>
   </React.StrictMode>,

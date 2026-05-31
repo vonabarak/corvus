@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { AlertCircle, KeyRound, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { createSshKey, listSshKeys, type SshKeyInfo } from "@/api/sshKeys";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -27,7 +28,7 @@ function NewKeyForm() {
       setOpen(false);
       queryClient.invalidateQueries({ queryKey: ["ssh-keys"] });
     },
-    onError: (e) => window.alert(`Create failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Create failed", { description: (e as Error).message }),
   });
   if (!open) {
     return (

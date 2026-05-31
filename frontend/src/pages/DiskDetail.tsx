@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowLeft,
@@ -57,7 +58,7 @@ function ResizeButton({ disk }: { disk: DiskImageInfo }) {
       queryClient.invalidateQueries({ queryKey: ["disk", disk.id] });
       queryClient.invalidateQueries({ queryKey: ["disks"] });
     },
-    onError: (e) => window.alert(`Resize failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Resize failed", { description: (e as Error).message }),
   });
   return (
     <Button
@@ -72,7 +73,7 @@ function ResizeButton({ disk }: { disk: DiskImageInfo }) {
         if (answer === null) return;
         const newSize = Number(answer);
         if (!Number.isFinite(newSize) || newSize <= 0) {
-          window.alert("Please enter a positive integer.");
+          toast.error("Please enter a positive integer.");
           return;
         }
         mutation.mutate(newSize);
@@ -93,7 +94,7 @@ function DeleteDiskButton({ disk }: { disk: DiskImageInfo }) {
       queryClient.invalidateQueries({ queryKey: ["disks"] });
       navigate("/disks");
     },
-    onError: (e) => window.alert(`Delete failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Delete failed", { description: (e as Error).message }),
   });
   const inUse = disk.attached_to.length > 0;
   return (
@@ -123,7 +124,7 @@ function SnapshotCreate({ diskId }: { diskId: number }) {
       setName("");
       queryClient.invalidateQueries({ queryKey: ["disk-snapshots", diskId] });
     },
-    onError: (e) => window.alert(`Snapshot failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Snapshot failed", { description: (e as Error).message }),
   });
   return (
     <form
@@ -158,17 +159,17 @@ function SnapshotRow({ diskId, snapshot }: { diskId: number; snapshot: SnapshotI
   const rollback = useMutation({
     mutationFn: () => rollbackSnapshot(diskId, snapshot.id),
     onSuccess: invalidate,
-    onError: (e) => window.alert(`Rollback failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Rollback failed", { description: (e as Error).message }),
   });
   const merge = useMutation({
     mutationFn: () => mergeSnapshot(diskId, snapshot.id),
     onSuccess: invalidate,
-    onError: (e) => window.alert(`Merge failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Merge failed", { description: (e as Error).message }),
   });
   const del = useMutation({
     mutationFn: () => deleteSnapshot(diskId, snapshot.id),
     onSuccess: invalidate,
-    onError: (e) => window.alert(`Delete failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Delete failed", { description: (e as Error).message }),
   });
   const busy = rollback.isPending || merge.isPending || del.isPending;
   return (

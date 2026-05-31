@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowLeft,
@@ -100,7 +101,7 @@ function ActionButton({ vmId, status, action, icon, label, variant }: ActionButt
       queryClient.invalidateQueries({ queryKey: ["vm", vmId] });
       queryClient.invalidateQueries({ queryKey: ["vms"] });
     },
-    onError: (e) => window.alert(`${label} failed: ${(e as Error).message}`),
+    onError: (e) => toast.error(`${label} failed`, { description: (e as Error).message }),
   });
   const disabled = !allowedActions(status).includes(action) || mutation.isPending;
   return (
@@ -126,7 +127,7 @@ function DeleteButton({ vm }: { vm: VmDetails }) {
       queryClient.invalidateQueries({ queryKey: ["vms"] });
       navigate("/vms");
     },
-    onError: (e) => window.alert(`Delete failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Delete failed", { description: (e as Error).message }),
   });
   const disabled = vm.status !== "stopped" || mutation.isPending;
   return (

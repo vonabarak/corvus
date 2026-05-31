@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { attachVmSshKey, detachVmSshKey, listVmSshKeys, type VmSshKey } from "@/api/vms";
 import { listSshKeys, type SshKeyInfo } from "@/api/sshKeys";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -108,7 +109,7 @@ function DetachButton({ vmId, keyName }: { vmId: number; keyName: string }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vm-ssh-keys", vmId] });
     },
-    onError: (e) => window.alert(`Detach failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Detach failed", { description: (e as Error).message }),
   });
   return (
     <Button

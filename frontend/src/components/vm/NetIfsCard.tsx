@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { addNetIf, removeNetIf, type NetIfAddBody, type VmDetails } from "@/api/vms";
 import { listNetworks, type NetworkInfo } from "@/api/networks";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -165,7 +166,7 @@ function RemoveButton({ vmId, netIfId }: { vmId: number; netIfId: number }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vm", vmId] });
     },
-    onError: (e) => window.alert(`Remove failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Remove failed", { description: (e as Error).message }),
   });
   return (
     <Button

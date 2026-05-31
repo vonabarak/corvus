@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import {
   deleteTemplate,
   getTemplate,
@@ -44,7 +45,7 @@ function InstantiateButton({ t }: { t: TemplateDetails }) {
       queryClient.invalidateQueries({ queryKey: ["vms"] });
       navigate(`/vms/${vm.id}`);
     },
-    onError: (e) => window.alert(`Instantiate failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Instantiate failed", { description: (e as Error).message }),
   });
   return (
     <Button
@@ -78,7 +79,7 @@ function DeleteButton({ t }: { t: TemplateDetails }) {
       queryClient.invalidateQueries({ queryKey: ["templates"] });
       navigate("/templates");
     },
-    onError: (e) => window.alert(`Delete failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Delete failed", { description: (e as Error).message }),
   });
   return (
     <Button

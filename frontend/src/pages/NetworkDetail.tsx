@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Play, Square, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import {
   deleteNetwork,
   getNetwork,
@@ -36,12 +37,12 @@ function StartStopButtons({ net }: { net: NetworkInfo }) {
   const start = useMutation({
     mutationFn: () => startNetwork(net.id),
     onSuccess: invalidate,
-    onError: (e) => window.alert(`Start failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Start failed", { description: (e as Error).message }),
   });
   const stop = useMutation({
     mutationFn: (force: boolean) => stopNetwork(net.id, force),
     onSuccess: invalidate,
-    onError: (e) => window.alert(`Stop failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Stop failed", { description: (e as Error).message }),
   });
   return (
     <>
@@ -92,7 +93,7 @@ function DeleteButton({ net }: { net: NetworkInfo }) {
       queryClient.invalidateQueries({ queryKey: ["networks"] });
       navigate("/networks");
     },
-    onError: (e) => window.alert(`Delete failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Delete failed", { description: (e as Error).message }),
   });
   const disabled = net.running || mutation.isPending;
   return (

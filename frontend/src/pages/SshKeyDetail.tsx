@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { deleteSshKey, getSshKey, type SshKeyInfo } from "@/api/sshKeys";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,7 @@ function DeleteButton({ k }: { k: SshKeyInfo }) {
       queryClient.invalidateQueries({ queryKey: ["ssh-keys"] });
       navigate("/ssh-keys");
     },
-    onError: (e) => window.alert(`Delete failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Delete failed", { description: (e as Error).message }),
   });
   const inUse = k.attached_vms.length > 0;
   return (

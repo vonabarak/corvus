@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { attachDrive, detachDrive, type DriveAttachBody, type VmDetails } from "@/api/vms";
 import { listDisks, type DiskImageInfo } from "@/api/disks";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -177,7 +178,7 @@ function DetachButton({ vmId, driveId }: { vmId: number; driveId: number }) {
       queryClient.invalidateQueries({ queryKey: ["vm", vmId] });
       queryClient.invalidateQueries({ queryKey: ["disks"] });
     },
-    onError: (e) => window.alert(`Detach failed: ${(e as Error).message}`),
+    onError: (e) => toast.error("Detach failed", { description: (e as Error).message }),
   });
   return (
     <Button
