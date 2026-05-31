@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { AlertCircle, ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
@@ -8,6 +9,7 @@ import {
   instantiateTemplate,
   type TemplateDetails,
 } from "@/api/templates";
+import { listNodes, type NodeInfo } from "@/api/nodes";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -18,6 +20,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { formatMb } from "@/lib/format";
 
@@ -35,38 +39,99 @@ function Field({ label, value }: FieldProps) {
   );
 }
 
-function InstantiateButton({ t }: { t: TemplateDetails }) {
+/** Inline create-VM form, shown below the action button row when the
+ * operator clicks "Instantiate". Mirrors the form pattern used by
+ * `VmCreate` (the existing top-level VM creation page) — same labelled
+ * inputs, same Node dropdown sourced from `/api/nodes`, same submit /
+ * cancel button row. The form lives inline rather than as a modal
+ * because the rest of the codebase has no Dialog primitive and
+ * inline-Card forms are the established pattern (see
+ * `pages/SshKeyList.tsx::NewKeyForm` and the per-VM "attach drive /
+ * NIC / SSH key" cards). */
+function InstantiateForm({ t, onClose }: { t: TemplateDetails; onClose: () => void }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { data: nodes, isLoading: nodesLoading } = useQuery<NodeInfo[]>({
+    queryKey: ["nodes"],
+    queryFn: ({ signal }) => listNodes(signal),
+    staleTime: 30_000,
+  });
+  const [name, setName] = useState("");
+  const [node, setNode] = useState("");
+
   const mutation = useMutation({
-    mutationFn: ({ name, node }: { name: string; node?: string }) =>
-      instantiateTemplate(t.id, name, node),
+    mutationFn: () => instantiateTemplate(t.id, name.trim(), node.trim() || undefined),
     onSuccess: (vm) => {
       queryClient.invalidateQueries({ queryKey: ["vms"] });
       navigate(`/vms/${vm.id}`);
     },
     onError: (e) => toast.error("Instantiate failed", { description: (e as Error).message }),
   });
+
   return (
-    <Button
-      size="sm"
-      disabled={mutation.isPending}
-      onClick={() => {
-        const name = window.prompt(`Name for the new VM (from template "${t.name}"):`);
-        if (!name || name.trim().length === 0) return;
-        const node = window.prompt(
-          `Pin to which node? (leave blank to let the scheduler pick)`,
-          "",
-        );
-        mutation.mutate({
-          name: name.trim(),
-          node: node && node.trim().length > 0 ? node.trim() : undefined,
-        });
-      }}
-    >
-      <Plus className="h-3.5 w-3.5" />
-      Instantiate
-    </Button>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Instantiate template</CardTitle>
+        <CardDescription>
+          Creates a new VM from <code>{t.name}</code> and navigates to its detail page.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (name.trim().length === 0) return;
+            mutation.mutate();
+          }}
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="instantiate-name">VM name</Label>
+              <Input
+                id="instantiate-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="web-1"
+                autoFocus
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="instantiate-node">Node</Label>
+              <select
+                id="instantiate-node"
+                value={node}
+                onChange={(e) => setNode(e.target.value)}
+                disabled={nodesLoading}
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="">— let the scheduler pick —</option>
+                {(nodes ?? []).map((n) => (
+                  <option key={n.id} value={n.name} disabled={n.admin_state !== "online"}>
+                    {n.name}
+                    {n.admin_state !== "online" ? ` (${n.admin_state})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="submit"
+              size="sm"
+              disabled={mutation.isPending || name.trim().length === 0}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {mutation.isPending ? "Instantiating…" : "Instantiate"}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -101,6 +166,7 @@ function DeleteButton({ t }: { t: TemplateDetails }) {
 export default function TemplateDetail() {
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
+  const [instantiateOpen, setInstantiateOpen] = useState(false);
 
   const {
     data: t,
@@ -150,7 +216,10 @@ export default function TemplateDetail() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <InstantiateButton t={t} />
+        <Button size="sm" onClick={() => setInstantiateOpen(true)} disabled={instantiateOpen}>
+          <Plus className="h-3.5 w-3.5" />
+          Instantiate
+        </Button>
         <Button variant="outline" size="sm" asChild>
           <Link to={`/templates/${t.id}/edit`}>
             <Pencil className="h-3.5 w-3.5" />
@@ -159,6 +228,8 @@ export default function TemplateDetail() {
         </Button>
         <DeleteButton t={t} />
       </div>
+
+      {instantiateOpen && <InstantiateForm t={t} onClose={() => setInstantiateOpen(false)} />}
 
       <Card>
         <CardHeader>
