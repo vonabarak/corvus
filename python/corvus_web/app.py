@@ -14,7 +14,36 @@ from contextlib import AsyncExitStack, asynccontextmanager
 
 import capnp
 from corvus_client import AsyncClient
-from fastapi import FastAPI
+from corvus_client.exceptions import (
+    ConnectError,
+    CorvusError,
+    DiskHasOverlays,
+    DiskInUse,
+    DiskNotFound,
+    DriveNotFound,
+    FormatNotSupported,
+    GuestAgentError,
+    GuestAgentNotEnabled,
+    InvalidTransition,
+    NetIfNotFound,
+    NetworkAlreadyRunning,
+    NetworkInUse,
+    NetworkNotFound,
+    NetworkNotRunning,
+    NodeInUse,
+    NodeNotFound,
+    SharedDirNotFound,
+    SnapshotNotFound,
+    SshKeyInUse,
+    SshKeyNotFound,
+    TaskNotFound,
+    TemplateNotFound,
+    VmMustBeStopped,
+    VmNotFound,
+    VmRunning,
+)
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from .config import CorvusWebConfig
 from .routes import (
@@ -31,6 +60,59 @@ from .routes import (
     templates,
     vms,
 )
+
+# Map daemon-typed exceptions to HTTP status codes. Anything outside
+# these tuples falls back to 400 (the daemon rejected the request).
+_NOT_FOUND_EXCEPTIONS: tuple[type[CorvusError], ...] = (
+    VmNotFound,
+    DiskNotFound,
+    NetworkNotFound,
+    SshKeyNotFound,
+    TemplateNotFound,
+    TaskNotFound,
+    NodeNotFound,
+    SnapshotNotFound,
+    DriveNotFound,
+    NetIfNotFound,
+    SharedDirNotFound,
+)
+
+_CONFLICT_EXCEPTIONS: tuple[type[CorvusError], ...] = (
+    InvalidTransition,
+    VmRunning,
+    VmMustBeStopped,
+    DiskInUse,
+    DiskHasOverlays,
+    NetworkInUse,
+    NetworkAlreadyRunning,
+    NetworkNotRunning,
+    SshKeyInUse,
+    NodeInUse,
+    GuestAgentNotEnabled,
+    FormatNotSupported,
+)
+
+
+def _corvus_error_status(exc: CorvusError) -> int:
+    """HTTP status code for a typed daemon exception.
+
+    The split mirrors REST semantics: 404 for "the resource isn't
+    there", 409 for "the resource is there but the request conflicts
+    with its current state", 503 for "the guest agent isn't currently
+    reachable" (a transient downstream condition), 502 for
+    daemon-unreachable, and 400 as the catch-all for any other
+    daemon-side rejection that survives the client's exception
+    translator.
+    """
+    if isinstance(exc, ConnectError):
+        return 502
+    if isinstance(exc, _NOT_FOUND_EXCEPTIONS):
+        return 404
+    if isinstance(exc, _CONFLICT_EXCEPTIONS):
+        return 409
+    if isinstance(exc, GuestAgentError):
+        return 503
+    return 400
 
 
 def create_app(config: CorvusWebConfig) -> FastAPI:
@@ -83,6 +165,20 @@ def create_app(config: CorvusWebConfig) -> FastAPI:
         # add no overhead and don't expose anything the routes don't.
         lifespan=lifespan,
     )
+
+    # Centralised translation of typed daemon exceptions into
+    # structured HTTP errors. Without this any route that doesn't
+    # explicitly catch a 'CorvusError' subclass turns into a silent
+    # 500 with an empty body — the WebUI then has no message to show
+    # the operator. Per-route `try / except` catches still take
+    # precedence; this handler only fires when the route doesn't
+    # handle the exception itself.
+    @app.exception_handler(CorvusError)
+    async def _corvus_error_handler(_req: Request, exc: CorvusError) -> JSONResponse:
+        return JSONResponse(
+            status_code=_corvus_error_status(exc),
+            content={"detail": str(exc)},
+        )
 
     # API routes mounted under /api/. The SPA mount is last so it
     # catches everything else and serves index.html for client-side

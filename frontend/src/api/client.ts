@@ -7,13 +7,38 @@
  */
 
 export class ApiError extends Error {
+  /** The parsed `detail` field from a FastAPI JSON error body, or the
+   * raw body when it isn't JSON. Callers (`onError` handlers, etc.)
+   * should surface this directly to the user — it carries the daemon's
+   * verbatim rejection reason after the gateway's exception handler
+   * translates it. */
+  public readonly detail: string;
+
   constructor(
     public readonly status: number,
     public readonly statusText: string,
     public readonly body: string,
   ) {
-    super(`${status} ${statusText}: ${body || "(empty body)"}`);
+    // FastAPI's default + the gateway's `CorvusError` handler emit
+    // `{"detail": "..."}` JSON bodies. Parse it so the `Error.message`
+    // operators see is the human-readable reason, not the raw envelope.
+    let detail = body;
+    try {
+      const parsed: unknown = JSON.parse(body);
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        "detail" in parsed &&
+        typeof (parsed as { detail: unknown }).detail === "string"
+      ) {
+        detail = (parsed as { detail: string }).detail;
+      }
+    } catch {
+      // Not JSON — keep the raw body.
+    }
+    super(`${status} ${statusText}: ${detail || "(empty body)"}`);
     this.name = "ApiError";
+    this.detail = detail;
   }
 }
 

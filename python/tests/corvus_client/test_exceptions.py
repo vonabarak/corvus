@@ -8,6 +8,7 @@ from corvus_client.exceptions import (
     CorvusError,
     DiskInUse,
     DiskNotFound,
+    InvalidTransition,
     NetworkNotFound,
     NodeInUse,
     NodeNotFound,
@@ -76,3 +77,34 @@ def test_translate_strips_remote_envelope():
     # whole pycapnp envelope.
     assert str(out) == "VM 'web-1' not found"
     assert isinstance(out, VmNotFound)
+
+
+def test_translate_invalid_transition_extracts_status_and_reason():
+    # The daemon's `statusOrThrow` in Corvus.Rpc.Vm emits this exact
+    # format; the translator must extract both halves so the UI can
+    # tell the operator which state the VM is in AND why the action
+    # was refused.
+    exc = _fake_kj(
+        "(remote):0: failed: remote exception: invalid transition from stopped: "
+        "Network 'corvus' is not running"
+    )
+    out = translate_kj_exception(exc)
+    assert isinstance(out, InvalidTransition)
+    assert out.status == "stopped"
+    assert out.reason == "Network 'corvus' is not running"
+    # The composed message includes both halves for human display.
+    assert "stopped" in str(out)
+    assert "Network 'corvus' is not running" in str(out)
+
+
+def test_translate_invalid_transition_from_various_states():
+    # The daemon's lower-case enumToText covers every VmStatus
+    # constructor; spot-check a few that operators commonly hit.
+    for status in ("running", "starting", "saving", "loading", "migrating"):
+        exc = _fake_kj(
+            f"(remote):0: failed: remote exception: invalid transition from {status}: "
+            f"in-flight operation"
+        )
+        out = translate_kj_exception(exc)
+        assert isinstance(out, InvalidTransition)
+        assert out.status == status

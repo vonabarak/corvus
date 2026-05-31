@@ -200,6 +200,17 @@ _MESSAGE_TABLE = (
 # pycapnp wraps around the daemon's throwFailed strings.
 _REMOTE_EXC_RE = re.compile(r"remote exception:\s*(.*)$", re.DOTALL)
 
+# FSM transition rejection. The daemon's `statusOrThrow` in
+# `src/Corvus/Rpc/Vm.hs` formats it as
+# `"invalid transition from <status>: <reason>"`, where <status> is the
+# lower-case enumToText for VmStatus. Special-cased ahead of the
+# `_MESSAGE_TABLE` lookup because `InvalidTransition.__init__` takes
+# (status, reason) — group extraction doesn't fit the table's
+# (body, details) constructor shape.
+_INVALID_TRANSITION_RE = re.compile(
+    r"^invalid transition from (\w+):\s*(.*)$", re.DOTALL
+)
+
 
 def _bare_message(description: str) -> str:
     """Strip pycapnp's envelope so substring matches see just the daemon msg."""
@@ -211,6 +222,9 @@ def translate_kj_exception(exc: capnp.KjException) -> CorvusError:
     """Map a `capnp.KjException` to a typed Python exception."""
     description = getattr(exc, "description", None) or str(exc)
     body = _bare_message(description)
+    m = _INVALID_TRANSITION_RE.match(body)
+    if m:
+        return InvalidTransition(m.group(1), m.group(2).strip())
     for pattern, cls in _MESSAGE_TABLE:
         if pattern.search(body):
             return cls(body, details=description)
