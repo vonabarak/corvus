@@ -187,6 +187,7 @@ User-facing documentation lives in `doc/`. See `doc/INDEX.md` for the full list.
 | `doc/task-history.md` | Async operation tracking |
 | `doc/templates.md` | VM template YAML schema and instantiation |
 | `doc/apply-configuration.md` | Declarative environment YAML reference |
+| `doc/dev-node.md` | Manual-testing VM (`make dev-node-vm`) + helper scripts under `scripts/devnode/` |
 
 ## Project Rules
 

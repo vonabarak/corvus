@@ -50,6 +50,7 @@ pipeline:
               app-emulation/corvus **
               app-emulation/corvus-bin **
               dev-python/pycapnp **
+              dev-python/fastapi **
               dev-haskell/supervisors **
               dev-haskell/data-default-instances-vector **
               dev-haskell/monad-stm **
@@ -78,7 +79,14 @@ pipeline:
                 dev-python/cryptography \
                 dev-python/jinja2 \
                 dev-python/pyyaml \
-                dev-python/pycapnp
+                dev-python/pycapnp \
+                dev-python/uvicorn \
+                dev-python/fastapi \
+                dev-python/prometheus-client \
+                dev-python/httptools \
+                dev-python/uvloop \
+                dev-python/watchfiles \
+                dev-python/websockets
             timeoutSec: 14400
         - shell:
             inline: |

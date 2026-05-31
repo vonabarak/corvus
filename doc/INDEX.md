@@ -32,6 +32,7 @@
 - [Web Interface (`corvus-web`)](web-interface.md) -- Browser UI: dashboard, VM/disk/network management, live task feed, serial console
 - [Python Client (`corvus_client`)](../python/README.md) -- pycapnp-based client shipping with this tree
 - [Integration Test Suite](../integration_tests/README.md) -- Python harness that runs the freshly-compiled Corvus inside nested VMs
+- [Dev Node](dev-node.md) -- Long-lived manual-testing VM for iterating on the daemon and web UI against uncommitted source
 
 ## Examples
 
