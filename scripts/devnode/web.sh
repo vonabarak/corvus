@@ -32,7 +32,11 @@ port=${CORVUS_WEB_PORT:-8080}
 vm_ip=$(ip -4 -o addr show 2>/dev/null \
     | awk '$2 ~ /^enp/ {split($4, a, "/"); print a[1]; exit}')
 if [ -n "$vm_ip" ]; then
-    echo "web.sh: open http://$vm_ip:$port/ in your host browser"
+    echo "web.sh: open"
+    echo
+    echo http://$vm_ip:$port/
+    echo
+    echo "in your host browser"
 else
     echo "web.sh: no enp* interface has an IPv4 address yet — check 'ip -4 addr'" >&2
 fi
