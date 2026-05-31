@@ -309,6 +309,17 @@ handleVmStartExecute ctx vmId = do
       case currentStatus of
         VmPaused -> runServerLogging state $ resumeFromPaused state vmId
         _ -> runServerLogging state $ do
+          -- Commit the intermediate status NOW, before the slow
+          -- pre-launch dance (vsock probe, spec assembly, agent
+          -- dial). Without this, a UI client that re-fetches right
+          -- after the (async) RPC returns sees the old status
+          -- ('VmStopped' / 'VmSaved') for ~100-500ms while
+          -- 'launchVmViaAgent' is still preparing. Stop and save
+          -- don't have this gap because their handlers flip the
+          -- DB before any agent work; mirror that here. The same
+          -- @setVmStatus@ inside 'launchVmViaAgent' is now a
+          -- no-op when the row is already in @nextStatus@.
+          liftIO $ runSqlPool (setVmStatus vmId nextStatus) (ssDbPool state)
           resp <- startQemuAndMonitor ctx vmId vm nextStatus
           case resp of
             RespVmStateChanged s
