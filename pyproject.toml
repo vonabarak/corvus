@@ -38,10 +38,19 @@ harness = [
     "pytest-timeout>=2.3",
     "pytest-xdist>=3.6",
 ]
+# Desktop GUI deps — opt-in via `pip install -e .[desktop]`. PySide6 is
+# ~150 MiB; keeping it optional spares the corvus-admin / corvus-web
+# install paths. pyte is the pure-Python VT102 emulator the serial
+# console widget renders into a QAbstractScrollArea (no native deps).
+desktop = [
+    "PySide6>=6.6",
+    "pyte>=0.8",
+]
 
 [project.scripts]
 corvus-admin = "corvus_admin.cli:main"
 corvus-web = "corvus_web.cli:main"
+corvus-desktop = "corvus_desktop.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -59,6 +68,11 @@ packages = [
     "corvus_test_harness",
     "corvus_web",
     "corvus_web.routes",
+    "corvus_desktop",
+    "corvus_desktop.dialogs",
+    "corvus_desktop.models",
+    "corvus_desktop.widgets",
+    "corvus_desktop.windows",
 ]
 
 [tool.setuptools.package-dir]
@@ -69,6 +83,11 @@ corvus_admin = "python/corvus_admin"
 corvus_test_harness = "integration_tests/corvus_test_harness"
 corvus_web = "python/corvus_web"
 "corvus_web.routes" = "python/corvus_web/routes"
+corvus_desktop = "python/corvus_desktop"
+"corvus_desktop.dialogs" = "python/corvus_desktop/dialogs"
+"corvus_desktop.models" = "python/corvus_desktop/models"
+"corvus_desktop.widgets" = "python/corvus_desktop/widgets"
+"corvus_desktop.windows" = "python/corvus_desktop/windows"
 
 [tool.setuptools.package-data]
 corvus_client = ["schema/*.capnp"]
@@ -204,6 +223,23 @@ disallow_incomplete_defs = false
 module = ["corvus_web.*"]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
+
+# corvus_desktop — strict-annotated module, same gate as
+# corvus_admin / corvus_web. The desktop GUI is hand-written
+# (no generated code) and the call surface into corvus_client has
+# typed dataclass returns; new code should land annotated.
+[[tool.mypy.overrides]]
+module = ["corvus_desktop.*"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+# PySide6 + pyte are optional ([desktop] extra) — the venv mypy uses
+# for lint may not have them installed. Treat the imports as untyped
+# at the boundary so `make lint` stays green without forcing the
+# [desktop] extra into the dev venv.
+[[tool.mypy.overrides]]
+module = ["PySide6.*", "pyte", "pyte.*"]
+ignore_missing_imports = true
 
 # Tests + harness + the top-level conftest at integration_tests/
 # (which mypy sees as bare module `conftest`): looser bar. The

@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean
+.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -446,6 +446,20 @@ web-lint:
 
 web-format:
 	cd frontend && $(NPM) run format
+
+
+# Run the corvus-desktop GUI against the local daemon (same default
+# Unix socket `crv` / `corvus-web` use: $XDG_RUNTIME_DIR/corvus/corvus.sock).
+# Pair with a running daemon. Tweak the daemon transport with FLAGS=, e.g.:
+#   make desktop-run FLAGS="--daemon-host 1.2.3.4 --no-daemon-tls"
+#
+# Prefers the project venv (corvus-desktop installed editable with
+# the [desktop] extra: `pip install -e .[desktop]`); falls back to
+# PATH for global installs.
+CORVUS_DESKTOP ?= $(if $(wildcard python/.venv-corvus-py/bin/corvus-desktop),python/.venv-corvus-py/bin/corvus-desktop,corvus-desktop)
+
+desktop-run:
+	$(CORVUS_DESKTOP) --log-level debug $(FLAGS)
 
 web-clean:
 	rm -rf frontend/dist frontend/node_modules
