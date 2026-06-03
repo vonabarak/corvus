@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -320,7 +321,12 @@ runPipelineStep state parentTaskId sink step = case step of
   PipelineApply cfg -> do
     logInfoN "Applying environment configuration (pipeline step)"
     liftIO $ sink (BuildLogLine "applying environment configuration")
-    resp <- liftIO $ runActionAsSubtask (ActionContext state parentTaskId "system") (ApplyAction cfg False)
+    let applySink :: ApplySink
+        applySink ev = case renderApplyEventForBuild ev of
+          Nothing -> pure ()
+          Just txt -> sink (BuildLogLine txt)
+        ctx = (mkActionContext state parentTaskId "system") {acApplySink = applySink}
+    resp <- liftIO $ runActionAsSubtask ctx (ApplyAction cfg False)
     let one = case resp of
           RespApplyResult _ ->
             BuildOne {boName = "apply", boArtifactDiskId = Nothing, boError = Nothing}
@@ -340,6 +346,43 @@ runPipelineStep state parentTaskId sink step = case step of
         logInfoN "apply step completed"
         liftIO $ sink (BuildEnd (Right 0))
     pure one
+
+-- | Project an 'ApplyEvent' to a human-readable build log line.
+-- 'Nothing' suppresses the event (used for noisy intermediate
+-- variants we don't want to log inside a build). 'ApplyEnd' is
+-- suppressed because the build step's outer 'BuildEnd' already
+-- conveys success/failure.
+renderApplyEventForBuild :: ApplyEvent -> Maybe Text
+renderApplyEventForBuild = \case
+  ApplyLogLine t -> Just t
+  PhaseStart phase total ->
+    Just $ "[apply/" <> phase <> "] creating " <> T.pack (show total)
+  EntityStart phase name kind ->
+    Just $ "[apply/" <> phase <> "] " <> kind <> " " <> name <> ": starting"
+  EntityEnd phase name TaskSuccess _ eid
+    | eid > 0 ->
+        Just $ "[apply/" <> phase <> "] " <> name <> ": ok (id " <> T.pack (show eid) <> ")"
+    | otherwise -> Just $ "[apply/" <> phase <> "] " <> name <> ": ok"
+  EntityEnd phase name result msg _ ->
+    Just $
+      "[apply/"
+        <> phase
+        <> "] "
+        <> name
+        <> ": "
+        <> enumToText result
+        <> (if T.null msg then "" else " - " <> msg)
+  DownloadStart name url ->
+    Just $ "[apply/disks] downloading " <> name <> " from " <> url
+  -- Per-progress events are rate-limited at the source (250ms in
+  -- the node agent); pass them through verbatim so the build log
+  -- shows a moving counter without spamming.
+  DownloadProgress {} -> Nothing
+  DownloadEnd name True _ ->
+    Just $ "[apply/disks] download complete: " <> name
+  DownloadEnd name False errMsg ->
+    Just $ "[apply/disks] download failed: " <> name <> " — " <> errMsg
+  ApplyEnd {} -> Nothing
 
 --------------------------------------------------------------------------------
 -- Validation
@@ -561,7 +604,7 @@ instantiateBakeVm state parentTaskId stack templateId bakeVmName nodeRef = do
   resp <-
     liftIO $
       runActionAsSubtask
-        (ActionContext state parentTaskId "system")
+        (mkActionContext state parentTaskId "system")
         ( TemplateInstantiate
             { tiTemplateId = templateId
             , tiName = bakeVmName
@@ -629,7 +672,7 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
       diskResp <-
         liftIO $
           runActionAsSubtask
-            (ActionContext state parentTaskId "system")
+            (mkActionContext state parentTaskId "system")
             (DiskCreate targetTmpName (btFormat target) sizeMb Nothing True buildNodeRef)
       case diskResp of
         RespDiskCreated diskIdLong -> attachTarget diskIdLong
@@ -640,7 +683,7 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
       attachResp <-
         liftIO $
           runActionAsSubtask
-            (ActionContext state parentTaskId "system")
+            (mkActionContext state parentTaskId "system")
             ( DiskAttach
                 vmIdLong
                 diskIdLong
@@ -659,7 +702,7 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
             push stack "orphan-target-disk" $ do
               _ <-
                 runActionAsSubtask
-                  (ActionContext state parentTaskId "system")
+                  (mkActionContext state parentTaskId "system")
                   (DiskDelete diskIdLong)
               pure ()
           pure $ Left $ "attach target disk: " <> err
@@ -689,7 +732,7 @@ runBakeAndPublish state parentTaskId sink vmIdLong strategy artifactDiskId targe
   -- guestAgent:false so VmStart returns as soon as QEMU is up.
   startResp <-
     liftIO $
-      runActionAsSubtask (ActionContext state parentTaskId "system") (VmStart vmIdLong)
+      runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStart vmIdLong)
   case classifyStartResp startResp of
     Left err -> pure $ Left $ "start bake VM: " <> err
     Right () -> case strategy of
@@ -725,7 +768,7 @@ runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId ta
     Right () -> do
       stopResp <-
         liftIO $
-          runActionAsSubtask (ActionContext state parentTaskId "system") (VmStop vmIdLong)
+          runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong)
       case classifyStopResp stopResp of
         Left err -> pure $ Left $ "stop bake VM: " <> err
         Right () -> do
@@ -846,12 +889,12 @@ attachBuildFloppy state parentTaskId stack vmIdLong prefix b = case buildFloppy 
                 -- destructor here rather than only on success.
                 liftIO $
                   push stack "build-floppy" $ do
-                    _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (DiskDelete diskIdLong)
+                    _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (DiskDelete diskIdLong)
                     pure ()
                 attachResp <-
                   liftIO $
                     runActionAsSubtask
-                      (ActionContext state parentTaskId "system")
+                      (mkActionContext state parentTaskId "system")
                       ( DiskAttach
                           vmIdLong
                           diskIdLong
@@ -1414,7 +1457,7 @@ publishArtifact state parentTaskId vmId diskId target needFlatten = do
   -- 1. Detach the drive so VmDelete doesn't take the disk down with it.
   detachResp <-
     liftIO $
-      runActionAsSubtask (ActionContext state parentTaskId "system") (DiskDetachByDisk vmId diskId)
+      runActionAsSubtask (mkActionContext state parentTaskId "system") (DiskDetachByDisk vmId diskId)
   case detachResp of
     RespDiskOk -> pure ()
     RespError err -> logWarnN $ "detach artifact drive: " <> err
@@ -1449,7 +1492,7 @@ publishArtifactCore state parentTaskId diskId target needFlatten = do
             r <-
               liftIO $
                 runActionAsSubtask
-                  (ActionContext state parentTaskId "system")
+                  (mkActionContext state parentTaskId "system")
                   (DiskRebase diskId Nothing False)
             case r of
               RespDiskOk -> pure $ Right ()
@@ -1608,7 +1651,7 @@ deleteOverwriteTargetIfNeeded state parentTaskId target
               logInfoN $ "target.ifExists: deleting existing disk '" <> btName target <> "' (overwrite)"
               resp <-
                 liftIO $
-                  runActionAsSubtask (ActionContext state parentTaskId "system") (DiskDelete (fromSqlKey existingId))
+                  runActionAsSubtask (mkActionContext state parentTaskId "system") (DiskDelete (fromSqlKey existingId))
               case resp of
                 RespDiskOk -> pure $ Right ()
                 RespError err ->
@@ -1713,8 +1756,8 @@ compactDisk state diskId = do
 cleanupBakeVm :: ServerState -> TaskId -> Int64 -> IO ()
 cleanupBakeVm state parentTaskId vmIdLong = do
   -- Best-effort stop first; VmDelete refuses while running.
-  _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (VmStop vmIdLong)
-  _ <- runActionAsSubtask (ActionContext state parentTaskId "system") (VmDelete vmIdLong False)
+  _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong)
+  _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmDelete vmIdLong False)
   pure ()
 
 --------------------------------------------------------------------------------

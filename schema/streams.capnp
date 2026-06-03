@@ -75,6 +75,85 @@ interface BuildEventSink {
 }
 
 # ---------------------------------------------------------------------
+# Apply (declarative environment) events
+# ---------------------------------------------------------------------
+#
+# Streamed when a client calls `Daemon.apply` and supplies an
+# `ApplyEventSink` cap. Each phase of `executeApply` emits a
+# `phaseStart` followed by per-entity `entityStart` / `entityEnd`
+# pairs. Disk imports that download from a URL emit
+# `downloadStart` / `downloadProgress` / `downloadEnd` between the
+# disk's `entityStart` and `entityEnd`. The stream is closed with
+# a single `applyEnd` followed by `end()`.
+
+struct ApplyEvent {
+  union {
+    logLine @0 :Text;
+
+    phaseStart :group {
+      phase @1 :Text;     # "sshKeys" | "disks" | "networks" | "vms" | "templates"
+      total @2 :UInt32;
+    }
+
+    entityStart :group {
+      phase @3 :Text;
+      name  @4 :Text;
+      kind  @5 :Text;     # e.g. "disk-import", "vm-create", "ssh-key-create"
+    }
+
+    entityEnd :group {
+      phase    @6  :Text;
+      name     @7  :Text;
+      result   @8  :Enums.TaskResult;
+      message  @9  :Text;  # empty == no message
+      entityId @10 :Int64; # 0 when skipped
+    }
+
+    downloadStart :group {
+      name @11 :Text;      # disk name
+      url  @12 :Text;
+    }
+
+    downloadProgress :group {
+      name       @13 :Text;
+      downloaded @14 :Int64;
+      total      @15 :Int64; # 0 == unknown (no Content-Length)
+    }
+
+    downloadEnd :group {
+      name    @16 :Text;
+      success @17 :Bool;
+      message @18 :Text;
+    }
+
+    applyEnd :group {
+      result  @19 :Enums.TaskResult;
+      message @20 :Text;
+      taskId  @21 :Int64;
+    }
+  }
+}
+
+interface ApplyEventSink {
+  push @0 (event :ApplyEvent) -> ();
+  end  @1 () -> ();
+}
+
+# ---------------------------------------------------------------------
+# Disk download progress (node-agent → daemon)
+# ---------------------------------------------------------------------
+#
+# Used inside `Session.diskDownload`. The daemon exports a server
+# implementation, passes the cap in the call, and the agent pushes
+# byte-counted progress to it during the curl/wget transfer.
+# `total == 0` until Content-Length is probed (or stays 0 if the
+# server didn't return one).
+
+interface DiskDownloadSink {
+  progress @0 (downloaded :Int64, total :Int64) -> ();
+}
+
+# ---------------------------------------------------------------------
 # Guest agent status subscription (new; replaces today's vmShow poll)
 # ---------------------------------------------------------------------
 

@@ -637,6 +637,640 @@ instance (C.Parse BuildEventSink'end'results (C.Parsed BuildEventSink'end'result
     parse raw_ = (Std_.pure BuildEventSink'end'results)
 instance (C.Marshal BuildEventSink'end'results (C.Parsed BuildEventSink'end'results)) where
     marshalInto _raw (BuildEventSink'end'results) = (Std_.pure ())
+data ApplyEvent 
+type instance (R.ReprFor ApplyEvent) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEvent) where
+    typeId  = 14010776587340052412
+instance (C.TypedStruct ApplyEvent) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate ApplyEvent) where
+    type AllocHint ApplyEvent = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEvent (C.Parsed ApplyEvent))
+instance (C.AllocateList ApplyEvent) where
+    type ListAllocHint ApplyEvent = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEvent (C.Parsed ApplyEvent))
+data instance C.Parsed ApplyEvent
+    = ApplyEvent 
+        {union' :: (C.Parsed (GH.Which ApplyEvent))}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEvent))
+deriving instance (Std_.Eq (C.Parsed ApplyEvent))
+instance (C.Parse ApplyEvent (C.Parsed ApplyEvent)) where
+    parse raw_ = (ApplyEvent <$> (C.parse (GH.structUnion raw_)))
+instance (C.Marshal ApplyEvent (C.Parsed ApplyEvent)) where
+    marshalInto raw_ ApplyEvent{..} = (do
+        (C.marshalInto (GH.structUnion raw_) union')
+        )
+instance (GH.HasUnion ApplyEvent) where
+    unionField  = (GH.dataField 0 0 16 0)
+    data RawWhich ApplyEvent mut_
+        = RW_ApplyEvent'logLine (R.Raw Basics.Text mut_)
+        | RW_ApplyEvent'phaseStart (R.Raw ApplyEvent'phaseStart mut_)
+        | RW_ApplyEvent'entityStart (R.Raw ApplyEvent'entityStart mut_)
+        | RW_ApplyEvent'entityEnd (R.Raw ApplyEvent'entityEnd mut_)
+        | RW_ApplyEvent'downloadStart (R.Raw ApplyEvent'downloadStart mut_)
+        | RW_ApplyEvent'downloadProgress (R.Raw ApplyEvent'downloadProgress mut_)
+        | RW_ApplyEvent'downloadEnd (R.Raw ApplyEvent'downloadEnd mut_)
+        | RW_ApplyEvent'applyEnd (R.Raw ApplyEvent'applyEnd mut_)
+        | RW_ApplyEvent'unknown' Std_.Word16
+    internalWhich tag_ struct_ = case tag_ of
+        0 ->
+            (RW_ApplyEvent'logLine <$> (GH.readVariant #logLine struct_))
+        1 ->
+            (RW_ApplyEvent'phaseStart <$> (GH.readVariant #phaseStart struct_))
+        2 ->
+            (RW_ApplyEvent'entityStart <$> (GH.readVariant #entityStart struct_))
+        3 ->
+            (RW_ApplyEvent'entityEnd <$> (GH.readVariant #entityEnd struct_))
+        4 ->
+            (RW_ApplyEvent'downloadStart <$> (GH.readVariant #downloadStart struct_))
+        5 ->
+            (RW_ApplyEvent'downloadProgress <$> (GH.readVariant #downloadProgress struct_))
+        6 ->
+            (RW_ApplyEvent'downloadEnd <$> (GH.readVariant #downloadEnd struct_))
+        7 ->
+            (RW_ApplyEvent'applyEnd <$> (GH.readVariant #applyEnd struct_))
+        _ ->
+            (Std_.pure (RW_ApplyEvent'unknown' tag_))
+    data Which ApplyEvent
+instance (GH.HasVariant "logLine" GH.Slot ApplyEvent Basics.Text) where
+    variantByLabel  = (GH.Variant (GH.ptrField 0) 0)
+instance (GH.HasVariant "phaseStart" GH.Group ApplyEvent ApplyEvent'phaseStart) where
+    variantByLabel  = (GH.Variant GH.groupField 1)
+instance (GH.HasVariant "entityStart" GH.Group ApplyEvent ApplyEvent'entityStart) where
+    variantByLabel  = (GH.Variant GH.groupField 2)
+instance (GH.HasVariant "entityEnd" GH.Group ApplyEvent ApplyEvent'entityEnd) where
+    variantByLabel  = (GH.Variant GH.groupField 3)
+instance (GH.HasVariant "downloadStart" GH.Group ApplyEvent ApplyEvent'downloadStart) where
+    variantByLabel  = (GH.Variant GH.groupField 4)
+instance (GH.HasVariant "downloadProgress" GH.Group ApplyEvent ApplyEvent'downloadProgress) where
+    variantByLabel  = (GH.Variant GH.groupField 5)
+instance (GH.HasVariant "downloadEnd" GH.Group ApplyEvent ApplyEvent'downloadEnd) where
+    variantByLabel  = (GH.Variant GH.groupField 6)
+instance (GH.HasVariant "applyEnd" GH.Group ApplyEvent ApplyEvent'applyEnd) where
+    variantByLabel  = (GH.Variant GH.groupField 7)
+data instance C.Parsed (GH.Which ApplyEvent)
+    = ApplyEvent'logLine (RP.Parsed Basics.Text)
+    | ApplyEvent'phaseStart (RP.Parsed ApplyEvent'phaseStart)
+    | ApplyEvent'entityStart (RP.Parsed ApplyEvent'entityStart)
+    | ApplyEvent'entityEnd (RP.Parsed ApplyEvent'entityEnd)
+    | ApplyEvent'downloadStart (RP.Parsed ApplyEvent'downloadStart)
+    | ApplyEvent'downloadProgress (RP.Parsed ApplyEvent'downloadProgress)
+    | ApplyEvent'downloadEnd (RP.Parsed ApplyEvent'downloadEnd)
+    | ApplyEvent'applyEnd (RP.Parsed ApplyEvent'applyEnd)
+    | ApplyEvent'unknown' Std_.Word16
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed (GH.Which ApplyEvent)))
+deriving instance (Std_.Eq (C.Parsed (GH.Which ApplyEvent)))
+instance (C.Parse (GH.Which ApplyEvent) (C.Parsed (GH.Which ApplyEvent))) where
+    parse raw_ = (do
+        rawWhich_ <- (GH.unionWhich raw_)
+        case rawWhich_ of
+            (RW_ApplyEvent'logLine rawArg_) ->
+                (ApplyEvent'logLine <$> (C.parse rawArg_))
+            (RW_ApplyEvent'phaseStart rawArg_) ->
+                (ApplyEvent'phaseStart <$> (C.parse rawArg_))
+            (RW_ApplyEvent'entityStart rawArg_) ->
+                (ApplyEvent'entityStart <$> (C.parse rawArg_))
+            (RW_ApplyEvent'entityEnd rawArg_) ->
+                (ApplyEvent'entityEnd <$> (C.parse rawArg_))
+            (RW_ApplyEvent'downloadStart rawArg_) ->
+                (ApplyEvent'downloadStart <$> (C.parse rawArg_))
+            (RW_ApplyEvent'downloadProgress rawArg_) ->
+                (ApplyEvent'downloadProgress <$> (C.parse rawArg_))
+            (RW_ApplyEvent'downloadEnd rawArg_) ->
+                (ApplyEvent'downloadEnd <$> (C.parse rawArg_))
+            (RW_ApplyEvent'applyEnd rawArg_) ->
+                (ApplyEvent'applyEnd <$> (C.parse rawArg_))
+            (RW_ApplyEvent'unknown' tag_) ->
+                (Std_.pure (ApplyEvent'unknown' tag_))
+        )
+instance (C.Marshal (GH.Which ApplyEvent) (C.Parsed (GH.Which ApplyEvent))) where
+    marshalInto raw_ parsed_ = case parsed_ of
+        (ApplyEvent'logLine arg_) ->
+            (GH.encodeVariant #logLine arg_ (GH.unionStruct raw_))
+        (ApplyEvent'phaseStart arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #phaseStart (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (ApplyEvent'entityStart arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #entityStart (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (ApplyEvent'entityEnd arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #entityEnd (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (ApplyEvent'downloadStart arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #downloadStart (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (ApplyEvent'downloadProgress arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #downloadProgress (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (ApplyEvent'downloadEnd arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #downloadEnd (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (ApplyEvent'applyEnd arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #applyEnd (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (ApplyEvent'unknown' tag_) ->
+            (GH.encodeField GH.unionField tag_ (GH.unionStruct raw_))
+data ApplyEvent'phaseStart 
+type instance (R.ReprFor ApplyEvent'phaseStart) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEvent'phaseStart) where
+    typeId  = 11292940620314339774
+instance (C.TypedStruct ApplyEvent'phaseStart) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate ApplyEvent'phaseStart) where
+    type AllocHint ApplyEvent'phaseStart = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEvent'phaseStart (C.Parsed ApplyEvent'phaseStart))
+instance (C.AllocateList ApplyEvent'phaseStart) where
+    type ListAllocHint ApplyEvent'phaseStart = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEvent'phaseStart (C.Parsed ApplyEvent'phaseStart))
+data instance C.Parsed ApplyEvent'phaseStart
+    = ApplyEvent'phaseStart' 
+        {phase :: (RP.Parsed Basics.Text)
+        ,total :: (RP.Parsed Std_.Word32)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEvent'phaseStart))
+deriving instance (Std_.Eq (C.Parsed ApplyEvent'phaseStart))
+instance (C.Parse ApplyEvent'phaseStart (C.Parsed ApplyEvent'phaseStart)) where
+    parse raw_ = (ApplyEvent'phaseStart' <$> (GH.parseField #phase raw_)
+                                         <*> (GH.parseField #total raw_))
+instance (C.Marshal ApplyEvent'phaseStart (C.Parsed ApplyEvent'phaseStart)) where
+    marshalInto raw_ ApplyEvent'phaseStart'{..} = (do
+        (GH.encodeField #phase phase raw_)
+        (GH.encodeField #total total raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "phase" GH.Slot ApplyEvent'phaseStart Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "total" GH.Slot ApplyEvent'phaseStart Std_.Word32) where
+    fieldByLabel  = (GH.dataField 32 0 32 0)
+data ApplyEvent'entityStart 
+type instance (R.ReprFor ApplyEvent'entityStart) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEvent'entityStart) where
+    typeId  = 13990184714873957895
+instance (C.TypedStruct ApplyEvent'entityStart) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate ApplyEvent'entityStart) where
+    type AllocHint ApplyEvent'entityStart = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEvent'entityStart (C.Parsed ApplyEvent'entityStart))
+instance (C.AllocateList ApplyEvent'entityStart) where
+    type ListAllocHint ApplyEvent'entityStart = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEvent'entityStart (C.Parsed ApplyEvent'entityStart))
+data instance C.Parsed ApplyEvent'entityStart
+    = ApplyEvent'entityStart' 
+        {phase :: (RP.Parsed Basics.Text)
+        ,name :: (RP.Parsed Basics.Text)
+        ,kind :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEvent'entityStart))
+deriving instance (Std_.Eq (C.Parsed ApplyEvent'entityStart))
+instance (C.Parse ApplyEvent'entityStart (C.Parsed ApplyEvent'entityStart)) where
+    parse raw_ = (ApplyEvent'entityStart' <$> (GH.parseField #phase raw_)
+                                          <*> (GH.parseField #name raw_)
+                                          <*> (GH.parseField #kind raw_))
+instance (C.Marshal ApplyEvent'entityStart (C.Parsed ApplyEvent'entityStart)) where
+    marshalInto raw_ ApplyEvent'entityStart'{..} = (do
+        (GH.encodeField #phase phase raw_)
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #kind kind raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "phase" GH.Slot ApplyEvent'entityStart Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "name" GH.Slot ApplyEvent'entityStart Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "kind" GH.Slot ApplyEvent'entityStart Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
+data ApplyEvent'entityEnd 
+type instance (R.ReprFor ApplyEvent'entityEnd) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEvent'entityEnd) where
+    typeId  = 14028415817939967671
+instance (C.TypedStruct ApplyEvent'entityEnd) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate ApplyEvent'entityEnd) where
+    type AllocHint ApplyEvent'entityEnd = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEvent'entityEnd (C.Parsed ApplyEvent'entityEnd))
+instance (C.AllocateList ApplyEvent'entityEnd) where
+    type ListAllocHint ApplyEvent'entityEnd = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEvent'entityEnd (C.Parsed ApplyEvent'entityEnd))
+data instance C.Parsed ApplyEvent'entityEnd
+    = ApplyEvent'entityEnd' 
+        {phase :: (RP.Parsed Basics.Text)
+        ,name :: (RP.Parsed Basics.Text)
+        ,result :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.TaskResult)
+        ,message :: (RP.Parsed Basics.Text)
+        ,entityId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEvent'entityEnd))
+deriving instance (Std_.Eq (C.Parsed ApplyEvent'entityEnd))
+instance (C.Parse ApplyEvent'entityEnd (C.Parsed ApplyEvent'entityEnd)) where
+    parse raw_ = (ApplyEvent'entityEnd' <$> (GH.parseField #phase raw_)
+                                        <*> (GH.parseField #name raw_)
+                                        <*> (GH.parseField #result raw_)
+                                        <*> (GH.parseField #message raw_)
+                                        <*> (GH.parseField #entityId raw_))
+instance (C.Marshal ApplyEvent'entityEnd (C.Parsed ApplyEvent'entityEnd)) where
+    marshalInto raw_ ApplyEvent'entityEnd'{..} = (do
+        (GH.encodeField #phase phase raw_)
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #result result raw_)
+        (GH.encodeField #message message raw_)
+        (GH.encodeField #entityId entityId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "phase" GH.Slot ApplyEvent'entityEnd Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "name" GH.Slot ApplyEvent'entityEnd Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "result" GH.Slot ApplyEvent'entityEnd Capnp.Gen.ById.Xbf9b09f64c0dd40d.TaskResult) where
+    fieldByLabel  = (GH.dataField 32 0 16 0)
+instance (GH.HasField "message" GH.Slot ApplyEvent'entityEnd Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "entityId" GH.Slot ApplyEvent'entityEnd Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+data ApplyEvent'downloadStart 
+type instance (R.ReprFor ApplyEvent'downloadStart) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEvent'downloadStart) where
+    typeId  = 16033518083409446848
+instance (C.TypedStruct ApplyEvent'downloadStart) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate ApplyEvent'downloadStart) where
+    type AllocHint ApplyEvent'downloadStart = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEvent'downloadStart (C.Parsed ApplyEvent'downloadStart))
+instance (C.AllocateList ApplyEvent'downloadStart) where
+    type ListAllocHint ApplyEvent'downloadStart = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEvent'downloadStart (C.Parsed ApplyEvent'downloadStart))
+data instance C.Parsed ApplyEvent'downloadStart
+    = ApplyEvent'downloadStart' 
+        {name :: (RP.Parsed Basics.Text)
+        ,url :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEvent'downloadStart))
+deriving instance (Std_.Eq (C.Parsed ApplyEvent'downloadStart))
+instance (C.Parse ApplyEvent'downloadStart (C.Parsed ApplyEvent'downloadStart)) where
+    parse raw_ = (ApplyEvent'downloadStart' <$> (GH.parseField #name raw_)
+                                            <*> (GH.parseField #url raw_))
+instance (C.Marshal ApplyEvent'downloadStart (C.Parsed ApplyEvent'downloadStart)) where
+    marshalInto raw_ ApplyEvent'downloadStart'{..} = (do
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #url url raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "name" GH.Slot ApplyEvent'downloadStart Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "url" GH.Slot ApplyEvent'downloadStart Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+data ApplyEvent'downloadProgress 
+type instance (R.ReprFor ApplyEvent'downloadProgress) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEvent'downloadProgress) where
+    typeId  = 13877493668607380307
+instance (C.TypedStruct ApplyEvent'downloadProgress) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate ApplyEvent'downloadProgress) where
+    type AllocHint ApplyEvent'downloadProgress = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEvent'downloadProgress (C.Parsed ApplyEvent'downloadProgress))
+instance (C.AllocateList ApplyEvent'downloadProgress) where
+    type ListAllocHint ApplyEvent'downloadProgress = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEvent'downloadProgress (C.Parsed ApplyEvent'downloadProgress))
+data instance C.Parsed ApplyEvent'downloadProgress
+    = ApplyEvent'downloadProgress' 
+        {name :: (RP.Parsed Basics.Text)
+        ,downloaded :: (RP.Parsed Std_.Int64)
+        ,total :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEvent'downloadProgress))
+deriving instance (Std_.Eq (C.Parsed ApplyEvent'downloadProgress))
+instance (C.Parse ApplyEvent'downloadProgress (C.Parsed ApplyEvent'downloadProgress)) where
+    parse raw_ = (ApplyEvent'downloadProgress' <$> (GH.parseField #name raw_)
+                                               <*> (GH.parseField #downloaded raw_)
+                                               <*> (GH.parseField #total raw_))
+instance (C.Marshal ApplyEvent'downloadProgress (C.Parsed ApplyEvent'downloadProgress)) where
+    marshalInto raw_ ApplyEvent'downloadProgress'{..} = (do
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #downloaded downloaded raw_)
+        (GH.encodeField #total total raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "name" GH.Slot ApplyEvent'downloadProgress Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "downloaded" GH.Slot ApplyEvent'downloadProgress Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+instance (GH.HasField "total" GH.Slot ApplyEvent'downloadProgress Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 2 64 0)
+data ApplyEvent'downloadEnd 
+type instance (R.ReprFor ApplyEvent'downloadEnd) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEvent'downloadEnd) where
+    typeId  = 16507210482615448304
+instance (C.TypedStruct ApplyEvent'downloadEnd) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate ApplyEvent'downloadEnd) where
+    type AllocHint ApplyEvent'downloadEnd = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEvent'downloadEnd (C.Parsed ApplyEvent'downloadEnd))
+instance (C.AllocateList ApplyEvent'downloadEnd) where
+    type ListAllocHint ApplyEvent'downloadEnd = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEvent'downloadEnd (C.Parsed ApplyEvent'downloadEnd))
+data instance C.Parsed ApplyEvent'downloadEnd
+    = ApplyEvent'downloadEnd' 
+        {name :: (RP.Parsed Basics.Text)
+        ,success :: (RP.Parsed Std_.Bool)
+        ,message :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEvent'downloadEnd))
+deriving instance (Std_.Eq (C.Parsed ApplyEvent'downloadEnd))
+instance (C.Parse ApplyEvent'downloadEnd (C.Parsed ApplyEvent'downloadEnd)) where
+    parse raw_ = (ApplyEvent'downloadEnd' <$> (GH.parseField #name raw_)
+                                          <*> (GH.parseField #success raw_)
+                                          <*> (GH.parseField #message raw_))
+instance (C.Marshal ApplyEvent'downloadEnd (C.Parsed ApplyEvent'downloadEnd)) where
+    marshalInto raw_ ApplyEvent'downloadEnd'{..} = (do
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #success success raw_)
+        (GH.encodeField #message message raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "name" GH.Slot ApplyEvent'downloadEnd Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "success" GH.Slot ApplyEvent'downloadEnd Std_.Bool) where
+    fieldByLabel  = (GH.dataField 32 0 1 0)
+instance (GH.HasField "message" GH.Slot ApplyEvent'downloadEnd Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+data ApplyEvent'applyEnd 
+type instance (R.ReprFor ApplyEvent'applyEnd) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEvent'applyEnd) where
+    typeId  = 9998757847197946974
+instance (C.TypedStruct ApplyEvent'applyEnd) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate ApplyEvent'applyEnd) where
+    type AllocHint ApplyEvent'applyEnd = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEvent'applyEnd (C.Parsed ApplyEvent'applyEnd))
+instance (C.AllocateList ApplyEvent'applyEnd) where
+    type ListAllocHint ApplyEvent'applyEnd = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEvent'applyEnd (C.Parsed ApplyEvent'applyEnd))
+data instance C.Parsed ApplyEvent'applyEnd
+    = ApplyEvent'applyEnd' 
+        {result :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.TaskResult)
+        ,message :: (RP.Parsed Basics.Text)
+        ,taskId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEvent'applyEnd))
+deriving instance (Std_.Eq (C.Parsed ApplyEvent'applyEnd))
+instance (C.Parse ApplyEvent'applyEnd (C.Parsed ApplyEvent'applyEnd)) where
+    parse raw_ = (ApplyEvent'applyEnd' <$> (GH.parseField #result raw_)
+                                       <*> (GH.parseField #message raw_)
+                                       <*> (GH.parseField #taskId raw_))
+instance (C.Marshal ApplyEvent'applyEnd (C.Parsed ApplyEvent'applyEnd)) where
+    marshalInto raw_ ApplyEvent'applyEnd'{..} = (do
+        (GH.encodeField #result result raw_)
+        (GH.encodeField #message message raw_)
+        (GH.encodeField #taskId taskId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "result" GH.Slot ApplyEvent'applyEnd Capnp.Gen.ById.Xbf9b09f64c0dd40d.TaskResult) where
+    fieldByLabel  = (GH.dataField 32 0 16 0)
+instance (GH.HasField "message" GH.Slot ApplyEvent'applyEnd Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "taskId" GH.Slot ApplyEvent'applyEnd Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+data ApplyEventSink 
+type instance (R.ReprFor ApplyEventSink) = (R.Ptr (Std_.Just R.Cap))
+instance (C.HasTypeId ApplyEventSink) where
+    typeId  = 16626440394111697201
+instance (C.Parse ApplyEventSink (GH.Client ApplyEventSink)) where
+    parse  = GH.parseCap
+    encode  = GH.encodeCap
+instance (GH.Export ApplyEventSink) where
+    type Server ApplyEventSink = ApplyEventSink'server_
+    methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(ApplyEventSink)) [(GH.toUntypedMethodHandler ((applyEventSink'push) s_))
+                                                                                ,(GH.toUntypedMethodHandler ((applyEventSink'end) s_))] [])
+class (ApplyEventSink'server_ s_) where
+    {-# MINIMAL applyEventSink'push,applyEventSink'end #-}
+    applyEventSink'push :: s_ -> (GH.MethodHandler ApplyEventSink'push'params ApplyEventSink'push'results)
+    applyEventSink'push _ = GH.methodUnimplemented
+    applyEventSink'end :: s_ -> (GH.MethodHandler ApplyEventSink'end'params ApplyEventSink'end'results)
+    applyEventSink'end _ = GH.methodUnimplemented
+instance (GH.HasMethod "push" ApplyEventSink ApplyEventSink'push'params ApplyEventSink'push'results) where
+    methodByLabel  = (GH.Method 16626440394111697201 0)
+instance (GH.HasMethod "end" ApplyEventSink ApplyEventSink'end'params ApplyEventSink'end'results) where
+    methodByLabel  = (GH.Method 16626440394111697201 1)
+data ApplyEventSink'push'params 
+type instance (R.ReprFor ApplyEventSink'push'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEventSink'push'params) where
+    typeId  = 14724927094507572034
+instance (C.TypedStruct ApplyEventSink'push'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate ApplyEventSink'push'params) where
+    type AllocHint ApplyEventSink'push'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEventSink'push'params (C.Parsed ApplyEventSink'push'params))
+instance (C.AllocateList ApplyEventSink'push'params) where
+    type ListAllocHint ApplyEventSink'push'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEventSink'push'params (C.Parsed ApplyEventSink'push'params))
+data instance C.Parsed ApplyEventSink'push'params
+    = ApplyEventSink'push'params 
+        {event :: (RP.Parsed ApplyEvent)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEventSink'push'params))
+deriving instance (Std_.Eq (C.Parsed ApplyEventSink'push'params))
+instance (C.Parse ApplyEventSink'push'params (C.Parsed ApplyEventSink'push'params)) where
+    parse raw_ = (ApplyEventSink'push'params <$> (GH.parseField #event raw_))
+instance (C.Marshal ApplyEventSink'push'params (C.Parsed ApplyEventSink'push'params)) where
+    marshalInto raw_ ApplyEventSink'push'params{..} = (do
+        (GH.encodeField #event event raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "event" GH.Slot ApplyEventSink'push'params ApplyEvent) where
+    fieldByLabel  = (GH.ptrField 0)
+data ApplyEventSink'push'results 
+type instance (R.ReprFor ApplyEventSink'push'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEventSink'push'results) where
+    typeId  = 15812668462259383391
+instance (C.TypedStruct ApplyEventSink'push'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate ApplyEventSink'push'results) where
+    type AllocHint ApplyEventSink'push'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEventSink'push'results (C.Parsed ApplyEventSink'push'results))
+instance (C.AllocateList ApplyEventSink'push'results) where
+    type ListAllocHint ApplyEventSink'push'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEventSink'push'results (C.Parsed ApplyEventSink'push'results))
+data instance C.Parsed ApplyEventSink'push'results
+    = ApplyEventSink'push'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEventSink'push'results))
+deriving instance (Std_.Eq (C.Parsed ApplyEventSink'push'results))
+instance (C.Parse ApplyEventSink'push'results (C.Parsed ApplyEventSink'push'results)) where
+    parse raw_ = (Std_.pure ApplyEventSink'push'results)
+instance (C.Marshal ApplyEventSink'push'results (C.Parsed ApplyEventSink'push'results)) where
+    marshalInto _raw (ApplyEventSink'push'results) = (Std_.pure ())
+data ApplyEventSink'end'params 
+type instance (R.ReprFor ApplyEventSink'end'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEventSink'end'params) where
+    typeId  = 14087905376023319693
+instance (C.TypedStruct ApplyEventSink'end'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate ApplyEventSink'end'params) where
+    type AllocHint ApplyEventSink'end'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEventSink'end'params (C.Parsed ApplyEventSink'end'params))
+instance (C.AllocateList ApplyEventSink'end'params) where
+    type ListAllocHint ApplyEventSink'end'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEventSink'end'params (C.Parsed ApplyEventSink'end'params))
+data instance C.Parsed ApplyEventSink'end'params
+    = ApplyEventSink'end'params 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEventSink'end'params))
+deriving instance (Std_.Eq (C.Parsed ApplyEventSink'end'params))
+instance (C.Parse ApplyEventSink'end'params (C.Parsed ApplyEventSink'end'params)) where
+    parse raw_ = (Std_.pure ApplyEventSink'end'params)
+instance (C.Marshal ApplyEventSink'end'params (C.Parsed ApplyEventSink'end'params)) where
+    marshalInto _raw (ApplyEventSink'end'params) = (Std_.pure ())
+data ApplyEventSink'end'results 
+type instance (R.ReprFor ApplyEventSink'end'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId ApplyEventSink'end'results) where
+    typeId  = 16983541645333267246
+instance (C.TypedStruct ApplyEventSink'end'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate ApplyEventSink'end'results) where
+    type AllocHint ApplyEventSink'end'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc ApplyEventSink'end'results (C.Parsed ApplyEventSink'end'results))
+instance (C.AllocateList ApplyEventSink'end'results) where
+    type ListAllocHint ApplyEventSink'end'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc ApplyEventSink'end'results (C.Parsed ApplyEventSink'end'results))
+data instance C.Parsed ApplyEventSink'end'results
+    = ApplyEventSink'end'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed ApplyEventSink'end'results))
+deriving instance (Std_.Eq (C.Parsed ApplyEventSink'end'results))
+instance (C.Parse ApplyEventSink'end'results (C.Parsed ApplyEventSink'end'results)) where
+    parse raw_ = (Std_.pure ApplyEventSink'end'results)
+instance (C.Marshal ApplyEventSink'end'results (C.Parsed ApplyEventSink'end'results)) where
+    marshalInto _raw (ApplyEventSink'end'results) = (Std_.pure ())
+data DiskDownloadSink 
+type instance (R.ReprFor DiskDownloadSink) = (R.Ptr (Std_.Just R.Cap))
+instance (C.HasTypeId DiskDownloadSink) where
+    typeId  = 14995802701917229896
+instance (C.Parse DiskDownloadSink (GH.Client DiskDownloadSink)) where
+    parse  = GH.parseCap
+    encode  = GH.encodeCap
+instance (GH.Export DiskDownloadSink) where
+    type Server DiskDownloadSink = DiskDownloadSink'server_
+    methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(DiskDownloadSink)) [(GH.toUntypedMethodHandler ((diskDownloadSink'progress) s_))] [])
+class (DiskDownloadSink'server_ s_) where
+    {-# MINIMAL diskDownloadSink'progress #-}
+    diskDownloadSink'progress :: s_ -> (GH.MethodHandler DiskDownloadSink'progress'params DiskDownloadSink'progress'results)
+    diskDownloadSink'progress _ = GH.methodUnimplemented
+instance (GH.HasMethod "progress" DiskDownloadSink DiskDownloadSink'progress'params DiskDownloadSink'progress'results) where
+    methodByLabel  = (GH.Method 14995802701917229896 0)
+data DiskDownloadSink'progress'params 
+type instance (R.ReprFor DiskDownloadSink'progress'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskDownloadSink'progress'params) where
+    typeId  = 15710332323190142957
+instance (C.TypedStruct DiskDownloadSink'progress'params) where
+    numStructWords  = 2
+    numStructPtrs  = 0
+instance (C.Allocate DiskDownloadSink'progress'params) where
+    type AllocHint DiskDownloadSink'progress'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskDownloadSink'progress'params (C.Parsed DiskDownloadSink'progress'params))
+instance (C.AllocateList DiskDownloadSink'progress'params) where
+    type ListAllocHint DiskDownloadSink'progress'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskDownloadSink'progress'params (C.Parsed DiskDownloadSink'progress'params))
+data instance C.Parsed DiskDownloadSink'progress'params
+    = DiskDownloadSink'progress'params 
+        {downloaded :: (RP.Parsed Std_.Int64)
+        ,total :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskDownloadSink'progress'params))
+deriving instance (Std_.Eq (C.Parsed DiskDownloadSink'progress'params))
+instance (C.Parse DiskDownloadSink'progress'params (C.Parsed DiskDownloadSink'progress'params)) where
+    parse raw_ = (DiskDownloadSink'progress'params <$> (GH.parseField #downloaded raw_)
+                                                   <*> (GH.parseField #total raw_))
+instance (C.Marshal DiskDownloadSink'progress'params (C.Parsed DiskDownloadSink'progress'params)) where
+    marshalInto raw_ DiskDownloadSink'progress'params{..} = (do
+        (GH.encodeField #downloaded downloaded raw_)
+        (GH.encodeField #total total raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "downloaded" GH.Slot DiskDownloadSink'progress'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "total" GH.Slot DiskDownloadSink'progress'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+data DiskDownloadSink'progress'results 
+type instance (R.ReprFor DiskDownloadSink'progress'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskDownloadSink'progress'results) where
+    typeId  = 18367537985363879624
+instance (C.TypedStruct DiskDownloadSink'progress'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskDownloadSink'progress'results) where
+    type AllocHint DiskDownloadSink'progress'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskDownloadSink'progress'results (C.Parsed DiskDownloadSink'progress'results))
+instance (C.AllocateList DiskDownloadSink'progress'results) where
+    type ListAllocHint DiskDownloadSink'progress'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskDownloadSink'progress'results (C.Parsed DiskDownloadSink'progress'results))
+data instance C.Parsed DiskDownloadSink'progress'results
+    = DiskDownloadSink'progress'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskDownloadSink'progress'results))
+deriving instance (Std_.Eq (C.Parsed DiskDownloadSink'progress'results))
+instance (C.Parse DiskDownloadSink'progress'results (C.Parsed DiskDownloadSink'progress'results)) where
+    parse raw_ = (Std_.pure DiskDownloadSink'progress'results)
+instance (C.Marshal DiskDownloadSink'progress'results (C.Parsed DiskDownloadSink'progress'results)) where
+    marshalInto _raw (DiskDownloadSink'progress'results) = (Std_.pure ())
 data GuestAgentStatus 
 type instance (R.ReprFor GuestAgentStatus) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId GuestAgentStatus) where

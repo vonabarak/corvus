@@ -284,8 +284,17 @@ instance CGNA.Session'server_ SessionCap where
       \CGNA.Session'diskDownload'params
         { CGNA.destPath = d
         , CGNA.url = u
+        , CGNA.sink = progressSink
         } -> do
-          result <- NI.downloadImage (T.unpack d) u
+          let onProgress downloaded total = do
+                let params =
+                      CGS.DiskDownloadSink'progress'params
+                        { CGS.downloaded = downloaded
+                        , CGS.total = total
+                        }
+                _ <- E.try (callSink #progress params progressSink) :: IO (Either E.SomeException ())
+                pure ()
+          result <- NI.downloadImage (T.unpack d) u onProgress
           pure
             CGNA.Session'diskDownload'results
               { CGNA.result = encodeDiskOpResult result

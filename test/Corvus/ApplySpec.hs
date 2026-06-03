@@ -11,7 +11,23 @@
 -- which is pure-DB.
 module Corvus.ApplySpec (spec) where
 
-import Corvus.Protocol (ApplyResult (..))
+import Corvus.Action (mkActionContext)
+import qualified Corvus.Action as Action
+import Corvus.Handlers.Apply (executeApply, handleApplyValidate)
+import Corvus.Model
+  ( EntityField (..)
+  , Task (..)
+  , TaskResult (..)
+  , TaskSubsystem (..)
+  )
+import Corvus.Protocol (ApplyEvent (..), ApplyResult (..))
+import Corvus.Types (ssDbPool)
+import Data.IORef (modifyIORef', newIORef, readIORef)
+import qualified Data.Text as T
+import Data.Time (getCurrentTime)
+import Database.Persist (insert)
+import Database.Persist.Postgresql (runSqlPool)
+import Test.DSL.When (withState)
 import Test.Prelude
 
 spec :: Spec
@@ -110,3 +126,83 @@ spec = sequential $ withTestDb $ do
       then_ $ responseIs $ \case
         RespApplyResult _ -> True
         _ -> False
+
+  ------------------------------------------------------------------
+  -- streaming sink: phase + entity events
+
+  describe "executeApply: streaming sink (Phase 13a)" $ do
+    testCase "pushes PhaseStart and EntityStart/EntityEnd per entity in order" $ do
+      let yaml =
+            "sshKeys:\n\
+            \  - name: alice\n\
+            \    publicKey: ssh-ed25519 AAAA-alice\n\
+            \disks:\n\
+            \  - name: imported\n\
+            \    format: qcow2\n\
+            \    register: /baseimages/imported.qcow2\n"
+      events <- captureApplyEvents yaml
+      let phases = [phase | PhaseStart phase _ <- events]
+          starts = [(p, n, k) | EntityStart p n k <- events]
+          ends = [(p, n, r) | EntityEnd p n r _ _ <- events]
+      liftIO $ do
+        phases `shouldBe` ["sshKeys", "disks"]
+        starts
+          `shouldBe` [ ("sshKeys", "alice", "ssh-key-create")
+                     , ("disks", "imported", "disk-register")
+                     ]
+        map (\(p, n, _) -> (p, n)) ends
+          `shouldBe` [ ("sshKeys", "alice")
+                     , ("disks", "imported")
+                     ]
+        all (\(_, _, r) -> T.pack (show r) == "TaskSuccess") ends
+          `shouldBe` True
+
+-- | Run 'executeApply' against a YAML fixture and collect every
+-- 'ApplyEvent' pushed through the sink, in emission order. Used by
+-- streaming tests above.
+captureApplyEvents :: T.Text -> TestM [ApplyEvent]
+captureApplyEvents yaml = do
+  eventsRef <- liftIO $ newIORef []
+  let sink ev = modifyIORef' eventsRef (ev :)
+  resp <- withState $ \st -> do
+    validated <- handleApplyValidate st yaml
+    case validated of
+      Left err -> pure err
+      Right cfg -> do
+        -- 'executeApply' uses runActionAsSubtask, which inserts a
+        -- per-entity row with @parent = acTaskId@. Create a real
+        -- parent first so the FK constraint holds.
+        now <- getCurrentTime
+        parentKey <-
+          runSqlPool
+            ( insert
+                Task
+                  { taskParent = Nothing
+                  , taskStartedAt = now
+                  , taskFinishedAt = Nothing
+                  , taskSubsystem = SubApply
+                  , taskEntityId = Nothing
+                  , taskEntityName = Nothing
+                  , taskCommand = "apply"
+                  , taskResult = TaskRunning
+                  , taskMessage = Nothing
+                  , taskClientName = "alice"
+                  }
+            )
+            (ssDbPool st)
+        let ctx = (mkActionContext st parentKey "alice") {Action.acApplySink = sink}
+        _ <- executeApply ctx cfg False
+        pure (RespApplyResult emptyResult)
+  case resp of
+    RespApplyResult _ -> pure ()
+    other -> liftIO $ fail $ "executeApply: unexpected response: " <> show other
+  liftIO (reverse <$> readIORef eventsRef)
+  where
+    emptyResult =
+      ApplyResult
+        { arSshKeys = []
+        , arDisks = []
+        , arNetworks = []
+        , arVms = []
+        , arTemplates = []
+        }

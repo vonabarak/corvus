@@ -1238,7 +1238,7 @@ instance (C.HasTypeId Session'diskDownload'params) where
     typeId  = 17291283613946040912
 instance (C.TypedStruct Session'diskDownload'params) where
     numStructWords  = 0
-    numStructPtrs  = 2
+    numStructPtrs  = 3
 instance (C.Allocate Session'diskDownload'params) where
     type AllocHint Session'diskDownload'params = ()
     new _ = C.newTypedStruct
@@ -1250,23 +1250,28 @@ instance (C.EstimateListAlloc Session'diskDownload'params (C.Parsed Session'disk
 data instance C.Parsed Session'diskDownload'params
     = Session'diskDownload'params 
         {destPath :: (RP.Parsed Basics.Text)
-        ,url :: (RP.Parsed Basics.Text)}
+        ,url :: (RP.Parsed Basics.Text)
+        ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.DiskDownloadSink)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'diskDownload'params))
 deriving instance (Std_.Eq (C.Parsed Session'diskDownload'params))
 instance (C.Parse Session'diskDownload'params (C.Parsed Session'diskDownload'params)) where
     parse raw_ = (Session'diskDownload'params <$> (GH.parseField #destPath raw_)
-                                              <*> (GH.parseField #url raw_))
+                                              <*> (GH.parseField #url raw_)
+                                              <*> (GH.parseField #sink raw_))
 instance (C.Marshal Session'diskDownload'params (C.Parsed Session'diskDownload'params)) where
     marshalInto raw_ Session'diskDownload'params{..} = (do
         (GH.encodeField #destPath destPath raw_)
         (GH.encodeField #url url raw_)
+        (GH.encodeField #sink sink raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "destPath" GH.Slot Session'diskDownload'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "url" GH.Slot Session'diskDownload'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "sink" GH.Slot Session'diskDownload'params Capnp.Gen.ById.X9bd452a518ed3917.DiskDownloadSink) where
+    fieldByLabel  = (GH.ptrField 2)
 data Session'diskDownload'results 
 type instance (R.ReprFor Session'diskDownload'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'diskDownload'results) where

@@ -12,6 +12,7 @@
 module Corvus.Action
   ( -- * Context
     ActionContext (..)
+  , mkActionContext
 
     -- * Type class
   , Action (..)
@@ -41,6 +42,7 @@ import qualified Control.Monad.Catch as MC
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Protocol
+import Corvus.Protocol.Apply (ApplySink, silentApplySink)
 import Corvus.Rpc.Streams (callSink)
 import Corvus.Types
 import Corvus.Wire.Enums (toCapnpTaskResult)
@@ -63,16 +65,37 @@ import Database.Persist.Sql (fromSqlKey)
 
 -- | Context passed to every action execution.
 -- Carries the server state, this action's own task ID (used as the
--- parent when spawning subtasks), and the caller's name — the
--- @<name>@ suffix of the mTLS CN, the literal @"local"@ for
--- Unix-socket / no-TLS callers, or @"system"@ for daemon-internal
--- work. Subtasks inherit the parent's 'acClientName' so the audit
--- trail is consistent across composite operations.
+-- parent when spawning subtasks), the caller's name, and a sink
+-- callback the apply pipeline uses to stream progress events.
+--
+-- @acClientName@ is the @<name>@ suffix of the mTLS CN, the literal
+-- @"local"@ for Unix-socket / no-TLS callers, or @"system"@ for
+-- daemon-internal work. Subtasks inherit the parent's
+-- 'acClientName' (and 'acApplySink') so the audit trail and event
+-- stream are consistent across composite operations.
+--
+-- @acApplySink@ is 'silentApplySink' for callers that aren't
+-- streaming. When set, @executeApply@ pushes per-phase / per-entity
+-- events through it, and disk-import downloads forward byte-counted
+-- progress (see "Corvus.Handlers.Disk.Import").
 data ActionContext = ActionContext
   { acState :: !ServerState
   , acTaskId :: !TaskId
   , acClientName :: !Text
+  , acApplySink :: !ApplySink
   }
+
+-- | Build an 'ActionContext' for callers that don't stream apply
+-- progress. Equivalent to constructing it directly with
+-- 'silentApplySink'.
+mkActionContext :: ServerState -> TaskId -> Text -> ActionContext
+mkActionContext state taskId clientName =
+  ActionContext
+    { acState = state
+    , acTaskId = taskId
+    , acClientName = clientName
+    , acApplySink = silentApplySink
+    }
 
 --------------------------------------------------------------------------------
 -- Action Type Class
@@ -116,7 +139,7 @@ runAction state clientName action = do
     Just errResp -> pure errResp
     Nothing -> do
       taskKey <- createTaskRecord state clientName action Nothing
-      let ctx = ActionContext state taskKey clientName
+      let ctx = mkActionContext state taskKey clientName
       runAndFinalize state ctx action
 
 -- | Run an action asynchronously.
@@ -128,7 +151,7 @@ runActionAsync state clientName action interimResponse = do
     Just errResp -> pure errResp
     Nothing -> do
       taskKey <- createTaskRecord state clientName action Nothing
-      let ctx = ActionContext state taskKey clientName
+      let ctx = mkActionContext state taskKey clientName
       _ <- forkIO $ runAndFinalize_ state ctx action
       pure interimResponse
 
@@ -141,7 +164,7 @@ runActionAsyncWithId state clientName action mkInterimResponse = do
     Just errResp -> pure errResp
     Nothing -> do
       taskKey <- createTaskRecord state clientName action Nothing
-      let ctx = ActionContext state taskKey clientName
+      let ctx = mkActionContext state taskKey clientName
       _ <- forkIO $ runAndFinalize_ state ctx action
       pure $ mkInterimResponse (fromSqlKey taskKey)
 
@@ -174,7 +197,7 @@ runActionAsSubtask parentCtx action = do
       pure errResp
     Nothing -> do
       taskKey <- createTaskRecord state clientName action (Just parentId)
-      let ctx = ActionContext state taskKey clientName
+      let ctx = parentCtx {acTaskId = taskKey}
       result <- runAndFinalizeResult state ctx action
       case result of
         Left errResp -> do
@@ -289,7 +312,7 @@ orElse Nothing b = b
 -- the audit identity of the outer action.
 executeCreate :: (Action a) => ActionContext -> a -> TaskId -> IO (Either Text Int64)
 executeCreate parentCtx action taskId = do
-  let ctx = ActionContext (acState parentCtx) taskId (acClientName parentCtx)
+  let ctx = parentCtx {acTaskId = taskId}
   result <- try $ actionExecute ctx action
   case result of
     Left (err :: SomeException) -> pure $ Left $ T.pack $ show err

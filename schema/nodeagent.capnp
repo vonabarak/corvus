@@ -111,7 +111,15 @@ interface Session {
   # Image download (curl, fall back to wget) + xz decompression +
   # md5 hashing. These shell out to host tools and write to the
   # supplied destination path.
-  diskDownload       @11 (destPath :Text, url :Text)
+  #
+  # `sink`, when non-null, receives byte-counted progress updates
+  # while the transfer runs (probe-once via HEAD for `total` +
+  # 250 ms filesystem polling of `destPath` on the agent). The
+  # daemon exports a thin translator and forwards each event to
+  # its caller's `ApplyEventSink`.
+  diskDownload       @11 (destPath :Text,
+                          url      :Text,
+                          sink     :Streams.DiskDownloadSink)
                         -> (result :DiskOpResult);
   diskDecompressXz   @12 (xzPath :Text) -> (finalPath :Text);
   diskMd5            @13 (path :Text) -> (hex :Text);

@@ -100,6 +100,16 @@ class Client:
     def apply(self, yaml: str, *, skip_existing: bool = False, wait: bool = False):
         return self._rl.run(self._a.apply(yaml, skip_existing=skip_existing, wait=wait))
 
+    def apply_stream(self, yaml: str, *, skip_existing: bool = False):
+        """Iterate :class:`ApplyEvent` payloads on the calling thread.
+
+        Mirrors :meth:`build_stream_text`. Yields ``ApplyEvent``
+        dataclasses as the daemon emits them, then a final
+        ``('task_id', N)`` tuple once the sink closes.
+        """
+        agen = self._a.apply_stream(yaml, skip_existing=skip_existing)
+        return _SyncIterator(agen, self._rl)
+
     # ---- build streaming (yields events on the calling thread) ----------
 
     def build_stream(self, yaml_path: str):

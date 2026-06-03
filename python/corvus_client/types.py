@@ -504,6 +504,85 @@ class BuildPipelineEnd:
     builds: list[BuildOneResult] = field(default_factory=list)
 
 
+# ---------------------------------------------------------------------------
+# Apply (declarative environment) streaming events
+# ---------------------------------------------------------------------------
+#
+# Mirror the ``ApplyEvent`` union in ``schema/streams.capnp``. Each
+# event is a frozen dataclass; the union itself is just
+# ``ApplyEvent = ApplyLogLine | ApplyPhaseStart | ...`` (a type
+# alias declared at the bottom of this section). Phase strings are
+# one of ``"sshKeys"``, ``"disks"``, ``"networks"``, ``"vms"``,
+# ``"templates"``. The stream always terminates with a single
+# :class:`ApplyEnd` followed by the sink's ``end()``.
+
+
+@dataclass(frozen=True)
+class ApplyLogLine:
+    line: str
+
+
+@dataclass(frozen=True)
+class ApplyPhaseStart:
+    phase: str
+    total: int
+
+
+@dataclass(frozen=True)
+class ApplyEntityStart:
+    phase: str
+    name: str
+    kind: str  # e.g. "disk-import", "vm-create", "skip"
+
+
+@dataclass(frozen=True)
+class ApplyEntityEnd:
+    phase: str
+    name: str
+    result: str
+    entity_id: int  # 0 == skipped / failed before insert
+    message: str | None = None
+
+
+@dataclass(frozen=True)
+class ApplyDownloadStart:
+    name: str
+    url: str
+
+
+@dataclass(frozen=True)
+class ApplyDownloadProgress:
+    name: str
+    downloaded: int
+    total: int  # 0 == Content-Length unknown
+
+
+@dataclass(frozen=True)
+class ApplyDownloadEnd:
+    name: str
+    success: bool
+    message: str | None = None
+
+
+@dataclass(frozen=True)
+class ApplyEnd:
+    result: str
+    task_id: int
+    message: str | None = None
+
+
+ApplyEvent = (
+    ApplyLogLine
+    | ApplyPhaseStart
+    | ApplyEntityStart
+    | ApplyEntityEnd
+    | ApplyDownloadStart
+    | ApplyDownloadProgress
+    | ApplyDownloadEnd
+    | ApplyEnd
+)
+
+
 @dataclass(frozen=True)
 class GuestAgentStatus:
     vm_id: int

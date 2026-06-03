@@ -42,11 +42,23 @@ interface Daemon {
   cloudInit @9 () -> (mgr :CloudInit.CloudInitManager);
   nodes     @12 () -> (mgr :Node.NodeManager);
 
-  # Declarative environment application. `wait` returns once the
-  # synchronous portion of apply is done; long-running steps are
-  # tracked via the returned task id.
-  # `skipExisting` and `wait` default off to match `crv apply`.
-  apply @10 (yaml :Text, skipExisting :Bool = false, wait :Bool = false)
+  # Declarative environment application.
+  #
+  # When `sink` is supplied (non-null), the daemon streams progress
+  # through it (phase boundaries, per-entity start/end, download
+  # bytes), returns `taskId` immediately, and `result` is empty —
+  # the caller learns the outcome from `applyEnd` on the sink
+  # followed by `end()`. The `wait` flag is ignored in this mode.
+  #
+  # When `sink` is null, the legacy behaviour applies: `wait=true`
+  # blocks until completion and returns a populated `result`;
+  # `wait=false` kicks off an async task and returns `taskId` with
+  # an empty `result`. `skipExisting` skips entities whose names
+  # already exist instead of erroring.
+  apply @10 (yaml         :Text,
+             skipExisting :Bool                     = false,
+             wait         :Bool                     = false,
+             sink         :Streams.ApplyEventSink)
            -> (result :ApplyResult, taskId :Int64);
 
   # Build pipeline. The client passes a `BuildEventSink`; the daemon

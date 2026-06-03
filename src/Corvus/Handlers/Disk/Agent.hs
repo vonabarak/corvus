@@ -207,9 +207,20 @@ mergeSnapshotViaAgent = deleteSnapshotViaAgent
 -- ---------------------------------------------------------------------------
 -- Download / decompress / hash
 
-downloadImageViaAgent :: ServerState -> M.NodeId -> FilePath -> Text -> IO NI.ImageResult
-downloadImageViaAgent state nid destPath url =
-  withDiskOp state nid $ \nac -> NOA.diskDownload nac (T.pack destPath) url
+downloadImageViaAgent
+  :: ServerState
+  -> M.NodeId
+  -> FilePath
+  -> Text
+  -> Maybe (Int64 -> Int64 -> IO ())
+  -- ^ Progress callback: when 'Just', the daemon exports a
+  -- 'CGS.DiskDownloadSink' translator and forwards each byte-count
+  -- update received from the agent. Passing 'Nothing' suppresses
+  -- progress reporting (a no-op sink is still exported on the wire
+  -- because the schema requires the param).
+  -> IO NI.ImageResult
+downloadImageViaAgent state nid destPath url mProgress =
+  withDiskOp state nid $ \nac -> NOA.diskDownload nac (T.pack destPath) url mProgress
 
 decompressXzViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Either Text FilePath)
 decompressXzViaAgent state nid xzPath = do

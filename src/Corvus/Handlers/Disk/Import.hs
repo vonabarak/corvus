@@ -69,14 +69,14 @@ resolveImportTargetNode state nodeRefText
 -- | Import a disk image from an HTTP/HTTPS URL.
 -- Downloads the file to the base images directory, decompresses @.xz@ if
 -- needed, and registers it in the database.
-handleDiskImportUrl :: ServerState -> Text -> Text -> Maybe Text -> Bool -> Text -> IO Response
-handleDiskImportUrl state name url mFormatStr ephemeral nodeRefText =
+handleDiskImportUrl :: ServerState -> ApplySink -> Text -> Text -> Maybe Text -> Bool -> Text -> IO Response
+handleDiskImportUrl state sink name url mFormatStr ephemeral nodeRefText =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
       logInfoN $ "Importing disk image from URL: " <> name <> " <- " <> url
       let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
-      result <- liftIO $ importDiskFromUrlIO state name url mExplicitFmt Nothing ephemeral nodeRefText
+      result <- liftIO $ importDiskFromUrlIO state sink name url mExplicitFmt Nothing ephemeral nodeRefText
       case result of
         Left err -> do
           logWarnN $ "URL import failed: " <> err
@@ -94,8 +94,8 @@ handleDiskImportUrl state name url mFormatStr ephemeral nodeRefText =
 -- the download is skipped; on mismatch the import fails without
 -- overwriting. Fresh downloads are retried up to 'maxImportAttempts'
 -- times on hash mismatch.
-handleDiskImportCopy :: ServerState -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Bool -> Text -> IO Response
-handleDiskImportCopy state name source mDestPath mFormatStr mMd5 ephemeral nodeRefText =
+handleDiskImportCopy :: ServerState -> ApplySink -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Bool -> Text -> IO Response
+handleDiskImportCopy state sink name source mDestPath mFormatStr mMd5 ephemeral nodeRefText =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -135,6 +135,8 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 ephemeral nodeR
                           fetchAndVerify
                             state
                             nid
+                            sink
+                            name
                             FetchSpec
                               { fsUrl = source
                               , fsDownloadPath = downloadDest
@@ -212,8 +214,8 @@ handleDiskImportCopy state name source mDestPath mFormatStr mMd5 ephemeral nodeR
 --
 -- Exposed outside the Action typeclass so @crv apply@ can reuse it
 -- directly when walking a YAML config.
-importDiskFromUrlIO :: ServerState -> Text -> Text -> Maybe DriveFormat -> Maybe Text -> Bool -> Text -> IO (Either Text Int64)
-importDiskFromUrlIO state name url mFormat mMd5 ephemeral nodeRefText = do
+importDiskFromUrlIO :: ServerState -> ApplySink -> Text -> Text -> Maybe DriveFormat -> Maybe Text -> Bool -> Text -> IO (Either Text Int64)
+importDiskFromUrlIO state sink name url mFormat mMd5 ephemeral nodeRefText = do
   case sanitizeDiskName name of
     Left err -> pure $ Left err
     Right safeName -> do
@@ -242,6 +244,8 @@ importDiskFromUrlIO state name url mFormat mMd5 ephemeral nodeRefText = do
             fetchAndVerify
               state
               nid
+              sink
+              name
               FetchSpec
                 { fsUrl = url
                 , fsDownloadPath = downloadPath
@@ -316,8 +320,21 @@ maxImportAttempts = 3
 -- When 'fsExpectedMd5' is 'Nothing', the existing-file behaviour
 -- preserves the no-clobber default ("Destination file already
 -- exists" error) and a single download attempt is made.
-fetchAndVerify :: ServerState -> M.NodeId -> FetchSpec -> IO (Either Text FilePath)
-fetchAndVerify state nid FetchSpec {..} = do
+--
+-- The @sink@ + @diskName@ pair, when non-silent, brackets each
+-- download attempt with 'DownloadStart' / 'DownloadEnd' and pumps
+-- byte-counted 'DownloadProgress' events fed from the node agent's
+-- 'DiskDownloadSink'. Pass 'silentApplySink' for legacy callers
+-- that don't stream.
+fetchAndVerify
+  :: ServerState
+  -> M.NodeId
+  -> ApplySink
+  -> Text
+  -- ^ Disk name (used as the @name@ field on download events).
+  -> FetchSpec
+  -> IO (Either Text FilePath)
+fetchAndVerify state nid sink diskName FetchSpec {..} = do
   finalExists <- doesFileExist fsFinalPath
   case (finalExists, fsExpectedMd5) of
     (True, Just expected) -> do
@@ -340,11 +357,17 @@ fetchAndVerify state nid FetchSpec {..} = do
     (True, Nothing) -> pure $ Left "Destination file already exists"
     (False, _) -> downloadLoop 1
   where
+    onProgress d t = sink (DownloadProgress diskName d t)
+
     downloadLoop n = do
-      dlResult <- downloadImageViaAgent state nid fsDownloadPath fsUrl
+      sink (DownloadStart diskName fsUrl)
+      dlResult <- downloadImageViaAgent state nid fsDownloadPath fsUrl (Just onProgress)
       case dlResult of
-        ImageError err -> pure $ Left $ "Download failed: " <> err
+        ImageError err -> do
+          sink (DownloadEnd diskName False err)
+          pure $ Left $ "Download failed: " <> err
         _ -> do
+          sink (DownloadEnd diskName True "")
           decompressedResult <-
             if fsIsXz
               then decompressXzViaAgent state nid fsDownloadPath
@@ -395,7 +418,7 @@ instance Action DiskImportAction where
   actionSubsystem _ = SubDisk
   actionCommand _ = "import"
   actionEntityName = Just . diaName
-  actionExecute ctx a = handleDiskImportCopy (acState ctx) (diaName a) (diaSource a) (diaDestPath a) (diaFormat a) (diaMd5 a) (diaEphemeral a) (diaNodeRef a)
+  actionExecute ctx a = handleDiskImportCopy (acState ctx) (acApplySink ctx) (diaName a) (diaSource a) (diaDestPath a) (diaFormat a) (diaMd5 a) (diaEphemeral a) (diaNodeRef a)
 
 data DiskImportUrl = DiskImportUrl
   { diuName :: Text
@@ -411,4 +434,4 @@ instance Action DiskImportUrl where
   actionSubsystem _ = SubDisk
   actionCommand _ = "import-url"
   actionEntityName = Just . diuName
-  actionExecute ctx a = handleDiskImportUrl (acState ctx) (diuName a) (diuUrl a) (diuFormat a) (diuEphemeral a) (diuNodeRef a)
+  actionExecute ctx a = handleDiskImportUrl (acState ctx) (acApplySink ctx) (diuName a) (diuUrl a) (diuFormat a) (diuEphemeral a) (diuNodeRef a)

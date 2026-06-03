@@ -105,6 +105,7 @@ module Corvus.NodeAgentClient
   )
 where
 
+import Capnp (export)
 import qualified Capnp as C
 import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
@@ -116,6 +117,7 @@ import Capnp.Rpc
   , socketTransport
   , withConn
   )
+import Capnp.Rpc.Server (SomeServer, handleParsed)
 import qualified Control.Exception as E
 import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
@@ -563,18 +565,45 @@ snapshotRollback nac path name = remote $ do
 -- ---------------------------------------------------------------------------
 -- Download / decompress / hash
 
+-- | Daemon-side 'CGS.DiskDownloadSink' implementation. The agent
+-- calls 'progress' once per byte-count update; the callback we
+-- close over forwards each event to whatever in-process consumer
+-- the caller of 'diskDownload' supplied. A no-op callback (used
+-- when no progress reporting is wanted) makes the exported server
+-- a cheap one-shot — cancelled when the supervisor exits.
+newtype DaemonDiskDownloadSink = DaemonDiskDownloadSink
+  { ddsOnProgress :: Int64 -> Int64 -> IO ()
+  }
+
+instance SomeServer DaemonDiskDownloadSink
+
+instance CGS.DiskDownloadSink'server_ DaemonDiskDownloadSink where
+  diskDownloadSink'progress (DaemonDiskDownloadSink cb) =
+    handleParsed $ \CGS.DiskDownloadSink'progress'params {CGS.downloaded = d, CGS.total = t} -> do
+      _ <- E.try (cb d t) :: IO (Either E.SomeException ())
+      pure CGS.DiskDownloadSink'progress'results
+
+-- | Download an image to the node. The optional @onProgress@
+-- callback receives @(downloaded, total)@ updates every ~250 ms
+-- during the transfer; pass 'Nothing' to opt out (a no-op sink is
+-- still exported because Cap'n Proto requires the param to be
+-- present).
 diskDownload
   :: NodeAgentClient
   -> T.Text
   -> T.Text
+  -> Maybe (Int64 -> Int64 -> IO ())
   -> IO (Either NodeAgentError DiskOpResult)
-diskDownload nac destPath url = remote $ do
+diskDownload nac destPath url mProgress = remote $ do
+  let cb = fromMaybe (\_ _ -> pure ()) mProgress
+  sinkClient <- export @CGS.DiskDownloadSink (nacSupervisor nac) (DaemonDiskDownloadSink cb)
   CGNA.Session'diskDownload'results {CGNA.result = r} <-
     callOn
       #diskDownload
       CGNA.Session'diskDownload'params
         { CGNA.destPath = destPath
         , CGNA.url = url
+        , CGNA.sink = sinkClient
         }
       (nacSession nac)
   pure (decodeDiskOpResult r)

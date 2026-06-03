@@ -12,6 +12,7 @@ module Corvus.Handlers.Apply
 
     -- * Handlers
   , handleApplyValidate
+  , executeApply
   )
 where
 
@@ -216,38 +217,46 @@ effectiveCloudInit v = case avCloudInit v of
 --------------------------------------------------------------------------------
 
 -- | Execute apply: create resources in dependency order using Action subtasks.
+--
+-- When @acApplySink ctx@ is non-silent, emits 'PhaseStart' before
+-- each non-empty phase and 'EntityStart' / 'EntityEnd' bracketing
+-- every entity creation (including the skip-existing branch, with
+-- @kind = \"skip\"@).
 executeApply :: ActionContext -> ApplyConfig -> Bool -> IO (Either Text ApplyResult)
 executeApply ctx config skipExisting = do
   -- Phase 1: SSH keys
-  keyResult <- runSequentialCreate (acSshKeys config) Map.empty $ \k _keyMap -> do
-    mExisting <- if skipExisting then resolveByName state UniqueSshKeyName Map.empty (askName k) else pure Nothing
+  keyResult <- runPhase "sshKeys" (acSshKeys config) Map.empty $ \k _keyMap -> do
+    let name = askName k
+    mExisting <- if skipExisting then resolveByName state UniqueSshKeyName Map.empty name else pure Nothing
     case mExisting of
-      Just eid -> pure $ Right (askName k, eid)
-      Nothing -> do
-        resp <- runActionAsSubtask ctx (SshKeyCreate (askName k) (askPublicKey k))
-        extractCreatedResult (askName k) resp
+      Just eid -> withSkip "sshKeys" name eid
+      Nothing ->
+        withSubtask "sshKeys" "ssh-key-create" name $
+          runActionAsSubtask ctx (SshKeyCreate name (askPublicKey k))
   case keyResult of
     Left err -> pure $ Left err
     Right (keyMap, keyCreated) -> do
       -- Phase 2: Disks (need accumulating map for overlay/clone references)
-      diskResult <- runSequentialCreate (acDisks config) Map.empty $ \d diskMap -> do
-        mExisting <- if skipExisting then resolveByName state UniqueDiskImageName diskMap (adName d) else pure Nothing
+      diskResult <- runPhase "disks" (acDisks config) Map.empty $ \d diskMap -> do
+        let name = adName d
+        mExisting <- if skipExisting then resolveByName state UniqueDiskImageName diskMap name else pure Nothing
         case mExisting of
-          Just eid -> pure $ Right (adName d, eid)
-          Nothing -> do
-            resp <- runActionAsSubtask ctx (ApplyDiskCreate d diskMap)
-            extractCreatedResult (adName d) resp
+          Just eid -> withSkip "disks" name eid
+          Nothing ->
+            withSubtask "disks" (diskKindTag d) name $
+              runActionAsSubtask ctx (ApplyDiskCreate d diskMap)
       case diskResult of
         Left err -> pure $ Left err
         Right (diskMap, diskCreated) -> do
           -- Phase 3: Networks
-          nwResult <- runSequentialCreate (acNetworks config) Map.empty $ \n _nwMap -> do
-            mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [NetworkName ==. nm]) (\nid -> [NetworkNodeId ==. nid]) Map.empty (anName n) (anNode n) else pure Nothing
+          nwResult <- runPhase "networks" (acNetworks config) Map.empty $ \n _nwMap -> do
+            let name = anName n
+            mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [NetworkName ==. nm]) (\nid -> [NetworkNodeId ==. nid]) Map.empty name (anNode n) else pure Nothing
             case mExisting of
-              Just eid -> pure $ Right (anName n, eid)
-              Nothing -> do
-                resp <- runActionAsSubtask ctx (NetworkCreate (anName n) (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n))
-                extractCreatedResult (anName n) resp
+              Just eid -> withSkip "networks" name eid
+              Nothing ->
+                withSubtask "networks" "network-create" name $
+                  runActionAsSubtask ctx (NetworkCreate name (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n))
           case nwResult of
             Left err -> pure $ Left err
             Right (nwMap, nwCreated) -> do
@@ -257,16 +266,17 @@ executeApply ctx config skipExisting = do
                 Left err -> pure $ Left err
                 Right vmCreated -> do
                   -- Phase 5: Templates
-                  tmplResult <- runSequentialCreate (acTemplates config) Map.empty $ \ty _ -> do
+                  tmplResult <- runPhase "templates" (acTemplates config) Map.empty $ \ty _ -> do
+                    let name = tyName ty
                     mExisting <-
                       if skipExisting
-                        then resolveByName state UniqueTemplateVmName Map.empty (tyName ty)
+                        then resolveByName state UniqueTemplateVmName Map.empty name
                         else pure Nothing
                     case mExisting of
-                      Just eid -> pure $ Right (tyName ty, eid)
-                      Nothing -> do
-                        resp <- runActionAsSubtask ctx (ApplyTemplateCreate ty)
-                        extractCreatedResult (tyName ty) resp
+                      Just eid -> withSkip "templates" name eid
+                      Nothing ->
+                        withSubtask "templates" "template-create" name $
+                          runActionAsSubtask ctx (ApplyTemplateCreate ty)
                   case tmplResult of
                     Left err -> pure $ Left err
                     Right (_tmplMap, tmplCreated) ->
@@ -281,6 +291,58 @@ executeApply ctx config skipExisting = do
                             }
   where
     state = acState ctx
+    sink = acApplySink ctx
+
+    -- Tag the disk's creation kind for the EntityStart event.
+    diskKindTag :: ApplyDisk -> Text
+    diskKindTag d = case (adImport d, adOverlay d, adClone d, adRegister d) of
+      (Just _, _, _, _) -> "disk-import"
+      (_, Just _, _, _) -> "disk-overlay"
+      (_, _, Just _, _) -> "disk-clone"
+      (_, _, _, Just _) -> "disk-register"
+      _ -> "disk-create"
+
+    -- Emit EntityStart / EntityEnd around an existing-entity skip.
+    withSkip
+      :: Text -> Text -> Int64 -> IO (Either Text (Text, Int64))
+    withSkip phase name eid = do
+      sink (EntityStart phase name "skip")
+      sink (EntityEnd phase name TaskSuccess "" eid)
+      pure $ Right (name, eid)
+
+    -- Emit EntityStart / EntityEnd around a real subtask invocation,
+    -- and translate the resulting 'Response' into the
+    -- (name, entityId) pair the phase folds carry.
+    withSubtask
+      :: Text
+      -> Text
+      -> Text
+      -> IO Response
+      -> IO (Either Text (Text, Int64))
+    withSubtask phase kind name run = do
+      sink (EntityStart phase name kind)
+      resp <- run
+      out <- extractCreatedResult name resp
+      let (taskRes, msgM) = classifyResponse resp
+          (mId, _) = extractEntityFromResponse resp
+          msg = Data.Maybe.fromMaybe "" msgM
+          eid = maybe 0 fromIntegral mId
+      sink (EntityEnd phase name taskRes msg eid)
+      pure out
+
+    -- Phase wrapper: emit PhaseStart before the fold (if non-empty),
+    -- then delegate to runSequentialCreate.
+    runPhase
+      :: Text
+      -> [a]
+      -> Map.Map Text Int64
+      -> (a -> Map.Map Text Int64 -> IO (Either Text (Text, Int64)))
+      -> IO (Either Text (Map.Map Text Int64, [ApplyCreated]))
+    runPhase phase items initMap action = do
+      case items of
+        [] -> pure ()
+        _ -> sink (PhaseStart phase (fromIntegral (length items)))
+      runSequentialCreate items initMap action
 
     -- Run items sequentially, building a name→ID map.
     runSequentialCreate
@@ -305,18 +367,33 @@ executeApply ctx config skipExisting = do
       -> Map.Map Text Int64
       -> Map.Map Text Int64
       -> IO (Either Text [ApplyCreated])
-    runSequentialVms vms keyMap diskMap nwMap = go vms []
+    runSequentialVms vms keyMap diskMap nwMap = do
+      case vms of
+        [] -> pure ()
+        _ -> sink (PhaseStart "vms" (fromIntegral (length vms)))
+      go vms []
       where
         go [] acc = pure $ Right $ reverse acc
         go (v : vs) acc = do
-          mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [VmName ==. nm]) (\nid -> [VmNodeId ==. nid]) Map.empty (avName v) (avNode v) else pure Nothing
+          let name = avName v
+          mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [VmName ==. nm]) (\nid -> [VmNodeId ==. nid]) Map.empty name (avNode v) else pure Nothing
           case mExisting of
-            Just _existingId -> go vs acc
+            Just existingId -> do
+              sink (EntityStart "vms" name "skip")
+              sink (EntityEnd "vms" name TaskSuccess "" existingId)
+              go vs acc
             Nothing -> do
+              sink (EntityStart "vms" name "vm-create")
               resp <- runActionAsSubtask ctx (ApplyVmCreate keyMap diskMap nwMap v)
+              let (taskRes, msgM) = classifyResponse resp
+                  msg = Data.Maybe.fromMaybe "" msgM
               case resp of
-                RespVmCreated vmId -> go vs (ApplyCreated (avName v) vmId : acc)
-                RespError err -> pure $ Left $ "VM '" <> avName v <> "': " <> err
+                RespVmCreated vmId -> do
+                  sink (EntityEnd "vms" name taskRes msg vmId)
+                  go vs (ApplyCreated name vmId : acc)
+                RespError err -> do
+                  sink (EntityEnd "vms" name taskRes msg 0)
+                  pure $ Left $ "VM '" <> name <> "': " <> err
                 _ -> pure $ Left $ "VM '" <> avName v <> "': unexpected response"
 
     -- Extract entity ID from a creation response.

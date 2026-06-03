@@ -55,6 +55,22 @@ class _BuildEventSinkServer(_schema.streams.BuildEventSink.Server):
 
 
 # ---------------------------------------------------------------------------
+# Apply event sink
+# ---------------------------------------------------------------------------
+
+
+class _ApplyEventSinkServer(_schema.streams.ApplyEventSink.Server):
+    def __init__(self, queue: asyncio.Queue[Any]):
+        self._q = queue
+
+    async def push(self, event, _context):
+        await self._q.put(("event", conv.apply_event(event)))
+
+    async def end(self, _context):
+        await self._q.put(("end", None))
+
+
+# ---------------------------------------------------------------------------
 # Guest-agent status sink
 # ---------------------------------------------------------------------------
 
@@ -95,6 +111,49 @@ class _TaskProgressSinkServer(_schema.streams.TaskProgressSink.Server):
 # ---------------------------------------------------------------------------
 # High-level streaming helpers
 # ---------------------------------------------------------------------------
+
+
+async def stream_apply_events(
+    daemon,
+    yaml: str,
+    skip_existing: bool = False,
+) -> AsyncIterator[Any]:
+    """Yield ApplyEvent dataclasses, then a final ``('task_id', N)`` tuple.
+
+    Mirrors :func:`stream_build_events`. The daemon takes the
+    'ApplyEventSink' cap, pushes events as the apply pipeline runs
+    (phase boundaries, per-entity start/end, download bytes, final
+    'ApplyEnd'), and closes the stream with ``end()``. The caller
+    receives the same dataclasses laid out in
+    :mod:`corvus_client.types` (``ApplyLogLine``,
+    ``ApplyPhaseStart``, …).
+
+    Usage::
+
+        async for item in stream_apply_events(c.daemon, yaml_text):
+            if isinstance(item, tuple):
+                kind, payload = item
+                # kind == 'task_id', payload == int
+            else:
+                ...  # ApplyEvent dataclass
+    """
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+    sink = _ApplyEventSinkServer(queue)
+    promise = daemon.apply(
+        yaml=yaml,
+        skipExisting=skip_existing,
+        wait=True,
+        sink=sink,
+    )
+    while True:
+        kind, _payload = await queue.get()
+        if kind == "event":
+            yield _payload
+            continue
+        if kind == "end":
+            break
+    resp = await promise
+    yield ("task_id", resp.taskId)
 
 
 async def stream_build_events(daemon, yaml: str) -> AsyncIterator[Any]:

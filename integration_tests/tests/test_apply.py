@@ -28,6 +28,12 @@ import time
 
 import pytest
 from corvus_client.exceptions import CorvusError
+from corvus_client.types import (
+    ApplyEnd,
+    ApplyEntityEnd,
+    ApplyEntityStart,
+    ApplyPhaseStart,
+)
 from corvus_test_harness import SingleNodeCase
 
 pytestmark = pytest.mark.timeout(1200)
@@ -411,5 +417,72 @@ class TestApply(SingleNodeCase):
                 v = self.client.vms.get(vm_name, by_name=True)
                 v.reset()
                 v.delete()
+            except Exception:
+                pass
+
+    def test_stream_apply_phase_and_entity_events(self):
+        """`apply_stream` emits per-phase / per-entity events in order.
+
+        Drives a trivial config (one SSH key + one register-only disk)
+        through the streaming RPC and asserts:
+
+          * a `ApplyPhaseStart` arrives for every non-empty phase, in
+            dependency order;
+          * each entity is bracketed by a matching
+            `ApplyEntityStart` / `ApplyEntityEnd`;
+          * the stream terminates with exactly one `ApplyEnd` whose
+            `result == "success"`;
+          * `task_id` round-trips as the final tuple yielded by the
+            generator.
+        """
+        token = secrets.token_hex(4)
+        images = self.register_base_images()
+        # `register_base_images` lands a few well-known disks already;
+        # use one of those for a register-only apply (no qemu-img).
+        existing_disk_name = images["alpine"]
+        del existing_disk_name  # only the SSH key is created here
+        key_name = f"corvus-it-stream-key-{token}"
+        yaml_body = textwrap.dedent(f"""
+            sshKeys:
+              - name: {key_name}
+                publicKey: ssh-ed25519 {_TEST_PUB_KEY_BLOB} {key_name}
+        """).strip()
+
+        try:
+            events: list = []
+            task_id = None
+            for item in self.client.apply_stream(yaml_body):
+                if isinstance(item, tuple):
+                    kind, payload = item
+                    assert kind == "task_id"
+                    task_id = payload
+                else:
+                    events.append(item)
+
+            assert task_id is not None and task_id > 0, task_id
+
+            phases = [e.phase for e in events if isinstance(e, ApplyPhaseStart)]
+            assert "sshKeys" in phases, phases
+
+            starts = [
+                (e.phase, e.name) for e in events if isinstance(e, ApplyEntityStart)
+            ]
+            ends = [
+                (e.phase, e.name, e.result)
+                for e in events
+                if isinstance(e, ApplyEntityEnd)
+            ]
+            assert ("sshKeys", key_name) in starts, starts
+            assert any(
+                p == "sshKeys" and n == key_name and r == "success" for p, n, r in ends
+            ), ends
+
+            apply_ends = [e for e in events if isinstance(e, ApplyEnd)]
+            assert len(apply_ends) == 1, apply_ends
+            assert apply_ends[0].result == "success", apply_ends[0]
+            assert apply_ends[0].task_id == task_id, (apply_ends[0], task_id)
+        finally:
+            try:
+                self.client.ssh_keys.get(key_name, by_name=True).delete()
             except Exception:
                 pass

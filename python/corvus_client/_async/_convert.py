@@ -492,6 +492,53 @@ def build_event(r):
     raise ValueError(f"unknown BuildEvent variant: {which!r}")
 
 
+def apply_event(r):
+    """ApplyEvent is a union; dispatch on the ``which()`` discriminator."""
+    which = r.which()
+    if which == "logLine":
+        return t.ApplyLogLine(line=r.logLine)
+    if which == "phaseStart":
+        g = r.phaseStart
+        return t.ApplyPhaseStart(phase=g.phase, total=g.total)
+    if which == "entityStart":
+        g = r.entityStart
+        return t.ApplyEntityStart(phase=g.phase, name=g.name, kind=g.kind)
+    if which == "entityEnd":
+        g = r.entityEnd
+        return t.ApplyEntityEnd(
+            phase=g.phase,
+            name=g.name,
+            result=str(g.result),
+            entity_id=g.entityId,
+            message=_nz_text(g.message),
+        )
+    if which == "downloadStart":
+        g = r.downloadStart
+        return t.ApplyDownloadStart(name=g.name, url=g.url)
+    if which == "downloadProgress":
+        g = r.downloadProgress
+        return t.ApplyDownloadProgress(
+            name=g.name,
+            downloaded=g.downloaded,
+            total=g.total,
+        )
+    if which == "downloadEnd":
+        g = r.downloadEnd
+        return t.ApplyDownloadEnd(
+            name=g.name,
+            success=g.success,
+            message=_nz_text(g.message),
+        )
+    if which == "applyEnd":
+        g = r.applyEnd
+        return t.ApplyEnd(
+            result=str(g.result),
+            task_id=g.taskId,
+            message=_nz_text(g.message),
+        )
+    raise ValueError(f"unknown ApplyEvent variant: {which!r}")
+
+
 def guest_agent_status(r) -> t.GuestAgentStatus:
     return t.GuestAgentStatus(
         vm_id=r.vmId,

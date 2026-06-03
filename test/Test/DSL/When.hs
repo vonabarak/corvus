@@ -97,6 +97,7 @@ module Test.DSL.When
 
     -- * Low-level
   , createTestServerState
+  , withState
   )
 where
 

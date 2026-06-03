@@ -203,9 +203,27 @@ class AsyncClient:
     async def apply(
         self, yaml: str, *, skip_existing: bool = False, wait: bool = False
     ):
-        """Run `apply` against a YAML pipeline. Returns (ApplyResult, task_id)."""
+        """Run `apply` against a YAML pipeline. Returns (ApplyResult, task_id).
+
+        Non-streaming form: the daemon either blocks until completion
+        (``wait=True``) and returns a populated 'ApplyResult', or kicks
+        off an async task and returns just the parent task id.
+        For per-phase / per-entity / download-progress events use
+        :meth:`apply_stream` instead.
+        """
         resp = await self.daemon.apply(yaml=yaml, skipExisting=skip_existing, wait=wait)
         return conv.apply_result(resp.result), resp.taskId
+
+    def apply_stream(self, yaml: str, *, skip_existing: bool = False):
+        """Stream :class:`ApplyEvent` dataclasses for an apply run.
+
+        Returns an async generator that yields events as the daemon
+        emits them, then a final ``('task_id', N)`` tuple once the
+        sink's ``end()`` fires. Mirrors :meth:`build_stream_text`.
+        """
+        from .streams import stream_apply_events
+
+        return stream_apply_events(self.daemon, yaml, skip_existing=skip_existing)
 
     def build_stream(self, yaml_path: str):
         """Stream `Daemon.build` events for a YAML pipeline file.

@@ -31,6 +31,7 @@ module Corvus.Client.Capnp.Rpc
   , rpcStatus
   , rpcShutdown
   , rpcApply
+  , rpcApplyStream
   , rpcBuild
 
     -- * VM streaming (Phase 6b)
@@ -159,7 +160,9 @@ import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGTask
 import qualified Capnp.Gen.Template as CGTmpl
 import qualified Capnp.Gen.Vm as CGVm
+import Capnp.Rpc (IsClient (..))
 import Capnp.Rpc.Server (SomeServer, handleParsed)
+import Capnp.Rpc.Untyped (nullClient)
 import Control.Exception (SomeException, try)
 import qualified Control.Monad
 import Corvus.Client.Capnp.Connection (CapnpConnection (..))
@@ -184,7 +187,7 @@ import qualified Corvus.Protocol.SshKey as PSk
 import qualified Corvus.Protocol.Task as PT
 import qualified Corvus.Protocol.Template as PTm
 import qualified Corvus.Protocol.Vm as PV
-import Corvus.Wire.Apply (fromCapnpApplyResult)
+import Corvus.Wire.Apply (fromCapnpApplyEvent, fromCapnpApplyResult)
 import Corvus.Wire.Build (fromCapnpBuildEvent)
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Corvus.Wire.Common (EntityRef, ViewGrant (..), entityRefFromText, fromCapnpStatusInfo, fromCapnpViewGrant, toCapnpEntityRef)
@@ -1269,9 +1272,11 @@ rpcTemplateInstantiate conn ref vmName nodeRef = do
 -- Apply
 -- =====================================================================
 
--- | Apply a declarative YAML environment. Returns the populated
--- result (when @wait=True@) or just the parent task id (when
--- @wait=False@).
+-- | Apply a declarative YAML environment (non-streaming).
+-- Returns the populated result (when @wait=True@) or just the
+-- parent task id (when @wait=False@). The streaming sink param is
+-- passed as the null capability, matching the daemon's
+-- legacy-mode branch.
 rpcApply :: CapnpConnection -> Text -> Bool -> Bool -> IO (PA.ApplyResult, Int64)
 rpcApply conn yaml skipExisting wait = do
   CGCorvus.Daemon'apply'results {CGCorvus.result = r, CGCorvus.taskId = tid} <-
@@ -1281,9 +1286,68 @@ rpcApply conn yaml skipExisting wait = do
         { CGCorvus.yaml = yaml
         , CGCorvus.skipExisting = skipExisting
         , CGCorvus.wait = wait
+        , CGCorvus.sink = fromClient nullClient
         }
       (ccDaemon conn)
   pure (fromCapnpApplyResult r, tid)
+
+-- | Client-side @ApplyEventSink@ implementation. The daemon calls
+-- 'push' for each 'ApplyEvent' emitted while the apply pipeline
+-- runs and 'end' once when it finishes; both forward to the IO
+-- actions the caller supplied.
+data ClientApplyEventSink = ClientApplyEventSink
+  { caesOnEvent :: PA.ApplyEvent -> IO ()
+  , caesOnEnd :: IO ()
+  }
+
+instance SomeServer ClientApplyEventSink
+
+instance CGS.ApplyEventSink'server_ ClientApplyEventSink where
+  applyEventSink'push (ClientApplyEventSink onEv _) =
+    handleParsed $ \CGS.ApplyEventSink'push'params {CGS.event = cev} -> do
+      case fromCapnpApplyEvent cev of
+        Right ev -> do
+          _ <- try (onEv ev) :: IO (Either SomeException ())
+          pure ()
+        Left _ -> pure ()
+      pure CGS.ApplyEventSink'push'results
+
+  applyEventSink'end (ClientApplyEventSink _ onEnd) =
+    handleParsed $ \_ -> do
+      _ <- try onEnd :: IO (Either SomeException ())
+      pure CGS.ApplyEventSink'end'results
+
+-- | Stream an apply run on the daemon, surfacing each emitted
+-- 'PA.ApplyEvent' through @onEvent@. Returns the parent task id as
+-- soon as the daemon has created it; @onEvent@ continues to fire
+-- on the connection's supervisor threads until the daemon calls
+-- @end@ on the sink, at which point @onEnd@ is invoked once.
+--
+-- The caller is expected to block (e.g. on an 'MVar' populated by
+-- @onEnd@) if it wants to wait for completion.
+rpcApplyStream
+  :: CapnpConnection
+  -> Text
+  -- ^ YAML document
+  -> Bool
+  -- ^ skipExisting
+  -> (PA.ApplyEvent -> IO ())
+  -> IO ()
+  -> IO Int64
+rpcApplyStream conn yaml skipExisting onEvent onEnd = do
+  sinkClient <-
+    export @CGS.ApplyEventSink (ccSupervisor conn) (ClientApplyEventSink onEvent onEnd)
+  CGCorvus.Daemon'apply'results {CGCorvus.taskId = tid} <-
+    callOn
+      #apply
+      CGCorvus.Daemon'apply'params
+        { CGCorvus.yaml = yaml
+        , CGCorvus.skipExisting = skipExisting
+        , CGCorvus.wait = True
+        , CGCorvus.sink = sinkClient
+        }
+      (ccDaemon conn)
+  pure tid
 
 -- =====================================================================
 -- Build (streaming)

@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -54,21 +56,35 @@ module Corvus.Node.Image
   )
 where
 
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (async, cancel)
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Corvus.Model (DriveFormat (..), EnumText (..))
 import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:), (.:?))
 import qualified Data.ByteString.Char8 as BS8
-import Data.Char (isDigit)
+import Data.Char (isDigit, toLower)
 import Data.Int (Int64)
-import Data.List (isSuffixOf)
+import Data.List (isPrefixOf, isSuffixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime)
 import System.Directory (copyFile, doesFileExist, removeFile)
+import qualified System.Directory as D
 import System.Exit (ExitCode (..))
 import System.FilePath (takeExtension)
-import System.Process (readProcessWithExitCode)
+import qualified System.Posix.Files as Posix
+import System.Process
+  ( ProcessHandle
+  , StdStream (CreatePipe)
+  , createProcess
+  , getProcessExitCode
+  , proc
+  , readProcessWithExitCode
+  , std_err
+  , std_out
+  , waitForProcess
+  )
 
 --------------------------------------------------------------------------------
 -- Types
@@ -425,35 +441,171 @@ cloneImage src dest = do
 -- Download Operations
 --------------------------------------------------------------------------------
 
--- | Download a file from an HTTP/HTTPS URL to the given destination path.
--- Tries curl first, falls back to wget.
+-- | Download a file from an HTTP/HTTPS URL to the given destination
+-- path. Tries curl first, falls back to wget.
+--
+-- The @onProgress@ callback is invoked every ~250 ms with the
+-- current size of the destination file and the total transfer
+-- length (probed once via HEAD, or @0@ when Content-Length is
+-- unknown / the HEAD request fails). Exactly one extra @onProgress@
+-- call fires after the download finishes carrying the final file
+-- size. The callback's exceptions are swallowed so a misbehaving
+-- sink can't kill the transfer.
 downloadImage
   :: FilePath
   -- ^ Destination file path
   -> Text
   -- ^ URL to download from
+  -> (Int64 -> Int64 -> IO ())
+  -- ^ Progress callback: @(downloaded, total)@. Pass
+  -- @\_ _ -> pure ()@ when no progress reporting is wanted.
   -> IO ImageResult
-downloadImage destPath url = do
+downloadImage destPath url onProgress = do
   exists <- doesFileExist destPath
   if exists
     then pure $ ImageError "Destination file already exists"
     else do
+      total <- probeContentLength url
+      safeProgress 0 total
       let urlStr = T.unpack url
-      -- Try curl first
-      curlResult <- try $ readProcessWithExitCode "curl" ["-L", "-o", destPath, "-s", "-S", urlStr] ""
-      case curlResult of
-        Left (_ :: SomeException) -> do
-          -- curl not available, try wget
-          wgetResult <- try $ readProcessWithExitCode "wget" ["-O", destPath, "-q", urlStr] ""
-          case wgetResult of
-            Left (_ :: SomeException) ->
-              pure $ ImageError "Neither curl nor wget is available for downloading images"
-            Right (ExitSuccess, _, _) -> pure ImageSuccess
-            Right (ExitFailure n, _, stderr) ->
-              pure $ ImageError $ "wget failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
-        Right (ExitSuccess, _, _) -> pure ImageSuccess
-        Right (ExitFailure n, _, stderr) ->
-          pure $ ImageError $ "curl failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
+          curlProc =
+            (proc "curl" ["-L", "-o", destPath, "-s", "-S", urlStr])
+              { std_out = CreatePipe
+              , std_err = CreatePipe
+              }
+      curlAttempt <- try (createProcess curlProc)
+      case curlAttempt of
+        Left (_ :: SomeException) ->
+          runWget total urlStr
+        Right (_, _, mStderr, ph) -> do
+          finalize
+            ph
+            mStderr
+            total
+            "curl"
+            ( \case
+                ExitSuccess -> pure ImageSuccess
+                ExitFailure n -> do
+                  -- A non-zero exit may be "curl: command not found"
+                  -- (treated as exit 127 when started via a shell, but
+                  -- via 'proc' the spawn itself succeeded — so a real
+                  -- 127 here means curl ran and failed). Either way
+                  -- fall back to wget on missing-binary signals.
+                  if n == 127
+                    then runWget total urlStr
+                    else readErrText mStderr >>= \err -> pure $ ImageError $ "curl failed (exit " <> T.pack (show n) <> "): " <> err
+            )
+  where
+    safeProgress :: Int64 -> Int64 -> IO ()
+    safeProgress d t = do
+      _ <- try (onProgress d t) :: IO (Either SomeException ())
+      pure ()
+
+    -- Poll the destination file's size every 250 ms while the
+    -- transfer process is alive, pushing each observed size
+    -- through the progress callback.
+    pollSize :: ProcessHandle -> Int64 -> IO ()
+    pollSize ph total = loop
+      where
+        loop = do
+          mExit <- getProcessExitCode ph
+          case mExit of
+            Just _ -> pure ()
+            Nothing -> do
+              size <- currentFileSize destPath
+              safeProgress size total
+              threadDelay 250_000
+              loop
+
+    finalize ph mStderr total binaryName onExit = do
+      poll <- async (pollSize ph total)
+      exit <- waitForProcess ph
+      cancel poll
+      finalSize <- currentFileSize destPath
+      safeProgress finalSize total
+      result <- onExit exit
+      -- Touch the binaryName so it appears in the closure's free
+      -- vars (silences -Wunused-matches when both transports succeed
+      -- without ever stringifying the name).
+      _ <- pure (binaryName :: String)
+      pure result
+
+    runWget total urlStr = do
+      let wgetProc =
+            (proc "wget" ["-O", destPath, "-q", urlStr])
+              { std_out = CreatePipe
+              , std_err = CreatePipe
+              }
+      wgetAttempt <- try (createProcess wgetProc)
+      case wgetAttempt of
+        Left (_ :: SomeException) ->
+          pure $ ImageError "Neither curl nor wget is available for downloading images"
+        Right (_, _, mStderr, ph) ->
+          finalize
+            ph
+            mStderr
+            total
+            "wget"
+            ( \case
+                ExitSuccess -> pure ImageSuccess
+                ExitFailure n -> readErrText mStderr >>= \err -> pure $ ImageError $ "wget failed (exit " <> T.pack (show n) <> "): " <> err
+            )
+
+    readErrText mh = case mh of
+      Nothing -> pure T.empty
+      Just h -> do
+        result <- try (BS8.hGetContents h)
+        pure $ case result of
+          Left (_ :: SomeException) -> T.empty
+          Right bs -> T.pack (BS8.unpack bs)
+
+-- | Stat the destination file. Returns 0 on any error (file not
+-- yet created, agent permissions, etc.).
+currentFileSize :: FilePath -> IO Int64
+currentFileSize path = do
+  exists <- D.doesFileExist path
+  if not exists
+    then pure 0
+    else do
+      result <- try (Posix.getFileStatus path)
+      pure $ case result of
+        Left (_ :: SomeException) -> 0
+        Right st -> fromIntegral (Posix.fileSize st)
+
+-- | Issue a HEAD request via curl to discover the total transfer
+-- length. Returns @0@ on any failure (network issues, the server
+-- doesn't support HEAD, no @Content-Length@ in the response, …) so
+-- the caller falls back to a counter-only display.
+probeContentLength :: Text -> IO Int64
+probeContentLength url = do
+  let args = ["-sIL", "--max-time", "10", T.unpack url]
+  result <- try (readProcessWithExitCode "curl" args "")
+  pure $ case result of
+    Left (_ :: SomeException) -> 0
+    Right (ExitSuccess, out, _) -> parseLastContentLength out
+    Right _ -> 0
+
+-- | Pick the last @Content-Length: NNNN@ header from a HEAD
+-- response transcript. The "last" preference is intentional — when
+-- curl follows redirects (@-L@) each hop's headers are printed; we
+-- care about the final target's length.
+parseLastContentLength :: String -> Int64
+parseLastContentLength = go 0 . lines
+  where
+    go acc [] = acc
+    go acc (l : rest) = case stripPrefixCI "content-length:" l of
+      Nothing -> go acc rest
+      Just rest' ->
+        let value = takeWhile isDigit (dropWhile (== ' ') rest')
+         in if null value
+              then go acc rest
+              else go (read value) rest
+
+    stripPrefixCI :: String -> String -> Maybe String
+    stripPrefixCI prefix s
+      | map toLower prefix `isPrefixOf` map toLower s =
+          Just (drop (length prefix) s)
+      | otherwise = Nothing
 
 -- | Decompress an .xz file in place. Returns the path to the decompressed file.
 -- The .xz file is removed after successful decompression.
