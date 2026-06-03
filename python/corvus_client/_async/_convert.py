@@ -390,6 +390,16 @@ def template_ssh_key_info(r) -> t.TemplateSshKeyInfo:
     return t.TemplateSshKeyInfo(id=r.id, name=r.name)
 
 
+def template_shared_dir_info(r) -> t.TemplateSharedDirInfo:
+    return t.TemplateSharedDirInfo(
+        id=r.id,
+        path=r.path,
+        tag=r.tag,
+        cache=str(r.cache),
+        read_only=r.readOnly,
+    )
+
+
 def template_details(r) -> t.TemplateDetails:
     return t.TemplateDetails(
         id=r.id,
@@ -406,6 +416,7 @@ def template_details(r) -> t.TemplateDetails:
         drives=[template_drive_info(d) for d in r.drives],
         net_ifs=[template_net_if_info(n) for n in r.netIfs],
         ssh_keys=[template_ssh_key_info(k) for k in r.sshKeys],
+        shared_dirs=[template_shared_dir_info(s) for s in r.sharedDirs],
     )
 
 

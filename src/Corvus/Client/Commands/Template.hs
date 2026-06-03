@@ -27,7 +27,7 @@ import Corvus.Client.Editor (editInEditor)
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printField, printTable, tableFormat)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..))
-import Corvus.Protocol (NamedRef (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
+import Corvus.Protocol (NamedRef (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import Data.Text (Text)
@@ -239,3 +239,19 @@ printTemplateDetails t = do
     then putStrLn "  No SSH keys defined."
     else forM_ (tvdSshKeys t) $ \k ->
       putStrLn $ "  - " ++ T.unpack (tvskiName k) ++ " (ID: " ++ show (tvskiId k) ++ ")"
+
+  putStrLn "\nShared Directories:"
+  if null (tvdSharedDirs t)
+    then putStrLn "  No shared directories defined."
+    else do
+      let sdCols = [("PATH", -30), ("TAG", -16), ("CACHE", -8), ("READ_ONLY", -10)]
+          (sdFmt, sdSep) = tableFormat sdCols
+      printf ("  " ++ sdFmt) ("PATH" :: String) ("TAG" :: String) ("CACHE" :: String) ("READ_ONLY" :: String)
+      putStrLn $ "  " ++ sdSep
+      forM_ (tvdSharedDirs t) $ \sd ->
+        printf
+          ("  " ++ sdFmt)
+          (T.unpack $ tvsdiPath sd)
+          (T.unpack $ tvsdiTag sd)
+          (T.unpack $ enumToText $ tvsdiCache sd)
+          (show $ tvsdiReadOnly sd)

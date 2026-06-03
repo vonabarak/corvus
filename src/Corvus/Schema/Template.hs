@@ -10,6 +10,7 @@ module Corvus.Schema.Template
   , TemplateDriveYaml (..)
   , TemplateNetworkInterfaceYaml (..)
   , TemplateSshKeyYaml (..)
+  , TemplateSharedDirYaml (..)
   )
 where
 
@@ -33,6 +34,7 @@ data TemplateYaml = TemplateYaml
   , tyDrives :: [TemplateDriveYaml]
   , tyNetworkInterfaces :: [TemplateNetworkInterfaceYaml]
   , tySshKeys :: [TemplateSshKeyYaml]
+  , tySharedDirs :: [TemplateSharedDirYaml]
   }
   deriving (Show, Generic)
 
@@ -52,6 +54,7 @@ instance FromJSON TemplateYaml where
       <*> o .: "drives"
       <*> o .:? "networkInterfaces" .!= []
       <*> o .:? "sshKeys" .!= []
+      <*> o .:? "sharedDirs" .!= []
 
 data TemplateDriveYaml = TemplateDriveYaml
   { tdyDiskImageName :: Maybe Text
@@ -123,3 +126,19 @@ instance FromJSON TemplateSshKeyYaml where
   parseJSON = withObject "TemplateSshKeyYaml" $ \o ->
     TemplateSshKeyYaml
       <$> o .: "name"
+
+data TemplateSharedDirYaml = TemplateSharedDirYaml
+  { tsdyPath :: Text
+  , tsdyTag :: Text
+  , tsdyCache :: SharedDirCache
+  , tsdyReadOnly :: Bool
+  }
+  deriving (Show, Generic)
+
+instance FromJSON TemplateSharedDirYaml where
+  parseJSON = withObject "TemplateSharedDirYaml" $ \o ->
+    TemplateSharedDirYaml
+      <$> o .: "path"
+      <*> o .: "tag"
+      <*> o .:? "cache" .!= CacheAuto
+      <*> o .:? "readOnly" .!= False

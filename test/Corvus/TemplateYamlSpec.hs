@@ -7,17 +7,19 @@
 module Corvus.TemplateYamlSpec (spec) where
 
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
-import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), NetInterfaceType (..), TemplateCloneStrategy (..))
+import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), DriveMedia (..), NetInterfaceType (..), SharedDirCache (..), TemplateCloneStrategy (..))
 import Corvus.Protocol
   ( NamedRef (..)
   , TemplateDetails (..)
   , TemplateDriveInfo (..)
   , TemplateNetIfInfo (..)
+  , TemplateSharedDirInfo (..)
   , TemplateSshKeyInfo (..)
   )
 import Corvus.Schema.Template
   ( TemplateDriveYaml (..)
   , TemplateNetworkInterfaceYaml (..)
+  , TemplateSharedDirYaml (..)
   , TemplateSshKeyYaml (..)
   , TemplateYaml (..)
   )
@@ -68,6 +70,15 @@ sampleDetails =
             , tvskiName = "admin-key"
             }
         ]
+    , tvdSharedDirs =
+        [ TemplateSharedDirInfo
+            { tvsdiId = 11
+            , tvsdiPath = "/srv/data"
+            , tvsdiTag = "data"
+            , tvsdiCache = CacheAuto
+            , tvsdiReadOnly = False
+            }
+        ]
     }
 
 spec :: Spec
@@ -104,6 +115,12 @@ spec = do
           length (tySshKeys ty) `shouldBe` 1
           let [k] = tySshKeys ty
           tkyName k `shouldBe` "admin-key"
+          length (tySharedDirs ty) `shouldBe` 1
+          let [sd] = tySharedDirs ty
+          tsdyPath sd `shouldBe` "/srv/data"
+          tsdyTag sd `shouldBe` "data"
+          tsdyCache sd `shouldBe` CacheAuto
+          tsdyReadOnly sd `shouldBe` False
 
     it "round-trips a create-strategy drive (no diskImageName)" $ do
       let createDetails =

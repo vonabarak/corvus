@@ -17,6 +17,7 @@ import Corvus.Protocol
   , TemplateDetails (..)
   , TemplateDriveInfo (..)
   , TemplateNetIfInfo (..)
+  , TemplateSharedDirInfo (..)
   , TemplateSshKeyInfo (..)
   )
 import Data.Aeson (ToJSON, Value, object, toJSON, (.=))
@@ -45,6 +46,7 @@ templateDetailsToValue t =
     , "drives" .= map driveToValue (tvdDrives t)
     , "networkInterfaces" .= map netIfToValue (tvdNetIfs t)
     , "sshKeys" .= map sshKeyToValue (tvdSshKeys t)
+    , "sharedDirs" .= map sharedDirToValue (tvdSharedDirs t)
     ]
       ++ catMaybes
         [ optPair "description" (tvdDescription t)
@@ -80,6 +82,15 @@ netIfToValue n =
 sshKeyToValue :: TemplateSshKeyInfo -> Value
 sshKeyToValue k =
   object ["name" .= tvskiName k]
+
+sharedDirToValue :: TemplateSharedDirInfo -> Value
+sharedDirToValue sd =
+  object
+    [ "path" .= tvsdiPath sd
+    , "tag" .= tvsdiTag sd
+    , "cache" .= tvsdiCache sd
+    , "readOnly" .= tvsdiReadOnly sd
+    ]
 
 cloudInitInfoToValue :: CloudInitInfo -> Value
 cloudInitInfoToValue ci =
@@ -117,4 +128,5 @@ skeletonTemplateYaml =
   \    format: qcow2     # only for create strategy\n\
   \    sizeMb: 8192      # for create, clone, overlay strategies\n\
   \networkInterfaces: []\n\
-  \sshKeys: []\n"
+  \sshKeys: []\n\
+  \sharedDirs: []        # list of {path, tag, cache, readOnly} entries\n"

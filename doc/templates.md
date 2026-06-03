@@ -63,6 +63,7 @@ A template is defined by a single YAML document. The same schema is accepted by 
 | `drives` | list | yes | | Drive definitions (may be empty). |
 | `networkInterfaces` | list | no | `[]` | Network interface definitions. |
 | `sshKeys` | list | no | `[]` | SSH key references. Requires `cloudInit: true`. |
+| `sharedDirs` | list | no | `[]` | Virtiofs shared-directory definitions (see below). |
 
 ### Drive Fields
 
@@ -112,6 +113,31 @@ Each instantiated VM gets a fresh random MAC address per interface.
 | `name` | string | yes | Name of an SSH key that must already exist in the database (or be defined earlier in an apply file). |
 
 SSH keys require `cloudInit: true` on the template. At instantiation, keys are attached to the VM and injected into the cloud-init ISO.
+
+### Shared Directory Fields
+
+Each entry in `sharedDirs` declares a virtiofs-backed host-to-guest mount that every VM instantiated from this template will inherit. Fields match the VM-level [shared-directories.md](shared-directories.md) schema.
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `path` | string | yes | | Absolute path on the **host** to share into the guest. |
+| `tag` | string | yes | | virtiofs mount tag. Must be unique within the template. The guest mounts via `mount -t virtiofs <tag> /mnt/<tag>`. |
+| `cache` | enum | no | `auto` | virtiofs cache mode: `always`, `auto`, `never`. |
+| `readOnly` | bool | no | `false` | Mount the share read-only. |
+
+Example:
+
+```yaml
+sharedDirs:
+  - path: /srv/projects
+    tag: projects
+  - path: /etc/ssl/internal
+    tag: certs
+    cache: never
+    readOnly: true
+```
+
+At instantiation, the daemon creates one `SharedDir` row per template entry on the new VM. The VM-level `(vmId, tag)` uniqueness is automatically satisfied because tags are unique within the template and the VM is fresh.
 
 ### Cloud-Init Configuration
 

@@ -56,6 +56,14 @@ struct TemplateSshKeyInfo {
   name @1 :Text;
 }
 
+struct TemplateSharedDirInfo {
+  id       @0 :Int64;
+  path     @1 :Text;
+  tag      @2 :Text;
+  cache    @3 :Enums.SharedDirCache;
+  readOnly @4 :Bool;
+}
+
 struct TemplateDetails {
   id              @0  :Int64;
   name            @1  :Text;
@@ -72,6 +80,7 @@ struct TemplateDetails {
   netIfs          @12 :List(TemplateNetIfInfo);
   sshKeys         @13 :List(TemplateSshKeyInfo);
   rebootQuirk     @14 :Bool;
+  sharedDirs      @15 :List(TemplateSharedDirInfo);
 }
 
 # ---------------------------------------------------------------------

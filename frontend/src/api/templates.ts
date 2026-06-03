@@ -34,6 +34,14 @@ export interface TemplateSshKeyInfo {
   name: string;
 }
 
+export interface TemplateSharedDirInfo {
+  id: number;
+  path: string;
+  tag: string;
+  cache: string;
+  read_only: boolean;
+}
+
 export interface CloudInitInfo {
   user_data: string | null;
   network_config: string | null;
@@ -53,6 +61,7 @@ export interface TemplateDetails {
   drives: TemplateDriveInfo[];
   net_ifs: TemplateNetIfInfo[];
   ssh_keys: TemplateSshKeyInfo[];
+  shared_dirs: TemplateSharedDirInfo[];
   description: string | null;
   cloud_init_config: CloudInitInfo | null;
 }

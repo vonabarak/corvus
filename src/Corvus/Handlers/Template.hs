@@ -36,12 +36,14 @@ import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
 import Corvus.Schema.Template
   ( TemplateDriveYaml (..)
   , TemplateNetworkInterfaceYaml (..)
+  , TemplateSharedDirYaml (..)
   , TemplateSshKeyYaml (..)
   , TemplateYaml (..)
   )
 import Corvus.Types
 import Corvus.Utils.Network (generateMacAddress)
 import Data.Int (Int64)
+import qualified Data.List as L
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -218,93 +220,103 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
 -- Apply subsystem when processing a @templates:@ section.
 insertTemplateYaml :: TemplateYaml -> UTCTime -> SqlPersistT IO (Either Text TemplateVmId)
 insertTemplateYaml ty now = do
-  -- Validate drive definitions
-  let driveErrs = concatMap validateDrive (tyDrives ty)
-      nicErrs = concatMap validateNetIf (tyNetworkInterfaces ty)
-  if not (null driveErrs)
-    then pure $ Left $ T.intercalate "; " driveErrs
-    else
-      if not (null nicErrs)
-        then pure $ Left $ T.intercalate "; " nicErrs
-        else do
-          -- Resolve disk images (only for non-create strategies)
-          mDiskIds <- forM (tyDrives ty) $ \tdy ->
-            case tdyStrategy tdy of
-              StrategyCreate -> pure $ Right Nothing
-              _ -> case tdyDiskImageName tdy of
-                Nothing -> pure $ Left "diskImageName is required for clone/overlay/direct strategies"
-                Just diskName -> do
-                  mDisk <- getBy (UniqueDiskImageName diskName)
-                  case mDisk of
-                    Nothing -> pure $ Left $ "Disk image not found: " <> diskName
-                    Just (Entity did _) -> pure $ Right (Just did)
+  -- Validate drive / NIC / shared-dir definitions up-front (combined
+  -- into one error string so a YAML with multiple problems reports
+  -- all of them at once).
+  let earlyErrs =
+        concatMap validateDrive (tyDrives ty)
+          ++ concatMap validateNetIf (tyNetworkInterfaces ty)
+          ++ validateSharedDirs (tySharedDirs ty)
+  if not (null earlyErrs)
+    then pure $ Left $ T.intercalate "; " earlyErrs
+    else do
+      -- Resolve disk images (only for non-create strategies)
+      mDiskIds <- forM (tyDrives ty) $ \tdy ->
+        case tdyStrategy tdy of
+          StrategyCreate -> pure $ Right Nothing
+          _ -> case tdyDiskImageName tdy of
+            Nothing -> pure $ Left "diskImageName is required for clone/overlay/direct strategies"
+            Just diskName -> do
+              mDisk <- getBy (UniqueDiskImageName diskName)
+              case mDisk of
+                Nothing -> pure $ Left $ "Disk image not found: " <> diskName
+                Just (Entity did _) -> pure $ Right (Just did)
 
-          -- Resolve SSH keys
-          mKeyIds <- forM (tySshKeys ty) $ \tky -> do
-            mKey <- getBy (UniqueSshKeyName (tkyName tky))
-            case mKey of
-              Nothing -> pure $ Left $ "SSH key not found: " <> tkyName tky
-              Just (Entity kid _) -> pure $ Right kid
+      -- Resolve SSH keys
+      mKeyIds <- forM (tySshKeys ty) $ \tky -> do
+        mKey <- getBy (UniqueSshKeyName (tkyName tky))
+        case mKey of
+          Nothing -> pure $ Left $ "SSH key not found: " <> tkyName tky
+          Just (Entity kid _) -> pure $ Right kid
 
-          -- Validate: SSH keys require cloud-init
-          let hasKeys = not (null (tySshKeys ty))
-          if hasKeys && not (tyCloudInit ty)
-            then pure $ Left "Template has SSH keys but cloud-init is not enabled"
-            else case (sequence mDiskIds, sequence mKeyIds) of
-              (Right diskIds, Right keyIds) -> do
-                mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyAutostart ty) (tyRebootQuirk ty) now
-                case mTid of
-                  Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
-                  Just tid -> do
-                    forM_ (zip diskIds (tyDrives ty)) $ \(mDiskId, tdy) ->
-                      insert_ $
-                        TemplateDrive
+      -- Validate: SSH keys require cloud-init
+      let hasKeys = not (null (tySshKeys ty))
+      if hasKeys && not (tyCloudInit ty)
+        then pure $ Left "Template has SSH keys but cloud-init is not enabled"
+        else case (sequence mDiskIds, sequence mKeyIds) of
+          (Right diskIds, Right keyIds) -> do
+            mTid <- insertUnique $ TemplateVm (tyName ty) (tyCpuCount ty) (tyRamMb ty) (tyDescription ty) (tyHeadless ty) (tyCloudInit ty) (tyGuestAgent ty) (tyAutostart ty) (tyRebootQuirk ty) now
+            case mTid of
+              Nothing -> pure $ Left $ "Template with name '" <> tyName ty <> "' already exists"
+              Just tid -> do
+                forM_ (zip diskIds (tyDrives ty)) $ \(mDiskId, tdy) ->
+                  insert_ $
+                    TemplateDrive
+                      tid
+                      mDiskId
+                      (tdyDiskImageName tdy)
+                      (tdyInterface tdy)
+                      (tdyMedia tdy)
+                      (fromMaybe False (tdyReadOnly tdy))
+                      (fromMaybe CacheNone (tdyCacheType tdy))
+                      (fromMaybe False (tdyDiscard tdy))
+                      (tdyStrategy tdy)
+                      (tdySizeMb tdy)
+                      (tdyFormat tdy)
+                      (tdyEphemeral tdy)
+
+                forM_ (tyNetworkInterfaces ty) $ \tny ->
+                  -- Mirror NetIf-add: if a network is named, force
+                  -- type=managed; if type=managed, network must be
+                  -- non-empty so the instantiator can resolve it.
+                  -- Validation is done at this layer (rather than
+                  -- in 'validateNetIf' inside the lambda) so the
+                  -- error names the offending field/value if the
+                  -- write path ever sees it.
+                  let effectiveType = case tnyNetwork tny of
+                        Just nm | not (T.null nm) -> NetManaged
+                        _ -> tnyType tny
+                   in insert_ $
+                        TemplateNetworkInterface
                           tid
-                          mDiskId
-                          (tdyDiskImageName tdy)
-                          (tdyInterface tdy)
-                          (tdyMedia tdy)
-                          (fromMaybe False (tdyReadOnly tdy))
-                          (fromMaybe CacheNone (tdyCacheType tdy))
-                          (fromMaybe False (tdyDiscard tdy))
-                          (tdyStrategy tdy)
-                          (tdySizeMb tdy)
-                          (tdyFormat tdy)
-                          (tdyEphemeral tdy)
+                          effectiveType
+                          (tnyHostDevice tny)
+                          (tnyNetwork tny)
 
-                    forM_ (tyNetworkInterfaces ty) $ \tny ->
-                      -- Mirror NetIf-add: if a network is named, force
-                      -- type=managed; if type=managed, network must be
-                      -- non-empty so the instantiator can resolve it.
-                      -- Validation is done at this layer (rather than
-                      -- in 'validateNetIf' inside the lambda) so the
-                      -- error names the offending field/value if the
-                      -- write path ever sees it.
-                      let effectiveType = case tnyNetwork tny of
-                            Just nm | not (T.null nm) -> NetManaged
-                            _ -> tnyType tny
-                       in insert_ $
-                            TemplateNetworkInterface
-                              tid
-                              effectiveType
-                              (tnyHostDevice tny)
-                              (tnyNetwork tny)
+                forM_ keyIds $ \keyId ->
+                  insert_ $ TemplateSshKey tid keyId
 
-                    forM_ keyIds $ \keyId ->
-                      insert_ $ TemplateSshKey tid keyId
+                forM_ (tySharedDirs ty) $ \tsd ->
+                  insert_ $
+                    TemplateSharedDir
+                      tid
+                      (tsdyPath tsd)
+                      (tsdyTag tsd)
+                      (tsdyCache tsd)
+                      (tsdyReadOnly tsd)
 
-                    -- Insert cloud-init config if provided
-                    forM_ (tyCloudInitConfig ty) $ \cic ->
-                      insert_ $
-                        TemplateCloudInit
-                          tid
-                          (cicyUserData cic)
-                          (cicyNetworkConfig cic)
-                          (cicyInjectSshKeys cic)
+                -- Insert cloud-init config if provided
+                forM_ (tyCloudInitConfig ty) $ \cic ->
+                  insert_ $
+                    TemplateCloudInit
+                      tid
+                      (cicyUserData cic)
+                      (cicyNetworkConfig cic)
+                      (cicyInjectSshKeys cic)
 
-                    pure $ Right tid
-              (Left err, _) -> pure $ Left err
-              (_, Left err) -> pure $ Left err
+                pure $ Right tid
+          (Left err, _) -> pure $ Left err
+          (_, Left err) -> pure $ Left err
   where
     validateDrive tdy = case tdyStrategy tdy of
       StrategyCreate ->
@@ -321,6 +333,18 @@ insertTemplateYaml ty now = do
           hasHostDev = maybe False (not . T.null) (tnyHostDevice tny)
        in ["network is required for 'managed' network interfaces" | typeIsManaged && not hasNetwork]
             ++ ["hostDevice is required for 'bridge' network interfaces" | typeIsBridge && not hasHostDev]
+
+    -- Tag uniqueness mirrors the (vmId, tag) constraint that
+    -- 'SharedDir' enforces at VM-attach time; we catch it before
+    -- 'insertUnique' so the error names the duplicate tag rather
+    -- than a generic FK violation.
+    validateSharedDirs sds =
+      let tags = map tsdyTag sds
+          dups = [head g | g <- L.group (L.sort tags), length g > 1]
+       in [ "shared-dir tag '" <> t <> "' is used more than once in this template" | t <- dups
+          ]
+            ++ ["shared-dir path must not be empty" | any (T.null . tsdyPath) sds]
+            ++ ["shared-dir tag must not be empty" | any (T.null . tsdyTag) sds]
 
 getTemplateDetails :: TemplateVmId -> SqlPersistT IO (Maybe TemplateDetails)
 getTemplateDetails tid = do
@@ -372,6 +396,20 @@ getTemplateDetails tid = do
         let keyName = maybe "unknown" sshKeyName mKey
         pure $ TemplateSshKeyInfo (fromSqlKey $ templateSshKeySshKeyId tsk) keyName
 
+      sharedDirRows <- selectList [TemplateSharedDirTemplateId ==. tid] []
+      let sharedDirInfos =
+            map
+              ( \(Entity sdid tsd) ->
+                  TemplateSharedDirInfo
+                    { tvsdiId = fromSqlKey sdid
+                    , tvsdiPath = templateSharedDirPath tsd
+                    , tvsdiTag = templateSharedDirTag tsd
+                    , tvsdiCache = templateSharedDirCache tsd
+                    , tvsdiReadOnly = templateSharedDirReadOnly tsd
+                    }
+              )
+              sharedDirRows
+
       -- Get cloud-init config if present
       mCiConfig <- getBy (UniqueTemplateCloudInitVm tid)
       let ciInfo =
@@ -403,6 +441,7 @@ getTemplateDetails tid = do
             , tvdDrives = driveInfos
             , tvdNetIfs = netIfInfos
             , tvdSshKeys = sshKeyInfos
+            , tvdSharedDirs = sharedDirInfos
             }
 
 deleteTemplate :: TemplateVmId -> SqlPersistT IO ()
@@ -410,6 +449,7 @@ deleteTemplate tid = do
   deleteWhere [TemplateDriveTemplateId ==. tid]
   deleteWhere [TemplateNetworkInterfaceTemplateId ==. tid]
   deleteWhere [TemplateSshKeyTemplateId ==. tid]
+  deleteWhere [TemplateSharedDirTemplateId ==. tid]
   deleteBy (UniqueTemplateCloudInitVm tid)
   delete tid
 
@@ -454,6 +494,23 @@ finishInstantiation ctx vmId newVmName details = runServerLogging (acState ctx) 
   -- SSH Keys
   forM_ (tvdSshKeys details) $ \tsk -> do
     liftIO $ runSqlPool (insert_ $ VmSshKey vmId (toSqlKey (tvskiId tsk))) (ssDbPool state)
+
+  -- Shared directories. The template-level (templateId, tag)
+  -- uniqueness guarantees no two entries collide, and the new VM is
+  -- fresh, so the VM-level (vmId, tag) unique constraint on
+  -- 'SharedDir' is automatically satisfied.
+  forM_ (tvdSharedDirs details) $ \tsd ->
+    liftIO $
+      runSqlPool
+        ( insert_ $
+            SharedDir
+              vmId
+              (tvsdiPath tsd)
+              (tvsdiTag tsd)
+              (tvsdiCache tsd)
+              (tvsdiReadOnly tsd)
+        )
+        (ssDbPool state)
 
   -- Copy cloud-init config from template if present
   forM_ (tvdCloudInitConfig details) $ \ciConfig ->

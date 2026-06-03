@@ -396,6 +396,15 @@ class TemplateSshKeyInfo:
 
 
 @dataclass(frozen=True)
+class TemplateSharedDirInfo:
+    id: int
+    path: str
+    tag: str
+    cache: str
+    read_only: bool
+
+
+@dataclass(frozen=True)
 class TemplateDetails:
     id: int
     name: str
@@ -409,6 +418,7 @@ class TemplateDetails:
     drives: list[TemplateDriveInfo] = field(default_factory=list)
     net_ifs: list[TemplateNetIfInfo] = field(default_factory=list)
     ssh_keys: list[TemplateSshKeyInfo] = field(default_factory=list)
+    shared_dirs: list[TemplateSharedDirInfo] = field(default_factory=list)
     description: str | None = None
     cloud_init_config: CloudInitInfo | None = None
 

@@ -145,6 +145,11 @@ class TestTemplates(SingleNodeCase):
               - type: user
             sshKeys:
               - name: {key_name}
+            sharedDirs:
+              - path: /srv/from-template
+                tag: from-template
+                cache: never
+                readOnly: true
             drives: []
         """).strip()
 
@@ -157,6 +162,11 @@ class TestTemplates(SingleNodeCase):
                 assert details.net_ifs[0].type == "user"
                 assert len(details.ssh_keys) == 1
                 assert details.ssh_keys[0].name == key_name
+                assert len(details.shared_dirs) == 1
+                assert details.shared_dirs[0].path == "/srv/from-template"
+                assert details.shared_dirs[0].tag == "from-template"
+                assert details.shared_dirs[0].cache == "never"
+                assert details.shared_dirs[0].read_only is True
 
                 vm = tpl.instantiate(vm_name)
                 try:
@@ -168,6 +178,12 @@ class TestTemplates(SingleNodeCase):
                     keys = vm.list_ssh_keys()
                     assert len(keys) == 1
                     assert keys[0].name == key_name
+                    sds = vm.list_shared_dirs()
+                    assert len(sds) == 1
+                    assert sds[0].path == "/srv/from-template"
+                    assert sds[0].tag == "from-template"
+                    assert sds[0].cache == "never"
+                    assert sds[0].read_only is True
                 finally:
                     vm.delete()
             finally:

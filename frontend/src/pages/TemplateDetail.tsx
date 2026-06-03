@@ -344,6 +344,37 @@ export default function TemplateDetail() {
         </Card>
       )}
 
+      {t.shared_dirs.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Shared directories</CardTitle>
+            <CardDescription>Attached via virtiofs to each instantiated VM.</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Path</TableHead>
+                  <TableHead>Tag</TableHead>
+                  <TableHead>Cache</TableHead>
+                  <TableHead>Read-only</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {t.shared_dirs.map((sd) => (
+                  <TableRow key={sd.id}>
+                    <TableCell className="font-mono text-xs">{sd.path}</TableCell>
+                    <TableCell>{sd.tag}</TableCell>
+                    <TableCell>{sd.cache}</TableCell>
+                    <TableCell>{sd.read_only ? "yes" : "no"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
       {t.cloud_init_config && (
         <Card>
           <CardHeader>

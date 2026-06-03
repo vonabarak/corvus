@@ -272,13 +272,63 @@ instance (GH.HasField "id" GH.Slot TemplateSshKeyInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
 instance (GH.HasField "name" GH.Slot TemplateSshKeyInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
+data TemplateSharedDirInfo 
+type instance (R.ReprFor TemplateSharedDirInfo) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId TemplateSharedDirInfo) where
+    typeId  = 11310922036489175163
+instance (C.TypedStruct TemplateSharedDirInfo) where
+    numStructWords  = 2
+    numStructPtrs  = 2
+instance (C.Allocate TemplateSharedDirInfo) where
+    type AllocHint TemplateSharedDirInfo = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc TemplateSharedDirInfo (C.Parsed TemplateSharedDirInfo))
+instance (C.AllocateList TemplateSharedDirInfo) where
+    type ListAllocHint TemplateSharedDirInfo = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc TemplateSharedDirInfo (C.Parsed TemplateSharedDirInfo))
+data instance C.Parsed TemplateSharedDirInfo
+    = TemplateSharedDirInfo 
+        {id :: (RP.Parsed Std_.Int64)
+        ,path :: (RP.Parsed Basics.Text)
+        ,tag :: (RP.Parsed Basics.Text)
+        ,cache :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.SharedDirCache)
+        ,readOnly :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed TemplateSharedDirInfo))
+deriving instance (Std_.Eq (C.Parsed TemplateSharedDirInfo))
+instance (C.Parse TemplateSharedDirInfo (C.Parsed TemplateSharedDirInfo)) where
+    parse raw_ = (TemplateSharedDirInfo <$> (GH.parseField #id raw_)
+                                        <*> (GH.parseField #path raw_)
+                                        <*> (GH.parseField #tag raw_)
+                                        <*> (GH.parseField #cache raw_)
+                                        <*> (GH.parseField #readOnly raw_))
+instance (C.Marshal TemplateSharedDirInfo (C.Parsed TemplateSharedDirInfo)) where
+    marshalInto raw_ TemplateSharedDirInfo{..} = (do
+        (GH.encodeField #id id raw_)
+        (GH.encodeField #path path raw_)
+        (GH.encodeField #tag tag raw_)
+        (GH.encodeField #cache cache raw_)
+        (GH.encodeField #readOnly readOnly raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "id" GH.Slot TemplateSharedDirInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "path" GH.Slot TemplateSharedDirInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "tag" GH.Slot TemplateSharedDirInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "cache" GH.Slot TemplateSharedDirInfo Capnp.Gen.ById.Xbf9b09f64c0dd40d.SharedDirCache) where
+    fieldByLabel  = (GH.dataField 0 1 16 0)
+instance (GH.HasField "readOnly" GH.Slot TemplateSharedDirInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 16 1 1 0)
 data TemplateDetails 
 type instance (R.ReprFor TemplateDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TemplateDetails) where
     typeId  = 15861980235634274923
 instance (C.TypedStruct TemplateDetails) where
     numStructWords  = 4
-    numStructPtrs  = 6
+    numStructPtrs  = 7
 instance (C.Allocate TemplateDetails) where
     type AllocHint TemplateDetails = ()
     new _ = C.newTypedStruct
@@ -303,7 +353,8 @@ data instance C.Parsed TemplateDetails
         ,drives :: (RP.Parsed (R.List TemplateDriveInfo))
         ,netIfs :: (RP.Parsed (R.List TemplateNetIfInfo))
         ,sshKeys :: (RP.Parsed (R.List TemplateSshKeyInfo))
-        ,rebootQuirk :: (RP.Parsed Std_.Bool)}
+        ,rebootQuirk :: (RP.Parsed Std_.Bool)
+        ,sharedDirs :: (RP.Parsed (R.List TemplateSharedDirInfo))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TemplateDetails))
 deriving instance (Std_.Eq (C.Parsed TemplateDetails))
@@ -322,7 +373,8 @@ instance (C.Parse TemplateDetails (C.Parsed TemplateDetails)) where
                                   <*> (GH.parseField #drives raw_)
                                   <*> (GH.parseField #netIfs raw_)
                                   <*> (GH.parseField #sshKeys raw_)
-                                  <*> (GH.parseField #rebootQuirk raw_))
+                                  <*> (GH.parseField #rebootQuirk raw_)
+                                  <*> (GH.parseField #sharedDirs raw_))
 instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
     marshalInto raw_ TemplateDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -340,6 +392,7 @@ instance (C.Marshal TemplateDetails (C.Parsed TemplateDetails)) where
         (GH.encodeField #netIfs netIfs raw_)
         (GH.encodeField #sshKeys sshKeys raw_)
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
+        (GH.encodeField #sharedDirs sharedDirs raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot TemplateDetails Std_.Int64) where
@@ -372,6 +425,8 @@ instance (GH.HasField "sshKeys" GH.Slot TemplateDetails (R.List TemplateSshKeyIn
     fieldByLabel  = (GH.ptrField 5)
 instance (GH.HasField "rebootQuirk" GH.Slot TemplateDetails Std_.Bool) where
     fieldByLabel  = (GH.dataField 4 2 1 0)
+instance (GH.HasField "sharedDirs" GH.Slot TemplateDetails (R.List TemplateSharedDirInfo)) where
+    fieldByLabel  = (GH.ptrField 6)
 data TemplateManager 
 type instance (R.ReprFor TemplateManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId TemplateManager) where

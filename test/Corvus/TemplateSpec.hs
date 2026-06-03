@@ -12,6 +12,7 @@
 -- `RespError`, not a panic.
 module Corvus.TemplateSpec (spec) where
 
+import Corvus.Protocol (TemplateDetails (..), TemplateSharedDirInfo (..))
 import Test.Prelude
 
 -- A minimal template YAML accepted by `Corvus.Schema.Template`'s
@@ -92,3 +93,50 @@ spec = sequential $ withTestDb $ do
       _ <- when_ $ whenTemplateCreate (minimalYaml "doomed")
       when_ $ whenTemplateDelete 1
       then_ $ responseIs (== RespTemplateDeleted)
+
+  describe "template sharedDirs round-trip" $ do
+    testCase "create + show preserves sharedDirs fields" $ do
+      let yaml =
+            "name: tpl-sd\n\
+            \cpuCount: 1\n\
+            \ramMb: 512\n\
+            \drives: []\n\
+            \sharedDirs:\n\
+            \  - path: /srv/data\n\
+            \    tag: data\n\
+            \  - path: /etc/ssl\n\
+            \    tag: certs\n\
+            \    cache: never\n\
+            \    readOnly: true\n"
+      _ <- when_ $ whenTemplateCreate yaml
+      when_ $ whenTemplateShow 1
+      then_ $ responseIs $ \case
+        RespTemplateInfo details ->
+          let sds = tvdSharedDirs details
+              byTag t = filter (\sd -> tvsdiTag sd == t) sds
+              [d] = byTag "data"
+              [c] = byTag "certs"
+           in length sds == 2
+                && tvsdiPath d == "/srv/data"
+                && tvsdiCache d == CacheAuto
+                && not (tvsdiReadOnly d)
+                && tvsdiPath c == "/etc/ssl"
+                && tvsdiCache c == CacheNever
+                && tvsdiReadOnly c
+        _ -> False
+
+    testCase "rejects a template with a duplicate sharedDirs tag" $ do
+      let yaml =
+            "name: tpl-dup-tag\n\
+            \cpuCount: 1\n\
+            \ramMb: 512\n\
+            \drives: []\n\
+            \sharedDirs:\n\
+            \  - path: /a\n\
+            \    tag: same\n\
+            \  - path: /b\n\
+            \    tag: same\n"
+      when_ $ whenTemplateCreate yaml
+      then_ $ responseIs $ \case
+        RespError _ -> True
+        _ -> False

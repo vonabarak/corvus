@@ -554,6 +554,11 @@ templates:
         hostDevice: <string>    # Optional, depends on type.
     sshKeys:                    # Optional.
       - name: <key-name>
+    sharedDirs:                 # Optional. Same fields as VM-level sharedDirs above.
+      - path: <absolute-host-path>
+        tag: <virtiofs-tag>
+        cache: <always|auto|never>  # Optional. Default: auto.
+        readOnly: <bool>              # Optional. Default: false.
 ```
 
 Templates are created **after** SSH keys, disks, networks, and VMs so they can

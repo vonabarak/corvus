@@ -66,6 +66,8 @@ module Corvus.Model
   , TemplateNetworkInterfaceId
   , TemplateSshKey (..)
   , TemplateSshKeyId
+  , TemplateSharedDir (..)
+  , TemplateSharedDirId
 
     -- * Task entity
   , Task (..)
@@ -768,6 +770,15 @@ TemplateSshKey
     templateId TemplateVmId
     sshKeyId SshKeyId
     UniqueTemplateSshKey templateId sshKeyId
+    deriving Show Eq Generic
+
+TemplateSharedDir
+    templateId TemplateVmId
+    path Text
+    tag Text
+    cache SharedDirCache
+    readOnly Bool default=false
+    UniqueTemplateSharedDirTag templateId tag
     deriving Show Eq Generic
 
 Task

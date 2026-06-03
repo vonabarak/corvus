@@ -10,6 +10,8 @@ module Corvus.Wire.Template
   , fromCapnpTemplateNetIfInfo
   , toCapnpTemplateSshKeyInfo
   , fromCapnpTemplateSshKeyInfo
+  , toCapnpTemplateSharedDirInfo
+  , fromCapnpTemplateSharedDirInfo
   , toCapnpTemplateDetails
   , fromCapnpTemplateDetails
   )
@@ -27,12 +29,14 @@ import Corvus.Wire.Enums
   , fromCapnpDriveInterface
   , fromCapnpDriveMedia
   , fromCapnpNetInterfaceType
+  , fromCapnpSharedDirCache
   , fromCapnpTemplateCloneStrategy
   , toCapnpCacheType
   , toCapnpDriveFormat
   , toCapnpDriveInterface
   , toCapnpDriveMedia
   , toCapnpNetInterfaceType
+  , toCapnpSharedDirCache
   , toCapnpTemplateCloneStrategy
   )
 import Corvus.Wire.Errors (WireError)
@@ -167,6 +171,34 @@ fromCapnpTemplateSshKeyInfo CGT.TemplateSshKeyInfo {..} =
   P.TemplateSshKeyInfo {P.tvskiId = id, P.tvskiName = name}
 
 -- ---------------------------------------------------------------------
+-- TemplateSharedDirInfo
+-- ---------------------------------------------------------------------
+
+toCapnpTemplateSharedDirInfo :: P.TemplateSharedDirInfo -> C.Parsed CGT.TemplateSharedDirInfo
+toCapnpTemplateSharedDirInfo P.TemplateSharedDirInfo {..} =
+  CGT.TemplateSharedDirInfo
+    { CGT.id = tvsdiId
+    , CGT.path = tvsdiPath
+    , CGT.tag = tvsdiTag
+    , CGT.cache = toCapnpSharedDirCache tvsdiCache
+    , CGT.readOnly = tvsdiReadOnly
+    }
+
+fromCapnpTemplateSharedDirInfo
+  :: C.Parsed CGT.TemplateSharedDirInfo
+  -> Either WireError P.TemplateSharedDirInfo
+fromCapnpTemplateSharedDirInfo CGT.TemplateSharedDirInfo {..} = do
+  c <- fromCapnpSharedDirCache cache
+  pure
+    P.TemplateSharedDirInfo
+      { P.tvsdiId = id
+      , P.tvsdiPath = path
+      , P.tvsdiTag = tag
+      , P.tvsdiCache = c
+      , P.tvsdiReadOnly = readOnly
+      }
+
+-- ---------------------------------------------------------------------
 -- TemplateDetails
 -- ---------------------------------------------------------------------
 
@@ -189,6 +221,7 @@ toCapnpTemplateDetails P.TemplateDetails {..} =
     , CGT.netIfs = map toCapnpTemplateNetIfInfo tvdNetIfs
     , CGT.sshKeys = map toCapnpTemplateSshKeyInfo tvdSshKeys
     , CGT.rebootQuirk = tvdRebootQuirk
+    , CGT.sharedDirs = map toCapnpTemplateSharedDirInfo tvdSharedDirs
     }
 
 fromCapnpTemplateDetails
@@ -197,6 +230,7 @@ fromCapnpTemplateDetails
 fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
   drives' <- traverse fromCapnpTemplateDriveInfo drives
   netIfs' <- traverse fromCapnpTemplateNetIfInfo netIfs
+  sharedDirs' <- traverse fromCapnpTemplateSharedDirInfo sharedDirs
   let sshKeys' = map fromCapnpTemplateSshKeyInfo sshKeys
   let ci = fromCapnpCloudInitInfo cloudInitConfig
   pure
@@ -216,4 +250,5 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
       , P.tvdDrives = drives'
       , P.tvdNetIfs = netIfs'
       , P.tvdSshKeys = sshKeys'
+      , P.tvdSharedDirs = sharedDirs'
       }

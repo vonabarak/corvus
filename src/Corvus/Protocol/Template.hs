@@ -10,11 +10,12 @@ module Corvus.Protocol.Template
   , TemplateDriveInfo (..)
   , TemplateNetIfInfo (..)
   , TemplateSshKeyInfo (..)
+  , TemplateSharedDirInfo (..)
   , TemplateDetails (..)
   )
 where
 
-import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, TemplateCloneStrategy)
+import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache, TemplateCloneStrategy)
 import Corvus.Protocol.CloudInit (CloudInitInfo)
 import Corvus.Protocol.JsonOptions (innerOptions)
 import Corvus.Protocol.NamedRef (NamedRef)
@@ -74,6 +75,16 @@ data TemplateSshKeyInfo = TemplateSshKeyInfo
   }
   deriving (Eq, Show, Generic)
 
+-- | Template shared directory info
+data TemplateSharedDirInfo = TemplateSharedDirInfo
+  { tvsdiId :: !Int64
+  , tvsdiPath :: !Text
+  , tvsdiTag :: !Text
+  , tvsdiCache :: !SharedDirCache
+  , tvsdiReadOnly :: !Bool
+  }
+  deriving (Eq, Show, Generic)
+
 -- | Template VM full details
 data TemplateDetails = TemplateDetails
   { tvdId :: !Int64
@@ -91,6 +102,7 @@ data TemplateDetails = TemplateDetails
   , tvdDrives :: ![TemplateDriveInfo]
   , tvdNetIfs :: ![TemplateNetIfInfo]
   , tvdSshKeys :: ![TemplateSshKeyInfo]
+  , tvdSharedDirs :: ![TemplateSharedDirInfo]
   }
   deriving (Eq, Show, Generic)
 
@@ -104,6 +116,9 @@ instance ToJSON TemplateNetIfInfo where
   toJSON = genericToJSON innerOptions
 
 instance ToJSON TemplateSshKeyInfo where
+  toJSON = genericToJSON innerOptions
+
+instance ToJSON TemplateSharedDirInfo where
   toJSON = genericToJSON innerOptions
 
 instance ToJSON TemplateDetails where
