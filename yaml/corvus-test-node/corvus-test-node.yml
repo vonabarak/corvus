@@ -33,10 +33,22 @@ pipeline:
 
         - shell:
             inline: |
-              mkdir -p /var/cache/distfiles /var/db/repos /var/cache/binpkgs
-              mount -oro 192.168.72.1:/data/portage/distfiles /var/cache/distfiles
-              mount -oro 192.168.72.1:/data/portage/binpkgs /var/cache/binpkgs 
+              # /var/cache/binpkgs and /var/db/repos: read-only NFS
+              # mounts from the host — portage only reads from these.
+              # /var/cache/distfiles needs writes for portage lockfiles
+              # and source-fallback fetches, so it's an overlayfs: the
+              # NFS RO mount at /run/distfiles-host is the lower layer,
+              # an ephemeral upperdir on the bake VM's local rootfs
+              # absorbs any new tarballs portage fetches.
+              mkdir -p /var/db/repos /var/cache/binpkgs \
+                       /var/cache/distfiles /run/distfiles-host \
+                       /var/tmp/distfiles-upper /var/tmp/distfiles-work
+              mount -oro 192.168.72.1:/data/portage/binpkgs /var/cache/binpkgs
               mount -oro 192.168.72.1:/var/db/repos /var/db/repos
+              mount -oro 192.168.72.1:/data/portage/distfiles /run/distfiles-host
+              mount -t overlay overlay \
+                -o lowerdir=/run/distfiles-host,upperdir=/var/tmp/distfiles-upper,workdir=/var/tmp/distfiles-work \
+                /var/cache/distfiles
             timeoutSec: 60
 
         - shell:

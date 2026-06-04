@@ -17,10 +17,38 @@ pipeline:
           description: "Gentoo"
           cloudInitConfig:
             userData:
+              bootcmd:
+                - [ mkdir, -p, /var/db/repos, /var/cache/binpkgs ]
+                - [ sh, -c, "mountpoint -q /var/db/repos      || mount -t virtiofs repos   /var/db/repos" ]
+                - [ sh, -c, "mountpoint -q /var/cache/binpkgs || mount -t virtiofs binpkgs /var/cache/binpkgs" ]
+                # /var/cache/distfiles is an overlayfs: the host's
+                # distfiles cache is the read-only lower layer, an
+                # ephemeral upperdir absorbs any new tarballs portage
+                # fetches during the bake. The host's distfiles stay
+                # untouched (no virtiofsd chown shenanigans, no UID
+                # mismatch EPERMs) and the bake VM still gets the full
+                # cache benefit for re-runs.
+                - [ mkdir, -p, /var/cache/distfiles, /run/distfiles-host, /var/tmp/distfiles-upper, /var/tmp/distfiles-work ]
+                - [ sh, -c, "mountpoint -q /run/distfiles-host || mount -t virtiofs distfiles /run/distfiles-host" ]
+                - [ sh, -c, "mountpoint -q /var/cache/distfiles || mount -t overlay overlay -o lowerdir=/run/distfiles-host,upperdir=/var/tmp/distfiles-upper,workdir=/var/tmp/distfiles-work /var/cache/distfiles" ]
               runcmd:
-                - emerge-webrsync --quiet
                 - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
                 - systemctl enable --now qemu-guest-agent.service
+          sharedDirs:
+            # All three host shares are read-only at the virtiofs
+            # layer. /var/cache/distfiles inside the guest is an
+            # overlayfs on top of this RO share (see the bootcmd
+            # above) so portage can still write — its writes land in
+            # an ephemeral upperdir, the host's cache stays clean.
+            - path: /var/db/repos
+              tag: repos
+              readOnly: true
+            - path: /data/portage/binpkgs
+              tag: binpkgs
+              readOnly: true
+            - path: /data/portage/distfiles
+              tag: distfiles
+              readOnly: true
           drives:
             - diskImageName: gentoo-base-cloud
               interface: virtio
@@ -78,8 +106,6 @@ pipeline:
               getent hosts distfiles.gentoo.org >/dev/null \
                 || { echo "network never came up after 120s" >&2; exit 1; }
 
-              emerge-webrsync
-
               mkdir -p /etc/portage/package.use
               cat > /etc/portage/package.use/grub <<'EOF'
               sys-boot/grub grub_platforms_pc -mount -nls -fonts -themes
@@ -87,20 +113,64 @@ pipeline:
 
               grep -q 'FEATURES=.*getbinpkg' /etc/portage/make.conf 2>/dev/null || cat >> /etc/portage/make.conf <<'EOF'
 
-              FEATURES="${FEATURES} getbinpkg parallel-fetch"
-              EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y"
+              # The host's local binhost (shared as /var/cache/binpkgs)
+              # isn't signed — host's portage doesn't have
+              # FEATURES=binpkg-signing. The 23.0 profile defaults to
+              # binpkg-request-signature, which would reject every
+              # unsigned binpkg the host serves us. The bake VM is
+              # ephemeral so we drop the requirement here only — the
+              # final image's make.conf (set up in step 4) keeps the
+              # strict default.
+              #
+              # --binpkg-changed-deps=n forces portage to use binpkgs
+              # even when their recorded dep manifest has drifted from
+              # the live tree's. Without it, otherwise-fine binpkgs
+              # (kbd, shadow, util-linux, binutils, e2fsprogs, procps,
+              # pam, portage, python, debugedit, charset-normalizer,
+              # elfutils, curl, libarchive, libcap, man-db, openssh,
+              # …) silently fall back to source build, which is the
+              # bulk of the bake's wall-clock cost.
+              FEATURES="${FEATURES} getbinpkg parallel-fetch -binpkg-request-signature"
+              EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
               ACCEPT_LICENSE="*"
               EOF
 
               getuto || emerge -1q app-portage/getuto || true
               getuto || true
 
-              emerge --noreplace -vt \
+              emerge --noreplace -vg \
                 sys-apps/gptfdisk \
                 sys-block/parted \
                 sys-fs/e2fsprogs \
                 sys-boot/grub:2
-            timeoutSec: 1800
+
+              # Bring the bake VM's @world in line with the current
+              # portage tree (host-mounted). Equivalent to the @world
+              # update that webrsync used to imply — needed so the bake
+              # VM's installed BDEPENDs (setuptools, packaging, …)
+              # match the PYTHON_TARGETS the tree expects right now.
+              # Without it, `emerge @system` into the sysroot in step 4
+              # hits slot conflicts because an ebuild's BDEPEND wants
+              # e.g. setuptools[python3_14] while the bake VM has
+              # setuptools[python3_13] from the cloud-init base image.
+              #
+              # Two-pass with --keep-going=y is the canonical workaround
+              # for the portage self-upgrade bug across Python target
+              # transitions: the OLD portage (python3.13) crashes in
+              # `_post_merge_sync` with a ModuleNotFoundError because
+              # the in-flight unmerge has already removed its
+              # `_SyncfsProcess` module while the merge of the new
+              # portage is still running. The crash happens AFTER the
+              # new portage's files are on disk, so a second pass —
+              # this time using the new python3.14 portage — completes
+              # cleanly.
+              emerge --update --deep --newuse --getbinpkg --usepkg \
+                --binpkg-respect-use=y --quiet-build --keep-going=y \
+                -v @world || \
+              emerge --update --deep --newuse --getbinpkg --usepkg \
+                --binpkg-respect-use=y --quiet-build --keep-going=y \
+                -v @world
+            timeoutSec: 3600
 
         # 2) Copy kernel config onto the bake VM.
         #    Step 5 copies it to $SYSROOT/usr/src/linux/.config and
@@ -125,44 +195,197 @@ pipeline:
               mkfs.ext4 -F -L corvus-root "${DEV}2"
             timeoutSec: 120
 
-        # 4) Mount the new root and lay down a Gentoo @system using a stage3 tarball.
+        # 4) Mount the new root and lay down a Gentoo @system directly,
+        #    no stage3. The bake VM's mounted portage tree + binhost
+        #    (shared from the host via virtiofs) drives the install, so
+        #    the resulting sysroot is guaranteed consistent with the
+        #    tree state the rest of the bake uses.
         - shell:
             inline: |
               mkdir -p "$SYSROOT"
               mount "${DEV}2" "$SYSROOT"
 
-              STAGE_DIR=https://distfiles.gentoo.org/releases/amd64/autobuilds/current-stage3-amd64-systemd
-              STAGE_NAME=$(curl -fsSL "$STAGE_DIR/latest-stage3-amd64-systemd.txt" \
-                | awk '/tar\.xz/ {print $1; exit}')
-              test -n "$STAGE_NAME"
-              curl -fL "$STAGE_DIR/$STAGE_NAME"          -o /tmp/stage3.tar.xz
-              curl -fL "$STAGE_DIR/$STAGE_NAME.DIGESTS"  -o /tmp/stage3.DIGESTS
+              install -d "$SYSROOT/etc/portage" \
+                         "$SYSROOT/etc/portage/package.use" \
+                         "$SYSROOT/etc/portage/package.accept_keywords" \
+                         "$SYSROOT/etc/portage/package.mask" \
+                         "$SYSROOT/etc/portage/package.unmask" \
+                         "$SYSROOT/etc/portage/package.license" \
+                         "$SYSROOT/etc/portage/env" \
+                         "$SYSROOT/etc/portage/repos.conf" \
+                         "$SYSROOT/var/cache/distfiles" \
+                         "$SYSROOT/var/cache/binpkgs" \
+                         "$SYSROOT/var/db/repos" \
+                         "$SYSROOT/usr/bin" \
+                         "$SYSROOT/usr/lib" \
+                         "$SYSROOT/usr/lib64"
 
-              HASH=$(awk '
-                /^# BLAKE2B HASH$/ { f = 1; next }
-                /^# /              { f = 0 }
-                f && /tar\.xz$/    { print $1; exit }
-              ' /tmp/stage3.DIGESTS)
-              test -n "$HASH"
-              echo "$HASH  /tmp/stage3.tar.xz" | b2sum -c -
+              # Pre-stage merged-usr symlinks. Gentoo's 23.0 profile is
+              # merged-usr (everything under /usr); profile.bashrc dies
+              # with "23.0 merged-usr profile, but disk is split-usr"
+              # the moment the first ebuild's environment loads if the
+              # sysroot doesn't have /{bin,sbin,lib,lib64} as symlinks
+              # into /usr. Stage3 tarballs ship these pre-created — we
+              # don't have one, so create them ourselves before the
+              # first emerge.
+              #
+              # /usr/sbin is ALSO a symlink (to bin) in modern merged-
+              # usr Gentoo — sbin and bin are unified inside /usr too.
+              # If /usr/sbin is left as a real directory, shadow's
+              # `dosbin groupadd` lands at /usr/sbin/groupadd, which
+              # never appears on the default Gentoo PATH (PATH /
+              # ROOTPATH in /etc/env.d/50baselayout cover /usr/bin
+              # only). Result: groupadd "command not found" when any
+              # downstream ebuild calls it.
+              ln -sf bin       "$SYSROOT/usr/sbin"
+              ln -sf usr/bin   "$SYSROOT/bin"
+              ln -sf usr/sbin  "$SYSROOT/sbin"
+              ln -sf usr/lib   "$SYSROOT/lib"
+              ln -sf usr/lib64 "$SYSROOT/lib64"
 
-              tar --xattrs-include='*.*' --numeric-owner -xpf /tmp/stage3.tar.xz -C "$SYSROOT"
-              rm -f /tmp/stage3.tar.xz /tmp/stage3.DIGESTS
+              # Carry the bake host's binhost knobs into the new system.
+              # Quoted heredoc so the ${VAR} references stay literal
+              # (portage's make.conf parser will expand them) and so
+              # the backticks in the comments below don't get evaluated
+              # as shell command substitution. MAKEOPTS needs nproc at
+              # bake time, which a quoted heredoc can't expand — we
+              # append it separately after the heredoc closes.
+              cat > "$SYSROOT/etc/portage/make.conf" <<'EOF'
+              COMMON_FLAGS="-O2 -pipe"
+              CFLAGS="${COMMON_FLAGS}"
+              CXXFLAGS="${COMMON_FLAGS}"
+              FCFLAGS="${COMMON_FLAGS}"
+              FFLAGS="${COMMON_FLAGS}"
 
-              install -d "$SYSROOT/etc/portage" "$SYSROOT/etc/portage/package.use"
-
-              # Append the same binhost knobs to the sysroot's stage3
-              grep -q 'FEATURES=.*getbinpkg' "$SYSROOT/etc/portage/make.conf" 2>/dev/null \
-                || cat >> "$SYSROOT/etc/portage/make.conf" <<'EOF'
-
-              FEATURES="${FEATURES} getbinpkg parallel-fetch"
-              EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y"
+              # `-binpkg-request-signature binpkg-ignore-signature`:
+              # the host binhost we ship by default isn't uniformly
+              # signed (some old per-package binpkgs have .sig files
+              # left over from a prior FEATURES=binpkg-signing run,
+              # most don't). With the 23.0 profile's default
+              # `binpkg-request-signature` left enabled, portage
+              # routes every unsigned binpkg through its gpg-VERIFY
+              # codepath — which on a fresh sysroot crashes with
+              # `getgrnam(): name not found: 'nogroup'` because
+              # baselayout doesn't ship a `nogroup` group. And even
+              # with `-binpkg-request-signature` alone, the presence
+              # of any .sig inside a gpkg still triggers VERIFY (see
+              # gpkg.py:_verify_binpkg, condition `request_signature
+              # or signature_exist`). Adding `binpkg-ignore-signature`
+              # short-circuits verification entirely. Downstream bakes
+              # against this image (corvus-test-node etc.) can then
+              # `emerge --usepkg` against the heterogeneously-signed
+              # binhost without crashing on the first signed binpkg.
+              FEATURES="getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
+              EMERGE_DEFAULT_OPTS="--getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
               ACCEPT_LICENSE="*"
               USE="bash-completion"
+
+              # Portage's gpkg verifier (gpkg.py:checksum_helper) drops
+              # privileges to nobody:nogroup whenever a gpkg contains a
+              # .sig — and that happens BEFORE any FEATURES check, so
+              # binpkg-ignore-signature alone can't avoid the lookup.
+              # Gentoo's baselayout doesn't ship a 'nogroup' group, so
+              # the lookup crashes with KeyError: "getgrnam(): name not
+              # found: 'nogroup'" the first time a partially-signed
+              # binpkg (e.g. acct-group/postgres) lands. Empty value
+              # tells portage to skip the privilege drop entirely.
+              GPG_VERIFY_USER_DROP=""
+              GPG_VERIFY_GROUP_DROP=""
               EOF
 
+              # Append MAKEOPTS with the bake-time nproc baked in;
+              # portage's make.conf parser doesn't run $() so we
+              # resolve it at write time instead.
+              echo "MAKEOPTS=\"-j$(nproc)\"" >> "$SYSROOT/etc/portage/make.conf"
+
+              cat > "$SYSROOT/etc/portage/package.use/grub" <<'EOF'
+              sys-boot/grub grub_platforms_pc -mount -nls -fonts -themes
+              EOF
+
+              cat > "$SYSROOT/etc/portage/repos.conf/gentoo.conf" <<'EOF'
+              [DEFAULT]
+              main-repo = gentoo
+
+              [gentoo]
+              location = /var/db/repos/gentoo
+              sync-type = rsync
+              sync-uri = rsync://rsync.gentoo.org/gentoo-portage
+              auto-sync = yes
+              EOF
+
+              # Relative make.profile so the symlink resolves on the
+              # booted image the first time the user runs
+              # `emerge-webrsync` (or `emerge --sync`) — same convention
+              # the stage3 tarball used.
+              ln -sf ../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/systemd \
+                "$SYSROOT/etc/portage/make.profile"
+
+              # Trust keys for binpkg signature verification.
               cp -a /etc/portage/gnupg "$SYSROOT/etc/portage/gnupg"
-            timeoutSec: 1800
+
+              # Break the well-known systemd ↔ util-linux build
+              # circular dep: util-linux[systemd] needs sys-apps/systemd
+              # to build, but systemd needs util-linux. Stage3 used to
+              # paper over this by shipping a pre-built util-linux. With
+              # no stage3 we have to bootstrap manually — install
+              # util-linux without the systemd USE first, then re-emerge
+              # it at the end of this step so the final image has full
+              # systemd integration.
+              #
+              # The override goes in the BAKE VM's /etc/portage (not
+              # the sysroot's) because the @system emerge below uses
+              # ROOT=$SYSROOT only — it reads /etc/portage from the
+              # live bake VM, not from the sysroot. We use a name
+              # outside the sysroot so the bootstrap doesn't leak into
+              # the final image.
+              install -d /etc/portage/package.use
+              # `build` USE on util-linux is the stage3-style minimal
+              # mode that strips systemd + udev + most extras in one
+              # flag — breaks both the systemd↔util-linux cycle AND
+              # the libudev→systemd→util-linux→libudev cycle that comes
+              # in via `virtual/libudev`. Pam still needs an explicit
+              # -systemd to break the pam↔systemd cycle.
+              cat > /etc/portage/package.use/zz-corvus-bootstrap <<'EOF'
+              sys-apps/util-linux build
+              sys-libs/pam -systemd
+              EOF
+
+              # Install @system into the sysroot using the bake VM's
+              # live portage (host's tree, mounted) and the host
+              # binhost. Bake VM's /etc/portage drives the resolve —
+              # both ends are amd64 systemd Gentoo with the same
+              # binhost config.
+              #
+              # `env -u SYSROOT` is critical: this pipeline exports a
+              # shell-level SYSROOT=/mnt/sysroot for ergonomics, but
+              # portage interprets a non-empty SYSROOT as the
+              # cross-compile target sysroot and pipes
+              # `--sysroot=/mnt/sysroot` through to GCC / CMake. With a
+              # freshly-formatted /mnt/sysroot (no /usr/include yet),
+              # every source-build ebuild then dies with "fatal error:
+              # assert.h: No such file or directory". Unsetting SYSROOT
+              # here puts portage in native mode — uses the bake VM's
+              # own headers/libs, installs into ROOT=/mnt/sysroot.
+              env -u SYSROOT ROOT="$SYSROOT" emerge -vt @system
+
+              # Cycles broken: drop the overrides and re-emerge the
+              # bootstrapped packages with full USE now that
+              # sys-apps/systemd is on disk in the sysroot.
+              rm /etc/portage/package.use/zz-corvus-bootstrap
+              ROOT="$SYSROOT" emerge -vt -1 sys-apps/util-linux sys-libs/pam
+
+              # systemd-PID1's required pseudo-fs mountpoints. baselayout
+              # normally lays /proc, /sys, /dev, /run, /tmp down on a
+              # fresh stage3 unpack, but its ROOT=$SYSROOT @system
+              # install above doesn't reliably create them — without
+              # these the booted image hangs at PID1 with "Failed to
+              # mount proc/sys/dev: No such file or directory" plus a
+              # very early "devtmpfs: error mounting -2" from the
+              # kernel's auto-mount.
+              install -d -m 755 "$SYSROOT/proc" "$SYSROOT/sys" \
+                                "$SYSROOT/dev"  "$SYSROOT/run"
+              install -d -m 1777 "$SYSROOT/tmp" "$SYSROOT/var/tmp"
+            timeoutSec: 7200
 
         # 5) Build and install the kernel from sys-kernel/gentoo-sources.
         - shell:
@@ -246,6 +469,14 @@ pipeline:
 
               echo gentoo-headless > "$SYSROOT/etc/hostname"
               : > "$SYSROOT/etc/machine-id"   # populated by systemd on first boot
+
+              # Pre-set the timezone to UTC. systemd-firstboot
+              # otherwise blocks on stdin asking the operator to pick a
+              # zone — fine in a docked desktop install, fatal on a
+              # headless serial-console boot. The /etc/localtime
+              # symlink (relative, into /usr/share/zoneinfo) signals
+              # "timezone already chosen" to firstboot.
+              ln -sf ../usr/share/zoneinfo/UTC "$SYSROOT/etc/localtime"
 
               install -d "$SYSROOT/etc/systemd/network"
               cat > "$SYSROOT/etc/systemd/network/20-wired.network" <<'EOF'
