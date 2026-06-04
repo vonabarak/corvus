@@ -650,7 +650,15 @@ instance IsPtrRepr ('Just 'Struct) where
 
 instance IsPtrRepr ('Just 'Cap) where
   toPtr c = Just (PtrCap c)
-  fromPtr _ Nothing = expected "pointer to capability"
+  -- A null pointer is the canonical encoding for an omitted /
+  -- absent capability in Cap'n Proto (pycapnp and capnproto-c++
+  -- both emit it that way when a Capability field isn't set). Map
+  -- it to a Cap whose lookup falls through 'M.getCap' to
+  -- 'invalidClient' — i.e. a client that errors on use rather than
+  -- failing the whole parse. This matches the behaviour of the
+  -- 'Just 'Struct' instance above, which returns a default empty
+  -- struct on null instead of throwing.
+  fromPtr msg Nothing = pure (CapAt msg maxBound)
   fromPtr _ (Just (PtrCap c)) = pure c
   fromPtr _ _ = expected "pointer to capability"
   {-# INLINE toPtr #-}
