@@ -18,9 +18,8 @@ pipeline:
           cloudInitConfig:
             userData:
               bootcmd:
-                - [ mkdir, -p, /var/db/repos, /var/cache/binpkgs ]
-                - [ sh, -c, "mountpoint -q /var/db/repos      || mount -t virtiofs repos   /var/db/repos" ]
-                - [ sh, -c, "mountpoint -q /var/cache/binpkgs || mount -t virtiofs binpkgs /var/cache/binpkgs" ]
+                - [ mkdir, -p, /var/db/repos ]
+                - [ sh, -c, "mountpoint -q /var/db/repos || mount -t virtiofs repos /var/db/repos" ]
                 # /var/cache/distfiles is an overlayfs: the host's
                 # distfiles cache is the read-only lower layer, an
                 # ephemeral upperdir absorbs any new tarballs portage
@@ -31,20 +30,40 @@ pipeline:
                 - [ mkdir, -p, /var/cache/distfiles, /run/distfiles-host, /var/tmp/distfiles-upper, /var/tmp/distfiles-work ]
                 - [ sh, -c, "mountpoint -q /run/distfiles-host || mount -t virtiofs distfiles /run/distfiles-host" ]
                 - [ sh, -c, "mountpoint -q /var/cache/distfiles || mount -t overlay overlay -o lowerdir=/run/distfiles-host,upperdir=/var/tmp/distfiles-upper,workdir=/var/tmp/distfiles-work /var/cache/distfiles" ]
+              # /var/cache/binpkgs is bind-mounted via NFS so portage
+              # can WRITE binpkgs back to the host (FEATURES=buildpkg
+              # in the bake VM's make.conf turns this on). virtiofsd
+              # can't fake foreign UIDs from an unprivileged host
+              # process, so writes through the virtiofs share would
+              # EPERM; the host's NFS export uses
+              # all_squash,anonuid=1000 to land every write as bobr
+              # regardless of which UID the guest's portage uses.
+              #
+              # cloud-init's `mounts:` module doesn't work here:
+              # gentoo-cloud doesn't ship net-fs/nfs-utils, so neither
+              # mount.nfs nor mount.nfs4 exists at cc_mounts time, and
+              # util-linux's built-in NFS path through fsconfig() then
+              # fails with "NFS: mount program didn't pass remote
+              # address". Install nfs-utils first via runcmd, then
+              # mount + append to fstab manually.
               runcmd:
+                - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build net-fs/nfs-utils
+                - mkdir -p /var/cache/binpkgs
+                - mount -t nfs4 -o rw,vers=4.2 192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs
+                - sh -c "echo '192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs nfs4 rw,_netdev,vers=4.2 0 0' >> /etc/fstab"
                 - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
                 - systemctl enable --now qemu-guest-agent.service
           sharedDirs:
-            # All three host shares are read-only at the virtiofs
-            # layer. /var/cache/distfiles inside the guest is an
-            # overlayfs on top of this RO share (see the bootcmd
-            # above) so portage can still write — its writes land in
-            # an ephemeral upperdir, the host's cache stays clean.
+            # Both shares are read-only at the virtiofs layer.
+            # /var/cache/distfiles inside the guest is an overlayfs on
+            # top of the RO distfiles share (see the bootcmd above) so
+            # portage can still write — its writes land in an
+            # ephemeral upperdir, the host's cache stays clean.
+            # /var/cache/binpkgs is NOT a virtiofs share — it's
+            # mounted via NFS so persistent writes work, see the
+            # mounts: block above.
             - path: /var/db/repos
               tag: repos
-              readOnly: true
-            - path: /data/portage/binpkgs
-              tag: binpkgs
               readOnly: true
             - path: /data/portage/distfiles
               tag: distfiles
@@ -130,7 +149,7 @@ pipeline:
               # elfutils, curl, libarchive, libcap, man-db, openssh,
               # …) silently fall back to source build, which is the
               # bulk of the bake's wall-clock cost.
-              FEATURES="${FEATURES} getbinpkg parallel-fetch -binpkg-request-signature"
+              FEATURES="${FEATURES} buildpkg getbinpkg parallel-fetch -binpkg-request-signature"
               EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
               ACCEPT_LICENSE="*"
               EOF
@@ -478,17 +497,33 @@ pipeline:
               # "timezone already chosen" to firstboot.
               ln -sf ../usr/share/zoneinfo/UTC "$SYSROOT/etc/localtime"
 
-              # Pin the system locale to C.UTF-8. baselayout leaves
-              # /etc/locale.conf empty, which gives processes a C /
-              # POSIX locale (ASCII-only). Any binary that prints a
+              # Pin the system locale to en_US.UTF-8 and generate it
+              # in the sysroot. Without this, baselayout leaves
+              # /etc/locale.conf empty and processes inherit the C /
+              # POSIX locale (ASCII-only). Anything that prints a
               # non-ASCII character — `crv`'s em-dash separators, for
               # one — then crashes with "commitBuffer: invalid
-              # argument (cannot encode character …)" on stdout. The
-              # C.UTF-8 locale ships built into glibc 2.35+, so no
-              # locale-gen step is required.
-              cat > "$SYSROOT/etc/locale.conf" <<'EOF'
-              LANG=C.UTF-8
+              # argument (cannot encode character …)" on stdout, and
+              # postgres' initdb refuses to run ("invalid locale
+              # settings"). Gentoo's glibc doesn't include any
+              # built-in UTF-8 locale, so we have to localedef one
+              # into the sysroot — which means a chroot because the
+              # sysroot's localedef wants the sysroot's
+              # /usr/share/i18n data, not the bake VM's. The
+              # locale-gen wrapper (sys-apps/locale-gen) is NOT in
+              # @system, so we call localedef from glibc directly.
+              cat > "$SYSROOT/etc/locale.gen" <<'EOF'
+              en_US.UTF-8 UTF-8
               EOF
+              cat > "$SYSROOT/etc/locale.conf" <<'EOF'
+              LANG=en_US.UTF-8
+              EOF
+              install -d "$SYSROOT/usr/lib/locale"
+              mount --bind /dev  "$SYSROOT/dev"
+              mount --bind /proc "$SYSROOT/proc"
+              mount --bind /sys  "$SYSROOT/sys"
+              chroot "$SYSROOT" localedef -i en_US -f UTF-8 en_US.UTF-8
+              umount "$SYSROOT/sys" "$SYSROOT/proc" "$SYSROOT/dev"
 
               install -d "$SYSROOT/etc/systemd/network"
               cat > "$SYSROOT/etc/systemd/network/20-wired.network" <<'EOF'
