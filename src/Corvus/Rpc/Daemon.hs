@@ -34,7 +34,7 @@ import Capnp.Rpc.Untyped (nullClient)
 import Control.Concurrent.Async (async)
 import Control.Exception (SomeException, try)
 import Control.Monad (void)
-import Corvus.Action (acApplySink, classifyResponse, mkActionContext, runAction, runActionAsyncWithId)
+import Corvus.Action (Action (..), acApplySink, classifyResponse, createTaskRecord, mkActionContext, runAction, runActionAsyncWithId, runAndFinalize)
 import Corvus.Handlers.Apply (ApplyAction (..), executeApply, handleApplyValidate)
 import Corvus.Handlers.Build (BuildSink, runBuildPipeline)
 import Corvus.Handlers.Core (handlePing, handleShutdown, handleStatus)
@@ -256,7 +256,11 @@ instance CGCorvus.Daemon'server_ DaemonCap where
 -- | Synchronous apply path. Blocks until the pipeline completes
 -- and returns a populated 'ApplyResult'. Events are pushed through
 -- the sink along the way; the push attempts are wrapped in 'try',
--- so a null / dead sink is silently tolerated.
+-- so a null / dead sink is silently tolerated. Reuses the normal
+-- action-runner machinery ('runAndFinalize') for task lifecycle +
+-- exception handling — we just need to inject our sink into the
+-- 'ActionContext' before the action runs, which 'runAction' can't
+-- do for us (it constructs the ctx itself).
 runApplyNonStreaming
   :: ServerState
   -> T.Text
@@ -265,26 +269,7 @@ runApplyNonStreaming
   -> C.Parsed CGS.ApplyEventSink
   -> IO (C.Parsed CGCorvus.Daemon'apply'results)
 runApplyNonStreaming st cn cfg skipExisting sinkCap = do
-  startedAt <- getCurrentTime
-  let pool = ssDbPool st
-  taskKey <-
-    runSqlPool
-      ( insert
-          Task
-            { taskParent = Nothing
-            , taskStartedAt = startedAt
-            , taskFinishedAt = Nothing
-            , taskSubsystem = SubApply
-            , taskEntityId = Nothing
-            , taskEntityName = Nothing
-            , taskCommand = "apply"
-            , taskResult = TaskRunning
-            , taskMessage = Nothing
-            , taskClientName = cn
-            }
-      )
-      pool
-  let tid = fromSqlKey taskKey
+  let action = ApplyAction cfg skipExisting
       pushEvent ev = do
         let cev = toCapnpApplyEvent ev
             params = CGS.ApplyEventSink'push'params {CGS.event = cev}
@@ -298,35 +283,34 @@ runApplyNonStreaming st cn cfg skipExisting sinkCap = do
           try (callSink #end CGS.ApplyEventSink'end'params sinkCap)
             :: IO (Either SomeException ())
         pure ()
-      ctx = (mkActionContext st taskKey cn) {acApplySink = pushEvent}
-  execResult <-
-    try (executeApply ctx cfg skipExisting)
-      :: IO (Either SomeException (Either T.Text PA.ApplyResult))
-  finishedAt <- getCurrentTime
-  let (taskRes, taskMsg, applyResultOrErr) = case execResult of
-        Right (Right ar) -> (TaskSuccess, Nothing, Right ar)
-        Right (Left err) -> (TaskError, Just err, Left err)
-        Left e ->
-          let txt = T.pack (show e)
-           in (TaskError, Just ("internal error: " <> txt), Left ("internal error: " <> txt))
-  runSqlPool
-    ( update
-        taskKey
-        [ TaskFinishedAt =. Just finishedAt
-        , TaskResult =. taskRes
-        , TaskMessage =. taskMsg
-        ]
-    )
-    pool
-  finalize (PA.ApplyEnd taskRes (maybe T.empty id taskMsg) tid)
-  case applyResultOrErr of
-    Right ar ->
-      pure
-        CGCorvus.Daemon'apply'results
-          { CGCorvus.result = toCapnpApplyResult ar
-          , CGCorvus.taskId = tid
-          }
-    Left err -> throwFailed err
+  mErr <- actionValidate st action
+  case mErr of
+    Just errResp -> do
+      finalize (PA.ApplyEnd TaskError (errText errResp) 0)
+      throwFailed (errText errResp)
+    Nothing -> do
+      taskKey <- createTaskRecord st cn action Nothing
+      let tid = fromSqlKey taskKey
+          ctx = (mkActionContext st taskKey cn) {acApplySink = pushEvent}
+      resp <- runAndFinalize st ctx action
+      case resp of
+        RespApplyResult ar -> do
+          finalize (PA.ApplyEnd TaskSuccess T.empty tid)
+          pure
+            CGCorvus.Daemon'apply'results
+              { CGCorvus.result = toCapnpApplyResult ar
+              , CGCorvus.taskId = tid
+              }
+        RespError msg -> do
+          finalize (PA.ApplyEnd TaskError msg tid)
+          throwFailed msg
+        other -> do
+          let msg = "apply: unexpected response: " <> T.pack (show other)
+          finalize (PA.ApplyEnd TaskError msg tid)
+          throwFailed msg
+  where
+    errText (RespError msg) = msg
+    errText other = "apply: validation failed: " <> T.pack (show other)
 
 -- | Apply path used when a streaming sink was supplied. Mirrors
 -- 'daemon'build': create the parent task synchronously, fork an

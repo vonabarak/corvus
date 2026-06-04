@@ -22,6 +22,8 @@ module Corvus.Action
   , runActionAsync
   , runActionAsyncWithId
   , runActionAsSubtask
+  , runAndFinalize
+  , createTaskRecord
 
     -- * Helpers
   , executeCreate
