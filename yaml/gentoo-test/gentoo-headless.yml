@@ -478,6 +478,18 @@ pipeline:
               # "timezone already chosen" to firstboot.
               ln -sf ../usr/share/zoneinfo/UTC "$SYSROOT/etc/localtime"
 
+              # Pin the system locale to C.UTF-8. baselayout leaves
+              # /etc/locale.conf empty, which gives processes a C /
+              # POSIX locale (ASCII-only). Any binary that prints a
+              # non-ASCII character — `crv`'s em-dash separators, for
+              # one — then crashes with "commitBuffer: invalid
+              # argument (cannot encode character …)" on stdout. The
+              # C.UTF-8 locale ships built into glibc 2.35+, so no
+              # locale-gen step is required.
+              cat > "$SYSROOT/etc/locale.conf" <<'EOF'
+              LANG=C.UTF-8
+              EOF
+
               install -d "$SYSROOT/etc/systemd/network"
               cat > "$SYSROOT/etc/systemd/network/20-wired.network" <<'EOF'
               [Match]
