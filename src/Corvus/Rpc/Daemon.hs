@@ -139,21 +139,28 @@ instance CGCorvus.Daemon'server_ DaemonCap where
 
   -- Declarative apply.
   --
-  -- Three modes, selected by the (wait, sink) pair:
+  -- Two modes, selected by the @wait@ flag:
   --
-  -- \* sink non-null     → streaming mode (mirrors 'daemon'build').
-  --   Validation is synchronous; a parent task is recorded and the
-  --   pipeline runs on an 'async' that pushes 'PhaseStart' /
-  --   'EntityStart' / 'EntityEnd' / 'DownloadProgress' /
-  --   'ApplyEnd' through the sink's @push@ method, terminating
-  --   with @end@. The result struct is empty; the taskId is the
-  --   parent task. @wait@ is ignored.
+  -- \* wait=True  → legacy synchronous: block until completion and
+  --   return a populated @result@. The sink (if non-null) still
+  --   receives push events along the way — pushes are best-effort
+  --   under a try-wrapper, so a null sink is silently tolerated.
   --
-  -- \* sink null, wait=True  → legacy synchronous: block until
-  --   completion and return a populated @result@.
+  -- \* wait=False → streaming mode (mirrors 'daemon'build'). A
+  --   parent task is recorded and the pipeline runs on an 'async'
+  --   that pushes 'PhaseStart' / 'EntityStart' / 'EntityEnd' /
+  --   'DownloadProgress' / 'ApplyEnd' through the sink's @push@
+  --   method, terminating with @end@. The result struct is empty;
+  --   the taskId is the parent task.
   --
-  -- \* sink null, wait=False → legacy async: kick off the task and
-  --   return the parent @taskId@ with an empty @result@.
+  -- The wait flag is used (instead of any "is sink null?" detection)
+  -- because @fromClient nullClient@ on the client side does NOT
+  -- round-trip to a literal null on the daemon side — the cap
+  -- system always wraps it in an ImportClient proxy that compares
+  -- not-equal to the daemon's local @nullClient@. Routing by sink
+  -- alone always misroutes legacy @--wait@ callers to the async
+  -- streaming path and returns an empty result while the work is
+  -- still in flight.
   daemon'apply (DaemonCap st _ cn) =
     handleParsed $
       \CGCorvus.Daemon'apply'params
@@ -167,8 +174,8 @@ instance CGCorvus.Daemon'server_ DaemonCap where
             Left (RespError msg) -> throwFailed msg
             Left _ -> throwFailed "apply: validation failed"
             Right cfg ->
-              if toClient sinkClient == nullClient
-                then runApplyNonStreaming st cn cfg skipExisting wait
+              if wait
+                then runApplyNonStreaming st cn cfg skipExisting sinkClient
                 else runApplyStreaming st cn cfg skipExisting sinkClient
 
   -- Build streaming. The client passes a 'BuildEventSink' cap; we
@@ -246,46 +253,80 @@ instance CGCorvus.Daemon'server_ DaemonCap where
             finalize (PB.PipelineEnd (PB.BuildResult []))
       pure CGCorvus.Daemon'build'results {CGCorvus.taskId = tid}
 
--- | Apply path used when no streaming sink was supplied. Preserves
--- the pre-streaming wire behaviour: @wait=True@ blocks and returns
--- a populated 'ApplyResult'; @wait=False@ kicks off an async and
--- returns the parent task id.
+-- | Synchronous apply path. Blocks until the pipeline completes
+-- and returns a populated 'ApplyResult'. Events are pushed through
+-- the sink along the way; the push attempts are wrapped in 'try',
+-- so a null / dead sink is silently tolerated.
 runApplyNonStreaming
   :: ServerState
   -> T.Text
   -> ApplyConfig
   -> Bool
-  -> Bool
+  -> C.Parsed CGS.ApplyEventSink
   -> IO (C.Parsed CGCorvus.Daemon'apply'results)
-runApplyNonStreaming st cn cfg skipExisting waitFlag =
-  if waitFlag
-    then do
-      resp <- runAction st cn (ApplyAction cfg skipExisting)
-      case resp of
-        RespApplyResult ar ->
-          pure
-            CGCorvus.Daemon'apply'results
-              { CGCorvus.result = toCapnpApplyResult ar
-              , CGCorvus.taskId = 0
-              }
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "apply: unexpected response"
-    else do
-      resp <-
-        runActionAsyncWithId
-          st
-          cn
-          (ApplyAction cfg skipExisting)
-          RespApplyStarted
-      case resp of
-        RespApplyStarted tid ->
-          pure
-            CGCorvus.Daemon'apply'results
-              { CGCorvus.result = toCapnpApplyResult emptyApplyResult
-              , CGCorvus.taskId = tid
-              }
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "apply (async): unexpected response"
+runApplyNonStreaming st cn cfg skipExisting sinkCap = do
+  startedAt <- getCurrentTime
+  let pool = ssDbPool st
+  taskKey <-
+    runSqlPool
+      ( insert
+          Task
+            { taskParent = Nothing
+            , taskStartedAt = startedAt
+            , taskFinishedAt = Nothing
+            , taskSubsystem = SubApply
+            , taskEntityId = Nothing
+            , taskEntityName = Nothing
+            , taskCommand = "apply"
+            , taskResult = TaskRunning
+            , taskMessage = Nothing
+            , taskClientName = cn
+            }
+      )
+      pool
+  let tid = fromSqlKey taskKey
+      pushEvent ev = do
+        let cev = toCapnpApplyEvent ev
+            params = CGS.ApplyEventSink'push'params {CGS.event = cev}
+        _ <-
+          try (callSink #push params sinkCap)
+            :: IO (Either SomeException ())
+        pure ()
+      finalize ev = do
+        pushEvent ev
+        _ <-
+          try (callSink #end CGS.ApplyEventSink'end'params sinkCap)
+            :: IO (Either SomeException ())
+        pure ()
+      ctx = (mkActionContext st taskKey cn) {acApplySink = pushEvent}
+  execResult <-
+    try (executeApply ctx cfg skipExisting)
+      :: IO (Either SomeException (Either T.Text PA.ApplyResult))
+  finishedAt <- getCurrentTime
+  let (taskRes, taskMsg, applyResultOrErr) = case execResult of
+        Right (Right ar) -> (TaskSuccess, Nothing, Right ar)
+        Right (Left err) -> (TaskError, Just err, Left err)
+        Left e ->
+          let txt = T.pack (show e)
+           in (TaskError, Just ("internal error: " <> txt), Left ("internal error: " <> txt))
+  runSqlPool
+    ( update
+        taskKey
+        [ TaskFinishedAt =. Just finishedAt
+        , TaskResult =. taskRes
+        , TaskMessage =. taskMsg
+        ]
+    )
+    pool
+  finalize (PA.ApplyEnd taskRes (maybe T.empty id taskMsg) tid)
+  case applyResultOrErr of
+    Right ar ->
+      pure
+        CGCorvus.Daemon'apply'results
+          { CGCorvus.result = toCapnpApplyResult ar
+          , CGCorvus.taskId = tid
+          }
+    Left err -> throwFailed err
 
 -- | Apply path used when a streaming sink was supplied. Mirrors
 -- 'daemon'build': create the parent task synchronously, fork an
