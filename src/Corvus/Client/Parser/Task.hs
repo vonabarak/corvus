@@ -64,6 +64,12 @@ taskWaitCommand =
           )
       )
 
+-- | Parser for task cancel
+taskCancelCommand :: Parser Command
+taskCancelCommand =
+  TaskCancel
+    <$> argument auto (metavar "ID" <> help "Task ID to cancel")
+
 -- | Parser for all task subcommands
 taskCommandParser :: Parser Command
 taskCommandParser =
@@ -77,4 +83,7 @@ taskCommandParser =
         <> command
           "wait"
           (info taskWaitCommand (progDesc "Wait for a task to complete"))
+        <> command
+          "cancel"
+          (info taskCancelCommand (progDesc "Request cancellation of a running task"))
     )

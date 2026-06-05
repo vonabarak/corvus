@@ -354,6 +354,9 @@ executeApply ctx config skipExisting = do
       where
         go [] m acc = pure $ Right (m, reverse acc)
         go (item : rest) m acc = do
+          -- Cooperative cancellation checkpoint: stop before creating
+          -- the next entity if `crv task cancel` was issued.
+          throwIfCancelled ctx
           result <- action item m
           case result of
             Left err -> pure $ Left err

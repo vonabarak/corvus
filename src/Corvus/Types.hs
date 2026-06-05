@@ -32,6 +32,13 @@ module Corvus.Types
     -- * Per-node serialisation locks
   , vsockCidLockFor
 
+    -- * Task cancellation registry
+  , newTaskCancelToken
+  , registerTaskThread
+  , unregisterTask
+  , lookupTaskCancelToken
+  , lookupTaskThread
+
     -- * Socket Buffer Types
   , SocketBuffer (..)
   , SocketBufferHandle (..)
@@ -45,6 +52,7 @@ where
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Vm as CGVm
+import Control.Concurrent (ThreadId)
 import Control.Concurrent.Async (Async)
 import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
@@ -135,6 +143,20 @@ data ServerState = ServerState
   -- 'ssVsockCidLock': allocator + caller persist need to be
   -- atomic so two parallel VM starts don't pick the same port.
   -- See 'Corvus.Node.SpicePort.withAllocatedSpicePort'.
+  , ssTaskCancels :: TVar (Map.Map Int64 (TVar Bool))
+  -- ^ Cooperative cancellation tokens keyed by top-level task id.
+  -- 'TaskManager.cancel' flips the flag 'True'; the action runtime
+  -- threads the same 'TVar' through the task's whole subtask tree
+  -- (subtasks inherit the parent's token), and orchestrator loops
+  -- poll it at step boundaries via 'throwIfCancelled'. Entry is
+  -- created when a top-level task starts and removed when it
+  -- finalises. See "Corvus.Action".
+  , ssTaskThreads :: TVar (Map.Map Int64 ThreadId)
+  -- ^ Worker 'ThreadId' for each top-level task, keyed by task id.
+  -- The hard-cancel fallback: 'TaskManager.cancel' @throwTo@s a
+  -- 'TaskCancelledException' here to interrupt an action blocked in
+  -- an in-flight RPC that no cooperative checkpoint can reach.
+  -- Same lifecycle as 'ssTaskCancels'.
   , ssReservedRam :: TVar (Map.Map M.NodeId Int)
   -- ^ Scheduler reservation bookkeeping: RAM (MiB) the
   -- scheduler has handed out for VMs created via 'pickNodeForVm'
@@ -203,6 +225,8 @@ newServerState pool qemuConfig = do
   vsockLocks <- newTVarIO Map.empty
   spiceLock <- newMVar ()
   reservedRam <- newTVarIO Map.empty
+  taskCancels <- newTVarIO Map.empty
+  taskThreads <- newTVarIO Map.empty
   pure
     ServerState
       { ssStartTime = startTime
@@ -218,6 +242,8 @@ newServerState pool qemuConfig = do
       , ssVmStatsSubs = vmStatsSubs
       , ssVsockCidLocks = vsockLocks
       , ssSpicePortLock = spiceLock
+      , ssTaskCancels = taskCancels
+      , ssTaskThreads = taskThreads
       , ssReservedRam = reservedRam
       , ssTlsConfig = Nothing
       }
@@ -407,6 +433,39 @@ vsockCidLockFor state nid = do
           Nothing -> do
             writeTVar (ssVsockCidLocks state) (Map.insert nid lk m')
             pure lk
+
+-- | Create and register a fresh (unset) cancellation token for a
+-- top-level task. Call once when the task starts; the action
+-- runtime threads the returned 'TVar' through the task's subtask
+-- tree. Idempotent-ish: a second call replaces the entry.
+newTaskCancelToken :: ServerState -> Int64 -> IO (TVar Bool)
+newTaskCancelToken state tid = do
+  tok <- newTVarIO False
+  atomically $ modifyTVar' (ssTaskCancels state) (Map.insert tid tok)
+  pure tok
+
+-- | Record the worker thread for a top-level task (for hard cancel).
+registerTaskThread :: ServerState -> Int64 -> ThreadId -> IO ()
+registerTaskThread state tid th =
+  atomically $ modifyTVar' (ssTaskThreads state) (Map.insert tid th)
+
+-- | Drop a task's cancellation token + thread entry. Called when the
+-- task finalises. A no-op for ids that were never registered (e.g.
+-- subtasks, which share their parent's token).
+unregisterTask :: ServerState -> Int64 -> IO ()
+unregisterTask state tid = atomically $ do
+  modifyTVar' (ssTaskCancels state) (Map.delete tid)
+  modifyTVar' (ssTaskThreads state) (Map.delete tid)
+
+-- | Look up a top-level task's cancellation token, if it is running.
+lookupTaskCancelToken :: ServerState -> Int64 -> IO (Maybe (TVar Bool))
+lookupTaskCancelToken state tid =
+  Map.lookup tid <$> readTVarIO (ssTaskCancels state)
+
+-- | Look up a top-level task's worker thread, if it is running.
+lookupTaskThread :: ServerState -> Int64 -> IO (Maybe ThreadId)
+lookupTaskThread state tid =
+  Map.lookup tid <$> readTVarIO (ssTaskThreads state)
 
 --------------------------------------------------------------------------------
 -- Socket Buffer Types

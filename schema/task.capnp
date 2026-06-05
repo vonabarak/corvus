@@ -52,6 +52,14 @@ interface TaskManager {
   # unsubscribe.
   subscribe @3 (taskId :Int64, sink :Streams.TaskProgressSink)
               -> (handle :Streams.Handle);
+
+  # Request cancellation of a running task. Best-effort: flips the
+  # task's cooperative cancel flag (honoured at subtask boundaries
+  # and long-loop checkpoints) and cancels the task's worker thread
+  # for asynchronously-dispatched actions. A no-op for tasks that
+  # have already finished. Returns once the request is recorded, not
+  # once the task actually stops.
+  cancel @4 (taskId :Int64) -> ();
 }
 
 interface Task {

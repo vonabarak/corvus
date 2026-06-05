@@ -100,7 +100,7 @@ handleSnapshotRollbackAutoStop ctx diskId snapRef = runServerLogging state $ do
 -- starting/running" transition as a successful start.
 stopVmAsSubtask :: ActionContext -> Int64 -> IO (Either Text ())
 stopVmAsSubtask ctx vmId = do
-  resp <- runActionAsSubtask ctx (VmStop vmId)
+  resp <- runActionAsSubtask ctx (VmStop vmId 300)
   pure $ case resp of
     RespOk -> Right ()
     RespVmStateChanged VmStopped -> Right ()

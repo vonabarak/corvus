@@ -56,6 +56,7 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurrentTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
+import Data.Word (Word32)
 import System.IO (BufferMode (..), hClose, hFlush, hPutStr, hSetBinaryMode, hSetBuffering, stderr, stdin, stdout)
 import System.IO.Temp (withSystemTempFile)
 import System.Posix.Files (ownerReadMode, ownerWriteMode, setFileMode, unionFileModes)
@@ -153,14 +154,18 @@ handleVmStart fmt conn vmRef waitOpts = do
   handleVmAction fmt "start" vmRef (CR.rpcVmStart conn (entityRefFromText vmRef) wait)
 
 -- | Handle VM stop. With @--wait@, blocks on the cap call.
+-- @--timeout@ (reusing 'woTimeout') is the graceful-shutdown window
+-- in seconds; @--timeout 0@ hard-kills immediately. Defaults to the
+-- schema default of 300s when omitted.
 handleVmStop :: OutputFormat -> CapnpConnection -> Text -> WaitOptions -> IO Bool
 handleVmStop fmt conn vmRef waitOpts = do
   let wait = woWait waitOpts
+      timeoutSec = maybe 300 fromIntegral (woTimeout waitOpts) :: Word32
   unless (isStructured fmt) $
     when wait $
       putStrLn $
         "Stopping VM '" ++ T.unpack vmRef ++ "' and waiting for it to stop..."
-  handleVmAction fmt "stop" vmRef (CR.rpcVmStop conn (entityRefFromText vmRef) wait)
+  handleVmAction fmt "stop" vmRef (CR.rpcVmStop conn (entityRefFromText vmRef) wait timeoutSec)
 
 -- | Handle VM save. With @--wait@, blocks until the daemon's save
 -- worker has finished and the row is in @saved@ (or @error@).

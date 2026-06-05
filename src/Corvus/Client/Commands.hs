@@ -276,6 +276,7 @@ runCommand opts = do
       TaskList limit mSub mResult inclSub -> handleTaskList fmt tableOpts conn limit mSub mResult inclSub
       TaskShow taskId -> handleTaskShow fmt conn taskId
       TaskWait taskId mTimeout -> handleTaskWait fmt conn taskId mTimeout
+      TaskCancel taskId -> handleTaskCancel fmt conn taskId
       -- Completion (handled above, but needed for exhaustive pattern match)
       Completion _ -> pure True
 

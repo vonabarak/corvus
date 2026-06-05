@@ -14,6 +14,14 @@ module Corvus.Action
     ActionContext (..)
   , mkActionContext
 
+    -- * Cancellation
+  , TaskCancelledException (..)
+  , throwIfCancelled
+  , isCancelled
+
+    -- * Progress
+  , pushTaskProgress
+
     -- * Type class
   , Action (..)
 
@@ -37,9 +45,10 @@ where
 
 import qualified Capnp as C
 import qualified Capnp.Gen.Streams as CGS
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, myThreadId)
 import Control.Concurrent.STM (atomically, modifyTVar', readTVarIO)
-import Control.Exception (SomeException, try)
+import Control.Exception (Exception, SomeException, fromException, throwIO, try)
+import Control.Monad (when)
 import qualified Control.Monad.Catch as MC
 import Corvus.Model
 import qualified Corvus.Model as M
@@ -59,7 +68,7 @@ import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Postgresql (SqlBackend, runSqlPool)
-import Database.Persist.Sql (fromSqlKey)
+import Database.Persist.Sql (fromSqlKey, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Action Context
@@ -85,11 +94,20 @@ data ActionContext = ActionContext
   , acTaskId :: !TaskId
   , acClientName :: !Text
   , acApplySink :: !ApplySink
+  , acRootTaskId :: !TaskId
+  -- ^ The top-level task of this action's tree. Set once when the
+  -- root context is built and preserved across subtask contexts
+  -- (which only swap 'acTaskId'). 'isCancelled' / 'throwIfCancelled'
+  -- look the cancellation token up by this id, so cancelling the
+  -- root task is observed by the whole tree — including subtasks
+  -- spawned through a fresh context (the build orchestrator's
+  -- @mkActionContext state buildTaskId "system"@ pattern), since
+  -- that context's root id resolves back to the build task.
   }
 
 -- | Build an 'ActionContext' for callers that don't stream apply
--- progress. Equivalent to constructing it directly with
--- 'silentApplySink'.
+-- progress. The cancellation root is the given task id; subtasks
+-- inherit it via the context clone in 'runActionAsSubtask'.
 mkActionContext :: ServerState -> TaskId -> Text -> ActionContext
 mkActionContext state taskId clientName =
   ActionContext
@@ -97,7 +115,34 @@ mkActionContext state taskId clientName =
     , acTaskId = taskId
     , acClientName = clientName
     , acApplySink = silentApplySink
+    , acRootTaskId = taskId
     }
+
+-- | Exception used to interrupt a cancelled task — thrown by
+-- cooperative checkpoints ('throwIfCancelled') and by the hard
+-- 'TaskManager.cancel' @throwTo@. 'runAndFinalizeResult' catches
+-- it and finalises the task as 'TaskCancelled'.
+data TaskCancelledException = TaskCancelledException
+  deriving (Show)
+
+instance Exception TaskCancelledException
+
+-- | Has cancellation been requested for this action's task tree?
+-- Resolves the token from the registry by the root task id, so it
+-- is correct for subtasks too.
+isCancelled :: ActionContext -> IO Bool
+isCancelled ctx = do
+  mTok <- lookupTaskCancelToken (acState ctx) (fromSqlKey (acRootTaskId ctx))
+  maybe (pure False) readTVarIO mTok
+
+-- | Cooperative cancellation checkpoint: throw
+-- 'TaskCancelledException' if cancellation has been requested.
+-- Call at loop / step boundaries in long orchestrators so a
+-- cancel actually stops launching further work.
+throwIfCancelled :: ActionContext -> IO ()
+throwIfCancelled ctx = do
+  c <- isCancelled ctx
+  when c $ throwIO TaskCancelledException
 
 --------------------------------------------------------------------------------
 -- Action Type Class
@@ -141,6 +186,9 @@ runAction state clientName action = do
     Just errResp -> pure errResp
     Nothing -> do
       taskKey <- createTaskRecord state clientName action Nothing
+      _ <- newTaskCancelToken state (fromSqlKey taskKey)
+      tid <- myThreadId
+      registerTaskThread state (fromSqlKey taskKey) tid
       let ctx = mkActionContext state taskKey clientName
       runAndFinalize state ctx action
 
@@ -153,8 +201,11 @@ runActionAsync state clientName action interimResponse = do
     Just errResp -> pure errResp
     Nothing -> do
       taskKey <- createTaskRecord state clientName action Nothing
-      let ctx = mkActionContext state taskKey clientName
-      _ <- forkIO $ runAndFinalize_ state ctx action
+      _ <- newTaskCancelToken state (fromSqlKey taskKey)
+      _ <- forkIO $ do
+        myThreadId >>= registerTaskThread state (fromSqlKey taskKey)
+        let ctx = mkActionContext state taskKey clientName
+        runAndFinalize_ state ctx action
       pure interimResponse
 
 -- | Run an action asynchronously, passing the new task ID to a function that
@@ -166,8 +217,11 @@ runActionAsyncWithId state clientName action mkInterimResponse = do
     Just errResp -> pure errResp
     Nothing -> do
       taskKey <- createTaskRecord state clientName action Nothing
-      let ctx = mkActionContext state taskKey clientName
-      _ <- forkIO $ runAndFinalize_ state ctx action
+      _ <- newTaskCancelToken state (fromSqlKey taskKey)
+      _ <- forkIO $ do
+        myThreadId >>= registerTaskThread state (fromSqlKey taskKey)
+        let ctx = mkActionContext state taskKey clientName
+        runAndFinalize_ state ctx action
       pure $ mkInterimResponse (fromSqlKey taskKey)
 
 -- | Run an action as a subtask of a parent task.
@@ -259,37 +313,70 @@ runAndFinalizeResult state ctx action = do
       pool = ssDbPool state
   result <- try (actionExecute ctx action)
   finishTime <- getCurrentTime
-  case result of
-    Right response -> do
-      let (taskResult, message) = classifyResponse response
-          (mId, mName) = extractEntityFromResponse response
+  -- Was cancellation requested for this task tree? Read BEFORE
+  -- unregistering, since the top-level task's token is dropped by
+  -- 'unregisterTask' below.
+  requested <- isCancelled ctx
+  -- Drop this task's cancel-token / thread entry. A no-op for
+  -- subtasks (their ids were never registered — they share the
+  -- parent's token), so it cleanly tears down only top-level tasks.
+  unregisterTask state (fromSqlKey taskKey)
+  -- Treat the task as cancelled if it was interrupted by a
+  -- 'TaskCancelledException' (cooperative checkpoint or hard
+  -- throwTo) OR if cancellation was requested while it ran — so
+  -- every task in the tree that finishes after a cancel records
+  -- consistently.
+  let hitCancel = requested || either isCancellation (const False) result
+  if hitCancel
+    then do
+      let msg = "Cancelled by operator"
       runSqlPool
         ( update
             taskKey
             [ TaskFinishedAt =. Just finishTime
-            , TaskResult =. taskResult
-            , TaskMessage =. message
-            , TaskEntityId =. (mId `orElse` actionEntityId action)
-            , TaskEntityName =. (mName `orElse` actionEntityName action)
+            , TaskResult =. TaskCancelled
+            , TaskMessage =. Just msg
             ]
         )
         pool
-      pushTaskFinished state (fromSqlKey taskKey) taskResult message
-      pure $ Right response
-    Left (err :: SomeException) -> do
-      let errMsg = T.pack (show err)
-      runSqlPool
-        ( update
-            taskKey
-            [ TaskFinishedAt =. Just finishTime
-            , TaskResult =. TaskError
-            , TaskMessage =. Just errMsg
-            ]
-        )
-        pool
-      pushTaskFinished state (fromSqlKey taskKey) TaskError (Just errMsg)
-      let errResp = RespError $ "Internal error: " <> errMsg
-      pure $ Left errResp
+      pushTaskFinished state (fromSqlKey taskKey) TaskCancelled (Just msg)
+      pure $ Left (RespError msg)
+    else case result of
+      Right response -> do
+        let (taskResult, message) = classifyResponse response
+            (mId, mName) = extractEntityFromResponse response
+        runSqlPool
+          ( update
+              taskKey
+              [ TaskFinishedAt =. Just finishTime
+              , TaskResult =. taskResult
+              , TaskMessage =. message
+              , TaskEntityId =. (mId `orElse` actionEntityId action)
+              , TaskEntityName =. (mName `orElse` actionEntityName action)
+              ]
+          )
+          pool
+        pushTaskFinished state (fromSqlKey taskKey) taskResult message
+        pure $ Right response
+      Left (err :: SomeException) -> do
+        let errMsg = T.pack (show err)
+        runSqlPool
+          ( update
+              taskKey
+              [ TaskFinishedAt =. Just finishTime
+              , TaskResult =. TaskError
+              , TaskMessage =. Just errMsg
+              ]
+          )
+          pool
+        pushTaskFinished state (fromSqlKey taskKey) TaskError (Just errMsg)
+        let errResp = RespError $ "Internal error: " <> errMsg
+        pure $ Left errResp
+
+-- | Did this exception originate from a task cancellation?
+isCancellation :: SomeException -> Bool
+isCancellation e =
+  Data.Maybe.isJust (fromException e :: Maybe TaskCancelledException)
 
 -- | Like runAndFinalize but discards the return value (for forkIO).
 runAndFinalize_ :: (Action a) => ServerState -> ActionContext -> a -> IO ()
@@ -429,29 +516,18 @@ extractEntityFromResponse = \case
 -- Task progress fan-out (Phase 6e)
 --------------------------------------------------------------------------------
 
--- | Push a @finished@ 'TaskProgressEvent' to every client that
--- subscribed to this task id via @TaskManager.subscribe@. Dead
--- sinks (cap dropped on the client side) are pruned. No-op when
--- the subscriber list is empty, which is the common case.
-pushTaskFinished :: ServerState -> Int64 -> M.TaskResult -> Maybe Text -> IO ()
-pushTaskFinished state tid result mMsg = do
+-- | Fan a 'TaskProgressEvent' out to every client subscribed to
+-- this task id via @TaskManager.subscribe@. Dead sinks (cap dropped
+-- client-side) are pruned. No-op when the subscriber list is empty,
+-- which is the common case.
+fanoutTaskEvent :: ServerState -> Int64 -> C.Parsed CGS.TaskProgressEvent -> IO ()
+fanoutTaskEvent state tid ev = do
   subs <- readTVarIO (ssTaskProgressSubs state)
   let sinks = Map.findWithDefault [] tid subs
   case sinks of
     [] -> pure ()
     _ -> do
-      let ev :: C.Parsed CGS.TaskProgressEvent
-          ev =
-            CGS.TaskProgressEvent
-              { CGS.taskId = tid
-              , CGS.union' =
-                  CGS.TaskProgressEvent'finished
-                    CGS.TaskProgressEvent'finished'
-                      { CGS.result = toCapnpTaskResult result
-                      , CGS.message = Data.Maybe.fromMaybe T.empty mMsg
-                      }
-              }
-          params = CGS.TaskProgressSink'push'params {CGS.event = ev}
+      let params = CGS.TaskProgressSink'push'params {CGS.event = ev}
       alive <- traverse (tryPush params) sinks
       atomically $
         modifyTVar' (ssTaskProgressSubs state) $
@@ -462,3 +538,40 @@ pushTaskFinished state tid result mMsg = do
       pure $ case r of
         Right () -> True
         Left _ -> False
+
+-- | Push a @finished@ 'TaskProgressEvent' to this task's subscribers.
+pushTaskFinished :: ServerState -> Int64 -> M.TaskResult -> Maybe Text -> IO ()
+pushTaskFinished state tid result mMsg =
+  fanoutTaskEvent state tid $
+    CGS.TaskProgressEvent
+      { CGS.taskId = tid
+      , CGS.union' =
+          CGS.TaskProgressEvent'finished
+            CGS.TaskProgressEvent'finished'
+              { CGS.result = toCapnpTaskResult result
+              , CGS.message = Data.Maybe.fromMaybe T.empty mMsg
+              }
+      }
+
+-- | Report what a running task is currently waiting on. Records the
+-- @label@ as the task's message (so polling clients — @crv task
+-- list@ / @show@ / @wait@ — surface it without a live subscription)
+-- AND emits a @progress@ 'TaskProgressEvent' for any live
+-- subscribers. @completed@/@total@ are 0 when no count applies.
+-- The finalizer overwrites the message with the terminal result.
+pushTaskProgress :: ServerState -> Int64 -> Text -> (Int64, Int64) -> IO ()
+pushTaskProgress state tid label (completed, total) = do
+  runSqlPool
+    (update (toSqlKey tid :: TaskId) [TaskMessage =. Just label])
+    (ssDbPool state)
+  fanoutTaskEvent state tid $
+    CGS.TaskProgressEvent
+      { CGS.taskId = tid
+      , CGS.union' =
+          CGS.TaskProgressEvent'progress
+            CGS.TaskProgressEvent'progress'
+              { CGS.completed = completed
+              , CGS.total = total
+              , CGS.label = label
+              }
+      }

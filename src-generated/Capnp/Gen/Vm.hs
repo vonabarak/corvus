@@ -1538,19 +1538,24 @@ instance (C.AllocateList Vm'stop'params) where
 instance (C.EstimateListAlloc Vm'stop'params (C.Parsed Vm'stop'params))
 data instance C.Parsed Vm'stop'params
     = Vm'stop'params 
-        {wait :: (RP.Parsed Std_.Bool)}
+        {wait :: (RP.Parsed Std_.Bool)
+        ,timeoutSec :: (RP.Parsed Std_.Word32)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'stop'params))
 deriving instance (Std_.Eq (C.Parsed Vm'stop'params))
 instance (C.Parse Vm'stop'params (C.Parsed Vm'stop'params)) where
-    parse raw_ = (Vm'stop'params <$> (GH.parseField #wait raw_))
+    parse raw_ = (Vm'stop'params <$> (GH.parseField #wait raw_)
+                                 <*> (GH.parseField #timeoutSec raw_))
 instance (C.Marshal Vm'stop'params (C.Parsed Vm'stop'params)) where
     marshalInto raw_ Vm'stop'params{..} = (do
         (GH.encodeField #wait wait raw_)
+        (GH.encodeField #timeoutSec timeoutSec raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "wait" GH.Slot Vm'stop'params Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
+instance (GH.HasField "timeoutSec" GH.Slot Vm'stop'params Std_.Word32) where
+    fieldByLabel  = (GH.dataField 32 0 32 300)
 data Vm'stop'results 
 type instance (R.ReprFor Vm'stop'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'stop'results) where

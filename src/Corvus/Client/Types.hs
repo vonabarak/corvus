@@ -255,6 +255,8 @@ data Command
     TaskShow !Int64
   | -- | Wait for task to complete (taskId, optional timeout in seconds)
     TaskWait !Int64 !(Maybe Int)
+  | -- | Request cancellation of a running task (taskId)
+    TaskCancel !Int64
   | -- | Generate shell completion script (bash, zsh, fish)
     Completion !Text
   deriving (Show)

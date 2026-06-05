@@ -7,6 +7,7 @@ module Corvus.Client.Commands.Task
   ( handleTaskList
   , handleTaskShow
   , handleTaskWait
+  , handleTaskCancel
   )
 where
 
@@ -109,6 +110,21 @@ handleTaskWait fmt conn taskId mTimeout = do
           emitResult fmt info $ printCompletionMessage taskId info
           pure (tiResult info == TaskSuccess)
 
+-- | Handle task cancel command — request best-effort cancellation.
+handleTaskCancel :: OutputFormat -> CapnpConnection -> Int64 -> IO Bool
+handleTaskCancel fmt conn taskId = do
+  r <- try @SomeException (CR.rpcTaskCancel conn taskId)
+  case r of
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
+      pure False
+    Right () -> do
+      emitResult fmt taskId $
+        putStrLn $
+          "Cancellation requested for task " ++ show taskId
+      pure True
+
 -- | A task is still pending if it's running or not yet started
 isTaskPending :: TaskResult -> Bool
 isTaskPending TaskRunning = True
@@ -150,7 +166,11 @@ pollUntilDone fmt conn taskId startTime mTimeout = do
         Right info
           | isTaskPending (tiResult info) -> do
               unless (isStructured fmt) $ do
-                hPutStr stderr $ "\r\x1b[K" ++ "Waiting... (" ++ formatDuration elapsed ++ " elapsed)"
+                -- Surface the live "what it's waiting on" label the
+                -- daemon records in the task message during progress.
+                let lbl = maybe "" (\m -> " — " ++ T.unpack m) (tiMessage info)
+                hPutStr stderr $
+                  "\r\x1b[K" ++ "Waiting... (" ++ formatDuration elapsed ++ " elapsed)" ++ lbl
                 hFlush stderr
               pollUntilDone fmt conn taskId startTime mTimeout
           | otherwise -> do

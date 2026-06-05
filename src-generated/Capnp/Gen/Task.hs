@@ -178,9 +178,10 @@ instance (GH.Export TaskManager) where
     methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(TaskManager)) [(GH.toUntypedMethodHandler ((taskManager'list) s_))
                                                                              ,(GH.toUntypedMethodHandler ((taskManager'get) s_))
                                                                              ,(GH.toUntypedMethodHandler ((taskManager'listChildren) s_))
-                                                                             ,(GH.toUntypedMethodHandler ((taskManager'subscribe) s_))] [])
+                                                                             ,(GH.toUntypedMethodHandler ((taskManager'subscribe) s_))
+                                                                             ,(GH.toUntypedMethodHandler ((taskManager'cancel) s_))] [])
 class (TaskManager'server_ s_) where
-    {-# MINIMAL taskManager'list,taskManager'get,taskManager'listChildren,taskManager'subscribe #-}
+    {-# MINIMAL taskManager'list,taskManager'get,taskManager'listChildren,taskManager'subscribe,taskManager'cancel #-}
     taskManager'list :: s_ -> (GH.MethodHandler TaskManager'list'params TaskManager'list'results)
     taskManager'list _ = GH.methodUnimplemented
     taskManager'get :: s_ -> (GH.MethodHandler TaskManager'get'params TaskManager'get'results)
@@ -189,6 +190,8 @@ class (TaskManager'server_ s_) where
     taskManager'listChildren _ = GH.methodUnimplemented
     taskManager'subscribe :: s_ -> (GH.MethodHandler TaskManager'subscribe'params TaskManager'subscribe'results)
     taskManager'subscribe _ = GH.methodUnimplemented
+    taskManager'cancel :: s_ -> (GH.MethodHandler TaskManager'cancel'params TaskManager'cancel'results)
+    taskManager'cancel _ = GH.methodUnimplemented
 instance (GH.HasMethod "list" TaskManager TaskManager'list'params TaskManager'list'results) where
     methodByLabel  = (GH.Method 15122551829697145524 0)
 instance (GH.HasMethod "get" TaskManager TaskManager'get'params TaskManager'get'results) where
@@ -197,6 +200,8 @@ instance (GH.HasMethod "listChildren" TaskManager TaskManager'listChildren'param
     methodByLabel  = (GH.Method 15122551829697145524 2)
 instance (GH.HasMethod "subscribe" TaskManager TaskManager'subscribe'params TaskManager'subscribe'results) where
     methodByLabel  = (GH.Method 15122551829697145524 3)
+instance (GH.HasMethod "cancel" TaskManager TaskManager'cancel'params TaskManager'cancel'results) where
+    methodByLabel  = (GH.Method 15122551829697145524 4)
 data TaskManager'list'params 
 type instance (R.ReprFor TaskManager'list'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId TaskManager'list'params) where
@@ -442,6 +447,61 @@ instance (C.Marshal TaskManager'subscribe'results (C.Parsed TaskManager'subscrib
         )
 instance (GH.HasField "handle" GH.Slot TaskManager'subscribe'results Capnp.Gen.ById.X9bd452a518ed3917.Handle) where
     fieldByLabel  = (GH.ptrField 0)
+data TaskManager'cancel'params 
+type instance (R.ReprFor TaskManager'cancel'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId TaskManager'cancel'params) where
+    typeId  = 16838361713920345582
+instance (C.TypedStruct TaskManager'cancel'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate TaskManager'cancel'params) where
+    type AllocHint TaskManager'cancel'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc TaskManager'cancel'params (C.Parsed TaskManager'cancel'params))
+instance (C.AllocateList TaskManager'cancel'params) where
+    type ListAllocHint TaskManager'cancel'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc TaskManager'cancel'params (C.Parsed TaskManager'cancel'params))
+data instance C.Parsed TaskManager'cancel'params
+    = TaskManager'cancel'params 
+        {taskId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed TaskManager'cancel'params))
+deriving instance (Std_.Eq (C.Parsed TaskManager'cancel'params))
+instance (C.Parse TaskManager'cancel'params (C.Parsed TaskManager'cancel'params)) where
+    parse raw_ = (TaskManager'cancel'params <$> (GH.parseField #taskId raw_))
+instance (C.Marshal TaskManager'cancel'params (C.Parsed TaskManager'cancel'params)) where
+    marshalInto raw_ TaskManager'cancel'params{..} = (do
+        (GH.encodeField #taskId taskId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "taskId" GH.Slot TaskManager'cancel'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data TaskManager'cancel'results 
+type instance (R.ReprFor TaskManager'cancel'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId TaskManager'cancel'results) where
+    typeId  = 12252752224479349405
+instance (C.TypedStruct TaskManager'cancel'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate TaskManager'cancel'results) where
+    type AllocHint TaskManager'cancel'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc TaskManager'cancel'results (C.Parsed TaskManager'cancel'results))
+instance (C.AllocateList TaskManager'cancel'results) where
+    type ListAllocHint TaskManager'cancel'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc TaskManager'cancel'results (C.Parsed TaskManager'cancel'results))
+data instance C.Parsed TaskManager'cancel'results
+    = TaskManager'cancel'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed TaskManager'cancel'results))
+deriving instance (Std_.Eq (C.Parsed TaskManager'cancel'results))
+instance (C.Parse TaskManager'cancel'results (C.Parsed TaskManager'cancel'results)) where
+    parse raw_ = (Std_.pure TaskManager'cancel'results)
+instance (C.Marshal TaskManager'cancel'results (C.Parsed TaskManager'cancel'results)) where
+    marshalInto _raw (TaskManager'cancel'results) = (Std_.pure ())
 data Task 
 type instance (R.ReprFor Task) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId Task) where

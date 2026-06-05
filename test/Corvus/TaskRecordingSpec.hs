@@ -13,8 +13,22 @@
 -- recording wiring honest.
 module Corvus.TaskRecordingSpec (spec) where
 
+import Control.Exception (throwIO)
+import Corvus.Action (Action (..), TaskCancelledException (..), runAction)
 import Corvus.Model (Task (..), TaskResult (..), TaskSubsystem (..))
 import Test.Prelude
+
+-- | A minimal Action that always cancels, used to exercise the
+-- cancellation finalize path in 'Corvus.Action.runAndFinalizeResult'
+-- (a 'TaskCancelledException' — from a cooperative checkpoint or the
+-- hard @Task.cancel@ throwTo — must land the row as 'TaskCancelled',
+-- not 'TaskError').
+data CancelAction = CancelAction
+
+instance Action CancelAction where
+  actionSubsystem _ = SubSystem
+  actionCommand _ = "cancel-test"
+  actionExecute _ _ = throwIO TaskCancelledException
 
 spec :: Spec
 spec = sequential $ withTestDb $ do
@@ -75,4 +89,13 @@ spec = sequential $ withTestDb $ do
       mTask <- getLastTask
       liftIO $ case mTask of
         Just (Entity _ t) -> taskClientName t `shouldBe` "alice"
+        Nothing -> fail "expected one Task row, found none"
+
+    testCase "a TaskCancelledException records a cancelled (not errored) Task row" $ do
+      _ <- withState (\st -> runAction st "alice" CancelAction)
+      mTask <- getLastTask
+      liftIO $ case mTask of
+        Just (Entity _ t) -> do
+          taskCommand t `shouldBe` "cancel-test"
+          taskResult t `shouldBe` TaskCancelled
         Nothing -> fail "expected one Task row, found none"

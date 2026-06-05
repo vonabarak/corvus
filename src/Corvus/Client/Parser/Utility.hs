@@ -53,6 +53,8 @@ waitOptionsParser =
           ( long "timeout"
               <> short 't'
               <> metavar "SECONDS"
-              <> help "Timeout in seconds when using --wait (default: 120)"
+              <> help
+                "For 'vm stop': graceful-shutdown window in seconds before \
+                \escalating to a hard kill (0 = immediate hard-kill; default 300)"
           )
       )

@@ -307,6 +307,9 @@ runPipelineSteps
   -> LoggingT IO [BuildOne]
 runPipelineSteps _ _ _ [] = pure []
 runPipelineSteps state parentTaskId sink (s : rest) = do
+  -- Cooperative cancellation checkpoint: a `crv task cancel` on the
+  -- build stops the pipeline here rather than launching the next step.
+  liftIO $ throwIfCancelled (mkActionContext state parentTaskId "system")
   one <- runPipelineStep state parentTaskId sink s
   case boError one of
     Just _ -> pure [one]
@@ -768,7 +771,7 @@ runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId ta
     Right () -> do
       stopResp <-
         liftIO $
-          runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong)
+          runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong 300)
       case classifyStopResp stopResp of
         Left err -> pure $ Left $ "stop bake VM: " <> err
         Right () -> do
@@ -1756,7 +1759,7 @@ compactDisk state diskId = do
 cleanupBakeVm :: ServerState -> TaskId -> Int64 -> IO ()
 cleanupBakeVm state parentTaskId vmIdLong = do
   -- Best-effort stop first; VmDelete refuses while running.
-  _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong)
+  _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong 300)
   _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmDelete vmIdLong False)
   pure ()
 

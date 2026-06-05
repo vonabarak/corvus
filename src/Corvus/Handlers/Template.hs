@@ -167,6 +167,8 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
   case mDetails of
     Nothing -> pure RespTemplateNotFound
     Just details -> do
+      -- Cooperative cancellation checkpoint before any work starts.
+      liftIO $ throwIfCancelled ctx
       -- Subtask 1: Create VM record (delegates to VmCreate action).
       -- Templates don't yet carry their own cpuModel — pass "" so
       -- @handleVmCreate@ falls back to the daemon default ("host").
@@ -194,6 +196,7 @@ handleTemplateInstantiate ctx tidLong newVmName nodeRef = runServerLogging (acSt
           -- Subtask per drive: Instantiate drives
           driveResults <- forM (tvdDrives details) $ \td ->
             liftIO $ do
+              throwIfCancelled ctx
               resp <- runActionAsSubtask ctx (InstantiateDrive vmId newVmName td)
               pure $ classifyResponse resp
 

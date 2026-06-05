@@ -34,7 +34,8 @@ import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent (forkIO, threadDelay)
-import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVarIO, writeTVar)
+import Control.Concurrent.MVar (MVar, newMVar, withMVar)
+import Control.Concurrent.STM (TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
 import qualified Control.Exception as E
 import Control.Monad (forM_, unless, void, when)
 import Control.Monad.IO.Class (liftIO)
@@ -114,6 +115,17 @@ data SessionCap = SessionCap
   , scMonitorBuffers :: !(TVar (Map.Map Int64 SocketBufferHandle))
   , scTransferTokens :: !NTr.TokenRegistry
   , scTlsConfig :: !(Maybe Tls.TlsConfig)
+  , scVmOpLocks :: !(TVar (Map.Map Int64 (MVar ())))
+  -- ^ Per-VM lifecycle serialisation. The long lifecycle
+  -- handlers ('vmStart' / 'vmStopGraceful' / 'vmSave' /
+  -- 'snapshotCreateLive') run via 'handleParsedAsync' so they
+  -- don't block the session dispatcher; that drops the implicit
+  -- ordering the single 'runServer' loop used to give them, so
+  -- this restores per-VM serialisation (two starts, or a stop
+  -- racing a start, on the SAME vmId) without blocking other VMs
+  -- or read-only calls. 'vmStopHard' deliberately does NOT take
+  -- this lock — it must be able to interrupt a stuck graceful
+  -- stop. See 'withVmOpLock'.
   }
 
 newSessionCap
@@ -127,7 +139,8 @@ newSessionCap
   -> NTr.TokenRegistry
   -> Maybe Tls.TlsConfig
   -> IO SessionCap
-newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tlsCfg =
+newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tlsCfg = do
+  vmOpLocks <- newTVarIO Map.empty
   pure
     SessionCap
       { scOwner = owner
@@ -139,7 +152,35 @@ newSessionCap owner sup vmLedger subs qgaConns serialBufs monitorBufs tokens tls
       , scMonitorBuffers = monitorBufs
       , scTransferTokens = tokens
       , scTlsConfig = tlsCfg
+      , scVmOpLocks = vmOpLocks
       }
+
+-- | Run @act@ holding the per-VM lifecycle lock, lazily creating
+-- the 'MVar' on first use (mirrors the daemon's
+-- 'Corvus.Types.vsockCidLockFor'). Calls for different VMs never
+-- contend; the same vmId serialises. Defence in depth — the
+-- daemon FSM already prevents conflicting same-VM lifecycle ops.
+withVmOpLock :: SessionCap -> Int64 -> IO a -> IO a
+withVmOpLock sc vid act = do
+  lk <- vmOpLockFor sc vid
+  withMVar lk (const act)
+
+vmOpLockFor :: SessionCap -> Int64 -> IO (MVar ())
+vmOpLockFor sc vid = do
+  m <- readTVarIO (scVmOpLocks sc)
+  case Map.lookup vid m of
+    Just lk -> pure lk
+    Nothing -> do
+      lk <- newMVar ()
+      -- Race: a concurrent caller may have installed their own
+      -- lock first. Re-check inside STM and keep the winner.
+      atomically $ do
+        m' <- readTVar (scVmOpLocks sc)
+        case Map.lookup vid m' of
+          Just existing -> pure existing
+          Nothing -> do
+            writeTVar (scVmOpLocks sc) (Map.insert vid lk m')
+            pure lk
 
 instance SomeServer SessionCap
 
@@ -280,26 +321,32 @@ instance CGNA.Session'server_ SessionCap where
               }
 
   session'snapshotCreateLive sc =
-    handleParsed $
+    -- Async dispatch (see 'session'vmGuestExec'): a live snapshot
+    -- can fsfreeze the guest and copy qcow2 metadata for many
+    -- seconds; it must not stall every other RPC on the session.
+    -- Held under the per-VM op lock so it serialises against
+    -- start/stop/save on the same VM.
+    handleParsedAsync $
       \CGNA.Session'snapshotCreateLive'params
         { CGNA.path = p
         , CGNA.name = n
         , CGNA.vmId = vid
         , CGNA.quiesce = q
-        } -> do
-          (result, quiesced) <-
-            NSL.createSnapshotLive
-              (scQgaConns sc)
-              agentQemuConfig
-              vid
-              n
-              (T.unpack p)
-              (decodeQuiesceMode q)
-          pure
-            CGNA.Session'snapshotCreateLive'results
-              { CGNA.result = encodeDiskOpResult result
-              , CGNA.quiesced = quiesced
-              }
+        } ->
+          withVmOpLock sc vid $ do
+            (result, quiesced) <-
+              NSL.createSnapshotLive
+                (scQgaConns sc)
+                agentQemuConfig
+                vid
+                n
+                (T.unpack p)
+                (decodeQuiesceMode q)
+            pure
+              CGNA.Session'snapshotCreateLive'results
+                { CGNA.result = encodeDiskOpResult result
+                , CGNA.quiesced = quiesced
+                }
 
   session'snapshotDeleteLive _ =
     handleParsed $
@@ -364,16 +411,30 @@ instance CGNA.Session'server_ SessionCap where
   -- ---- VM lifecycle --------------------------------------------------------
 
   session'vmStart sc =
-    handleParsed $ \CGNA.Session'vmStart'params {CGNA.spec = wireSpec} ->
-      handleVmStart sc (decodeVmSpec wireSpec)
+    -- Async dispatch (see 'session'vmGuestExec'): a cold boot can
+    -- block for hundreds of ms spawning virtiofsd + QEMU and
+    -- waiting on sockets; under the per-VM op lock so two starts
+    -- for the same VM can't orphan each other's processes.
+    handleParsedAsync $ \CGNA.Session'vmStart'params {CGNA.spec = wireSpec} ->
+      let spec = decodeVmSpec wireSpec
+       in withVmOpLock sc (VS.vsVmId spec) (handleVmStart sc spec)
 
   session'vmStopGraceful sc =
-    handleParsed $
+    -- Async dispatch is the headline fix for the per-node wedge:
+    -- this handler polls for QEMU exit for up to @timeoutSec@
+    -- (default 300 s). Running it inline on the serial 'runServer'
+    -- loop blocks EVERY other RPC to this node — probeVsockCid,
+    -- vmStatus, disk ops on unrelated VMs — for the whole window.
+    -- Fork it so the dispatcher stays free; the per-VM op lock
+    -- keeps it ordered against start/save on the same VM.
+    -- 'vmStopHard' stays synchronous and lock-free so a reset can
+    -- still interrupt a stuck graceful stop.
+    handleParsedAsync $
       \CGNA.Session'vmStopGraceful'params
         { CGNA.vmId = vid
         , CGNA.timeoutSec = tmo
         } ->
-          handleVmStopGraceful sc vid tmo
+          withVmOpLock sc vid (handleVmStopGraceful sc vid tmo)
 
   session'vmStopHard sc =
     handleParsed $ \CGNA.Session'vmStopHard'params {CGNA.vmId = vid} ->
@@ -388,8 +449,11 @@ instance CGNA.Session'server_ SessionCap where
       handleVmResume sc vid
 
   session'vmSave sc =
-    handleParsed $ \CGNA.Session'vmSave'params {CGNA.vmId = vid} ->
-      handleVmSave sc vid
+    -- Async dispatch (see 'session'vmStopGraceful'): vmSave polls
+    -- the outgoing QMP migration for up to 300 s. Under the per-VM
+    -- op lock so it serialises against start/stop on the same VM.
+    handleParsedAsync $ \CGNA.Session'vmSave'params {CGNA.vmId = vid} ->
+      withVmOpLock sc vid (handleVmSave sc vid)
 
   session'deleteSavedState sc =
     handleParsed $ \CGNA.Session'deleteSavedState'params {CGNA.vmName = name} ->

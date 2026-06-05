@@ -61,6 +61,7 @@ module Corvus.Client.Capnp.Rpc
   , rpcTemplateShow
   , rpcTaskList
   , rpcTaskShow
+  , rpcTaskCancel
   , rpcTaskListChildren
 
     -- * VM lifecycle
@@ -216,6 +217,7 @@ import Data.Int (Int64)
 import qualified Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word (Word32)
 
 -- ---------------------------------------------------------------------
 -- Internal helpers
@@ -398,6 +400,16 @@ rpcTaskShow conn taskId = do
     callOn #show CGTask.Task'show'params tClient
   failOnWire (WTask.fromCapnpTaskInfo info)
 
+-- | Request cancellation of a running task (best-effort; returns
+-- once the daemon records the request, not once the task stops).
+rpcTaskCancel :: CapnpConnection -> Int64 -> IO ()
+rpcTaskCancel conn taskId = do
+  CGCorvus.Daemon'tasks'results {CGCorvus.mgr = mgr} <-
+    callOn #tasks CGCorvus.Daemon'tasks'params (ccDaemon conn)
+  _ <-
+    callOn #cancel CGTask.TaskManager'cancel'params {CGTask.taskId = taskId} mgr
+  pure ()
+
 -- =====================================================================
 -- VM lifecycle wrappers
 -- =====================================================================
@@ -459,10 +471,14 @@ rpcVmStart conn ref wait = do
   _ <- callOn #start CGVm.Vm'start'params {CGVm.wait = wait} vmClient
   pure ()
 
-rpcVmStop :: CapnpConnection -> EntityRef -> Bool -> IO ()
-rpcVmStop conn ref wait = do
+rpcVmStop :: CapnpConnection -> EntityRef -> Bool -> Word32 -> IO ()
+rpcVmStop conn ref wait timeoutSec = do
   vmClient <- getVmClient conn ref
-  _ <- callOn #stop CGVm.Vm'stop'params {CGVm.wait = wait} vmClient
+  _ <-
+    callOn
+      #stop
+      CGVm.Vm'stop'params {CGVm.wait = wait, CGVm.timeoutSec = timeoutSec}
+      vmClient
   pure ()
 
 rpcVmPause :: CapnpConnection -> EntityRef -> IO ()

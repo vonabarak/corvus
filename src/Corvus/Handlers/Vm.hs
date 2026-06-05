@@ -419,6 +419,14 @@ startQemuAndMonitor :: ActionContext -> Int64 -> Vm -> VmStatus -> LoggingT IO R
 startQemuAndMonitor ctx vmId vm nextStatus = do
   let state = acState ctx
       pool = ssDbPool state
+  -- Surface the node we're waiting on (vsock probe + agent vmStart
+  -- are the long blockers here) for @crv task list/show/wait@.
+  liftIO $
+    pushTaskProgress
+      state
+      (fromSqlKey (acTaskId ctx))
+      ("waiting for node " <> T.pack (show (fromSqlKey (M.vmNodeId vm))) <> " RPC (start)")
+      (0, 0)
   ensureCloudInitIso ctx vmId vm
   spiceResult <- allocateSpicePortIfNeeded state vmId vm
   case spiceResult of
@@ -644,55 +652,74 @@ handleVmStopValidate state vmId = do
 -- QEMU has actually exited (or the timeout elapses), so the
 -- daemon no longer needs to poll the DB. On graceful-timeout we
 -- escalate to 'vmStopHard'.
-handleVmStopExecute :: ServerState -> Int64 -> IO Response
-handleVmStopExecute state vmId = do
+handleVmStopExecute :: ActionContext -> Int64 -> Word32 -> IO Response
+handleVmStopExecute ctx vmId timeoutSec = do
+  let state = acState ctx
   validated <- handleVmStopValidate state vmId
   case validated of
     Left errResp -> pure errResp
     Right (_vm, currentStatus) -> runServerLogging state $ do
       liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. VmStopping]) (ssDbPool state)
-      -- 'vmStopGraceful' on the agent issues QMP @system_powerdown@
-      -- (ACPI) and blocks until QEMU exits. That's the canonical
-      -- guest shutdown path; the previous daemon-side QGA
-      -- @guest-shutdown@ pre-call was belt-and-suspenders and is
-      -- gone now that the agent owns QGA.
-      outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopGraceful nac vmId 300
-      case outer of
-        Left err -> do
-          logWarnN $ "nodeagent unavailable; cannot stop VM: " <> err
-          liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. currentStatus]) (ssDbPool state)
-          pure $ RespInvalidTransition currentStatus err
-        Right r -> case r of
-          Left e -> do
-            logWarnN $ "vmStopGraceful RPC failed: " <> T.pack (show e)
-            pure $ RespInvalidTransition currentStatus ("vmStopGraceful: " <> T.pack (show e))
-          Right res -> case NOA.vsrKind res of
-            NOA.VmStopStopped -> do
-              liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-              liftIO $ releaseManagedTaps state vmId
-              pure $ RespVmStateChanged VmStopped
-            NOA.VmStopAlreadyStopped -> do
-              liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-              liftIO $ releaseManagedTaps state vmId
-              pure $ RespVmStateChanged VmStopped
-            NOA.VmStopTimeout -> do
-              logWarnN $
-                "VM "
-                  <> T.pack (show vmId)
-                  <> " did not exit within graceful window; force-stopping"
-              outerHard <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId
-              case outerHard of
-                Left err ->
-                  pure $ RespInvalidTransition currentStatus ("vmStopHard: " <> err)
-                Right rh -> case rh of
-                  Right _ -> do
-                    liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
-                    liftIO $ releaseManagedTaps state vmId
-                    pure $ RespVmStateChanged VmStopped
-                  Left e ->
-                    pure $ RespInvalidTransition currentStatus ("vmStopHard: " <> T.pack (show e))
-            NOA.VmStopFailed ->
-              pure $ RespError ("vmStopGraceful failed: " <> NOA.vsrMessage res)
+      let markStopped = do
+            liftIO $ runSqlPool (setVmStopped vmId) (ssDbPool state)
+            liftIO $ releaseManagedTaps state vmId
+            pure $ RespVmStateChanged VmStopped
+          -- Hard-kill via SIGTERM→SIGKILL. Reused by both the
+          -- graceful-timeout escalation and the @timeoutSec == 0@
+          -- short-circuit. 'vmStopHard' is dispatched synchronously
+          -- and lock-free on the agent, so it can interrupt a stuck
+          -- graceful stop already in flight for the same VM.
+          forceStop = do
+            outerHard <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopHard nac vmId
+            case outerHard of
+              Left err ->
+                pure $ RespInvalidTransition currentStatus ("vmStopHard: " <> err)
+              Right rh -> case rh of
+                Right _ -> markStopped
+                Left e ->
+                  pure $ RespInvalidTransition currentStatus ("vmStopHard: " <> T.pack (show e))
+      if timeoutSec == 0
+        then do
+          logInfoN $
+            "VM "
+              <> T.pack (show vmId)
+              <> " stop requested with timeout=0; hard-killing immediately"
+          forceStop
+        else do
+          -- Surface what the task is blocked on (visible via
+          -- @crv task list/show/wait@) before the long graceful RPC.
+          liftIO $
+            pushTaskProgress
+              state
+              (fromSqlKey (acTaskId ctx))
+              ("graceful-shutdown wait, ETA " <> T.pack (show timeoutSec) <> "s")
+              (0, 0)
+          -- 'vmStopGraceful' on the agent issues QMP @system_powerdown@
+          -- (ACPI) and blocks until QEMU exits. That's the canonical
+          -- guest shutdown path; the previous daemon-side QGA
+          -- @guest-shutdown@ pre-call was belt-and-suspenders and is
+          -- gone now that the agent owns QGA.
+          outer <- liftIO $ withVmNodeAgent state vmId $ \nac -> NOA.vmStopGraceful nac vmId timeoutSec
+          case outer of
+            Left err -> do
+              logWarnN $ "nodeagent unavailable; cannot stop VM: " <> err
+              liftIO $ runSqlPool (update (toSqlKey vmId :: VmId) [M.VmStatus =. currentStatus]) (ssDbPool state)
+              pure $ RespInvalidTransition currentStatus err
+            Right r -> case r of
+              Left e -> do
+                logWarnN $ "vmStopGraceful RPC failed: " <> T.pack (show e)
+                pure $ RespInvalidTransition currentStatus ("vmStopGraceful: " <> T.pack (show e))
+              Right res -> case NOA.vsrKind res of
+                NOA.VmStopStopped -> markStopped
+                NOA.VmStopAlreadyStopped -> markStopped
+                NOA.VmStopTimeout -> do
+                  logWarnN $
+                    "VM "
+                      <> T.pack (show vmId)
+                      <> " did not exit within graceful window; force-stopping"
+                  forceStop
+                NOA.VmStopFailed ->
+                  pure $ RespError ("vmStopGraceful failed: " <> NOA.vsrMessage res)
 
 -- | Poll until VM status is VmStopped or VmError, or timeout.
 waitForVmStopped :: ServerState -> Int64 -> Int -> IO ()
@@ -1725,7 +1752,12 @@ instance Action VmStart where
       Right _ -> Nothing
   actionExecute ctx a = handleVmStartExecute ctx (vsVmId a)
 
-newtype VmStop = VmStop {vstpVmId :: Int64}
+-- | Stop a VM. @vstpTimeout@ is the graceful-shutdown window in
+-- seconds (0 = skip graceful, hard-kill immediately).
+data VmStop = VmStop
+  { vstpVmId :: Int64
+  , vstpTimeout :: Word32
+  }
 
 instance Action VmStop where
   actionSubsystem _ = SubVm
@@ -1736,7 +1768,7 @@ instance Action VmStop where
     pure $ case result of
       Left errResp -> Just errResp
       Right _ -> Nothing
-  actionExecute ctx a = handleVmStopExecute (acState ctx) (vstpVmId a)
+  actionExecute ctx a = handleVmStopExecute ctx (vstpVmId a) (vstpTimeout a)
 
 -- (Phase 3 refactor: the @StartVirtiofsd@ and @LaunchQemu@
 -- subtask actions are gone — virtiofsd is implicit in 'VmSpec',
@@ -1748,20 +1780,39 @@ instance Action VmStop where
 -- than 'VmAgentRunning' (stopped / errored / unknown all count as
 -- "gone"), or when the agent itself disappears.
 pollVmUntilExit :: ServerState -> Int64 -> IO ExitOutcome
-pollVmUntilExit state vmId = loop
+pollVmUntilExit state vmId = loop 0
   where
-    loop = do
+    -- Consecutive non-running reads required before concluding the
+    -- VM has exited. A vmStart / reboot-quirk re-spawn briefly drops
+    -- the VM from the agent ledger (removeVm → spawn → insertVm).
+    -- Now that the agent's lifecycle handlers run concurrently with
+    -- status polls (they no longer serialise on the session loop),
+    -- this poller can observe that transient gap mid-(re)start —
+    -- a lingering monitor from a prior run is especially prone to
+    -- catching the next start's window. Debounce so a momentary
+    -- "not running" read can't trigger a false 'setVmStopped'; a
+    -- genuine exit stays non-running and is concluded after the
+    -- confirmation window (~5 s). The monitor is anyway redundant
+    -- for operator-driven stops (those flip the row synchronously),
+    -- so the small added latency is harmless.
+    confirmReads :: Int
+    confirmReads = 5
+    loop misses = do
       outer <- withVmNodeAgent state vmId $ \nac -> NOA.vmStatus nac vmId
       case outer of
         Left _ -> pure ExitAgentGone
-        Right r -> case r of
-          Left _ -> pure ExitAgentGone
-          Right status -> case NOA.vasState status of
-            NOA.VmAgentRunning -> threadDelay 1000000 >> loop
-            NOA.VmAgentStopped -> pure ExitClean
-            NOA.VmAgentErrored ->
-              pure (ExitErrored (fromIntegral (NOA.vasLastExitCode status)))
-            NOA.VmAgentUnknown -> pure ExitVanished
+        Right (Left _) -> pure ExitAgentGone
+        Right (Right status) -> case NOA.vasState status of
+          NOA.VmAgentRunning -> threadDelay 1000000 >> loop 0
+          st ->
+            let outcome = case st of
+                  NOA.VmAgentStopped -> ExitClean
+                  NOA.VmAgentErrored ->
+                    ExitErrored (fromIntegral (NOA.vasLastExitCode status))
+                  _ -> ExitVanished
+             in if misses + 1 >= confirmReads
+                  then pure outcome
+                  else threadDelay 1000000 >> loop (misses + 1)
 
 -- | How a VM's monitor loop concluded. Drives the DB-status
 -- reconciliation in 'attachVmMonitor'.

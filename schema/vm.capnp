@@ -262,7 +262,11 @@ interface Vm {
   # (cloud-init ISOs, template-instantiated disks) unless
   # `keepDisks` is set.
   start          @1  (wait :Bool = false) -> (status :Enums.VmStatus);
-  stop           @2  (wait :Bool = false) -> (status :Enums.VmStatus);
+  # `timeoutSec` is the graceful-shutdown window: the daemon asks the
+  # agent to ACPI-powerdown and wait this many seconds for QEMU to
+  # exit before escalating to a hard kill. `timeoutSec = 0` skips the
+  # graceful phase entirely and hard-kills immediately ("kill it now").
+  stop           @2  (wait :Bool = false, timeoutSec :UInt32 = 300) -> (status :Enums.VmStatus);
   pause          @3  () -> (status :Enums.VmStatus);
   reset          @4  () -> (status :Enums.VmStatus);
   edit           @5  (params :VmEditParams) -> ();

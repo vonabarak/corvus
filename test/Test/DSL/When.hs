@@ -171,6 +171,8 @@ createTestServerState pool basePath = do
   vsockLocks <- newTVarIO mempty
   spiceLock <- newMVar ()
   reservedRam <- newTVarIO mempty
+  taskCancels <- newTVarIO mempty
+  taskThreads <- newTVarIO mempty
   logLevel <- getTestLogLevel
   let state =
         ServerState
@@ -187,6 +189,8 @@ createTestServerState pool basePath = do
           , ssVmStatsSubs = vmStatsSubs
           , ssVsockCidLocks = vsockLocks
           , ssSpicePortLock = spiceLock
+          , ssTaskCancels = taskCancels
+          , ssTaskThreads = taskThreads
           , ssReservedRam = reservedRam
           , ssTlsConfig = Nothing
           }
@@ -267,7 +271,7 @@ vmStart :: Int64 -> TestM Response
 vmStart vmId = withState (\st -> runAction st "alice" (VmStart vmId))
 
 vmStop :: Int64 -> TestM Response
-vmStop vmId = withState (\st -> runAction st "alice" (VmStop vmId))
+vmStop vmId = withState (\st -> runAction st "alice" (VmStop vmId 300))
 
 vmPause :: Int64 -> TestM Response
 vmPause vmId = withState (\st -> runAction st "alice" (VmPause vmId))

@@ -17,15 +17,19 @@ import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGT
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
-import Control.Concurrent.STM (atomically, modifyTVar')
+import Control.Concurrent (forkIO, throwTo)
+import Control.Concurrent.STM (atomically, modifyTVar', writeTVar)
+import Control.Monad (void)
+import Corvus.Action (TaskCancelledException (..))
 import Corvus.Handlers (handleTaskList, handleTaskListChildren, handleTaskShow)
 import Corvus.Protocol (Response (..))
 import Corvus.Rpc.Common (handleParsed)
 import Corvus.Rpc.Streams (EmptyHandle (..))
-import Corvus.Types (ServerState (..))
+import Corvus.Types (ServerState (..), lookupTaskCancelToken, lookupTaskThread)
 import Corvus.Wire.Enums (fromCapnpTaskResult, fromCapnpTaskSubsystem)
 import Corvus.Wire.Errors (showWireError)
 import Corvus.Wire.Task (toCapnpTaskInfo)
+import Data.Foldable (for_)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
 import Supervisors (Supervisor)
@@ -86,6 +90,21 @@ instance CGT.TaskManager'server_ TaskManagerCap where
           Map.insertWith (++) tid [sinkClient]
       handle <- export @CGS.Handle sup EmptyHandle
       pure CGT.TaskManager'subscribe'results {CGT.handle = handle}
+
+  -- Best-effort cancel: flip the cooperative token (honoured at
+  -- subtask boundaries + long-loop checkpoints and by the
+  -- finalizer's terminal-state classification) and, for a worker
+  -- blocked in an in-flight RPC, hard-interrupt it with a
+  -- 'TaskCancelledException'. The throwTo is forked so this RPC
+  -- returns once the request is recorded, not once the task stops.
+  -- A no-op for tasks that already finished (no registry entry).
+  taskManager'cancel (TaskManagerCap st _) =
+    handleParsed $ \CGT.TaskManager'cancel'params {CGT.taskId = tid} -> do
+      mTok <- lookupTaskCancelToken st tid
+      for_ mTok $ \tok -> atomically (writeTVar tok True)
+      mTh <- lookupTaskThread st tid
+      for_ mTh $ \th -> void $ forkIO $ throwTo th TaskCancelledException
+      pure CGT.TaskManager'cancel'results
 
 data TaskCap = TaskCap
   { _tkState :: !ServerState

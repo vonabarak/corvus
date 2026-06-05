@@ -132,6 +132,7 @@ import qualified Data.Text as T
 import Data.Word (Word32)
 import qualified Network.Socket as NS
 import Supervisors (Supervisor, withSupervisor)
+import qualified System.Timeout as Timeout
 
 import Corvus.Node.VmSpec
   ( VmAgentState (..)
@@ -164,6 +165,7 @@ data NodeAgentClient = NodeAgentClient
 data NodeAgentError
   = NodeAgentConnectFailed !T.Text
   | NodeAgentRemoteError !T.Text
+  | NodeAgentTimeout !T.Text
   deriving (Show)
 
 instance E.Exception NodeAgentError
@@ -314,6 +316,27 @@ remote action = do
   r <- E.try @E.SomeException action
   case r of
     Right a -> pure (Right a)
+    Left e -> pure (Left (NodeAgentRemoteError (T.pack (show e))))
+
+-- | Like 'remote', but bounds the call with a wall-clock deadline.
+-- On expiry the daemon thread is freed with a 'NodeAgentTimeout';
+-- because the long agent-side handlers run via 'handleParsedAsync'
+-- (forked off the session dispatcher), abandoning the call here no
+-- longer wedges the rest of that node's RPCs — only the orphaned
+-- forked handler keeps running until it finishes. Used for the
+-- calls that can legitimately block for a long time
+-- (vmStopGraceful, vmStart, vmSave, snapshotCreateLive) and for
+-- probeVsockCid (which sits behind those in the allocator loop).
+remoteWithin :: Int -> IO a -> IO (Either NodeAgentError a)
+remoteWithin deadlineSec action = do
+  r <- E.try @E.SomeException (Timeout.timeout (deadlineSec * 1000000) action)
+  case r of
+    Right (Just a) -> pure (Right a)
+    Right Nothing ->
+      pure $
+        Left $
+          NodeAgentTimeout $
+            "node-agent RPC exceeded " <> T.pack (show deadlineSec) <> "s deadline"
     Left e -> pure (Left (NodeAgentRemoteError (T.pack (show e))))
 
 callOn
@@ -595,7 +618,7 @@ snapshotCreateLive
   -- ^ VM ID (the agent uses this to find the QMP socket)
   -> QuiesceMode
   -> IO (Either NodeAgentError (DiskOpResult, Bool))
-snapshotCreateLive nac path name vmId qmode = remote $ do
+snapshotCreateLive nac path name vmId qmode = remoteWithin 300 $ do
   CGNA.Session'snapshotCreateLive'results
     { CGNA.result = r
     , CGNA.quiesced = q
@@ -864,7 +887,7 @@ decodeVmGuestExecInfo
 -- VM abstraction — client wrappers.
 
 vmStart :: NodeAgentClient -> VmSpec -> IO (Either NodeAgentError VmRuntimeInfo)
-vmStart nac spec = remote $ do
+vmStart nac spec = remoteWithin 120 $ do
   CGNA.Session'vmStart'results {CGNA.info = i} <-
     callOn
       #vmStart
@@ -877,7 +900,7 @@ vmStopGraceful
   -> Int64
   -> Word32
   -> IO (Either NodeAgentError VmStopResult)
-vmStopGraceful nac vmId timeoutSec = remote $ do
+vmStopGraceful nac vmId timeoutSec = remoteWithin (fromIntegral timeoutSec + 30) $ do
   CGNA.Session'vmStopGraceful'results {CGNA.result = r} <-
     callOn
       #vmStopGraceful
@@ -920,7 +943,7 @@ vmResume nac vmId = remote $ do
 -- QEMU. The agent owns the path convention; the daemon only
 -- needs to know which VM to save. Throws on migration failure.
 vmSave :: NodeAgentClient -> Int64 -> IO (Either NodeAgentError ())
-vmSave nac vmId = remote $ do
+vmSave nac vmId = remoteWithin 330 $ do
   _ :: C.Parsed CGNA.Session'vmSave'results <-
     callOn
       #vmSave
@@ -1140,7 +1163,7 @@ vmDetachDrive nac vmId driveId = remote $ do
 -- reports the CID as available (or when the agent's host has
 -- no vhost-vsock device at all).
 probeVsockCid :: NodeAgentClient -> Int -> IO (Either NodeAgentError Bool)
-probeVsockCid nac cid = remote $ do
+probeVsockCid nac cid = remoteWithin 15 $ do
   CGNA.Session'probeVsockCid'results {CGNA.free = free} <-
     callOn
       #probeVsockCid

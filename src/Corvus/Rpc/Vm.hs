@@ -184,11 +184,12 @@ instance CGVm.Vm'server_ VmCap where
     status <- statusOrThrow resp
     pure CGVm.Vm'start'results {CGVm.status = status}
 
-  vm'stop (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'stop'params {wait = wait'} -> do
+  vm'stop (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'stop'params {wait = wait', timeoutSec = tmo} -> do
+    let action = VmStop eid tmo
     resp <-
       if wait'
-        then runAction st cn (VmStop eid)
-        else runActionAsync st cn (VmStop eid) (RespVmStateChanged M.VmStopping)
+        then runAction st cn action
+        else runActionAsync st cn action (RespVmStateChanged M.VmStopping)
     status <- statusOrThrow resp
     pure CGVm.Vm'stop'results {CGVm.status = status}
 
