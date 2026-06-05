@@ -138,6 +138,7 @@ import Corvus.Handlers.Vm (VmDelete (..), VmEdit (..), VmPause (..), VmReset (..
 import qualified Corvus.Handlers.Vm as VmHandlers
 import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache)
 import qualified Corvus.Model as M
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol (Ref (..), Response (..), VmDetails (..), VmInfo (..))
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Types (NodeConns (..), ServerState (..), newAutostartFlags, registerNodeConns)
@@ -339,7 +340,13 @@ diskDetach vmId diskId =
 
 snapshotCreate :: Int64 -> Text -> TestM Response
 snapshotCreate diskId name =
-  withState (\st -> runAction st "alice" (SnapshotCreate diskId name))
+  withState
+    ( \st ->
+        runAction
+          st
+          "alice"
+          (SnapshotCreate diskId name NOA.QuiesceAuto)
+    )
 
 snapshotDelete :: Int64 -> Int64 -> TestM Response
 snapshotDelete diskId snapshotId =

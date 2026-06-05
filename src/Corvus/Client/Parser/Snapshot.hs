@@ -26,6 +26,27 @@ snapshotCreateCommand =
       ( metavar "NAME"
           <> help "Name for the snapshot"
       )
+    <*> option
+      (eitherReader parseQuiesceFlag)
+      ( long "quiesce"
+          <> metavar "auto|require|skip"
+          <> value QuiesceFlagAuto
+          <> help
+            ( "Filesystem quiesce policy for live (running-VM) snapshots."
+                ++ " 'auto' (default): freeze guest filesystems via QGA"
+                ++ " fsfreeze if the guest agent is reachable, else skip."
+                ++ " 'require': fail the snapshot if QGA is unreachable"
+                ++ " or fsfreeze errors. 'skip': never freeze."
+                ++ " Has no effect on offline (stopped-VM) snapshots."
+            )
+      )
+  where
+    parseQuiesceFlag :: String -> Either String QuiesceModeFlag
+    parseQuiesceFlag s = case s of
+      "auto" -> Right QuiesceFlagAuto
+      "require" -> Right QuiesceFlagRequire
+      "skip" -> Right QuiesceFlagSkip
+      other -> Left ("expected auto|require|skip, got: " ++ other)
 
 -- | Parser for snapshot delete
 snapshotDeleteCommand :: Parser Command
@@ -57,6 +78,15 @@ snapshotRollbackCommand =
       (T.pack <$> str)
       ( metavar "SNAPSHOT"
           <> help "Name or ID of the snapshot to rollback to"
+      )
+    <*> switch
+      ( long "auto-stop"
+          <> help
+            ( "Orchestrate a graceful VM stop + rollback + start when"
+                ++ " any attached VM is currently running/paused."
+                ++ " Without this flag, the command refuses the rollback"
+                ++ " on a running VM (QEMU has no online rollback)."
+            )
       )
 
 -- | Parser for snapshot merge
@@ -92,13 +122,23 @@ snapshotCommandParser =
   subparser
     ( command
         "create"
-        (info snapshotCreateCommand (progDesc "Create a snapshot (qcow2 only)"))
+        ( info
+            snapshotCreateCommand
+            ( progDesc
+                "Create a snapshot (qcow2 only; live for running VMs, offline otherwise)"
+            )
+        )
         <> command
           "delete"
           (info snapshotDeleteCommand (progDesc "Delete a snapshot"))
         <> command
           "rollback"
-          (info snapshotRollbackCommand (progDesc "Rollback to a snapshot (VM must be stopped)"))
+          ( info
+              snapshotRollbackCommand
+              ( progDesc
+                  "Rollback to a snapshot (VM must be stopped; pass --auto-stop to cycle)"
+              )
+          )
         <> command
           "merge"
           (info snapshotMergeCommand (progDesc "Merge a snapshot (VM must be stopped)"))

@@ -44,6 +44,7 @@ from .exceptions import (
     VmNotFound,
     VmRunning,
 )
+from .types import QuiesceMode
 
 __all__ = [
     "AsyncClient",
@@ -68,6 +69,7 @@ __all__ = [
     "NodeInUse",
     "NodeNotFound",
     "ProtocolError",
+    "QuiesceMode",
     "ServerError",
     "SharedDirNotFound",
     "SnapshotNotFound",

@@ -58,6 +58,12 @@ data SnapshotInfo = SnapshotInfo
   , sniName :: !Text
   , sniCreatedAt :: !UTCTime
   , sniSizeMb :: !(Maybe Int)
+  , sniLive :: !Bool
+  -- ^ Whether this snapshot was taken via QMP against a running
+  -- VM (@True@) vs offline via @qemu-img snapshot -c@ (@False@).
+  , sniQuiesced :: !Bool
+  -- ^ Whether QGA @guest-fsfreeze-freeze@ was active when the
+  -- snapshot was stamped. Implies filesystem-level consistency.
   }
   deriving (Eq, Show, Generic)
 

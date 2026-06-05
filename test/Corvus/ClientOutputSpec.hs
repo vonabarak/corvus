@@ -167,13 +167,15 @@ spec = sequential $ do
 
     describe "SnapshotInfo" $ do
       it "serializes correctly" $ do
-        let snap = SnapshotInfo 5 "before-upgrade" testTime (Just 100)
+        let snap = SnapshotInfo 5 "before-upgrade" testTime (Just 100) False False
             val = toJSON snap
         case val of
           Object obj -> do
             KM.lookup "id" obj `shouldBe` Just (Number 5)
             KM.lookup "name" obj `shouldBe` Just (String "before-upgrade")
             KM.lookup "size_mb" obj `shouldBe` Just (Number 100)
+            KM.lookup "live" obj `shouldBe` Just (Bool False)
+            KM.lookup "quiesced" obj `shouldBe` Just (Bool False)
           _ -> fail "Expected JSON object"
 
     describe "SharedDirInfo" $ do

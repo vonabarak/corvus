@@ -611,3 +611,42 @@ instance (C.Parse NodeAdminState NodeAdminState) where
 instance (C.AllocateList NodeAdminState) where
     type ListAllocHint NodeAdminState = Std_.Int
 instance (C.EstimateListAlloc NodeAdminState NodeAdminState)
+data QuiesceMode 
+    = QuiesceMode'auto 
+    | QuiesceMode'require 
+    | QuiesceMode'skip 
+    | QuiesceMode'unknown' Std_.Word16
+    deriving(Std_.Eq
+            ,Std_.Show
+            ,Generics.Generic)
+type instance (R.ReprFor QuiesceMode) = (R.Data R.Sz16)
+instance (C.HasTypeId QuiesceMode) where
+    typeId  = 17218588174649126735
+instance (Std_.Enum QuiesceMode) where
+    toEnum n_ = case n_ of
+        0 ->
+            QuiesceMode'auto
+        1 ->
+            QuiesceMode'require
+        2 ->
+            QuiesceMode'skip
+        tag_ ->
+            (QuiesceMode'unknown' (Std_.fromIntegral tag_))
+    fromEnum value_ = case value_ of
+        (QuiesceMode'auto) ->
+            0
+        (QuiesceMode'require) ->
+            1
+        (QuiesceMode'skip) ->
+            2
+        (QuiesceMode'unknown' tag_) ->
+            (Std_.fromIntegral tag_)
+instance (C.IsWord QuiesceMode) where
+    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
+    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
+instance (C.Parse QuiesceMode QuiesceMode) where
+    parse  = GH.parseEnum
+    encode  = GH.encodeEnum
+instance (C.AllocateList QuiesceMode) where
+    type ListAllocHint QuiesceMode = Std_.Int
+instance (C.EstimateListAlloc QuiesceMode QuiesceMode)

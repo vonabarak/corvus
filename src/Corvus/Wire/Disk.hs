@@ -84,6 +84,8 @@ toCapnpSnapshotInfo P.SnapshotInfo {..} =
     , CGDisk.name = sniName
     , CGDisk.createdAt = utcTimeToNanos sniCreatedAt
     , CGDisk.sizeMb = maybe 0 fromIntegral sniSizeMb
+    , CGDisk.live = sniLive
+    , CGDisk.quiesced = sniQuiesced
     }
 
 fromCapnpSnapshotInfo :: C.Parsed CGDisk.SnapshotInfo -> P.SnapshotInfo
@@ -93,4 +95,6 @@ fromCapnpSnapshotInfo CGDisk.SnapshotInfo {..} =
     , P.sniName = name
     , P.sniCreatedAt = nanosToUtcTime createdAt
     , P.sniSizeMb = if sizeMb == 0 then Nothing else Just (fromIntegral sizeMb)
+    , P.sniLive = live
+    , P.sniQuiesced = quiesced
     }

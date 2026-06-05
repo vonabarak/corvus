@@ -249,6 +249,8 @@ def snapshot_info(r) -> t.SnapshotInfo:
         name=r.name,
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
         size_mb=_nz_int(r.sizeMb),
+        live=getattr(r, "live", False),
+        quiesced=getattr(r, "quiesced", False),
     )
 
 

@@ -101,3 +101,21 @@ enum NodeAdminState {
   draining    @1;
   maintenance @2;
 }
+
+# How aggressive to be about in-guest filesystem quiescence when
+# taking a live snapshot. See doc/snapshots.md for the resolution
+# table; the daemon picks the effective mode per call from the
+# request's mode + the target VM's runtime state.
+enum QuiesceMode {
+  # Best-effort: freeze if the VM has guest agent enabled AND a
+  # quick guest-ping succeeds; silently skip otherwise.
+  auto    @0;
+  # Hard requirement: fail the snapshot if the guest agent is not
+  # reachable or guest-fsfreeze-freeze itself errors. For
+  # automated callers that need a consistency guarantee.
+  require @1;
+  # Never freeze, even when the guest agent is available. Use for
+  # snapshots of stopped/paused VMs and to dodge a flaky in-guest
+  # fsfreeze.
+  skip    @2;
+}

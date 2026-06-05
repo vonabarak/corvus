@@ -160,7 +160,9 @@ library:
     - Corvus.Utils.Network
     - Corvus.Node.Command
     - Corvus.Node.Image
+    - Corvus.Node.SnapshotLive
     - Corvus.Node.GuestAgent
+    - Corvus.Handlers.Disk.SnapshotAutoStop
     - Corvus.Node.SocketBuffer
     - Corvus.Node.SpicePort
     - Corvus.Node.VsockCid

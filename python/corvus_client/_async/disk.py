@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .. import _schema
+from .. import _schema, types
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
 from . import _convert as conv
@@ -290,11 +290,25 @@ class AsyncDisk:
     async def resize(self, new_size_mb: int) -> None:
         await self._cap.resize(newSizeMb=new_size_mb)
 
-    async def snapshot_create(self, name: str) -> AsyncSnapshot:
+    async def snapshot_create(
+        self,
+        name: str,
+        *,
+        quiesce: types.QuiesceMode = types.QuiesceMode.AUTO,
+    ) -> AsyncSnapshot:
+        """Create a qcow2 snapshot. Dispatches transparently between
+        offline (``qemu-img snapshot -c``) and live (QMP
+        ``blockdev-snapshot-internal-sync``) depending on whether the
+        disk is attached to a running/paused VM.
+
+        :param quiesce: filesystem-quiesce policy for the live path.
+            Ignored on the offline path. See :class:`QuiesceMode`.
+        """
         # `name` collides with pycapnp's internal `_send(name, ...)`
         # method-name kwarg, so build the request explicitly.
         req = self._cap.snapshotCreate_request()
         req.name = name
+        req.quiesce = quiesce.value
         resp = await req.send()
         return AsyncSnapshot(resp.snapshot)
 
@@ -321,8 +335,17 @@ class AsyncSnapshot:
     async def delete(self) -> None:
         await self._cap.delete()
 
-    async def rollback(self) -> None:
-        await self._cap.rollback()
+    async def rollback(self, *, auto_stop: bool = False) -> None:
+        """Roll the parent disk back to this snapshot.
+
+        QEMU has no online snapshot-rollback command. Without
+        ``auto_stop`` the daemon refuses the call when an attached
+        VM is running/paused. ``auto_stop=True`` asks the daemon
+        to orchestrate a graceful VmStop + rollback + VmStart
+        cycle — the operator still issues one call, but the VM
+        does cycle.
+        """
+        await self._cap.rollback(autoStop=auto_stop)
 
     async def merge(self) -> None:
         await self._cap.merge()

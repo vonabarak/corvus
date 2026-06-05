@@ -94,14 +94,99 @@ class TestSnapshots(SingleNodeCase):
         finally:
             disk.delete()
 
-    def test_snapshot_rejects_running_vm(self):
-        """Snapshot operations against a disk attached to a running VM
-        must fail with `VmMustBeStopped` — the daemon refuses to take
-        a `qemu-img snapshot` on a busy qcow2."""
+    def test_snapshot_create_against_running_vm_uses_live_path(self):
+        """`disk.snapshot_create` on a disk attached to a running VM
+        now succeeds: the daemon routes the call through QMP
+        (``blockdev-snapshot-internal-sync``) instead of refusing
+        with `VmMustBeStopped`. The resulting `SnapshotInfo` is
+        flagged ``live=True`` so operators can distinguish live
+        snapshots from offline ones in `snapshot list`.
+
+        Default quiesce mode is ``auto``: freeze guest filesystems
+        via QGA when reachable, else skip. The test VM ships QGA,
+        so ``quiesced`` should be True for this path. We assert the
+        flag rather than booleans-or-None to catch a future
+        regression where the daemon silently downgrades to offline.
+        """
         with Vm(self) as vm:
             disk = self.client.disks.get(vm.name)
-            with pytest.raises(VmMustBeStopped):
-                disk.snapshot_create("while-running")
+            snap = disk.snapshot_create("while-running")
+            try:
+                info = snap.show()
+                assert info.name == "while-running"
+                assert info.live, (
+                    "snapshot taken against a running VM must be flagged "
+                    f"live=True, got info={info!r}"
+                )
+                assert info.quiesced, (
+                    "test VM has QGA, so auto-quiesce must have run; "
+                    f"got quiesced=False on info={info!r}"
+                )
+            finally:
+                snap.delete()
+
+    def test_snapshot_delete_against_running_vm_uses_live_path(self):
+        """`Snapshot.delete` on a snapshot whose disk is attached to a
+        running VM now succeeds (QMP
+        ``blockdev-snapshot-delete-internal-sync``); previously
+        rejected with `VmMustBeStopped`."""
+        with Vm(self) as vm:
+            disk = self.client.disks.get(vm.name)
+            snap = disk.snapshot_create("to-delete")
+            # Live delete: the disk is still attached to the running VM.
+            snap.delete()
+            assert not any(s.name == "to-delete" for s in disk.snapshot_list())
+
+    def test_rollback_rejects_running_vm_without_autostop(self):
+        """Rollback has no QMP equivalent. Without ``--auto-stop`` the
+        daemon refuses the call when an attached VM is running, with
+        the same `VmMustBeStopped` it always raised."""
+        with Vm(self) as vm:
+            disk = self.client.disks.get(vm.name)
+            vm.cap.stop(wait=True)
+            snap = disk.snapshot_create("pre-rollback")
+            vm.cap.start(wait=True)
+            try:
+                with pytest.raises(VmMustBeStopped):
+                    snap.rollback()
+            finally:
+                vm.cap.stop(wait=True)
+                snap.delete()
+
+    def test_rollback_autostop_cycles_running_vm(self):
+        """`Snapshot.rollback(auto_stop=True)` orchestrates a graceful
+        VmStop + offline rollback + VmStart when the VM is running.
+        End state: VM is running again on the snapshot's disk
+        contents, NOT the post-snapshot writes."""
+        token = secrets.token_hex(6)
+        path = "/home/corvus/autostop-marker.txt"
+        with Vm(self) as vm:
+            disk = self.client.disks.get(vm.name)
+
+            # Lay down the marker, snapshot the good state.
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                shell.run(f"echo {token} > {path}")
+            vm.cap.stop(wait=True)
+            disk.snapshot_create("good")
+            vm.cap.start(wait=True)
+
+            # Mutate the marker while running.
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                shell.run(f"echo MUTATED > {path}")
+
+            # Auto-stop rollback: VM is RUNNING here on purpose; the
+            # daemon must cycle it for us.
+            disk.snapshot_get("good", by_name=True).rollback(auto_stop=True)
+
+            # The daemon restarted the VM as part of the auto-stop
+            # cycle, so the rollback restored the marker AND the VM
+            # is up again.
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                restored = shell.run(f"cat {path}").stdout.strip()
+                assert restored == token
 
     # ---- rollback / merge round-trips ---------------------------------------
 

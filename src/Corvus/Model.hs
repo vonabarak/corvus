@@ -651,6 +651,17 @@ Snapshot
     name Text
     createdAt UTCTime
     sizeMb Int Maybe
+    -- Whether this snapshot was taken against a running VM via QMP
+    -- (`True`) versus offline via `qemu-img snapshot -c` (`False`).
+    -- Pure operator diagnostic; the qcow2 entry is bit-identical
+    -- either way. Defaults to `False` so existing rows from before
+    -- the live-snapshot feature don't claim to be live.
+    live Bool default=false
+    -- Whether QGA `guest-fsfreeze-freeze` was active at the moment
+    -- the snapshot was stamped. `True` implies the operator can
+    -- trust filesystem-level consistency; `False` is
+    -- hard-reset-equivalent for any unflushed in-guest writes.
+    quiesced Bool default=false
     UniqueSnapshot diskImageId name
     deriving Show Eq Generic
 

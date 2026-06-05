@@ -175,7 +175,7 @@ type instance (R.ReprFor SnapshotInfo) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId SnapshotInfo) where
     typeId  = 12234667223317650273
 instance (C.TypedStruct SnapshotInfo) where
-    numStructWords  = 3
+    numStructWords  = 4
     numStructPtrs  = 1
 instance (C.Allocate SnapshotInfo) where
     type AllocHint SnapshotInfo = ()
@@ -190,7 +190,9 @@ data instance C.Parsed SnapshotInfo
         {id :: (RP.Parsed Std_.Int64)
         ,name :: (RP.Parsed Basics.Text)
         ,createdAt :: (RP.Parsed Std_.Int64)
-        ,sizeMb :: (RP.Parsed Std_.Int64)}
+        ,sizeMb :: (RP.Parsed Std_.Int64)
+        ,live :: (RP.Parsed Std_.Bool)
+        ,quiesced :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed SnapshotInfo))
 deriving instance (Std_.Eq (C.Parsed SnapshotInfo))
@@ -198,13 +200,17 @@ instance (C.Parse SnapshotInfo (C.Parsed SnapshotInfo)) where
     parse raw_ = (SnapshotInfo <$> (GH.parseField #id raw_)
                                <*> (GH.parseField #name raw_)
                                <*> (GH.parseField #createdAt raw_)
-                               <*> (GH.parseField #sizeMb raw_))
+                               <*> (GH.parseField #sizeMb raw_)
+                               <*> (GH.parseField #live raw_)
+                               <*> (GH.parseField #quiesced raw_))
 instance (C.Marshal SnapshotInfo (C.Parsed SnapshotInfo)) where
     marshalInto raw_ SnapshotInfo{..} = (do
         (GH.encodeField #id id raw_)
         (GH.encodeField #name name raw_)
         (GH.encodeField #createdAt createdAt raw_)
         (GH.encodeField #sizeMb sizeMb raw_)
+        (GH.encodeField #live live raw_)
+        (GH.encodeField #quiesced quiesced raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot SnapshotInfo Std_.Int64) where
@@ -215,6 +221,10 @@ instance (GH.HasField "createdAt" GH.Slot SnapshotInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 1 64 0)
 instance (GH.HasField "sizeMb" GH.Slot SnapshotInfo Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 2 64 0)
+instance (GH.HasField "live" GH.Slot SnapshotInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 3 1 0)
+instance (GH.HasField "quiesced" GH.Slot SnapshotInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 1 3 1 0)
 data DiskCreateParams 
 type instance (R.ReprFor DiskCreateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCreateParams) where
@@ -1672,7 +1682,7 @@ type instance (R.ReprFor Disk'snapshotCreate'params) = (R.Ptr (Std_.Just R.Struc
 instance (C.HasTypeId Disk'snapshotCreate'params) where
     typeId  = 11260087998731707172
 instance (C.TypedStruct Disk'snapshotCreate'params) where
-    numStructWords  = 0
+    numStructWords  = 1
     numStructPtrs  = 1
 instance (C.Allocate Disk'snapshotCreate'params) where
     type AllocHint Disk'snapshotCreate'params = ()
@@ -1684,19 +1694,24 @@ instance (C.AllocateList Disk'snapshotCreate'params) where
 instance (C.EstimateListAlloc Disk'snapshotCreate'params (C.Parsed Disk'snapshotCreate'params))
 data instance C.Parsed Disk'snapshotCreate'params
     = Disk'snapshotCreate'params 
-        {name :: (RP.Parsed Basics.Text)}
+        {name :: (RP.Parsed Basics.Text)
+        ,quiesce :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.QuiesceMode)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Disk'snapshotCreate'params))
 deriving instance (Std_.Eq (C.Parsed Disk'snapshotCreate'params))
 instance (C.Parse Disk'snapshotCreate'params (C.Parsed Disk'snapshotCreate'params)) where
-    parse raw_ = (Disk'snapshotCreate'params <$> (GH.parseField #name raw_))
+    parse raw_ = (Disk'snapshotCreate'params <$> (GH.parseField #name raw_)
+                                             <*> (GH.parseField #quiesce raw_))
 instance (C.Marshal Disk'snapshotCreate'params (C.Parsed Disk'snapshotCreate'params)) where
     marshalInto raw_ Disk'snapshotCreate'params{..} = (do
         (GH.encodeField #name name raw_)
+        (GH.encodeField #quiesce quiesce raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot Disk'snapshotCreate'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "quiesce" GH.Slot Disk'snapshotCreate'params Capnp.Gen.ById.Xbf9b09f64c0dd40d.QuiesceMode) where
+    fieldByLabel  = (GH.dataField 0 0 16 0)
 data Disk'snapshotCreate'results 
 type instance (R.ReprFor Disk'snapshotCreate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Disk'snapshotCreate'results) where
@@ -1983,7 +1998,7 @@ type instance (R.ReprFor Snapshot'rollback'params) = (R.Ptr (Std_.Just R.Struct)
 instance (C.HasTypeId Snapshot'rollback'params) where
     typeId  = 10827958444244213531
 instance (C.TypedStruct Snapshot'rollback'params) where
-    numStructWords  = 0
+    numStructWords  = 1
     numStructPtrs  = 0
 instance (C.Allocate Snapshot'rollback'params) where
     type AllocHint Snapshot'rollback'params = ()
@@ -1995,14 +2010,19 @@ instance (C.AllocateList Snapshot'rollback'params) where
 instance (C.EstimateListAlloc Snapshot'rollback'params (C.Parsed Snapshot'rollback'params))
 data instance C.Parsed Snapshot'rollback'params
     = Snapshot'rollback'params 
-        {}
+        {autoStop :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Snapshot'rollback'params))
 deriving instance (Std_.Eq (C.Parsed Snapshot'rollback'params))
 instance (C.Parse Snapshot'rollback'params (C.Parsed Snapshot'rollback'params)) where
-    parse raw_ = (Std_.pure Snapshot'rollback'params)
+    parse raw_ = (Snapshot'rollback'params <$> (GH.parseField #autoStop raw_))
 instance (C.Marshal Snapshot'rollback'params (C.Parsed Snapshot'rollback'params)) where
-    marshalInto _raw (Snapshot'rollback'params) = (Std_.pure ())
+    marshalInto raw_ Snapshot'rollback'params{..} = (do
+        (GH.encodeField #autoStop autoStop raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "autoStop" GH.Slot Snapshot'rollback'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
 data Snapshot'rollback'results 
 type instance (R.ReprFor Snapshot'rollback'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Snapshot'rollback'results) where

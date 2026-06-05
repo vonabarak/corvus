@@ -42,6 +42,16 @@ struct SnapshotInfo {
   name       @1 :Text;
   createdAt  @2 :Int64;   # POSIX nanoseconds
   sizeMb     @3 :Int64;   # 0 == unknown
+  # Whether this snapshot was taken against a running VM via QMP
+  # (`true`) versus offline via `qemu-img snapshot -c` (`false`).
+  # Pure operator diagnostic; the qcow2 entry is bit-identical
+  # either way.
+  live       @4 :Bool;
+  # Whether QGA `guest-fsfreeze-freeze` was active at the moment
+  # the snapshot was stamped. `true` implies the operator can trust
+  # filesystem-level consistency; `false` is hard-reset-equivalent
+  # for in-guest writes.
+  quiesced   @5 :Bool;
 }
 
 # ---------------------------------------------------------------------
@@ -194,7 +204,16 @@ interface Disk {
   resize   @3 (newSizeMb :Int64) -> ();
 
   # Snapshots scoped to this disk image.
-  snapshotCreate    @4 (name :Text) -> (snapshot :Snapshot);
+  #
+  # `snapshotCreate` dispatches transparently between the offline
+  # (`qemu-img snapshot -c`) and live (QMP) paths based on whether
+  # the disk is currently attached to a running/paused VM. The
+  # `quiesce` mode only matters for the live path; it controls
+  # whether QGA `guest-fsfreeze` brackets the snapshot for
+  # in-guest filesystem consistency.
+  snapshotCreate    @4 (name    :Text,
+                        quiesce :Enums.QuiesceMode = auto)
+                       -> (snapshot :Snapshot);
   snapshotList      @5 () -> (snapshots :List(SnapshotInfo));
   snapshotGet       @6 (ref :Common.EntityRef) -> (snapshot :Snapshot);
 }
@@ -202,6 +221,11 @@ interface Disk {
 interface Snapshot {
   show     @0 () -> (info :SnapshotInfo);
   delete   @1 () -> ();
-  rollback @2 () -> ();
+  # QEMU has no online rollback. `autoStop = true` lets the daemon
+  # wrap the offline rollback in a graceful VM stop + revert +
+  # restart cycle, so the operator still issues a single call. With
+  # `autoStop = false` (the default) the daemon refuses the call
+  # when any attached VM is running.
+  rollback @2 (autoStop :Bool = false) -> ();
   merge    @3 () -> ();
 }

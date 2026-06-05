@@ -10,6 +10,9 @@ module Corvus.Client.Types
 
     -- * Wait options
   , WaitOptions (..)
+
+    -- * Snapshot options
+  , QuiesceModeFlag (..)
   )
 where
 
@@ -18,6 +21,16 @@ import Data.Text (Text)
 
 -- | Output format for CLI commands
 data OutputFormat = TextOutput | JsonOutput | YamlOutput
+  deriving (Show, Eq)
+
+-- | CLI-side mirror of the wire 'QuiesceMode' enum. Lives here to
+-- keep 'Corvus.Client.Types' independent of the generated Cap'n
+-- Proto modules — the Capnp.Gen.Enums type is the wire form;
+-- 'Corvus.Client.Commands.Disk' translates this flag into it.
+data QuiesceModeFlag
+  = QuiesceFlagAuto
+  | QuiesceFlagRequire
+  | QuiesceFlagSkip
   deriving (Show, Eq)
 
 -- | Options for blocking until an async operation completes.
@@ -136,12 +149,18 @@ data Command
     NetIfList !Text
   | -- Snapshot commands
 
-    -- | Create snapshot (diskRef, name)
-    SnapshotCreate !Text !Text
+    -- | Create snapshot (diskRef, name, quiesce mode).
+    -- @quiesce@ only affects the live path (running/paused VM); on
+    -- a stopped VM it is silently ignored because qemu-img writes
+    -- the snapshot offline. See doc/snapshots.md.
+    SnapshotCreate !Text !Text !QuiesceModeFlag
   | -- | Delete snapshot (diskRef, snapshotRef)
     SnapshotDelete !Text !Text
-  | -- | Rollback to snapshot (diskRef, snapshotRef)
-    SnapshotRollback !Text !Text
+  | -- | Rollback to snapshot (diskRef, snapshotRef, autoStop).
+    -- QEMU has no online rollback; @autoStop=True@ orchestrates a
+    -- graceful VM stop + revert + start so the operator still
+    -- issues a single command.
+    SnapshotRollback !Text !Text !Bool
   | -- | Merge snapshot (diskRef, snapshotRef)
     SnapshotMerge !Text !Text
   | -- | List snapshots (diskRef)

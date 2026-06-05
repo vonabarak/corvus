@@ -32,6 +32,8 @@ module Corvus.Node.GuestAgent
   , guestPing
   , guestShutdown
   , guestNetworkGetInterfaces
+  , guestFsFreeze
+  , guestFsThaw
 
     -- * Internal (exposed for tests)
   , parseGuestInterfaces
@@ -795,6 +797,81 @@ guestShutdown conns config vmId = do
   case mResult of
     Left _ -> pure True
     Right r -> pure r
+
+-- | Freeze all writable guest filesystems that support fsfreeze
+-- (ext4, xfs, btrfs, ntfs on modern Windows…). QEMU's QGA flushes
+-- pending writes through to the disk and then blocks further
+-- writes until 'guestFsThaw' is called.
+--
+-- Returns the number of filesystems successfully frozen on
+-- success, or @Left@ on transport / QGA error. A return of @0@
+-- in a guest that has writable filesystems means none of them
+-- support fsfreeze — the caller decides whether that's an error
+-- (per 'QuiesceMode').
+--
+-- This RPC takes a one-shot 10s connection budget. Freeze on a
+-- guest with many filesystems can take several seconds to flush
+-- caches; the existing 'guestExec' helpers use the same window.
+--
+-- CRITICAL: every call site MUST guarantee 'guestFsThaw' runs
+-- afterward (use 'Control.Exception.bracket'-style finalisation)
+-- — leaving the guest frozen indefinitely on the error path
+-- wedges in-guest I/O.
+guestFsFreeze :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text Int)
+guestFsFreeze conns config vmId = do
+  mResult <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
+    sendJson sock $ Aeson.object ["execute" .= ("guest-fsfreeze-freeze" :: Text)]
+    mResp <- timeout 10000000 (recvJson sock)
+    pure $ case mResp of
+      Just (Just (Object obj)) ->
+        case KM.lookup "return" obj of
+          Just (Number n) -> Right (truncate n :: Int)
+          _ -> Left (qgaErrText obj)
+      _ -> Left "guest-fsfreeze-freeze: no reply within 10s"
+  pure $ case mResult of
+    Left e -> Left (T.pack (show e))
+    Right r -> r
+
+-- | Thaw guest filesystems previously frozen by 'guestFsFreeze'.
+-- QGA's @guest-fsfreeze-thaw@ is idempotent — thawing a guest
+-- that wasn't frozen returns 0 without error, so this is safe to
+-- call unconditionally on the error path of a snapshot attempt.
+--
+-- Returns the number of thawed filesystems on success, @Left@ on
+-- transport / QGA error.
+guestFsThaw :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text Int)
+guestFsThaw conns config vmId = do
+  mResult <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
+    sendJson sock $ Aeson.object ["execute" .= ("guest-fsfreeze-thaw" :: Text)]
+    mResp <- timeout 10000000 (recvJson sock)
+    pure $ case mResp of
+      Just (Just (Object obj)) ->
+        case KM.lookup "return" obj of
+          Just (Number n) -> Right (truncate n :: Int)
+          _ -> Left (qgaErrText obj)
+      _ -> Left "guest-fsfreeze-thaw: no reply within 10s"
+  pure $ case mResult of
+    Left e -> Left (T.pack (show e))
+    Right r -> r
+
+-- | Pull a human-readable error string out of a QGA error reply.
+-- QGA shape: @{"error": {"class": "...", "desc": "..."}}@.
+qgaErrText :: AT.Object -> Text
+qgaErrText obj = case KM.lookup "error" obj of
+  Just (Object err) ->
+    let desc = KM.lookup "desc" err
+        cls = KM.lookup "class" err
+        textOf (Just (String s)) = s
+        textOf _ = ""
+        d = textOf desc
+        c = textOf cls
+     in if not (T.null c) && not (T.null d)
+          then c <> ": " <> d
+          else
+            if not (T.null d)
+              then d
+              else "QGA error (no description)"
+  _ -> "QGA reply lacks both 'return' and 'error' fields"
 
 -- | Query network interfaces from the guest via the QEMU Guest Agent.
 -- Returns Nothing on failure, Just [] if no interfaces reported.

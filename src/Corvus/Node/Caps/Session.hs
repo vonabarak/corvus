@@ -28,6 +28,7 @@ module Corvus.Node.Caps.Session
 where
 
 import qualified Capnp as C
+import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
@@ -46,6 +47,7 @@ import qualified Corvus.Node.Image as NI
 import qualified Corvus.Node.Ledger as L
 import qualified Corvus.Node.Qmp as NQ
 import qualified Corvus.Node.Runtime as NR
+import qualified Corvus.Node.SnapshotLive as NSL
 import Corvus.Node.SocketBuffer (flushBuffer, startSocketBufferThread)
 import qualified Corvus.Node.StatusPoller as SP
 import qualified Corvus.Node.Transfer as NTr
@@ -274,6 +276,46 @@ instance CGNA.Session'server_ SessionCap where
           result <- NI.rollbackSnapshot (T.unpack p) n
           pure
             CGNA.Session'snapshotRollback'results
+              { CGNA.result = encodeDiskOpResult result
+              }
+
+  session'snapshotCreateLive sc =
+    handleParsed $
+      \CGNA.Session'snapshotCreateLive'params
+        { CGNA.path = p
+        , CGNA.name = n
+        , CGNA.vmId = vid
+        , CGNA.quiesce = q
+        } -> do
+          (result, quiesced) <-
+            NSL.createSnapshotLive
+              (scQgaConns sc)
+              agentQemuConfig
+              vid
+              n
+              (T.unpack p)
+              (decodeQuiesceMode q)
+          pure
+            CGNA.Session'snapshotCreateLive'results
+              { CGNA.result = encodeDiskOpResult result
+              , CGNA.quiesced = quiesced
+              }
+
+  session'snapshotDeleteLive _ =
+    handleParsed $
+      \CGNA.Session'snapshotDeleteLive'params
+        { CGNA.path = p
+        , CGNA.name = n
+        , CGNA.vmId = vid
+        } -> do
+          result <-
+            NSL.deleteSnapshotLive
+              agentQemuConfig
+              vid
+              n
+              (T.unpack p)
+          pure
+            CGNA.Session'snapshotDeleteLive'results
               { CGNA.result = encodeDiskOpResult result
               }
 
@@ -668,6 +710,15 @@ encodeDiskOpResult r = case r of
       { CGNA.kind = CGNA.DiskOpKind'errorFormatUnsupported
       , CGNA.message = msg
       }
+
+-- | Translate the wire 'QuiesceMode' to the local NSL.QuiesceMode.
+-- Unknown future variants are conservative — they fall back to
+-- 'NSL.QuiesceAuto', the default mode.
+decodeQuiesceMode :: CGE.QuiesceMode -> NSL.QuiesceMode
+decodeQuiesceMode CGE.QuiesceMode'auto = NSL.QuiesceAuto
+decodeQuiesceMode CGE.QuiesceMode'require = NSL.QuiesceRequire
+decodeQuiesceMode CGE.QuiesceMode'skip = NSL.QuiesceSkip
+decodeQuiesceMode (CGE.QuiesceMode'unknown' _) = NSL.QuiesceAuto
 
 encodeDiskInspectInfo :: NI.ImageInfo -> CGNA.Parsed CGNA.DiskInspectInfo
 encodeDiskInspectInfo info =

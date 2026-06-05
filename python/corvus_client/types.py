@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 
 # ---------------------------------------------------------------------------
 # Common
@@ -244,12 +245,46 @@ class DiskImageInfo:
     ephemeral: bool = False
 
 
+class QuiesceMode(str, Enum):
+    """Filesystem-quiesce policy for live (running-VM) snapshots.
+
+    See `doc/snapshots.md` for the resolution table; the daemon
+    picks the effective mode per call from this value plus the
+    target VM's runtime state.
+
+    * ``AUTO`` (default): freeze guest filesystems via QGA
+      ``guest-fsfreeze-freeze`` if the guest agent is reachable;
+      silently skip otherwise.
+    * ``REQUIRE``: fail the snapshot if QGA is missing / not
+      reachable / fsfreeze itself errors. Use this from automated
+      scripts that need a hard consistency guarantee.
+    * ``SKIP``: never freeze, even when the guest agent is
+      available. Use for snapshots of stopped/paused VMs where
+      it would be a no-op, or to dodge a flaky in-guest
+      fsfreeze.
+    """
+
+    AUTO = "auto"
+    REQUIRE = "require"
+    SKIP = "skip"
+
+
 @dataclass(frozen=True)
 class SnapshotInfo:
     id: int
     name: str
     created_at: datetime
     size_mb: int | None = None
+    live: bool = False
+    """Whether this snapshot was taken via QMP on a running VM
+    (``True``) versus offline via ``qemu-img snapshot -c``
+    (``False``). Operator diagnostic only — the qcow2 record is
+    bit-identical either way."""
+    quiesced: bool = False
+    """Whether QGA ``guest-fsfreeze-freeze`` was active when the
+    snapshot was stamped. ``True`` implies filesystem-level
+    consistency; ``False`` is hard-reset-equivalent for any
+    unflushed in-guest writes."""
 
 
 # ---------------------------------------------------------------------------

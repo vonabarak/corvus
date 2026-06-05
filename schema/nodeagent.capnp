@@ -1,5 +1,6 @@
 @0xbc08f7ad74ba3f78;
 
+using Enums = import "enums.capnp";
 using Streams = import "streams.capnp";
 using Vm = import "vm.capnp";
 
@@ -104,9 +105,34 @@ interface Session {
   diskInspect        @7 (path :Text) -> (info :DiskInspectInfo);
 
   # Snapshot operations (qcow2 only; format errors surface via DiskOpResult).
+  #
+  # The plain variants stop and lock the qcow2 file, so they
+  # require the VM to be off. The `Live` companions reach the
+  # running QEMU via QMP `blockdev-snapshot-internal-sync` /
+  # `blockdev-snapshot-delete-internal-sync`. Rollback has no
+  # live form (QEMU exposes none); the daemon's `autoStop` knob
+  # wraps the offline rollback in a stop + revert + start cycle.
   snapshotCreate     @8  (path :Text, name :Text) -> (result :DiskOpResult);
   snapshotDelete     @9  (path :Text, name :Text) -> (result :DiskOpResult);
   snapshotRollback   @10 (path :Text, name :Text) -> (result :DiskOpResult);
+
+  # Live snapshot create against a running VM. The agent uses
+  # `path` to locate the matching block device via `query-block`
+  # (the QEMU block-backend name isn't predictable from the daemon
+  # side, so we resolve it agent-side from the file path).
+  # `quiesced` reports whether QGA fsfreeze actually ran — `auto`
+  # mode can silently downgrade to skip when the guest agent is
+  # unavailable.
+  snapshotCreateLive @37 (path :Text,
+                          name :Text,
+                          vmId :Int64,
+                          quiesce :Enums.QuiesceMode = auto)
+                        -> (result :DiskOpResult, quiesced :Bool);
+
+  # Live snapshot delete. No QGA freeze needed — deletion only
+  # touches the qcow2 snapshot table, not in-flight guest I/O.
+  snapshotDeleteLive @38 (path :Text, name :Text, vmId :Int64)
+                        -> (result :DiskOpResult);
 
   # Image download (curl, fall back to wget) + xz decompression +
   # md5 hashing. These shell out to host tools and write to the

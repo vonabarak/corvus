@@ -272,6 +272,8 @@ getSnapshots diskId = do
             , sniName = snapshotName snap
             , sniCreatedAt = snapshotCreatedAt snap
             , sniSizeMb = snapshotSizeMb snap
+            , sniLive = snapshotLive snap
+            , sniQuiesced = snapshotQuiesced snap
             }
       )
       snapshots

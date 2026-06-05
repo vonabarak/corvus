@@ -34,6 +34,8 @@ module Corvus.Handlers.Disk.Agent
   , deleteSnapshotViaAgent
   , rollbackSnapshotViaAgent
   , mergeSnapshotViaAgent
+  , createSnapshotViaAgentLive
+  , deleteSnapshotViaAgentLive
 
     -- * Download / decompress / hash
   , downloadImageViaAgent
@@ -203,6 +205,36 @@ rollbackSnapshotViaAgent state nid path name =
 -- 'NI.mergeSnapshot' for callers.
 mergeSnapshotViaAgent :: ServerState -> M.NodeId -> FilePath -> Text -> IO NI.ImageResult
 mergeSnapshotViaAgent = deleteSnapshotViaAgent
+
+-- | Live snapshot create: routes through the agent's QMP path on
+-- a running VM. Returns the 'ImageResult' AND a flag indicating
+-- whether QGA fsfreeze actually bracketed the snapshot — the
+-- daemon stamps this on the 'Snapshot' DB row.
+createSnapshotViaAgentLive
+  :: ServerState
+  -> M.NodeId
+  -> FilePath
+  -> Text
+  -> Int64
+  -- ^ VM ID that currently holds the disk open
+  -> NOA.QuiesceMode
+  -> IO (NI.ImageResult, Bool)
+createSnapshotViaAgentLive state nid path name vmId qmode = do
+  r <- lookupNodeAgent state nid
+  case r of
+    Left err -> pure (NI.ImageError err, False)
+    Right nac -> do
+      res <- NOA.snapshotCreateLive nac (T.pack path) name vmId qmode
+      pure $ case res of
+        Left e -> (NI.ImageError (T.pack (show e)), False)
+        Right (op, q) -> (fromDiskOpResult op, q)
+
+-- | Live snapshot delete on a running VM. No quiesce needed.
+deleteSnapshotViaAgentLive
+  :: ServerState -> M.NodeId -> FilePath -> Text -> Int64 -> IO NI.ImageResult
+deleteSnapshotViaAgentLive state nid path name vmId =
+  withDiskOp state nid $ \nac ->
+    NOA.snapshotDeleteLive nac (T.pack path) name vmId
 
 -- ---------------------------------------------------------------------------
 -- Download / decompress / hash

@@ -19,6 +19,7 @@ where
 
 import Capnp (export)
 import qualified Capnp.Gen.Disk as CGDisk
+import qualified Capnp.Gen.Enums as CGE
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Corvus.Action (runAction, runActionAsyncWithId)
@@ -45,7 +46,9 @@ import Corvus.Handlers.Disk.Snapshot
   , SnapshotRollback (..)
   , handleSnapshotList
   )
+import Corvus.Handlers.Disk.SnapshotAutoStop (SnapshotRollbackAutoStop (..))
 import Corvus.Handlers.Resolve (resolveDisk, resolveNode, resolveSnapshot)
+import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
@@ -342,7 +345,15 @@ instance CGDisk.Disk'server_ DiskCap where
 
   disk'snapshotCreate (DiskCap st sup eid cn) =
     handleParsed $ \CGDisk.Disk'snapshotCreate'params {..} -> do
-      resp <- runAction st cn (SnapshotCreate {scrDiskId = eid, scrName = name})
+      resp <-
+        runAction
+          st
+          cn
+          SnapshotCreate
+            { scrDiskId = eid
+            , scrName = name
+            , scrQuiesce = decodeQuiesceMode quiesce
+            }
       case resp of
         RespSnapshotCreated sid -> do
           client <- export @CGDisk.Snapshot sup (SnapshotCap st eid sid cn)
@@ -416,14 +427,27 @@ instance CGDisk.Snapshot'server_ SnapshotCap where
       RespSnapshotNotFound -> throwFailed "Snapshot not found"
       RespError msg -> throwFailed msg
       _ -> throwFailed "snapshot'delete: unexpected response"
-  snapshot'rollback (SnapshotCap st diskId sid cn) = handleParsed $ \_ -> do
-    resp <- runAction st cn (SnapshotRollback {srlDiskId = diskId, srlSnapRef = P.Ref (T.pack (show sid))})
-    case resp of
-      RespSnapshotOk -> pure CGDisk.Snapshot'rollback'results
-      RespSnapshotNotFound -> throwFailed "Snapshot not found"
-      RespVmMustBeStopped -> throwFailed "VM must be stopped"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "snapshot'rollback: unexpected response"
+  snapshot'rollback (SnapshotCap st diskId sid cn) =
+    handleParsed $ \CGDisk.Snapshot'rollback'params {..} -> do
+      let snapRefT = P.Ref (T.pack (show sid))
+      resp <-
+        if autoStop
+          then
+            runAction
+              st
+              cn
+              SnapshotRollbackAutoStop {srasDiskId = diskId, srasSnapRef = snapRefT}
+          else
+            runAction
+              st
+              cn
+              SnapshotRollback {srlDiskId = diskId, srlSnapRef = snapRefT}
+      case resp of
+        RespSnapshotOk -> pure CGDisk.Snapshot'rollback'results
+        RespSnapshotNotFound -> throwFailed "Snapshot not found"
+        RespVmMustBeStopped -> throwFailed "VM must be stopped"
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "snapshot'rollback: unexpected response"
   snapshot'merge (SnapshotCap st diskId sid cn) = handleParsed $ \_ -> do
     resp <- runAction st cn (SnapshotMerge {smrDiskId = diskId, smrSnapRef = P.Ref (T.pack (show sid))})
     case resp of
@@ -440,3 +464,13 @@ instance CGDisk.Snapshot'server_ SnapshotCap where
 enumOrThrow :: Either e a -> IO a
 enumOrThrow (Right a) = pure a
 enumOrThrow (Left _) = throwFailed "unknown enum tag in request"
+
+-- | Translate the wire 'QuiesceMode' enum to the daemon-internal
+-- one used by 'Corvus.NodeAgentClient'. Unknown future variants
+-- fall back to 'NOA.QuiesceAuto' so forward-compatible clients
+-- that introduce a new mode never get rejected outright.
+decodeQuiesceMode :: CGE.QuiesceMode -> NOA.QuiesceMode
+decodeQuiesceMode CGE.QuiesceMode'auto = NOA.QuiesceAuto
+decodeQuiesceMode CGE.QuiesceMode'require = NOA.QuiesceRequire
+decodeQuiesceMode CGE.QuiesceMode'skip = NOA.QuiesceSkip
+decodeQuiesceMode (CGE.QuiesceMode'unknown' _) = NOA.QuiesceAuto

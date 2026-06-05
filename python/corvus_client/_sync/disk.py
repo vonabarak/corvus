@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .. import types
 from ._resource import LoopBoundResource
 
 
@@ -184,8 +185,16 @@ class SyncDisk(LoopBoundResource):
     def resize(self, new_size_mb: int):
         return self._rl.run(self._a.resize(new_size_mb))
 
-    def snapshot_create(self, name: str):
-        return SyncSnapshot(self._rl.run(self._a.snapshot_create(name)), self._rl)
+    def snapshot_create(
+        self,
+        name: str,
+        *,
+        quiesce: types.QuiesceMode = types.QuiesceMode.AUTO,
+    ):
+        return SyncSnapshot(
+            self._rl.run(self._a.snapshot_create(name, quiesce=quiesce)),
+            self._rl,
+        )
 
     def snapshot_list(self):
         return self._rl.run(self._a.snapshot_list())
@@ -207,8 +216,8 @@ class SyncSnapshot(LoopBoundResource):
     def delete(self):
         return self._rl.run(self._a.delete())
 
-    def rollback(self):
-        return self._rl.run(self._a.rollback())
+    def rollback(self, *, auto_stop: bool = False):
+        return self._rl.run(self._a.rollback(auto_stop=auto_stop))
 
     def merge(self):
         return self._rl.run(self._a.merge())

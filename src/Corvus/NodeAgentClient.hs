@@ -51,6 +51,9 @@ module Corvus.NodeAgentClient
   , snapshotCreate
   , snapshotDelete
   , snapshotRollback
+  , snapshotCreateLive
+  , snapshotDeleteLive
+  , QuiesceMode (..)
 
     -- * Download / hash / decompress
   , diskDownload
@@ -107,6 +110,7 @@ where
 
 import Capnp (export)
 import qualified Capnp as C
+import qualified Capnp.Gen.Enums as CGE
 import qualified Capnp.Gen.Nodeagent as CGNA
 import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc
@@ -559,6 +563,71 @@ snapshotRollback nac path name = remote $ do
     callOn
       #snapshotRollback
       CGNA.Session'snapshotRollback'params {CGNA.path = path, CGNA.name = name}
+      (nacSession nac)
+  pure (decodeDiskOpResult r)
+
+-- | Client-side mirror of the wire 'Capnp.Gen.Enums.QuiesceMode'.
+-- Lives here so daemon-side callers don't import the generated
+-- Cap'n Proto modules directly; the encoder in this module
+-- translates.
+data QuiesceMode
+  = QuiesceAuto
+  | QuiesceRequire
+  | QuiesceSkip
+  deriving (Eq, Show)
+
+quiesceModeToWire :: QuiesceMode -> CGE.QuiesceMode
+quiesceModeToWire QuiesceAuto = CGE.QuiesceMode'auto
+quiesceModeToWire QuiesceRequire = CGE.QuiesceMode'require
+quiesceModeToWire QuiesceSkip = CGE.QuiesceMode'skip
+
+-- | Create a snapshot on a RUNNING VM via QMP. Returns the wire
+-- 'DiskOpResult' plus a flag indicating whether the snapshot was
+-- bracketed with QGA fsfreeze (i.e. whether it is genuinely
+-- crash-consistent at the in-guest filesystem level).
+snapshotCreateLive
+  :: NodeAgentClient
+  -> T.Text
+  -- ^ qcow2 file path on the target node
+  -> T.Text
+  -- ^ snapshot name
+  -> Int64
+  -- ^ VM ID (the agent uses this to find the QMP socket)
+  -> QuiesceMode
+  -> IO (Either NodeAgentError (DiskOpResult, Bool))
+snapshotCreateLive nac path name vmId qmode = remote $ do
+  CGNA.Session'snapshotCreateLive'results
+    { CGNA.result = r
+    , CGNA.quiesced = q
+    } <-
+    callOn
+      #snapshotCreateLive
+      CGNA.Session'snapshotCreateLive'params
+        { CGNA.path = path
+        , CGNA.name = name
+        , CGNA.vmId = vmId
+        , CGNA.quiesce = quiesceModeToWire qmode
+        }
+      (nacSession nac)
+  pure (decodeDiskOpResult r, q)
+
+-- | Delete a snapshot on a RUNNING VM via QMP. No QGA involvement
+-- (snapshot deletion only touches qcow2 metadata, not guest I/O).
+snapshotDeleteLive
+  :: NodeAgentClient
+  -> T.Text
+  -> T.Text
+  -> Int64
+  -> IO (Either NodeAgentError DiskOpResult)
+snapshotDeleteLive nac path name vmId = remote $ do
+  CGNA.Session'snapshotDeleteLive'results {CGNA.result = r} <-
+    callOn
+      #snapshotDeleteLive
+      CGNA.Session'snapshotDeleteLive'params
+        { CGNA.path = path
+        , CGNA.name = name
+        , CGNA.vmId = vmId
+        }
       (nacSession nac)
   pure (decodeDiskOpResult r)
 

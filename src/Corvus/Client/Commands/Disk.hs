@@ -40,6 +40,7 @@ module Corvus.Client.Commands.Disk
   )
 where
 
+import qualified Capnp.Gen.Enums as CGEnums
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
@@ -345,9 +346,12 @@ handleDiskDetach fmt conn vmRef diskRef = do
 -- Snapshot Command Handlers
 --------------------------------------------------------------------------------
 
-handleSnapshotCreate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
-handleSnapshotCreate fmt conn diskRef name = do
-  r <- try @SomeException (CR.rpcSnapshotCreate conn (entityRefFromText diskRef) name)
+handleSnapshotCreate
+  :: OutputFormat -> CapnpConnection -> Text -> Text -> CGEnums.QuiesceMode -> IO Bool
+handleSnapshotCreate fmt conn diskRef name quiesce = do
+  r <-
+    try @SomeException
+      (CR.rpcSnapshotCreate conn (entityRefFromText diskRef) name quiesce)
   case r of
     Right snapId -> do
       emitOkWith fmt [("id", toJSON snapId)] $
@@ -374,11 +378,16 @@ handleSnapshotDelete fmt conn diskRef snapshotRef = do
         putStrLn ("Error: " ++ show e)
       pure False
 
-handleSnapshotRollback :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
-handleSnapshotRollback fmt conn diskRef snapshotRef = do
+handleSnapshotRollback :: OutputFormat -> CapnpConnection -> Text -> Text -> Bool -> IO Bool
+handleSnapshotRollback fmt conn diskRef snapshotRef autoStop = do
   r <-
     try
-      (CR.rpcSnapshotRollback conn (entityRefFromText diskRef) (entityRefFromText snapshotRef))
+      ( CR.rpcSnapshotRollback
+          conn
+          (entityRefFromText diskRef)
+          (entityRefFromText snapshotRef)
+          autoStop
+      )
       :: IO (Either SomeException ())
   case r of
     Right () -> do
@@ -468,13 +477,27 @@ printDiskDetails d = do
       printField "Backing" (T.unpack (nrName backing) ++ " (ID: " ++ show (nrId backing) ++ ")")
 
 -- | Column definitions for the @disk snapshot list@ table.
+--
+-- LIVE / Q are boolean badges:
+--
+--   * LIVE = "+" → snapshot was taken via QMP on a running VM.
+--     LIVE = "-" → offline path (@qemu-img snapshot -c@).
+--   * Q    = "+" → QGA @guest-fsfreeze-freeze@ was active when
+--     the snapshot was stamped (filesystem-consistent).
+--     Q = "-" → no quiesce (hard-reset-equivalent for unflushed
+--     in-guest writes).
 snapshotColumns :: [Column SnapshotInfo]
 snapshotColumns =
   [ Column "ID" RightAlign (show . sniId)
   , Column "NAME" LeftAlign (T.unpack . sniName)
   , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . sniCreatedAt)
   , Column "SIZE_MB" RightAlign (maybe "-" show . sniSizeMb)
+  , Column "LIVE" LeftAlign (boolBadge . sniLive)
+  , Column "Q" LeftAlign (boolBadge . sniQuiesced)
   ]
+  where
+    boolBadge True = "+"
+    boolBadge False = "-"
 
 --------------------------------------------------------------------------------
 -- Helpers

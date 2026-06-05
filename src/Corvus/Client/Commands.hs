@@ -25,6 +25,7 @@ module Corvus.Client.Commands
   )
 where
 
+import qualified Capnp.Gen.Enums as CGEnums
 import Control.Concurrent.MVar (newEmptyMVar, tryPutMVar)
 import Control.Exception (SomeException, try)
 import Control.Monad (void)
@@ -222,9 +223,11 @@ runCommand opts = do
       NetIfRemove vmRef netIfId -> handleNetIfRemove fmt conn vmRef netIfId
       NetIfList vmRef -> handleNetIfList fmt tableOpts conn vmRef
       -- Snapshot commands
-      SnapshotCreate diskRef name -> handleSnapshotCreate fmt conn diskRef name
+      SnapshotCreate diskRef name quiesce ->
+        handleSnapshotCreate fmt conn diskRef name (toCapnpQuiesce quiesce)
       SnapshotDelete diskRef snapshotRef -> handleSnapshotDelete fmt conn diskRef snapshotRef
-      SnapshotRollback diskRef snapshotRef -> handleSnapshotRollback fmt conn diskRef snapshotRef
+      SnapshotRollback diskRef snapshotRef autoStop ->
+        handleSnapshotRollback fmt conn diskRef snapshotRef autoStop
       SnapshotMerge diskRef snapshotRef -> handleSnapshotMerge fmt conn diskRef snapshotRef
       SnapshotList diskRef -> handleSnapshotList fmt tableOpts conn diskRef
       -- SSH key commands
@@ -474,3 +477,9 @@ resolveClientTls opts (TcpAddress _ _)
               <> show (Tls.certSearchDirs sp)
               <> "\nFix with `corvus-admin deploy client ...` or pass --no-tls."
           exitFailure
+
+-- | Translate the CLI-side 'QuiesceModeFlag' to the wire enum.
+toCapnpQuiesce :: QuiesceModeFlag -> CGEnums.QuiesceMode
+toCapnpQuiesce QuiesceFlagAuto = CGEnums.QuiesceMode'auto
+toCapnpQuiesce QuiesceFlagRequire = CGEnums.QuiesceMode'require
+toCapnpQuiesce QuiesceFlagSkip = CGEnums.QuiesceMode'skip

@@ -1047,11 +1047,17 @@ rpcSnapshotList conn diskRef = do
     callOn #snapshotList CGDisk.Disk'snapshotList'params dClient
   pure (map WDisk.fromCapnpSnapshotInfo ss)
 
-rpcSnapshotCreate :: CapnpConnection -> EntityRef -> Text -> IO Int64
-rpcSnapshotCreate conn diskRef name = do
+rpcSnapshotCreate :: CapnpConnection -> EntityRef -> Text -> CGE.QuiesceMode -> IO Int64
+rpcSnapshotCreate conn diskRef name quiesce = do
   dClient <- getDiskClient conn diskRef
   CGDisk.Disk'snapshotCreate'results {CGDisk.snapshot = sClient} <-
-    callOn #snapshotCreate CGDisk.Disk'snapshotCreate'params {CGDisk.name = name} dClient
+    callOn
+      #snapshotCreate
+      CGDisk.Disk'snapshotCreate'params
+        { CGDisk.name = name
+        , CGDisk.quiesce = quiesce
+        }
+      dClient
   -- Snapshot doesn't expose @show@; the Snapshot cap proves the
   -- creation succeeded.
   _ <- pure sClient
@@ -1063,10 +1069,14 @@ rpcSnapshotDelete conn diskRef snapRef = do
   _ <- callOn #delete CGDisk.Snapshot'delete'params sClient
   pure ()
 
-rpcSnapshotRollback :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
-rpcSnapshotRollback conn diskRef snapRef = do
+rpcSnapshotRollback :: CapnpConnection -> EntityRef -> EntityRef -> Bool -> IO ()
+rpcSnapshotRollback conn diskRef snapRef autoStop = do
   sClient <- getSnapshotClient conn diskRef snapRef
-  _ <- callOn #rollback CGDisk.Snapshot'rollback'params sClient
+  _ <-
+    callOn
+      #rollback
+      CGDisk.Snapshot'rollback'params {CGDisk.autoStop = autoStop}
+      sClient
   pure ()
 
 rpcSnapshotMerge :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
