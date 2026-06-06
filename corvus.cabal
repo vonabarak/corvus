@@ -112,6 +112,7 @@ library
       Corvus.Handlers.VmStatusSink
       Corvus.Handlers.Apply
       Corvus.Handlers.Build
+      Corvus.Handlers.Build.Cache
       Corvus.Handlers.Build.Cleanup
       Corvus.Build.Cache.Hash
       Corvus.Build.Cache.Store
@@ -570,6 +571,7 @@ test-suite corvus-test
   main-is: Spec.hs
   other-modules:
       Corvus.ApplySpec
+      Corvus.BuildCacheHashSpec
       Corvus.BuildCleanupSpec
       Corvus.BuildSchemaSpec
       Corvus.BuildStreamSpec

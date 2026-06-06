@@ -13,9 +13,15 @@ A `build:` step:
 3. Starts the bake VM, waits for the guest agent.
 4. Runs each provisioner inside the running VM (via `qemu-guest-agent`).
 5. Stops the VM gracefully.
-6. Captures the artifact: detaches the chosen drive, renames it, optionally
-   flattens (overlay strategy) and compacts.
-7. Tears down the bake VM and any other ephemeral resources.
+6. Publishes the artifact: `qemu-img convert`-clones the bake VM's
+   chosen drive into a fresh non-ephemeral `DiskImage` (named by the
+   build's `name:` field, optionally compacted). The clone is flat by
+   construction — `qemu-img convert` does NOT carry over the source's
+   internal qcow2 snapshot table, so the published image is
+   guaranteed to have zero snapshots.
+7. Tears down the bake VM and any other ephemeral resources, unless
+   `--build-cache` left cache rows referencing the bake VM (in which
+   case the bake VM survives — see [Build-step cache](#build-step-cache)).
 
 An `apply:` step embeds the full
 [`crv apply` schema](apply-configuration.md) and runs through the same
@@ -65,12 +71,14 @@ pipeline:
       template: debian-12-cloud            # required: name of an existing template
 
       target:
-        name: debian-12-nginx              # registered as a Corvus disk on success
         format: qcow2                      # default: qcow2
         sizeGb: 10                         # only used by from-scratch strategy
         compact: true                      # qemu-img -c rewrite at end (default true)
         path: builds/debian/               # optional, see below
         ifExists: error                    # error (default) | skip | overwrite — see below
+
+      useCache: false                      # default: false; equivalent to --use-cache
+      buildCache: false                    # default: false; equivalent to --build-cache
 
       strategy: overlay                    # overlay (default) | from-scratch | installer
 
@@ -126,10 +134,11 @@ steps stay applied (no rollback).
 
 ### `target.ifExists`
 
-Controls what the daemon does when a disk with the same `target.name`
-is already registered at the moment the build is about to start. The
-check happens **before** the bake VM is created, so a wrong policy
-never wastes a bake.
+Controls what the daemon does when a disk with the same name as the
+build (i.e. the `build.name` field, which drives the published
+artifact's identity) is already registered at the moment the build
+is about to start. The check happens **before** the bake VM is
+created, so a wrong policy never wastes a bake.
 
 | Value | Behaviour |
 |---|---|
@@ -228,8 +237,9 @@ runtime-template).
 The bake VM boots from the disks the template defines (typically a
 clone or overlay of the template's source). The build picks the **first
 attached drive** as the artifact: after provisioners run, that drive is
-detached, renamed to `target.name`, **flattened** (so the artifact has
-no backing chain), and registered as a Corvus disk.
+the source of the publish-time clone (`qemu-img convert` into a fresh
+flat qcow2 named by `build.name`). The original ephemeral drive stays
+attached to the bake VM until cleanup.
 
 Use this when you want a self-contained derivative of an existing
 image — install some packages on top of `debian-12-cloud`, save the
@@ -241,7 +251,7 @@ The template's bootdisk is treated as a **bootstrapper** — it provides
 the kernel, QGA, and whatever installer (e.g. `debootstrap`) you need.
 A separate empty disk is attached as a second drive (e.g. `/dev/vdb`).
 Provisioners populate the empty disk; at the end, the second drive is
-detached, optionally compacted, and registered as the artifact.
+the source of the publish-time clone.
 
 Use this for stripped-down golden images or images that don't share
 content with any existing template (custom kernels, embedded OSes).
@@ -350,13 +360,122 @@ in reverse order.
 | `onSuccess`   | runs cleanup | **leaves resources for inspection** |
 | `never`       | leaves resources | leaves resources |
 
-After a successful build the artifact disk has been **detached** from
-the bake VM, so deleting the bake VM (with its still-attached
-ephemeral drives) doesn't take the artifact down.
+After a successful build the published artifact is a **clone** of the
+bake VM's artifact disk (created via `qemu-img convert`, non-ephemeral,
+named by the build's `name:` field). The bake VM's original artifact
+disk stays attached and ephemeral, so the standard cleanup pass reaps
+it together with the bake VM — unless `--build-cache` left cache rows
+referencing the bake VM, in which case the cleanup skips the
+`VmDelete` and the bake VM survives for future `--use-cache` resumes.
 
 Stranded ephemeral resources are named with the prefix
 `__build_<task-id>_…` so they're greppable via `crv vm list` /
 `crv disk list`.
+
+## Build-step cache
+
+`crv build` can cache the output of each successful provisioner step
+as a qcow2 internal snapshot, keyed by a hash of the step's content
+chained through all prior steps and the build envelope. Two
+independent flags control the cache; both default to **off**:
+
+| Flag (CLI / YAML) | Effect |
+|---|---|
+| `--use-cache` / `useCache: true` | If a cached prefix matches the current build's chain, reuse the bake VM, roll its writable disks back to the cached step, and resume from the first unmatched step. |
+| `--build-cache` / `buildCache: true` | After each successful step, take an atomic multi-disk live snapshot of the bake VM's writable disks and write a `BuildCacheEntry` row tying that snapshot to the chain hash. The bake VM survives the cleanup pass while any cache row references it. |
+
+The `--rebuild-from N` flag (1-based step index) caps the matched
+prefix length so step `N` and everything after it is always
+re-executed, even if those steps' content is unchanged. Only
+meaningful with `--use-cache`.
+
+```bash
+# Prime the cache: every successful step gets a snapshot.
+crv build pipeline.yml --wait --build-cache
+
+# Use the primed cache without extending it. Steps whose content
+# hasn't changed re-run from the snapshot in ~ms; the first
+# unmatched step rebakes from there.
+crv build pipeline.yml --wait --use-cache
+
+# Iterative workflow: use existing cache, write new entries for
+# steps that hadn't been cached yet.
+crv build pipeline.yml --wait --use-cache --build-cache
+
+# Force step 3 and beyond to re-execute even though their content
+# matches a cache prefix.
+crv build pipeline.yml --wait --use-cache --rebuild-from 3
+```
+
+### What goes into the chain hash
+
+Every step's hash is `sha256(canonical-YAML(envelope || step-i))`
+folded left-to-right. The envelope captures the YAML fields that
+affect what the bake VM **does** (template, target spec, strategy,
+VM cpu/ram, shell defaults, boot keys, floppy); it excludes the
+operator-policy fields (`name`, `description`, `node`, `cleanup`,
+`waitForShutdownSec`, `useCache`, `buildCache`). Per-step inputs
+filter out the auto-injected `CORVUS_BAKEVM_ID` /
+`CORVUS_BUILD_TASK_ID` / `CORVUS_BUILD_TASK_ID` envs (they change
+every invocation and would defeat caching), and the runtime-only
+`shell.script` / `file.from` / `floppy.from` fields (always
+`Nothing` post-client-inlining).
+
+Editing a provisioner step invalidates that step's chain hash **and
+every subsequent step's** — a single character change in step 4 of a
+10-step build invalidates steps 4..10 in the cache. Reordering steps
+is also a content change (the hash includes the step's position).
+
+### Strategy interactions
+
+- **`overlay`** caches just the artifact disk (one snapshot per step).
+- **`from-scratch`** caches both the bake VM's system disk and the
+  artifact disk per step, atomically via a QMP `transaction`.
+  Provisioner steps can install tools into the bake VM that later
+  steps depend on, so the cached state must include the system
+  disk's progression too.
+- **`installer`** skips the cache layer entirely — no provisioners,
+  nothing to snapshot per step.
+
+The overlay and from-scratch strategies already require
+`guestAgent: true` on their bake template for provisioner exec; the
+cache inherits that precondition since it uses QGA `fsfreeze` to
+ensure each cache snapshot is filesystem-consistent.
+
+### Lifecycle of a cached bake VM
+
+A bake VM with at least one `BuildCacheEntry` row survives every
+`cleanup:` mode — `cleanupBakeVm` consults the cache table and
+skips the `VmDelete`. After a successful build the bake VM is
+**always powered off** (the publish path issues a graceful `VmStop`
+before cloning the artifact); a retained bake VM lives in
+`stopped` state until either:
+
+- A subsequent `--use-cache` build starts it again, rolls the
+  writable disks back to the matched step, and resumes from there.
+- An operator runs `crv vm delete <bake-vm-name>`, which cascades
+  the cache rows (`deleteVm` cleans them up explicitly).
+- A `crv disk snapshot delete` removes one of the cache snapshots,
+  which cascades the matching cache row (`deleteDiskAndSnapshots`).
+
+If `--use-cache` is set but reuse fails for any reason — the cached
+VM was deleted out-of-band, a cache snapshot was deleted, the
+rollback couldn't take the qcow2 lock — the daemon purges the
+stale cache rows pointing at that VM and falls back to a fresh
+bake. The operator sees a `cache: reuse failed (...); rebuilding
+from scratch` log line and the build proceeds normally.
+
+### Cache snapshots vs. operator snapshots
+
+Cache snapshots are stored alongside the disk's regular qcow2
+internal snapshots, named `cache-<first-16-chars-of-chain-hash>`.
+They appear in `crv disk show <bake-artifact> --field snapshots`
+with `live=True, quiesced=True` columns set. The published
+artifact is **always** a flat standalone qcow2 with zero
+snapshots — `qemu-img convert` (used by the publish path) copies
+only the source's active state and does not preserve internal
+snapshots. Operators never see cache snapshots leak into a shipped
+artifact.
 
 ## Predefined provisioner env
 
@@ -369,7 +488,7 @@ making host-side scripts reachable via vsock from inside the bake VM.
 |---|---|
 | `CORVUS_VERSION` | the daemon's own version (e.g. `0.9.0.0`) |
 | `CORVUS_BUILD_NAME` | the current `build.name` |
-| `CORVUS_BUILD_TARGET` | the current `build.target.name` |
+| `CORVUS_BUILD_TARGET` | the published artifact name (= `build.name`) |
 | `CORVUS_BUILD_TEMPLATE` | the current `build.template` |
 | `CORVUS_BUILD_STRATEGY` | `overlay` / `from-scratch` / `installer` |
 | `CORVUS_BUILD_TASK_ID` | the parent task id (handy for log correlation) |

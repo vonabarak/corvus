@@ -22,6 +22,12 @@ module Corvus.Build.Cache.Store
 
     -- * Bake-VM gating
   , bakeVmHasCache
+
+    -- * Idempotency
+  , cacheStepRoles
+
+    -- * Stale-row cleanup
+  , purgeCacheRowsForVm
   )
 where
 
@@ -166,6 +172,38 @@ recordCacheStepSql pipelineKey stepIdx chain vmId pairs = do
 --------------------------------------------------------------------------------
 -- Bake-VM gating
 --------------------------------------------------------------------------------
+
+-- | Return every @diskRole@ already present in the cache for the
+-- given @(pipelineKey, chainHash)@ pair. Used by the per-step write
+-- path to make snapshot creation idempotent: if a concurrent runner
+-- has already written rows for every required role, this run skips
+-- the snapshot and the insert rather than racing on the unique
+-- constraint (which would leave a partial qcow2 snapshot orphaned).
+cacheStepRoles :: ServerState -> Text -> Text -> IO [Text]
+cacheStepRoles state pipelineKey chain = do
+  rows <-
+    runSqlPool
+      ( selectList
+          [ M.BuildCacheEntryPipelineKey ==. pipelineKey
+          , M.BuildCacheEntryChainHash ==. chain
+          ]
+          []
+      )
+      (ssDbPool state)
+  pure [M.buildCacheEntryDiskRole (entityVal e) | e <- rows]
+
+-- | Drop every 'BuildCacheEntry' row that pins the given bake VM.
+-- Used by the cache-resume path when reuse failed (cached VM gone,
+-- snapshot deleted out-of-band, rollback error): the rows are now
+-- known-stale and would only trip up a future @--use-cache@ run.
+-- The function does NOT touch the 'Vm' row or any 'Snapshot' rows;
+-- those have their own lifecycles ('Snapshot' rows are cascaded
+-- away by 'deleteDiskAndSnapshots' when a disk is dropped).
+purgeCacheRowsForVm :: ServerState -> Int64 -> IO ()
+purgeCacheRowsForVm state vmId =
+  runSqlPool
+    (deleteWhere [M.BuildCacheEntryVmId ==. (toSqlKey vmId :: VmId)])
+    (ssDbPool state)
 
 -- | True iff at least one cache row pins the given bake VM. Used by
 -- the cleanup stack to skip 'VmDelete' for a bake VM that the cache

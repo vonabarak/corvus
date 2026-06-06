@@ -41,12 +41,14 @@ import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Action
-import qualified Corvus.Build.Cache.Store as Cache
+import qualified Corvus.Build.Cache.Hash as H
+import qualified Corvus.Build.Cache.Store as CStore
 import Corvus.Handlers.Apply (ApplyAction (..))
+import qualified Corvus.Handlers.Build.Cache as Cache
 import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, push, withCleanup)
 import Corvus.Handlers.Build.Floppy (buildFloppyImage)
 import Corvus.Handlers.Disk (DiskCreate (..), DiskDelete (..), DiskRebase (..))
-import Corvus.Handlers.Disk.Agent (getImageSizeMbViaAgent, rebaseImageViaAgent)
+import Corvus.Handlers.Disk.Agent (cloneImageViaAgent, getImageSizeMbViaAgent, rebaseImageViaAgent)
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
@@ -55,6 +57,7 @@ import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
 import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..), getVmDetails)
 import Corvus.Model
+import qualified Corvus.Model as M
 import Corvus.Node.GuestAgent (GuestExecResult (..))
 import Corvus.Node.Image (ImageResult (..))
 import Corvus.Node.Qmp (QmpResult (..), qmpSendKey)
@@ -569,7 +572,53 @@ runOneBuildBodyAfterPreBake
   -> BuildOptions
   -> Build
   -> LoggingT IO (Either Text Int64)
-runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime _opts b = do
+runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime opts b = do
+  let target = buildTarget b
+      strategy = buildStrategy b
+      pipelineKey = H.envelopeHash b <> ":" <> buildName b
+      chains = map snd (H.chainHashes b)
+
+  -- Cache lookup. Installer strategy never caches (no provisioners),
+  -- so the lookup is short-circuited there.
+  cacheRes <-
+    if boUseCache opts && strategy /= BuildStrategyInstaller
+      then liftIO $ CStore.lookupCachePrefix state pipelineKey chains (strategyCacheRoles strategy)
+      else pure (CStore.CacheLookup 0 Nothing Nothing)
+
+  let cappedK = case boRebuildFrom opts of
+        0 -> CStore.clPrefix cacheRes
+        n -> min (CStore.clPrefix cacheRes) (max 0 (n - 1))
+
+  case (cappedK > 0, CStore.clVmId cacheRes, CStore.clChainHashOfPrefix cacheRes) of
+    (True, Just cachedVmKey, Just prefixHash) ->
+      runFromCachedBakeVm
+        state
+        parentTaskId
+        sink
+        stack
+        startTime
+        opts
+        b
+        cappedK
+        chains
+        (fromSqlKey cachedVmKey)
+        prefixHash
+    _ -> runFreshBake state parentTaskId sink stack startTime opts b
+
+-- | The fresh-bake path: instantiate a new bake VM, set up the
+-- target disk, attach the floppy, then hand off to 'runBakeAndPublish'.
+-- Lifted out of 'runOneBuildBodyAfterPreBake' so the cache-resumed
+-- path doesn't have to share a single deeply-nested case block.
+runFreshBake
+  :: ServerState
+  -> TaskId
+  -> BuildSink
+  -> CleanupStack
+  -> UTCTime
+  -> BuildOptions
+  -> Build
+  -> LoggingT IO (Either Text Int64)
+runFreshBake state parentTaskId sink stack startTime opts b = do
   let prefix = "__build_" <> T.pack (show (fromSqlKey parentTaskId)) <> "_"
       bakeVmName = prefix <> sanitizeNameFragment (buildName b) <> "-vm"
       targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
@@ -602,7 +651,160 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime _opts b = do
                     target
                     needFlatten
                     startTime
+                    opts
+                    1
                     b
+
+-- | The cache-resumed path: take the bake VM the prior @--build-cache@
+-- run left behind, stop it (offline rollback needs an unlocked qcow2),
+-- roll its writable disks back to step @K@'s snapshot, push a
+-- 'cleanupBakeVm' destructor on the stack (which will skip the
+-- @VmDelete@ thanks to the surviving cache rows), then hand off to
+-- 'runBakeAndPublish' with @startStep = K + 1@. The cached VM
+-- already has its target disk attached and its floppy (if any) in
+-- place from the priming run; we don't re-do that setup.
+runFromCachedBakeVm
+  :: ServerState
+  -> TaskId
+  -> BuildSink
+  -> CleanupStack
+  -> UTCTime
+  -> BuildOptions
+  -> Build
+  -> Int
+  -- ^ matched prefix length @K@
+  -> [Text]
+  -- ^ chain hashes (left-to-right)
+  -> Int64
+  -- ^ cached bake VM id
+  -> Text
+  -- ^ chain hash at step K (the snapshot to roll back to)
+  -> LoggingT IO (Either Text Int64)
+runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cachedVmId prefixHash = do
+  setupRes <- prepareCacheReuse
+  case setupRes of
+    Right artifactDiskId -> do
+      liftIO $ sink (StepCacheRestore k prefixHash)
+      mapM_
+        (\(i, h) -> liftIO $ sink (StepCacheHit i h))
+        (zip [1 .. k] (take k chains))
+      runBakeAndPublish
+        state
+        parentTaskId
+        sink
+        cachedVmId
+        (buildStrategy b)
+        artifactDiskId
+        (buildTarget b)
+        False
+        startTime
+        opts
+        (k + 1)
+        b
+    Left reason -> do
+      -- Cache reuse setup failed (cached VM gone, snapshot gone,
+      -- rollback error, no writable disks left, …). Purge the stale
+      -- cache rows that pointed at this bake VM so the next build
+      -- doesn't repeat the same mistake, then fall through to a
+      -- fresh bake. The user-visible event stream notes the fallback
+      -- so the operator understands why their cached prefix wasn't
+      -- used. Only SETUP failures fall back; once we hand off to
+      -- runBakeAndPublish, any downstream failure is reported as-is.
+      logWarnN $ "cache: reuse failed — falling back to a fresh bake: " <> reason
+      liftIO $ sink (BuildLogLine ("cache: reuse failed (" <> reason <> "); rebuilding from scratch"))
+      liftIO $ CStore.purgeCacheRowsForVm state cachedVmId
+      runFreshBake state parentTaskId sink stack startTime opts b
+  where
+    -- Returns 'Right artifactDiskId' when the bake VM is stopped,
+    -- the disks have been rolled back, and the cleanup destructor
+    -- is on the stack. 'Left reason' means cache setup failed.
+    prepareCacheReuse = do
+      -- Verify the cached VM still exists. The Vm row could have
+      -- been deleted by an operator's `crv vm delete` between the
+      -- previous bake and now; the FK cascade in 'deleteVm' should
+      -- have dropped the cache rows too, but we double-check.
+      mVm <-
+        liftIO $
+          runSqlPool
+            (get (toSqlKey cachedVmId :: VmId))
+            (ssDbPool state)
+      case mVm of
+        Nothing -> pure (Left "cached bake VM has been deleted")
+        Just vm -> stopAndRoll vm
+
+    stopAndRoll vm = do
+      -- Skip 'VmStop' when the VM is already stopped — that's the
+      -- steady state for a retained bake VM (the prior successful
+      -- build's publish path issued the graceful stop). 'VmStop'
+      -- on an already-stopped VM returns RespInvalidTransition,
+      -- which classifyStopResp surfaces as Left and would abort
+      -- the resume.
+      stopR <-
+        if vmStatus vm == VmStopped
+          then pure (Right ())
+          else do
+            resp <-
+              liftIO $
+                runActionAsSubtask
+                  (mkActionContext state parentTaskId "system")
+                  (VmStop cachedVmId 300)
+            pure (classifyStopResp resp)
+      case stopR of
+        Left err -> pure (Left ("stop cached bake VM: " <> err))
+        Right () -> doRoll
+
+    doRoll = do
+      artifactRes <- liftIO $ resolveCachedArtifactDiskId state cachedVmId prefixHash
+      case artifactRes of
+        Left err -> pure (Left err)
+        Right artifactDiskId -> do
+          dr <- Cache.writableCacheDisks state cachedVmId artifactDiskId
+          case dr of
+            Left err -> pure (Left ("enumerate disks: " <> err))
+            Right disks
+              | null disks ->
+                  pure (Left "cached bake VM has no writable disks left")
+              | otherwise -> do
+                  -- Push the destructor BEFORE rollback so a
+                  -- partial-rollback failure still gets the bake VM
+                  -- reaped by the standard cleanup pass.
+                  liftIO $
+                    push
+                      stack
+                      "bake-vm-cached"
+                      (cleanupBakeVm state parentTaskId cachedVmId)
+                  rbR <- Cache.rollbackToCachedStep state disks prefixHash
+                  case rbR of
+                    Left err -> pure (Left err)
+                    Right () -> pure (Right artifactDiskId)
+
+-- | Disk roles a strategy expects to find in a complete cache step.
+strategyCacheRoles :: BuildStrategy -> [Text]
+strategyCacheRoles BuildStrategyOverlay = ["artifact"]
+strategyCacheRoles BuildStrategyFromScratch = ["artifact", "system"]
+strategyCacheRoles BuildStrategyInstaller = []
+
+-- | Walk the cache rows for @(bakeVmId, chainHash)@ and return the
+-- 'DiskImage' id behind the row tagged \"artifact\".
+resolveCachedArtifactDiskId :: ServerState -> Int64 -> Text -> IO (Either Text Int64)
+resolveCachedArtifactDiskId state vmId chain = do
+  rows <-
+    runSqlPool
+      ( selectList
+          [ M.BuildCacheEntryVmId ==. toSqlKey vmId
+          , M.BuildCacheEntryChainHash ==. chain
+          , M.BuildCacheEntryDiskRole ==. ("artifact" :: Text)
+          ]
+          [LimitTo 1]
+      )
+      (ssDbPool state)
+  case rows of
+    (Entity _ row : _) -> do
+      mSnap <- runSqlPool (get (M.buildCacheEntrySnapshotId row)) (ssDbPool state)
+      case mSnap of
+        Just snap -> pure (Right (fromSqlKey (M.snapshotDiskImageId snap)))
+        Nothing -> pure (Left "cache row refers to a missing snapshot")
+    [] -> pure (Left "no 'artifact' cache row found for the matched prefix")
 
 -- | Phase 1: resolve the build's template by name and enforce the
 -- guest-agent precondition. The installer strategy doesn't need QGA
@@ -700,10 +902,12 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
 
     createAndAttachTarget = do
       let sizeMb = fromIntegral (btSizeGb target) * 1024
-      -- ephemeral=True so a failed build (no publish) lets the
-      -- bake-VM teardown auto-reap this target disk.
-      -- 'publishArtifactCore' flips it back to False on a successful
-      -- publish so the artifact survives onward.
+      -- ephemeral=True for the bake-VM-attached disk; publish
+      -- produces a CLONE (non-ephemeral) so the bake disk stays
+      -- ephemeral whether the build succeeds or fails. If
+      -- @--build-cache@ leaves cache rows behind, 'cleanupBakeVm'
+      -- skips the @VmDelete@ and the bake VM + this ephemeral
+      -- disk both survive for future cache hits.
       diskResp <-
         liftIO $
           runActionAsSubtask
@@ -759,9 +963,12 @@ runBakeAndPublish
   -> Bool
   -- ^ needs flatten?
   -> UTCTime
+  -> BuildOptions
+  -> Int
+  -- ^ start step (1-based; > 1 when resuming from a cache prefix)
   -> Build
   -> LoggingT IO (Either Text Int64)
-runBakeAndPublish state parentTaskId sink vmIdLong strategy artifactDiskId target needFlatten startTime b = do
+runBakeAndPublish state parentTaskId sink vmIdLong strategy artifactDiskId target needFlatten startTime opts startStep b = do
   -- For QGA-driven strategies VmStart blocks until the guest agent
   -- first-pings; for the installer strategy the template has
   -- guestAgent:false so VmStart returns as soon as QEMU is up.
@@ -781,10 +988,25 @@ runBakeAndPublish state parentTaskId sink vmIdLong strategy artifactDiskId targe
           target
           needFlatten
           b
-      _ -> runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId target needFlatten startTime b
+      _ ->
+        runProvisionersStopAndPublish
+          state
+          parentTaskId
+          sink
+          vmIdLong
+          artifactDiskId
+          target
+          needFlatten
+          startTime
+          opts
+          startStep
+          b
 
 -- | The non-installer tail of phase 4: run user provisioners over
--- QGA, gracefully stop the bake VM, then publish.
+-- QGA, gracefully stop the bake VM, then publish via clone. When
+-- the build's effective 'buildBuildCache' (CLI flag OR YAML field)
+-- is set, the per-step hook snapshots the bake VM's writable disks
+-- after each successful step and writes a 'BuildCacheEntry' row.
 runProvisionersStopAndPublish
   :: ServerState
   -> TaskId
@@ -794,10 +1016,14 @@ runProvisionersStopAndPublish
   -> BuildTarget
   -> Bool
   -> UTCTime
+  -> BuildOptions
+  -> Int
+  -- ^ starting step index (1 = no cache resume)
   -> Build
   -> LoggingT IO (Either Text Int64)
-runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId target needFlatten startTime b = do
-  provResult <- runProvisioners state parentTaskId sink vmIdLong b startTime
+runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId target needFlatten startTime opts startStep b = do
+  hook <- buildCacheStepHook state sink vmIdLong artifactDiskId opts b
+  provResult <- runProvisioners state parentTaskId sink vmIdLong b startTime startStep hook
   case provResult of
     Left err -> pure $ Left err
     Right () -> do
@@ -807,11 +1033,13 @@ runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId ta
       case classifyStopResp stopResp of
         Left err -> pure $ Left $ "stop bake VM: " <> err
         Right () -> do
-          -- Detach artifact, rename, optional flatten + compact, relocate.
-          -- On success the artifact's ephemeral flag is cleared inside
-          -- 'publishArtifactCore', so the bake-VM teardown's
-          -- @VmDelete keepDisks=False@ reaps everything else but the
-          -- artifact survives.
+          -- Clone the bake VM's artifact disk into a fresh
+          -- non-ephemeral 'DiskImage' (qemu-img convert; flat by
+          -- construction). The bake VM's original artifact disk
+          -- stays attached and ephemeral so a follow-up
+          -- @--use-cache@ build can roll it back to a cached step
+          -- (the cleanup stack will reap it if no cache rows
+          -- reference the bake VM).
           publishResult <-
             publishArtifact
               state
@@ -823,7 +1051,59 @@ runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId ta
               needFlatten
           case publishResult of
             Left err -> pure $ Left err
-            Right () -> pure $ Right artifactDiskId
+            Right publishedId -> pure $ Right publishedId
+
+-- | Build the per-step success hook for 'runProvisioners'. When
+-- caching is off (the YAML's @buildCache:@ field is False and the
+-- CLI's @--build-cache@ wasn't passed) the hook is a no-op. When
+-- caching is on, the hook enumerates the bake VM's writable disks,
+-- takes one atomic multi-disk snapshot via QMP @transaction@ with
+-- @fsfreeze@ (quiesce=Require), and writes the matching 'Snapshot'
+-- + 'BuildCacheEntry' rows. A snapshot or DB-write failure aborts
+-- the build — the alternative (keep going with a partial cache) is
+-- a foot-gun, and the operator can always retry without
+-- @--build-cache@.
+buildCacheStepHook
+  :: ServerState
+  -> BuildSink
+  -> Int64
+  -- ^ bake VM id (the chain's owner)
+  -> Int64
+  -- ^ artifact disk id
+  -> BuildOptions
+  -> Build
+  -> LoggingT IO (Int -> LoggingT IO (Either Text ()))
+buildCacheStepHook state sink vmId artifactDiskId opts b
+  | not (boBuildCache opts) =
+      pure (\_ -> pure (Right ()))
+  | buildStrategy b == BuildStrategyInstaller =
+      -- The installer strategy doesn't run provisioner steps, so a
+      -- per-step hook can never fire. Defensive no-op.
+      pure (\_ -> pure (Right ()))
+  | otherwise = do
+      let pipelineKey = H.envelopeHash b <> ":" <> buildName b
+          chains = map snd (H.chainHashes b)
+      pure $ \stepIdx -> do
+        case drop (stepIdx - 1) chains of
+          [] -> pure (Right ()) -- no chain hash for this index (shouldn't happen)
+          (chain : _) -> do
+            dr <- Cache.writableCacheDisks state vmId artifactDiskId
+            case dr of
+              Left err -> pure (Left ("cache: enumerate disks: " <> err))
+              Right disks -> do
+                snapResult <-
+                  Cache.snapshotCachedStep
+                    state
+                    vmId
+                    pipelineKey
+                    stepIdx
+                    chain
+                    disks
+                case snapResult of
+                  Left err -> pure (Left err)
+                  Right () -> do
+                    liftIO $ sink (StepCacheStore stepIdx chain)
+                    pure (Right ())
 
 --------------------------------------------------------------------------------
 -- Build floppy attachment
@@ -991,7 +1271,7 @@ runInstallerPhase state parentTaskId sink vmId artifactDiskId target needFlatten
           needFlatten
       case publishResult of
         Left err -> pure $ Left err
-        Right () -> pure $ Right artifactDiskId
+        Right publishedId -> pure $ Right publishedId
 
 -- | Sleep, then send each boot-key chord via QMP. Errors are logged
 -- (the bake VM may not have its QMP socket up yet on the very first
@@ -1050,6 +1330,11 @@ waitForBakeVmShutdown state vmId timeoutSec = go (max 1 timeoutSec)
 provisionerOutputCap :: Int
 provisionerOutputCap = 64 * 1024
 
+-- | Iterate provisioners @startIdx..N@ in order. After each
+-- successful step the 'postStep' hook fires with the 1-based step
+-- index — used by the build cache to snapshot the bake VM's
+-- writable disks and record a 'BuildCacheEntry'. A 'Left' from
+-- either the provisioner or the hook aborts the loop.
 runProvisioners
   :: ServerState
   -> TaskId
@@ -1057,17 +1342,26 @@ runProvisioners
   -> Int64
   -> Build
   -> UTCTime
+  -> Int
+  -- ^ starting step index (1-based; passing N+1 means \"all cached, skip\")
+  -> (Int -> LoggingT IO (Either Text ()))
+  -- ^ per-step success hook
   -> LoggingT IO (Either Text ())
-runProvisioners state parentTaskId sink vmId b _startTime = do
+runProvisioners state parentTaskId sink vmId b _startTime startIdx postStep = do
   cEnv <- liftIO $ buildCorvusEnv state b vmId parentTaskId
   let sd = buildShellDefaults b
+      provs = drop (startIdx - 1) (buildProvisioners b)
       go _ [] = pure $ Right ()
       go idx (p : ps) = do
         r <- runProvisioner state parentTaskId sink vmId sd cEnv idx p
         case r of
           Left err -> pure $ Left err
-          Right () -> go (idx + 1) ps
-  go 1 (buildProvisioners b)
+          Right () -> do
+            hookR <- postStep idx
+            case hookR of
+              Left err -> pure $ Left err
+              Right () -> go (idx + 1) ps
+  go startIdx provs
 
 -- | Predefined environment variables exposed to every shell provisioner.
 -- Names are stable; values are read from the current 'Build', the bake
@@ -1478,142 +1772,103 @@ rebootGuestIO state stepIdx sink vmId timeoutSec = do
 -- Artifact publication
 --------------------------------------------------------------------------------
 
+-- | Publish the bake VM's artifact by CLONING it (via
+-- @qemu-img convert@) into a fresh non-ephemeral 'DiskImage'. The
+-- bake VM's original artifact disk stays attached and ephemeral so
+-- a follow-up @--use-cache@ build can roll it back to a cached
+-- step. @qemu-img convert@ copies only the source qcow2's active
+-- state and does NOT preserve internal snapshots, so the published
+-- disk is hard-guaranteed flat (verifiable via
+-- @qemu-img snapshot -l@ returning empty output).
+--
+-- The bake VM MUST already be stopped before this runs — the
+-- @qemu-img convert@ source path takes the file's exclusive lock.
+-- The caller (runProvisionersStopAndPublish / runInstallerPhase)
+-- handles the @VmStop@ before calling here.
+--
+-- Returns the new 'DiskImage' row's id on success.
 publishArtifact
   :: ServerState
   -> TaskId
   -> Int64
-  -- ^ bake VM ID (so we can detach the artifact drive)
+  -- ^ bake VM ID (kept for diagnostics; the drive is NOT detached)
   -> Int64
-  -- ^ artifact disk ID
+  -- ^ artifact disk ID (the bake VM's ephemeral source)
   -> Text
   -- ^ published artifact name (= buildName)
   -> BuildTarget
   -- ^ target spec (format, compact, path, …)
   -> Bool
-  -- ^ flatten? (overlay strategy)
-  -> LoggingT IO (Either Text ())
-publishArtifact state parentTaskId vmId diskId name target needFlatten = do
-  -- 1. Detach the drive so VmDelete doesn't take the disk down with it.
-  detachResp <-
-    liftIO $
-      runActionAsSubtask (mkActionContext state parentTaskId "system") (DiskDetachByDisk vmId diskId)
-  case detachResp of
-    RespDiskOk -> pure ()
-    RespError err -> logWarnN $ "detach artifact drive: " <> err
-    _ -> logWarnN "detach artifact drive: unexpected response"
-  -- 2. For ifExists: overwrite, delete the now-stale existing disk
-  --    so the freshly baked artifact can take its name. The pre-bake
-  --    check already verified the disk wasn't attached; this still
-  --    refuses if a new VM has attached during the bake.
+  -- ^ (legacy) flatten flag — ignored; clone is always flat
+  -> LoggingT IO (Either Text Int64)
+publishArtifact state parentTaskId _bakeVmId artifactDiskId name target _needFlatten = do
   overwriteResult <- deleteOverwriteTargetIfNeeded state parentTaskId name target
   case overwriteResult of
     Left err -> pure $ Left err
-    Right () -> publishArtifactCore state parentTaskId diskId name target needFlatten
+    Right () -> publishArtifactByClone state artifactDiskId name target
 
-publishArtifactCore
+-- | Clone the bake VM's artifact disk into a fresh 'DiskImage' row,
+-- compacting if asked. Returns the new disk's id.
+publishArtifactByClone
   :: ServerState
-  -> TaskId
   -> Int64
+  -- ^ source (bake VM artifact) disk id
   -> Text
+  -- ^ published artifact name
   -> BuildTarget
-  -> Bool
-  -> LoggingT IO (Either Text ())
-publishArtifactCore state parentTaskId diskId name target needFlatten = do
-  -- Promote the disk row: rename + drop the ephemeral flag.
-  renameRes <-
-    liftIO $ publishArtifactDiskRow state diskId name
-  case renameRes of
-    Left err -> pure $ Left $ "publish artifact row: " <> err
-    Right () -> do
-      -- 3. Flatten if needed.
-      flattenResult <-
-        if needFlatten
-          then do
-            r <-
-              liftIO $
-                runActionAsSubtask
-                  (mkActionContext state parentTaskId "system")
-                  (DiskRebase diskId Nothing False)
-            case r of
-              RespDiskOk -> pure $ Right ()
-              RespError err -> pure $ Left $ "flatten artifact: " <> err
-              _ -> pure $ Left "flatten artifact: unexpected response"
-          else pure $ Right ()
-      case flattenResult of
-        Left err -> pure $ Left err
-        Right () -> do
-          -- 4. Compact if asked.
-          when (btCompact target) $ compactDisk state diskId
-          -- 5. Relocate to the target's `path:` if set, else to
-          --    `<basePath>/<name>.<ext>` (out of the bake VM's dir).
-          relocateArtifact state diskId name target
-
--- | Move the artifact qcow2 from wherever the bake VM left it to
--- the location implied by `BuildTarget` ('btPath' / 'btFormat')
--- and the build name, then update the 'DiskImage' row's 'filePath' so
--- subsequent lookups resolve to the new location.
---
--- A no-op when the resolved destination matches the current path.
--- Falls back to @copy + delete@ if `renameFile` raises (typically
--- @EXDEV@ — the destination is on a different filesystem from the
--- daemon's disk base; happens with absolute `path:` values).
---
--- The bake-VM's now-empty parent directory is removed best-effort;
--- failures are swallowed (the standard cleanup pass picks up the
--- slack if siblings remain).
-relocateArtifact :: ServerState -> Int64 -> Text -> BuildTarget -> LoggingT IO (Either Text ())
-relocateArtifact state diskId name target = do
-  basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+  -> LoggingT IO (Either Text Int64)
+publishArtifactByClone state srcDiskId name target = do
   let pool = ssDbPool state
-      key = toSqlKey diskId :: DiskImageId
-  -- Build artifacts have exactly one placement (the bake VM's
-  -- node). Read the row, do the move on that node's filesystem,
-  -- and rewrite the placement's path on success.
-  mPlacement <- liftIO $ runSqlPool (listDiskImageNodes key) pool
-  case mPlacement of
-    [] -> pure $ Left "relocate: disk has no recorded placement"
+      srcKey = toSqlKey srcDiskId :: DiskImageId
+  placements <- liftIO $ runSqlPool (listDiskImageNodes srcKey) pool
+  case placements of
+    [] -> pure $ Left "publish: bake artifact has no recorded placement"
     (Entity _ row : _) -> do
       let nid = diskImageNodeNodeId row
-      current <- liftIO $ resolveDiskPath pool (ssQemuConfig state) key nid
+      srcPath <- liftIO $ resolveDiskPath pool (ssQemuConfig state) srcKey nid
+      basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
       let ext = T.unpack (enumToText (btFormat target))
           fileName = T.unpack name <> "." <> ext
-          desired = resolveDiskFilePathPure basePath (btPath target) fileName
-      if current == desired
-        then pure $ Right ()
-        else do
-          logInfoN $ "relocating artifact: " <> T.pack current <> " -> " <> T.pack desired
-          liftIO $ createDirectoryIfMissing True (takeDirectory desired)
-          moveRes <- liftIO (try (renameFile current desired) :: IO (Either IOError ()))
-          case moveRes of
-            Right () -> finalize nid basePath current desired
-            Left _ -> do
-              -- EXDEV (cross-device) or similar: copy then delete.
-              copyRes <-
-                liftIO
-                  ( try
-                      (copyFile current desired >> removeFile current)
-                      :: IO (Either IOError ())
-                  )
-              case copyRes of
-                Left e -> pure $ Left $ "relocate failed: " <> T.pack (show e)
-                Right () -> finalize nid basePath current desired
-  where
-    finalize nid basePath oldPath newPath = do
-      -- Record the new path in the DiskImageNode row so future
-      -- 'resolveDiskPath' calls land at the relocated artifact.
-      let stored =
-            if (basePath ++ "/") `Data.List.isPrefixOf` newPath
-              then T.pack (drop (length basePath + 1) newPath)
-              else T.pack newPath
-      liftIO $
-        runSqlPool
-          (recordDiskImageNode (toSqlKey diskId) nid stored)
-          (ssDbPool state)
-      -- Best-effort: drop the now-empty bake-VM directory.
-      _ <-
-        liftIO
-          (try (removeDirectory (takeDirectory oldPath)) :: IO (Either SomeException ()))
-      pure $ Right ()
+          destPath = resolveDiskFilePathPure basePath (btPath target) fileName
+      liftIO $ createDirectoryIfMissing True (takeDirectory destPath)
+      logInfoN $
+        "publish: cloning "
+          <> T.pack srcPath
+          <> " -> "
+          <> T.pack destPath
+      cloneRes <- liftIO $ cloneImageViaAgent state nid srcPath destPath
+      case cloneRes of
+        ImageError err -> pure $ Left $ "publish clone: " <> err
+        ImageNotFound -> pure $ Left "publish clone: source not found"
+        ImageFormatNotSupported msg -> pure $ Left $ "publish clone: " <> msg
+        ImageSuccess -> do
+          now <- liftIO getCurrentTime
+          mSize <- liftIO $ getImageSizeMbViaAgent state nid destPath
+          let storedPath =
+                if (basePath ++ "/") `Data.List.isPrefixOf` destPath
+                  then T.pack (drop (length basePath + 1) destPath)
+                  else T.pack destPath
+          newKey <-
+            liftIO $
+              runSqlPool
+                ( insert
+                    DiskImage
+                      { diskImageName = name
+                      , diskImageFormat = btFormat target
+                      , diskImageSizeMb = mSize
+                      , diskImageCreatedAt = now
+                      , diskImageBackingImageId = Nothing
+                      , diskImageEphemeral = False
+                      }
+                )
+                pool
+          liftIO $
+            runSqlPool
+              (recordDiskImageNode newKey nid storedPath)
+              pool
+          let newId = fromSqlKey newKey
+          when (btCompact target) $ compactDisk state newId
+          pure $ Right newId
 
 -- | Decide what to do at the very top of a build, before the bake
 -- VM is created, based on the target's 'btIfExists' policy and
@@ -1716,26 +1971,6 @@ vmsAttachedToDisk diskId = do
   vms <- mapM get vmIds
   pure [vmName v | Just v <- vms]
 
--- | Promote a build-internal disk to a published artifact: rename it
--- to the target name and clear the ephemeral flag so a future VM
--- that attaches it doesn't reap it on delete.
-publishArtifactDiskRow :: ServerState -> Int64 -> Text -> IO (Either Text ())
-publishArtifactDiskRow state diskId newName = do
-  case validateName "Disk" newName of
-    Left err -> pure $ Left err
-    Right () -> do
-      mExisting <- runSqlPool (getBy (UniqueDiskImageName newName)) (ssDbPool state)
-      case mExisting of
-        Just _ -> pure $ Left $ "disk name '" <> newName <> "' already in use"
-        Nothing -> do
-          runSqlPool
-            ( update
-                (toSqlKey diskId :: DiskImageId)
-                [DiskImageName =. newName, DiskImageEphemeral =. False]
-            )
-            (ssDbPool state)
-          pure $ Right ()
-
 -- | Compact a qcow2 by running @qemu-img convert -O qcow2@ in place (atomic
 -- via temp file + rename). On any failure this logs at @warn@ and returns
 -- without raising — compaction is a size optimisation, not a correctness
@@ -1786,14 +2021,19 @@ compactDisk state diskId = do
 -- Stops the VM and runs @VmDelete keepDisks=False@. The delete reaps
 -- every disk still attached with @DiskImage.ephemeral=True@ — which
 -- covers every disk the build pipeline creates: the template-
--- instantiated overlay/clone/create-strategy disks, the from-scratch
--- target disk, the build floppy and any cloud-init ISO. Shared
--- infrastructure (direct-strategy template disks, registered base
--- images) is created with @ephemeral=False@ and is preserved.
+-- instantiated overlay/clone/create-strategy disks, the bake
+-- artifact disk (the published artifact is a clone, see
+-- 'publishArtifact'), the build floppy and any cloud-init ISO.
+-- Shared infrastructure (direct-strategy template disks, registered
+-- base images) is created with @ephemeral=False@ and is preserved.
 --
--- On the success path the artifact disk has already been detached and
--- had its ephemeral flag cleared by 'publishArtifactCore', so it
--- survives this teardown.
+-- When the bake VM has any 'BuildCacheEntry' rows referencing it
+-- (@--build-cache@ on the build YAML or the @--build-cache@ CLI
+-- flag was set on a prior run), the @VmDelete@ is skipped: the VM
+-- + its ephemeral disks survive so future @--use-cache@ builds can
+-- roll back to a cached step. Only an explicit @crv vm delete@
+-- reaps a cache-retained bake VM (which cascades the cache rows
+-- via 'deleteVm').
 cleanupBakeVm :: ServerState -> TaskId -> Int64 -> IO ()
 cleanupBakeVm state parentTaskId vmIdLong = do
   -- Best-effort stop first; VmDelete refuses while running.
@@ -1803,7 +2043,7 @@ cleanupBakeVm state parentTaskId vmIdLong = do
   -- to roll back to a cached step. Drop the cache rows (via VM
   -- delete) only when the build's own cleanup or a subsequent
   -- @crv vm delete@ removes the VM explicitly.
-  hasCache <- Cache.bakeVmHasCache state vmIdLong
+  hasCache <- CStore.bakeVmHasCache state vmIdLong
   if hasCache
     then pure ()
     else do
