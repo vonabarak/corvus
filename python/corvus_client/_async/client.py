@@ -225,26 +225,55 @@ class AsyncClient:
 
         return stream_apply_events(self.daemon, yaml, skip_existing=skip_existing)
 
-    def build_stream(self, yaml_path: str):
+    def build_stream(
+        self,
+        yaml_path: str,
+        *,
+        use_cache: bool = False,
+        build_cache: bool = False,
+        rebuild_from: int = 0,
+    ):
         """Stream `Daemon.build` events for a YAML pipeline file.
 
         Returns an async generator. The YAML is preprocessed client-side
         (shell.script/file.from/floppy.from are inlined) before being
         sent. Yields BuildEvent dataclasses; the final item is a
         `('task_id', N)` tuple.
+
+        Cache flags layer on top of the YAML's own
+        ``useCache:`` / ``buildCache:`` fields (OR semantics).
         """
         from .build import stream_build_from_file
 
-        return stream_build_from_file(self.daemon, yaml_path)
+        return stream_build_from_file(
+            self.daemon,
+            yaml_path,
+            use_cache=use_cache,
+            build_cache=build_cache,
+            rebuild_from=rebuild_from,
+        )
 
-    def build_stream_text(self, yaml_text: str):
+    def build_stream_text(
+        self,
+        yaml_text: str,
+        *,
+        use_cache: bool = False,
+        build_cache: bool = False,
+        rebuild_from: int = 0,
+    ):
         """Like `build_stream`, but accepts already-preprocessed YAML text.
 
         Useful for callers that read/transform the YAML themselves.
         """
         from .streams import stream_build_events
 
-        return stream_build_events(self.daemon, yaml_text)
+        return stream_build_events(
+            self.daemon,
+            yaml_text,
+            use_cache=use_cache,
+            build_cache=build_cache,
+            rebuild_from=rebuild_from,
+        )
 
     # ---- subsystem managers (lazy) ---------------------------------------
 

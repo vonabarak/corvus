@@ -112,7 +112,14 @@ class Client:
 
     # ---- build streaming (yields events on the calling thread) ----------
 
-    def build_stream(self, yaml_path: str):
+    def build_stream(
+        self,
+        yaml_path: str,
+        *,
+        use_cache: bool = False,
+        build_cache: bool = False,
+        rebuild_from: int = 0,
+    ):
         """Iterate build events from a YAML pipeline file.
 
         Each call to `next()` drives the background loop until the next
@@ -120,11 +127,28 @@ class Client:
         `AsyncClient.build_stream` (`BuildEvent` dataclasses, then a
         final `('task_id', N)` tuple).
         """
-        agen = self._a.build_stream(yaml_path)
+        agen = self._a.build_stream(
+            yaml_path,
+            use_cache=use_cache,
+            build_cache=build_cache,
+            rebuild_from=rebuild_from,
+        )
         return _SyncIterator(agen, self._rl)
 
-    def build_stream_text(self, yaml_text: str):
-        agen = self._a.build_stream_text(yaml_text)
+    def build_stream_text(
+        self,
+        yaml_text: str,
+        *,
+        use_cache: bool = False,
+        build_cache: bool = False,
+        rebuild_from: int = 0,
+    ):
+        agen = self._a.build_stream_text(
+            yaml_text,
+            use_cache=use_cache,
+            build_cache=build_cache,
+            rebuild_from=rebuild_from,
+        )
         return _SyncIterator(agen, self._rl)
 
 

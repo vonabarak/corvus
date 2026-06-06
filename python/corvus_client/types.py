@@ -549,6 +549,40 @@ class BuildPipelineEnd:
     builds: list[BuildOneResult] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class BuildStepCacheHit:
+    """A provisioner step was skipped because its snapshot was matched
+    in the cache. Emitted once per skipped step at the start of a
+    cache-resumed build, immediately after :class:`BuildStepCacheRestore`.
+    """
+
+    step_index: int
+    chain_hash: str
+
+
+@dataclass(frozen=True)
+class BuildStepCacheStore:
+    """A provisioner step finished successfully and its result was
+    just written to the cache (new snapshot + ``BuildCacheEntry``
+    row). Emitted once per stored step.
+    """
+
+    step_index: int
+    chain_hash: str
+
+
+@dataclass(frozen=True)
+class BuildStepCacheRestore:
+    """The build resumed from a cached prefix. Emitted once at the
+    start of a cache-resumed build, before any
+    :class:`BuildStepCacheHit` event, naming the prefix length and
+    the chain hash of the last cached step.
+    """
+
+    prefix: int
+    chain_hash: str
+
+
 # ---------------------------------------------------------------------------
 # Apply (declarative environment) streaming events
 # ---------------------------------------------------------------------------

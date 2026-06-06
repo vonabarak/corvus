@@ -156,7 +156,14 @@ async def stream_apply_events(
     yield ("task_id", resp.taskId)
 
 
-async def stream_build_events(daemon, yaml: str) -> AsyncIterator[Any]:
+async def stream_build_events(
+    daemon,
+    yaml: str,
+    *,
+    use_cache: bool = False,
+    build_cache: bool = False,
+    rebuild_from: int = 0,
+) -> AsyncIterator[Any]:
     """Yield BuildEvent dataclasses, then a final `('task_id', N)` tuple.
 
     Usage:
@@ -167,10 +174,20 @@ async def stream_build_events(daemon, yaml: str) -> AsyncIterator[Any]:
             else:
                 # BuildLogLine / BuildStepStart / ... event dataclasses
                 ...
+
+    The cache flags (``use_cache``, ``build_cache``, ``rebuild_from``)
+    layer on top of the YAML's own ``useCache:`` / ``buildCache:``
+    fields (OR semantics). Default off for all three.
     """
     queue: asyncio.Queue[Any] = asyncio.Queue()
     sink = _BuildEventSinkServer(queue)
-    promise = daemon.build(yaml=yaml, sink=sink)
+    promise = daemon.build(
+        yaml=yaml,
+        sink=sink,
+        useCache=use_cache,
+        buildCache=build_cache,
+        rebuildFrom=rebuild_from,
+    )
     # Drain events from the queue. The daemon signals end-of-stream
     # by calling sink.end(); we then await the original build() promise
     # for the task id and yield it as the last item.

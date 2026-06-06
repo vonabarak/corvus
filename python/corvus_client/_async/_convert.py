@@ -502,6 +502,15 @@ def build_event(r):
     if which == "pipelineEnd":
         g = r.pipelineEnd
         return t.BuildPipelineEnd(builds=[build_one_result(b) for b in g.builds])
+    if which == "stepCacheHit":
+        g = r.stepCacheHit
+        return t.BuildStepCacheHit(step_index=g.stepIndex, chain_hash=g.chainHash)
+    if which == "stepCacheStore":
+        g = r.stepCacheStore
+        return t.BuildStepCacheStore(step_index=g.stepIndex, chain_hash=g.chainHash)
+    if which == "stepCacheRestore":
+        g = r.stepCacheRestore
+        return t.BuildStepCacheRestore(prefix=g.prefix, chain_hash=g.chainHash)
     raise ValueError(f"unknown BuildEvent variant: {which!r}")
 
 

@@ -91,12 +91,25 @@ def preprocess_build_yaml(yaml_path: str) -> str:
     return yaml.safe_dump(doc, sort_keys=False)
 
 
-async def stream_build_from_file(daemon, yaml_path: str) -> AsyncIterator[Any]:
+async def stream_build_from_file(
+    daemon,
+    yaml_path: str,
+    *,
+    use_cache: bool = False,
+    build_cache: bool = False,
+    rebuild_from: int = 0,
+) -> AsyncIterator[Any]:
     """Run `Daemon.build` on a preprocessed YAML file.
 
     Yields `BuildEvent` dataclasses as they arrive, followed by a final
     `('task_id', N)` tuple once the pipeline completes.
     """
     text = preprocess_build_yaml(yaml_path)
-    async for item in stream_build_events(daemon, text):
+    async for item in stream_build_events(
+        daemon,
+        text,
+        use_cache=use_cache,
+        build_cache=build_cache,
+        rebuild_from=rebuild_from,
+    ):
         yield item
