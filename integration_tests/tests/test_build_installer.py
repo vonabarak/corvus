@@ -104,15 +104,16 @@ class TestBuildInstaller(SingleNodeCase):
         #   * inject the per-run marker as floppy.contentBase64
         #     (the in-tree YAML leaves it unset so a stray manual
         #     `crv build` of the file fails fast),
-        #   * scope the target name to this run so concurrent
-        #     workers / repeated runs don't collide.
+        #   * scope the build name (which now drives the published
+        #     artifact's identity) to this run so concurrent workers
+        #     / repeated runs don't collide.
         marker_payload = f"marker={marker_uuid}\n".encode()
         marker_b64 = base64.b64encode(marker_payload).decode("ascii")
         doc = yamlmod.safe_load(_BUILD_YAML.read_text())
         for step in doc["pipeline"]:
             build = step.get("build")
             if isinstance(build, dict):
-                build["target"]["name"] = artifact_name
+                build["name"] = artifact_name
                 build["floppy"] = {
                     "contentBase64": marker_b64,
                     "filename": "marker.txt",
@@ -136,13 +137,15 @@ class TestBuildInstaller(SingleNodeCase):
             )
             # The pipeline always reports one BuildOneResult per
             # pipeline step (apply + build), so we look up the
-            # build-step result by name rather than by index.
+            # build-step result by name rather than by index. The
+            # build's `name:` field (we patched it to artifact_name
+            # above) now drives the published artifact's identity.
             bo = next(
-                (b for b in pipeline_end.builds if b.name == "corvus-test-installer"),
+                (b for b in pipeline_end.builds if b.name == artifact_name),
                 None,
             )
             assert bo is not None, (
-                f"no 'corvus-test-installer' build result; "
+                f"no {artifact_name!r} build result; "
                 f"got {[b.name for b in pipeline_end.builds]}"
             )
             if bo.error_message:

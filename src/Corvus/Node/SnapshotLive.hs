@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 -- | Node-agent orchestration for LIVE (online) qcow2 internal snapshots.
 --
@@ -29,6 +30,7 @@
 module Corvus.Node.SnapshotLive
   ( QuiesceMode (..)
   , createSnapshotLive
+  , createSnapshotLiveMany
   , deleteSnapshotLive
   )
 where
@@ -114,6 +116,76 @@ createSnapshotLive qgaConns qcfg vmId snapName path mode = do
             else do
               res <- snapAndClassify qcfg vmId device snapName
               pure (res, False)
+
+-- | Atomic multi-disk live snapshot. Wraps N
+-- @blockdev-snapshot-internal-sync@ actions in a single QMP
+-- @transaction@; QGA fsfreeze (per 'QuiesceMode') brackets the
+-- whole transaction so all disks see the same on-disk-stable
+-- guest filesystem state. Returns the result plus a flag indicating
+-- whether the snapshot was actually quiesced.
+--
+-- An empty path list is treated as a no-op success; the caller
+-- has already decided no writable disks are eligible.
+createSnapshotLiveMany
+  :: GuestAgentConns
+  -> QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ snapshot name (same for every disk)
+  -> [FilePath]
+  -- ^ qcow2 file paths on this node
+  -> QuiesceMode
+  -> IO (NI.ImageResult, Bool)
+createSnapshotLiveMany _ _ _ _ [] _ = pure (NI.ImageSuccess, False)
+createSnapshotLiveMany qgaConns qcfg vmId snapName paths mode = do
+  eDevs <- resolveDevices qcfg vmId paths
+  case eDevs of
+    Left err -> pure (NI.ImageError err, False)
+    Right devices -> do
+      let pairs = map (,snapName) devices
+      willFreeze <- decideQuiesce qgaConns qcfg vmId mode
+      case willFreeze of
+        Left err -> pure (NI.ImageError err, False)
+        Right shouldFreeze ->
+          if shouldFreeze
+            then do
+              eFreeze <- guestFsFreeze qgaConns qcfg vmId
+              case eFreeze of
+                Left err -> case mode of
+                  QuiesceRequire ->
+                    pure
+                      ( NI.ImageError ("guest-fsfreeze-freeze failed: " <> err)
+                      , False
+                      )
+                  _ -> do
+                    res <- snapManyAndClassify qcfg vmId pairs
+                    pure (res, False)
+                Right _frozenCount ->
+                  runWithThaw qgaConns qcfg vmId $ do
+                    res <- snapManyAndClassify qcfg vmId pairs
+                    pure (res, True)
+            else do
+              res <- snapManyAndClassify qcfg vmId pairs
+              pure (res, False)
+
+resolveDevices :: QemuConfig -> Int64 -> [FilePath] -> IO (Either Text [Text])
+resolveDevices _ _ [] = pure (Right [])
+resolveDevices cfg vmId (p : rest) = do
+  e <- Qmp.qmpFindBlockDeviceByPath cfg vmId p
+  case e of
+    Left err -> pure (Left err)
+    Right dev -> do
+      r <- resolveDevices cfg vmId rest
+      case r of
+        Left err -> pure (Left err)
+        Right ds -> pure (Right (dev : ds))
+
+snapManyAndClassify
+  :: QemuConfig -> Int64 -> [(Text, Text)] -> IO NI.ImageResult
+snapManyAndClassify cfg vmId pairs = do
+  r <- Qmp.qmpBlockSnapshotCreateMany cfg vmId pairs
+  pure (classifyQmpResult r)
 
 -- | Delete a snapshot from a running VM via QMP. No QGA freeze
 -- needed — snapshot deletion only edits the qcow2 snapshot table,

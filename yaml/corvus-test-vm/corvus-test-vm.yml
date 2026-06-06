@@ -40,7 +40,6 @@ pipeline:
       template: debian12
 
       target:
-        name: corvus-test-vm
         format: qcow2
         sizeGb: 1
         compact: true

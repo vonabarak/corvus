@@ -113,6 +113,8 @@ library
       Corvus.Handlers.Apply
       Corvus.Handlers.Build
       Corvus.Handlers.Build.Cleanup
+      Corvus.Build.Cache.Hash
+      Corvus.Build.Cache.Store
       Corvus.Handlers.CloudInit
       Corvus.Handlers.Lifecycle
       Corvus.Client.Commands.GuestExec
@@ -249,6 +251,7 @@ library
     , bytestring
     , capnp
     , containers
+    , crypton
     , crypton-x509
     , crypton-x509-store
     , crypton-x509-validation
@@ -258,6 +261,7 @@ library
     , filepath
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -317,6 +321,7 @@ executable corvus
     , capnp
     , containers
     , corvus
+    , crypton
     , crypton-x509
     , crypton-x509-store
     , crypton-x509-validation
@@ -326,6 +331,7 @@ executable corvus
     , filepath
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -385,6 +391,7 @@ executable corvus-netd
     , capnp
     , containers
     , corvus
+    , crypton
     , crypton-x509
     , crypton-x509-store
     , crypton-x509-validation
@@ -394,6 +401,7 @@ executable corvus-netd
     , filepath
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -453,6 +461,7 @@ executable corvus-nodeagent
     , capnp
     , containers
     , corvus
+    , crypton
     , crypton-x509
     , crypton-x509-store
     , crypton-x509-validation
@@ -462,6 +471,7 @@ executable corvus-nodeagent
     , filepath
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -521,6 +531,7 @@ executable crv
     , capnp
     , containers
     , corvus
+    , crypton
     , crypton-x509
     , crypton-x509-store
     , crypton-x509-validation
@@ -530,6 +541,7 @@ executable crv
     , filepath
     , gitrev
     , haskell-src-meta
+    , memory
     , monad-logger
     , mtl
     , network
@@ -640,6 +652,7 @@ test-suite corvus-test
     , capnp
     , containers
     , corvus
+    , crypton
     , crypton-x509
     , crypton-x509-store
     , crypton-x509-validation
@@ -652,6 +665,7 @@ test-suite corvus-test
     , hspec
     , hspec-discover
     , hspec-expectations
+    , memory
     , monad-logger
     , mtl
     , network

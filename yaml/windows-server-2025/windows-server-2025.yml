@@ -114,13 +114,12 @@ pipeline:
             - network: corvus
 
   - build:
-      name: windows-server-2025
+      name: windows-server-2025-eval
       description: "Windows Server 2025 with qemu-guest-agent + cloudbase-init"
       template: windows-server-2025-installer
 
       target:
         ifExists: skip
-        name: windows-server-2025-eval
         format: qcow2
         compact: true
         # Place the artifact under `<basePath>/BaseImages/WindowsServer2025/`

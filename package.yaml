@@ -42,11 +42,13 @@ dependencies:
   - supervisors
   - data-default
   - tls
+  - crypton
   - crypton-x509
   - crypton-x509-store
   - crypton-x509-validation
   - asn1-types
   - transformers
+  - memory
 
 default-extensions:
   - OverloadedStrings
@@ -171,6 +173,8 @@ library:
     - Corvus.Handlers.Apply
     - Corvus.Handlers.Build
     - Corvus.Handlers.Build.Cleanup
+    - Corvus.Build.Cache.Hash
+    - Corvus.Build.Cache.Store
     - Corvus.Handlers.CloudInit
     - Corvus.Handlers.Lifecycle
     - Corvus.Client.Commands.GuestExec

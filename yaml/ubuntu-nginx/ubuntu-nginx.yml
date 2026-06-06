@@ -30,7 +30,6 @@ pipeline:
       template: ubuntu24
 
       target:
-        name: ubuntu24-nginx
         compact: true
 
       strategy: overlay

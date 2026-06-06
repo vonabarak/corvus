@@ -64,6 +64,18 @@ data BuildEvent
   | -- | Aggregate pipeline result, identical in shape to the response
     -- the non-streaming path returns. Always the last event.
     PipelineEnd !BuildResult
+  | -- | A step's snapshot matched the cache; the step was skipped.
+    -- Carries the 1-based step index and the chain hash that matched.
+    StepCacheHit !Int !Text
+  | -- | A step finished successfully and the daemon wrote its result
+    -- to the cache (snapshot + 'BuildCacheEntry' rows). Carries the
+    -- 1-based step index and the chain hash that was just stored.
+    StepCacheStore !Int !Text
+  | -- | The build started by restoring a cached prefix of length @K@:
+    -- the daemon rolled the bake VM's writable disks back to step
+    -- @K@'s snapshot. Carries @K@ and the chain hash of step @K@.
+    -- Emitted once per cached run, before any provisioner runs.
+    StepCacheRestore !Int !Text
   deriving (Eq, Show, Generic)
 
 instance ToJSON BuildEvent where

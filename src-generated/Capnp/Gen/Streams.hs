@@ -196,6 +196,9 @@ instance (GH.HasUnion BuildEvent) where
         | RW_BuildEvent'stepEnd (R.Raw BuildEvent'stepEnd mut_)
         | RW_BuildEvent'buildEnd (R.Raw BuildEvent'buildEnd mut_)
         | RW_BuildEvent'pipelineEnd (R.Raw BuildEvent'pipelineEnd mut_)
+        | RW_BuildEvent'stepCacheHit (R.Raw BuildEvent'stepCacheHit mut_)
+        | RW_BuildEvent'stepCacheStore (R.Raw BuildEvent'stepCacheStore mut_)
+        | RW_BuildEvent'stepCacheRestore (R.Raw BuildEvent'stepCacheRestore mut_)
         | RW_BuildEvent'unknown' Std_.Word16
     internalWhich tag_ struct_ = case tag_ of
         0 ->
@@ -210,6 +213,12 @@ instance (GH.HasUnion BuildEvent) where
             (RW_BuildEvent'buildEnd <$> (GH.readVariant #buildEnd struct_))
         5 ->
             (RW_BuildEvent'pipelineEnd <$> (GH.readVariant #pipelineEnd struct_))
+        6 ->
+            (RW_BuildEvent'stepCacheHit <$> (GH.readVariant #stepCacheHit struct_))
+        7 ->
+            (RW_BuildEvent'stepCacheStore <$> (GH.readVariant #stepCacheStore struct_))
+        8 ->
+            (RW_BuildEvent'stepCacheRestore <$> (GH.readVariant #stepCacheRestore struct_))
         _ ->
             (Std_.pure (RW_BuildEvent'unknown' tag_))
     data Which BuildEvent
@@ -225,6 +234,12 @@ instance (GH.HasVariant "buildEnd" GH.Group BuildEvent BuildEvent'buildEnd) wher
     variantByLabel  = (GH.Variant GH.groupField 4)
 instance (GH.HasVariant "pipelineEnd" GH.Group BuildEvent BuildEvent'pipelineEnd) where
     variantByLabel  = (GH.Variant GH.groupField 5)
+instance (GH.HasVariant "stepCacheHit" GH.Group BuildEvent BuildEvent'stepCacheHit) where
+    variantByLabel  = (GH.Variant GH.groupField 6)
+instance (GH.HasVariant "stepCacheStore" GH.Group BuildEvent BuildEvent'stepCacheStore) where
+    variantByLabel  = (GH.Variant GH.groupField 7)
+instance (GH.HasVariant "stepCacheRestore" GH.Group BuildEvent BuildEvent'stepCacheRestore) where
+    variantByLabel  = (GH.Variant GH.groupField 8)
 data instance C.Parsed (GH.Which BuildEvent)
     = BuildEvent'logLine (RP.Parsed Basics.Text)
     | BuildEvent'stepStart (RP.Parsed BuildEvent'stepStart)
@@ -232,6 +247,9 @@ data instance C.Parsed (GH.Which BuildEvent)
     | BuildEvent'stepEnd (RP.Parsed BuildEvent'stepEnd)
     | BuildEvent'buildEnd (RP.Parsed BuildEvent'buildEnd)
     | BuildEvent'pipelineEnd (RP.Parsed BuildEvent'pipelineEnd)
+    | BuildEvent'stepCacheHit (RP.Parsed BuildEvent'stepCacheHit)
+    | BuildEvent'stepCacheStore (RP.Parsed BuildEvent'stepCacheStore)
+    | BuildEvent'stepCacheRestore (RP.Parsed BuildEvent'stepCacheRestore)
     | BuildEvent'unknown' Std_.Word16
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed (GH.Which BuildEvent)))
@@ -252,6 +270,12 @@ instance (C.Parse (GH.Which BuildEvent) (C.Parsed (GH.Which BuildEvent))) where
                 (BuildEvent'buildEnd <$> (C.parse rawArg_))
             (RW_BuildEvent'pipelineEnd rawArg_) ->
                 (BuildEvent'pipelineEnd <$> (C.parse rawArg_))
+            (RW_BuildEvent'stepCacheHit rawArg_) ->
+                (BuildEvent'stepCacheHit <$> (C.parse rawArg_))
+            (RW_BuildEvent'stepCacheStore rawArg_) ->
+                (BuildEvent'stepCacheStore <$> (C.parse rawArg_))
+            (RW_BuildEvent'stepCacheRestore rawArg_) ->
+                (BuildEvent'stepCacheRestore <$> (C.parse rawArg_))
             (RW_BuildEvent'unknown' tag_) ->
                 (Std_.pure (BuildEvent'unknown' tag_))
         )
@@ -282,6 +306,21 @@ instance (C.Marshal (GH.Which BuildEvent) (C.Parsed (GH.Which BuildEvent))) wher
         (BuildEvent'pipelineEnd arg_) ->
             (do
                 rawGroup_ <- (GH.initVariant #pipelineEnd (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (BuildEvent'stepCacheHit arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #stepCacheHit (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (BuildEvent'stepCacheStore arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #stepCacheStore (GH.unionStruct raw_))
+                (C.marshalInto rawGroup_ arg_)
+                )
+        (BuildEvent'stepCacheRestore arg_) ->
+            (do
+                rawGroup_ <- (GH.initVariant #stepCacheRestore (GH.unionStruct raw_))
                 (C.marshalInto rawGroup_ arg_)
                 )
         (BuildEvent'unknown' tag_) ->
@@ -470,6 +509,111 @@ instance (C.Marshal BuildEvent'pipelineEnd (C.Parsed BuildEvent'pipelineEnd)) wh
         (Std_.pure ())
         )
 instance (GH.HasField "builds" GH.Slot BuildEvent'pipelineEnd (R.List BuildOneResult)) where
+    fieldByLabel  = (GH.ptrField 0)
+data BuildEvent'stepCacheHit 
+type instance (R.ReprFor BuildEvent'stepCacheHit) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId BuildEvent'stepCacheHit) where
+    typeId  = 16065895066738511378
+instance (C.TypedStruct BuildEvent'stepCacheHit) where
+    numStructWords  = 2
+    numStructPtrs  = 2
+instance (C.Allocate BuildEvent'stepCacheHit) where
+    type AllocHint BuildEvent'stepCacheHit = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc BuildEvent'stepCacheHit (C.Parsed BuildEvent'stepCacheHit))
+instance (C.AllocateList BuildEvent'stepCacheHit) where
+    type ListAllocHint BuildEvent'stepCacheHit = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc BuildEvent'stepCacheHit (C.Parsed BuildEvent'stepCacheHit))
+data instance C.Parsed BuildEvent'stepCacheHit
+    = BuildEvent'stepCacheHit' 
+        {stepIndex :: (RP.Parsed Std_.Int32)
+        ,chainHash :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed BuildEvent'stepCacheHit))
+deriving instance (Std_.Eq (C.Parsed BuildEvent'stepCacheHit))
+instance (C.Parse BuildEvent'stepCacheHit (C.Parsed BuildEvent'stepCacheHit)) where
+    parse raw_ = (BuildEvent'stepCacheHit' <$> (GH.parseField #stepIndex raw_)
+                                           <*> (GH.parseField #chainHash raw_))
+instance (C.Marshal BuildEvent'stepCacheHit (C.Parsed BuildEvent'stepCacheHit)) where
+    marshalInto raw_ BuildEvent'stepCacheHit'{..} = (do
+        (GH.encodeField #stepIndex stepIndex raw_)
+        (GH.encodeField #chainHash chainHash raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "stepIndex" GH.Slot BuildEvent'stepCacheHit Std_.Int32) where
+    fieldByLabel  = (GH.dataField 32 0 32 0)
+instance (GH.HasField "chainHash" GH.Slot BuildEvent'stepCacheHit Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data BuildEvent'stepCacheStore 
+type instance (R.ReprFor BuildEvent'stepCacheStore) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId BuildEvent'stepCacheStore) where
+    typeId  = 10253654361599202480
+instance (C.TypedStruct BuildEvent'stepCacheStore) where
+    numStructWords  = 2
+    numStructPtrs  = 2
+instance (C.Allocate BuildEvent'stepCacheStore) where
+    type AllocHint BuildEvent'stepCacheStore = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc BuildEvent'stepCacheStore (C.Parsed BuildEvent'stepCacheStore))
+instance (C.AllocateList BuildEvent'stepCacheStore) where
+    type ListAllocHint BuildEvent'stepCacheStore = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc BuildEvent'stepCacheStore (C.Parsed BuildEvent'stepCacheStore))
+data instance C.Parsed BuildEvent'stepCacheStore
+    = BuildEvent'stepCacheStore' 
+        {stepIndex :: (RP.Parsed Std_.Int32)
+        ,chainHash :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed BuildEvent'stepCacheStore))
+deriving instance (Std_.Eq (C.Parsed BuildEvent'stepCacheStore))
+instance (C.Parse BuildEvent'stepCacheStore (C.Parsed BuildEvent'stepCacheStore)) where
+    parse raw_ = (BuildEvent'stepCacheStore' <$> (GH.parseField #stepIndex raw_)
+                                             <*> (GH.parseField #chainHash raw_))
+instance (C.Marshal BuildEvent'stepCacheStore (C.Parsed BuildEvent'stepCacheStore)) where
+    marshalInto raw_ BuildEvent'stepCacheStore'{..} = (do
+        (GH.encodeField #stepIndex stepIndex raw_)
+        (GH.encodeField #chainHash chainHash raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "stepIndex" GH.Slot BuildEvent'stepCacheStore Std_.Int32) where
+    fieldByLabel  = (GH.dataField 32 0 32 0)
+instance (GH.HasField "chainHash" GH.Slot BuildEvent'stepCacheStore Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data BuildEvent'stepCacheRestore 
+type instance (R.ReprFor BuildEvent'stepCacheRestore) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId BuildEvent'stepCacheRestore) where
+    typeId  = 12371513687752596604
+instance (C.TypedStruct BuildEvent'stepCacheRestore) where
+    numStructWords  = 2
+    numStructPtrs  = 2
+instance (C.Allocate BuildEvent'stepCacheRestore) where
+    type AllocHint BuildEvent'stepCacheRestore = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc BuildEvent'stepCacheRestore (C.Parsed BuildEvent'stepCacheRestore))
+instance (C.AllocateList BuildEvent'stepCacheRestore) where
+    type ListAllocHint BuildEvent'stepCacheRestore = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc BuildEvent'stepCacheRestore (C.Parsed BuildEvent'stepCacheRestore))
+data instance C.Parsed BuildEvent'stepCacheRestore
+    = BuildEvent'stepCacheRestore' 
+        {prefix :: (RP.Parsed Std_.Int32)
+        ,chainHash :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed BuildEvent'stepCacheRestore))
+deriving instance (Std_.Eq (C.Parsed BuildEvent'stepCacheRestore))
+instance (C.Parse BuildEvent'stepCacheRestore (C.Parsed BuildEvent'stepCacheRestore)) where
+    parse raw_ = (BuildEvent'stepCacheRestore' <$> (GH.parseField #prefix raw_)
+                                               <*> (GH.parseField #chainHash raw_))
+instance (C.Marshal BuildEvent'stepCacheRestore (C.Parsed BuildEvent'stepCacheRestore)) where
+    marshalInto raw_ BuildEvent'stepCacheRestore'{..} = (do
+        (GH.encodeField #prefix prefix raw_)
+        (GH.encodeField #chainHash chainHash raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "prefix" GH.Slot BuildEvent'stepCacheRestore Std_.Int32) where
+    fieldByLabel  = (GH.dataField 32 0 32 0)
+instance (GH.HasField "chainHash" GH.Slot BuildEvent'stepCacheRestore Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 data BuildOneResult 
 type instance (R.ReprFor BuildOneResult) = (R.Ptr (Std_.Just R.Struct))

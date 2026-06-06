@@ -21,7 +21,7 @@ import Control.Monad (when)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (emitError, emitOkWith)
-import Corvus.Client.Types (OutputFormat, WaitOptions (..))
+import Corvus.Client.Types (BuildClientOptions (..), OutputFormat, WaitOptions (..))
 import Corvus.Model (EnumText (..), TaskResult (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildOne (..), BuildResult (..))
 import Data.Aeson (toJSON)
@@ -43,8 +43,8 @@ import System.FilePath (takeDirectory, takeFileName, (</>))
 -- With @--wait@: streams 'BuildEvent's in real time and blocks until
 -- the daemon closes the sink. Without @--wait@: kicks off the build
 -- and returns immediately with the parent task id.
-handleBuild :: OutputFormat -> CapnpConnection -> FilePath -> WaitOptions -> IO Bool
-handleBuild fmt conn path waitOpts = do
+handleBuild :: OutputFormat -> CapnpConnection -> FilePath -> BuildClientOptions -> WaitOptions -> IO Bool
+handleBuild fmt conn path bcOpts waitOpts = do
   parsed <- try (Yaml.decodeFileEither path) :: IO (Either SomeException (Either Yaml.ParseException Value))
   case parsed of
     Left e -> do
@@ -65,10 +65,10 @@ handleBuild fmt conn path waitOpts = do
           pure False
         Right inlined -> do
           let yaml = TE.decodeUtf8 (Yaml.encode inlined)
-          runBuild fmt conn yaml (woWait waitOpts)
+          runBuild fmt conn yaml bcOpts (woWait waitOpts)
 
-runBuild :: OutputFormat -> CapnpConnection -> T.Text -> Bool -> IO Bool
-runBuild fmt conn yaml wait = do
+runBuild :: OutputFormat -> CapnpConnection -> T.Text -> BuildClientOptions -> Bool -> IO Bool
+runBuild fmt conn yaml bcOpts wait = do
   done <- newEmptyMVar :: IO (MVar ())
   -- Aggregate state surfaced after the stream ends: did any
   -- top-level step fail, and the final per-build summary.
@@ -77,7 +77,12 @@ runBuild fmt conn yaml wait = do
       onEnd = do
         _ <- tryPutMVar successVar True
         putMVar done ()
-  r <- try (CR.rpcBuild conn yaml onEvent onEnd) :: IO (Either SomeException Int64)
+      useCache = bcoUseCache bcOpts
+      buildCacheFlag = bcoBuildCache bcOpts
+      rebuildFromInt = fromIntegral (bcoRebuildFrom bcOpts)
+  r <-
+    try (CR.rpcBuild conn yaml useCache buildCacheFlag rebuildFromInt onEvent onEnd)
+      :: IO (Either SomeException Int64)
   case r of
     Left e -> do
       emitError fmt "rpc_error" (T.pack (show e)) $
@@ -119,6 +124,12 @@ runBuild fmt conn yaml wait = do
       PipelineEnd (BuildResult builds) -> do
         TIO.putStrLn "Pipeline finished:"
         mapM_ renderOne builds
+      StepCacheHit idx _ ->
+        TIO.putStrLn ("[step " <> T.pack (show idx) <> " cache-hit] reusing cached snapshot")
+      StepCacheStore idx _ ->
+        TIO.putStrLn ("[step " <> T.pack (show idx) <> " cache-store] snapshot written")
+      StepCacheRestore prefix _ ->
+        TIO.putStrLn ("[cache] resuming from step " <> T.pack (show prefix))
     renderOne bo = do
       let prefix = "  - " <> boName bo
       case (boArtifactDiskId bo, boError bo) of

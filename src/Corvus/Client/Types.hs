@@ -11,6 +11,10 @@ module Corvus.Client.Types
     -- * Wait options
   , WaitOptions (..)
 
+    -- * Build client options
+  , BuildClientOptions (..)
+  , defaultBuildClientOptions
+
     -- * Snapshot options
   , QuiesceModeFlag (..)
   )
@@ -40,6 +44,20 @@ data WaitOptions = WaitOptions
   -- ^ Timeout in seconds. Nothing = default 120s.
   }
   deriving (Show, Eq)
+
+-- | Cache-related knobs for @crv build@. These flags OR with the
+-- per-build YAML fields (@useCache:@ / @buildCache:@); the
+-- 'bcoRebuildFrom' field is CLI-only and caps the matched prefix
+-- length when reusing a cache (0 = unset).
+data BuildClientOptions = BuildClientOptions
+  { bcoUseCache :: !Bool
+  , bcoBuildCache :: !Bool
+  , bcoRebuildFrom :: !Int
+  }
+  deriving (Show, Eq)
+
+defaultBuildClientOptions :: BuildClientOptions
+defaultBuildClientOptions = BuildClientOptions False False 0
 
 -- | Command line options.
 --
@@ -245,8 +263,9 @@ data Command
     -- | Apply environment from YAML config file (file path, skipExisting, waitOptions)
     Apply !FilePath !Bool !WaitOptions
   | -- | Build OS images from a YAML pipeline file. Async by default;
-    -- @--wait@ blocks until completion.
-    Build !FilePath !WaitOptions
+    -- @--wait@ blocks until completion. Cache flags layer on top of
+    -- the YAML's own @useCache:@ / @buildCache:@ fields (OR semantics).
+    Build !FilePath !BuildClientOptions !WaitOptions
   | -- Task history commands
 
     -- | List task history (limit, optional subsystem, optional result, includeSubtasks)

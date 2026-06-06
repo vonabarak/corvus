@@ -50,7 +50,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: tpl"
-              , "      target: { name: out }"
+              , "      target: {}"
               ]
       case decodePipeline yaml of
         Right c -> case pcSteps c of
@@ -80,7 +80,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: a"
               , "      template: t"
-              , "      target: { name: o1 }"
+              , "      target: {}"
               , "  - apply:"
               , "      templates:"
               , "        - name: tpl"
@@ -90,7 +90,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: b"
               , "      template: t"
-              , "      target: { name: o2 }"
+              , "      target: {}"
               ]
       case decodePipeline yaml of
         Right c -> case pcSteps c of
@@ -107,7 +107,7 @@ spec = describe "Schema.Build" $ do
             , "  - build:"
             , "      name: x"
             , "      template: t"
-            , "      target: { name: o }"
+            , "      target: {}"
             , "    apply: {}"
             ]
         )
@@ -128,14 +128,13 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: tpl"
-              , "      target: { name: out }"
+              , "      target: {}"
               ]
       case decodePipeline yaml of
         Right c -> do
           let b = firstBuild c
           buildName b `shouldBe` "x"
           buildTemplate b `shouldBe` "tpl"
-          btName (buildTarget b) `shouldBe` "out"
           btFormat (buildTarget b) `shouldBe` FormatQcow2
           btCompact (buildTarget b) `shouldBe` True
           btIfExists (buildTarget b) `shouldBe` IfExistsError
@@ -145,6 +144,8 @@ spec = describe "Schema.Build" $ do
           bvmRamMb (buildVm b) `shouldBe` 4096
           buildBootKeys b `shouldBe` []
           buildWaitForShutdownSec b `shouldBe` 3600
+          buildUseCache b `shouldBe` False
+          buildBuildCache b `shouldBe` False
         Left e -> expectationFailure e
 
     it "parses installer strategy with bootKeys + waitForShutdownSec" $ do
@@ -154,7 +155,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: win"
               , "      template: tpl"
-              , "      target: { name: out }"
+              , "      target: {}"
               , "      strategy: installer"
               , "      waitForShutdownSec: 1800"
               , "      bootKeys:"
@@ -181,7 +182,7 @@ spec = describe "Schema.Build" $ do
             , "  - build:"
             , "      name: x"
             , "      template: tpl"
-            , "      target: { name: out }"
+            , "      target: {}"
             , "      strategy: maybe"
             ]
         )
@@ -195,7 +196,7 @@ spec = describe "Schema.Build" $ do
             [ "pipeline:"
             , "  - build:"
             , "      name: x"
-            , "      target: { name: out }"
+            , "      target: {}"
             ]
         )
         `shouldSatisfy` \case
@@ -213,7 +214,6 @@ spec = describe "Schema.Build" $ do
             , "      name: x"
             , "      template: t"
             , "      target:"
-            , "        name: o"
             , "        ifExists: " <> v
             ]
 
@@ -224,7 +224,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: t"
-              , "      target: { name: o }"
+              , "      target: {}"
               ]
       case decodePipeline yaml of
         Right c -> btIfExists (buildTarget (firstBuild c)) `shouldBe` IfExistsError
@@ -252,7 +252,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: t"
-              , "      target: { name: o }"
+              , "      target: {}"
               , "      provisioners:"
               , "        - shell: echo hi"
               ]
@@ -273,7 +273,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: t"
-              , "      target: { name: o }"
+              , "      target: {}"
               , "      provisioners:"
               , "        - shell:"
               , "            inline: \"echo hi\""
@@ -301,7 +301,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: t"
-              , "      target: { name: o }"
+              , "      target: {}"
               , "      provisioners:"
               , "        - file:"
               , "            content: ZXhhbXBsZQo="
@@ -325,7 +325,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: t"
-              , "      target: { name: o }"
+              , "      target: {}"
               , "      provisioners:"
               , "        - wait-for: { ping: true, timeoutSec: 30 }"
               ]
@@ -344,7 +344,7 @@ spec = describe "Schema.Build" $ do
             , "  - build:"
             , "      name: x"
             , "      template: t"
-            , "      target: { name: o }"
+            , "      target: {}"
             , "      provisioners:"
             , "        - wait-for: { ping: true, file: /tmp/x }"
             ]
@@ -361,7 +361,7 @@ spec = describe "Schema.Build" $ do
             , "  - build:"
             , "      name: x"
             , "      template: t"
-            , "      target: { name: o }"
+            , "      target: {}"
             , "      provisioners:"
             , "        - shell: \"echo\""
             , "          file: { content: \"\", to: /x }"
@@ -378,7 +378,7 @@ spec = describe "Schema.Build" $ do
             , "  - build:"
             , "      name: x"
             , "      template: t"
-            , "      target: { name: o }"
+            , "      target: {}"
             , "      provisioners:"
             , "        - {}"
             ]
@@ -395,7 +395,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: t"
-              , "      target: { name: o }"
+              , "      target: {}"
               , "      strategy: installer"
               , "      floppy:"
               , "        contentBase64: ZXhhbXBsZQo="
@@ -420,7 +420,6 @@ spec = describe "Schema.Build" $ do
               , "      name: x"
               , "      template: t"
               , "      target:"
-              , "        name: o"
               , "        path: alpine-test/"
               ]
       case decodePipeline yaml of
@@ -434,7 +433,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: t"
-              , "      target: { name: o }"
+              , "      target: {}"
               ]
       case decodePipeline yaml of
         Right c -> buildFloppy (firstBuild c) `shouldBe` Nothing
@@ -450,7 +449,7 @@ spec = describe "Schema.Build" $ do
               , "  - build:"
               , "      name: x"
               , "      template: t"
-              , "      target: { name: o }"
+              , "      target: {}"
               ]
                 ++ inner
             )

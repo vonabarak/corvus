@@ -19,6 +19,8 @@
 module Corvus.Handlers.Build
   ( -- * Action
     BuildAction (..)
+  , BuildOptions (..)
+  , defaultBuildOptions
 
     -- * Handlers
   , runBuildPipeline
@@ -39,6 +41,7 @@ import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Action
+import qualified Corvus.Build.Cache.Store as Cache
 import Corvus.Handlers.Apply (ApplyAction (..))
 import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, push, withCleanup)
 import Corvus.Handlers.Build.Floppy (buildFloppyImage)
@@ -240,14 +243,31 @@ agentGuestExecCore state vmId cmd stdinPayload timeoutSec = do
 -- Top-level Action
 --------------------------------------------------------------------------------
 
-newtype BuildAction = BuildAction
-  { baYaml :: Text
+-- | Runtime options for @daemon.build@. None of these belong to the
+-- per-build YAML schema directly: 'boUseCache' and 'boBuildCache' OR
+-- with the build's YAML-level flags so an operator can enable caching
+-- on a per-invocation basis without editing the YAML, and
+-- 'boRebuildFrom' is purely a CLI knob (1-based step index that caps
+-- the matched prefix at @K = min K (rebuildFrom - 1)@; 0 means unset).
+data BuildOptions = BuildOptions
+  { boUseCache :: !Bool
+  , boBuildCache :: !Bool
+  , boRebuildFrom :: !Int
+  }
+  deriving (Eq, Show)
+
+defaultBuildOptions :: BuildOptions
+defaultBuildOptions = BuildOptions False False 0
+
+data BuildAction = BuildAction
+  { baYaml :: !Text
+  , baOptions :: !BuildOptions
   }
 
 instance Action BuildAction where
   actionSubsystem _ = SubBuild
   actionCommand _ = "build"
-  actionExecute ctx a = handleBuildExecute (acState ctx) (acTaskId ctx) (baYaml a)
+  actionExecute ctx a = handleBuildExecute (acState ctx) (acTaskId ctx) (baYaml a) (baOptions a)
 
 --------------------------------------------------------------------------------
 -- Streaming sink
@@ -272,7 +292,7 @@ noOpBuildSink _ = pure ()
 -- producing a 'RespBuildResult' (or 'RespError') the same way it
 -- always has. Used for @--wait=false@ (forked from
 -- 'runActionAsyncWithId') and for any caller that doesn't want events.
-handleBuildExecute :: ServerState -> TaskId -> Text -> IO Response
+handleBuildExecute :: ServerState -> TaskId -> Text -> BuildOptions -> IO Response
 handleBuildExecute state parentTaskId =
   runBuildPipeline state parentTaskId noOpBuildSink
 
@@ -280,8 +300,8 @@ handleBuildExecute state parentTaskId =
 -- the same response shape as before. Per-step 'BuildEnd' events are
 -- emitted by 'runPipelineStep'; the caller is responsible for
 -- emitting the terminating 'PipelineEnd' once the response is in hand.
-runBuildPipeline :: ServerState -> TaskId -> BuildSink -> Text -> IO Response
-runBuildPipeline state parentTaskId sink yamlContent = runServerLogging state $ do
+runBuildPipeline :: ServerState -> TaskId -> BuildSink -> Text -> BuildOptions -> IO Response
+runBuildPipeline state parentTaskId sink yamlContent opts = runServerLogging state $ do
   case decodeEither' (TE.encodeUtf8 yamlContent) of
     Left err -> do
       let msg = T.pack (show err)
@@ -293,7 +313,7 @@ runBuildPipeline state parentTaskId sink yamlContent = runServerLogging state $ 
           logWarnN $ "Pipeline config validation failed: " <> err
           pure $ RespError err
         Right () -> do
-          results <- runPipelineSteps state parentTaskId sink (pcSteps config)
+          results <- runPipelineSteps state parentTaskId sink opts (pcSteps config)
           pure $ RespBuildResult (BuildResult results)
 
 -- | Iterate over pipeline steps in order. A step that fails aborts the
@@ -303,24 +323,25 @@ runPipelineSteps
   :: ServerState
   -> TaskId
   -> BuildSink
+  -> BuildOptions
   -> [PipelineStep]
   -> LoggingT IO [BuildOne]
-runPipelineSteps _ _ _ [] = pure []
-runPipelineSteps state parentTaskId sink (s : rest) = do
+runPipelineSteps _ _ _ _ [] = pure []
+runPipelineSteps state parentTaskId sink opts (s : rest) = do
   -- Cooperative cancellation checkpoint: a `crv task cancel` on the
   -- build stops the pipeline here rather than launching the next step.
   liftIO $ throwIfCancelled (mkActionContext state parentTaskId "system")
-  one <- runPipelineStep state parentTaskId sink s
+  one <- runPipelineStep state parentTaskId sink opts s
   case boError one of
     Just _ -> pure [one]
-    Nothing -> (one :) <$> runPipelineSteps state parentTaskId sink rest
+    Nothing -> (one :) <$> runPipelineSteps state parentTaskId sink opts rest
 
 -- | Dispatch a single 'PipelineStep' to the build orchestrator or the
 -- apply handler, then collapse the result into 'BuildOne' shape so a
 -- pipeline with mixed steps still produces a uniform 'BuildResult'.
-runPipelineStep :: ServerState -> TaskId -> BuildSink -> PipelineStep -> LoggingT IO BuildOne
-runPipelineStep state parentTaskId sink step = case step of
-  PipelineBuild b -> runOneBuildLogged state parentTaskId sink b
+runPipelineStep :: ServerState -> TaskId -> BuildSink -> BuildOptions -> PipelineStep -> LoggingT IO BuildOne
+runPipelineStep state parentTaskId sink opts step = case step of
+  PipelineBuild b -> runOneBuildLogged state parentTaskId sink opts b
   PipelineApply cfg -> do
     logInfoN "Applying environment configuration (pipeline step)"
     liftIO $ sink (BuildLogLine "applying environment configuration")
@@ -414,7 +435,6 @@ validateConfig cfg = do
 validateBuild :: Build -> Either Text ()
 validateBuild b = do
   validateName "Build" (buildName b)
-  validateName "Target disk" (btName (buildTarget b))
   mapM_ (validateProvisioner (buildName b)) (buildProvisioners b)
   validateFloppy (buildName b) (buildFloppy b)
 
@@ -465,11 +485,11 @@ validateProvisioner buildLbl p = case p of
 -- Single-build orchestration
 --------------------------------------------------------------------------------
 
-runOneBuildLogged :: ServerState -> TaskId -> BuildSink -> Build -> LoggingT IO BuildOne
-runOneBuildLogged state parentTaskId sink b = do
+runOneBuildLogged :: ServerState -> TaskId -> BuildSink -> BuildOptions -> Build -> LoggingT IO BuildOne
+runOneBuildLogged state parentTaskId sink opts b = do
   logInfoN $ "Starting build: " <> buildName b
   liftIO $ sink (BuildLogLine ("starting build: " <> buildName b))
-  result <- runOneBuild state parentTaskId sink b
+  result <- runOneBuild state parentTaskId sink opts b
   case result of
     Right diskId -> do
       logInfoN $ "Build '" <> buildName b <> "' completed; artifact disk #" <> T.pack (show diskId)
@@ -493,14 +513,28 @@ runOneBuildLogged state parentTaskId sink b = do
 -- | Run a single build, returning the published artifact disk id or an error.
 -- The build's @cleanup:@ mode controls whether ephemeral resources are torn
 -- down on failure. The artifact disk's destructor is detached on success.
-runOneBuild :: ServerState -> TaskId -> BuildSink -> Build -> LoggingT IO (Either Text Int64)
-runOneBuild state parentTaskId sink b = do
+runOneBuild :: ServerState -> TaskId -> BuildSink -> BuildOptions -> Build -> LoggingT IO (Either Text Int64)
+runOneBuild state parentTaskId sink opts b = do
   startTime <- liftIO getCurrentTime
   stack <- liftIO newCleanupStack
-  outcome <- withCleanup (buildCleanup b) stack (runOneBuildBody state parentTaskId sink stack startTime b)
+  let effectiveOpts = mergeBuildOptions opts b
+  outcome <- withCleanup (buildCleanup b) stack (runOneBuildBody state parentTaskId sink stack startTime effectiveOpts b)
   case outcome of
     Right inner -> pure inner
     Left ex -> pure $ Left $ "exception: " <> T.pack (show ex)
+
+-- | OR the request-time cache flags against the build YAML's own
+-- flags. The CLI-side knobs are an opt-in; the YAML can already say
+-- "use cache" and the CLI can layer on "build cache too" without
+-- editing the file. 'boRebuildFrom' is purely runtime; the YAML
+-- doesn't carry it.
+mergeBuildOptions :: BuildOptions -> Build -> BuildOptions
+mergeBuildOptions opts b =
+  BuildOptions
+    { boUseCache = boUseCache opts || buildUseCache b
+    , boBuildCache = boBuildCache opts || buildBuildCache b
+    , boRebuildFrom = boRebuildFrom opts
+    }
 
 runOneBuildBody
   :: ServerState
@@ -508,23 +542,20 @@ runOneBuildBody
   -> BuildSink
   -> CleanupStack
   -> UTCTime
+  -> BuildOptions
   -> Build
   -> LoggingT IO (Either Text Int64)
-runOneBuildBody state parentTaskId sink stack startTime b = do
-  let prefix = "__build_" <> T.pack (show (fromSqlKey parentTaskId)) <> "_"
-      bakeVmName = prefix <> sanitizeNameFragment (buildName b) <> "-vm"
-      targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
-      target = buildTarget b
-      strategy = buildStrategy b
+runOneBuildBody state parentTaskId sink stack startTime opts b = do
+  let target = buildTarget b
 
   -- 0. Pre-bake target.ifExists check. Decide all three policies before
   --    spinning up the bake VM so we never bake just to discover at
   --    publish time that the target name was a problem.
-  preBake <- checkIfExistsPreBake state target
+  preBake <- checkIfExistsPreBake state (buildName b) target
   case preBake of
     Left err -> pure $ Left err
     Right (Just existingId) -> pure $ Right existingId
-    Right Nothing -> runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b
+    Right Nothing -> runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime opts b
 
 -- | The original 'runOneBuildBody'. Renamed so the pre-bake
 -- ifExists check can short-circuit cleanly without nesting the
@@ -535,9 +566,10 @@ runOneBuildBodyAfterPreBake
   -> BuildSink
   -> CleanupStack
   -> UTCTime
+  -> BuildOptions
   -> Build
   -> LoggingT IO (Either Text Int64)
-runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime b = do
+runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime _opts b = do
   let prefix = "__build_" <> T.pack (show (fromSqlKey parentTaskId)) <> "_"
       bakeVmName = prefix <> sanitizeNameFragment (buildName b) <> "-vm"
       targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
@@ -786,6 +818,7 @@ runProvisionersStopAndPublish state parentTaskId sink vmIdLong artifactDiskId ta
               parentTaskId
               vmIdLong
               artifactDiskId
+              (buildName b)
               target
               needFlatten
           case publishResult of
@@ -953,6 +986,7 @@ runInstallerPhase state parentTaskId sink vmId artifactDiskId target needFlatten
           parentTaskId
           vmId
           artifactDiskId
+          (buildName b)
           target
           needFlatten
       case publishResult of
@@ -1053,7 +1087,7 @@ buildCorvusEnv state b vmId parentTaskId = do
   pure $
     [ ("CORVUS_VERSION", T.pack (Version.showVersion version))
     , ("CORVUS_BUILD_NAME", buildName b)
-    , ("CORVUS_BUILD_TARGET", btName (buildTarget b))
+    , ("CORVUS_BUILD_TARGET", buildName b)
     , ("CORVUS_BUILD_TEMPLATE", buildTemplate b)
     , ("CORVUS_BUILD_STRATEGY", strategyName (buildStrategy b))
     , ("CORVUS_BUILD_TASK_ID", T.pack (show (fromSqlKey parentTaskId)))
@@ -1451,12 +1485,14 @@ publishArtifact
   -- ^ bake VM ID (so we can detach the artifact drive)
   -> Int64
   -- ^ artifact disk ID
+  -> Text
+  -- ^ published artifact name (= buildName)
   -> BuildTarget
-  -- ^ target spec (name, format, compact, path, …)
+  -- ^ target spec (format, compact, path, …)
   -> Bool
   -- ^ flatten? (overlay strategy)
   -> LoggingT IO (Either Text ())
-publishArtifact state parentTaskId vmId diskId target needFlatten = do
+publishArtifact state parentTaskId vmId diskId name target needFlatten = do
   -- 1. Detach the drive so VmDelete doesn't take the disk down with it.
   detachResp <-
     liftIO $
@@ -1469,22 +1505,23 @@ publishArtifact state parentTaskId vmId diskId target needFlatten = do
   --    so the freshly baked artifact can take its name. The pre-bake
   --    check already verified the disk wasn't attached; this still
   --    refuses if a new VM has attached during the bake.
-  overwriteResult <- deleteOverwriteTargetIfNeeded state parentTaskId target
+  overwriteResult <- deleteOverwriteTargetIfNeeded state parentTaskId name target
   case overwriteResult of
     Left err -> pure $ Left err
-    Right () -> publishArtifactCore state parentTaskId diskId target needFlatten
+    Right () -> publishArtifactCore state parentTaskId diskId name target needFlatten
 
 publishArtifactCore
   :: ServerState
   -> TaskId
   -> Int64
+  -> Text
   -> BuildTarget
   -> Bool
   -> LoggingT IO (Either Text ())
-publishArtifactCore state parentTaskId diskId target needFlatten = do
+publishArtifactCore state parentTaskId diskId name target needFlatten = do
   -- Promote the disk row: rename + drop the ephemeral flag.
   renameRes <-
-    liftIO $ publishArtifactDiskRow state diskId (btName target)
+    liftIO $ publishArtifactDiskRow state diskId name
   case renameRes of
     Left err -> pure $ Left $ "publish artifact row: " <> err
     Right () -> do
@@ -1509,11 +1546,11 @@ publishArtifactCore state parentTaskId diskId target needFlatten = do
           when (btCompact target) $ compactDisk state diskId
           -- 5. Relocate to the target's `path:` if set, else to
           --    `<basePath>/<name>.<ext>` (out of the bake VM's dir).
-          relocateArtifact state diskId target
+          relocateArtifact state diskId name target
 
 -- | Move the artifact qcow2 from wherever the bake VM left it to
--- the location implied by `BuildTarget` ('btPath' / 'btName' /
--- 'btFormat'), then update the 'DiskImage' row's 'filePath' so
+-- the location implied by `BuildTarget` ('btPath' / 'btFormat')
+-- and the build name, then update the 'DiskImage' row's 'filePath' so
 -- subsequent lookups resolve to the new location.
 --
 -- A no-op when the resolved destination matches the current path.
@@ -1524,8 +1561,8 @@ publishArtifactCore state parentTaskId diskId target needFlatten = do
 -- The bake-VM's now-empty parent directory is removed best-effort;
 -- failures are swallowed (the standard cleanup pass picks up the
 -- slack if siblings remain).
-relocateArtifact :: ServerState -> Int64 -> BuildTarget -> LoggingT IO (Either Text ())
-relocateArtifact state diskId target = do
+relocateArtifact :: ServerState -> Int64 -> Text -> BuildTarget -> LoggingT IO (Either Text ())
+relocateArtifact state diskId name target = do
   basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
   let pool = ssDbPool state
       key = toSqlKey diskId :: DiskImageId
@@ -1539,7 +1576,7 @@ relocateArtifact state diskId target = do
       let nid = diskImageNodeNodeId row
       current <- liftIO $ resolveDiskPath pool (ssQemuConfig state) key nid
       let ext = T.unpack (enumToText (btFormat target))
-          fileName = T.unpack (btName target) <> "." <> ext
+          fileName = T.unpack name <> "." <> ext
           desired = resolveDiskFilePathPure basePath (btPath target) fileName
       if current == desired
         then pure $ Right ()
@@ -1597,11 +1634,11 @@ relocateArtifact state diskId target = do
 -- failure preserves the existing artifact.
 checkIfExistsPreBake
   :: ServerState
+  -> Text
   -> BuildTarget
   -> LoggingT IO (Either Text (Maybe Int64))
-checkIfExistsPreBake state target = do
+checkIfExistsPreBake state name target = do
   let pool = ssDbPool state
-      name = btName target
   mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName name)) pool
   case (btIfExists target, mExisting) of
     (_, Nothing) -> pure $ Right Nothing
@@ -1638,20 +1675,21 @@ checkIfExistsPreBake state target = do
 deleteOverwriteTargetIfNeeded
   :: ServerState
   -> TaskId
+  -> Text
   -> BuildTarget
   -> LoggingT IO (Either Text ())
-deleteOverwriteTargetIfNeeded state parentTaskId target
+deleteOverwriteTargetIfNeeded state parentTaskId name target
   | btIfExists target /= IfExistsOverwrite = pure $ Right ()
   | otherwise = do
       let pool = ssDbPool state
-      mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName (btName target))) pool
+      mExisting <- liftIO $ runSqlPool (getBy (UniqueDiskImageName name)) pool
       case mExisting of
         Nothing -> pure $ Right ()
         Just (Entity existingId _) -> do
           attachedVms <- liftIO $ runSqlPool (vmsAttachedToDisk existingId) pool
           if null attachedVms
             then do
-              logInfoN $ "target.ifExists: deleting existing disk '" <> btName target <> "' (overwrite)"
+              logInfoN $ "target.ifExists: deleting existing disk '" <> name <> "' (overwrite)"
               resp <-
                 liftIO $
                   runActionAsSubtask (mkActionContext state parentTaskId "system") (DiskDelete (fromSqlKey existingId))
@@ -1664,7 +1702,7 @@ deleteOverwriteTargetIfNeeded state parentTaskId target
               pure $
                 Left $
                   "target.ifExists: disk '"
-                    <> btName target
+                    <> name
                     <> "' is attached to VM(s): "
                     <> T.intercalate ", " attachedVms
                     <> "; detach or delete those VMs first."
@@ -1760,8 +1798,17 @@ cleanupBakeVm :: ServerState -> TaskId -> Int64 -> IO ()
 cleanupBakeVm state parentTaskId vmIdLong = do
   -- Best-effort stop first; VmDelete refuses while running.
   _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmStop vmIdLong 300)
-  _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmDelete vmIdLong False)
-  pure ()
+  -- If any 'BuildCacheEntry' row still references this bake VM, keep
+  -- it alive: future builds with @--use-cache@ need its disks intact
+  -- to roll back to a cached step. Drop the cache rows (via VM
+  -- delete) only when the build's own cleanup or a subsequent
+  -- @crv vm delete@ removes the VM explicitly.
+  hasCache <- Cache.bakeVmHasCache state vmIdLong
+  if hasCache
+    then pure ()
+    else do
+      _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (VmDelete vmIdLong False)
+      pure ()
 
 --------------------------------------------------------------------------------
 -- Resolving and validating the source template

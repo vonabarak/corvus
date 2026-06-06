@@ -52,6 +52,7 @@ module Corvus.NodeAgentClient
   , snapshotDelete
   , snapshotRollback
   , snapshotCreateLive
+  , snapshotCreateLiveMany
   , snapshotDeleteLive
   , QuiesceMode (..)
 
@@ -627,6 +628,37 @@ snapshotCreateLive nac path name vmId qmode = remoteWithin 300 $ do
       #snapshotCreateLive
       CGNA.Session'snapshotCreateLive'params
         { CGNA.path = path
+        , CGNA.name = name
+        , CGNA.vmId = vmId
+        , CGNA.quiesce = quiesceModeToWire qmode
+        }
+      (nacSession nac)
+  pure (decodeDiskOpResult r, q)
+
+-- | Atomic multi-disk live snapshot. Wraps N
+-- @blockdev-snapshot-internal-sync@ actions in a single QMP
+-- @transaction@; either every disk gets the named snapshot or
+-- none of them do. QGA fsfreeze (per 'QuiesceMode') brackets the
+-- whole transaction.
+snapshotCreateLiveMany
+  :: NodeAgentClient
+  -> [T.Text]
+  -- ^ qcow2 paths on the target node
+  -> T.Text
+  -- ^ snapshot name (same for every disk)
+  -> Int64
+  -- ^ VM ID
+  -> QuiesceMode
+  -> IO (Either NodeAgentError (DiskOpResult, Bool))
+snapshotCreateLiveMany nac paths name vmId qmode = remoteWithin 300 $ do
+  CGNA.Session'snapshotCreateLiveMany'results
+    { CGNA.result = r
+    , CGNA.quiesced = q
+    } <-
+    callOn
+      #snapshotCreateLiveMany
+      CGNA.Session'snapshotCreateLiveMany'params
+        { CGNA.paths = paths
         , CGNA.name = name
         , CGNA.vmId = vmId
         , CGNA.quiesce = quiesceModeToWire qmode

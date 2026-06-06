@@ -271,7 +271,7 @@ runCommand opts = do
       -- Apply
       Apply path skipExisting waitOpts -> handleApply fmt conn path skipExisting waitOpts
       -- Build
-      Build path waitOpts -> handleBuild fmt conn path waitOpts
+      Build path bcOpts waitOpts -> handleBuild fmt conn path bcOpts waitOpts
       -- Task history
       TaskList limit mSub mResult inclSub -> handleTaskList fmt tableOpts conn limit mSub mResult inclSub
       TaskShow taskId -> handleTaskShow fmt conn taskId

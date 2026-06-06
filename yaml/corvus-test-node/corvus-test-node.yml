@@ -5,7 +5,6 @@ pipeline:
       template: gentoo-headless
 
       target:
-        name: corvus-test-node
         format: qcow2
         compact: true
         path: BaseImages/Gentoo/

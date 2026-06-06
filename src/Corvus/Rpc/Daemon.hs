@@ -36,7 +36,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (void)
 import Corvus.Action (Action (..), acApplySink, classifyResponse, createTaskRecord, mkActionContext, runAction, runActionAsyncWithId, runAndFinalize)
 import Corvus.Handlers.Apply (ApplyAction (..), executeApply, handleApplyValidate)
-import Corvus.Handlers.Build (BuildSink, runBuildPipeline)
+import Corvus.Handlers.Build (BuildOptions (..), BuildSink, runBuildPipeline)
 import Corvus.Handlers.Core (handlePing, handleShutdown, handleStatus)
 import Corvus.Model
 import Corvus.Protocol (Response (..))
@@ -183,75 +183,88 @@ instance CGCorvus.Daemon'server_ DaemonCap where
   -- off on an async that pushes each 'BuildEvent' through
   -- @sink.push@ and terminates with @sink.end@.
   daemon'build (DaemonCap st _ cn) =
-    handleParsed $ \CGCorvus.Daemon'build'params {CGCorvus.yaml = yamlText, CGCorvus.sink = sinkClient} -> do
-      startedAt <- getCurrentTime
-      let pool = ssDbPool st
-      taskKey <-
-        runSqlPool
-          ( insert
-              Task
-                { taskParent = Nothing
-                , taskStartedAt = startedAt
-                , taskFinishedAt = Nothing
-                , taskSubsystem = SubBuild
-                , taskEntityId = Nothing
-                , taskEntityName = Nothing
-                , taskCommand = "build"
-                , taskResult = TaskRunning
-                , taskMessage = Nothing
-                , taskClientName = cn
-                }
-          )
-          pool
-      let tid = fromSqlKey taskKey
-          pushEvent ev = do
-            let cev = toCapnpBuildEvent ev
-                params = CGS.BuildEventSink'push'params {CGS.event = cev}
-            _ <- try (callSink #push params sinkClient) :: IO (Either SomeException ())
-            pure ()
-          finalize ev = do
-            pushEvent ev
-            _ <-
-              try (callSink #end CGS.BuildEventSink'end'params sinkClient)
-                :: IO (Either SomeException ())
-            pure ()
-      void $ async $ do
-        let sink :: BuildSink
-            sink = pushEvent
-        resp <- try (runBuildPipeline st taskKey sink yamlText) :: IO (Either SomeException Response)
-        finishedAt <- getCurrentTime
-        case resp of
-          Right r -> do
-            let (taskRes, taskMsg) = classifyResponse r
+    handleParsed $
+      \CGCorvus.Daemon'build'params
+        { CGCorvus.yaml = yamlText
+        , CGCorvus.sink = sinkClient
+        , CGCorvus.useCache = useCache
+        , CGCorvus.buildCache = buildCache
+        , CGCorvus.rebuildFrom = rebuildFromI32
+        } -> do
+          startedAt <- getCurrentTime
+          let pool = ssDbPool st
+          taskKey <-
             runSqlPool
-              ( update
-                  taskKey
-                  [ TaskFinishedAt =. Just finishedAt
-                  , TaskResult =. taskRes
-                  , TaskMessage =. taskMsg
-                  ]
+              ( insert
+                  Task
+                    { taskParent = Nothing
+                    , taskStartedAt = startedAt
+                    , taskFinishedAt = Nothing
+                    , taskSubsystem = SubBuild
+                    , taskEntityId = Nothing
+                    , taskEntityName = Nothing
+                    , taskCommand = "build"
+                    , taskResult = TaskRunning
+                    , taskMessage = Nothing
+                    , taskClientName = cn
+                    }
               )
               pool
-            case r of
-              RespBuildResult br -> finalize (PB.PipelineEnd br)
-              RespError msg -> do
-                pushEvent (PB.BuildLogLine ("build error: " <> msg))
+          let tid = fromSqlKey taskKey
+              pushEvent ev = do
+                let cev = toCapnpBuildEvent ev
+                    params = CGS.BuildEventSink'push'params {CGS.event = cev}
+                _ <- try (callSink #push params sinkClient) :: IO (Either SomeException ())
+                pure ()
+              finalize ev = do
+                pushEvent ev
+                _ <-
+                  try (callSink #end CGS.BuildEventSink'end'params sinkClient)
+                    :: IO (Either SomeException ())
+                pure ()
+          void $ async $ do
+            let sink :: BuildSink
+                sink = pushEvent
+            let opts =
+                  BuildOptions
+                    { boUseCache = useCache
+                    , boBuildCache = buildCache
+                    , boRebuildFrom = fromIntegral rebuildFromI32
+                    }
+            resp <- try (runBuildPipeline st taskKey sink yamlText opts) :: IO (Either SomeException Response)
+            finishedAt <- getCurrentTime
+            case resp of
+              Right r -> do
+                let (taskRes, taskMsg) = classifyResponse r
+                runSqlPool
+                  ( update
+                      taskKey
+                      [ TaskFinishedAt =. Just finishedAt
+                      , TaskResult =. taskRes
+                      , TaskMessage =. taskMsg
+                      ]
+                  )
+                  pool
+                case r of
+                  RespBuildResult br -> finalize (PB.PipelineEnd br)
+                  RespError msg -> do
+                    pushEvent (PB.BuildLogLine ("build error: " <> msg))
+                    finalize (PB.PipelineEnd (PB.BuildResult []))
+                  _ -> finalize (PB.PipelineEnd (PB.BuildResult []))
+              Left e -> do
+                let txt = T.pack (show e)
+                runSqlPool
+                  ( update
+                      taskKey
+                      [ TaskFinishedAt =. Just finishedAt
+                      , TaskResult =. TaskError
+                      , TaskMessage =. Just txt
+                      ]
+                  )
+                  pool
+                pushEvent (PB.BuildLogLine ("internal error: " <> txt))
                 finalize (PB.PipelineEnd (PB.BuildResult []))
-              _ -> finalize (PB.PipelineEnd (PB.BuildResult []))
-          Left e -> do
-            let txt = T.pack (show e)
-            runSqlPool
-              ( update
-                  taskKey
-                  [ TaskFinishedAt =. Just finishedAt
-                  , TaskResult =. TaskError
-                  , TaskMessage =. Just txt
-                  ]
-              )
-              pool
-            pushEvent (PB.BuildLogLine ("internal error: " <> txt))
-            finalize (PB.PipelineEnd (PB.BuildResult []))
-      pure CGCorvus.Daemon'build'results {CGCorvus.taskId = tid}
+          pure CGCorvus.Daemon'build'results {CGCorvus.taskId = tid}
 
 -- | Synchronous apply path. Blocks until the pipeline completes
 -- and returns a populated 'ApplyResult'. Events are pushed through

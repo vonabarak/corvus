@@ -62,17 +62,16 @@ pipeline:
               strategy: direct
 
   - build:
-      name: corvus-test-installer
+      name: corvus-test-installer-artifact
       description: "Synthetic installer bake — exercises floppy + waitForShutdown + publish"
       template: corvus-test-installer
 
       target:
         # ifExists: error so a stale artifact in the daemon fails
-        # loudly rather than masking a regression. The test scopes
-        # `target.name` to a per-run UUID, so collisions only
-        # happen on bugs.
+        # loudly rather than masking a regression. The build's own
+        # `name:` field above scopes the published artifact, so
+        # collisions only happen on bugs.
         ifExists: error
-        name: corvus-test-installer-artifact
         format: raw
         # No compaction — raw input, raw output.
         compact: false

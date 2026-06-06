@@ -87,12 +87,11 @@ pipeline:
             - name: corvus
 
   - build:
-      name: gentoo-headless
+      name: gentoo-base-headless
       description: Minimal headless Gentoo with custom kernel (BIOS+GPT, ext4)
       template: gentoo-cloud
 
       target:
-        name: gentoo-base-headless
         format: qcow2
         sizeGb: 20
         path: BaseImages/Gentoo/

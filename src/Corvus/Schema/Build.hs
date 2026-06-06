@@ -90,6 +90,8 @@ data Build = Build
   , buildBootKeys :: [BootKey]
   , buildWaitForShutdownSec :: Int
   , buildFloppy :: Maybe Floppy
+  , buildUseCache :: Bool
+  , buildBuildCache :: Bool
   }
   deriving (Show)
 
@@ -109,6 +111,8 @@ instance FromJSON Build where
       <*> o .:? "bootKeys" .!= []
       <*> o .:? "waitForShutdownSec" .!= 3600
       <*> o .:? "floppy"
+      <*> o .:? "useCache" .!= False
+      <*> o .:? "buildCache" .!= False
 
 -- | Build-level defaults applied to every 'ProvShell' step.
 --
@@ -168,8 +172,7 @@ instance FromJSON ShellDefaults where
 --     currently attached to any VM. An attached target always
 --     errors regardless of the policy.
 data BuildTarget = BuildTarget
-  { btName :: Text
-  , btFormat :: DriveFormat
+  { btFormat :: DriveFormat
   , btSizeGb :: Int
   , btCompact :: Bool
   , btPath :: Maybe Text
@@ -180,8 +183,7 @@ data BuildTarget = BuildTarget
 instance FromJSON BuildTarget where
   parseJSON = withObject "BuildTarget" $ \o ->
     BuildTarget
-      <$> o .: "name"
-      <*> o .:? "format" .!= FormatQcow2
+      <$> o .:? "format" .!= FormatQcow2
       <*> o .:? "sizeGb" .!= 10
       <*> o .:? "compact" .!= True
       <*> o .:? "path"

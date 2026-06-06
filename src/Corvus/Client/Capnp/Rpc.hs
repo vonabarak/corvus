@@ -213,7 +213,7 @@ import qualified Corvus.Wire.Template as WTmpl
 import qualified Corvus.Wire.Vm as WVm
 import qualified Data.ByteString as BS
 import Data.Function ((&))
-import Data.Int (Int64)
+import Data.Int (Int32, Int64)
 import qualified Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -1416,15 +1416,27 @@ instance CGS.BuildEventSink'server_ ClientBuildEventSink where
 rpcBuild
   :: CapnpConnection
   -> Text
+  -> Bool
+  -- ^ useCache
+  -> Bool
+  -- ^ buildCache
+  -> Int32
+  -- ^ rebuildFrom (1-based step index; 0 = unset)
   -> (BuildEvent -> IO ())
   -> IO ()
   -> IO Int64
-rpcBuild conn yaml onEvent onEnd = do
+rpcBuild conn yaml useCache buildCache rebuildFromStep onEvent onEnd = do
   sinkClient <- export @CGS.BuildEventSink (ccSupervisor conn) (ClientBuildEventSink onEvent onEnd)
   CGCorvus.Daemon'build'results {CGCorvus.taskId = tid} <-
     callOn
       #build
-      CGCorvus.Daemon'build'params {CGCorvus.yaml = yaml, CGCorvus.sink = sinkClient}
+      CGCorvus.Daemon'build'params
+        { CGCorvus.yaml = yaml
+        , CGCorvus.sink = sinkClient
+        , CGCorvus.useCache = useCache
+        , CGCorvus.buildCache = buildCache
+        , CGCorvus.rebuildFrom = rebuildFromStep
+        }
       (ccDaemon conn)
   pure tid
 

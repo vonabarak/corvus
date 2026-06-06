@@ -1334,6 +1334,10 @@ getEphemeralAttachedDisks vmId = do
 deleteVm :: Int64 -> SqlPersistT IO ()
 deleteVm vmId = do
   let key = toSqlKey vmId :: VmId
+  -- Drop any build-cache rows that pin this VM as the chain owner.
+  -- Cascade is enforced at the application layer (no OnDelete in the
+  -- schema); cache rows for a deleted bake VM would dangle otherwise.
+  deleteWhere [M.BuildCacheEntryVmId ==. key]
   -- Delete cloud-init config
   deleteBy (M.UniqueCloudInitVm key)
   -- Delete SSH key associations

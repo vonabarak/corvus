@@ -63,7 +63,22 @@ interface Daemon {
 
   # Build pipeline. The client passes a `BuildEventSink`; the daemon
   # pushes events as the build progresses.
-  build @11 (yaml :Text, sink :Streams.BuildEventSink) -> (taskId :Int64);
+  #
+  # `useCache` and `buildCache` are independent flags. With neither
+  # set the daemon behaves as it did before the cache feature shipped:
+  # every step runs from scratch and no cache rows are written. With
+  # `useCache` set, the daemon reuses any cached bake VM whose chain
+  # matches a prefix of the build's steps. With `buildCache` set, the
+  # daemon snapshots the bake VM's writable disks after each successful
+  # step and keeps the bake VM alive across builds. `rebuildFrom`
+  # (1-based step index) caps the matched prefix at one step before
+  # the named step and is only meaningful when `useCache` is also set.
+  build @11 (yaml         :Text,
+             sink         :Streams.BuildEventSink,
+             useCache     :Bool  = false,
+             buildCache   :Bool  = false,
+             rebuildFrom  :Int32 = 0)
+         -> (taskId :Int64);
 }
 
 # ---------------------------------------------------------------------

@@ -744,7 +744,7 @@ type instance (R.ReprFor Daemon'build'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Daemon'build'params) where
     typeId  = 14489102828123824718
 instance (C.TypedStruct Daemon'build'params) where
-    numStructWords  = 0
+    numStructWords  = 1
     numStructPtrs  = 2
 instance (C.Allocate Daemon'build'params) where
     type AllocHint Daemon'build'params = ()
@@ -757,23 +757,38 @@ instance (C.EstimateListAlloc Daemon'build'params (C.Parsed Daemon'build'params)
 data instance C.Parsed Daemon'build'params
     = Daemon'build'params 
         {yaml :: (RP.Parsed Basics.Text)
-        ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.BuildEventSink)}
+        ,sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.BuildEventSink)
+        ,useCache :: (RP.Parsed Std_.Bool)
+        ,buildCache :: (RP.Parsed Std_.Bool)
+        ,rebuildFrom :: (RP.Parsed Std_.Int32)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Daemon'build'params))
 deriving instance (Std_.Eq (C.Parsed Daemon'build'params))
 instance (C.Parse Daemon'build'params (C.Parsed Daemon'build'params)) where
     parse raw_ = (Daemon'build'params <$> (GH.parseField #yaml raw_)
-                                      <*> (GH.parseField #sink raw_))
+                                      <*> (GH.parseField #sink raw_)
+                                      <*> (GH.parseField #useCache raw_)
+                                      <*> (GH.parseField #buildCache raw_)
+                                      <*> (GH.parseField #rebuildFrom raw_))
 instance (C.Marshal Daemon'build'params (C.Parsed Daemon'build'params)) where
     marshalInto raw_ Daemon'build'params{..} = (do
         (GH.encodeField #yaml yaml raw_)
         (GH.encodeField #sink sink raw_)
+        (GH.encodeField #useCache useCache raw_)
+        (GH.encodeField #buildCache buildCache raw_)
+        (GH.encodeField #rebuildFrom rebuildFrom raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "yaml" GH.Slot Daemon'build'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "sink" GH.Slot Daemon'build'params Capnp.Gen.ById.X9bd452a518ed3917.BuildEventSink) where
     fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "useCache" GH.Slot Daemon'build'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 0 0 1 0)
+instance (GH.HasField "buildCache" GH.Slot Daemon'build'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 1 0 1 0)
+instance (GH.HasField "rebuildFrom" GH.Slot Daemon'build'params Std_.Int32) where
+    fieldByLabel  = (GH.dataField 32 0 32 0)
 data Daemon'build'results 
 type instance (R.ReprFor Daemon'build'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Daemon'build'results) where

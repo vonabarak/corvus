@@ -79,6 +79,10 @@ module Corvus.Model
   , TemplateCloudInit (..)
   , TemplateCloudInitId
 
+    -- * Build cache
+  , BuildCacheEntry (..)
+  , BuildCacheEntryId
+
     -- * Task enums
   , TaskSubsystem (..)
   , TaskResult (..)
@@ -819,5 +823,25 @@ TemplateCloudInit
     networkConfig Text Maybe
     injectSshKeys Bool default=true
     UniqueTemplateCloudInitVm templateId
+    deriving Show Eq Generic
+
+-- One row per (build pipeline × step × disk role) cached successfully.
+-- pipelineKey = "<envelopeHashHex>:<buildName>"; chainHash chains the
+-- per-step content hashes left-to-right; diskRole is "artifact" |
+-- "system" (per-disk role inside the bake VM); snapshotId points at
+-- the qcow2 internal snapshot that captures this step's output;
+-- vmId is the bake VM that owns the chain. Cascade-delete on the
+-- snapshot or VM rows is enforced at the application layer in
+-- `deleteDiskAndSnapshots` / VM delete, mirroring the codebase's
+-- convention of not using `OnDelete Cascade` in the schema.
+BuildCacheEntry
+    pipelineKey Text
+    stepIndex Int
+    chainHash Text
+    diskRole Text
+    snapshotId SnapshotId
+    vmId VmId
+    createdAt UTCTime
+    UniqueBuildCacheChainDisk pipelineKey chainHash diskRole
     deriving Show Eq Generic
 |]

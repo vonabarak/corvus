@@ -35,6 +35,7 @@ module Corvus.Handlers.Disk.Agent
   , rollbackSnapshotViaAgent
   , mergeSnapshotViaAgent
   , createSnapshotViaAgentLive
+  , createSnapshotViaAgentLiveMany
   , deleteSnapshotViaAgentLive
 
     -- * Download / decompress / hash
@@ -225,6 +226,37 @@ createSnapshotViaAgentLive state nid path name vmId qmode = do
     Left err -> pure (NI.ImageError err, False)
     Right nac -> do
       res <- NOA.snapshotCreateLive nac (T.pack path) name vmId qmode
+      pure $ case res of
+        Left e -> (NI.ImageError (T.pack (show e)), False)
+        Right (op, q) -> (fromDiskOpResult op, q)
+
+-- | Atomic multi-disk live snapshot. Routes through the agent's
+-- transactional QMP path so either every named snapshot is taken
+-- or none of them are. Returns the 'ImageResult' plus the QGA
+-- quiesce flag.
+createSnapshotViaAgentLiveMany
+  :: ServerState
+  -> M.NodeId
+  -> [FilePath]
+  -- ^ qcow2 paths to snapshot atomically
+  -> Text
+  -- ^ snapshot name (same for every disk)
+  -> Int64
+  -- ^ bake VM ID that currently holds the disks open
+  -> NOA.QuiesceMode
+  -> IO (NI.ImageResult, Bool)
+createSnapshotViaAgentLiveMany state nid paths name vmId qmode = do
+  r <- lookupNodeAgent state nid
+  case r of
+    Left err -> pure (NI.ImageError err, False)
+    Right nac -> do
+      res <-
+        NOA.snapshotCreateLiveMany
+          nac
+          (map T.pack paths)
+          name
+          vmId
+          qmode
       pure $ case res of
         Left e -> (NI.ImageError (T.pack (show e)), False)
         Right (op, q) -> (fromDiskOpResult op, q)

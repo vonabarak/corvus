@@ -78,7 +78,6 @@ class TestBuildPipeline(SingleNodeCase):
         images = self.register_base_images()
         base_disk = images["alpine"]
         tpl_name = f"corvus-it-build-tpl-{token}"
-        build_name = f"corvus-it-build-{token}"
         artifact_name = f"corvus-it-build-art-{token}"
         verify_overlay = f"corvus-it-build-verify-{token}"
 
@@ -88,11 +87,10 @@ class TestBuildPipeline(SingleNodeCase):
         pipeline_yaml = textwrap.dedent(f"""
             pipeline:
               - build:
-                  name: {build_name}
+                  name: {artifact_name}
                   template: {tpl_name}
                   strategy: overlay
                   target:
-                    name: {artifact_name}
                     format: qcow2
                     sizeGb: 2
                     compact: true
@@ -127,7 +125,7 @@ class TestBuildPipeline(SingleNodeCase):
             assert pipeline_end is not None
             assert len(pipeline_end.builds) == 1
             bo = pipeline_end.builds[0]
-            assert bo.name == build_name
+            assert bo.name == artifact_name
             assert bo.artifact_disk_id  # non-zero / non-None
             assert not bo.error_message
 
@@ -189,11 +187,10 @@ class TestBuildPipeline(SingleNodeCase):
         pipeline_yaml = textwrap.dedent(f"""
             pipeline:
               - build:
-                  name: corvus-it-build-{token}
+                  name: {artifact_name}
                   template: {tpl_name}
                   strategy: overlay
                   target:
-                    name: {artifact_name}
                     format: qcow2
                     sizeGb: 2
                   vm:
@@ -355,8 +352,8 @@ class TestBuildPipeline(SingleNodeCase):
         for step in doc["pipeline"]:
             build = step.get("build")
             if isinstance(build, dict):
-                build["name"] = f"corvus-it-build-{token}"
-                build["target"]["name"] = artifact_name
+                build["name"] = artifact_name
+                build.get("target", {}).pop("name", None)
 
         try:
             pipeline_end = None
@@ -410,7 +407,6 @@ class TestBuildPipeline(SingleNodeCase):
         images = self.register_base_images()
         base_disk = images["alpine"]
         tpl_name = f"corvus-it-build-tpl-{token}"
-        build_name = f"corvus-it-build-{token}"
         artifact_name = f"corvus-it-build-art-{token}"
 
         tpl = self.client.templates.create(
@@ -422,11 +418,10 @@ class TestBuildPipeline(SingleNodeCase):
         pipeline_yaml = textwrap.dedent(f"""
             pipeline:
               - build:
-                  name: {build_name}
+                  name: {artifact_name}
                   template: {tpl_name}
                   strategy: overlay
                   target:
-                    name: {artifact_name}
                     format: qcow2
                     sizeGb: 1
                   vm:
@@ -539,11 +534,10 @@ class TestBuildPipeline(SingleNodeCase):
         pipeline_yaml = textwrap.dedent(f"""
             pipeline:
               - build:
-                  name: corvus-it-build-{token}
+                  name: {artifact_name}
                   template: {tpl_name}
                   strategy: overlay
                   target:
-                    name: {artifact_name}
                     ifExists: skip
                     format: qcow2
                     sizeGb: 1

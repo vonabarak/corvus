@@ -69,6 +69,24 @@ toCapnpBuildEvent ev =
           CGS.BuildEvent'pipelineEnd'
             { CGS.builds = map toCapnpBuildOneResult builds
             }
+      StepCacheHit idx h ->
+        CGS.BuildEvent'stepCacheHit
+          CGS.BuildEvent'stepCacheHit'
+            { CGS.stepIndex = fromIntegral idx
+            , CGS.chainHash = h
+            }
+      StepCacheStore idx h ->
+        CGS.BuildEvent'stepCacheStore
+          CGS.BuildEvent'stepCacheStore'
+            { CGS.stepIndex = fromIntegral idx
+            , CGS.chainHash = h
+            }
+      StepCacheRestore prefix h ->
+        CGS.BuildEvent'stepCacheRestore
+          CGS.BuildEvent'stepCacheRestore'
+            { CGS.prefix = fromIntegral prefix
+            , CGS.chainHash = h
+            }
 
 -- | Encode a single per-build result.
 toCapnpBuildOneResult :: BuildOne -> C.Parsed CGS.BuildOneResult
@@ -100,6 +118,12 @@ fromCapnpBuildEvent CGS.BuildEvent {CGS.union' = u} = case u of
   CGS.BuildEvent'pipelineEnd CGS.BuildEvent'pipelineEnd' {CGS.builds} -> do
     bs <- traverse fromCapnpBuildOneResult builds
     Right (PipelineEnd (BuildResult bs))
+  CGS.BuildEvent'stepCacheHit CGS.BuildEvent'stepCacheHit' {CGS.stepIndex, CGS.chainHash} ->
+    Right (StepCacheHit (fromIntegral stepIndex) chainHash)
+  CGS.BuildEvent'stepCacheStore CGS.BuildEvent'stepCacheStore' {CGS.stepIndex, CGS.chainHash} ->
+    Right (StepCacheStore (fromIntegral stepIndex) chainHash)
+  CGS.BuildEvent'stepCacheRestore CGS.BuildEvent'stepCacheRestore' {CGS.prefix, CGS.chainHash} ->
+    Right (StepCacheRestore (fromIntegral prefix) chainHash)
   CGS.BuildEvent'unknown' _ ->
     Left (WireMissingUnionVariant "BuildEvent")
 

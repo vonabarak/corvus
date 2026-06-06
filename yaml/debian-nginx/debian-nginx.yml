@@ -19,7 +19,6 @@ pipeline:
       template: debian12
 
       target:
-        name: debian-12-nginx
         compact: true
 
       strategy: overlay

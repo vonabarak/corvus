@@ -134,6 +134,19 @@ interface Session {
   snapshotDeleteLive @38 (path :Text, name :Text, vmId :Int64)
                         -> (result :DiskOpResult);
 
+  # Atomic multi-disk live snapshot. Wraps N
+  # `blockdev-snapshot-internal-sync` actions in a single QMP
+  # `transaction`, so either every disk gets the named snapshot or
+  # none of them do. `quiesce` controls QGA fsfreeze the same way
+  # `snapshotCreateLive` does; the freeze (if any) covers the whole
+  # transaction. Used by the build-step cache to snapshot the bake
+  # VM's artifact + system disks atomically per step.
+  snapshotCreateLiveMany @39 (paths :List(Text),
+                              name :Text,
+                              vmId :Int64,
+                              quiesce :Enums.QuiesceMode = auto)
+                            -> (result :DiskOpResult, quiesced :Bool);
+
   # Image download (curl, fall back to wget) + xz decompression +
   # md5 hashing. These shell out to host tools and write to the
   # supplied destination path.

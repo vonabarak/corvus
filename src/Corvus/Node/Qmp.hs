@@ -36,6 +36,7 @@ module Corvus.Node.Qmp
 
     -- * Live snapshots (qcow2 internal, online)
   , qmpBlockSnapshotCreate
+  , qmpBlockSnapshotCreateMany
   , qmpBlockSnapshotDelete
   , qmpFindBlockDeviceByPath
 
@@ -60,6 +61,7 @@ import Corvus.Qemu.Config (QemuConfig)
 import qualified Data.Aeson as A
 import qualified Data.ByteString as BSWide
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as LBS
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -443,6 +445,46 @@ qmpBlockSnapshotCreate config vmId device name =
         }
       }
     |]
+
+-- | Issue ONE QMP @transaction@ wrapping N
+-- @blockdev-snapshot-internal-sync@ actions, all sharing the same
+-- snapshot name. Either every disk's snapshot lands or none of them
+-- do — QEMU rolls the whole transaction back on any action failure,
+-- which is what the build-step cache wants (a partial cache row is
+-- worse than no cache row at all).
+--
+-- Caller must have resolved each disk's BlockBackend device name
+-- via 'qmpFindBlockDeviceByPath' first; this function just bundles
+-- the pre-resolved @(device, snapshotName)@ pairs into the single
+-- atomic command.
+qmpBlockSnapshotCreateMany
+  :: QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> [(Text, Text)]
+  -- ^ @(device, snapshotName)@ pairs
+  -> IO QmpResult
+qmpBlockSnapshotCreateMany _ _ [] = pure QmpSuccess
+qmpBlockSnapshotCreateMany config vmId pairs =
+  sendQmpCommand config vmId (LBS.toStrict (A.encode body))
+  where
+    body =
+      A.object
+        [ "execute" A..= A.String "transaction"
+        , "arguments"
+            A..= A.object
+              [ "actions" A..= A.toJSON (map snapAction pairs)
+              ]
+        ]
+    snapAction (dev, name) =
+      A.object
+        [ "type" A..= A.String "blockdev-snapshot-internal-sync"
+        , "data"
+            A..= A.object
+              [ "device" A..= A.String dev
+              , "name" A..= A.String name
+              ]
+        ]
 
 -- | Issue @blockdev-snapshot-delete-internal-sync@ to remove a
 -- named snapshot from the qcow2 metadata of a running VM's named

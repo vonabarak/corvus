@@ -60,6 +60,28 @@ struct BuildEvent {
     pipelineEnd :group {
       builds @12 :List(BuildOneResult);
     }
+
+    # Per-step caching events. `stepCacheHit` fires for every step
+    # whose snapshot is matched by the cache lookup at the start of
+    # the build (no work happens for that step). `stepCacheStore`
+    # fires after a successful step whose result was just written to
+    # the cache. `stepCacheRestore` fires once at the start of a
+    # cached run, before any provisioner runs, naming the prefix
+    # length the bake VM was rolled back to.
+    stepCacheHit :group {
+      stepIndex @13 :Int32;
+      chainHash @14 :Text;
+    }
+
+    stepCacheStore :group {
+      stepIndex @15 :Int32;
+      chainHash @16 :Text;
+    }
+
+    stepCacheRestore :group {
+      prefix    @17 :Int32;
+      chainHash @18 :Text;
+    }
   }
 }
 

@@ -100,11 +100,10 @@ class TestBuildModes(SingleNodeCase):
         pipeline_yaml = textwrap.dedent(f"""
             pipeline:
               - build:
-                  name: corvus-it-build-{token}
+                  name: {artifact_name}
                   template: {tpl_name}
                   strategy: overlay
                   target:
-                    name: {artifact_name}
                     format: qcow2
                     sizeGb: 1
                   vm:
@@ -166,11 +165,10 @@ class TestBuildModes(SingleNodeCase):
             pipeline_yaml = textwrap.dedent(f"""
                 pipeline:
                   - build:
-                      name: corvus-it-build-{token}
+                      name: {artifact_name}
                       template: {tpl_name}
                       strategy: overlay
                       target:
-                        name: {artifact_name}
                         ifExists: overwrite
                         format: qcow2
                         sizeGb: 1
@@ -233,11 +231,10 @@ class TestBuildModes(SingleNodeCase):
         pipeline_yaml = textwrap.dedent(f"""
             pipeline:
               - build:
-                  name: corvus-it-build-{token}
+                  name: {artifact_name}
                   template: {tpl_name}
                   strategy: overlay
                   target:
-                    name: {artifact_name}
                     ifExists: overwrite
                     format: qcow2
                     sizeGb: 1
@@ -287,11 +284,10 @@ class TestBuildModes(SingleNodeCase):
         pipeline_yaml = textwrap.dedent(f"""
             pipeline:
               - build:
-                  name: corvus-it-build-{token}
+                  name: {artifact_name}
                   template: {tpl_name}
                   strategy: overlay
                   target:
-                    name: {artifact_name}
                     format: qcow2
                     sizeGb: 1
                   vm:
@@ -339,11 +335,10 @@ class TestBuildModes(SingleNodeCase):
         pipeline_yaml = textwrap.dedent(f"""
             pipeline:
               - build:
-                  name: corvus-it-build-{token}
+                  name: {artifact_name}
                   template: {tpl_name}
                   strategy: overlay
                   target:
-                    name: {artifact_name}
                     format: qcow2
                     sizeGb: 1
                   vm:
@@ -406,11 +401,10 @@ class TestBuildModes(SingleNodeCase):
                       sizeMb: 64
                       format: qcow2
               - build:
-                  name: corvus-it-build-{token}
+                  name: {artifact_name}
                   template: {tpl_name}
                   strategy: overlay
                   target:
-                    name: {artifact_name}
                     ifExists: skip
                     format: qcow2
                     sizeGb: 1

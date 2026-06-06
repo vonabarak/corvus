@@ -5,7 +5,6 @@ pipeline:
       template: gentoo-headless
 
       target:
-        name: gentoo-corvus-test
         compact: true
 
       strategy: overlay
