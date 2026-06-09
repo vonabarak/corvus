@@ -834,7 +834,6 @@ runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cach
                       rbR <-
                         Cache.rollbackToCachedStep
                           state
-                          CacheModeDisk
                           disks
                           prefixHash
                       case rbR of

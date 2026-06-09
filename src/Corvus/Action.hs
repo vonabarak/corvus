@@ -484,7 +484,18 @@ classifyResponse = \case
   RespNetworkPeerDetached -> (TaskSuccess, Just "Peer detached")
   RespApplyResult _ -> (TaskSuccess, Nothing)
   RespApplyStarted tid -> (TaskSuccess, Just $ "Task ID " <> T.pack (show tid))
-  RespBuildResult _ -> (TaskSuccess, Nothing)
+  -- A build pipeline's per-build errors are carried in the
+  -- 'BuildResult' payload's @brBuilds[*].boError@ field; the
+  -- task layer surfaces them as the task's result/message so
+  -- `crv task show` reflects what actually happened. Without
+  -- this, a build that failed mid-step still showed up as
+  -- `result=success` because only the streaming sink saw the
+  -- error (via the `PipelineEnd` event) and `--wait`'s polling
+  -- reads from `task.result`.
+  RespBuildResult br ->
+    case firstBuildError br of
+      Nothing -> (TaskSuccess, Nothing)
+      Just msg -> (TaskError, Just msg)
   RespBuildStarted tid -> (TaskSuccess, Just $ "Task ID " <> T.pack (show tid))
   RespSharedDirAdded did -> (TaskSuccess, Just $ "Dir ID " <> T.pack (show did))
   RespSharedDirOk -> (TaskSuccess, Nothing)
@@ -497,6 +508,16 @@ classifyResponse = \case
   RespDiskImportStarted _ -> (TaskSuccess, Nothing)
   -- Read-only (shouldn't reach here, but handle gracefully)
   _ -> (TaskSuccess, Nothing)
+
+-- | First per-build error in a pipeline result, if any. Returns the
+-- error text from the leftmost 'BuildOne' whose 'boError' is 'Just',
+-- so the task message points at the build that actually broke the
+-- pipeline (subsequent builds get skipped on the first error per
+-- 'runPipelineSteps' in "Corvus.Handlers.Build").
+firstBuildError :: BuildResult -> Maybe Text
+firstBuildError br =
+  Data.Maybe.listToMaybe
+    [msg | b <- brBuilds br, Just msg <- [boError b]]
 
 -- | Extract entity ID and name from response (for create operations).
 extractEntityFromResponse :: Response -> (Maybe Int, Maybe Text)

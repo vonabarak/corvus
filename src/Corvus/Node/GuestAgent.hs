@@ -218,12 +218,22 @@ withPersistentConn connsVar config vmId retries timeoutMicros action = do
             -- Connect and publish the fd to sockRef atomically, so if an
             -- async exception fires (most importantly the timeout's) the
             -- handler in runOnce can still find and close this socket.
-            s <- mask_ $ do
+            mask_ $ do
               s <- connectWithRetry 10 path
               writeIORef sockRef (Just s)
               pure s
-            syncGuest s
-            pure s
+        -- guest-sync on EVERY acquisition, not just first connect.
+        -- Several callers wrap their inner recvJson in a per-call
+        -- timeout (e.g. guestFsFreeze, guestFsThaw, guestSetTime,
+        -- guestPing). When the inner timeout fires, recvJson is
+        -- killed mid-read but the action returns NORMALLY with
+        -- Left "no reply…", and withPersistentConn puts the socket
+        -- back into the MVar — kernel-side recv buffer still holds
+        -- the unread response. Without per-acquisition sync, the
+        -- next caller's recvJson would read that stale response and
+        -- report a shape mismatch (the live bug: guest-file-open
+        -- getting a guest-get-osinfo reply).
+        syncGuest sock
         result <- action sock
         pure (sock, result)
       case mResult of

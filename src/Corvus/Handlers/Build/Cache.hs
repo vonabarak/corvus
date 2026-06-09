@@ -298,18 +298,12 @@ snapshotCachedStep state mode vmId pipelineKey stepIdx chain disks = do
 -- QEMU paused and drives @snapshot-load@ via QMP.
 rollbackToCachedStep
   :: ServerState
-  -> BuildCacheMode
   -> [CacheDisk]
   -> Text
   -- ^ chainHash to roll back to
   -> LoggingT IO (Either Text ())
-rollbackToCachedStep _ _ [] _ = pure (Right ())
-rollbackToCachedStep _ CacheModeMemory _ _ =
-  -- Defensive: the build runner never routes memory mode here;
-  -- if it does, the path is broken upstream.
-  pure $
-    Left "rollbackToCachedStep: memory mode must go through resumeMemoryCacheBakeVm"
-rollbackToCachedStep state CacheModeDisk disks chain = do
+rollbackToCachedStep _ [] _ = pure (Right ())
+rollbackToCachedStep state disks chain = do
   let snapName = H.cacheSnapshotName chain
   logInfoN $
     "cache: rolling back "
