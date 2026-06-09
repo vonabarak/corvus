@@ -102,17 +102,23 @@ spec = do
           b2 = b1 {buildTarget = t {btSizeGb = btSizeGb t + 5}}
       envelopeHash b1 `shouldNotBe` envelopeHash b2
 
-    it "DOES change when target.path changes" $ do
+    it "does NOT change when target.path changes (operator policy — where to publish)" $ do
       let b1 = threeStepBuild
           t = buildTarget b1
           b2 = b1 {buildTarget = t {btPath = Just "elsewhere/"}}
-      envelopeHash b1 `shouldNotBe` envelopeHash b2
+      envelopeHash b1 `shouldBe` envelopeHash b2
 
-    it "DOES change when target.ifExists changes" $ do
+    it "does NOT change when target.ifExists changes (operator policy — collision handling)" $ do
       let b1 = threeStepBuild
           t = buildTarget b1
           b2 = b1 {buildTarget = t {btIfExists = IfExistsSkip}}
-      envelopeHash b1 `shouldNotBe` envelopeHash b2
+      envelopeHash b1 `shouldBe` envelopeHash b2
+
+    it "does NOT change when target.compact changes (operator policy — post-bake size)" $ do
+      let b1 = threeStepBuild
+          t = buildTarget b1
+          b2 = b1 {buildTarget = t {btCompact = not (btCompact t)}}
+      envelopeHash b1 `shouldBe` envelopeHash b2
 
     it "DOES change when strategy changes" $ do
       let b1 = threeStepBuild

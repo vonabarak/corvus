@@ -36,7 +36,6 @@ module Corvus.Build.Cache.Hash
 where
 
 import Corvus.Model (EnumText (..))
-import Corvus.Schema.Apply (IfExists (..))
 import Corvus.Schema.Build
 import qualified Crypto.Hash as Hash
 import Data.Aeson (Value (..))
@@ -120,14 +119,31 @@ envelopeValue b =
       ("cacheMode", String (cacheModeText (buildCacheMode b)))
     ]
 
+-- | Only the target fields that affect what the BAKE produces go
+-- into the hash. The bake VM gets a target disk created with the
+-- target's @format@ (qcow2 vs raw changes the QEMU drive driver
+-- and snapshot support) and @sizeGb@ (the disk's virtual size),
+-- so those affect bake behaviour. Everything else is operator
+-- policy applied to the FINAL published artifact AFTER the bake
+-- completes:
+--
+--   * @path@      — where on disk to publish the cloned artifact
+--   * @compact@   — whether to @qemu-img -c@ the published clone
+--   * @ifExists@  — what to do when an artifact with the same name
+--                   already exists (error / skip / overwrite)
+--
+-- Treating those as cache-busting was the original behaviour and
+-- bit operators in the wild: flipping @ifExists@ from @overwrite@
+-- to @skip@ (or moving the published artifact to a different
+-- @path@) invalidated the entire cache prefix, forcing a full
+-- rebake even though nothing about the bake itself changed.
+-- Those fields are now excluded — same treatment as 'buildName',
+-- 'buildCleanup', 'useCache' / 'buildCache' etc.
 targetValue :: BuildTarget -> Value
 targetValue t =
   obj
     [ ("format", String (enumToText (btFormat t)))
     , ("sizeGb", intValue (btSizeGb t))
-    , ("compact", Bool (btCompact t))
-    , ("path", maybe Null String (btPath t))
-    , ("ifExists", String (ifExistsText (btIfExists t)))
     ]
 
 buildVmValue :: BuildVm -> Value
@@ -247,12 +263,6 @@ cacheModeText :: BuildCacheMode -> Text
 cacheModeText = \case
   CacheModeMemory -> "memory"
   CacheModeDisk -> "disk"
-
-ifExistsText :: IfExists -> Text
-ifExistsText = \case
-  IfExistsError -> "error"
-  IfExistsSkip -> "skip"
-  IfExistsOverwrite -> "overwrite"
 
 -- | Filter out the auto-injected runtime env vars so a step's hash
 -- doesn't depend on the bake VM's identity or the parent task id —
