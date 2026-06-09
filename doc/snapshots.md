@@ -86,6 +86,76 @@ freeze flushes ALL writable filesystems regardless of which disk
 they're on, so even a single-disk snapshot on a multi-disk VM
 sees a consistent guest-side view at the snapshot moment.
 
+## Full-machine snapshots (`--with-ram`)
+
+Disk snapshots capture only block state. RAM, device model, CPU
+state, mounted filesystems, loaded modules, running daemons, the
+contents of `/tmp` and `/run` — all of that is lost the next time
+the VM boots from a rolled-back disk. A `--with-ram` snapshot
+captures the whole machine atomically: the qcow2 active state
+**and** QEMU vmstate (RAM + device + CPU) via the QMP
+`snapshot-save` async job (QEMU 6.0+).
+
+```bash
+# Take a full-machine snapshot of a running VM. The carrier disk
+# (the one you name) holds the vmstate; every other writable qcow2
+# attached to the same VM gets a sibling block snapshot under the
+# same tag.
+crv snapshot create my-vm-disk pre-experiment --with-ram
+
+# crv snapshot list shows the new `V` column on the carrier row:
+#   ID | NAME             | CREATED | SIZE_MB | LIVE | Q | V
+#   -- | pre-experiment   | …       | …       | +    | - | +
+crv snapshot list my-vm-disk
+
+# Rollback resumes the VM in the saved running state — no separate
+# VmStart needed. The daemon issues QMP `stop` to pause CPUs,
+# `snapshot-load` to restore vmstate + every disk atomically,
+# `cont` to unfreeze, then QGA `guest-set-time` to resync the
+# wall clock from the host RTC.
+crv snapshot rollback my-vm-disk pre-experiment
+```
+
+The on-disk record adds two columns to `crv snapshot list`:
+
+| Column | Meaning |
+|---|---|
+| `L` (live) | `+` if the snapshot was stamped via QMP on a running VM (always `+` for vmstate snapshots), `-` for offline `qemu-img snapshot -c`. |
+| `Q` (quiesced) | `+` if QGA `guest-fsfreeze` was active. Never set for vmstate snapshots — vmstate captures the in-flight page cache directly, so freezing would be unnecessary (and, during a multi-second `snapshot-save`, actively harmful). |
+| `V` (vmstate) | `+` only on the **carrier** disk of a `--with-ram` snapshot. Sibling rows that share the same tag carry just the block snapshot; the carrier's qcow2 is where the RAM lives. |
+
+**No QGA fsfreeze for vmstate snapshots.** They're inherently
+guest-consistent because the saved RAM includes the in-flight
+page cache and writeback queue; freezing the guest during a
+multi-second `snapshot-save` would block real workloads with no
+benefit.
+
+**Storage cost.** Each vmstate snapshot adds roughly the VM's RAM
+size to the carrier qcow2 (e.g. ≈8 GB for an 8 GB-RAM VM). Disk
+snapshots are still copy-on-write deltas of the writable disks.
+`crv snapshot list` reports `size_mb` per row so you can see
+where the bytes went.
+
+**Rollback semantics differ from disk-only.** A vmstate rollback
+always leaves the VM running — `snapshot-load` IS itself a
+resume. (Disk-only rollback preserves the prior VM state:
+running → running, stopped → stopped.)
+
+**Restriction (today).** Standalone rollback (`crv snapshot
+rollback`) of a vmstate-aware snapshot currently requires the VM
+to be running — the QMP `snapshot-load` job needs a live QEMU
+process to load into. The paused-start path (launch QEMU with
+`-S` and load into the freshly-spawned process) is wired up for
+the build cache's memory-mode resume but not yet exposed as a
+standalone CLI flow; rollback on a stopped VM returns a clear
+"start the VM first, then re-issue" error.
+
+**Cleanup.** Deleting a vmstate-aware snapshot routes through the
+QMP `snapshot-delete` async job, which removes the vmstate AND
+every sibling block snapshot atomically. The block-only delete
+path would orphan the vmstate; the daemon picks the right path
+automatically based on the snapshot row's `has_vmstate` flag.
+
 ## Creating Snapshots
 
 ```bash

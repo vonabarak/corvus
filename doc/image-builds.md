@@ -79,6 +79,7 @@ pipeline:
 
       useCache: false                      # default: false; equivalent to --use-cache
       buildCache: false                    # default: false; equivalent to --build-cache
+      cacheMode: memory                    # memory (default) | disk — see "Build-step cache" below
 
       strategy: overlay                    # overlay (default) | from-scratch | installer
 
@@ -441,6 +442,43 @@ The overlay and from-scratch strategies already require
 `guestAgent: true` on their bake template for provisioner exec; the
 cache inherits that precondition since it uses QGA `fsfreeze` to
 ensure each cache snapshot is filesystem-consistent.
+
+### `cacheMode` — what each per-step snapshot captures
+
+| Mode | Per-step snapshot | Cache resume |
+|---|---|---|
+| `memory` (default) | Vmstate (RAM + device + CPU state) **plus** the qcow2 active state, atomically via QMP `snapshot-save`. Carrier disk is the artifact (overlay) or the bake VM's system disk (from-scratch); siblings get block snapshots under the same tag. | Bake VM launched paused (`qemu -S`), QMP `snapshot-load` restores RAM + every disk, `cont` resumes CPUs, QGA `guest-set-time` resyncs the wall clock. The bake VM is in the exact pre-snapshot state — mounts, modules, running daemons, tmpfs contents (e.g. `/tmp`) all intact. |
+| `disk` | Just the qcow2 active state per writable disk via `blockdev-snapshot-internal-sync`, bracketed by QGA `fsfreeze` for filesystem consistency. | Bake VM stopped, every disk rolled back with offline `qemu-img snapshot -a`, then `VmStart` reboots. Anything outside the disk (mounts, modules, running daemons, tmpfs) is lost — the provisioner step that runs next sees a fresh boot. |
+
+**When to pick which:**
+
+- **`memory`** is the right default for any multi-step bake whose
+  later steps assume the kernel/runtime state set up by earlier
+  steps — bind mounts of the sysroot, `losetup`/`dmsetup` handles,
+  loaded modules, daemons started but not enabled, tmpfs scratch
+  dirs. Without it the bake's implicit contract breaks on
+  `--use-cache`. The cost is **≈ RAM-size per cached step** of
+  extra qcow2 footprint.
+- **`disk`** is the opt-out for builds whose provisioner steps
+  establish their own preconditions on every invocation and don't
+  rely on any cross-step in-memory state. Smaller cache footprint,
+  cheaper to keep around.
+
+Switching modes invalidates the cache: the on-disk artifacts are
+not interchangeable, so `cacheMode` is in the envelope hash. A
+priming run in `memory` mode and a reuse run in `disk` mode will
+miss the cache entirely.
+
+**QEMU 6.0+ required** for `memory` mode — the agent
+capability-probes via `query-commands` and refuses with a clear
+error on older builds. All modern QEMU packages ship 6.0 or
+later (Gentoo `app-emulation/qemu`, Debian stable, the upstream
+QEMU containers).
+
+**Standalone `crv snapshot rollback`** on a vmstate-aware
+snapshot drives the same restore lifecycle, but only when the VM
+is running (the paused-start-from-stopped path is a follow-up).
+See [doc/snapshots.md](snapshots.md).
 
 ### Lifecycle of a cached bake VM
 
