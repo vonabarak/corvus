@@ -295,6 +295,7 @@ class AsyncDisk:
         name: str,
         *,
         quiesce: types.QuiesceMode = types.QuiesceMode.AUTO,
+        full_machine: bool = False,
     ) -> AsyncSnapshot:
         """Create a qcow2 snapshot. Dispatches transparently between
         offline (``qemu-img snapshot -c``) and live (QMP
@@ -302,13 +303,21 @@ class AsyncDisk:
         disk is attached to a running/paused VM.
 
         :param quiesce: filesystem-quiesce policy for the live path.
-            Ignored on the offline path. See :class:`QuiesceMode`.
+            Ignored on the offline path and on ``full_machine``
+            snapshots. See :class:`QuiesceMode`.
+        :param full_machine: take a vmstate-aware snapshot (RAM +
+            device model + CPU state). This disk becomes the
+            "carrier" whose qcow2 holds the vmstate; every other
+            writable qcow2 disk attached to the same running VM also
+            gets a sibling block snapshot under the same name.
+            Requires the VM to be running and QEMU >= 6.0.
         """
         # `name` collides with pycapnp's internal `_send(name, ...)`
         # method-name kwarg, so build the request explicitly.
         req = self._cap.snapshotCreate_request()
         req.name = name
         req.quiesce = quiesce.value
+        req.fullMachine = full_machine
         resp = await req.send()
         return AsyncSnapshot(resp.snapshot)
 

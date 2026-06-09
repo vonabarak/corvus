@@ -353,6 +353,7 @@ instance CGDisk.Disk'server_ DiskCap where
             { scrDiskId = eid
             , scrName = name
             , scrQuiesce = decodeQuiesceMode quiesce
+            , scrFullMachine = fullMachine
             }
       case resp of
         RespSnapshotCreated sid -> do

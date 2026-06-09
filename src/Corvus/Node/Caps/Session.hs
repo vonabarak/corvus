@@ -390,6 +390,90 @@ instance CGNA.Session'server_ SessionCap where
                 , CGNA.quiesced = quiesced
                 }
 
+  session'snapshotCreateWithVmstate sc =
+    -- Same async/op-lock pattern as 'session'snapshotCreateLive'.
+    -- vmstate save can take several seconds for large RAM; the
+    -- VM op lock keeps a parallel `applyVm` or `vmStop` from
+    -- racing the save.
+    handleParsedAsync $
+      \CGNA.Session'snapshotCreateWithVmstate'params
+        { CGNA.vmstateDevicePath = vp
+        , CGNA.devicePaths = ps
+        , CGNA.name = n
+        , CGNA.vmId = vid
+        } ->
+          withVmOpLock sc vid $ do
+            result <-
+              NSL.createSnapshotWithVmstate
+                agentQemuConfig
+                vid
+                n
+                (T.unpack vp)
+                (map T.unpack ps)
+            pure
+              CGNA.Session'snapshotCreateWithVmstate'results
+                { CGNA.result = encodeDiskOpResult result
+                }
+
+  session'snapshotLoadWithVmstate sc =
+    -- Async + op-lock; the caller has already issued QMP `stop`
+    -- per the contract documented in 'NSL.loadSnapshotWithVmstate'.
+    handleParsedAsync $
+      \CGNA.Session'snapshotLoadWithVmstate'params
+        { CGNA.vmstateDevicePath = vp
+        , CGNA.devicePaths = ps
+        , CGNA.name = n
+        , CGNA.vmId = vid
+        } ->
+          withVmOpLock sc vid $ do
+            result <-
+              NSL.loadSnapshotWithVmstate
+                agentQemuConfig
+                vid
+                n
+                (T.unpack vp)
+                (map T.unpack ps)
+            pure
+              CGNA.Session'snapshotLoadWithVmstate'results
+                { CGNA.result = encodeDiskOpResult result
+                }
+
+  session'snapshotDeleteWithVmstate sc =
+    handleParsedAsync $
+      \CGNA.Session'snapshotDeleteWithVmstate'params
+        { CGNA.devicePaths = ps
+        , CGNA.name = n
+        , CGNA.vmId = vid
+        } ->
+          withVmOpLock sc vid $ do
+            result <-
+              NSL.deleteSnapshotWithVmstate
+                agentQemuConfig
+                vid
+                n
+                (map T.unpack ps)
+            pure
+              CGNA.Session'snapshotDeleteWithVmstate'results
+                { CGNA.result = encodeDiskOpResult result
+                }
+
+  session'guestSetTime sc =
+    -- Single QGA round-trip; uses the persistent QGA connection
+    -- pool just like the other guest-agent calls. No VM op lock —
+    -- this is a guest-only operation that doesn't touch QEMU
+    -- state or the qcow2 file.
+    handleParsed $
+      \CGNA.Session'guestSetTime'params {CGNA.vmId = vid} -> do
+        eResult <-
+          NGA.guestSetTime (scQgaConns sc) agentQemuConfig vid
+        let result = case eResult of
+              Right () -> NI.ImageSuccess
+              Left err -> NI.ImageError err
+        pure
+          CGNA.Session'guestSetTime'results
+            { CGNA.result = encodeDiskOpResult result
+            }
+
   -- ---- Download / decompress / hash ----------------------------------------
 
   session'diskDownload _ =

@@ -40,6 +40,18 @@ snapshotCreateCommand =
                 ++ " Has no effect on offline (stopped-VM) snapshots."
             )
       )
+    <*> switch
+      ( long "with-ram"
+          <> help
+            ( "Take a full-machine snapshot: capture RAM + device model"
+                ++ " + CPU state alongside the disk(s). This disk becomes"
+                ++ " the vmstate carrier; every other writable qcow2 disk"
+                ++ " on the same running VM gets a sibling block snapshot"
+                ++ " under the same name. Requires the VM to be running"
+                ++ " and QEMU >= 6.0. Rollback restores the running"
+                ++ " machine state (no separate VmStart needed)."
+            )
+      )
   where
     parseQuiesceFlag :: String -> Either String QuiesceModeFlag
     parseQuiesceFlag s = case s of

@@ -251,6 +251,7 @@ def snapshot_info(r) -> t.SnapshotInfo:
         size_mb=_nz_int(r.sizeMb),
         live=getattr(r, "live", False),
         quiesced=getattr(r, "quiesced", False),
+        has_vmstate=getattr(r, "hasVmstate", False),
     )
 
 

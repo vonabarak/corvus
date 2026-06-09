@@ -1063,8 +1063,9 @@ rpcSnapshotList conn diskRef = do
     callOn #snapshotList CGDisk.Disk'snapshotList'params dClient
   pure (map WDisk.fromCapnpSnapshotInfo ss)
 
-rpcSnapshotCreate :: CapnpConnection -> EntityRef -> Text -> CGE.QuiesceMode -> IO Int64
-rpcSnapshotCreate conn diskRef name quiesce = do
+rpcSnapshotCreate
+  :: CapnpConnection -> EntityRef -> Text -> CGE.QuiesceMode -> Bool -> IO Int64
+rpcSnapshotCreate conn diskRef name quiesce fullMachine = do
   dClient <- getDiskClient conn diskRef
   CGDisk.Disk'snapshotCreate'results {CGDisk.snapshot = sClient} <-
     callOn
@@ -1072,6 +1073,7 @@ rpcSnapshotCreate conn diskRef name quiesce = do
       CGDisk.Disk'snapshotCreate'params
         { CGDisk.name = name
         , CGDisk.quiesce = quiesce
+        , CGDisk.fullMachine = fullMachine
         }
       dClient
   -- Snapshot doesn't expose @show@; the Snapshot cap proves the

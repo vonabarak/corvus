@@ -190,9 +190,14 @@ class SyncDisk(LoopBoundResource):
         name: str,
         *,
         quiesce: types.QuiesceMode = types.QuiesceMode.AUTO,
+        full_machine: bool = False,
     ):
         return SyncSnapshot(
-            self._rl.run(self._a.snapshot_create(name, quiesce=quiesce)),
+            self._rl.run(
+                self._a.snapshot_create(
+                    name, quiesce=quiesce, full_machine=full_machine
+                )
+            ),
             self._rl,
         )
 

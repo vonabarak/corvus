@@ -223,8 +223,8 @@ runCommand opts = do
       NetIfRemove vmRef netIfId -> handleNetIfRemove fmt conn vmRef netIfId
       NetIfList vmRef -> handleNetIfList fmt tableOpts conn vmRef
       -- Snapshot commands
-      SnapshotCreate diskRef name quiesce ->
-        handleSnapshotCreate fmt conn diskRef name (toCapnpQuiesce quiesce)
+      SnapshotCreate diskRef name quiesce fullMachine ->
+        handleSnapshotCreate fmt conn diskRef name (toCapnpQuiesce quiesce) fullMachine
       SnapshotDelete diskRef snapshotRef -> handleSnapshotDelete fmt conn diskRef snapshotRef
       SnapshotRollback diskRef snapshotRef autoStop ->
         handleSnapshotRollback fmt conn diskRef snapshotRef autoStop

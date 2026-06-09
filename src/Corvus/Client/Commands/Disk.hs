@@ -347,11 +347,17 @@ handleDiskDetach fmt conn vmRef diskRef = do
 --------------------------------------------------------------------------------
 
 handleSnapshotCreate
-  :: OutputFormat -> CapnpConnection -> Text -> Text -> CGEnums.QuiesceMode -> IO Bool
-handleSnapshotCreate fmt conn diskRef name quiesce = do
+  :: OutputFormat
+  -> CapnpConnection
+  -> Text
+  -> Text
+  -> CGEnums.QuiesceMode
+  -> Bool
+  -> IO Bool
+handleSnapshotCreate fmt conn diskRef name quiesce fullMachine = do
   r <-
     try @SomeException
-      (CR.rpcSnapshotCreate conn (entityRefFromText diskRef) name quiesce)
+      (CR.rpcSnapshotCreate conn (entityRefFromText diskRef) name quiesce fullMachine)
   case r of
     Right snapId -> do
       emitOkWith fmt [("id", toJSON snapId)] $
@@ -478,7 +484,7 @@ printDiskDetails d = do
 
 -- | Column definitions for the @disk snapshot list@ table.
 --
--- LIVE / Q are boolean badges:
+-- LIVE / Q / V are boolean badges:
 --
 --   * LIVE = "+" → snapshot was taken via QMP on a running VM.
 --     LIVE = "-" → offline path (@qemu-img snapshot -c@).
@@ -486,6 +492,11 @@ printDiskDetails d = do
 --     the snapshot was stamped (filesystem-consistent).
 --     Q = "-" → no quiesce (hard-reset-equivalent for unflushed
 --     in-guest writes).
+--   * V    = "+" → this row is the vmstate carrier of a
+--     full-machine snapshot (RAM + device + CPU state lives in
+--     this disk's qcow2 alongside the block snapshot).
+--     V = "-" → block-only snapshot (or a sibling row of a
+--     full-machine snapshot whose carrier is on another disk).
 snapshotColumns :: [Column SnapshotInfo]
 snapshotColumns =
   [ Column "ID" RightAlign (show . sniId)
@@ -494,6 +505,7 @@ snapshotColumns =
   , Column "SIZE_MB" RightAlign (maybe "-" show . sniSizeMb)
   , Column "LIVE" LeftAlign (boolBadge . sniLive)
   , Column "Q" LeftAlign (boolBadge . sniQuiesced)
+  , Column "V" LeftAlign (boolBadge . sniHasVmstate)
   ]
   where
     boolBadge True = "+"

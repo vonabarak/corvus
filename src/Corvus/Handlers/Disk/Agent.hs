@@ -37,6 +37,10 @@ module Corvus.Handlers.Disk.Agent
   , createSnapshotViaAgentLive
   , createSnapshotViaAgentLiveMany
   , deleteSnapshotViaAgentLive
+  , createSnapshotViaAgentWithVmstate
+  , loadSnapshotViaAgentWithVmstate
+  , deleteSnapshotViaAgentWithVmstate
+  , guestSetTimeViaAgent
 
     -- * Download / decompress / hash
   , downloadImageViaAgent
@@ -267,6 +271,88 @@ deleteSnapshotViaAgentLive
 deleteSnapshotViaAgentLive state nid path name vmId =
   withDiskOp state nid $ \nac ->
     NOA.snapshotDeleteLive nac (T.pack path) name vmId
+
+-- | Full-machine snapshot create. The vmstate lands in the carrier
+-- disk's qcow2; sibling block snapshots land in every disk in
+-- @devicePaths@ (which MUST include the carrier). Requires
+-- QEMU >= 6.0 on the target node; the agent capability-probes and
+-- refuses with a clear error otherwise.
+createSnapshotViaAgentWithVmstate
+  :: ServerState
+  -> M.NodeId
+  -> FilePath
+  -- ^ vmstate carrier disk path
+  -> [FilePath]
+  -- ^ all writable disk paths to snapshot (must include carrier)
+  -> Text
+  -- ^ snapshot tag
+  -> Int64
+  -- ^ VM ID
+  -> IO NI.ImageResult
+createSnapshotViaAgentWithVmstate state nid vmstatePath devicePaths name vmId =
+  withDiskOp state nid $ \nac ->
+    NOA.snapshotCreateWithVmstate
+      nac
+      (T.pack vmstatePath)
+      (map T.pack devicePaths)
+      name
+      vmId
+
+-- | Full-machine snapshot load. Caller MUST ensure the VM's CPUs
+-- are paused (QMP @stop@) before invoking. After this returns
+-- successfully the caller resumes with QMP @cont@ (typically via
+-- 'Corvus.Handlers.Vm' helpers) and then issues
+-- 'guestSetTimeViaAgent' to resync the wall clock.
+loadSnapshotViaAgentWithVmstate
+  :: ServerState
+  -> M.NodeId
+  -> FilePath
+  -- ^ vmstate carrier disk path
+  -> [FilePath]
+  -- ^ all disk paths that participated in the save
+  -> Text
+  -- ^ snapshot tag
+  -> Int64
+  -- ^ VM ID
+  -> IO NI.ImageResult
+loadSnapshotViaAgentWithVmstate state nid vmstatePath devicePaths name vmId =
+  withDiskOp state nid $ \nac ->
+    NOA.snapshotLoadWithVmstate
+      nac
+      (T.pack vmstatePath)
+      (map T.pack devicePaths)
+      name
+      vmId
+
+-- | Full-machine snapshot delete. Removes vmstate AND the sibling
+-- block snapshots atomically. Required for vmstate-aware
+-- snapshots — the disk-only delete leaves vmstate orphaned in
+-- the carrier qcow2.
+deleteSnapshotViaAgentWithVmstate
+  :: ServerState
+  -> M.NodeId
+  -> [FilePath]
+  -- ^ all disk paths that participated in the snapshot
+  -> Text
+  -- ^ snapshot tag
+  -> Int64
+  -- ^ VM ID
+  -> IO NI.ImageResult
+deleteSnapshotViaAgentWithVmstate state nid devicePaths name vmId =
+  withDiskOp state nid $ \nac ->
+    NOA.snapshotDeleteWithVmstate
+      nac
+      (map T.pack devicePaths)
+      name
+      vmId
+
+-- | Tell QGA to resync the guest's wall clock from the host's
+-- hardware clock. Used after a vmstate restore. Best-effort:
+-- 'ImageError' if QGA is unreachable; caller logs at WARN.
+guestSetTimeViaAgent
+  :: ServerState -> M.NodeId -> Int64 -> IO NI.ImageResult
+guestSetTimeViaAgent state nid vmId =
+  withDiskOp state nid $ \nac -> NOA.guestSetTime nac vmId
 
 -- ---------------------------------------------------------------------------
 -- Download / decompress / hash

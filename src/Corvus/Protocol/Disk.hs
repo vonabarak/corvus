@@ -64,6 +64,14 @@ data SnapshotInfo = SnapshotInfo
   , sniQuiesced :: !Bool
   -- ^ Whether QGA @guest-fsfreeze-freeze@ was active when the
   -- snapshot was stamped. Implies filesystem-level consistency.
+  , sniHasVmstate :: !Bool
+  -- ^ Whether this snapshot row carries QEMU vmstate (RAM +
+  -- device model + CPU state). Only the single "carrier" disk
+  -- of a full-machine snapshot is @True@; sibling rows that
+  -- share the same name carry block snapshots alone. Rollback
+  -- of a carrier routes through QMP @snapshot-load@ (which
+  -- resumes the VM in the saved running state) rather than
+  -- offline @qemu-img snapshot -a@.
   }
   deriving (Eq, Show, Generic)
 

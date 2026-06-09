@@ -233,6 +233,7 @@ snapshotCachedStep state vmId pipelineKey stepIdx chain disks = do
               , snapshotSizeMb = Nothing
               , snapshotLive = True
               , snapshotQuiesced = quiesced
+              , snapshotHasVmstate = False
               }
             >>= \k -> pure (fromSqlKey k)
         )

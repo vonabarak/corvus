@@ -192,7 +192,8 @@ data instance C.Parsed SnapshotInfo
         ,createdAt :: (RP.Parsed Std_.Int64)
         ,sizeMb :: (RP.Parsed Std_.Int64)
         ,live :: (RP.Parsed Std_.Bool)
-        ,quiesced :: (RP.Parsed Std_.Bool)}
+        ,quiesced :: (RP.Parsed Std_.Bool)
+        ,hasVmstate :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed SnapshotInfo))
 deriving instance (Std_.Eq (C.Parsed SnapshotInfo))
@@ -202,7 +203,8 @@ instance (C.Parse SnapshotInfo (C.Parsed SnapshotInfo)) where
                                <*> (GH.parseField #createdAt raw_)
                                <*> (GH.parseField #sizeMb raw_)
                                <*> (GH.parseField #live raw_)
-                               <*> (GH.parseField #quiesced raw_))
+                               <*> (GH.parseField #quiesced raw_)
+                               <*> (GH.parseField #hasVmstate raw_))
 instance (C.Marshal SnapshotInfo (C.Parsed SnapshotInfo)) where
     marshalInto raw_ SnapshotInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -211,6 +213,7 @@ instance (C.Marshal SnapshotInfo (C.Parsed SnapshotInfo)) where
         (GH.encodeField #sizeMb sizeMb raw_)
         (GH.encodeField #live live raw_)
         (GH.encodeField #quiesced quiesced raw_)
+        (GH.encodeField #hasVmstate hasVmstate raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot SnapshotInfo Std_.Int64) where
@@ -225,6 +228,8 @@ instance (GH.HasField "live" GH.Slot SnapshotInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 3 1 0)
 instance (GH.HasField "quiesced" GH.Slot SnapshotInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 3 1 0)
+instance (GH.HasField "hasVmstate" GH.Slot SnapshotInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 2 3 1 0)
 data DiskCreateParams 
 type instance (R.ReprFor DiskCreateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCreateParams) where
@@ -1695,23 +1700,28 @@ instance (C.EstimateListAlloc Disk'snapshotCreate'params (C.Parsed Disk'snapshot
 data instance C.Parsed Disk'snapshotCreate'params
     = Disk'snapshotCreate'params 
         {name :: (RP.Parsed Basics.Text)
-        ,quiesce :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.QuiesceMode)}
+        ,quiesce :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.QuiesceMode)
+        ,fullMachine :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Disk'snapshotCreate'params))
 deriving instance (Std_.Eq (C.Parsed Disk'snapshotCreate'params))
 instance (C.Parse Disk'snapshotCreate'params (C.Parsed Disk'snapshotCreate'params)) where
     parse raw_ = (Disk'snapshotCreate'params <$> (GH.parseField #name raw_)
-                                             <*> (GH.parseField #quiesce raw_))
+                                             <*> (GH.parseField #quiesce raw_)
+                                             <*> (GH.parseField #fullMachine raw_))
 instance (C.Marshal Disk'snapshotCreate'params (C.Parsed Disk'snapshotCreate'params)) where
     marshalInto raw_ Disk'snapshotCreate'params{..} = (do
         (GH.encodeField #name name raw_)
         (GH.encodeField #quiesce quiesce raw_)
+        (GH.encodeField #fullMachine fullMachine raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot Disk'snapshotCreate'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "quiesce" GH.Slot Disk'snapshotCreate'params Capnp.Gen.ById.Xbf9b09f64c0dd40d.QuiesceMode) where
     fieldByLabel  = (GH.dataField 0 0 16 0)
+instance (GH.HasField "fullMachine" GH.Slot Disk'snapshotCreate'params Std_.Bool) where
+    fieldByLabel  = (GH.dataField 16 0 1 0)
 data Disk'snapshotCreate'results 
 type instance (R.ReprFor Disk'snapshotCreate'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Disk'snapshotCreate'results) where

@@ -468,6 +468,7 @@ insertSnapshot diskImageId name = do
           , snapshotSizeMb = Nothing
           , snapshotLive = False
           , snapshotQuiesced = False
+          , snapshotHasVmstate = False
           }
   pure $ fromSqlKey key
 

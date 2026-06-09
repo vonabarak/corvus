@@ -32,6 +32,9 @@ module Corvus.Node.SnapshotLive
   , createSnapshotLive
   , createSnapshotLiveMany
   , deleteSnapshotLive
+  , createSnapshotWithVmstate
+  , loadSnapshotWithVmstate
+  , deleteSnapshotWithVmstate
   )
 where
 
@@ -46,6 +49,7 @@ import qualified Corvus.Node.Image as NI
 import qualified Corvus.Node.Qmp as Qmp
 import Corvus.Qemu.Config (QemuConfig)
 import Data.Int (Int64)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 
@@ -206,6 +210,158 @@ deleteSnapshotLive qcfg vmId snapName path = do
     Right device -> do
       r <- Qmp.qmpBlockSnapshotDelete qcfg vmId device snapName
       pure (classifyQmpResult r)
+
+-- ---------------------------------------------------------------------------
+-- Full-machine snapshots (vmstate + block via snapshot-save/-load/-delete)
+
+-- | Create a full-machine snapshot of a running VM: vmstate (RAM +
+-- device model + CPU state) into the qcow2 of the carrier disk,
+-- block snapshots into every disk in @paths@ (which MUST include
+-- the carrier). Atomic on the QEMU side via a single
+-- @snapshot-save@ async job.
+--
+-- No QGA fsfreeze bracketing — vmstate captures the in-flight page
+-- cache and writeback queue, so the snapshot is inherently
+-- guest-consistent. A multi-second freeze under a vmstate save
+-- would be both unnecessary and harmful.
+--
+-- Capability-probes via @query-commands@ first; refuses cleanly
+-- on QEMU < 6.0 (where @snapshot-save@ doesn't exist).
+createSnapshotWithVmstate
+  :: QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ snapshot tag (shared by carrier + sibling block snapshots)
+  -> FilePath
+  -- ^ vmstate carrier disk path
+  -> [FilePath]
+  -- ^ all writable disk paths to snapshot (must include carrier)
+  -> IO NI.ImageResult
+createSnapshotWithVmstate qcfg vmId tag vmstatePath paths =
+  withVmstateCapability qcfg vmId $ do
+    eDevs <- resolveNodesAndCarrier qcfg vmId vmstatePath paths
+    case eDevs of
+      Left err -> pure (NI.ImageError err)
+      Right (carrierNode, nodes) -> do
+        r <- Qmp.qmpSnapshotSave qcfg vmId tag carrierNode nodes
+        pure (eitherToImageResult r)
+
+-- | Load a full-machine snapshot back into a running QEMU process.
+-- The caller MUST ensure the VM is paused (QMP @stop@) before
+-- invoking — @snapshot-load@ refuses to run with the CPUs live.
+-- The caller is ALSO responsible for issuing @cont@ once any
+-- post-load setup (clock resync, QGA handshake) has run; this
+-- function returns as soon as the load job concludes.
+loadSnapshotWithVmstate
+  :: QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ snapshot tag (must match the snapshot-save call)
+  -> FilePath
+  -- ^ vmstate carrier disk path
+  -> [FilePath]
+  -- ^ all disk paths that participated in the save
+  -> IO NI.ImageResult
+loadSnapshotWithVmstate qcfg vmId tag vmstatePath paths =
+  withVmstateCapability qcfg vmId $ do
+    eDevs <- resolveNodesAndCarrier qcfg vmId vmstatePath paths
+    case eDevs of
+      Left err -> pure (NI.ImageError err)
+      Right (carrierNode, nodes) -> do
+        r <- Qmp.qmpSnapshotLoad qcfg vmId tag carrierNode nodes
+        pure (eitherToImageResult r)
+
+-- | Delete a full-machine snapshot. Removes both the vmstate AND
+-- the sibling block snapshots under one @tag@ atomically. Routed
+-- through the async @snapshot-delete@ job because
+-- @blockdev-snapshot-delete-internal-sync@ would leave vmstate
+-- orphaned in the carrier qcow2.
+deleteSnapshotWithVmstate
+  :: QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ snapshot tag
+  -> [FilePath]
+  -- ^ all disk paths that participated in the snapshot
+  -> IO NI.ImageResult
+deleteSnapshotWithVmstate qcfg vmId tag paths =
+  withVmstateCapability qcfg vmId $ do
+    eDevs <- resolveBlockNodes qcfg vmId paths
+    case eDevs of
+      Left err -> pure (NI.ImageError err)
+      Right nodes -> do
+        r <- Qmp.qmpSnapshotDelete qcfg vmId tag nodes
+        pure (eitherToImageResult r)
+
+-- | Gate any vmstate-aware QMP op on the running QEMU actually
+-- advertising @snapshot-save@. Saves the caller a confusing
+-- @CommandNotFound@ trip through the job lifecycle on QEMU < 6.0.
+withVmstateCapability
+  :: QemuConfig
+  -> Int64
+  -> IO NI.ImageResult
+  -> IO NI.ImageResult
+withVmstateCapability qcfg vmId k = do
+  cmds <- Qmp.qmpQueryCommands qcfg vmId
+  case cmds of
+    Left err ->
+      pure $
+        NI.ImageError ("QMP query-commands failed: " <> err)
+    Right names
+      | Set.member "snapshot-save" names -> k
+      | otherwise ->
+          pure $
+            NI.ImageError
+              "QEMU on this node does not support snapshot-save / snapshot-load \
+              \(requires QEMU >= 6.0). Use disk-only snapshots instead."
+
+-- | Resolve a list of disk paths to their BlockDriverState
+-- @node-name@s. Stops at the first lookup failure and surfaces
+-- the agent's error message verbatim.
+resolveBlockNodes :: QemuConfig -> Int64 -> [FilePath] -> IO (Either Text [Text])
+resolveBlockNodes _ _ [] = pure (Right [])
+resolveBlockNodes cfg vmId (p : rest) = do
+  e <- Qmp.qmpFindBlockNodeByPath cfg vmId p
+  case e of
+    Left err -> pure (Left err)
+    Right node -> do
+      r <- resolveBlockNodes cfg vmId rest
+      case r of
+        Left err -> pure (Left err)
+        Right ns -> pure (Right (node : ns))
+
+-- | Resolve the carrier + sibling list to block-node names and
+-- return @(carrier, allNodes)@. Enforces the invariant that the
+-- carrier path appears in the device list — the QMP commands
+-- require it.
+resolveNodesAndCarrier
+  :: QemuConfig
+  -> Int64
+  -> FilePath
+  -> [FilePath]
+  -> IO (Either Text (Text, [Text]))
+resolveNodesAndCarrier cfg vmId carrier devices
+  | carrier `notElem` devices =
+      pure $
+        Left
+          ( "vmstate carrier disk "
+              <> T.pack carrier
+              <> " must appear in the snapshotted disk list"
+          )
+  | otherwise = do
+      eCarrier <- Qmp.qmpFindBlockNodeByPath cfg vmId carrier
+      eDevs <- resolveBlockNodes cfg vmId devices
+      pure $ case (eCarrier, eDevs) of
+        (Left err, _) -> Left err
+        (_, Left err) -> Left err
+        (Right c, Right ds) -> Right (c, ds)
+
+eitherToImageResult :: Either Text () -> NI.ImageResult
+eitherToImageResult (Right ()) = NI.ImageSuccess
+eitherToImageResult (Left err) = NI.ImageError err
 
 -- ---------------------------------------------------------------------------
 -- Internals

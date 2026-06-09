@@ -34,6 +34,7 @@ module Corvus.Node.GuestAgent
   , guestNetworkGetInterfaces
   , guestFsFreeze
   , guestFsThaw
+  , guestSetTime
 
     -- * Internal (exposed for tests)
   , parseGuestInterfaces
@@ -850,6 +851,33 @@ guestFsThaw conns config vmId = do
           Just (Number n) -> Right (truncate n :: Int)
           _ -> Left (qgaErrText obj)
       _ -> Left "guest-fsfreeze-thaw: no reply within 10s"
+  pure $ case mResult of
+    Left e -> Left (T.pack (show e))
+    Right r -> r
+
+-- | Tell QGA to resync the guest's wall clock from the host's
+-- hardware clock. @guest-set-time@ with no @time@ argument asks
+-- the agent to read the RTC and call @settimeofday()@; subsequent
+-- calls to @gettimeofday()@ in the guest reflect host wall-clock
+-- time.
+--
+-- Used after a vmstate restore: the restored guest thinks it's
+-- still snapshot-time, which breaks anything time-sensitive
+-- (cert validation, build mtime comparisons, NTP). Best-effort —
+-- @Left@ when QGA isn't reachable (the caller logs at WARN and
+-- continues; the snapshot restore itself isn't undone for a
+-- clock-resync miss).
+guestSetTime :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text ())
+guestSetTime conns config vmId = do
+  mResult <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
+    sendJson sock $ Aeson.object ["execute" .= ("guest-set-time" :: Text)]
+    mResp <- timeout 10000000 (recvJson sock)
+    pure $ case mResp of
+      Just (Just (Object obj)) ->
+        case KM.lookup "return" obj of
+          Just _ -> Right ()
+          Nothing -> Left (qgaErrText obj)
+      _ -> Left "guest-set-time: no reply within 10s"
   pure $ case mResult of
     Left e -> Left (T.pack (show e))
     Right r -> r

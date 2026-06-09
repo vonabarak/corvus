@@ -54,6 +54,10 @@ module Corvus.NodeAgentClient
   , snapshotCreateLive
   , snapshotCreateLiveMany
   , snapshotDeleteLive
+  , snapshotCreateWithVmstate
+  , snapshotLoadWithVmstate
+  , snapshotDeleteWithVmstate
+  , guestSetTime
   , QuiesceMode (..)
 
     -- * Download / hash / decompress
@@ -683,6 +687,116 @@ snapshotDeleteLive nac path name vmId = remote $ do
         , CGNA.name = name
         , CGNA.vmId = vmId
         }
+      (nacSession nac)
+  pure (decodeDiskOpResult r)
+
+-- | Create a full-machine snapshot on a RUNNING VM via QMP
+-- @snapshot-save@ async job. The vmstate (RAM + device + CPU
+-- state) lands in the carrier disk's qcow2; sibling block
+-- snapshots land in every disk in @devicePaths@ (which MUST
+-- include the carrier). Requires QEMU >= 6.0; the agent
+-- capability-probes and refuses with a clear error otherwise.
+-- 5-minute timeout matches the agent-side poll budget.
+snapshotCreateWithVmstate
+  :: NodeAgentClient
+  -> T.Text
+  -- ^ vmstate carrier disk path
+  -> [T.Text]
+  -- ^ all writable disk paths to snapshot (must include carrier)
+  -> T.Text
+  -- ^ snapshot tag
+  -> Int64
+  -- ^ VM ID
+  -> IO (Either NodeAgentError DiskOpResult)
+snapshotCreateWithVmstate nac vmstatePath devicePaths name vmId =
+  remoteWithin 360 $ do
+    CGNA.Session'snapshotCreateWithVmstate'results {CGNA.result = r} <-
+      callOn
+        #snapshotCreateWithVmstate
+        CGNA.Session'snapshotCreateWithVmstate'params
+          { CGNA.vmstateDevicePath = vmstatePath
+          , CGNA.devicePaths = devicePaths
+          , CGNA.name = name
+          , CGNA.vmId = vmId
+          }
+        (nacSession nac)
+    pure (decodeDiskOpResult r)
+
+-- | Restore a full-machine snapshot via QMP @snapshot-load@ async
+-- job. The caller MUST ensure the VM's CPUs are paused (via
+-- 'Corvus.Handlers.Vm' / direct QMP @stop@) before invoking;
+-- @snapshot-load@ refuses to run with the CPUs live. The caller
+-- is responsible for issuing QMP @cont@ after this returns and
+-- the post-load setup (clock resync via 'guestSetTime', QGA
+-- handshake) has completed.
+snapshotLoadWithVmstate
+  :: NodeAgentClient
+  -> T.Text
+  -- ^ vmstate carrier disk path
+  -> [T.Text]
+  -- ^ all disk paths that participated in the save
+  -> T.Text
+  -- ^ snapshot tag (must match save)
+  -> Int64
+  -- ^ VM ID
+  -> IO (Either NodeAgentError DiskOpResult)
+snapshotLoadWithVmstate nac vmstatePath devicePaths name vmId =
+  remoteWithin 360 $ do
+    CGNA.Session'snapshotLoadWithVmstate'results {CGNA.result = r} <-
+      callOn
+        #snapshotLoadWithVmstate
+        CGNA.Session'snapshotLoadWithVmstate'params
+          { CGNA.vmstateDevicePath = vmstatePath
+          , CGNA.devicePaths = devicePaths
+          , CGNA.name = name
+          , CGNA.vmId = vmId
+          }
+        (nacSession nac)
+    pure (decodeDiskOpResult r)
+
+-- | Delete a full-machine snapshot via QMP @snapshot-delete@ async
+-- job. Removes the vmstate AND the sibling block snapshots
+-- atomically. Required for vmstate-aware snapshots because the
+-- disk-only @blockdev-snapshot-delete-internal-sync@ leaves
+-- vmstate orphaned in the carrier qcow2.
+snapshotDeleteWithVmstate
+  :: NodeAgentClient
+  -> [T.Text]
+  -- ^ all disk paths that participated in the snapshot
+  -> T.Text
+  -- ^ snapshot tag
+  -> Int64
+  -- ^ VM ID
+  -> IO (Either NodeAgentError DiskOpResult)
+snapshotDeleteWithVmstate nac devicePaths name vmId =
+  remoteWithin 360 $ do
+    CGNA.Session'snapshotDeleteWithVmstate'results {CGNA.result = r} <-
+      callOn
+        #snapshotDeleteWithVmstate
+        CGNA.Session'snapshotDeleteWithVmstate'params
+          { CGNA.devicePaths = devicePaths
+          , CGNA.name = name
+          , CGNA.vmId = vmId
+          }
+        (nacSession nac)
+    pure (decodeDiskOpResult r)
+
+-- | Tell QGA to resync the guest's wall clock from the host's
+-- hardware clock. Used after a vmstate restore — the restored
+-- guest thinks it's still snapshot-time, which breaks time-
+-- sensitive operations. Best-effort: 'DiskOpResult' carries the
+-- failure if QGA isn't reachable; the caller logs at WARN and
+-- continues.
+guestSetTime
+  :: NodeAgentClient
+  -> Int64
+  -- ^ VM ID
+  -> IO (Either NodeAgentError DiskOpResult)
+guestSetTime nac vmId = remote $ do
+  CGNA.Session'guestSetTime'results {CGNA.result = r} <-
+    callOn
+      #guestSetTime
+      CGNA.Session'guestSetTime'params {CGNA.vmId = vmId}
       (nacSession nac)
   pure (decodeDiskOpResult r)
 

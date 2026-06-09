@@ -281,6 +281,7 @@ getSnapshots diskId = do
             , sniSizeMb = snapshotSizeMb snap
             , sniLive = snapshotLive snap
             , sniQuiesced = snapshotQuiesced snap
+            , sniHasVmstate = snapshotHasVmstate snap
             }
       )
       snapshots

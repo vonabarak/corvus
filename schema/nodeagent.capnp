@@ -147,6 +147,56 @@ interface Session {
                               quiesce :Enums.QuiesceMode = auto)
                             -> (result :DiskOpResult, quiesced :Bool);
 
+  # Full-machine snapshot create. The agent issues a single QMP
+  # `snapshot-save` async job that writes QEMU vmstate (RAM +
+  # device model + CPU state) into the carrier disk's qcow2 and
+  # an internal block snapshot into every disk in `devicePaths`,
+  # atomically under one `name`. The carrier must appear in
+  # `devicePaths`. Requires QEMU >= 6.0 — the agent capability-
+  # probes via `query-commands` and refuses with a clear error
+  # otherwise. No QGA fsfreeze: vmstate captures the in-flight
+  # page cache and writeback queue, so freezing would be both
+  # unnecessary and harmful under a multi-second save.
+  snapshotCreateWithVmstate @40 (vmstateDevicePath :Text,
+                                 devicePaths       :List(Text),
+                                 name              :Text,
+                                 vmId              :Int64)
+                               -> (result :DiskOpResult);
+
+  # Full-machine snapshot load. The agent issues a single QMP
+  # `snapshot-load` async job that restores the carrier's vmstate
+  # AND rolls back every disk in `devicePaths` to the named
+  # snapshot, atomically. The caller MUST ensure the VM's CPUs
+  # are paused (QMP `stop`) before issuing; the agent does NOT
+  # `cont` the VM afterwards — the caller does that after any
+  # post-load setup (clock resync, QGA handshake).
+  snapshotLoadWithVmstate   @41 (vmstateDevicePath :Text,
+                                 devicePaths       :List(Text),
+                                 name              :Text,
+                                 vmId              :Int64)
+                               -> (result :DiskOpResult);
+
+  # Full-machine snapshot delete. The agent issues a single QMP
+  # `snapshot-delete` async job that removes the vmstate AND the
+  # block snapshots from every disk in `devicePaths`. Necessary
+  # for vmstate-aware snapshots because the disk-only
+  # `blockdev-snapshot-delete-internal-sync` leaves vmstate
+  # orphaned. No `vmstateDevicePath` parameter: snapshot-delete's
+  # QMP signature only takes `tag` + `devices`.
+  snapshotDeleteWithVmstate @42 (devicePaths :List(Text),
+                                 name        :Text,
+                                 vmId        :Int64)
+                               -> (result :DiskOpResult);
+
+  # Tell QGA to resync the guest's wall clock from the host's
+  # RTC (`guest-set-time` with no arguments). Used after a
+  # vmstate restore — the restored guest thinks it's still
+  # snapshot-time, which breaks anything time-sensitive
+  # (cert validation, build mtime comparisons, NTP). Best-effort:
+  # `DiskOpResult.error` is non-empty when QGA isn't reachable.
+  guestSetTime              @43 (vmId :Int64)
+                               -> (result :DiskOpResult);
+
   # Image download (curl, fall back to wget) + xz decompression +
   # md5 hashing. These shell out to host tools and write to the
   # supplied destination path.

@@ -167,11 +167,13 @@ data Command
     NetIfList !Text
   | -- Snapshot commands
 
-    -- | Create snapshot (diskRef, name, quiesce mode).
+    -- | Create snapshot (diskRef, name, quiesce mode, fullMachine).
     -- @quiesce@ only affects the live path (running/paused VM); on
     -- a stopped VM it is silently ignored because qemu-img writes
-    -- the snapshot offline. See doc/snapshots.md.
-    SnapshotCreate !Text !Text !QuiesceModeFlag
+    -- the snapshot offline. @fullMachine@ upgrades to a vmstate-
+    -- aware snapshot that also captures RAM + device + CPU state;
+    -- see doc/snapshots.md.
+    SnapshotCreate !Text !Text !QuiesceModeFlag !Bool
   | -- | Delete snapshot (diskRef, snapshotRef)
     SnapshotDelete !Text !Text
   | -- | Rollback to snapshot (diskRef, snapshotRef, autoStop).

@@ -349,7 +349,7 @@ snapshotCreate diskId name =
         runAction
           st
           "alice"
-          (SnapshotCreate diskId name NOA.QuiesceAuto)
+          (SnapshotCreate diskId name NOA.QuiesceAuto False)
     )
 
 snapshotDelete :: Int64 -> Int64 -> TestM Response

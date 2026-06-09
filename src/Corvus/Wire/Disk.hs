@@ -86,6 +86,7 @@ toCapnpSnapshotInfo P.SnapshotInfo {..} =
     , CGDisk.sizeMb = maybe 0 fromIntegral sniSizeMb
     , CGDisk.live = sniLive
     , CGDisk.quiesced = sniQuiesced
+    , CGDisk.hasVmstate = sniHasVmstate
     }
 
 fromCapnpSnapshotInfo :: C.Parsed CGDisk.SnapshotInfo -> P.SnapshotInfo
@@ -97,4 +98,5 @@ fromCapnpSnapshotInfo CGDisk.SnapshotInfo {..} =
     , P.sniSizeMb = if sizeMb == 0 then Nothing else Just (fromIntegral sizeMb)
     , P.sniLive = live
     , P.sniQuiesced = quiesced
+    , P.sniHasVmstate = hasVmstate
     }

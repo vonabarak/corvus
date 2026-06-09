@@ -370,9 +370,13 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'deleteSavedState) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotCreateLive) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotDeleteLive) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'snapshotCreateLiveMany) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'snapshotCreateLiveMany) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'snapshotCreateWithVmstate) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'snapshotLoadWithVmstate) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'snapshotDeleteWithVmstate) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'guestSetTime) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -453,6 +457,14 @@ class (Session'server_ s_) where
     session'snapshotDeleteLive _ = GH.methodUnimplemented
     session'snapshotCreateLiveMany :: s_ -> (GH.MethodHandler Session'snapshotCreateLiveMany'params Session'snapshotCreateLiveMany'results)
     session'snapshotCreateLiveMany _ = GH.methodUnimplemented
+    session'snapshotCreateWithVmstate :: s_ -> (GH.MethodHandler Session'snapshotCreateWithVmstate'params Session'snapshotCreateWithVmstate'results)
+    session'snapshotCreateWithVmstate _ = GH.methodUnimplemented
+    session'snapshotLoadWithVmstate :: s_ -> (GH.MethodHandler Session'snapshotLoadWithVmstate'params Session'snapshotLoadWithVmstate'results)
+    session'snapshotLoadWithVmstate _ = GH.methodUnimplemented
+    session'snapshotDeleteWithVmstate :: s_ -> (GH.MethodHandler Session'snapshotDeleteWithVmstate'params Session'snapshotDeleteWithVmstate'results)
+    session'snapshotDeleteWithVmstate _ = GH.methodUnimplemented
+    session'guestSetTime :: s_ -> (GH.MethodHandler Session'guestSetTime'params Session'guestSetTime'results)
+    session'guestSetTime _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -533,6 +545,14 @@ instance (GH.HasMethod "snapshotDeleteLive" Session Session'snapshotDeleteLive'p
     methodByLabel  = (GH.Method 11450192344861352079 38)
 instance (GH.HasMethod "snapshotCreateLiveMany" Session Session'snapshotCreateLiveMany'params Session'snapshotCreateLiveMany'results) where
     methodByLabel  = (GH.Method 11450192344861352079 39)
+instance (GH.HasMethod "snapshotCreateWithVmstate" Session Session'snapshotCreateWithVmstate'params Session'snapshotCreateWithVmstate'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 40)
+instance (GH.HasMethod "snapshotLoadWithVmstate" Session Session'snapshotLoadWithVmstate'params Session'snapshotLoadWithVmstate'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 41)
+instance (GH.HasMethod "snapshotDeleteWithVmstate" Session Session'snapshotDeleteWithVmstate'params Session'snapshotDeleteWithVmstate'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 42)
+instance (GH.HasMethod "guestSetTime" Session Session'guestSetTime'params Session'guestSetTime'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 43)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -3098,6 +3118,286 @@ instance (GH.HasField "result" GH.Slot Session'snapshotCreateLiveMany'results Di
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "quiesced" GH.Slot Session'snapshotCreateLiveMany'results Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 0 1 0)
+data Session'snapshotCreateWithVmstate'params 
+type instance (R.ReprFor Session'snapshotCreateWithVmstate'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'snapshotCreateWithVmstate'params) where
+    typeId  = 16101421658982316407
+instance (C.TypedStruct Session'snapshotCreateWithVmstate'params) where
+    numStructWords  = 1
+    numStructPtrs  = 3
+instance (C.Allocate Session'snapshotCreateWithVmstate'params) where
+    type AllocHint Session'snapshotCreateWithVmstate'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'snapshotCreateWithVmstate'params (C.Parsed Session'snapshotCreateWithVmstate'params))
+instance (C.AllocateList Session'snapshotCreateWithVmstate'params) where
+    type ListAllocHint Session'snapshotCreateWithVmstate'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'snapshotCreateWithVmstate'params (C.Parsed Session'snapshotCreateWithVmstate'params))
+data instance C.Parsed Session'snapshotCreateWithVmstate'params
+    = Session'snapshotCreateWithVmstate'params 
+        {vmstateDevicePath :: (RP.Parsed Basics.Text)
+        ,devicePaths :: (RP.Parsed (R.List Basics.Text))
+        ,name :: (RP.Parsed Basics.Text)
+        ,vmId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'snapshotCreateWithVmstate'params))
+deriving instance (Std_.Eq (C.Parsed Session'snapshotCreateWithVmstate'params))
+instance (C.Parse Session'snapshotCreateWithVmstate'params (C.Parsed Session'snapshotCreateWithVmstate'params)) where
+    parse raw_ = (Session'snapshotCreateWithVmstate'params <$> (GH.parseField #vmstateDevicePath raw_)
+                                                           <*> (GH.parseField #devicePaths raw_)
+                                                           <*> (GH.parseField #name raw_)
+                                                           <*> (GH.parseField #vmId raw_))
+instance (C.Marshal Session'snapshotCreateWithVmstate'params (C.Parsed Session'snapshotCreateWithVmstate'params)) where
+    marshalInto raw_ Session'snapshotCreateWithVmstate'params{..} = (do
+        (GH.encodeField #vmstateDevicePath vmstateDevicePath raw_)
+        (GH.encodeField #devicePaths devicePaths raw_)
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #vmId vmId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmstateDevicePath" GH.Slot Session'snapshotCreateWithVmstate'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "devicePaths" GH.Slot Session'snapshotCreateWithVmstate'params (R.List Basics.Text)) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "name" GH.Slot Session'snapshotCreateWithVmstate'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "vmId" GH.Slot Session'snapshotCreateWithVmstate'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Session'snapshotCreateWithVmstate'results 
+type instance (R.ReprFor Session'snapshotCreateWithVmstate'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'snapshotCreateWithVmstate'results) where
+    typeId  = 15319697288655617572
+instance (C.TypedStruct Session'snapshotCreateWithVmstate'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'snapshotCreateWithVmstate'results) where
+    type AllocHint Session'snapshotCreateWithVmstate'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'snapshotCreateWithVmstate'results (C.Parsed Session'snapshotCreateWithVmstate'results))
+instance (C.AllocateList Session'snapshotCreateWithVmstate'results) where
+    type ListAllocHint Session'snapshotCreateWithVmstate'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'snapshotCreateWithVmstate'results (C.Parsed Session'snapshotCreateWithVmstate'results))
+data instance C.Parsed Session'snapshotCreateWithVmstate'results
+    = Session'snapshotCreateWithVmstate'results 
+        {result :: (RP.Parsed DiskOpResult)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'snapshotCreateWithVmstate'results))
+deriving instance (Std_.Eq (C.Parsed Session'snapshotCreateWithVmstate'results))
+instance (C.Parse Session'snapshotCreateWithVmstate'results (C.Parsed Session'snapshotCreateWithVmstate'results)) where
+    parse raw_ = (Session'snapshotCreateWithVmstate'results <$> (GH.parseField #result raw_))
+instance (C.Marshal Session'snapshotCreateWithVmstate'results (C.Parsed Session'snapshotCreateWithVmstate'results)) where
+    marshalInto raw_ Session'snapshotCreateWithVmstate'results{..} = (do
+        (GH.encodeField #result result raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "result" GH.Slot Session'snapshotCreateWithVmstate'results DiskOpResult) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'snapshotLoadWithVmstate'params 
+type instance (R.ReprFor Session'snapshotLoadWithVmstate'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'snapshotLoadWithVmstate'params) where
+    typeId  = 13379629769303057490
+instance (C.TypedStruct Session'snapshotLoadWithVmstate'params) where
+    numStructWords  = 1
+    numStructPtrs  = 3
+instance (C.Allocate Session'snapshotLoadWithVmstate'params) where
+    type AllocHint Session'snapshotLoadWithVmstate'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'snapshotLoadWithVmstate'params (C.Parsed Session'snapshotLoadWithVmstate'params))
+instance (C.AllocateList Session'snapshotLoadWithVmstate'params) where
+    type ListAllocHint Session'snapshotLoadWithVmstate'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'snapshotLoadWithVmstate'params (C.Parsed Session'snapshotLoadWithVmstate'params))
+data instance C.Parsed Session'snapshotLoadWithVmstate'params
+    = Session'snapshotLoadWithVmstate'params 
+        {vmstateDevicePath :: (RP.Parsed Basics.Text)
+        ,devicePaths :: (RP.Parsed (R.List Basics.Text))
+        ,name :: (RP.Parsed Basics.Text)
+        ,vmId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'snapshotLoadWithVmstate'params))
+deriving instance (Std_.Eq (C.Parsed Session'snapshotLoadWithVmstate'params))
+instance (C.Parse Session'snapshotLoadWithVmstate'params (C.Parsed Session'snapshotLoadWithVmstate'params)) where
+    parse raw_ = (Session'snapshotLoadWithVmstate'params <$> (GH.parseField #vmstateDevicePath raw_)
+                                                         <*> (GH.parseField #devicePaths raw_)
+                                                         <*> (GH.parseField #name raw_)
+                                                         <*> (GH.parseField #vmId raw_))
+instance (C.Marshal Session'snapshotLoadWithVmstate'params (C.Parsed Session'snapshotLoadWithVmstate'params)) where
+    marshalInto raw_ Session'snapshotLoadWithVmstate'params{..} = (do
+        (GH.encodeField #vmstateDevicePath vmstateDevicePath raw_)
+        (GH.encodeField #devicePaths devicePaths raw_)
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #vmId vmId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmstateDevicePath" GH.Slot Session'snapshotLoadWithVmstate'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "devicePaths" GH.Slot Session'snapshotLoadWithVmstate'params (R.List Basics.Text)) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "name" GH.Slot Session'snapshotLoadWithVmstate'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "vmId" GH.Slot Session'snapshotLoadWithVmstate'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Session'snapshotLoadWithVmstate'results 
+type instance (R.ReprFor Session'snapshotLoadWithVmstate'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'snapshotLoadWithVmstate'results) where
+    typeId  = 10484588875035174898
+instance (C.TypedStruct Session'snapshotLoadWithVmstate'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'snapshotLoadWithVmstate'results) where
+    type AllocHint Session'snapshotLoadWithVmstate'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'snapshotLoadWithVmstate'results (C.Parsed Session'snapshotLoadWithVmstate'results))
+instance (C.AllocateList Session'snapshotLoadWithVmstate'results) where
+    type ListAllocHint Session'snapshotLoadWithVmstate'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'snapshotLoadWithVmstate'results (C.Parsed Session'snapshotLoadWithVmstate'results))
+data instance C.Parsed Session'snapshotLoadWithVmstate'results
+    = Session'snapshotLoadWithVmstate'results 
+        {result :: (RP.Parsed DiskOpResult)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'snapshotLoadWithVmstate'results))
+deriving instance (Std_.Eq (C.Parsed Session'snapshotLoadWithVmstate'results))
+instance (C.Parse Session'snapshotLoadWithVmstate'results (C.Parsed Session'snapshotLoadWithVmstate'results)) where
+    parse raw_ = (Session'snapshotLoadWithVmstate'results <$> (GH.parseField #result raw_))
+instance (C.Marshal Session'snapshotLoadWithVmstate'results (C.Parsed Session'snapshotLoadWithVmstate'results)) where
+    marshalInto raw_ Session'snapshotLoadWithVmstate'results{..} = (do
+        (GH.encodeField #result result raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "result" GH.Slot Session'snapshotLoadWithVmstate'results DiskOpResult) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'snapshotDeleteWithVmstate'params 
+type instance (R.ReprFor Session'snapshotDeleteWithVmstate'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'snapshotDeleteWithVmstate'params) where
+    typeId  = 14347331234765982838
+instance (C.TypedStruct Session'snapshotDeleteWithVmstate'params) where
+    numStructWords  = 1
+    numStructPtrs  = 2
+instance (C.Allocate Session'snapshotDeleteWithVmstate'params) where
+    type AllocHint Session'snapshotDeleteWithVmstate'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'snapshotDeleteWithVmstate'params (C.Parsed Session'snapshotDeleteWithVmstate'params))
+instance (C.AllocateList Session'snapshotDeleteWithVmstate'params) where
+    type ListAllocHint Session'snapshotDeleteWithVmstate'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'snapshotDeleteWithVmstate'params (C.Parsed Session'snapshotDeleteWithVmstate'params))
+data instance C.Parsed Session'snapshotDeleteWithVmstate'params
+    = Session'snapshotDeleteWithVmstate'params 
+        {devicePaths :: (RP.Parsed (R.List Basics.Text))
+        ,name :: (RP.Parsed Basics.Text)
+        ,vmId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'snapshotDeleteWithVmstate'params))
+deriving instance (Std_.Eq (C.Parsed Session'snapshotDeleteWithVmstate'params))
+instance (C.Parse Session'snapshotDeleteWithVmstate'params (C.Parsed Session'snapshotDeleteWithVmstate'params)) where
+    parse raw_ = (Session'snapshotDeleteWithVmstate'params <$> (GH.parseField #devicePaths raw_)
+                                                           <*> (GH.parseField #name raw_)
+                                                           <*> (GH.parseField #vmId raw_))
+instance (C.Marshal Session'snapshotDeleteWithVmstate'params (C.Parsed Session'snapshotDeleteWithVmstate'params)) where
+    marshalInto raw_ Session'snapshotDeleteWithVmstate'params{..} = (do
+        (GH.encodeField #devicePaths devicePaths raw_)
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #vmId vmId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "devicePaths" GH.Slot Session'snapshotDeleteWithVmstate'params (R.List Basics.Text)) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "name" GH.Slot Session'snapshotDeleteWithVmstate'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "vmId" GH.Slot Session'snapshotDeleteWithVmstate'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Session'snapshotDeleteWithVmstate'results 
+type instance (R.ReprFor Session'snapshotDeleteWithVmstate'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'snapshotDeleteWithVmstate'results) where
+    typeId  = 14767847684973433713
+instance (C.TypedStruct Session'snapshotDeleteWithVmstate'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'snapshotDeleteWithVmstate'results) where
+    type AllocHint Session'snapshotDeleteWithVmstate'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'snapshotDeleteWithVmstate'results (C.Parsed Session'snapshotDeleteWithVmstate'results))
+instance (C.AllocateList Session'snapshotDeleteWithVmstate'results) where
+    type ListAllocHint Session'snapshotDeleteWithVmstate'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'snapshotDeleteWithVmstate'results (C.Parsed Session'snapshotDeleteWithVmstate'results))
+data instance C.Parsed Session'snapshotDeleteWithVmstate'results
+    = Session'snapshotDeleteWithVmstate'results 
+        {result :: (RP.Parsed DiskOpResult)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'snapshotDeleteWithVmstate'results))
+deriving instance (Std_.Eq (C.Parsed Session'snapshotDeleteWithVmstate'results))
+instance (C.Parse Session'snapshotDeleteWithVmstate'results (C.Parsed Session'snapshotDeleteWithVmstate'results)) where
+    parse raw_ = (Session'snapshotDeleteWithVmstate'results <$> (GH.parseField #result raw_))
+instance (C.Marshal Session'snapshotDeleteWithVmstate'results (C.Parsed Session'snapshotDeleteWithVmstate'results)) where
+    marshalInto raw_ Session'snapshotDeleteWithVmstate'results{..} = (do
+        (GH.encodeField #result result raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "result" GH.Slot Session'snapshotDeleteWithVmstate'results DiskOpResult) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'guestSetTime'params 
+type instance (R.ReprFor Session'guestSetTime'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'guestSetTime'params) where
+    typeId  = 12950672055964986808
+instance (C.TypedStruct Session'guestSetTime'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate Session'guestSetTime'params) where
+    type AllocHint Session'guestSetTime'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'guestSetTime'params (C.Parsed Session'guestSetTime'params))
+instance (C.AllocateList Session'guestSetTime'params) where
+    type ListAllocHint Session'guestSetTime'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'guestSetTime'params (C.Parsed Session'guestSetTime'params))
+data instance C.Parsed Session'guestSetTime'params
+    = Session'guestSetTime'params 
+        {vmId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'guestSetTime'params))
+deriving instance (Std_.Eq (C.Parsed Session'guestSetTime'params))
+instance (C.Parse Session'guestSetTime'params (C.Parsed Session'guestSetTime'params)) where
+    parse raw_ = (Session'guestSetTime'params <$> (GH.parseField #vmId raw_))
+instance (C.Marshal Session'guestSetTime'params (C.Parsed Session'guestSetTime'params)) where
+    marshalInto raw_ Session'guestSetTime'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'guestSetTime'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data Session'guestSetTime'results 
+type instance (R.ReprFor Session'guestSetTime'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'guestSetTime'results) where
+    typeId  = 11219506602945326464
+instance (C.TypedStruct Session'guestSetTime'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'guestSetTime'results) where
+    type AllocHint Session'guestSetTime'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'guestSetTime'results (C.Parsed Session'guestSetTime'results))
+instance (C.AllocateList Session'guestSetTime'results) where
+    type ListAllocHint Session'guestSetTime'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'guestSetTime'results (C.Parsed Session'guestSetTime'results))
+data instance C.Parsed Session'guestSetTime'results
+    = Session'guestSetTime'results 
+        {result :: (RP.Parsed DiskOpResult)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'guestSetTime'results))
+deriving instance (Std_.Eq (C.Parsed Session'guestSetTime'results))
+instance (C.Parse Session'guestSetTime'results (C.Parsed Session'guestSetTime'results)) where
+    parse raw_ = (Session'guestSetTime'results <$> (GH.parseField #result raw_))
+instance (C.Marshal Session'guestSetTime'results (C.Parsed Session'guestSetTime'results)) where
+    marshalInto raw_ Session'guestSetTime'results{..} = (do
+        (GH.encodeField #result result raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "result" GH.Slot Session'guestSetTime'results DiskOpResult) where
+    fieldByLabel  = (GH.ptrField 0)
 data DiskReader 
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where

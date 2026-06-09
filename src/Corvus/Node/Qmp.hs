@@ -40,6 +40,13 @@ module Corvus.Node.Qmp
   , qmpBlockSnapshotDelete
   , qmpFindBlockDeviceByPath
 
+    -- * Full-machine snapshots (vmstate + block, async jobs)
+  , qmpQueryCommands
+  , qmpFindBlockNodeByPath
+  , qmpSnapshotSave
+  , qmpSnapshotLoad
+  , qmpSnapshotDelete
+
     -- * Stats sampling
   , qmpQueryBlockstats
   , qmpQueryBalloon
@@ -63,6 +70,7 @@ import qualified Data.ByteString as BSWide
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Int (Int64)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word64)
@@ -565,6 +573,316 @@ instance A.FromJSON QueryBlockItem where
       Just ins -> ins A..: "file"
       Nothing -> pure ""
     pure (QueryBlockItem dev fname)
+
+--------------------------------------------------------------------------------
+-- Full-machine snapshots (vmstate + block, via snapshot-save / snapshot-load)
+--------------------------------------------------------------------------------
+--
+-- QEMU 6.0+ exposes 'snapshot-save', 'snapshot-load', and
+-- 'snapshot-delete' as asynchronous jobs. Each one takes a 'tag',
+-- a 'vmstate' device name (only for save/load — delete does not
+-- need it; see the spike at /tmp/qmp-spike.py), and a 'devices'
+-- list of block-node names. They return immediately; the caller
+-- polls 'query-jobs' until the job's @status@ reaches @concluded@
+-- and then issues 'job-dismiss' to clear the entry.
+--
+-- Crucially, the device names accepted by these commands are
+-- BlockDriverState node-names from 'query-named-block-nodes' —
+-- NOT the BlockBackend names returned by 'query-block' (which the
+-- existing 'blockdev-snapshot-internal-sync' family uses). The two
+-- namespaces overlap by accident on simple configurations but
+-- diverge in general; using a BB name like @virtio0@ with
+-- snapshot-save errors out as @No block device node 'virtio0'@.
+-- 'qmpFindBlockNodeByPath' below is the resolver for the BDS
+-- namespace.
+
+-- | Look up the QEMU block-node name (BlockDriverState @node-name@)
+-- for a given absolute file path on a running VM.
+-- 'query-named-block-nodes' returns one entry per BDS with a
+-- 'node-name', a 'file' (the absolute path), an 'ro' bool, and a
+-- 'drv' (driver, e.g. @qcow2@). We match on 'file' exactly and
+-- return the 'node-name'.
+--
+-- Returns @Left@ when the QMP call itself fails or no BDS matches
+-- the path. The error message names the path so the caller can
+-- include it verbatim in a user-facing error.
+--
+-- Distinct from 'qmpFindBlockDeviceByPath', which resolves to the
+-- BlockBackend namespace consumed by 'blockdev-snapshot-internal-sync'.
+qmpFindBlockNodeByPath
+  :: QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> FilePath
+  -- ^ absolute file path to match
+  -> IO (Either Text Text)
+qmpFindBlockNodeByPath config vmId path = do
+  raw <- sendQmpRaw config vmId [qmpQQ| { "execute": "query-named-block-nodes" } |]
+  pure $ do
+    bs <- raw
+    line <- extractReplyLine bs
+    case A.eitherDecodeStrict line of
+      Left e -> Left (T.pack ("query-named-block-nodes decode: " <> e))
+      Right (QueryNamedBlockNodesReply rows) ->
+        case filter ((== T.pack path) . qnbnFile) rows of
+          (m : _) -> Right (qnbnNodeName m)
+          [] ->
+            Left $
+              "no block-node attached to VM "
+                <> T.pack (show vmId)
+                <> " has file="
+                <> T.pack path
+
+data QueryNamedBlockNode = QueryNamedBlockNode
+  { qnbnNodeName :: !Text
+  , qnbnFile :: !Text
+  }
+  deriving (Eq, Show)
+
+newtype QueryNamedBlockNodesReply = QueryNamedBlockNodesReply [QueryNamedBlockNode]
+
+instance A.FromJSON QueryNamedBlockNodesReply where
+  parseJSON = A.withObject "QueryNamedBlockNodesReply" $ \o ->
+    QueryNamedBlockNodesReply <$> o A..: "return"
+
+instance A.FromJSON QueryNamedBlockNode where
+  parseJSON = A.withObject "QueryNamedBlockNode" $ \o -> do
+    nn <- o A..: "node-name"
+    fp <- o A..:? "file" A..!= ""
+    pure (QueryNamedBlockNode nn fp)
+
+-- | Probe the set of QMP commands the running QEMU supports via
+-- @query-commands@. Used to reject 'qmpSnapshotSave' / -Load /
+-- -Delete cleanly on QEMU < 6.0 instead of producing a cryptic
+-- @CommandNotFound@ deep in the job lifecycle.
+qmpQueryCommands :: QemuConfig -> Int64 -> IO (Either Text (Set.Set Text))
+qmpQueryCommands config vmId = do
+  raw <- sendQmpRaw config vmId [qmpQQ| { "execute": "query-commands" } |]
+  pure $ do
+    bs <- raw
+    line <- extractReplyLine bs
+    case A.eitherDecodeStrict line of
+      Left e -> Left (T.pack ("query-commands decode: " <> e))
+      Right (QueryCommandsReply names) -> Right (Set.fromList names)
+
+newtype QueryCommandsReply = QueryCommandsReply [Text]
+
+instance A.FromJSON QueryCommandsReply where
+  parseJSON = A.withObject "QueryCommandsReply" $ \o -> do
+    rows <- o A..: "return"
+    QueryCommandsReply
+      <$> mapM (A.withObject "QmpCommand" (A..: "name")) rows
+
+-- | Async-job poll loop. Repeatedly issues 'query-jobs' until the
+-- given job-id reaches @concluded@, then issues 'job-dismiss'.
+--
+-- Polling starts at 100ms, doubles up to a 1-second cap. Total
+-- wall-clock budget is bounded by 'maxIterations' iterations
+-- (default 300, i.e. ~5 minutes given the geometric backoff —
+-- plenty for a multi-GB vmstate save under typical disk throughput).
+-- A job that vanishes from query-jobs before concluding (which
+-- should not happen but did once during the spike if dismiss was
+-- raced) returns @Left "job vanished"@. The dismiss call always
+-- runs in @finally@ semantics: even on iteration cap exhaustion we
+-- clean up the job record.
+pollQmpJob :: QemuConfig -> Int64 -> Text -> IO (Either Text ())
+pollQmpJob config vmId jobId = go 0 (100000 :: Int)
+  where
+    maxIterations = 300 :: Int
+    capUs = 1000000 :: Int
+    go n delayUs
+      | n >= maxIterations = do
+          _ <- dismissBestEffort
+          pure $
+            Left $
+              "QMP job "
+                <> jobId
+                <> " did not conclude within "
+                <> T.pack (show maxIterations)
+                <> " poll iterations (~5 minutes)"
+      | otherwise = do
+          threadDelay delayUs
+          js <- queryJobs config vmId
+          case js of
+            Left err -> pure (Left err)
+            Right jobs -> case lookupJob jobs of
+              Nothing ->
+                pure $
+                  Left $
+                    "QMP job "
+                      <> jobId
+                      <> " vanished from query-jobs before concluding"
+              Just j
+                | jobStatus j == "concluded" -> do
+                    _ <- dismissBestEffort
+                    case jobError j of
+                      Just msg | not (T.null msg) -> pure $ Left msg
+                      _ -> pure (Right ())
+                | otherwise ->
+                    go (n + 1) (min capUs (delayUs * 2))
+    lookupJob = lookup jobId . map (\j -> (jobIdField j, j))
+    dismissBestEffort =
+      sendQmpCommand
+        config
+        vmId
+        ( LBS.toStrict $
+            A.encode $
+              A.object
+                [ "execute" A..= A.String "job-dismiss"
+                , "arguments" A..= A.object ["id" A..= A.String jobId]
+                ]
+        )
+
+data QmpJob = QmpJob
+  { jobIdField :: !Text
+  , jobStatus :: !Text
+  , jobError :: !(Maybe Text)
+  }
+  deriving (Eq, Show)
+
+newtype QueryJobsReply = QueryJobsReply [QmpJob]
+
+instance A.FromJSON QueryJobsReply where
+  parseJSON = A.withObject "QueryJobsReply" $ \o ->
+    QueryJobsReply <$> o A..: "return"
+
+instance A.FromJSON QmpJob where
+  parseJSON = A.withObject "QmpJob" $ \o ->
+    QmpJob
+      <$> o A..: "id"
+      <*> o A..: "status"
+      <*> o A..:? "error"
+
+queryJobs :: QemuConfig -> Int64 -> IO (Either Text [QmpJob])
+queryJobs config vmId = do
+  raw <- sendQmpRaw config vmId [qmpQQ| { "execute": "query-jobs" } |]
+  pure $ do
+    bs <- raw
+    line <- extractReplyLine bs
+    case A.eitherDecodeStrict line of
+      Left e -> Left (T.pack ("query-jobs decode: " <> e))
+      Right (QueryJobsReply jobs) -> Right jobs
+
+-- | Generate a per-call job-id from the VM id and tag. Stable so
+-- two parallel calls with the same (vmId, tag) collide explicitly
+-- on QEMU's side (job-id uniqueness is the only ordering guarantee
+-- we get if the daemon happens to race itself) rather than racing
+-- on cleanup.
+mkJobId :: Text -> Int64 -> Text -> Text
+mkJobId verb vmId tag = "corvus-" <> verb <> "-" <> T.pack (show vmId) <> "-" <> tag
+
+-- | Issue QMP @snapshot-save@ for a full-machine (vmstate +
+-- block) snapshot. The job writes vmstate into the qcow2 of the
+-- 'vmstateDevice' and an internal block snapshot into every device
+-- in 'devices' (which MUST include 'vmstateDevice'). All under
+-- one tag, atomically.
+--
+-- Device names are block-node names from 'query-named-block-nodes',
+-- NOT BlockBackend names — see 'qmpFindBlockNodeByPath' for the
+-- resolver. The caller is responsible for that lookup.
+--
+-- Returns @Right ()@ once the job concludes successfully; @Left@
+-- with the job's error message on failure (CommandNotFound on
+-- QEMU < 6.0 — caller should capability-probe first via
+-- 'qmpQueryCommands' to fail with a clearer message).
+qmpSnapshotSave
+  :: QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ snapshot tag
+  -> Text
+  -- ^ vmstate carrier block-node name
+  -> [Text]
+  -- ^ all block-node names to snapshot (must include the carrier)
+  -> IO (Either Text ())
+qmpSnapshotSave config vmId tag vmstateDevice devices = do
+  let jobId = mkJobId "save" vmId tag
+      body =
+        A.object
+          [ "execute" A..= A.String "snapshot-save"
+          , "arguments"
+              A..= A.object
+                [ "job-id" A..= A.String jobId
+                , "tag" A..= A.String tag
+                , "vmstate" A..= A.String vmstateDevice
+                , "devices" A..= A.toJSON devices
+                ]
+          ]
+  fire <- sendQmpCommand config vmId (LBS.toStrict (A.encode body))
+  case fire of
+    QmpSuccess -> pollQmpJob config vmId jobId
+    QmpError msg -> pure (Left msg)
+    QmpConnectionFailed msg -> pure (Left msg)
+
+-- | Issue QMP @snapshot-load@. The caller MUST ensure the VM is
+-- paused (QMP @stop@) before invoking — @snapshot-load@ refuses
+-- to run otherwise. The caller is also responsible for issuing
+-- @cont@ once any post-load setup (clock resync, QGA handshake)
+-- has completed; this function returns as soon as the load job
+-- concludes.
+qmpSnapshotLoad
+  :: QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ snapshot tag (must match the one passed to snapshot-save)
+  -> Text
+  -- ^ vmstate carrier block-node name
+  -> [Text]
+  -- ^ all block-node names to roll back (must match the save)
+  -> IO (Either Text ())
+qmpSnapshotLoad config vmId tag vmstateDevice devices = do
+  let jobId = mkJobId "load" vmId tag
+      body =
+        A.object
+          [ "execute" A..= A.String "snapshot-load"
+          , "arguments"
+              A..= A.object
+                [ "job-id" A..= A.String jobId
+                , "tag" A..= A.String tag
+                , "vmstate" A..= A.String vmstateDevice
+                , "devices" A..= A.toJSON devices
+                ]
+          ]
+  fire <- sendQmpCommand config vmId (LBS.toStrict (A.encode body))
+  case fire of
+    QmpSuccess -> pollQmpJob config vmId jobId
+    QmpError msg -> pure (Left msg)
+    QmpConnectionFailed msg -> pure (Left msg)
+
+-- | Issue QMP @snapshot-delete@. Removes both the vmstate AND the
+-- block snapshots under @tag@ from every device in @devices@,
+-- atomically. Unlike @snapshot-save@ / @snapshot-load@, this
+-- command takes no @vmstate@ parameter — QEMU finds the vmstate
+-- entry automatically because it lives inside one of the devices
+-- (the carrier) and is keyed by the same tag.
+qmpSnapshotDelete
+  :: QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ snapshot tag to remove
+  -> [Text]
+  -- ^ all block-node names that participated in the snapshot
+  -> IO (Either Text ())
+qmpSnapshotDelete config vmId tag devices = do
+  let jobId = mkJobId "del" vmId tag
+      body =
+        A.object
+          [ "execute" A..= A.String "snapshot-delete"
+          , "arguments"
+              A..= A.object
+                [ "job-id" A..= A.String jobId
+                , "tag" A..= A.String tag
+                , "devices" A..= A.toJSON devices
+                ]
+          ]
+  fire <- sendQmpCommand config vmId (LBS.toStrict (A.encode body))
+  case fire of
+    QmpSuccess -> pollQmpJob config vmId jobId
+    QmpError msg -> pure (Left msg)
+    QmpConnectionFailed msg -> pure (Left msg)
 
 --------------------------------------------------------------------------------
 -- Low-level QMP Communication

@@ -666,6 +666,14 @@ Snapshot
     -- trust filesystem-level consistency; `False` is
     -- hard-reset-equivalent for any unflushed in-guest writes.
     quiesced Bool default=false
+    -- Whether this snapshot row carries QEMU vmstate (RAM + device
+    -- model + CPU state) inside its qcow2. `True` only on the
+    -- single "carrier" disk of a full-machine snapshot; the
+    -- sibling rows that share the same `name` carry block snapshots
+    -- alone. Restore of a carrier row routes through QMP
+    -- `snapshot-load` (which resumes the VM in the saved running
+    -- state) rather than offline `qemu-img snapshot -a`.
+    hasVmstate Bool default=false
     UniqueSnapshot diskImageId name
     deriving Show Eq Generic
 

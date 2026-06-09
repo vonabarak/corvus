@@ -52,6 +52,14 @@ struct SnapshotInfo {
   # filesystem-level consistency; `false` is hard-reset-equivalent
   # for in-guest writes.
   quiesced   @5 :Bool;
+  # Whether this snapshot row carries QEMU vmstate (RAM + device
+  # model + CPU state). Only the single "carrier" disk of a
+  # full-machine snapshot is `true`; sibling rows that share the
+  # same name carry block snapshots alone. Rollback of a carrier
+  # routes through QMP `snapshot-load` (which resumes the VM in
+  # the saved running state) rather than offline `qemu-img
+  # snapshot -a`.
+  hasVmstate @6 :Bool;
 }
 
 # ---------------------------------------------------------------------
@@ -211,8 +219,20 @@ interface Disk {
   # `quiesce` mode only matters for the live path; it controls
   # whether QGA `guest-fsfreeze` brackets the snapshot for
   # in-guest filesystem consistency.
-  snapshotCreate    @4 (name    :Text,
-                        quiesce :Enums.QuiesceMode = auto)
+  #
+  # `fullMachine = true` upgrades to a vmstate-aware snapshot:
+  # this disk becomes the "carrier" whose qcow2 holds the QEMU
+  # vmstate (RAM + device model + CPU state), and every other
+  # writable qcow2 disk attached to the same running VM also gets
+  # a sibling block snapshot under the same name. Requires the
+  # VM to be running and QEMU >= 6.0; refuses with a clear error
+  # otherwise. `quiesce` is ignored for full-machine snapshots —
+  # vmstate captures the in-flight page cache and writeback queue,
+  # so guest fsfreeze is unnecessary (and a multi-second freeze
+  # under a vmstate save would be harmful).
+  snapshotCreate    @4 (name        :Text,
+                        quiesce     :Enums.QuiesceMode = auto,
+                        fullMachine :Bool = false)
                        -> (snapshot :Snapshot);
   snapshotList      @5 () -> (snapshots :List(SnapshotInfo));
   snapshotGet       @6 (ref :Common.EntityRef) -> (snapshot :Snapshot);
