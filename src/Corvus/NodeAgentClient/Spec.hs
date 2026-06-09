@@ -127,6 +127,15 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
                     VS.vsLoadFromSavedState =
                       vmStatus vm `elem` [M.VmSaved, M.VmLoading]
                   , VS.vsCpuModel = vmCpuModel vm
+                  , -- 'vsStartPaused' is opt-in by the caller for
+                    -- the QMP `snapshot-load` lifecycle (start
+                    -- paused, restore vmstate, then `cont`). The
+                    -- default build-from-DB-row path always cold-
+                    -- boots, so off here. Callers that want the
+                    -- paused-start variant override the field on
+                    -- the returned VmSpec before sending it to the
+                    -- agent.
+                    VS.vsStartPaused = False
                   }
           pure (Right spec)
 

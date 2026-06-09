@@ -90,6 +90,12 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
         if VS.vsLoadFromSavedState spec
           then ["-incoming", "exec:zstdcat " ++ shellQuotePath savedStateFile]
           else []
+      , -- Start paused. The caller is responsible for issuing
+        -- QMP @cont@ later (typically after a QMP
+        -- @snapshot-load@ to restore vmstate from the qcow2).
+        -- Mutually exclusive with @vsLoadFromSavedState@ above,
+        -- which has its own pause/resume dance via @-incoming@.
+        ["-S" | VS.vsStartPaused spec]
       ]
   )
   where

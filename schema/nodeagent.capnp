@@ -559,6 +559,15 @@ struct VmSpec {
   # falls back to `"host"` for forward-wire compatibility with
   # older daemons that don't yet send this field.
   cpuModel @17 :Text;
+  # When true, the agent spawns QEMU with `-S` so the CPUs stay
+  # paused after spawn. The caller is responsible for issuing
+  # QMP `cont` later (typically after a QMP `snapshot-load` to
+  # restore vmstate). The agent's vmStart returns immediately
+  # after QMP comes up — it does NOT wait for the guest agent
+  # in this mode (QGA can't respond while CPUs are paused).
+  # Mutually exclusive with `loadFromSavedState` above, which
+  # has its own pause/resume dance via `-incoming`.
+  startPaused @18 :Bool;
 }
 
 struct VmDriveSpec {

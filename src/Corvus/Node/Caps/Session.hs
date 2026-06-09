@@ -1064,6 +1064,7 @@ decodeVmSpec
     , CGNA.spiceBindAddr = sba
     , CGNA.loadFromSavedState = lfs
     , CGNA.cpuModel = cm
+    , CGNA.startPaused = sps
     } =
     VS.VmSpec
       { VS.vsVmId = vid
@@ -1082,6 +1083,7 @@ decodeVmSpec
       , VS.vsSpiceBindAddr = sba
       , VS.vsLoadFromSavedState = lfs
       , VS.vsCpuModel = if T.null cm then "host" else cm
+      , VS.vsStartPaused = sps
       }
 
 decodeVmDriveSpec :: CGNA.Parsed CGNA.VmDriveSpec -> VS.VmDriveSpec
@@ -1464,7 +1466,15 @@ doVmStart sc spec = do
           -- (a); a save/load on a GA-on VM runs both. A cold boot
           -- with GA off skips the whole fork.
           let needIncoming = VS.vsLoadFromSavedState spec
-              needGaWait = VS.vsWaitForGuestAgentMs spec > 0
+              -- vsStartPaused suppresses the guest-agent wait: CPUs
+              -- are frozen at boot, so QGA can't respond until the
+              -- caller drives QMP `cont` (typically after a
+              -- snapshot-load). The daemon-side caller that set the
+              -- flag owns the post-spawn lifecycle and the eventual
+              -- DB-state transition; the agent just spawns QEMU and
+              -- returns.
+              needGaWait =
+                VS.vsWaitForGuestAgentMs spec > 0 && not (VS.vsStartPaused spec)
               tearDownIncoming reason = do
                 logWarnN $
                   "[nodeagent] vm-"

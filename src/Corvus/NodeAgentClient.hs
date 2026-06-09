@@ -927,6 +927,7 @@ encodeVmSpec s =
     , CGNA.spiceBindAddr = vsSpiceBindAddr s
     , CGNA.loadFromSavedState = vsLoadFromSavedState s
     , CGNA.cpuModel = vsCpuModel s
+    , CGNA.startPaused = vsStartPaused s
     }
 
 encodeVmDriveSpec :: VmDriveSpec -> CGNA.Parsed CGNA.VmDriveSpec

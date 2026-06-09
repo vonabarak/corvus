@@ -68,6 +68,15 @@ data VmSpec = VmSpec
   -- restore a previously-saved RAM image, polls @query-migrate@
   -- for completion, issues @cont@, and unlinks the state file.
   -- @False@ (the default) means a normal cold boot.
+  , vsStartPaused :: !Bool
+  -- ^ When @True@, the agent runs QEMU with @-S@ so the CPUs
+  -- stay paused after spawn. The caller is responsible for
+  -- issuing QMP @cont@ later (typically after a QMP
+  -- @snapshot-load@ to restore vmstate). The agent's vmStart
+  -- DOES NOT wait for the guest agent in this mode — QGA
+  -- can't respond while the CPUs are paused. Mutually
+  -- exclusive with @vsLoadFromSavedState@ (which has its
+  -- own pause/cont dance via @-incoming@).
   , vsCpuModel :: !T.Text
   -- ^ QEMU @-cpu@ model. Default @"host"@ for best perf but not
   -- migration-safe across non-identical hosts; operators set this

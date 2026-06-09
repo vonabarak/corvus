@@ -3803,7 +3803,8 @@ data instance C.Parsed VmSpec
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
         ,spiceBindAddr :: (RP.Parsed Basics.Text)
         ,loadFromSavedState :: (RP.Parsed Std_.Bool)
-        ,cpuModel :: (RP.Parsed Basics.Text)}
+        ,cpuModel :: (RP.Parsed Basics.Text)
+        ,startPaused :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmSpec))
 deriving instance (Std_.Eq (C.Parsed VmSpec))
@@ -3825,7 +3826,8 @@ instance (C.Parse VmSpec (C.Parsed VmSpec)) where
                          <*> (GH.parseField #rebootQuirk raw_)
                          <*> (GH.parseField #spiceBindAddr raw_)
                          <*> (GH.parseField #loadFromSavedState raw_)
-                         <*> (GH.parseField #cpuModel raw_))
+                         <*> (GH.parseField #cpuModel raw_)
+                         <*> (GH.parseField #startPaused raw_))
 instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
     marshalInto raw_ VmSpec{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -3846,6 +3848,7 @@ instance (C.Marshal VmSpec (C.Parsed VmSpec)) where
         (GH.encodeField #spiceBindAddr spiceBindAddr raw_)
         (GH.encodeField #loadFromSavedState loadFromSavedState raw_)
         (GH.encodeField #cpuModel cpuModel raw_)
+        (GH.encodeField #startPaused startPaused raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmSpec Std_.Int64) where
@@ -3884,6 +3887,8 @@ instance (GH.HasField "loadFromSavedState" GH.Slot VmSpec Std_.Bool) where
     fieldByLabel  = (GH.dataField 5 2 1 0)
 instance (GH.HasField "cpuModel" GH.Slot VmSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 5)
+instance (GH.HasField "startPaused" GH.Slot VmSpec Std_.Bool) where
+    fieldByLabel  = (GH.dataField 6 2 1 0)
 data VmDriveSpec 
 type instance (R.ReprFor VmDriveSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDriveSpec) where
