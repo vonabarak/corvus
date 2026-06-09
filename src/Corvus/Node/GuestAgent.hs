@@ -218,22 +218,12 @@ withPersistentConn connsVar config vmId retries timeoutMicros action = do
             -- Connect and publish the fd to sockRef atomically, so if an
             -- async exception fires (most importantly the timeout's) the
             -- handler in runOnce can still find and close this socket.
-            mask_ $ do
+            s <- mask_ $ do
               s <- connectWithRetry 10 path
               writeIORef sockRef (Just s)
               pure s
-        -- guest-sync on EVERY acquisition, not just first connect.
-        -- Several callers wrap their inner recvJson in a per-call
-        -- timeout (e.g. guestFsFreeze, guestFsThaw, guestSetTime,
-        -- guestPing). When the inner timeout fires, recvJson is
-        -- killed mid-read but the action returns NORMALLY with
-        -- Left "no reply…", and withPersistentConn puts the socket
-        -- back into the MVar — kernel-side recv buffer still holds
-        -- the unread response. Without per-acquisition sync, the
-        -- next caller's recvJson would read that stale response and
-        -- report a shape mismatch (the live bug: guest-file-open
-        -- getting a guest-get-osinfo reply).
-        syncGuest sock
+            syncGuest s
+            pure s
         result <- action sock
         pure (sock, result)
       case mResult of
@@ -777,10 +767,14 @@ guestPing conns config vmId = do
     -- Per-recv timeout: ping is the healthcheck poller's signal of
     -- "agent reachable", so we want a snappy "no" when QGA has
     -- vanished — bounded by 'pollRecvTimeoutMicros' instead of the
-    -- outer 15 s connection timeout.
-    mResp <- timeout pollRecvTimeoutMicros (recvJson sock)
+    -- outer 15 s connection timeout. 'recvJsonWithin' THROWS on
+    -- timeout so 'withPersistentConn' closes the socket; the
+    -- alternative ("return Nothing, put socket back") would leak
+    -- whatever response eventually arrives into the NEXT QGA call
+    -- and produce a shape mismatch there.
+    mResp <- recvJsonWithin pollRecvTimeoutMicros sock "guest-ping"
     case mResp of
-      Just (Just (Object obj)) -> pure $ KM.member "return" obj
+      Just (Object obj) -> pure $ KM.member "return" obj
       _ -> pure False
   case mResult of
     Left _ -> pure False
@@ -832,13 +826,13 @@ guestFsFreeze :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text Int)
 guestFsFreeze conns config vmId = do
   mResult <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-fsfreeze-freeze" :: Text)]
-    mResp <- timeout 10000000 (recvJson sock)
+    mResp <- recvJsonWithin 10000000 sock "guest-fsfreeze-freeze"
     pure $ case mResp of
-      Just (Just (Object obj)) ->
+      Just (Object obj) ->
         case KM.lookup "return" obj of
           Just (Number n) -> Right (truncate n :: Int)
           _ -> Left (qgaErrText obj)
-      _ -> Left "guest-fsfreeze-freeze: no reply within 10s"
+      _ -> Left "guest-fsfreeze-freeze: malformed reply"
   pure $ case mResult of
     Left e -> Left (T.pack (show e))
     Right r -> r
@@ -854,13 +848,13 @@ guestFsThaw :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text Int)
 guestFsThaw conns config vmId = do
   mResult <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-fsfreeze-thaw" :: Text)]
-    mResp <- timeout 10000000 (recvJson sock)
+    mResp <- recvJsonWithin 10000000 sock "guest-fsfreeze-thaw"
     pure $ case mResp of
-      Just (Just (Object obj)) ->
+      Just (Object obj) ->
         case KM.lookup "return" obj of
           Just (Number n) -> Right (truncate n :: Int)
           _ -> Left (qgaErrText obj)
-      _ -> Left "guest-fsfreeze-thaw: no reply within 10s"
+      _ -> Left "guest-fsfreeze-thaw: malformed reply"
   pure $ case mResult of
     Left e -> Left (T.pack (show e))
     Right r -> r
@@ -881,13 +875,13 @@ guestSetTime :: GuestAgentConns -> QemuConfig -> Int64 -> IO (Either Text ())
 guestSetTime conns config vmId = do
   mResult <- withPersistentConn conns config vmId 1 10000000 $ \sock -> do
     sendJson sock $ Aeson.object ["execute" .= ("guest-set-time" :: Text)]
-    mResp <- timeout 10000000 (recvJson sock)
+    mResp <- recvJsonWithin 10000000 sock "guest-set-time"
     pure $ case mResp of
-      Just (Just (Object obj)) ->
+      Just (Object obj) ->
         case KM.lookup "return" obj of
           Just _ -> Right ()
           Nothing -> Left (qgaErrText obj)
-      _ -> Left "guest-set-time: no reply within 10s"
+      _ -> Left "guest-set-time: malformed reply"
   pure $ case mResult of
     Left e -> Left (T.pack (show e))
     Right r -> r
@@ -974,6 +968,30 @@ sendJson sock val = sendAll sock (BL.toStrict (Aeson.encode val) <> "\n")
 --
 -- Cancellation is handled by the outer @timeout@ wrapper in
 -- 'withPersistentConn'; the async exception interrupts the blocking @recv@.
+-- | 'recvJson' bounded by @micros@. On timeout, THROWS rather
+-- than returning 'Nothing', so 'withPersistentConn's onException
+-- closes the socket instead of putting it back into the MVar with
+-- the unread response still in the kernel buffer. Without this,
+-- the NEXT caller's 'recvJson' would read our stale response,
+-- parse it as its own reply, and report a shape mismatch (the
+-- "guest-file-open got a guest-get-osinfo reply" cross-talk bug).
+--
+-- @callLabel@ is woven into the exception text so the eventual
+-- @Left "user error (…): no reply within Xs"@ at the
+-- 'withPersistentConn' boundary names the call that timed out.
+recvJsonWithin :: Int -> Socket -> Text -> IO (Maybe Value)
+recvJsonWithin micros sock callLabel = do
+  mResp <- timeout micros (recvJson sock)
+  case mResp of
+    Just v -> pure v
+    Nothing ->
+      ioError $
+        userError $
+          T.unpack callLabel
+            <> ": no reply within "
+            <> show (micros `div` 1000000)
+            <> "s"
+
 recvJson :: Socket -> IO (Maybe Value)
 recvJson sock = go BS.empty
   where
