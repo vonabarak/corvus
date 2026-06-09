@@ -46,6 +46,7 @@ module Corvus.Node.Qmp
   , qmpSnapshotSave
   , qmpSnapshotLoad
   , qmpSnapshotDelete
+  , waitForQmpReady
 
     -- * Stats sampling
   , qmpQueryBlockstats
@@ -883,6 +884,43 @@ qmpSnapshotDelete config vmId tag devices = do
     QmpSuccess -> pollQmpJob config vmId jobId
     QmpError msg -> pure (Left msg)
     QmpConnectionFailed msg -> pure (Left msg)
+
+-- | Poll until QMP responds for @vmId@, or 10 s elapses.
+--
+-- QEMU binds the QMP listen socket during init, but there's a
+-- small window between @forkProcess@ returning a pid (the agent's
+-- vmStart RPC returns) and the socket being ready to accept
+-- connections. A daemon-side caller that immediately invokes
+-- a QMP command (e.g. @snapshot-load@ in the build-cache memory-
+-- mode resume path) hits "ENOENT" on the socket path during that
+-- window. This helper bridges the gap with a bounded poll: try
+-- @query-commands@; on a connect-style failure, sleep and retry;
+-- on any other outcome (success, structured error), return.
+--
+-- Returns @()@ unconditionally — by the time the timeout
+-- expires, the caller's next QMP call will surface a clearer
+-- error than this one would. Best-effort readiness gate, not a
+-- correctness gate.
+waitForQmpReady :: QemuConfig -> Int64 -> IO ()
+waitForQmpReady config vmId = go (40 :: Int)
+  where
+    -- 40 * 250 ms = 10 s.
+    intervalUs :: Int
+    intervalUs = 250000
+    go 0 = pure ()
+    go n = do
+      r <- qmpQueryCommands config vmId
+      case r of
+        Right _ -> pure ()
+        Left err
+          | isConnectFailure err -> do
+              threadDelay intervalUs
+              go (n - 1)
+          | otherwise -> pure ()
+    isConnectFailure t =
+      T.isInfixOf "does not exist" t
+        || T.isInfixOf "Connection refused" t
+        || T.isInfixOf "No such file or directory" t
 
 --------------------------------------------------------------------------------
 -- Low-level QMP Communication

@@ -1606,6 +1606,23 @@ doVmStart sc spec = do
                   incomingOk <-
                     if needIncoming then runIncomingStep else pure True
                   when (incomingOk && needGaWait) runGaStep
+          -- When 'vsStartPaused' is set we skip the GA-wait fork
+          -- (CPUs are frozen; QGA won't respond). The daemon-side
+          -- caller is going to drive QMP @snapshot-load@ as its
+          -- next step, and that needs QMP itself to be up. QEMU
+          -- binds the QMP listen socket during init, but there's
+          -- a window of ~100–500 ms between the daemon's
+          -- @forkProcess@ returning and QMP being ready to accept
+          -- connections; without a synchronous wait the daemon's
+          -- first QMP call hits "does not exist (ENOENT)" on the
+          -- socket path. Block here until QMP responds, with a
+          -- short timeout — long enough for nested-KVM bake VMs
+          -- under heavy load, short enough to fail clearly if
+          -- QEMU crashed at spawn.
+
+          when (VS.vsStartPaused spec) $
+            liftIO $
+              NQ.waitForQmpReady agentQemuConfig vmId
           pure
             CGNA.Session'vmStart'results {CGNA.info = encodeVmRuntimeInfo live}
 

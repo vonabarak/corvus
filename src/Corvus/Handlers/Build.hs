@@ -48,14 +48,28 @@ import qualified Corvus.Handlers.Build.Cache as Cache
 import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, push, withCleanup)
 import Corvus.Handlers.Build.Floppy (buildFloppyImage)
 import Corvus.Handlers.Disk (DiskCreate (..), DiskDelete (..), DiskRebase (..))
-import Corvus.Handlers.Disk.Agent (cloneImageViaAgent, getImageSizeMbViaAgent, rebaseImageViaAgent)
+import Corvus.Handlers.Disk.Agent
+  ( cloneImageViaAgent
+  , getImageSizeMbViaAgent
+  , guestSetTimeViaAgent
+  , loadSnapshotViaAgentWithVmstate
+  , rebaseImageViaAgent
+  )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.Disk.Db (listDiskImageNodes, recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePathPure, resolveDiskPath)
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Handlers.Scheduler (pickNodeForExistingDisk)
 import Corvus.Handlers.Template (TemplateInstantiate (..))
-import Corvus.Handlers.Vm (VmDelete (..), VmStart (..), VmStop (..), getVmDetails)
+import Corvus.Handlers.Vm
+  ( VmDelete (..)
+  , VmStart (..)
+  , VmStop (..)
+  , getVmDetails
+  , hasNetdMediatedNetIf
+  , setVmError
+  , setVmStatus
+  )
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Node.GuestAgent (GuestExecResult (..))
@@ -63,6 +77,7 @@ import Corvus.Node.Image (ImageResult (..))
 import Corvus.Node.Qmp (QmpResult (..), qmpSendKey)
 import qualified Corvus.Node.VmSpec as VS
 import qualified Corvus.NodeAgentClient as NOA
+import qualified Corvus.NodeAgentClient.Spec as NSpec
 import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol
 import Corvus.Qemu.Config (getEffectiveBasePath)
@@ -76,7 +91,7 @@ import qualified Data.ByteString.Lazy as LBS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
 import qualified Data.List
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -683,24 +698,63 @@ runFromCachedBakeVm
 runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cachedVmId prefixHash = do
   setupRes <- prepareCacheReuse
   case setupRes of
-    Right artifactDiskId -> do
+    Right (artifactDiskId, alreadyRunning) -> do
       liftIO $ sink (StepCacheRestore k prefixHash)
       mapM_
         (\(i, h) -> liftIO $ sink (StepCacheHit i h))
         (zip [1 .. k] (take k chains))
-      runBakeAndPublish
-        state
-        parentTaskId
-        sink
-        cachedVmId
-        (buildStrategy b)
-        artifactDiskId
-        (buildTarget b)
-        False
-        startTime
-        opts
-        (k + 1)
-        b
+      if alreadyRunning
+        then
+          -- Memory-mode resume: the bake VM is already up and
+          -- running with vmstate restored. Skip the VmStart in
+          -- 'runBakeAndPublish' and continue directly with the
+          -- provisioner tail.
+          case buildStrategy b of
+            BuildStrategyInstaller ->
+              -- Installer strategy doesn't cache (strategyCacheRoles
+              -- returns []), so we should never reach here. Defensive:
+              -- fall back to the standard path which will detect the
+              -- inconsistency.
+              runBakeAndPublish
+                state
+                parentTaskId
+                sink
+                cachedVmId
+                (buildStrategy b)
+                artifactDiskId
+                (buildTarget b)
+                False
+                startTime
+                opts
+                (k + 1)
+                b
+            _ ->
+              runProvisionersStopAndPublish
+                state
+                parentTaskId
+                sink
+                cachedVmId
+                artifactDiskId
+                (buildTarget b)
+                False
+                startTime
+                opts
+                (k + 1)
+                b
+        else
+          runBakeAndPublish
+            state
+            parentTaskId
+            sink
+            cachedVmId
+            (buildStrategy b)
+            artifactDiskId
+            (buildTarget b)
+            False
+            startTime
+            opts
+            (k + 1)
+            b
     Left reason -> do
       -- Cache reuse setup failed (cached VM gone, snapshot gone,
       -- rollback error, no writable disks left, …). Purge the stale
@@ -715,9 +769,11 @@ runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cach
       liftIO $ CStore.purgeCacheRowsForVm state cachedVmId
       runFreshBake state parentTaskId sink stack startTime opts b
   where
-    -- Returns 'Right artifactDiskId' when the bake VM is stopped,
-    -- the disks have been rolled back, and the cleanup destructor
-    -- is on the stack. 'Left reason' means cache setup failed.
+    -- Returns @Right (artifactDiskId, alreadyRunning)@ where
+    -- @alreadyRunning = True@ for the memory-mode path (the
+    -- snapshot-load lifecycle already brought the bake VM up and
+    -- the caller must skip its own VmStart). @Left reason@ means
+    -- cache setup failed.
     prepareCacheReuse = do
       -- Verify the cached VM still exists. The Vm row could have
       -- been deleted by an operator's `crv vm delete` between the
@@ -730,15 +786,15 @@ runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cach
             (ssDbPool state)
       case mVm of
         Nothing -> pure (Left "cached bake VM has been deleted")
-        Just vm -> stopAndRoll vm
+        Just vm -> stopAndPrepare vm
 
-    stopAndRoll vm = do
-      -- Skip 'VmStop' when the VM is already stopped — that's the
-      -- steady state for a retained bake VM (the prior successful
-      -- build's publish path issued the graceful stop). 'VmStop'
-      -- on an already-stopped VM returns RespInvalidTransition,
-      -- which classifyStopResp surfaces as Left and would abort
-      -- the resume.
+    stopAndPrepare vm = do
+      -- Both modes need the bake VM stopped at this point: disk
+      -- mode does an offline qcow2 rollback that takes the file
+      -- lock; memory mode launches a fresh QEMU process with
+      -- `-S`. VmStop on an already-stopped VM returns
+      -- RespInvalidTransition, which classifyStopResp surfaces as
+      -- Left, so skip the call when state is already VmStopped.
       stopR <-
         if vmStatus vm == VmStopped
           then pure (Right ())
@@ -751,9 +807,9 @@ runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cach
             pure (classifyStopResp resp)
       case stopR of
         Left err -> pure (Left ("stop cached bake VM: " <> err))
-        Right () -> doRoll
+        Right () -> dispatchOnMode
 
-    doRoll = do
+    dispatchOnMode = do
       artifactRes <- liftIO $ resolveCachedArtifactDiskId state cachedVmId prefixHash
       case artifactRes of
         Left err -> pure (Left err)
@@ -765,18 +821,170 @@ runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cach
               | null disks ->
                   pure (Left "cached bake VM has no writable disks left")
               | otherwise -> do
-                  -- Push the destructor BEFORE rollback so a
-                  -- partial-rollback failure still gets the bake VM
+                  -- Push the destructor BEFORE the mode-specific
+                  -- work so a partial failure still gets the bake VM
                   -- reaped by the standard cleanup pass.
                   liftIO $
                     push
                       stack
                       "bake-vm-cached"
                       (cleanupBakeVm state parentTaskId cachedVmId)
-                  rbR <- Cache.rollbackToCachedStep state (buildCacheMode b) disks prefixHash
-                  case rbR of
-                    Left err -> pure (Left err)
-                    Right () -> pure (Right artifactDiskId)
+                  case buildCacheMode b of
+                    CacheModeDisk -> do
+                      rbR <-
+                        Cache.rollbackToCachedStep
+                          state
+                          CacheModeDisk
+                          disks
+                          prefixHash
+                      case rbR of
+                        Left err -> pure (Left err)
+                        Right () -> pure (Right (artifactDiskId, False))
+                    CacheModeMemory -> do
+                      lifecycleR <-
+                        resumeMemoryCacheBakeVm
+                          state
+                          cachedVmId
+                          disks
+                          prefixHash
+                      case lifecycleR of
+                        Left err -> pure (Left err)
+                        Right () -> pure (Right (artifactDiskId, True))
+
+-- | Memory-mode cache resume lifecycle: launch the cached bake VM
+-- paused (QEMU @-S@), restore vmstate via QMP @snapshot-load@,
+-- @cont@ to unfreeze, resync the wall clock via QGA
+-- @guest-set-time@, then mark the DB row 'VmRunning'.
+--
+-- Bypasses the @VmStart@ Action — that action commits @VmStarting@
+-- and then waits for the first QGA ping, which can't land before
+-- @snapshot-load@ runs. We talk to the agent's vmStart RPC
+-- directly with @vsStartPaused = True@ so the agent skips its
+-- own GA-wait fork.
+--
+-- The pre-bake artifact disk is the vmstate carrier; the
+-- @CacheDisk@ enumeration already filters to writable qcow2
+-- drives, and the disk tagged @"artifact"@ holds the RAM dump.
+resumeMemoryCacheBakeVm
+  :: ServerState
+  -> Int64
+  -- ^ cached bake VM id (must be stopped)
+  -> [Cache.CacheDisk]
+  -- ^ writable cache-worthy disks; must include role="artifact"
+  -> Text
+  -- ^ chainHash of step K (the snapshot tag to load)
+  -> LoggingT IO (Either Text ())
+resumeMemoryCacheBakeVm state cachedVmId disks chain = do
+  let pool = ssDbPool state
+      cfg = ssQemuConfig state
+      snapName = H.cacheSnapshotName chain
+  case Data.List.find (\d -> Cache.cdRole d == "artifact") disks of
+    Nothing ->
+      pure $
+        Left "memory-mode resume: no artifact-role disk in the cache set"
+    Just carrier -> do
+      mVm <- liftIO $ runSqlPool (get (toSqlKey cachedVmId :: VmId)) pool
+      case mVm of
+        Nothing -> pure $ Left "cached bake VM disappeared mid-resume"
+        Just vm -> do
+          needsNetd <- liftIO $ runSqlPool (hasNetdMediatedNetIf cachedVmId) pool
+          mNetAgent <- liftIO $ lookupNetAgentMaybe state (M.vmNodeId vm)
+          when (needsNetd && isNothing mNetAgent) $
+            logWarnN $
+              "memory-mode resume: VM "
+                <> T.pack (show cachedVmId)
+                <> " has a managed NIC but netd is unavailable; the lifecycle will probably fail"
+          let netAgentForSpec = if needsNetd then mNetAgent else Nothing
+              -- Cache resume re-uses the bake VM. The QGA wait
+              -- happens AFTER our snapshot-load + cont, so we
+              -- inherit the 90-second steady-state budget the
+              -- non-cloud-init path uses. The bake VM has QGA on
+              -- by construction (overlay + from-scratch strategies
+              -- both require it).
+              waitMs = if vmGuestAgent vm then 90000 else 0
+          mSpec <-
+            liftIO $
+              NSpec.assembleVmSpec pool cfg netAgentForSpec cachedVmId waitMs
+          case mSpec of
+            Left err -> pure $ Left $ "memory-mode resume: assembleVmSpec: " <> err
+            Right baseSpec -> do
+              let spec = baseSpec {VS.vsStartPaused = True}
+                  nodeId = M.vmNodeId vm
+                  paths = map Cache.cdFilePath disks
+                  carrierPath = Cache.cdFilePath carrier
+              -- Pre-commit VmStarting so external observers see
+              -- the row leave VmStopped while we drive the
+              -- multi-step lifecycle. We flip to VmRunning at the
+              -- end.
+              liftIO $ runSqlPool (setVmStatus cachedVmId VmStarting) pool
+              logInfoN $
+                "memory-mode resume: starting bake VM "
+                  <> T.pack (show cachedVmId)
+                  <> " paused for snapshot-load tag="
+                  <> snapName
+              startR <-
+                liftIO $ withVmNodeAgent state cachedVmId $ \nac -> NOA.vmStart nac spec
+              case startR of
+                Left err -> do
+                  liftIO $ runSqlPool (setVmError cachedVmId err) pool
+                  pure $ Left ("memory-mode resume: vmStart paused: " <> err)
+                Right (Left e) -> do
+                  let msg = "vmStart paused: " <> T.pack (show e)
+                  liftIO $ runSqlPool (setVmError cachedVmId msg) pool
+                  pure $ Left ("memory-mode resume: " <> msg)
+                Right (Right _runtime) -> do
+                  -- QEMU is up and paused. Drive snapshot-load.
+                  logInfoN $
+                    "memory-mode resume: loading vmstate tag="
+                      <> snapName
+                      <> " into VM "
+                      <> T.pack (show cachedVmId)
+                  loadRes <-
+                    liftIO $
+                      loadSnapshotViaAgentWithVmstate
+                        state
+                        nodeId
+                        carrierPath
+                        paths
+                        snapName
+                        cachedVmId
+                  case loadRes of
+                    ImageSuccess -> do
+                      logInfoN "memory-mode resume: snapshot-load OK, issuing cont"
+                      resumeR <-
+                        liftIO $ withVmNodeAgent state cachedVmId $ \nac ->
+                          NOA.vmResume nac cachedVmId
+                      case resumeR of
+                        Left e -> do
+                          let msg = "memory-mode resume: cont (outer): " <> e
+                          liftIO $ runSqlPool (setVmError cachedVmId msg) pool
+                          pure $ Left msg
+                        Right (Left e) -> do
+                          let msg =
+                                "memory-mode resume: cont: " <> T.pack (show e)
+                          liftIO $ runSqlPool (setVmError cachedVmId msg) pool
+                          pure $ Left msg
+                        Right (Right ()) -> do
+                          -- Best-effort clock resync.
+                          _ <-
+                            liftIO $ guestSetTimeViaAgent state nodeId cachedVmId
+                          liftIO $
+                            runSqlPool (setVmStatus cachedVmId VmRunning) pool
+                          logInfoN $
+                            "memory-mode resume: VM "
+                              <> T.pack (show cachedVmId)
+                              <> " resumed at snapshot state"
+                          pure (Right ())
+                    ImageFormatNotSupported msg ->
+                      finishWithError pool ("snapshot-load: " <> msg)
+                    ImageError err ->
+                      finishWithError pool ("snapshot-load: " <> err)
+                    ImageNotFound ->
+                      finishWithError pool "snapshot-load: snapshot not found"
+  where
+    finishWithError pool msg = do
+      liftIO $ runSqlPool (setVmError cachedVmId msg) pool
+      pure $ Left ("memory-mode resume: " <> msg)
 
 -- | Disk roles a strategy expects to find in a complete cache step.
 strategyCacheRoles :: BuildStrategy -> [Text]

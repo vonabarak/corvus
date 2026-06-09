@@ -286,22 +286,16 @@ snapshotCachedStep state mode vmId pipelineKey stepIdx chain disks = do
     modeLabel CacheModeDisk = "disk-only"
     modeLabel CacheModeMemory = "memory+disk"
 
--- | Roll every cached disk back to a named snapshot. Used at the
--- start of a cache-resumed build, BEFORE the bake VM is started.
+-- | Disk-mode cache rollback: roll every cached disk back to its
+-- named snapshot via offline @qemu-img snapshot -a@. The bake VM
+-- MUST be stopped — 'rollbackSnapshotViaAgent' takes the qcow2's
+-- exclusive lock, which collides with a running QEMU.
 --
--- In 'CacheModeDisk' the rollback is offline qcow2 rollback —
--- 'rollbackSnapshotViaAgent' takes the file's exclusive lock via
--- @qemu-img snapshot -a@, which collides with a running QEMU, so
--- the bake VM must be stopped at call time.
---
--- In 'CacheModeMemory' the rollback path is fundamentally
--- different (QMP @snapshot-load@ requires the QEMU process to be
--- running, paused, with the right device model attached). That
--- lifecycle helper — launch QEMU paused → snapshot-load → cont →
--- guest-set-time — is a follow-up: for now @cacheMode: memory@
--- supports priming (--build-cache) but not reuse (--use-cache).
--- Callers see a clear error directing them at the disk mode for
--- the reuse step until the lifecycle ships.
+-- Memory-mode resume does NOT go through this function. The
+-- caller in @Corvus.Handlers.Build@ dispatches on
+-- 'BuildCacheMode' BEFORE picking a rollback path and routes
+-- memory-mode through @resumeMemoryCacheBakeVm@, which launches
+-- QEMU paused and drives @snapshot-load@ via QMP.
 rollbackToCachedStep
   :: ServerState
   -> BuildCacheMode
@@ -311,12 +305,10 @@ rollbackToCachedStep
   -> LoggingT IO (Either Text ())
 rollbackToCachedStep _ _ [] _ = pure (Right ())
 rollbackToCachedStep _ CacheModeMemory _ _ =
+  -- Defensive: the build runner never routes memory mode here;
+  -- if it does, the path is broken upstream.
   pure $
-    Left
-      "cacheMode: memory reuse (--use-cache) is not yet implemented \
-      \(QMP snapshot-load lifecycle is the follow-up). For now, prime \
-      \with cacheMode: memory + --build-cache to capture vmstate, but \
-      \drop back to cacheMode: disk + --use-cache to consume the cache."
+    Left "rollbackToCachedStep: memory mode must go through resumeMemoryCacheBakeVm"
 rollbackToCachedStep state CacheModeDisk disks chain = do
   let snapName = H.cacheSnapshotName chain
   logInfoN $

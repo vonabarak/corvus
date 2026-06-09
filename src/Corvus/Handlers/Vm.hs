@@ -40,6 +40,9 @@ module Corvus.Handlers.Vm
 
     -- * In-daemon helpers used by other handlers
   , getVmDetails
+  , setVmStatus
+  , setVmError
+  , hasNetdMediatedNetIf
   )
 where
 

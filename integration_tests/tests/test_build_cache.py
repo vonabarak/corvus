@@ -66,12 +66,14 @@ def _three_step_pipeline(
     field varied between cache-edit scenarios so step 1's chain hash
     stays stable across runs.
     """
-    # Pin cacheMode: disk explicitly — the default switched to
-    # memory when the vmstate-aware path landed (see
-    # plans/full-machine-snapshots), but memory-mode reuse needs
-    # the paused-start + snapshot-load lifecycle that hasn't
-    # shipped yet. This test exercises the disk-mode roundtrip
-    # that the cache subsystem has always supported.
+    # Pin cacheMode: disk explicitly. The default switched to
+    # memory when the vmstate-aware path landed; this test class
+    # specifically exercises the disk-mode roundtrip (offline
+    # qcow2 rollback + fresh VmStart). Memory-mode reuse has
+    # its own targeted test —
+    # ``test_memory_mode_preserves_kernel_state_across_cache_resume`` —
+    # that proves the snapshot-load lifecycle preserves tmpfs
+    # state, which disk mode by definition can't.
     return textwrap.dedent(f"""
         pipeline:
           - build:
@@ -296,6 +298,116 @@ class TestBuildCache(SingleNodeCase):
             # All three provisioners ran from scratch.
             executed = sorted(s.step_index for s in c["starts"])
             assert executed == [1, 2, 3], executed
+        finally:
+            for v in self.client.vms.list():
+                if v.name.startswith("__build_"):
+                    self.client.vms.get(v.name, by_name=True).delete()
+            try:
+                self.client.disks.get(artifact_name, by_name=True).delete()
+            except Exception:
+                pass
+            tpl.delete()
+
+    def test_memory_mode_preserves_kernel_state_across_cache_resume(self):
+        """The whole reason ``cacheMode: memory`` exists: a file in
+        tmpfs (``/tmp``) created in step 2 must still be there when
+        step 3 runs from a cache resume. Disk mode would lose it —
+        the cache restore reboots the bake VM and tmpfs vanishes.
+        Memory mode loads the vmstate, so the kernel's mount table
+        and tmpfs page cache come back intact.
+
+        Test shape:
+          1. Prime: 3-step pipeline, step 2 writes a token to
+             ``/tmp/memory-marker``, step 3 reads it back. All
+             three steps run, three cache rows written.
+          2. Edit step 3 to change its hash; re-run with
+             ``--use-cache``. Steps 1 + 2 hit cache; step 3 runs
+             fresh against the memory-resumed VM. If the
+             snapshot-load lifecycle worked, ``/tmp/memory-marker``
+             is still present and step 3 succeeds. If not, step 3
+             can't find the file and the build errors.
+        """
+        token = secrets.token_hex(4)
+        images = self.register_base_images()
+        base_disk = images["alpine"]
+        tpl_name = f"corvus-it-mem-cache-tpl-{token}"
+        artifact_name = f"corvus-it-mem-cache-art-{token}"
+
+        tpl = self.client.templates.create(
+            _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
+        )
+
+        def pipeline(step3_extra: str) -> str:
+            return textwrap.dedent(f"""
+                pipeline:
+                  - build:
+                      name: {artifact_name}
+                      template: {tpl_name}
+                      strategy: overlay
+                      cacheMode: memory
+                      target:
+                        format: qcow2
+                        sizeGb: 2
+                        compact: true
+                        ifExists: overwrite
+                      vm:
+                        cpuCount: 2
+                        ramMb: 1024
+                      provisioners:
+                        - shell: |
+                            set -eux
+                            echo step-one > /var/lib/corvus-mem-step1
+                        - shell: |
+                            set -eux
+                            echo {token} > /tmp/memory-marker
+                        - shell: |
+                            set -eux
+                            test "$(cat /tmp/memory-marker)" = "{token}"
+                            {step3_extra}
+                      cleanup: always
+                      waitForShutdownSec: 300
+            """).strip()
+
+        try:
+            # Pass 1: prime the cache. All 3 steps run.
+            events = _collect_events(
+                self.client.build_stream_text(pipeline(":"), build_cache=True)
+            )
+            c = _classify(events)
+            assert c["pipeline_end"] is not None, events
+            assert not c["pipeline_end"].builds[0].error_message, (
+                f"prime failed: {c['pipeline_end'].builds[0].error_message}"
+            )
+            assert len(c["starts"]) == 3, c["starts"]
+            assert len(c["stores"]) == 3, c["stores"]
+
+            # Pass 2: edit step 3 so its hash differs, re-run with
+            # --use-cache. Steps 1+2 should hit, step 3 runs against
+            # the memory-resumed VM. The success of step 3's `test`
+            # against /tmp/memory-marker proves vmstate restored the
+            # tmpfs state from step 2.
+            events = _collect_events(
+                self.client.build_stream_text(
+                    pipeline("echo VERIFIED"),
+                    use_cache=True,
+                    build_cache=True,
+                )
+            )
+            c = _classify(events)
+            assert c["pipeline_end"] is not None, events
+            bo = c["pipeline_end"].builds[0]
+            assert bo.artifact_disk_id, bo
+            assert not bo.error_message, (
+                f"step 3 failed — memory-mode resume didn't preserve "
+                f"/tmp/memory-marker: {bo.error_message}"
+            )
+            assert len(c["restores"]) == 1, c["restores"]
+            assert c["restores"][0].prefix == 2, c["restores"]
+            hit_steps = sorted(h.step_index for h in c["hits"])
+            assert hit_steps == [1, 2], hit_steps
+            # Step 3 was the only one that actually ran.
+            executed = sorted(s.step_index for s in c["starts"])
+            assert executed == [3], executed
         finally:
             for v in self.client.vms.list():
                 if v.name.startswith("__build_"):
