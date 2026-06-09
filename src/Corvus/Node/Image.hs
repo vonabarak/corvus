@@ -421,7 +421,24 @@ listSnapshots path = do
         Left err -> pure $ Left err
         Right info -> pure $ Right $ iiSnapshots info
 
--- | Clone a disk image file
+-- | Clone a disk image file into a flat standalone qcow2.
+--
+-- Uses @qemu-img convert -O qcow2@ rather than a flat byte copy
+-- so the destination contains only the source's active state —
+-- no internal snapshots, no vmstate. That's the contract the
+-- 'Corvus.Handlers.Build.publishArtifactByClone' caller expects:
+-- a published artifact must be a flat standalone qcow2 with an
+-- empty snapshot table (@qemu-img snapshot -l@ returning empty).
+--
+-- The previous flat-copyFile implementation worked while disk-mode
+-- cache was the default — the source qcow2 only had small per-step
+-- block snapshots in its metadata table — but as soon as memory-
+-- mode cache landed each per-step snapshot included full RAM
+-- contents, ballooning the source qcow2 by RAM-size per step
+-- (~18 GB after a 9-step 2-GB bake). A flat copy then needed
+-- 2× that to land the destination atomically and routinely hit
+-- @ENOSPC@ on the publish step even when the active state was
+-- only a few GB.
 cloneImage :: FilePath -> FilePath -> IO ImageResult
 cloneImage src dest = do
   exists <- doesFileExist src
@@ -432,10 +449,15 @@ cloneImage src dest = do
       if destExists
         then pure $ ImageError "Destination file already exists"
         else do
-          result <- try $ copyFile src dest
+          let args = ["convert", "-O", "qcow2", src, dest]
+          result <-
+            try $ readProcessWithExitCode qemuImgBinary args ""
           case result of
-            Left (e :: SomeException) -> pure $ ImageError $ T.pack $ show e
-            Right () -> pure ImageSuccess
+            Left (e :: SomeException) ->
+              pure $ ImageError $ T.pack (show e)
+            Right (ExitSuccess, _, _) -> pure ImageSuccess
+            Right (ExitFailure _, _, stderr) ->
+              pure $ ImageError $ T.pack stderr
 
 --------------------------------------------------------------------------------
 -- Download Operations
