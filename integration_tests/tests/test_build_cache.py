@@ -66,12 +66,19 @@ def _three_step_pipeline(
     field varied between cache-edit scenarios so step 1's chain hash
     stays stable across runs.
     """
+    # Pin cacheMode: disk explicitly — the default switched to
+    # memory when the vmstate-aware path landed (see
+    # plans/full-machine-snapshots), but memory-mode reuse needs
+    # the paused-start + snapshot-load lifecycle that hasn't
+    # shipped yet. This test exercises the disk-mode roundtrip
+    # that the cache subsystem has always supported.
     return textwrap.dedent(f"""
         pipeline:
           - build:
               name: {artifact_name}
               template: {tpl_name}
               strategy: overlay
+              cacheMode: disk
               target:
                 format: qcow2
                 sizeGb: 2

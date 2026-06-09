@@ -112,6 +112,12 @@ envelopeValue b =
     , ("shellDefaults", shellDefaultsValue (buildShellDefaults b))
     , ("bootKeys", Array (V.fromList (map bootKeyValue (buildBootKeys b))))
     , ("floppy", maybe Null floppyValue (buildFloppy b))
+    , -- The cache mode is in the envelope because switching modes
+      -- swaps the on-disk artifact shape: 'CacheModeMemory' rows
+      -- carry vmstate inside their qcow2; 'CacheModeDisk' rows
+      -- don't. Restoring across modes is not a thing — flip the
+      -- mode, the cache rebuilds from scratch.
+      ("cacheMode", String (cacheModeText (buildCacheMode b)))
     ]
 
 targetValue :: BuildTarget -> Value
@@ -236,6 +242,11 @@ strategyText = \case
   BuildStrategyOverlay -> "overlay"
   BuildStrategyFromScratch -> "from-scratch"
   BuildStrategyInstaller -> "installer"
+
+cacheModeText :: BuildCacheMode -> Text
+cacheModeText = \case
+  CacheModeMemory -> "memory"
+  CacheModeDisk -> "disk"
 
 ifExistsText :: IfExists -> Text
 ifExistsText = \case

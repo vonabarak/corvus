@@ -23,13 +23,18 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import qualified Corvus.Build.Cache.Hash as H
 import qualified Corvus.Build.Cache.Store as Store
-import Corvus.Handlers.Disk.Agent (createSnapshotViaAgentLiveMany, rollbackSnapshotViaAgent)
+import Corvus.Handlers.Disk.Agent
+  ( createSnapshotViaAgentLiveMany
+  , createSnapshotViaAgentWithVmstate
+  , rollbackSnapshotViaAgent
+  )
 import Corvus.Handlers.Disk.Db (listDiskImageNodes)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
 import Corvus.Model
 import qualified Corvus.Model as M
 import Corvus.Node.Image (ImageResult (..))
 import qualified Corvus.NodeAgentClient as NOA
+import Corvus.Schema.Build (BuildCacheMode (..))
 import Corvus.Types (ServerState (..))
 import Data.Int (Int64)
 import qualified Data.List as L
@@ -147,6 +152,8 @@ interfaceUsable _ = False
 -- function asserts this; a cross-node spread is a daemon bug.
 snapshotCachedStep
   :: ServerState
+  -> BuildCacheMode
+  -- ^ disk vs memory storage model
   -> Int64
   -- ^ bake VM id
   -> Text
@@ -158,8 +165,8 @@ snapshotCachedStep
   -> [CacheDisk]
   -- ^ every writable disk on the bake VM
   -> LoggingT IO (Either Text ())
-snapshotCachedStep _ _ _ _ _ [] = pure (Right ())
-snapshotCachedStep state vmId pipelineKey stepIdx chain disks = do
+snapshotCachedStep _ _ _ _ _ _ [] = pure (Right ())
+snapshotCachedStep state mode vmId pipelineKey stepIdx chain disks = do
   -- Idempotency check: if a 'BuildCacheEntry' already exists for
   -- every required role on this (pipelineKey, chainHash), another
   -- concurrent runner already cached this step. Treat as success
@@ -184,22 +191,58 @@ snapshotCachedStep state vmId pipelineKey stepIdx chain disks = do
         logInfoN $
           "cache: step "
             <> T.pack (show stepIdx)
-            <> " snapshotting "
+            <> " ("
+            <> modeLabel mode
+            <> ") snapshotting "
             <> T.pack (show (length disks))
             <> " disk(s) as "
             <> snapName
-        (result, quiesced) <-
-          liftIO $
-            createSnapshotViaAgentLiveMany
-              state
-              nid
-              paths
-              snapName
-              vmId
-              NOA.QuiesceRequire
+        (result, quiesced, hasVmstateFor) <- case mode of
+          CacheModeDisk -> do
+            (r, q) <-
+              liftIO $
+                createSnapshotViaAgentLiveMany
+                  state
+                  nid
+                  paths
+                  snapName
+                  vmId
+                  NOA.QuiesceRequire
+            pure (r, q, const False)
+          CacheModeMemory -> do
+            -- Vmstate-aware path. The artifact disk carries the
+            -- RAM dump; every disk (including the artifact) also
+            -- gets a block snapshot under the same tag, atomically
+            -- on QEMU's side via one `snapshot-save` job. No QGA
+            -- freeze — vmstate captures the in-flight page cache
+            -- and writeback queue, so freezing under a multi-
+            -- second save would be harmful.
+            case L.find (\d -> cdRole d == "artifact") disks of
+              Nothing ->
+                pure
+                  ( ImageError
+                      "cacheMode=memory needs an 'artifact'-role disk to carry vmstate"
+                  , False
+                  , const False
+                  )
+              Just carrier -> do
+                r <-
+                  liftIO $
+                    createSnapshotViaAgentWithVmstate
+                      state
+                      nid
+                      (cdFilePath carrier)
+                      paths
+                      snapName
+                      vmId
+                pure
+                  ( r
+                  , False -- not quiesced; vmstate doesn't fsfreeze
+                  , \d -> cdDiskImageId d == cdDiskImageId carrier
+                  )
         case result of
           ImageSuccess -> do
-            rowResults <- liftIO $ insertRows quiesced snapName
+            rowResults <- liftIO $ insertRows quiesced snapName hasVmstateFor
             let snapPairs = [(cdRole d, snapId) | (d, snapId) <- zip disks rowResults]
             liftIO $
               Store.recordCacheStep state pipelineKey stepIdx chain vmId snapPairs
@@ -220,10 +263,10 @@ snapshotCachedStep state vmId pipelineKey stepIdx chain disks = do
               )
           )
 
-    insertRows quiesced snapName = do
+    insertRows quiesced snapName hasVmstateFor = do
       now <- getCurrentTime
-      mapM (insertOne now quiesced snapName) disks
-    insertOne now quiesced snapName d =
+      mapM (insertOne now quiesced snapName hasVmstateFor) disks
+    insertOne now quiesced snapName hasVmstateFor d =
       runSqlPool
         ( insert
             Snapshot
@@ -233,25 +276,48 @@ snapshotCachedStep state vmId pipelineKey stepIdx chain disks = do
               , snapshotSizeMb = Nothing
               , snapshotLive = True
               , snapshotQuiesced = quiesced
-              , snapshotHasVmstate = False
+              , snapshotHasVmstate = hasVmstateFor d
               }
             >>= \k -> pure (fromSqlKey k)
         )
         (ssDbPool state)
 
+    modeLabel :: BuildCacheMode -> Text
+    modeLabel CacheModeDisk = "disk-only"
+    modeLabel CacheModeMemory = "memory+disk"
+
 -- | Roll every cached disk back to a named snapshot. Used at the
 -- start of a cache-resumed build, BEFORE the bake VM is started.
--- The VM must be stopped: 'rollbackSnapshotViaAgent' takes the
--- file's exclusive lock via @qemu-img snapshot -a@, which collides
--- with a running QEMU.
+--
+-- In 'CacheModeDisk' the rollback is offline qcow2 rollback —
+-- 'rollbackSnapshotViaAgent' takes the file's exclusive lock via
+-- @qemu-img snapshot -a@, which collides with a running QEMU, so
+-- the bake VM must be stopped at call time.
+--
+-- In 'CacheModeMemory' the rollback path is fundamentally
+-- different (QMP @snapshot-load@ requires the QEMU process to be
+-- running, paused, with the right device model attached). That
+-- lifecycle helper — launch QEMU paused → snapshot-load → cont →
+-- guest-set-time — is a follow-up: for now @cacheMode: memory@
+-- supports priming (--build-cache) but not reuse (--use-cache).
+-- Callers see a clear error directing them at the disk mode for
+-- the reuse step until the lifecycle ships.
 rollbackToCachedStep
   :: ServerState
+  -> BuildCacheMode
   -> [CacheDisk]
   -> Text
   -- ^ chainHash to roll back to
   -> LoggingT IO (Either Text ())
-rollbackToCachedStep _ [] _ = pure (Right ())
-rollbackToCachedStep state disks chain = do
+rollbackToCachedStep _ _ [] _ = pure (Right ())
+rollbackToCachedStep _ CacheModeMemory _ _ =
+  pure $
+    Left
+      "cacheMode: memory reuse (--use-cache) is not yet implemented \
+      \(QMP snapshot-load lifecycle is the follow-up). For now, prime \
+      \with cacheMode: memory + --build-cache to capture vmstate, but \
+      \drop back to cacheMode: disk + --use-cache to consume the cache."
+rollbackToCachedStep state CacheModeDisk disks chain = do
   let snapName = H.cacheSnapshotName chain
   logInfoN $
     "cache: rolling back "

@@ -773,7 +773,7 @@ runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cach
                       stack
                       "bake-vm-cached"
                       (cleanupBakeVm state parentTaskId cachedVmId)
-                  rbR <- Cache.rollbackToCachedStep state disks prefixHash
+                  rbR <- Cache.rollbackToCachedStep state (buildCacheMode b) disks prefixHash
                   case rbR of
                     Left err -> pure (Left err)
                     Right () -> pure (Right artifactDiskId)
@@ -1094,6 +1094,7 @@ buildCacheStepHook state sink vmId artifactDiskId opts b
                 snapResult <-
                   Cache.snapshotCachedStep
                     state
+                    (buildCacheMode b)
                     vmId
                     pipelineKey
                     stepIdx
