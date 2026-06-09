@@ -1,3 +1,36 @@
+# Self-contained Gentoo headless image — same final artifact as
+# gentoo-headless.yml but without any host-side mounts. Where the
+# co-located variant shares /var/db/repos + /data/portage/distfiles
+# via virtiofs and writes binpkgs back through an NFS export, this
+# one fetches everything (portage tree, distfiles, binpkgs) directly
+# from the official Gentoo mirrors:
+#
+#   * portage tree    — `emerge-webrsync` (initial) + `emerge --sync`
+#                       against rsync://rsync.gentoo.org/gentoo-portage
+#   * distfiles       — default Gentoo mirrors (set by the cloud-init
+#                       base image's /etc/portage/make.conf)
+#   * binpkgs         — official binhost at
+#                       https://distfiles.gentoo.org/releases/amd64/
+#                       binpackages/23.0/x86-64/
+#
+# Binary packages from the official binhost are still preferred over
+# source compilation (`FEATURES=getbinpkg`, `EMERGE_DEFAULT_OPTS
+# --getbinpkg --usepkg --binpkg-respect-use=y`). Signature verification
+# is DISABLED for the binhost: the gpkgs published at
+# distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64/ are
+# UNSIGNED (no .sig entry inside the gpkg tar), and the binhost's own
+# Packages index advertises this via `FEATURES: ...
+# binpkg-ignore-signature ...`. Without `verify-signature = false` in
+# binrepos.conf + `binpkg-ignore-signature` in make.conf, every binpkg
+# would be rejected with "no valid OpenPGP data found" and the bake
+# would fall back to source-building glibc / systemd / linux-firmware /
+# grub — which is too slow for a CI bake and tends to fail under
+# memory pressure with --keep-going=y.
+#
+# The published artifact disk is `gentoo-base-headless-standalone`
+# (registered non-ephemeral on success). A second template,
+# `gentoo-headless-standalone`, overlays the artifact for downstream
+# VM creation.
 pipeline:
   - apply:
       ifExists: skip
@@ -9,65 +42,32 @@ pipeline:
           path: BaseImages/Gentoo/
 
       templates:
-        - name: gentoo-cloud
-          cpuCount: 8
-          ramMb: 8192
+        - name: gentoo-cloud-standalone
+          cpuCount: 4
+          ramMb: 2048
           cloudInit: true
           guestAgent: true
-          description: "Gentoo"
+          description: "Gentoo bake template (no host mounts; official mirrors only)"
           cloudInitConfig:
             userData:
-              bootcmd:
-                - [ mkdir, -p, /var/db/repos ]
-                - [ sh, -c, "mountpoint -q /var/db/repos || mount -t virtiofs repos /var/db/repos" ]
-                # /var/cache/distfiles is an overlayfs: the host's
-                # distfiles cache is the read-only lower layer, an
-                # ephemeral upperdir absorbs any new tarballs portage
-                # fetches during the bake. The host's distfiles stay
-                # untouched (no virtiofsd chown shenanigans, no UID
-                # mismatch EPERMs) and the bake VM still gets the full
-                # cache benefit for re-runs.
-                - [ mkdir, -p, /var/cache/distfiles, /run/distfiles-host, /var/tmp/distfiles-upper, /var/tmp/distfiles-work ]
-                - [ sh, -c, "mountpoint -q /run/distfiles-host || mount -t virtiofs distfiles /run/distfiles-host" ]
-                - [ sh, -c, "mountpoint -q /var/cache/distfiles || mount -t overlay overlay -o lowerdir=/run/distfiles-host,upperdir=/var/tmp/distfiles-upper,workdir=/var/tmp/distfiles-work /var/cache/distfiles" ]
-              # /var/cache/binpkgs is bind-mounted via NFS so portage
-              # can WRITE binpkgs back to the host (FEATURES=buildpkg
-              # in the bake VM's make.conf turns this on). virtiofsd
-              # can't fake foreign UIDs from an unprivileged host
-              # process, so writes through the virtiofs share would
-              # EPERM; the host's NFS export uses
-              # all_squash,anonuid=1000 to land every write as bobr
-              # regardless of which UID the guest's portage uses.
+              # The cloud-init base image ships with /var/db/repos/
+              # empty — it relies on the deployer to sync a portage
+              # tree on first boot. Without a tree, every emerge
+              # bails out with "Invalid Repository Location". Pull
+              # the tree (a single ~120 MB signed tarball + extract,
+              # ~30-60 s on a healthy network) BEFORE installing
+              # qemu-guest-agent from the official binhost.
               #
-              # cloud-init's `mounts:` module doesn't work here:
-              # gentoo-cloud doesn't ship net-fs/nfs-utils, so neither
-              # mount.nfs nor mount.nfs4 exists at cc_mounts time, and
-              # util-linux's built-in NFS path through fsconfig() then
-              # fails with "NFS: mount program didn't pass remote
-              # address". Install nfs-utils first via runcmd, then
-              # mount + append to fstab manually.
+              # `getuto` then drops the Gentoo release keys into
+              # /etc/portage/gnupg so `binpkg-request-signature`
+              # can authenticate the binhost — the cloud-init image
+              # has `verify-signature = true` set by default, so
+              # without the keys every binpkg would be rejected.
               runcmd:
-                - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build net-fs/nfs-utils
-                - mkdir -p /var/cache/binpkgs
-                - mount -t nfs4 -o rw,vers=4.2 192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs
-                - sh -c "echo '192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs nfs4 rw,_netdev,vers=4.2 0 0' >> /etc/fstab"
+                - emerge-webrsync --quiet
+                - getuto
                 - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
                 - systemctl enable --now qemu-guest-agent.service
-          sharedDirs:
-            # Both shares are read-only at the virtiofs layer.
-            # /var/cache/distfiles inside the guest is an overlayfs on
-            # top of the RO distfiles share (see the bootcmd above) so
-            # portage can still write — its writes land in an
-            # ephemeral upperdir, the host's cache stays clean.
-            # /var/cache/binpkgs is NOT a virtiofs share — it's
-            # mounted via NFS so persistent writes work, see the
-            # mounts: block above.
-            - path: /var/db/repos
-              tag: repos
-              readOnly: true
-            - path: /data/portage/distfiles
-              tag: distfiles
-              readOnly: true
           drives:
             - diskImageName: gentoo-base-cloud
               interface: virtio
@@ -87,22 +87,22 @@ pipeline:
             - name: corvus
 
   - build:
-      name: gentoo-base-headless
-      description: Minimal headless Gentoo with custom kernel (BIOS+GPT, ext4)
-      template: gentoo-cloud
+      name: gentoo-base-headless-standalone
+      description: Minimal headless Gentoo with custom kernel (BIOS+GPT, ext4); self-contained — no host mounts
+      template: gentoo-cloud-standalone
 
       target:
         format: qcow2
         sizeGb: 20
         path: BaseImages/Gentoo/
         compact: true
-        ifExists: skip
+        ifExists: overwrite
 
       strategy: from-scratch
 
       vm:
-        cpuCount: 8
-        ramMb: 8192
+        cpuCount: 4
+        ramMb: 2048
 
       shellDefaults:
         preamble: "set -eux"
@@ -111,7 +111,9 @@ pipeline:
           DEV: /dev/vdb
 
       provisioners:
-        # 1) Bake-host prep.
+        # 1) Bake-host prep: pull the portage tree fresh from
+        #    rsync.gentoo.org, point the bake VM at the official
+        #    binhost, trust the release keys, then update @world.
         - shell:
             env:
               SYSROOT: /
@@ -129,32 +131,80 @@ pipeline:
               sys-boot/grub grub_platforms_pc -mount -nls -fonts -themes
               EOF
 
-              grep -q 'FEATURES=.*getbinpkg' /etc/portage/make.conf 2>/dev/null || cat >> /etc/portage/make.conf <<'EOF'
-
-              # The host's local binhost (shared as /var/cache/binpkgs)
-              # isn't signed — host's portage doesn't have
-              # FEATURES=binpkg-signing. The 23.0 profile defaults to
-              # binpkg-request-signature, which would reject every
-              # unsigned binpkg the host serves us. The bake VM is
-              # ephemeral so we drop the requirement here only — the
-              # final image's make.conf (set up in step 4) keeps the
-              # strict default.
+              # The cloud-init userData ran `emerge-webrsync` at
+              # first boot to populate /var/db/repos/gentoo (the
+              # cloud-init base image ships with an empty tree).
+              # webrsync produces a signature-verified snapshot, so
+              # we have a usable tree by the time step 1 starts.
               #
-              # --binpkg-changed-deps=n forces portage to use binpkgs
-              # even when their recorded dep manifest has drifted from
-              # the live tree's. Without it, otherwise-fine binpkgs
-              # (kbd, shadow, util-linux, binutils, e2fsprogs, procps,
-              # pam, portage, python, debugedit, charset-normalizer,
-              # elfutils, curl, libarchive, libcap, man-db, openssh,
-              # …) silently fall back to source build, which is the
-              # bulk of the bake's wall-clock cost.
-              FEATURES="${FEATURES} buildpkg getbinpkg parallel-fetch -binpkg-request-signature"
-              EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
-              ACCEPT_LICENSE="*"
+              # Running `emerge --sync` here would re-rsync from the
+              # mirror — and immediately after a webrsync the
+              # mirror's Manifest.gz typically differs by a few
+              # bytes from the snapshot tarball we extracted (the
+              # rsync mirror updates faster than the daily
+              # webrsync tarball), tripping
+              # "Manifest verification failed: expected: NNNN,
+              # have: NNNN+2". So we run a fresh webrsync only when
+              # the tree is genuinely missing (defensive — should
+              # never fire post-cloud-init), and skip the rsync
+              # sync entirely.
+              if [ ! -d /var/db/repos/gentoo/metadata ]; then
+                emerge-webrsync
+              fi
+
+              # Append binhost + binpkg flags to the bake VM's
+              # /etc/portage/make.conf. The cloud-init image's
+              # make.conf likely already names the default binhost;
+              # we set it explicitly so the bake doesn't silently
+              # source-compile if the default changes.
+              # binrepos.conf: turn signature verification off for
+              # the official binhost. The gpkgs at this URL are
+              # unsigned (no .sig inside the tar) and the Packages
+              # index advertises `binpkg-ignore-signature` to clients;
+              # leaving verify-signature=true (the cloud-init image's
+              # default) makes portage reject every binpkg with
+              # "GnuPG verification failed: no valid OpenPGP data".
+              install -d /etc/portage/binrepos.conf
+              cat > /etc/portage/binrepos.conf/gentoo.conf <<'EOF'
+              [binhost]
+              priority = 9999
+              sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
+              verify-signature = false
               EOF
 
-              getuto || emerge -1q app-portage/getuto || true
-              getuto || true
+              grep -q 'FEATURES=.*getbinpkg' /etc/portage/make.conf 2>/dev/null || cat >> /etc/portage/make.conf <<'EOF'
+
+              # `-binpkg-request-signature binpkg-ignore-signature` —
+              # see the binrepos.conf comment above. The 23.0
+              # profile defaults to `binpkg-request-signature`, which
+              # would route every binpkg through gpg-verify and bail
+              # out because the binhost's gpkgs have no `.sig` entry.
+              # `binpkg-ignore-signature` short-circuits the
+              # verification entirely.
+              FEATURES="${FEATURES} buildpkg getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
+              EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
+              ACCEPT_LICENSE="*"
+
+              # Portage's gpkg verifier (gpkg.py:checksum_helper) still
+              # drops privileges to nobody:nogroup whenever it touches
+              # a gpkg, BEFORE the FEATURES check — so even with
+              # binpkg-ignore-signature, an unsafe-ownership trap on
+              # /etc/portage/gnupg can fire. Empty drops keep the
+              # verifier running as root so the trap never trips.
+              GPG_VERIFY_USER_DROP=""
+              GPG_VERIFY_GROUP_DROP=""
+              EOF
+
+              # Install Gentoo release keys into /etc/portage/gnupg so
+              # the binpkg verifier can authenticate the binhost.
+              # `getuto` is provided by app-portage/getuto on modern
+              # cloud-init images; on older bases we emerge it first.
+              # Failure to install the keys would silently fall back
+              # to source builds (signature mismatch == binpkg
+              # rejected), so this stays strict — no `|| true`.
+              command -v getuto >/dev/null \
+                || emerge -1q app-portage/getuto
+              getuto
 
               emerge --noreplace -vg \
                 sys-apps/gptfdisk \
@@ -162,26 +212,36 @@ pipeline:
                 sys-fs/e2fsprogs \
                 sys-boot/grub:2
 
-              # Bring the bake VM's @world in line with the current
-              # portage tree (host-mounted). Equivalent to the @world
-              # update that webrsync used to imply — needed so the bake
-              # VM's installed BDEPENDs (setuptools, packaging, …)
-              # match the PYTHON_TARGETS the tree expects right now.
-              # Without it, `emerge @system` into the sysroot in step 4
-              # hits slot conflicts because an ebuild's BDEPEND wants
-              # e.g. setuptools[python3_14] while the bake VM has
-              # setuptools[python3_13] from the cloud-init base image.
+              # Unmerge app-emulation/cloud-init from the bake VM
+              # before the @world update.
               #
-              # Two-pass with --keep-going=y is the canonical workaround
-              # for the portage self-upgrade bug across Python target
-              # transitions: the OLD portage (python3.13) crashes in
-              # `_post_merge_sync` with a ModuleNotFoundError because
-              # the in-flight unmerge has already removed its
-              # `_SyncfsProcess` module while the merge of the new
-              # portage is still running. The crash happens AFTER the
-              # new portage's files are on disk, so a second pass —
-              # this time using the new python3.14 portage — completes
-              # cleanly.
+              # The cloud-init base image's installed cloud-init is
+              # pinned to PYTHON_SINGLE_TARGET=python3_13, while
+              # the live tree's dev-python/jinja2 / markupsafe /
+              # certifi / setuptools / trove-classifiers have
+              # already transitioned to python3_14-only. cloud-init
+              # is the lone python3_13 holdout that pins jinja2 et
+              # al. to BOTH 3.13 and 3.14, producing an
+              # unsolvable slot conflict no amount of --backtrack
+              # can resolve.
+              #
+              # cloud-init is single-shot — by the time step 1
+              # runs, its runcmd has already done its work
+              # (qemu-guest-agent installed, ssh keys injected).
+              # The bake VM is ephemeral, so leaving cloud-init
+              # behind serves no purpose; removing it lets the
+              # rest of @world transition to python3_14 cleanly.
+              emerge -C --quiet app-emulation/cloud-init
+
+              # Bring the bake VM's @world in line with the freshly-
+              # synced tree, drawing binpkgs from the official
+              # binhost.
+              #
+              # Two-pass with --keep-going=y to survive the portage
+              # self-upgrade across Python targets: the old portage
+              # (python3.13) can crash in `_post_merge_sync`
+              # mid-replace; the second pass uses the freshly
+              # installed new portage and finishes the rest.
               emerge --update --deep --newuse --getbinpkg --usepkg \
                 --binpkg-respect-use=y --quiet-build --keep-going=y \
                 -v @world || \
@@ -214,10 +274,9 @@ pipeline:
             timeoutSec: 120
 
         # 4) Mount the new root and lay down a Gentoo @system directly,
-        #    no stage3. The bake VM's mounted portage tree + binhost
-        #    (shared from the host via virtiofs) drives the install, so
-        #    the resulting sysroot is guaranteed consistent with the
-        #    tree state the rest of the bake uses.
+        #    no stage3. The bake VM's portage tree + official binhost
+        #    drive the install; the resulting sysroot is consistent with
+        #    the tree state the rest of the bake uses.
         - shell:
             inline: |
               mkdir -p "$SYSROOT"
@@ -231,6 +290,7 @@ pipeline:
                          "$SYSROOT/etc/portage/package.license" \
                          "$SYSROOT/etc/portage/env" \
                          "$SYSROOT/etc/portage/repos.conf" \
+                         "$SYSROOT/etc/portage/binrepos.conf" \
                          "$SYSROOT/var/cache/distfiles" \
                          "$SYSROOT/var/cache/binpkgs" \
                          "$SYSROOT/var/db/repos" \
@@ -249,25 +309,19 @@ pipeline:
               #
               # /usr/sbin is ALSO a symlink (to bin) in modern merged-
               # usr Gentoo — sbin and bin are unified inside /usr too.
-              # If /usr/sbin is left as a real directory, shadow's
-              # `dosbin groupadd` lands at /usr/sbin/groupadd, which
-              # never appears on the default Gentoo PATH (PATH /
-              # ROOTPATH in /etc/env.d/50baselayout cover /usr/bin
-              # only). Result: groupadd "command not found" when any
-              # downstream ebuild calls it.
               ln -sf bin       "$SYSROOT/usr/sbin"
               ln -sf usr/bin   "$SYSROOT/bin"
               ln -sf usr/sbin  "$SYSROOT/sbin"
               ln -sf usr/lib   "$SYSROOT/lib"
               ln -sf usr/lib64 "$SYSROOT/lib64"
 
-              # Carry the bake host's binhost knobs into the new system.
-              # Quoted heredoc so the ${VAR} references stay literal
-              # (portage's make.conf parser will expand them) and so
-              # the backticks in the comments below don't get evaluated
-              # as shell command substitution. MAKEOPTS needs nproc at
-              # bake time, which a quoted heredoc can't expand — we
-              # append it separately after the heredoc closes.
+              # Carry the official-binhost knobs into the new system.
+              # Signature verification stays at the 23.0 profile
+              # default (`binpkg-request-signature` on); the release
+              # keys land in /etc/portage/gnupg below. MAKEOPTS needs
+              # nproc at bake time, which a quoted heredoc can't
+              # expand — we append it separately after the heredoc
+              # closes.
               cat > "$SYSROOT/etc/portage/make.conf" <<'EOF'
               COMMON_FLAGS="-O2 -pipe"
               CFLAGS="${COMMON_FLAGS}"
@@ -276,37 +330,21 @@ pipeline:
               FFLAGS="${COMMON_FLAGS}"
 
               # `-binpkg-request-signature binpkg-ignore-signature`:
-              # the host binhost we ship by default isn't uniformly
-              # signed (some old per-package binpkgs have .sig files
-              # left over from a prior FEATURES=binpkg-signing run,
-              # most don't). With the 23.0 profile's default
-              # `binpkg-request-signature` left enabled, portage
-              # routes every unsigned binpkg through its gpg-VERIFY
-              # codepath — which on a fresh sysroot crashes with
-              # `getgrnam(): name not found: 'nogroup'` because
-              # baselayout doesn't ship a `nogroup` group. And even
-              # with `-binpkg-request-signature` alone, the presence
-              # of any .sig inside a gpkg still triggers VERIFY (see
-              # gpkg.py:_verify_binpkg, condition `request_signature
-              # or signature_exist`). Adding `binpkg-ignore-signature`
-              # short-circuits verification entirely. Downstream bakes
-              # against this image (corvus-test-node etc.) can then
-              # `emerge --usepkg` against the heterogeneously-signed
-              # binhost without crashing on the first signed binpkg.
+              # the official binhost serves unsigned gpkgs (see the
+              # bake VM's make.conf comment for the full story).
+              # Carry the same workaround into the published image so
+              # downstream `emerge --usepkg` against the same binhost
+              # works post-install.
               FEATURES="getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
               EMERGE_DEFAULT_OPTS="--getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
               ACCEPT_LICENSE="*"
               USE="bash-completion"
 
-              # Portage's gpkg verifier (gpkg.py:checksum_helper) drops
-              # privileges to nobody:nogroup whenever a gpkg contains a
-              # .sig — and that happens BEFORE any FEATURES check, so
-              # binpkg-ignore-signature alone can't avoid the lookup.
-              # Gentoo's baselayout doesn't ship a 'nogroup' group, so
-              # the lookup crashes with KeyError: "getgrnam(): name not
-              # found: 'nogroup'" the first time a partially-signed
-              # binpkg (e.g. acct-group/postgres) lands. Empty value
-              # tells portage to skip the privilege drop entirely.
+              # See the bake VM's make.conf above: portage drops gpg's
+              # privileges to nobody:nogroup before any FEATURES check,
+              # which then can't read /etc/portage/gnupg and bails
+              # with "unsafe ownership on homedir". Empty drops keep
+              # gpg running as root so the trap never trips.
               GPG_VERIFY_USER_DROP=""
               GPG_VERIFY_GROUP_DROP=""
               EOF
@@ -331,6 +369,13 @@ pipeline:
               auto-sync = yes
               EOF
 
+              cat > "$SYSROOT/etc/portage/binrepos.conf/gentoo.conf" <<'EOF'
+              [binhost]
+              priority = 9999
+              sync-uri = https://distfiles.gentoo.org/releases/amd64/binpackages/23.0/x86-64
+              verify-signature = false
+              EOF
+
               # Relative make.profile so the symlink resolves on the
               # booted image the first time the user runs
               # `emerge-webrsync` (or `emerge --sync`) — same convention
@@ -338,7 +383,13 @@ pipeline:
               ln -sf ../../var/db/repos/gentoo/profiles/default/linux/amd64/23.0/systemd \
                 "$SYSROOT/etc/portage/make.profile"
 
-              # Trust keys for binpkg signature verification.
+              # Carry the bake VM's /etc/portage/gnupg into the
+              # sysroot. Binpkg signature verification is disabled
+              # for the unsigned official binhost (see make.conf
+              # above), but the gnupg dir holds release keys getuto
+              # installed and is used by other portage paths
+              # (rsync-verify, manifest checks). Keep it copied so
+              # those keep working post-install.
               cp -a /etc/portage/gnupg "$SYSROOT/etc/portage/gnupg"
 
               # Break the well-known systemd ↔ util-linux build
@@ -349,41 +400,23 @@ pipeline:
               # util-linux without the systemd USE first, then re-emerge
               # it at the end of this step so the final image has full
               # systemd integration.
-              #
-              # The override goes in the BAKE VM's /etc/portage (not
-              # the sysroot's) because the @system emerge below uses
-              # ROOT=$SYSROOT only — it reads /etc/portage from the
-              # live bake VM, not from the sysroot. We use a name
-              # outside the sysroot so the bootstrap doesn't leak into
-              # the final image.
               install -d /etc/portage/package.use
-              # `build` USE on util-linux is the stage3-style minimal
-              # mode that strips systemd + udev + most extras in one
-              # flag — breaks both the systemd↔util-linux cycle AND
-              # the libudev→systemd→util-linux→libudev cycle that comes
-              # in via `virtual/libudev`. Pam still needs an explicit
-              # -systemd to break the pam↔systemd cycle.
               cat > /etc/portage/package.use/zz-corvus-bootstrap <<'EOF'
               sys-apps/util-linux build
               sys-libs/pam -systemd
               EOF
 
               # Install @system into the sysroot using the bake VM's
-              # live portage (host's tree, mounted) and the host
-              # binhost. Bake VM's /etc/portage drives the resolve —
-              # both ends are amd64 systemd Gentoo with the same
-              # binhost config.
+              # live portage and the official binhost. Bake VM's
+              # /etc/portage drives the resolve — both ends are
+              # amd64 systemd Gentoo with the same binhost config.
               #
               # `env -u SYSROOT` is critical: this pipeline exports a
               # shell-level SYSROOT=/mnt/sysroot for ergonomics, but
               # portage interprets a non-empty SYSROOT as the
-              # cross-compile target sysroot and pipes
-              # `--sysroot=/mnt/sysroot` through to GCC / CMake. With a
-              # freshly-formatted /mnt/sysroot (no /usr/include yet),
-              # every source-build ebuild then dies with "fatal error:
-              # assert.h: No such file or directory". Unsetting SYSROOT
-              # here puts portage in native mode — uses the bake VM's
-              # own headers/libs, installs into ROOT=/mnt/sysroot.
+              # cross-compile target sysroot. Unsetting it here puts
+              # portage in native mode — uses the bake VM's own
+              # headers/libs, installs into ROOT=/mnt/sysroot.
               env -u SYSROOT ROOT="$SYSROOT" emerge -vt @system
 
               # Cycles broken: drop the overrides and re-emerge the
@@ -395,11 +428,7 @@ pipeline:
               # systemd-PID1's required pseudo-fs mountpoints. baselayout
               # normally lays /proc, /sys, /dev, /run, /tmp down on a
               # fresh stage3 unpack, but its ROOT=$SYSROOT @system
-              # install above doesn't reliably create them — without
-              # these the booted image hangs at PID1 with "Failed to
-              # mount proc/sys/dev: No such file or directory" plus a
-              # very early "devtmpfs: error mounting -2" from the
-              # kernel's auto-mount.
+              # install above doesn't reliably create them.
               install -d -m 755 "$SYSROOT/proc" "$SYSROOT/sys" \
                                 "$SYSROOT/dev"  "$SYSROOT/run"
               install -d -m 1777 "$SYSROOT/tmp" "$SYSROOT/var/tmp"
@@ -433,7 +462,9 @@ pipeline:
                 "$SYSROOT/boot/config-$KVER"
             timeoutSec: 14400
 
-        # 6) Install runtime packages
+        # 6) Install runtime packages. Same set as the host-shared
+        #    variant minus net-fs/nfs-utils — the standalone image
+        #    has no need to mount remote binhost storage.
         - shell:
             inline: |
               emerge --sysroot="$SYSROOT" --root="$SYSROOT" -vt \
@@ -441,7 +472,6 @@ pipeline:
                 app-emulation/cloud-init \
                 mail-mta/msmtp \
                 app-admin/sudo \
-                net-fs/nfs-utils \
                 app-editors/vim \
                 app-shells/bash-completion
             timeoutSec: 1800
@@ -491,26 +521,13 @@ pipeline:
               # Pre-set the timezone to UTC. systemd-firstboot
               # otherwise blocks on stdin asking the operator to pick a
               # zone — fine in a docked desktop install, fatal on a
-              # headless serial-console boot. The /etc/localtime
-              # symlink (relative, into /usr/share/zoneinfo) signals
-              # "timezone already chosen" to firstboot.
+              # headless serial-console boot.
               ln -sf ../usr/share/zoneinfo/UTC "$SYSROOT/etc/localtime"
 
               # Pin the system locale to en_US.UTF-8 and generate it
-              # in the sysroot. Without this, baselayout leaves
-              # /etc/locale.conf empty and processes inherit the C /
-              # POSIX locale (ASCII-only). Anything that prints a
-              # non-ASCII character — `crv`'s em-dash separators, for
-              # one — then crashes with "commitBuffer: invalid
-              # argument (cannot encode character …)" on stdout, and
-              # postgres' initdb refuses to run ("invalid locale
-              # settings"). Gentoo's glibc doesn't include any
-              # built-in UTF-8 locale, so we have to localedef one
-              # into the sysroot — which means a chroot because the
-              # sysroot's localedef wants the sysroot's
-              # /usr/share/i18n data, not the bake VM's. The
-              # locale-gen wrapper (sys-apps/locale-gen) is NOT in
-              # @system, so we call localedef from glibc directly.
+              # in the sysroot via chroot+localedef (Gentoo's glibc
+              # ships no built-in UTF-8 locale; see the host-shared
+              # variant for the full rationale).
               cat > "$SYSROOT/etc/locale.gen" <<'EOF'
               en_US.UTF-8 UTF-8
               EOF
@@ -547,15 +564,8 @@ pipeline:
                 cloud-init-hotplugd.socket
 
               # Pin cloud-init's datasource to NoCloud and skip
-              # ds-identify's auto-detection. Corvus's apply YAML
-              # always supplies cloud-init data via a NoCloud cidata
-              # ISO (see Handlers/CloudInit.hs); ds-identify can race
-              # the IDE CDROM enumeration on early boot and tell the
-              # cloud-init generator "no datasource", which writes
-              # /run/cloud-init/cloud-init.disabled and you end up
-              # with `cloud-init status` reporting "disabled-by-
-              # generator". Pinning datasource_list bypasses the
-              # generator's veto.
+              # ds-identify's auto-detection. Same reasoning as the
+              # host-shared variant.
               install -d "$SYSROOT/etc/cloud/cloud.cfg.d"
               cat > "$SYSROOT/etc/cloud/cloud.cfg.d/90_corvus_nocloud.cfg" <<'EOF'
               datasource_list: [ NoCloud, None ]
@@ -571,8 +581,10 @@ pipeline:
         - shell:
             inline: |
               cat > "$SYSROOT/etc/corvus-image-info" <<EOF
-              image: gentoo-headless
+              image: gentoo-headless (standalone — no host mounts)
               built: $(date -Iseconds)
+              build-id: $(date +%s)
+              built-by: corvus build-cache memory-mode demo (use-cache pass)
               EOF
 
               sync
@@ -580,25 +592,3 @@ pipeline:
             timeoutSec: 300
 
       cleanup: onSuccess
-
-  - apply:
-      ifExists: skip
-      templates:
-        - name: gentoo-headless
-          cpuCount: 8
-          ramMb: 8192
-          cloudInit: true
-          guestAgent: true
-          headless: true
-          description: "Gentoo (custom image for headless VMs)"
-          drives:
-            - diskImageName: gentoo-base-headless
-              interface: virtio
-              strategy: overlay
-              cacheType: writeback
-              discard: true
-              sizeMb: 40960
-          networkInterfaces:
-            - network: corvus
-          sshKeys:
-            - name: corvus
