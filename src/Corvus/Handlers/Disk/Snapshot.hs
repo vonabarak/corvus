@@ -49,7 +49,7 @@ import Corvus.Handlers.Disk.Db (getRunningAttachedVms, getSnapshots)
 import Corvus.Handlers.Disk.Path (resolveDiskPath)
 import Corvus.Handlers.Resolve (resolveSnapshot, validateName)
 
-import Control.Monad (filterM)
+import Control.Monad (filterM, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN)
 import Corvus.Handlers.Disk.Agent
@@ -59,6 +59,8 @@ import Corvus.Handlers.Disk.Agent
   , deleteSnapshotViaAgent
   , deleteSnapshotViaAgentLive
   , deleteSnapshotViaAgentWithVmstate
+  , guestSetTimeViaAgent
+  , loadSnapshotViaAgentWithVmstate
   , mergeSnapshotViaAgent
   , rollbackSnapshotViaAgent
   )
@@ -67,7 +69,7 @@ import Corvus.Model
 import Corvus.Node.Image (ImageResult (..))
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol
-import Corvus.Types (ServerState (..), runServerLogging)
+import Corvus.Types (ServerState (..), lookupNodeAgent, runServerLogging)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -542,22 +544,7 @@ handleSnapshotRollback state diskId snapRef = runServerLogging state $ do
                 Nothing -> pure RespSnapshotNotFound
                 Just snapshot
                   | snapshotHasVmstate snapshot ->
-                      -- Standalone vmstate rollback needs the
-                      -- "launch QEMU paused → snapshot-load →
-                      -- cont → guestSetTime" orchestration; that
-                      -- helper isn't built yet. The build cache
-                      -- exercises this path via its own bake VM
-                      -- lifecycle code in PR2 — landing a
-                      -- standalone --with-ram rollback is
-                      -- tracked as a follow-up.
-                      pure $
-                        RespError
-                          "Standalone vmstate snapshot rollback is not yet \
-                          \implemented. Delete the snapshot and re-create \
-                          \the desired guest state by hand; or use the \
-                          \build-cache mechanism (cacheMode: memory) which \
-                          \drives snapshot-load through its own bake-VM \
-                          \lifecycle."
+                      handleVmstateRollback state diskId snapshot
                   | otherwise -> do
                       runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
                       if not (null runningVms)
@@ -588,6 +575,155 @@ handleSnapshotRollback state diskId snapRef = runServerLogging state $ do
                                 ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
                                 ImageError err -> pure $ RespError err
                                 ImageNotFound -> pure RespDiskNotFound
+
+-- | Rollback the running VM's full machine state to a vmstate
+-- snapshot. Pre: @snapshotHasVmstate snapshot = True@.
+--
+-- Lifecycle (running VM case): QMP @stop@ pauses CPUs →
+-- @snapshot-load@ restores RAM/devices + every disk in the
+-- snapshot set atomically → @cont@ resumes CPUs → QGA
+-- @guest-set-time@ resyncs the wall clock.
+--
+-- A stopped VM is rejected for now: that path needs the
+-- paused-start lifecycle (launch QEMU with @-S@, then load).
+-- The 'vsStartPaused' plumbing landed in a sibling commit;
+-- wiring it through is a follow-up.
+handleVmstateRollback
+  :: ServerState -> Int64 -> Snapshot -> LoggingT IO Response
+handleVmstateRollback state diskId carrierSnap = do
+  runningVms <-
+    liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
+  case runningVms of
+    [] ->
+      pure $
+        RespError
+          "vmstate snapshot rollback currently requires the VM to be running \
+          \(QMP snapshot-load needs a live QEMU process). Start the VM first, \
+          \then re-issue the rollback. (Paused-start support is a follow-up.)"
+    (_ : _ : _) ->
+      pure $
+        RespError
+          "vmstate snapshot rollback: the disk is attached to multiple running \
+          \VMs; the snapshot-load lifecycle is per-VM."
+    [vmId] -> do
+      mNid <- liftIO $ pickNodeForExistingDisk state (toSqlKey diskId :: DiskImageId)
+      case mNid of
+        Left err -> pure $ RespError err
+        Right nid -> do
+          eSet <-
+            liftIO $
+              runSqlPool
+                ( do
+                    eSiblings <- listVmstateSiblingDrives (toSqlKey vmId :: VmId)
+                    case eSiblings of
+                      Left err -> pure (Left err)
+                      Right diskIds -> do
+                        snapRows <-
+                          mapM
+                            ( \did -> do
+                                rs <-
+                                  selectList
+                                    [ SnapshotDiskImageId ==. did
+                                    , SnapshotName ==. snapshotName carrierSnap
+                                    ]
+                                    []
+                                pure (did, rs)
+                            )
+                            diskIds
+                        pure (Right snapRows)
+                )
+                (ssDbPool state)
+          case eSet of
+            Left err -> pure $ RespError err
+            Right snapRows -> do
+              let pairs = [(did, entityKey s) | (did, ss) <- snapRows, s <- ss]
+              when (null pairs) $
+                error "vmstate rollback: no sibling snapshots — DB inconsistent?"
+              paths <-
+                liftIO $
+                  mapM
+                    ( \(did, _) ->
+                        resolveDiskPath
+                          (ssDbPool state)
+                          (ssQemuConfig state)
+                          did
+                          nid
+                    )
+                    pairs
+              carrierPath <-
+                liftIO $
+                  resolveDiskPath
+                    (ssDbPool state)
+                    (ssQemuConfig state)
+                    (toSqlKey diskId :: DiskImageId)
+                    nid
+              logInfoN $
+                "vmstate snapshot rollback: pausing VM "
+                  <> T.pack (show vmId)
+                  <> ", loading tag="
+                  <> snapshotName carrierSnap
+              -- Pause CPUs so snapshot-load can run; vmPause is
+              -- idempotent (QMP `stop` on an already-paused VM is
+              -- a no-op).
+              ePause <-
+                liftIO $ withNAC state nid $ \nac -> NOA.vmPause nac vmId
+              case ePause of
+                Left e -> pure $ RespError ("vmstate rollback (pause): " <> e)
+                Right () -> do
+                  loadRes <-
+                    liftIO $
+                      loadSnapshotViaAgentWithVmstate
+                        state
+                        nid
+                        carrierPath
+                        paths
+                        (snapshotName carrierSnap)
+                        vmId
+                  case loadRes of
+                    ImageSuccess -> do
+                      eResume <-
+                        liftIO $
+                          withNAC state nid $
+                            \nac -> NOA.vmResume nac vmId
+                      case eResume of
+                        Left e ->
+                          pure $ RespError ("vmstate rollback (cont): " <> e)
+                        Right () -> do
+                          -- guest-set-time is best-effort: the
+                          -- rollback succeeded even if the QGA
+                          -- call doesn't reach the guest.
+                          _ <-
+                            liftIO $ guestSetTimeViaAgent state nid vmId
+                          logInfoN $
+                            "vmstate snapshot rollback: VM "
+                              <> T.pack (show vmId)
+                              <> " resumed at snapshot state"
+                          pure RespSnapshotOk
+                    ImageFormatNotSupported msg ->
+                      pure $ RespFormatNotSupported msg
+                    ImageError err -> pure $ RespError err
+                    ImageNotFound -> pure RespDiskNotFound
+
+-- | Adapter that bridges 'lookupNodeAgent' + a NAC call into a
+-- single 'IO (Either Text ())' return for inline orchestration
+-- (where the daemon-side helper layer's @ImageResult@ adapter
+-- doesn't fit because the agent method returns @()@ on success,
+-- not a 'DiskOpResult'). Used by 'handleVmstateRollback' for
+-- vmPause/vmResume which don't carry a wire body on success.
+withNAC
+  :: ServerState
+  -> NodeId
+  -> (NOA.NodeAgentClient -> IO (Either NOA.NodeAgentError ()))
+  -> IO (Either Text ())
+withNAC state nid call = do
+  r <- lookupNodeAgent state nid
+  case r of
+    Left err -> pure (Left err)
+    Right nac -> do
+      res <- call nac
+      pure $ case res of
+        Left e -> Left (T.pack (show e))
+        Right () -> Right ()
 
 -- | Merge a snapshot. On qcow2 the merge operation IS the
 -- snapshot-delete (the current disk state is preserved; only the

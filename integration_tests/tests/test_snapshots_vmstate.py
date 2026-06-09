@@ -1,19 +1,19 @@
 """Full-machine (vmstate-aware) snapshot lifecycle.
 
-Exercises the QMP ``snapshot-save`` / ``snapshot-delete`` async-job
-path that landed alongside the snapshot subsystem's
-``hasVmstate`` extension. The standalone CLI surface is
-``crv disk snapshot create <disk> <name> --with-ram``; the
-``SnapshotInfo`` row that comes back has ``has_vmstate=True`` on
-the carrier disk.
+Exercises the QMP ``snapshot-save`` / ``snapshot-load`` /
+``snapshot-delete`` async-job path that landed alongside the
+snapshot subsystem's ``hasVmstate`` extension. The standalone
+CLI surface is ``crv disk snapshot create <disk> <name>
+--with-ram``; the ``SnapshotInfo`` row that comes back has
+``has_vmstate=True`` on the carrier disk.
 
-Standalone vmstate ROLLBACK is intentionally gated to a clear
-error in this layer — the only consumer that drives
-``snapshot-load`` is the build cache in ``cacheMode: memory``,
-which has its own bake-VM lifecycle code. This test covers
-create + delete; it asserts rollback errors cleanly so a future
-regression that silently calls the offline ``qemu-img snapshot
--a`` (which would corrupt a vmstate-aware qcow2) gets caught.
+Rollback restores RAM + device state + every disk in the
+snapshot set atomically. After ``cont``, the daemon calls QGA
+``guest-set-time`` so the guest's wall clock isn't stuck at
+snapshot-time. The smoking-gun assertion is that a file
+created BEFORE the snapshot and deleted AFTER comes back
+after rollback — vmstate restore captures the in-flight page
+cache, so the proof needs no ``sync`` round-trip on the host.
 """
 
 from __future__ import annotations
@@ -105,20 +105,87 @@ class TestSnapshotsVmstate(SingleNodeCase):
             with pytest.raises(CorvusError, match="running"):
                 disk.snapshot_create(_uniq("nope"), full_machine=True)
 
-    def test_with_ram_rollback_returns_clear_error(self):
-        """Standalone rollback of a vmstate-aware snapshot is
-        deliberately not wired up in this layer — the build cache
-        will drive ``snapshot-load`` through its own bake-VM
-        lifecycle code. The handler must return a clear error
-        directing the operator at the build-cache path rather
-        than silently calling the offline rollback (which would
-        corrupt the carrier qcow2 — vmstate references RAM/CPU
-        state that no longer matches the running QEMU process)."""
+    def test_with_ram_rollback_restores_guest_state(self):
+        """The smoking-gun test: a file created before the
+        snapshot and deleted after it must come back after
+        rollback. This proves vmstate restore is captured the
+        in-flight page cache (the file's inode was in memory at
+        snapshot time but never had to be sync'd to disk for the
+        restore to find it) and that QGA + the guest's clock
+        come back online via ``guest-set-time`` post-cont."""
         with Vm(self) as vm:
             disk = self.client.disks.get(vm.name)
-            snap = disk.snapshot_create(_uniq("no-rollback"), full_machine=True)
+
+            # Phase 1: lay the sentinel down inside the guest.
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                shell.run("touch /tmp/vmstate-sentinel")
+                got = shell.run(
+                    "test -f /tmp/vmstate-sentinel && echo PRESENT || echo MISSING"
+                ).stdout.strip()
+                assert got == "PRESENT"
+
+            # Snapshot the running guest including vmstate.
+            tag = _uniq("restore")
+            snap = disk.snapshot_create(tag, full_machine=True)
             try:
-                with pytest.raises(CorvusError, match="not yet implemented"):
+                assert snap.show().has_vmstate
+
+                # Phase 2: mutate state AFTER the snapshot.
+                with self.vm_shell(vm.cap) as shell:
+                    shell.wait_ready(timeout_sec=90)
+                    shell.run("rm /tmp/vmstate-sentinel")
+                    missing = shell.run(
+                        "test -f /tmp/vmstate-sentinel && echo PRESENT || echo MISSING"
+                    ).stdout.strip()
+                    assert missing == "MISSING"
+
+                # Rollback — daemon drives QMP stop -> snapshot-load
+                # -> cont -> guest-set-time. The VM stays running
+                # from the operator's perspective (no separate
+                # VmStart needed; vmstate restore is itself a
+                # resume).
+                snap.rollback()
+
+                # Phase 3: the sentinel is back. QGA reconnects
+                # under the same persistent socket the harness
+                # is using.
+                with self.vm_shell(vm.cap) as shell:
+                    shell.wait_ready(timeout_sec=90)
+                    restored = shell.run(
+                        "test -f /tmp/vmstate-sentinel && echo PRESENT || echo MISSING"
+                    ).stdout.strip()
+                    assert restored == "PRESENT", (
+                        "vmstate rollback did not restore the pre-snapshot "
+                        "file; in-flight page cache was not captured"
+                    )
+            finally:
+                # Snapshot may already be gone if the rollback
+                # path consumed it; tolerate either.
+                try:
+                    snap.delete()
+                except CorvusError:
+                    pass
+
+    def test_with_ram_rollback_rejects_stopped_vm(self):
+        """Vmstate rollback requires a live QEMU process for the
+        QMP ``snapshot-load`` async job. The paused-start
+        lifecycle that would let us load into a freshly-spawned
+        QEMU is a follow-up; for now a stopped VM gets a clear
+        error directing the operator to start it first."""
+        with Vm(self) as vm:
+            disk = self.client.disks.get(vm.name)
+            tag = _uniq("stopped")
+            snap = disk.snapshot_create(tag, full_machine=True)
+            try:
+                vm.cap.stop(wait=True)
+                with pytest.raises(CorvusError, match="requires the VM to be running"):
                     snap.rollback()
             finally:
-                snap.delete()
+                # Restart so the snapshot delete (which needs a
+                # running VM too) can clean up.
+                vm.cap.start(wait=True)
+                try:
+                    snap.delete()
+                except CorvusError:
+                    pass
