@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
+.PHONY: all build install uninstall cleanup test unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -125,6 +125,21 @@ integration-tests-clean:
 	else \
 	  echo "no corvus-it-* networks"; \
 	fi
+
+# Umbrella: run every test suite in escalating-cost order so a
+# failure in the cheap pure-Haskell layer surfaces before we
+# burn minutes booting nested VMs. Make stops on the first
+# non-zero exit, so a busted `unit-tests` skips the Python +
+# integration phases.
+#
+#   1. unit-tests          — pure Haskell, ~10s.
+#   2. python-test         — Python client + corvus-admin against
+#                            a per-test daemon on a temp socket,
+#                            ~minutes.
+#   3. integration-tests   — nested-VM end-to-end suite, ~6+ min.
+#
+# This is the local equivalent of CI's pre-merge gate.
+test: unit-tests python-test integration-tests
 
 # Run the Haskell unit-test suite. Integration tests have moved to
 # pytest under integration_tests/ (see `make integration-tests`);
