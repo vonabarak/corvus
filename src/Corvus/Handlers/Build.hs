@@ -634,6 +634,15 @@ runFreshBake
   -> Build
   -> LoggingT IO (Either Text Int64)
 runFreshBake state parentTaskId sink stack startTime opts b = do
+  -- No prefix matched (or --use-cache was off). Any rows still on
+  -- file under this pipeline key are stale orphans from a previous
+  -- run that no longer shares a chain — drop them before we start
+  -- writing new ones.
+  when (buildBuildCache b) $
+    Cache.pruneCacheTail
+      state
+      (H.envelopeHash b <> ":" <> buildName b)
+      0
   let prefix = "__build_" <> T.pack (show (fromSqlKey parentTaskId)) <> "_"
       bakeVmName = prefix <> sanitizeNameFragment (buildName b) <> "-vm"
       targetTmpName = prefix <> sanitizeNameFragment (buildName b) <> "-target"
@@ -807,7 +816,18 @@ runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cach
             pure (classifyStopResp resp)
       case stopR of
         Left err -> pure (Left ("stop cached bake VM: " <> err))
-        Right () -> dispatchOnMode
+        Right () -> do
+          -- Stale-tail cleanup: drop any cache rows + qcow2 internal
+          -- snapshots for stepIndex > k left over from a previous
+          -- run that diverged at or before this point. The bake VM
+          -- is stopped above, so offline qemu-img can take the
+          -- qcow2 lock cleanly.
+          when (buildBuildCache b) $
+            Cache.pruneCacheTail
+              state
+              (H.envelopeHash b <> ":" <> buildName b)
+              k
+          dispatchOnMode
 
     dispatchOnMode = do
       artifactRes <- liftIO $ resolveCachedArtifactDiskId state cachedVmId prefixHash

@@ -573,6 +573,7 @@ test-suite corvus-test
       Corvus.ActionSpec
       Corvus.ApplySpec
       Corvus.BuildCacheHashSpec
+      Corvus.BuildCachePruneSpec
       Corvus.BuildCleanupSpec
       Corvus.BuildSchemaSpec
       Corvus.BuildStreamSpec

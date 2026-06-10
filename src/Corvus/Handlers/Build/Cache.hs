@@ -16,6 +16,7 @@ module Corvus.Handlers.Build.Cache
   , writableCacheDisks
   , snapshotCachedStep
   , rollbackToCachedStep
+  , pruneCacheTail
   )
 where
 
@@ -26,6 +27,7 @@ import qualified Corvus.Build.Cache.Store as Store
 import Corvus.Handlers.Disk.Agent
   ( createSnapshotViaAgentLiveMany
   , createSnapshotViaAgentWithVmstate
+  , deleteSnapshotViaAgent
   , rollbackSnapshotViaAgent
   )
 import Corvus.Handlers.Disk.Db (listDiskImageNodes)
@@ -325,3 +327,120 @@ rollbackToCachedStep state disks chain = do
           pure (Left ("cache rollback (disk " <> cdRole d <> "): snapshot not found"))
         ImageFormatNotSupported msg ->
           pure (Left ("cache rollback: " <> msg))
+
+-- | Delete cache rows and their qcow2 internal snapshots for every
+-- step whose @stepIndex@ exceeds the resume point. Called once at
+-- build start (after the resume-point decision):
+--
+-- * @k = matched prefix length@ on a resumed build — preserves
+--   steps @1..k@, drops the stale tail from a prior run.
+-- * @k = 0@ on a fresh bake — drops every row for this pipeline
+--   key (typically orphans from an earlier build that no longer
+--   shares a chain with the current YAML).
+--
+-- Guarantees the post-success invariant: exactly one cache row per
+-- @(pipelineKey, stepIndex, diskRole)@ once the build completes.
+--
+-- Best-effort wrt @qemu-img@: a snapshot delete that fails (disk
+-- migrated, snapshot already gone, bake VM still holds the file
+-- lock) is logged at WARN, and the DB rows are removed regardless.
+-- Worst case is a dead internal snapshot lingering inside an
+-- otherwise-reachable qcow2 — unreferenced from the cache index,
+-- it will be reaped when the disk is.
+--
+-- The caller is responsible for stopping the bake VM first when the
+-- prune targets a currently-resumed bake (offline @qemu-img@ needs
+-- the qcow2 unlocked). 'runFromCachedBakeVm' invokes this only
+-- after its explicit @VmStop@; 'runFreshBake' invokes it at the
+-- very top, before any new VM is brought up.
+pruneCacheTail
+  :: ServerState
+  -> Text
+  -- ^ pipelineKey
+  -> Int
+  -- ^ k = last cached step preserved (0 = prune all)
+  -> LoggingT IO ()
+pruneCacheTail state pipelineKey k = do
+  rows <-
+    liftIO $
+      runSqlPool
+        ( selectList
+            [ M.BuildCacheEntryPipelineKey ==. pipelineKey
+            , M.BuildCacheEntryStepIndex >. k
+            ]
+            []
+        )
+        (ssDbPool state)
+  case rows of
+    [] -> pure ()
+    _ -> do
+      let snapIds = L.nub [M.buildCacheEntrySnapshotId (entityVal r) | r <- rows]
+      snapEntries <-
+        liftIO $
+          runSqlPool
+            (selectList [M.SnapshotId <-. snapIds] [])
+            (ssDbPool state)
+      let pairs =
+            L.nub
+              [ (M.snapshotDiskImageId (entityVal s), M.snapshotName (entityVal s))
+              | s <- snapEntries
+              ]
+      mapM_ (tryDeleteQcowSnapshot state) pairs
+      -- Delete BuildCacheEntry rows before Snapshot rows: the cache
+      -- entries hold the FK to Snapshot, so the snapshot delete
+      -- would otherwise trip the RESTRICT constraint.
+      liftIO $
+        runSqlPool
+          ( do
+              deleteWhere
+                [ M.BuildCacheEntryPipelineKey ==. pipelineKey
+                , M.BuildCacheEntryStepIndex >. k
+                ]
+              deleteWhere [M.SnapshotId <-. snapIds]
+          )
+          (ssDbPool state)
+      logInfoN $
+        "cache: pruned "
+          <> T.pack (show (length rows))
+          <> " stale row(s) and "
+          <> T.pack (show (length pairs))
+          <> " qcow2 snapshot(s) for pipeline "
+          <> pipelineKey
+          <> " (stepIndex > "
+          <> T.pack (show k)
+          <> ")"
+
+-- | Drop a single qcow2 internal snapshot from its backing disk file
+-- via the offline @qemu-img snapshot -d@ path. Tolerates a missing
+-- placement (the disk has been migrated out) and @ImageNotFound@
+-- (the snapshot was already deleted out-of-band). Any other agent
+-- error is logged at WARN; the DB cleanup proceeds regardless.
+tryDeleteQcowSnapshot
+  :: ServerState -> (DiskImageId, Text) -> LoggingT IO ()
+tryDeleteQcowSnapshot state (diskKey, snapName) = do
+  placements <-
+    liftIO $ runSqlPool (listDiskImageNodes diskKey) (ssDbPool state)
+  case placements of
+    [] ->
+      logInfoN $
+        "cache prune: disk "
+          <> T.pack (show (fromSqlKey diskKey))
+          <> " has no placement; skipping qemu-img delete for "
+          <> snapName
+    Entity _ row : _ -> do
+      let nid = M.diskImageNodeNodeId row
+      path <-
+        liftIO $
+          resolveDiskPath
+            (ssDbPool state)
+            (ssQemuConfig state)
+            diskKey
+            nid
+      r <- liftIO $ deleteSnapshotViaAgent state nid path snapName
+      case r of
+        ImageSuccess -> pure ()
+        ImageNotFound -> pure ()
+        ImageError msg ->
+          logWarnN $ "cache prune: " <> snapName <> ": " <> msg
+        ImageFormatNotSupported msg ->
+          logWarnN $ "cache prune: " <> snapName <> ": " <> msg
