@@ -28,7 +28,7 @@ where
 
 import Control.Concurrent (forkIO, threadDelay)
 import Control.Concurrent.STM
-import Control.Exception (SomeException, bracket, try)
+import Control.Exception (SomeException, bracket, finally, try)
 import Control.Monad (void)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel, LoggingT, filterLogger, logDebugN, logWarnN, runStdoutLoggingT)
@@ -186,7 +186,12 @@ runReader vmId bufferMap capacity qemuSock = do
           }
   -- Register in map
   atomically $ modifyTVar' bufferMap (Map.insert vmId handle)
-  -- Read loop
+  -- Read loop. The cleanup runs under 'finally' so the map entry +
+  -- shutdown signal land even if 'recv' throws (which it does on a
+  -- hard-killed QEMU — the kernel resets the socket instead of
+  -- sending the clean EOF the normal-exit path delivers). Without
+  -- it, a SIGKILL'd VM leaves a dead 'SocketBufferHandle' in the
+  -- map for the agent's lifetime.
   let loop = do
         chunk <- recv qemuSock 4096
         if BS.null chunk
@@ -194,10 +199,9 @@ runReader vmId bufferMap capacity qemuSock = do
           else do
             writeBuffer buf chunk
             loop
-  loop
-  -- Cleanup: mark shutdown, remove from map
-  atomically $ do
-    writeTVar shutdownVar True
-    writeTVar qemuSockVar Nothing
-    modifyTVar' bufferMap (Map.delete vmId)
-    void $ tryPutTMVar (sbNotify buf) ()
+      cleanup = atomically $ do
+        writeTVar shutdownVar True
+        writeTVar qemuSockVar Nothing
+        modifyTVar' bufferMap (Map.delete vmId)
+        void $ tryPutTMVar (sbNotify buf) ()
+  loop `finally` cleanup

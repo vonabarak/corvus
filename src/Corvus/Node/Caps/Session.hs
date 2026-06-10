@@ -1430,6 +1430,14 @@ doVmStart sc spec = do
                     <> tshow qemuPidW
                     <> " code="
                     <> tshow code
+                -- QEMU's gone, so its QGA chardev is gone too;
+                -- the persistent socket the agent kept in
+                -- 'scQgaConns' for this VM points at nothing.
+                -- Drop it here so we don't accumulate fds for
+                -- VMs whose subsequent 'vmStopGraceful' never
+                -- arrives (e.g. operator forgets, or the daemon
+                -- crashes before observing the exit).
+                NGA.releaseConn (scQgaConns sc) vmId
           -- First-QGA-ping watcher: fork it off so the RPC can
           -- return as soon as QEMU is alive. The watcher races
           -- the QGA socket against the reaper's exit-code TVar,
@@ -1504,6 +1512,7 @@ doVmStart sc spec = do
                   SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
                 _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
                 liftIO $ forM_ virtiofsdEntries reapEntryGracefully
+                liftIO $ NGA.releaseConn (scQgaConns sc) vmId
               runIncomingStep = do
                 pollRes <- liftIO $ pollOutgoingMigrate cfg vmId outgoingMigrateTimeoutSec
                 case pollRes of
@@ -1600,6 +1609,7 @@ doVmStart sc spec = do
                       SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
                     _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
                     liftIO $ forM_ virtiofsdEntries reapEntryGracefully
+                    liftIO $ NGA.releaseConn (scQgaConns sc) vmId
           when (needIncoming || needGaWait) $
             void $
               forkIO $
@@ -1991,6 +2001,10 @@ handleVmStopGraceful sc vmId timeoutSec = do
         then do
           forM_ (L.vlsVirtiofsd live) reapEntryGracefully
           _ <- atomically $ L.removeVm (scVmLedger sc) vmId
+          -- The QGA chardev is gone with QEMU; drop our cached
+          -- per-VM socket so its fd doesn't sit in the conns map
+          -- until the agent process restarts.
+          NGA.releaseConn (scQgaConns sc) vmId
           pure
             CGNA.Session'vmStopGraceful'results
               { CGNA.result = encodeVmStopResult VS.VmStopStopped ""
@@ -2045,6 +2059,9 @@ handleVmStopHard sc vmId = do
           runStderrLoggingT $
             P.waitForProcessBounded qemuLabel 5 (L.vlsQemuHandle live)
       forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+      -- Same QGA-socket cleanup as 'handleVmStopGraceful'; QEMU's
+      -- gone and our cached fd points at nothing.
+      NGA.releaseConn (scQgaConns sc) vmId
       pure
         CGNA.Session'vmStopHard'results
           { CGNA.result = encodeVmStopResult VS.VmStopStopped ""

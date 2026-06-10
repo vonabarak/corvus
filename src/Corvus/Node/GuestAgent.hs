@@ -22,6 +22,7 @@ module Corvus.Node.GuestAgent
 
     -- * Persistent connection management
   , GuestAgentConns
+  , releaseConn
 
     -- * Commands
   , guestExec
@@ -260,6 +261,41 @@ closeSafe sock = close sock `catch` \(_ :: SomeException) -> pure ()
 closeMaybe :: Maybe Socket -> IO ()
 closeMaybe Nothing = pure ()
 closeMaybe (Just s) = closeSafe s
+
+-- | Close and forget the persistent QGA connection for a VM.
+--
+-- Idempotent: no-op if no entry exists. Drops the map entry FIRST
+-- so a concurrent caller that arrives mid-stop can't @putMVar@ a
+-- new socket back into a map slot we're about to throw away — it
+-- instead enters @getOrCreateConn@'s slow path and synthesises a
+-- fresh entry, which is what we want anyway because the VM is
+-- going down.
+--
+-- Must be called from every code path that retires a VM
+-- (graceful stop, hard stop, post-mortem cleanup) — otherwise the
+-- cached socket fd lives forever inside the MVar that no later
+-- caller will ever take, and the agent's fd table grows by one
+-- per VM lifetime until @EMFILE@ kills the process.
+releaseConn :: GuestAgentConns -> Int64 -> IO ()
+releaseConn connsVar vmId = do
+  mConn <- atomically $ do
+    conns <- readTVar connsVar
+    case Map.lookup vmId conns of
+      Nothing -> pure Nothing
+      Just c -> do
+        writeTVar connsVar (Map.delete vmId conns)
+        pure (Just c)
+  case mConn of
+    Nothing -> pure ()
+    Just connVar -> do
+      -- Drain the MVar. By the time the stop handlers call this,
+      -- any in-flight QGA caller has either finished (and put
+      -- @Just sock@ back) or hit an exception against the dying
+      -- socket (and put @Nothing@ back). 'takeMVar' is the
+      -- minimum waiting we can do without leaving the socket
+      -- behind on a tight race.
+      mSock <- takeMVar connVar
+      closeMaybe mSock
 
 --------------------------------------------------------------------------------
 -- Public commands

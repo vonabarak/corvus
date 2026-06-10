@@ -8,7 +8,8 @@
 module Corvus.GuestAgentSpec (spec) where
 
 import Control.Concurrent (forkIO)
-import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
+import Control.Concurrent.MVar (newEmptyMVar, newMVar, putMVar, takeMVar)
+import qualified Control.Concurrent.STM as STM
 import Control.Exception (try)
 import Control.Monad (unless)
 import Corvus.Node.GuestAgent (GuestIpAddress (..), GuestNetIf (..), parseGuestInterfaces)
@@ -16,6 +17,7 @@ import qualified Corvus.Node.GuestAgent as GA
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.KeyMap as KM
 import qualified Data.ByteString as BS
+import qualified Data.Map.Strict as Map
 import Data.Time (diffUTCTime, getCurrentTime)
 import Data.Word (Word8)
 import Network.Socket (Family (..), SocketType (..), close, defaultProtocol, socketPair)
@@ -237,6 +239,50 @@ spec = do
         Just (Aeson.Object obj) ->
           KM.lookup "return" obj `shouldBe` Just (Aeson.Number (fromIntegral syncId))
         _ -> expectationFailure "Failed to roundtrip sync ID through JSON"
+
+  describe "releaseConn" $ do
+    it "is a no-op when the VM has no cached connection" $ do
+      conns <- STM.newTVarIO Map.empty
+      GA.releaseConn conns 42
+      m <- STM.readTVarIO conns
+      Map.member 42 m `shouldBe` False
+
+    it "removes the map entry when present, leaving no entry behind" $ do
+      conns <- STM.newTVarIO Map.empty
+      slot <- newMVar Nothing
+      STM.atomically $ STM.writeTVar conns (Map.singleton 42 slot)
+      GA.releaseConn conns 42
+      m <- STM.readTVarIO conns
+      Map.member 42 m `shouldBe` False
+
+    it "closes the cached socket so its fd is returned to the kernel" $ do
+      (s, peer) <- socketPair AF_UNIX Stream defaultProtocol
+      conns <- STM.newTVarIO Map.empty
+      slot <- newMVar (Just s)
+      STM.atomically $ STM.writeTVar conns (Map.singleton 7 slot)
+      GA.releaseConn conns 7
+      -- A peer recv on a fully-closed socket returns the empty
+      -- ByteString (EOF). If 'releaseConn' forgot to close, recv
+      -- would block — wrap in a short STM-driven timeout via a
+      -- fork so the test still fails fast.
+      done <- newEmptyMVar
+      _ <- forkIO $ do
+        bs <- recv peer 1
+        putMVar done bs
+      result <- takeMVar done
+      result `shouldBe` BS.empty
+      close peer
+
+    it "leaves untouched the conn slots for OTHER VMs (no spillover)" $ do
+      conns <- STM.newTVarIO Map.empty
+      slot7 <- newMVar Nothing
+      slot8 <- newMVar Nothing
+      STM.atomically $
+        STM.writeTVar conns (Map.fromList [(7, slot7), (8, slot8)])
+      GA.releaseConn conns 7
+      m <- STM.readTVarIO conns
+      Map.member 7 m `shouldBe` False
+      Map.member 8 m `shouldBe` True
 
 --------------------------------------------------------------------------------
 -- Pure parsing helper (mirrors recvJson logic from GuestAgent.hs)
