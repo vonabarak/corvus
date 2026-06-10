@@ -193,6 +193,36 @@ def session_test_network(
                 refcount_file.write_text(str(n))
 
 
+def _pick_session_subnet(crv: Crv) -> str:
+    """Choose the first 10.91.X.0/24 that no managed network on the
+    outer daemon already claims.
+
+    Each pytest invocation creates a fresh session network, and on
+    a failed run the harness deliberately leaks the network for
+    post-mortem inspection. If a follow-up run picked the same
+    subnet, two bridges would carry overlapping CIDRs on the
+    host's routing table and the per-network NAT rules would
+    accumulate masquerade entries for the same source range —
+    networking breaks in subtle ways. Pick a fresh /24 from the
+    fixed harness pool instead.
+
+    The pool stays inside 10.91.0.0/16 so operators recognise
+    harness-owned address space at a glance (and so a per-host
+    firewall rule can scope to it). Exhaustion (256 leaked
+    sessions) raises with a pointer to the cleanup target.
+    """
+    existing = {n.get("subnet") for n in crv.network_list() if n.get("subnet")}
+    for x in range(256):
+        candidate = f"10.91.{x}.0/24"
+        if candidate not in existing:
+            return candidate
+    raise RuntimeError(
+        "All 256 /24 subnets under 10.91.0.0/16 are in use. "
+        "Run `make integration-tests-clean` to release leaked "
+        "session networks before retrying."
+    )
+
+
 def _create_session_network(crv: Crv) -> str:
     """Apply a one-shot ApplyConfig that creates the network, then
     explicitly start it. ``ApplyNetwork`` has no ``running`` field
@@ -200,12 +230,16 @@ def _create_session_network(crv: Crv) -> str:
     explicit start is the canonical way to bring the network up
     in the current session."""
     name = f"corvus-it-session-{secrets.token_hex(3)}"
+    subnet = _pick_session_subnet(crv)
+    # Visible in the captured stderr so a developer diffing two
+    # failing runs can tell which leaked network is theirs.
+    print(f"[harness] session network {name!r} on {subnet}", file=sys.stderr)
     apply_doc = {
         "ifExists": "skip",
         "networks": [
             {
                 "name": name,
-                "subnet": "10.91.0.0/24",
+                "subnet": subnet,
                 "dhcp": True,
                 "nat": True,
                 # Advertise public resolvers via DHCP option 6 so
