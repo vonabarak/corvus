@@ -19,7 +19,7 @@ from __future__ import annotations
 import contextlib
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 import pytest
 from corvus_client import Client
@@ -99,6 +99,7 @@ def _network(
     *,
     dhcp: bool = False,
     nat: bool = False,
+    dns_servers: Iterable[str] = (),
 ):
     """Create, start, and (on exit) stop + delete a network.
 
@@ -109,7 +110,9 @@ def _network(
     cleanup tries to use a stale pycapnp cap whose runloop has been
     closed, which leaks "coroutine was never awaited" warnings.
     """
-    nw = client_fn().networks.create(name, subnet, dhcp=dhcp, nat=nat)
+    nw = client_fn().networks.create(
+        name, subnet, dhcp=dhcp, nat=nat, dns_servers=dns_servers
+    )
     try:
         nw.start()
         yield nw
@@ -338,6 +341,71 @@ class TestManagedNetworking(SingleNodeCase):
                 # a host-load benchmark.
                 _ping_with_retry(vm1, EXTERNAL_TARGET)
                 _ping_with_retry(vm2, EXTERNAL_TARGET)
+
+    # -- 2b. DHCP option 6 (DNS) ---------------------------------------------
+
+    def test_dhcp_option_dns_servers(self):
+        """A network created with `dns_servers=[...]` advertises those
+        resolvers to its DHCP clients (option 6), and the running
+        dnsmasq carries the corresponding ``--dhcp-option`` flag.
+
+        Failure modes this guards against:
+
+          * The schema field is wired but never reaches the dnsmasq
+            argv (caller / encoder regression).
+          * udhcpc on the guest receives the option but doesn't write
+            ``/etc/resolv.conf`` — which would silently leave guests
+            without DNS even though the daemon thinks it's served.
+        """
+        node = self.node
+        expected_dns = ("1.1.1.1", "8.8.8.8")
+
+        with _network(
+            lambda: self.client,
+            "dns-net",
+            "10.55.0.0/24",
+            dhcp=True,
+            nat=True,
+            dns_servers=list(expected_dns),
+        ) as nw:
+            info = nw.show()
+            net_id = info.id
+            bridge = _bridge_name(net_id)
+
+            # 1. The daemon round-trips the configured list on
+            #    `crv network show`. The Python client mirrors the
+            #    capnp `NetworkInfo.dnsServers` list.
+            assert info.dns_servers == expected_dns, info.dns_servers
+
+            # 2. The agent's dnsmasq carries the matching DHCP
+            #    option in its argv. `pgrep -af` prints PID + full
+            #    cmdline; we grep for our bridge to isolate the
+            #    instance.
+            r = node.run(f"pgrep -af 'dnsmasq.*--interface={bridge}'")
+            cmdline = r.stdout.decode("utf-8", errors="replace")
+            assert "--dhcp-option=option:dns-server,1.1.1.1,8.8.8.8" in cmdline, (
+                f"dnsmasq cmdline missing the DNS option:\n{cmdline}"
+            )
+
+            # 3. End-to-end: spin up a VM, DHCP it, and verify
+            #    /etc/resolv.conf carries the advertised resolvers.
+            #    busybox udhcpc invokes /usr/share/udhcpc/default.script
+            #    on `bound`, which writes the option-6 list into
+            #    /etc/resolv.conf.
+            class _Vm(_ManagedVm):
+                network_name = "dns-net"
+
+            with _Vm(self, name="dns-vm") as vm:
+                vm.run(
+                    f"doas ip link set {GUEST_NIC} up && "
+                    f"doas udhcpc -i {GUEST_NIC} -n -q -t 5 -T 2"
+                )
+                _wait_for_vm_iface_ip(vm, network_id=net_id)
+                resolv = vm.run("cat /etc/resolv.conf").stdout
+                for ip in expected_dns:
+                    assert f"nameserver {ip}" in resolv, (
+                        f"missing {ip} in guest /etc/resolv.conf:\n{resolv!r}"
+                    )
 
     # -- 3. Cross-network isolation ------------------------------------------
 
