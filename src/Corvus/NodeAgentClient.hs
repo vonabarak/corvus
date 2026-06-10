@@ -528,14 +528,18 @@ diskClone
   :: NodeAgentClient
   -> T.Text
   -> T.Text
+  -> T.Text
+  -- ^ destination on-disk format (\"qcow2\" / \"raw\"); passed
+  -- to @qemu-img convert -O <destFormat>@.
   -> IO (Either NodeAgentError DiskOpResult)
-diskClone nac src dest = remote $ do
+diskClone nac src dest destFormat = remote $ do
   CGNA.Session'diskClone'results {CGNA.result = r} <-
     callOn
       #diskClone
       CGNA.Session'diskClone'params
         { CGNA.sourcePath = src
         , CGNA.destPath = dest
+        , CGNA.destFormat = destFormat
         }
       (nacSession nac)
   pure (decodeDiskOpResult r)

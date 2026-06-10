@@ -391,7 +391,7 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath ephemeral = runServ
                       ext = takeExtension srcFileName
                       cloneFileName = T.unpack safeName <> ext
                   destPath <- liftIO $ resolveDiskFilePath basePath optionalPath cloneFileName
-                  result <- liftIO $ cloneImageViaAgent state nid srcPath destPath
+                  result <- liftIO $ cloneImageViaAgent state nid srcPath destPath (diskImageFormat baseDisk)
                   case result of
                     ImageError err -> do
                       logWarnN $ "Failed to clone image: " <> err

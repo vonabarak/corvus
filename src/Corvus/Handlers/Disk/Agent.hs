@@ -152,10 +152,18 @@ rebaseImageViaAgent state nid overlayPath mNewBacking unsafeUpdate =
         NOA.diskRebase nac (T.pack overlayPath) wireBacking unsafeUpdate
 
 cloneImageViaAgent
-  :: ServerState -> M.NodeId -> FilePath -> FilePath -> IO NI.ImageResult
-cloneImageViaAgent state nid src dest =
+  :: ServerState
+  -> M.NodeId
+  -> FilePath
+  -> FilePath
+  -> DriveFormat
+  -- ^ destination format — drives the @qemu-img convert -O@ flag so
+  -- a qcow2-source-to-raw-destination clone produces a raw file (not
+  -- a qcow2 file masquerading as raw in the DB row).
+  -> IO NI.ImageResult
+cloneImageViaAgent state nid src dest destFormat =
   withDiskOp state nid $ \nac ->
-    NOA.diskClone nac (T.pack src) (T.pack dest)
+    NOA.diskClone nac (T.pack src) (T.pack dest) (enumToText destFormat)
 
 getImageInfoViaAgent
   :: ServerState -> M.NodeId -> FilePath -> IO (Either Text NI.ImageInfo)

@@ -2044,7 +2044,7 @@ publishArtifactByClone state srcDiskId name target = do
           <> T.pack srcPath
           <> " -> "
           <> T.pack destPath
-      cloneRes <- liftIO $ cloneImageViaAgent state nid srcPath destPath
+      cloneRes <- liftIO $ cloneImageViaAgent state nid srcPath destPath (btFormat target)
       case cloneRes of
         ImageError err -> pure $ Left $ "publish clone: " <> err
         ImageNotFound -> pure $ Left "publish clone: source not found"

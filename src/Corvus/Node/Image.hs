@@ -421,14 +421,23 @@ listSnapshots path = do
         Left err -> pure $ Left err
         Right info -> pure $ Right $ iiSnapshots info
 
--- | Clone a disk image file into a flat standalone qcow2.
+-- | Clone a disk image file via @qemu-img convert -O <destFormat>@.
 --
--- Uses @qemu-img convert -O qcow2@ rather than a flat byte copy
--- so the destination contains only the source's active state —
--- no internal snapshots, no vmstate. That's the contract the
--- 'Corvus.Handlers.Build.publishArtifactByClone' caller expects:
--- a published artifact must be a flat standalone qcow2 with an
--- empty snapshot table (@qemu-img snapshot -l@ returning empty).
+-- Uses 'convert' rather than a flat byte copy so:
+--
+-- 1. The destination contains only the source's active state — no
+--    internal snapshots, no vmstate. The
+--    'Corvus.Handlers.Build.publishArtifactByClone' caller relies
+--    on this: a published artifact must be a flat standalone image
+--    with an empty snapshot table (@qemu-img snapshot -l@ returning
+--    empty).
+-- 2. The output format is selectable. A @qcow2 -> raw@ clone (e.g.
+--    the installer-strategy bake whose target is @format: raw@)
+--    physically converts the bytes; the destination file then
+--    matches the format the daemon's 'DiskImage' row will record.
+--    Hardcoding @-O qcow2@ left raw targets with qcow2-magic bytes
+--    on disk, which then surfaced to verify-side guests as the
+--    qcow2 header instead of the installer's payload.
 --
 -- The previous flat-copyFile implementation worked while disk-mode
 -- cache was the default — the source qcow2 only had small per-step
@@ -439,8 +448,8 @@ listSnapshots path = do
 -- 2× that to land the destination atomically and routinely hit
 -- @ENOSPC@ on the publish step even when the active state was
 -- only a few GB.
-cloneImage :: FilePath -> FilePath -> IO ImageResult
-cloneImage src dest = do
+cloneImage :: FilePath -> FilePath -> Text -> IO ImageResult
+cloneImage src dest destFormat = do
   exists <- doesFileExist src
   if not exists
     then pure ImageNotFound
@@ -449,7 +458,7 @@ cloneImage src dest = do
       if destExists
         then pure $ ImageError "Destination file already exists"
         else do
-          let args = ["convert", "-O", "qcow2", src, dest]
+          let args = ["convert", "-O", T.unpack destFormat, src, dest]
           result <-
             try $ readProcessWithExitCode qemuImgBinary args ""
           case result of

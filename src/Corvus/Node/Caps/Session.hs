@@ -264,8 +264,9 @@ instance CGNA.Session'server_ SessionCap where
       \CGNA.Session'diskClone'params
         { CGNA.sourcePath = src
         , CGNA.destPath = dst
+        , CGNA.destFormat = destFormat
         } -> do
-          result <- NI.cloneImage (T.unpack src) (T.unpack dst)
+          result <- NI.cloneImage (T.unpack src) (T.unpack dst) destFormat
           pure
             CGNA.Session'diskClone'results
               { CGNA.result = encodeDiskOpResult result

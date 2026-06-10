@@ -100,8 +100,13 @@ interface Session {
                          hasNewBacking :Bool,
                          unsafeUpdate :Bool)
                         -> (result :DiskOpResult);
-  diskClone          @6 (sourcePath :Text, destPath :Text)
+  diskClone          @6 (sourcePath :Text, destPath :Text, destFormat :Text)
                         -> (result :DiskOpResult);
+  # `destFormat` selects the on-disk format of the clone (e.g. "qcow2",
+  # "raw"). The agent uses `qemu-img convert -O <destFormat>` so a
+  # qcow2-source-to-raw-destination clone behaves correctly and the
+  # destination file's bytes match the format the daemon's DiskImage
+  # row will record.
   diskInspect        @7 (path :Text) -> (info :DiskInspectInfo);
 
   # Snapshot operations (qcow2 only; format errors surface via DiskOpResult).
