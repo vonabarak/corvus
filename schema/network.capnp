@@ -18,6 +18,9 @@ struct NetworkInfo {
   autostart    @8 :Bool;
   vni          @9 :Int32;   # 0 == none (single-node network)
   peerNodeIds  @10 :List(Int64);
+  # DNS servers advertised to DHCP clients (option 6). Empty when
+  # the network either has DHCP disabled or has no DNS configured.
+  dnsServers   @11 :List(Text);
 }
 
 # Inputs for attach-node / detach-node.
@@ -39,6 +42,8 @@ struct NetworkCreateParams {
   autostart @4 :Bool = false;
   # Node this network is bound to (multi-node slice 1c).
   node      @5 :Common.EntityRef;
+  # DNS servers to advertise via DHCP option 6 (empty = none).
+  dnsServers @6 :List(Text);
 }
 
 struct NetworkEditParams {
@@ -52,6 +57,10 @@ struct NetworkEditParams {
   nat           @7 :Bool;
   hasAutostart  @8 :Bool;
   autostart     @9 :Bool;
+  # Set hasDnsServers=true to overwrite the list with the value of
+  # dnsServers (an empty list clears the option entirely).
+  hasDnsServers @10 :Bool;
+  dnsServers    @11 :List(Text);
 }
 
 # ---------------------------------------------------------------------

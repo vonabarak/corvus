@@ -208,6 +208,12 @@ def _create_session_network(crv: Crv) -> str:
                 "subnet": "10.91.0.0/24",
                 "dhcp": True,
                 "nat": True,
+                # Advertise public resolvers via DHCP option 6 so
+                # test-nodes don't fall back to systemd-resolved's
+                # hardcoded fallback list (1.0.0.1 / 8.8.8.8 /
+                # …), which is unreachable on hosts whose egress
+                # only permits 1.1.1.1.
+                "dnsServers": ["1.1.1.1", "8.8.8.8"],
             }
         ],
     }

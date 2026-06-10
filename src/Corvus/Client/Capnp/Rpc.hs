@@ -581,8 +581,10 @@ rpcNetworkCreate
   -- ^ nat
   -> Bool
   -- ^ autostart
+  -> [Text]
+  -- ^ DNS servers to advertise via DHCP option 6 (empty = none)
   -> IO Int64
-rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart = do
+rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart dnsServers = do
   CGCorvus.Daemon'networks'results {CGCorvus.mgr = mgr} <-
     callOn #networks CGCorvus.Daemon'networks'params (ccDaemon conn)
   let inner =
@@ -593,6 +595,7 @@ rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart = do
           , CGNet.dhcp = dhcp
           , CGNet.nat = nat
           , CGNet.autostart = autostart
+          , CGNet.dnsServers = dnsServers
           }
   CGNet.NetworkManager'create'results {CGNet.network = nClient} <-
     callOn #create CGNet.NetworkManager'create'params {CGNet.params = inner} mgr
@@ -1215,8 +1218,10 @@ rpcNetworkEdit
   -- ^ nat
   -> Maybe Bool
   -- ^ autostart
+  -> Maybe [Text]
+  -- ^ DNS servers (Just [] clears, Nothing leaves untouched)
   -> IO ()
-rpcNetworkEdit conn ref mSubnet mDhcp mNat mAs = do
+rpcNetworkEdit conn ref mSubnet mDhcp mNat mAs mDns = do
   nClient <- getNetworkClient conn ref
   let p =
         CGNet.NetworkEditParams
@@ -1230,6 +1235,8 @@ rpcNetworkEdit conn ref mSubnet mDhcp mNat mAs = do
           , CGNet.nat = Data.Maybe.fromMaybe False mNat
           , CGNet.hasAutostart = Data.Maybe.isJust mAs
           , CGNet.autostart = Data.Maybe.fromMaybe False mAs
+          , CGNet.hasDnsServers = Data.Maybe.isJust mDns
+          , CGNet.dnsServers = Data.Maybe.fromMaybe [] mDns
           }
   _ <- callOn #edit CGNet.Network'edit'params {CGNet.params = p} nClient
   pure ()

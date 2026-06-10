@@ -215,8 +215,8 @@ data Command
     TemplateInstantiate !Text !Text !Text
   | -- Virtual network commands
 
-    -- | Create a virtual network (name, nodeRef, subnet, dhcp, nat, autostart)
-    NetworkCreate !Text !Text !Text !Bool !Bool !Bool
+    -- | Create a virtual network (name, nodeRef, subnet, dhcp, nat, autostart, dnsServers)
+    NetworkCreate !Text !Text !Text !Bool !Bool !Bool ![Text]
   | -- | Delete a virtual network (networkRef)
     NetworkDelete !Text
   | -- | Start a virtual network (networkRef)
@@ -227,8 +227,8 @@ data Command
     NetworkList
   | -- | Show virtual network details (networkRef)
     NetworkShow !Text
-  | -- | Edit network properties (networkRef, subnet, dhcp, nat, autostart)
-    NetworkEdit !Text !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool)
+  | -- | Edit network properties (networkRef, subnet, dhcp, nat, autostart, dnsServers)
+    NetworkEdit !Text !(Maybe Text) !(Maybe Bool) !(Maybe Bool) !(Maybe Bool) !(Maybe [Text])
   | -- | Add a peer node to a network (networkRef, nodeRef)
     NetworkAttachNode !Text !Text
   | -- | Remove a peer node from a network (networkRef, nodeRef)

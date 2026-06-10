@@ -23,6 +23,8 @@ module Corvus.NetAgentClient.Spec
   ( corvusBridgeName
   , corvusTapName
   , networkToSpec
+  , encodeDnsServers
+  , decodeDnsServers
   )
 where
 
@@ -99,7 +101,8 @@ networkToSpec networkId network = do
       , nsOverlay = OverlayNone
       }
   where
-    buildDhcp subnet False = Right disabledDhcp
+    dnsServers = decodeDnsServers (networkDnsServers network)
+    buildDhcp _ False = Right disabledDhcp
     buildDhcp subnet True
       | T.null subnet = Left "DHCP enabled but subnet is empty"
       | otherwise = do
@@ -114,6 +117,7 @@ networkToSpec networkId network = do
               , dhcpDomain = ""
               , dhcpExtraArgs = []
               , dhcpHostReservations = []
+              , dhcpDnsServers = dnsServers
               }
     disabledDhcp =
       DhcpSpec
@@ -124,4 +128,17 @@ networkToSpec networkId network = do
         , dhcpDomain = ""
         , dhcpExtraArgs = []
         , dhcpHostReservations = []
+        , dhcpDnsServers = dnsServers
         }
+
+-- | Pack a DNS-server list into the comma-joined 'Text' the
+-- 'Network.dnsServers' DB column carries. The empty list maps to
+-- the empty string so default-on-migrate matches "no DNS option".
+-- Whitespace around entries is dropped, blanks are filtered out.
+encodeDnsServers :: [T.Text] -> T.Text
+encodeDnsServers = T.intercalate "," . filter (not . T.null) . map T.strip
+
+-- | Inverse of 'encodeDnsServers'. Empty string → @[]@.
+decodeDnsServers :: T.Text -> [T.Text]
+decodeDnsServers t =
+  filter (not . T.null) (map T.strip (T.splitOn "," t))

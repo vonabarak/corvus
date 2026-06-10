@@ -328,6 +328,7 @@ def network_info(r) -> t.NetworkInfo:
         autostart=r.autostart,
         vni=_nz_int(r.vni),
         peer_node_ids=tuple(r.peerNodeIds),
+        dns_servers=tuple(r.dnsServers),
     )
 
 

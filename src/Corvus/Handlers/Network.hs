@@ -47,6 +47,7 @@ import Corvus.Model (Network (..), TaskId, TaskResult (..), TaskSubsystem (..), 
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import Corvus.NetAgentClient.Spec (corvusBridgeName, networkToSpec)
+import qualified Corvus.NetAgentClient.Spec as Spec
 import Corvus.NodeRouting (withNetworkNetAgent)
 import Corvus.Protocol
 import Corvus.Types (ServerState (..), runServerLogging, withNetAgent)
@@ -76,8 +77,10 @@ handleNetworkCreate
   -> Bool
   -> Bool
   -> Bool
+  -> [Text]
+  -- ^ DNS servers to advertise via DHCP option 6 (empty = none)
   -> IO Response
-handleNetworkCreate state name nodeRefText subnet dhcp nat autostart =
+handleNetworkCreate state name nodeRefText subnet dhcp nat autostart dnsServers =
   case validateName "Network" name of
     Left err -> pure $ RespNetworkError err
     Right () -> do
@@ -131,6 +134,7 @@ handleNetworkCreate state name nodeRefText subnet dhcp nat autostart =
                           , networkCreatedAt = now
                           , networkAutostart = autostart
                           , networkVni = Nothing
+                          , networkDnsServers = Spec.encodeDnsServers dnsServers
                           }
                   result <- runSqlPool (insertUnique network) pool
                   case result of
@@ -318,19 +322,33 @@ peerIdsFor key = do
     ]
 
 -- | Edit virtual network properties.
--- Subnet, DHCP, and NAT require the network to be stopped.
--- Autostart can be toggled regardless of state.
-handleNetworkEdit :: ServerState -> Int64 -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Response
-handleNetworkEdit state networkId mSubnet mDhcp mNat mAutostart = do
+-- Subnet, DHCP, NAT, and DNS servers require the network to be
+-- stopped (a running netd would need a dnsmasq restart to pick
+-- the new flag set up). Autostart can be toggled regardless of
+-- state.
+handleNetworkEdit
+  :: ServerState
+  -> Int64
+  -> Maybe Text
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe [Text]
+  -> IO Response
+handleNetworkEdit state networkId mSubnet mDhcp mNat mAutostart mDnsServers = do
   let key = toSqlKey networkId :: M.NetworkId
       pool = ssDbPool state
   mNetwork <- runSqlPool (get key) pool
   case mNetwork of
     Nothing -> pure RespNetworkNotFound
     Just network -> do
-      let hasNonAutostartEdits = isJust mSubnet || isJust mDhcp || isJust mNat
+      let hasNonAutostartEdits =
+            isJust mSubnet
+              || isJust mDhcp
+              || isJust mNat
+              || isJust mDnsServers
       if hasNonAutostartEdits && networkRunning network
-        then pure $ RespNetworkError "Network must be stopped to change subnet/dhcp/nat"
+        then pure $ RespNetworkError "Network must be stopped to change subnet/dhcp/nat/dns-servers"
         else do
           -- Validate and normalize subnet if provided
           mNormalizedSubnet <- case mSubnet of
@@ -357,6 +375,10 @@ handleNetworkEdit state networkId mSubnet mDhcp mNat mAutostart = do
                               ++ maybe [] (\d -> [M.NetworkDhcp =. d]) mDhcp
                               ++ maybe [] (\n -> [M.NetworkNat =. n]) mNat
                               ++ maybe [] (\a -> [M.NetworkAutostart =. a]) mAutostart
+                              ++ maybe
+                                []
+                                (\d -> [M.NetworkDnsServers =. Spec.encodeDnsServers d])
+                                mDnsServers
                       case updates of
                         [] -> pure RespNetworkEdited
                         us -> do
@@ -651,6 +673,7 @@ toNetworkInfoWith nwId network peerIds =
     , nwiAutostart = networkAutostart network
     , nwiVni = networkVni network
     , nwiPeerNodeIds = peerIds
+    , nwiDnsServers = Spec.decodeDnsServers (networkDnsServers network)
     }
 
 --------------------------------------------------------------------------------
@@ -666,13 +689,14 @@ data NetworkCreate = NetworkCreate
   , ncrDhcp :: Bool
   , ncrNat :: Bool
   , ncrAutostart :: Bool
+  , ncrDnsServers :: [Text]
   }
 
 instance Action NetworkCreate where
   actionSubsystem _ = SubNetwork
   actionCommand _ = "create"
   actionEntityName = Just . ncrName
-  actionExecute ctx a = handleNetworkCreate (acState ctx) (ncrName a) (ncrNodeRef a) (ncrSubnet a) (ncrDhcp a) (ncrNat a) (ncrAutostart a)
+  actionExecute ctx a = handleNetworkCreate (acState ctx) (ncrName a) (ncrNodeRef a) (ncrSubnet a) (ncrDhcp a) (ncrNat a) (ncrAutostart a) (ncrDnsServers a)
 
 newtype NetworkDelete = NetworkDelete {ndelNetworkId :: Int64}
 
@@ -688,13 +712,14 @@ data NetworkEdit = NetworkEdit
   , nedDhcp :: Maybe Bool
   , nedNat :: Maybe Bool
   , nedAutostart :: Maybe Bool
+  , nedDnsServers :: Maybe [Text]
   }
 
 instance Action NetworkEdit where
   actionSubsystem _ = SubNetwork
   actionCommand _ = "edit"
   actionEntityId = Just . fromIntegral . nedNetworkId
-  actionExecute ctx a = handleNetworkEdit (acState ctx) (nedNetworkId a) (nedSubnet a) (nedDhcp a) (nedNat a) (nedAutostart a)
+  actionExecute ctx a = handleNetworkEdit (acState ctx) (nedNetworkId a) (nedSubnet a) (nedDhcp a) (nedNat a) (nedAutostart a) (nedDnsServers a)
 
 -- Complex handlers with subtask creation
 

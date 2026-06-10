@@ -151,6 +151,7 @@ data ApplyNetwork = ApplyNetwork
   , anDhcp :: Bool
   , anNat :: Bool
   , anAutostart :: Bool
+  , anDnsServers :: [Text]
   }
   deriving (Show)
 
@@ -163,6 +164,7 @@ instance FromJSON ApplyNetwork where
       <*> o .:? "dhcp" .!= False
       <*> o .:? "nat" .!= False
       <*> o .:? "autostart" .!= False
+      <*> o .:? "dnsServers" .!= []
 
 data ApplyVm = ApplyVm
   { avName :: Text

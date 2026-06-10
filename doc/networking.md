@@ -36,6 +36,24 @@ crv network create lab-net --node alpha --subnet 10.0.1.0/24        # Pin to a n
 | `--nat` | Enable NAT for internet access |
 | `--autostart` | Start network when daemon starts |
 | `--node` | Node owning this network (optional; daemon picks via the scheduler) |
+| `--dns-server IP` | Advertise this DNS server to DHCP clients (option 6); repeatable, default none |
+
+### DNS resolvers for guests
+
+`corvus-netd`'s dnsmasq runs with `--port=0`, so it speaks DHCP
+but not DNS. Use `--dns-server` (repeatable) on `crv network
+create` — or `dnsServers: [...]` in an `apply` YAML — to make
+the DHCP lease carry one or more upstream resolvers (DHCP
+option 6):
+
+```bash
+crv network create lab-net --subnet 10.0.1.0/24 \
+    --dhcp --nat --dns-server 1.1.1.1 --dns-server 8.8.8.8
+```
+
+Without this flag, guests rely on whatever their stack defaults
+to (systemd-resolved's hardcoded fallback list, etc.) and will
+fail to resolve names when those defaults are unreachable.
 
 Networks are per-node — the bridge and dnsmasq instance live
 on the kernel of the node owning the network. The daemon's

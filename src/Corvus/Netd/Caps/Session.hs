@@ -211,6 +211,7 @@ decodeDhcpSpec
     , CGN.domain = dom
     , CGN.extraArgs = extra
     , CGN.hostReservations = res
+    , CGN.dnsServers = dns
     } =
     Net.DhcpSpec
       { Net.dhcpEnabled = enabled
@@ -220,6 +221,7 @@ decodeDhcpSpec
       , Net.dhcpDomain = dom
       , Net.dhcpExtraArgs = extra
       , Net.dhcpHostReservations = map decodeDhcpHostReservation res
+      , Net.dhcpDnsServers = dns
       }
 
 decodeTapSpec :: CGN.Parsed CGN.TapSpec -> Tap.TapSpec
@@ -294,6 +296,7 @@ encodeDhcpSpec d =
     , CGN.extraArgs = Net.dhcpExtraArgs d
     , CGN.hostReservations =
         map encodeDhcpHostReservation (Net.dhcpHostReservations d)
+    , CGN.dnsServers = Net.dhcpDnsServers d
     }
 
 encodeTapInfo :: Tap.TapInfo -> CGN.Parsed CGN.TapInfo

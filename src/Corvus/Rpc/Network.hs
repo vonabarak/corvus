@@ -75,6 +75,7 @@ instance CGNet.NetworkManager'server_ NetworkManagerCap where
               , ncrDhcp = dhcp
               , ncrNat = nat
               , ncrAutostart = autostart
+              , ncrDnsServers = dnsServers
               }
       resp <- runAction st cn act
       case resp of
@@ -132,6 +133,7 @@ instance CGNet.Network'server_ NetworkCap where
               , nedDhcp = if hasDhcp then Just dhcp else Nothing
               , nedNat = if hasNat then Just nat else Nothing
               , nedAutostart = if hasAutostart then Just autostart else Nothing
+              , nedDnsServers = if hasDnsServers then Just dnsServers else Nothing
               }
       resp <- runAction st cn act
       case resp of

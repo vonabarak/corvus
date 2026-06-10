@@ -702,6 +702,10 @@ Network
     -- no peer nodes (single-node behavior); allocated on first
     -- attach-node and reused for the network's lifetime.
     vni Int Maybe default=NULL
+    -- DNS servers advertised via DHCP option 6, comma-joined
+    -- (e.g. "1.1.1.1,8.8.8.8"). Empty string means no DNS option
+    -- is emitted by dnsmasq, preserving the original behavior.
+    dnsServers Text default=''
     UniqueNetworkPerNode nodeId name
     deriving Show Eq Generic
 

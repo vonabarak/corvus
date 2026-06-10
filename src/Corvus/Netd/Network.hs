@@ -101,6 +101,7 @@ data DhcpSpec = DhcpSpec
   , dhcpDomain :: !T.Text
   , dhcpExtraArgs :: ![T.Text]
   , dhcpHostReservations :: ![DhcpHostReservation]
+  , dhcpDnsServers :: ![T.Text]
   }
   deriving (Eq, Show)
 
@@ -334,6 +335,7 @@ startDnsmasqFor spec = do
           , Dn.dspExtraArgs = dhcpExtraArgs dhcp
           , Dn.dspHostReservations =
               [(dhrMac r, dhrIp r) | r <- dhcpHostReservations dhcp]
+          , Dn.dspDnsServers = dhcpDnsServers dhcp
           }
   Dn.startDnsmasq params >>= \case
     Right dn -> pure dn

@@ -48,6 +48,14 @@ networkCreateCommand =
       ( long "autostart"
           <> help "Automatically start this network when the daemon starts"
       )
+    <*> many
+      ( T.pack
+          <$> strOption
+            ( long "dns-server"
+                <> metavar "IP"
+                <> help "Advertise this DNS server to DHCP clients (option 6); repeatable"
+            )
+      )
 
 -- | Parser for network delete
 networkDeleteCommand :: Parser Command
@@ -146,6 +154,26 @@ networkEditCommand =
               <> completeWith ["true", "false"]
           )
       )
+    <*> ( nothingOnEmpty
+            <$> many
+              ( T.pack
+                  <$> strOption
+                    ( long "dns-server"
+                        <> metavar "IP"
+                        <> help "Replace the DNS-server list advertised via DHCP option 6; repeatable. Omit entirely to leave unchanged."
+                    )
+              )
+        )
+
+-- | Helper: 'optparse-applicative''s 'many' always succeeds with
+-- @[]@ when the user passed no flag, but the edit-style RPC uses
+-- 'Maybe' to distinguish \"leave unchanged\" from \"clear the
+-- list\". Treat the empty list as \"unchanged\". To clear an
+-- existing DNS-server list, the operator can edit the network
+-- programmatically (no CLI shortcut yet).
+nothingOnEmpty :: [a] -> Maybe [a]
+nothingOnEmpty [] = Nothing
+nothingOnEmpty xs = Just xs
 
 -- | Parser for network attach-node
 networkAttachNodeCommand :: Parser Command

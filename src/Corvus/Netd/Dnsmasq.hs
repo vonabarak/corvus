@@ -18,6 +18,7 @@ module Corvus.Netd.Dnsmasq
   ( DnsmasqProcess (..)
   , DnsmasqStartParams (..)
   , DnsmasqError (..)
+  , buildDnsmasqArgs
   , startDnsmasq
   , stopDnsmasq
   )
@@ -65,6 +66,11 @@ data DnsmasqStartParams = DnsmasqStartParams
   -- ^ MAC-keyed reservations. Each entry becomes one
   -- @--dhcp-host=<mac>,<ip>@ flag, so the daemon's IPAM allocation
   -- sticks to the same VM across DHCP renews and node migrations.
+  , dspDnsServers :: ![T.Text]
+  -- ^ DNS servers to advertise via DHCP option 6. The non-empty
+  -- list becomes a single
+  -- @--dhcp-option=option:dns-server,IP1,IP2,...@ flag; an empty
+  -- list emits no flag (no DNS supplied to leases).
   }
   deriving (Show)
 
@@ -79,6 +85,56 @@ data DnsmasqError
   deriving (Show)
 
 instance E.Exception DnsmasqError
+
+-- | Pure assembly of dnsmasq's argv from a 'DnsmasqStartParams'.
+-- Extracted from 'startDnsmasq' for testability and reused by the
+-- spawn path. Order matters only in that 'dspExtraArgs' lands
+-- last, letting an operator override any earlier flag.
+buildDnsmasqArgs :: DnsmasqStartParams -> [String]
+buildDnsmasqArgs p =
+  baseArgs <> rangeArgs <> domainArgs <> dnsArgs <> reservationArgs <> extraArgs
+  where
+    bridge = T.unpack (dspBridge p)
+    baseArgs =
+      [ "--keep-in-foreground"
+      , -- Ignore the system dnsmasq.conf entirely. Distro-shipped
+        -- configs often set --bind-dynamic, --conf-dir, port=53
+        -- etc.; we want a clean, deterministic command line.
+        -- /dev/null is read as an empty config; --conf-file with
+        -- an empty value isn't enough on Gentoo (the parser
+        -- still walks /etc/dnsmasq.d).
+        "--conf-file=/dev/null"
+      , "--conf-dir="
+      , "--bind-interfaces"
+      , "--interface=" <> bridge
+      , "--except-interface=lo"
+      , "--listen-address=" <> T.unpack (dspListenAddr p)
+      , -- --port=0 disables the DNS listener entirely; our role
+        -- here is purely DHCP for VM networks. Keeps us off port
+        -- 53, which is usually claimed by systemd-resolved on
+        -- Gentoo systemd hosts.
+        "--port=0"
+      , "--no-resolv"
+      , "--no-hosts"
+      , "--no-poll"
+      ]
+    rangeArgs
+      | T.null (dspDhcpRange p) = []
+      | otherwise = ["--dhcp-range=" <> T.unpack (dspDhcpRange p)]
+    domainArgs
+      | T.null (dspDomain p) = []
+      | otherwise = ["--domain=" <> T.unpack (dspDomain p)]
+    reservationArgs =
+      [ "--dhcp-host=" <> T.unpack mac <> "," <> T.unpack ip
+      | (mac, ip) <- dspHostReservations p
+      ]
+    dnsArgs
+      | null (dspDnsServers p) = []
+      | otherwise =
+          [ "--dhcp-option=option:dns-server,"
+              <> T.unpack (T.intercalate "," (dspDnsServers p))
+          ]
+    extraArgs = T.unpack <$> dspExtraArgs p
 
 -- | Spawn dnsmasq with the given params. Waits ~200ms after fork
 -- to confirm the process didn't crash on startup (bad flags,
@@ -101,41 +157,7 @@ startDnsmasq p = do
     h <- openFile logPath WriteMode
     hClose h
   logHandle <- openLogOr logPath
-  let baseArgs =
-        [ "--keep-in-foreground"
-        , -- Ignore the system dnsmasq.conf entirely. Distro-shipped
-          -- configs often set --bind-dynamic, --conf-dir, port=53
-          -- etc.; we want a clean, deterministic command line.
-          -- /dev/null is read as an empty config; --conf-file with
-          -- an empty value isn't enough on Gentoo (the parser
-          -- still walks /etc/dnsmasq.d).
-          "--conf-file=/dev/null"
-        , "--conf-dir="
-        , "--bind-interfaces"
-        , "--interface=" <> bridge
-        , "--except-interface=lo"
-        , "--listen-address=" <> T.unpack (dspListenAddr p)
-        , -- --port=0 disables the DNS listener entirely; our role
-          -- here is purely DHCP for VM networks. Keeps us off port
-          -- 53, which is usually claimed by systemd-resolved on
-          -- Gentoo systemd hosts.
-          "--port=0"
-        , "--no-resolv"
-        , "--no-hosts"
-        , "--no-poll"
-        ]
-      rangeArgs
-        | T.null (dspDhcpRange p) = []
-        | otherwise = ["--dhcp-range=" <> T.unpack (dspDhcpRange p)]
-      domainArgs
-        | T.null (dspDomain p) = []
-        | otherwise = ["--domain=" <> T.unpack (dspDomain p)]
-      reservationArgs =
-        [ "--dhcp-host=" <> T.unpack mac <> "," <> T.unpack ip
-        | (mac, ip) <- dspHostReservations p
-        ]
-      extraArgs = T.unpack <$> dspExtraArgs p
-      allArgs = baseArgs <> rangeArgs <> domainArgs <> reservationArgs <> extraArgs
+  let allArgs = buildDnsmasqArgs p
   spawnResult <-
     E.try @E.SomeException $
       createProcess

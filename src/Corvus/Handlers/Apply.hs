@@ -256,7 +256,7 @@ executeApply ctx config skipExisting = do
               Just eid -> withSkip "networks" name eid
               Nothing ->
                 withSubtask "networks" "network-create" name $
-                  runActionAsSubtask ctx (NetworkCreate name (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n))
+                  runActionAsSubtask ctx (NetworkCreate name (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n) (anDnsServers n))
           case nwResult of
             Left err -> pure $ Left err
             Right (nwMap, nwCreated) -> do

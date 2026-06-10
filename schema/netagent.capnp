@@ -122,6 +122,12 @@ struct DhcpSpec {
   # receives the same IP — including when it migrates onto a peer
   # node. Empty on networks without an IPAM allocation yet.
   hostReservations @6 :List(DhcpHostReservation);
+  # DNS servers to advertise to guests via DHCP option 6. Each
+  # entry is a bare IPv4 / IPv6 address; the agent joins them as
+  # `--dhcp-option=option:dns-server,IP1,IP2,...`. Empty list (the
+  # default) means no DNS option is emitted — guests must already
+  # carry a resolver via their image or some other path.
+  dnsServers @7 :List(Text);
 }
 
 struct DhcpHostReservation {

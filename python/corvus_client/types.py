@@ -375,6 +375,8 @@ class NetworkInfo:
     dnsmasq_pid: int | None = None
     vni: int | None = None
     peer_node_ids: tuple[int, ...] = ()
+    # DNS servers advertised to DHCP clients via option 6.
+    dns_servers: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------

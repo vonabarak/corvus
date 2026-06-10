@@ -40,7 +40,7 @@ instance (C.HasTypeId NetworkInfo) where
     typeId  = 10226046599106768326
 instance (C.TypedStruct NetworkInfo) where
     numStructWords  = 4
-    numStructPtrs  = 3
+    numStructPtrs  = 4
 instance (C.Allocate NetworkInfo) where
     type AllocHint NetworkInfo = ()
     new _ = C.newTypedStruct
@@ -61,7 +61,8 @@ data instance C.Parsed NetworkInfo
         ,createdAt :: (RP.Parsed Std_.Int64)
         ,autostart :: (RP.Parsed Std_.Bool)
         ,vni :: (RP.Parsed Std_.Int32)
-        ,peerNodeIds :: (RP.Parsed (R.List Std_.Int64))}
+        ,peerNodeIds :: (RP.Parsed (R.List Std_.Int64))
+        ,dnsServers :: (RP.Parsed (R.List Basics.Text))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetworkInfo))
 deriving instance (Std_.Eq (C.Parsed NetworkInfo))
@@ -76,7 +77,8 @@ instance (C.Parse NetworkInfo (C.Parsed NetworkInfo)) where
                               <*> (GH.parseField #createdAt raw_)
                               <*> (GH.parseField #autostart raw_)
                               <*> (GH.parseField #vni raw_)
-                              <*> (GH.parseField #peerNodeIds raw_))
+                              <*> (GH.parseField #peerNodeIds raw_)
+                              <*> (GH.parseField #dnsServers raw_))
 instance (C.Marshal NetworkInfo (C.Parsed NetworkInfo)) where
     marshalInto raw_ NetworkInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -90,6 +92,7 @@ instance (C.Marshal NetworkInfo (C.Parsed NetworkInfo)) where
         (GH.encodeField #autostart autostart raw_)
         (GH.encodeField #vni vni raw_)
         (GH.encodeField #peerNodeIds peerNodeIds raw_)
+        (GH.encodeField #dnsServers dnsServers raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot NetworkInfo Std_.Int64) where
@@ -114,6 +117,8 @@ instance (GH.HasField "vni" GH.Slot NetworkInfo Std_.Int32) where
     fieldByLabel  = (GH.dataField 0 3 32 0)
 instance (GH.HasField "peerNodeIds" GH.Slot NetworkInfo (R.List Std_.Int64)) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "dnsServers" GH.Slot NetworkInfo (R.List Basics.Text)) where
+    fieldByLabel  = (GH.ptrField 3)
 data NetworkPeerParams 
 type instance (R.ReprFor NetworkPeerParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NetworkPeerParams) where
@@ -150,7 +155,7 @@ instance (C.HasTypeId NetworkCreateParams) where
     typeId  = 12742821130246526528
 instance (C.TypedStruct NetworkCreateParams) where
     numStructWords  = 1
-    numStructPtrs  = 3
+    numStructPtrs  = 4
 instance (C.Allocate NetworkCreateParams) where
     type AllocHint NetworkCreateParams = ()
     new _ = C.newTypedStruct
@@ -166,7 +171,8 @@ data instance C.Parsed NetworkCreateParams
         ,dhcp :: (RP.Parsed Std_.Bool)
         ,nat :: (RP.Parsed Std_.Bool)
         ,autostart :: (RP.Parsed Std_.Bool)
-        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
+        ,dnsServers :: (RP.Parsed (R.List Basics.Text))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetworkCreateParams))
 deriving instance (Std_.Eq (C.Parsed NetworkCreateParams))
@@ -176,7 +182,8 @@ instance (C.Parse NetworkCreateParams (C.Parsed NetworkCreateParams)) where
                                       <*> (GH.parseField #dhcp raw_)
                                       <*> (GH.parseField #nat raw_)
                                       <*> (GH.parseField #autostart raw_)
-                                      <*> (GH.parseField #node raw_))
+                                      <*> (GH.parseField #node raw_)
+                                      <*> (GH.parseField #dnsServers raw_))
 instance (C.Marshal NetworkCreateParams (C.Parsed NetworkCreateParams)) where
     marshalInto raw_ NetworkCreateParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -185,6 +192,7 @@ instance (C.Marshal NetworkCreateParams (C.Parsed NetworkCreateParams)) where
         (GH.encodeField #nat nat raw_)
         (GH.encodeField #autostart autostart raw_)
         (GH.encodeField #node node raw_)
+        (GH.encodeField #dnsServers dnsServers raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot NetworkCreateParams Basics.Text) where
@@ -199,13 +207,15 @@ instance (GH.HasField "autostart" GH.Slot NetworkCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 2 0 1 0)
 instance (GH.HasField "node" GH.Slot NetworkCreateParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "dnsServers" GH.Slot NetworkCreateParams (R.List Basics.Text)) where
+    fieldByLabel  = (GH.ptrField 3)
 data NetworkEditParams 
 type instance (R.ReprFor NetworkEditParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId NetworkEditParams) where
     typeId  = 13369617487645822400
 instance (C.TypedStruct NetworkEditParams) where
     numStructWords  = 1
-    numStructPtrs  = 2
+    numStructPtrs  = 3
 instance (C.Allocate NetworkEditParams) where
     type AllocHint NetworkEditParams = ()
     new _ = C.newTypedStruct
@@ -225,7 +235,9 @@ data instance C.Parsed NetworkEditParams
         ,hasNat :: (RP.Parsed Std_.Bool)
         ,nat :: (RP.Parsed Std_.Bool)
         ,hasAutostart :: (RP.Parsed Std_.Bool)
-        ,autostart :: (RP.Parsed Std_.Bool)}
+        ,autostart :: (RP.Parsed Std_.Bool)
+        ,hasDnsServers :: (RP.Parsed Std_.Bool)
+        ,dnsServers :: (RP.Parsed (R.List Basics.Text))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed NetworkEditParams))
 deriving instance (Std_.Eq (C.Parsed NetworkEditParams))
@@ -239,7 +251,9 @@ instance (C.Parse NetworkEditParams (C.Parsed NetworkEditParams)) where
                                     <*> (GH.parseField #hasNat raw_)
                                     <*> (GH.parseField #nat raw_)
                                     <*> (GH.parseField #hasAutostart raw_)
-                                    <*> (GH.parseField #autostart raw_))
+                                    <*> (GH.parseField #autostart raw_)
+                                    <*> (GH.parseField #hasDnsServers raw_)
+                                    <*> (GH.parseField #dnsServers raw_))
 instance (C.Marshal NetworkEditParams (C.Parsed NetworkEditParams)) where
     marshalInto raw_ NetworkEditParams{..} = (do
         (GH.encodeField #hasName hasName raw_)
@@ -252,6 +266,8 @@ instance (C.Marshal NetworkEditParams (C.Parsed NetworkEditParams)) where
         (GH.encodeField #nat nat raw_)
         (GH.encodeField #hasAutostart hasAutostart raw_)
         (GH.encodeField #autostart autostart raw_)
+        (GH.encodeField #hasDnsServers hasDnsServers raw_)
+        (GH.encodeField #dnsServers dnsServers raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "hasName" GH.Slot NetworkEditParams Std_.Bool) where
@@ -274,6 +290,10 @@ instance (GH.HasField "hasAutostart" GH.Slot NetworkEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 6 0 1 0)
 instance (GH.HasField "autostart" GH.Slot NetworkEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 7 0 1 0)
+instance (GH.HasField "hasDnsServers" GH.Slot NetworkEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 8 0 1 0)
+instance (GH.HasField "dnsServers" GH.Slot NetworkEditParams (R.List Basics.Text)) where
+    fieldByLabel  = (GH.ptrField 2)
 data NetworkManager 
 type instance (R.ReprFor NetworkManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId NetworkManager) where

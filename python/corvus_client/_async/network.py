@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from .. import _schema
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
@@ -38,12 +40,18 @@ class AsyncNetworkManager:
         dhcp: bool = False,
         nat: bool = False,
         autostart: bool = False,
+        dns_servers: Iterable[str] = (),
     ) -> AsyncNetwork:
         """Create a virtual network.
 
         Networks are per-node; pass `node=` to pin to a specific
         node by name or id, or omit to let the daemon's scheduler
         place it.
+
+        `dns_servers` (when non-empty) lands as
+        `--dhcp-option=option:dns-server,IP1,IP2,...` on the
+        dnsmasq the agent spawns, so DHCP clients pick up DNS
+        without falling back to whatever their stack defaults to.
         """
         mgr = await self._ensure()
         params = _schema.network.NetworkCreateParams.new_message()
@@ -54,6 +62,7 @@ class AsyncNetworkManager:
         params.dhcp = dhcp
         params.nat = nat
         params.autostart = autostart
+        params.dnsServers = list(dns_servers)
         resp = await mgr.create(params=params)
         return AsyncNetwork(resp.network)
 
@@ -81,6 +90,7 @@ class AsyncNetwork:
         dhcp: bool | None = None,
         nat: bool | None = None,
         autostart: bool | None = None,
+        dns_servers: Iterable[str] | None = None,
     ) -> None:
         params = _schema.network.NetworkEditParams.new_message()
         if name is not None:
@@ -98,6 +108,9 @@ class AsyncNetwork:
         if autostart is not None:
             params.hasAutostart = True
             params.autostart = autostart
+        if dns_servers is not None:
+            params.hasDnsServers = True
+            params.dnsServers = list(dns_servers)
         await self._cap.edit(params=params)
 
     async def delete(self) -> None:

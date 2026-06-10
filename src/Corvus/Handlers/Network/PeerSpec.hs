@@ -25,6 +25,7 @@ where
 import qualified Corvus.Model as M
 import qualified Corvus.NetAgentClient as NA
 import Corvus.NetAgentClient.Spec (corvusBridgeName)
+import qualified Corvus.NetAgentClient.Spec as Spec
 import qualified Corvus.Utils.Network as N
 import Data.Int (Int64)
 import qualified Data.List as L
@@ -92,7 +93,7 @@ buildPeerSpec network networkId role (forNode, forNodeRow) members reservations 
             gw <- N.gatewayAddress subnet
             prefix <- N.prefixLength subnet
             Right (gw <> "/" <> prefix)
-      dhcp <- buildOwnerDhcp subnet (M.networkDhcp network) reservations
+      dhcp <- buildOwnerDhcp subnet (M.networkDhcp network) reservations dnsServers
       Right
         NA.NetworkSpec
           { NA.nsName = bridgeName
@@ -115,9 +116,12 @@ buildPeerSpec network networkId role (forNode, forNodeRow) members reservations 
             NA.nsCidr = ""
           , NA.nsMtu = mtu
           , NA.nsNat = NA.NatSpec {NA.natEnabled = False, NA.natUplinkIf = ""}
-          , NA.nsDhcp = disabledDhcp
+          , NA.nsDhcp = disabledDhcp dnsServers
           , NA.nsOverlay = overlay
           }
+  where
+    dnsServers =
+      Spec.decodeDnsServers (M.networkDnsServers network)
 
 -- | Resolve the network's owner row + every peer row from the DB.
 -- Returns @(owner, peers)@ where @peers@ does NOT include the owner.
@@ -169,9 +173,10 @@ buildOwnerDhcp
   :: Text
   -> Bool
   -> [NA.DhcpHostReservation]
+  -> [Text]
   -> Either Text NA.DhcpSpec
-buildOwnerDhcp _subnet False _ = Right disabledDhcp
-buildOwnerDhcp subnet True reservations
+buildOwnerDhcp _subnet False _ dnsServers = Right (disabledDhcp dnsServers)
+buildOwnerDhcp subnet True reservations dnsServers
   | T.null subnet = Left "DHCP enabled but subnet is empty"
   | otherwise = do
       start <- N.dhcpRangeStart subnet
@@ -185,10 +190,11 @@ buildOwnerDhcp subnet True reservations
           , NA.dhcpDomain = ""
           , NA.dhcpExtraArgs = []
           , NA.dhcpHostReservations = reservations
+          , NA.dhcpDnsServers = dnsServers
           }
 
-disabledDhcp :: NA.DhcpSpec
-disabledDhcp =
+disabledDhcp :: [Text] -> NA.DhcpSpec
+disabledDhcp dnsServers =
   NA.DhcpSpec
     { NA.dhcpEnabled = False
     , NA.dhcpRangeStart = ""
@@ -197,4 +203,5 @@ disabledDhcp =
     , NA.dhcpDomain = ""
     , NA.dhcpExtraArgs = []
     , NA.dhcpHostReservations = []
+    , NA.dhcpDnsServers = dnsServers
     }

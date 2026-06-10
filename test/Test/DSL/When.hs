@@ -469,7 +469,7 @@ whenApply yaml = withState $ \st -> do
 whenNetworkCreate :: Text -> Text -> TestM Response
 whenNetworkCreate name subnet =
   -- Empty node ref triggers the scheduler.
-  withState (\st -> runAction st "alice" (NetworkCreate name "" subnet False False False))
+  withState (\st -> runAction st "alice" (NetworkCreate name "" subnet False False False []))
 
 whenNetworkDelete :: Int64 -> TestM Response
 whenNetworkDelete nwId =

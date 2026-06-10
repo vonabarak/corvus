@@ -41,9 +41,11 @@ handleNetworkCreate
   -> Bool
   -> Bool
   -> Bool
+  -> [Text]
+  -- ^ DNS servers
   -> IO Bool
-handleNetworkCreate fmt conn name nodeRef subnet dhcp nat autostart = do
-  r <- try @SomeException (CR.rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart)
+handleNetworkCreate fmt conn name nodeRef subnet dhcp nat autostart dnsServers = do
+  r <- try @SomeException (CR.rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart dnsServers)
   case r of
     Right nwId -> do
       emitOkWith fmt [("id", toJSON nwId)] $
@@ -138,6 +140,12 @@ handleNetworkShow fmt conn nwRef = do
             printField
               "Peer nodes"
               (unwords (map show ps))
+        case nwiDnsServers info of
+          [] -> pure ()
+          ds ->
+            printField
+              "DNS servers"
+              (unwords (map T.unpack ds))
       pure True
     Left e -> do
       emitError fmt "rpc_error" (T.pack (show e)) $
@@ -158,9 +166,18 @@ networkColumns =
   ]
 
 -- | Handle network edit command
-handleNetworkEdit :: OutputFormat -> CapnpConnection -> Text -> Maybe Text -> Maybe Bool -> Maybe Bool -> Maybe Bool -> IO Bool
-handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart = do
-  r <- try (CR.rpcNetworkEdit conn (entityRefFromText nwRef) mSubnet mDhcp mNat mAutostart) :: IO (Either SomeException ())
+handleNetworkEdit
+  :: OutputFormat
+  -> CapnpConnection
+  -> Text
+  -> Maybe Text
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe Bool
+  -> Maybe [Text]
+  -> IO Bool
+handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart mDnsServers = do
+  r <- try (CR.rpcNetworkEdit conn (entityRefFromText nwRef) mSubnet mDhcp mNat mAutostart mDnsServers) :: IO (Either SomeException ())
   case r of
     Right () -> do
       emitOk fmt $ putStrLn $ "Network '" ++ T.unpack nwRef ++ "' updated."

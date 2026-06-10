@@ -244,13 +244,13 @@ runCommand opts = do
       TemplateShow tRef -> handleTemplateShow fmt conn tRef
       TemplateInstantiate tRef name nodeRef -> handleTemplateInstantiate fmt conn tRef name nodeRef
       -- Network commands
-      NetworkCreate name nodeRef subnet dhcp nat as -> handleNetworkCreate fmt conn name nodeRef subnet dhcp nat as
+      NetworkCreate name nodeRef subnet dhcp nat as dns -> handleNetworkCreate fmt conn name nodeRef subnet dhcp nat as dns
       NetworkDelete nwRef -> handleNetworkDelete fmt conn nwRef
       NetworkStart nwRef -> handleNetworkStart fmt conn nwRef
       NetworkStop nwRef force -> handleNetworkStop fmt conn nwRef force
       NetworkList -> handleNetworkList fmt tableOpts conn
       NetworkShow nwRef -> handleNetworkShow fmt conn nwRef
-      NetworkEdit nwRef mSubnet mDhcp mNat mAutostart -> handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart
+      NetworkEdit nwRef mSubnet mDhcp mNat mAutostart mDns -> handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart mDns
       NetworkAttachNode nwRef nodeRef -> handleNetworkAttachNode fmt conn nwRef nodeRef
       NetworkDetachNode nwRef nodeRef -> handleNetworkDetachNode fmt conn nwRef nodeRef
       -- Node commands

@@ -582,6 +582,7 @@ test-suite corvus-test
       Corvus.CloudInitSpec
       Corvus.CoreSpec
       Corvus.DiskSpec
+      Corvus.DnsmasqArgsSpec
       Corvus.EmitSpec
       Corvus.GuestAgentSpec
       Corvus.GuestExecSpec
