@@ -109,6 +109,35 @@ def _bake_vms(client) -> list[str]:
     return [v.name for v in client.vms.list() if v.name.startswith("__build_")]
 
 
+def _bake_target_disk(client, artifact_name: str) -> str:
+    """The bake VM's writable target disk for ``artifact_name``.
+
+    With ``strategy: overlay`` (this file's template definition),
+    'setupTargetDisk' reuses the bake VM's FIRST drive — the
+    template-instantiated overlay on the base disk — as the build
+    target. So 'strategyCacheRoles' returns ``["artifact"]`` and the
+    cache snapshots all land on that one disk. Returns its name.
+    Caller must keep ``artifact_name`` <= 32 chars so the bake-VM
+    name (which embeds it via 'sanitizeNameFragment') still
+    contains it verbatim.
+    """
+    vm_matches = [
+        v
+        for v in client.vms.list()
+        if v.name.startswith("__build_") and artifact_name in v.name
+    ]
+    assert len(vm_matches) == 1, [v.name for v in vm_matches]
+    details = client.vms.get(vm_matches[0].id).show()
+    assert details.drives, "bake VM has no drives"
+    return details.drives[0].disk_image.name
+
+
+def _cache_snapshots(client, disk_name: str) -> list[str]:
+    """Names of the ``cache-*`` qcow2 internal snapshots on a disk."""
+    disk = client.disks.get(disk_name, by_name=True)
+    return [s.name for s in disk.snapshot_list() if s.name.startswith("cache-")]
+
+
 def _collect_events(stream) -> list:
     out: list = []
     for ev in stream:
@@ -236,6 +265,142 @@ class TestBuildCache(SingleNodeCase):
                 if v.name.startswith("__build_"):
                     self.client.vms.get(v.name, by_name=True).delete()
             self.client.disks.get(artifact_name, by_name=True).delete()
+            tpl.delete()
+
+    def test_rebuild_prunes_stale_tail_keeping_one_snapshot_per_step(self):
+        """Post-success invariant: after a build with ``--build-cache``,
+        the number of ``cache-*`` qcow2 internal snapshots on the bake
+        VM's target disk equals the number of provisioner steps in the
+        YAML — regardless of how many rebuilds have happened on top.
+
+        Regression test for the gate-mismatch bug at the
+        ``pruneCacheTail`` call sites: the per-step writer gates on
+        the merged ``boBuildCache opts`` (CLI flag OR YAML field) but
+        the prune call sites originally gated on the YAML-only
+        ``buildBuildCache b``. The common workflow
+        ``crv build --build-cache foo.yml`` with no ``buildCache:
+        true`` in the YAML wrote new snapshots every rebuild but
+        skipped the prune, growing the cache by one snapshot per
+        edit-and-rebuild cycle.
+
+        Shape:
+          1. Prime the cache (3 steps, ``--build-cache``). Bake VM's
+             target disk now carries 3 ``cache-*`` snapshots.
+          2. Edit step 3, rebuild with ``--use-cache --build-cache``.
+             The new step 3 snapshot is written; the old step 3
+             snapshot must be removed by the prune. Still 3 ``cache-*``
+             snapshots total.
+          3. Edit step 3 again and rebuild — still 3.
+
+        Disk-mode chosen so the snapshots are plain qcow2 internal
+        snapshots (no vmstate); the assertion is identical for
+        memory-mode but a disk-mode bake reuses the same VM image
+        format the assertion already understands.
+        """
+        token = secrets.token_hex(4)
+        images = self.register_base_images()
+        base_disk = images["alpine"]
+        # Keep the artifact name <= 32 chars so 'sanitizeNameFragment'
+        # in Build.hs doesn't truncate it inside the bake-VM name and
+        # break the 'artifact_name in v.name' substring lookup below.
+        tpl_name = f"corvus-it-prune-tpl-{token}"
+        artifact_name = f"corvus-it-prune-art-{token}"
+
+        tpl = self.client.templates.create(
+            _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
+        )
+        try:
+            # ---- pass 1: prime the cache -----------------------------
+            pipeline_v1 = _three_step_pipeline(
+                tpl_name=tpl_name, artifact_name=artifact_name
+            )
+            events = _collect_events(
+                self.client.build_stream_text(pipeline_v1, build_cache=True)
+            )
+            c = _classify(events)
+            assert c["pipeline_end"] is not None
+            assert not c["pipeline_end"].builds[0].error_message, c["pipeline_end"]
+            assert len(c["stores"]) == 3, c["stores"]
+
+            target_disk = _bake_target_disk(self.client, artifact_name)
+            snaps = _cache_snapshots(self.client, target_disk)
+            assert len(snaps) == 3, (
+                f"after prime, expected 3 cache snapshots on "
+                f"{target_disk!r}; got {snaps}"
+            )
+
+            # ---- pass 2: edit step 3, rebuild ------------------------
+            # Mutate step 2 (the body-customisable knob) AND step 3
+            # would be ideal — but _three_step_pipeline only exposes
+            # step2_body, and editing step 2 invalidates step 3's
+            # chain hash automatically (chain depends on prior step).
+            # So step 1 keeps its cache row; steps 2 & 3 get written
+            # fresh; the prune must remove the OLD step 2 + step 3
+            # rows. Total snapshots: still 3.
+            pipeline_v2 = _three_step_pipeline(
+                tpl_name=tpl_name,
+                artifact_name=artifact_name,
+                step2_body="echo step-two-CHANGED-once",
+            )
+            events = _collect_events(
+                self.client.build_stream_text(
+                    pipeline_v2, use_cache=True, build_cache=True
+                )
+            )
+            c = _classify(events)
+            assert c["pipeline_end"] is not None
+            assert not c["pipeline_end"].builds[0].error_message, c["pipeline_end"]
+            # Step 1 hit; 2 + 3 stored (fresh).
+            assert [h.step_index for h in c["hits"]] == [1], c["hits"]
+            assert sorted(s.step_index for s in c["stores"]) == [2, 3], c["stores"]
+
+            snaps_after_first_edit = _cache_snapshots(self.client, target_disk)
+            assert len(snaps_after_first_edit) == 3, (
+                f"after first rebuild, expected 3 cache snapshots; "
+                f"got {snaps_after_first_edit} (the old step-2 and "
+                f"step-3 snapshots from pass 1 should have been "
+                f"pruned)"
+            )
+            # Step 1's snapshot survives both passes (its chain hash
+            # is unchanged); the other two are fresh.
+            assert snaps[0] in snaps_after_first_edit, (
+                f"step 1 snapshot {snaps[0]!r} missing after rebuild: {snaps_after_first_edit}"
+            )
+
+            # ---- pass 3: edit step 2 again ---------------------------
+            # Same shape: step 1 hits, steps 2 + 3 rewritten, prune
+            # removes the previous pair. Invariant holds.
+            pipeline_v3 = _three_step_pipeline(
+                tpl_name=tpl_name,
+                artifact_name=artifact_name,
+                step2_body="echo step-two-CHANGED-twice",
+            )
+            events = _collect_events(
+                self.client.build_stream_text(
+                    pipeline_v3, use_cache=True, build_cache=True
+                )
+            )
+            c = _classify(events)
+            assert c["pipeline_end"] is not None
+            assert not c["pipeline_end"].builds[0].error_message, c["pipeline_end"]
+
+            snaps_after_second_edit = _cache_snapshots(self.client, target_disk)
+            assert len(snaps_after_second_edit) == 3, (
+                f"after second rebuild, expected 3 cache snapshots; "
+                f"got {snaps_after_second_edit}"
+            )
+            assert snaps[0] in snaps_after_second_edit, (
+                f"step 1 snapshot {snaps[0]!r} disappeared across "
+                f"two rebuilds: {snaps_after_second_edit}"
+            )
+        finally:
+            for v in self.client.vms.list():
+                if v.name.startswith("__build_"):
+                    self.client.vms.get(v.name, by_name=True).delete()
+            try:
+                self.client.disks.get(artifact_name, by_name=True).delete()
+            except Exception:
+                pass
             tpl.delete()
 
     def test_cache_falls_back_to_fresh_when_cached_vm_is_deleted(self):
