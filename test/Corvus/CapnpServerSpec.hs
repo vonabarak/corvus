@@ -28,6 +28,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, bracket, bracket_, catch, try)
+import Control.Monad (unless)
 import qualified Corvus.Client.Capnp.Connection as CC
 import qualified Corvus.Client.Capnp.Rpc as CR
 import qualified Corvus.Model as M
@@ -47,9 +48,10 @@ import Corvus.Types
 import qualified Corvus.Wire.Common as WC
 import Data.Function ((&))
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
+import qualified Data.Text as T
 import Database.Persist (delete, update, (=.))
 import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (toSqlKey)
+import Database.Persist.Sql (Single (..), SqlPersistT, rawExecute, rawSql, toSqlKey)
 import Network.Socket
   ( Family (..)
   , SockAddr (..)
@@ -64,12 +66,21 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout (timeout)
-import Test.Database (TestEnv (..))
+import Test.Database (TestEnv (..), insertDefaultTestNode)
 import Test.Hspec
 import Test.Prelude (withTestDb)
 
 spec :: Spec
-spec = withTestDb $ do
+spec = withTestDb $ sequential $ do
+  -- Every test in this file shares a single test database (via
+  -- @withTestDb@'s 'beforeAll'). Hspec's --jobs=N (the Makefile
+  -- defaults to one worker per logical CPU for the Haskell suite)
+  -- otherwise parallelises within a 'describe', which in turn
+  -- races concurrent 'resetTestDb' TRUNCATEs against in-flight
+  -- @rpc*List@ reads — observed as PostgreSQL deadlocks
+  -- (40P01) and as the "length vms == 2" flake the regression
+  -- report described.  Force sequential execution so each test
+  -- sees the DB at a known-empty starting state.
   describe "Cap'n Proto RPC bootstrap (raw socket)" $ do
     it "accepts a connection and responds to daemon.ping" $ \env -> do
       withSystemTempDirectory "corvus-capnp-test" $ \tmp -> do
@@ -235,7 +246,18 @@ waitForSocket p = go (50 :: Int)
 -- that route disk / cloud-init through the agent. Tears
 -- everything down on exit.
 withCapnpDaemon :: TestEnv -> (CC.CapnpConnection -> IO a) -> IO a
-withCapnpDaemon env action =
+withCapnpDaemon env action = do
+  -- Per-test DB reset. This spec uses raw hspec 'it' rather than
+  -- the DSL's 'testCase' wrapper, so without an explicit reset
+  -- here each test inherits whatever rows the previous one left
+  -- behind. Hspec randomises 'it' order with the run's '--seed',
+  -- so a residual VM from "vm start surfaces RespInvalidTransition"
+  -- (or any other create-and-delete test) would intermittently
+  -- break the next 'length vms == 1'-style assertion, showing up
+  -- as a "got 2 expected 1" flake on some seeds and a clean run
+  -- on others. Truncate-then-reseed gives every test a known-empty
+  -- DB containing just the bootstrap test-node row.
+  resetTestDb env
   withSystemTempDirectory "corvus-capnp-test" $ \tmp ->
     -- Sandbox XDG_RUNTIME_DIR so the in-process nodeagent's
     -- startup/shutdown cleanup (which 'pgrep'-kills QEMU +
@@ -298,6 +320,29 @@ withSandboxedXdg sandbox action = do
         Just v -> setEnv "XDG_RUNTIME_DIR" v
         Nothing -> unsetEnv "XDG_RUNTIME_DIR"
   bracket_ (setEnv "XDG_RUNTIME_DIR" sandbox) restore action
+
+-- | Drop every row from the test DB except the bootstrap
+-- 'test-node' (id=1) that handlers' FK targets need. Same shape
+-- as 'Test.DSL.Core.testCase' uses for the DSL-style specs:
+-- @TRUNCATE … RESTART IDENTITY CASCADE@ followed by re-seeding
+-- the default test-node so its row keeps the well-known id=1.
+resetTestDb :: TestEnv -> IO ()
+resetTestDb env =
+  runSqlPool (truncateAllTables >> insertDefaultTestNode) (tePool env)
+  where
+    truncateAllTables :: SqlPersistT IO ()
+    truncateAllTables = do
+      tables <-
+        rawSql
+          "SELECT tablename FROM pg_catalog.pg_tables \
+          \WHERE schemaname = 'public' AND tablename != 'alembic_version';"
+          []
+      unless (null tables) $ do
+        let tableNames =
+              T.intercalate "," $ map (\(Single t) -> "\"" <> t <> "\"") tables
+        rawExecute
+          ("TRUNCATE " <> tableNames <> " RESTART IDENTITY CASCADE")
+          []
 
 -- | Ask the kernel for a free TCP port on 127.0.0.1. Mild race
 -- between close-then-bind; in practice unobservable for serial

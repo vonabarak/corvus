@@ -131,6 +131,7 @@ import qualified Control.Exception as E
 import qualified Corvus.Tls as Tls
 import qualified Data.Default as Def
 import Data.Function ((&))
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int32, Int64)
 import Data.Maybe (fromMaybe, isJust)
 import qualified Data.Text as T
@@ -222,6 +223,19 @@ withNodeAgentClient host port owner mTlsCfg body = do
                     , maxQuestions = 4096
                     , maxCallWords = 128 * 1024 * 1024 `div` 8
                     }
+            -- We need to distinguish two failure regimes inside
+            -- the try below: an exception *during connection
+            -- setup* (transport handshake, bootstrap, session
+            -- call) should land in @body@ as
+            -- @Left (NodeAgentConnectFailed ...)@ so the caller
+            -- can react to a dead agent. But once setup
+            -- completes and we hand @body@ a live client, any
+            -- exception it throws is the caller's own (a test
+            -- assertion failure, a downstream RPC error, …) and
+            -- must propagate unchanged — re-invoking @body@ with
+            -- a synthetic @Left@ would double-call it AND
+            -- swallow the original exception.
+            bodyEntered <- newIORef False
             r <-
               E.try @E.SomeException $
                 withSupervisor $ \sup ->
@@ -234,6 +248,7 @@ withNodeAgentClient host port owner mTlsCfg body = do
                         #session
                         CGNA.NodeAgent'session'params {CGNA.owner = owner}
                         agent
+                    writeIORef bodyEntered True
                     body $
                       Right
                         NodeAgentClient
@@ -243,8 +258,11 @@ withNodeAgentClient host port owner mTlsCfg body = do
                           , nacOwner = owner
                           }
             case r of
-              Left (e :: E.SomeException) ->
-                body (Left (NodeAgentConnectFailed (T.pack (show e))))
+              Left (e :: E.SomeException) -> do
+                entered <- readIORef bodyEntered
+                if entered
+                  then E.throwIO e
+                  else body (Left (NodeAgentConnectFailed (T.pack (show e))))
               Right out -> pure out
 
 -- | Build a Cap'n Proto 'Transport' over the connected socket,
