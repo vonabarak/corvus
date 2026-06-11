@@ -208,6 +208,14 @@ make format
 make lint
 ```
 
+### Before committing
+
+Run `make test` before every commit. It's the umbrella target that chains `unit-tests`, `python-test`, and `integration-tests` in escalating-cost order so a regression in the cheap pure-Haskell layer surfaces before the slower phases. Make stops on the first non-zero exit, so a green `make test` is the local equivalent of CI's pre-merge gate. Don't commit until it passes.
+
+```
+make test
+```
+
 ### Backwards compatibility
 
 Corvus is in early beta. Breaking changes — to YAML schemas, the binary RPC protocol, the database schema, the CLI, and anything else — are accepted without compatibility shims, deprecation paths, or transitional warnings. When renaming a field or removing a feature, change every call site outright; do not keep the old name as an alias and do not add migration code that detects and rewrites legacy inputs. Make the break clean and update the docs and examples in the same commit.
