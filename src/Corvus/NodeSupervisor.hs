@@ -150,16 +150,34 @@ runNodeAgentLoop
   -> IO ()
 runNodeAgentLoop state nodeKey nodeLabel host port owner mTlsCfg = loop
   where
+    -- 'withNodeAgentClient' rethrows exceptions raised AFTER the
+    -- body cap was handed in (e.g. the @withConn@ transport
+    -- tearing down when the remote nodeagent restarts). That's
+    -- the right shape for the test fixture, where we want the
+    -- real failure to surface; here in production we MUST keep
+    -- the reconnect loop alive, so wrap the call in 'try' and
+    -- treat any escape as "retry in 5s" — same shape as a
+    -- 'Left'-returning dial failure.
     loop = do
       result <-
-        NOA.withNodeAgentClient host port owner mTlsCfg onConnect
+        E.try @E.SomeException $
+          NOA.withNodeAgentClient host port owner mTlsCfg onConnect
       shouldStop <- readTVarIO (ssShutdownFlag state)
       if shouldStop
         then pure ()
         else do
           case result of
-            Right () -> pure ()
-            Left _ -> threadDelay 5000000
+            Right (Right ()) -> pure ()
+            Right (Left _) -> threadDelay 5000000
+            Left e -> do
+              runFilteredLogging (ssLogLevel state) $
+                logWarnN $
+                  "node "
+                    <> nodeLabel
+                    <> " nodeagent session ended: "
+                    <> T.pack (show e)
+                    <> "; reconnecting in 5s"
+              threadDelay 5000000
           loop
 
     onConnect (Left e) = do

@@ -129,6 +129,25 @@ def _register_self_node(client: Client, name: str, host: str) -> None:
     _wait_for_self_node_ready(client)
 
 
+_TRANSIENT_AGENT_SUBSTRINGS: tuple[str, ...] = (
+    # 'lookupNodeAgent' returns this when the per-node supervisor
+    # hasn't yet placed a live agent cap into 'ssAgents' — either
+    # we're racing the initial dial, or the supervisor has cleared
+    # the slot because a disconnect was observed and is now
+    # backing off before redialling.
+    "unavailable",
+    # During a nodeagent restart there's a brief window where the
+    # daemon still holds a stale TCP-backed cap from before the
+    # restart. The next RPC over that cap returns the capnp wire
+    # error 'Exception''Type''disconnected' before the supervisor
+    # unwinds and 'clearNodeConn' wipes the slot. Same retry
+    # semantics as "unavailable" — the supervisor will clear the
+    # slot momentarily and a later attempt will land cleanly on
+    # the fresh dial.
+    "disconnected",
+)
+
+
 def _wait_for_self_node_ready(
     client: Client,
     *,
@@ -138,10 +157,10 @@ def _wait_for_self_node_ready(
     """Block until the inner daemon's per-node supervisor has
     finished its initial nodeagent dial.
 
-    Probes a cheap, idempotent agent call. Any 'unavailable'
-    error from the daemon means the supervisor's dial hasn't
-    landed yet — keep polling. Any other error surfaces
-    immediately (it's a real problem).
+    Probes a cheap, idempotent agent call. Errors whose message
+    looks transient (per :data:`_TRANSIENT_AGENT_SUBSTRINGS`) keep
+    the poll going; anything else surfaces immediately (it's a
+    real problem).
     """
     deadline = time.monotonic() + timeout_sec
     last_err: BaseException | None = None
@@ -152,7 +171,8 @@ def _wait_for_self_node_ready(
             return
         except CorvusError as e:
             last_err = e
-            if "unavailable" not in str(e).lower():
+            msg = str(e).lower()
+            if not any(s in msg for s in _TRANSIENT_AGENT_SUBSTRINGS):
                 raise
             time.sleep(poll_interval_sec)
     raise RuntimeError(
