@@ -637,8 +637,13 @@ runFreshBake state parentTaskId sink stack startTime opts b = do
   -- No prefix matched (or --use-cache was off). Any rows still on
   -- file under this pipeline key are stale orphans from a previous
   -- run that no longer shares a chain — drop them before we start
-  -- writing new ones.
-  when (buildBuildCache b) $
+  -- writing new ones. Gated on the *effective* build-cache flag
+  -- ('mergeBuildOptions' has already OR'd the YAML field with the
+  -- CLI's @--build-cache@); using the YAML field directly skips
+  -- the prune for the common @--build-cache@-on-the-CLI case where
+  -- the YAML still says nothing about it, and the stale tail
+  -- accumulates one snapshot per rebuild.
+  when (boBuildCache opts) $
     Cache.pruneCacheTail
       state
       (H.envelopeHash b <> ":" <> buildName b)
@@ -821,8 +826,10 @@ runFromCachedBakeVm state parentTaskId sink stack startTime opts b k chains cach
           -- snapshots for stepIndex > k left over from a previous
           -- run that diverged at or before this point. The bake VM
           -- is stopped above, so offline qemu-img can take the
-          -- qcow2 lock cleanly.
-          when (buildBuildCache b) $
+          -- qcow2 lock cleanly. See 'runFreshBake' for the reason
+          -- the gate uses the merged 'boBuildCache' opt rather
+          -- than the YAML-only 'buildBuildCache b'.
+          when (boBuildCache opts) $
             Cache.pruneCacheTail
               state
               (H.envelopeHash b <> ":" <> buildName b)
