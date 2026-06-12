@@ -14,10 +14,10 @@ build: update-image
 	crv build gentoo-test.yml --wait
 
 clean:
-	crv vm delete gentoo-corvus-test
-	crv template delete gentoo-headless
-	crv disk delete gentoo-base-headless
-	crv template delete gentoo-cloud
+	crv vm delete gentoo-corvus-test || true
+	crv template delete gentoo-headless || true
+	crv disk delete gentoo-base-headless || true
+	crv template delete gentoo-cloud || true
 
 # Pull the current cloud-init image filename from the upstream
 # `latest-di-amd64-cloudinit.txt` and rewrite the dated qcow2

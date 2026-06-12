@@ -1,13 +1,23 @@
 pipeline:
+  # Disks: skip-if-exists so re-baking doesn't re-download the
+  # ~8 GB cloud-init Gentoo image every time.
   - apply:
       ifExists: skip
-
       disks:
         - name: gentoo-base-cloud
-          import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260607T170134Z.qcow2"
+          import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260610T214636Z.qcow2"
           format: qcow2
           path: BaseImages/Gentoo/
 
+  # Templates: overwrite-on-exists so edits to the bake-VM
+  # 'gentoo-cloud' template's cloud-init userData (or any other
+  # template field) actually propagate on the NEXT bake. Without
+  # this, the template's DB row stays at whatever the first apply
+  # wrote and 'crv build' just re-instantiates the stale userData
+  # into every fresh bake VM, regardless of YAML edits.
+  - apply:
+      ifExists: skip
+      # ifExists: overwrite
       templates:
         - name: gentoo-cloud
           cpuCount: 8
@@ -51,6 +61,16 @@ pipeline:
                 - mkdir -p /var/cache/binpkgs
                 - mount -t nfs4 -o rw,vers=4.2 192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs
                 - sh -c "echo '192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs nfs4 rw,_netdev,vers=4.2 0 0' >> /etc/fstab"
+                # Disable binpkg signature checks BEFORE the next
+                # emerge picks anything off the just-mounted local
+                # binhost. The host's binhost is unsigned (host
+                # portage doesn't run with FEATURES=binpkg-signing),
+                # but the 23.0 profile defaults to
+                # binpkg-request-signature — qemu-guest-agent's
+                # binpkg would be rejected. Same shape as the bake
+                # step's make.conf override at line ~151 and the
+                # target image's at line ~254.
+                - sh -c 'printf "\nFEATURES=\"\${FEATURES} -binpkg-request-signature binpkg-ignore-signature\"\nGPG_VERIFY_USER_DROP=\"\"\nGPG_VERIFY_GROUP_DROP=\"\"\n" >> /etc/portage/make.conf'
                 - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
                 - systemctl enable --now qemu-guest-agent.service
           sharedDirs:
@@ -132,13 +152,26 @@ pipeline:
               grep -q 'FEATURES=.*getbinpkg' /etc/portage/make.conf 2>/dev/null || cat >> /etc/portage/make.conf <<'EOF'
 
               # The host's local binhost (shared as /var/cache/binpkgs)
-              # isn't signed — host's portage doesn't have
-              # FEATURES=binpkg-signing. The 23.0 profile defaults to
-              # binpkg-request-signature, which would reject every
-              # unsigned binpkg the host serves us. The bake VM is
-              # ephemeral so we drop the requirement here only — the
-              # final image's make.conf (set up in step 4) keeps the
-              # strict default.
+              # isn't uniformly signed — host's portage doesn't run
+              # FEATURES=binpkg-signing, but some old per-package
+              # binpkgs still carry .sig files from a prior signing
+              # run. The 23.0 profile defaults to
+              # binpkg-request-signature, which rejects every
+              # unsigned binpkg. And `-binpkg-request-signature`
+              # alone isn't enough either: gpkg's verifier still
+              # routes through VERIFY whenever a .sig is present in
+              # the archive (see gpkg.py:_verify_binpkg, condition
+              # `request_signature or signature_exist`).
+              # `binpkg-ignore-signature` short-circuits verification
+              # outright. GPG_VERIFY_USER_DROP / GPG_VERIFY_GROUP_DROP
+              # left empty skip the privilege drop to nobody:nogroup
+              # that gpkg.py:checksum_helper would otherwise do
+              # before any FEATURES check — same crash baselayout
+              # has shipped without a 'nogroup' group for years. The
+              # target image's make.conf (set in step 4) duplicates
+              # all four knobs because downstream bakes against the
+              # baked image (corvus-test-node, etc.) hit the same
+              # heterogeneously-signed binhost.
               #
               # --binpkg-changed-deps=n forces portage to use binpkgs
               # even when their recorded dep manifest has drifted from
@@ -148,9 +181,11 @@ pipeline:
               # elfutils, curl, libarchive, libcap, man-db, openssh,
               # …) silently fall back to source build, which is the
               # bulk of the bake's wall-clock cost.
-              FEATURES="${FEATURES} buildpkg getbinpkg parallel-fetch -binpkg-request-signature"
+              FEATURES="${FEATURES} buildpkg getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
               EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
               ACCEPT_LICENSE="*"
+              GPG_VERIFY_USER_DROP=""
+              GPG_VERIFY_GROUP_DROP=""
               EOF
 
               getuto || emerge -1q app-portage/getuto || true
@@ -238,23 +273,6 @@ pipeline:
                          "$SYSROOT/usr/lib" \
                          "$SYSROOT/usr/lib64"
 
-              # Pre-stage merged-usr symlinks. Gentoo's 23.0 profile is
-              # merged-usr (everything under /usr); profile.bashrc dies
-              # with "23.0 merged-usr profile, but disk is split-usr"
-              # the moment the first ebuild's environment loads if the
-              # sysroot doesn't have /{bin,sbin,lib,lib64} as symlinks
-              # into /usr. Stage3 tarballs ship these pre-created — we
-              # don't have one, so create them ourselves before the
-              # first emerge.
-              #
-              # /usr/sbin is ALSO a symlink (to bin) in modern merged-
-              # usr Gentoo — sbin and bin are unified inside /usr too.
-              # If /usr/sbin is left as a real directory, shadow's
-              # `dosbin groupadd` lands at /usr/sbin/groupadd, which
-              # never appears on the default Gentoo PATH (PATH /
-              # ROOTPATH in /etc/env.d/50baselayout cover /usr/bin
-              # only). Result: groupadd "command not found" when any
-              # downstream ebuild calls it.
               ln -sf bin       "$SYSROOT/usr/sbin"
               ln -sf usr/bin   "$SYSROOT/bin"
               ln -sf usr/sbin  "$SYSROOT/sbin"
@@ -602,3 +620,11 @@ pipeline:
             - network: corvus
           sshKeys:
             - name: corvus
+          cloudInitConfig:
+            userData:
+              # Clear root's password so console login works without
+              # one. 'passwd -d' empties the shadow field; SSH still
+              # honours PermitRootLogin / PermitEmptyPasswords, so
+              # remote root login stays blocked by sshd's defaults.
+              runcmd:
+                - [ passwd, -d, root ]
