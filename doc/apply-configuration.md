@@ -19,7 +19,7 @@ The same behaviour can be enabled from inside the YAML via the top-level `ifExis
 A configuration file has five top-level sections, all optional, plus an `ifExists:` policy field:
 
 ```yaml
-ifExists:   error   # error (default) | skip — see "ifExists" below
+ifExists:   error   # error (default) | skip | overwrite — see "ifExists" below
 sshKeys:    [...]   # SSH public keys for cloud-init injection
 disks:      [...]   # Disk images (import, register, create, overlay, or clone)
 networks:   [...]   # Virtual networks (bridge + TAP managed by corvus-netd)
@@ -29,15 +29,25 @@ templates:  [...]   # VM templates (same schema as `crv template create`)
 
 ### `ifExists`
 
-Controls what apply does when a resource it would create already exists in the database (matched by name). YAML-level equivalent of `--skip-existing`.
+Controls what apply does when a resource it would create already exists in the database (matched by name). YAML-level equivalent of `--skip-existing`, with a third `overwrite` option that has no CLI form.
 
 | Value | Behaviour |
 |---|---|
 | `error` (default) | Duplicate name is a hard error — apply aborts. |
 | `skip` | Existing resources are silently treated as success and their IDs are reused for dependent references. Same as `--skip-existing`. |
-| `overwrite` | **Rejected at validation time.** Apply does not delete registered templates / disks / networks / VMs to re-create them; doing so would clobber unrelated state (running VMs, attached disks). The build YAML's `target.ifExists: overwrite` exists for the build-artifact-disk case only. |
+| `overwrite` | Existing resources are deleted and re-created from the new YAML. Use this when you've edited an entry (template's cloud-init userData, disk's import URL, network's subnet, etc.) and want the next apply to replace the old DB row outright. Refuses with an actionable error — naming the attaching VM(s) / template(s) — when the existing resource is in use; the operator must detach (or `crv vm delete`) first. Built on the same per-entity `*Delete` actions as `crv <thing> delete`, so each delete is recorded as a subtask. Stream events for the overwrite arm are tagged `kind: "overwrite"` (sibling of `skip` and the regular create kinds). |
 
-The CLI flag and the YAML field are OR'd: if either says skip, skip wins. This is what lets a build pipeline's inline `apply:` step opt into skip-existing — `crv build` has no `--skip-existing` of its own, so the YAML's `ifExists:` is the only knob there.
+Per-entity refusal rules under `overwrite`:
+
+| Entity | Refused when | Recovery |
+|---|---|---|
+| `sshKeys` | The key is attached to any VM (`vm_ssh_key`) or template (`template_ssh_key`). | Detach via `crv vm key detach` / edit the template. |
+| `disks` | A VM has it as a drive (`drive.disk_image_id`). | Stop and `crv vm delete` the attachers, or `crv disk detach`. |
+| `networks` | A VM has a NIC on it (`network_interface.network_id`). | Remove the NICs (or delete the attaching VMs). |
+| `vms` | The VM is in any state other than `stopped` or `error`. | `crv vm stop` first. The VM's ephemeral disks (cloud-init ISO, template-instantiated clones) are deleted along with it; non-ephemeral disks are detached and kept. |
+| `templates` | Never — templates own their `template_drive` / `template_ssh_key` rows and cascade on delete. | n/a |
+
+The CLI flag `--skip-existing` and the YAML `ifExists:` field interact as follows: `--skip-existing` only forces the policy *down* to `skip` from `error` — it never overrides `overwrite`. So a YAML with `ifExists: overwrite` keeps overwrite semantics regardless of the CLI flag, and a YAML with `ifExists: skip` keeps skip even without the flag. This is what lets a build pipeline's inline `apply:` step opt into a stronger policy than the default — `crv build` has no `--skip-existing` of its own, so the YAML's `ifExists:` is the only knob there.
 
 Resources are created in the order listed above. Within each section, items are processed sequentially — later items can reference earlier ones by name (e.g., an overlay disk can reference a base image defined earlier in the same file). Templates are created last and may reference SSH keys and disks defined earlier in the file.
 

@@ -52,7 +52,7 @@ import Corvus.Rpc.Streams (callSink)
 import Corvus.Rpc.Task (newTaskManagerCap)
 import Corvus.Rpc.Template (newTemplateManagerCap)
 import Corvus.Rpc.Vm (newVmManagerCap)
-import Corvus.Schema.Apply (ApplyConfig)
+import Corvus.Schema.Apply (ApplyConfig, IfExists (..), acIfExists)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Apply (toCapnpApplyEvent, toCapnpApplyResult)
 import Corvus.Wire.Build (toCapnpBuildEvent)
@@ -372,9 +372,19 @@ runApplyStreaming st cn cfg skipExisting sinkCap = do
             :: IO (Either SomeException ())
         pure ()
       ctx = (mkActionContext st taskKey cn) {acApplySink = pushEvent}
+      -- Mirror 'handleApplyExecute': the CLI's @--skip-existing@
+      -- flag only forces skip behaviour. The YAML's @ifExists@
+      -- field carries the full policy; if the operator left it
+      -- at @error@ AND set @--skip-existing@, treat the merged
+      -- policy as @skip@. @ifExists: overwrite@ in the YAML
+      -- always wins.
+      effectiveIfExists =
+        if skipExisting && acIfExists cfg == IfExistsError
+          then IfExistsSkip
+          else acIfExists cfg
   void $ async $ do
     execResult <-
-      try (executeApply ctx cfg skipExisting)
+      try (executeApply ctx cfg effectiveIfExists)
         :: IO (Either SomeException (Either T.Text PA.ApplyResult))
     finishedAt <- getCurrentTime
     let (taskRes, taskMsg, applyMsg) = case execResult of

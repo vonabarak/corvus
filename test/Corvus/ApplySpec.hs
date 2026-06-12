@@ -16,17 +16,21 @@ import qualified Corvus.Action as Action
 import Corvus.Handlers.Apply (executeApply, handleApplyValidate)
 import Corvus.Model
   ( EntityField (..)
+  , SshKey (..)
   , Task (..)
   , TaskResult (..)
   , TaskSubsystem (..)
+  , Unique (..)
   )
 import Corvus.Protocol (ApplyEvent (..), ApplyResult (..))
+import Corvus.Schema.Apply (IfExists (..))
 import Corvus.Types (ssDbPool)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (insert)
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist (getBy, insert)
+import Database.Persist.Postgresql (entityVal, runSqlPool)
+import Test.DSL.Core (runDb)
 import Test.DSL.When (withState)
 import Test.Prelude
 
@@ -128,6 +132,60 @@ spec = sequential $ withTestDb $ do
         _ -> False
 
   ------------------------------------------------------------------
+  -- ifExists: overwrite — the apply path replaces an existing
+  -- row outright. Verified end-to-end against an SSH key
+  -- (the SshKey* helpers are pure-DB) so the test sees the
+  -- delete-then-create round-trip without needing qemu-img or a
+  -- running VM.
+
+  describe "whenApply: ifExists overwrite (sshKeys)" $ do
+    testCase "replaces an existing SSH key's public-key payload" $ do
+      given $ do
+        _ <- insertSshKey "rotate" "ssh-ed25519 AAAA-old"
+        pure ()
+      let yaml =
+            "ifExists: overwrite\n\
+            \sshKeys:\n\
+            \  - name: rotate\n\
+            \    publicKey: ssh-ed25519 AAAA-new\n"
+      when_ $ whenApply yaml
+      then_ $ do
+        responseIs $ \case
+          RespApplyResult r -> length (arSshKeys r) == 1
+          _ -> False
+        -- Pre-flight passes (no FK from VmSshKey /
+        -- TemplateSshKey), the SshKeyDelete subtask runs,
+        -- then SshKeyCreate inserts the new public key.
+        sshKeyHasPublicKey "rotate" "ssh-ed25519 AAAA-new"
+
+  describe "whenApply: ifExists overwrite refusal (sshKeys)" $ do
+    testCase "refuses to overwrite a key that's attached to a VM" $ do
+      given $ do
+        vmId <- givenVmExists "vm-holding-key"
+        keyId <- insertSshKey "shared" "ssh-ed25519 AAAA-shared"
+        _ <- attachSshKeyToVm vmId keyId
+        pure ()
+      let yaml =
+            "ifExists: overwrite\n\
+            \sshKeys:\n\
+            \  - name: shared\n\
+            \    publicKey: ssh-ed25519 AAAA-rotated\n"
+      when_ $ whenApply yaml
+      then_ $ do
+        -- The pre-flight returns 'Left' with an actionable
+        -- message; the apply surfaces it as a RespError rather
+        -- than letting Postgres trip the RESTRICT constraint
+        -- on the DELETE.
+        responseIs $ \case
+          RespError msg ->
+            T.isInfixOf "cannot overwrite" msg
+              && T.isInfixOf "shared" msg
+              && T.isInfixOf "vm-holding-key" msg
+          _ -> False
+        -- The original key is still present, unchanged.
+        sshKeyHasPublicKey "shared" "ssh-ed25519 AAAA-shared"
+
+  ------------------------------------------------------------------
   -- streaming sink: phase + entity events
 
   describe "executeApply: streaming sink (Phase 13a)" $ do
@@ -156,6 +214,18 @@ spec = sequential $ withTestDb $ do
                      ]
         all (\(_, _, r) -> T.pack (show r) == "TaskSuccess") ends
           `shouldBe` True
+
+-- | Assert that an SSH key with the given name exists and that
+-- its public-key payload matches. Used to verify that
+-- 'ifExists: overwrite' actually replaced the row (changing the
+-- public key) — vs. silently skipping it.
+sshKeyHasPublicKey :: T.Text -> T.Text -> TestM ()
+sshKeyHasPublicKey name expected = do
+  mEnt <- runDb (getBy (UniqueSshKeyName name))
+  case mEnt of
+    Nothing -> liftIO $ expectationFailure $ "no SshKey named " <> show name
+    Just ent ->
+      liftIO $ sshKeyPublicKey (entityVal ent) `shouldBe` expected
 
 -- | Run 'executeApply' against a YAML fixture and collect every
 -- 'ApplyEvent' pushed through the sink, in emission order. Used by
@@ -191,7 +261,7 @@ captureApplyEvents yaml = do
             )
             (ssDbPool st)
         let ctx = (mkActionContext st parentKey "alice") {Action.acApplySink = sink}
-        _ <- executeApply ctx cfg False
+        _ <- executeApply ctx cfg IfExistsError
         pure (RespApplyResult emptyResult)
   case resp of
     RespApplyResult _ -> pure ()

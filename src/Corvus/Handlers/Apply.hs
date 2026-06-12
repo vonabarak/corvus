@@ -24,13 +24,13 @@ import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
-import Corvus.Handlers.Disk (DiskClone (..), DiskCreate (..), DiskCreateOverlay (..), DiskImportAction (..), DiskRegister (..))
+import Corvus.Handlers.Disk (DiskClone (..), DiskCreate (..), DiskCreateOverlay (..), DiskDelete (..), DiskImportAction (..), DiskRegister (..))
 import qualified Corvus.Handlers.NetIf as NetIfH
-import Corvus.Handlers.Network (NetworkCreate (..))
+import Corvus.Handlers.Network (NetworkCreate (..), NetworkDelete (..))
 import Corvus.Handlers.Resolve (resolveNode, validateName)
-import Corvus.Handlers.SshKey (SshKeyCreate (..))
-import Corvus.Handlers.Template (insertTemplateYaml)
-import Corvus.Handlers.Vm (VmCreate (..))
+import Corvus.Handlers.SshKey (SshKeyCreate (..), SshKeyDelete (..))
+import Corvus.Handlers.Template (TemplateDelete (..), insertTemplateYaml)
+import Corvus.Handlers.Vm (VmCreate (..), VmDelete (..))
 import Corvus.Model
 import Corvus.Node.Image (detectFormatFromPath, isHttpUrl)
 import Corvus.Protocol
@@ -61,7 +61,7 @@ import Data.Time (getCurrentTime)
 import Data.Yaml (decodeEither')
 import Database.Persist
 import Database.Persist.Postgresql (SqlBackend, runSqlPool)
-import Database.Persist.Sql (fromSqlKey, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Handler
@@ -94,8 +94,17 @@ handleApplyValidate state yamlContent = runServerLogging state $ do
 handleApplyExecute :: ActionContext -> ApplyConfig -> Bool -> IO Response
 handleApplyExecute ctx config cliSkipExisting = runServerLogging (acState ctx) $ do
   logInfoN "Applying environment configuration..."
-  let effectiveSkip = cliSkipExisting || acIfExists config == IfExistsSkip
-  result <- liftIO $ executeApply ctx config effectiveSkip
+  -- The CLI's @--skip-existing@ flag only forces skip behaviour;
+  -- the YAML's @ifExists@ field carries the full policy. The
+  -- effective policy is the LOOSEST of the two: a CLI flag set
+  -- always overrides @ifExists: error@ down to @skip@, but YAML's
+  -- @ifExists: overwrite@ stays overwrite even if the operator
+  -- forgot @--skip-existing@.
+  let effective =
+        if cliSkipExisting && acIfExists config == IfExistsError
+          then IfExistsSkip
+          else acIfExists config
+  result <- liftIO $ executeApply ctx config effective
   case result of
     Left err -> do
       logWarnN $ "Apply failed: " <> err
@@ -110,13 +119,6 @@ handleApplyExecute ctx config cliSkipExisting = runServerLogging (acState ctx) $
 
 validateConfig :: ApplyConfig -> Either Text ()
 validateConfig config = do
-  -- 'IfExistsOverwrite' is build-only: deleting a registered
-  -- template/disk/network/VM during apply would clobber unrelated
-  -- state (running VMs, attached disks, …). Reject up front.
-  case acIfExists config of
-    IfExistsOverwrite ->
-      Left "apply: ifExists: overwrite not supported (use 'error' or 'skip')"
-    _ -> Right ()
   checkDuplicates "SSH key" $ map askName (acSshKeys config)
   checkDuplicates "disk" $ map adName (acDisks config)
   -- VMs and networks are unique per-node (UniqueVmNamePerNode /
@@ -213,6 +215,130 @@ effectiveCloudInit v = case avCloudInit v of
   Nothing -> not (null (avSshKeys v))
 
 --------------------------------------------------------------------------------
+-- ifExists: overwrite plumbing
+--------------------------------------------------------------------------------
+
+-- | What an entity branch needs to mount the overwrite arm — a
+-- pre-flight check that returns 'Left' with an actionable message
+-- when the existing entity is in use (so the apply refuses
+-- cleanly rather than surfacing the raw FK RESTRICT from the
+-- DELETE), and the delete-subtask invocation itself. The matching
+-- create call is shared with the no-existing branch, so it's
+-- passed separately at the call site.
+data Overwrite = Overwrite
+  { oPreflight :: IO (Either Text ())
+  , oDelete :: IO Response
+  }
+
+-- | Refuse a disk overwrite when the disk is attached to any VM.
+-- Mirrors 'Corvus.Handlers.Build.checkIfExistsPreBake'.
+preflightDiskOverwrite :: ServerState -> Text -> Int64 -> IO (Either Text ())
+preflightDiskOverwrite state name eid = do
+  attached <-
+    runSqlPool (vmsAttachedToDisk (toSqlKey eid :: DiskImageId)) (ssDbPool state)
+  pure $
+    if null attached
+      then Right ()
+      else
+        Left $
+          "cannot overwrite disk '"
+            <> name
+            <> "': attached to VM(s) "
+            <> T.intercalate ", " attached
+            <> "; detach or delete those VMs first"
+
+-- | Refuse a network overwrite when any VM has a NIC on it. The
+-- referenced relation is @network_interface.network_id@ with
+-- @ON DELETE RESTRICT@.
+preflightNetworkOverwrite :: ServerState -> Text -> Int64 -> IO (Either Text ())
+preflightNetworkOverwrite state name eid = do
+  attached <- runSqlPool (vmsAttachedToNetwork (toSqlKey eid :: NetworkId)) (ssDbPool state)
+  pure $
+    if null attached
+      then Right ()
+      else
+        Left $
+          "cannot overwrite network '"
+            <> name
+            <> "': in use by VM(s) "
+            <> T.intercalate ", " attached
+            <> "; remove their network interfaces first"
+
+-- | Refuse a VM overwrite when the VM is currently running. The
+-- 'VmDelete' action already refuses non-stopped VMs at the
+-- handler layer, but surfacing the reason here gives the
+-- operator a clearer message and keeps the
+-- 'EntityEnd'/error pair tagged @"overwrite"@.
+preflightVmOverwrite :: ServerState -> Text -> Int64 -> IO (Either Text ())
+preflightVmOverwrite state name eid = do
+  mVm <- runSqlPool (get (toSqlKey eid :: VmId)) (ssDbPool state)
+  pure $ case mVm of
+    Nothing -> Right () -- raced with another delete; let the create surface it
+    Just vm
+      | vmStatus vm == VmStopped || vmStatus vm == VmError ->
+          Right ()
+      | otherwise ->
+          Left $
+            "cannot overwrite VM '"
+              <> name
+              <> "': currently in status "
+              <> enumToText (vmStatus vm)
+              <> "; stop it first"
+
+-- | Refuse an SSH-key overwrite when the key is attached to any
+-- VM or template. Both 'vm_ssh_key' and 'template_ssh_key' carry
+-- @ON DELETE RESTRICT@ from 'ssh_key_id'.
+preflightSshKeyOverwrite :: ServerState -> Int64 -> IO (Either Text ())
+preflightSshKeyOverwrite state eid = do
+  let keyId = toSqlKey eid :: SshKeyId
+      pool = ssDbPool state
+  vmRefs <- runSqlPool (selectList [VmSshKeySshKeyId ==. keyId] []) pool
+  tmplRefs <- runSqlPool (selectList [TemplateSshKeySshKeyId ==. keyId] []) pool
+  let vmIds = map (vmSshKeyVmId . entityVal) vmRefs
+      tmplIds = map (templateSshKeyTemplateId . entityVal) tmplRefs
+  vmNames <- runSqlPool (mapMaybeNamesM vmName vmIds) pool
+  tmplNames <- runSqlPool (mapMaybeNamesM templateVmName tmplIds) pool
+  pure $ case (vmNames, tmplNames) of
+    ([], []) -> Right ()
+    (vs, ts) ->
+      Left $
+        "cannot overwrite SSH key: attached to "
+          <> describe "VM" vs
+          <> (if null ts || null vs then "" else " and ")
+          <> describe "template" ts
+          <> "; detach first"
+  where
+    describe _ [] = ""
+    describe kind xs = kind <> "(s) " <> T.intercalate ", " xs
+    mapMaybeNamesM
+      :: (PersistEntity e, PersistEntityBackend e ~ SqlBackend)
+      => (e -> Text)
+      -> [Key e]
+      -> SqlPersistT IO [Text]
+    mapMaybeNamesM nameOf ks = do
+      es <- mapM get ks
+      pure [nameOf e | Just e <- es]
+
+-- | Names of every VM that has the given disk attached. Mirrors
+-- 'Corvus.Handlers.Build.vmsAttachedToDisk'; duplicated here to
+-- avoid an import cycle (Build.hs imports Apply.hs already).
+vmsAttachedToDisk :: DiskImageId -> SqlPersistT IO [Text]
+vmsAttachedToDisk diskId = do
+  drives <- selectList [DriveDiskImageId ==. diskId] []
+  let vmIds = map (driveVmId . entityVal) drives
+  vms <- mapM get vmIds
+  pure [vmName v | Just v <- vms]
+
+-- | Names of every VM that holds a network-interface on the given
+-- network. Mirrors 'vmsAttachedToDisk' for symmetry.
+vmsAttachedToNetwork :: NetworkId -> SqlPersistT IO [Text]
+vmsAttachedToNetwork nid = do
+  nis <- selectList [NetworkInterfaceNetworkId ==. Just nid] []
+  let vmIds = map (networkInterfaceVmId . entityVal) nis
+  vms <- mapM get vmIds
+  pure [vmName v | Just v <- vms]
+
+--------------------------------------------------------------------------------
 -- Execution
 --------------------------------------------------------------------------------
 
@@ -221,42 +347,62 @@ effectiveCloudInit v = case avCloudInit v of
 -- When @acApplySink ctx@ is non-silent, emits 'PhaseStart' before
 -- each non-empty phase and 'EntityStart' / 'EntityEnd' bracketing
 -- every entity creation (including the skip-existing branch, with
--- @kind = \"skip\"@).
-executeApply :: ActionContext -> ApplyConfig -> Bool -> IO (Either Text ApplyResult)
-executeApply ctx config skipExisting = do
+-- @kind = \"skip\"@, and the overwrite branch, with
+-- @kind = \"overwrite\"@).
+executeApply :: ActionContext -> ApplyConfig -> IfExists -> IO (Either Text ApplyResult)
+executeApply ctx config ifExists = do
   -- Phase 1: SSH keys
   keyResult <- runPhase "sshKeys" (acSshKeys config) Map.empty $ \k _keyMap -> do
     let name = askName k
-    mExisting <- if skipExisting then resolveByName state UniqueSshKeyName Map.empty name else pure Nothing
-    case mExisting of
-      Just eid -> withSkip "sshKeys" name eid
-      Nothing ->
-        withSubtask "sshKeys" "ssh-key-create" name $
-          runActionAsSubtask ctx (SshKeyCreate name (askPublicKey k))
+        create = runActionAsSubtask ctx (SshKeyCreate name (askPublicKey k))
+    mExisting <- resolveExisting (resolveByName state UniqueSshKeyName Map.empty name)
+    dispatchEntity "sshKeys" "ssh-key-create" name mExisting create $ \eid ->
+      Overwrite
+        (preflightSshKeyOverwrite state eid)
+        (runActionAsSubtask ctx (SshKeyDelete eid))
   case keyResult of
     Left err -> pure $ Left err
     Right (keyMap, keyCreated) -> do
       -- Phase 2: Disks (need accumulating map for overlay/clone references)
       diskResult <- runPhase "disks" (acDisks config) Map.empty $ \d diskMap -> do
         let name = adName d
-        mExisting <- if skipExisting then resolveByName state UniqueDiskImageName diskMap name else pure Nothing
-        case mExisting of
-          Just eid -> withSkip "disks" name eid
-          Nothing ->
-            withSubtask "disks" (diskKindTag d) name $
-              runActionAsSubtask ctx (ApplyDiskCreate d diskMap)
+            create = runActionAsSubtask ctx (ApplyDiskCreate d diskMap)
+        mExisting <- resolveExisting (resolveByName state UniqueDiskImageName diskMap name)
+        dispatchEntity "disks" (diskKindTag d) name mExisting create $ \eid ->
+          Overwrite
+            (preflightDiskOverwrite state name eid)
+            (runActionAsSubtask ctx (DiskDelete eid))
       case diskResult of
         Left err -> pure $ Left err
         Right (diskMap, diskCreated) -> do
           -- Phase 3: Networks
           nwResult <- runPhase "networks" (acNetworks config) Map.empty $ \n _nwMap -> do
             let name = anName n
-            mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [NetworkName ==. nm]) (\nid -> [NetworkNodeId ==. nid]) Map.empty name (anNode n) else pure Nothing
-            case mExisting of
-              Just eid -> withSkip "networks" name eid
-              Nothing ->
-                withSubtask "networks" "network-create" name $
-                  runActionAsSubtask ctx (NetworkCreate name (anNode n) (anSubnet n) (anDhcp n) (anNat n) (anAutostart n) (anDnsServers n))
+                create =
+                  runActionAsSubtask
+                    ctx
+                    ( NetworkCreate
+                        name
+                        (anNode n)
+                        (anSubnet n)
+                        (anDhcp n)
+                        (anNat n)
+                        (anAutostart n)
+                        (anDnsServers n)
+                    )
+            mExisting <-
+              resolveExisting $
+                resolveByNameFilter
+                  state
+                  (\nm -> [NetworkName ==. nm])
+                  (\nid -> [NetworkNodeId ==. nid])
+                  Map.empty
+                  name
+                  (anNode n)
+            dispatchEntity "networks" "network-create" name mExisting create $ \eid ->
+              Overwrite
+                (preflightNetworkOverwrite state name eid)
+                (runActionAsSubtask ctx (NetworkDelete eid))
           case nwResult of
             Left err -> pure $ Left err
             Right (nwMap, nwCreated) -> do
@@ -268,15 +414,16 @@ executeApply ctx config skipExisting = do
                   -- Phase 5: Templates
                   tmplResult <- runPhase "templates" (acTemplates config) Map.empty $ \ty _ -> do
                     let name = tyName ty
-                    mExisting <-
-                      if skipExisting
-                        then resolveByName state UniqueTemplateVmName Map.empty name
-                        else pure Nothing
-                    case mExisting of
-                      Just eid -> withSkip "templates" name eid
-                      Nothing ->
-                        withSubtask "templates" "template-create" name $
-                          runActionAsSubtask ctx (ApplyTemplateCreate ty)
+                        create = runActionAsSubtask ctx (ApplyTemplateCreate ty)
+                    mExisting <- resolveExisting (resolveByName state UniqueTemplateVmName Map.empty name)
+                    dispatchEntity "templates" "template-create" name mExisting create $ \eid ->
+                      Overwrite
+                        (pure (Right ()))
+                        -- Templates have no incoming FK from other
+                        -- entities (template_drive is owned by the
+                        -- template itself and cascades). No
+                        -- pre-flight refusal needed.
+                        (runActionAsSubtask ctx (TemplateDelete eid))
                   case tmplResult of
                     Left err -> pure $ Left err
                     Right (_tmplMap, tmplCreated) ->
@@ -293,6 +440,15 @@ executeApply ctx config skipExisting = do
     state = acState ctx
     sink = acApplySink ctx
 
+    -- Resolve "does this name already exist" iff the policy
+    -- needs to know — error policy passes through and lets the
+    -- per-entity create surface the duplicate-name SQL error.
+    resolveExisting :: IO (Maybe Int64) -> IO (Maybe Int64)
+    resolveExisting q = case ifExists of
+      IfExistsError -> pure Nothing
+      IfExistsSkip -> q
+      IfExistsOverwrite -> q
+
     -- Tag the disk's creation kind for the EntityStart event.
     diskKindTag :: ApplyDisk -> Text
     diskKindTag d = case (adImport d, adOverlay d, adClone d, adRegister d) of
@@ -302,6 +458,48 @@ executeApply ctx config skipExisting = do
       (_, _, _, Just _) -> "disk-register"
       _ -> "disk-create"
 
+    -- The pieces 'dispatchEntity' needs to mount the overwrite
+    -- branch. Computing the pre-flight inside the closure keeps
+    -- the FK query off the happy paths (error / skip / no
+    -- existing).
+    -- (Lives in this 'where' so it captures the 'state' / 'ctx'
+    -- via the enclosing closures rather than threading them.)
+    --
+    -- 'oPreflight': returns 'Left err' if the existing entity is
+    -- in use and we should refuse the overwrite with an
+    -- actionable message; 'Right ()' to proceed with the delete.
+    -- 'oDelete': the @runActionAsSubtask ctx (FooDelete eid)@
+    -- already wired up — the caller closes over the existing id.
+    -- See 'withOverwrite' for the runtime shape.
+
+    -- Single dispatcher per entity, picking among 'IfExistsError'
+    -- (a name collision is a fatal apply failure),
+    -- 'IfExistsSkip' (emit a skip event), 'IfExistsOverwrite'
+    -- (pre-flight, delete, create — bracketed in one
+    -- 'EntityStart'/'EntityEnd' pair tagged @"overwrite"@). The
+    -- @mkOverwrite@ callback gets the existing id and returns the
+    -- pre-flight + delete pair; the 'IO Response' for the create
+    -- is the same value the no-existing branch would have used.
+    dispatchEntity
+      :: Text
+      -> Text
+      -> Text
+      -> Maybe Int64
+      -> IO Response
+      -> (Int64 -> Overwrite)
+      -> IO (Either Text (Text, Int64))
+    dispatchEntity phase createKind name mExisting create mkOverwrite =
+      case (mExisting, ifExists) of
+        (Just eid, IfExistsSkip) -> withSkip phase name eid
+        (Just eid, IfExistsOverwrite) -> do
+          let ow = mkOverwrite eid
+          withOverwrite phase name eid (oPreflight ow) (oDelete ow) create
+        _ ->
+          -- 'IfExistsError' + 'Just' falls into here too; the
+          -- create action will surface the unique-constraint
+          -- error verbatim, matching the pre-overwrite behaviour.
+          withSubtask phase createKind name create
+
     -- Emit EntityStart / EntityEnd around an existing-entity skip.
     withSkip
       :: Text -> Text -> Int64 -> IO (Either Text (Text, Int64))
@@ -309,6 +507,48 @@ executeApply ctx config skipExisting = do
       sink (EntityStart phase name "skip")
       sink (EntityEnd phase name TaskSuccess "" eid)
       pure $ Right (name, eid)
+
+    -- Apply-side delete-then-create when the operator asked for
+    -- 'ifExists: overwrite'. Mirrors 'checkIfExistsPreBake' in
+    -- 'Corvus.Handlers.Build': the @preflight@ refuses with a
+    -- clear message when the existing entity is in use (FK
+    -- RESTRICT would otherwise surface as an opaque Postgres
+    -- error). On a clean pre-flight, run the delete subtask; on
+    -- delete success, run the create subtask. The whole
+    -- delete-then-create is bracketed in one
+    -- 'EntityStart' / 'EntityEnd' pair tagged @"overwrite"@.
+    withOverwrite
+      :: Text
+      -> Text
+      -> Int64
+      -> IO (Either Text ())
+      -> IO Response
+      -> IO Response
+      -> IO (Either Text (Text, Int64))
+    withOverwrite phase name eid preflight runDelete runCreate = do
+      sink (EntityStart phase name "overwrite")
+      preRes <- preflight
+      case preRes of
+        Left err -> do
+          sink (EntityEnd phase name TaskError err eid)
+          pure $ Left $ phase <> " '" <> name <> "': " <> err
+        Right () -> do
+          delResp <- runDelete
+          let (delTaskRes, delMsgM) = classifyResponse delResp
+              delMsg = Data.Maybe.fromMaybe "" delMsgM
+          case delTaskRes of
+            TaskError -> do
+              sink (EntityEnd phase name TaskError delMsg eid)
+              pure $ Left $ phase <> " '" <> name <> "': delete: " <> delMsg
+            _ -> do
+              createResp <- runCreate
+              out <- extractCreatedResult name createResp
+              let (taskRes, msgM) = classifyResponse createResp
+                  (mId, _) = extractEntityFromResponse createResp
+                  msg = Data.Maybe.fromMaybe "" msgM
+                  newEid = maybe 0 fromIntegral mId
+              sink (EntityEnd phase name taskRes msg newEid)
+              pure out
 
     -- Emit EntityStart / EntityEnd around a real subtask invocation,
     -- and translate the resulting 'Response' into the
@@ -379,25 +619,27 @@ executeApply ctx config skipExisting = do
         go [] acc = pure $ Right $ reverse acc
         go (v : vs) acc = do
           let name = avName v
-          mExisting <- if skipExisting then resolveByNameFilter state (\nm -> [VmName ==. nm]) (\nid -> [VmNodeId ==. nid]) Map.empty name (avNode v) else pure Nothing
-          case mExisting of
-            Just existingId -> do
-              sink (EntityStart "vms" name "skip")
-              sink (EntityEnd "vms" name TaskSuccess "" existingId)
-              go vs acc
-            Nothing -> do
-              sink (EntityStart "vms" name "vm-create")
-              resp <- runActionAsSubtask ctx (ApplyVmCreate keyMap diskMap nwMap v)
-              let (taskRes, msgM) = classifyResponse resp
-                  msg = Data.Maybe.fromMaybe "" msgM
-              case resp of
-                RespVmCreated vmId -> do
-                  sink (EntityEnd "vms" name taskRes msg vmId)
-                  go vs (ApplyCreated name vmId : acc)
-                RespError err -> do
-                  sink (EntityEnd "vms" name taskRes msg 0)
-                  pure $ Left $ "VM '" <> name <> "': " <> err
-                _ -> pure $ Left $ "VM '" <> avName v <> "': unexpected response"
+              create = runActionAsSubtask ctx (ApplyVmCreate keyMap diskMap nwMap v)
+          mExisting <-
+            resolveExisting $
+              resolveByNameFilter
+                state
+                (\nm -> [VmName ==. nm])
+                (\nid -> [VmNodeId ==. nid])
+                Map.empty
+                name
+                (avNode v)
+          let mkOverwrite eid =
+                Overwrite
+                  (preflightVmOverwrite state name eid)
+                  -- keepDisks = False: drop ephemeral attached disks
+                  -- (cloud-init ISO, template clones) along with the
+                  -- VM, since the apply will recreate them.
+                  (runActionAsSubtask ctx (VmDelete eid False))
+          result <- dispatchEntity "vms" "vm-create" name mExisting create mkOverwrite
+          case result of
+            Left err -> pure $ Left err
+            Right (_, vmId) -> go vs (ApplyCreated name vmId : acc)
 
     -- Extract entity ID from a creation response.
     extractCreatedResult :: Text -> Response -> IO (Either Text (Text, Int64))
