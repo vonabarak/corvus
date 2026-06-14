@@ -871,6 +871,19 @@ pipeline:
               install -d /etc/cloud/cloud.cfg.d
               cat > /etc/cloud/cloud.cfg.d/90_corvus_nocloud.cfg <<'EOF'
               datasource_list: [ NoCloud, None ]
+              # cc_locale on Gentoo calls 'locale-gen' by name (the
+              # sys-apps/locale-gen package). Stage 2 of this
+              # pipeline deliberately doesn't install that wrapper
+              # — it generates en_US.UTF-8 via 'localedef' from
+              # glibc directly at bake time and writes
+              # /etc/locale.conf — so when cc_locale runs on first
+              # boot it can't find locale-gen, marks
+              # cloud-config.service as FAILED, and logs a noisy
+              # "Running module locale (...) failed" line. The
+              # system locale is already set correctly; setting
+              # 'locale: false' skips the module entirely. (See
+              # the bake-time localedef block in stage 2 step 8.)
+              locale: false
               EOF
 
               cat > /etc/corvus-image-info <<EOF
