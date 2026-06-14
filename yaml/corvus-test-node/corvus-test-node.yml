@@ -396,6 +396,15 @@ pipeline:
               else
                 usermod -aG kvm corvus
               fi
+              # Belt-and-braces: an earlier provisioner step (the
+              # `install -d /home/corvus/VMs/BaseImages` above) runs as
+              # root before the useradd here, which pre-creates
+              # /home/corvus root-owned 0755. useradd -m only creates
+              # the home dir when it doesn't exist, so the pre-existing
+              # one stays root-owned and the corvus user can't write at
+              # the home-dir level — TestQuickstart's `rsync ... $HOME/
+              # corvus-src/` fails with EACCES (rsync exits 11).
+              chown corvus:corvus /home/corvus
               install -d -m 0700 -o corvus -g corvus /home/corvus/.ssh
               # /home/corvus/VMs is the daemon's basePath (it runs
               # as the corvus user, so $HOME/VMs resolves here).
@@ -430,23 +439,6 @@ pipeline:
             inline: |
               chown corvus:corvus /home/corvus/.ssh/authorized_keys
             timeoutSec: 10
-
-        # ── Strip cloud-init from the boot path ──────────────────────────
-        # The outer VM doesn't need cloud-init at apply time — the SSH
-        # key is baked into the image above. Masking the units saves a
-        # few seconds of boot per test class (cloud-init's "find a
-        # datasource and time out" path is the dominant cost when no
-        # NoCloud ISO is attached).
-        - shell:
-            inline: |
-              systemctl mask \
-                cloud-init.target \
-                cloud-init-main.service \
-                cloud-init-local.service \
-                cloud-config.service \
-                cloud-final.service \
-                cloud-init-hotplugd.socket
-            timeoutSec: 30
 
         # Nested-KVM sanity check on the built image. If the kernel
         # config lacks nested-KVM, fail loudly here so the failure is

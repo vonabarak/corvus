@@ -2,7 +2,7 @@ pipeline:
   - build:
       name: gentoo-corvus-test
       description: Gentoo image preloaded with everything Corvus builds against
-      template: gentoo-headless
+      template: gentoo-headless-cloudinit
 
       target:
         compact: true
@@ -11,7 +11,10 @@ pipeline:
 
       vm:
         cpuCount: 8
-        ramMb: 8192
+        # Node.js / V8 source builds peak at ~1.5 GB per cc1plus
+        # process; with MAKEOPTS=-j$(nproc) and 8 cores we saw the
+        # bake VM hit OOM at 8 GB. 16 GB gives enough headroom.
+        ramMb: 16384
 
       shellDefaults:
         preamble: "set -eux"
@@ -31,9 +34,19 @@ pipeline:
             inline: |
               mkdir -p /var/cache/distfiles /var/db/repos /mnt/corvus
 
+              # /var/cache/binpkgs is the writable corvus-specific
+              # binhost cache (same export gentoo-headless.yml's
+              # gentoo-cloud template mounts at line ~61): all_squash
+              # with anonuid=1000 on the host side means writes from
+              # any guest UID land as bobr on disk. Mounting it rw
+              # lets this bake contribute its source-built packages
+              # back into the shared cache so subsequent bakes (and
+              # gentoo-builder rebuilds) read them as binpkgs instead
+              # of recompiling. nfs4 + vers=4.2 also matches the
+              # other binpkgs_corvus mounts in the pipeline.
               cat >> /etc/fstab <<'EOF'
               192.168.88.1:/data/portage/distfiles /var/cache/distfiles nfs rw 0 0
-              192.168.88.1:/data/portage/binpkgs /var/cache/binpkgs nfs ro 0 0
+              192.168.72.1:/data/portage/binpkgs_corvus /var/cache/binpkgs nfs4 rw,_netdev,vers=4.2 0 0
               192.168.88.1:/var/db/repos /var/db/repos nfs ro 0 0
               192.168.88.1:/home/bobr/Work/corvus /mnt/corvus nfs rw 0 0
               EOF
@@ -50,12 +63,23 @@ pipeline:
               
               cat > /etc/portage/package.accept_keywords/corvus <<'EOF'
               app-emulation/corvus **
+              dev-python/pycapnp **
+              dev-python/fastapi **
               dev-haskell/* ~amd64
               dev-lang/ghc ~amd64
               dev-util/ghcup-bin ~amd64
+              app-admin/haskell-updater ~amd64
               EOF
 
-              cat > /etc/portage/repos.conf <<'EOF'
+              # /etc/portage/repos.conf is a DIRECTORY in the
+              # gentoo-base-headless image (stage 2 of
+              # gentoo-headless.yml lays it out that way to match
+              # the modern Gentoo convention of dropping one .conf
+              # per overlay). Write our extra overlays into
+              # repos.conf/corvus.conf instead of trying to clobber
+              # the directory with a flat file.
+              install -d /etc/portage/repos.conf
+              cat > /etc/portage/repos.conf/corvus.conf <<'EOF'
               [vonabarak]
               location = /var/db/repos/vonabarak
               sync-type = git

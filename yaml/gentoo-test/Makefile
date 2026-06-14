@@ -1,4 +1,4 @@
-.PHONY: all build clean update-image
+.PHONY: all build clean update-image build-headless build-test
 
 # The Gentoo cloud-init autobuild URL changes weekly. Run
 # `make update-image` to rewrite gentoo-test.yml in place with
@@ -13,11 +13,24 @@ build: update-image
 	crv build gentoo-headless.yml --wait
 	crv build gentoo-test.yml --wait
 
+build-headless: update-image
+	crv build gentoo-headless.yml --wait
+
+build-test: build-headless
+	crv build gentoo-test.yml --wait
+
 clean:
 	crv vm delete gentoo-corvus-test || true
+	crv template delete gentoo-headless-cloudinit || true
 	crv template delete gentoo-headless || true
-	crv disk delete gentoo-base-headless || true
+	crv template delete gentoo-headless-bake || true
+	crv template delete gentoo-builder-bake || true
 	crv template delete gentoo-cloud || true
+	crv disk delete gentoo-base-headless-cloudinit || true
+	crv disk delete gentoo-corvus-test || true
+	crv disk delete gentoo-base-headless || true
+	crv disk delete gentoo-builder || true
+	crv disk delete gentoo-base-cloud || true
 
 # Pull the current cloud-init image filename from the upstream
 # `latest-di-amd64-cloudinit.txt` and rewrite the dated qcow2
