@@ -393,17 +393,32 @@ def _bootstrap_node(node):
     #   the `standard` extras' transitive deps (e.g.
     #   python-dotenv) from PyPI — which fails with "Network is
     #   unreachable" on the air-gapped test node.
+    # ``--exclude`` notes:
+    # * `.ruff_cache` / `.pytest_cache`: ruff and pytest write their
+    #   per-file caches as mode 600. ``/mnt/corvus`` is a virtiofs
+    #   passthrough share, so host UIDs reach the guest verbatim —
+    #   the harness runs rsync as ``corvus`` (guest uid 1001), which
+    #   can't open files owned by the host operator (typically uid
+    #   1000) at mode 600. Without these excludes rsync exits 23.
+    # * `integration_tests/keys/`: the harness's own SSH key trio.
+    #   ``corvus-test-key`` is intentionally mode 600 on the host and
+    #   hits the same passthrough wall. The pip install doesn't need
+    #   it (and the public key is already baked into the image at
+    #   /home/corvus/.ssh/authorized_keys).
     _shrun(
         node,
         (
             "rm -rf $HOME/corvus-src && "
             "rsync -aL "
             "--exclude=.mypy_cache "
+            "--exclude=.ruff_cache "
+            "--exclude=.pytest_cache "
             "--exclude=.stack-work "
             "--exclude=.git "
             "--exclude='__pycache__' "
             "--exclude='.venv*' "
             "--exclude=dist-newstyle "
+            "--exclude=integration_tests/keys "
             f"{SRC_MOUNT}/ $HOME/corvus-src/ && "
             "python3 -m pip install --user --quiet "
             "--break-system-packages --no-build-isolation --no-deps "
