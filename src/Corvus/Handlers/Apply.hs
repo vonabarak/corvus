@@ -639,7 +639,16 @@ executeApply ctx config ifExists = do
           result <- dispatchEntity "vms" "vm-create" name mExisting create mkOverwrite
           case result of
             Left err -> pure $ Left err
-            Right (_, vmId) -> go vs (ApplyCreated name vmId : acc)
+            Right (_, vmId) ->
+              -- Skipped VMs are intentionally dropped from
+              -- 'ApplyResult.vms' — the original 'runSequentialVms'
+              -- contract that 'TestMultiNodeDiskPlacement.
+              -- test_apply_skip_existing_disambiguates_…' pins.
+              -- Overwrite + fresh-create are echoed (the operator
+              -- wants to see what actually ran).
+              case (mExisting, ifExists) of
+                (Just _, IfExistsSkip) -> go vs acc
+                _ -> go vs (ApplyCreated name vmId : acc)
 
     -- Extract entity ID from a creation response.
     extractCreatedResult :: Text -> Response -> IO (Either Text (Text, Int64))
