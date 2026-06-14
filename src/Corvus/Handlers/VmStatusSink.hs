@@ -60,6 +60,7 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
 import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import Database.Persist.Sql (SqlPersistT)
+import System.Timeout (timeout)
 
 -- | Server-side handle. Owns a reference to 'ServerState' so
 -- the 'onSnapshot' handler can reach the DB pool + the
@@ -303,8 +304,16 @@ dropVmStatsRing state vmId =
   atomically $ modifyTVar' (ssVmStatsRing state) (Map.delete vmId)
 
 -- | Push a 'VmStats' to every 'vm.subscribeStats' subscriber
--- registered for this VM. Dead sinks (push raises) are pruned
--- from the registry on the spot. Mirrors 'pushGuestAgentStatus'.
+-- registered for this VM. Dead sinks (push raises OR no ACK
+-- within 'subscriberPushTimeoutMicros') are pruned from the
+-- registry on the spot. Mirrors 'pushGuestAgentStatus'.
+--
+-- The timeout matters: 'pushVmStats' runs synchronously inside
+-- the agent → daemon 'vmStatusSink'onSnapshot' handler (which
+-- itself uses 'handleParsed' — synchronous), so a 'callSink' that
+-- blocks because some downstream client's RPC channel is wedged
+-- would back-pressure the entire snapshot path all the way back
+-- to the agent's ticker, freezing the per-VM healthcheck stamp.
 pushVmStats :: ServerState -> Int64 -> C.Parsed CGVm.VmStats -> IO ()
 pushVmStats state vmId stats = do
   subs <- readTVarIO (ssVmStatsSubs state)
@@ -324,11 +333,11 @@ pushVmStats state vmId stats = do
       -> IO Bool
     tryPush params sink = do
       r <-
-        E.try (callSink #onStats params sink)
-          :: IO (Either E.SomeException ())
+        E.try (timeout subscriberPushTimeoutMicros (callSink #onStats params sink))
+          :: IO (Either E.SomeException (Maybe ()))
       pure $ case r of
-        Right () -> True
-        Left _ -> False
+        Right (Just ()) -> True
+        _ -> False
 
 -- ---------------------------------------------------------------------------
 
@@ -376,11 +385,21 @@ pushGuestAgentStatus state vmId reachable pingMillis = do
       -> IO Bool
     tryPush params sink = do
       r <-
-        E.try (callSink #push params sink)
-          :: IO (Either E.SomeException ())
+        E.try (timeout subscriberPushTimeoutMicros (callSink #push params sink))
+          :: IO (Either E.SomeException (Maybe ()))
       pure $ case r of
-        Right () -> True
-        Left _ -> False
+        Right (Just ()) -> True
+        _ -> False
+
+-- | Per-push deadline for daemon → client sink fanout
+-- ('pushVmStats' / 'pushGuestAgentStatus'). 5 s mirrors the
+-- agent-side 'dispatchTimeoutMicros'; the daemon's snapshot
+-- handler runs synchronously inside the agent's ticker chain, so
+-- a wedged subscriber that exceeds this budget is treated as
+-- dead and pruned. The frontend / WebUI will re-subscribe on its
+-- next reconnect.
+subscriberPushTimeoutMicros :: Int
+subscriberPushTimeoutMicros = 5000000
 
 -- | Stamp a 'NodeStats' observation into the 'Node' row that
 -- corresponds to the agent connection this sink is bound to.

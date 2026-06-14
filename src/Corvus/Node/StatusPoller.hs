@@ -63,6 +63,7 @@ import Data.Maybe (catMaybes)
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (POSIXTime, getPOSIXTime)
 import Data.Word (Word32, Word64)
+import System.Timeout (timeout)
 
 -- | Process-wide registry of 'VmStatusSink' caps + the
 -- per-VM prior-sample timestamp ('subsPriorSample') used to fill
@@ -360,23 +361,31 @@ encodeIp ip =
     }
 
 -- | Fire 'onSnapshot' on every registered sink. Sinks that throw
--- are pruned from the registry so subsequent ticks don't keep
--- hitting them.
+-- OR fail to ACK within 'dispatchTimeoutMicros' are pruned from
+-- the registry so subsequent ticks don't keep hitting them — a
+-- wedged downstream daemon (synchronous 'handleParsed' handler
+-- back-pressured by its own stuck subscriber chain) would
+-- otherwise freeze the ticker, since 'callSink' is a blocking
+-- 'callP >>= waitPipeline' round-trip with no built-in deadline.
 dispatch :: Subscribers -> C.Parsed CGNA.VmStatusSnapshot -> IO ()
 dispatch Subscribers {subsList = ref} snapshot = do
   sinks <- readTVarIO ref
   remaining <-
     foldM
       ( \acc sink -> do
-          r <- E.try @E.SomeException (deliver sink)
+          r <-
+            E.try @E.SomeException $
+              timeout dispatchTimeoutMicros (deliver sink)
           case r of
-            Right () -> pure (sink : acc)
-            Left e -> do
+            Right (Just ()) -> pure (sink : acc)
+            _ -> do
+              let reason = case r of
+                    Left e -> T.pack (show e)
+                    Right Nothing -> "no ACK within 5s"
+                    Right (Just ()) -> "" -- unreachable
               runStderrLoggingT $
                 logWarnN
-                  ( "[nodeagent] dropping VmStatusSink: "
-                      <> T.pack (show e)
-                  )
+                  ("[nodeagent] dropping VmStatusSink: " <> reason)
               pure acc
       )
       []
@@ -387,6 +396,14 @@ dispatch Subscribers {subsList = ref} snapshot = do
       callSink
         #onSnapshot
         CGNA.VmStatusSink'onSnapshot'params {CGNA.snapshot = snapshot}
+
+-- | Per-push deadline for 'dispatch'. Bounded by the 10 s tick
+-- interval — a sink that can't ACK within 5 s is treated as
+-- dead, dropped from the registry, and skipped on subsequent
+-- ticks. The daemon dials the agent and re-subscribes on its
+-- next reconnect attempt.
+dispatchTimeoutMicros :: Int
+dispatchTimeoutMicros = 5000000
 
 millisNow :: IO Int64
 millisNow = round . (* 1000) <$> getPOSIXTime
