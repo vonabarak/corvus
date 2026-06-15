@@ -72,7 +72,7 @@ Each entry in `drives` configures a disk that will be attached to VMs instantiat
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `diskImageName` | string | depends | | Name of an existing disk image. Required for `clone`, `overlay`, and `direct` strategies. Optional for `create` (used as a naming suffix). |
-| `interface` | enum | yes | | Bus type: `virtio`, `ide`, `scsi`, `sata`, `nvme`, `pflash`. |
+| `interface` | enum | yes | | Bus type: `virtio`, `ide`, `scsi`, `sata`, `nvme`, `pflash`, `floppy`. |
 | `strategy` | enum | yes | | How the drive is provisioned on instantiation (see below). |
 | `sizeMb` | integer | no | | For `create`: the new disk size. For `clone`/`overlay`: resize after provisioning. |
 | `format` | enum | no | | Disk format. Required for `create`: `qcow2`, `raw`, `vmdk`, `vdi`, `vpc`, `vhdx`. |

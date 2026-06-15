@@ -552,8 +552,8 @@ templates:
       injectSshKeys: <bool>
     drives:                     # Required (may be empty).
       - diskImageName: <name>   # Must match a disk defined earlier or registered in the DB.
-        interface: <virtio|ide|scsi|sata|nvme|pflash>
-        strategy: <clone|overlay|direct>
+        interface: <virtio|ide|scsi|sata|nvme|pflash|floppy>
+        strategy: <clone|overlay|direct|create>
         media: <disk|cdrom>     # Optional.
         readOnly: <bool>        # Optional.
         cacheType: <none|writeback|writethrough|directsync|unsafe>  # Optional.

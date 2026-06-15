@@ -206,9 +206,9 @@ in use by disk id <N>` — no constraint-violation stack.
 
 | Option | Values | Default |
 |--------|--------|---------|
-| `--interface` / `-i` | `virtio`, `ide`, `scsi`, `sata`, `nvme`, `pflash` | `virtio` |
+| `--interface` / `-i` | `virtio`, `ide`, `scsi`, `sata`, `nvme`, `pflash`, `floppy` | `virtio` |
 | `--media` / `-m` | `disk`, `cdrom` | `disk` |
-| `--cache` | `none`, `writeback`, `writethrough`, `directsync`, `unsafe` | `none` |
+| `--cache` | `none`, `writeback`, `writethrough`, `directsync`, `unsafe` | `writeback` |
 | `--read-only` | flag | `false` |
 | `--discard` | flag | `false` |
 

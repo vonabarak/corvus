@@ -273,7 +273,7 @@ Set `injectSshKeys: false` — SSH key injection modifies YAML structure which i
 
 **SSH keys not working**:
 - Verify `injectSshKeys: true` (the default) in the cloud-init config.
-- Check that keys are attached to the VM: `crv ssh-key list-for-vm <vm>`.
+- Check that keys are attached to the VM: `crv ssh-key list-vm <vm>`.
 - Raw script user-data (starting with `#`) skips key injection.
 
 **Changes not taking effect**:

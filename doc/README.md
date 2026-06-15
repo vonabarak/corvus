@@ -288,14 +288,16 @@ SPICE is served over TCP (not Unix socket) with ticketed password authentication
 
 ## Limitations
 
-- **Single Host Only**: No clustering or migration support
-- **No Live Migration**: VMs cannot be migrated between hosts
-- **No Live Snapshots**: Snapshots require VM to be stopped (qcow2 internal snapshots)
 - **No Resource Limits**: No CPU/memory cgroup controls
 - **No VNC**: Only SPICE display is supported
-- **No Authentication**: Client-daemon communication is unauthenticated
-- **No TLS**: TCP communication is unencrypted (use Unix socket or SSH tunnel)
 - **Linux Only**: Relies on KVM, Unix sockets, and POSIX signals
+
+Multi-node clustering, cold VM migration, live snapshots with
+optional guest-agent quiesce, and mutual-TLS authentication on the
+TCP listener are all implemented today -- see
+[multi-node.md](multi-node.md), [vm-migration.md](vm-migration.md),
+[snapshots.md](snapshots.md), and [security.md](security.md) for the
+specifics.
 
 ## License
 

@@ -56,6 +56,9 @@ crv task list --all                        # Include subtasks
 | `snapshot` | create, delete, rollback, merge |
 | `system` | startup, shutdown |
 | `apply` | apply |
+| `build` | image-build pipeline (per-step snapshots, cache hits, artifact publish) |
+| `node` | register, probe, drain, maintenance, delete |
+| `migration` | cold-migrate VM between nodes |
 
 ### Results
 

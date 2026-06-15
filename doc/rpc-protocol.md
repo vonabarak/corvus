@@ -21,7 +21,7 @@ runnable Python example.
 | `schema/template.capnp` | `TemplateManager` + `Template` cap. |
 | `schema/task.capnp` | `TaskManager` + `Task` cap; async-op history + progress sub. |
 | `schema/cloudinit.capnp` | `CloudInitManager` + custom user-data CRUD. |
-| `schema/streams.capnp` | Streaming sinks: `ByteSink`, `BuildEventSink`, `GuestAgentStatusSink`, `TaskProgressSink`, plus `Handle` token. |
+| `schema/streams.capnp` | Streaming sinks: `ByteSink`, `BuildEventSink`, `ApplyEventSink`, `DiskDownloadSink`, `GuestAgentStatusSink`, `TaskProgressSink`, plus `Handle` token. |
 
 ## Capability tree
 
@@ -70,7 +70,7 @@ construct an `EntityRef.name = "42"` to reach them.
 
 ## Streaming
 
-The `schema/streams.capnp` file declares four sink caps the daemon
+The `schema/streams.capnp` file declares six sink caps the daemon
 either consumes or produces:
 
 - **`ByteSink`** -- generic byte pipe. Used by `Vm.serialConsole` /
@@ -80,14 +80,29 @@ either consumes or produces:
 - **`BuildEventSink`** -- one-way push of `BuildEvent`s during a
   `Daemon.build` invocation. Caller supplies the sink and gets the
   parent task id back synchronously.
+- **`ApplyEventSink`** -- one-way push of `ApplyEvent`s during a
+  `Daemon.apply` invocation. Each phase of the declarative apply
+  (`sshKeys`, `disks`, `networks`, `vms`, `templates`) emits a
+  `phaseStart` followed by per-entity `entityStart` / `entityEnd`
+  pairs; disk imports that download from a URL emit
+  `downloadStart` / `downloadProgress` / `downloadEnd` between the
+  disk's `entityStart` and `entityEnd`. Closed with a single
+  `applyEnd` followed by `end()`.
+- **`DiskDownloadSink`** -- one-way `progress(downloaded, total)`
+  pushes from a node agent back to the daemon during a
+  `Session.diskDownload` URL transfer. `total == 0` until
+  Content-Length is probed (or stays 0 if the server didn't return
+  one). Internal to the daemon/node-agent path; not exposed to CLI
+  clients.
 - **`GuestAgentStatusSink`** -- one-way push from
   `Vm.subscribeGuestAgent`. Each poll cycle the daemon pushes a
   `GuestAgentStatus` (reachable, enabled, last healthcheck) for
   every subscriber.
 - **`TaskProgressSink`** -- one-way push from
-  `TaskManager.subscribe`. Currently the daemon emits only a
-  terminal `finished` event when the watched task completes; the
-  schema reserves room for `started` and `progress` variants.
+  `TaskManager.subscribe`. The schema defines `started`,
+  `progress`, and `finished` variants; the daemon currently emits
+  only the terminal `finished` event when the watched task
+  completes.
 
 > **Flow control.** The Haskell `capnp` library doesn't yet
 > implement the `stream` keyword's automatic flow control, so the
@@ -161,9 +176,10 @@ import asyncio
 import capnp
 
 SCHEMA = "/path/to/corvus/schema"
-common = capnp.load(f"{SCHEMA}/common.capnp")
-vm     = capnp.load(f"{SCHEMA}/vm.capnp",     imports=[SCHEMA])
-corvus = capnp.load(f"{SCHEMA}/corvus.capnp", imports=[SCHEMA])
+common  = capnp.load(f"{SCHEMA}/common.capnp")
+streams = capnp.load(f"{SCHEMA}/streams.capnp", imports=[SCHEMA])
+vm      = capnp.load(f"{SCHEMA}/vm.capnp",      imports=[SCHEMA])
+corvus  = capnp.load(f"{SCHEMA}/corvus.capnp",  imports=[SCHEMA])
 
 async def main():
     async with capnp.kj_loop():
