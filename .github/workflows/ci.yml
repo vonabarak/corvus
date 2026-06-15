@@ -71,6 +71,18 @@ jobs:
           # — use the one this action just provisioned.
           stack-no-install-ghc: true
 
+      # Node.js for the frontend lint/typecheck/format pass
+      # (`web-lint` invoked from `make lint`). The Makefile
+      # gate on `frontend/node_modules/` means we also need the
+      # explicit `npm ci` below — without it, `make lint` would
+      # silently skip the frontend checks even with Node on
+      # PATH. Matches the version pinned in release.yml.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
       # ----- Caches -----------------------------------------------------
 
       # `-v2` suffix on the cache keys busts any cache poisoned
@@ -157,6 +169,13 @@ jobs:
           python/.venv-corvus-py/bin/pip install --upgrade pip
           python/.venv-corvus-py/bin/pip install ruff mypy types-PyYAML
           python/.venv-corvus-py/bin/pip install -e '.[harness]'
+
+      # Install the frontend toolchain so `make lint`'s gated
+      # `web-lint` step (Makefile checks for
+      # frontend/node_modules/) actually fires here. Reproducible
+      # via the committed lockfile.
+      - name: Bootstrap frontend toolchain
+        run: cd frontend && npm ci --no-audit --no-fund
 
       # Cheap one-shot diagnostic that lands in the run summary —
       # `which` lines + PATH dump make the most common CI-vs-dev

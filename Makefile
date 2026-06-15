@@ -597,15 +597,14 @@ RELEASE_DIR := release/corvus-$(VERSION)-linux-amd64
 RELEASE_TARBALL := release/corvus-$(VERSION)-linux-amd64.tar.gz
 
 release: build
-	# Web UI: build the frontend bundle so it's bundled into the
-	# wheel's package data (see pyproject.toml's
-	# `corvus_web = ["static/**/*"]`). Skipped silently when npm
-	# isn't on PATH — CI release jobs install Node explicitly.
-	@if command -v $(NPM) >/dev/null 2>&1 && [ -f frontend/package.json ]; then \
-	  $(MAKE) web-build ; \
-	else \
-	  echo "skip: web UI build (npm or frontend/ missing)"; \
-	fi
+	# Web UI: build the frontend bundle so it lands in
+	# python/corvus_web/static/ — the wheel embeds it as package
+	# data (see pyproject.toml's `corvus_web = ["static/**/*"]`)
+	# and step 4a below stages the same tree at the top level
+	# of the tarball. Mandatory for release: `web-build` errors
+	# loudly if npm is missing. Operator-side `make install`
+	# keeps a silent skip — only releases require the SPA.
+	$(MAKE) web-build
 	# Fresh staging tree on every invocation.
 	rm -rf release
 	mkdir -p $(RELEASE_DIR)/bin
@@ -666,6 +665,15 @@ release: build
 	cp scripts/build-synthetic-installer.sh $(RELEASE_DIR)/scripts/
 	cp README.md $(RELEASE_DIR)/README.md
 	#
+	# 4a. Built SPA. Mirrors python/corvus_web/static/ (populated
+	#     by the `web-build` step above) so operators can serve
+	#     the SPA standalone via nginx / Caddy / similar without
+	#     installing the Python wheel. The same tree is also
+	#     embedded in the wheel via pyproject.toml's
+	#     `corvus_web = ["static/**/*"]`.
+	mkdir -p $(RELEASE_DIR)/web
+	cp -r python/corvus_web/static/. $(RELEASE_DIR)/web/
+	#
 	# 5. Version stamp + a short pointer to the existing docs.
 	echo "$(VERSION)" > $(RELEASE_DIR)/VERSION
 	@printf '%s\n' \
@@ -674,6 +682,7 @@ release: build
 	  '1. Drop `bin/*` somewhere on `$$PATH` (e.g. `/usr/local/bin`).' \
 	  '2. `pip install python/corvus-*.whl` for the client library + `corvus-admin` CLI.' \
 	  '3. Run `corvus-admin quickstart` for a single-node setup, or follow `doc/multi-node.md` for a cluster.' \
+	  '4. The web UI ships inside the wheel (served by `corvus-web`). To serve the SPA standalone instead, point any static host (nginx, Caddy) at `web/` and proxy `/api` + `/ws` to the `corvus-web` gateway.' \
 	  '' \
 	  'Shell completions are under `completions/{bash,zsh,fish}/`.' \
 	  'See `doc/INDEX.md` for the full documentation tree.' \

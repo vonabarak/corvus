@@ -90,6 +90,19 @@ jobs:
           which make python3 capnp stack ghc
           make --version | head -1
 
+      # Node.js is required by `make web-build` (invoked from
+      # `make release`) — without it the frontend bundle never
+      # lands in python/corvus_web/static/ and the resulting
+      # wheel + tarball ship without the SPA. Node 22 matches
+      # the toolchain frontend/package.json's `@types/node`
+      # targets. The action's built-in npm cache keyed on the
+      # lockfile keeps `npm ci` cheap across runs.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
       # `make release` does the actual work: stages binaries +
       # completions + Python distributions + doc/yaml/schema
       # trees, writes VERSION + INSTALL.md, and tarballs the
