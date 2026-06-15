@@ -167,7 +167,7 @@ async def _refresh_once(client) -> None:  # type: ignore[no-untyped-def]
             stats=details.stats,
             vm_id=v.id,
             vm_name=v.name,
-            node_name=v.node_name,
+            node_name=v.node.name,
             captured_at=now,
         )
 

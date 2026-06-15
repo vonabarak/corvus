@@ -47,6 +47,7 @@ from .version import (
     check_outer_version,
 )
 from .vm import Vm, VmCloudInit, VmSsh, VmUefi, VmWindows
+from .web_gateway import WebGateway
 
 __all__ = [
     "HOST_ALPINE_KEY_PATH",
@@ -77,6 +78,7 @@ __all__ = [
     "VmUefi",
     "VmWindows",
     "VsockTcpRelay",
+    "WebGateway",
     "base_images",
     "check_nested_kvm",
     "check_outer_version",
