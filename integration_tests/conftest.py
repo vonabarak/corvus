@@ -389,7 +389,11 @@ def pytest_collection_modifyitems(
         head: list[str] = []
         for it in items[:25]:
             cls = getattr(it, "cls", None)
-            if cls is not None and cls not in seen:
+            # `by_class` only carries IntegrationTestCase subclasses
+            # (standalone class-based tests under tests/ aren't a
+            # scope-fixture concern). Skip them in the diagnostic
+            # rather than KeyError'ing.
+            if cls is not None and cls in by_class and cls not in seen:
                 seen.add(cls)
                 head.append(f"{cls.__name__}({len(by_class[cls])})")
         sys.stderr.write("[corvus-sched] scope-order head: " + " → ".join(head) + "\n")
