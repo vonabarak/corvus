@@ -104,9 +104,7 @@ class TestGuestExecCli(SingleNodeCase):
             # BEFORE the subcommand: `crv --output json vm exec …`.
             # Keys match src/Corvus/Client/Commands/GuestExec.hs:28-34
             # exactly.
-            cp = _crv(
-                node, f"--output json vm exec {vm_id} 'echo hi; echo err >&2'"
-            )
+            cp = _crv(node, f"--output json vm exec {vm_id} 'echo hi; echo err >&2'")
             assert cp.returncode == 0, cp
             payload = json.loads(cp.stdout.decode("utf-8"))
             assert payload["status"] == "ok", payload

@@ -510,6 +510,180 @@ class TestBuildPipeline(SingleNodeCase):
         finally:
             tpl.delete()
 
+    def test_file_waitfor_shelldefaults_corvus_env_in_one_bake(self):
+        """Single bake that exercises four provisioner / env features
+        the prior coverage missed:
+
+          * ``file:`` provisioner with explicit ``mode: "0755"`` —
+            file lands at the requested path with executable bits.
+          * ``wait-for: { file: ... }`` — daemon polls until the
+            target path exists in the guest.
+          * ``shellDefaults.preamble`` + ``env`` — both reach the
+            shell step's runtime environment.
+          * Predefined ``CORVUS_*`` env vars (BUILD_NAME, BUILD_TEMPLATE,
+            BUILD_STRATEGY, VERSION) — injected into every shell step
+            with the right values.
+
+        Combined into one bake because each individual sub-feature
+        only takes a few lines of provisioner code but every bake
+        costs ~5 min wall-clock under nested-KVM. The shell step
+        echos every assertion's evidence; we grep the streamed
+        ``BuildStepOutput`` lines instead of re-booting the artifact.
+
+        Out of scope (deliberately skipped): ``wait-for: { ping }``
+        (covered implicitly by every existing bake — the daemon
+        runs ``ping`` between ``vmStart`` and the first provisioner)
+        and ``wait-for: { port }`` (needs a guest listener to wait
+        on; tangential to the build wiring under test). The
+        ``reboot`` provisioner is also skipped — exercising a clean
+        guest reboot mid-bake doubles the wall-clock with little
+        added wiring coverage.
+        """
+        token = secrets.token_hex(4)
+        images = self.register_base_images()
+        base_disk = images["alpine"]
+        tpl_name = f"corvus-it-build-tpl-{token}"
+        artifact_name = f"corvus-it-build-art-{token}"
+
+        # Host-side payload for the file: provisioner. The
+        # build-YAML preprocessor base64-inlines the bytes into
+        # the wire request, so the file just needs to be readable
+        # on the test client.
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            prefix="corvus-it-file-",
+            suffix=".sh",
+            mode="w",
+            delete=False,
+        ) as tmp:
+            tmp.write("#!/bin/sh\necho file-provisioner-marker\n")
+            host_payload_path = tmp.name
+
+        tpl = self.client.templates.create(
+            _BAKE_TEMPLATE.format(tpl_name=tpl_name, base_disk=base_disk)
+        )
+        pipeline_yaml = textwrap.dedent(f"""
+            pipeline:
+              - build:
+                  name: {artifact_name}
+                  template: {tpl_name}
+                  strategy: overlay
+                  target:
+                    format: qcow2
+                    sizeGb: 1
+                  vm:
+                    cpuCount: 1
+                    ramMb: 512
+                  shellDefaults:
+                    preamble: |
+                      set -eu
+                      export PREAMBLE_VAR=preamble-set
+                    env:
+                      DEFAULT_ENV_VAR: env-set-from-defaults
+                  provisioners:
+                    - file:
+                        from: {host_payload_path}
+                        to: /tmp/uploaded.sh
+                        mode: "0755"
+                    - shell: |
+                        echo "MODE=$(stat -c %a /tmp/uploaded.sh)"
+                        echo "PREAMBLE_VAR=$PREAMBLE_VAR"
+                        echo "DEFAULT_ENV_VAR=$DEFAULT_ENV_VAR"
+                        echo "CORVUS_VERSION=$CORVUS_VERSION"
+                        echo "CORVUS_BUILD_NAME=$CORVUS_BUILD_NAME"
+                        echo "CORVUS_BUILD_TEMPLATE=$CORVUS_BUILD_TEMPLATE"
+                        echo "CORVUS_BUILD_STRATEGY=$CORVUS_BUILD_STRATEGY"
+                        # Sentinel for the wait-for step. Backgrounded
+                        # with a 2 s delay so wait-for has work to do
+                        # rather than seeing an already-present file.
+                        ( sleep 2 && touch /tmp/wait-marker ) &
+                    - wait-for:
+                        file: /tmp/wait-marker
+                        timeoutSec: 30
+                  cleanup: always
+                  waitForShutdownSec: 300
+        """).strip()
+
+        # Write the pipeline to a temp file so we can use
+        # ``build_stream`` (which calls ``preprocess_build_yaml``
+        # to base64-inline the ``file: from:`` payload).
+        # ``build_stream_text`` skips preprocessing and would send
+        # the unmodified YAML with no ``contentBase64`` set.
+        with tempfile.NamedTemporaryFile(
+            prefix="corvus-it-pipeline-", suffix=".yml", mode="w", delete=False
+        ) as ypath:
+            ypath.write(pipeline_yaml)
+            pipeline_path = ypath.name
+
+        try:
+            output_lines: list[str] = []
+            pipeline_end = None
+            step_results: dict[int, str] = {}
+            for ev in self.client.build_stream(pipeline_path):
+                if isinstance(ev, BuildStepOutput):
+                    output_lines.append(ev.line)
+                elif isinstance(ev, BuildStepEnd):
+                    step_results[ev.step_index] = ev.result
+                elif isinstance(ev, BuildPipelineEnd):
+                    pipeline_end = ev
+
+            joined = "\n".join(output_lines)
+            assert pipeline_end is not None
+            assert pipeline_end.builds, (
+                f"BuildPipelineEnd carried no builds; "
+                f"step_results={step_results!r} output tail:\n{joined[-2000:]}"
+            )
+            assert all(r == "success" for r in step_results.values()), step_results
+            # `error_message` is `None` on success and a non-empty
+            # string on failure (the schema models it as Maybe Text).
+            assert not pipeline_end.builds[0].error_message, pipeline_end
+
+            # file: with mode=0755 → guest stat reports 755.
+            assert "MODE=755" in joined, (
+                f"file: provisioner didn't land with mode 0755; "
+                f"output:\n{joined[-2000:]}"
+            )
+            # shellDefaults preamble + env both visible.
+            assert "PREAMBLE_VAR=preamble-set" in joined, joined[-2000:]
+            assert "DEFAULT_ENV_VAR=env-set-from-defaults" in joined, joined[-2000:]
+            # CORVUS_* env vars carry the expected values.
+            assert f"CORVUS_BUILD_NAME={artifact_name}" in joined, joined[-2000:]
+            assert f"CORVUS_BUILD_TEMPLATE={tpl_name}" in joined, joined[-2000:]
+            assert "CORVUS_BUILD_STRATEGY=overlay" in joined, joined[-2000:]
+            # CORVUS_VERSION is non-empty (the daemon's own version).
+            import re
+
+            version_lines = [
+                ln for ln in output_lines if ln.startswith("CORVUS_VERSION=")
+            ]
+            assert version_lines, joined[-2000:]
+            assert re.match(r"^CORVUS_VERSION=\S+", version_lines[-1].strip()), (
+                version_lines[-1]
+            )
+            # If the wait-for step succeeded, both the touch and the
+            # waitForFile ran — the pipeline's success result above
+            # already proves that, but pin step-3 (the wait-for) to
+            # success explicitly so a future failure surfaces here
+            # rather than as a generic pipeline error.
+            assert step_results.get(2) == "success", step_results
+        finally:
+            import os
+
+            for p in (host_payload_path, pipeline_path):
+                try:
+                    os.unlink(p)
+                except Exception:
+                    pass
+            try:
+                self.client.disks.get(artifact_name, by_name=True).delete()
+            except Exception:
+                pass
+            try:
+                tpl.delete()
+            except Exception:
+                pass
+
     def test_target_ifexists_skip_short_circuits(self):
         """`target.ifExists: skip` returns the existing disk id, no bake.
 
