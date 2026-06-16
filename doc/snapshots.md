@@ -5,11 +5,11 @@ Internal qcow2 snapshots capture the disk state at a point in time. They are sto
 ## Commands
 
 ```bash
-crv snapshot create <disk> <name>       # Create a snapshot
-crv snapshot list <disk>                # List snapshots for a disk
-crv snapshot rollback <disk> <snap>     # Rollback to a snapshot
-crv snapshot merge <disk> <snap>        # Merge snapshot into base
-crv snapshot delete <disk> <snap>       # Delete a snapshot
+crv disk snapshot create <disk> <name>       # Create a snapshot
+crv disk snapshot list <disk>                # List snapshots for a disk
+crv disk snapshot rollback <disk> <snap>     # Rollback to a snapshot
+crv disk snapshot merge <disk> <snap>        # Merge snapshot into base
+crv disk snapshot delete <disk> <snap>       # Delete a snapshot
 ```
 
 `<disk>` and `<snap>` accept names or numeric IDs.
@@ -32,7 +32,7 @@ When an attached VM is running or paused, Corvus uses QMP
 `blockdev-snapshot-internal-sync` (create) and
 `blockdev-snapshot-delete-internal-sync` (delete / merge) instead of
 shelling out to `qemu-img`. The on-disk qcow2 record is bit-identical
-to an offline snapshot, so `crv snapshot list` shows live and
+to an offline snapshot, so `crv disk snapshot list` shows live and
 offline entries in the same table; only the `LIVE` column
 distinguishes them.
 
@@ -58,12 +58,12 @@ modes:
 Examples:
 
 ```bash
-crv snapshot create db pre-migration                    # auto: best-effort quiesce
-crv snapshot create db pre-migration --quiesce require  # error out if no QGA
-crv snapshot create db raw-snap --quiesce skip          # explicit unquiesced
+crv disk snapshot create db pre-migration                    # auto: best-effort quiesce
+crv disk snapshot create db pre-migration --quiesce require  # error out if no QGA
+crv disk snapshot create db raw-snap --quiesce skip          # explicit unquiesced
 ```
 
-The `Q` column in `crv snapshot list` shows whether the snapshot
+The `Q` column in `crv disk snapshot list` shows whether the snapshot
 was actually frozen (`+`) or not (`-`).
 
 **Safety:** the daemon ALWAYS attempts the thaw, even when the
@@ -101,22 +101,22 @@ captures the whole machine atomically: the qcow2 active state
 # (the one you name) holds the vmstate; every other writable qcow2
 # attached to the same VM gets a sibling block snapshot under the
 # same tag.
-crv snapshot create my-vm-disk pre-experiment --with-ram
+crv disk snapshot create my-vm-disk pre-experiment --with-ram
 
-# crv snapshot list shows the new `V` column on the carrier row:
+# crv disk snapshot list shows the new `V` column on the carrier row:
 #   ID | NAME             | CREATED | SIZE_MB | LIVE | Q | V
 #   -- | pre-experiment   | …       | …       | +    | - | +
-crv snapshot list my-vm-disk
+crv disk snapshot list my-vm-disk
 
 # Rollback resumes the VM in the saved running state — no separate
 # VmStart needed. The daemon issues QMP `stop` to pause CPUs,
 # `snapshot-load` to restore vmstate + every disk atomically,
 # `cont` to unfreeze, then QGA `guest-set-time` to resync the
 # wall clock from the host RTC.
-crv snapshot rollback my-vm-disk pre-experiment
+crv disk snapshot rollback my-vm-disk pre-experiment
 ```
 
-The on-disk record adds two columns to `crv snapshot list`:
+The on-disk record adds two columns to `crv disk snapshot list`:
 
 | Column | Meaning |
 |---|---|
@@ -133,7 +133,7 @@ benefit.
 **Storage cost.** Each vmstate snapshot adds roughly the VM's RAM
 size to the carrier qcow2 (e.g. ≈8 GB for an 8 GB-RAM VM). Disk
 snapshots are still copy-on-write deltas of the writable disks.
-`crv snapshot list` reports `size_mb` per row so you can see
+`crv disk snapshot list` reports `size_mb` per row so you can see
 where the bytes went.
 
 **Rollback semantics differ from disk-only.** A vmstate rollback
@@ -149,7 +149,7 @@ automatically based on the snapshot row's `has_vmstate` flag.
 
 ## VM-scoped snapshots (`crv vm snapshot`)
 
-The disk-scoped `crv snapshot create --with-ram` flow above
+The disk-scoped `crv disk snapshot create --with-ram` flow above
 requires the operator to pick a carrier disk by hand. For the
 common "checkpoint this whole VM" workflow, `crv vm snapshot`
 auto-picks the carrier (the writable qcow2 drive attached first to
@@ -183,10 +183,10 @@ crv vm snapshot delete my-vm pre-upgrade
 - `crv vm snapshot ...` — default for "checkpoint this VM before
   doing something risky". One identifier (the VM name + snapshot
   name); rollback works on stopped VMs too.
-- `crv snapshot create DISK NAME --with-ram` — when you specifically
+- `crv disk snapshot create DISK NAME --with-ram` — when you specifically
   want to pick the carrier disk (e.g. because you've reorganised
   drives and the lowest-id drive isn't the right vmstate home), or
-  when you're using the per-disk `crv snapshot list/delete/rollback`
+  when you're using the per-disk `crv disk snapshot list/delete/rollback`
   surface for other reasons.
 
 Both flows write the same `snapshot` rows under the hood. A VM
@@ -211,8 +211,8 @@ unique constraint yet).
 ## Creating Snapshots
 
 ```bash
-crv snapshot create boot before-upgrade
-crv snapshot create boot clean-install
+crv disk snapshot create boot before-upgrade
+crv disk snapshot create boot clean-install
 ```
 
 Each snapshot records the full disk state. Multiple snapshots can exist on the same disk.
@@ -220,7 +220,7 @@ Each snapshot records the full disk state. Multiple snapshots can exist on the s
 ## Listing Snapshots
 
 ```bash
-crv snapshot list boot
+crv disk snapshot list boot
 ```
 
 Shows snapshot ID, name, creation timestamp, and size (overhead relative to base).
@@ -228,8 +228,8 @@ Shows snapshot ID, name, creation timestamp, and size (overhead relative to base
 ## Rolling Back
 
 ```bash
-crv snapshot rollback boot before-upgrade
-crv snapshot rollback boot before-upgrade --auto-stop
+crv disk snapshot rollback boot before-upgrade
+crv disk snapshot rollback boot before-upgrade --auto-stop
 ```
 
 Reverts the disk to the exact state it was in when the snapshot
@@ -247,7 +247,7 @@ online equivalent of `qemu-img snapshot -a`.
 ## Merging
 
 ```bash
-crv snapshot merge boot before-upgrade
+crv disk snapshot merge boot before-upgrade
 ```
 
 Merges the snapshot into the base image and removes the snapshot. This reclaims the space used by the snapshot's delta. After merging, the snapshot no longer exists but its data is preserved in the base.
@@ -255,7 +255,7 @@ Merges the snapshot into the base image and removes the snapshot. This reclaims 
 ## Deleting
 
 ```bash
-crv snapshot delete boot before-upgrade
+crv disk snapshot delete boot before-upgrade
 ```
 
 Removes the snapshot without merging. The snapshot's delta data is discarded.

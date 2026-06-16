@@ -475,9 +475,10 @@ error on older builds. All modern QEMU packages ship 6.0 or
 later (Gentoo `app-emulation/qemu`, Debian stable, the upstream
 QEMU containers).
 
-**Standalone `crv snapshot rollback`** on a vmstate-aware
-snapshot drives the same restore lifecycle, but only when the VM
-is running (the paused-start-from-stopped path is a follow-up).
+**Standalone `crv disk snapshot rollback`** on a vmstate-aware
+snapshot drives the same restore lifecycle. The VM-scoped
+`crv vm snapshot rollback` additionally handles the
+stopped-VM case (paused-start + snapshot-load + cont).
 See [doc/snapshots.md](snapshots.md).
 
 ### Lifecycle of a cached bake VM

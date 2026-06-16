@@ -7,6 +7,7 @@ module Corvus.Client.Parser.Disk
 where
 
 import Corvus.Client.Completion
+import Corvus.Client.Parser.Snapshot (snapshotCommandParser)
 import Corvus.Client.Parser.Utility
 import Corvus.Client.Types
 import qualified Data.Text as T
@@ -459,4 +460,10 @@ diskCommandParser =
         <> command
           "move"
           (info diskMoveCommand (progDesc "Move a disk image to another node (agent-to-agent)"))
+        <> command
+          "snapshot"
+          ( info
+              snapshotCommandParser
+              (progDesc "Disk snapshot management (create/list/rollback/merge/delete)")
+          )
     )

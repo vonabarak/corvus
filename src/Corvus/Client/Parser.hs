@@ -24,7 +24,6 @@ import Corvus.Client.Parser.NetIf (netIfCommandParser)
 import Corvus.Client.Parser.Network (networkCommandParser)
 import Corvus.Client.Parser.Node (nodeCommandParser)
 import Corvus.Client.Parser.SharedDir (sharedDirCommandParser)
-import Corvus.Client.Parser.Snapshot (snapshotCommandParser)
 import Corvus.Client.Parser.SshKey (sshKeyCommandParser)
 import Corvus.Client.Parser.Task (taskCommandParser)
 import Corvus.Client.Parser.Template (templateCommandParser)
@@ -87,9 +86,6 @@ commandParser =
         <> command
           "disk"
           (info diskCommandParser (progDesc "Disk image management commands"))
-        <> command
-          "snapshot"
-          (info snapshotCommandParser (progDesc "Snapshot management commands"))
         <> command
           "ssh-key"
           (info sshKeyCommandParser (progDesc "SSH key management commands"))
