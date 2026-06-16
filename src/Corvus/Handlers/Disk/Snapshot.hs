@@ -41,6 +41,8 @@ module Corvus.Handlers.Disk.Snapshot
   , handleSnapshotRollback
   , handleSnapshotMerge
   , handleSnapshotList
+  , handleVmstateRollback
+  , listVmstateSiblingDrives
   )
 where
 

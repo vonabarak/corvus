@@ -225,21 +225,18 @@ class SyncVm(LoopBoundResource):
     def list_shared_dirs(self):
         return self._rl.run(self._a.list_shared_dirs())
 
-    # snapshots
+    # VM-scoped full-machine snapshots
     def snapshot_create(self, name: str):
-        from .disk import SyncSnapshot
-
-        return SyncSnapshot(self._rl.run(self._a.snapshot_create(name)), self._rl)
+        return self._rl.run(self._a.snapshot_create(name))
 
     def snapshot_list(self):
         return self._rl.run(self._a.snapshot_list())
 
-    def snapshot_get(self, ref: int | str, *, by_name: bool = False):
-        from .disk import SyncSnapshot
+    def snapshot_rollback(self, name: str) -> None:
+        self._rl.run(self._a.snapshot_rollback(name))
 
-        return SyncSnapshot(
-            self._rl.run(self._a.snapshot_get(ref, by_name=by_name)), self._rl
-        )
+    def snapshot_delete(self, name: str) -> None:
+        self._rl.run(self._a.snapshot_delete(name))
 
     # ssh keys
     def attach_ssh_key(self, key_ref):

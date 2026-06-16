@@ -230,6 +230,11 @@ runCommand opts = do
         handleSnapshotRollback fmt conn diskRef snapshotRef autoStop
       SnapshotMerge diskRef snapshotRef -> handleSnapshotMerge fmt conn diskRef snapshotRef
       SnapshotList diskRef -> handleSnapshotList fmt tableOpts conn diskRef
+      -- VM-scoped snapshot commands
+      VmSnapshotCreate vmRef name -> handleVmSnapshotCreate fmt conn vmRef name
+      VmSnapshotList vmRef -> handleVmSnapshotList fmt tableOpts conn vmRef
+      VmSnapshotRollback vmRef name -> handleVmSnapshotRollback fmt conn vmRef name
+      VmSnapshotDelete vmRef name -> handleVmSnapshotDelete fmt conn vmRef name
       -- SSH key commands
       SshKeyCreate name publicKey -> handleSshKeyCreate fmt conn name publicKey
       SshKeyDelete keyRef -> handleSshKeyDelete fmt conn keyRef

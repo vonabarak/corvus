@@ -34,7 +34,6 @@ import qualified Capnp.Gen.ById.X9bd452a518ed3917
 import qualified Capnp.Gen.ById.Xa6341bd086aa89f6
 import qualified Capnp.Gen.ById.Xbf9b09f64c0dd40d
 import qualified Capnp.Gen.ById.Xeb6a435f11477f84
-import qualified Capnp.Gen.ById.Xec449e11027b2949
 import qualified Prelude as Std_
 import qualified Data.Word as Std_
 import qualified Data.Int as Std_
@@ -634,6 +633,61 @@ instance (GH.HasField "readOnly" GH.Slot SharedDirInfo Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 1 1 0)
 instance (GH.HasField "pid" GH.Slot SharedDirInfo Std_.Int32) where
     fieldByLabel  = (GH.dataField 32 1 32 0)
+data VmSnapshotInfo 
+type instance (R.ReprFor VmSnapshotInfo) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId VmSnapshotInfo) where
+    typeId  = 16926403748778034785
+instance (C.TypedStruct VmSnapshotInfo) where
+    numStructWords  = 3
+    numStructPtrs  = 3
+instance (C.Allocate VmSnapshotInfo) where
+    type AllocHint VmSnapshotInfo = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc VmSnapshotInfo (C.Parsed VmSnapshotInfo))
+instance (C.AllocateList VmSnapshotInfo) where
+    type ListAllocHint VmSnapshotInfo = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc VmSnapshotInfo (C.Parsed VmSnapshotInfo))
+data instance C.Parsed VmSnapshotInfo
+    = VmSnapshotInfo 
+        {name :: (RP.Parsed Basics.Text)
+        ,createdAt :: (RP.Parsed Std_.Int64)
+        ,vm :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
+        ,carrierDisk :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
+        ,diskCount :: (RP.Parsed Std_.Word32)
+        ,totalSizeMb :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed VmSnapshotInfo))
+deriving instance (Std_.Eq (C.Parsed VmSnapshotInfo))
+instance (C.Parse VmSnapshotInfo (C.Parsed VmSnapshotInfo)) where
+    parse raw_ = (VmSnapshotInfo <$> (GH.parseField #name raw_)
+                                 <*> (GH.parseField #createdAt raw_)
+                                 <*> (GH.parseField #vm raw_)
+                                 <*> (GH.parseField #carrierDisk raw_)
+                                 <*> (GH.parseField #diskCount raw_)
+                                 <*> (GH.parseField #totalSizeMb raw_))
+instance (C.Marshal VmSnapshotInfo (C.Parsed VmSnapshotInfo)) where
+    marshalInto raw_ VmSnapshotInfo{..} = (do
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #createdAt createdAt raw_)
+        (GH.encodeField #vm vm raw_)
+        (GH.encodeField #carrierDisk carrierDisk raw_)
+        (GH.encodeField #diskCount diskCount raw_)
+        (GH.encodeField #totalSizeMb totalSizeMb raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "name" GH.Slot VmSnapshotInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "createdAt" GH.Slot VmSnapshotInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "vm" GH.Slot VmSnapshotInfo Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "carrierDisk" GH.Slot VmSnapshotInfo Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef) where
+    fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "diskCount" GH.Slot VmSnapshotInfo Std_.Word32) where
+    fieldByLabel  = (GH.dataField 0 1 32 0)
+instance (GH.HasField "totalSizeMb" GH.Slot VmSnapshotInfo Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 2 64 0)
 data VmCreateParams 
 type instance (R.ReprFor VmCreateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmCreateParams) where
@@ -1260,16 +1314,17 @@ instance (GH.Export Vm) where
                                                                     ,(GH.toUntypedMethodHandler ((vm'listSharedDirs) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'snapshotCreate) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'snapshotList) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'snapshotGet) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'snapshotRollback) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'attachSshKey) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'detachSshKey) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'listSshKeys) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'migrate) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'save) s_))
                                                                     ,(GH.toUntypedMethodHandler ((vm'getStatsHistory) s_))
-                                                                    ,(GH.toUntypedMethodHandler ((vm'subscribeStats) s_))] [])
+                                                                    ,(GH.toUntypedMethodHandler ((vm'subscribeStats) s_))
+                                                                    ,(GH.toUntypedMethodHandler ((vm'snapshotDelete) s_))] [])
 class (Vm'server_ s_) where
-    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotGet,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats #-}
+    {-# MINIMAL vm'show,vm'start,vm'stop,vm'pause,vm'reset,vm'edit,vm'delete,vm'cloudInit,vm'viewGrant,vm'guestExec,vm'sendCtrlAltDel,vm'serialConsole,vm'serialConsoleFlush,vm'hmpMonitor,vm'hmpMonitorFlush,vm'subscribeGuestAgent,vm'attachDisk,vm'detachDisk,vm'addNetIf,vm'removeNetIf,vm'listNetIfs,vm'addSharedDir,vm'removeSharedDir,vm'listSharedDirs,vm'snapshotCreate,vm'snapshotList,vm'snapshotRollback,vm'attachSshKey,vm'detachSshKey,vm'listSshKeys,vm'migrate,vm'save,vm'getStatsHistory,vm'subscribeStats,vm'snapshotDelete #-}
     vm'show :: s_ -> (GH.MethodHandler Vm'show'params Vm'show'results)
     vm'show _ = GH.methodUnimplemented
     vm'start :: s_ -> (GH.MethodHandler Vm'start'params Vm'start'results)
@@ -1322,8 +1377,8 @@ class (Vm'server_ s_) where
     vm'snapshotCreate _ = GH.methodUnimplemented
     vm'snapshotList :: s_ -> (GH.MethodHandler Vm'snapshotList'params Vm'snapshotList'results)
     vm'snapshotList _ = GH.methodUnimplemented
-    vm'snapshotGet :: s_ -> (GH.MethodHandler Vm'snapshotGet'params Vm'snapshotGet'results)
-    vm'snapshotGet _ = GH.methodUnimplemented
+    vm'snapshotRollback :: s_ -> (GH.MethodHandler Vm'snapshotRollback'params Vm'snapshotRollback'results)
+    vm'snapshotRollback _ = GH.methodUnimplemented
     vm'attachSshKey :: s_ -> (GH.MethodHandler Vm'attachSshKey'params Vm'attachSshKey'results)
     vm'attachSshKey _ = GH.methodUnimplemented
     vm'detachSshKey :: s_ -> (GH.MethodHandler Vm'detachSshKey'params Vm'detachSshKey'results)
@@ -1338,6 +1393,8 @@ class (Vm'server_ s_) where
     vm'getStatsHistory _ = GH.methodUnimplemented
     vm'subscribeStats :: s_ -> (GH.MethodHandler Vm'subscribeStats'params Vm'subscribeStats'results)
     vm'subscribeStats _ = GH.methodUnimplemented
+    vm'snapshotDelete :: s_ -> (GH.MethodHandler Vm'snapshotDelete'params Vm'snapshotDelete'results)
+    vm'snapshotDelete _ = GH.methodUnimplemented
 instance (GH.HasMethod "show" Vm Vm'show'params Vm'show'results) where
     methodByLabel  = (GH.Method 17269745093196220462 0)
 instance (GH.HasMethod "start" Vm Vm'start'params Vm'start'results) where
@@ -1390,7 +1447,7 @@ instance (GH.HasMethod "snapshotCreate" Vm Vm'snapshotCreate'params Vm'snapshotC
     methodByLabel  = (GH.Method 17269745093196220462 24)
 instance (GH.HasMethod "snapshotList" Vm Vm'snapshotList'params Vm'snapshotList'results) where
     methodByLabel  = (GH.Method 17269745093196220462 25)
-instance (GH.HasMethod "snapshotGet" Vm Vm'snapshotGet'params Vm'snapshotGet'results) where
+instance (GH.HasMethod "snapshotRollback" Vm Vm'snapshotRollback'params Vm'snapshotRollback'results) where
     methodByLabel  = (GH.Method 17269745093196220462 26)
 instance (GH.HasMethod "attachSshKey" Vm Vm'attachSshKey'params Vm'attachSshKey'results) where
     methodByLabel  = (GH.Method 17269745093196220462 27)
@@ -1406,6 +1463,8 @@ instance (GH.HasMethod "getStatsHistory" Vm Vm'getStatsHistory'params Vm'getStat
     methodByLabel  = (GH.Method 17269745093196220462 32)
 instance (GH.HasMethod "subscribeStats" Vm Vm'subscribeStats'params Vm'subscribeStats'results) where
     methodByLabel  = (GH.Method 17269745093196220462 33)
+instance (GH.HasMethod "snapshotDelete" Vm Vm'snapshotDelete'params Vm'snapshotDelete'results) where
+    methodByLabel  = (GH.Method 17269745093196220462 34)
 data Vm'show'params 
 type instance (R.ReprFor Vm'show'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'show'params) where
@@ -2808,18 +2867,18 @@ instance (C.AllocateList Vm'snapshotCreate'results) where
 instance (C.EstimateListAlloc Vm'snapshotCreate'results (C.Parsed Vm'snapshotCreate'results))
 data instance C.Parsed Vm'snapshotCreate'results
     = Vm'snapshotCreate'results 
-        {snapshot :: (RP.Parsed Capnp.Gen.ById.Xec449e11027b2949.Snapshot)}
+        {info :: (RP.Parsed VmSnapshotInfo)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'snapshotCreate'results))
 deriving instance (Std_.Eq (C.Parsed Vm'snapshotCreate'results))
 instance (C.Parse Vm'snapshotCreate'results (C.Parsed Vm'snapshotCreate'results)) where
-    parse raw_ = (Vm'snapshotCreate'results <$> (GH.parseField #snapshot raw_))
+    parse raw_ = (Vm'snapshotCreate'results <$> (GH.parseField #info raw_))
 instance (C.Marshal Vm'snapshotCreate'results (C.Parsed Vm'snapshotCreate'results)) where
     marshalInto raw_ Vm'snapshotCreate'results{..} = (do
-        (GH.encodeField #snapshot snapshot raw_)
+        (GH.encodeField #info info raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "snapshot" GH.Slot Vm'snapshotCreate'results Capnp.Gen.ById.Xec449e11027b2949.Snapshot) where
+instance (GH.HasField "info" GH.Slot Vm'snapshotCreate'results VmSnapshotInfo) where
     fieldByLabel  = (GH.ptrField 0)
 data Vm'snapshotList'params 
 type instance (R.ReprFor Vm'snapshotList'params) = (R.Ptr (Std_.Just R.Struct))
@@ -2863,7 +2922,7 @@ instance (C.AllocateList Vm'snapshotList'results) where
 instance (C.EstimateListAlloc Vm'snapshotList'results (C.Parsed Vm'snapshotList'results))
 data instance C.Parsed Vm'snapshotList'results
     = Vm'snapshotList'results 
-        {snapshots :: (RP.Parsed (R.List Capnp.Gen.ById.Xec449e11027b2949.SnapshotInfo))}
+        {snapshots :: (RP.Parsed (R.List VmSnapshotInfo))}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Vm'snapshotList'results))
 deriving instance (Std_.Eq (C.Parsed Vm'snapshotList'results))
@@ -2874,68 +2933,63 @@ instance (C.Marshal Vm'snapshotList'results (C.Parsed Vm'snapshotList'results)) 
         (GH.encodeField #snapshots snapshots raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "snapshots" GH.Slot Vm'snapshotList'results (R.List Capnp.Gen.ById.Xec449e11027b2949.SnapshotInfo)) where
+instance (GH.HasField "snapshots" GH.Slot Vm'snapshotList'results (R.List VmSnapshotInfo)) where
     fieldByLabel  = (GH.ptrField 0)
-data Vm'snapshotGet'params 
-type instance (R.ReprFor Vm'snapshotGet'params) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Vm'snapshotGet'params) where
+data Vm'snapshotRollback'params 
+type instance (R.ReprFor Vm'snapshotRollback'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'snapshotRollback'params) where
     typeId  = 11663265021132023161
-instance (C.TypedStruct Vm'snapshotGet'params) where
+instance (C.TypedStruct Vm'snapshotRollback'params) where
     numStructWords  = 0
     numStructPtrs  = 1
-instance (C.Allocate Vm'snapshotGet'params) where
-    type AllocHint Vm'snapshotGet'params = ()
+instance (C.Allocate Vm'snapshotRollback'params) where
+    type AllocHint Vm'snapshotRollback'params = ()
     new _ = C.newTypedStruct
-instance (C.EstimateAlloc Vm'snapshotGet'params (C.Parsed Vm'snapshotGet'params))
-instance (C.AllocateList Vm'snapshotGet'params) where
-    type ListAllocHint Vm'snapshotGet'params = Std_.Int
+instance (C.EstimateAlloc Vm'snapshotRollback'params (C.Parsed Vm'snapshotRollback'params))
+instance (C.AllocateList Vm'snapshotRollback'params) where
+    type ListAllocHint Vm'snapshotRollback'params = Std_.Int
     newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Vm'snapshotGet'params (C.Parsed Vm'snapshotGet'params))
-data instance C.Parsed Vm'snapshotGet'params
-    = Vm'snapshotGet'params 
-        {ref :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+instance (C.EstimateListAlloc Vm'snapshotRollback'params (C.Parsed Vm'snapshotRollback'params))
+data instance C.Parsed Vm'snapshotRollback'params
+    = Vm'snapshotRollback'params 
+        {name :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Vm'snapshotGet'params))
-deriving instance (Std_.Eq (C.Parsed Vm'snapshotGet'params))
-instance (C.Parse Vm'snapshotGet'params (C.Parsed Vm'snapshotGet'params)) where
-    parse raw_ = (Vm'snapshotGet'params <$> (GH.parseField #ref raw_))
-instance (C.Marshal Vm'snapshotGet'params (C.Parsed Vm'snapshotGet'params)) where
-    marshalInto raw_ Vm'snapshotGet'params{..} = (do
-        (GH.encodeField #ref ref raw_)
+deriving instance (Std_.Show (C.Parsed Vm'snapshotRollback'params))
+deriving instance (Std_.Eq (C.Parsed Vm'snapshotRollback'params))
+instance (C.Parse Vm'snapshotRollback'params (C.Parsed Vm'snapshotRollback'params)) where
+    parse raw_ = (Vm'snapshotRollback'params <$> (GH.parseField #name raw_))
+instance (C.Marshal Vm'snapshotRollback'params (C.Parsed Vm'snapshotRollback'params)) where
+    marshalInto raw_ Vm'snapshotRollback'params{..} = (do
+        (GH.encodeField #name name raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "ref" GH.Slot Vm'snapshotGet'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+instance (GH.HasField "name" GH.Slot Vm'snapshotRollback'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Vm'snapshotGet'results 
-type instance (R.ReprFor Vm'snapshotGet'results) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Vm'snapshotGet'results) where
+data Vm'snapshotRollback'results 
+type instance (R.ReprFor Vm'snapshotRollback'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'snapshotRollback'results) where
     typeId  = 14052326479082387967
-instance (C.TypedStruct Vm'snapshotGet'results) where
+instance (C.TypedStruct Vm'snapshotRollback'results) where
     numStructWords  = 0
-    numStructPtrs  = 1
-instance (C.Allocate Vm'snapshotGet'results) where
-    type AllocHint Vm'snapshotGet'results = ()
+    numStructPtrs  = 0
+instance (C.Allocate Vm'snapshotRollback'results) where
+    type AllocHint Vm'snapshotRollback'results = ()
     new _ = C.newTypedStruct
-instance (C.EstimateAlloc Vm'snapshotGet'results (C.Parsed Vm'snapshotGet'results))
-instance (C.AllocateList Vm'snapshotGet'results) where
-    type ListAllocHint Vm'snapshotGet'results = Std_.Int
+instance (C.EstimateAlloc Vm'snapshotRollback'results (C.Parsed Vm'snapshotRollback'results))
+instance (C.AllocateList Vm'snapshotRollback'results) where
+    type ListAllocHint Vm'snapshotRollback'results = Std_.Int
     newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Vm'snapshotGet'results (C.Parsed Vm'snapshotGet'results))
-data instance C.Parsed Vm'snapshotGet'results
-    = Vm'snapshotGet'results 
-        {snapshot :: (RP.Parsed Capnp.Gen.ById.Xec449e11027b2949.Snapshot)}
+instance (C.EstimateListAlloc Vm'snapshotRollback'results (C.Parsed Vm'snapshotRollback'results))
+data instance C.Parsed Vm'snapshotRollback'results
+    = Vm'snapshotRollback'results 
+        {}
     deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Vm'snapshotGet'results))
-deriving instance (Std_.Eq (C.Parsed Vm'snapshotGet'results))
-instance (C.Parse Vm'snapshotGet'results (C.Parsed Vm'snapshotGet'results)) where
-    parse raw_ = (Vm'snapshotGet'results <$> (GH.parseField #snapshot raw_))
-instance (C.Marshal Vm'snapshotGet'results (C.Parsed Vm'snapshotGet'results)) where
-    marshalInto raw_ Vm'snapshotGet'results{..} = (do
-        (GH.encodeField #snapshot snapshot raw_)
-        (Std_.pure ())
-        )
-instance (GH.HasField "snapshot" GH.Slot Vm'snapshotGet'results Capnp.Gen.ById.Xec449e11027b2949.Snapshot) where
-    fieldByLabel  = (GH.ptrField 0)
+deriving instance (Std_.Show (C.Parsed Vm'snapshotRollback'results))
+deriving instance (Std_.Eq (C.Parsed Vm'snapshotRollback'results))
+instance (C.Parse Vm'snapshotRollback'results (C.Parsed Vm'snapshotRollback'results)) where
+    parse raw_ = (Std_.pure Vm'snapshotRollback'results)
+instance (C.Marshal Vm'snapshotRollback'results (C.Parsed Vm'snapshotRollback'results)) where
+    marshalInto _raw (Vm'snapshotRollback'results) = (Std_.pure ())
 data Vm'attachSshKey'params 
 type instance (R.ReprFor Vm'attachSshKey'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Vm'attachSshKey'params) where
@@ -3336,6 +3390,61 @@ instance (C.Marshal Vm'subscribeStats'results (C.Parsed Vm'subscribeStats'result
         )
 instance (GH.HasField "handle" GH.Slot Vm'subscribeStats'results Capnp.Gen.ById.X9bd452a518ed3917.Handle) where
     fieldByLabel  = (GH.ptrField 0)
+data Vm'snapshotDelete'params 
+type instance (R.ReprFor Vm'snapshotDelete'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'snapshotDelete'params) where
+    typeId  = 10775307054427364836
+instance (C.TypedStruct Vm'snapshotDelete'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Vm'snapshotDelete'params) where
+    type AllocHint Vm'snapshotDelete'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'snapshotDelete'params (C.Parsed Vm'snapshotDelete'params))
+instance (C.AllocateList Vm'snapshotDelete'params) where
+    type ListAllocHint Vm'snapshotDelete'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'snapshotDelete'params (C.Parsed Vm'snapshotDelete'params))
+data instance C.Parsed Vm'snapshotDelete'params
+    = Vm'snapshotDelete'params 
+        {name :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'snapshotDelete'params))
+deriving instance (Std_.Eq (C.Parsed Vm'snapshotDelete'params))
+instance (C.Parse Vm'snapshotDelete'params (C.Parsed Vm'snapshotDelete'params)) where
+    parse raw_ = (Vm'snapshotDelete'params <$> (GH.parseField #name raw_))
+instance (C.Marshal Vm'snapshotDelete'params (C.Parsed Vm'snapshotDelete'params)) where
+    marshalInto raw_ Vm'snapshotDelete'params{..} = (do
+        (GH.encodeField #name name raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "name" GH.Slot Vm'snapshotDelete'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data Vm'snapshotDelete'results 
+type instance (R.ReprFor Vm'snapshotDelete'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Vm'snapshotDelete'results) where
+    typeId  = 16348267721403728887
+instance (C.TypedStruct Vm'snapshotDelete'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Vm'snapshotDelete'results) where
+    type AllocHint Vm'snapshotDelete'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Vm'snapshotDelete'results (C.Parsed Vm'snapshotDelete'results))
+instance (C.AllocateList Vm'snapshotDelete'results) where
+    type ListAllocHint Vm'snapshotDelete'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Vm'snapshotDelete'results (C.Parsed Vm'snapshotDelete'results))
+data instance C.Parsed Vm'snapshotDelete'results
+    = Vm'snapshotDelete'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Vm'snapshotDelete'results))
+deriving instance (Std_.Eq (C.Parsed Vm'snapshotDelete'results))
+instance (C.Parse Vm'snapshotDelete'results (C.Parsed Vm'snapshotDelete'results)) where
+    parse raw_ = (Std_.pure Vm'snapshotDelete'results)
+instance (C.Marshal Vm'snapshotDelete'results (C.Parsed Vm'snapshotDelete'results)) where
+    marshalInto _raw (Vm'snapshotDelete'results) = (Std_.pure ())
 data VmMigrateParams 
 type instance (R.ReprFor VmMigrateParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmMigrateParams) where

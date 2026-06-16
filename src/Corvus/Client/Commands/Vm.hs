@@ -23,6 +23,10 @@ module Corvus.Client.Commands.Vm
   , handleVmSave
   , handleVmEdit
   , handleVmMigrate
+  , handleVmSnapshotCreate
+  , handleVmSnapshotList
+  , handleVmSnapshotRollback
+  , handleVmSnapshotDelete
 
     -- * VM display/interaction
   , runRemoteViewer
@@ -43,10 +47,10 @@ import Control.Monad (unless, when)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Config (ClientConfig (..))
-import Corvus.Client.Output (Align (..), Column (..), emitError, emitOk, emitOkWith, isStructured, printField)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, isStructured, printField, printTable)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
-import Corvus.Protocol (DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmStats (..))
+import Corvus.Protocol (DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmSnapshotInfo (..), VmStats (..))
 import Corvus.Wire.Common (ViewGrant (..), entityRefFromText)
 import Data.Aeson (toJSON)
 import qualified Data.ByteString as BS
@@ -677,3 +681,80 @@ printf1 d =
   let scaled = round (d * 10) :: Integer
       (q, r) = scaled `divMod` 10
    in show q <> "." <> show r
+
+--------------------------------------------------------------------------------
+-- VM-scoped snapshot handlers
+--------------------------------------------------------------------------------
+
+handleVmSnapshotCreate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleVmSnapshotCreate fmt conn vmRef name = do
+  r <-
+    try @SomeException
+      (CR.rpcVmSnapshotCreate conn (entityRefFromText vmRef) name)
+  case r of
+    Right info -> do
+      emitResult fmt info $ do
+        putStrLn $ "Snapshot '" <> T.unpack (vsiName info) <> "' created."
+        printField "VM" (T.unpack (nrName (vsiVm info)))
+        printField "Carrier disk" (T.unpack (nrName (vsiCarrierDisk info)))
+        printField "Disks captured" (show (vsiDiskCount info))
+        printField "Total size (MB)" (show (vsiTotalSizeMb info))
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
+      pure False
+
+handleVmSnapshotList :: OutputFormat -> TableOpts -> CapnpConnection -> Text -> IO Bool
+handleVmSnapshotList fmt tableOpts conn vmRef = do
+  r <- try @SomeException (CR.rpcVmSnapshotList conn (entityRefFromText vmRef))
+  case r of
+    Right snaps -> do
+      emitResult fmt snaps $
+        if null snaps
+          then putStrLn "No VM-scoped snapshots found."
+          else printTable tableOpts vmSnapshotColumns snaps
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
+      pure False
+
+handleVmSnapshotRollback :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleVmSnapshotRollback fmt conn vmRef name = do
+  r <-
+    try @SomeException
+      (CR.rpcVmSnapshotRollback conn (entityRefFromText vmRef) name)
+  case r of
+    Right () -> do
+      emitOk fmt $
+        putStrLn $
+          "Rolled back '" <> T.unpack vmRef <> "' to snapshot '" <> T.unpack name <> "'."
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
+      pure False
+
+handleVmSnapshotDelete :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
+handleVmSnapshotDelete fmt conn vmRef name = do
+  r <-
+    try @SomeException
+      (CR.rpcVmSnapshotDelete conn (entityRefFromText vmRef) name)
+  case r of
+    Right () -> do
+      emitOk fmt $ putStrLn $ "Snapshot '" <> T.unpack name <> "' deleted."
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error: " ++ show e)
+      pure False
+
+vmSnapshotColumns :: [Column VmSnapshotInfo]
+vmSnapshotColumns =
+  [ Column "NAME" LeftAlign (T.unpack . vsiName)
+  , Column "CREATED" LeftAlign (formatTime defaultTimeLocale "%Y-%m-%d %H:%M:%S" . vsiCreatedAt)
+  , Column "CARRIER" LeftAlign (T.unpack . nrName . vsiCarrierDisk)
+  , Column "DISKS" RightAlign (show . vsiDiskCount)
+  , Column "SIZE_MB" RightAlign (show . vsiTotalSizeMb)
+  ]

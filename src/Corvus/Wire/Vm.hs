@@ -13,6 +13,8 @@ module Corvus.Wire.Vm
   , fromCapnpVmDetails
   , toCapnpVmStats
   , fromCapnpVmStats
+  , toCapnpVmSnapshotInfo
+  , fromCapnpVmSnapshotInfo
   , zeroVmStats
   )
 where
@@ -347,4 +349,30 @@ fromCapnpNetIo CGVm.NetIo {..} =
     { P.nioTapName = tapName
     , P.nioRxBytesTotal = rxBytesTotal
     , P.nioTxBytesTotal = txBytesTotal
+    }
+
+-- ---------------------------------------------------------------------
+-- VmSnapshotInfo
+-- ---------------------------------------------------------------------
+
+toCapnpVmSnapshotInfo :: P.VmSnapshotInfo -> C.Parsed CGVm.VmSnapshotInfo
+toCapnpVmSnapshotInfo P.VmSnapshotInfo {..} =
+  CGVm.VmSnapshotInfo
+    { CGVm.name = vsiName
+    , CGVm.createdAt = utcTimeToNanos vsiCreatedAt
+    , CGVm.vm = toCapnpNamedRef vsiVm
+    , CGVm.carrierDisk = toCapnpNamedRef vsiCarrierDisk
+    , CGVm.diskCount = fromIntegral vsiDiskCount
+    , CGVm.totalSizeMb = vsiTotalSizeMb
+    }
+
+fromCapnpVmSnapshotInfo :: C.Parsed CGVm.VmSnapshotInfo -> P.VmSnapshotInfo
+fromCapnpVmSnapshotInfo CGVm.VmSnapshotInfo {..} =
+  P.VmSnapshotInfo
+    { P.vsiName = name
+    , P.vsiCreatedAt = nanosToUtcTime createdAt
+    , P.vsiVm = fromCapnpNamedRef vm
+    , P.vsiCarrierDisk = fromCapnpNamedRef carrierDisk
+    , P.vsiDiskCount = fromIntegral diskCount
+    , P.vsiTotalSizeMb = totalSizeMb
     }

@@ -315,6 +315,96 @@ vmExecCommand =
           <> help "Command to execute inside the VM"
       )
 
+-- | Parser for @crv vm snapshot create VM NAME@.
+vmSnapshotCreateCommand :: Parser Command
+vmSnapshotCreateCommand =
+  VmSnapshotCreate
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM to snapshot"
+          <> completer vmCompleter
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name for the snapshot"
+      )
+
+-- | Parser for @crv vm snapshot list VM@.
+vmSnapshotListCommand :: Parser Command
+vmSnapshotListCommand =
+  VmSnapshotList
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
+          <> completer vmCompleter
+      )
+
+-- | Parser for @crv vm snapshot rollback VM NAME@.
+vmSnapshotRollbackCommand :: Parser Command
+vmSnapshotRollbackCommand =
+  VmSnapshotRollback
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
+          <> completer vmCompleter
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name of the snapshot to roll back to"
+      )
+
+-- | Parser for @crv vm snapshot delete VM NAME@.
+vmSnapshotDeleteCommand :: Parser Command
+vmSnapshotDeleteCommand =
+  VmSnapshotDelete
+    <$> argument
+      (T.pack <$> str)
+      ( metavar "VM"
+          <> help "Name or ID of the VM"
+          <> completer vmCompleter
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "NAME"
+          <> help "Name of the snapshot to delete"
+      )
+
+-- | Sub-subparser for @crv vm snapshot ...@.
+vmSnapshotCommandParser :: Parser Command
+vmSnapshotCommandParser =
+  subparser
+    ( command
+        "create"
+        ( info
+            vmSnapshotCreateCommand
+            ( progDesc
+                "Create a full-machine snapshot of the VM (all disks + RAM)"
+            )
+        )
+        <> command
+          "list"
+          (info vmSnapshotListCommand (progDesc "List the VM's full-machine snapshots"))
+        <> command
+          "rollback"
+          ( info
+              vmSnapshotRollbackCommand
+              ( progDesc
+                  "Roll the VM back to a named snapshot (works on running or stopped VMs)"
+              )
+          )
+        <> command
+          "delete"
+          ( info
+              vmSnapshotDeleteCommand
+              (progDesc "Delete a VM snapshot (VM must be running)")
+          )
+    )
+
 -- | Parser for @crv vm migrate@: move a stopped VM to another node.
 vmMigrateCommand :: Parser Command
 vmMigrateCommand =
@@ -388,4 +478,12 @@ vmCommandParser =
         <> command
           "migrate"
           (info vmMigrateCommand (progDesc "Migrate a stopped VM to another node (agent-to-agent)"))
+        <> command
+          "snapshot"
+          ( info
+              vmSnapshotCommandParser
+              ( progDesc
+                  "VM-scoped full-machine snapshots (all disks + RAM/CPU/device state)"
+              )
+          )
     )

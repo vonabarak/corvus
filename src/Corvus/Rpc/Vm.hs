@@ -58,6 +58,12 @@ import Corvus.Handlers.Vm
   , handleVmViewGrant
   )
 import Corvus.Handlers.Vm.Migrate (VmMigrate (..))
+import Corvus.Handlers.Vm.Snapshot
+  ( VmSnapshotCreate (..)
+  , VmSnapshotDelete (..)
+  , VmSnapshotRollback (..)
+  , handleVmSnapshotList
+  )
 import qualified Corvus.Model as M
 import qualified Corvus.NodeAgentClient as NOA
 import Corvus.NodeRouting (withVmNodeAgent)
@@ -79,7 +85,7 @@ import Corvus.Wire.Enums
   )
 import Corvus.Wire.SharedDir (toCapnpSharedDirInfo)
 import Corvus.Wire.SshKey (toCapnpSshKeyInfo)
-import Corvus.Wire.Vm (toCapnpNetIfInfo, toCapnpVmDetails, toCapnpVmInfo, zeroVmStats)
+import Corvus.Wire.Vm (toCapnpNetIfInfo, toCapnpVmDetails, toCapnpVmInfo, toCapnpVmSnapshotInfo, zeroVmStats)
 import Data.Foldable (toList)
 import Data.Int (Int64)
 import qualified Data.Map.Strict as Map
@@ -568,11 +574,53 @@ instance CGVm.Vm'server_ VmCap where
       RespError msg -> throwFailed msg
       _ -> throwFailed "vm'listSshKeys: unexpected response"
 
-  -- VM-scoped snapshot operations need cross-disk aggregation; that
-  -- logic lives in Phase 6 alongside the disk snapshot caps.
-  vm'snapshotCreate _ = methodUnimplemented
-  vm'snapshotList _ = methodUnimplemented
-  vm'snapshotGet _ = methodUnimplemented
+  vm'snapshotCreate (VmCap st _ eid cn) =
+    handleParsed $ \CGVm.Vm'snapshotCreate'params {..} -> do
+      resp <- runAction st cn (VmSnapshotCreate {vscVmId = eid, vscName = name})
+      case resp of
+        RespVmSnapshotCreated info ->
+          pure CGVm.Vm'snapshotCreate'results {CGVm.info = toCapnpVmSnapshotInfo info}
+        RespVmNotFound -> throwFailed "VM not found"
+        RespSnapshotNotFound -> throwFailed "Snapshot not found"
+        RespError msg -> throwFailed msg
+        RespFormatNotSupported msg -> throwFailed msg
+        _ -> throwFailed "vm'snapshotCreate: unexpected response"
+
+  vm'snapshotList (VmCap st _ eid _) = handleParsed $ \_ -> do
+    resp <- handleVmSnapshotList st eid
+    case resp of
+      RespVmSnapshotList snaps ->
+        pure
+          CGVm.Vm'snapshotList'results
+            { CGVm.snapshots = map toCapnpVmSnapshotInfo snaps
+            }
+      RespVmNotFound -> throwFailed "VM not found"
+      RespError msg -> throwFailed msg
+      _ -> throwFailed "vm'snapshotList: unexpected response"
+
+  vm'snapshotRollback (VmCap st _ eid cn) =
+    handleParsed $ \CGVm.Vm'snapshotRollback'params {..} -> do
+      resp <- runAction st cn (VmSnapshotRollback {vsrVmId = eid, vsrName = name})
+      case resp of
+        RespSnapshotOk -> pure CGVm.Vm'snapshotRollback'results
+        RespOk -> pure CGVm.Vm'snapshotRollback'results
+        RespVmNotFound -> throwFailed "VM not found"
+        RespSnapshotNotFound -> throwFailed "Snapshot not found"
+        RespError msg -> throwFailed msg
+        RespFormatNotSupported msg -> throwFailed msg
+        _ -> throwFailed "vm'snapshotRollback: unexpected response"
+
+  vm'snapshotDelete (VmCap st _ eid cn) =
+    handleParsed $ \CGVm.Vm'snapshotDelete'params {..} -> do
+      resp <- runAction st cn (VmSnapshotDelete {vsdVmId = eid, vsdName = name})
+      case resp of
+        RespSnapshotOk -> pure CGVm.Vm'snapshotDelete'results
+        RespOk -> pure CGVm.Vm'snapshotDelete'results
+        RespVmNotFound -> throwFailed "VM not found"
+        RespSnapshotNotFound -> throwFailed "Snapshot not found"
+        RespError msg -> throwFailed msg
+        RespFormatNotSupported msg -> throwFailed msg
+        _ -> throwFailed "vm'snapshotDelete: unexpected response"
 
   vm'migrate (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'migrate'params {params = CGVm.VmMigrateParams {..}} -> do

@@ -13,6 +13,7 @@ module Corvus.Protocol.Vm
   , VmStats (..)
   , DriveIo (..)
   , NetIo (..)
+  , VmSnapshotInfo (..)
   , zeroVmStats
   )
 where
@@ -187,6 +188,21 @@ data NetIo = NetIo
   }
   deriving (Eq, Show, Generic)
 
+-- | VM-scoped full-machine snapshot summary. Backed by N rows in
+-- the @snapshot@ table that share the same @name@ across the VM's
+-- writable qcow2 disks; one of them is the @carrierDisk@ — the
+-- single row with @hasVmstate=True@ that holds the QEMU vmstate
+-- (RAM + device model + CPU state).
+data VmSnapshotInfo = VmSnapshotInfo
+  { vsiName :: !Text
+  , vsiCreatedAt :: !UTCTime
+  , vsiVm :: !NamedRef
+  , vsiCarrierDisk :: !NamedRef
+  , vsiDiskCount :: !Int
+  , vsiTotalSizeMb :: !Int64
+  }
+  deriving (Eq, Show, Generic)
+
 -- | Empty-sample sentinel. Used by the daemon when a VM has no
 -- cached sample yet (e.g. newly created, just before the first
 -- agent push) and by 'fromCapnpVmDetails' when decoding a wire
@@ -224,4 +240,7 @@ instance ToJSON DriveIo where
   toJSON = genericToJSON innerOptions
 
 instance ToJSON NetIo where
+  toJSON = genericToJSON innerOptions
+
+instance ToJSON VmSnapshotInfo where
   toJSON = genericToJSON innerOptions

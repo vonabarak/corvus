@@ -185,6 +185,22 @@ data Command
     SnapshotMerge !Text !Text
   | -- | List snapshots (diskRef)
     SnapshotList !Text
+  | -- VM-scoped full-machine snapshot commands
+
+    -- | Create a VM-scoped full-machine snapshot (vmRef, name).
+    -- Captures every writable qcow2 disk plus QEMU vmstate
+    -- (RAM + device + CPU). VM must be running.
+    VmSnapshotCreate !Text !Text
+  | -- | List VM-scoped snapshots (vmRef).
+    VmSnapshotList !Text
+  | -- | Rollback the VM to a named snapshot (vmRef, name).
+    -- Works regardless of current VM state — running VMs are
+    -- paused-loaded-resumed, stopped VMs are started paused
+    -- and then resumed at the captured state.
+    VmSnapshotRollback !Text !Text
+  | -- | Delete a VM-scoped snapshot (vmRef, name). VM must be
+    -- running (QMP snapshot-delete requirement).
+    VmSnapshotDelete !Text !Text
   | -- SSH key commands
 
     -- | Create SSH key (name, publicKey)

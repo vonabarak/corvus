@@ -295,6 +295,24 @@ class SnapshotInfo:
     snapshot -a``."""
 
 
+@dataclass(frozen=True)
+class VmSnapshotInfo:
+    """VM-scoped full-machine snapshot summary.
+
+    Backed by N rows in the ``snapshot`` table that share the same
+    ``name`` across the VM's writable qcow2 disks; one of them — the
+    ``carrier_disk`` — additionally holds QEMU vmstate (RAM + device
+    + CPU state).
+    """
+
+    name: str
+    created_at: datetime
+    vm: NamedRef
+    carrier_disk: NamedRef
+    disk_count: int
+    total_size_mb: int
+
+
 # ---------------------------------------------------------------------------
 # Node
 # ---------------------------------------------------------------------------

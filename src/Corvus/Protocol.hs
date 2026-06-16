@@ -148,6 +148,10 @@ data Response
     RespSnapshotNotFound
   | -- | Snapshot operation successful
     RespSnapshotOk
+  | -- | List of VM-scoped (full-machine) snapshots
+    RespVmSnapshotList {vmSnapshots :: ![VmSnapshotInfo]}
+  | -- | VM-scoped snapshot created
+    RespVmSnapshotCreated {vmSnapshot :: !VmSnapshotInfo}
   | -- | Drive attached successfully
     RespDiskAttached {id :: !Int64}
   | -- | Drive not found

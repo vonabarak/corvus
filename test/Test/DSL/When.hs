@@ -37,6 +37,12 @@ module Test.DSL.When
   , snapshotMerge
   , snapshotList
 
+    -- * VM-scoped snapshot commands
+  , vmSnapshotCreate
+  , vmSnapshotRollback
+  , vmSnapshotDelete
+  , vmSnapshotList
+
     -- * Shared directory commands
   , whenSharedDirAdd
   , whenSharedDirRemove
@@ -136,6 +142,7 @@ import Corvus.Handlers.SshKey (SshKeyAttach (..), SshKeyCreate (..), SshKeyDelet
 import Corvus.Handlers.Template (TemplateCreate (..), TemplateDelete (..), TemplateInstantiate (..), TemplateUpdate (..), handleTemplateList, handleTemplateShow)
 import Corvus.Handlers.Vm (VmDelete (..), VmEdit (..), VmPause (..), VmReset (..), VmStart (..), VmStop (..), handleVmList, handleVmShow)
 import qualified Corvus.Handlers.Vm as VmHandlers
+import Corvus.Handlers.Vm.Snapshot (VmSnapshotCreate (..), VmSnapshotDelete (..), VmSnapshotRollback (..), handleVmSnapshotList)
 import Corvus.Model (CacheType (..), DriveFormat, DriveInterface, DriveMedia, NetInterfaceType, SharedDirCache)
 import qualified Corvus.Model as M
 import qualified Corvus.NodeAgentClient as NOA
@@ -366,6 +373,28 @@ snapshotMerge diskId snapshotId =
 
 snapshotList :: Int64 -> TestM Response
 snapshotList diskId = withState (`handleSnapshotList` diskId)
+
+--------------------------------------------------------------------------------
+-- VM-scoped snapshot commands
+--------------------------------------------------------------------------------
+
+vmSnapshotCreate :: Int64 -> Text -> TestM Response
+vmSnapshotCreate vmId name =
+  withState
+    (\st -> runAction st "alice" (VmSnapshotCreate {vscVmId = vmId, vscName = name}))
+
+vmSnapshotRollback :: Int64 -> Text -> TestM Response
+vmSnapshotRollback vmId name =
+  withState
+    (\st -> runAction st "alice" (VmSnapshotRollback {vsrVmId = vmId, vsrName = name}))
+
+vmSnapshotDelete :: Int64 -> Text -> TestM Response
+vmSnapshotDelete vmId name =
+  withState
+    (\st -> runAction st "alice" (VmSnapshotDelete {vsdVmId = vmId, vsdName = name}))
+
+vmSnapshotList :: Int64 -> TestM Response
+vmSnapshotList vmId = withState (`handleVmSnapshotList` vmId)
 
 --------------------------------------------------------------------------------
 -- Shared Directory Commands

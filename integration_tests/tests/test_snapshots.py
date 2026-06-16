@@ -375,3 +375,131 @@ class TestSnapshots(SingleNodeCase):
                 assert got == "modified", (
                     f"merge should preserve post-snapshot writes; got {got!r}"
                 )
+
+    # ----------------------------------------------------------------------
+    # VM-scoped full-machine snapshots (`crv vm snapshot ...`)
+    # ----------------------------------------------------------------------
+
+    def test_vm_snapshot_running_roundtrip(self):
+        """``vm.snapshot_create`` / ``snapshot_rollback`` on a running
+        VM: write marker → snapshot → overwrite marker → rollback →
+        original marker is back.
+
+        Exercises the running-VM rollback path
+        (``handleVmstateRollback`` -> QMP ``stop`` -> ``snapshot-load``
+        -> ``cont``). The marker is held only in the in-flight
+        page cache + on-disk overlay; vmstate captures both, so
+        the rollback restores both."""
+        token = secrets.token_hex(6)
+        path = "/home/corvus/vm-snap-running.txt"
+        with Vm(self) as vm:
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                shell.run(f"echo {token} > {path}")
+
+            info = vm.cap.snapshot_create("cp1")
+            try:
+                assert info.name == "cp1"
+                assert info.disk_count >= 1
+                # The carrier disk's name matches the VM's root
+                # overlay (the lowest-DriveId disk).
+                assert info.carrier_disk.name == vm.name
+
+                # Mutate the marker while running.
+                with self.vm_shell(vm.cap) as shell:
+                    shell.wait_ready(timeout_sec=90)
+                    shell.run(f"echo MUTATED > {path}")
+
+                vm.cap.snapshot_rollback("cp1")
+
+                # Rollback resumes the running guest at the captured
+                # state — no separate start. The VM should be
+                # running and the marker should be back.
+                with self.vm_shell(vm.cap) as shell:
+                    shell.wait_ready(timeout_sec=90)
+                    got = shell.run(f"cat {path}").stdout.strip()
+                    assert got == token, (
+                        f"vm snapshot rollback should restore the marker; "
+                        f"got {got!r}, expected {token!r}"
+                    )
+            finally:
+                # Cleanup needs the VM running (QMP snapshot-delete).
+                try:
+                    vm.cap.snapshot_delete("cp1")
+                except Exception:
+                    pass
+
+    def test_vm_snapshot_stopped_rollback(self):
+        """``vm.snapshot_rollback`` on a stopped VM: launches QEMU
+        paused, loads vmstate, then resumes — the VM ends running
+        at the captured state. This is the paused-start follow-up
+        the disk-scoped ``handleVmstateRollback`` previously
+        deferred (it required the VM to already be running)."""
+        token = secrets.token_hex(6)
+        path = "/home/corvus/vm-snap-stopped.txt"
+        with Vm(self) as vm:
+            with self.vm_shell(vm.cap) as shell:
+                shell.wait_ready(timeout_sec=90)
+                shell.run(f"echo {token} > {path}")
+
+            vm.cap.snapshot_create("cp1")
+            try:
+                # Stop the VM after the snapshot. With memory state
+                # captured, a stopped-VM rollback should bring it
+                # back up at the snapshot.
+                vm.cap.stop(wait=True)
+
+                vm.cap.snapshot_rollback("cp1")
+
+                # The rollback left the VM running at the captured
+                # state. Confirm via QGA + the marker.
+                status = vm.cap.show().status
+                assert str(status) == "running", (
+                    f"stopped-VM rollback should leave the VM running; "
+                    f"got status={status!r}"
+                )
+                with self.vm_shell(vm.cap) as shell:
+                    shell.wait_ready(timeout_sec=90)
+                    got = shell.run(f"cat {path}").stdout.strip()
+                    assert got == token
+            finally:
+                try:
+                    vm.cap.snapshot_delete("cp1")
+                except Exception:
+                    pass
+
+    def test_vm_snapshot_uniqueness(self):
+        """Creating a second snapshot under the same name must be
+        rejected by the validation pre-flight — before any QMP
+        traffic, so no orphaned sibling rows linger. The disk-scoped
+        ``UniqueSnapshot diskImageId name`` constraint would catch
+        the database-level conflict on disk 1 anyway, but the
+        VM-scoped validation gives a clearer error message and
+        avoids the partial-success-then-rollback shape that would
+        otherwise need the agent to roll the QMP job back."""
+        with Vm(self) as vm:
+            vm.cap.snapshot_create("dup")
+            try:
+                with pytest.raises(CorvusError) as excinfo:
+                    vm.cap.snapshot_create("dup")
+                assert "already exists" in str(excinfo.value), excinfo.value
+            finally:
+                vm.cap.snapshot_delete("dup")
+
+    def test_vm_snapshot_delete_clears_listing(self):
+        """After ``snapshot_delete``, the VM-scoped list is empty AND
+        the per-disk list shows no sibling rows under the deleted
+        name. This catches a regression where vmstate delete fired
+        QMP ``snapshot-delete`` successfully but the daemon forgot
+        to delete the sibling DB rows — leaving ghost rows that
+        would silently fail subsequent rollback attempts."""
+        with Vm(self) as vm:
+            vm.cap.snapshot_create("to-prune")
+            assert any(s.name == "to-prune" for s in vm.cap.snapshot_list())
+
+            vm.cap.snapshot_delete("to-prune")
+
+            assert not any(s.name == "to-prune" for s in vm.cap.snapshot_list())
+            # Disk-scoped view shows no row with that name either.
+            disk = self.client.disks.get(vm.name)
+            assert not any(s.name == "to-prune" for s in disk.snapshot_list())

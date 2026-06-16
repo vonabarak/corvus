@@ -4,7 +4,6 @@ using Common = import "common.capnp";
 using Enums = import "enums.capnp";
 using Streams = import "streams.capnp";
 using CloudInit = import "cloudinit.capnp";
-using Disk = import "disk.capnp";
 using Network = import "network.capnp";
 using SshKey = import "sshkey.capnp";
 
@@ -149,6 +148,20 @@ struct SharedDirInfo {
   cache     @3 :Enums.SharedDirCache;
   readOnly  @4 :Bool;
   pid       @5 :Int32;   # 0 == not running
+}
+
+# A VM-scoped full-machine snapshot. Backed on disk by N qcow2
+# internal snapshots that share the same `name` across the VM's
+# writable disk set; one of them — the `carrierDisk` — additionally
+# carries QEMU vmstate (RAM + device model + CPU state). `Vm.snapshot*`
+# methods atomically capture, restore, and delete the whole set.
+struct VmSnapshotInfo {
+  name        @0 :Text;
+  createdAt   @1 :Int64;             # POSIX nanoseconds
+  vm          @2 :Common.NamedRef;
+  carrierDisk @3 :Common.NamedRef;   # the vmstate holder
+  diskCount   @4 :UInt32;
+  totalSizeMb @5 :Int64;             # sum of sibling-snapshot sizes
 }
 
 # ---------------------------------------------------------------------
@@ -303,10 +316,29 @@ interface Vm {
   removeSharedDir @22 (sharedDirId :Int64) -> ();
   listSharedDirs  @23 () -> (sharedDirs :List(SharedDirInfo));
 
-  # Snapshots — return Snapshot cap for further ops.
-  snapshotCreate   @24 (name :Text) -> (snapshot :Disk.Snapshot);
-  snapshotList     @25 () -> (snapshots :List(Disk.SnapshotInfo));
-  snapshotGet      @26 (ref :Common.EntityRef) -> (snapshot :Disk.Snapshot);
+  # VM-scoped named full-machine snapshots.
+  #
+  # `snapshotCreate` atomically snapshots every writable qcow2 disk
+  # attached to the VM under the same `name`, and stores QEMU
+  # vmstate (RAM + device model + CPU state) in the carrier disk
+  # (the drive with the lowest index — typically the system disk).
+  # Requires the VM to be running and QEMU >= 6.0; refuses with a
+  # clear error otherwise. `name` must not already exist for any of
+  # the VM's drives.
+  #
+  # `snapshotRollback` restores the captured running machine state.
+  # When the VM is currently running/paused: QMP `stop` ->
+  # `snapshot-load` -> `cont`. When the VM is stopped: launch QEMU
+  # with `-S`, load, then `cont` — leaving the VM running at the
+  # captured state. Either way, the VM ends `running`.
+  #
+  # `snapshotDelete` removes the carrier vmstate and every sibling
+  # block snapshot in one atomic QMP `snapshot-delete`. The VM must
+  # be running (per the existing `snapshot-delete` requirement).
+  snapshotCreate   @24 (name :Text) -> (info :VmSnapshotInfo);
+  snapshotList     @25 () -> (snapshots :List(VmSnapshotInfo));
+  snapshotRollback @26 (name :Text) -> ();
+  snapshotDelete   @34 (name :Text) -> ();
 
   # SSH key attachment
   attachSshKey @27 (keyRef :Common.EntityRef) -> ();

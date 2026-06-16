@@ -103,6 +103,12 @@ module Corvus.Client.Capnp.Rpc
   , rpcSnapshotRollback
   , rpcSnapshotMerge
 
+    -- * VM-scoped full-machine snapshots
+  , rpcVmSnapshotCreate
+  , rpcVmSnapshotList
+  , rpcVmSnapshotRollback
+  , rpcVmSnapshotDelete
+
     -- * Shared directory
   , rpcSharedDirAdd
   , rpcSharedDirRemove
@@ -1112,6 +1118,48 @@ getSnapshotClient conn diskRef snapRef = do
   CGDisk.Disk'snapshotGet'results {CGDisk.snapshot = sClient} <-
     callOn #snapshotGet CGDisk.Disk'snapshotGet'params {CGDisk.ref = toCapnpEntityRef snapRef} dClient
   pure sClient
+
+-- =====================================================================
+-- VM-scoped snapshot wrappers
+-- =====================================================================
+
+rpcVmSnapshotCreate
+  :: CapnpConnection -> EntityRef -> Text -> IO PV.VmSnapshotInfo
+rpcVmSnapshotCreate conn vmRef name = do
+  vClient <- getVmClient conn vmRef
+  CGVm.Vm'snapshotCreate'results {CGVm.info = info} <-
+    callOn
+      #snapshotCreate
+      CGVm.Vm'snapshotCreate'params {CGVm.name = name}
+      vClient
+  pure (WVm.fromCapnpVmSnapshotInfo info)
+
+rpcVmSnapshotList :: CapnpConnection -> EntityRef -> IO [PV.VmSnapshotInfo]
+rpcVmSnapshotList conn vmRef = do
+  vClient <- getVmClient conn vmRef
+  CGVm.Vm'snapshotList'results {CGVm.snapshots = ss} <-
+    callOn #snapshotList CGVm.Vm'snapshotList'params vClient
+  pure (map WVm.fromCapnpVmSnapshotInfo ss)
+
+rpcVmSnapshotRollback :: CapnpConnection -> EntityRef -> Text -> IO ()
+rpcVmSnapshotRollback conn vmRef name = do
+  vClient <- getVmClient conn vmRef
+  _ <-
+    callOn
+      #snapshotRollback
+      CGVm.Vm'snapshotRollback'params {CGVm.name = name}
+      vClient
+  pure ()
+
+rpcVmSnapshotDelete :: CapnpConnection -> EntityRef -> Text -> IO ()
+rpcVmSnapshotDelete conn vmRef name = do
+  vClient <- getVmClient conn vmRef
+  _ <-
+    callOn
+      #snapshotDelete
+      CGVm.Vm'snapshotDelete'params {CGVm.name = name}
+      vClient
+  pure ()
 
 -- =====================================================================
 -- Shared directory wrappers

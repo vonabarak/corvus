@@ -348,25 +348,41 @@ class AsyncVm:
         resp = await self._cap.listSharedDirs()
         return [conv.shared_dir_info(s) for s in resp.sharedDirs]
 
-    # ---- snapshots --------------------------------------------------------
+    # ---- VM-scoped full-machine snapshots ---------------------------------
 
     async def snapshot_create(self, name: str):
-        from .disk import AsyncSnapshot
+        """Create a VM-scoped full-machine snapshot.
 
+        Atomically snapshots every writable qcow2 disk attached to
+        the VM under the same ``name`` and stores QEMU vmstate
+        (RAM + device + CPU state) in the carrier disk. Requires the
+        VM to be running and QEMU >= 6.0.
+        """
         req = self._cap.snapshotCreate_request()
         req.name = name
         resp = await req.send()
-        return AsyncSnapshot(resp.snapshot)
+        return conv.vm_snapshot_info(resp.info)
 
     async def snapshot_list(self):
         resp = await self._cap.snapshotList()
-        return [conv.snapshot_info(s) for s in resp.snapshots]
+        return [conv.vm_snapshot_info(s) for s in resp.snapshots]
 
-    async def snapshot_get(self, ref: int | str, *, by_name: bool = False):
-        from .disk import AsyncSnapshot
+    async def snapshot_rollback(self, name: str) -> None:
+        """Roll the VM back to a named snapshot.
 
-        resp = await self._cap.snapshotGet(ref=entity_ref(ref, by_name=by_name))
-        return AsyncSnapshot(resp.snapshot)
+        Works on a running VM (QMP ``stop`` -> ``snapshot-load`` ->
+        ``cont``) and on a stopped VM (launch paused, load, resume).
+        Either way the VM ends ``running`` at the captured state.
+        """
+        req = self._cap.snapshotRollback_request()
+        req.name = name
+        await req.send()
+
+    async def snapshot_delete(self, name: str) -> None:
+        """Delete a VM-scoped snapshot. VM must be running."""
+        req = self._cap.snapshotDelete_request()
+        req.name = name
+        await req.send()
 
     # ---- ssh keys ---------------------------------------------------------
 

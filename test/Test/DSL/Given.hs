@@ -26,6 +26,7 @@ module Test.DSL.Given
 
     -- * Snapshot setup
   , insertSnapshot
+  , insertSnapshotWithVmstate
   , givenSnapshotExists
 
     -- * Network setup
@@ -469,6 +470,26 @@ insertSnapshot diskImageId name = do
           , snapshotLive = False
           , snapshotQuiesced = False
           , snapshotHasVmstate = False
+          }
+  pure $ fromSqlKey key
+
+-- | Insert a snapshot row with the carrier-vmstate flag set, used
+-- by VM-scoped snapshot tests that need a pre-existing
+-- @hasVmstate=True@ row.
+insertSnapshotWithVmstate :: Int64 -> Text -> Bool -> TestM Int64
+insertSnapshotWithVmstate diskImageId name hasVmstate = do
+  now <- liftIO getCurrentTime
+  key <-
+    runDb $
+      insert
+        Snapshot
+          { snapshotDiskImageId = toSqlKey diskImageId
+          , snapshotName = name
+          , snapshotCreatedAt = now
+          , snapshotSizeMb = Nothing
+          , snapshotLive = True
+          , snapshotQuiesced = False
+          , snapshotHasVmstate = hasVmstate
           }
   pure $ fromSqlKey key
 

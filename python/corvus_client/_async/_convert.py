@@ -255,6 +255,17 @@ def snapshot_info(r) -> t.SnapshotInfo:
     )
 
 
+def vm_snapshot_info(r) -> t.VmSnapshotInfo:
+    return t.VmSnapshotInfo(
+        name=r.name,
+        created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),
+        vm=named_ref(r.vm),
+        carrier_disk=named_ref(r.carrierDisk),
+        disk_count=r.diskCount,
+        total_size_mb=r.totalSizeMb,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Node
 # ---------------------------------------------------------------------------

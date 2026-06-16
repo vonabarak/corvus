@@ -141,20 +141,72 @@ always leaves the VM running — `snapshot-load` IS itself a
 resume. (Disk-only rollback preserves the prior VM state:
 running → running, stopped → stopped.)
 
-**Restriction (today).** Standalone rollback (`crv snapshot
-rollback`) of a vmstate-aware snapshot currently requires the VM
-to be running — the QMP `snapshot-load` job needs a live QEMU
-process to load into. The paused-start path (launch QEMU with
-`-S` and load into the freshly-spawned process) is wired up for
-the build cache's memory-mode resume but not yet exposed as a
-standalone CLI flow; rollback on a stopped VM returns a clear
-"start the VM first, then re-issue" error.
-
 **Cleanup.** Deleting a vmstate-aware snapshot routes through the
 QMP `snapshot-delete` async job, which removes the vmstate AND
 every sibling block snapshot atomically. The block-only delete
 path would orphan the vmstate; the daemon picks the right path
 automatically based on the snapshot row's `has_vmstate` flag.
+
+## VM-scoped snapshots (`crv vm snapshot`)
+
+The disk-scoped `crv snapshot create --with-ram` flow above
+requires the operator to pick a carrier disk by hand. For the
+common "checkpoint this whole VM" workflow, `crv vm snapshot`
+auto-picks the carrier (the writable qcow2 drive attached first to
+the VM — typically the system disk) and exposes the snapshot under
+the VM's namespace instead of any single disk's.
+
+```bash
+# Capture a running VM: every writable qcow2 disk + RAM/CPU/device
+# state, atomically, under one name.
+crv vm snapshot create my-vm pre-upgrade
+
+# Inspect all VM-scoped snapshots for this VM. The carrier column
+# shows which disk holds the vmstate.
+crv vm snapshot list my-vm
+#   NAME         CREATED               CARRIER     DISKS  SIZE_MB
+#   pre-upgrade  2026-06-16 11:02:14   my-vm-boot  2      2148
+
+# Roll back. Works regardless of current VM state:
+#   - running/paused → QMP stop → snapshot-load → cont
+#   - stopped       → launch paused (-S) → snapshot-load → cont
+# Either way the VM ends up running at the captured state.
+crv vm snapshot rollback my-vm pre-upgrade
+
+# Delete a VM-scoped snapshot (VM must be running — same as the
+# disk-scoped vmstate delete).
+crv vm snapshot delete my-vm pre-upgrade
+```
+
+**When to use which?**
+
+- `crv vm snapshot ...` — default for "checkpoint this VM before
+  doing something risky". One identifier (the VM name + snapshot
+  name); rollback works on stopped VMs too.
+- `crv snapshot create DISK NAME --with-ram` — when you specifically
+  want to pick the carrier disk (e.g. because you've reorganised
+  drives and the lowest-id drive isn't the right vmstate home), or
+  when you're using the per-disk `crv snapshot list/delete/rollback`
+  surface for other reasons.
+
+Both flows write the same `snapshot` rows under the hood. A VM
+snapshot named `pre-upgrade` and a disk-scoped `--with-ram`
+snapshot named `pre-upgrade` on the carrier disk are
+indistinguishable in the database; the difference is purely UX.
+
+**Carrier auto-selection.** The carrier is picked as the writable
+qcow2 drive with the lowest `Drive.id` (insertion order). This is
+stable across create / rollback / delete on a given VM — the
+drive order doesn't change unless the operator explicitly
+detaches and re-attaches disks. There is no override flag; if you
+need to pin the carrier to a specific disk, use the disk-scoped
+`--with-ram` form.
+
+**Uniqueness.** A snapshot name must not already exist on any of
+the VM's writable disks. The validation runs before the agent is
+contacted, so a duplicate `vm snapshot create` is a clean no-op
+(no orphaned sibling snapshots on disks that haven't tripped the
+unique constraint yet).
 
 ## Creating Snapshots
 
