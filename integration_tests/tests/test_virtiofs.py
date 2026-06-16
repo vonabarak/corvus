@@ -1,13 +1,16 @@
 """Virtiofs shared directories against the inner daemon.
 
 Ports the pre-capnp `VirtiofsIntegrationSpec` (see
-`doc/integration-tests-pre-capnp.md`) and adds two extras:
+`doc/integration-tests-pre-capnp.md`) and adds three extras:
 
   * **Two simultaneous shared directories** — confirms multiple
     `add_shared_dir` calls coexist; both tags mount and round-trip
     independently inside the guest.
   * **Read-only shared directory** — confirms the daemon honours
     `read_only=True` and the guest cannot write through the mount.
+  * **Cache mode** — confirms the daemon plumbs the `cache`
+    parameter through to virtiofsd's ``--cache`` flag, distinct
+    from the default ``auto``.
 
 All tests stage their host-side directories on the node (the
 inner daemon's filesystem) via `self.node.run(...)`; the Alpine
@@ -273,3 +276,72 @@ class TestVirtiofs(SingleNodeCase):
                 )
         finally:
             self.node.run(f"rm -rf {ro_path}", check=False)
+
+    # ---- new: cache mode plumbs through to virtiofsd ----------------------
+
+    def test_cache_mode_plumbs_to_virtiofsd(self):
+        """`add_shared_dir(..., cache="always")` lands on virtiofsd's
+        argv as ``--cache=always``. The default (``auto``) is exercised
+        implicitly by every other test in this file; this test pins
+        the non-default mode so a refactor that drops the parameter
+        plumbing flags here instead of operators noticing degraded
+        caching in production.
+
+        Verification: the agent logs every virtiofsd it spawns at
+        debug level (see ``corvus-nodeagent[..] [Debug] [nodeagent]
+        virtiofsd argv: ...``). We inspect ``/proc/<pid>/cmdline``
+        directly on the node — more robust than scraping the journal,
+        which the harness doesn't have a clean reader for."""
+        token = secrets.token_hex(4)
+        path = f"/tmp/virtiofs-cache-{token}"
+        self.node.run(f"mkdir -p {path}")
+        self.node.run(f"echo CACHE-MODE:{token} > {path}/file.txt")
+        try:
+
+            class _Cached(VmSsh):
+                def _shared_dirs(_self):
+                    return [
+                        {"path": path, "tag": "cached", "cache": "always"},
+                    ]
+
+            with _Cached(self) as vm:
+                # Daemon recorded the cache mode in the VM detail view.
+                rec = [s for s in vm.cap.show().shared_dirs if s.tag == "cached"]
+                assert rec and rec[0].cache == "always", rec
+
+                # virtiofsd process argv on the node carries
+                # --cache=always. QEMU's argv also contains the
+                # substring ``virtiofsd-<tag>.sock`` (as a chardev
+                # socket path), so a naive ``grep virtiofsd`` over
+                # every /proc cmdline matches QEMU too. Filter by
+                # cmdline first-token instead — that's the actual
+                # exe path of each process.
+                vm_id = vm.cap.show().id
+                r = self.node.run(
+                    "sh -c '"
+                    "for d in /proc/*/cmdline; do "
+                    'cmd=$(tr "\\0" " " < "$d" 2>/dev/null); '
+                    "first=${cmd%% *}; "
+                    'case "$first" in '
+                    "  */virtiofsd|virtiofsd) "
+                    '    echo "$cmd";; '
+                    "esac; "
+                    "done'",
+                    check=False,
+                )
+                argvs = r.stdout.decode(errors="replace")
+                cached_lines = [
+                    ln
+                    for ln in argvs.splitlines()
+                    if f"vms/{vm_id}/" in ln and "cached" in ln
+                ]
+                assert cached_lines, (
+                    f"no virtiofsd process found for vm {vm_id} with the "
+                    f"'cached' tag; all virtiofsd processes:\n{argvs}"
+                )
+                assert all("--cache=always" in ln for ln in cached_lines), (
+                    f"virtiofsd for 'cached' tag missing --cache=always; "
+                    f"argv:\n{cached_lines!r}"
+                )
+        finally:
+            self.node.run(f"rm -rf {path}", check=False)

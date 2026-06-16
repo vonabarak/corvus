@@ -20,11 +20,33 @@ from __future__ import annotations
 import base64
 import secrets
 import shlex
+import subprocess
+import tempfile
 import textwrap
+from pathlib import Path
 
 import pytest
 from corvus_client.exceptions import CorvusError
 from corvus_test_harness import SingleNodeCase
+
+
+def _generate_ed25519_pubkey(comment: str) -> str:
+    """Mint a fresh ed25519 keypair via ``ssh-keygen`` and return the
+    public key as the single-line ``ssh-ed25519 AAAA… <comment>``
+    string. cloud-init's user-data builder runs basic syntactic
+    checks on attached SSH keys; using a real, well-formed key
+    sidesteps the validator's silent-drop path so the test can
+    assert the key actually lands in the ISO."""
+    with tempfile.TemporaryDirectory(prefix="corvus-ci-key-") as d:
+        priv = Path(d) / "id_ed25519"
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-f", str(priv), "-N", "", "-C", comment],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        return (priv.with_suffix(".pub")).read_text().strip()
+
 
 _NET_MARKER_IP = "192.0.2.42"
 _USER_DATA_MARKER = "corvus-it-userdata-marker"
@@ -223,6 +245,250 @@ class TestCloudInitCli(SingleNodeCase):
             out = cp.stdout.decode()
             assert _USER_DATA_MARKER in out, (cp.returncode, out, cp.stderr.decode())
             assert _NET_MARKER_IP in out, (cp.returncode, out, cp.stderr.decode())
+        finally:
+            try:
+                vm.delete()
+            except Exception:
+                pass
+
+    def test_attach_ssh_key_regenerates_iso(self):
+        """Attaching an SSH key to a cloud-init VM is supposed to
+        regenerate the NoCloud ISO so the next boot picks up the
+        new authorized_keys. Without an explicit regenerate after
+        the attach, the key would only show up on whatever next
+        action triggers an ISO build — surprising operator UX.
+
+        Generate an initial ISO (no keys), capture its mtime, then
+        attach an SSH key; the ISO file must be replaced (newer
+        mtime) and the new file must contain the public key as
+        plain ASCII inside iso9660."""
+        name = f"corvus-it-ci-key-{secrets.token_hex(3)}"
+        key_name = f"corvus-it-ci-key-{secrets.token_hex(3)}"
+        public_key = _generate_ed25519_pubkey(f"ci-it-key-{secrets.token_hex(4)}")
+        vm = self._make_ci_vm(name)
+        try:
+            vm_id = vm.show().id
+            # Initial ISO with no key injection.
+            # NOTE: user_data MUST be structured YAML without the
+            # ``#cloud-config`` header — ``isRawUserDataScript`` at
+            # src/Corvus/CloudInit.hs:131 treats ANY ``#``-prefixed
+            # user-data as a "raw script" and skips key injection,
+            # so providing ``#cloud-config`` would defeat the very
+            # path we're testing. The daemon prepends its own
+            # header before writing the ISO.
+            self.client.cloud_init.set(
+                vm_id,
+                user_data="hostname: base\n",
+                inject_ssh_keys=True,
+            )
+            _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
+            iso = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+            iso_path = iso.placements[0].file_path
+            mtime_before = (
+                self.node.run(f"stat -c %Y {shlex.quote(iso_path)}")
+                .stdout.decode()
+                .strip()
+            )
+
+            # Sleep BEFORE the attach so the regenerate's
+            # write-mtime lands in a different second than the
+            # initial generate. ``stat -c %Y`` resolution is one
+            # second; without this gap the test flakes when both
+            # generates happen in the same wall-clock second.
+            import time
+
+            time.sleep(1.2)
+
+            # Attach an SSH key. The daemon's `attach_ssh_key`
+            # handler at src/Corvus/Handlers/SshKey.hs:189-197
+            # synchronously runs ``RegenerateCloudInit`` after
+            # persisting the association, so the on-disk ISO
+            # must be replaced before this call returns.
+            self.client.ssh_keys.create(key_name, public_key)
+            try:
+                vm.attach_ssh_key(key_name)
+                mtime_after = (
+                    self.node.run(f"stat -c %Y {shlex.quote(iso_path)}")
+                    .stdout.decode()
+                    .strip()
+                )
+                assert int(mtime_after) > int(mtime_before), (
+                    f"ISO mtime did not advance across attach_ssh_key "
+                    f"({mtime_before} → {mtime_after}); the daemon "
+                    f"didn't regenerate the NoCloud ISO"
+                )
+
+                # ASCII fragment of the public key survives in the
+                # iso9660 bytes (no compression).
+                key_fragment = public_key.split()[1][:32]
+                cp = self.node.run(
+                    f"grep -ao {shlex.quote(key_fragment)} {shlex.quote(iso_path)}",
+                    check=False,
+                )
+                assert key_fragment in cp.stdout.decode(), (
+                    f"public key not found in regenerated ISO; "
+                    f"grep stdout={cp.stdout!r}, stderr={cp.stderr!r}"
+                )
+            finally:
+                try:
+                    vm.detach_ssh_key(key_name)
+                except Exception:
+                    pass
+                try:
+                    self.client.ssh_keys.get(key_name).delete()
+                except Exception:
+                    pass
+        finally:
+            try:
+                vm.delete()
+            except Exception:
+                pass
+
+    def test_inject_ssh_keys_false_does_not_inject(self):
+        """``injectSshKeys: false`` MUST keep attached keys out of
+        the generated ISO. An operator that opts out should never
+        find their pubkeys baked into the user-data. Catches a
+        regression that would silently bypass the flag."""
+        name = f"corvus-it-ci-noinj-{secrets.token_hex(3)}"
+        key_name = f"corvus-it-ci-noinj-{secrets.token_hex(3)}"
+        public_key = _generate_ed25519_pubkey(f"ci-it-noinj-{secrets.token_hex(4)}")
+        # Match a base64 fragment that's stable per-key — the comment
+        # part may get stripped by the user-data normalizer.
+        marker = public_key.split()[1][-32:]
+        vm = self._make_ci_vm(name)
+        try:
+            vm_id = vm.show().id
+            # Structured YAML (no ``#`` prefix) so the daemon's
+            # ``injectSshKeysIntoYaml`` path runs at all — the
+            # ``inject_ssh_keys=False`` flag is what we're
+            # asserting it respects.
+            self.client.cloud_init.set(
+                vm_id,
+                user_data="hostname: no-inject\n",
+                inject_ssh_keys=False,
+            )
+            self.client.ssh_keys.create(key_name, public_key)
+            try:
+                vm.attach_ssh_key(key_name)
+                _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
+                iso = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+                iso_path = iso.placements[0].file_path
+                cp = self.node.run(
+                    f"grep -ao {shlex.quote(marker)} {shlex.quote(iso_path)}",
+                    check=False,
+                )
+                assert marker not in cp.stdout.decode(), (
+                    f"key fragment {marker!r} present in ISO despite "
+                    f"injectSshKeys=false: grep={cp.stdout!r}"
+                )
+            finally:
+                try:
+                    vm.detach_ssh_key(key_name)
+                except Exception:
+                    pass
+                try:
+                    self.client.ssh_keys.get(key_name).delete()
+                except Exception:
+                    pass
+        finally:
+            try:
+                vm.delete()
+            except Exception:
+                pass
+
+    def test_raw_script_user_data_skips_key_injection(self):
+        """When ``userData`` starts with ``#!`` (a raw script
+        body, not a ``#cloud-config`` document), the daemon's
+        cloud-init builder can't safely splice ``users:`` into it,
+        so attached SSH keys must NOT be injected — operator's raw
+        script wins. Documented in ``doc/cloud-init.md`` (the
+        "Raw script user-data" subsection) and pinned here so a
+        refactor of the user-data classifier flags."""
+        name = f"corvus-it-ci-raw-{secrets.token_hex(3)}"
+        key_name = f"corvus-it-ci-raw-{secrets.token_hex(3)}"
+        public_key = _generate_ed25519_pubkey(f"ci-it-raw-{secrets.token_hex(4)}")
+        marker = public_key.split()[1][-32:]
+        vm = self._make_ci_vm(name)
+        try:
+            vm_id = vm.show().id
+            # ``#!`` line is the canonical raw-script marker.
+            self.client.cloud_init.set(
+                vm_id,
+                user_data="#!/bin/sh\necho hello\n",
+                inject_ssh_keys=True,  # injection allowed in config…
+            )
+            self.client.ssh_keys.create(key_name, public_key)
+            try:
+                vm.attach_ssh_key(key_name)
+                _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
+                iso = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+                iso_path = iso.placements[0].file_path
+                cp = self.node.run(
+                    f"grep -ao {shlex.quote(marker)} {shlex.quote(iso_path)}",
+                    check=False,
+                )
+                # …but the raw-script form blocks the injection.
+                assert marker not in cp.stdout.decode(), (
+                    f"key fragment {marker!r} present in ISO despite "
+                    f"raw-script user-data; grep={cp.stdout!r}"
+                )
+            finally:
+                try:
+                    vm.detach_ssh_key(key_name)
+                except Exception:
+                    pass
+                try:
+                    self.client.ssh_keys.get(key_name).delete()
+                except Exception:
+                    pass
+        finally:
+            try:
+                vm.delete()
+            except Exception:
+                pass
+
+    def test_generate_is_idempotent_at_disk_record_level(self):
+        """Re-running ``crv cloud-init generate`` doesn't break the
+        existing ``<vm>-cloud-init`` disk record — same id, same
+        placement path, no second disk row spawned. The on-disk
+        bytes ARE allowed to differ (genisoimage embeds a wall-
+        clock creation timestamp into iso9660 volume metadata), so
+        this test asserts the operator-facing invariant (no
+        double-registration / no ghost rows) rather than byte
+        equality.
+
+        A byte-identical re-generate would be nicer but needs the
+        generator to use a fixed creation-time; flagged in the
+        docstring above for a future enhancement."""
+        name = f"corvus-it-ci-idemp-{secrets.token_hex(3)}"
+        vm = self._make_ci_vm(name)
+        try:
+            self.client.cloud_init.set(
+                vm.show().id,
+                user_data="hostname: idemp\n",
+                inject_ssh_keys=False,
+            )
+            _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
+            iso = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+            iso_id_a = iso.id
+            iso_path_a = iso.placements[0].file_path
+
+            _assert_ok(_crv(self.node, f"cloud-init generate {name}"))
+            iso2 = self.client.disks.get(f"{name}-cloud-init", by_name=True).show()
+            assert iso2.id == iso_id_a, (
+                f"second generate spawned a new disk row "
+                f"({iso_id_a} → {iso2.id}); the daemon should reuse "
+                f"the existing ``<vm>-cloud-init`` record"
+            )
+            assert iso2.placements[0].file_path == iso_path_a, (
+                f"second generate moved the on-disk file "
+                f"({iso_path_a} → {iso2.placements[0].file_path})"
+            )
+            # Exactly one cloud-init disk per VM — no ghost rows.
+            cloud_init_disks = [
+                d for d in self.client.disks.list() if d.name == f"{name}-cloud-init"
+            ]
+            assert len(cloud_init_disks) == 1, cloud_init_disks
         finally:
             try:
                 vm.delete()

@@ -560,7 +560,7 @@ templates:
         discard: <bool>         # Optional.
         sizeMb: <integer>       # Optional. Size in MB: disk size for create, resize after clone/overlay.
     networkInterfaces:          # Optional.
-      - type: <user|tap|bridge|macvtap>
+      - type: <user|tap|bridge|macvtap|vde|managed>
         hostDevice: <string>    # Optional, depends on type.
     sshKeys:                    # Optional.
       - name: <key-name>

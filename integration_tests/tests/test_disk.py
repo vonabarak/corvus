@@ -389,6 +389,180 @@ class TestDisk(SingleNodeCase):
         finally:
             disk.delete()
 
+    # ---- attach options round-trip -----------------------------------------
+
+    def test_attach_options_round_trip(self):
+        """``attach_disk(cache_type=..., discard=True)`` surfaces back
+        as the matching fields on ``vm.show().drives``. The harness's
+        existing ``test_hot_attach_read_only`` covers the read-only
+        half; this pins the cache + discard knobs that operators
+        tune for SSD-backed deployments. Without this, a refactor
+        that silently drops one of the fields from the wire would
+        only surface as a perf regression in production."""
+        data = _uniq("attach-opts")
+        self.client.disks.create(data, size_mb=8, format="qcow2")
+        try:
+            with VmSsh(self) as vm:
+                drive_id = vm.cap.attach_disk(
+                    data,
+                    interface="virtio",
+                    cache_type="writethrough",
+                    discard=True,
+                )
+                try:
+                    matching = [d for d in vm.cap.show().drives if d.id == drive_id]
+                    assert matching, vm.cap.show().drives
+                    d0 = matching[0]
+                    assert d0.cache_type == "writethrough", d0
+                    assert d0.discard is True, d0
+                finally:
+                    try:
+                        vm.cap.detach_disk(drive_id)
+                    except Exception:
+                        pass
+        finally:
+            self._delete_silent(data)
+
+    # ---- import from URL ---------------------------------------------------
+
+    def test_import_from_http_url(self):
+        """Spin a one-shot ``python -m http.server`` on the test
+        node, serve a qcow2 the daemon will fetch via
+        ``disks.import_url``. Verifies the URL-import code path
+        end-to-end: the agent downloads, places the file, and the
+        daemon registers a fresh disk row."""
+        token = secrets.token_hex(4)
+        src_name = _uniq("url-src")
+        url_name = _uniq("url-import")
+
+        # Create a source disk so we have a real qcow2 to serve.
+        src = self.client.disks.create(src_name, size_mb=4, format="qcow2")
+        try:
+            src_path = src.show().placements[0].file_path
+
+            srv_dir = f"/tmp/url-srv-{token}"
+            self.node.run(f"mkdir -p {srv_dir}")
+            self.node.run(f"cp {src_path} {srv_dir}/payload.qcow2")
+            port = 30000 + secrets.randbelow(20000)
+
+            # nohup + redirect detach from the SSH session so the
+            # server keeps running after node.run returns.
+            self.node.run(
+                f"nohup python3 -m http.server {port} --bind 127.0.0.1 "
+                f"--directory {srv_dir} > /tmp/url-srv-{token}.log 2>&1 &"
+            )
+            try:
+                # Give http.server a beat to bind.
+                import time
+
+                time.sleep(0.5)
+
+                task_id = self.client.disks.import_url(
+                    url_name,
+                    f"http://127.0.0.1:{port}/payload.qcow2",
+                    format="qcow2",
+                )
+                self.wait_for_task(self.client, task_id, timeout_sec=60.0)
+
+                imported = self.client.disks.get(url_name)
+                info = imported.show()
+                assert info.name == url_name
+                assert info.format == "qcow2"
+                # File landed on the daemon's basePath, distinct
+                # from the server-side staging dir.
+                imported_paths = [p.file_path for p in info.placements]
+                assert not any(srv_dir in p for p in imported_paths), (
+                    f"imported disk left at the staging dir: {imported_paths!r}"
+                )
+                imported.delete()
+            finally:
+                # Best-effort: kill the server and remove the staging dir.
+                self.node.run(f"pkill -f 'http.server {port}'", check=False)
+                self.node.run(f"rm -rf {srv_dir}", check=False)
+        finally:
+            self._delete_silent(src_name)
+
+    def test_import_xz_auto_decompress(self):
+        """Same flow as the plain-HTTP import test, but the served
+        URL ends in ``.xz`` — the daemon's importer detects the
+        suffix and pipes the body through ``xz -d`` on the agent
+        side. Catches a regression where the auto-decompress logic
+        is dropped or only fires for some compressors."""
+        token = secrets.token_hex(4)
+        src_name = _uniq("xz-src")
+        xz_name = _uniq("xz-import")
+
+        src = self.client.disks.create(src_name, size_mb=4, format="qcow2")
+        try:
+            src_path = src.show().placements[0].file_path
+            srv_dir = f"/tmp/xz-srv-{token}"
+            self.node.run(f"mkdir -p {srv_dir}")
+            # xz keeps the input around with -k; we only want the
+            # compressed copy in the served dir.
+            self.node.run(f"cp {src_path} {srv_dir}/payload.qcow2")
+            self.node.run(f"xz -z {srv_dir}/payload.qcow2")
+            port = 30000 + secrets.randbelow(20000)
+            self.node.run(
+                f"nohup python3 -m http.server {port} --bind 127.0.0.1 "
+                f"--directory {srv_dir} > /tmp/xz-srv-{token}.log 2>&1 &"
+            )
+            try:
+                import time
+
+                time.sleep(0.5)
+                task_id = self.client.disks.import_url(
+                    xz_name,
+                    f"http://127.0.0.1:{port}/payload.qcow2.xz",
+                    format="qcow2",
+                )
+                self.wait_for_task(self.client, task_id, timeout_sec=60.0)
+
+                info = self.client.disks.get(xz_name).show()
+                assert info.format == "qcow2"
+                # The on-disk file must NOT end in .xz — auto-decompress
+                # means the importer wrote the decompressed qcow2.
+                paths = [p.file_path for p in info.placements]
+                assert all(not p.endswith(".xz") for p in paths), (
+                    f"imported file path retains .xz suffix; decompress "
+                    f"didn't run: {paths!r}"
+                )
+                self.client.disks.get(xz_name).delete()
+            finally:
+                self.node.run(f"pkill -f 'http.server {port}'", check=False)
+                self.node.run(f"rm -rf {srv_dir}", check=False)
+        finally:
+            self._delete_silent(src_name)
+
+    # ---- refresh picks up out-of-band changes -----------------------------
+
+    def test_refresh_updates_size_after_out_of_band_resize(self):
+        """``disk.refresh()`` re-probes the on-disk image and writes
+        the new virtual size to the DB. We simulate an out-of-band
+        change by ``qemu-img resize``-ing the file directly on the
+        node, then assert ``refresh()`` makes ``show().size_mb``
+        catch up.
+
+        Real-world trigger: an operator manually grew a qcow2 with
+        ``qemu-img resize`` and wants the daemon to notice."""
+        name = _uniq("refresh")
+        disk = self.client.disks.create(name, size_mb=8, format="qcow2")
+        try:
+            path = disk.show().placements[0].file_path
+            assert disk.show().size_mb == 8
+
+            # Out-of-band resize via qemu-img on the node.
+            self.node.run(f"qemu-img resize {path} 32M")
+
+            # Before refresh, the daemon still believes the old size.
+            assert disk.show().size_mb == 8
+
+            disk.refresh()
+            assert disk.show().size_mb == 32, (
+                f"refresh didn't pick up the new size; show: {disk.show()!r}"
+            )
+        finally:
+            disk.delete()
+
     # ---- helpers -----------------------------------------------------------
 
     def _guest_vd_count(self, vm: VmSsh) -> int:
