@@ -17,6 +17,7 @@ import secrets
 
 import pytest
 from corvus_client import CorvusError, VmMustBeStopped
+from corvus_client.types import QuiesceMode
 from corvus_test_harness import SingleNodeCase, Vm
 
 
@@ -267,6 +268,70 @@ class TestSnapshots(SingleNodeCase):
                 assert got == "1", (
                     f"rollback to state-1 should have restored '1'; got {got!r}"
                 )
+
+    def test_multi_disk_vm_snapshot_targets_one_disk_only(self):
+        """A VM with two attached disks where the operator snapshots
+        only the boot disk: the data disk must NOT carry a snapshot
+        with the same name. ``Disk.snapshot_create`` operates on a
+        single image — there's no implicit fan-out to peer drives —
+        but a future refactor that promoted the call to a
+        VM-scoped sweep would silently snapshot ALL drives. Pin
+        the contract."""
+        data_name = _uniq("multi-snap-data")
+        self.client.disks.create(data_name, size_mb=8, format="qcow2")
+        try:
+            with Vm(self) as vm:
+                vm.cap.attach_disk(data_name, interface="virtio")
+                # `vm.name` is the per-VM root overlay's disk name.
+                boot_disk = self.client.disks.get(vm.name)
+                data_disk = self.client.disks.get(data_name)
+
+                # Snapshot the boot disk only.
+                snap_name = "boot-only"
+                snap = boot_disk.snapshot_create(snap_name)
+                try:
+                    boot_snaps = [s.name for s in boot_disk.snapshot_list()]
+                    data_snaps = [s.name for s in data_disk.snapshot_list()]
+                    assert snap_name in boot_snaps, boot_snaps
+                    assert snap_name not in data_snaps, (
+                        f"data disk picked up the snapshot {snap_name!r} "
+                        f"even though we only asked the boot disk; "
+                        f"data disk snapshots: {data_snaps!r}"
+                    )
+                finally:
+                    snap.delete()
+        finally:
+            try:
+                self.client.disks.get(data_name).delete()
+            except Exception:
+                pass
+
+    def test_quiesce_require_records_quiesced_flag(self):
+        """``snapshot_create(quiesce=QuiesceMode.REQUIRE)`` against a
+        running QGA-equipped VM must invoke ``guest-fsfreeze-freeze``
+        and surface ``info.quiesced=True``. The default ``auto`` path
+        is already covered by
+        :test:`test_snapshot_create_against_running_vm_uses_live_path`;
+        this test pins the explicit ``REQUIRE`` mode so a refactor
+        that quietly downgrades to ``auto`` (or skips fsfreeze on
+        any path) flags here.
+
+        ``dmesg | grep fsfreeze`` was considered as an in-guest
+        confirmation but the kernel doesn't log ext4 fsfreeze at
+        ``info`` level on Alpine's stock build; the daemon's own
+        ``quiesced`` flag (set from QGA's ack) is the documented
+        operator surface and the right thing to assert."""
+        with Vm(self) as vm:
+            disk = self.client.disks.get(vm.name)
+            snap = disk.snapshot_create("freeze-required", quiesce=QuiesceMode.REQUIRE)
+            try:
+                info = snap.show()
+                assert info.live, info
+                assert info.quiesced, (
+                    f"explicit quiesce=require did not freeze: info={info!r}"
+                )
+            finally:
+                snap.delete()
 
     def test_snapshot_merge(self):
         """`Snapshot.merge` consolidates a snapshot into its parent.

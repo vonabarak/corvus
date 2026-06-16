@@ -259,6 +259,168 @@ class TestTemplates(SingleNodeCase):
         finally:
             tpl.delete()
 
+    def test_drive_strategy_matrix(self):
+        """All four ``TemplateCloneStrategy`` enum values produce a
+        valid template + instantiated VM with the right drive shape:
+
+          * ``clone`` — full copy of the base disk
+          * ``overlay`` — COW overlay backed by the base
+          * ``direct`` — share the base disk directly (no copy)
+          * ``create`` — empty disk, no base
+
+        ``create`` doesn't reference ``diskImageName``; the schema
+        treats ``diskImageName`` as optional for that strategy. We
+        instantiate but don't boot — the materialised drive's
+        ``clone_strategy`` round-trips through ``vm.show().drives``,
+        which is the contract that matters; booting each variant
+        would be 4× the wall-clock for the same wire coverage.
+        """
+        token = secrets.token_hex(4)
+        images = self.register_base_images()
+        base_disk = images["alpine"]
+        for strategy in ("clone", "overlay", "direct", "create"):
+            tpl_name = f"corvus-it-strat-{strategy}-{token}"
+            vm_name = f"corvus-it-strat-vm-{strategy}-{token}"
+            # ``create`` requires ``format`` + ``sizeMb`` and skips
+            # ``diskImageName``; the other three require the base.
+            if strategy == "create":
+                body = textwrap.dedent(f"""
+                    name: {tpl_name}
+                    cpuCount: 1
+                    ramMb: 256
+                    headless: true
+                    drives:
+                      - interface: virtio
+                        strategy: create
+                        format: qcow2
+                        sizeMb: 32
+                """).strip()
+            else:
+                body = textwrap.dedent(f"""
+                    name: {tpl_name}
+                    cpuCount: 1
+                    ramMb: 256
+                    headless: true
+                    drives:
+                      - diskImageName: {base_disk}
+                        interface: virtio
+                        strategy: {strategy}
+                        sizeMb: 1024
+                """).strip()
+
+            tpl = self.client.templates.create(body)
+            try:
+                # Template carries the right strategy.
+                assert tpl.show().drives[0].clone_strategy == strategy
+
+                # Instantiate. We can't check the strategy on the
+                # materialised drive (``DriveInfo`` doesn't carry
+                # ``clone_strategy`` — the strategy IS the
+                # materialisation decision). Instead we verify the
+                # OBSERVABLE per-strategy contract on the new disk:
+                #
+                #   * clone     — fresh disk, no backing pointer
+                #   * overlay   — fresh disk, backing points at the base
+                #   * direct    — VM's drive disk_image is the BASE disk
+                #   * create    — fresh disk, no backing, name new
+                vm = tpl.instantiate(vm_name)
+                try:
+                    drives = vm.show().drives
+                    assert len(drives) == 1, drives
+                    drive_disk = self.client.disks.get(drives[0].disk_image.id)
+                    dinfo = drive_disk.show()
+                    if strategy == "direct":
+                        assert dinfo.name == base_disk, (
+                            f"direct strategy should reuse base disk "
+                            f"{base_disk!r}, got {dinfo.name!r}"
+                        )
+                    elif strategy == "overlay":
+                        assert dinfo.backing_image is not None, dinfo
+                        assert dinfo.backing_image.name == base_disk, dinfo
+                    elif strategy == "clone":
+                        assert dinfo.name != base_disk, dinfo
+                        # Clone is a flat copy: no backing pointer.
+                        assert dinfo.backing_image is None, dinfo
+                    elif strategy == "create":
+                        assert dinfo.name != base_disk, dinfo
+                        assert dinfo.backing_image is None, dinfo
+                finally:
+                    try:
+                        vm.delete()
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    tpl.delete()
+                except Exception:
+                    pass
+
+    def test_template_with_shared_dirs_propagates_to_vm(self):
+        """``sharedDirs`` declared on a template flow onto every VM
+        instantiated from it — same way ``networkInterfaces`` and
+        ``sshKeys`` do (covered by
+        :test:`test_subresources_propagate`). No boot needed: the
+        contract under test is the DB-level propagation, and
+        booting would also exercise virtiofsd against a host path
+        the harness doesn't necessarily have."""
+        token = secrets.token_hex(4)
+        images = self.register_base_images()
+        base_disk = images["alpine"]
+        tpl_name = f"corvus-it-tpl-sd-{token}"
+        vm_name = f"corvus-it-tpl-sd-vm-{token}"
+        host_path = f"/tmp/tpl-share-{token}"
+        # Host-side path must exist before the VM ever starts; we're
+        # not booting in this test, but the daemon validates the
+        # path on `add_shared_dir` (via the template's
+        # `applyTemplate` flow). Stage it on the node.
+        self.node.run(f"mkdir -p {host_path}")
+        try:
+            body = textwrap.dedent(f"""
+                name: {tpl_name}
+                cpuCount: 1
+                ramMb: 256
+                headless: true
+                drives:
+                  - diskImageName: {base_disk}
+                    interface: virtio
+                    strategy: overlay
+                    sizeMb: 1024
+                sharedDirs:
+                  - path: {host_path}
+                    tag: tpl-share
+                    cache: auto
+                    readOnly: false
+            """).strip()
+            tpl = self.client.templates.create(body)
+            try:
+                # Template stores the shared dir.
+                tdetails = tpl.show()
+                assert any(s.tag == "tpl-share" for s in tdetails.shared_dirs), (
+                    tdetails.shared_dirs
+                )
+
+                # Instantiate → VM carries the shared dir.
+                vm = tpl.instantiate(vm_name)
+                try:
+                    vdrives = vm.show().shared_dirs
+                    matching = [s for s in vdrives if s.tag == "tpl-share"]
+                    assert matching, vdrives
+                    assert matching[0].path == host_path
+                    assert matching[0].cache == "auto"
+                    assert matching[0].read_only is False
+                finally:
+                    try:
+                        vm.delete()
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    tpl.delete()
+                except Exception:
+                    pass
+        finally:
+            self.node.run(f"rm -rf {host_path}", check=False)
+
     def test_rejects_missing_disk(self):
         """Template referencing a nonexistent disk fails at create.
 

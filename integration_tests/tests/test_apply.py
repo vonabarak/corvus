@@ -424,6 +424,186 @@ class TestApply(SingleNodeCase):
             except Exception:
                 pass
 
+    def test_md5_mismatch_fails_after_retries(self):
+        """A URL-imported disk whose ``md5`` field is set to the
+        wrong digest must fail the apply — the importer retries up
+        to 3 times (per ``Handlers/Disk/Import.hs:317-320``) and
+        then deletes the partial download and reports the
+        mismatch. The test serves a real qcow2 over a one-shot
+        HTTP server on the node, then claims a deliberately-bogus
+        md5 in the apply YAML; the apply must raise."""
+        token = secrets.token_hex(4)
+        src_name = f"corvus-it-md5-src-{token}"
+        target_name = f"corvus-it-md5-bad-{token}"
+
+        # Create a source qcow2 and serve it via Python's
+        # http.server. Mirrors the helper in test_disk.py's
+        # test_import_from_http_url.
+        src = self.client.disks.create(src_name, size_mb=4, format="qcow2")
+        try:
+            src_path = src.show().placements[0].file_path
+            srv_dir = f"/tmp/md5-srv-{token}"
+            self.node.run(f"mkdir -p {srv_dir}")
+            self.node.run(f"cp {src_path} {srv_dir}/payload.qcow2")
+            port = 30000 + secrets.randbelow(20000)
+            self.node.run(
+                f"nohup python3 -m http.server {port} --bind 127.0.0.1 "
+                f"--directory {srv_dir} > /tmp/md5-srv-{token}.log 2>&1 &"
+            )
+            try:
+                time.sleep(0.5)
+                yaml_body = textwrap.dedent(f"""
+                    disks:
+                      - name: {target_name}
+                        import: http://127.0.0.1:{port}/payload.qcow2
+                        format: qcow2
+                        md5: deadbeefdeadbeefdeadbeefdeadbeef
+                """).strip()
+                with pytest.raises(CorvusError) as excinfo:
+                    self.client.apply(yaml_body, wait=True)
+                msg = str(excinfo.value).lower()
+                assert "md5" in msg, (
+                    f"expected an md5-mismatch diagnostic; got: {msg!r}"
+                )
+            finally:
+                self.node.run(f"pkill -f 'http.server {port}'", check=False)
+                self.node.run(f"rm -rf {srv_dir}", check=False)
+        finally:
+            try:
+                src.delete()
+            except Exception:
+                pass
+            try:
+                self.client.disks.get(target_name, by_name=True).delete()
+            except Exception:
+                pass
+
+    def test_yaml_anchors_and_merge_keys_apply(self):
+        """The daemon's YAML parser must honour anchors (``&name``)
+        and merge keys (``<<: *name``) — without them, operators
+        can't deduplicate common stanzas across many VMs and the
+        apply YAMLs balloon. Defines a single anchor for the
+        common per-VM fields, then references it from two VMs.
+        Both VMs must materialise with the merged fields."""
+        token = secrets.token_hex(4)
+        net_name = f"corvus-it-anchor-net-{token}"
+        vm_a = f"corvus-it-anchor-a-{token}"
+        vm_b = f"corvus-it-anchor-b-{token}"
+        # YAML 1.1 merge-key spec; libyaml (which Haskell's
+        # ``Data.Yaml`` wraps) supports both anchors and merge
+        # keys natively. We do NOT call ``textwrap.dedent`` because
+        # YAML's whitespace + anchors are sensitive to indentation.
+        yaml_body = (
+            "_template: &vmcommon\n"
+            "  cpuCount: 1\n"
+            "  ramMb: 128\n"
+            "  headless: true\n"
+            "  guestAgent: false\n"
+            f"networks:\n"
+            f"  - name: {net_name}\n"
+            f'    subnet: ""\n'
+            "vms:\n"
+            f"  - <<: *vmcommon\n"
+            f"    name: {vm_a}\n"
+            f"  - <<: *vmcommon\n"
+            f"    name: {vm_b}\n"
+        )
+        try:
+            self.client.apply(yaml_body, wait=True)
+            a = self.client.vms.get(vm_a, by_name=True).show()
+            b = self.client.vms.get(vm_b, by_name=True).show()
+            for v in (a, b):
+                assert v.cpu_count == 1, v
+                assert v.ram_mb == 128, v
+                assert v.headless is True, v
+                assert v.guest_agent is False, v
+        finally:
+            for n in (vm_a, vm_b):
+                try:
+                    self.client.vms.get(n, by_name=True).delete()
+                except Exception:
+                    pass
+            try:
+                self.client.networks.get(net_name, by_name=True).delete()
+            except Exception:
+                pass
+
+    def test_validation_rejects_duplicate_disk_name(self):
+        """Two disk entries with the same ``name`` in one YAML are
+        a validation error — the daemon checks for duplicates
+        before any side-effects (``Handlers/Apply.hs`` ``validateConfig``)."""
+        token = secrets.token_hex(4)
+        dup_name = f"corvus-it-dup-{token}"
+        yaml_body = textwrap.dedent(f"""
+            disks:
+              - name: {dup_name}
+                sizeMb: 8
+                format: qcow2
+              - name: {dup_name}
+                sizeMb: 16
+                format: qcow2
+        """).strip()
+        try:
+            with pytest.raises(CorvusError) as excinfo:
+                self.client.apply(yaml_body, wait=True)
+            msg = str(excinfo.value).lower()
+            assert "duplicate" in msg or dup_name.lower() in msg, msg
+        finally:
+            # Best-effort cleanup in case the daemon partially
+            # created the first one before noticing the duplicate.
+            try:
+                self.client.disks.get(dup_name, by_name=True).delete()
+            except Exception:
+                pass
+
+    def test_if_exists_overwrite_replaces_disk(self):
+        """``ifExists: overwrite`` in apply YAML deletes the matching
+        existing entity before re-creating it. (The Schema/Apply.hs:70
+        comment claims this is rejected at parse time, but the
+        dispatcher at Handlers/Apply.hs:494-496 actually implements
+        the delete + recreate path — comment is outdated.)
+
+        We exercise the disk overwrite path: create a disk, then
+        re-apply YAML carrying the same name but a different size
+        and ``ifExists: overwrite``. The disk's id changes (new
+        row) and the size reflects the new YAML."""
+        token = secrets.token_hex(4)
+        disk_name = f"corvus-it-overwrite-{token}"
+
+        try:
+            yaml_first = textwrap.dedent(f"""
+                disks:
+                  - name: {disk_name}
+                    sizeMb: 8
+                    format: qcow2
+            """).strip()
+            self.client.apply(yaml_first, wait=True)
+            first = self.client.disks.get(disk_name, by_name=True).show()
+            assert first.size_mb == 8
+
+            yaml_second = textwrap.dedent(f"""
+                ifExists: overwrite
+                disks:
+                  - name: {disk_name}
+                    sizeMb: 32
+                    format: qcow2
+            """).strip()
+            self.client.apply(yaml_second, wait=True)
+            second = self.client.disks.get(disk_name, by_name=True).show()
+            # Overwrite = delete + recreate, so id changes and the
+            # new size from the second YAML is in effect.
+            assert second.id != first.id, (
+                f"overwrite did not delete + recreate the disk row "
+                f"(id stayed at {first.id}); the dispatcher's "
+                f"IfExistsOverwrite branch must call delete first"
+            )
+            assert second.size_mb == 32, second
+        finally:
+            try:
+                self.client.disks.get(disk_name, by_name=True).delete()
+            except Exception:
+                pass
+
     def test_stream_apply_phase_and_entity_events(self):
         """`apply_stream` emits per-phase / per-entity events in order.
 
