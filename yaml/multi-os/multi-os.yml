@@ -76,10 +76,34 @@ templates:
     description: "Debian 12 (Bookworm)"
     cloudInitConfig:
       userData:
+        # `socat` is pre-installed in the Debian generic cloud image;
+        # `qemu-guest-agent` is not, so cloud-init installs it.
         packages:
           - qemu-guest-agent
+        # Mainline OpenSSH doesn't speak AF_VSOCK; bridge it to the
+        # local sshd with a socat relay so `crv vm view` / vsock SSH
+        # work the same way they do on the Alpine `corvus-test-vm`
+        # image (which uses an equivalent OpenRC service).
+        write_files:
+          - path: /etc/systemd/system/vsock-sshd.service
+            permissions: "0644"
+            content: |
+              [Unit]
+              Description=Forward AF_VSOCK:22 to local sshd on 127.0.0.1:22
+              After=ssh.service network.target
+              Requires=ssh.service
+
+              [Service]
+              Type=simple
+              ExecStart=/usr/bin/socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22
+              Restart=on-failure
+              RestartSec=2
+
+              [Install]
+              WantedBy=multi-user.target
         runcmd:
           - systemctl enable --now qemu-guest-agent
+          - systemctl enable --now vsock-sshd
     drives:
       - diskImageName: debian-12-generic-base
         interface: virtio
