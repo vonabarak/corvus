@@ -497,8 +497,11 @@ whenApply yaml = withState $ \st -> do
 
 whenNetworkCreate :: Text -> Text -> TestM Response
 whenNetworkCreate name subnet =
-  -- Empty node ref triggers the scheduler.
-  withState (\st -> runAction st "alice" (NetworkCreate name "" subnet False False False []))
+  -- Empty node ref triggers the scheduler. Empty `domain` lets
+  -- networkToSpec default to the network's own name; `hostDns =
+  -- True` matches the column default the operator-facing schema
+  -- carries.
+  withState (\st -> runAction st "alice" (NetworkCreate name "" subnet False False False [] "" True))
 
 whenNetworkDelete :: Int64 -> TestM Response
 whenNetworkDelete nwId =

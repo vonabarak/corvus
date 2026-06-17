@@ -48,6 +48,7 @@ import qualified Control.Exception as E
 import Control.Monad (unless, void, when, (<=<))
 import Corvus.Netd.Cleanup (corvusBridgePrefix)
 import qualified Corvus.Netd.Dnsmasq as Dn
+import qualified Corvus.Netd.HostDns as HD
 import Corvus.Netd.IpLink
   ( IpLinkError (..)
   , addrAdd
@@ -102,6 +103,7 @@ data DhcpSpec = DhcpSpec
   , dhcpExtraArgs :: ![T.Text]
   , dhcpHostReservations :: ![DhcpHostReservation]
   , dhcpDnsServers :: ![T.Text]
+  , dhcpHostDns :: !Bool
   }
   deriving (Eq, Show)
 
@@ -269,7 +271,7 @@ reconcile ledger oldSpec oldState newSpec
       -- NAT delta
       newHandle <- reconcileNat oldSpec oldState newSpec
       -- DHCP delta
-      newDn <- reconcileDhcp oldState newSpec
+      newDn <- reconcileDhcp oldSpec oldState newSpec
       let live =
             NetworkLiveState
               { lsNatHandle = newHandle
@@ -302,10 +304,20 @@ reconcileNat oldSpec oldState newSpec
 -- dnsmasq doesn't reload all flag categories via SIGHUP, so a
 -- clean restart is the safest reconcile.
 reconcileDhcp
-  :: NetworkLiveState
+  :: NetworkSpec
+  -- ^ the spec we're reconciling FROM (for the old bridge name; the
+  -- bridge can't actually rename today but we still pull from oldSpec
+  -- for symmetry with the rest of the reconcile)
+  -> NetworkLiveState
   -> NetworkSpec
   -> IO (Maybe Dn.DnsmasqProcess)
-reconcileDhcp oldState newSpec = do
+reconcileDhcp oldSpec oldState newSpec = do
+  -- Drop the per-link resolved routing BEFORE stopping dnsmasq so
+  -- a brief "dnsmasq up, host points at it, but it's about to be
+  -- killed" window doesn't surface as a SERVFAIL spike to the
+  -- host's resolver. The fresh apply below re-installs it if
+  -- still desired.
+  HD.revertResolvedRouting (nsName oldSpec)
   for_ (lsDnsmasq oldState) Dn.stopDnsmasq
   if dhcpEnabled (nsDhcp newSpec)
     then Just <$> startDnsmasqFor newSpec
@@ -337,9 +349,17 @@ startDnsmasqFor spec = do
               [(dhrMac r, dhrIp r) | r <- dhcpHostReservations dhcp]
           , Dn.dspDnsServers = dhcpDnsServers dhcp
           }
-  Dn.startDnsmasq params >>= \case
-    Right dn -> pure dn
-    Left e -> E.throwIO (DnsmasqFailure (T.pack (show e)))
+  dn <-
+    Dn.startDnsmasq params >>= \case
+      Right d -> pure d
+      Left e -> E.throwIO (DnsmasqFailure (T.pack (show e)))
+  -- Install (or refresh) per-link systemd-resolved routing so the
+  -- host can resolve `*.<domain>` to the bridge IP. No-op if
+  -- hostDns is off or the domain is empty. Idempotent: same
+  -- per-link state, every apply.
+  when (dhcpHostDns dhcp) $
+    HD.installResolvedRouting (nsName spec) listenAddr (dhcpDomain dhcp)
+  pure dn
 
 -- | "10.0.0.1/24" → "10.0.0.1".  dnsmasq wants a bare IP for
 -- --listen-address.
@@ -353,6 +373,9 @@ stripCidrSuffix cidr = case T.splitOn "/" cidr of
 
 teardown :: NetworkSpec -> NetworkLiveState -> IO ()
 teardown spec state = do
+  -- Drop the host-side route first so resolved stops pointing at
+  -- the bridge before dnsmasq goes away.
+  HD.revertResolvedRouting (nsName spec)
   for_ (lsDnsmasq state) Dn.stopDnsmasq
   for_ (lsNatHandle state) (ignoreNft <=< Nft.deleteRule)
   case nsOverlay spec of

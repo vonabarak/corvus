@@ -706,6 +706,17 @@ Network
     -- (e.g. "1.1.1.1,8.8.8.8"). Empty string means no DNS option
     -- is emitted by dnsmasq, preserving the original behavior.
     dnsServers Text default=''
+    -- DNS suffix dnsmasq is authoritative for (e.g. "corvus").
+    -- Empty string means "derive from the network's name at apply
+    -- time" so the default is implicit and survives a network
+    -- rename. Set explicitly via `crv network create --domain` or
+    -- YAML `domain:`.
+    domain Text default=''
+    -- Whether the agent installs a systemd-resolved drop-in on
+    -- the owner host pointing `*.<domain>` at the bridge IP. True
+    -- by default; the operator opts out with `--no-host-dns` /
+    -- `hostDns: false` when they manage host DNS themselves.
+    hostDns Bool default=true
     UniqueNetworkPerNode nodeId name
     deriving Show Eq Generic
 

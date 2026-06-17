@@ -589,8 +589,12 @@ rpcNetworkCreate
   -- ^ autostart
   -> [Text]
   -- ^ DNS servers to advertise via DHCP option 6 (empty = none)
+  -> Text
+  -- ^ DNS suffix dnsmasq is authoritative for ("" = default to name)
+  -> Bool
+  -- ^ hostDns: install host resolver drop-in
   -> IO Int64
-rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart dnsServers = do
+rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart dnsServers domain hostDns = do
   CGCorvus.Daemon'networks'results {CGCorvus.mgr = mgr} <-
     callOn #networks CGCorvus.Daemon'networks'params (ccDaemon conn)
   let inner =
@@ -602,6 +606,8 @@ rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart dnsServers = do
           , CGNet.nat = nat
           , CGNet.autostart = autostart
           , CGNet.dnsServers = dnsServers
+          , CGNet.domain = domain
+          , CGNet.hostDns = hostDns
           }
   CGNet.NetworkManager'create'results {CGNet.network = nClient} <-
     callOn #create CGNet.NetworkManager'create'params {CGNet.params = inner} mgr
@@ -1268,8 +1274,12 @@ rpcNetworkEdit
   -- ^ autostart
   -> Maybe [Text]
   -- ^ DNS servers (Just [] clears, Nothing leaves untouched)
+  -> Maybe Text
+  -- ^ DNS suffix override (Just "" clears → fall back to network name)
+  -> Maybe Bool
+  -- ^ hostDns: install host resolver drop-in
   -> IO ()
-rpcNetworkEdit conn ref mSubnet mDhcp mNat mAs mDns = do
+rpcNetworkEdit conn ref mSubnet mDhcp mNat mAs mDns mDomain mHostDns = do
   nClient <- getNetworkClient conn ref
   let p =
         CGNet.NetworkEditParams
@@ -1285,6 +1295,10 @@ rpcNetworkEdit conn ref mSubnet mDhcp mNat mAs mDns = do
           , CGNet.autostart = Data.Maybe.fromMaybe False mAs
           , CGNet.hasDnsServers = Data.Maybe.isJust mDns
           , CGNet.dnsServers = Data.Maybe.fromMaybe [] mDns
+          , CGNet.hasDomain = Data.Maybe.isJust mDomain
+          , CGNet.domain = Data.Maybe.fromMaybe "" mDomain
+          , CGNet.hasHostDns = Data.Maybe.isJust mHostDns
+          , CGNet.hostDns = Data.Maybe.fromMaybe False mHostDns
           }
   _ <- callOn #edit CGNet.Network'edit'params {CGNet.params = p} nClient
   pure ()

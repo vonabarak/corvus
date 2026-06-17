@@ -15,11 +15,17 @@
 -- '[Text]' list every layer above uses.
 module Corvus.DnsmasqArgsSpec (spec) where
 
-import Corvus.NetAgentClient.Spec (decodeDnsServers, encodeDnsServers)
+import Corvus.NetAgentClient.Spec
+  ( decodeDnsServers
+  , effectiveDomain
+  , encodeDnsServers
+  , sanitiseDomain
+  )
 import Corvus.Netd.Dnsmasq
   ( DnsmasqStartParams (..)
   , buildDnsmasqArgs
   )
+import Data.List (isPrefixOf)
 import Test.Hspec
 
 baseParams :: DnsmasqStartParams
@@ -61,6 +67,53 @@ spec = do
           args = buildDnsmasqArgs p
       args `shouldContain` ["--dhcp-host=52:54:00:aa:bb:cc,10.0.0.42"]
       args `shouldContain` ["--dhcp-option=option:dns-server,1.1.1.1"]
+
+    it "always emits --dhcp-leasefile under /var/lib/corvus/netd/leases/<bridge>.leases" $ do
+      let args = buildDnsmasqArgs baseParams
+      args
+        `shouldContain` ["--dhcp-leasefile=/var/lib/corvus/netd/leases/corvus-br-7.leases"]
+
+    it "uses port 0 (DNS off) when dspDomain is empty" $ do
+      let args = buildDnsmasqArgs baseParams
+      args `shouldContain` ["--port=0"]
+      args `shouldNotContain` ["--port=53"]
+      -- No --domain= / --local= / --dhcp-fqdn / --expand-hosts.
+      filter ("--domain=" `isPrefixOf`) args `shouldBe` []
+      filter ("--local=" `isPrefixOf`) args `shouldBe` []
+      args `shouldNotContain` ["--dhcp-fqdn"]
+      args `shouldNotContain` ["--expand-hosts"]
+
+    it "turns DNS on (port 53 + zone flags) when dspDomain is non-empty" $ do
+      let p = baseParams {dspDomain = "corvus"}
+          args = buildDnsmasqArgs p
+      args `shouldContain` ["--port=53"]
+      args `shouldNotContain` ["--port=0"]
+      args `shouldContain` ["--domain=corvus"]
+      args `shouldContain` ["--local=/corvus/"]
+      args `shouldContain` ["--dhcp-fqdn"]
+      args `shouldContain` ["--expand-hosts"]
+
+  describe "effectiveDomain" $ do
+    it "defaults to the network name when the override column is empty" $ do
+      effectiveDomain "corvus" "" `shouldBe` "corvus"
+
+    it "uses the override when present" $ do
+      effectiveDomain "corvus" "internal" `shouldBe` "internal"
+
+    it "sanitises both name fallback and override" $ do
+      effectiveDomain "My Net!" "" `shouldBe` "my-net"
+      effectiveDomain "ignored" "My Net!" `shouldBe` "my-net"
+
+  describe "sanitiseDomain" $ do
+    it "lowercases ASCII letters and keeps digits" $ do
+      sanitiseDomain "Foo42" `shouldBe` "foo42"
+
+    it "collapses runs of disallowed characters into a single hyphen" $ do
+      sanitiseDomain "ab__cd!!ef" `shouldBe` "ab-cd-ef"
+
+    it "trims leading and trailing hyphens" $ do
+      sanitiseDomain "-foo-" `shouldBe` "foo"
+      sanitiseDomain "!!!" `shouldBe` ""
 
   describe "encodeDnsServers / decodeDnsServers" $ do
     it "roundtrips an empty list through the empty string" $ do

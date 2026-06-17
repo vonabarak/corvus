@@ -517,6 +517,8 @@ insertNetwork name subnet = do
           , networkAutostart = False
           , networkVni = Nothing
           , networkDnsServers = ""
+          , networkDomain = ""
+          , networkHostDns = True
           }
   pure $ fromSqlKey key
 

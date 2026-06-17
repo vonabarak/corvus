@@ -25,6 +25,8 @@ module Corvus.NetAgentClient.Spec
   , networkToSpec
   , encodeDnsServers
   , decodeDnsServers
+  , effectiveDomain
+  , sanitiseDomain
   )
 where
 
@@ -36,7 +38,7 @@ import Corvus.NetAgentClient
   , OverlaySpec (..)
   )
 import qualified Corvus.Utils.Network as N
-import Data.Char (chr, ord)
+import Data.Char (chr, isAscii, isDigit, isLetter, ord)
 import Data.Int (Int64)
 import qualified Data.Text as T
 
@@ -102,6 +104,12 @@ networkToSpec networkId network = do
       }
   where
     dnsServers = decodeDnsServers (networkDnsServers network)
+    -- Default the domain to the (sanitised) network name when the
+    -- operator hasn't set one explicitly. This is what gets emitted
+    -- as `--domain=` to dnsmasq AND used by the agent to choose the
+    -- systemd-resolved drop-in's `~suffix` route.
+    domain = effectiveDomain (networkName network) (networkDomain network)
+    hostDns = networkHostDns network
     buildDhcp _ False = Right disabledDhcp
     buildDhcp subnet True
       | T.null subnet = Left "DHCP enabled but subnet is empty"
@@ -114,10 +122,11 @@ networkToSpec networkId network = do
               , dhcpRangeStart = start
               , dhcpRangeEnd = end
               , dhcpLeaseTime = "12h"
-              , dhcpDomain = ""
+              , dhcpDomain = domain
               , dhcpExtraArgs = []
               , dhcpHostReservations = []
               , dhcpDnsServers = dnsServers
+              , dhcpHostDns = hostDns
               }
     disabledDhcp =
       DhcpSpec
@@ -125,10 +134,13 @@ networkToSpec networkId network = do
         , dhcpRangeStart = ""
         , dhcpRangeEnd = ""
         , dhcpLeaseTime = "12h"
-        , dhcpDomain = ""
+        , -- DNS turning on follows DHCP today: no DHCP → no domain
+          -- emitted regardless of the column value.
+          dhcpDomain = ""
         , dhcpExtraArgs = []
         , dhcpHostReservations = []
         , dhcpDnsServers = dnsServers
+        , dhcpHostDns = False
         }
 
 -- | Pack a DNS-server list into the comma-joined 'Text' the
@@ -142,3 +154,32 @@ encodeDnsServers = T.intercalate "," . filter (not . T.null) . map T.strip
 decodeDnsServers :: T.Text -> [T.Text]
 decodeDnsServers t =
   filter (not . T.null) (map T.strip (T.splitOn "," t))
+
+-- | Pick the DNS suffix actually used by the agent + on-host resolver
+-- drop-in. An explicit, non-empty @domain@ column wins; otherwise we
+-- fall back to the sanitised network name. Returns the empty string
+-- only when the network's name is itself unusable (all-non-DNS chars).
+effectiveDomain :: T.Text {- network name -} -> T.Text {- networkDomain column -} -> T.Text
+effectiveDomain name colVal
+  | not (T.null colVal) = sanitiseDomain colVal
+  | otherwise = sanitiseDomain name
+
+-- | Coerce a free-form network name into a DNS label that dnsmasq and
+-- systemd-resolved both accept: lowercase ASCII letters / digits /
+-- hyphen, no leading or trailing hyphen, hyphen runs collapsed.
+sanitiseDomain :: T.Text -> T.Text
+sanitiseDomain raw =
+  T.dropAround (== '-')
+    . T.pack
+    . collapseHyphens
+    . T.unpack
+    . T.map mapCh
+    $ T.toLower (T.strip raw)
+  where
+    mapCh c
+      | isAscii c && (isLetter c || isDigit c) = c
+      | c == '-' = '-'
+      | otherwise = '-'
+    collapseHyphens ('-' : '-' : rest) = collapseHyphens ('-' : rest)
+    collapseHyphens (c : rest) = c : collapseHyphens rest
+    collapseHyphens [] = []

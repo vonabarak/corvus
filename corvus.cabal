@@ -161,6 +161,7 @@ library
       Corvus.Netd.Sysctl
       Corvus.Netd.Nftables
       Corvus.Netd.Dnsmasq
+      Corvus.Netd.HostDns
       Corvus.Netd.IpMonitor
       Corvus.Netd.Events
       Corvus.Netd.Cleanup
@@ -587,6 +588,7 @@ test-suite corvus-test
       Corvus.EmitSpec
       Corvus.GuestAgentSpec
       Corvus.GuestExecSpec
+      Corvus.HostDnsSpec
       Corvus.ImageSpec
       Corvus.IpamSpec
       Corvus.NetdLedgerSpec

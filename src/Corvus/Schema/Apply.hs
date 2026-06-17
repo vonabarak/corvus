@@ -152,6 +152,8 @@ data ApplyNetwork = ApplyNetwork
   , anNat :: Bool
   , anAutostart :: Bool
   , anDnsServers :: [Text]
+  , anDomain :: Text
+  , anHostDns :: Bool
   }
   deriving (Show)
 
@@ -165,6 +167,8 @@ instance FromJSON ApplyNetwork where
       <*> o .:? "nat" .!= False
       <*> o .:? "autostart" .!= False
       <*> o .:? "dnsServers" .!= []
+      <*> o .:? "domain" .!= ""
+      <*> o .:? "hostDns" .!= True
 
 data ApplyVm = ApplyVm
   { avName :: Text

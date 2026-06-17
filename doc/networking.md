@@ -37,14 +37,15 @@ crv network create lab-net --node alpha --subnet 10.0.1.0/24        # Pin to a n
 | `--autostart` | Start network when daemon starts |
 | `--node` | Node owning this network (optional; daemon picks via the scheduler) |
 | `--dns-server IP` | Advertise this DNS server to DHCP clients (option 6); repeatable, default none |
+| `--domain SUFFIX` | DNS suffix dnsmasq is authoritative for (default: the network's name) |
+| `--no-host-dns` | Don't install a systemd-resolved drop-in on the owner host |
 
 ### DNS resolvers for guests
 
-`corvus-netd`'s dnsmasq runs with `--port=0`, so it speaks DHCP
-but not DNS. Use `--dns-server` (repeatable) on `crv network
-create` — or `dnsServers: [...]` in an `apply` YAML — to make
-the DHCP lease carry one or more upstream resolvers (DHCP
-option 6):
+`corvus-netd`'s dnsmasq advertises its `--dns-server` list to DHCP
+clients via option 6 — that's what guests put in their own
+`/etc/resolv.conf`. Use `--dns-server` (repeatable) on `crv
+network create` or `dnsServers: [...]` in an `apply` YAML:
 
 ```bash
 crv network create lab-net --subnet 10.0.1.0/24 \
@@ -52,8 +53,62 @@ crv network create lab-net --subnet 10.0.1.0/24 \
 ```
 
 Without this flag, guests rely on whatever their stack defaults
-to (systemd-resolved's hardcoded fallback list, etc.) and will
+to (systemd-resolved's hardcoded fallback list, etc.) and may
 fail to resolve names when those defaults are unreachable.
+
+### Host resolution: SSH a VM by name
+
+When a network has DHCP enabled, the same dnsmasq also binds
+**port 53 on the bridge IP** and serves a per-network zone whose
+suffix defaults to the network's name. Every DHCP-leased VM whose
+cloud-init sets a hostname is reachable as `<vm>.<network>`:
+
+```bash
+ssh my-vm.corvus              # network 'corvus', VM hostname 'my-vm'
+```
+
+On the owner node the agent additionally binds per-link
+systemd-resolved state to the bridge:
+
+```bash
+resolvectl dns    corvus-br-N <bridge-ip>
+resolvectl domain corvus-br-N ~<suffix>
+resolvectl dnssec corvus-br-N no
+```
+
+The `~<suffix>` routing-only domain tells systemd-resolved to
+consult the bridge ONLY for queries matching the suffix; public
+DNS continues to flow through whatever upstream the host already
+uses. Per-link `dnssec no` scopes the opt-out (necessary because
+dnsmasq's lease-derived answers aren't DNSSEC-signed and the
+private zone has no public DS records) to this one interface
+without touching global DNSSEC policy. No /etc/hosts edits, no
+NSS plugin, no `/etc/systemd/resolved.conf.d/` mutation.
+
+Override the suffix with `--domain SUFFIX` (or `domain:` in YAML)
+when the network's own name doesn't make a good DNS label.
+Disable the host drop-in with `--no-host-dns` (or `hostDns: false`)
+when the operator manages host DNS themselves — dnsmasq keeps
+answering DNS on the bridge IP for any client that points at it
+directly (e.g. via a custom resolver entry inside the guest).
+
+dnsmasq is **authoritative for `<suffix>` and nothing else**:
+non-zone queries (e.g. `google.com`) return REFUSED — the bridge
+is never an open resolver, and the REFUSED is a clean signal for
+stub resolvers to fall through to the next server. Combined with
+the bridge-IP-only listener, the new DNS server can't collide
+with systemd-resolved's `127.0.0.53` stub on the host.
+
+Limitations:
+
+- Multi-node networks: only the owner node runs dnsmasq, so only
+  the owner host gets the drop-in. Peers can resolve `<vm>.<suffix>`
+  only by pointing their own resolver at the owner's bridge IP
+  manually.
+- Static-IP VMs aren't resolvable — DNS follows DHCP leases.
+- Hosts without `systemd-resolved` skip the drop-in with a stderr
+  warning. dnsmasq still answers DNS on the bridge IP for any
+  client that asks it directly.
 
 Networks are per-node — the bridge and dnsmasq instance live
 on the kernel of the node owning the network. The daemon's

@@ -21,6 +21,16 @@ struct NetworkInfo {
   # DNS servers advertised to DHCP clients (option 6). Empty when
   # the network either has DHCP disabled or has no DNS configured.
   dnsServers   @11 :List(Text);
+  # The DNS suffix the dnsmasq instance is (or would be) authoritative
+  # for. Effective value: explicit `domain` if set, otherwise the
+  # network's own name. Empty here ONLY for networks where DNS is
+  # impossible (no DHCP, no subnet) — the daemon resolves the default
+  # before returning it.
+  domain       @12 :Text;
+  # Whether the host installed a systemd-resolved drop-in routing
+  # `~<domain>` to this network's bridge IP. False either by operator
+  # choice or because the network has no domain to forward.
+  hostDns      @13 :Bool;
 }
 
 # Inputs for attach-node / detach-node.
@@ -44,6 +54,13 @@ struct NetworkCreateParams {
   node      @5 :Common.EntityRef;
   # DNS servers to advertise via DHCP option 6 (empty = none).
   dnsServers @6 :List(Text);
+  # DNS suffix dnsmasq is authoritative for (e.g. `corvus`). Empty
+  # → daemon defaults it to the network's `name`.
+  domain     @7 :Text;
+  # Install a systemd-resolved drop-in on the network's owner so
+  # `*.<domain>` resolves to the bridge IP. Default true; the
+  # daemon flips it off if the network has no chance of serving DNS.
+  hostDns    @8 :Bool = true;
 }
 
 struct NetworkEditParams {
@@ -61,6 +78,10 @@ struct NetworkEditParams {
   # dnsServers (an empty list clears the option entirely).
   hasDnsServers @10 :Bool;
   dnsServers    @11 :List(Text);
+  hasDomain     @12 :Bool;
+  domain        @13 :Text;
+  hasHostDns    @14 :Bool;
+  hostDns       @15 :Bool;
 }
 
 # ---------------------------------------------------------------------

@@ -41,6 +41,8 @@ class AsyncNetworkManager:
         nat: bool = False,
         autostart: bool = False,
         dns_servers: Iterable[str] = (),
+        domain: str = "",
+        host_dns: bool = True,
     ) -> AsyncNetwork:
         """Create a virtual network.
 
@@ -52,6 +54,12 @@ class AsyncNetworkManager:
         `--dhcp-option=option:dns-server,IP1,IP2,...` on the
         dnsmasq the agent spawns, so DHCP clients pick up DNS
         without falling back to whatever their stack defaults to.
+
+        `domain` is the DNS suffix dnsmasq is authoritative for; an
+        empty string defaults to the network's name. `host_dns`
+        controls whether the agent installs a systemd-resolved
+        drop-in on the owner host pointing `*.<domain>` queries at
+        the bridge IP.
         """
         mgr = await self._ensure()
         params = _schema.network.NetworkCreateParams.new_message()
@@ -63,6 +71,8 @@ class AsyncNetworkManager:
         params.nat = nat
         params.autostart = autostart
         params.dnsServers = list(dns_servers)
+        params.domain = domain
+        params.hostDns = host_dns
         resp = await mgr.create(params=params)
         return AsyncNetwork(resp.network)
 
@@ -91,6 +101,8 @@ class AsyncNetwork:
         nat: bool | None = None,
         autostart: bool | None = None,
         dns_servers: Iterable[str] | None = None,
+        domain: str | None = None,
+        host_dns: bool | None = None,
     ) -> None:
         params = _schema.network.NetworkEditParams.new_message()
         if name is not None:
@@ -111,6 +123,12 @@ class AsyncNetwork:
         if dns_servers is not None:
             params.hasDnsServers = True
             params.dnsServers = list(dns_servers)
+        if domain is not None:
+            params.hasDomain = True
+            params.domain = domain
+        if host_dns is not None:
+            params.hasHostDns = True
+            params.hostDns = host_dns
         await self._cap.edit(params=params)
 
     async def delete(self) -> None:

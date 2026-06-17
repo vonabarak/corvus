@@ -407,6 +407,106 @@ class TestManagedNetworking(SingleNodeCase):
                         f"missing {ip} in guest /etc/resolv.conf:\n{resolv!r}"
                     )
 
+    # -- 2c. Host-side resolution: `ping <vm>.<network>` from the node ------
+
+    def test_host_resolves_vm_by_name(self):
+        """End-to-end: a DHCP'd VM is reachable from the node by name
+        via ``<vm-hostname>.<network>``.
+
+        Exercises every layer of the new DNS feature in one shot:
+
+          * VM's DHCP DISCOVER carries an option-12 hostname (via
+            ``udhcpc -x hostname:...``).
+          * The agent's dnsmasq records the (mac, ip, hostname) lease
+            and serves it as ``<host>.<network>`` because the network's
+            effective domain defaults to its name and ``--dhcp-fqdn``
+            binds the suffix to the hostname at lease time.
+          * The agent's systemd-resolved drop-in routes ``~<network>``
+            queries from the node to the bridge IP.
+          * The node's libc resolver → resolved → bridge dnsmasq →
+            lease table → IP. ``ping`` then reaches the VM over the
+            bridge.
+
+        Skipped if the test node has no systemd-resolved (the agent's
+        drop-in only takes effect when resolved is live).
+        """
+        node = self.node
+
+        if node.run("test -d /run/systemd/resolve", check=False).returncode != 0:
+            pytest.skip("systemd-resolved not running on test node")
+
+        # No hyphens: matches the agent's sanitiser one-to-one so the
+        # FQDN we build in the test is literally what's in the leases
+        # and the drop-in's ``Domains=~`` line.
+        network_name = "dnshost"
+        vm_hostname = "lab1"
+
+        with _network(
+            lambda: self.client, network_name, "10.56.0.0/24", dhcp=True
+        ) as nw:
+            info = nw.show()
+            net_id = info.id
+            bridge = _bridge_name(net_id)
+            # The daemon round-trips the effective domain + the host-DNS
+            # opt-in on `network show`. If either drifts, the rest of
+            # the test would still pass for the wrong reason.
+            assert info.domain == network_name, info.domain
+            assert info.host_dns is True
+
+            class _Vm(_ManagedVm):
+                network_name = "dnshost"
+
+            with _Vm(self, name="dnsvm") as vm:
+                # `-x hostname:<n>` tells busybox udhcpc to include
+                # DHCP option 12 (host name) in the DISCOVER. dnsmasq
+                # stores it in the lease, and with --domain + --dhcp-fqdn
+                # serves it as `<n>.<network>`.
+                vm.run(
+                    f"doas ip link set {GUEST_NIC} up && "
+                    f"doas udhcpc -i {GUEST_NIC} -n -q -t 5 -T 2 "
+                    f"-x hostname:{vm_hostname}"
+                )
+                ip = _wait_for_vm_iface_ip(vm, network_id=net_id)
+                assert ip.startswith("10.56.0."), ip
+
+                # Wait for dnsmasq to flush the lease to disk (the
+                # in-memory zone updates synchronously on DHCPACK, but
+                # we don't have a hook to peek inside, so the lease
+                # file is the next-best signal).
+                lease_path = f"/var/lib/corvus/netd/leases/{bridge}.leases"
+                deadline = time.monotonic() + 5.0
+                lease_seen = False
+                while time.monotonic() < deadline:
+                    r = node.run(f"sudo cat {lease_path}", check=False)
+                    if r.returncode == 0 and vm_hostname.encode() in r.stdout:
+                        lease_seen = True
+                        break
+                    time.sleep(0.2)
+                assert lease_seen, (
+                    f"lease for {vm_hostname!r} never appeared in {lease_path}"
+                )
+
+                # The real assertion: ping the VM by name from the
+                # node. A break anywhere in the chain — per-link
+                # resolvectl state missing, wrong domain, dnsmasq not
+                # answering on the bridge IP, DNSSEC validation
+                # against the private zone — fails this with either
+                # a "bad address" or a timeout.
+                fqdn = f"{vm_hostname}.{network_name}"
+                r = node.run(f"ping -c1 -W2 {fqdn}")
+                # iputils prints "1 received"; busybox prints
+                # "1 packets received". Accept either.
+                assert b"1 received" in r.stdout or b"1 packets received" in r.stdout, (
+                    f"unexpected ping output:\n{r.stdout!r}"
+                )
+                # And the resolved address matches the lease IP
+                # (catches the cursed case where the host resolves to
+                # something unrelated that just happens to ICMP back).
+                assert ip.encode() in r.stdout, (
+                    f"ping {fqdn} resolved to a different IP than the lease "
+                    f"({ip}):\n{r.stdout!r}"
+                )
+
     # -- 3. Cross-network isolation ------------------------------------------
 
     def test_cross_network_isolation(self):

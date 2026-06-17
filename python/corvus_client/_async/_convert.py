@@ -340,6 +340,8 @@ def network_info(r) -> t.NetworkInfo:
         vni=_nz_int(r.vni),
         peer_node_ids=tuple(r.peerNodeIds),
         dns_servers=tuple(r.dnsServers),
+        domain=r.domain,
+        host_dns=r.hostDns,
     )
 
 

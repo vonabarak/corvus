@@ -389,6 +389,8 @@ executeApply ctx config ifExists = do
                         (anNat n)
                         (anAutostart n)
                         (anDnsServers n)
+                        (anDomain n)
+                        (anHostDns n)
                     )
             mExisting <-
               resolveExisting $

@@ -102,6 +102,7 @@ data DhcpSpec = DhcpSpec
   , dhcpExtraArgs :: ![T.Text]
   , dhcpHostReservations :: ![DhcpHostReservation]
   , dhcpDnsServers :: ![T.Text]
+  , dhcpHostDns :: !Bool
   }
   deriving (Eq, Show)
 
@@ -386,6 +387,7 @@ encodeDhcpSpec d =
     , CGN.extraArgs = dhcpExtraArgs d
     , CGN.hostReservations = map encodeDhcpHostReservation (dhcpHostReservations d)
     , CGN.dnsServers = dhcpDnsServers d
+    , CGN.hostDns = dhcpHostDns d
     }
 
 encodeTapSpec :: TapSpec -> CGN.Parsed CGN.TapSpec
@@ -472,6 +474,7 @@ decodeDhcpSpec
     , CGN.extraArgs = extra
     , CGN.hostReservations = res
     , CGN.dnsServers = dns
+    , CGN.hostDns = hd
     } =
     DhcpSpec
       { dhcpEnabled = e
@@ -482,6 +485,7 @@ decodeDhcpSpec
       , dhcpExtraArgs = extra
       , dhcpHostReservations = map decodeDhcpHostReservation res
       , dhcpDnsServers = dns
+      , dhcpHostDns = hd
       }
 
 decodeTapInfo :: CGN.Parsed CGN.TapInfo -> TapInfo

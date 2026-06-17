@@ -221,6 +221,7 @@ library:
     - Corvus.Netd.Sysctl
     - Corvus.Netd.Nftables
     - Corvus.Netd.Dnsmasq
+    - Corvus.Netd.HostDns
     - Corvus.Netd.IpMonitor
     - Corvus.Netd.Events
     - Corvus.Netd.Cleanup

@@ -16,10 +16,14 @@ Scope:
   * applyTap creates a persistent TAP with TUNSETOWNER
   * setIpForwarding flips /proc
   * shutdown cleanup removes every `corvus-*` resource on the node
+  * DHCP + domain turns on the per-network DNS zone (port 53 on the
+    bridge, authoritative, REFUSED off-zone, per-bridge lease file)
+  * `hostDns` writes / removes a systemd-resolved drop-in on the node
 """
 
 from __future__ import annotations
 
+import shlex
 import shutil
 import socket
 import subprocess
@@ -115,6 +119,7 @@ def _network_spec(
     dhcp_end: str = "",
     dhcp_lease: str = "12h",
     dhcp_domain: str = "",
+    dhcp_host_dns: bool = True,
 ):
     return {
         "name": name,
@@ -128,8 +133,48 @@ def _network_spec(
             "leaseTime": dhcp_lease,
             "domain": dhcp_domain,
             "extraArgs": [],
+            "hostDns": dhcp_host_dns,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# DNS-query helper (inline, no `dig` dependency)
+#
+# The test node doesn't ship bind-tools, so we shell out a small
+# Python snippet that builds a DNS UDP query by hand and prints just
+# the response's RCODE. Inputs: target IP, qname. Output stdout:
+# "NOERROR" / "NXDOMAIN" / "REFUSED" / "SERVFAIL" / "TIMEOUT" / "RCODE_<n>".
+
+_DNS_QUERY_PY = r"""
+import socket, struct, sys
+
+def encode_qname(name):
+    parts = name.split('.')
+    return b''.join(bytes([len(p)]) + p.encode() for p in parts) + b'\x00'
+
+target, qname = sys.argv[1], sys.argv[2]
+header = struct.pack('!HHHHHH', 0x1234, 0x0100, 1, 0, 0, 0)  # RD=1
+packet = header + encode_qname(qname) + struct.pack('!HH', 1, 1)  # A IN
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(2.0)
+try:
+    s.sendto(packet, (target, 53))
+    resp, _ = s.recvfrom(4096)
+except socket.timeout:
+    print('TIMEOUT')
+    sys.exit(0)
+rcode = struct.unpack('!H', resp[2:4])[0] & 0xf
+print({0: 'NOERROR', 1: 'FORMERR', 2: 'SERVFAIL', 3: 'NXDOMAIN',
+       4: 'NOTIMP', 5: 'REFUSED'}.get(rcode, f'RCODE_{rcode}'))
+"""
+
+
+def _dns_rcode(node, target_ip: str, qname: str) -> str:
+    """Send a DNS A query to ``target_ip:53`` from ``node`` and
+    return the response RCODE as a string."""
+    cmd = f"python3 -c {shlex.quote(_DNS_QUERY_PY)} {shlex.quote(target_ip)} {shlex.quote(qname)}"
+    return node.run(cmd).stdout.decode().strip()
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +388,245 @@ class TestNetdDeclarative(SingleNodeCase):
                 f"echo {before.decode()} | sudo tee /proc/sys/net/ipv4/ip_forward >/dev/null",
                 check=False,
             )
+
+    # -- DNS-on-bridge -------------------------------------------------------
+
+    @staticmethod
+    def _resolved_running(node) -> bool:
+        """systemd-resolved present + active on the test node.
+
+        The agent's HostDns module no-ops when /run/systemd/resolve/
+        is missing, so the drop-in tests are conditional.
+        """
+        return node.run("test -d /run/systemd/resolve", check=False).returncode == 0
+
+    def test_apply_network_no_domain_keeps_dns_off(self, agent):
+        """Default behaviour: DHCP on, domain empty → port 0 (DNS off).
+
+        Operators upgrading without setting a domain see the same
+        DHCP-only dnsmasq they had before; the DNS side is opt-in
+        per network.
+        """
+        name = "corvus-br-d0"
+        node = self.node
+
+        agent.apply_network(
+            _network_spec(
+                name,
+                cidr="10.179.0.1/24",
+                dhcp_enabled=True,
+                dhcp_start="10.179.0.100",
+                dhcp_end="10.179.0.200",
+                dhcp_domain="",
+            )
+        )
+        try:
+            proc = node.run(f"pgrep -af 'dnsmasq.*--interface={name}'")
+            argv = proc.stdout.decode()
+            assert "--port=0" in argv, argv
+            assert "--port=53" not in argv, argv
+            assert "--domain=" not in argv, argv
+            # Per-bridge leasefile is unconditional (the multi-network
+            # collision fix that comes with the DNS change).
+            assert (
+                f"--dhcp-leasefile=/var/lib/corvus/netd/leases/{name}.leases" in argv
+            ), argv
+        finally:
+            agent.delete_network(name)
+
+    def test_apply_network_domain_turns_on_dns_zone(self, agent):
+        """DHCP + domain → dnsmasq answers <hostname>.<domain> from leases.
+
+        Verifies the full DNS-server contract:
+          * argv carries --port=53 / --domain= / --local= / --dhcp-fqdn / --expand-hosts
+          * UDP 53 is bound on the bridge IP
+          * the zone is authoritative — unknown name in zone → NXDOMAIN
+          * off-zone queries return REFUSED (not NOERROR; not forwarded)
+          * per-bridge lease file exists at the documented path
+        """
+        name = "corvus-br-dns"
+        bridge_ip = "10.178.0.1"
+        domain = "corvuszone"
+        node = self.node
+
+        agent.apply_network(
+            _network_spec(
+                name,
+                cidr=f"{bridge_ip}/24",
+                dhcp_enabled=True,
+                dhcp_start="10.178.0.100",
+                dhcp_end="10.178.0.200",
+                dhcp_domain=domain,
+            )
+        )
+        try:
+            proc = node.run(f"pgrep -af 'dnsmasq.*--interface={name}'")
+            argv = proc.stdout.decode()
+            assert "--port=53" in argv, argv
+            assert f"--domain={domain}" in argv, argv
+            assert f"--local=/{domain}/" in argv, argv
+            assert "--dhcp-fqdn" in argv, argv
+            assert "--expand-hosts" in argv, argv
+            assert (
+                f"--dhcp-leasefile=/var/lib/corvus/netd/leases/{name}.leases" in argv
+            ), argv
+
+            # dnsmasq is bound on the bridge IP, not a wildcard. We
+            # check UDP (the protocol most resolvers use first); the
+            # TCP listener follows the same bind because
+            # --bind-interfaces / --listen-address are unconditional.
+            ss = node.run("sudo ss -lnup")
+            assert f"{bridge_ip}:53".encode() in ss.stdout, (
+                f"no dnsmasq UDP listener on {bridge_ip}:53: {ss.stdout!r}"
+            )
+
+            # Per-bridge lease file lives where we documented.
+            ls = node.run(f"sudo test -f /var/lib/corvus/netd/leases/{name}.leases")
+            assert ls.returncode == 0
+
+            # Authoritative-empty zone: no leases yet, so any name in
+            # the zone NXDOMAINs (not SERVFAILs; not forwarded).
+            assert _dns_rcode(node, bridge_ip, f"nosuch.{domain}") == "NXDOMAIN"
+
+            # Off-zone queries are REFUSED — the "not an open
+            # resolver" guarantee that lets a stub use the bridge as
+            # one of multiple servers.
+            assert _dns_rcode(node, bridge_ip, "example.com") == "REFUSED"
+        finally:
+            agent.delete_network(name)
+
+    def test_per_bridge_lease_files_are_isolated(self, agent):
+        """Two concurrent networks → two distinct lease files.
+
+        Pre-fix this was the latent multi-network bug: both dnsmasqs
+        wrote to the same compile-time default and clobbered each
+        other's state.
+        """
+        a_name, b_name = "corvus-br-la", "corvus-br-lb"
+        node = self.node
+
+        agent.apply_network(
+            _network_spec(
+                a_name,
+                cidr="10.177.0.1/24",
+                dhcp_enabled=True,
+                dhcp_start="10.177.0.100",
+                dhcp_end="10.177.0.200",
+            )
+        )
+        agent.apply_network(
+            _network_spec(
+                b_name,
+                cidr="10.176.0.1/24",
+                dhcp_enabled=True,
+                dhcp_start="10.176.0.100",
+                dhcp_end="10.176.0.200",
+            )
+        )
+        try:
+            for nm in (a_name, b_name):
+                proc = node.run(f"pgrep -af 'dnsmasq.*--interface={nm}'")
+                argv = proc.stdout.decode()
+                assert (
+                    f"--dhcp-leasefile=/var/lib/corvus/netd/leases/{nm}.leases" in argv
+                ), argv
+                ls = node.run(f"sudo test -f /var/lib/corvus/netd/leases/{nm}.leases")
+                assert ls.returncode == 0, f"lease file for {nm} missing"
+        finally:
+            agent.delete_network(a_name)
+            agent.delete_network(b_name)
+
+    # -- Host-side systemd-resolved drop-in ----------------------------------
+
+    def test_host_dns_binds_resolved_per_link(self, agent):
+        """`hostDns=true` configures per-link systemd-resolved state.
+
+        The agent sets the bridge's per-link DNS server, routing
+        domain, and DNSSEC opt-out via ``resolvectl``. The per-link
+        scoping is what lets host queries for ``*.<suffix>`` reach
+        dnsmasq without disturbing global DNS or DNSSEC policy.
+        """
+        if not self._resolved_running(self.node):
+            pytest.skip("systemd-resolved not running on test node")
+        name = "corvus-br-hd"
+        bridge_ip = "10.175.0.1"
+        domain = "corvushd"
+        node = self.node
+
+        agent.apply_network(
+            _network_spec(
+                name,
+                cidr=f"{bridge_ip}/24",
+                dhcp_enabled=True,
+                dhcp_start="10.175.0.100",
+                dhcp_end="10.175.0.200",
+                dhcp_domain=domain,
+                dhcp_host_dns=True,
+            )
+        )
+        try:
+            # Per-link DNS server reported by resolvectl.
+            dns = node.run(f"resolvectl dns {name}")
+            assert bridge_ip.encode() in dns.stdout, dns.stdout
+
+            # Per-link routing domain (the `~` prefix marks it
+            # routing-only — only consulted for matching queries).
+            dom = node.run(f"resolvectl domain {name}")
+            assert f"~{domain}".encode() in dom.stdout, dom.stdout
+
+            # Per-link DNSSEC opt-out. Without this, resolved tries
+            # to validate dnsmasq's unsigned answers against a public
+            # DNSSEC chain that doesn't exist for the private zone
+            # and the lookup `failed-auxiliary`s.
+            sec = node.run(f"resolvectl dnssec {name}")
+            assert b"no" in sec.stdout.lower(), sec.stdout
+        finally:
+            agent.delete_network(name)
+            # deleteNetwork reverts the per-link state as part of teardown.
+            dns_after = node.run(f"resolvectl dns {name}", check=False)
+            # `resolvectl dns` on a now-vanished interface fails; if
+            # the link still exists (e.g. the test bridge was renamed),
+            # the output should at least not still carry our bridge IP.
+            if dns_after.returncode == 0:
+                assert bridge_ip.encode() not in dns_after.stdout
+
+    def test_host_dns_opt_out_skips_routing(self, agent):
+        """`hostDns=false` keeps dnsmasq's DNS side on but skips the per-link config.
+
+        Operators who run their own host-side resolver (or just don't
+        want the agent touching resolved state) reach for ``--no-host-dns``.
+        """
+        if not self._resolved_running(self.node):
+            pytest.skip("systemd-resolved not running on test node")
+        name = "corvus-br-nhd"
+        bridge_ip = "10.174.0.1"
+        domain = "corvusoff"
+        node = self.node
+
+        agent.apply_network(
+            _network_spec(
+                name,
+                cidr=f"{bridge_ip}/24",
+                dhcp_enabled=True,
+                dhcp_start="10.174.0.100",
+                dhcp_end="10.174.0.200",
+                dhcp_domain=domain,
+                dhcp_host_dns=False,
+            )
+        )
+        try:
+            # No per-link DNS bound — resolvectl reports a default /
+            # empty state, definitely not the bridge IP.
+            dns = node.run(f"resolvectl dns {name}", check=False)
+            assert dns.returncode != 0 or bridge_ip.encode() not in dns.stdout, (
+                dns.stdout
+            )
+            # dnsmasq still answers DNS on the bridge — only the host
+            # forwarding is suppressed.
+            proc = node.run(f"pgrep -af 'dnsmasq.*--interface={name}'")
+            assert "--port=53" in proc.stdout.decode()
+        finally:
+            agent.delete_network(name)
 
     # -- Cleanup-on-shutdown -------------------------------------------------
 

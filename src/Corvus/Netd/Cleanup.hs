@@ -32,9 +32,16 @@ import qualified Control.Exception as E
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LoggingT, logInfoN, logWarnN, runStderrLoggingT)
+import qualified Corvus.Netd.HostDns as HD
+import qualified Data.List as L
 import qualified Data.Text as T
-import System.Directory (doesDirectoryExist)
+import System.Directory
+  ( doesDirectoryExist
+  , listDirectory
+  , removeFile
+  )
 import System.Exit (ExitCode (..))
+import System.FilePath ((</>))
 import System.Posix.Signals (sigKILL, sigTERM, signalProcess)
 import System.Posix.Types (CPid (..), ProcessID)
 import System.Process (readProcessWithExitCode)
@@ -75,13 +82,65 @@ cleanupCorvusKernelState = runStderrLoggingT $ do
   vxlans <- liftIO (ipLinksByPrefix corvusVxlanPrefix)
   mapM_ (delAndWarn "vxlan") vxlans
 
-  -- 5. Bridges last (after their slaves are gone).
+  -- 5. Bridges last (after their slaves are gone). Capture the
+  -- list BEFORE deleting so step 6 can revert resolved per-link
+  -- state on each — once the bridge is gone, resolvectl refuses
+  -- to operate on the vanished interface.
   bridges <- liftIO (ipLinksByPrefix corvusBridgePrefix)
+
+  -- 6. Revert per-link systemd-resolved routing (DNS + Domain +
+  -- DNSSEC=no) the agent installed for these bridges. Safe to
+  -- call on bridges that never had host-DNS enabled — `resolvectl
+  -- revert` on a clean link is a no-op.
+  unless (null bridges) $
+    logInfoN
+      ( "[netd] cleanup: reverting resolved routing for "
+          <> tshow (length bridges)
+          <> " bridge(s)"
+      )
+  liftIO (HD.revertAllResolvedLinks bridges)
+
   mapM_ (delAndWarn "bridge") bridges
+
+  -- 7. Per-bridge dnsmasq lease files. They become misleading once
+  -- the bridge is gone (a fresh apply would otherwise see stale
+  -- DHCP-learned hostnames in DNS until lease expiry).
+  staleLeases <- liftIO listStaleLeaseFiles
+  unless (null staleLeases) $
+    logInfoN ("[netd] cleanup: removing " <> tshow (length staleLeases) <> " stale lease file(s)")
+  mapM_ (rmAndWarn "lease file") staleLeases
   where
     delAndWarn kind name = do
       result <- liftIO (ipLinkDel name)
       warnOn ("ip link del " <> kind <> " " <> name) result
+    rmAndWarn kind path = do
+      result <- liftIO (rmFile path)
+      warnOn ("rm " <> kind <> " " <> T.pack path) result
+
+-- | Best-effort @rm@. Right () if removal succeeded or the file was
+-- already absent; Left otherwise.
+rmFile :: FilePath -> IO (Either T.Text ())
+rmFile path =
+  E.handle (\(e :: E.SomeException) -> pure (Left (T.pack (show e)))) $ do
+    removeFile path
+    pure (Right ())
+
+-- | List stale dnsmasq lease files under
+-- @/var/lib/corvus/netd/leases@. The directory is created lazily on
+-- first dnsmasq spawn; absent means nothing to clean.
+listStaleLeaseFiles :: IO [FilePath]
+listStaleLeaseFiles = do
+  let dir = "/var/lib/corvus/netd/leases"
+  exists <- doesDirectoryExist dir
+  if not exists
+    then pure []
+    else E.handle (\(_ :: E.SomeException) -> pure []) $ do
+      entries <- listDirectory dir
+      pure
+        [ dir </> e
+        | e <- entries
+        , ".leases" `L.isSuffixOf` e
+        ]
 
 warnOn :: T.Text -> Either T.Text () -> LoggingT IO ()
 warnOn _ (Right ()) = pure ()

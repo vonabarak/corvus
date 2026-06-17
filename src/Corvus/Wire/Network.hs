@@ -27,6 +27,8 @@ toCapnpNetworkInfo P.NetworkInfo {..} =
     , CGNet.vni = maybe 0 fromIntegral nwiVni
     , CGNet.peerNodeIds = nwiPeerNodeIds
     , CGNet.dnsServers = nwiDnsServers
+    , CGNet.domain = nwiDomain
+    , CGNet.hostDns = nwiHostDns
     }
 
 fromCapnpNetworkInfo :: C.Parsed CGNet.NetworkInfo -> P.NetworkInfo
@@ -44,4 +46,6 @@ fromCapnpNetworkInfo CGNet.NetworkInfo {..} =
     , P.nwiVni = if vni == 0 then Nothing else Just (fromIntegral vni)
     , P.nwiPeerNodeIds = peerNodeIds
     , P.nwiDnsServers = dnsServers
+    , P.nwiDomain = domain
+    , P.nwiHostDns = hostDns
     }

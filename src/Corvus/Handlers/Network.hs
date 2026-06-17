@@ -79,8 +79,13 @@ handleNetworkCreate
   -> Bool
   -> [Text]
   -- ^ DNS servers to advertise via DHCP option 6 (empty = none)
+  -> Text
+  -- ^ DNS suffix dnsmasq is authoritative for ("" = default to the
+  -- network's name at apply time)
+  -> Bool
+  -- ^ hostDns: install a systemd-resolved drop-in on the owner
   -> IO Response
-handleNetworkCreate state name nodeRefText subnet dhcp nat autostart dnsServers =
+handleNetworkCreate state name nodeRefText subnet dhcp nat autostart dnsServers domain hostDns =
   case validateName "Network" name of
     Left err -> pure $ RespNetworkError err
     Right () -> do
@@ -135,6 +140,8 @@ handleNetworkCreate state name nodeRefText subnet dhcp nat autostart dnsServers 
                           , networkAutostart = autostart
                           , networkVni = Nothing
                           , networkDnsServers = Spec.encodeDnsServers dnsServers
+                          , networkDomain = domain
+                          , networkHostDns = hostDns
                           }
                   result <- runSqlPool (insertUnique network) pool
                   case result of
@@ -334,8 +341,12 @@ handleNetworkEdit
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe [Text]
+  -> Maybe Text
+  -- ^ DNS suffix override ("" clears the column → fall back to name)
+  -> Maybe Bool
+  -- ^ install host resolver drop-in
   -> IO Response
-handleNetworkEdit state networkId mSubnet mDhcp mNat mAutostart mDnsServers = do
+handleNetworkEdit state networkId mSubnet mDhcp mNat mAutostart mDnsServers mDomain mHostDns = do
   let key = toSqlKey networkId :: M.NetworkId
       pool = ssDbPool state
   mNetwork <- runSqlPool (get key) pool
@@ -347,8 +358,10 @@ handleNetworkEdit state networkId mSubnet mDhcp mNat mAutostart mDnsServers = do
               || isJust mDhcp
               || isJust mNat
               || isJust mDnsServers
+              || isJust mDomain
+              || isJust mHostDns
       if hasNonAutostartEdits && networkRunning network
-        then pure $ RespNetworkError "Network must be stopped to change subnet/dhcp/nat/dns-servers"
+        then pure $ RespNetworkError "Network must be stopped to change subnet/dhcp/nat/dns-servers/domain/host-dns"
         else do
           -- Validate and normalize subnet if provided
           mNormalizedSubnet <- case mSubnet of
@@ -379,6 +392,8 @@ handleNetworkEdit state networkId mSubnet mDhcp mNat mAutostart mDnsServers = do
                                 []
                                 (\d -> [M.NetworkDnsServers =. Spec.encodeDnsServers d])
                                 mDnsServers
+                              ++ maybe [] (\d -> [M.NetworkDomain =. d]) mDomain
+                              ++ maybe [] (\h -> [M.NetworkHostDns =. h]) mHostDns
                       case updates of
                         [] -> pure RespNetworkEdited
                         us -> do
@@ -674,6 +689,8 @@ toNetworkInfoWith nwId network peerIds =
     , nwiVni = networkVni network
     , nwiPeerNodeIds = peerIds
     , nwiDnsServers = Spec.decodeDnsServers (networkDnsServers network)
+    , nwiDomain = Spec.effectiveDomain (networkName network) (networkDomain network)
+    , nwiHostDns = networkHostDns network
     }
 
 --------------------------------------------------------------------------------
@@ -690,13 +707,26 @@ data NetworkCreate = NetworkCreate
   , ncrNat :: Bool
   , ncrAutostart :: Bool
   , ncrDnsServers :: [Text]
+  , ncrDomain :: Text
+  , ncrHostDns :: Bool
   }
 
 instance Action NetworkCreate where
   actionSubsystem _ = SubNetwork
   actionCommand _ = "create"
   actionEntityName = Just . ncrName
-  actionExecute ctx a = handleNetworkCreate (acState ctx) (ncrName a) (ncrNodeRef a) (ncrSubnet a) (ncrDhcp a) (ncrNat a) (ncrAutostart a) (ncrDnsServers a)
+  actionExecute ctx a =
+    handleNetworkCreate
+      (acState ctx)
+      (ncrName a)
+      (ncrNodeRef a)
+      (ncrSubnet a)
+      (ncrDhcp a)
+      (ncrNat a)
+      (ncrAutostart a)
+      (ncrDnsServers a)
+      (ncrDomain a)
+      (ncrHostDns a)
 
 newtype NetworkDelete = NetworkDelete {ndelNetworkId :: Int64}
 
@@ -713,13 +743,25 @@ data NetworkEdit = NetworkEdit
   , nedNat :: Maybe Bool
   , nedAutostart :: Maybe Bool
   , nedDnsServers :: Maybe [Text]
+  , nedDomain :: Maybe Text
+  , nedHostDns :: Maybe Bool
   }
 
 instance Action NetworkEdit where
   actionSubsystem _ = SubNetwork
   actionCommand _ = "edit"
   actionEntityId = Just . fromIntegral . nedNetworkId
-  actionExecute ctx a = handleNetworkEdit (acState ctx) (nedNetworkId a) (nedSubnet a) (nedDhcp a) (nedNat a) (nedAutostart a) (nedDnsServers a)
+  actionExecute ctx a =
+    handleNetworkEdit
+      (acState ctx)
+      (nedNetworkId a)
+      (nedSubnet a)
+      (nedDhcp a)
+      (nedNat a)
+      (nedAutostart a)
+      (nedDnsServers a)
+      (nedDomain a)
+      (nedHostDns a)
 
 -- Complex handlers with subtask creation
 

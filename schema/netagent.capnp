@@ -128,6 +128,13 @@ struct DhcpSpec {
   # default) means no DNS option is emitted — guests must already
   # carry a resolver via their image or some other path.
   dnsServers @7 :List(Text);
+  # When true AND `domain` is non-empty, the agent installs a
+  # systemd-resolved drop-in on the host so queries for
+  # `*.<domain>` are forwarded to the bridge IP — making VMs
+  # resolvable by name from the host. Default true so any network
+  # with a domain is reachable; set false to keep DNS serving on
+  # the bridge for VMs without touching host resolver config.
+  hostDns @8 :Bool = true;
 }
 
 struct DhcpHostReservation {

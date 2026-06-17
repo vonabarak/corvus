@@ -395,6 +395,13 @@ class NetworkInfo:
     peer_node_ids: tuple[int, ...] = ()
     # DNS servers advertised to DHCP clients via option 6.
     dns_servers: tuple[str, ...] = ()
+    # DNS suffix dnsmasq is authoritative for. The daemon defaults
+    # this to the network's name; an explicit override survives a
+    # rename.
+    domain: str = ""
+    # Whether the agent installs a systemd-resolved drop-in on the
+    # owner host pointing `*.<domain>` at the bridge IP.
+    host_dns: bool = True
 
 
 # ---------------------------------------------------------------------------

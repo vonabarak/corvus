@@ -21,13 +21,17 @@ module Corvus.Netd.Dnsmasq
   , buildDnsmasqArgs
   , startDnsmasq
   , stopDnsmasq
+  , leaseFilePath
+  , leaseFileDir
   )
 where
 
 import Control.Concurrent (threadDelay)
 import qualified Control.Exception as E
 import qualified Data.Text as T
+import System.Directory (createDirectoryIfMissing)
 import System.Exit (ExitCode (..))
+import System.FilePath ((<.>), (</>))
 import System.IO (Handle, IOMode (..), hClose, openFile)
 import System.Posix.Types (ProcessID)
 import System.Process
@@ -90,11 +94,26 @@ instance E.Exception DnsmasqError
 -- Extracted from 'startDnsmasq' for testability and reused by the
 -- spawn path. Order matters only in that 'dspExtraArgs' lands
 -- last, letting an operator override any earlier flag.
+--
+-- When 'dspDomain' is non-empty, dnsmasq's DNS side comes online —
+-- bound to the bridge IP only (@--bind-interfaces --listen-address=@
+-- already set), authoritative for @<domain>@ (via @--local=@), and
+-- refusing every off-zone query (no @--server=@, @--no-resolv@). The
+-- in-memory lease table doubles as the zone, so any DHCP client
+-- whose DISCOVER carries a hostname becomes resolvable as
+-- @<hostname>.<domain>@.
 buildDnsmasqArgs :: DnsmasqStartParams -> [String]
 buildDnsmasqArgs p =
-  baseArgs <> rangeArgs <> domainArgs <> dnsArgs <> reservationArgs <> extraArgs
+  baseArgs
+    <> leaseArgs
+    <> rangeArgs
+    <> domainArgs
+    <> dnsArgs
+    <> reservationArgs
+    <> extraArgs
   where
     bridge = T.unpack (dspBridge p)
+    dnsOn = not (T.null (dspDomain p))
     baseArgs =
       [ "--keep-in-foreground"
       , -- Ignore the system dnsmasq.conf entirely. Distro-shipped
@@ -109,21 +128,36 @@ buildDnsmasqArgs p =
       , "--interface=" <> bridge
       , "--except-interface=lo"
       , "--listen-address=" <> T.unpack (dspListenAddr p)
-      , -- --port=0 disables the DNS listener entirely; our role
-        -- here is purely DHCP for VM networks. Keeps us off port
-        -- 53, which is usually claimed by systemd-resolved on
-        -- Gentoo systemd hosts.
-        "--port=0"
+      , -- Port: 53 when we're meant to answer DNS for `dspDomain`,
+        -- 0 (DHCP-only) otherwise. The bridge-IP binding above
+        -- means port 53 here is on the bridge only — no overlap
+        -- with systemd-resolved's 127.0.0.53 stub.
+        if dnsOn then "--port=53" else "--port=0"
       , "--no-resolv"
       , "--no-hosts"
       , "--no-poll"
       ]
+    -- Per-bridge lease file. Without this every dnsmasq we spawn
+    -- would write to dnsmasq's compile-time default — one shared
+    -- path that multiple managed networks silently corrupt.
+    leaseArgs = ["--dhcp-leasefile=" <> leaseFilePath (dspBridge p)]
     rangeArgs
       | T.null (dspDhcpRange p) = []
       | otherwise = ["--dhcp-range=" <> T.unpack (dspDhcpRange p)]
     domainArgs
-      | T.null (dspDomain p) = []
-      | otherwise = ["--domain=" <> T.unpack (dspDomain p)]
+      | not dnsOn = []
+      | otherwise =
+          let dom = T.unpack (dspDomain p)
+           in [ "--domain=" <> dom
+              , -- Authoritative-only: never forward `.dom` queries
+                -- upstream; if no lease, return NXDOMAIN.
+                "--local=/" <> dom <> "/"
+              , -- Bind suffix to DHCP-learned hostnames at lease time.
+                "--dhcp-fqdn"
+              , -- Append the suffix to bare hostnames learned from
+                -- DHCP / /etc/hosts (none in our case, but harmless).
+                "--expand-hosts"
+              ]
     reservationArgs =
       [ "--dhcp-host=" <> T.unpack mac <> "," <> T.unpack ip
       | (mac, ip) <- dspHostReservations p
@@ -135,6 +169,16 @@ buildDnsmasqArgs p =
               <> T.unpack (T.intercalate "," (dspDnsServers p))
           ]
     extraArgs = T.unpack <$> dspExtraArgs p
+
+-- | Per-bridge lease-file path. One file per dnsmasq instance —
+-- shared by the dnsmasq-spawn path, the cleanup sweep, and any
+-- future debugging helpers that want to read the DHCP/DNS state.
+leaseFileDir :: FilePath
+leaseFileDir = "/var/lib/corvus/netd/leases"
+
+-- | The full path for the lease file of @bridge@.
+leaseFilePath :: T.Text -> FilePath
+leaseFilePath bridge = leaseFileDir </> T.unpack bridge <.> "leases"
 
 -- | Spawn dnsmasq with the given params. Waits ~200ms after fork
 -- to confirm the process didn't crash on startup (bad flags,
@@ -150,6 +194,12 @@ startDnsmasq :: DnsmasqStartParams -> IO (Either DnsmasqError DnsmasqProcess)
 startDnsmasq p = do
   let bridge = T.unpack (dspBridge p)
       logPath = "/var/log/corvus-netd-dnsmasq-" <> bridge <> ".log"
+  -- Make sure the per-bridge lease dir exists before dnsmasq tries
+  -- to open its own file. Swallow IO errors: test harnesses that
+  -- can't write to /var/lib/ will surface the failure via dnsmasq's
+  -- own startup-died path with a captured log tail.
+  E.handle (\(_ :: IOError) -> pure ()) $
+    createDirectoryIfMissing True leaseFileDir
   -- Truncate any prior log so 'tailLog' on failure shows THIS
   -- run's output, not the previous one's. WriteMode opens with
   -- O_TRUNC.

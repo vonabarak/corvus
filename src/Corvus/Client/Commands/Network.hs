@@ -43,9 +43,15 @@ handleNetworkCreate
   -> Bool
   -> [Text]
   -- ^ DNS servers
+  -> Text
+  -- ^ domain ("" = default to name)
+  -> Bool
+  -- ^ hostDns
   -> IO Bool
-handleNetworkCreate fmt conn name nodeRef subnet dhcp nat autostart dnsServers = do
-  r <- try @SomeException (CR.rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart dnsServers)
+handleNetworkCreate fmt conn name nodeRef subnet dhcp nat autostart dnsServers domain hostDns = do
+  r <-
+    try @SomeException
+      (CR.rpcNetworkCreate conn name nodeRef subnet dhcp nat autostart dnsServers domain hostDns)
   case r of
     Right nwId -> do
       emitOkWith fmt [("id", toJSON nwId)] $
@@ -146,6 +152,10 @@ handleNetworkShow fmt conn nwRef = do
             printField
               "DNS servers"
               (unwords (map T.unpack ds))
+        let dom = nwiDomain info
+        unless (T.null dom) $
+          printField "Domain" (T.unpack dom)
+        printField "Host DNS" (if nwiHostDns info then "enabled" else "disabled")
       pure True
     Left e -> do
       emitError fmt "rpc_error" (T.pack (show e)) $
@@ -175,9 +185,24 @@ handleNetworkEdit
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe [Text]
+  -> Maybe Text
+  -> Maybe Bool
   -> IO Bool
-handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart mDnsServers = do
-  r <- try (CR.rpcNetworkEdit conn (entityRefFromText nwRef) mSubnet mDhcp mNat mAutostart mDnsServers) :: IO (Either SomeException ())
+handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart mDnsServers mDomain mHostDns = do
+  r <-
+    try
+      ( CR.rpcNetworkEdit
+          conn
+          (entityRefFromText nwRef)
+          mSubnet
+          mDhcp
+          mNat
+          mAutostart
+          mDnsServers
+          mDomain
+          mHostDns
+      )
+      :: IO (Either SomeException ())
   case r of
     Right () -> do
       emitOk fmt $ putStrLn $ "Network '" ++ T.unpack nwRef ++ "' updated."

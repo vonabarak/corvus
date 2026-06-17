@@ -56,6 +56,20 @@ networkCreateCommand =
                 <> help "Advertise this DNS server to DHCP clients (option 6); repeatable"
             )
       )
+    <*> ( T.pack
+            <$> strOption
+              ( long "domain"
+                  <> metavar "SUFFIX"
+                  <> value ""
+                  <> help "DNS suffix dnsmasq is authoritative for (default: network name)"
+              )
+        )
+    <*> flag
+      True
+      False
+      ( long "no-host-dns"
+          <> help "Don't install a systemd-resolved drop-in on the owner; bridge still answers DNS"
+      )
 
 -- | Parser for network delete
 networkDeleteCommand :: Parser Command
@@ -164,6 +178,23 @@ networkEditCommand =
                     )
               )
         )
+    <*> optional
+      ( T.pack
+          <$> strOption
+            ( long "domain"
+                <> metavar "SUFFIX"
+                <> help "DNS suffix dnsmasq is authoritative for (empty string resets to the network name)"
+            )
+      )
+    <*> optional
+      ( option
+          readBool
+          ( long "host-dns"
+              <> metavar "BOOL"
+              <> help "Install/remove the systemd-resolved drop-in on the owner (true/false)"
+              <> completeWith ["true", "false"]
+          )
+      )
 
 -- | Helper: 'optparse-applicative''s 'many' always succeeds with
 -- @[]@ when the user passed no flag, but the edit-style RPC uses

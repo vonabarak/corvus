@@ -879,7 +879,8 @@ data instance C.Parsed DhcpSpec
         ,domain :: (RP.Parsed Basics.Text)
         ,extraArgs :: (RP.Parsed (R.List Basics.Text))
         ,hostReservations :: (RP.Parsed (R.List DhcpHostReservation))
-        ,dnsServers :: (RP.Parsed (R.List Basics.Text))}
+        ,dnsServers :: (RP.Parsed (R.List Basics.Text))
+        ,hostDns :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed DhcpSpec))
 deriving instance (Std_.Eq (C.Parsed DhcpSpec))
@@ -891,7 +892,8 @@ instance (C.Parse DhcpSpec (C.Parsed DhcpSpec)) where
                            <*> (GH.parseField #domain raw_)
                            <*> (GH.parseField #extraArgs raw_)
                            <*> (GH.parseField #hostReservations raw_)
-                           <*> (GH.parseField #dnsServers raw_))
+                           <*> (GH.parseField #dnsServers raw_)
+                           <*> (GH.parseField #hostDns raw_))
 instance (C.Marshal DhcpSpec (C.Parsed DhcpSpec)) where
     marshalInto raw_ DhcpSpec{..} = (do
         (GH.encodeField #enabled enabled raw_)
@@ -902,6 +904,7 @@ instance (C.Marshal DhcpSpec (C.Parsed DhcpSpec)) where
         (GH.encodeField #extraArgs extraArgs raw_)
         (GH.encodeField #hostReservations hostReservations raw_)
         (GH.encodeField #dnsServers dnsServers raw_)
+        (GH.encodeField #hostDns hostDns raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "enabled" GH.Slot DhcpSpec Std_.Bool) where
@@ -920,6 +923,8 @@ instance (GH.HasField "hostReservations" GH.Slot DhcpSpec (R.List DhcpHostReserv
     fieldByLabel  = (GH.ptrField 5)
 instance (GH.HasField "dnsServers" GH.Slot DhcpSpec (R.List Basics.Text)) where
     fieldByLabel  = (GH.ptrField 6)
+instance (GH.HasField "hostDns" GH.Slot DhcpSpec Std_.Bool) where
+    fieldByLabel  = (GH.dataField 1 0 1 1)
 data DhcpHostReservation 
 type instance (R.ReprFor DhcpHostReservation) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DhcpHostReservation) where
