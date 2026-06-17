@@ -1,0 +1,21 @@
+# Grafana dashboard provider — picks up any JSON files dropped
+# into /var/lib/grafana/dashboards/ and exposes them under the
+# `Corvus` folder in the UI.
+#
+# Update interval is 30 s so an operator who edits the dashboard
+# in-place doesn't have to restart Grafana to see changes.
+
+apiVersion: 1
+
+providers:
+  - name: corvus
+    orgId: 1
+    folder: Corvus
+    folderUid: corvus
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

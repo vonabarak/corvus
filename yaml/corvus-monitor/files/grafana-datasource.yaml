@@ -1,0 +1,21 @@
+# Grafana auto-provisioned datasource — Prometheus on localhost.
+# Grafana reads this at startup; the datasource is editable in the
+# UI but reverts on every restart (provisioning is the source of
+# truth).
+#
+# The `uid: prometheus` is referenced from corvus-dashboard.json's
+# panel targets — keep them in sync if you rename.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:9090
+    uid: prometheus
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST

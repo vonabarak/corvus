@@ -1,0 +1,192 @@
+# Bake a Debian 12 image with Prometheus + Grafana preinstalled,
+# preconfigured to scrape Corvus daemon metrics from corvus-web.
+#
+# Prerequisite: apply yaml/multi-os/multi-os.yml so the `debian12`
+# template + its `debian-12-generic-base` disk exist.
+#
+#   crv apply yaml/multi-os/multi-os.yml
+#   crv build yaml/corvus-monitor/corvus-monitor.yml
+#
+# On success, a Corvus disk named `corvus-monitor` is registered.
+# See README.md for the deploy + scrape-target-override recipe.
+
+pipeline:
+  - build:
+      name: corvus-monitor
+      description: Debian 12 with Prometheus + Grafana + Corvus dashboard
+
+      template: debian12
+
+      target:
+        compact: true
+
+      strategy: overlay
+
+      shellDefaults:
+        preamble: "set -eux"
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      provisioners:
+        # 1. Install Prometheus from Debian main + Grafana from its
+        #    official APT repo. Don't enable services yet — config
+        #    arrives in the next steps.
+        #
+        # The bake VM's overlay inherits the 3 GB `debian-12-generic-base`
+        # virtual size, so we aggressively free space between installs
+        # (apt cache + cloud-init + docs + manpages all go) to fit
+        # Grafana's ~1 GB unpacked footprint.
+        - shell: |
+            cloud-init status --wait || true
+            # Slim the base: docs/manpages/locales are bloat. Leave
+            # cloud-init installed — the deployed VM needs it on
+            # first boot to (re)write netplan against its own MAC
+            # and inject the operator's SSH key. Without it, the
+            # baked netplan keeps the bake VM's MAC and DHCP never
+            # comes up.
+            rm -rf /usr/share/doc /usr/share/man /usr/share/locale/*
+            apt-get update
+            apt-get install -y --no-install-recommends \
+              ca-certificates curl gnupg apt-transport-https \
+              prometheus
+            # Reclaim apt's package-archive cache before pulling Grafana.
+            apt-get clean
+            rm -rf /var/lib/apt/lists/*
+            # Add Grafana's APT repo.
+            install -d -m 0755 /etc/apt/keyrings
+            curl -fsSL https://apt.grafana.com/gpg.key \
+              | gpg --dearmor -o /etc/apt/keyrings/grafana.gpg
+            echo 'deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main' \
+              > /etc/apt/sources.list.d/grafana.list
+            apt-get update
+            apt-get install -y --no-install-recommends grafana
+            # Stop services we just started so we can lay down
+            # config files cleanly before the first real start.
+            systemctl stop prometheus grafana-server || true
+
+        # 2. Prometheus scrape config. Default target placeholder
+        #    is `host.local:8080`; operators override this either
+        #    by re-baking or by SSHing into the deployed VM (see
+        #    README.md).
+        - file:
+            from: ./files/prometheus.yml
+            to: /etc/prometheus/prometheus.yml
+            mode: "0644"
+
+        # 3. Grafana server config — listen on all interfaces so
+        #    the host (and host-forwards) can reach :3000.
+        - file:
+            from: ./files/grafana.ini
+            to: /etc/grafana/grafana.ini
+            mode: "0640"
+
+        # 4. Auto-provisioned datasource: Prometheus on localhost.
+        - file:
+            from: ./files/grafana-datasource.yaml
+            to: /etc/grafana/provisioning/datasources/corvus.yaml
+            mode: "0644"
+
+        # 5. Filesystem-provider for dashboards.
+        - file:
+            from: ./files/grafana-dashboard-provider.yaml
+            to: /etc/grafana/provisioning/dashboards/corvus.yaml
+            mode: "0644"
+
+        # 6. The dashboard itself — Grafana picks it up at startup
+        #    via the provider above.
+        - file:
+            from: ./files/corvus-dashboard.json
+            to: /var/lib/grafana/dashboards/corvus.json
+            mode: "0644"
+
+        # 7. Permissions, enable on boot, sanity-check Prometheus
+        #    config so a broken scrape target trips here (during
+        #    the build) instead of post-deploy.
+        - shell: |
+            install -d -o grafana -g grafana -m 0755 /var/lib/grafana/dashboards
+            chown grafana:grafana /var/lib/grafana/dashboards/corvus.json
+            chown root:prometheus /etc/prometheus/prometheus.yml
+            chmod 0640 /etc/prometheus/prometheus.yml
+            promtool check config /etc/prometheus/prometheus.yml
+            systemctl enable prometheus grafana-server
+
+        # 8. Reset per-instance state so the deployed VM treats
+        #    its first boot as a fresh first boot.
+        #
+        # `cloud-init clean --logs` wipes /var/lib/cloud so the
+        # next boot re-runs once-per-instance modules (rewriting
+        # netplan against the new MAC and injecting the new SSH
+        # key). The netplan file is removed to be sure cloud-init
+        # generates a fresh one.
+        #
+        # `--machine-id` is NOT used here: it REMOVES /etc/machine-id
+        # and Debian's systemd does not reliably auto-regenerate a
+        # removed file, which leaves machine-id empty on first
+        # boot. systemd-networkd's DHCPv4 client requires a valid
+        # machine-id (DHCP CLIENT-ID per RFC 4361) and fails
+        # cryptically with "Failed to configure DHCPv4 client: No
+        # such file or directory" — and the NIC stays without an
+        # IP. We instead TRUNCATE machine-id to empty; systemd
+        # treats an empty file as "regenerate me at boot", which
+        # works reliably.
+        - shell: |
+            cloud-init clean --logs
+            rm -f /etc/netplan/50-cloud-init.yaml
+            : > /etc/machine-id
+            [ -f /var/lib/dbus/machine-id ] && [ ! -L /var/lib/dbus/machine-id ] \
+              && : > /var/lib/dbus/machine-id || true
+            # Slim: clear apt caches + zero free space so
+            # `target.compact: true` shrinks the qcow2.
+            apt-get clean
+            rm -rf /var/lib/apt/lists/*
+            dd if=/dev/zero of=/tmp/zero bs=1M status=none || true
+            rm -f /tmp/zero
+            sync
+
+      cleanup: always
+
+  # After the bake succeeds, instantiate a running `corvus-monitor`
+  # VM from the freshly registered image. Re-runs with
+  # `--skip-existing` are safe; first-time runs come up with
+  # Prometheus + Grafana already enabled (the bake-time
+  # `systemctl enable` from step 7), so the operator only needs to
+  # point Prometheus at their corvus-web target (see README.md).
+  - apply:
+      disks:
+        # Writable overlay so each (re)instantiation gets its own
+        # state without dirtying the base. Ephemeral = auto-deleted
+        # when the VM is deleted.
+        - name: corvus-monitor-overlay
+          overlay: corvus-monitor
+          ephemeral: true
+
+        # Per-VM OVMF NVRAM (writable; boot vars).
+        - name: corvus-monitor-ovmf-vars
+          clone: ovmf-vars
+          ephemeral: true
+
+      vms:
+        - name: corvus-monitor
+          cpuCount: 2
+          ramMb: 2048
+          description: "Prometheus + Grafana scraping corvus-web /metrics"
+          headless: true
+          guestAgent: true
+          cloudInit: true
+          # Start on daemon boot — monitoring should be up by default.
+          autostart: true
+          drives:
+            - disk: corvus-monitor-overlay
+              interface: virtio
+              media: disk
+              cacheType: writeback
+              discard: true
+            - disk: ovmf-code
+              interface: pflash
+              readOnly: true
+            - disk: corvus-monitor-ovmf-vars
+              interface: pflash
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - corvus

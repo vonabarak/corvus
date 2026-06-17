@@ -1,0 +1,35 @@
+# Prometheus scrape config for the corvus-monitor image.
+#
+# The single scrape job points at corvus-web's /metrics endpoint
+# (see python/corvus_web/routes/metrics.py:181). The target host
+# `host.local:8080` is a placeholder — operators override it
+# either by re-baking with their corvus-web hostname filled in, or
+# by SSHing into the deployed VM and editing this file in place,
+# then `systemctl reload prometheus`.
+#
+# /metrics is unauthenticated by design today; no scrape-side
+# credentials needed.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: corvus
+
+scrape_configs:
+  # Prometheus' own /metrics — sanity check that the scraper
+  # itself is healthy.
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - 127.0.0.1:9090
+
+  # The actual Corvus telemetry.
+  - job_name: corvus-web
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          # OVERRIDE THIS — see README.md. The hostname must be
+          # reachable from inside the monitoring VM (so 127.0.0.1
+          # would point at the VM itself, not the host).
+          - host.local:8080
