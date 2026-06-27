@@ -45,19 +45,23 @@ data WaitOptions = WaitOptions
   }
   deriving (Show, Eq)
 
--- | Cache-related knobs for @crv build@. These flags OR with the
--- per-build YAML fields (@useCache:@ / @buildCache:@); the
--- 'bcoRebuildFrom' field is CLI-only and caps the matched prefix
--- length when reusing a cache (0 = unset).
+-- | Knobs for @crv build@. The cache flags OR with the per-build
+-- YAML fields (@useCache:@ / @buildCache:@); the 'bcoRebuildFrom'
+-- field is CLI-only and caps the matched prefix length when reusing
+-- a cache (0 = unset). 'bcoVars' / 'bcoVarFiles' feed the
+-- client-side @${name}@ substitution pass — see
+-- 'Corvus.Client.BuildVars.applyBuildVars'.
 data BuildClientOptions = BuildClientOptions
   { bcoUseCache :: !Bool
   , bcoBuildCache :: !Bool
   , bcoRebuildFrom :: !Int
+  , bcoVars :: ![(Text, Text)]
+  , bcoVarFiles :: ![FilePath]
   }
   deriving (Show, Eq)
 
 defaultBuildClientOptions :: BuildClientOptions
-defaultBuildClientOptions = BuildClientOptions False False 0
+defaultBuildClientOptions = BuildClientOptions False False 0 [] []
 
 -- | Command line options.
 --

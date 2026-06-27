@@ -122,6 +122,7 @@ library
       Corvus.Client.Commands.GuestExec
       Corvus.Client.Commands.Apply
       Corvus.Client.Commands.Build
+      Corvus.Client.BuildVars
       Corvus.Client.Completion
       Corvus.Wire
       Corvus.Wire.Errors
@@ -275,6 +276,7 @@ library
     , process
     , random
     , resource-pool
+    , scientific
     , stm
     , supervisors
     , template-haskell
@@ -345,6 +347,7 @@ executable corvus
     , process
     , random
     , resource-pool
+    , scientific
     , stm
     , supervisors
     , template-haskell
@@ -415,6 +418,7 @@ executable corvus-netd
     , process
     , random
     , resource-pool
+    , scientific
     , stm
     , supervisors
     , template-haskell
@@ -485,6 +489,7 @@ executable corvus-nodeagent
     , process
     , random
     , resource-pool
+    , scientific
     , stm
     , supervisors
     , template-haskell
@@ -555,6 +560,7 @@ executable crv
     , process
     , random
     , resource-pool
+    , scientific
     , stm
     , supervisors
     , template-haskell
@@ -579,6 +585,7 @@ test-suite corvus-test
       Corvus.BuildCleanupSpec
       Corvus.BuildSchemaSpec
       Corvus.BuildStreamSpec
+      Corvus.BuildVarsSpec
       Corvus.CapnpServerSpec
       Corvus.ClientOutputSpec
       Corvus.CloudInitSpec
@@ -685,6 +692,7 @@ test-suite corvus-test
     , process
     , random
     , resource-pool
+    , scientific
     , silently
     , stm
     , supervisors

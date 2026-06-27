@@ -8,6 +8,8 @@ where
 
 import Corvus.Client.Parser.Utility (waitOptionsParser)
 import Corvus.Client.Types
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
+import qualified Data.Text as T
 import Options.Applicative
 
 -- | Build OS images from a YAML pipeline file.
@@ -49,3 +51,39 @@ buildClientOptionsParser =
           <> showDefault
           <> help "1-based step index that caps the matched prefix (only meaningful with --use-cache)"
       )
+    <*> many
+      ( option
+          (eitherReader parseVarFlag)
+          ( long "var"
+              <> metavar "KEY=VALUE"
+              <> help "Set a build variable (repeatable). Expands ${KEY} in the YAML."
+          )
+      )
+    <*> many
+      ( strOption
+          ( long "var-file"
+              <> metavar "FILE"
+              <> help "Load build variables from a YAML/JSON mapping (repeatable; later files override earlier ones, both lose to --var)"
+              <> action "file"
+          )
+      )
+
+-- | Parse a single @KEY=VALUE@ argument. @KEY@ must be a non-empty
+-- identifier-shaped string; the value may contain @=@ characters
+-- (the first @=@ separates key from value).
+parseVarFlag :: String -> Either String (T.Text, T.Text)
+parseVarFlag raw =
+  let (k, eqv) = break (== '=') raw
+   in case eqv of
+        ('=' : v) | not (null k) && validIdent k -> Right (T.pack k, T.pack v)
+        _ -> Left ("expected KEY=VALUE with an identifier KEY, got: " <> raw)
+
+-- | @[A-Za-z_][A-Za-z0-9_]*@.
+validIdent :: String -> Bool
+validIdent (c : cs) =
+  (isAsciiLetter c || c == '_')
+    && all (\x -> isAsciiLetter x || isDigit x || x == '_') cs
+validIdent [] = False
+
+isAsciiLetter :: Char -> Bool
+isAsciiLetter c = isAsciiUpper c || isAsciiLower c

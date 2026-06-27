@@ -7,8 +7,20 @@
 #   crv apply yaml/multi-os/multi-os.yml
 #   crv build yaml/corvus-monitor/corvus-monitor.yml
 #
+# To bake the dashboard pointed at a specific corvus-web endpoint,
+# pass it on the command line — no source edits required:
+#
+#   crv build yaml/corvus-monitor/corvus-monitor.yml \
+#       --var corvus_web_target=10.0.0.5:8080
+#
 # On success, a Corvus disk named `corvus-monitor` is registered.
 # See README.md for the deploy + scrape-target-override recipe.
+
+# `corvus_web_target` defaults to the historical placeholder so
+# existing operators still get the same image without flags. Override
+# with `--var corvus_web_target=host:port` at build time.
+vars:
+  corvus_web_target: "host.local:8080"
 
 pipeline:
   - build:
@@ -99,12 +111,19 @@ pipeline:
             to: /var/lib/grafana/dashboards/corvus.json
             mode: "0644"
 
-        # 7. Permissions, enable on boot, sanity-check Prometheus
-        #    config so a broken scrape target trips here (during
-        #    the build) instead of post-deploy.
+        # 7. Permissions, scrape-target swap-in, enable on boot.
+        #    The `sed` rewrites the historical `host.local:8080`
+        #    placeholder in the uploaded prometheus.yml with whatever
+        #    the `corvus_web_target` build variable resolved to —
+        #    default placeholder when unspecified, operator-supplied
+        #    `host:port` when bake was invoked with
+        #    `--var corvus_web_target=...`. Promtool then sanity-checks
+        #    the result so a malformed target trips here (during the
+        #    build) instead of post-deploy.
         - shell: |
             install -d -o grafana -g grafana -m 0755 /var/lib/grafana/dashboards
             chown grafana:grafana /var/lib/grafana/dashboards/corvus.json
+            sed -i 's|host.local:8080|${corvus_web_target}|g' /etc/prometheus/prometheus.yml
             chown root:prometheus /etc/prometheus/prometheus.yml
             chmod 0640 /etc/prometheus/prometheus.yml
             promtool check config /etc/prometheus/prometheus.yml

@@ -233,13 +233,14 @@ test-image-vm-clean:
 # To force a rebake, `crv disk delete <name>` first; the guard
 # will then re-run the corresponding `crv build`.
 test-image-node: test-image-key
-	@crv -o json disk show gentoo-base-headless >/dev/null 2>&1 || \
-	  crv build yaml/gentoo-test/gentoo-headless.yml --wait
+	@crv -o json template show gentoo-headless >/dev/null 2>&1 || \
+	  make -C yaml/gentoo-test build-headless
 	@crv -o json disk show corvus-test-node >/dev/null 2>&1 || \
 	  crv build yaml/corvus-test-node/corvus-test-node.yml --wait
 test-image-node-clean:
 	crv template delete corvus-test-node || true
 	crv disk delete corvus-test-node || true
+	make -C yaml/gentoo-test clean
 
 # Build the Windows Server 2025 test image.
 #

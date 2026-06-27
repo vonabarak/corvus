@@ -31,13 +31,21 @@
 # (registered non-ephemeral on success). A second template,
 # `gentoo-headless-standalone`, overlays the artifact for downstream
 # VM creation.
+# Build-time variables. `gentoo_base_cloud_url` is declared without
+# a default (required) because the upstream Gentoo autobuild filename
+# rotates every few days; pass the current URL via
+# `crv build --var gentoo_base_cloud_url=...` or use the Makefile,
+# which discovers the latest filename and threads it through for you.
+vars:
+  gentoo_base_cloud_url: ~
+
 pipeline:
   - apply:
       ifExists: skip
 
       disks:
         - name: gentoo-base-cloud
-          import: "https://distfiles.gentoo.org/releases/amd64/autobuilds/current-di-amd64-cloudinit/di-amd64-cloudinit-20260607T170134Z.qcow2"
+          import: "${gentoo_base_cloud_url}"
           format: qcow2
           path: BaseImages/Gentoo/
 

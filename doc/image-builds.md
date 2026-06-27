@@ -60,6 +60,74 @@ The client preprocesses the YAML before sending it to the daemon: any
 relative to the YAML file's directory. The daemon never reads the
 client's filesystem.
 
+## Variables
+
+Build YAML can declare named variables in a top-level `vars:` block
+and reference them with `${name}` anywhere in the document.
+Substitution runs **client-side**, after parsing and before the
+daemon ever sees the document, so the daemon stays unaware of
+variables — by the time the pipeline is shipped, every reference
+is replaced with a concrete value.
+
+```yaml
+vars:
+  base_image_url: ~                 # required: must be supplied via --var
+  corvus_web_target: "host:8080"    # default; overridable via --var
+
+pipeline:
+  - apply:
+      disks:
+        - name: base
+          import: "${base_image_url}"
+  - build:
+      name: my-image
+      template: debian12
+      provisioners:
+        - shell: |
+            sed -i 's|host:8080|${corvus_web_target}|g' /etc/prometheus/prometheus.yml
+```
+
+Set or override variables at build time with repeatable flags:
+
+```sh
+crv build my-build.yml \
+    --var base_image_url=https://example.com/base.qcow2 \
+    --var corvus_web_target=10.0.0.5:8080
+
+# or load a YAML/JSON mapping from disk (repeatable; later files
+# override earlier; both lose to --var)
+crv build my-build.yml --var-file local.vars.yml --var corvus_web_target=...
+```
+
+Rules:
+
+* `${name}` — required reference. Build aborts if `name` is not
+  declared in `vars:`.
+* `$${literal}` — escape; produces a literal `${literal}` in the
+  output. Use this when a shell snippet inside the YAML legitimately
+  contains `${SOMETHING}` you do not want substituted.
+* Bare `$X` (without braces) is passed through verbatim, so embedded
+  shell snippets using `$VAR` / `$1` / `$$` stay intact.
+* A variable declared with no default (YAML `~` / null) is
+  **required** — the build aborts if no `--var` or `--var-file`
+  supplies it.
+* `--var KEY=VALUE` and keys inside `--var-file` files that name a
+  variable not declared in `vars:` are an error — `vars:` is the
+  complete allowed surface.
+
+Substitution applies to **string values only** anywhere in the tree
+(top-level or nested under `pipeline:`, including inline `apply:`
+steps). Keys are never substituted. The `vars:` block itself is
+stripped from the document before the RPC is sent.
+
+Variables do **not** reach the contents of files uploaded by a
+`file:` provisioner — those are read and base64-encoded as-is by
+the client preprocessor. To template a config file's contents, either
+write it inline (`shell: |\n  cat > /etc/foo <<EOF ... ${var} ... EOF`)
+or `sed` the placeholder in a post-upload shell step, as
+[`yaml/corvus-monitor/corvus-monitor.yml`](../yaml/corvus-monitor/corvus-monitor.yml)
+demonstrates.
+
 ## Schema
 
 ```yaml

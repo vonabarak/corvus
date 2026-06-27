@@ -18,6 +18,7 @@ where
 import Control.Concurrent.MVar (MVar, newEmptyMVar, putMVar, takeMVar, tryPutMVar)
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
+import Corvus.Client.BuildVars (applyBuildVars, renderVarError)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (emitError, emitOkWith)
@@ -56,16 +57,23 @@ handleBuild fmt conn path bcOpts waitOpts = do
       emitError fmt "yaml_parse" msg $ TIO.putStrLn msg
       pure False
     Right (Right root) -> do
-      let baseDir = takeDirectory path
-      inlinedResult <- try (preprocessRoot baseDir root) :: IO (Either SomeException Value)
-      case inlinedResult of
+      varsResult <- applyBuildVars (bcoVars bcOpts) (bcoVarFiles bcOpts) root
+      case varsResult of
         Left e -> do
-          let msg = "preprocess error: " <> T.pack (show e)
-          emitError fmt "preprocess_error" msg $ TIO.putStrLn msg
+          let msg = renderVarError e
+          emitError fmt "build_vars" msg $ TIO.putStrLn msg
           pure False
-        Right inlined -> do
-          let yaml = TE.decodeUtf8 (Yaml.encode inlined)
-          runBuild fmt conn yaml bcOpts (woWait waitOpts)
+        Right substituted -> do
+          let baseDir = takeDirectory path
+          inlinedResult <- try (preprocessRoot baseDir substituted) :: IO (Either SomeException Value)
+          case inlinedResult of
+            Left e -> do
+              let msg = "preprocess error: " <> T.pack (show e)
+              emitError fmt "preprocess_error" msg $ TIO.putStrLn msg
+              pure False
+            Right inlined -> do
+              let yaml = TE.decodeUtf8 (Yaml.encode inlined)
+              runBuild fmt conn yaml bcOpts (woWait waitOpts)
 
 runBuild :: OutputFormat -> CapnpConnection -> T.Text -> BuildClientOptions -> Bool -> IO Bool
 runBuild fmt conn yaml bcOpts wait = do

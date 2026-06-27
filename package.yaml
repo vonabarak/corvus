@@ -29,6 +29,7 @@ dependencies:
   - exceptions
   - aeson
   - aeson-qq
+  - scientific
   - yaml
   - template-haskell
   - haskell-src-meta
@@ -182,6 +183,7 @@ library:
     - Corvus.Client.Commands.GuestExec
     - Corvus.Client.Commands.Apply
     - Corvus.Client.Commands.Build
+    - Corvus.Client.BuildVars
     - Corvus.Client.Completion
     - Corvus.Wire
     - Corvus.Wire.Errors
