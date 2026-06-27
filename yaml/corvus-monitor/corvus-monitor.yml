@@ -123,7 +123,7 @@ pipeline:
         - shell: |
             install -d -o grafana -g grafana -m 0755 /var/lib/grafana/dashboards
             chown grafana:grafana /var/lib/grafana/dashboards/corvus.json
-            sed -i 's|host.local:8080|${corvus_web_target}|g' /etc/prometheus/prometheus.yml
+            sed -i 's|host.local:8080|{{ corvus_web_target }}|g' /etc/prometheus/prometheus.yml
             chown root:prometheus /etc/prometheus/prometheus.yml
             chmod 0640 /etc/prometheus/prometheus.yml
             promtool check config /etc/prometheus/prometheus.yml

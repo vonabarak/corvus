@@ -3,11 +3,11 @@
 
 -- | Unit tests for 'Corvus.Client.BuildVars.applyBuildVars'.
 --
--- Covers the substitution syntax (@${name}@, @$$@ escape, bare
--- @$X@), the @vars:@-declares-the-allowed-set rule, the CLI / file
--- precedence order, the required-no-default contract, and the
--- guarantee that the top-level @vars:@ key is stripped from the
--- output (so the daemon never sees it).
+-- Covers the substitution syntax (@{{ name }}@), literal delimiter
+-- escapes, the @vars:@-declares-the-allowed-set rule, the CLI / file
+-- precedence order, the required-no-default contract, and the guarantee
+-- that the top-level @vars:@ key is stripped from the output (so the
+-- daemon never sees it).
 module Corvus.BuildVarsSpec (spec) where
 
 import Corvus.Client.BuildVars (VarError (..), applyBuildVars)
@@ -47,7 +47,7 @@ pipeline:
     r <- applyBuildVars [] [] doc
     r `shouldBe` Right expected
 
-  it "expands a single ${name} reference from --var" $ do
+  it "expands a single {{ name }} reference from --var" $ do
     let doc =
           [yamlQQ|
 vars:
@@ -56,7 +56,7 @@ pipeline:
   - apply:
       disks:
         - name: foo
-          import: "${base_image_url}"
+          import: "{{ base_image_url }}"
 |]
         expected =
           [yamlQQ|
@@ -82,7 +82,7 @@ pipeline:
   - apply:
       vms:
         - name: m
-          notes: "${monitor_ip}"
+          notes: "{{ monitor_ip }}"
 |]
         expected =
           [yamlQQ|
@@ -104,7 +104,7 @@ pipeline:
   - apply:
       vms:
         - name: m
-          notes: "${monitor_ip}"
+          notes: "{{ monitor_ip }}"
 |]
         expected =
           [yamlQQ|
@@ -123,17 +123,17 @@ pipeline:
 vars:
   base_image_url: ~
 pipeline:
-  - apply: {disks: [{name: f, import: "${base_image_url}"}]}
+  - apply: {disks: [{name: f, import: "{{ base_image_url }}"}]}
 |]
     r <- applyBuildVars [] [] doc
     r `shouldBe` Left (VarUnsetRequired "base_image_url")
 
-  it "errors on ${unknown} reference" $ do
+  it "errors on {{ unknown }} reference" $ do
     let doc =
           [yamlQQ|
 vars: {x: "1"}
 pipeline:
-  - apply: {vms: [{name: m, notes: "${typo}"}]}
+  - apply: {vms: [{name: m, notes: "{{ typo }}"}]}
 |]
     r <- applyBuildVars [] [] doc
     case r of
@@ -145,24 +145,24 @@ pipeline:
           [yamlQQ|
 vars: {x: "1"}
 pipeline:
-  - apply: {vms: [{name: m, notes: "${x}"}]}
+  - apply: {vms: [{name: m, notes: "{{ x }}"}]}
 |]
     r <- applyBuildVars [("y", "2")] [] doc
     r `shouldBe` Left (VarUndeclaredCli "y")
 
-  it "errors on malformed ${ref with no closing brace" $ do
+  it "errors on malformed {{ ref with no closing braces" $ do
     let doc =
           [yamlQQ|
 vars: {x: "1"}
 pipeline:
-  - apply: {vms: [{name: m, notes: "${x is broken"}]}
+  - apply: {vms: [{name: m, notes: "{{ x is broken"}]}
 |]
     r <- applyBuildVars [] [] doc
     case r of
       Left (VarMalformedRef _) -> pure ()
       other -> expectationFailure ("expected VarMalformedRef, got " <> show other)
 
-  it "treats $$ as a literal $" $ do
+  it "expands compact {{name}} references without spaces" $ do
     let doc =
           [yamlQQ|
 vars: {x: "1"}
@@ -170,7 +170,7 @@ pipeline:
   - apply:
       vms:
         - name: m
-          notes: "literal $${HOME} and templated ${x}"
+          notes: "templated {{x}}"
 |]
         expected =
           [yamlQQ|
@@ -178,12 +178,12 @@ pipeline:
   - apply:
       vms:
         - name: m
-          notes: "literal ${HOME} and templated 1"
+          notes: "templated 1"
 |]
     r <- applyBuildVars [] [] doc
     r `shouldBe` Right expected
 
-  it "leaves bare \"$NAME\" (no braces) untouched" $ do
+  it "leaves shell variables untouched" $ do
     let doc =
           [yamlQQ|
 vars: {x: "1"}
@@ -191,7 +191,7 @@ pipeline:
   - apply:
       vms:
         - name: m
-          notes: "$5 and $HOME"
+          notes: "$5 and $HOME and ${HOME} and ${DEV}2"
 |]
         expected =
           [yamlQQ|
@@ -199,12 +199,54 @@ pipeline:
   - apply:
       vms:
         - name: m
-          notes: "$5 and $HOME"
+          notes: "$5 and $HOME and ${HOME} and ${DEV}2"
 |]
     r <- applyBuildVars [] [] doc
     r `shouldBe` Right expected
 
-  it "expands multiple ${...} refs in one string" $ do
+  it "leaves old ${name} syntax untouched" $ do
+    let doc =
+          [yamlQQ|
+vars: {x: "1"}
+pipeline:
+  - apply:
+      vms:
+        - name: m
+          notes: "${x}"
+|]
+        expected =
+          [yamlQQ|
+pipeline:
+  - apply:
+      vms:
+        - name: m
+          notes: "${x}"
+|]
+    r <- applyBuildVars [] [] doc
+    r `shouldBe` Right expected
+
+  it "escapes literal template delimiters" $ do
+    let doc =
+          [yamlQQ|
+vars: {x: "1"}
+pipeline:
+  - apply:
+      vms:
+        - name: m
+          notes: "literal {{{{ x }}}} and templated {{ x }}"
+|]
+        expected =
+          [yamlQQ|
+pipeline:
+  - apply:
+      vms:
+        - name: m
+          notes: "literal {{ x }} and templated 1"
+|]
+    r <- applyBuildVars [] [] doc
+    r `shouldBe` Right expected
+
+  it "expands multiple {{ ... }} refs in one string" $ do
     let doc =
           [yamlQQ|
 vars:
@@ -214,7 +256,7 @@ pipeline:
   - apply:
       disks:
         - name: f
-          import: "${base}/path/${file}"
+          import: "{{ base }}/path/{{ file }}"
 |]
         expected =
           [yamlQQ|
@@ -235,8 +277,8 @@ pipeline:
   - apply:
       vms:
         - name: m
-          notes: "${host}:${port}"
-          tags: ["${host}", "static", "${port}"]
+          notes: "{{ host }}:{{ port }}"
+          tags: ["{{ host }}", "static", "{{ port }}"]
 |]
         expected =
           [yamlQQ|

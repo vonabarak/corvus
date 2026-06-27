@@ -6,7 +6,7 @@
 --
 -- The build YAML may carry a top-level @vars:@ block that declares
 -- the variables the document expects, with optional defaults.
--- References elsewhere in the document use shell-style @${name}@.
+-- References elsewhere in the document use Jinja-style @{{ name }}@.
 -- The complete substitution pipeline is:
 --
 -- @
@@ -15,7 +15,7 @@
 --                          the declared set and the document sans vars:)
 --   ─▶ resolveVars        (merge declarations with --var / --var-file;
 --                          enforce required, reject undeclared)
---   ─▶ substituteValue    (walk strings and expand ${name})
+--   ─▶ substituteValue    (walk strings and expand {{ name }})
 -- @
 --
 -- The pass is **client-side only**: the document handed off to the
@@ -53,12 +53,12 @@ data VarError
     VarsBlockBadValue Text
   | -- | A variable was declared with no default and not supplied on CLI.
     VarUnsetRequired Text
-  | -- | A @${ref}@ in the document names a variable not declared in @vars:@.
+  | -- | A @{{ ref }}@ in the document names a variable not declared in @vars:@.
     VarUnknownRef
       Text
       Text
       -- ^ name, ~40-char excerpt
-  | -- | A @${@ in the document is missing its closing @}@.
+  | -- | A @{{@ in the document is missing its closing @}}@.
     VarMalformedRef
       Text
       -- ^ ~40-char excerpt
@@ -79,9 +79,9 @@ renderVarError = \case
   VarUnsetRequired k ->
     "build vars: `" <> k <> "` is required (declared in `vars:` with no default); set it with --var " <> k <> "=VALUE"
   VarUnknownRef k ctx ->
-    "build vars: `${" <> k <> "}` references an undeclared variable (near \"" <> ctx <> "\"); add it to the YAML's `vars:` block"
+    "build vars: `{{ " <> k <> " }}` references an undeclared variable (near \"" <> ctx <> "\"); add it to the YAML's `vars:` block"
   VarMalformedRef ctx ->
-    "build vars: malformed `${...}` reference (no closing brace) near \"" <> ctx <> "\""
+    "build vars: malformed `{{ ... }}` reference (no closing braces) near \"" <> ctx <> "\""
   VarUndeclaredCli k ->
     "build vars: --var " <> k <> "=... is not declared in the YAML's `vars:` block"
   VarFileParse p msg ->
@@ -96,7 +96,7 @@ renderVarError = \case
 --
 -- The output 'Value' has its @vars:@ key removed (if present); only
 -- variables declared in that block are accepted from the CLI, and
--- only @${name}@ references to declared variables are accepted in
+-- only @{{ name }}@ references to declared variables are accepted in
 -- the document. Returns 'Right' iff every reference resolves.
 applyBuildVars
   :: [(Text, Text)]
@@ -186,7 +186,7 @@ resolveVars declared fromFiles cliVars = do
 -- ---------------------------------------------------------------------------
 -- Substitution
 
--- | Walk the Value tree expanding @${name}@ in every string leaf.
+-- | Walk the Value tree expanding @{{ name }}@ in every string leaf.
 -- Keys and non-string scalars are left untouched.
 substituteValue :: Map Text Text -> Value -> Either VarError Value
 substituteValue vars = go
@@ -196,28 +196,29 @@ substituteValue vars = go
     go (Object o) = Object <$> traverse go o
     go v = Right v
 
--- | Expand @${name}@ references in @t@. @$$@ is an escape that
--- produces a literal @$@. Bare @$@ followed by anything that isn't
--- @{@ or @$@ is passed through verbatim, so YAML-embedded shell
--- snippets with @$VAR@ stay intact.
+-- | Expand @{{ name }}@ references in @t@. @{{{{@ and @}}}}@ escape
+-- literal delimiters, producing @{{@ and @}}@ respectively. Shell-style
+-- variables such as @${HOME}@ are passed through verbatim.
 substituteText :: Map Text Text -> Text -> Either VarError Text
 substituteText vars = fmap T.concat . loop
   where
     loop :: Text -> Either VarError [Text]
-    loop t = case T.uncons t of
-      Nothing -> Right []
-      Just ('$', rest1) -> case T.uncons rest1 of
-        Just ('$', rest2) -> ("$" :) <$> loop rest2
-        Just ('{', rest2) -> case T.breakOn "}" rest2 of
-          (_, post) | T.null post -> Left (VarMalformedRef (excerpt t))
-          (name, post) -> do
-            let after = T.drop 1 post
-            value <- lookupVar name (excerpt t)
-            (value :) <$> loop after
-        _ -> ("$" :) <$> loop rest1
-      Just _ ->
-        let (lit, rest) = T.break (== '$') t
-         in (lit :) <$> loop rest
+    loop t
+      | T.null t = Right []
+      | "{{{{" `T.isPrefixOf` t = ("{{" :) <$> loop (T.drop 4 t)
+      | "}}}}" `T.isPrefixOf` t = ("}}" :) <$> loop (T.drop 4 t)
+      | "{{" `T.isPrefixOf` t =
+          let rest = T.drop 2 t
+           in case T.breakOn "}}" rest of
+                (_, post) | T.null post -> Left (VarMalformedRef (excerpt t))
+                (rawName, post) -> do
+                  let after = T.drop 2 post
+                      name = T.strip rawName
+                  value <- lookupVar name (excerpt t)
+                  (value :) <$> loop after
+      | otherwise =
+          let (lit, rest) = T.splitAt 1 t
+           in (lit :) <$> loop rest
 
     lookupVar name ctx
       | not (isIdent name) = Left (VarUnknownRef name ctx)

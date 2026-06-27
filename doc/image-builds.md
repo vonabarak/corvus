@@ -63,7 +63,7 @@ client's filesystem.
 ## Variables
 
 Build YAML can declare named variables in a top-level `vars:` block
-and reference them with `${name}` anywhere in the document.
+and reference them with `{{ name }}` anywhere in the document.
 Substitution runs **client-side**, after parsing and before the
 daemon ever sees the document, so the daemon stays unaware of
 variables — by the time the pipeline is shipped, every reference
@@ -78,13 +78,13 @@ pipeline:
   - apply:
       disks:
         - name: base
-          import: "${base_image_url}"
+          import: "{{ base_image_url }}"
   - build:
       name: my-image
       template: debian12
       provisioners:
         - shell: |
-            sed -i 's|host:8080|${corvus_web_target}|g' /etc/prometheus/prometheus.yml
+            sed -i 's|host:8080|{{ corvus_web_target }}|g' /etc/prometheus/prometheus.yml
 ```
 
 Set or override variables at build time with repeatable flags:
@@ -101,13 +101,13 @@ crv build my-build.yml --var-file local.vars.yml --var corvus_web_target=...
 
 Rules:
 
-* `${name}` — required reference. Build aborts if `name` is not
-  declared in `vars:`.
-* `$${literal}` — escape; produces a literal `${literal}` in the
-  output. Use this when a shell snippet inside the YAML legitimately
-  contains `${SOMETHING}` you do not want substituted.
-* Bare `$X` (without braces) is passed through verbatim, so embedded
-  shell snippets using `$VAR` / `$1` / `$$` stay intact.
+* `{{ name }}` — required reference. Build aborts if `name` is not
+  declared in `vars:`. Whitespace inside the braces is optional, so
+  `{{name}}` is equivalent.
+* `{{{{` and `}}}}` — escape literal template delimiters; for example
+  `{{{{ name }}}}` produces literal `{{ name }}` in the output.
+* Shell variables are passed through verbatim, so embedded shell
+  snippets using `$VAR` / `${VAR}` / `$1` / `$$` stay intact.
 * A variable declared with no default (YAML `~` / null) is
   **required** — the build aborts if no `--var` or `--var-file`
   supplies it.
@@ -123,7 +123,7 @@ stripped from the document before the RPC is sent.
 Variables do **not** reach the contents of files uploaded by a
 `file:` provisioner — those are read and base64-encoded as-is by
 the client preprocessor. To template a config file's contents, either
-write it inline (`shell: |\n  cat > /etc/foo <<EOF ... ${var} ... EOF`)
+write it inline (`shell: |\n  cat > /etc/foo <<EOF ... {{ var }} ... EOF`)
 or `sed` the placeholder in a post-upload shell step, as
 [`yaml/corvus-monitor/corvus-monitor.yml`](../yaml/corvus-monitor/corvus-monitor.yml)
 demonstrates.

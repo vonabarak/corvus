@@ -49,7 +49,7 @@ data WaitOptions = WaitOptions
 -- YAML fields (@useCache:@ / @buildCache:@); the 'bcoRebuildFrom'
 -- field is CLI-only and caps the matched prefix length when reusing
 -- a cache (0 = unset). 'bcoVars' / 'bcoVarFiles' feed the
--- client-side @${name}@ substitution pass — see
+-- client-side @{{ name }}@ substitution pass — see
 -- 'Corvus.Client.BuildVars.applyBuildVars'.
 data BuildClientOptions = BuildClientOptions
   { bcoUseCache :: !Bool

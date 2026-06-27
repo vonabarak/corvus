@@ -56,7 +56,7 @@ buildClientOptionsParser =
           (eitherReader parseVarFlag)
           ( long "var"
               <> metavar "KEY=VALUE"
-              <> help "Set a build variable (repeatable). Expands ${KEY} in the YAML."
+              <> help "Set a build variable (repeatable). Expands {{ KEY }} in the YAML."
           )
       )
     <*> many

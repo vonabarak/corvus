@@ -45,7 +45,7 @@ pipeline:
 
       disks:
         - name: gentoo-base-cloud
-          import: "${gentoo_base_cloud_url}"
+          import: "{{ gentoo_base_cloud_url }}"
           format: qcow2
           path: BaseImages/Gentoo/
 
