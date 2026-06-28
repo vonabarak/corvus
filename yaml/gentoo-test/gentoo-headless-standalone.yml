@@ -31,13 +31,13 @@
 # (registered non-ephemeral on success). A second template,
 # `gentoo-headless-standalone`, overlays the artifact for downstream
 # VM creation.
-# Build-time variables. `gentoo_base_cloud_url` is declared without
-# a default (required) because the upstream Gentoo autobuild filename
-# rotates every few days; pass the current URL via
-# `crv build --var gentoo_base_cloud_url=...` or use the Makefile,
-# which discovers the latest filename and threads it through for you.
+# Build-time variables are declared without defaults because the
+# upstream Gentoo autobuild filename and checksum rotate every few
+# days; pass the current values via `crv build --var ...` or use the
+# Makefile, which discovers both and threads them through for you.
 vars:
   gentoo_base_cloud_url: ~
+  gentoo_base_cloud_sha256: ~
 
 pipeline:
   - apply:
@@ -48,6 +48,9 @@ pipeline:
           import: "{{ gentoo_base_cloud_url }}"
           format: qcow2
           path: BaseImages/Gentoo/
+          checksum:
+            algorithm: sha256
+            value: "{{ gentoo_base_cloud_sha256 }}"
 
       templates:
         - name: gentoo-cloud-standalone

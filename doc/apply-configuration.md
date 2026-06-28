@@ -159,7 +159,10 @@ disks:
     sizeMb: <integer>         # Size in MB (for create; optional resize hint for overlay).
     path: <string>            # Optional destination path for import/overlay/clone/create output file.
     backing: <string>         # Optional backing disk name (only valid with `register`, for overlays).
-    md5: <string>             # Optional 32-hex MD5 (only valid with `import`); see below.
+    checksum:                 # Optional integrity check for HTTP/HTTPS imports; see below.
+      algorithm: <string>     # md5, sha1, sha256, sha512, or blake2b.
+      value: <string>         # Hex digest for the selected algorithm.
+      target: <string>        # Optional: download (default) or final.
     ephemeral: <bool>         # Optional. Default false. When true, the disk is auto-deleted with the VM it ends up attached to.
 ```
 
@@ -186,34 +189,39 @@ The `format` field is optional — it is auto-detected from the file extension o
 
 The optional `path` field controls where the imported file is placed (see [Custom Path](#custom-path)). Without it, the file is placed in the base images directory with a name derived from the disk name and format extension.
 
-#### MD5 verification
+#### Checksum verification
 
-The optional `md5` field carries a 32-hex MD5 of the **final on-disk
-file** — for `.xz` URLs that's the decompressed result, not the
-archive — so the same hash applies regardless of upstream
-compression. When set:
+The optional `checksum` object verifies HTTP/HTTPS imports. Supported
+algorithms are `sha256`, `sha512`, `blake2b`, `sha1`, and `md5`.
+Prefer `sha256` or `sha512` when upstream provides them; `md5` and
+`sha1` are kept for legacy image sources.
 
-- After a successful download (and decompression, if applicable) the
-  daemon computes the file's MD5 and compares it. On mismatch, the
-  artifact is deleted and the download is retried; up to **3 total
-  attempts** are made before failing.
-- If the destination file already exists from a previous apply, the
-  daemon hashes it without re-downloading. Match → skip the
-  download. Mismatch → fail with a "refusing to overwrite" error;
-  the existing file is **not** deleted, so the operator can
-  investigate.
-- Without `md5`, the existing-file behaviour stays as before
-  ("Destination file already exists" — no clobber). This is the safe
-  default.
+`target` controls which file is checked:
 
-`md5` is only valid alongside `import`.
+- `download` (default): verify the downloaded bytes before any `.xz`
+  decompression. Use this with upstream sidecar files such as
+  `SHA256SUMS`, `SHA512SUMS`, or `CHECKSUM.SHA512`.
+- `final`: verify the final on-disk file after decompression. If the
+  destination file already exists from a previous apply, the daemon
+  hashes it without re-downloading. Match → skip the download.
+  Mismatch → fail with a "refusing to overwrite" error; the existing
+  file is not deleted.
+
+On mismatch after a fresh download, the checked artifact is deleted
+and the download is retried; up to **3 total attempts** are made before
+failing. Without `checksum`, existing-file behaviour stays as before
+("Destination file already exists" — no clobber).
+
+`checksum` is only valid alongside HTTP/HTTPS `import`.
 
 ```yaml
 disks:
   - name: debian-12-generic-base
     import: "https://cloud.debian.org/.../debian-12-generic-amd64.qcow2"
     format: qcow2
-    md5: "5526fc1a86b8af0e72eb71d6831f8d9d"
+    checksum:
+      algorithm: sha512
+      value: "6ea48973e8f36f5a29d5e4975224f8319a7f2b31cb90a7d60481f6f02a4eaa68fdb5ebca9869d80c22d5a229736e7f538eed75d240e416e37dd7d28941ba40a1"
 ```
 
 ### Register

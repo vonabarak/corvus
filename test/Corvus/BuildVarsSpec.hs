@@ -73,6 +73,41 @@ pipeline:
         doc
     r `shouldBe` Right expected
 
+  it "expands checksum values inside apply disk definitions" $ do
+    let doc =
+          [yamlQQ|
+vars:
+  base_image_url: ~
+  base_image_sha256: ~
+pipeline:
+  - apply:
+      disks:
+        - name: foo
+          import: "{{ base_image_url }}"
+          checksum:
+            algorithm: sha256
+            value: "{{ base_image_sha256 }}"
+|]
+        expected =
+          [yamlQQ|
+pipeline:
+  - apply:
+      disks:
+        - name: foo
+          import: "https://example.com/foo.qcow2"
+          checksum:
+            algorithm: sha256
+            value: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+|]
+    r <-
+      applyBuildVars
+        [ ("base_image_url", "https://example.com/foo.qcow2")
+        , ("base_image_sha256", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        ]
+        []
+        doc
+    r `shouldBe` Right expected
+
   it "uses a YAML default when no --var is supplied" $ do
     let doc =
           [yamlQQ|

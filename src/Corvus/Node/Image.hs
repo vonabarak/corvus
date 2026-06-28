@@ -7,7 +7,7 @@
 --
 -- Phase 2: lives under "Corvus.Node" because every function in it
 -- shells out to a host-side tool (@qemu-img@, @cp@, @curl@/@wget@,
--- @xz@, @md5sum@) and writes to the local disk. Invoked by the
+-- @xz@) and writes to the local disk. Invoked by the
 -- agent's 'Corvus.Node.Caps.Session'. The daemon reaches it
 -- exclusively through the Cap'n Proto wire (see
 -- "Corvus.NodeAgentClient").
@@ -40,6 +40,7 @@ module Corvus.Node.Image
   , decompressXz
 
     -- * Hashing
+  , hashFile
   , md5HashFile
 
     -- * URL utilities
@@ -61,8 +62,10 @@ import Control.Concurrent.Async (async, cancel)
 import Control.Exception (SomeException, try)
 import Control.Monad (when)
 import Corvus.Model (DriveFormat (..), EnumText (..))
+import qualified Crypto.Hash as Hash
 import Data.Aeson (FromJSON (..), eitherDecodeStrict, withObject, (.:), (.:?))
 import qualified Data.ByteString.Char8 as BS8
+import qualified Data.ByteString.Lazy as LBS
 import Data.Char (isDigit, toLower)
 import Data.Int (Int64)
 import Data.List (isPrefixOf, isSuffixOf)
@@ -659,26 +662,28 @@ decompressXz xzPath = do
 -- Hashing
 --------------------------------------------------------------------------------
 
--- | Compute the MD5 hash of a file, shelling out to @md5sum@.
--- Returns the hash as a lowercase 32-character hex string. Errors
--- if @md5sum@ is missing, the file isn't readable, or the output
--- isn't well-formed (something other than 32 hex chars).
-md5HashFile :: FilePath -> IO (Either Text Text)
-md5HashFile path = do
-  result <- try $ readProcessWithExitCode "md5sum" [path] ""
+-- | Compute a hex digest of a file. Supported algorithm names are
+-- @md5@, @sha1@, @sha256@, @sha512@, and @blake2b@.
+hashFile :: Text -> FilePath -> IO (Either Text Text)
+hashFile algorithm path = do
+  result <- try $ LBS.readFile path
   case result of
-    Left (_ :: SomeException) ->
-      pure $ Left "md5sum command not found"
-    Right (ExitSuccess, out, _) ->
-      let h = takeWhile (/= ' ') out
-       in if length h == 32 && all isMd5HexDigit h
-            then pure $ Right (T.toLower (T.pack h))
-            else pure $ Left $ "md5sum returned malformed output: " <> T.pack (show out)
-    Right (ExitFailure n, _, stderr) ->
-      pure $ Left $ "md5sum failed (exit " <> T.pack (show n) <> "): " <> T.pack stderr
+    Left (e :: SomeException) ->
+      pure $ Left $ "hashFile: cannot read " <> T.pack path <> ": " <> T.pack (show e)
+    Right bytes -> case T.toLower algorithm of
+      "md5" -> pure $ Right $ digestHex (Hash.hashlazy bytes :: Hash.Digest Hash.MD5)
+      "sha1" -> pure $ Right $ digestHex (Hash.hashlazy bytes :: Hash.Digest Hash.SHA1)
+      "sha256" -> pure $ Right $ digestHex (Hash.hashlazy bytes :: Hash.Digest Hash.SHA256)
+      "sha512" -> pure $ Right $ digestHex (Hash.hashlazy bytes :: Hash.Digest Hash.SHA512)
+      "blake2b" -> pure $ Right $ digestHex (Hash.hashlazy bytes :: Hash.Digest Hash.Blake2b_512)
+      other -> pure $ Left $ "unsupported hash algorithm: " <> other
   where
-    isMd5HexDigit c =
-      isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+    digestHex :: (Show a) => a -> Text
+    digestHex = T.toLower . T.pack . show
+
+-- | Compute the MD5 hash of a file.
+md5HashFile :: FilePath -> IO (Either Text Text)
+md5HashFile = hashFile "md5"
 
 --------------------------------------------------------------------------------
 -- URL Utilities

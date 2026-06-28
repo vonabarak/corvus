@@ -242,7 +242,7 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
               , diaSource = srcPath
               , diaDestPath = Nothing
               , diaFormat = Nothing
-              , diaMd5 = Nothing
+              , diaChecksum = Nothing
               , diaEphemeral = ephemeral
               , diaNodeRef = P.unRef nodeRef'
               }

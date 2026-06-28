@@ -11,7 +11,7 @@
 -- Phase 2: disk image operations + cloud-init ISO assembly.
 -- All handlers are stateless side-effects on the local host:
 -- the daemon supplies absolute paths, the agent runs the
--- corresponding qemu-img / cp / curl / wget / xz / md5sum /
+-- corresponding qemu-img / cp / curl / wget / xz / hashing /
 -- genisoimage subprocess and returns the outcome.
 --
 -- The 'DiskOpResult' wire type mirrors the agent-side
@@ -509,13 +509,13 @@ instance CGNA.Session'server_ SessionCap where
               { CGNA.finalPath = T.pack final
               }
 
-  session'diskMd5 _ =
-    handleParsed $ \CGNA.Session'diskMd5'params {CGNA.path = p} -> do
-      result <- NI.md5HashFile (T.unpack p)
+  session'diskHash _ =
+    handleParsed $ \CGNA.Session'diskHash'params {CGNA.path = p, CGNA.algorithm = a} -> do
+      result <- NI.hashFile a (T.unpack p)
       case result of
         Left err -> throwFailed err
         Right h ->
-          pure CGNA.Session'diskMd5'results {CGNA.hex = h}
+          pure CGNA.Session'diskHash'results {CGNA.hex = h}
 
   -- ---- VM lifecycle --------------------------------------------------------
 

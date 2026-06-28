@@ -45,6 +45,7 @@ module Corvus.Handlers.Disk.Agent
     -- * Download / decompress / hash
   , downloadImageViaAgent
   , decompressXzViaAgent
+  , hashFileViaAgent
   , md5HashFileViaAgent
 
     -- * Inter-agent transfer
@@ -385,9 +386,12 @@ decompressXzViaAgent state nid xzPath = do
   r <- withEitherText state nid $ \nac -> NOA.diskDecompressXz nac (T.pack xzPath)
   pure $ fmap T.unpack r
 
+hashFileViaAgent :: ServerState -> M.NodeId -> Text -> FilePath -> IO (Either Text Text)
+hashFileViaAgent state nid algorithm path =
+  withEitherText state nid $ \nac -> NOA.diskHash nac algorithm (T.pack path)
+
 md5HashFileViaAgent :: ServerState -> M.NodeId -> FilePath -> IO (Either Text Text)
-md5HashFileViaAgent state nid path =
-  withEitherText state nid $ \nac -> NOA.diskMd5 nac (T.pack path)
+md5HashFileViaAgent state nid = hashFileViaAgent state nid "md5"
 
 -- ---------------------------------------------------------------------------
 -- Inter-agent transfer

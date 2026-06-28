@@ -63,6 +63,7 @@ module Corvus.NodeAgentClient
     -- * Download / hash / decompress
   , diskDownload
   , diskDecompressXz
+  , diskHash
   , diskMd5
 
     -- * Cloud-init
@@ -880,14 +881,17 @@ diskDecompressXz nac xzPath = remote $ do
       (nacSession nac)
   pure f
 
-diskMd5 :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError T.Text)
-diskMd5 nac path = remote $ do
-  CGNA.Session'diskMd5'results {CGNA.hex = h} <-
+diskHash :: NodeAgentClient -> T.Text -> T.Text -> IO (Either NodeAgentError T.Text)
+diskHash nac algorithm path = remote $ do
+  CGNA.Session'diskHash'results {CGNA.hex = h} <-
     callOn
-      #diskMd5
-      CGNA.Session'diskMd5'params {CGNA.path = path}
+      #diskHash
+      CGNA.Session'diskHash'params {CGNA.path = path, CGNA.algorithm = algorithm}
       (nacSession nac)
   pure h
+
+diskMd5 :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError T.Text)
+diskMd5 nac = diskHash nac "md5"
 
 -- ---------------------------------------------------------------------------
 -- Cloud-init

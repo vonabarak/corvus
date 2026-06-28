@@ -344,7 +344,7 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotRollback) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'diskDownload) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'diskDecompressXz) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'diskMd5) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'diskHash) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'cloudInitGenerateIso) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmStart) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'vmStopGraceful) s_))
@@ -376,7 +376,7 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotDeleteWithVmstate) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'guestSetTime) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskMd5,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -403,8 +403,8 @@ class (Session'server_ s_) where
     session'diskDownload _ = GH.methodUnimplemented
     session'diskDecompressXz :: s_ -> (GH.MethodHandler Session'diskDecompressXz'params Session'diskDecompressXz'results)
     session'diskDecompressXz _ = GH.methodUnimplemented
-    session'diskMd5 :: s_ -> (GH.MethodHandler Session'diskMd5'params Session'diskMd5'results)
-    session'diskMd5 _ = GH.methodUnimplemented
+    session'diskHash :: s_ -> (GH.MethodHandler Session'diskHash'params Session'diskHash'results)
+    session'diskHash _ = GH.methodUnimplemented
     session'cloudInitGenerateIso :: s_ -> (GH.MethodHandler Session'cloudInitGenerateIso'params Session'cloudInitGenerateIso'results)
     session'cloudInitGenerateIso _ = GH.methodUnimplemented
     session'vmStart :: s_ -> (GH.MethodHandler Session'vmStart'params Session'vmStart'results)
@@ -491,7 +491,7 @@ instance (GH.HasMethod "diskDownload" Session Session'diskDownload'params Sessio
     methodByLabel  = (GH.Method 11450192344861352079 11)
 instance (GH.HasMethod "diskDecompressXz" Session Session'diskDecompressXz'params Session'diskDecompressXz'results) where
     methodByLabel  = (GH.Method 11450192344861352079 12)
-instance (GH.HasMethod "diskMd5" Session Session'diskMd5'params Session'diskMd5'results) where
+instance (GH.HasMethod "diskHash" Session Session'diskHash'params Session'diskHash'results) where
     methodByLabel  = (GH.Method 11450192344861352079 13)
 instance (GH.HasMethod "cloudInitGenerateIso" Session Session'cloudInitGenerateIso'params Session'cloudInitGenerateIso'results) where
     methodByLabel  = (GH.Method 11450192344861352079 14)
@@ -1403,65 +1403,70 @@ instance (C.Marshal Session'diskDecompressXz'results (C.Parsed Session'diskDecom
         )
 instance (GH.HasField "finalPath" GH.Slot Session'diskDecompressXz'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskMd5'params 
-type instance (R.ReprFor Session'diskMd5'params) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'diskMd5'params) where
+data Session'diskHash'params 
+type instance (R.ReprFor Session'diskHash'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskHash'params) where
     typeId  = 9409244432301040014
-instance (C.TypedStruct Session'diskMd5'params) where
+instance (C.TypedStruct Session'diskHash'params) where
     numStructWords  = 0
-    numStructPtrs  = 1
-instance (C.Allocate Session'diskMd5'params) where
-    type AllocHint Session'diskMd5'params = ()
+    numStructPtrs  = 2
+instance (C.Allocate Session'diskHash'params) where
+    type AllocHint Session'diskHash'params = ()
     new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'diskMd5'params (C.Parsed Session'diskMd5'params))
-instance (C.AllocateList Session'diskMd5'params) where
-    type ListAllocHint Session'diskMd5'params = Std_.Int
+instance (C.EstimateAlloc Session'diskHash'params (C.Parsed Session'diskHash'params))
+instance (C.AllocateList Session'diskHash'params) where
+    type ListAllocHint Session'diskHash'params = Std_.Int
     newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'diskMd5'params (C.Parsed Session'diskMd5'params))
-data instance C.Parsed Session'diskMd5'params
-    = Session'diskMd5'params 
-        {path :: (RP.Parsed Basics.Text)}
+instance (C.EstimateListAlloc Session'diskHash'params (C.Parsed Session'diskHash'params))
+data instance C.Parsed Session'diskHash'params
+    = Session'diskHash'params 
+        {path :: (RP.Parsed Basics.Text)
+        ,algorithm :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'diskMd5'params))
-deriving instance (Std_.Eq (C.Parsed Session'diskMd5'params))
-instance (C.Parse Session'diskMd5'params (C.Parsed Session'diskMd5'params)) where
-    parse raw_ = (Session'diskMd5'params <$> (GH.parseField #path raw_))
-instance (C.Marshal Session'diskMd5'params (C.Parsed Session'diskMd5'params)) where
-    marshalInto raw_ Session'diskMd5'params{..} = (do
+deriving instance (Std_.Show (C.Parsed Session'diskHash'params))
+deriving instance (Std_.Eq (C.Parsed Session'diskHash'params))
+instance (C.Parse Session'diskHash'params (C.Parsed Session'diskHash'params)) where
+    parse raw_ = (Session'diskHash'params <$> (GH.parseField #path raw_)
+                                          <*> (GH.parseField #algorithm raw_))
+instance (C.Marshal Session'diskHash'params (C.Parsed Session'diskHash'params)) where
+    marshalInto raw_ Session'diskHash'params{..} = (do
         (GH.encodeField #path path raw_)
+        (GH.encodeField #algorithm algorithm raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "path" GH.Slot Session'diskMd5'params Basics.Text) where
+instance (GH.HasField "path" GH.Slot Session'diskHash'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'diskMd5'results 
-type instance (R.ReprFor Session'diskMd5'results) = (R.Ptr (Std_.Just R.Struct))
-instance (C.HasTypeId Session'diskMd5'results) where
+instance (GH.HasField "algorithm" GH.Slot Session'diskHash'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+data Session'diskHash'results 
+type instance (R.ReprFor Session'diskHash'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskHash'results) where
     typeId  = 10814768419322956081
-instance (C.TypedStruct Session'diskMd5'results) where
+instance (C.TypedStruct Session'diskHash'results) where
     numStructWords  = 0
     numStructPtrs  = 1
-instance (C.Allocate Session'diskMd5'results) where
-    type AllocHint Session'diskMd5'results = ()
+instance (C.Allocate Session'diskHash'results) where
+    type AllocHint Session'diskHash'results = ()
     new _ = C.newTypedStruct
-instance (C.EstimateAlloc Session'diskMd5'results (C.Parsed Session'diskMd5'results))
-instance (C.AllocateList Session'diskMd5'results) where
-    type ListAllocHint Session'diskMd5'results = Std_.Int
+instance (C.EstimateAlloc Session'diskHash'results (C.Parsed Session'diskHash'results))
+instance (C.AllocateList Session'diskHash'results) where
+    type ListAllocHint Session'diskHash'results = Std_.Int
     newList  = C.newTypedStructList
-instance (C.EstimateListAlloc Session'diskMd5'results (C.Parsed Session'diskMd5'results))
-data instance C.Parsed Session'diskMd5'results
-    = Session'diskMd5'results 
+instance (C.EstimateListAlloc Session'diskHash'results (C.Parsed Session'diskHash'results))
+data instance C.Parsed Session'diskHash'results
+    = Session'diskHash'results 
         {hex :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
-deriving instance (Std_.Show (C.Parsed Session'diskMd5'results))
-deriving instance (Std_.Eq (C.Parsed Session'diskMd5'results))
-instance (C.Parse Session'diskMd5'results (C.Parsed Session'diskMd5'results)) where
-    parse raw_ = (Session'diskMd5'results <$> (GH.parseField #hex raw_))
-instance (C.Marshal Session'diskMd5'results (C.Parsed Session'diskMd5'results)) where
-    marshalInto raw_ Session'diskMd5'results{..} = (do
+deriving instance (Std_.Show (C.Parsed Session'diskHash'results))
+deriving instance (Std_.Eq (C.Parsed Session'diskHash'results))
+instance (C.Parse Session'diskHash'results (C.Parsed Session'diskHash'results)) where
+    parse raw_ = (Session'diskHash'results <$> (GH.parseField #hex raw_))
+instance (C.Marshal Session'diskHash'results (C.Parsed Session'diskHash'results)) where
+    marshalInto raw_ Session'diskHash'results{..} = (do
         (GH.encodeField #hex hex raw_)
         (Std_.pure ())
         )
-instance (GH.HasField "hex" GH.Slot Session'diskMd5'results Basics.Text) where
+instance (GH.HasField "hex" GH.Slot Session'diskHash'results Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 data Session'cloudInitGenerateIso'params 
 type instance (R.ReprFor Session'cloudInitGenerateIso'params) = (R.Ptr (Std_.Just R.Struct))

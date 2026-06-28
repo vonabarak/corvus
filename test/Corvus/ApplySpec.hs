@@ -97,6 +97,61 @@ spec = sequential $ withTestDb $ do
         RespError _ -> True
         _ -> False
 
+  describe "handleApplyValidate: disk checksums" $ do
+    testCase "accepts a SHA-256 checksum object on HTTP imports" $ do
+      let yaml =
+            "disks:\n\
+            \  - name: base\n\
+            \    import: https://example.com/base.qcow2\n\
+            \    format: qcow2\n\
+            \    checksum:\n\
+            \      algorithm: sha256\n\
+            \      value: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n"
+      result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st yaml
+      liftIO $ result `shouldBe` RespOk
+
+    testCase "rejects a checksum on local imports" $ do
+      let yaml =
+            "disks:\n\
+            \  - name: base\n\
+            \    import: /tmp/base.qcow2\n\
+            \    format: qcow2\n\
+            \    checksum:\n\
+            \      algorithm: sha256\n\
+            \      value: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n"
+      result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st yaml
+      liftIO $ case result of
+        RespError msg -> msg `shouldSatisfy` T.isInfixOf "HTTP/HTTPS imports"
+        other -> expectationFailure $ "expected checksum validation error, got " <> show other
+
+    testCase "rejects checksum values with the wrong hex length" $ do
+      let yaml =
+            "disks:\n\
+            \  - name: base\n\
+            \    import: https://example.com/base.qcow2\n\
+            \    format: qcow2\n\
+            \    checksum:\n\
+            \      algorithm: sha512\n\
+            \      value: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n"
+      result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st yaml
+      liftIO $ case result of
+        RespError msg -> msg `shouldSatisfy` T.isInfixOf "must be 128 hex characters"
+        other -> expectationFailure $ "expected checksum length validation error, got " <> show other
+
+    testCase "rejects unknown checksum algorithms during YAML parsing" $ do
+      let yaml =
+            "disks:\n\
+            \  - name: base\n\
+            \    import: https://example.com/base.qcow2\n\
+            \    format: qcow2\n\
+            \    checksum:\n\
+            \      algorithm: sha3\n\
+            \      value: abc\n"
+      result <- withState $ \st -> either pure (const $ pure RespOk) =<< handleApplyValidate st yaml
+      liftIO $ case result of
+        RespError msg -> msg `shouldSatisfy` T.isInfixOf "unknown checksum algorithm"
+        other -> expectationFailure $ "expected checksum parser error, got " <> show other
+
   ------------------------------------------------------------------
   -- ifExists behaviour
 

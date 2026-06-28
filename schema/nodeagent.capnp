@@ -77,7 +77,7 @@ interface Session {
 
   # -------------------------------------------------------------------
   # Disk image operations (qemu-img wrappers + cp + curl/wget + xz +
-  # md5sum). The daemon supplies absolute filesystem paths; the agent
+  # hashing). The daemon supplies absolute filesystem paths; the agent
   # operates on them.
   #
   # Operation-level outcomes (ok / not-found / format-unsupported /
@@ -203,7 +203,7 @@ interface Session {
                                -> (result :DiskOpResult);
 
   # Image download (curl, fall back to wget) + xz decompression +
-  # md5 hashing. These shell out to host tools and write to the
+  # file hashing. These shell out to host tools and write to the
   # supplied destination path.
   #
   # `sink`, when non-null, receives byte-counted progress updates
@@ -216,7 +216,7 @@ interface Session {
                           sink     :Streams.DiskDownloadSink)
                         -> (result :DiskOpResult);
   diskDecompressXz   @12 (xzPath :Text) -> (finalPath :Text);
-  diskMd5            @13 (path :Text) -> (hex :Text);
+  diskHash           @13 (path :Text, algorithm :Text) -> (hex :Text);
 
   # Cloud-init NoCloud ISO assembly. Daemon supplies the composed
   # user-data / meta-data text (the SSH-key + user-data composition

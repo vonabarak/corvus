@@ -16,6 +16,8 @@ import Corvus.Node.Image
 import Data.Aeson (Value, encode)
 import Data.Aeson.QQ (aesonQQ)
 import qualified Data.ByteString.Lazy.Char8 as BSL
+import System.IO (hClose)
+import System.IO.Temp (withSystemTempFile)
 import Test.Hspec
 
 -- | Encode an 'aesonQQ'-produced 'Value' to the JSON 'String' that
@@ -207,6 +209,33 @@ spec = do
 
     it "rejects relative path" $
       isHttpUrl "relative/path.qcow2" `shouldBe` False
+
+  describe "hashFile" $ do
+    it "computes supported digest algorithms" $
+      withSystemTempFile "corvus-hash.txt" $ \path h -> do
+        BSL.hPutStr h "abc"
+        hClose h
+        hashFile "md5" path `shouldReturn` Right "900150983cd24fb0d6963f7d28e17f72"
+        hashFile "sha1" path `shouldReturn` Right "a9993e364706816aba3e25717850c26c9cd0d89d"
+        hashFile "sha256" path `shouldReturn` Right "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        hashFile "sha512" path
+          `shouldReturn` Right
+            "ddaf35a193617abacc417349ae204131\
+            \12e6fa4e89a97ea20a9eeee64b55d39a\
+            \2192992a274fc1a836ba3c23a3feebbd\
+            \454d4423643ce80e2a9ac94fa54ca49f"
+        hashFile "blake2b" path
+          `shouldReturn` Right
+            "ba80a53f981c4d0d6a2797b69f12f6e9\
+            \4c212f14685ac4b74b12bb6fdbffa2d1\
+            \7d87c5392aab792dc252d5de4533cc95\
+            \18d38aa8dbf1925ab92386edd4009923"
+
+    it "rejects unsupported digest algorithms" $
+      withSystemTempFile "corvus-hash.txt" $ \path h -> do
+        BSL.hPutStr h "abc"
+        hClose h
+        hashFile "sha3" path `shouldReturn` Left "unsupported hash algorithm: sha3"
 
 isLeft :: Either a b -> Bool
 isLeft (Left _) = True

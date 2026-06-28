@@ -425,13 +425,12 @@ class TestApply(SingleNodeCase):
                 pass
 
     def test_md5_mismatch_fails_after_retries(self):
-        """A URL-imported disk whose ``md5`` field is set to the
-        wrong digest must fail the apply — the importer retries up
-        to 3 times (per ``Handlers/Disk/Import.hs:317-320``) and
-        then deletes the partial download and reports the
-        mismatch. The test serves a real qcow2 over a one-shot
-        HTTP server on the node, then claims a deliberately-bogus
-        md5 in the apply YAML; the apply must raise."""
+        """A URL-imported disk whose checksum is set to the wrong
+        digest must fail the apply. The importer retries up to 3
+        times and then deletes the partial download and reports the
+        mismatch. The test serves a real qcow2 over a one-shot HTTP
+        server on the node, then claims a deliberately-bogus md5 in
+        the apply YAML; the apply must raise."""
         token = secrets.token_hex(4)
         src_name = f"corvus-it-md5-src-{token}"
         target_name = f"corvus-it-md5-bad-{token}"
@@ -457,7 +456,9 @@ class TestApply(SingleNodeCase):
                       - name: {target_name}
                         import: http://127.0.0.1:{port}/payload.qcow2
                         format: qcow2
-                        md5: deadbeefdeadbeefdeadbeefdeadbeef
+                        checksum:
+                          algorithm: md5
+                          value: deadbeefdeadbeefdeadbeefdeadbeef
                 """).strip()
                 with pytest.raises(CorvusError) as excinfo:
                     self.client.apply(yaml_body, wait=True)

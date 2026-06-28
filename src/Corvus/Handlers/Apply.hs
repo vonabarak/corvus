@@ -43,6 +43,9 @@ import Corvus.Schema.Apply
   , ApplySharedDir (..)
   , ApplySshKey (..)
   , ApplyVm (..)
+  , ChecksumAlgorithm (..)
+  , ChecksumSpec (..)
+  , ChecksumTarget (..)
   , IfExists (..)
   )
 import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
@@ -194,18 +197,31 @@ validateConfig config = do
                     else
                       if hasBacking && not hasRegister
                         then Left $ "Disk '" <> adName d <> "': 'backing' can only be used with 'register'"
-                        else case adMd5 d of
+                        else case adChecksum d of
                           Nothing -> Right ()
-                          Just h
+                          Just cs
                             | not hasImport ->
-                                Left $ "Disk '" <> adName d <> "': 'md5' can only be used with 'import'"
-                            | not (isValidMd5 h) ->
-                                Left $ "Disk '" <> adName d <> "': 'md5' must be 32 hex characters"
+                                Left $ "Disk '" <> adName d <> "': 'checksum' can only be used with 'import'"
+                            | maybe False (not . isHttpUrl) (adImport d) ->
+                                Left $ "Disk '" <> adName d <> "': 'checksum' can only be used with HTTP/HTTPS imports"
+                            | not (isValidChecksum cs) ->
+                                Left $
+                                  "Disk '"
+                                    <> adName d
+                                    <> "': checksum value for "
+                                    <> checksumAlgorithmText (csAlgorithm cs)
+                                    <> " must be "
+                                    <> T.pack (show (checksumHexLength (csAlgorithm cs)))
+                                    <> " hex characters"
                             | otherwise -> Right ()
 
-    isValidMd5 :: Text -> Bool
-    isValidMd5 h =
-      T.length h == 32 && T.all (\c -> isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) h
+    isValidChecksum :: ChecksumSpec -> Bool
+    isValidChecksum cs =
+      T.length (csValue cs) == checksumHexLength (csAlgorithm cs)
+        && T.all isHexDigit (csValue cs)
+
+    isHexDigit c =
+      isDigit c || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 
 -- | Resolve effective cloudInit value for a VM.
 -- If explicitly set, use that. Otherwise, auto-enable when sshKeys are present.
@@ -213,6 +229,28 @@ effectiveCloudInit :: ApplyVm -> Bool
 effectiveCloudInit v = case avCloudInit v of
   Just ci -> ci
   Nothing -> not (null (avSshKeys v))
+
+checksumAlgorithmText :: ChecksumAlgorithm -> Text
+checksumAlgorithmText ChecksumMd5 = "md5"
+checksumAlgorithmText ChecksumSha1 = "sha1"
+checksumAlgorithmText ChecksumSha256 = "sha256"
+checksumAlgorithmText ChecksumSha512 = "sha512"
+checksumAlgorithmText ChecksumBlake2b = "blake2b"
+
+checksumTargetText :: ChecksumTarget -> Text
+checksumTargetText ChecksumDownload = "download"
+checksumTargetText ChecksumFinal = "final"
+
+checksumHexLength :: ChecksumAlgorithm -> Int
+checksumHexLength ChecksumMd5 = 32
+checksumHexLength ChecksumSha1 = 40
+checksumHexLength ChecksumSha256 = 64
+checksumHexLength ChecksumSha512 = 128
+checksumHexLength ChecksumBlake2b = 128
+
+checksumSpecToImport :: ChecksumSpec -> (Text, Text, Text)
+checksumSpecToImport cs =
+  (checksumAlgorithmText (csAlgorithm cs), csValue cs, checksumTargetText (csTarget cs))
 
 --------------------------------------------------------------------------------
 -- ifExists: overwrite plumbing
@@ -939,7 +977,7 @@ instance Action ApplyDiskCreate where
         nodeRef = adNode d
      in case (adImport d, adOverlay d, adClone d, adRegister d) of
           (Just importPath, _, _, _) ->
-            actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)) (adMd5 d) ephem nodeRef)
+            actionExecute ctx (DiskImportAction (adName d) importPath (adPath d) (fmap enumToText (adFormat d)) (fmap checksumSpecToImport (adChecksum d)) ephem nodeRef)
           (_, _, _, Just registerPath)
             | isHttpUrl registerPath -> pure $ RespError $ "Disk '" <> adName d <> "': register requires a local path, not a URL"
             | otherwise -> do

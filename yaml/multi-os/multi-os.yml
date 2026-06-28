@@ -6,7 +6,7 @@
 # `crv template instantiate <template> <vm-name>` to spin up instances.
 #
 # Usage:
-#   crv apply multi-os.yml
+#   make build
 #   crv template instantiate debian12 my-debian-vm
 #   crv vm start my-debian-vm
 #
@@ -16,36 +16,17 @@
 # to pin a new VM to a specific node, or omit `--node` to let
 # the scheduler place it.
 
-disks:
-  - name: debian-12-generic-base
-    import: "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
-    format: qcow2
-    path: BaseImages/Debian/
-    # md5: 74c84d14fae3e3cf019a4079885d6bd0
-
-  - name: ubuntu-24.04-server-base
-    import: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
-    format: qcow2
-    path: BaseImages/Ubuntu/
-    # md5: 28747bf4303b87496b527643fbb8fda3
-
-  - name: almalinux-10-base
-    import: "https://repo.almalinux.org/almalinux/10/cloud/x86_64_v2/images/AlmaLinux-10-GenericCloud-10.2-20260526.0.x86_64_v2.qcow2"
-    format: qcow2
-    path: BaseImages/Almalinux/
-    # md5: 9e449eca3f05709becad8b60be2c31bd
-
-  - name: freebsd-14-base
-    import: "https://download.freebsd.org/releases/VM-IMAGES/14.4-RELEASE/amd64/Latest/FreeBSD-14.4-RELEASE-amd64-BASIC-CLOUDINIT-ufs.qcow2.xz"
-    format: qcow2
-    path: BaseImages/FreeBSD/
-    # md5: ba70095c3764013d536f3bb02d6689c5
-
-  - name: alpine-3.21-base
-    import: "https://dl-cdn.alpinelinux.org/alpine/v3.21/releases/cloud/nocloud_alpine-3.21.7-x86_64-bios-cloudinit-r0.qcow2"
-    format: qcow2
-    path: BaseImages/Alpine/
-    # md5: 7551b7bda2c43d335223fcf0af8fe591
+vars:
+  debian_url: ~
+  debian_sha512: ~
+  ubuntu_url: ~
+  ubuntu_sha256: ~
+  almalinux_url: ~
+  almalinux_sha256: ~
+  freebsd_url: ~
+  freebsd_sha512: ~
+  alpine_url: ~
+  alpine_sha512: ~
 
 # ── YAML anchors for shared template settings ──────────────────────────
 # Anchors defined on ignored top-level keys (only sshKeys, disks,
@@ -68,118 +49,165 @@ _ovmf_vars_drive: &ovmf_vars
   interface: pflash
   strategy: clone
 
-# ── Templates ──────────────────────────────────────────────────────────
+# ── Pipeline ───────────────────────────────────────────────────────────
 
-templates:
-  - name: debian12
-    <<: *defaults
-    description: "Debian 12 (Bookworm)"
-    cloudInitConfig:
-      userData:
-        # `socat` is pre-installed in the Debian generic cloud image;
-        # `qemu-guest-agent` is not, so cloud-init installs it.
-        packages:
-          - qemu-guest-agent
-        # Mainline OpenSSH doesn't speak AF_VSOCK; bridge it to the
-        # local sshd with a socat relay so `crv vm view` / vsock SSH
-        # work the same way they do on the Alpine `corvus-test-vm`
-        # image (which uses an equivalent OpenRC service).
-        write_files:
-          - path: /etc/systemd/system/vsock-sshd.service
-            permissions: "0644"
-            content: |
-              [Unit]
-              Description=Forward AF_VSOCK:22 to local sshd on 127.0.0.1:22
-              After=ssh.service network.target
-              Requires=ssh.service
+pipeline:
+  - apply:
+      ifExists: skip
+      disks:
+        - name: debian-12-generic-base
+          import: "{{ debian_url }}"
+          format: qcow2
+          path: BaseImages/Debian/
+          checksum:
+            algorithm: sha512
+            value: "{{ debian_sha512 }}"
 
-              [Service]
-              Type=simple
-              ExecStart=/usr/bin/socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22
-              Restart=on-failure
-              RestartSec=2
+        - name: ubuntu-24.04-server-base
+          import: "{{ ubuntu_url }}"
+          format: qcow2
+          path: BaseImages/Ubuntu/
+          checksum:
+            algorithm: sha256
+            value: "{{ ubuntu_sha256 }}"
 
-              [Install]
-              WantedBy=multi-user.target
-        runcmd:
-          - systemctl enable --now qemu-guest-agent
-          - systemctl enable --now vsock-sshd
-    drives:
-      - diskImageName: debian-12-generic-base
-        interface: virtio
-        strategy: overlay
-        cacheType: writeback
-        discard: true
-      - *ovmf_code
-      - *ovmf_vars
-    networkInterfaces:
-      - network: corvus
-    sshKeys:
-      - name: corvus
+        - name: almalinux-10-base
+          import: "{{ almalinux_url }}"
+          format: qcow2
+          path: BaseImages/Almalinux/
+          checksum:
+            algorithm: sha256
+            value: "{{ almalinux_sha256 }}"
 
-  - name: ubuntu24
-    <<: *defaults
-    description: "Ubuntu 24.04 LTS"
-    cloudInitConfig:
-      userData:
-        packages:
-          - qemu-guest-agent
-        runcmd:
-          - systemctl enable --now qemu-guest-agent
-    drives:
-      - diskImageName: ubuntu-24.04-server-base
-        interface: virtio
-        strategy: overlay
-        cacheType: writeback
-        discard: true
-      - *ovmf_code
-      - *ovmf_vars
-    networkInterfaces:
-      - network: corvus
-    sshKeys:
-      - name: corvus
+        - name: freebsd-14-base
+          import: "{{ freebsd_url }}"
+          format: qcow2
+          path: BaseImages/FreeBSD/
+          checksum:
+            algorithm: sha512
+            value: "{{ freebsd_sha512 }}"
+            target: download
 
-  - name: almalinux10
-    <<: *defaults
-    description: "AlmaLinux 10"
-    cloudInitConfig:
-      userData:
-        packages:
-          - qemu-guest-agent
-        runcmd:
-          - systemctl enable --now qemu-guest-agent
-    drives:
-      - diskImageName: almalinux-10-base
-        interface: virtio
-        strategy: overlay
-        cacheType: writeback
-        discard: true
-      - *ovmf_code
-      - *ovmf_vars
-    networkInterfaces:
-      - network: corvus
-    sshKeys:
-      - name: corvus
+        - name: alpine-3.21-base
+          import: "{{ alpine_url }}"
+          format: qcow2
+          path: BaseImages/Alpine/
+          checksum:
+            algorithm: sha512
+            value: "{{ alpine_sha512 }}"
 
-  - name: freebsd14
-    <<: *defaults
-    description: "FreeBSD 14"
-    cloudInitConfig:
-      userData:
-        packages:
-          - qemu-guest-agent
-        runcmd:
-          - sysrc qemu_guest_agent_enable=YES
-          - service qemu-guest-agent start
-    drives:
-      - diskImageName: freebsd-14-base
-        interface: virtio
-        strategy: overlay
-        cacheType: writeback
-        discard: true
-      - *ovmf_code
-      - *ovmf_vars
-    networkInterfaces:
-      - network: corvus
-    sshKeys:
-      - name: corvus
+  - apply:
+      ifExists: skip
+      templates:
+        - name: debian12
+          <<: *defaults
+          description: "Debian 12 (Bookworm)"
+          cloudInitConfig:
+            userData:
+              # `socat` is pre-installed in the Debian generic cloud image;
+              # `qemu-guest-agent` is not, so cloud-init installs it.
+              packages:
+                - qemu-guest-agent
+              # Mainline OpenSSH doesn't speak AF_VSOCK; bridge it to the
+              # local sshd with a socat relay so `crv vm view` / vsock SSH
+              # work the same way they do on the Alpine `corvus-test-vm`
+              # image (which uses an equivalent OpenRC service).
+              write_files:
+                - path: /etc/systemd/system/vsock-sshd.service
+                  permissions: "0644"
+                  content: |
+                    [Unit]
+                    Description=Forward AF_VSOCK:22 to local sshd on 127.0.0.1:22
+                    After=ssh.service network.target
+                    Requires=ssh.service
+
+                    [Service]
+                    Type=simple
+                    ExecStart=/usr/bin/socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22
+                    Restart=on-failure
+                    RestartSec=2
+
+                    [Install]
+                    WantedBy=multi-user.target
+              runcmd:
+                - systemctl enable --now qemu-guest-agent
+                - systemctl enable --now vsock-sshd
+          drives:
+            - diskImageName: debian-12-generic-base
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - *ovmf_code
+            - *ovmf_vars
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus
+
+        - name: ubuntu24
+          <<: *defaults
+          description: "Ubuntu 24.04 LTS"
+          cloudInitConfig:
+            userData:
+              packages:
+                - qemu-guest-agent
+              runcmd:
+                - systemctl enable --now qemu-guest-agent
+          drives:
+            - diskImageName: ubuntu-24.04-server-base
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - *ovmf_code
+            - *ovmf_vars
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus
+
+        - name: almalinux10
+          <<: *defaults
+          description: "AlmaLinux 10"
+          cloudInitConfig:
+            userData:
+              packages:
+                - qemu-guest-agent
+              runcmd:
+                - systemctl enable --now qemu-guest-agent
+          drives:
+            - diskImageName: almalinux-10-base
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - *ovmf_code
+            - *ovmf_vars
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus
+
+        - name: freebsd14
+          <<: *defaults
+          description: "FreeBSD 14"
+          cloudInitConfig:
+            userData:
+              packages:
+                - qemu-guest-agent
+              runcmd:
+                - sysrc qemu_guest_agent_enable=YES
+                - service qemu-guest-agent start
+          drives:
+            - diskImageName: freebsd-14-base
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+            - *ovmf_code
+            - *ovmf_vars
+          networkInterfaces:
+            - network: corvus
+          sshKeys:
+            - name: corvus

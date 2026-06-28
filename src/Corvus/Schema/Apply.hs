@@ -11,6 +11,9 @@ module Corvus.Schema.Apply
   ( ApplyConfig (..)
   , ApplySshKey (..)
   , ApplyDisk (..)
+  , ChecksumAlgorithm (..)
+  , ChecksumTarget (..)
+  , ChecksumSpec (..)
   , ApplyNetwork (..)
   , ApplyVm (..)
   , ApplyDrive (..)
@@ -94,6 +97,56 @@ instance FromJSON ApplySshKey where
       <$> o .: "name"
       <*> o .: "publicKey"
 
+data ChecksumAlgorithm
+  = ChecksumMd5
+  | ChecksumSha1
+  | ChecksumSha256
+  | ChecksumSha512
+  | ChecksumBlake2b
+  deriving (Eq, Show)
+
+instance FromJSON ChecksumAlgorithm where
+  parseJSON = withText "ChecksumAlgorithm" $ \t -> case T.toLower t of
+    "md5" -> pure ChecksumMd5
+    "sha1" -> pure ChecksumSha1
+    "sha256" -> pure ChecksumSha256
+    "sha512" -> pure ChecksumSha512
+    "blake2b" -> pure ChecksumBlake2b
+    other ->
+      fail $
+        "unknown checksum algorithm '"
+          <> T.unpack other
+          <> "' (expected: md5, sha1, sha256, sha512, blake2b)"
+
+data ChecksumTarget
+  = ChecksumDownload
+  | ChecksumFinal
+  deriving (Eq, Show)
+
+instance FromJSON ChecksumTarget where
+  parseJSON = withText "ChecksumTarget" $ \t -> case T.toLower t of
+    "download" -> pure ChecksumDownload
+    "final" -> pure ChecksumFinal
+    other ->
+      fail $
+        "unknown checksum target '"
+          <> T.unpack other
+          <> "' (expected: download, final)"
+
+data ChecksumSpec = ChecksumSpec
+  { csAlgorithm :: ChecksumAlgorithm
+  , csValue :: Text
+  , csTarget :: ChecksumTarget
+  }
+  deriving (Eq, Show)
+
+instance FromJSON ChecksumSpec where
+  parseJSON = withObject "ChecksumSpec" $ \o ->
+    ChecksumSpec
+      <$> o .: "algorithm"
+      <*> o .: "value"
+      <*> o .:? "target" .!= ChecksumDownload
+
 -- | Disk definition in the apply YAML config.
 --
 -- The @path@ field controls where the disk image file is placed:
@@ -122,7 +175,7 @@ data ApplyDisk = ApplyDisk
   , adPath :: Maybe Text
   , adRegister :: Maybe Text
   , adBacking :: Maybe Text
-  , adMd5 :: Maybe Text
+  , adChecksum :: Maybe ChecksumSpec
   , adEphemeral :: Bool
   , adNode :: Text
   }
@@ -140,7 +193,7 @@ instance FromJSON ApplyDisk where
       <*> o .:? "path"
       <*> o .:? "register"
       <*> o .:? "backing"
-      <*> o .:? "md5"
+      <*> o .:? "checksum"
       <*> o .:? "ephemeral" .!= False
       <*> o .:? "node" .!= ""
 

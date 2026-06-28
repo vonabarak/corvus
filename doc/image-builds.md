@@ -72,6 +72,7 @@ is replaced with a concrete value.
 ```yaml
 vars:
   base_image_url: ~                 # required: must be supplied via --var
+  base_image_sha256: ~              # required checksum for the downloaded image
   corvus_web_target: "host:8080"    # default; overridable via --var
 
 pipeline:
@@ -79,6 +80,9 @@ pipeline:
       disks:
         - name: base
           import: "{{ base_image_url }}"
+          checksum:
+            algorithm: sha256
+            value: "{{ base_image_sha256 }}"
   - build:
       name: my-image
       template: debian12
@@ -92,6 +96,7 @@ Set or override variables at build time with repeatable flags:
 ```sh
 crv build my-build.yml \
     --var base_image_url=https://example.com/base.qcow2 \
+    --var base_image_sha256=... \
     --var corvus_web_target=10.0.0.5:8080
 
 # or load a YAML/JSON mapping from disk (repeatable; later files

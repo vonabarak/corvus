@@ -30,7 +30,7 @@ import Corvus.Handlers.Disk.Agent
   , deleteImageViaAgent
   , downloadImageViaAgent
   , getImageSizeMbViaAgent
-  , md5HashFileViaAgent
+  , hashFileViaAgent
   )
 import Corvus.Handlers.Disk.Db (recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, sanitizeDiskName)
@@ -55,6 +55,29 @@ import Database.Persist
 import Database.Persist.Postgresql (runSqlPool)
 import System.Directory (canonicalizePath, doesFileExist)
 import System.FilePath (takeDirectory, takeFileName, (</>))
+
+data ChecksumTarget
+  = ChecksumTargetDownload
+  | ChecksumTargetFinal
+  deriving (Eq, Show)
+
+data ImportChecksum = ImportChecksum
+  { icAlgorithm :: Text
+  , icExpected :: Text
+  , icTarget :: ChecksumTarget
+  }
+  deriving (Eq, Show)
+
+importChecksumFromTuple :: (Text, Text, Text) -> ImportChecksum
+importChecksumFromTuple (algorithm, expected, target) =
+  ImportChecksum
+    { icAlgorithm = T.toLower algorithm
+    , icExpected = T.toLower expected
+    , icTarget =
+        if T.toLower target == "final"
+          then ChecksumTargetFinal
+          else ChecksumTargetDownload
+    }
 
 -- | Resolve a (possibly empty) node-ref text used by every
 -- import path. Empty / @"0"@ defers to 'pickNodeForDisk';
@@ -89,13 +112,13 @@ handleDiskImportUrl state sink name url mFormatStr ephemeral nodeRefText =
 -- a URL. The file is placed in the daemon's base images directory (or a
 -- custom path) and registered in the database.
 --
--- The optional @mMd5@ argument enables integrity-checking on URL
--- imports: if the destination file already exists and its MD5 matches,
--- the download is skipped; on mismatch the import fails without
--- overwriting. Fresh downloads are retried up to 'maxImportAttempts'
--- times on hash mismatch.
-handleDiskImportCopy :: ServerState -> ApplySink -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe Text -> Bool -> Text -> IO Response
-handleDiskImportCopy state sink name source mDestPath mFormatStr mMd5 ephemeral nodeRefText =
+-- The optional checksum argument enables integrity-checking on URL
+-- imports: if the destination file already exists and the final-file
+-- checksum matches, the download is skipped; on mismatch the import
+-- fails without overwriting. Fresh downloads are retried up to
+-- 'maxImportAttempts' times on hash mismatch.
+handleDiskImportCopy :: ServerState -> ApplySink -> Text -> Text -> Maybe Text -> Maybe Text -> Maybe ImportChecksum -> Bool -> Text -> IO Response
+handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephemeral nodeRefText =
   case validateName "Disk image" name of
     Left err -> pure $ RespError err
     Right () -> runServerLogging state $ do
@@ -142,7 +165,7 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mMd5 ephemeral 
                               , fsDownloadPath = downloadDest
                               , fsFinalPath = finalDest
                               , fsIsXz = isXz
-                              , fsExpectedMd5 = mMd5
+                              , fsChecksum = mChecksum
                               }
                       case fetchResult of
                         Left err -> do
@@ -205,17 +228,12 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mMd5 ephemeral 
 -- | Import a disk image from an HTTP/HTTPS URL and return its ID.
 --
 -- Downloads to the base images directory, decompresses @.xz@ if
--- needed. The optional @mMd5@ argument enables integrity-checking:
--- if the destination file already exists and its MD5 matches the
--- expected hash, the download is skipped; on a fresh download an
--- MD5 mismatch triggers up to 'maxImportAttempts' retries, after
--- which the import fails. On mismatch against a pre-existing file
--- the import fails without overwriting.
+-- needed. The optional checksum argument enables integrity-checking.
 --
 -- Exposed outside the Action typeclass so @crv apply@ can reuse it
 -- directly when walking a YAML config.
-importDiskFromUrlIO :: ServerState -> ApplySink -> Text -> Text -> Maybe DriveFormat -> Maybe Text -> Bool -> Text -> IO (Either Text Int64)
-importDiskFromUrlIO state sink name url mFormat mMd5 ephemeral nodeRefText = do
+importDiskFromUrlIO :: ServerState -> ApplySink -> Text -> Text -> Maybe DriveFormat -> Maybe ImportChecksum -> Bool -> Text -> IO (Either Text Int64)
+importDiskFromUrlIO state sink name url mFormat mChecksum ephemeral nodeRefText = do
   case sanitizeDiskName name of
     Left err -> pure $ Left err
     Right safeName -> do
@@ -251,7 +269,7 @@ importDiskFromUrlIO state sink name url mFormat mMd5 ephemeral nodeRefText = do
                 , fsDownloadPath = downloadPath
                 , fsFinalPath = finalPath
                 , fsIsXz = isXz
-                , fsExpectedMd5 = mMd5
+                , fsChecksum = mChecksum
                 }
           case fetchResult of
             Left err -> pure $ Left err
@@ -292,11 +310,10 @@ data FetchSpec = FetchSpec
   , fsFinalPath :: FilePath
   -- ^ Final on-disk file (post-decompression for @.xz@ URLs).
   , fsIsXz :: Bool
-  , fsExpectedMd5 :: Maybe Text
-  -- ^ When 'Just', the post-decompression file's MD5 must match.
+  , fsChecksum :: Maybe ImportChecksum
   }
 
--- | Maximum number of download attempts when the MD5 doesn't match
+-- | Maximum number of download attempts when the checksum doesn't match
 -- the supplied hash. The user-facing wording was "retry up to three
 -- times" which we interpret here as a 3-attempt cap (initial + 2
 -- retries on mismatch).
@@ -308,7 +325,7 @@ maxImportAttempts = 3
 -- @.qcow2@ for @.xz@ URLs, the downloaded file otherwise) on
 -- success.
 --
--- When 'fsExpectedMd5' is set:
+-- When a final-file checksum is set:
 --
 --   * If the final file already exists, hash it; matching → success
 --     (no download, no overwrite). Mismatch → fail without touching
@@ -317,9 +334,10 @@ maxImportAttempts = 3
 --     On mismatch, delete the result and retry, up to
 --     'maxImportAttempts' total attempts.
 --
--- When 'fsExpectedMd5' is 'Nothing', the existing-file behaviour
--- preserves the no-clobber default ("Destination file already
--- exists" error) and a single download attempt is made.
+-- Download-target checksums are verified before decompression. They
+-- cannot be used to prove that an already-existing final file matches
+-- the current upstream artifact, so the existing-file behaviour stays
+-- the no-clobber default.
 --
 -- The @sink@ + @diskName@ pair, when non-silent, brackets each
 -- download attempt with 'DownloadStart' / 'DownloadEnd' and pumps
@@ -336,28 +354,31 @@ fetchAndVerify
   -> IO (Either Text FilePath)
 fetchAndVerify state nid sink diskName FetchSpec {..} = do
   finalExists <- doesFileExist fsFinalPath
-  case (finalExists, fsExpectedMd5) of
-    (True, Just expected) -> do
-      let expectedLc = T.toLower expected
-      hashResult <- md5HashFileViaAgent state nid fsFinalPath
+  case (finalExists, fsChecksum) of
+    (True, Just cs@ImportChecksum {icTarget = ChecksumTargetFinal}) ->
+      verifyExistingFinal cs
+    (True, _) -> pure $ Left "Destination file already exists"
+    (False, _) -> downloadLoop 1
+  where
+    onProgress d t = sink (DownloadProgress diskName d t)
+
+    verifyExistingFinal cs = do
+      hashResult <- hashFileViaAgent state nid (icAlgorithm cs) fsFinalPath
       case hashResult of
         Left err -> pure $ Left $ "verify existing " <> T.pack fsFinalPath <> ": " <> err
         Right actual
-          | actual == expectedLc -> pure $ Right fsFinalPath
+          | actual == icExpected cs -> pure $ Right fsFinalPath
           | otherwise ->
               pure $
                 Left $
-                  "md5 of existing file "
+                  icAlgorithm cs
+                    <> " of existing file "
                     <> T.pack fsFinalPath
                     <> " does not match (got "
                     <> actual
                     <> ", expected "
-                    <> expectedLc
+                    <> icExpected cs
                     <> "); refusing to overwrite"
-    (True, Nothing) -> pure $ Left "Destination file already exists"
-    (False, _) -> downloadLoop 1
-  where
-    onProgress d t = sink (DownloadProgress diskName d t)
 
     downloadLoop n = do
       sink (DownloadStart diskName fsUrl)
@@ -368,35 +389,70 @@ fetchAndVerify state nid sink diskName FetchSpec {..} = do
           pure $ Left $ "Download failed: " <> err
         _ -> do
           sink (DownloadEnd diskName True "")
-          decompressedResult <-
-            if fsIsXz
-              then decompressXzViaAgent state nid fsDownloadPath
-              else pure $ Right fsFinalPath
-          case decompressedResult of
-            Left err -> pure $ Left err
-            Right diskPath -> case fsExpectedMd5 of
-              Nothing -> pure $ Right diskPath
-              Just expected -> do
-                let expectedLc = T.toLower expected
-                hashResult <- md5HashFileViaAgent state nid diskPath
-                case hashResult of
-                  Left err -> pure $ Left $ "verify download: " <> err
-                  Right actual
-                    | actual == expectedLc -> pure $ Right diskPath
-                    | n >= maxImportAttempts ->
-                        pure $
-                          Left $
-                            "md5 mismatch after "
-                              <> T.pack (show maxImportAttempts)
-                              <> " attempts (got "
-                              <> actual
-                              <> ", expected "
-                              <> expectedLc
-                              <> ")"
-                    | otherwise -> do
-                        -- Drop the bad artifact via the agent and try again.
-                        _ <- deleteImageViaAgent state nid diskPath
-                        downloadLoop (n + 1)
+          case fsChecksum of
+            Just cs@ImportChecksum {icTarget = ChecksumTargetDownload} -> do
+              verified <- verifyDownloadedArtifact n cs
+              case verified of
+                Left err -> pure $ Left err
+                Right False -> downloadLoop (n + 1)
+                Right True -> decompressAfterVerified
+            _ -> do
+              decompressedResult <- decompressIfNeeded
+              case decompressedResult of
+                Left err -> pure $ Left err
+                Right diskPath -> case fsChecksum of
+                  Just cs@ImportChecksum {icTarget = ChecksumTargetFinal} ->
+                    verifyFinalArtifact n cs diskPath
+                  _ -> pure $ Right diskPath
+
+    decompressAfterVerified = do
+      decompressedResult <- decompressIfNeeded
+      case decompressedResult of
+        Left err -> pure $ Left err
+        Right diskPath -> pure $ Right diskPath
+
+    decompressIfNeeded =
+      if fsIsXz
+        then decompressXzViaAgent state nid fsDownloadPath
+        else pure $ Right fsFinalPath
+
+    verifyDownloadedArtifact n cs = do
+      hashResult <- hashFileViaAgent state nid (icAlgorithm cs) fsDownloadPath
+      case hashResult of
+        Left err -> pure $ Left $ "verify download: " <> err
+        Right actual
+          | actual == icExpected cs -> pure $ Right True
+          | n >= maxImportAttempts ->
+              pure $
+                Left $
+                  checksumMismatchMessage n cs actual
+          | otherwise -> do
+              _ <- deleteImageViaAgent state nid fsDownloadPath
+              pure $ Right False
+
+    verifyFinalArtifact n cs diskPath = do
+      hashResult <- hashFileViaAgent state nid (icAlgorithm cs) diskPath
+      case hashResult of
+        Left err -> pure $ Left $ "verify download: " <> err
+        Right actual
+          | actual == icExpected cs -> pure $ Right diskPath
+          | n >= maxImportAttempts ->
+              pure $
+                Left $
+                  checksumMismatchMessage n cs actual
+          | otherwise -> do
+              _ <- deleteImageViaAgent state nid diskPath
+              downloadLoop (n + 1)
+
+    checksumMismatchMessage _ cs actual =
+      icAlgorithm cs
+        <> " mismatch after "
+        <> T.pack (show maxImportAttempts)
+        <> " attempts (got "
+        <> actual
+        <> ", expected "
+        <> icExpected cs
+        <> ")"
 
 --------------------------------------------------------------------------------
 -- Action Types
@@ -407,7 +463,7 @@ data DiskImportAction = DiskImportAction
   , diaSource :: Text
   , diaDestPath :: Maybe Text
   , diaFormat :: Maybe Text
-  , diaMd5 :: Maybe Text
+  , diaChecksum :: Maybe (Text, Text, Text)
   , diaEphemeral :: Bool
   , diaNodeRef :: Text
   -- ^ Node where the import lands. Empty / @"0"@ defers to
@@ -418,7 +474,17 @@ instance Action DiskImportAction where
   actionSubsystem _ = SubDisk
   actionCommand _ = "import"
   actionEntityName = Just . diaName
-  actionExecute ctx a = handleDiskImportCopy (acState ctx) (acApplySink ctx) (diaName a) (diaSource a) (diaDestPath a) (diaFormat a) (diaMd5 a) (diaEphemeral a) (diaNodeRef a)
+  actionExecute ctx a =
+    handleDiskImportCopy
+      (acState ctx)
+      (acApplySink ctx)
+      (diaName a)
+      (diaSource a)
+      (diaDestPath a)
+      (diaFormat a)
+      (fmap importChecksumFromTuple (diaChecksum a))
+      (diaEphemeral a)
+      (diaNodeRef a)
 
 data DiskImportUrl = DiskImportUrl
   { diuName :: Text
