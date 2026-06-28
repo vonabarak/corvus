@@ -11,7 +11,7 @@
  * Optional references appear as `NamedRef | null` — the wire sentinel
  * `id == 0` is translated to `null` at the corvus-web boundary.
  *
- * See CLAUDE.md `## Project Rules / Cross-entity references`.
+ * See AGENTS.md `## Project Rules / Cross-entity references`.
  */
 export interface NamedRef {
   id: number;

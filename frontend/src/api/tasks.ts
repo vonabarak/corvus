@@ -10,7 +10,7 @@ export interface TaskInfo {
   result: string;
   client_name: string;
   // Flat parent reference (no NamedRef): tasks don't have a
-  // human-readable name field. See CLAUDE.md
+  // human-readable name field. See AGENTS.md
   // `## Project Rules / Cross-entity references`.
   parent_id: number | null;
   finished_at: string | null;

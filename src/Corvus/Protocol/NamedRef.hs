@@ -11,7 +11,7 @@
 -- Distinct from 'Corvus.Wire.Common.EntityRef', which is the
 -- input-side union of @id @or@ name@ used to look an entity up.
 --
--- See @CLAUDE.md ## Project Rules / Cross-entity references@ for
+-- See @AGENTS.md ## Project Rules / Cross-entity references@ for
 -- the convention this type encodes.
 module Corvus.Protocol.NamedRef
   ( NamedRef (..)

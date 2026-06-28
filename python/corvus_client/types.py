@@ -34,7 +34,7 @@ class NamedRef:
     wire the absence is encoded as ``id == 0`` and translated at the
     converter boundary.
 
-    See CLAUDE.md ``## Project Rules / Cross-entity references`` for
+    See AGENTS.md ``## Project Rules / Cross-entity references`` for
     the convention this type encodes.
     """
 
@@ -509,7 +509,7 @@ class TaskInfo:
     parent_id: int | None = None
     # ^ Flat parent reference (no NamedRef): tasks don't have a
     # human-readable name field, so there's nothing to nest. See
-    # CLAUDE.md ``## Project Rules / Cross-entity references``.
+    # AGENTS.md ``## Project Rules / Cross-entity references``.
     finished_at: datetime | None = None
     entity: NamedRef | None = None
     message: str | None = None

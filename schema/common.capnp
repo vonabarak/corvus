@@ -26,7 +26,7 @@ struct EntityRef {
 # language-level converters (Haskell, Python, TypeScript) lift that
 # to a proper Maybe / None / null at the boundary.
 #
-# See CLAUDE.md `## Project Rules / Cross-entity references` for the
+# See AGENTS.md `## Project Rules / Cross-entity references` for the
 # convention.
 struct NamedRef {
   id   @0 :Int64;

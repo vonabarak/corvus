@@ -21,7 +21,7 @@ data TaskInfo = TaskInfo
   , tiParentId :: !(Maybe Int64)
   -- ^ Parent task id — flat, NOT a 'NamedRef'. Tasks don't carry a
   -- human-readable name field, so there's nothing to nest. See
-  -- @CLAUDE.md ## Project Rules / Cross-entity references@.
+  -- @AGENTS.md ## Project Rules / Cross-entity references@.
   , tiStartedAt :: !UTCTime
   , tiFinishedAt :: !(Maybe UTCTime)
   , tiSubsystem :: !TaskSubsystem

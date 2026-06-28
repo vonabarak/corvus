@@ -1,6 +1,11 @@
-# Corvus
+# Corvus Agent Guide
 
 QEMU/KVM virtual machine management daemon with a CLI client, written in Haskell.
+
+This file is the repository-level guidance for coding agents. Keep it focused on
+durable repo facts, commands, conventions, and review expectations. Prefer
+tool-neutral wording so Codex and other coding agents can use the same source of
+truth.
 
 ## Architecture
 
@@ -141,11 +146,12 @@ Stack + Hpack (`package.yaml` → `corvus.cabal`), LTS-23.28 resolver.
 |---|---|
 | `make build` | Stack build |
 | `make install` | Install binaries to `~/.local/bin/` + shell completions + pipx-install corvus-admin. Run `corvus-admin quickstart` after for a turn-key single-node setup. |
-| `make format` | Fourmolu (Haskell) + Ruff (Python) formatting, in-place |
-| `make lint` | HLint + fourmolu `--check` (Haskell) + Ruff check, Ruff `format --check`, mypy (Python). Also flags any formatting violations — read-only; run `make format` first to fix them. |
+| `make format` | Ruff (Python) + Fourmolu (Haskell) formatting, in-place. Also runs frontend formatting when `frontend/node_modules/` exists. |
+| `make lint` | Read-only checks: HLint, Fourmolu `--check`, Ruff check, Ruff format check, mypy. Also runs frontend lint/format checks when `frontend/node_modules/` exists. |
 | `make unit-tests` | Haskell unit tests (the full Haskell suite — no integration tests left here) |
 | `make integration-tests` | Pytest integration suite under `integration_tests/`; accepts `MATCH=<pytest -k expr>` |
-| `make all-tests` | Alias for `make unit-tests` |
+| `make python-test` | Python client/admin pytest suites against a daemon on a temp Unix socket |
+| `make test` | Umbrella target: `unit-tests`, `python-test`, then `integration-tests` |
 | `make set-version VERSION=X.Y.Z.W` | Bump the project version in lockstep across `package.yaml`, `corvus.cabal`, and `pyproject.toml`. Use this whenever the user says "bump version" / "set version" / "release X.Y.Z.W" — do NOT hand-edit those files. |
 | `make release` | Stage a self-contained release tree under `release/` and tarball it (4 binaries, completions, Python wheel + sdist, doc, yaml, schema). Same recipe the GitHub Release workflow runs; use it for a local dry-run before tagging. |
 
@@ -199,9 +205,11 @@ When one handler needs to invoke another handler's logic, it should use the othe
 
 Read-only operations (list, show, get) are the exception — they are dispatched directly in `Handlers.hs` without Action wrapping since they don't need task recording.
 
-### After any code changes
+### After code changes
 
-Always run `make format` and `make lint` after modifying Haskell source files. `make lint` is read-only and covers both static analysis (hlint, ruff, mypy) and a formatter `--check` pass for both Haskell (fourmolu) and Python (ruff) — so run `make format` first to fix any formatting before `make lint` flags it. Fix all lint warnings before committing.
+Run `make format` and `make lint` after modifying Haskell or Python source files. `make format` edits files in place. `make lint` is read-only and covers static analysis plus formatter `--check` passes, so run `make format` first and fix all lint warnings before committing.
+
+When `frontend/node_modules/` exists, both targets also cover frontend formatting/linting. If it does not exist and the change touched frontend code, run the frontend-specific setup/checks needed for that work.
 
 ```
 make format
@@ -210,7 +218,7 @@ make lint
 
 ### Before committing
 
-Run `make test` before every commit. It's the umbrella target that chains `unit-tests`, `python-test`, and `integration-tests` in escalating-cost order so a regression in the cheap pure-Haskell layer surfaces before the slower phases. Make stops on the first non-zero exit, so a green `make test` is the local equivalent of CI's pre-merge gate. Don't commit until it passes.
+Run `make test` before every commit unless the user explicitly asks for a narrower verification. It chains `unit-tests`, `python-test`, and `integration-tests` in escalating-cost order so cheap failures surface before slower phases. Make stops on the first non-zero exit, so a green `make test` is the local equivalent of the full local pre-merge gate.
 
 ```
 make test
