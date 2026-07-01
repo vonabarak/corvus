@@ -177,7 +177,7 @@ test-image: test-image-node test-image-vm test-image-multi-os test-image-windows
 # Alpine) used by the cloud-init integration test class. Idempotent:
 # `crv apply --skip-existing` no-ops once the disks are registered.
 test-image-multi-os:
-	crv apply yaml/multi-os/multi-os.yml --skip-existing --wait
+	@make -C yaml/multi-os
 
 # Generate the SSH keypair the integration-test images embed.
 #

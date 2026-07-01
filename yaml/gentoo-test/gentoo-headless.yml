@@ -81,7 +81,7 @@ pipeline:
                 # but the 23.0 profile defaults to
                 # binpkg-request-signature — qemu-guest-agent's
                 # binpkg would be rejected.
-                - sh -c 'printf "\nFEATURES=\"\$FEATURES -binpkg-request-signature binpkg-ignore-signature\"\nGPG_VERIFY_USER_DROP=\"\"\nGPG_VERIFY_GROUP_DROP=\"\"\n" >> /etc/portage/make.conf'
+                - sh -c 'printf "\nFEATURES=\"\${FEATURES} -binpkg-request-signature binpkg-ignore-signature\"\nGPG_VERIFY_USER_DROP=\"\"\nGPG_VERIFY_GROUP_DROP=\"\"\n" >> /etc/portage/make.conf'
                 - emerge --getbinpkg --usepkg --binpkg-respect-use=y --quiet-build app-emulation/qemu-guest-agent
                 - systemctl enable --now qemu-guest-agent.service
           sharedDirs:
@@ -190,8 +190,8 @@ pipeline:
               # elfutils, curl, libarchive, libcap, man-db, openssh,
               # …) silently fall back to source build, which is the
               # bulk of the bake's wall-clock cost.
-              FEATURES="$FEATURES buildpkg getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
-              EMERGE_DEFAULT_OPTS="$EMERGE_DEFAULT_OPTS --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
+              FEATURES="${FEATURES} buildpkg getbinpkg parallel-fetch -binpkg-request-signature binpkg-ignore-signature"
+              EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkg --usepkg --binpkg-respect-use=y --binpkg-changed-deps=n"
               ACCEPT_LICENSE="*"
               GPG_VERIFY_USER_DROP=""
               GPG_VERIFY_GROUP_DROP=""
@@ -416,7 +416,7 @@ pipeline:
               ln -sf usr/lib64 "$SYSROOT/lib64"
 
               # Carry the bake host's binhost knobs into the new system.
-              # Quoted heredoc so the $VAR references stay literal
+              # Quoted heredoc so the ${VAR} references stay literal
               # (portage's make.conf parser will expand them) and so
               # the backticks in the comments below don't get evaluated
               # as shell command substitution. MAKEOPTS needs nproc at
@@ -424,10 +424,10 @@ pipeline:
               # append it separately after the heredoc closes.
               cat > "$SYSROOT/etc/portage/make.conf" <<'EOF'
               COMMON_FLAGS="-O2 -pipe"
-              CFLAGS="$COMMON_FLAGS"
-              CXXFLAGS="$COMMON_FLAGS"
-              FCFLAGS="$COMMON_FLAGS"
-              FFLAGS="$COMMON_FLAGS"
+              CFLAGS="${COMMON_FLAGS}"
+              CXXFLAGS="${COMMON_FLAGS}"
+              FCFLAGS="${COMMON_FLAGS}"
+              FFLAGS="${COMMON_FLAGS}"
 
               # `-binpkg-request-signature binpkg-ignore-signature`:
               # the host binhost we ship by default isn't uniformly
