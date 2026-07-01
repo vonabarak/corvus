@@ -256,7 +256,7 @@ def test_deploy_node_unit_file_picks_up_binary_path_override(
     assert "ExecStart=/opt/corvus/bin/corvus-nodeagent" in content, content
 
 
-def test_deploy_daemon_unit_file_carries_database_url(
+def test_deploy_daemon_unit_file_carries_database(
     initialised_store, fake_paths, tmp_path
 ):
     runner = LocalRunner()
@@ -264,7 +264,7 @@ def test_deploy_daemon_unit_file_carries_database_url(
         initialised_store,
         runner,
         listen_ip="127.0.0.1",
-        database_url="postgresql://db.internal/corvus",
+        database="postgresql://db.internal/corvus",
     )
     unit_path = tmp_path / "etc-systemd" / "corvus.service"
     content = unit_path.read_text()

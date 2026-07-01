@@ -28,7 +28,6 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (SomeException, bracket, bracket_, catch, try)
-import Control.Monad (unless)
 import qualified Corvus.Client.Capnp.Connection as CC
 import qualified Corvus.Client.Capnp.Rpc as CR
 import qualified Corvus.Model as M
@@ -50,8 +49,7 @@ import Data.Function ((&))
 import Data.IORef (atomicModifyIORef', newIORef, readIORef)
 import qualified Data.Text as T
 import Database.Persist (delete, update, (=.))
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (Single (..), SqlPersistT, rawExecute, rawSql, toSqlKey)
+import Database.Persist.Sql (runSqlPool, toSqlKey)
 import Network.Socket
   ( Family (..)
   , SockAddr (..)
@@ -66,7 +64,8 @@ import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout (timeout)
-import Test.Database (TestEnv (..), insertDefaultTestNode)
+import Test.Database (TestEnv (..))
+import qualified Test.Database as DB
 import Test.Hspec
 import Test.Prelude (withTestDb)
 
@@ -76,11 +75,10 @@ spec = withTestDb $ sequential $ do
   -- @withTestDb@'s 'beforeAll'). Hspec's --jobs=N (the Makefile
   -- defaults to one worker per logical CPU for the Haskell suite)
   -- otherwise parallelises within a 'describe', which in turn
-  -- races concurrent 'resetTestDb' TRUNCATEs against in-flight
-  -- @rpc*List@ reads — observed as PostgreSQL deadlocks
-  -- (40P01) and as the "length vms == 2" flake the regression
-  -- report described.  Force sequential execution so each test
-  -- sees the DB at a known-empty starting state.
+  -- races concurrent 'resetTestDb' cleanup against in-flight
+  -- @rpc*List@ reads, causing backend-specific flakes. Force
+  -- sequential execution so each test sees the DB at a known-empty
+  -- starting state.
   describe "Cap'n Proto RPC bootstrap (raw socket)" $ do
     it "accepts a connection and responds to daemon.ping" $ \env -> do
       withSystemTempDirectory "corvus-capnp-test" $ \tmp -> do
@@ -327,22 +325,7 @@ withSandboxedXdg sandbox action = do
 -- @TRUNCATE … RESTART IDENTITY CASCADE@ followed by re-seeding
 -- the default test-node so its row keeps the well-known id=1.
 resetTestDb :: TestEnv -> IO ()
-resetTestDb env =
-  runSqlPool (truncateAllTables >> insertDefaultTestNode) (tePool env)
-  where
-    truncateAllTables :: SqlPersistT IO ()
-    truncateAllTables = do
-      tables <-
-        rawSql
-          "SELECT tablename FROM pg_catalog.pg_tables \
-          \WHERE schemaname = 'public' AND tablename != 'alembic_version';"
-          []
-      unless (null tables) $ do
-        let tableNames =
-              T.intercalate "," $ map (\(Single t) -> "\"" <> t <> "\"") tables
-        rawExecute
-          ("TRUNCATE " <> tableNames <> " RESTART IDENTITY CASCADE")
-          []
+resetTestDb = DB.resetTestDb
 
 -- | Ask the kernel for a free TCP port on 127.0.0.1. Mild race
 -- between close-then-bind; in practice unobservable for serial

@@ -46,7 +46,7 @@ import Data.Ord (Down (..), comparing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), get, selectList, (==.))
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 
 tshow :: (Show a) => a -> Text
 tshow = T.pack . show

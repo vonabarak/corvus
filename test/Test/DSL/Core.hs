@@ -1,7 +1,6 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 -- | Core test DSL types and primitives.
 -- Provides the TestM monad and basic DSL combinators.
@@ -29,15 +28,12 @@ module Test.DSL.Core
   )
 where
 
-import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Reader (MonadReader, ReaderT, asks, runReaderT)
 import Corvus.Protocol (Response)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Pool (Pool)
-import qualified Data.Text as T
-import Database.Persist.Postgresql (SqlBackend, runSqlPool)
-import Database.Persist.Sql (Single (..), SqlPersistT, rawExecute, rawSql)
+import Database.Persist.Sql (SqlBackend, SqlPersistT, runSqlPool)
 import qualified Test.Database as DB
 import Test.Hspec (SpecWith, it)
 
@@ -124,22 +120,12 @@ testCase name action = it name $ \dbEnv -> do
   -- Create fresh last response ref for this test case
   respRef <- newIORef Nothing
   let env = dbEnv {DB.teLastResponse = respRef}
-  -- Truncate all tables before each test for isolation, then
+  -- Reset all tables before each test for isolation, then
   -- re-seed the default test node so every test starts with the
   -- 'toSqlKey 1 :: NodeId' FK target satisfied (multi-node
   -- Phase 1 lib still uses that placeholder pervasively).
-  runSqlPool truncateAllTables (DB.tePool env)
-  runSqlPool DB.insertDefaultTestNode (DB.tePool env)
+  DB.resetTestDb env
   runTestM env action
-
--- | Truncate all tables to ensure test isolation
-truncateAllTables :: SqlPersistT IO ()
-truncateAllTables = do
-  -- Get all table names in the public schema (excluding migration history if any)
-  tables <- rawSql "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename != 'alembic_version';" []
-  unless (null tables) $ do
-    let tableNames = T.intercalate ", " $ map unSingle tables
-    rawExecute ("TRUNCATE " <> tableNames <> " RESTART IDENTITY CASCADE") []
 
 -- | Run a test with a fresh database (alias for clarity)
 withFreshDb :: TestM () -> SpecWith DB.TestEnv -> SpecWith DB.TestEnv

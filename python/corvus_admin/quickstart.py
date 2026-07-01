@@ -15,6 +15,7 @@ commands.
 
 from __future__ import annotations
 
+import re
 import socket
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -121,6 +122,25 @@ def _check_postgres(url: str, *, timeout_sec: float = 3.0) -> str | None:
         return f"cannot connect to {host}:{port}: {e}"
 
 
+def _is_postgres_database(database: str) -> bool:
+    lowered = database.lower()
+    return lowered.startswith("postgresql://") or lowered.startswith("postgres://")
+
+
+def _has_uri_scheme(database: str) -> bool:
+    return re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", database) is not None
+
+
+def _default_database() -> str:
+    return str(Path.home() / ".local" / "share" / "corvus" / "corvus.db")
+
+
+def _prepare_sqlite_database(database: str) -> None:
+    if database == ":memory:" or _is_postgres_database(database):
+        return
+    Path(database).parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+
 def run(
     *,
     node_name: str | None = None,
@@ -134,7 +154,7 @@ def run(
     force: bool = False,
     healthcheck_timeout: float = 15.0,
     log_callback: Callable[[str], None] | None = None,
-    database_url: str = "postgresql://localhost/corvus",
+    database: str | None = None,
 ) -> QuickstartResult:
     """Drive the full bring-up. Returns a :class:`QuickstartResult`
     describing what was installed."""
@@ -145,6 +165,7 @@ def run(
 
     name = node_name or _default_node_name()
     base = base_path or _default_base_path()
+    database_value = database or _default_database()
 
     # ------------------------------------------------------------------
     # 1. Detect privesc + binaries
@@ -195,18 +216,27 @@ def run(
             )
 
     # ------------------------------------------------------------------
-    # 2. Probe PostgreSQL — if it isn't up, the daemon's startup
+    # 2. Prepare/probe database — if PostgreSQL isn't up, the daemon's startup
     # blocks the systemd `enable --now` call we'll make below and
     # quickstart appears to hang indefinitely. Fail loud and early
     # instead.
 
-    pg_err = _check_postgres(database_url)
-    if pg_err is not None:
+    if _is_postgres_database(database_value):
+        pg_err = _check_postgres(database_value)
+        if pg_err is not None:
+            raise QuickstartError(
+                f"PostgreSQL not reachable at {database_value}: {pg_err}. "
+                f"Start it (e.g. `sudo systemctl start postgresql`) and re-run."
+            )
+        log(f"PostgreSQL reachable at {database_value}.")
+    elif _has_uri_scheme(database_value):
         raise QuickstartError(
-            f"PostgreSQL not reachable at {database_url}: {pg_err}. "
-            f"Start it (e.g. `sudo systemctl start postgresql`) and re-run."
+            f"Unsupported database URI {database_value!r}. "
+            "Use a PostgreSQL URL or a SQLite file path."
         )
-    log(f"PostgreSQL reachable at {database_url}.")
+    else:
+        _prepare_sqlite_database(database_value)
+        log(f"SQLite database path: {database_value}.")
 
     # ------------------------------------------------------------------
     # 3. Admin store + CA + admin client cert
@@ -241,7 +271,7 @@ def run(
         "daemon",
         mode="user",
         binary_path=str(bins.corvus),
-        database_url=database_url,
+        database=database_value,
     )
     daemon_unit_path = systemd_mod.install_unit(
         runner, component="daemon", mode="user", content=daemon_unit_text

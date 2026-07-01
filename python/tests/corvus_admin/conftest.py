@@ -60,6 +60,9 @@ def fake_paths(tmp_path, monkeypatch):
     etc = tmp_path / "etc-corvus"
     monkeypatch.setattr(deploy, "SYSTEM_CERT_DIR", str(etc))
     monkeypatch.setattr(
+        deploy, "SYSTEM_DATABASE_PATH", str(tmp_path / "var-lib-corvus" / "corvus.db")
+    )
+    monkeypatch.setattr(
         systemd_mod, "SYSTEMD_SYSTEM_DIR", str(tmp_path / "etc-systemd")
     )
     monkeypatch.setattr(systemd_mod, "SYSTEMD_USER_DIR", str(tmp_path / "user-systemd"))

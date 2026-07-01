@@ -2,14 +2,11 @@
 
 Each test that needs RPC access pulls the `daemon_socket` fixture, which:
 
-1. Creates a uniquely-named PostgreSQL database (`corvus_test_py_<rand>`).
+1. Creates a temporary SQLite database file.
 2. Spawns `corvus` on a per-test temp Unix socket, pointing at that DB.
 3. Waits for the socket to appear (or the process to die).
 4. Yields the socket path.
-5. On teardown: terminates the daemon, drops the database.
-
-PostgreSQL connection: defaults to a local Unix-socket connection as the
-current user. Override via `$CORVUS_PY_TEST_PG_USER`, `$CORVUS_PY_TEST_PG_HOST`.
+5. On teardown: terminates the daemon and removes the temp directory.
 
 The fixture is `module`-scoped so a single daemon serves all tests in a
 module — fast enough for the size of our suite, and isolates state
@@ -299,7 +296,6 @@ def _ensure_self_node(sock: Path, agent_port: int) -> None:
 @pytest.fixture(scope="module")
 def daemon_socket(tmp_path_factory) -> Iterator[Path]:
     suffix = secrets.token_hex(4)
-    db_name = f"corvus_test_py_{suffix}"
     sock_dir = tmp_path_factory.mktemp(f"corvus-{suffix}")
     sock = sock_dir / "corvus.sock"
     # The daemon writes disk images under $HOME/VMs (see
@@ -309,13 +305,10 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
     fake_home = sock_dir / "home"
     fake_home.mkdir()
 
-    user = _pg_user()
-    host = _pg_host()
-    db_url = f"postgresql://{user}@{host}/{db_name}"
+    db_path = sock_dir / "corvus.db"
 
     log_file = sock_dir / "corvus.log"
     agent_log = sock_dir / "corvus-nodeagent.log"
-    _create_db(db_name)
 
     # Both processes share the per-fixture XDG_RUNTIME_DIR + HOME so
     # they agree on socket and disk-image paths. The nodeagent picks
@@ -374,7 +367,7 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
                         "--socket",
                         str(sock),
                         "--database",
-                        db_url,
+                        str(db_path),
                         "--log-level",
                         "warn",
                         # See the matching --no-tls on the
@@ -405,4 +398,3 @@ def daemon_socket(tmp_path_factory) -> Iterator[Path]:
                 except subprocess.TimeoutExpired:
                     proc.kill()
                     proc.wait(timeout=5)
-        _drop_db(db_name)

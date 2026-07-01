@@ -83,6 +83,9 @@ def patched_quickstart(monkeypatch, tmp_path, xdg_home):
     monkeypatch.setattr(
         quickstart, "LocalRunner", lambda privesc_tool=None: fake_runner
     )
+    monkeypatch.setattr(
+        quickstart, "_default_database", lambda: str(tmp_path / "corvus.db")
+    )
 
     # Pretend Postgres is reachable; the real probe would fail on
     # a CI host that doesn't run one.
@@ -149,6 +152,9 @@ def test_quickstart_skips_netd_when_no_privesc(monkeypatch, tmp_path, xdg_home):
     fake_runner.privesc = None
     monkeypatch.setattr(
         quickstart, "LocalRunner", lambda privesc_tool=None: fake_runner
+    )
+    monkeypatch.setattr(
+        quickstart, "_default_database", lambda: str(tmp_path / "corvus.db")
     )
 
     def fake_register(**kwargs):
@@ -237,10 +243,23 @@ def test_quickstart_aborts_when_postgres_unreachable(monkeypatch, tmp_path, xdg_
         quickstart.run(
             node_name="primary",
             ca_dir=tmp_path / "admin",
+            database="postgresql://localhost/corvus",
             log_callback=lambda _: None,
         )
     assert "PostgreSQL" in str(exc.value)
     assert "Connection refused" in str(exc.value)
+
+
+def test_quickstart_rejects_unsupported_database_uri(tmp_path, patched_quickstart):
+    with pytest.raises(quickstart.QuickstartError) as exc:
+        quickstart.run(
+            node_name="primary",
+            ca_dir=tmp_path / "admin",
+            database="mysql://localhost/corvus",
+            log_callback=lambda _: None,
+        )
+
+    assert "Unsupported database URI" in str(exc.value)
 
 
 def test_default_node_name_uses_hostname(monkeypatch):

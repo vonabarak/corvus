@@ -86,8 +86,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time (getCurrentTime)
 import Data.Word (Word32)
 import Database.Persist
-import Database.Persist.Postgresql (SqlBackend, runSqlPool)
-import Database.Persist.Sql (SqlPersistT)
+import Database.Persist.Sql (SqlBackend, SqlPersistT, runSqlPool)
 import System.FilePath ((</>))
 import System.IO (IOMode (ReadMode), withBinaryFile)
 

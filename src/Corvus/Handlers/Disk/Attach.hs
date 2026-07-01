@@ -34,7 +34,7 @@ import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 
 -- | Attach a disk to a VM.
 handleDiskAttach

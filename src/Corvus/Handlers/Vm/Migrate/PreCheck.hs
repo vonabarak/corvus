@@ -28,7 +28,7 @@ import qualified Data.List as L
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), count, get, selectList, (==.))
-import Database.Persist.Postgresql (SqlPersistT, runSqlPool)
+import Database.Persist.Sql (SqlPersistT, runSqlPool)
 
 -- ---------------------------------------------------------------------------
 -- Plan

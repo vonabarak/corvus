@@ -3,7 +3,7 @@
 
 A lightweight QEMU/KVM virtual machine management daemon written in Haskell.
 
-Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (`crv`) for interacting with it. VMs are defined in a PostgreSQL database and executed via QEMU with KVM acceleration.
+Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (`crv`) for interacting with it. VM state is stored in SQLite by default, with PostgreSQL available for deployments that prefer a server database, and VMs run via QEMU with KVM acceleration.
 
 ## Features
 
@@ -27,7 +27,6 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 ### Prerequisites
 
 - GHC 9.x and Stack
-- PostgreSQL
 - QEMU with KVM support
 - `qemu-img` (for disk image operations)
 - `virtiofsd` (for shared directories)
@@ -68,9 +67,16 @@ make install  # Installs binaries to ~/.local/bin/ + pipx-installs corvus-admin
 
 ### Database Setup
 
+The default database is SQLite. When the daemon starts without `--database`, it
+uses `$XDG_DATA_HOME/corvus/corvus.db` or
+`~/.local/share/corvus/corvus.db`, creates the parent directory if needed, and
+runs migrations automatically.
+
+To use PostgreSQL instead, create the database and pass a PostgreSQL URL:
+
 ```bash
 createdb corvus
-# The daemon runs migrations automatically on startup
+corvus --database postgresql://localhost/corvus
 ```
 
 ### Single-host setup (one command)
@@ -91,13 +97,16 @@ For multi-host deployments or when you want daemon/nodeagent as system services,
 
 ```bash
 # Run directly
+corvus
+
+# Or use PostgreSQL explicitly
 corvus --database postgresql://localhost/corvus
 ```
 
 After `corvus-admin quickstart` has run, the daemon's systemd unit is already enabled and started — you can manage it with the usual `systemctl --user` commands:
 
 ```bash
-# Edit the database connection string if needed
+# Edit the database path or connection string if needed
 systemctl --user edit corvus
 
 # Enable and start
@@ -239,7 +248,7 @@ artifacts are the same images referenced by
 ### Running Locally
 
 ```bash
-stack exec corvus -- -d postgresql://localhost/corvus_test --log-level debug
+stack exec corvus -- --log-level debug
 stack exec crv -- vm list
 ```
 

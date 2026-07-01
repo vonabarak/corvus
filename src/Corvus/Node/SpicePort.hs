@@ -24,8 +24,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), selectList)
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlBackend)
+import Database.Persist.Sql (SqlBackend, runSqlPool)
 
 import qualified Corvus.Model as M
 import Corvus.Qemu.Config (QemuConfig (..))

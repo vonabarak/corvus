@@ -9,7 +9,13 @@ import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logInfoN)
-import Corvus.Model (migrateAll)
+import Corvus.Database
+  ( DatabaseConfig (..)
+  , createDatabasePool
+  , databaseEngineLabel
+  , parseDatabase
+  , runDatabaseMigrations
+  )
 import Corvus.NodeSupervisor (spawnAllNodeSupervisors)
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
 import Corvus.Rpc.Server (runCapnpServer)
@@ -29,11 +35,9 @@ import Corvus.Types
   , newServerState
   , runFilteredLogging
   )
-import Data.ByteString.Char8 (pack)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import qualified Data.Text as T
-import Database.Persist.Postgresql (createPostgresqlPool, runMigrationUnsafe, runSqlPool)
 import Options.Applicative
 import System.Directory (createDirectoryIfMissing)
 import System.Exit (ExitCode (..), exitSuccess, exitWith)
@@ -53,7 +57,7 @@ data Options = Options
   , optNoTcp :: Bool
   , optHost :: String
   , optPort :: Int
-  , optDbUri :: String
+  , optDatabase :: Maybe String
   , optLogLevel :: LogLevel
   , optSpiceBind :: Maybe String
   , optNoTls :: Bool
@@ -95,11 +99,13 @@ optionsParser =
           <> value 9876
           <> help "Port to listen on for the TCP listener (default: 9876)"
       )
-    <*> strOption
-      ( long "database"
-          <> short 'd'
-          <> metavar "URI"
-          <> help "PostgreSQL connection URI (required). Example: postgresql://user:pass@localhost/corvus"
+    <*> optional
+      ( strOption
+          ( long "database"
+              <> short 'd'
+              <> metavar "VALUE"
+              <> help "Database: PostgreSQL URL (postgresql://...) or SQLite file path. Defaults to SQLite when compiled, otherwise postgresql://localhost/corvus."
+          )
       )
     <*> option
       parseLogLevel
@@ -145,11 +151,19 @@ main = do
   opts <- execParser optsInfo
   let logLevel = optLogLevel opts
   runFilteredLogging logLevel $ do
-    logInfoN $ "Connecting to database: " <> T.pack (optDbUri opts)
-    pool <- createPostgresqlPool (pack $ optDbUri opts) 10
+    dbConfig <-
+      liftIO (parseDatabase (optDatabase opts)) >>= \case
+        Right cfg -> pure cfg
+        Left err -> liftIO $ ioError $ userError $ T.unpack err
+    logInfoN $
+      "Connecting to "
+        <> databaseEngineLabel (dcEngine dbConfig)
+        <> " database: "
+        <> T.pack (dcValue dbConfig)
+    pool <- liftIO $ createDatabasePool dbConfig
 
     logInfoN "Running database migrations..."
-    liftIO $ runSqlPool (runMigrationUnsafe migrateAll) pool
+    liftIO $ runDatabaseMigrations pool
     logInfoN "Migrations complete."
 
     -- SPICE bind: defaults to the TCP listener's bind host when the

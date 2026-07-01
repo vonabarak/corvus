@@ -52,7 +52,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 import System.Directory (canonicalizePath, doesFileExist)
 import System.FilePath (takeDirectory, takeFileName, (</>))
 

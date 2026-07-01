@@ -37,8 +37,7 @@ import qualified Data.Text as T
 import Data.Word (Word32)
 import Database.Persist (Entity (..), get, selectList, (==.))
 import qualified Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlBackend, fromSqlKey, toSqlKey)
+import Database.Persist.Sql (SqlBackend, fromSqlKey, runSqlPool, toSqlKey)
 import qualified Database.Persist.Sql
 import System.FilePath ((</>))
 import System.Posix.User (getEffectiveGroupID, getEffectiveUserID)

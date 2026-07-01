@@ -101,8 +101,7 @@ import qualified Data.Version as Version
 import Data.Word (Word32)
 import Data.Yaml (decodeEither')
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
 import Paths_corvus (version)
 import System.Directory (copyFile, createDirectoryIfMissing, removeDirectory, removeFile, renameFile)
 import System.FilePath (takeDirectory, (</>))

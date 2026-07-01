@@ -33,8 +33,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (addUTCTime, getCurrentTime)
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (fromSqlKey)
+import Database.Persist.Sql (fromSqlKey, runSqlPool)
 
 --------------------------------------------------------------------------------
 -- Startup Action

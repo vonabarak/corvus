@@ -9,6 +9,7 @@ module Test.Database
   , teardownTestDb
   , createTestTempDir
   , insertDefaultTestNode
+  , resetTestDb
 
     -- * Test environment
   , TestEnv (..)
@@ -23,12 +24,11 @@ module Test.Database
   )
 where
 
+import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Control.Monad.Logger (runNoLoggingT)
-import Corvus.Model (migrateAll)
+import Corvus.Database (DatabaseConfig (..), DatabaseEngine (..), createDatabasePool, runDatabaseMigrations)
 import qualified Corvus.Model as M
 import Corvus.Protocol (Response)
-import Data.ByteString.Char8 (pack)
 import Data.IORef (IORef, newIORef)
 import Data.Pool (Pool, destroyAllResources)
 import Data.Text (Text)
@@ -37,8 +37,7 @@ import Data.Time (getCurrentTime)
 import Data.UUID (toText)
 import Data.UUID.V4 (nextRandom)
 import Database.Persist (insert_)
-import Database.Persist.Postgresql (SqlBackend, createPostgresqlPool, runMigration, runSqlPool)
-import Database.Persist.Sql (SqlPersistT)
+import Database.Persist.Sql (Single (..), SqlBackend, SqlPersistT, rawExecute, rawSql, runSqlPool)
 import System.Directory (createDirectoryIfMissing, removePathForcibly)
 import System.FilePath ((</>))
 import System.IO.Temp (getCanonicalTemporaryDirectory)
@@ -56,6 +55,8 @@ data TestEnv = TestEnv
   -- ^ Database connection pool
   , teDbName :: !Text
   -- ^ Test database name (for cleanup)
+  , teDatabaseEngine :: !DatabaseEngine
+  -- ^ Active test database backend
   , teConfig :: !TestDbConfig
   -- ^ Configuration used
   , teLastResponse :: !(IORef (Maybe Response))
@@ -84,15 +85,20 @@ withTestDb = beforeAll setupTestDb . afterAll teardownTestDb
 setupTestDb :: IO TestEnv
 setupTestDb = do
   config <- getTestDbConfig
+  tempDir <- createTestTempDir
   dbName <- generateTestDbName
-
-  -- Create the database
-  runPsqlAdmin config $ "CREATE DATABASE " <> dbName
-
-  -- Create connection pool and run migrations
-  let connStr = pack $ T.unpack $ buildConnString config dbName
-  pool <- runNoLoggingT $ createPostgresqlPool connStr 50
-  runSqlPool (runMigration migrateAll) pool
+  dbConfig <-
+    if tdcUsePostgresql config
+      then do
+        runPsqlAdmin config $ "CREATE DATABASE " <> dbName
+        pure $ DatabaseConfig DatabasePostgresql (T.unpack $ buildConnString config dbName)
+      else
+        pure $
+          DatabaseConfig
+            DatabaseSqlite
+            (tempDir </> T.unpack dbName <> ".db")
+  pool <- createDatabasePool dbConfig
+  runDatabaseMigrations pool
 
   -- Seed a default 'test-node' so handlers that insert VMs /
   -- networks / disks have a satisfiable FK target. Recreated by
@@ -102,12 +108,12 @@ setupTestDb = do
 
   -- Initialize other fields
   respRef <- newIORef Nothing
-  tempDir <- createTestTempDir
 
   pure
     TestEnv
       { tePool = pool
       , teDbName = dbName
+      , teDatabaseEngine = dcEngine dbConfig
       , teConfig = config
       , teLastResponse = respRef
       , teTempDir = tempDir
@@ -151,11 +157,40 @@ teardownTestDb env = do
   -- Close all connections first
   destroyAllResources (tePool env)
 
-  -- Drop the database
-  runPsqlAdmin (teConfig env) $ "DROP DATABASE IF EXISTS " <> teDbName env
+  case teDatabaseEngine env of
+    DatabasePostgresql ->
+      runPsqlAdmin (teConfig env) $ "DROP DATABASE IF EXISTS " <> teDbName env
+    DatabaseSqlite -> pure ()
 
   -- Clean up temp directory
   removePathForcibly (teTempDir env)
+
+resetTestDb :: TestEnv -> IO ()
+resetTestDb env =
+  runSqlPool
+    (truncateAllTables (teDatabaseEngine env) >> insertDefaultTestNode)
+    (tePool env)
+
+truncateAllTables :: DatabaseEngine -> SqlPersistT IO ()
+truncateAllTables DatabasePostgresql = do
+  tables <- rawSql "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename != 'alembic_version';" []
+  unless (null tables) $ do
+    let tableNames = T.intercalate ", " $ map unSingle tables
+    rawExecute ("TRUNCATE " <> tableNames <> " RESTART IDENTITY CASCADE") []
+truncateAllTables DatabaseSqlite = do
+  tables <-
+    rawSql
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
+      []
+  unless (null tables) $ do
+    rawExecute "PRAGMA defer_foreign_keys = ON" []
+    mapM_ (\(Single table) -> rawExecute ("DELETE FROM \"" <> table <> "\"") []) tables
+    sqliteSequence <-
+      rawSql
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence';"
+        []
+    unless (null (sqliteSequence :: [Single Text])) $
+      rawExecute "DELETE FROM sqlite_sequence" []
 
 --------------------------------------------------------------------------------
 -- Helpers

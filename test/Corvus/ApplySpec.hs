@@ -28,8 +28,8 @@ import Corvus.Types (ssDbPool)
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
-import Database.Persist (getBy, insert)
-import Database.Persist.Postgresql (entityVal, runSqlPool)
+import Database.Persist (entityVal, getBy, insert)
+import Database.Persist.Sql (runSqlPool)
 import Test.DSL.Core (runDb)
 import Test.DSL.When (withState)
 import Test.Prelude

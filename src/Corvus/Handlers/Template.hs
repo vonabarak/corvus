@@ -51,8 +51,7 @@ import qualified Data.Text.Encoding as T
 import Data.Time (UTCTime, getCurrentTime)
 import Data.Yaml (decodeEither')
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Handlers

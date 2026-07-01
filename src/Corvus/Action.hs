@@ -67,8 +67,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Postgresql (SqlBackend, runSqlPool)
-import Database.Persist.Sql (fromSqlKey, toSqlKey)
+import Database.Persist.Sql (SqlBackend, fromSqlKey, runSqlPool, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Action Context

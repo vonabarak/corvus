@@ -77,7 +77,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Postgresql (SqlPersistT, runSqlPool)
+import Database.Persist.Sql (SqlPersistT, runSqlPool)
 
 -- | Create a snapshot. Dispatches transparently between the
 -- offline path (qemu-img on a stopped disk) and the live path

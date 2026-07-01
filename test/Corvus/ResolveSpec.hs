@@ -24,8 +24,7 @@ import Data.Pool (Pool)
 import Data.Text (Text)
 import Data.Time (getCurrentTime)
 import Database.Persist (insert)
-import Database.Persist.Postgresql (SqlBackend)
-import Database.Persist.Sql (fromSqlKey)
+import Database.Persist.Sql (SqlBackend, fromSqlKey)
 import Test.DSL.Core (TestM, getDbPool, runDb)
 import Test.Prelude
 

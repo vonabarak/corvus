@@ -26,6 +26,7 @@ Conventions:
 from __future__ import annotations
 
 import datetime as dt
+import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +48,7 @@ RENEW_WINDOW = dt.timedelta(days=30)
 SYSTEM_CERT_DIR = "/etc/corvus"
 SYSTEM_CERT_MODE = 0o644
 SYSTEM_KEY_MODE = 0o600
+SYSTEM_DATABASE_PATH = "/var/lib/corvus/corvus.db"
 SYSTEM_DIR_MODE = 0o755
 
 
@@ -77,7 +79,7 @@ def deploy_daemon(
     user_service: bool = False,
     reuse_uuid: str | None = None,
     binary_path: str | None = None,
-    database_url: str = "postgresql://localhost/corvus",
+    database: str | None = None,
     log_level: str = "info",
     install_unit: bool = True,
     dry_run: bool = False,
@@ -89,7 +91,7 @@ def deploy_daemon(
     this as ``--rotate-identity``.
 
     Installs the systemd unit (rendered against ``binary_path``,
-    ``database_url`` and ``log_level``) before restarting. The
+    ``database`` and ``log_level``) before restarting. The
     default ``binary_path`` is ``~/.local/bin/corvus`` for user
     mode and ``/usr/local/bin/corvus`` for system mode. Pass
     ``install_unit=False`` to keep an existing custom unit on the
@@ -129,7 +131,7 @@ def deploy_daemon(
         plan,
         component="daemon",
         binary_path=binary_path,
-        database_url=database_url,
+        database=database,
         log_level=log_level,
         install_unit=install_unit,
     )
@@ -435,7 +437,7 @@ def _install_and_restart(
     component: str,
     binary_path: str | None,
     log_level: str = "info",
-    database_url: str | None = None,
+    database: str | None = None,
     bind_host: str | None = None,
     bind_port: int | None = None,
     install_unit: bool = True,
@@ -443,7 +445,7 @@ def _install_and_restart(
     """Render + install the systemd unit (when ``install_unit`` is
     True), daemon-reload, then enable-now + restart. The unit file
     is rewritten on every deploy so renewals automatically pick up
-    binary-path or database-url changes. Setting ``install_unit``
+    binary-path or database changes. Setting ``install_unit``
     False keeps an existing custom unit on the target; the deploy
     still pushes certs and restarts the service.
 
@@ -454,14 +456,18 @@ def _install_and_restart(
     mode: systemd_mod.InstallMode = "user" if plan.user_service else "system"
     if install_unit:
         effective_bin = _resolve_binary_path(runner, component, mode, binary_path)
+        effective_database = database
+        if component == "daemon":
+            effective_database = _resolve_database(runner, mode, database)
+            _prepare_database_path(runner, mode, effective_database)
         # Each template consumes a subset of these kwargs; the
         # ones it doesn't reference are silently ignored by Jinja.
         render_kwargs: dict[str, object] = {
             "binary_path": effective_bin,
             "log_level": log_level,
         }
-        if database_url is not None:
-            render_kwargs["database_url"] = database_url
+        if effective_database is not None:
+            render_kwargs["database"] = effective_database
         if bind_host is not None:
             render_kwargs["bind_host"] = bind_host
         if bind_port is not None:
@@ -529,6 +535,50 @@ def _resolve_binary_path(
         f"Install it on the target or pass --binary-path "
         f"explicitly."
     )
+
+
+_URI_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+
+
+def _is_postgres_database(database: str) -> bool:
+    lowered = database.lower()
+    return lowered.startswith("postgresql://") or lowered.startswith("postgres://")
+
+
+def _is_sqlite_database(database: str) -> bool:
+    return database == ":memory:" or not _URI_RE.match(database)
+
+
+def _default_database(runner: Runner, mode: systemd_mod.InstallMode) -> str:
+    if mode == "system":
+        return SYSTEM_DATABASE_PATH
+    result = runner.run(
+        ["sh", "-lc", 'printf %s "$HOME/.local/share/corvus/corvus.db"'],
+        capture=True,
+        sudo=False,
+    )
+    return result.stdout
+
+
+def _resolve_database(
+    runner: Runner,
+    mode: systemd_mod.InstallMode,
+    explicit: str | None,
+) -> str:
+    return explicit if explicit is not None else _default_database(runner, mode)
+
+
+def _prepare_database_path(
+    runner: Runner,
+    mode: systemd_mod.InstallMode,
+    database: str,
+) -> None:
+    if not _is_sqlite_database(database) or database == ":memory:":
+        return
+    parent = str(Path(database).parent)
+    if parent in ("", "."):
+        return
+    runner.mkdir_p(parent, mode=0o700, sudo=mode == "system")
 
 
 # ---------------------------------------------------------------------------

@@ -27,8 +27,7 @@ import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (fromSqlKey, toSqlKey)
+import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Shared Directory Handlers

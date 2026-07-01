@@ -30,8 +30,7 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), selectList, (==.))
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlBackend)
+import Database.Persist.Sql (SqlBackend, runSqlPool)
 import Foreign.C.Types (CInt (..), CULLong (..))
 import System.Directory (doesPathExist)
 

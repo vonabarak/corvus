@@ -97,7 +97,7 @@ def render_unit(
     mode: InstallMode,
     binary_path: str,
     log_level: str = "info",
-    database_url: str = "postgresql://localhost/corvus",
+    database: str = "~/.local/share/corvus/corvus.db",
     bind_host: str = "127.0.0.1",
     bind_port: int = 8080,
 ) -> str:
@@ -108,7 +108,7 @@ def render_unit(
     ``--binary-path`` explicitly.
 
     ``bind_host`` / ``bind_port`` are consumed by the ``web``
-    template only — the others ignore them. ``database_url`` is
+    template only — the others ignore them. ``database`` is
     consumed by the ``daemon`` template only.
 
     Raises :class:`ValueError` when netd is requested in user mode
@@ -131,7 +131,7 @@ def render_unit(
         install_mode=mode,
         binary_path=binary_path,
         log_level=log_level,
-        database_url=database_url,
+        database=database,
         bind_host=bind_host,
         bind_port=bind_port,
     )

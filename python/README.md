@@ -169,13 +169,11 @@ The Python wrappers mirror every cap method in the Haskell client
 ## Tests
 
 Run against a real daemon (a fresh `corvus` subprocess per module on a
-temp Unix socket + temp Postgres DB):
+temp Unix socket + temp SQLite DB):
 
 ```sh
 make python-test
 ```
 
-PostgreSQL must be reachable as the `corvus` role (override with
-`$CORVUS_PY_TEST_PG_USER` / `$CORVUS_PY_TEST_PG_HOST`). The daemon
-binary is taken from `~/.local/bin/corvus` (preferred) or `$PATH`;
-override with `$CORVUS_BIN`.
+The daemon binary is taken from `~/.local/bin/corvus` (preferred) or
+`$PATH`; override with `$CORVUS_BIN`.

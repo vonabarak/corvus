@@ -33,7 +33,7 @@ import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Int (Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 
 -- | Stop every running/paused VM attached to @diskId@, delegate
 -- to the offline rollback, then restart every VM that was

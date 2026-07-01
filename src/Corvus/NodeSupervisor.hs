@@ -52,8 +52,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), get, selectList, (==.))
-import Database.Persist.Postgresql (SqlPersistT, runSqlPool)
-import Database.Persist.Sql (fromSqlKey)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool)
 import Supervisors (withSupervisor)
 import System.Posix.User (getRealUserID)
 import System.Timeout (timeout)

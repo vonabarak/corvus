@@ -293,10 +293,10 @@ def _default_admin_name() -> str:
     help="Per-node disk base path. Default: ~/VMs.",
 )
 @click.option(
-    "--database-url",
-    default="postgresql://localhost/corvus",
-    show_default=True,
-    help="Postgres connection URL baked into the generated systemd unit.",
+    "--database",
+    default=None,
+    show_default=False,
+    help="Database passed to the daemon: PostgreSQL URL or SQLite file path. Default: ~/.local/share/corvus/corvus.db.",
 )
 @click.option(
     "--skip-netd",
@@ -340,7 +340,7 @@ def quickstart(
     node_name: str | None,
     listen_ip: str,
     base_path: str | None,
-    database_url: str,
+    database: str | None,
     skip_netd: bool,
     skip_web: bool,
     web_bind_host: str,
@@ -372,7 +372,7 @@ def quickstart(
             web_bind_port=web_bind_port,
             force=force,
             healthcheck_timeout=healthcheck_timeout,
-            database_url=database_url,
+            database=database,
             log_callback=lambda m: click.echo(m),
         )
     except quickstart_mod.QuickstartError as e:
@@ -441,10 +441,10 @@ main.add_command(deploy_group, name="deploy")
     help="Path to the corvus binary on the target. Default: ~/.local/bin/corvus (user-service) or /usr/local/bin/corvus (system-service).",
 )
 @click.option(
-    "--database-url",
-    default="postgresql://localhost/corvus",
-    show_default=True,
-    help="Postgres connection URL baked into the rendered systemd unit.",
+    "--database",
+    default=None,
+    show_default=False,
+    help="Database passed to the daemon: PostgreSQL URL or SQLite file path. Default: SQLite path for the service mode.",
 )
 @click.option(
     "--log-level",
@@ -465,7 +465,7 @@ def deploy_daemon(
     listen_ip: str | None,
     user_service: bool,
     binary_path: str | None,
-    database_url: str,
+    database: str | None,
     log_level: str,
     install_unit: bool,
     dry_run: bool,
@@ -481,7 +481,7 @@ def deploy_daemon(
             listen_ip=listen_ip,
             user_service=user_service,
             binary_path=binary_path,
-            database_url=database_url,
+            database=database,
             log_level=log_level,
             install_unit=install_unit,
             dry_run=dry_run,

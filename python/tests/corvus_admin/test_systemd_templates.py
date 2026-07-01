@@ -90,11 +90,11 @@ def test_log_level_is_threaded_through():
     assert "--log-level debug" in rendered
 
 
-def test_database_url_is_threaded_through_daemon_template():
+def test_database_is_threaded_through_daemon_template():
     rendered = systemd_mod.render_unit(
         "daemon",
         mode="user",
         binary_path="/x/corvus",
-        database_url="postgresql://db.internal/corvus",
+        database="postgresql://db.internal/corvus",
     )
     assert "--database postgresql://db.internal/corvus" in rendered

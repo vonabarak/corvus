@@ -18,6 +18,7 @@ where
 
 import Control.Monad.Logger (LogLevel (..))
 import Data.Char (toLower)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.Environment (lookupEnv)
@@ -38,6 +39,8 @@ data TestDbConfig = TestDbConfig
   -- ^ PostgreSQL password
   , tdcAdminDb :: !Text
   -- ^ Admin database (used to create/drop test databases)
+  , tdcUsePostgresql :: !Bool
+  -- ^ Whether to use PostgreSQL instead of the default SQLite test database
   }
   deriving (Show)
 
@@ -49,6 +52,14 @@ getTestDbConfig = do
   user <- maybe "corvus" T.pack <$> lookupEnv "TEST_DB_USER"
   password <- maybe "corvus" T.pack <$> lookupEnv "TEST_DB_PASSWORD"
   adminDb <- maybe "postgres" T.pack <$> lookupEnv "TEST_DB_ADMIN"
+  explicitBackend <- lookupEnv "TEST_DB_BACKEND"
+  explicitHost <- lookupEnv "TEST_DB_HOST"
+  let usePostgresql =
+        case fmap (map toLower) explicitBackend of
+          Just "postgresql" -> True
+          Just "postgres" -> True
+          Just "sqlite" -> False
+          _ -> isJust explicitHost
   pure
     TestDbConfig
       { tdcHost = host
@@ -56,6 +67,7 @@ getTestDbConfig = do
       , tdcUser = user
       , tdcPassword = password
       , tdcAdminDb = adminDb
+      , tdcUsePostgresql = usePostgresql
       }
 
 --------------------------------------------------------------------------------

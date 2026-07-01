@@ -31,21 +31,6 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: corvus
-          POSTGRES_PASSWORD: corvus
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - uses: actions/checkout@v4
 
@@ -58,7 +43,6 @@ jobs:
           sudo apt-get install -y \
             libvdeplug-dev \
             qemu-utils \
-            postgresql-client \
             genisoimage \
             capnproto
 
@@ -204,14 +188,11 @@ jobs:
       - name: Lint
         run: make lint
 
-      # `make unit-tests` auto-scales `--jobs` to nproc. The
-      # Haskell test/ tree is unit-only post-refactor; the older
-      # `--skip Integration` flag the previous CI carried is
+      # `make unit-tests` auto-scales `--jobs` to nproc. With no
+      # TEST_DB_* override, the Haskell harness uses SQLite, which
+      # matches the daemon's default database choice in a both-backend
+      # build. The Haskell test/ tree is unit-only post-refactor; the
+      # older `--skip Integration` flag the previous CI carried is
       # stale (no spec is tagged that way in the current tree).
       - name: Unit tests
-        env:
-          TEST_DB_HOST: localhost
-          TEST_DB_PORT: "5432"
-          TEST_DB_USER: corvus
-          TEST_DB_PASSWORD: corvus
         run: make unit-tests

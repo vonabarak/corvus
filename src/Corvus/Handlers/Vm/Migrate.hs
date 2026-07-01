@@ -75,7 +75,7 @@ import Data.List (isPrefixOf)
 import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 import System.FilePath (takeFileName, (</>))
 
 -- ---------------------------------------------------------------------------

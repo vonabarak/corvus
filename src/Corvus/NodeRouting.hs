@@ -31,8 +31,7 @@ import Corvus.Types
 import Data.Int (Int64)
 import Data.Text (Text)
 import Database.Persist (get)
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (toSqlKey)
+import Database.Persist.Sql (runSqlPool, toSqlKey)
 
 -- | Look up a VM's 'NodeId'. The eid is the 'Int64' carried on
 -- the wire; we convert it via 'toSqlKey'.

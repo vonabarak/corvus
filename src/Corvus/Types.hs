@@ -71,8 +71,7 @@ import qualified Data.Sequence as Seq
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (UTCTime, getCurrentTime)
-import Database.Persist.Postgresql (SqlBackend)
-import Database.Persist.Sql (fromSqlKey)
+import Database.Persist.Sql (SqlBackend, fromSqlKey)
 import Network.Socket (Socket)
 import System.Environment (lookupEnv)
 

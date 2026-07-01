@@ -8,8 +8,8 @@ Description=Corvus daemon (integration-test target)
 # fail this service cleanly with a clear journal message if the
 # mount itself failed — better than the old `ConditionPathExists`
 # silently skipping the service.
-After=network-online.target postgresql-18.service opt-corvus-bin.mount corvus-netd.service
-Wants=network-online.target postgresql-18.service corvus-netd.service
+After=network-online.target opt-corvus-bin.mount corvus-netd.service
+Wants=network-online.target corvus-netd.service
 Requires=opt-corvus-bin.mount
 RequiresMountsFor=/opt/corvus/bin
 
@@ -19,11 +19,12 @@ User=corvus
 Group=corvus
 SupplementaryGroups=kvm
 RuntimeDirectory=corvus
+StateDirectory=corvus
 Environment=XDG_RUNTIME_DIR=/run/corvus
 ExecStart=/opt/corvus/bin/corvus \
     --host 0.0.0.0 \
     --port 9876 \
-    --database postgresql://corvus@/corvus \
+    --database /var/lib/corvus/corvus.db \
     --log-level debug
 Restart=on-failure
 RestartSec=2

@@ -21,7 +21,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist (insert)
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 import qualified Network.Socket as NS
 import Test.DSL.Core (getDbPool, getTempDir, runDb)
 import Test.DSL.When (createTestServerState)

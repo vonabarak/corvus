@@ -52,9 +52,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import qualified Database.Persist.Postgresql
-import Database.Persist.Sql (fromSqlKey, toSqlKey)
+import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
+import qualified Database.Persist.Sql
 import System.Posix.User (getRealUserID)
 
 --------------------------------------------------------------------------------
@@ -331,7 +330,7 @@ handleNodeDrain state nodeId =
 -- caller-displayable error message, or 'Nothing' if the flip is
 -- safe.
 checkNetdDisableAllowed
-  :: Database.Persist.Postgresql.ConnectionPool
+  :: Database.Persist.Sql.ConnectionPool
   -> M.NodeId
   -> IO (Maybe Text)
 checkNetdDisableAllowed pool nid = do

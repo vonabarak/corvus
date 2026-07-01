@@ -62,8 +62,7 @@ import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Postgresql (SqlBackend, runSqlPool)
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
+import Database.Persist.Sql (SqlBackend, SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Action types

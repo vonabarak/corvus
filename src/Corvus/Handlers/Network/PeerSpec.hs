@@ -33,8 +33,7 @@ import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), get, selectList, (==.))
-import Database.Persist.Postgresql (SqlPersistT)
-import Database.Persist.Sql (fromSqlKey)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey)
 
 -- | Which side of the overlay a particular spec is built for.
 data PeerRole

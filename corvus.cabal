@@ -13,6 +13,14 @@ maintainer:     author@example.com
 license:        BSD-3-Clause
 build-type:     Simple
 
+flag with-postgresql
+  manual: True
+  default: True
+
+flag with-sqlite
+  manual: True
+  default: True
+
 library
   exposed-modules:
       Corvus.Protocol
@@ -29,6 +37,7 @@ library
       Corvus.Protocol.Build
       Corvus.Protocol.Task
       Corvus.Types
+      Corvus.Database
       Corvus.Tls
       Corvus.Server
       Corvus.Action
@@ -272,7 +281,6 @@ library
     , network-simple
     , optparse-applicative
     , persistent
-    , persistent-postgresql
     , process
     , random
     , resource-pool
@@ -289,6 +297,16 @@ library
     , vector
     , yaml
   default-language: Haskell2010
+  if !flag(with-postgresql) && !flag(with-sqlite)
+    buildable: False
+  if flag(with-postgresql)
+    cpp-options: -DWITH_POSTGRESQL
+    build-depends:
+        persistent-postgresql
+  if flag(with-sqlite)
+    cpp-options: -DWITH_SQLITE
+    build-depends:
+        persistent-sqlite
 
 executable corvus
   main-is: Main.hs
@@ -343,7 +361,6 @@ executable corvus
     , network-simple
     , optparse-applicative
     , persistent
-    , persistent-postgresql
     , process
     , random
     , resource-pool
@@ -414,7 +431,6 @@ executable corvus-netd
     , network-simple
     , optparse-applicative
     , persistent
-    , persistent-postgresql
     , process
     , random
     , resource-pool
@@ -485,7 +501,6 @@ executable corvus-nodeagent
     , network-simple
     , optparse-applicative
     , persistent
-    , persistent-postgresql
     , process
     , random
     , resource-pool
@@ -556,7 +571,6 @@ executable crv
     , network-simple
     , optparse-applicative
     , persistent
-    , persistent-postgresql
     , process
     , random
     , resource-pool
@@ -590,6 +604,7 @@ test-suite corvus-test
       Corvus.ClientOutputSpec
       Corvus.CloudInitSpec
       Corvus.CoreSpec
+      Corvus.DatabaseSpec
       Corvus.DiskSpec
       Corvus.DnsmasqArgsSpec
       Corvus.EmitSpec
@@ -688,7 +703,6 @@ test-suite corvus-test
     , network-simple
     , optparse-applicative
     , persistent
-    , persistent-postgresql
     , process
     , random
     , resource-pool

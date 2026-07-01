@@ -58,8 +58,7 @@ import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime, nominalDiffTimeToSeconds)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlPersistT)
+import Database.Persist.Sql (SqlPersistT, runSqlPool)
 import System.Timeout (timeout)
 
 -- | Server-side handle. Owns a reference to 'ServerState' so

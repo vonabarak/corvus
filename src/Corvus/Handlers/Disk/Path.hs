@@ -24,7 +24,7 @@ import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), getBy)
-import Database.Persist.Postgresql (SqlBackend, runSqlPool)
+import Database.Persist.Sql (SqlBackend, runSqlPool)
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath (isRelative, takeDirectory, (</>))
 

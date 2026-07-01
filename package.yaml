@@ -22,7 +22,6 @@ dependencies:
   - network
   - time
   - persistent
-  - persistent-postgresql
   - monad-logger
   - resource-pool
   - mtl
@@ -50,6 +49,14 @@ dependencies:
   - asn1-types
   - transformers
   - memory
+
+flags:
+  with-postgresql:
+    manual: true
+    default: true
+  with-sqlite:
+    manual: true
+    default: true
 
 default-extensions:
   - OverloadedStrings
@@ -90,6 +97,7 @@ library:
     - Corvus.Protocol.Build
     - Corvus.Protocol.Task
     - Corvus.Types
+    - Corvus.Database
     - Corvus.Tls
     - Corvus.Server
     - Corvus.Action
@@ -259,6 +267,19 @@ library:
     - Capnp.Gen.Cloudinit
     - Capnp.Gen.Netagent
     - Capnp.Gen.Nodeagent
+  when:
+    - condition: "!flag(with-postgresql) && !flag(with-sqlite)"
+      buildable: false
+    - condition: flag(with-postgresql)
+      dependencies:
+        - persistent-postgresql
+      cpp-options:
+        - -DWITH_POSTGRESQL
+    - condition: flag(with-sqlite)
+      dependencies:
+        - persistent-sqlite
+      cpp-options:
+        - -DWITH_SQLITE
 
 executables:
   corvus:

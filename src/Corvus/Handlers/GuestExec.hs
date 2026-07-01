@@ -30,8 +30,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlPersistT, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, runSqlPool, toSqlKey)
 
 -- | Handle guest command execution via QGA.
 -- Checks: VM exists, VM is running, guest agent is enabled.

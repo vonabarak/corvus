@@ -61,8 +61,7 @@ import Data.Function ((&))
 import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist (insert, update, (=.))
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (fromSqlKey)
+import Database.Persist.Sql (fromSqlKey, runSqlPool)
 import Supervisors (Supervisor)
 
 -- | The root Daemon cap, parameterised over the shared server state,

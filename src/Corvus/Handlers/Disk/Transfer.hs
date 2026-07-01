@@ -40,7 +40,7 @@ import Corvus.Types (ServerState (..), runServerLogging)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (Entity (..), get)
-import Database.Persist.Postgresql (runSqlPool)
+import Database.Persist.Sql (runSqlPool)
 import System.FilePath (takeFileName, (</>))
 
 -- | Move (well, copy) the contents of @srcPath@ on @srcNode@ to

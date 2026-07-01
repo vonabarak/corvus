@@ -154,8 +154,7 @@ import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (getCurrentTime)
-import Database.Persist.Postgresql (SqlBackend)
-import Database.Persist.Sql (toSqlKey)
+import Database.Persist.Sql (SqlBackend, toSqlKey)
 import Test.DSL.Core (TestM, getDbPool, getTempDir, setLastResponse)
 import qualified Test.Database as DB
 import Test.Settings (getTestLogLevel)

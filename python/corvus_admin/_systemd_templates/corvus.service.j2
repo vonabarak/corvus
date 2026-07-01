@@ -15,7 +15,7 @@ Environment=XDG_RUNTIME_DIR=/run/corvus
 # (/etc/corvus for system, ~/.config/corvus for user). Override
 # here only when a custom layout is needed.
 ExecStart={{ binary_path }} \
-    --database {{ database_url }} \
+    --database {{ database }} \
     --log-level {{ log_level }}
 
 Restart=always

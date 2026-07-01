@@ -30,8 +30,7 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Network Interface Handlers

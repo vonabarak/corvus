@@ -58,8 +58,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (getCurrentTime)
 import Database.Persist
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
+import Database.Persist.Sql (SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Network Handlers

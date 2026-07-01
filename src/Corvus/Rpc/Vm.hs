@@ -93,8 +93,7 @@ import qualified Data.Maybe
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
 import Database.Persist (get)
-import Database.Persist.Postgresql (runSqlPool)
-import Database.Persist.Sql (fromSqlKey, toSqlKey)
+import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
 import Supervisors (Supervisor)
 
 -- ---------------------------------------------------------------------

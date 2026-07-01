@@ -63,8 +63,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Time (getCurrentTime)
 import Data.Yaml (decodeEither')
 import Database.Persist
-import Database.Persist.Postgresql (SqlBackend, runSqlPool)
-import Database.Persist.Sql (SqlPersistT, fromSqlKey, toSqlKey)
+import Database.Persist.Sql (SqlBackend, SqlPersistT, fromSqlKey, runSqlPool, toSqlKey)
 
 --------------------------------------------------------------------------------
 -- Handler
