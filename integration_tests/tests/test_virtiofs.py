@@ -91,10 +91,12 @@ class TestVirtiofs(SingleNodeCase):
         failure and we'd lose the entity id we need for the task
         lookup)."""
         images = self.register_base_images()
-        base = images.get("alpine")
+        base = images.get("corvus-test-vm")
         if base is None:
-            pytest.skip("alpine base image not registered")
-
+            pytest.skip(
+                "alpine (corvus-test-vm) base image not registered — "
+                "run `make test-image-vm` to bake it on the host"
+            )
         name = _uniq("virtiofs-missing")
         bad_path = f"/tmp/nonexistent-virtiofs-{secrets.token_hex(4)}"
         self.client.disks.create_overlay(name, base)

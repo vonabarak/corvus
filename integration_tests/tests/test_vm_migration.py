@@ -212,7 +212,7 @@ class _MigrationCase(OneDaemonTwoNodesCase):
         ``self._delete_silent_disk(overlay_name)``).
         """
         images = self.register_base_images()
-        base_disk = images.get("alpine")
+        base_disk = images.get("corvus-test-vm")
         if base_disk is None:
             pytest.skip(
                 "alpine (corvus-test-vm) base image not registered — "
