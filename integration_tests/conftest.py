@@ -74,6 +74,9 @@ from xdist.workermanage import WorkerController
 
 import yaml as _yaml
 
+_SESSION_TEST_NETWORK_ROOT: Path | None = None
+_SESSION_TEST_NETWORK_FAILED = "corvus_it_session_network.failed"
+
 # ---------------------------------------------------------------------------
 # Session-scoped preconditions
 # ---------------------------------------------------------------------------
@@ -157,15 +160,19 @@ def session_test_network(
     When pytest runs without xdist, `worker_id == "master"` and we
     take a trivial single-process create/delete path.
     """
+    root = tmp_path_factory.getbasetemp().parent
+    global _SESSION_TEST_NETWORK_ROOT
+    _SESSION_TEST_NETWORK_ROOT = root
+
     if worker_id == "master":
         name = _create_session_network(crv)
         try:
             yield name
         finally:
-            _delete_session_network(crv, name)
+            if not _session_test_network_failed(root):
+                _delete_session_network(crv, name)
         return
 
-    root = tmp_path_factory.getbasetemp().parent
     name_file = root / "corvus_it_session_network.name"
     refcount_file = root / "corvus_it_session_network.refcount"
     lock_path = str(root / "corvus_it_session_network.lock")
@@ -183,14 +190,15 @@ def session_test_network(
     try:
         yield name
     finally:
-        with _flock(lock_path):
-            n = int(refcount_file.read_text()) - 1
-            if n <= 0:
-                _delete_session_network(crv, name)
-                name_file.unlink(missing_ok=True)
-                refcount_file.unlink(missing_ok=True)
-            else:
-                refcount_file.write_text(str(n))
+        if not _session_test_network_failed(root):
+            with _flock(lock_path):
+                n = int(refcount_file.read_text()) - 1
+                if n <= 0:
+                    _delete_session_network(crv, name)
+                    name_file.unlink(missing_ok=True)
+                    refcount_file.unlink(missing_ok=True)
+                else:
+                    refcount_file.write_text(str(n))
 
 
 def _pick_session_subnet(crv: Crv) -> str:
@@ -275,9 +283,19 @@ def _delete_session_network(crv: Crv, name: str) -> None:
         crv.network_stop(name, force=True)
     except Exception:
         pass
+
+
+def _session_test_network_failed(root: Path) -> bool:
+    return (root / _SESSION_TEST_NETWORK_FAILED).exists()
+
+
+def _mark_session_test_network_failed() -> None:
+    root = _SESSION_TEST_NETWORK_ROOT
+    if root is None:
+        return
     try:
-        crv.network_delete(name)
-    except Exception:
+        (root / _SESSION_TEST_NETWORK_FAILED).touch(exist_ok=True)
+    except OSError:
         pass
 
 
@@ -529,10 +547,10 @@ def pytest_runtest_makereport(item: pytest.Item, call):
     failures do (we check `report.failed`, not `outcome != 'passed'`).
     """
     outcome = yield
-    if not _is_class_based(item):
-        return
     report = outcome.get_result()
-    if not report.failed:
+    if report.failed:
+        _mark_session_test_network_failed()
+    if not _is_class_based(item) or not report.failed:
         return
     state = state_for(item.cls)
     if state.first_failure is None:
