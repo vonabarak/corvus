@@ -167,7 +167,7 @@ main = do
     dbRuntimeInfo <- liftIO $ getDatabaseRuntimeInfo dbConfig pool
 
     logInfoN "Running database migrations..."
-    liftIO $ runDatabaseMigrations pool
+    liftIO $ runDatabaseMigrations dbConfig pool
     logInfoN "Migrations complete."
 
     -- SPICE bind: defaults to the TCP listener's bind host when the

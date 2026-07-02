@@ -11,6 +11,7 @@ import qualified Data.ByteString as BS
 import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Pool (destroyAllResources)
 import qualified Data.Text as T
+import Database.Persist.Sql (Single (..), rawSql, runSqlPool)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
@@ -84,10 +85,18 @@ spec = do
       withSystemTempDirectory "corvus-db-runtime" $ \dir -> do
         let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
         pool <- createDatabasePool cfg
+        runDatabaseMigrations cfg pool
         info <- getDatabaseRuntimeInfo cfg pool
+        sqliteMasterRows <-
+          runSqlPool
+            (rawSql "SELECT sql FROM sqlite_master WHERE type='table' AND name='node';" [])
+            pool
         destroyAllResources pool
         driBackend info `shouldBe` "sqlite"
         driVersion info `shouldSatisfy` (not . T.null)
+        case sqliteMasterRows of
+          Single sql : _ -> sql `shouldSatisfy` T.isInfixOf "AUTOINCREMENT"
+          [] -> expectationFailure "expected node table definition"
 
   describe "warnIfSqliteHeaderVersionMismatch" $ do
     it "warns when the SQLite header version differs from the runtime SQLite version" $

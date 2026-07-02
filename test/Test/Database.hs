@@ -98,7 +98,7 @@ setupTestDb = do
             DatabaseSqlite
             (tempDir </> T.unpack dbName <> ".db")
   pool <- createDatabasePool dbConfig
-  runDatabaseMigrations pool
+  runDatabaseMigrations dbConfig pool
 
   -- Seed a default 'test-node' so handlers that insert VMs /
   -- networks / disks have a satisfiable FK target. Recreated by

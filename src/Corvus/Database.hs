@@ -21,7 +21,7 @@ where
 
 import Control.Exception (SomeException, bracket, try)
 import Control.Monad (when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (LoggingT, logWarnN, runStdoutLoggingT)
 import Corvus.Model (migrateAll)
 import qualified Data.ByteString as BS
@@ -32,7 +32,7 @@ import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Database.Persist (PersistValue (..))
-import Database.Persist.Sql (Single (..), SqlBackend, rawExecute, rawSql, runMigration, runSqlPool)
+import Database.Persist.Sql (Single (..), SqlBackend, rawExecute, rawSql, runMigration, runSqlPool, showMigration)
 #if defined(WITH_POSTGRESQL)
 import Database.Persist.Postgresql (createPostgresqlPool)
 #endif
@@ -40,6 +40,7 @@ import Database.Persist.Postgresql (createPostgresqlPool)
 import qualified Database.Sqlite as Sqlite
 import Database.Persist.Sqlite (createSqlitePool)
 #endif
+import Control.Monad.Trans.Reader (ReaderT)
 import System.Directory (createDirectoryIfMissing, doesFileExist, getHomeDirectory)
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, (</>))
@@ -142,8 +143,21 @@ createSqlitePoolChecked _ =
   ioError $ userError "this corvus binary was built without SQLite support"
 #endif
 
-runDatabaseMigrations :: Pool SqlBackend -> IO ()
-runDatabaseMigrations = runSqlPool (runMigration migrateAll)
+runDatabaseMigrations :: DatabaseConfig -> Pool SqlBackend -> IO ()
+runDatabaseMigrations cfg = runSqlPool $ case dcEngine cfg of
+  DatabaseSqlite -> runSqliteMigrations
+  DatabasePostgresql -> runMigration migrateAll
+
+runSqliteMigrations :: (MonadIO m) => ReaderT SqlBackend m ()
+runSqliteMigrations = do
+  sqlStatements <- showMigration migrateAll
+  mapM_ (\sql -> rawExecute (sqliteAutoincrementSql sql) []) sqlStatements
+
+sqliteAutoincrementSql :: Text -> Text
+sqliteAutoincrementSql sql
+  | "CREATE TABLE " `T.isPrefixOf` sql =
+      T.replace "\"id\" INTEGER PRIMARY KEY" "\"id\" INTEGER PRIMARY KEY AUTOINCREMENT" sql
+  | otherwise = sql
 
 getDatabaseRuntimeInfo :: DatabaseConfig -> Pool SqlBackend -> IO DatabaseRuntimeInfo
 getDatabaseRuntimeInfo cfg pool = do
