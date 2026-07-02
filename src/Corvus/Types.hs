@@ -6,6 +6,7 @@ module Corvus.Types
     ServerState (..)
   , NodeConns (..)
   , newServerState
+  , newServerStateWithDatabase
   , runServerLogging
   , runFilteredLogging
 
@@ -57,6 +58,7 @@ import Control.Concurrent.Async (Async)
 import Control.Concurrent.MVar (MVar, newMVar)
 import Control.Concurrent.STM (TMVar, TVar, atomically, modifyTVar', newTVarIO, readTVar, readTVarIO, writeTVar)
 import Control.Monad.Logger (LogLevel (..), LoggingT, filterLogger, runStdoutLoggingT)
+import Corvus.Database (DatabaseRuntimeInfo, unknownDatabaseRuntimeInfo)
 import qualified Corvus.Model as M
 import Corvus.NetAgentClient (NetAgentClient)
 import Corvus.NodeAgentClient (NodeAgentClient)
@@ -96,6 +98,8 @@ data ServerState = ServerState
   -- ^ Signal to shutdown
   , ssDbPool :: Pool SqlBackend
   -- ^ Database connection pool
+  , ssDatabaseRuntimeInfo :: !DatabaseRuntimeInfo
+  -- ^ Database backend and runtime version reported by daemon status
   , ssQemuConfig :: !QemuConfig
   -- ^ QEMU configuration
   , ssLogLevel :: !LogLevel
@@ -212,7 +216,11 @@ data NodeConns = NodeConns
 
 -- | Create a new server state
 newServerState :: Pool SqlBackend -> QemuConfig -> IO ServerState
-newServerState pool qemuConfig = do
+newServerState pool qemuConfig =
+  newServerStateWithDatabase pool qemuConfig unknownDatabaseRuntimeInfo
+
+newServerStateWithDatabase :: Pool SqlBackend -> QemuConfig -> DatabaseRuntimeInfo -> IO ServerState
+newServerStateWithDatabase pool qemuConfig dbRuntimeInfo = do
   startTime <- getCurrentTime
   connCount <- newTVarIO 0
   shutdownFlag <- newTVarIO False
@@ -232,6 +240,7 @@ newServerState pool qemuConfig = do
       , ssConnectionCount = connCount
       , ssShutdownFlag = shutdownFlag
       , ssDbPool = pool
+      , ssDatabaseRuntimeInfo = dbRuntimeInfo
       , ssQemuConfig = qemuConfig
       , ssLogLevel = LevelInfo
       , ssAgents = agents

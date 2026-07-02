@@ -113,6 +113,8 @@ toCapnpStatusInfo P.StatusInfo {..} =
     , CGCommon.connections = fromIntegral siConnections
     , CGCommon.version = siVersion
     , CGCommon.protocolVersion = fromIntegral siProtocolVersion
+    , CGCommon.databaseBackend = siDatabaseBackend
+    , CGCommon.databaseVersion = siDatabaseVersion
     }
 
 fromCapnpStatusInfo :: C.Parsed CGCommon.StatusInfo -> P.StatusInfo
@@ -122,6 +124,8 @@ fromCapnpStatusInfo CGCommon.StatusInfo {..} =
     , P.siConnections = fromIntegral connections
     , P.siVersion = version
     , P.siProtocolVersion = fromIntegral protocolVersion
+    , P.siDatabaseBackend = databaseBackend
+    , P.siDatabaseVersion = databaseVersion
     }
 
 -- ---------------------------------------------------------------------

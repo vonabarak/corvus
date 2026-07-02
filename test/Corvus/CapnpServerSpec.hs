@@ -110,9 +110,11 @@ spec = withTestDb $ sequential $ do
 
     it "rpcStatus returns sensible values" $ \env -> do
       withCapnpDaemon env $ \conn -> do
-        P.StatusInfo {P.siUptime, P.siConnections} <- CR.rpcStatus conn
+        P.StatusInfo {P.siUptime, P.siConnections, P.siDatabaseBackend, P.siDatabaseVersion} <- CR.rpcStatus conn
         siUptime `shouldSatisfy` (>= 0)
         siConnections `shouldSatisfy` (>= 0)
+        siDatabaseBackend `shouldBe` "unknown"
+        siDatabaseVersion `shouldBe` "unknown"
 
     it "rpcVmList returns an empty list initially" $ \env -> do
       withCapnpDaemon env $ \conn -> do

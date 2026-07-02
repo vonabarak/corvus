@@ -19,6 +19,8 @@ spec = sequential $ withTestDb $ do
         RespStatus StatusInfo {..} -> do
           siUptime `shouldSatisfy` (>= 0)
           siConnections `shouldSatisfy` (>= 0)
+          siDatabaseBackend `shouldBe` "unknown"
+          siDatabaseVersion `shouldBe` "unknown"
         _ -> fail $ "Expected RespStatus, got: " ++ show resp
 
   describe "shutdown" $ do

@@ -36,7 +36,7 @@ async def ping(client: ClientDep) -> dict[str, str]:
 
 @router.get("/status")
 async def status(client: ClientDep) -> dict[str, Any]:
-    """Daemon uptime, connection count, version, protocol version.
+    """Daemon uptime, connection count, version, protocol, and database info.
 
     Mirrors ``crv status`` (see src/Corvus/Client/Commands/*.hs)."""
     info = await client.status()
@@ -45,4 +45,6 @@ async def status(client: ClientDep) -> dict[str, Any]:
         "connections": info.connections,
         "version": info.version,
         "protocol_version": info.protocol_version,
+        "database_backend": info.database_backend,
+        "database_version": info.database_version,
     }

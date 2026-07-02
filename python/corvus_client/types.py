@@ -48,6 +48,8 @@ class StatusInfo:
     connections: int
     version: str
     protocol_version: int
+    database_backend: str
+    database_version: str
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,8 @@ export interface StatusInfo {
   connections: number;
   version: string;
   protocol_version: number;
+  database_backend: string;
+  database_version: string;
 }
 
 export function getStatus(signal?: AbortSignal): Promise<StatusInfo> {

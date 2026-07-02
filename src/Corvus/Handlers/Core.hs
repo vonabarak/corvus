@@ -13,6 +13,7 @@ module Corvus.Handlers.Core
 where
 
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
+import Corvus.Database (DatabaseRuntimeInfo (..))
 import Corvus.Protocol
 import Corvus.Types
 import Data.Text (Text)
@@ -44,6 +45,7 @@ handleStatus :: ServerState -> IO Response
 handleStatus state = do
   now <- getCurrentTime
   let uptimeSecs = floor $ diffUTCTime now (ssStartTime state)
+      dbRuntimeInfo = ssDatabaseRuntimeInfo state
   connCount <- readTVarIO (ssConnectionCount state)
   pure $
     RespStatus
@@ -54,6 +56,8 @@ handleStatus state = do
         , -- 1 = Cap'n Proto wire (Phase 5+). The legacy
           -- 'Data.Binary' protocolVersion is gone.
           siProtocolVersion = 1
+        , siDatabaseBackend = driBackend dbRuntimeInfo
+        , siDatabaseVersion = driVersion dbRuntimeInfo
         }
 
 -- | Handle shutdown request

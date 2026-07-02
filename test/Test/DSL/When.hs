@@ -113,6 +113,7 @@ import Control.Concurrent.STM (newTVarIO)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (asks)
 import Corvus.Action (runAction, runActionAsync)
+import Corvus.Database (unknownDatabaseRuntimeInfo)
 import Corvus.Handlers
 import Corvus.Handlers.Apply (ApplyAction (..), handleApplyValidate)
 import Corvus.Handlers.Build ()
@@ -186,6 +187,7 @@ createTestServerState pool basePath = do
           , ssConnectionCount = connCount
           , ssShutdownFlag = shutdownFlag
           , ssDbPool = pool
+          , ssDatabaseRuntimeInfo = unknownDatabaseRuntimeInfo
           , ssQemuConfig = defaultQemuConfig {qcBasePath = Just basePath}
           , ssLogLevel = logLevel
           , ssAgents = agents

@@ -15,6 +15,8 @@ def test_sync_status_and_ping(daemon_socket):
         info = c.status()
         assert info.version
         assert info.uptime_seconds >= 0
+        assert info.database_backend
+        assert info.database_version
         c.ping()
 
 

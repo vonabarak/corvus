@@ -13,8 +13,10 @@ import Corvus.Database
   ( DatabaseConfig (..)
   , createDatabasePool
   , databaseEngineLabel
+  , getDatabaseRuntimeInfo
   , parseDatabase
   , runDatabaseMigrations
+  , warnIfSqliteHeaderVersionMismatch
   )
 import Corvus.NodeSupervisor (spawnAllNodeSupervisors)
 import Corvus.Qemu.Config (QemuConfig (..), defaultQemuConfig)
@@ -32,7 +34,7 @@ import Corvus.Types
   , NodeConns (..)
   , ServerState (..)
   , getDefaultSocketPath
-  , newServerState
+  , newServerStateWithDatabase
   , runFilteredLogging
   )
 import qualified Data.Map.Strict as Map
@@ -160,7 +162,9 @@ main = do
         <> databaseEngineLabel (dcEngine dbConfig)
         <> " database: "
         <> T.pack (dcValue dbConfig)
+    warnIfSqliteHeaderVersionMismatch dbConfig
     pool <- liftIO $ createDatabasePool dbConfig
+    dbRuntimeInfo <- liftIO $ getDatabaseRuntimeInfo dbConfig pool
 
     logInfoN "Running database migrations..."
     liftIO $ runDatabaseMigrations pool
@@ -176,7 +180,7 @@ main = do
             | not (optNoTcp opts) -> T.pack (optHost opts)
             | otherwise -> "127.0.0.1"
         qemuConfig = defaultQemuConfig {qcSpiceBindAddress = spiceBind}
-    state <- liftIO $ newServerState pool qemuConfig
+    state <- liftIO $ newServerStateWithDatabase pool qemuConfig dbRuntimeInfo
     tlsCfg <- liftIO $ resolveDaemonTls opts
     let state' = state {ssLogLevel = logLevel, ssTlsConfig = tlsCfg}
     case tlsCfg of

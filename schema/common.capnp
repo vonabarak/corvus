@@ -39,6 +39,8 @@ struct StatusInfo {
   connections     @1 :Int32;
   version         @2 :Text;
   protocolVersion @3 :UInt32;
+  databaseBackend @4 :Text;
+  databaseVersion @5 :Text;
 }
 
 # Returned by `Vm.viewGrant` — short-lived SPICE access credentials.

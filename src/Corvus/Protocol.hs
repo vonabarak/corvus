@@ -96,6 +96,10 @@ data StatusInfo = StatusInfo
   -- ^ Daemon version (package version + short git commit hash)
   , siProtocolVersion :: !Int
   -- ^ RPC protocol version (Cap'n Proto schema generation number)
+  , siDatabaseBackend :: !Text
+  -- ^ Stable database backend id
+  , siDatabaseVersion :: !Text
+  -- ^ Database engine/runtime version
   }
   deriving (Eq, Show, Generic)
 

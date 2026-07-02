@@ -77,6 +77,11 @@ getListenAddress opts
         Nothing -> UnixAddress <$> getDefaultSocketPath
   | otherwise = pure $ TcpAddress (optHost opts) (optPort opts)
 
+formatDatabaseBackend :: Text -> Text
+formatDatabaseBackend "sqlite" = "SQLite"
+formatDatabaseBackend "postgresql" = "PostgreSQL"
+formatDatabaseBackend other = other
+
 -- | Execute the selected command
 runCommand :: Options -> IO ()
 runCommand opts = do
@@ -108,6 +113,8 @@ runCommand opts = do
               putStrLn $ "Connections:      " ++ show siConnections
               putStrLn $ "Version:          " ++ T.unpack siVersion
               putStrLn $ "Protocol version: " ++ show siProtocolVersion
+              putStrLn $ "Database backend: " ++ T.unpack (formatDatabaseBackend siDatabaseBackend)
+              putStrLn $ "Database version: " ++ T.unpack siDatabaseVersion
             pure True
           Left e -> do
             emitError fmt "rpc_error" (T.pack (show e)) $

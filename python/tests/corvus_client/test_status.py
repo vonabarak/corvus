@@ -20,7 +20,11 @@ def test_status_returns_version_and_uptime(daemon_socket):
                 assert info.uptime_seconds >= 0
                 # protocol_version is a small int; not validating exact value.
                 assert info.protocol_version > 0
+                assert info.database_backend
+                assert info.database_version
                 return info
 
     info = asyncio.run(run())
     assert isinstance(info.version, str)
+    assert isinstance(info.database_backend, str)
+    assert isinstance(info.database_version, str)

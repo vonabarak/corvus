@@ -79,6 +79,8 @@ class _FakeStatus:
     protocol_version: int
     uptime_seconds: int
     connections: int
+    database_backend: str
+    database_version: str
 
 
 class _FakeTaskSubscription:
@@ -140,6 +142,8 @@ class _FakeAsyncClient:
             protocol_version=1,
             uptime_seconds=42,
             connections=1,
+            database_backend="sqlite",
+            database_version="3.50.2",
         )
 
 

@@ -35,7 +35,15 @@ spec = sequential $ do
   describe "JSON serialization of Protocol types" $ do
     describe "StatusInfo" $ do
       it "serializes with correct field names" $ do
-        let info = StatusInfo 3600 5 "1.0.0-abcdef12" 29
+        let info =
+              StatusInfo
+                { siUptime = 3600
+                , siConnections = 5
+                , siVersion = "1.0.0-abcdef12"
+                , siProtocolVersion = 29
+                , siDatabaseBackend = "sqlite"
+                , siDatabaseVersion = "3.50.2"
+                }
             val = toJSON info
         val
           `shouldBe` object
@@ -43,6 +51,8 @@ spec = sequential $ do
             , "connections" .= (5 :: Int)
             , "version" .= ("1.0.0-abcdef12" :: String)
             , "protocol_version" .= (29 :: Int)
+            , "database_backend" .= ("sqlite" :: String)
+            , "database_version" .= ("3.50.2" :: String)
             ]
 
     describe "VmInfo" $ do

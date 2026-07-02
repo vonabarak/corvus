@@ -56,6 +56,8 @@ def status_info(r) -> t.StatusInfo:
         connections=r.connections,
         version=r.version,
         protocol_version=r.protocolVersion,
+        database_backend=r.databaseBackend,
+        database_version=r.databaseVersion,
     )
 
 

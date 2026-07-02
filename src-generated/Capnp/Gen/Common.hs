@@ -144,7 +144,7 @@ instance (C.HasTypeId StatusInfo) where
     typeId  = 15446564585122045252
 instance (C.TypedStruct StatusInfo) where
     numStructWords  = 2
-    numStructPtrs  = 1
+    numStructPtrs  = 3
 instance (C.Allocate StatusInfo) where
     type AllocHint StatusInfo = ()
     new _ = C.newTypedStruct
@@ -158,7 +158,9 @@ data instance C.Parsed StatusInfo
         {uptimeSeconds :: (RP.Parsed Std_.Int64)
         ,connections :: (RP.Parsed Std_.Int32)
         ,version :: (RP.Parsed Basics.Text)
-        ,protocolVersion :: (RP.Parsed Std_.Word32)}
+        ,protocolVersion :: (RP.Parsed Std_.Word32)
+        ,databaseBackend :: (RP.Parsed Basics.Text)
+        ,databaseVersion :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed StatusInfo))
 deriving instance (Std_.Eq (C.Parsed StatusInfo))
@@ -166,13 +168,17 @@ instance (C.Parse StatusInfo (C.Parsed StatusInfo)) where
     parse raw_ = (StatusInfo <$> (GH.parseField #uptimeSeconds raw_)
                              <*> (GH.parseField #connections raw_)
                              <*> (GH.parseField #version raw_)
-                             <*> (GH.parseField #protocolVersion raw_))
+                             <*> (GH.parseField #protocolVersion raw_)
+                             <*> (GH.parseField #databaseBackend raw_)
+                             <*> (GH.parseField #databaseVersion raw_))
 instance (C.Marshal StatusInfo (C.Parsed StatusInfo)) where
     marshalInto raw_ StatusInfo{..} = (do
         (GH.encodeField #uptimeSeconds uptimeSeconds raw_)
         (GH.encodeField #connections connections raw_)
         (GH.encodeField #version version raw_)
         (GH.encodeField #protocolVersion protocolVersion raw_)
+        (GH.encodeField #databaseBackend databaseBackend raw_)
+        (GH.encodeField #databaseVersion databaseVersion raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "uptimeSeconds" GH.Slot StatusInfo Std_.Int64) where
@@ -183,6 +189,10 @@ instance (GH.HasField "version" GH.Slot StatusInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
 instance (GH.HasField "protocolVersion" GH.Slot StatusInfo Std_.Word32) where
     fieldByLabel  = (GH.dataField 32 1 32 0)
+instance (GH.HasField "databaseBackend" GH.Slot StatusInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "databaseVersion" GH.Slot StatusInfo Basics.Text) where
+    fieldByLabel  = (GH.ptrField 2)
 data ViewGrant 
 type instance (R.ReprFor ViewGrant) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId ViewGrant) where
