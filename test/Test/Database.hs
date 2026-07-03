@@ -26,7 +26,7 @@ where
 
 import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Corvus.Database (DatabaseConfig (..), DatabaseEngine (..), createDatabasePool, runDatabaseMigrations)
+import Corvus.Database (DatabaseConfig (..), DatabaseEngine (..), SchemaMigrationError (..), createDatabasePool, runDatabaseMigrations)
 import qualified Corvus.Model as M
 import Corvus.Protocol (Response)
 import Data.IORef (IORef, newIORef)
@@ -98,7 +98,16 @@ setupTestDb = do
             DatabaseSqlite
             (tempDir </> T.unpack dbName <> ".db")
   pool <- createDatabasePool dbConfig
-  runDatabaseMigrations dbConfig pool
+  migrationResult <- runDatabaseMigrations dbConfig pool
+  case migrationResult of
+    Right _ -> pure ()
+    Left SchemaVersionTooNew {sveStoredVersion = storedVersion, sveCurrentVersion = currentVersion} ->
+      fail $
+        "test database schema version "
+          <> show storedVersion
+          <> " is newer than this binary supports ("
+          <> show currentVersion
+          <> ")"
 
   -- Seed a default 'test-node' so handlers that insert VMs /
   -- networks / disks have a satisfiable FK target. Recreated by
@@ -173,14 +182,17 @@ resetTestDb env =
 
 truncateAllTables :: DatabaseEngine -> SqlPersistT IO ()
 truncateAllTables DatabasePostgresql = do
-  tables <- rawSql "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename != 'alembic_version';" []
+  tables <-
+    rawSql
+      "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('alembic_version', 'schema_version');"
+      []
   unless (null tables) $ do
     let tableNames = T.intercalate ", " $ map unSingle tables
     rawExecute ("TRUNCATE " <> tableNames <> " RESTART IDENTITY CASCADE") []
 truncateAllTables DatabaseSqlite = do
   tables <-
     rawSql
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';"
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'schema_version';"
       []
   unless (null tables) $ do
     rawExecute "PRAGMA defer_foreign_keys = ON" []

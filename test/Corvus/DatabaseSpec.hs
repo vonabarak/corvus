@@ -9,12 +9,14 @@ import Corvus.Database
 import Data.Bits (shiftR, (.&.))
 import qualified Data.ByteString as BS
 import Data.IORef (modifyIORef', newIORef, readIORef)
-import Data.Pool (destroyAllResources)
+import Data.Pool (Pool, destroyAllResources)
 import qualified Data.Text as T
-import Database.Persist.Sql (Single (..), rawSql, runSqlPool)
+import Database.Persist (PersistValue (..))
+import Database.Persist.Sql (Single (..), SqlBackend, rawExecute, rawSql, runSqlPool)
 import System.Environment (lookupEnv, setEnv, unsetEnv)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
+import qualified Test.Database as TestDb
 import Test.Hspec
 
 spec :: Spec
@@ -57,6 +59,64 @@ spec = do
       sqliteVersionNumberFromText "3.45.x" `shouldBe` Nothing
       sqliteVersionNumberFromText "3..1" `shouldBe` Nothing
 
+  describe "decideSchemaMigration" $ do
+    it "skips migration when the stored version matches" $
+      decideSchemaMigration currentSchemaVersion currentSchemaVersion
+        `shouldBe` SchemaMigrationNotNeeded
+
+    it "runs migration when the stored version is older" $
+      decideSchemaMigration (currentSchemaVersion - 1) currentSchemaVersion
+        `shouldBe` SchemaMigrationNeeded
+
+    it "refuses startup when the stored version is newer" $
+      decideSchemaMigration (currentSchemaVersion + 1) currentSchemaVersion
+        `shouldBe` SchemaMigrationRefusedNewer
+
+  describe "runDatabaseMigrations with SQLite" $ do
+    it "treats a missing schema version as first boot and records the current version" $
+      withSystemTempDirectory "corvus-db-schema-first" $ \dir -> do
+        let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
+        pool <- createDatabasePool cfg
+        result <- runDatabaseMigrations cfg pool
+        storedVersion <- runSqlPool readSchemaVersion pool
+        nodeTableExists <- sqliteTableExists pool "node"
+        destroyAllResources pool
+
+        result `shouldBe` Right (SchemaMigrated 0 currentSchemaVersion)
+        storedVersion `shouldBe` currentSchemaVersion
+        nodeTableExists `shouldBe` True
+
+    it "skips Persistent migrations when the stored version is already current" $
+      withSystemTempDirectory "corvus-db-schema-skip" $ \dir -> do
+        let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
+        pool <- createDatabasePool cfg
+        installSchemaVersionOnly pool currentSchemaVersion
+
+        result <- runDatabaseMigrations cfg pool
+        nodeTableExists <- sqliteTableExists pool "node"
+        destroyAllResources pool
+
+        result `shouldBe` Right (SchemaAlreadyCurrent currentSchemaVersion)
+        nodeTableExists `shouldBe` False
+
+    it "rejects a database created by a newer binary" $
+      withSystemTempDirectory "corvus-db-schema-newer" $ \dir -> do
+        let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
+        pool <- createDatabasePool cfg
+        installSchemaVersionOnly pool (currentSchemaVersion + 1)
+
+        result <- runDatabaseMigrations cfg pool
+        nodeTableExists <- sqliteTableExists pool "node"
+        destroyAllResources pool
+
+        result
+          `shouldBe` Left
+            SchemaVersionTooNew
+              { sveStoredVersion = currentSchemaVersion + 1
+              , sveCurrentVersion = currentSchemaVersion
+              }
+        nodeTableExists `shouldBe` False
+
   describe "readSqliteHeaderVersion" $ do
     it "skips missing, empty, short, and non-SQLite files" $
       withSystemTempDirectory "corvus-db-header" $ \dir -> do
@@ -85,7 +145,8 @@ spec = do
       withSystemTempDirectory "corvus-db-runtime" $ \dir -> do
         let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
         pool <- createDatabasePool cfg
-        runDatabaseMigrations cfg pool
+        migrationResult <- runDatabaseMigrations cfg pool
+        migrationResult `shouldBe` Right (SchemaMigrated 0 currentSchemaVersion)
         info <- getDatabaseRuntimeInfo cfg pool
         sqliteMasterRows <-
           runSqlPool
@@ -105,6 +166,33 @@ spec = do
         BS.writeFile path $ sqliteHeaderWithVersion 1
         warningCount <- captureWarningCount $ warnIfSqliteHeaderVersionMismatch (DatabaseConfig DatabaseSqlite path)
         warningCount `shouldBe` 1
+
+  describe "runDatabaseMigrations with the configured test backend" $ do
+    it "skips when the stored version is current" $
+      withIsolatedTestDb $ \env -> do
+        result <- runDatabaseMigrations (envDatabaseConfig env) (TestDb.tePool env)
+        result `shouldBe` Right (SchemaAlreadyCurrent currentSchemaVersion)
+
+    it "upgrades when the stored version is older" $
+      withIsolatedTestDb $ \env -> do
+        runSqlPool (writeSchemaVersion (currentSchemaVersion - 1)) (TestDb.tePool env)
+        result <- runDatabaseMigrations (envDatabaseConfig env) (TestDb.tePool env)
+        storedVersion <- runSqlPool readSchemaVersion (TestDb.tePool env)
+
+        result `shouldBe` Right (SchemaMigrated (currentSchemaVersion - 1) currentSchemaVersion)
+        storedVersion `shouldBe` currentSchemaVersion
+
+    it "fails when the stored version is newer" $
+      withIsolatedTestDb $ \env -> do
+        runSqlPool (writeSchemaVersion (currentSchemaVersion + 1)) (TestDb.tePool env)
+        result <- runDatabaseMigrations (envDatabaseConfig env) (TestDb.tePool env)
+
+        result
+          `shouldBe` Left
+            SchemaVersionTooNew
+              { sveStoredVersion = currentSchemaVersion + 1
+              , sveCurrentVersion = currentSchemaVersion
+              }
 
 withEnv :: String -> String -> IO a -> IO a
 withEnv name value =
@@ -140,3 +228,48 @@ word32be value =
     , fromIntegral $ (value `shiftR` 8) .&. 0xff
     , fromIntegral $ value .&. 0xff
     ]
+
+installSchemaVersionOnly :: Pool SqlBackend -> Int -> IO ()
+installSchemaVersionOnly pool version =
+  runSqlPool
+    ( do
+        rawExecute
+          "CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)"
+          []
+        writeSchemaVersion version
+    )
+    pool
+
+sqliteTableExists :: Pool SqlBackend -> T.Text -> IO Bool
+sqliteTableExists pool tableName = do
+  rows <-
+    runSqlPool
+      ( rawSql
+          "SELECT name FROM sqlite_master WHERE type='table' AND name = ?;"
+          [PersistText tableName]
+      )
+      pool
+  pure $ not (null (rows :: [Single T.Text]))
+
+envDatabaseConfig :: TestDb.TestEnv -> DatabaseConfig
+envDatabaseConfig env =
+  case TestDb.teDatabaseEngine env of
+    DatabaseSqlite -> DatabaseConfig DatabaseSqlite (TestDb.teTempDir env </> T.unpack (TestDb.teDbName env) <> ".db")
+    DatabasePostgresql -> DatabaseConfig DatabasePostgresql (T.unpack $ testDbConnString (TestDb.teConfig env) (TestDb.teDbName env))
+
+withIsolatedTestDb :: (TestDb.TestEnv -> IO a) -> IO a
+withIsolatedTestDb =
+  bracket TestDb.setupTestDb TestDb.teardownTestDb
+
+testDbConnString :: TestDb.TestDbConfig -> T.Text -> T.Text
+testDbConnString config dbName =
+  "host="
+    <> TestDb.tdcHost config
+    <> " port="
+    <> T.pack (show (TestDb.tdcPort config))
+    <> " user="
+    <> TestDb.tdcUser config
+    <> " password="
+    <> TestDb.tdcPassword config
+    <> " dbname="
+    <> dbName

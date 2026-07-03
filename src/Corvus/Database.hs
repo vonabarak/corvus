@@ -5,10 +5,17 @@ module Corvus.Database
   ( DatabaseEngine (..)
   , DatabaseConfig (..)
   , DatabaseRuntimeInfo (..)
+  , SchemaMigrationDecision (..)
+  , SchemaMigrationError (..)
+  , SchemaMigrationResult (..)
+  , currentSchemaVersion
   , defaultDatabase
   , parseDatabase
   , createDatabasePool
+  , decideSchemaMigration
+  , readSchemaVersion
   , runDatabaseMigrations
+  , writeSchemaVersion
   , databaseEngineLabel
   , databaseEngineId
   , getDatabaseRuntimeInfo
@@ -47,6 +54,9 @@ import System.FilePath (takeDirectory, (</>))
 import System.IO (IOMode (ReadMode), withBinaryFile)
 import System.IO.Error (userError)
 
+currentSchemaVersion :: Int
+currentSchemaVersion = 1
+
 data DatabaseEngine
   = DatabasePostgresql
   | DatabaseSqlite
@@ -62,6 +72,23 @@ data DatabaseRuntimeInfo = DatabaseRuntimeInfo
   { driBackend :: !Text
   , driVersion :: !Text
   }
+  deriving (Eq, Show)
+
+data SchemaMigrationDecision
+  = SchemaMigrationNotNeeded
+  | SchemaMigrationNeeded
+  | SchemaMigrationRefusedNewer
+  deriving (Eq, Show)
+
+data SchemaMigrationError = SchemaVersionTooNew
+  { sveStoredVersion :: !Int
+  , sveCurrentVersion :: !Int
+  }
+  deriving (Eq, Show)
+
+data SchemaMigrationResult
+  = SchemaAlreadyCurrent !Int
+  | SchemaMigrated !Int !Int
   deriving (Eq, Show)
 
 databaseEngineLabel :: DatabaseEngine -> Text
@@ -143,10 +170,57 @@ createSqlitePoolChecked _ =
   ioError $ userError "this corvus binary was built without SQLite support"
 #endif
 
-runDatabaseMigrations :: DatabaseConfig -> Pool SqlBackend -> IO ()
-runDatabaseMigrations cfg = runSqlPool $ case dcEngine cfg of
-  DatabaseSqlite -> runSqliteMigrations
-  DatabasePostgresql -> runMigration migrateAll
+decideSchemaMigration :: Int -> Int -> SchemaMigrationDecision
+decideSchemaMigration storedVersion expectedVersion
+  | storedVersion == expectedVersion = SchemaMigrationNotNeeded
+  | storedVersion < expectedVersion = SchemaMigrationNeeded
+  | otherwise = SchemaMigrationRefusedNewer
+
+runDatabaseMigrations :: DatabaseConfig -> Pool SqlBackend -> IO (Either SchemaMigrationError SchemaMigrationResult)
+runDatabaseMigrations cfg =
+  runSqlPool $ do
+    ensureSchemaVersionTable
+    storedVersion <- readSchemaVersion
+    case decideSchemaMigration storedVersion currentSchemaVersion of
+      SchemaMigrationNotNeeded ->
+        pure $ Right $ SchemaAlreadyCurrent storedVersion
+      SchemaMigrationNeeded -> do
+        runBackendMigrations cfg
+        writeSchemaVersion currentSchemaVersion
+        pure $ Right $ SchemaMigrated storedVersion currentSchemaVersion
+      SchemaMigrationRefusedNewer ->
+        pure $
+          Left $
+            SchemaVersionTooNew
+              { sveStoredVersion = storedVersion
+              , sveCurrentVersion = currentSchemaVersion
+              }
+
+ensureSchemaVersionTable :: (MonadIO m) => ReaderT SqlBackend m ()
+ensureSchemaVersionTable =
+  rawExecute
+    "CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)"
+    []
+
+readSchemaVersion :: (MonadIO m) => ReaderT SqlBackend m Int
+readSchemaVersion = do
+  rows <- rawSql "SELECT version FROM schema_version WHERE id = 1" []
+  case rows of
+    Single version : _ -> pure version
+    [] -> pure 0
+
+writeSchemaVersion :: (MonadIO m) => Int -> ReaderT SqlBackend m ()
+writeSchemaVersion version = do
+  rawExecute "DELETE FROM schema_version WHERE id = 1" []
+  rawExecute
+    "INSERT INTO schema_version (id, version) VALUES (1, ?)"
+    [PersistInt64 $ fromIntegral version]
+
+runBackendMigrations :: (MonadIO m) => DatabaseConfig -> ReaderT SqlBackend m ()
+runBackendMigrations cfg =
+  case dcEngine cfg of
+    DatabaseSqlite -> runSqliteMigrations
+    DatabasePostgresql -> runMigration migrateAll
 
 runSqliteMigrations :: (MonadIO m) => ReaderT SqlBackend m ()
 runSqliteMigrations = do

@@ -8,9 +8,11 @@ import Control.Concurrent.Async (Async, async, cancel, poll)
 import Control.Concurrent.STM (atomically, readTVarIO, writeTVar)
 import Control.Monad (unless, when)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Logger (LogLevel (..), logInfoN)
+import Control.Monad.Logger (LogLevel (..), logErrorN, logInfoN)
 import Corvus.Database
   ( DatabaseConfig (..)
+  , SchemaMigrationError (..)
+  , SchemaMigrationResult (..)
   , createDatabasePool
   , databaseEngineLabel
   , getDatabaseRuntimeInfo
@@ -166,9 +168,28 @@ main = do
     pool <- liftIO $ createDatabasePool dbConfig
     dbRuntimeInfo <- liftIO $ getDatabaseRuntimeInfo dbConfig pool
 
-    logInfoN "Running database migrations..."
-    liftIO $ runDatabaseMigrations dbConfig pool
-    logInfoN "Migrations complete."
+    logInfoN "Checking database schema version..."
+    liftIO (runDatabaseMigrations dbConfig pool) >>= \case
+      Right (SchemaAlreadyCurrent version) ->
+        logInfoN $
+          "Database schema version "
+            <> T.pack (show version)
+            <> " is current; skipping migrations."
+      Right (SchemaMigrated oldVersion newVersion) ->
+        logInfoN $
+          "Database schema migrated from version "
+            <> T.pack (show oldVersion)
+            <> " to "
+            <> T.pack (show newVersion)
+            <> "."
+      Left SchemaVersionTooNew {sveStoredVersion = storedVersion, sveCurrentVersion = currentVersion} -> do
+        logErrorN $
+          "Database schema version "
+            <> T.pack (show storedVersion)
+            <> " is newer than this binary supports ("
+            <> T.pack (show currentVersion)
+            <> "); refusing startup."
+        liftIO $ exitWith (ExitFailure 1)
 
     -- SPICE bind: defaults to the TCP listener's bind host when the
     -- TCP listener is enabled (so remote clients reaching the
