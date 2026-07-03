@@ -145,11 +145,13 @@ def session_test_network(
     """One Corvus managed network shared by every test-node across
     every xdist worker in a single pytest invocation.
 
-    `tmp_path_factory.getbasetemp().parent` is the dir pytest-xdist
-    creates for cross-worker coordination — same path for every
-    worker in this run. We store the network's name there along
-    with a refcount of how many worker sessions still hold the
-    fixture; the last to leave deletes the network.
+    For pytest-xdist workers, `tmp_path_factory.getbasetemp().parent`
+    is the per-invocation dir shared by every worker. Without xdist,
+    `getbasetemp()` itself is already per-invocation; using its parent
+    would let a stale failure marker from an older run suppress cleanup
+    for later successful runs. We store the network's name under that
+    coordination root along with a refcount of how many worker sessions
+    still hold the fixture; the last to leave deletes the network.
 
     Crashed workers leak the refcount; the leaked network itself
     is reaped by `make integration-tests-clean` on the next
@@ -160,7 +162,8 @@ def session_test_network(
     When pytest runs without xdist, `worker_id == "master"` and we
     take a trivial single-process create/delete path.
     """
-    root = tmp_path_factory.getbasetemp().parent
+    base_temp = tmp_path_factory.getbasetemp()
+    root = base_temp if worker_id == "master" else base_temp.parent
     global _SESSION_TEST_NETWORK_ROOT
     _SESSION_TEST_NETWORK_ROOT = root
 
@@ -281,6 +284,10 @@ def _delete_session_network(crv: Crv, name: str) -> None:
     next invocation."""
     try:
         crv.network_stop(name, force=True)
+    except Exception:
+        pass
+    try:
+        crv.network_delete(name)
     except Exception:
         pass
 
