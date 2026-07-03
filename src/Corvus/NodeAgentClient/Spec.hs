@@ -35,7 +35,7 @@ import Data.Int (Int32, Int64)
 import Data.Pool (Pool)
 import qualified Data.Text as T
 import Data.Word (Word32)
-import Database.Persist (Entity (..), get, selectList, (==.))
+import Database.Persist (Entity (..), SelectOpt (Asc), get, selectList, (==.))
 import qualified Database.Persist
 import Database.Persist.Sql (SqlBackend, fromSqlKey, runSqlPool, toSqlKey)
 import qualified Database.Persist.Sql
@@ -73,7 +73,7 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
       (drives, netIfs, sharedDirs) <-
         runSqlPool
           ( do
-              ds <- selectList [M.DriveVmId ==. vmKey] []
+              ds <- selectList [M.DriveVmId ==. vmKey] [Asc M.DriveId]
               nIfs <- selectList [M.NetworkInterfaceVmId ==. vmKey] []
               sds <- selectList [M.SharedDirVmId ==. vmKey] []
               -- For every drive: load both the DiskImage row and

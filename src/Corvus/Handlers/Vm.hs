@@ -1395,7 +1395,7 @@ getVmDetails config vmId = do
   case mVm of
     Nothing -> pure Nothing
     Just vm -> do
-      drives <- selectList [M.DriveVmId ==. key] []
+      drives <- selectList [M.DriveVmId ==. key] [Asc M.DriveId]
       netIfs <- selectList [M.NetworkInterfaceVmId ==. key] []
       -- Look up the node name for display. Sentinel on a missing
       -- row (race against a node delete) matches 'listVms'.
