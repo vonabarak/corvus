@@ -240,6 +240,7 @@ export default function TemplateDetail() {
           <Field label="RAM" value={formatMb(t.ram_mb)} />
           <Field label="Headless" value={t.headless ? "yes" : "no"} />
           <Field label="Guest agent" value={t.guest_agent ? "yes" : "no"} />
+          <Field label="TPM 2.0" value={t.tpm ? "yes" : "no"} />
           <Field label="Cloud-init" value={t.cloud_init ? "yes" : "no"} />
           <Field label="Autostart" value={t.autostart ? "yes" : "no"} />
           <Field label="Created" value={new Date(t.created_at).toLocaleString()} />

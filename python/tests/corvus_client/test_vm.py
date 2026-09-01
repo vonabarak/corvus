@@ -30,6 +30,7 @@ def test_vm_create_show_edit_delete(daemon_socket):
         assert details.cpu_count == 2
         assert details.ram_mb == 512
         assert details.headless is True
+        assert details.tpm is False
         assert details.autostart is True
         assert details.description == "from python"
 
@@ -42,6 +43,7 @@ def test_vm_create_show_edit_delete(daemon_socket):
 
         listed = await c.vms.list()
         assert any(v.id == details.id for v in listed)
+        assert next(v for v in listed if v.id == details.id).tpm is False
 
         await vm.delete()
         with pytest.raises(VmNotFound):

@@ -669,7 +669,7 @@ From-scratch builds:
   vsock-sshd), bootstrapped with `apk-tools-static` inside a Debian
   bake VM.
 
-Installer build:
+Installer builds:
 
 - [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml) —
   Windows Server 2025 with qemu-guest-agent + cloudbase-init,
@@ -681,11 +681,20 @@ Installer build:
   step drives the install, and a final `apply` registers a
   `windows-server-2025` runtime template that overlays the baked
   image for convenient manual testing.
+- [yaml/windows-11/windows-11.yml](../yaml/windows-11/windows-11.yml) —
+  Windows 11 Pro with VirtIO drivers, qemu-guest-agent, SPICE guest
+  integration, WinFSP, and VirtIO-FS, but no Cloudbase-Init/cloud-init.
+  It consumes pre-registered `windows-11-iso` and `virtio-win-iso` disks;
+  no ISO download variables are required. The bundled `autounattend.xml`
+  selects Pro by image name and intentionally retains its TPM/Secure Boot
+  bypass while leaving the template's `tpm` flag disabled. The resulting
+  `windows-11-pro-base` artifact is wrapped by the final `windows-11-pro`
+  runtime template.
 
-All builds rely on the host having a VDE switch at `/run/vde2/switch.ctl`
-(the network type used by every template); the bake VMs need outbound
-internet, so the host must NAT/MASQUERADE the VDE subnet and have
-`net.ipv4.ip_forward=1`.
+The Windows installer examples attach their bake VMs to the managed
+`corvus` network and need outbound internet during first-logon setup.
+Ensure that network exists and that its subnet is NAT/MASQUERADE-enabled
+before starting a bake.
 
 ## Limitations
 

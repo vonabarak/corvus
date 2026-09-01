@@ -105,12 +105,13 @@ handleVmCreate
   -> Bool
   -> Bool
   -> Bool
+  -> Bool
   -- ^ rebootQuirk
   -> Text
   -- ^ cpuModel
   -> IO Bool
-handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart rebootQuirk cpuModel = do
-  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent cloudInit autostart rebootQuirk cpuModel)
+handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel = do
+  r <- try @SomeException (CR.rpcVmCreate conn name nodeRef cpuCount ramMb mDesc headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel)
   case r of
     Right vmId -> do
       emitOkWith fmt [("id", toJSON vmId)] $
@@ -196,15 +197,16 @@ handleVmEdit
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe Bool
+  -> Maybe Bool
   -- ^ rebootQuirk
   -> Maybe Text
   -- ^ cpuModel
   -> IO Bool
-handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk mCpuModel =
+handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel =
   tryRpcUnit
     fmt
     (putStrLn $ "VM '" ++ T.unpack vmRef ++ "' updated.")
-    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk mCpuModel)
+    (CR.rpcVmEdit conn (entityRefFromText vmRef) mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel)
 
 -- | Handle @crv vm migrate <VM> --to-node <NODE>@.
 handleVmMigrate :: OutputFormat -> CapnpConnection -> Text -> Text -> IO Bool
@@ -468,6 +470,7 @@ vmColumns now =
   , Column "CPUS" RightAlign (show . viCpuCount)
   , Column "RAM_MB" RightAlign (show . viRamMb)
   , Column "HEALTH" LeftAlign (healthLabel now)
+  , Column "TPM" LeftAlign (\vm -> if viTpm vm then "+" else "-")
   , Column "CI" LeftAlign (\vm -> if viCloudInit vm then "+" else "-")
   , Column "AS" LeftAlign (\vm -> if viAutostart vm then "+" else "-")
   ]
@@ -503,6 +506,7 @@ printVmDetails vm = do
   printField "Description" (maybe "(none)" T.unpack (vdDescription vm))
   printField "Console" (if vdHeadless vm then "serial (headless)" else "SPICE (graphics)")
   printField "Guest Agent" (if vdGuestAgent vm then "enabled" else "disabled")
+  printField "TPM 2.0" (if vdTpm vm then "enabled" else "disabled")
   printField "Cloud-init" (if vdCloudInit vm then "enabled" else "disabled")
   printField "Autostart" (if vdAutostart vm then "enabled" else "disabled")
   printField "Reboot quirk" (if vdRebootQuirk vm then "enabled" else "disabled")

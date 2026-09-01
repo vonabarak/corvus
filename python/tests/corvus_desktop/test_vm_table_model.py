@@ -20,6 +20,7 @@ def _vm(
     ram_mb: int = 1024,
     headless: bool = False,
     guest_agent: bool = True,
+    tpm: bool = False,
     cloud_init: bool = True,
     autostart: bool = False,
 ) -> VmInfo:
@@ -32,6 +33,7 @@ def _vm(
         ram_mb=ram_mb,
         headless=headless,
         guest_agent=guest_agent,
+        tpm=tpm,
         cloud_init=cloud_init,
         autostart=autostart,
         last_healthcheck=datetime.now(timezone.utc),

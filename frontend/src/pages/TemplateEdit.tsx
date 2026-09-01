@@ -15,6 +15,7 @@ const SKELETON = `# Template YAML — see doc/templates.md for the full field li
 # ramMb: 2048
 # headless: true
 # guestAgent: true
+# tpm: false
 # cloudInit: true
 #
 # drives:

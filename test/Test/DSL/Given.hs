@@ -8,6 +8,7 @@ module Test.DSL.Given
   , insertVmFull
   , insertHeadlessVm
   , insertRunningVmWithGuestAgent
+  , setVmTpm
   , givenVmExists
   , givenCloudInitVmExists
   , givenRunningVmExists
@@ -123,6 +124,13 @@ setTestNodeNetdDisabled disabled = do
 -- VM Setup
 --------------------------------------------------------------------------------
 
+setVmTpm :: Int64 -> Bool -> TestM ()
+setVmTpm vmId enabled =
+  runDb $
+    Database.Persist.update
+      (toSqlKey vmId :: VmId)
+      [M.VmTpm Database.Persist.=. enabled]
+
 -- | Insert a VM with minimal parameters
 insertVm :: Text -> VmStatus -> TestM Int64
 insertVm name status = do
@@ -141,6 +149,7 @@ insertVm name status = do
           , vmDescription = Nothing
           , vmHeadless = False
           , vmGuestAgent = False
+          , vmTpm = False
           , vmCloudInit = False
           , vmHealthcheck = Nothing
           , vmAutostart = False
@@ -173,6 +182,7 @@ insertRunningVmWithGuestAgent name = do
           , vmDescription = Nothing
           , vmHeadless = True
           , vmGuestAgent = True
+          , vmTpm = False
           , vmCloudInit = False
           , vmHealthcheck = Nothing
           , vmAutostart = False
@@ -204,6 +214,7 @@ insertHeadlessVm name status = do
           , vmDescription = Nothing
           , vmHeadless = True
           , vmGuestAgent = False
+          , vmTpm = False
           , vmCloudInit = False
           , vmHealthcheck = Nothing
           , vmAutostart = False
@@ -241,6 +252,7 @@ insertVmFull name status cpus ramMb desc _pid = do
           , vmDescription = desc
           , vmHeadless = False
           , vmGuestAgent = False
+          , vmTpm = False
           , vmCloudInit = False
           , vmHealthcheck = Nothing
           , vmAutostart = False
@@ -271,6 +283,7 @@ defaultVm = do
       , vmDescription = Nothing
       , vmHeadless = False
       , vmGuestAgent = False
+      , vmTpm = False
       , vmCloudInit = False
       , vmHealthcheck = Nothing
       , vmAutostart = False
@@ -599,6 +612,7 @@ givenCloudInitVmExists name = do
           , vmDescription = Nothing
           , vmHeadless = False
           , vmGuestAgent = False
+          , vmTpm = False
           , vmCloudInit = True
           , vmHealthcheck = Nothing
           , vmAutostart = False

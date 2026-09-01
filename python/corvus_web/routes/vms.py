@@ -75,6 +75,7 @@ class VmCreateBody(BaseModel):
     description: str | None = Field(None, max_length=1024)
     headless: bool = False
     guest_agent: bool = False
+    tpm: bool = False
     cloud_init: bool = False
     autostart: bool = False
     reboot_quirk: bool = False
@@ -103,6 +104,7 @@ async def create_vm(body: VmCreateBody, client: ClientDep) -> dict[str, Any]:
             description=body.description,
             headless=body.headless,
             guest_agent=body.guest_agent,
+            tpm=body.tpm,
             cloud_init=body.cloud_init,
             autostart=body.autostart,
             reboot_quirk=body.reboot_quirk,

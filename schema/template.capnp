@@ -19,6 +19,7 @@ struct TemplateVmInfo {
   guestAgent  @6 :Bool;
   autostart   @7 :Bool;
   rebootQuirk @8 :Bool;
+  tpm         @9 :Bool;
 }
 
 struct TemplateDriveInfo {
@@ -81,6 +82,7 @@ struct TemplateDetails {
   sshKeys         @13 :List(TemplateSshKeyInfo);
   rebootQuirk     @14 :Bool;
   sharedDirs      @15 :List(TemplateSharedDirInfo);
+  tpm             @16 :Bool;
 }
 
 # ---------------------------------------------------------------------

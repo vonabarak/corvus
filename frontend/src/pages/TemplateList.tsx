@@ -23,6 +23,11 @@ function FlagBadges({ t }: { t: TemplateVmInfo }) {
           QGA
         </Badge>
       )}
+      {t.tpm && (
+        <Badge variant="muted" className="text-[10px]">
+          TPM 2.0
+        </Badge>
+      )}
       {t.autostart && (
         <Badge variant="muted" className="text-[10px]">
           autostart

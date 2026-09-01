@@ -45,6 +45,7 @@ any companion files like kernel configs or autounattend answer files):
 - [yaml/test-images/](../yaml/test-images/) -- Local test image VMs (Alpine + Windows)
 - [yaml/alpine-test/](../yaml/alpine-test/) -- Build the minimal Alpine integration-test image
 - [yaml/windows-server-2025/](../yaml/windows-server-2025/) -- Build a Windows Server 2025 image
+- [yaml/windows-11/](../yaml/windows-11/) -- Build a Windows 11 Pro image without cloud-init
 - [yaml/gentoo-headless/](../yaml/gentoo-headless/) -- Build a minimal headless Gentoo image
 - [yaml/gentoo-corvus/](../yaml/gentoo-corvus/) -- Build a Gentoo image with the Corvus toolchain
 - [yaml/debian-nginx/](../yaml/debian-nginx/) -- Bake nginx onto a Debian 12 base

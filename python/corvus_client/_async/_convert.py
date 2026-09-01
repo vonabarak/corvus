@@ -98,6 +98,7 @@ def vm_info(r) -> t.VmInfo:
         ram_mb=r.ramMb,
         headless=r.headless,
         guest_agent=r.guestAgent,
+        tpm=r.tpm,
         cloud_init=r.cloudInit,
         autostart=r.autostart,
         last_healthcheck=_ts(r.lastHealthcheck),
@@ -163,6 +164,7 @@ def vm_details(r) -> t.VmDetails:
         serial_socket=r.serialSocket,
         guest_agent_socket=r.guestAgentSocket,
         guest_agent=r.guestAgent,
+        tpm=r.tpm,
         cloud_init=r.cloudInit,
         cloud_init_config=cloud_init_info(r.cloudInitConfig) if r.cloudInit else None,
         last_healthcheck=_ts(r.lastHealthcheck),
@@ -380,6 +382,7 @@ def template_vm_info(r) -> t.TemplateVmInfo:
         description=_nz_text(r.description),
         headless=r.headless,
         guest_agent=r.guestAgent,
+        tpm=r.tpm,
         autostart=r.autostart,
     )
 
@@ -429,6 +432,7 @@ def template_details(r) -> t.TemplateDetails:
         headless=r.headless,
         cloud_init=r.cloudInit,
         guest_agent=r.guestAgent,
+        tpm=r.tpm,
         autostart=r.autostart,
         cloud_init_config=cloud_init_info(r.cloudInitConfig) if r.cloudInit else None,
         created_at=_ts(r.createdAt) or datetime.fromtimestamp(0, tz=timezone.utc),

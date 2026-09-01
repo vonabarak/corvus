@@ -35,6 +35,8 @@ progress.
 - The destination node exists, is `online`, and is not the VM's
   current node.
 - The VM has no shared directories (host paths are node-local).
+- TPM is disabled. TPM state is node-local and is not transferred;
+  disable TPM first, which permanently removes its persistent state.
 - The VM has zero network interfaces, or every interface is of type
   `user` (SLIRP). Bridge / tap / macvtap / managed interfaces are
   not yet supported — cross-node networks are out of scope.

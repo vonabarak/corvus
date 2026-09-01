@@ -112,35 +112,39 @@ handleVmMigrate ctx vmIdRaw destNodeRaw = runServerLogging state $ do
   case preStatus of
     Nothing -> pure RespVmNotFound
     Just origStatus -> do
-      -- (2) Auto-save running/paused VMs as a child task. The save
-      -- runs through the same VmSave Action 'crv vm save' uses, so
-      -- the FSM gate + node-side migrate-quit-reap flow is shared.
-      -- 'runActionAsSubtask' records the save as a child of the
-      -- migrate task so 'crv task history' shows the full causality.
-      saveOutcome <- liftIO (autoSaveIfLive ctx vmId)
-      case saveOutcome of
-        Left err -> pure (RespError err)
-        Right () -> do
-          -- (3) Pre-check. The row is now in VmStopped or VmSaved
-          -- (auto-save above flipped any live VM to VmSaved). We
-          -- run the pre-check before the FSM lock so PreCheck can
-          -- observe the row's true save status to compute
-          -- mpStateFile. A concurrent migrate that slipped in
-          -- between PreCheck and tryEnterMigrating will be
-          -- rejected by the FSM lock below.
-          ePlan <- liftIO $ validateMigration state vmId destNode
-          case ePlan of
+      tpmEnabled <- liftIO $ readTpmEnabled state vmId
+      if tpmEnabled
+        then pure (RespError "VM has TPM enabled; disable TPM before migrating")
+        else do
+          -- (2) Auto-save running/paused VMs as a child task. The save
+          -- runs through the same VmSave Action 'crv vm save' uses, so
+          -- the FSM gate + node-side migrate-quit-reap flow is shared.
+          -- 'runActionAsSubtask' records the save as a child of the
+          -- migrate task so 'crv task history' shows the full causality.
+          saveOutcome <- liftIO (autoSaveIfLive ctx vmId)
+          case saveOutcome of
             Left err -> pure (RespError err)
-            Right plan -> do
-              -- (4) Acquire the lock by transitioning the row to
-              -- VmMigrating. Allowed only from VmStopped / VmSaved.
-              -- The validator handles concurrent-migration rejection
-              -- for free — a second migrate against a VmMigrating
-              -- row gets a clean error.
-              acquired <- liftIO $ tryEnterMigrating state vmId
-              case acquired of
+            Right () -> do
+              -- (3) Pre-check. The row is now in VmStopped or VmSaved
+              -- (auto-save above flipped any live VM to VmSaved). We
+              -- run the pre-check before the FSM lock so PreCheck can
+              -- observe the row's true save status to compute
+              -- mpStateFile. A concurrent migrate that slipped in
+              -- between PreCheck and tryEnterMigrating will be
+              -- rejected by the FSM lock below.
+              ePlan <- liftIO $ validateMigration state vmId destNode
+              case ePlan of
                 Left err -> pure (RespError err)
-                Right () -> driveTransfers ctx vmId destNode plan origStatus
+                Right plan -> do
+                  -- (4) Acquire the lock by transitioning the row to
+                  -- VmMigrating. Allowed only from VmStopped / VmSaved.
+                  -- The validator handles concurrent-migration rejection
+                  -- for free — a second migrate against a VmMigrating
+                  -- row gets a clean error.
+                  acquired <- liftIO $ tryEnterMigrating state vmId
+                  case acquired of
+                    Left err -> pure (RespError err)
+                    Right () -> driveTransfers ctx vmId destNode plan origStatus
   where
     state = acState ctx
 
@@ -151,6 +155,10 @@ handleVmMigrate ctx vmIdRaw destNodeRaw = runServerLogging state $ do
 readPreMigrateStatus :: ServerState -> M.VmId -> IO (Maybe M.VmStatus)
 readPreMigrateStatus state vmId =
   fmap (fmap M.vmStatus) (runSqlPool (get vmId) (ssDbPool state))
+
+readTpmEnabled :: ServerState -> M.VmId -> IO Bool
+readTpmEnabled state vmId =
+  fmap (maybe False M.vmTpm) (runSqlPool (get vmId) (ssDbPool state))
 
 -- | Atomically transition the VM row to 'VmMigrating'. Returns
 -- 'Right ()' if the row was in a migrate-eligible state ('VmStopped'
@@ -164,17 +172,20 @@ tryEnterMigrating state vmId =
         mVm <- get vmId
         case mVm of
           Nothing -> pure (Left "VM not found")
-          Just vm -> case M.vmStatus vm of
-            M.VmStopped -> doFlip
-            M.VmSaved -> doFlip
-            other ->
-              pure
-                ( Left
-                    ( "VM must be stopped or saved before migrating (current: "
-                        <> M.enumToText other
-                        <> ")"
-                    )
-                )
+          Just vm
+            | M.vmTpm vm -> pure (Left "VM has TPM enabled; disable TPM before migrating")
+            | otherwise ->
+                case M.vmStatus vm of
+                  M.VmStopped -> doFlip
+                  M.VmSaved -> doFlip
+                  other ->
+                    pure
+                      ( Left
+                          ( "VM must be stopped or saved before migrating (current: "
+                              <> M.enumToText other
+                              <> ")"
+                          )
+                      )
     )
     (ssDbPool state)
   where

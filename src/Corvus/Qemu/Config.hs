@@ -28,6 +28,8 @@ data QemuConfig = QemuConfig
   -- ^ Runtime directory for VM sockets (Nothing = $XDG_RUNTIME_DIR/corvus)
   , qcVirtiofsdBinary :: FilePath
   -- ^ Path to virtiofsd binary
+  , qcSwtpmBinary :: FilePath
+  -- ^ Path to the swtpm binary
   , qcSharedMemSize :: Maybe String
   -- ^ Shared memory size for virtiofs (e.g. "4G"), Nothing uses VM RAM
   , qcHealthcheckInterval :: Int
@@ -60,6 +62,7 @@ defaultQemuConfig =
     , qcBasePath = Nothing -- Will use $HOME/VMs at runtime
     , qcRuntimeDir = Nothing -- Will use $XDG_RUNTIME_DIR/corvus at runtime
     , qcVirtiofsdBinary = "/usr/libexec/virtiofsd"
+    , qcSwtpmBinary = "swtpm"
     , qcSharedMemSize = Nothing -- Will use VM RAM size
     , qcHealthcheckInterval = 10
     , qcSpiceBindAddress = "127.0.0.1"

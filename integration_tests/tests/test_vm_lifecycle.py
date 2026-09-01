@@ -671,6 +671,75 @@ class TestVmEditWhileRunning(_VmLifecycleBase):
                 assert mem_kb >= 0.85 * 2 * 1024 * 1024
 
 
+@pytest.mark.slow
+class TestVmTpm(_VmLifecycleBase):
+    """swtpm supervision, QEMU wiring, and destructive disable semantics."""
+
+    @pytest.fixture(scope="class", autouse=True)
+    def _swtpm_present(self, _class_topology):
+        """Fail early when a cached test-node predates the TPM recipe."""
+        r = self.nodes[0].run("command -v swtpm", check=False)
+        if r.returncode != 0:
+            pytest.fail(
+                "test-node is missing swtpm on PATH. Rebake only the cached "
+                "test-node image after this recipe change:\n"
+                "  make test-image-node-rebuild\n"
+                f"(probe stdout={r.stdout!r}, stderr={r.stderr!r})"
+            )
+
+    def test_tpm_helper_and_state_lifecycle(self):
+        class _TpmVm(Vm):
+            tpm = True
+
+        with _TpmVm(self, name="tpm-lifecycle") as vm:
+            details = vm.cap.show()
+            assert details.tpm is True
+
+            processes = (
+                self.nodes[0]
+                .run(
+                    "pgrep -af 'swtpm.*swtpm.sock' || true",
+                    check=False,
+                    timeout_sec=10.0,
+                )
+                .stdout.decode("utf-8", errors="replace")
+            )
+            socket_path = f"/corvus/vms/{details.id}/swtpm.sock"
+            assert "swtpm socket" in processes, processes
+            assert socket_path in processes, processes
+
+            qemu_pid = self._read_qemu_pid(details.id)
+            assert qemu_pid is not None
+            qemu_argv = (
+                self.nodes[0]
+                .run(
+                    f"tr '\\0' ' ' </proc/{qemu_pid}/cmdline",
+                    timeout_sec=10.0,
+                )
+                .stdout.decode("utf-8", errors="replace")
+            )
+            assert "emulator,id=tpm0,chardev=chrtpm" in qemu_argv
+            assert "tpm-crb,tpmdev=tpm0" in qemu_argv
+
+            # QEMU command-line coverage alone could pass while the guest
+            # driver failed to bind. Assert the CRB device reached Linux as
+            # a real TPM 2.0 character device.
+            guest_tpm = vm.cap.guest_exec(
+                "/bin/sh -c 'test -c /dev/tpm0 && "
+                "cat /sys/class/tpm/tpm0/tpm_version_major'"
+            )
+            assert guest_tpm.exit_code == 0, guest_tpm
+            assert guest_tpm.stdout.strip() == "2", guest_tpm
+
+            state_dir = "/home/corvus/VMs/tpm-lifecycle/tpm2"
+            self.nodes[0].run(f"test -d {state_dir}", timeout_sec=10.0)
+
+            vm.cap.stop(wait=True)
+            vm.cap.edit(tpm=False)
+            assert vm.cap.show().tpm is False
+            self.nodes[0].run(f"test ! -e {state_dir}", timeout_sec=10.0)
+
+
 class TestVmPauseResetPowerOff(_VmLifecycleBase):
     """Pause / resume / reset / guest-initiated poweroff scenarios."""
 

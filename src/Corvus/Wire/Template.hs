@@ -65,6 +65,7 @@ toCapnpTemplateVmInfo P.TemplateVmInfo {..} =
     , CGT.description = fromMaybe mempty tviDescription
     , CGT.headless = tviHeadless
     , CGT.guestAgent = tviGuestAgent
+    , CGT.tpm = tviTpm
     , CGT.autostart = tviAutostart
     , CGT.rebootQuirk = tviRebootQuirk
     }
@@ -79,6 +80,7 @@ fromCapnpTemplateVmInfo CGT.TemplateVmInfo {..} =
     , P.tviDescription = if description == mempty then Nothing else Just description
     , P.tviHeadless = headless
     , P.tviGuestAgent = guestAgent
+    , P.tviTpm = tpm
     , P.tviAutostart = autostart
     , P.tviRebootQuirk = rebootQuirk
     }
@@ -213,6 +215,7 @@ toCapnpTemplateDetails P.TemplateDetails {..} =
     , CGT.headless = tvdHeadless
     , CGT.cloudInit = tvdCloudInit
     , CGT.guestAgent = tvdGuestAgent
+    , CGT.tpm = tvdTpm
     , CGT.autostart = tvdAutostart
     , CGT.cloudInitConfig =
         maybe (toCapnpCloudInitInfo emptyCloudInitInfo) toCapnpCloudInitInfo tvdCloudInitConfig
@@ -243,6 +246,7 @@ fromCapnpTemplateDetails CGT.TemplateDetails {..} = do
       , P.tvdHeadless = headless
       , P.tvdCloudInit = cloudInit
       , P.tvdGuestAgent = guestAgent
+      , P.tvdTpm = tpm
       , P.tvdAutostart = autostart
       , P.tvdRebootQuirk = rebootQuirk
       , P.tvdCloudInitConfig = if ci == emptyCloudInitInfo then Nothing else Just ci

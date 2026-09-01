@@ -87,6 +87,7 @@ pipeline:
 
               cat > /etc/portage/package.use/corvus <<'EOF'
               app-emulation/qemu spice usb usbredir virtfs passt vde
+              net-libs/gnutls pkcs11 tools
               dev-db/postgresql python uuid xml
               EOF
 
@@ -104,6 +105,7 @@ pipeline:
               emerge --noreplace --usepkg \
                 net-misc/socat \
                 app-emulation/qemu \
+                app-crypt/swtpm \
                 net-misc/vde \
                 net-dns/dnsmasq \
                 net-firewall/nftables \
@@ -131,6 +133,18 @@ pipeline:
                 dev-python/uvloop \
                 dev-python/watchfiles \
                 dev-python/websockets
+
+              # The local pycapnp ebuild has a plain capnproto dependency
+              # rather than a subslot operator. If emerge upgraded
+              # capnproto, its existing C extension can still be linked to
+              # the removed ABI. Rebuild just pycapnp from source against
+              # the installed library; all of its build dependencies may
+              # still come from the shared binary package cache.
+              emerge --usepkg \
+                --usepkg-exclude=dev-python/pycapnp \
+                --buildpkg \
+                --reinstall-atoms=dev-python/pycapnp \
+                dev-python/pycapnp
             timeoutSec: 14400
         - shell:
             inline: |

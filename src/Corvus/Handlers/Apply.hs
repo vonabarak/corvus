@@ -726,6 +726,7 @@ createOneVm ctx keyMap diskMap nwMap v = do
           (avDescription v)
           (avHeadless v)
           (avGuestAgent v)
+          (avTpm v)
           (effectiveCloudInit v)
           (avAutostart v)
           (avRebootQuirk v)

@@ -385,6 +385,31 @@ class TestVmMigration(_MigrationCase):
             self._delete_silent_vm(vm_name)
             self._delete_silent_disk(disk_name)
 
+    def test_migrate_refuses_enabled_tpm_then_succeeds_after_disable(self):
+        """TPM is node-local: migration rejects the enabled flag, while
+        disabling it first removes its state and restores normal migration."""
+        vm_name = _uniq("mig-tpm")
+        disk_name = _uniq("mig-tpm-disk")
+        vm = self._make_stopped_vm_with_disk(vm_name, disk_name)
+        try:
+            vm.edit(tpm=True)
+            assert vm.show().tpm is True
+            self._assert_migrate_fails(
+                vm,
+                self.beta_name,
+                message_must_match=["tpm enabled", "disable tpm"],
+            )
+
+            vm.edit(tpm=False)
+            assert vm.show().tpm is False
+            tid = vm.migrate(self.beta_name)
+            self.wait_for_task(self.client_alpha, tid, timeout_sec=120.0)
+            assert vm.show().node.name == self.beta_name
+            assert self._placement_nodes(disk_name) == {self.beta_name}
+        finally:
+            self._delete_silent_vm(vm_name)
+            self._delete_silent_disk(disk_name)
+
     def test_migrate_ro_drive_copied_rw_drive_moved(self):
         """A VM with one r/w boot disk + one r/o data disk migrates:
         the r/w disk's placement moves, the r/o disk's is copied."""

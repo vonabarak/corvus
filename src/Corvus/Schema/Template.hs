@@ -28,6 +28,7 @@ data TemplateYaml = TemplateYaml
   , tyHeadless :: Bool
   , tyCloudInit :: Bool
   , tyGuestAgent :: Bool
+  , tyTpm :: Bool
   , tyAutostart :: Bool
   , tyRebootQuirk :: Bool
   , tyCloudInitConfig :: Maybe CloudInitConfigYaml
@@ -48,6 +49,7 @@ instance FromJSON TemplateYaml where
       <*> o .:? "headless" .!= False
       <*> o .:? "cloudInit" .!= False
       <*> o .:? "guestAgent" .!= False
+      <*> o .:? "tpm" .!= False
       <*> o .:? "autostart" .!= False
       <*> o .:? "rebootQuirk" .!= False
       <*> o .:? "cloudInitConfig"

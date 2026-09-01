@@ -147,6 +147,7 @@ def test_template_list_refresh_and_populate(
                 ram_mb=1024,
                 headless=False,
                 guest_agent=True,
+                tpm=False,
                 autostart=False,
             )
             for i in (1, 2)

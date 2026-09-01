@@ -187,6 +187,7 @@ insertVmOnNode name nodeKey = do
           , M.vmDescription = Nothing
           , M.vmHeadless = False
           , M.vmGuestAgent = False
+          , M.vmTpm = False
           , M.vmCloudInit = False
           , M.vmHealthcheck = Nothing
           , M.vmAutostart = False

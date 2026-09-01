@@ -82,6 +82,8 @@ validateMigration state vmId destNode = do
   case mVm of
     Nothing -> pure (Left "VM not found")
     Just vm
+      | M.vmTpm vm ->
+          pure (Left "VM has TPM enabled; disable TPM before migrating")
       -- @vm migrate@ accepts stopped VMs (no state file) and
       -- saved VMs (state file follows to the destination). Running
       -- and paused VMs are auto-saved by the orchestrator BEFORE

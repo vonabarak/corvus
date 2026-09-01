@@ -29,6 +29,7 @@ module Test.DSL.Then
   , vmNotExists
   , diskImageHasPath
   , vmHasStatus
+  , vmHasTpm
   , vmCount
   , diskImageExists
   , diskImageNotExists
@@ -193,6 +194,13 @@ vmHasStatus vmId expectedStatus = do
   case mVm of
     Nothing -> liftIO $ fail $ "VM not found: " <> show vmId
     Just vm -> liftIO $ vmStatus vm `shouldBe` expectedStatus
+
+vmHasTpm :: Int64 -> Bool -> TestM ()
+vmHasTpm vmId expected = do
+  mVm <- runDb $ get (toSqlKey vmId :: VmId)
+  case mVm of
+    Nothing -> liftIO $ fail $ "VM not found: " <> show vmId
+    Just vm -> liftIO $ vmTpm vm `shouldBe` expected
 
 vmCount :: Int -> TestM ()
 vmCount expectedCount = do

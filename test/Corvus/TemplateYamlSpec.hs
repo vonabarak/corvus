@@ -39,6 +39,7 @@ sampleDetails =
     , tvdHeadless = False
     , tvdCloudInit = True
     , tvdGuestAgent = True
+    , tvdTpm = True
     , tvdAutostart = False
     , tvdRebootQuirk = False
     , tvdCloudInitConfig = Nothing
@@ -96,6 +97,7 @@ spec = do
           tyHeadless ty `shouldBe` False
           tyCloudInit ty `shouldBe` True
           tyGuestAgent ty `shouldBe` True
+          tyTpm ty `shouldBe` True
           tyAutostart ty `shouldBe` False
           length (tyDrives ty) `shouldBe` 1
           let [d] = tyDrives ty
@@ -163,4 +165,5 @@ spec = do
         Left err -> expectationFailure $ "skeleton failed to parse: " ++ show err
         Right (ty :: TemplateYaml) -> do
           tyName ty `shouldBe` "my-template"
+          tyTpm ty `shouldBe` False
           length (tyDrives ty) `shouldBe` 1

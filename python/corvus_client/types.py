@@ -87,6 +87,7 @@ class VmInfo:
     ram_mb: int
     headless: bool
     guest_agent: bool
+    tpm: bool
     cloud_init: bool
     autostart: bool
     last_healthcheck: datetime | None = None
@@ -142,6 +143,7 @@ class VmDetails:
     serial_socket: str
     guest_agent_socket: str
     guest_agent: bool
+    tpm: bool
     cloud_init: bool
     autostart: bool
     drives: list[DriveInfo] = field(default_factory=list)
@@ -438,6 +440,7 @@ class TemplateVmInfo:
     ram_mb: int
     headless: bool
     guest_agent: bool
+    tpm: bool
     autostart: bool
     description: str | None = None
 
@@ -485,6 +488,7 @@ class TemplateDetails:
     headless: bool
     cloud_init: bool
     guest_agent: bool
+    tpm: bool
     autostart: bool
     created_at: datetime
     drives: list[TemplateDriveInfo] = field(default_factory=list)

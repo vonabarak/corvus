@@ -614,6 +614,7 @@ Vm
     description Text Maybe
     headless Bool default=false
     guestAgent Bool default=false
+    tpm Bool default=false
     cloudInit Bool default=false
     healthcheck UTCTime Maybe default=NULL
     autostart Bool default=false
@@ -771,6 +772,7 @@ TemplateVm
     headless Bool default=false
     cloudInit Bool default=false
     guestAgent Bool default=false
+    tpm Bool default=false
     autostart Bool default=false
     rebootQuirk Bool default=false
     createdAt UTCTime

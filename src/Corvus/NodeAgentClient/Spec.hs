@@ -106,6 +106,7 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
                   , VS.vsRamMb = fromIntegral (vmRamMb vm) :: Int32
                   , VS.vsHeadless = vmHeadless vm
                   , VS.vsGuestAgent = vmGuestAgent vm
+                  , VS.vsTpm = vmTpm vm
                   , VS.vsVsockCid = fmap fromIntegral (vmVsockCid vm)
                   , VS.vsSpicePort = fmap fromIntegral (vmSpicePort vm)
                   , VS.vsDrives = driveSpecs

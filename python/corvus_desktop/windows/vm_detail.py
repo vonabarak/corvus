@@ -136,6 +136,7 @@ class VmDetailWidget(QWidget):
         self._ram = QLabel("—")
         self._node = QLabel("—")
         self._created = QLabel("—")
+        self._tpm = QLabel("—")
         self._error = QLabel("")
         self._error.setStyleSheet("color: #991b1b;")
         self._error.setWordWrap(True)
@@ -152,6 +153,7 @@ class VmDetailWidget(QWidget):
         form.addRow("CPU:", self._cpu)
         form.addRow("RAM:", self._ram)
         form.addRow("Created:", self._created)
+        form.addRow("TPM 2.0:", self._tpm)
 
         # Summary pane is its own tab (no QGroupBox — the tab header
         # already labels it).
@@ -308,7 +310,7 @@ class VmDetailWidget(QWidget):
         self._vm_details = None
         self._title.setText("(no vm)")
         self._status_badge.set_status("")
-        for label in (self._cpu, self._ram, self._node, self._created):
+        for label in (self._cpu, self._ram, self._node, self._created, self._tpm):
             label.setText("—")
         self._error.setText("")
         self._drives_table.setRowCount(0)
@@ -331,6 +333,7 @@ class VmDetailWidget(QWidget):
         self._cpu.setText(f"{info.cpu_count} ({info.cpu_model})")
         self._ram.setText(f"{info.ram_mb} MB")
         self._created.setText(info.created_at.isoformat(sep=" ", timespec="seconds"))
+        self._tpm.setText("enabled" if info.tpm else "disabled")
         self._error.setText(info.error_message or "")
         self._fill_drives(info.drives)
         self._fill_netifs(info.net_ifs)
@@ -609,7 +612,10 @@ class VmDetailWidget(QWidget):
         # locally only against transitional / error states; the
         # daemon's pre-flight checks have the final say.
         self._btn_migrate.setEnabled(
-            loaded and self._vm_status in ("stopped", "saved", "paused", "running")
+            loaded
+            and self._vm_details is not None
+            and not self._vm_details.tpm
+            and self._vm_status in ("stopped", "saved", "paused", "running")
         )
         # View (SPICE) only works for graphical (non-headless) running VMs.
         self._btn_view.setEnabled(

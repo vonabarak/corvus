@@ -23,6 +23,11 @@ function FlagBadges({ vm }: { vm: VmInfo }) {
           QGA
         </Badge>
       )}
+      {vm.tpm && (
+        <Badge variant="muted" className="text-[10px]">
+          TPM 2.0
+        </Badge>
+      )}
       {vm.cloud_init && (
         <Badge variant="muted" className="text-[10px]">
           cloud-init

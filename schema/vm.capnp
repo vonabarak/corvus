@@ -35,6 +35,8 @@ struct VmInfo {
   # set to a stable model (`qemu64`, `Westmere-v3`, …) for safe
   # cross-host migration.
   cpuModel        @12 :Text;
+  # Attach a software-emulated TPM 2.0 device backed by swtpm.
+  tpm             @13 :Bool;
 }
 
 struct VmDetails {
@@ -75,6 +77,8 @@ struct VmDetails {
   # StatusPoller (10-second cadence). Zero-filled when the VM is
   # not running. See `VmStats`.
   stats               @26 :VmStats;
+  # See `VmInfo.tpm`.
+  tpm                 @27 :Bool;
 }
 
 # Per-VM resource consumption sample. Cumulative counters + the
@@ -194,6 +198,7 @@ struct VmCreateParams {
   # ("host"). See `VmInfo.cpuModel` for the migration-safety
   # trade-off.
   cpuModel        @10 :Text;
+  tpm             @11 :Bool = false;
 }
 
 struct VmEditParams {
@@ -219,6 +224,8 @@ struct VmEditParams {
   rebootQuirk        @17 :Bool;
   hasCpuModel        @18 :Bool;
   cpuModel           @19 :Text;
+  hasTpm             @20 :Bool;
+  tpm                @21 :Bool;
 }
 
 struct DriveAttachParams {

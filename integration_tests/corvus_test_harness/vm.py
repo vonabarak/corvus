@@ -95,6 +95,7 @@ class Vm:
     ram_mb: int = 1024
     headless: bool = True
     guest_agent: bool = True
+    tpm: bool = False
     cloud_init: bool = False
     reboot_quirk: bool = False
     # When True, `__enter__` blocks until the inner daemon reports the
@@ -148,6 +149,7 @@ class Vm:
                 ram_mb=self.ram_mb,
                 headless=self.headless,
                 guest_agent=self.guest_agent,
+                tpm=self.tpm,
                 cloud_init=self.cloud_init,
                 reboot_quirk=self.reboot_quirk,
             )

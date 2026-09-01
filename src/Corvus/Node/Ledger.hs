@@ -42,6 +42,8 @@ data VmLiveState = VmLiveState
   , vlsVirtiofsd :: ![(Word32, ProcessHandle)]
   -- ^ Per-shared-dir virtiofsd children. Empty when the VM had
   -- no shared dirs in its spec.
+  , vlsSwtpm :: !(Maybe (Word32, ProcessHandle))
+  -- ^ The per-VM swtpm child when TPM 2.0 is enabled.
   , vlsLastExitCode :: !(TVar (Maybe Int))
   -- ^ Filled by the agent's internal reaper when QEMU exits.
   -- 'Nothing' while the VM is running; 'Just code' once the

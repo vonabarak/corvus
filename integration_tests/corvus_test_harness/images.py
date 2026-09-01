@@ -18,6 +18,7 @@ Build path (run once per machine, lives outside pytest):
 
     make test-image            # umbrella: all integration-test images
     make test-image-node       # just this one
+    make test-image-node-rebuild # after changing its recipe
 """
 
 from __future__ import annotations

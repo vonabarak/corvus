@@ -67,7 +67,8 @@ data instance C.Parsed VmInfo
         ,autostart :: (RP.Parsed Std_.Bool)
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
         ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
-        ,cpuModel :: (RP.Parsed Basics.Text)}
+        ,cpuModel :: (RP.Parsed Basics.Text)
+        ,tpm :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmInfo))
 deriving instance (Std_.Eq (C.Parsed VmInfo))
@@ -84,7 +85,8 @@ instance (C.Parse VmInfo (C.Parsed VmInfo)) where
                          <*> (GH.parseField #autostart raw_)
                          <*> (GH.parseField #rebootQuirk raw_)
                          <*> (GH.parseField #node raw_)
-                         <*> (GH.parseField #cpuModel raw_))
+                         <*> (GH.parseField #cpuModel raw_)
+                         <*> (GH.parseField #tpm raw_))
 instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
     marshalInto raw_ VmInfo{..} = (do
         (GH.encodeField #id id raw_)
@@ -100,6 +102,7 @@ instance (C.Marshal VmInfo (C.Parsed VmInfo)) where
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (GH.encodeField #node node raw_)
         (GH.encodeField #cpuModel cpuModel raw_)
+        (GH.encodeField #tpm tpm raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmInfo Std_.Int64) where
@@ -128,6 +131,8 @@ instance (GH.HasField "node" GH.Slot VmInfo Capnp.Gen.ById.X9b1373e2334a09e9.Nam
     fieldByLabel  = (GH.ptrField 1)
 instance (GH.HasField "cpuModel" GH.Slot VmInfo Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "tpm" GH.Slot VmInfo Std_.Bool) where
+    fieldByLabel  = (GH.dataField 21 1 1 0)
 data VmDetails 
 type instance (R.ReprFor VmDetails) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDetails) where
@@ -171,7 +176,8 @@ data instance C.Parsed VmDetails
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
         ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.NamedRef)
         ,cpuModel :: (RP.Parsed Basics.Text)
-        ,stats :: (RP.Parsed VmStats)}
+        ,stats :: (RP.Parsed VmStats)
+        ,tpm :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmDetails))
 deriving instance (Std_.Eq (C.Parsed VmDetails))
@@ -202,7 +208,8 @@ instance (C.Parse VmDetails (C.Parsed VmDetails)) where
                             <*> (GH.parseField #rebootQuirk raw_)
                             <*> (GH.parseField #node raw_)
                             <*> (GH.parseField #cpuModel raw_)
-                            <*> (GH.parseField #stats raw_))
+                            <*> (GH.parseField #stats raw_)
+                            <*> (GH.parseField #tpm raw_))
 instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
     marshalInto raw_ VmDetails{..} = (do
         (GH.encodeField #id id raw_)
@@ -232,6 +239,7 @@ instance (C.Marshal VmDetails (C.Parsed VmDetails)) where
         (GH.encodeField #node node raw_)
         (GH.encodeField #cpuModel cpuModel raw_)
         (GH.encodeField #stats stats raw_)
+        (GH.encodeField #tpm tpm raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "id" GH.Slot VmDetails Std_.Int64) where
@@ -288,6 +296,8 @@ instance (GH.HasField "cpuModel" GH.Slot VmDetails Basics.Text) where
     fieldByLabel  = (GH.ptrField 11)
 instance (GH.HasField "stats" GH.Slot VmDetails VmStats) where
     fieldByLabel  = (GH.ptrField 12)
+instance (GH.HasField "tpm" GH.Slot VmDetails Std_.Bool) where
+    fieldByLabel  = (GH.dataField 21 2 1 0)
 data VmStats 
 type instance (R.ReprFor VmStats) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmStats) where
@@ -715,7 +725,8 @@ data instance C.Parsed VmCreateParams
         ,autostart :: (RP.Parsed Std_.Bool)
         ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
-        ,cpuModel :: (RP.Parsed Basics.Text)}
+        ,cpuModel :: (RP.Parsed Basics.Text)
+        ,tpm :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmCreateParams))
 deriving instance (Std_.Eq (C.Parsed VmCreateParams))
@@ -730,7 +741,8 @@ instance (C.Parse VmCreateParams (C.Parsed VmCreateParams)) where
                                  <*> (GH.parseField #autostart raw_)
                                  <*> (GH.parseField #node raw_)
                                  <*> (GH.parseField #rebootQuirk raw_)
-                                 <*> (GH.parseField #cpuModel raw_))
+                                 <*> (GH.parseField #cpuModel raw_)
+                                 <*> (GH.parseField #tpm raw_))
 instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
     marshalInto raw_ VmCreateParams{..} = (do
         (GH.encodeField #name name raw_)
@@ -744,6 +756,7 @@ instance (C.Marshal VmCreateParams (C.Parsed VmCreateParams)) where
         (GH.encodeField #node node raw_)
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (GH.encodeField #cpuModel cpuModel raw_)
+        (GH.encodeField #tpm tpm raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "name" GH.Slot VmCreateParams Basics.Text) where
@@ -768,6 +781,8 @@ instance (GH.HasField "rebootQuirk" GH.Slot VmCreateParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 4 1 1 0)
 instance (GH.HasField "cpuModel" GH.Slot VmCreateParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 3)
+instance (GH.HasField "tpm" GH.Slot VmCreateParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 5 1 1 0)
 data VmEditParams 
 type instance (R.ReprFor VmEditParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmEditParams) where
@@ -804,7 +819,9 @@ data instance C.Parsed VmEditParams
         ,hasRebootQuirk :: (RP.Parsed Std_.Bool)
         ,rebootQuirk :: (RP.Parsed Std_.Bool)
         ,hasCpuModel :: (RP.Parsed Std_.Bool)
-        ,cpuModel :: (RP.Parsed Basics.Text)}
+        ,cpuModel :: (RP.Parsed Basics.Text)
+        ,hasTpm :: (RP.Parsed Std_.Bool)
+        ,tpm :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmEditParams))
 deriving instance (Std_.Eq (C.Parsed VmEditParams))
@@ -828,7 +845,9 @@ instance (C.Parse VmEditParams (C.Parsed VmEditParams)) where
                                <*> (GH.parseField #hasRebootQuirk raw_)
                                <*> (GH.parseField #rebootQuirk raw_)
                                <*> (GH.parseField #hasCpuModel raw_)
-                               <*> (GH.parseField #cpuModel raw_))
+                               <*> (GH.parseField #cpuModel raw_)
+                               <*> (GH.parseField #hasTpm raw_)
+                               <*> (GH.parseField #tpm raw_))
 instance (C.Marshal VmEditParams (C.Parsed VmEditParams)) where
     marshalInto raw_ VmEditParams{..} = (do
         (GH.encodeField #hasName hasName raw_)
@@ -851,6 +870,8 @@ instance (C.Marshal VmEditParams (C.Parsed VmEditParams)) where
         (GH.encodeField #rebootQuirk rebootQuirk raw_)
         (GH.encodeField #hasCpuModel hasCpuModel raw_)
         (GH.encodeField #cpuModel cpuModel raw_)
+        (GH.encodeField #hasTpm hasTpm raw_)
+        (GH.encodeField #tpm tpm raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "hasName" GH.Slot VmEditParams Std_.Bool) where
@@ -893,6 +914,10 @@ instance (GH.HasField "hasCpuModel" GH.Slot VmEditParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 14 0 1 0)
 instance (GH.HasField "cpuModel" GH.Slot VmEditParams Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "hasTpm" GH.Slot VmEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 15 0 1 0)
+instance (GH.HasField "tpm" GH.Slot VmEditParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 16 0 1 0)
 data DriveAttachParams 
 type instance (R.ReprFor DriveAttachParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DriveAttachParams) where

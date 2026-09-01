@@ -62,6 +62,7 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       , hotplugPortArgs
       , vsockArgs
       , guestAgentArgs
+      , tpmArgs
       , displayArgs
       , monitorArgs
       , concatMap driveArgsSpec (zip [0 ..] (VS.vsDrives spec))
@@ -133,6 +134,17 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       , "-device"
       , "virtserialport,chardev=qga0,name=org.qemu.guest_agent.0"
       ]
+
+    tpmArgs
+      | VS.vsTpm spec =
+          [ "-chardev"
+          , "socket,id=chrtpm,path=" ++ (vmRuntimeDir </> "swtpm.sock")
+          , "-tpmdev"
+          , "emulator,id=tpm0,chardev=chrtpm"
+          , "-device"
+          , "tpm-crb,tpmdev=tpm0"
+          ]
+      | otherwise = []
 
     displayArgs
       | VS.vsHeadless spec = serialConsoleArgs

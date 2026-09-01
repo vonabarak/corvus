@@ -12,6 +12,7 @@ export interface VmInfo {
   ram_mb: number;
   headless: boolean;
   guest_agent: boolean;
+  tpm: boolean;
   cloud_init: boolean;
   autostart: boolean;
   last_healthcheck: string | null;
@@ -122,6 +123,7 @@ export interface VmCreateBody {
   description?: string | null;
   headless?: boolean;
   guest_agent?: boolean;
+  tpm?: boolean;
   cloud_init?: boolean;
   autostart?: boolean;
   reboot_quirk?: boolean;

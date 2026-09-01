@@ -14,6 +14,8 @@ def _flags(t: TemplateVmInfo) -> str:
     parts: list[str] = []
     if t.guest_agent:
         parts.append("QGA")
+    if t.tpm:
+        parts.append("TPM")
     if t.autostart:
         parts.append("auto")
     if t.headless:

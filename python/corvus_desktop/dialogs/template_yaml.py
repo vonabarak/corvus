@@ -14,6 +14,7 @@ description: "Edit this skeleton"
 cpuCount: 2
 ramMb: 2048
 guestAgent: true
+tpm: false
 drives:
   - diskImageName: "ubuntu-24.04-server-base"
     interface: "virtio"

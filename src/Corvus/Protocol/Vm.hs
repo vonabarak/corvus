@@ -44,6 +44,7 @@ data VmInfo = VmInfo
   , viRamMb :: !Int
   , viHeadless :: !Bool
   , viGuestAgent :: !Bool
+  , viTpm :: !Bool
   , viCloudInit :: !Bool
   , viHealthcheck :: !(Maybe UTCTime)
   , viAutostart :: !Bool
@@ -112,6 +113,8 @@ data VmDetails = VmDetails
   -- ^ Path to QEMU Guest Agent socket
   , vdGuestAgent :: !Bool
   -- ^ Whether guest agent is enabled for this VM
+  , vdTpm :: !Bool
+  -- ^ Whether a software-emulated TPM 2.0 device is enabled.
   , vdCloudInit :: !Bool
   -- ^ Whether cloud-init is enabled for this VM
   , vdCloudInitConfig :: !(Maybe CloudInitInfo)

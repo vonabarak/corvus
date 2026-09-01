@@ -155,8 +155,8 @@ runCommand opts = do
             emitError fmt "rpc_error" (T.pack (show e)) $
               putStrLn ("Error: " ++ show e)
             pure False
-      VmCreate name nodeRef cpuCount ramMb mDesc headless ga ci as rq cm ->
-        handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless ga ci as rq cm
+      VmCreate name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm ->
+        handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm
       VmDelete vmRef keepDisks -> handleVmDelete fmt conn vmRef keepDisks
       VmStart vmRef waitOpts -> handleVmStart fmt conn vmRef waitOpts
       VmStop vmRef waitOpts -> handleVmStop fmt conn vmRef waitOpts
@@ -165,8 +165,8 @@ runCommand opts = do
       VmReset vmRef ->
         handleVmAction fmt "reset" vmRef (CR.rpcVmReset conn (entityRefFromText vmRef))
       VmSave vmRef waitOpts -> handleVmSave fmt conn vmRef waitOpts
-      VmEdit vmRef mCpus mRam mDesc mHeadless mGa mCi mAs mRq mCm ->
-        handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mCi mAs mRq mCm
+      VmEdit vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm ->
+        handleVmEdit fmt conn vmRef mCpus mRam mDesc mHeadless mGa mTpm mCi mAs mRq mCm
       VmExec vmRef cmd -> handleVmExec fmt conn vmRef cmd
       VmView vmRef -> handleVmView opts fmt conn vmRef
       VmMonitor vmRef -> runHmpMonitorSession fmt conn vmRef

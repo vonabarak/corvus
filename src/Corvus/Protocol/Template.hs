@@ -34,6 +34,7 @@ data TemplateVmInfo = TemplateVmInfo
   , tviDescription :: !(Maybe Text)
   , tviHeadless :: !Bool
   , tviGuestAgent :: !Bool
+  , tviTpm :: !Bool
   , tviAutostart :: !Bool
   , tviRebootQuirk :: !Bool
   }
@@ -95,6 +96,7 @@ data TemplateDetails = TemplateDetails
   , tvdHeadless :: !Bool
   , tvdCloudInit :: !Bool
   , tvdGuestAgent :: !Bool
+  , tvdTpm :: !Bool
   , tvdAutostart :: !Bool
   , tvdRebootQuirk :: !Bool
   , tvdCloudInitConfig :: !(Maybe CloudInitInfo)

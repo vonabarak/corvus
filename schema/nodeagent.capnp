@@ -234,7 +234,7 @@ interface Session {
   # -------------------------------------------------------------------
   # Process supervision primitives (Phase 3).
   #
-  # The agent owns every subprocess Corvus spawns: QEMU, virtiofsd.
+  # The agent owns every subprocess Corvus spawns: QEMU, virtiofsd, swtpm.
   # The daemon submits intent — "spawn this command", "kill that
   # PID" — and the agent executes. PIDs are agent-owned but
   # transparent to the daemon (it stores them in the DB and uses
@@ -292,6 +292,11 @@ interface Session {
   # `handleVmReset` (drop the save explicitly) and from
   # `handleVmDelete` (clean up when removing a saved VM).
   deleteSavedState @36 (vmName :Text) -> ();
+
+  # Recursively remove the persistent swtpm state directory for
+  # `vmName`. Idempotent when it does not exist. The daemon calls
+  # this before disabling TPM and before deleting a TPM-enabled VM.
+  deleteTpmState @44 (vmName :Text) -> ();
 
   # Execute a command via QGA on the running VM. Agent locates
   # the QGA socket from the ledger entry for req.vmId.
@@ -573,6 +578,8 @@ struct VmSpec {
   # Mutually exclusive with `loadFromSavedState` above, which
   # has its own pause/resume dance via `-incoming`.
   startPaused @18 :Bool;
+  # Start swtpm and attach a TPM 2.0 CRB device to QEMU.
+  tpm @19 :Bool;
 }
 
 struct VmDriveSpec {
@@ -604,6 +611,7 @@ struct VmRuntimeInfo {
   qemuPid       @0 :Int32;
   virtiofsdPids @1 :List(Int32);
   spicePort     @2 :Int32;   # echoed back from spec; 0 if none
+  swtpmPid      @3 :Int32;   # 0 when TPM is disabled
 }
 
 # Result of stop operations.

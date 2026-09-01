@@ -181,6 +181,7 @@ templateVmColumns =
   , Column "NAME" LeftAlign (T.unpack . tviName)
   , Column "CPUS" RightAlign (show . tviCpuCount)
   , Column "RAM_MB" RightAlign (show . tviRamMb)
+  , Column "TPM" LeftAlign (\t -> if tviTpm t then "+" else "-")
   ]
 
 -- | Print full template details
@@ -196,6 +197,7 @@ printTemplateDetails t = do
     Nothing -> pure ()
   printField "Console" (if tvdHeadless t then "serial (headless)" else "SPICE (graphics)")
   printField "Guest Agent" (if tvdGuestAgent t then "enabled" else "disabled")
+  printField "TPM 2.0" (if tvdTpm t then "enabled" else "disabled")
   printField "Cloud-init" (if tvdCloudInit t then "enabled" else "disabled")
   printField "Autostart" (if tvdAutostart t then "enabled" else "disabled")
   case tvdCloudInitConfig t of

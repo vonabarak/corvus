@@ -15,6 +15,8 @@ def _flags(vm: VmInfo) -> str:
     parts: list[str] = []
     if vm.guest_agent:
         parts.append("QGA")
+    if vm.tpm:
+        parts.append("TPM")
     if vm.cloud_init:
         parts.append("cloud-init")
     if vm.autostart:

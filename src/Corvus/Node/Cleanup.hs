@@ -4,11 +4,12 @@
 
 -- | Startup + shutdown cleanup for `corvus-nodeagent`.
 --
--- The agent is stateless: nothing persists to disk across
--- restarts. Every fresh process starts with a guaranteed-empty
--- world by reaping any QEMU + virtiofsd processes whose argv
--- references our runtime-directory layout, and then scrubbing
--- the per-VM runtime directories under @\$XDG_RUNTIME_DIR/corvus/@.
+-- The agent's process ledger is stateless across restarts. Every fresh
+-- process starts with a guaranteed-empty runtime world by reaping any
+-- QEMU + virtiofsd + swtpm processes whose argv references our runtime
+-- layout, then scrubbing the per-VM directories under
+-- @\$XDG_RUNTIME_DIR/corvus/@. Persistent disk, saved-VM, cloud-init,
+-- and TPM state under the configured base path is deliberately retained.
 --
 -- 'cleanupCorvusProcesses' runs once during
 -- 'Corvus.Node.Server.runNodeAgentServer' before the listener
@@ -17,11 +18,12 @@
 -- so restarts and explicit stops both terminate with no agent-
 -- owned subprocesses left on the host.
 --
--- Identification: every QEMU and virtiofsd subprocess we spawn
+-- Identification: every QEMU, virtiofsd, and swtpm subprocess we spawn
 -- has at least one argument containing the substring
 -- @/corvus/@ (it's part of the socket / runtime-dir paths). We
 -- combine that with a method-specific marker
--- (@monitor.sock@ for QEMU, @virtiofsd-@ for virtiofsd) so the
+-- (@monitor.sock@ for QEMU, @virtiofsd-@ for virtiofsd, and the
+-- swtpm @--ctrl@ argument for swtpm) so the
 -- cleanup pkill doesn't sweep unrelated processes.
 module Corvus.Node.Cleanup
   ( cleanupCorvusProcesses
@@ -67,9 +69,15 @@ corvusVirtiofsdArgvPattern :: FilePath -> T.Text
 corvusVirtiofsdArgvPattern runtimeDir =
   "--socket-path=" <> T.pack runtimeDir <> "/.*virtiofsd-"
 
+-- | Match only swtpm's @--ctrl@ argument. QEMU also references the
+-- socket path, so matching @swtpm.sock@ alone would kill the VM too.
+corvusSwtpmArgvPattern :: FilePath -> T.Text
+corvusSwtpmArgvPattern runtimeDir =
+  "--ctrl.*path=" <> T.pack runtimeDir <> "/.*swtpm.sock"
+
 -- | Best-effort full cleanup. Each step logs + swallows failures
 -- so a half-broken host still gets as much cleaned up as
--- possible. Order matters: kill virtiofsd before QEMU
+-- possible. Order matters: kill virtiofsd and swtpm before QEMU
 -- (virtiofsd's QEMU client is already going away; killing
 -- virtiofsd first prevents it from logging chardev errors during
 -- QEMU's last gasp), and scrub runtime dirs last (the sockets
@@ -84,6 +92,14 @@ cleanupCorvusProcesses = runStderrLoggingT $ do
         <> tshow (length vPids)
         <> " virtiofsd pid(s)"
   mapM_ (liftIO . signalAndReap "virtiofsd") vPids
+
+  tPids <- liftIO (pgrepArgv (corvusSwtpmArgvPattern runtimeDir))
+  unless (null tPids) $
+    logInfoN $
+      "[nodeagent] cleanup: killing "
+        <> tshow (length tPids)
+        <> " swtpm pid(s)"
+  mapM_ (liftIO . signalAndReap "swtpm") tPids
 
   qPids <- liftIO (pgrepArgv (corvusQemuArgvPattern runtimeDir))
   unless (null qPids) $
@@ -148,7 +164,7 @@ pgrepArgv :: T.Text -> IO [ProcessID]
 pgrepArgv argPat = do
   r <-
     E.try @E.SomeException $
-      readProcessWithExitCode "pgrep" ["-f", T.unpack argPat] ""
+      readProcessWithExitCode "pgrep" ["-f", "--", T.unpack argPat] ""
   case r of
     Left _ -> pure []
     Right (ExitSuccess, out, _) -> pure (parsePgrep out)

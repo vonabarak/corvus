@@ -19,6 +19,7 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 - **Declarative Apply**: Define entire environments (VMs, disks, networks, SSH keys) in a single YAML file with `crv apply`
 - **Virtual Networks**: Bridge-based virtual networks with dnsmasq DHCP/DNS, owned by the privileged `corvus-netd` agent (host root netns)
 - **Shared Directories**: virtiofs support for sharing host directories with guests
+- **TPM 2.0**: Optional per-VM TPM CRB device backed by persistent `swtpm` state
 - **Task History**: Every mutating operation is tracked with timestamps, results, and error messages
 - **Web Interface**: Browser-based dashboard, VM/disk/network management, in-browser serial console, and live task feed via the `corvus-web` gateway ([web-interface.md](web-interface.md))
 
@@ -30,6 +31,7 @@ Corvus provides a daemon (`corvus`) that manages VM lifecycle and a CLI client (
 - QEMU with KVM support
 - `qemu-img` (for disk image operations)
 - `virtiofsd` (for shared directories)
+- `swtpm` (for VMs with TPM 2.0 enabled)
 - `genisoimage` or `mkisofs` (for cloud-init ISO generation)
 - `vde_switch` and `dnsmasq` (optional, for virtual networking)
 - `curl` or `wget` (optional, for HTTP disk image import)
@@ -236,6 +238,7 @@ Integration tests require VM images. Build them with:
 make test-image              # Build all test images (node + vm + multi-os + windows)
 make test-image-vm           # Alpine Linux inner-VM image only
 make test-image-node         # Gentoo outer-node image only
+make test-image-node-rebuild # Rebuild only a stale cached node image
 make test-image-windows      # Windows Server 2025 only (downloads evaluation ISO)
 ```
 
@@ -276,22 +279,27 @@ interactive consoles).
 When a VM starts:
 1. Status set to `running` (or `starting` with guest agent) in database
 2. virtiofsd processes started for shared directories (if any)
-3. Cloud-init ISO generated (if cloud-init enabled)
-4. QEMU spawned in a background thread
-5. PID saved to database
-6. Background thread waits for process exit
-7. On exit: status updated to `stopped` (success) or `error` (failure)
+3. A foreground `swtpm` process is started when TPM 2.0 is enabled
+4. Cloud-init ISO generated (if cloud-init enabled)
+5. QEMU is spawned and connected to the helper processes
+6. The nodeagent records the process handles and waits for QEMU exit
+7. On stop, the nodeagent reaps QEMU, virtiofsd, and swtpm
 
 Graceful shutdown uses QMP `system_powerdown`. Force stop uses `SIGKILL`.
 
 ### Runtime Files
 
-Sockets and runtime files are stored in `$XDG_RUNTIME_DIR/corvus/<vm_id>/`:
+Sockets and runtime files are stored in `$XDG_RUNTIME_DIR/corvus/vms/<vm_id>/`:
 - `monitor.sock` -- HMP monitor socket
 - `qmp.sock` -- QMP control socket
 - `serial.sock` -- Serial console socket (headless VMs)
 - `qga.sock` -- QEMU Guest Agent socket
 - `virtiofsd-<tag>.sock` -- virtiofsd sockets
+- `swtpm.sock` -- swtpm control socket (TPM-enabled VMs)
+
+Persistent TPM state is stored privately at `<basePath>/<vmName>/tpm2/`.
+It survives VM and host restarts. Disabling TPM or deleting a TPM-enabled VM
+removes this directory; the database change is aborted if removal fails.
 
 SPICE is served over TCP (not Unix socket) with ticketed password authentication — see [vm-management.md](vm-management.md#spice-graphical-vms).
 

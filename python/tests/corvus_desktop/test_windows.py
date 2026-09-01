@@ -322,6 +322,7 @@ def _vm(vm_id: int = 1, name: str = "web-1", status: str = "running") -> VmInfo:
         ram_mb=1024,
         headless=False,
         guest_agent=True,
+        tpm=False,
         cloud_init=True,
         autostart=False,
     )
@@ -378,6 +379,7 @@ def _vm_details(vm_id: int = 1, status: str = "running") -> VmDetails:
         serial_socket="",
         guest_agent_socket="",
         guest_agent=True,
+        tpm=False,
         cloud_init=True,
         autostart=False,
     )

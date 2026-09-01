@@ -1,6 +1,6 @@
 # Makefile for corvus project
 
-.PHONY: all build install uninstall cleanup test unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
+.PHONY: all build install uninstall cleanup test unit-tests integration-tests integration-tests-clean test-image test-image-key test-image-vm test-image-vm-clean test-image-node test-image-node-rebuild test-image-node-clean dev-node-vm dev-node-vm-clean dev-node-vm-ssh test-image-multi-os test-image-windows test-image-windows-clean test-image-installer test-image-installer-clean lint format capnp python-test release release-clean set-version web-build web-dev web-serve web-lint web-format web-clean desktop-run
 
 # Add ~/.local/bin to PATH for tools like hlint and fourmolu
 export PATH := $(HOME)/.local/bin:$(PATH)
@@ -230,13 +230,21 @@ test-image-vm-clean:
 #      `corvus-test-node` disk consumed by the harness's
 #      `ImageReady.ensure()` check.
 #
-# To force a rebake, `crv disk delete <name>` first; the guard
-# will then re-run the corresponding `crv build`.
+# To force a node-image rebake without discarding gentoo-headless,
+# use `make test-image-node-rebuild`.
 test-image-node: test-image-key
 	@crv -o json template show gentoo-headless >/dev/null 2>&1 || \
 	  make -C yaml/gentoo-test build-headless
 	@crv -o json disk show corvus-test-node >/dev/null 2>&1 || \
 	  crv build yaml/corvus-test-node/corvus-test-node.yml --wait
+
+# Rebuild only the cached test-node artifact after its recipe changes.
+# Unlike test-image-node-clean, retain the expensive gentoo-headless base image.
+test-image-node-rebuild: test-image-key
+	crv template delete corvus-test-node || true
+	crv disk delete corvus-test-node || true
+	crv build yaml/corvus-test-node/corvus-test-node.yml --wait
+
 test-image-node-clean:
 	crv template delete corvus-test-node || true
 	crv disk delete corvus-test-node || true

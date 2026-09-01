@@ -36,6 +36,7 @@ class VmCreateDialog(FormDialog):
         self._description.setMaximumHeight(80)
         self._headless = QCheckBox()
         self._guest_agent = QCheckBox()
+        self._tpm = QCheckBox()
         self._cloud_init = QCheckBox()
         self._autostart = QCheckBox()
         self._reboot_quirk = QCheckBox()
@@ -50,6 +51,7 @@ class VmCreateDialog(FormDialog):
         form.addRow("Description:", self._description)
         form.addRow("Headless:", self._headless)
         form.addRow("Guest agent:", self._guest_agent)
+        form.addRow("TPM 2.0:", self._tpm)
         form.addRow("Cloud-init:", self._cloud_init)
         form.addRow("Autostart:", self._autostart)
         form.addRow("Reboot quirk:", self._reboot_quirk)
@@ -68,6 +70,7 @@ class VmCreateDialog(FormDialog):
             "cpu_model": self._cpu_model.text().strip() or "host",
             "headless": self._headless.isChecked(),
             "guest_agent": self._guest_agent.isChecked(),
+            "tpm": self._tpm.isChecked(),
             "cloud_init": self._cloud_init.isChecked(),
             "autostart": self._autostart.isChecked(),
             "reboot_quirk": self._reboot_quirk.isChecked(),

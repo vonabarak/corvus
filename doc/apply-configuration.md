@@ -391,6 +391,7 @@ vms:
     description: <string>      # Optional. Human-readable description.
     headless: <boolean>        # Optional. Default: false. Serial console instead of SPICE.
     guestAgent: <boolean>      # Optional. Default: false. Enable QEMU guest agent channel.
+    tpm: <boolean>             # Optional. Default: false. Enable an emulated TPM 2.0 CRB device.
     cloudInit: <boolean>       # Optional. See Cloud-Init Behavior below.
     cloudInitConfig:           # Optional. Custom cloud-init configuration.
       userData: <object>       # Optional. Custom #cloud-config YAML (parsed as structured YAML).
@@ -553,6 +554,7 @@ templates:
     headless: <bool>            # Optional. Default: false.
     cloudInit: <bool>           # Optional. Default: false.
     guestAgent: <bool>          # Optional. Default: false. Enable QEMU guest agent.
+    tpm: <bool>                 # Optional. Default: false. Enable an emulated TPM 2.0 CRB device.
     autostart: <bool>           # Optional. Default: false. Auto-start VM on daemon start.
     cloudInitConfig:            # Optional. See Cloud-Init Behavior above.
       userData: ...

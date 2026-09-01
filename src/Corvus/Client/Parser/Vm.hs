@@ -69,6 +69,10 @@ vmCreateCommand =
           <> help "Enable QEMU guest agent for this VM"
       )
     <*> switch
+      ( long "tpm"
+          <> help "Enable a software-emulated TPM 2.0 device for this VM"
+      )
+    <*> switch
       ( long "cloud-init"
           <> help "Enable cloud-init for this VM (required for SSH key injection)"
       )
@@ -234,6 +238,15 @@ vmEditCommand =
           ( long "guest-agent"
               <> metavar "BOOL"
               <> help "Enable/disable QEMU guest agent (true/false)"
+              <> completeWith ["true", "false"]
+          )
+      )
+    <*> optional
+      ( option
+          readBool
+          ( long "tpm"
+              <> metavar "BOOL"
+              <> help "Enable/disable the software-emulated TPM 2.0 device (true/false); disabling erases TPM state"
               <> completeWith ["true", "false"]
           )
       )

@@ -135,11 +135,12 @@ handleVmCreate
   -> Bool
   -> Bool
   -> Bool
+  -> Bool
   -- ^ rebootQuirk
   -> Text
   -- ^ cpuModel (empty == "host")
   -> IO Response
-handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk cpuModel0 =
+handleVmCreate state name nodeRefText cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel0 =
   case validateName "VM" name of
     Left err -> pure $ RespError err
     Right () -> do
@@ -171,14 +172,14 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
             r <-
               withAllocatedVsockCid state nodeKey $ \cid ->
                 runSqlPool
-                  (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk cpuModel (Just cid))
+                  (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel (Just cid))
                   pool
             case r of
               Right vmId -> pure (Right vmId)
               Left _ -> do
                 vmId <-
                   runSqlPool
-                    (createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk cpuModel Nothing)
+                    (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel Nothing)
                     pool
                 pure (Right vmId)
           case eVmId of
@@ -214,39 +215,62 @@ handleVmDelete ctx vmId keepDisks = do
                ]
         then pure RespVmRunning
         else do
-          -- For a saved VM, ask the agent to drop the per-VM
-          -- state file before we tear the row down. Best-effort
-          -- (the call is idempotent on the agent) so an
-          -- unreachable agent doesn't block the delete.
-          when (status == VmSaved) $
-            runServerLogging state $ do
-              outerDel <-
-                liftIO $
-                  withVmNodeAgent state vmId $ \nac ->
-                    NOA.deleteSavedState nac (vmName vm)
-              case outerDel of
-                Left err ->
-                  logWarnN $
-                    "nodeagent unavailable; saved-state file may persist for deleted VM "
-                      <> T.pack (show vmId)
-                      <> ": "
-                      <> err
-                Right (Left e) ->
-                  logWarnN $
-                    "deleteSavedState during delete failed for VM "
-                      <> T.pack (show vmId)
-                      <> ": "
-                      <> T.pack (show e)
-                Right (Right ()) -> pure ()
-          disksToDelete <-
-            if keepDisks
-              then pure []
-              else runSqlPool (getEphemeralAttachedDisks vmId) (ssDbPool state)
-          -- Delete VM and its associations (drives, netifs, etc.)
-          runSqlPool (deleteVm vmId) (ssDbPool state)
-          -- Reap each ephemeral disk as a subtask.
-          mapM_ (runActionAsSubtask ctx . DiskDelete) disksToDelete
-          pure RespVmDeleted
+          -- TPM state belongs to an enabled TPM VM. Its deletion is
+          -- strict: if the nodeagent cannot remove it, leave the VM
+          -- and all of its associations intact so the operator can
+          -- retry without orphaning persistent security state.
+          tpmDeleteResult <-
+            if vmTpm vm
+              then deleteTpmStateForVm state vmId (vmName vm)
+              else pure (Right ())
+          case tpmDeleteResult of
+            Left err -> pure (RespError err)
+            Right () -> do
+              -- For a saved VM, ask the agent to drop the per-VM
+              -- state file before we tear the row down. Best-effort
+              -- (the call is idempotent on the agent) so an
+              -- unreachable agent doesn't block the delete.
+              when (status == VmSaved) $
+                runServerLogging state $ do
+                  outerDel <-
+                    liftIO $
+                      withVmNodeAgent state vmId $ \nac ->
+                        NOA.deleteSavedState nac (vmName vm)
+                  case outerDel of
+                    Left err ->
+                      logWarnN $
+                        "nodeagent unavailable; saved-state file may persist for deleted VM "
+                          <> T.pack (show vmId)
+                          <> ": "
+                          <> err
+                    Right (Left e) ->
+                      logWarnN $
+                        "deleteSavedState during delete failed for VM "
+                          <> T.pack (show vmId)
+                          <> ": "
+                          <> T.pack (show e)
+                    Right (Right ()) -> pure ()
+              disksToDelete <-
+                if keepDisks
+                  then pure []
+                  else runSqlPool (getEphemeralAttachedDisks vmId) (ssDbPool state)
+              -- Delete VM and its associations (drives, netifs, etc.)
+              runSqlPool (deleteVm vmId) (ssDbPool state)
+              -- Reap each ephemeral disk as a subtask.
+              mapM_ (runActionAsSubtask ctx . DiskDelete) disksToDelete
+              pure RespVmDeleted
+
+-- | Strictly remove persistent TPM state through the VM's nodeagent.
+-- A missing state directory is success on the agent. Routing or RPC
+-- failures are returned to the caller so it can leave the database
+-- flag/row unchanged.
+deleteTpmStateForVm :: ServerState -> Int64 -> Text -> IO (Either Text ())
+deleteTpmStateForVm state vmId name = do
+  outer <- withVmNodeAgent state vmId $ \nac -> NOA.deleteTpmState nac name
+  pure $ case outer of
+    Left err -> Left ("nodeagent unavailable; TPM state was not deleted: " <> err)
+    Right (Left err) -> Left ("failed to delete TPM state: " <> T.pack (show err))
+    Right (Right ()) -> Right ()
 
 -- | Pick the right 'ActionStart' variant for a VM in its current
 -- state. The validator returns the correct intermediate status
@@ -937,15 +961,16 @@ handleVmEdit
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe Bool
+  -> Maybe Bool
   -- ^ rebootQuirk
   -> Maybe Text
   -- ^ cpuModel
   -> IO Response
-handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk mCpuModel = do
+handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel = do
   result <- runSqlPool (getVmWithStatus vmId) (ssDbPool state)
   case result of
     Nothing -> pure RespVmNotFound
-    Just (_, status) ->
+    Just (vm, status) ->
       -- 'rebootQuirk' and 'cpuModel' are consumed only at the next
       -- 'vmStart' (via 'VmSpec'), so flipping them on a running VM
       -- has no effect until the next start; allow it without
@@ -958,26 +983,35 @@ handleVmEdit state vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutos
               , isJust mDesc
               , isJust mHeadless
               , isJust mGuestAgent
+              , isJust mTpm
               , isJust mCloudInit
               ]
        in if hasRuntimeEdits && status /= VmStopped
             then pure RespVmMustBeStopped
             else do
-              runSqlPool
-                ( editVm
-                    vmId
-                    mCpus
-                    mRam
-                    mDesc
-                    mHeadless
-                    mGuestAgent
-                    mCloudInit
-                    mAutostart
-                    mRebootQuirk
-                    mCpuModel
-                )
-                (ssDbPool state)
-              pure RespVmEdited
+              tpmDeleteResult <-
+                if vmTpm vm && mTpm == Just False
+                  then deleteTpmStateForVm state vmId (vmName vm)
+                  else pure (Right ())
+              case tpmDeleteResult of
+                Left err -> pure (RespError err)
+                Right () -> do
+                  runSqlPool
+                    ( editVm
+                        vmId
+                        mCpus
+                        mRam
+                        mDesc
+                        mHeadless
+                        mGuestAgent
+                        mTpm
+                        mCloudInit
+                        mAutostart
+                        mRebootQuirk
+                        mCpuModel
+                    )
+                    (ssDbPool state)
+                  pure RespVmEdited
 
 -- | Handle cloud-init ISO generation/regeneration for a VM
 handleVmCloudInit :: ServerState -> Text -> Int64 -> IO Response
@@ -1223,12 +1257,13 @@ createVm
   -> Bool
   -> Bool
   -> Bool
+  -> Bool
   -- ^ rebootQuirk
   -> Text
   -- ^ cpuModel
   -> Maybe Int
   -> SqlPersistT IO Int64
-createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit autostart rebootQuirk cpuModel vsockCid = do
+createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel vsockCid = do
   now <- liftIO getCurrentTime
   let vm =
         Vm
@@ -1241,6 +1276,7 @@ createVm name nodeKey cpuCount ramMb description headless guestAgent cloudInit a
           , vmDescription = description
           , vmHeadless = headless
           , vmGuestAgent = guestAgent
+          , vmTpm = tpm
           , vmCloudInit = cloudInit
           , vmHealthcheck = Nothing
           , vmAutostart = autostart
@@ -1378,6 +1414,7 @@ listVms = do
         , viRamMb = vmRamMb vm
         , viHeadless = vmHeadless vm
         , viGuestAgent = vmGuestAgent vm
+        , viTpm = vmTpm vm
         , viCloudInit = vmCloudInit vm
         , viHealthcheck = vmHealthcheck vm
         , viAutostart = vmAutostart vm
@@ -1447,6 +1484,7 @@ getVmDetails config vmId = do
             , vdSerialSocket = T.pack serialSock
             , vdGuestAgentSocket = T.pack guestAgentSock
             , vdGuestAgent = vmGuestAgent vm
+            , vdTpm = vmTpm vm
             , vdCloudInit = vmCloudInit vm
             , vdCloudInitConfig = ciInfo
             , vdHealthcheck = vmHealthcheck vm
@@ -1545,11 +1583,12 @@ editVm
   -> Maybe Bool
   -> Maybe Bool
   -> Maybe Bool
+  -> Maybe Bool
   -- ^ rebootQuirk
   -> Maybe Text
   -- ^ cpuModel
   -> SqlPersistT IO ()
-editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mRebootQuirk mCpuModel = do
+editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mTpm mCloudInit mAutostart mRebootQuirk mCpuModel = do
   let key = toSqlKey vmId :: VmId
       updates =
         maybe [] (\cpus -> [M.VmCpuCount =. cpus]) mCpus
@@ -1557,6 +1596,7 @@ editVm vmId mCpus mRam mDesc mHeadless mGuestAgent mCloudInit mAutostart mReboot
           ++ maybe [] (\desc -> [M.VmDescription =. Just desc]) mDesc
           ++ maybe [] (\h -> [M.VmHeadless =. h]) mHeadless
           ++ maybe [] (\ga -> [M.VmGuestAgent =. ga]) mGuestAgent
+          ++ maybe [] (\tpm -> [M.VmTpm =. tpm]) mTpm
           ++ maybe [] (\ci -> [M.VmCloudInit =. ci]) mCloudInit
           ++ maybe [] (\a -> [M.VmAutostart =. a]) mAutostart
           ++ maybe [] (\rq -> [M.VmRebootQuirk =. rq]) mRebootQuirk
@@ -1639,6 +1679,7 @@ data VmCreate = VmCreate
   , vcrDescription :: Maybe Text
   , vcrHeadless :: Bool
   , vcrGuestAgent :: Bool
+  , vcrTpm :: Bool
   , vcrCloudInit :: Bool
   , vcrAutostart :: Bool
   , vcrRebootQuirk :: Bool
@@ -1663,6 +1704,7 @@ instance Action VmCreate where
       (vcrDescription a)
       (vcrHeadless a)
       (vcrGuestAgent a)
+      (vcrTpm a)
       (vcrCloudInit a)
       (vcrAutostart a)
       (vcrRebootQuirk a)
@@ -1690,6 +1732,7 @@ data VmEdit = VmEdit
   , vedDesc :: Maybe Text
   , vedHeadless :: Maybe Bool
   , vedGuestAgent :: Maybe Bool
+  , vedTpm :: Maybe Bool
   , vedCloudInit :: Maybe Bool
   , vedAutostart :: Maybe Bool
   , vedRebootQuirk :: Maybe Bool
@@ -1709,6 +1752,7 @@ instance Action VmEdit where
       (vedDesc a)
       (vedHeadless a)
       (vedGuestAgent a)
+      (vedTpm a)
       (vedCloudInit a)
       (vedAutostart a)
       (vedRebootQuirk a)

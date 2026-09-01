@@ -138,7 +138,7 @@ spec = withTestDb $ sequential $ do
     it "VM lifecycle: create → list (length 1) → delete → list (empty)" $ \env -> do
       withCapnpDaemon env $ \conn -> do
         -- Empty node ref → daemon's scheduler picks the seeded test-node.
-        vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1024 Nothing True False False False False "host"
+        vid <- CR.rpcVmCreate conn "spec-vm" "" 1 1024 Nothing True False False False False False "host"
         vms <- CR.rpcVmList conn
         length vms `shouldBe` 1
         CR.rpcVmDelete conn (WC.RefById vid) False
@@ -160,7 +160,7 @@ spec = withTestDb $ sequential $ do
       -- via 'validateTransition'. Easier than spinning up an inner
       -- corvus-netd in the in-process daemon fixture.
       withCapnpDaemon env $ \conn -> do
-        vid <- CR.rpcVmCreate conn "bad-start" "" 1 1024 Nothing True False False False False "host"
+        vid <- CR.rpcVmCreate conn "bad-start" "" 1 1024 Nothing True False False False False False "host"
         -- Pretend it's already running so the next start is invalid.
         runSqlPool
           (update (toSqlKey vid :: M.VmId) [M.VmStatus =. M.VmRunning])

@@ -16,6 +16,7 @@ def _t(
     ram_mb: int = 2048,
     headless: bool = False,
     guest_agent: bool = True,
+    tpm: bool = False,
     autostart: bool = False,
     description: str | None = None,
 ) -> TemplateVmInfo:
@@ -26,6 +27,7 @@ def _t(
         ram_mb=ram_mb,
         headless=headless,
         guest_agent=guest_agent,
+        tpm=tpm,
         autostart=autostart,
         description=description,
     )

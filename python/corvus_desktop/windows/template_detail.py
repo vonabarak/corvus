@@ -124,6 +124,8 @@ class TemplateDetailWidget(QWidget):
         flags: list[str] = []
         if info.guest_agent:
             flags.append("QGA")
+        if info.tpm:
+            flags.append("TPM 2.0")
         if info.cloud_init:
             flags.append("cloud-init")
         if info.autostart:

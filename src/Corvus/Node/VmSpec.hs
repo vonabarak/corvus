@@ -45,6 +45,7 @@ data VmSpec = VmSpec
   , vsRamMb :: !Int32
   , vsHeadless :: !Bool
   , vsGuestAgent :: !Bool
+  , vsTpm :: !Bool
   , vsVsockCid :: !(Maybe Word32)
   , vsSpicePort :: !(Maybe Int32)
   , vsDrives :: ![VmDriveSpec]
@@ -117,6 +118,7 @@ data VmRuntimeInfo = VmRuntimeInfo
   { vriQemuPid :: !Int32
   , vriVirtiofsdPids :: ![Int32]
   , vriSpicePort :: !Int32
+  , vriSwtpmPid :: !Int32
   }
   deriving (Eq, Show)
 

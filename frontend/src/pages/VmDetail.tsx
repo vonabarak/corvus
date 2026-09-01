@@ -220,6 +220,7 @@ export default function VmDetail() {
               QGA: {guestAgent ? (guestAgent.reachable ? "reachable" : "unreachable") : "…"}
             </Badge>
           )}
+          {vm.tpm && <Badge variant="muted">TPM 2.0</Badge>}
         </div>
       </div>
 

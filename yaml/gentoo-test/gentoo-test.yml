@@ -96,6 +96,7 @@ pipeline:
             inline: |
               emerge --noreplace --usepkg \
                 app-emulation/qemu \
+                app-crypt/swtpm \
                 net-misc/vde \
                 net-dns/dnsmasq \
                 net-firewall/nftables \

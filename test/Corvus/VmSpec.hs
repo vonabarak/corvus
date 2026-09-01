@@ -97,6 +97,26 @@ spec = sequential $ withTestDb $ do
       when_ $ whenVmEdit 1 (Just 4) (Just 8192) (Just "new-desc") (Just True)
       then_ $ responseIs (== RespVmEdited)
 
+    testCase "enables TPM on a stopped VM" $ do
+      given $ do
+        _ <- insertVm "tpm-enable" VmStopped
+        pure ()
+      when_ $ whenVmSetTpm 1 True
+      then_ $ do
+        responseIs (== RespVmEdited)
+        vmHasTpm 1 True
+
+    testCase "keeps TPM enabled when persistent state deletion fails" $ do
+      given $ do
+        _ <- insertVm "tpm-disable" VmStopped
+        setVmTpm 1 True
+      when_ $ whenVmSetTpm 1 False
+      then_ $ do
+        responseIs $ \case
+          RespError _ -> True
+          _ -> False
+        vmHasTpm 1 True
+
   ------------------------------------------------------------------
   -- delete
 
@@ -123,6 +143,18 @@ spec = sequential $ withTestDb $ do
       then_ $ do
         responseIs (== RespVmRunning)
         vmExists 1
+
+    testCase "keeps a TPM-enabled VM when TPM state deletion fails" $ do
+      given $ do
+        _ <- insertVm "tpm-doomed" VmStopped
+        setVmTpm 1 True
+      when_ $ whenVmDelete 1
+      then_ $ do
+        responseIs $ \case
+          RespError _ -> True
+          _ -> False
+        vmExists 1
+        vmHasTpm 1 True
 
   ------------------------------------------------------------------
   -- start / stop (agent-unavailable + state-machine guards)

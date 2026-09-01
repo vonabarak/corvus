@@ -8,6 +8,7 @@ export interface TemplateVmInfo {
   ram_mb: number;
   headless: boolean;
   guest_agent: boolean;
+  tpm: boolean;
   autostart: boolean;
   description: string | null;
 }
@@ -56,6 +57,7 @@ export interface TemplateDetails {
   headless: boolean;
   cloud_init: boolean;
   guest_agent: boolean;
+  tpm: boolean;
   autostart: boolean;
   created_at: string;
   drives: TemplateDriveInfo[];

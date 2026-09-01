@@ -26,6 +26,7 @@ crv vm create my-vm 2 2048                    # 2 CPUs, 2 GB RAM
 crv vm create my-vm 4 4096 --headless         # Serial console only
 crv vm create my-vm 2 2048 --cloud-init       # Enable cloud-init
 crv vm create my-vm 2 2048 --guest-agent      # Enable guest agent
+crv vm create my-vm 2 2048 --tpm              # Attach an emulated TPM 2.0 CRB device
 crv vm create my-vm 2 2048 --autostart        # Auto-start on daemon startup
 crv vm create my-vm 2 2048 -d "Web server"    # With description
 crv vm create my-vm 2 2048 --node alpha       # Pin to a specific node
@@ -69,6 +70,20 @@ imposes downstream (disk attach + managed-NIC binding).
 
 A newly created VM has no disks or network interfaces. Attach them with `crv disk attach` and `crv net-if add` before starting.
 
+### TPM 2.0
+
+`--tpm` attaches a QEMU `tpm-crb` device backed by a foreground `swtpm`
+process supervised by the nodeagent. The host must have `swtpm` on `PATH`.
+TPM state persists at `<basePath>/<vmName>/tpm2/`, so keys and measurements
+survive ordinary stops, starts, saves, and host reboots.
+
+TPM can only be changed while the VM is stopped. Disabling it permanently
+deletes that state before the flag is changed; if cleanup fails, TPM remains
+enabled. Deleting a TPM-enabled VM has the same strict cleanup behavior.
+Cross-node migration is rejected while TPM is enabled because Corvus does not
+move TPM state between nodes. Disable TPM first if losing its state is
+acceptable. Secure Boot is independent of TPM and is not enabled by this flag.
+
 ## Editing a VM
 
 The VM must be stopped to edit.
@@ -79,6 +94,8 @@ crv vm edit my-vm --ram 8192                  # Change RAM
 crv vm edit my-vm --cpu-model qemu64          # Change QEMU CPU model (see Creating a VM)
 crv vm edit my-vm --cloud-init true           # Enable cloud-init
 crv vm edit my-vm --guest-agent true          # Enable guest agent
+crv vm edit my-vm --tpm true                  # Enable TPM 2.0
+crv vm edit my-vm --tpm false                 # Disable TPM and erase persistent state
 crv vm edit my-vm --headless true             # Switch to serial console
 crv vm edit my-vm --autostart true            # Enable autostart
 crv vm edit my-vm --description "New desc"    # Update description

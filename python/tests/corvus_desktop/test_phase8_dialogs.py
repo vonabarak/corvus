@@ -27,6 +27,7 @@ def vm_details() -> VmDetails:
         serial_socket="",
         guest_agent_socket="",
         guest_agent=True,
+        tpm=False,
         cloud_init=False,
         autostart=False,
         cpu_model="host",
@@ -56,6 +57,13 @@ def test_vm_edit_returns_diff(qapp: Any, vm_details: VmDetails) -> None:
     p = dlg.result_payload()
     assert p is not None
     assert p == {"cpu_count": 4, "guest_agent": False}
+
+
+def test_vm_edit_can_disable_tpm(qapp: Any, vm_details: VmDetails) -> None:
+    enabled = VmDetails(**{**vm_details.__dict__, "tpm": True})
+    dlg = VmEditDialog(enabled)
+    dlg._tpm.setChecked(False)
+    assert dlg.result_payload() == {"tpm": False}
 
 
 def test_shared_dir_dialog_validates(qapp: Any) -> None:

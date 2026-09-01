@@ -35,6 +35,8 @@ class VmEditDialog(FormDialog):
         self._headless.setChecked(vm.headless)
         self._guest_agent = QCheckBox()
         self._guest_agent.setChecked(vm.guest_agent)
+        self._tpm = QCheckBox()
+        self._tpm.setChecked(vm.tpm)
         self._cloud_init = QCheckBox()
         self._cloud_init.setChecked(vm.cloud_init)
         self._autostart = QCheckBox()
@@ -51,6 +53,7 @@ class VmEditDialog(FormDialog):
         form.addRow("Description:", self._description)
         form.addRow("Headless:", self._headless)
         form.addRow("Guest agent:", self._guest_agent)
+        form.addRow("TPM 2.0:", self._tpm)
         form.addRow("Cloud-init:", self._cloud_init)
         form.addRow("Autostart:", self._autostart)
         form.addRow("Reboot quirk:", self._reboot_quirk)
@@ -73,6 +76,7 @@ class VmEditDialog(FormDialog):
         for field_name, attr, widget in (
             ("headless", "headless", self._headless),
             ("guest_agent", "guest_agent", self._guest_agent),
+            ("tpm", "tpm", self._tpm),
             ("cloud_init", "cloud_init", self._cloud_init),
             ("autostart", "autostart", self._autostart),
             ("reboot_quirk", "reboot_quirk", self._reboot_quirk),

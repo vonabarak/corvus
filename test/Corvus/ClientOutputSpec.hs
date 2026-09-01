@@ -58,7 +58,7 @@ spec = sequential $ do
     describe "VmInfo" $ do
       it "serializes with correct field names and enum values" $ do
         let nodeRef = NamedRef {nrId = 7, nrName = "alpha"}
-            vm = VmInfo 1 "my-vm" nodeRef VmRunning 4 2048 False False False Nothing False False "host"
+            vm = VmInfo 1 "my-vm" nodeRef VmRunning 4 2048 False False False False Nothing False False "host"
             val = toJSON vm
         -- 'omitNothingFields = True' in 'innerOptions' drops the
         -- Nothing-valued 'healthcheck' entirely rather than serialising
@@ -74,6 +74,7 @@ spec = sequential $ do
             , "ram_mb" .= (2048 :: Int)
             , "headless" .= False
             , "guest_agent" .= False
+            , "tpm" .= False
             , "cloud_init" .= False
             , "autostart" .= False
             , "reboot_quirk" .= False
@@ -89,6 +90,7 @@ spec = sequential $ do
                 VmStopped
                 1
                 512
+                False
                 False
                 False
                 False
@@ -231,7 +233,7 @@ spec = sequential $ do
 
     describe "TemplateVmInfo" $ do
       it "serializes with optional description" $ do
-        let t = TemplateVmInfo 1 "my-template" 2 1024 (Just "A test template") False False False False
+        let t = TemplateVmInfo 1 "my-template" 2 1024 (Just "A test template") False False False False False
             val = toJSON t
         case val of
           Object obj -> do
@@ -240,7 +242,7 @@ spec = sequential $ do
           _ -> fail "Expected JSON object"
 
       it "omits null description under omitNothingFields" $ do
-        let t = TemplateVmInfo 1 "minimal" 1 512 Nothing False False False False
+        let t = TemplateVmInfo 1 "minimal" 1 512 Nothing False False False False False
             val = toJSON t
         case val of
           Object obj ->
@@ -255,8 +257,8 @@ spec = sequential $ do
         let alpha = NamedRef {nrId = 1, nrName = "alpha"}
             beta = NamedRef {nrId = 2, nrName = "beta"}
             vms =
-              [ VmInfo 1 "a" alpha VmRunning 1 512 False False False Nothing False False "host"
-              , VmInfo 2 "b" beta VmStopped 2 1024 False False False Nothing False False "host"
+              [ VmInfo 1 "a" alpha VmRunning 1 512 False False False False Nothing False False "host"
+              , VmInfo 2 "b" beta VmStopped 2 1024 False False False False Nothing False False "host"
               ]
             val = toJSON vms
         case val of

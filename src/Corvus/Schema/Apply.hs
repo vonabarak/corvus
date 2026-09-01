@@ -231,6 +231,7 @@ data ApplyVm = ApplyVm
   , avDescription :: Maybe Text
   , avHeadless :: Bool
   , avGuestAgent :: Bool
+  , avTpm :: Bool
   , avCloudInit :: Maybe Bool
   , avCloudInitConfig :: Maybe CloudInitConfigYaml
   , avDrives :: [ApplyDrive]
@@ -257,6 +258,7 @@ instance FromJSON ApplyVm where
       <*> o .:? "description"
       <*> o .:? "headless" .!= False
       <*> o .:? "guestAgent" .!= False
+      <*> o .:? "tpm" .!= False
       <*> o .:? "cloudInit"
       <*> o .:? "cloudInitConfig"
       <*> o .:? "drives" .!= []

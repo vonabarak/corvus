@@ -88,6 +88,7 @@ module Corvus.NodeAgentClient
   , vmResume
   , vmSave
   , deleteSavedState
+  , deleteTpmState
   , vmGuestExec
   , vmGuestExecStream
   , vmStatus
@@ -941,6 +942,7 @@ encodeVmSpec s =
     , CGNA.ramMb = vsRamMb s
     , CGNA.headless = vsHeadless s
     , CGNA.guestAgent = vsGuestAgent s
+    , CGNA.tpm = vsTpm s
     , CGNA.vsockCid = fromMaybe 0 (vsVsockCid s)
     , CGNA.hasVsockCid = isJust (vsVsockCid s)
     , CGNA.spicePort = fromMaybe 0 (vsSpicePort s)
@@ -991,11 +993,13 @@ decodeVmRuntimeInfo
     { CGNA.qemuPid = q
     , CGNA.virtiofsdPids = vs
     , CGNA.spicePort = sp
+    , CGNA.swtpmPid = tp
     } =
     VmRuntimeInfo
       { vriQemuPid = q
       , vriVirtiofsdPids = vs
       , vriSpicePort = sp
+      , vriSwtpmPid = tp
       }
 
 decodeVmStopResult :: CGNA.Parsed CGNA.VmStopResult -> VmStopResult
@@ -1133,6 +1137,17 @@ deleteSavedState nac vmName = remote $ do
     callOn
       #deleteSavedState
       CGNA.Session'deleteSavedState'params {CGNA.vmName = vmName}
+      (nacSession nac)
+  pure ()
+
+-- | Ask the agent to remove persistent swtpm state for a VM.
+-- Idempotent on the agent; a missing directory is success.
+deleteTpmState :: NodeAgentClient -> T.Text -> IO (Either NodeAgentError ())
+deleteTpmState nac vmName = remote $ do
+  _ :: C.Parsed CGNA.Session'deleteTpmState'results <-
+    callOn
+      #deleteTpmState
+      CGNA.Session'deleteTpmState'params {CGNA.vmName = vmName}
       (nacSession nac)
   pure ()
 

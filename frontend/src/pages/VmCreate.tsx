@@ -58,6 +58,7 @@ export default function VmCreate() {
   const [description, setDescription] = useState("");
   const [headless, setHeadless] = useState(false);
   const [guestAgent, setGuestAgent] = useState(false);
+  const [tpm, setTpm] = useState(false);
   const [cloudInit, setCloudInit] = useState(false);
   const [autostart, setAutostart] = useState(false);
   const [rebootQuirk, setRebootQuirk] = useState(false);
@@ -83,6 +84,7 @@ export default function VmCreate() {
       description: description.trim() || null,
       headless,
       guest_agent: guestAgent,
+      tpm,
       cloud_init: cloudInit,
       autostart,
       reboot_quirk: rebootQuirk,
@@ -200,6 +202,13 @@ export default function VmCreate() {
               hint="VM transitions through `starting` until first QGA ping; needs the qemu-guest-agent package in the guest."
               checked={guestAgent}
               onChange={setGuestAgent}
+            />
+            <CheckboxField
+              id="tpm"
+              label="TPM 2.0"
+              hint="Attach an emulated TPM 2.0 CRB device backed by persistent swtpm state. TPM-enabled VMs cannot migrate between nodes."
+              checked={tpm}
+              onChange={setTpm}
             />
             <CheckboxField
               id="cloud-init"

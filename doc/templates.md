@@ -58,6 +58,7 @@ A template is defined by a single YAML document. The same schema is accepted by 
 | `headless` | bool | no | `false` | `true` = serial console only; `false` = SPICE graphics. |
 | `cloudInit` | bool | no | `false` | Enable cloud-init ISO generation for instantiated VMs. |
 | `guestAgent` | bool | no | `false` | Enable QEMU guest agent on instantiated VMs. |
+| `tpm` | bool | no | `false` | Enable an emulated TPM 2.0 CRB device backed by persistent swtpm state. |
 | `autostart` | bool | no | `false` | Auto-start instantiated VMs when the daemon starts. |
 | `cloudInitConfig` | object | no | | Custom cloud-init settings (see below). |
 | `drives` | list | yes | | Drive definitions (may be empty). |

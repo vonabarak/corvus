@@ -102,6 +102,8 @@ Useful narrower targets:
   The public key is baked into the Gentoo test-node image and Alpine test VM.
 - `make test-image-node`: build/register `corvus-test-node`, the Gentoo-based
   test-node image used by every topology.
+- `make test-image-node-rebuild`: discard and rebuild only that cached image
+  after changing its recipe; it retains the expensive `gentoo-headless` base.
 - `make test-image-vm`: build/register `corvus-test-vm`, the Alpine image used
   by most Linux VM tests.
 - `make test-image-multi-os`: download/register Debian, Ubuntu, AlmaLinux,
@@ -327,6 +329,8 @@ integration_tests/scripts/ssh-it <node> mountpoint /home/corvus/VMs/BaseImages
 ## Common Problems
 
 - **Missing `corvus-test-node`**: run `make test-image-node`.
+- **Test-node recipe changed** (for example, a new host tool): run
+  `make test-image-node-rebuild`.
 - **Missing Alpine/base image in a VM test**: run `make test-image-vm` or
   `make test-image`.
 - **Missing cloud-init distro image**: run `make test-image-multi-os`.

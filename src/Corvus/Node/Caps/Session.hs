@@ -73,7 +73,7 @@ import qualified Data.Text.Encoding as TE
 import Data.Word (Word32)
 import GHC.Clock (getMonotonicTime)
 import Supervisors (Supervisor)
-import System.Directory (createDirectoryIfMissing, getFileSize, removeFile, renameFile)
+import System.Directory (createDirectoryIfMissing, doesPathExist, getFileSize, removeFile, removePathForcibly, renameFile)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.IO (BufferMode (..), Handle, hClose, hGetLine, hIsEOF, hSetBuffering)
@@ -568,6 +568,10 @@ instance CGNA.Session'server_ SessionCap where
     handleParsed $ \CGNA.Session'deleteSavedState'params {CGNA.vmName = name} ->
       handleDeleteSavedState sc name
 
+  session'deleteTpmState sc =
+    handleParsed $ \CGNA.Session'deleteTpmState'params {CGNA.vmName = name} ->
+      handleDeleteTpmState sc name
+
   session'vmGuestExec sc =
     -- Async dispatch: a single guest-exec can run for many
     -- minutes (build provisioners are the worst offender), and
@@ -1053,6 +1057,7 @@ decodeVmSpec
     , CGNA.ramMb = r
     , CGNA.headless = h
     , CGNA.guestAgent = g
+    , CGNA.tpm = tpm
     , CGNA.vsockCid = vc
     , CGNA.hasVsockCid = hvc
     , CGNA.spicePort = sp
@@ -1074,6 +1079,7 @@ decodeVmSpec
       , VS.vsRamMb = r
       , VS.vsHeadless = h
       , VS.vsGuestAgent = g
+      , VS.vsTpm = tpm
       , VS.vsVsockCid = if hvc then Just vc else Nothing
       , VS.vsSpicePort = if hsp then Just sp else Nothing
       , VS.vsDrives = map decodeVmDriveSpec ds
@@ -1162,6 +1168,8 @@ encodeVmRuntimeInfo live =
     , CGNA.virtiofsdPids =
         [fromIntegral pid :: Int32 | (pid, _) <- L.vlsVirtiofsd live]
     , CGNA.spicePort = L.vlsSpicePort live
+    , CGNA.swtpmPid =
+        maybe 0 (fromIntegral . fst) (L.vlsSwtpm live)
     }
 
 encodeVmStopResult :: VS.VmStopKind -> Text -> CGNA.Parsed CGNA.VmStopResult
@@ -1258,7 +1266,7 @@ handleVmStart sc spec = do
           -- vhost-user socket close took them down), but
           -- 'reapEntryGracefully' handles already-gone PIDs
           -- without error.
-          forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+          reapVmHelpers live
           _ <- atomically $ L.removeVm ledger vmId
           -- Drop the cached QGA socket so the fresh QEMU's QGA
           -- chardev gets a clean connect rather than an attempt
@@ -1297,7 +1305,18 @@ doVmStart sc spec = do
           <> T.intercalate "; " virtiofsdErrs
       )
 
-  -- 2. Build QEMU argv and spawn
+  -- 2. Spawn one foreground swtpm helper when TPM 2.0 is enabled.
+  swtpmResult <-
+    if VS.vsTpm spec
+      then fmap Just <$> spawnSwtpmHelper cfg vmId (VS.vsName spec)
+      else pure (Right Nothing)
+  swtpmEntry <- case swtpmResult of
+    Left err -> do
+      forM_ virtiofsdEntries reapEntryGracefully
+      throwFailed ("swtpm spawn failed for vmId " <> tshow vmId <> ": " <> err)
+    Right entry -> pure entry
+
+  -- 3. Build QEMU argv and spawn
   let (binary, args) =
         NC.buildQemuCommandFromSpec
           cfg
@@ -1329,7 +1348,7 @@ doVmStart sc spec = do
     Left e -> do
       runStderrLoggingT . logWarnN $
         "[nodeagent] vm-" <> tshow vmId <> ": QEMU spawn failed: " <> T.pack (show e)
-      forM_ virtiofsdEntries reapEntryGracefully
+      reapSpawnedHelpers virtiofsdEntries swtpmEntry
       throwFailed ("QEMU spawn failed: " <> T.pack (show e))
     Right (_, mStdoutH, mStderrH, qemuPh) -> do
       mPid <- getPid qemuPh
@@ -1337,7 +1356,7 @@ doVmStart sc spec = do
         Nothing -> do
           runStderrLoggingT . logWarnN $
             "[nodeagent] vm-" <> tshow vmId <> ": QEMU spawn returned no PID"
-          forM_ virtiofsdEntries reapEntryGracefully
+          reapSpawnedHelpers virtiofsdEntries swtpmEntry
           runStderrLoggingT $
             P.waitForProcessBounded "vm-qemu (no-pid path)" 5 qemuPh
           throwFailed "QEMU spawn returned no PID"
@@ -1364,6 +1383,7 @@ doVmStart sc spec = do
                   { L.vlsQemuPid = qemuPidW
                   , L.vlsQemuHandle = qemuPh
                   , L.vlsVirtiofsd = virtiofsdEntries
+                  , L.vlsSwtpm = swtpmEntry
                   , L.vlsLastExitCode = lastExitVar
                   , L.vlsStderrTail = stderrTailVar
                   , L.vlsSpicePort = fromMaybe 0 (VS.vsSpicePort spec)
@@ -1511,7 +1531,7 @@ doVmStart sc spec = do
                 liftIO $
                   SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
                 _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
-                liftIO $ forM_ virtiofsdEntries reapEntryGracefully
+                liftIO $ reapSpawnedHelpers virtiofsdEntries swtpmEntry
                 liftIO $ NGA.releaseConn (scQgaConns sc) vmId
               runIncomingStep = do
                 pollRes <- liftIO $ pollOutgoingMigrate cfg vmId outgoingMigrateTimeoutSec
@@ -1608,7 +1628,7 @@ doVmStart sc spec = do
                     liftIO $
                       SP.dispatchVm cfg (scQgaConns sc) (scVmLedger sc) (scSubs sc) vmId
                     _ <- liftIO $ atomically $ L.removeVm (scVmLedger sc) vmId
-                    liftIO $ forM_ virtiofsdEntries reapEntryGracefully
+                    liftIO $ reapSpawnedHelpers virtiofsdEntries swtpmEntry
                     liftIO $ NGA.releaseConn (scQgaConns sc) vmId
           when (needIncoming || needGaWait) $
             void $
@@ -1679,7 +1699,7 @@ respawnAfterExit sc spec = do
   -- it; we just need a bounded 'waitpid' so they don't linger
   -- as zombies.
   forM_ mOldLive $ \live ->
-    forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+    reapVmHelpers live
   -- Drop the cached QGA socket: the new QEMU re-opens the
   -- chardev under the same path but it's a fresh fd; talking
   -- to the dead socket would give EPIPE on every method.
@@ -1792,6 +1812,80 @@ spawnVirtiofsdHelper cfg vmRuntimeDir d = do
               runStderrLoggingT $ P.waitForProcessBounded partialLabel 5 ph
               pure $ Left ("virtiofsd " <> T.pack tag <> ": socket never appeared")
 
+-- | Spawn the per-VM TPM 2.0 emulator in the foreground so the
+-- nodeagent owns its process handle exactly as it owns virtiofsd.
+spawnSwtpmHelper
+  :: QemuConfig
+  -> Int64
+  -> Text
+  -> IO (Either Text (Word32, ProcessHandle))
+spawnSwtpmHelper cfg vmId vmName =
+  case sanitiseVmName vmName of
+    Left err -> pure $ Left ("unsafe VM name: " <> err)
+    Right safeName -> spawnSwtpmHelperSafe cfg vmId safeName
+
+spawnSwtpmHelperSafe
+  :: QemuConfig
+  -> Int64
+  -> Text
+  -> IO (Either Text (Word32, ProcessHandle))
+spawnSwtpmHelperSafe cfg vmId vmName = do
+  socketPath <- NR.getSwtpmSocket cfg vmId
+  stateDir <- NR.createTpmStateDir cfg vmName
+  stale <- doesPathExist socketPath
+  when stale (removeFile socketPath)
+  let binary = qcSwtpmBinary cfg
+      args =
+        [ "socket"
+        , "--tpm2"
+        , "--tpmstate"
+        , "dir=" <> stateDir <> ",mode=0600"
+        , "--ctrl"
+        , "type=unixio,path=" <> socketPath <> ",mode=0600"
+        , "--terminate"
+        ]
+      label = "swtpm vm-" <> tshow vmId
+  runStderrLoggingT $ do
+    logInfoN $ "[nodeagent] vm-" <> tshow vmId <> ": spawning swtpm"
+    logDebugN $
+      "[nodeagent] swtpm argv: "
+        <> T.pack binary
+        <> " "
+        <> T.unwords (map (T.pack . show) args)
+  spawnResult <-
+    E.try @E.SomeException $
+      createProcess
+        (proc binary args)
+          { std_out = CreatePipe
+          , std_err = CreatePipe
+          }
+  case spawnResult of
+    Left e -> do
+      runStderrLoggingT . logWarnN $
+        "[nodeagent] vm-" <> tshow vmId <> ": swtpm spawn failed: " <> T.pack (show e)
+      pure $ Left (T.pack (show e))
+    Right (_, mStdoutH, mStderrH, ph) -> do
+      forM_ mStdoutH $ \h ->
+        void $ forkIO $ forwardPipeToLog (label <> "/stdout") h
+      forM_ mStderrH $ \h ->
+        void $ forkIO $ forwardPipeToLog (label <> "/stderr") h
+      mPid <- getPid ph
+      case mPid of
+        Nothing -> do
+          runStderrLoggingT $ P.waitForProcessBounded (label <> " (no-pid)") 5 ph
+          pure $ Left "spawn returned no PID"
+        Just rawPid -> do
+          ready <- P.waitForSocketFile socketPath 5000
+          if ready
+            then do
+              runStderrLoggingT . logInfoN $
+                "[nodeagent] vm-" <> tshow vmId <> ": swtpm started pid=" <> tshow rawPid
+              pure $ Right (fromIntegral rawPid, ph)
+            else do
+              let entry = (fromIntegral rawPid, ph)
+              reapSwtpmEntryGracefully entry
+              pure $ Left "control socket never appeared"
+
 -- | Best-effort termination + reap of a virtiofsd helper.
 --
 -- Always call 'waitForProcessBounded' afterwards — including when
@@ -1811,6 +1905,27 @@ reapEntryGracefully (pid, ph) = do
     runStderrLoggingT $
       P.stopProcess label (CPid (fromIntegral pid)) Nothing 0 3
   runStderrLoggingT $ P.waitForProcessBounded label 5 ph
+
+-- | Best-effort termination + reap of the per-VM swtpm helper.
+reapSwtpmEntryGracefully :: (Word32, ProcessHandle) -> IO ()
+reapSwtpmEntryGracefully (pid, ph) = do
+  let label = "swtpm pid=" <> tshow pid
+  _ <-
+    runStderrLoggingT $
+      P.stopProcess label (CPid (fromIntegral pid)) Nothing 0 3
+  runStderrLoggingT $ P.waitForProcessBounded label 5 ph
+
+reapSpawnedHelpers
+  :: [(Word32, ProcessHandle)]
+  -> Maybe (Word32, ProcessHandle)
+  -> IO ()
+reapSpawnedHelpers virtiofsdEntries swtpmEntry = do
+  forM_ virtiofsdEntries reapEntryGracefully
+  forM_ swtpmEntry reapSwtpmEntryGracefully
+
+reapVmHelpers :: L.VmLiveState -> IO ()
+reapVmHelpers live =
+  reapSpawnedHelpers (L.vlsVirtiofsd live) (L.vlsSwtpm live)
 
 -- | Poll QGA every 200 ms up to @timeoutMs@ ms; return 'True' as
 -- soon as one ping succeeds, 'False' on timeout. Used by
@@ -1999,7 +2114,7 @@ handleVmStopGraceful sc vmId timeoutSec = do
       exited <- pollForExit (L.vlsLastExitCode live) (fromIntegral timeoutSec)
       if exited
         then do
-          forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+          reapVmHelpers live
           _ <- atomically $ L.removeVm (scVmLedger sc) vmId
           -- The QGA chardev is gone with QEMU; drop our cached
           -- per-VM socket so its fd doesn't sit in the conns map
@@ -2058,7 +2173,7 @@ handleVmStopHard sc vmId = do
         _ ->
           runStderrLoggingT $
             P.waitForProcessBounded qemuLabel 5 (L.vlsQemuHandle live)
-      forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+      reapVmHelpers live
       -- Same QGA-socket cleanup as 'handleVmStopGraceful'; QEMU's
       -- gone and our cached fd points at nothing.
       NGA.releaseConn (scQgaConns sc) vmId
@@ -2257,7 +2372,7 @@ reapEntryAfterQuit :: SessionCap -> Int64 -> L.VmLiveState -> IO ()
 reapEntryAfterQuit sc vmId live = do
   runStderrLoggingT $
     P.waitForProcessBounded ("vm-" <> tshow vmId <> "-qemu (save)") 5 (L.vlsQemuHandle live)
-  forM_ (L.vlsVirtiofsd live) reapEntryGracefully
+  reapVmHelpers live
   _ <- atomically $ L.removeVm (scVmLedger sc) vmId
   atomically $ modifyTVar' (scQgaConns sc) (Map.delete vmId)
 
@@ -2280,6 +2395,22 @@ handleDeleteSavedState _sc vmName = do
       path <- NR.getSavedStateFile agentQemuConfig safeName
       _ <- E.try @E.SomeException (removeFile path)
       pure CGNA.Session'deleteSavedState'results
+
+-- | Remove a VM's persistent TPM state. Unlike saved-state cleanup,
+-- failures are propagated: disabling or deleting a TPM-enabled VM
+-- must not silently orphan key material.
+handleDeleteTpmState
+  :: SessionCap
+  -> Text
+  -> IO (CGNA.Parsed CGNA.Session'deleteTpmState'results)
+handleDeleteTpmState _sc vmName = do
+  case sanitiseVmName vmName of
+    Left err -> throwFailed ("deleteTpmState: " <> err)
+    Right safeName -> do
+      path <- NR.getTpmStateDir agentQemuConfig safeName
+      exists <- doesPathExist path
+      when exists $ removePathForcibly path
+      pure CGNA.Session'deleteTpmState'results
 
 -- | Reject names that could escape the @basePath/<vmName>/@
 -- directory: empty, absolute, contains @..@, contains a path

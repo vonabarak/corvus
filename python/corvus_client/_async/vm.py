@@ -54,6 +54,7 @@ class AsyncVmManager:
         description: str | None = None,
         headless: bool = False,
         guest_agent: bool = False,
+        tpm: bool = False,
         cloud_init: bool = False,
         autostart: bool = False,
         reboot_quirk: bool = False,
@@ -82,6 +83,7 @@ class AsyncVmManager:
             params.description = description
         params.headless = headless
         params.guestAgent = guest_agent
+        params.tpm = tpm
         params.cloudInit = cloud_init
         params.autostart = autostart
         params.rebootQuirk = reboot_quirk
@@ -134,6 +136,7 @@ class AsyncVm:
         description: str | None = None,
         headless: bool | None = None,
         guest_agent: bool | None = None,
+        tpm: bool | None = None,
         cloud_init: bool | None = None,
         autostart: bool | None = None,
         reboot_quirk: bool | None = None,
@@ -146,6 +149,7 @@ class AsyncVm:
         _set_optional(params, "hasDescription", "description", description)
         _set_optional(params, "hasHeadless", "headless", headless)
         _set_optional(params, "hasGuestAgent", "guestAgent", guest_agent)
+        _set_optional(params, "hasTpm", "tpm", tpm)
         _set_optional(params, "hasCloudInit", "cloudInit", cloud_init)
         _set_optional(params, "hasAutostart", "autostart", autostart)
         _set_optional(params, "hasRebootQuirk", "rebootQuirk", reboot_quirk)

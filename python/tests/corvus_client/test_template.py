@@ -10,6 +10,7 @@ cpuCount: 2
 ramMb: 512
 headless: true
 guestAgent: false
+tpm: false
 description: minimal template from python tests
 drives: []
 networkInterfaces: []
@@ -27,6 +28,7 @@ def test_template_create_show_delete(daemon_socket):
         assert details.cpu_count == 2
         assert details.ram_mb == 512
         assert details.headless is True
+        assert details.tpm is False
         listed = await c.templates.list()
         assert any(t.id == details.id for t in listed)
         await tpl.delete()
@@ -43,6 +45,7 @@ def test_template_instantiate(daemon_socket):
         details = await vm.show()
         assert details.name == "py-tpl-vm"
         assert details.cpu_count == 2
+        assert details.tpm is False
         await vm.delete()
         await tpl.delete()
 

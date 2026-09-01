@@ -42,6 +42,7 @@ templateDetailsToValue t =
     , "headless" .= tvdHeadless t
     , "cloudInit" .= tvdCloudInit t
     , "guestAgent" .= tvdGuestAgent t
+    , "tpm" .= tvdTpm t
     , "autostart" .= tvdAutostart t
     , "drives" .= map driveToValue (tvdDrives t)
     , "networkInterfaces" .= map netIfToValue (tvdNetIfs t)
@@ -120,6 +121,7 @@ skeletonTemplateYaml =
   \headless: false\n\
   \cloudInit: false\n\
   \guestAgent: false\n\
+  \tpm: false\n\
   \autostart: false\n\
   \drives:\n\
   \  - diskImageName: disk0\n\

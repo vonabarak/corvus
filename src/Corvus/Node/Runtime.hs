@@ -13,9 +13,12 @@ module Corvus.Node.Runtime
   , getQmpSocket
   , getSerialSocket
   , getGuestAgentSocket
+  , getSwtpmSocket
 
     -- * Persistent per-VM files (basePath, not runtimeDir)
   , getSavedStateFile
+  , getTpmStateDir
+  , createTpmStateDir
 
     -- * Shell quoting (for building @exec:@ QEMU URIs)
   , shellQuotePath
@@ -27,6 +30,7 @@ import Data.Int (Int64)
 import qualified Data.Text as T
 import System.Directory (createDirectoryIfMissing)
 import System.FilePath ((</>))
+import System.Posix.Files (setFileMode)
 
 --------------------------------------------------------------------------------
 -- Runtime Directory Management
@@ -74,6 +78,12 @@ getGuestAgentSocket config vmId = do
   vmDir <- getVmRuntimeDir config vmId
   pure $ vmDir </> "qga.sock"
 
+-- | Get path to the swtpm control socket for a VM.
+getSwtpmSocket :: QemuConfig -> Int64 -> IO FilePath
+getSwtpmSocket config vmId = do
+  vmDir <- getVmRuntimeDir config vmId
+  pure $ vmDir </> "swtpm.sock"
+
 --------------------------------------------------------------------------------
 -- Persistent per-VM Files
 --------------------------------------------------------------------------------
@@ -98,6 +108,22 @@ getSavedStateFile :: QemuConfig -> T.Text -> IO FilePath
 getSavedStateFile config vmName = do
   basePath <- getEffectiveBasePath config
   pure $ basePath </> T.unpack vmName </> "state.qemu.zst"
+
+-- | Persistent TPM 2.0 state directory. Unlike the swtpm socket,
+-- this lives under the VM's base-path directory and survives agent
+-- and host restarts.
+getTpmStateDir :: QemuConfig -> T.Text -> IO FilePath
+getTpmStateDir config vmName = do
+  basePath <- getEffectiveBasePath config
+  pure $ basePath </> T.unpack vmName </> "tpm2"
+
+-- | Ensure the persistent TPM state directory exists and is private.
+createTpmStateDir :: QemuConfig -> T.Text -> IO FilePath
+createTpmStateDir config vmName = do
+  stateDir <- getTpmStateDir config vmName
+  createDirectoryIfMissing True stateDir
+  setFileMode stateDir 0o700
+  pure stateDir
 
 --------------------------------------------------------------------------------
 -- Shell Quoting
