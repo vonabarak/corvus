@@ -231,6 +231,35 @@ diskImportCommand =
     <*> nodeOption
     <*> waitOptionsParser
 
+-- | Upload a file from the CLI host. Unlike @import@, the source is never
+-- interpreted as a path on the daemon or node.
+diskUploadCommand :: Parser Command
+diskUploadCommand =
+  DiskUpload
+    <$> argument (T.pack <$> str) (metavar "NAME" <> help "Name for the uploaded disk image")
+    <*> argument str (metavar "FILE" <> help "Local file to stream to Corvus")
+    <*> ( T.pack
+            <$> strOption
+              ( long "format"
+                  <> short 'f'
+                  <> metavar "FORMAT"
+                  <> help "Disk format: qcow2, raw, vmdk, vdi, vpc, vhdx"
+                  <> completeWith ["qcow2", "raw", "vmdk", "vdi", "vpc", "vhdx"]
+              )
+        )
+    <*> optional
+      ( T.pack
+          <$> strOption
+            ( long "path"
+                <> short 'p'
+                <> metavar "PATH"
+                <> help "Destination path on the target node"
+            )
+      )
+    <*> ephemeralSwitch
+    <*> nodeOption
+    <*> switch (long "overwrite" <> help "Replace an unattached single-placement disk with the same name")
+
 -- | Parser for disk overlay
 diskOverlayCommand :: Parser Command
 diskOverlayCommand =
@@ -427,6 +456,9 @@ diskCommandParser =
         <> command
           "import"
           (info diskImportCommand (progDesc "Import a disk image from a local file or URL (copies to destination)"))
+        <> command
+          "upload"
+          (info diskUploadCommand (progDesc "Upload a client-local disk image to a Corvus node"))
         <> command
           "delete"
           (info diskDeleteCommand (progDesc "Delete a disk image"))

@@ -4,8 +4,8 @@
 #
 # What the ISO does: BIOS-boots via isolinux, the kernel hands
 # control to /init (the cpio-packed busybox shell script from
-# yaml/corvus-test-installer/init.sh), which mounts the floppy
-# supplied by `crv build`, copies the marker payload onto
+# yaml/corvus-test-installer/init.sh), which mounts uploaded answer
+# media, copies the marker payload onto
 # /dev/vda, and powers off. The bake template's drives list a
 # CD-ROM, and corvus's command builder now emits `-boot
 # order=dc` for any VM with a CD-ROM attached, so seabios picks
@@ -117,27 +117,22 @@ VMLINUZ=$(find "$EXTRACT_DIR/kernel" -name 'vmlinuz-*' -type f -print -quit)
 BUSYBOX=$(find "$EXTRACT_DIR/busybox" -name 'busybox.static' -type f -print -quit)
 ISOLINUX_BIN=$(find "$EXTRACT_DIR/syslinux" -name 'isolinux.bin' -type f -print -quit)
 LDLINUX_C32=$(find "$EXTRACT_DIR/syslinux" -name 'ldlinux.c32' -type f -print -quit)
-# Alpine's linux-virt is trimmed for virtualisation — floppy +
-# fat/vfat aren't compiled in, they're modules under
-# /lib/modules/<ver>/. Stage the three we need into the initramfs
-# so /init can insmod them.
-FLOPPY_KO=$(find "$EXTRACT_DIR/kernel" -name 'floppy.ko*' -print -quit)
+# Alpine's linux-virt keeps the CD-ROM and ISO9660 drivers as modules.
+# Stage them in the initramfs so the synthetic installer can mount the
+# uploaded answer-media CD.
 VIRTIO_BLK_KO=$(find "$EXTRACT_DIR/kernel" -name 'virtio_blk.ko*' -print -quit)
-FAT_KO=$(find "$EXTRACT_DIR/kernel" -name 'fat.ko*' -print -quit)
-VFAT_KO=$(find "$EXTRACT_DIR/kernel" -name 'vfat.ko*' -print -quit)
-NLS_UTF8_KO=$(find "$EXTRACT_DIR/kernel" -name 'nls_utf8.ko*' -print -quit)
-NLS_CP437_KO=$(find "$EXTRACT_DIR/kernel" -name 'nls_cp437.ko*' -print -quit)
+CDROM_KO=$(find "$EXTRACT_DIR/kernel" -name 'cdrom.ko*' -print -quit)
+SR_MOD_KO=$(find "$EXTRACT_DIR/kernel" -name 'sr_mod.ko*' -print -quit)
+ISOFS_KO=$(find "$EXTRACT_DIR/kernel" -name 'isofs.ko*' -print -quit)
 
 [ -n "$VMLINUZ" ]      || die "vmlinuz not found inside $ALPINE_KERNEL_PKG"
 [ -n "$BUSYBOX" ]      || die "busybox.static not found inside $ALPINE_BUSYBOX_PKG"
 [ -n "$ISOLINUX_BIN" ] || die "isolinux.bin not found inside $ALPINE_SYSLINUX_PKG"
 [ -n "$LDLINUX_C32" ]  || die "ldlinux.c32 not found inside $ALPINE_SYSLINUX_PKG"
-[ -n "$FLOPPY_KO" ]    || die "floppy.ko not found inside $ALPINE_KERNEL_PKG"
 [ -n "$VIRTIO_BLK_KO" ] || die "virtio_blk.ko not found inside $ALPINE_KERNEL_PKG"
-[ -n "$FAT_KO" ]       || die "fat.ko not found inside $ALPINE_KERNEL_PKG"
-[ -n "$VFAT_KO" ]      || die "vfat.ko not found inside $ALPINE_KERNEL_PKG"
-[ -n "$NLS_UTF8_KO" ]  || die "nls_utf8.ko not found inside $ALPINE_KERNEL_PKG"
-[ -n "$NLS_CP437_KO" ] || die "nls_cp437.ko not found inside $ALPINE_KERNEL_PKG"
+[ -n "$CDROM_KO" ]     || die "cdrom.ko not found inside $ALPINE_KERNEL_PKG"
+[ -n "$SR_MOD_KO" ]    || die "sr_mod.ko not found inside $ALPINE_KERNEL_PKG"
+[ -n "$ISOFS_KO" ]     || die "isofs.ko not found inside $ALPINE_KERNEL_PKG"
 
 # ── 3. Assemble the initramfs ────────────────────────────────────────────
 INITRAMFS=$BUILD_DIR/initramfs
@@ -149,7 +144,7 @@ mkdir -p \
   "$INITRAMFS/sys" \
   "$INITRAMFS/dev" \
   "$INITRAMFS/tmp" \
-  "$INITRAMFS/mnt/floppy"
+  "$INITRAMFS/mnt/media"
 cp "$BUSYBOX" "$INITRAMFS/bin/busybox"
 chmod +x "$INITRAMFS/bin/busybox"
 # Symlink the applets the init script calls. We don't run
@@ -157,11 +152,9 @@ chmod +x "$INITRAMFS/bin/busybox"
 for applet in sh mount dd sync poweroff cat mkdir printf ls sleep insmod; do
   ln -sf busybox "$INITRAMFS/bin/$applet"
 done
-# Stage the floppy + fat/vfat + nls_utf8 kernel modules so
-# init.sh can insmod them. The trimmed Alpine virt kernel
-# doesn't compile them in. Alpine ships them gzipped; busybox
-# insmod doesn't handle .ko.gz reliably, so unzip them into the
-# initramfs as plain .ko files.
+# Stage the CD-ROM, ISO9660, and target-disk modules. Alpine ships them
+# gzipped; busybox insmod doesn't handle .ko.gz reliably, so unzip them
+# into the initramfs as plain .ko files.
 mkdir -p "$INITRAMFS/lib/modules"
 stage_module() {
   local src=$1
@@ -174,11 +167,9 @@ stage_module() {
     cp "$src" "$INITRAMFS/lib/modules/$base"
   fi
 }
-stage_module "$NLS_UTF8_KO"
-stage_module "$NLS_CP437_KO"
-stage_module "$FAT_KO"
-stage_module "$VFAT_KO"
-stage_module "$FLOPPY_KO"
+stage_module "$CDROM_KO"
+stage_module "$SR_MOD_KO"
+stage_module "$ISOFS_KO"
 stage_module "$VIRTIO_BLK_KO"
 cp "$YAML_DIR/init.sh" "$INITRAMFS/init"
 chmod +x "$INITRAMFS/init"

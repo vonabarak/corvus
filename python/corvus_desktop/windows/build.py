@@ -9,7 +9,7 @@ and the task id (if any) navigates to the task detail screen.
 Before the YAML is shipped to the daemon, the same client-side
 preprocessing that ``crv build`` does is applied: any
 ``pipeline[].build.provisioners[].shell.script`` /
-``...file.from`` / ``pipeline[].build.floppy.from`` file-path
+``...file.from`` file-path
 reference is read off disk (relative to the loaded YAML's directory,
 falling back to ``cwd`` if the user has typed YAML by hand) and
 embedded inline. See :func:`preprocess_build_yaml` for the exact
@@ -80,10 +80,6 @@ def preprocess_build_yaml(text: str, base_dir: str) -> str:
       ``shell.inline: <file body as text>``
     * ``pipeline[].build.provisioners[].file.from: <path>`` →
       ``file.content: <base64 of file bytes>``
-    * ``pipeline[].build.floppy.from: <path>`` →
-      ``floppy.contentBase64: <base64 of file bytes>`` (and
-      ``floppy.filename`` defaulted to the basename if unset)
-
     Paths are resolved relative to ``base_dir`` unless absolute.
     Read errors propagate as :class:`OSError` so the caller can
     surface them to the user.
@@ -129,16 +125,6 @@ def preprocess_build_yaml(text: str, base_dir: str) -> str:
                     del f_prov["from"]
                     f_prov["content"] = base64.b64encode(data).decode("ascii")
                     changed = True
-        floppy = build.get("floppy")
-        if isinstance(floppy, dict) and isinstance(floppy.get("from"), str):
-            rel = floppy["from"]
-            with open(resolve(rel), "rb") as fh:
-                data = fh.read()
-            floppy.setdefault("filename", os.path.basename(rel))
-            del floppy["from"]
-            floppy["contentBase64"] = base64.b64encode(data).decode("ascii")
-            changed = True
-
     if not changed:
         return text
     return yaml.safe_dump(doc, sort_keys=False)
@@ -277,7 +263,7 @@ class BuildWidget(QWidget):
         self._status.setText("running…")
         self._status.setStyleSheet("color: #6a737d;")
         self._run_btn.setEnabled(False)
-        self._bridge.build_run(yaml_text)
+        self._bridge.build_run(yaml_text, base_dir)
 
     def _on_event(self, event: Any) -> None:
         if isinstance(event, BuildStepStart):

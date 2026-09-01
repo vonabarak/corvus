@@ -2,6 +2,7 @@
 
 using Common = import "common.capnp";
 using Enums = import "enums.capnp";
+using Streams = import "streams.capnp";
 
 # ---------------------------------------------------------------------
 # Info structs
@@ -131,6 +132,18 @@ struct DiskImportParams {
   node      @4 :Common.EntityRef;
 }
 
+# Begins an upload of a file that exists on the API client's machine.
+# The returned DiskUpload capability is intentionally streamed through the
+# daemon to the selected node; nodeagent is never exposed to clients.
+struct DiskUploadParams {
+  name      @0 :Text;
+  format    @1 :Enums.DriveFormat;
+  path      @2 :Text; # empty -> <basePath>/<name>.<format>
+  ephemeral @3 :Bool = false;
+  node      @4 :Common.EntityRef;
+  overwrite @5 :Bool = false;
+}
+
 # Copy a logical disk image from its current placement on one node
 # to another. Source rows are left intact; the destination ends up
 # with an additional `DiskImageNode` placement. Refused when the
@@ -203,6 +216,15 @@ interface DiskManager {
   # source placement + file. Same data path as `copy`. Returns a
   # task id for long-running progress observation.
   move          @11 (params :DiskMoveParams) -> (taskId :Int64);
+  beginUpload   @12 (params :DiskUploadParams) -> (upload :DiskUpload);
+}
+
+# A one-shot client-upload session. finish() publishes the completed image and
+# returns its normal Disk resource. abort() discards the node-side partial file.
+interface DiskUpload {
+  write  @0 (chunk :Data) -> ();
+  finish @1 () -> (disk :Disk);
+  abort  @2 () -> ();
 }
 
 interface Disk {

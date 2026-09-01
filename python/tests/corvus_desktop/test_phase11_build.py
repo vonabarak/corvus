@@ -28,7 +28,7 @@ class _MockBridge(QObject):
         super().__init__()
         self.run_calls: list[str] = []
 
-    def build_run(self, yaml_text: str) -> None:
+    def build_run(self, yaml_text: str, base_dir: str | None = None) -> None:
         self.run_calls.append(yaml_text)
 
 
@@ -131,33 +131,6 @@ def test_preprocess_inlines_file_from_as_base64(tmp_path: Path) -> None:
     assert file_prov["path"] == "/root/.ssh/authorized_keys"
 
 
-def test_preprocess_inlines_floppy_with_default_filename(tmp_path: Path) -> None:
-    src = tmp_path / "Autounattend.xml"
-    src.write_bytes(b"<unattend/>")
-    body = "pipeline:\n  - build:\n      floppy:\n        from: Autounattend.xml\n"
-    result = preprocess_build_yaml(body, str(tmp_path))
-    doc = yaml.safe_load(result)
-    floppy = doc["pipeline"][0]["build"]["floppy"]
-    assert "from" not in floppy
-    assert floppy["filename"] == "Autounattend.xml"
-    assert floppy["contentBase64"] == base64.b64encode(b"<unattend/>").decode("ascii")
-
-
-def test_preprocess_floppy_keeps_user_supplied_filename(tmp_path: Path) -> None:
-    src = tmp_path / "answer.xml"
-    src.write_bytes(b"x")
-    body = (
-        "pipeline:\n"
-        "  - build:\n"
-        "      floppy:\n"
-        "        from: answer.xml\n"
-        "        filename: Autounattend.xml\n"
-    )
-    result = preprocess_build_yaml(body, str(tmp_path))
-    floppy = yaml.safe_load(result)["pipeline"][0]["build"]["floppy"]
-    assert floppy["filename"] == "Autounattend.xml"
-
-
 def test_preprocess_resolves_relative_paths_from_base_dir(tmp_path: Path) -> None:
     nested = tmp_path / "sub"
     nested.mkdir()
@@ -175,7 +148,7 @@ def test_preprocess_resolves_relative_paths_from_base_dir(tmp_path: Path) -> Non
 
 
 def test_preprocess_apply_steps_pass_through(tmp_path: Path) -> None:
-    # apply: steps have no provisioners/floppy — must not be touched.
+    # apply: steps have no provisioners — must not be touched.
     body = (
         "pipeline:\n"
         "  - apply:\n"

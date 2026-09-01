@@ -1,8 +1,9 @@
 # Image Builds (`crv build`)
 
-`crv build` runs a YAML **pipeline**: an ordered list of steps that
-either bake a reusable OS disk image (`build:`) or apply a declarative
-config (`apply:`). The two kinds can be freely mixed in a single
+`crv build` runs a YAML **pipeline**: an ordered list of client upload
+steps (`upload:`), image builds (`build:`), and declarative configuration
+steps (`apply:`). Upload steps must lead the pipeline; build and apply can be
+freely mixed in a single
 file — typical use is *bake* → *register-as-template* → *bake again on
 top of that template*.
 
@@ -56,9 +57,10 @@ crv build path/to/build.yml --wait
 
 The client preprocesses the YAML before sending it to the daemon: any
 `shell.script: <path>` becomes `shell.inline: <text>` and any
-`file.from: <path>` becomes `file.content: <base64>`. Paths are
-relative to the YAML file's directory. The daemon never reads the
-client's filesystem.
+`file.from: <path>` becomes `file.content: <base64>`. Leading `upload:`
+steps stream their `from:` file to the selected node and are removed before
+the daemon receives the remaining apply/build pipeline. Paths are relative to
+the YAML file's directory. The daemon never reads the client's filesystem.
 
 ## Variables
 
@@ -283,24 +285,32 @@ bootKeys:
     repeat: 6
     intervalSec: 1
 waitForShutdownSec: 3600   # max wall-clock seconds to wait
-floppy:
-  from: ./windows-autounattend.xml   # client reads + inlines
-  filename: autounattend.xml         # optional, default: basename of from
 provisioners: []           # not used for installer
 ```
 
-`floppy.from` (path relative to this YAML's directory) is read by the
-client, base64-inlined, and turned into a 1.44 MB FAT12 floppy by
-the daemon — so editing the answer file and re-running `crv build`
-just works, no out-of-band `mkfs.fat`/`mcopy`. The daemon writes the
-image to a `__build_<taskId>_*-floppy.img` file under the disk dir
-and tears it down with the rest of the bake VM's ephemerals.
+Prepare vendor-specific answer media yourself, then upload it as an ordinary
+disk and attach it to the installer template. For example, Windows answer
+media is a raw ISO containing root-level `Autounattend.xml`:
+
+```yaml
+pipeline:
+  - upload:
+      name: windows-answer-media
+      from: ./build/autounattend.iso
+      format: raw
+      ephemeral: true
+  - apply: ... # template attaches windows-answer-media as read-only CD-ROM
+  - build: ...
+```
+
+This is deliberately OS-neutral: Red Hat media can use an `OEMDRV` volume
+with `ks.cfg` or installer boot arguments, while FreeBSD generally needs
+custom release media or explicit installer boot configuration.
 
 The template for an `installer` build typically has
 `guestAgent: false` (the build does not depend on QGA), a fresh
 40 GiB blank disk via `strategy: create` as its first drive, and the
-vendor install ISO + any driver ISO as `media: cdrom` drives. The
-floppy itself is per-build content, not part of the template. See
+vendor install ISO + any driver ISO as `media: cdrom` drives. See
 [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml)
 for a worked Windows Server 2025 example — a self-contained
 three-step pipeline (apply ISOs + bake-template → build → apply
@@ -486,13 +496,13 @@ crv build pipeline.yml --wait --use-cache --rebuild-from 3
 Every step's hash is `sha256(canonical-YAML(envelope || step-i))`
 folded left-to-right. The envelope captures the YAML fields that
 affect what the bake VM **does** (template, target spec, strategy,
-VM cpu/ram, shell defaults, boot keys, floppy); it excludes the
+VM cpu/ram, shell defaults, and boot keys); it excludes the
 operator-policy fields (`name`, `description`, `node`, `cleanup`,
 `waitForShutdownSec`, `useCache`, `buildCache`). Per-step inputs
 filter out the auto-injected `CORVUS_BAKEVM_ID` /
 `CORVUS_BUILD_TASK_ID` / `CORVUS_BUILD_TASK_ID` envs (they change
 every invocation and would defeat caching), and the runtime-only
-`shell.script` / `file.from` / `floppy.from` fields (always
+`shell.script` / `file.from` fields (always
 `Nothing` post-client-inlining).
 
 Editing a provisioner step invalidates that step's chain hash **and
@@ -674,7 +684,7 @@ Installer builds:
 - [yaml/windows-server-2025/windows-server-2025.yml](../yaml/windows-server-2025/windows-server-2025.yml) —
   Windows Server 2025 with qemu-guest-agent + cloudbase-init,
   installed unattended via the bundled `autounattend.xml` on a
-  floppy that the build materialises automatically. Self-contained
+  prepared answer-media ISO. Self-contained
   pipeline: the first `apply` step downloads the Windows Server 2025
   evaluation ISO + virtio-win drivers ISO (~9 GiB total) into
   `~/VMs/BaseImages/WindowsServer2025/` on first run, the `build`

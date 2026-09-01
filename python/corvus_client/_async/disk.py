@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from .. import _schema, types
 from .._entityref import entity_ref
 from ..exceptions import translate_errors
@@ -203,6 +205,41 @@ class AsyncDiskManager:
         # as a method on the cap, so we call it through getattr.
         resp = await getattr(mgr, "import")(params=params)
         return AsyncDisk(resp.disk)
+
+    async def upload_from_file(
+        self,
+        name: str,
+        source: str | Path,
+        *,
+        format: str,
+        path: str | None = None,
+        ephemeral: bool = False,
+        node: int | str | None = None,
+        overwrite: bool = False,
+    ) -> AsyncDisk:
+        """Stream a file on this API client's machine to a Corvus node."""
+        mgr = await self._ensure()
+        params = _schema.disk.DiskUploadParams.new_message()
+        params.name = name
+        params.format = format
+        if path is not None:
+            params.path = path
+        params.ephemeral = ephemeral
+        if node is not None:
+            params.node = entity_ref(node)
+        params.overwrite = overwrite
+        session = await mgr.beginUpload(params=params)
+        try:
+            with Path(source).open("rb") as fh:
+                while chunk := fh.read(1024 * 1024):
+                    await session.upload.write(chunk=chunk)
+            result = await session.upload.finish()
+        except BaseException:
+            try:
+                await session.upload.abort()
+            finally:
+                raise
+        return AsyncDisk(result.disk)
 
     async def copy(
         self,

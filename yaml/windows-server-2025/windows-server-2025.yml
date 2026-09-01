@@ -39,6 +39,13 @@ _ovmf_vars_drive: &ovmf_vars
   strategy: clone
 
 pipeline:
+  - upload:
+      name: windows-server-2025-autounattend
+      from: ./build/autounattend.iso
+      format: raw
+      ephemeral: true
+      ifExists: overwrite
+
   - apply:
       ifExists: skip
       disks:
@@ -108,11 +115,11 @@ pipeline:
               media: cdrom
               readOnly: true
               strategy: direct
-            # The autounattend.xml floppy is materialised per-build by
-            # `crv build` from the build YAML's `floppy.from:` field,
-            # then attached as `if=floppy` (Windows finds it at A: on
-            # first boot of the install ISO and reads /autounattend.xml
-            # automatically).
+            - diskImageName: windows-server-2025-autounattend
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
           networkInterfaces:
             # Outbound internet for cloudbase-init MSI download.
             - network: corvus
@@ -158,16 +165,6 @@ pipeline:
       # takes 20–35 min on KVM. The autounattend's last command is
       # `shutdown /s /t 30 /f`, so the guest powers off cleanly.
       waitForShutdownSec: 3600
-
-      # Floppy holding the autounattend.xml answer file. The path is
-      # relative to this YAML file's directory; the client reads the
-      # file, base64-encodes its bytes, and the daemon wraps it in a
-      # 1.44 MB FAT12 image attached to the bake VM as `if=floppy`.
-      # Edit `windows-autounattend.xml` and re-run `crv build` — no
-      # out-of-band `mkfs.fat`/`mcopy`.
-      #
-      floppy:
-        from: ./autounattend.xml
 
       # No QGA-based provisioners: autounattend.xml does it all.
       provisioners: []

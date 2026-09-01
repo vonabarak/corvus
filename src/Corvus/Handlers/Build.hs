@@ -46,7 +46,6 @@ import qualified Corvus.Build.Cache.Store as CStore
 import Corvus.Handlers.Apply (ApplyAction (..))
 import qualified Corvus.Handlers.Build.Cache as Cache
 import Corvus.Handlers.Build.Cleanup (CleanupStack, newCleanupStack, push, withCleanup)
-import Corvus.Handlers.Build.Floppy (buildFloppyImage)
 import Corvus.Handlers.Disk (DiskCreate (..), DiskDelete (..), DiskRebase (..))
 import Corvus.Handlers.Disk.Agent
   ( cloneImageViaAgent
@@ -86,7 +85,6 @@ import Corvus.Schema.Build
 import Corvus.Types
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Lazy as LBS
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.Int (Int64)
@@ -387,6 +385,13 @@ runPipelineStep state parentTaskId sink opts step = case step of
         logInfoN "apply step completed"
         liftIO $ sink (BuildEnd (Right 0))
     pure one
+  PipelineUpload _ ->
+    pure $
+      BuildOne
+        { boName = "upload"
+        , boArtifactDiskId = Nothing
+        , boError = Just "upload steps must be processed by crv build before submission"
+        }
 
 -- | Project an 'ApplyEvent' to a human-readable build log line.
 -- 'Nothing' suppresses the event (used for noisy intermediate
@@ -448,26 +453,12 @@ validateConfig cfg = do
     -- step actually runs; pre-running validation would duplicate that
     -- logic and risk drift.
     validateStep (PipelineApply _) = Right ()
+    validateStep (PipelineUpload _) = Left "upload steps must be processed by crv build before submission"
 
 validateBuild :: Build -> Either Text ()
 validateBuild b = do
   validateName "Build" (buildName b)
   mapM_ (validateProvisioner (buildName b)) (buildProvisioners b)
-  validateFloppy (buildName b) (buildFloppy b)
-
-validateFloppy :: Text -> Maybe Floppy -> Either Text ()
-validateFloppy _ Nothing = Right ()
-validateFloppy buildLbl (Just f) = case (floppyFrom f, floppyContentBase64 f) of
-  (Nothing, Just _) -> Right ()
-  (Just _, Nothing) ->
-    Left $
-      "Build '"
-        <> buildLbl
-        <> "': floppy.from must be inlined by the client as floppy.contentBase64 before sending"
-  (Just _, Just _) ->
-    Left $ "Build '" <> buildLbl <> "': floppy may not have both from and contentBase64"
-  (Nothing, Nothing) ->
-    Left $ "Build '" <> buildLbl <> "': floppy needs either from or contentBase64"
 
 validateProvisioner :: Text -> Provisioner -> Either Text ()
 validateProvisioner buildLbl p = case p of
@@ -620,7 +611,7 @@ runOneBuildBodyAfterPreBake state parentTaskId sink stack startTime opts b = do
     _ -> runFreshBake state parentTaskId sink stack startTime opts b
 
 -- | The fresh-bake path: instantiate a new bake VM, set up the
--- target disk, attach the floppy, then hand off to 'runBakeAndPublish'.
+-- target disk, then hand off to 'runBakeAndPublish'.
 -- Lifted out of 'runOneBuildBodyAfterPreBake' so the cache-resumed
 -- path doesn't have to share a single deeply-nested case block.
 runFreshBake
@@ -664,24 +655,20 @@ runFreshBake state parentTaskId sink stack startTime opts b = do
           tgtR <- setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName (buildNode b)
           case tgtR of
             Left err -> pure $ Left err
-            Right (artifactDiskId, needFlatten) -> do
-              floppyR <- attachBuildFloppy state parentTaskId stack vmIdLong prefix b
-              case floppyR of
-                Left err -> pure $ Left err
-                Right () ->
-                  runBakeAndPublish
-                    state
-                    parentTaskId
-                    sink
-                    vmIdLong
-                    strategy
-                    artifactDiskId
-                    target
-                    needFlatten
-                    startTime
-                    opts
-                    1
-                    b
+            Right (artifactDiskId, needFlatten) ->
+              runBakeAndPublish
+                state
+                parentTaskId
+                sink
+                vmIdLong
+                strategy
+                artifactDiskId
+                target
+                needFlatten
+                startTime
+                opts
+                1
+                b
 
 -- | The cache-resumed path: take the bake VM the prior @--build-cache@
 -- run left behind, stop it (offline rollback needs an unlocked qcow2),
@@ -689,7 +676,7 @@ runFreshBake state parentTaskId sink stack startTime opts b = do
 -- 'cleanupBakeVm' destructor on the stack (which will skip the
 -- @VmDelete@ thanks to the surviving cache rows), then hand off to
 -- 'runBakeAndPublish' with @startStep = K + 1@. The cached VM
--- already has its target disk attached and its floppy (if any) in
+-- already has its target disk attached in
 -- place from the priming run; we don't re-do that setup.
 runFromCachedBakeVm
   :: ServerState
@@ -1340,133 +1327,13 @@ buildCacheStepHook state sink vmId artifactDiskId opts b
                     pure (Right ())
 
 --------------------------------------------------------------------------------
--- Build floppy attachment
---------------------------------------------------------------------------------
-
--- | If the build supplies a 'Floppy', materialise the FAT12 image,
--- register a 'DiskImage' for it (marked @ephemeral=True@ so the bake-
--- VM teardown auto-reaps it), and attach it to the bake VM via
--- 'DiskAttach' as @if=floppy,readonly=on@. The @__build_<taskId>_*@
--- name prefix is kept for diagnostic clarity only — cleanup is driven
--- by the ephemeral flag, not the name.
---
--- A 'Nothing' floppy is a no-op (returns @Right ()@), so this can be
--- called unconditionally.
-attachBuildFloppy
-  :: ServerState
-  -> TaskId
-  -> CleanupStack
-  -> Int64
-  -- ^ bake VM id
-  -> Text
-  -- ^ ephemeral name prefix (matches 'runOneBuildBody')
-  -> Build
-  -> LoggingT IO (Either Text ())
-attachBuildFloppy state parentTaskId stack vmIdLong prefix b = case buildFloppy b of
-  Nothing -> pure $ Right ()
-  Just f -> case floppyContentBase64 f of
-    Nothing ->
-      pure $
-        Left $
-          "build '" <> buildName b <> "': floppy missing contentBase64 (client preprocessing bug)"
-    Just b64 -> case B64.decode (TE.encodeUtf8 b64) of
-      Left e ->
-        pure $
-          Left $
-            "build '" <> buildName b <> "': floppy contentBase64 not valid base64: " <> T.pack e
-      Right bytes -> do
-        let filename = fromMaybe "autounattend.xml" (floppyFilename f)
-            diskName = prefix <> sanitizeNameFragment (buildName b) <> "-floppy"
-        basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
-        let imgPath = basePath </> T.unpack diskName <> ".img"
-            storedPath = makeRelativeToBase basePath imgPath
-        logInfoN $
-          "build floppy: writing FAT12 image at "
-            <> T.pack imgPath
-            <> " (file="
-            <> filename
-            <> ", "
-            <> T.pack (show (BS.length bytes))
-            <> " bytes)"
-        imgRes <- liftIO $ buildFloppyImage imgPath filename bytes
-        case imgRes of
-          Left err -> pure $ Left $ "build floppy: " <> err
-          Right () -> do
-            now <- liftIO getCurrentTime
-            -- Insert the DiskImage row AND pin it to the bake VM's
-            -- node in one transaction. 'buildFloppyImage' just wrote
-            -- the .img to the daemon's base path; in the single-node
-            -- setup that is the only place builds run today the
-            -- daemon host is also the bake VM's node, so the
-            -- 'storedPath' we record here resolves to a real file
-            -- when qemu opens it. Without the DiskImageNode row the
-            -- same-node check in 'handleDiskAttach' fails and the
-            -- floppy can't be attached.
-            mResult <-
-              liftIO $
-                runSqlPool
-                  ( do
-                      mvm <- get (toSqlKey vmIdLong :: VmId)
-                      case mvm of
-                        Nothing -> pure Nothing
-                        Just bakeVm -> do
-                          dkey <-
-                            insert
-                              DiskImage
-                                { diskImageName = diskName
-                                , diskImageFormat = FormatRaw
-                                , diskImageSizeMb = Just 2
-                                , diskImageCreatedAt = now
-                                , diskImageBackingImageId = Nothing
-                                , -- Floppy ISO is generated per-build for the
-                                  -- bake VM and only carries that build's
-                                  -- credentials/script; reaped together with
-                                  -- the bake VM on success or failure.
-                                  diskImageEphemeral = True
-                                }
-                          recordDiskImageNode dkey (vmNodeId bakeVm) storedPath
-                          pure $ Just dkey
-                  )
-                  (ssDbPool state)
-            case mResult of
-              Nothing ->
-                pure $
-                  Left "build floppy: bake VM not found when registering disk"
-              Just diskKey -> do
-                let diskIdLong = fromSqlKey diskKey
-                -- Attach as floppy. If the bake VM rejects the attach we
-                -- still want the DiskImage row dropped, hence the cleanup
-                -- destructor here rather than only on success.
-                liftIO $
-                  push stack "build-floppy" $ do
-                    _ <- runActionAsSubtask (mkActionContext state parentTaskId "system") (DiskDelete diskIdLong)
-                    pure ()
-                attachResp <-
-                  liftIO $
-                    runActionAsSubtask
-                      (mkActionContext state parentTaskId "system")
-                      ( DiskAttach
-                          vmIdLong
-                          diskIdLong
-                          InterfaceFloppy
-                          Nothing
-                          True -- readOnly
-                          False
-                          CacheNone
-                      )
-                case attachResp of
-                  RespDiskAttached _ -> pure $ Right ()
-                  RespError err -> pure $ Left $ "attach build floppy: " <> err
-                  _ -> pure $ Left "attach build floppy: unexpected response"
-
---------------------------------------------------------------------------------
 -- Installer-strategy phase
 --------------------------------------------------------------------------------
 
 -- | The installer strategy's middle: dispatch boot keys, wait for the
 -- guest to power itself off, then publish the artifact. No QGA, no
 -- provisioners — the autounattend (or equivalent vendor mechanism) on
--- a floppy/CD inside the bake VM drives everything.
+-- prepared media inside the bake VM drives everything.
 runInstallerPhase
   :: ServerState
   -> TaskId
@@ -2257,7 +2124,7 @@ compactDisk state diskId = do
 -- covers every disk the build pipeline creates: the template-
 -- instantiated overlay/clone/create-strategy disks, the bake
 -- artifact disk (the published artifact is a clone, see
--- 'publishArtifact'), the build floppy and any cloud-init ISO.
+-- 'publishArtifact') and any cloud-init ISO.
 -- Shared infrastructure (direct-strategy template disks, registered
 -- base images) is created with @ephemeral=False@ and is preserved.
 --

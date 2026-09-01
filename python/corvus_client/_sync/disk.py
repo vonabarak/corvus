@@ -133,6 +133,32 @@ class SyncDiskManager:
             self._rl,
         )
 
+    def upload_from_file(
+        self,
+        name: str,
+        source: str,
+        *,
+        format: str,
+        path: str | None = None,
+        ephemeral: bool = False,
+        node: int | str | None = None,
+        overwrite: bool = False,
+    ):
+        return SyncDisk(
+            self._rl.run(
+                self._a.upload_from_file(
+                    name,
+                    source,
+                    format=format,
+                    path=path,
+                    ephemeral=ephemeral,
+                    node=node,
+                    overwrite=overwrite,
+                )
+            ),
+            self._rl,
+        )
+
     def copy(
         self,
         disk_ref: int | str,

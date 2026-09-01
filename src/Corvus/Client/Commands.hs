@@ -181,6 +181,7 @@ runCommand opts = do
       DiskCreateOverlay name baseDiskRef optDirPath ephemeral -> handleDiskCreateOverlay fmt conn name baseDiskRef optDirPath ephemeral
       DiskRegisterCmd name path mFormatStr mBackingRef ephemeral nodeRef -> handleDiskRegister fmt conn name path mFormatStr mBackingRef ephemeral nodeRef
       DiskImport name source mPath mFormatStr ephemeral nodeRef waitOpts -> handleDiskImport fmt conn name source mPath mFormatStr ephemeral nodeRef waitOpts
+      DiskUpload name source formatStr mPath ephemeral nodeRef overwrite -> handleDiskUpload fmt conn name source formatStr mPath ephemeral nodeRef overwrite
       DiskRefresh diskRef -> handleDiskRefresh fmt conn diskRef
       DiskDelete diskRef -> handleDiskDelete fmt conn diskRef
       DiskResize diskRef newSizeMb -> handleDiskResize fmt conn diskRef newSizeMb

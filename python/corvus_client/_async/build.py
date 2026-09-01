@@ -4,22 +4,19 @@ The daemon rejects un-preprocessed build payloads — it expects:
 
   - `shell.script: path` rewritten to `shell.inline: <file contents>`
   - `file.from: path`   rewritten to `file.content: <base64 of bytes>`
-  - `floppy.from: path` rewritten to `floppy.contentBase64: <base64>`
-    (and `floppy.filename` defaulted to the source basename)
-
 Mirrors `Corvus.Client.Commands.Build.preprocessRoot` in the Haskell client.
 """
 
 from __future__ import annotations
 
 import base64
-import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from .disk import AsyncDiskManager
 from .streams import stream_build_events
 
 
@@ -54,17 +51,6 @@ def _rewrite_file(prov: dict, base_dir: Path) -> None:
         fl["content"] = base64.b64encode(data).decode("ascii")
 
 
-def _rewrite_floppy(build: dict, base_dir: Path) -> None:
-    fp = build.get("floppy")
-    if not isinstance(fp, dict):
-        return
-    src = fp.pop("from", None)
-    if isinstance(src, str):
-        data = _read_bytes(base_dir, src)
-        fp.setdefault("filename", os.path.basename(src))
-        fp["contentBase64"] = base64.b64encode(data).decode("ascii")
-
-
 def preprocess_build_yaml(yaml_path: str) -> str:
     """Read `yaml_path`, inline references, return the rewritten YAML text."""
     path = Path(yaml_path).resolve()
@@ -87,7 +73,6 @@ def preprocess_build_yaml(yaml_path: str) -> str:
                     if isinstance(prov, dict):
                         _rewrite_shell(prov, base_dir)
                         _rewrite_file(prov, base_dir)
-            _rewrite_floppy(build, base_dir)
     return yaml.safe_dump(doc, sort_keys=False)
 
 
@@ -105,6 +90,59 @@ async def stream_build_from_file(
     `('task_id', N)` tuple once the pipeline completes.
     """
     text = preprocess_build_yaml(yaml_path)
+    path = Path(yaml_path).resolve()
+    doc = yaml.safe_load(text)
+    if isinstance(doc, dict):
+        steps = doc.get("pipeline")
+        if isinstance(steps, list):
+            uploads: list[dict[str, Any]] = []
+            rest: list[Any] = []
+            seen_non_upload = False
+            for step in steps:
+                if isinstance(step, dict) and isinstance(step.get("upload"), dict):
+                    if seen_non_upload:
+                        raise ValueError(
+                            "pipeline upload steps must precede apply/build steps"
+                        )
+                    uploads.append(step["upload"])
+                else:
+                    seen_non_upload = True
+                    rest.append(step)
+            if uploads:
+                disks = AsyncDiskManager(daemon)
+                for upload in uploads:
+                    try:
+                        name = upload["name"]
+                        source = upload["from"]
+                        format = upload["format"]
+                    except KeyError as exc:
+                        raise ValueError(f"upload.{exc.args[0]} is required") from exc
+                    if (
+                        not isinstance(name, str)
+                        or not isinstance(source, str)
+                        or not isinstance(format, str)
+                    ):
+                        raise ValueError(
+                            "upload name, from, and format must be strings"
+                        )
+                    source_path = Path(source)
+                    if not source_path.is_absolute():
+                        source_path = path.parent / source_path
+                    if upload.get("ifExists", "error") not in {"error", "overwrite"}:
+                        raise ValueError(
+                            "upload.ifExists must be 'error' or 'overwrite'"
+                        )
+                    await disks.upload_from_file(
+                        name,
+                        source_path,
+                        format=format,
+                        path=upload.get("path"),
+                        ephemeral=upload.get("ephemeral", True),
+                        node=upload.get("node"),
+                        overwrite=upload.get("ifExists") == "overwrite",
+                    )
+                doc["pipeline"] = rest
+                text = yaml.safe_dump(doc, sort_keys=False)
     async for item in stream_build_events(
         daemon,
         text,

@@ -9,6 +9,7 @@ module Corvus.Client.Commands.Disk
   , handleDiskCreateOverlay
   , handleDiskRegister
   , handleDiskImport
+  , handleDiskUpload
   , handleDiskDelete
   , handleDiskResize
   , handleDiskList
@@ -172,6 +173,28 @@ handleDiskImport fmt conn name source _mPath mFormatStr ephemeral nodeRef _waitO
           emitError fmt "rpc_error" (T.pack (show e)) $
             putStrLn ("Error importing disk: " ++ show e)
           pure False
+
+handleDiskUpload :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Text -> Maybe Text -> Bool -> Text -> Bool -> IO Bool
+handleDiskUpload outFmt conn name source formatStr mPath ephemeral nodeRef overwrite = do
+  exists <- doesFileExist source
+  if not exists
+    then do
+      emitError outFmt "file_not_found" (T.pack $ "File not found: " <> source) $
+        putStrLn ("Error: File not found: " <> source)
+      pure False
+    else case parseFormat formatStr of
+      Left err -> do
+        emitError outFmt "invalid_format" err (putStrLn $ "Error: " <> T.unpack err)
+        pure False
+      Right format -> do
+        r <- try @SomeException (CR.rpcDiskUpload conn name source format mPath ephemeral (entityRefFromText nodeRef) overwrite)
+        case r of
+          Right diskId -> do
+            emitOkWith outFmt [("id", toJSON diskId)] $ putStrLn ("Disk image uploaded with ID: " <> show diskId)
+            pure True
+          Left e -> do
+            emitError outFmt "rpc_error" (T.pack (show e)) $ putStrLn ("Error uploading disk: " <> show e)
+            pure False
 
 -- | Handle disk delete command
 handleDiskDelete :: OutputFormat -> CapnpConnection -> Text -> IO Bool

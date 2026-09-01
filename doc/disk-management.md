@@ -6,6 +6,7 @@
 crv disk create <name> --size <MB> [--format <fmt>] [--path <path>] [--ephemeral]
 crv disk register <name> <path> [--format <fmt>] [--backing <disk>] [--ephemeral]
 crv disk import <name> <source> [--path <dest>] [--format <fmt>] [--ephemeral] [--wait]
+crv disk upload <name> <local-file> --format <fmt> [--path <dest>] [--node <node>] [--ephemeral] [--overwrite]
 crv disk overlay <name> <base_disk> [--path <path>] [--ephemeral]
 crv disk clone <name> <base_disk> [--path <path>] [--ephemeral]
 crv disk rebase <disk> [--backing <new_backing>] [--unsafe]
@@ -110,6 +111,18 @@ crv disk import local-copy /tmp/image.qcow2 --path project/ --wait
 - `--wait`: block until the import completes (default: async, returns a task ID).
 - `--path`: destination path (see [Path Resolution](#path-resolution)).
 - Compressed `.xz` files are automatically decompressed.
+
+## Uploading client-local media
+
+`crv disk upload` streams a file from the machine running `crv` through the
+daemon to the selected node; its source path is never interpreted on the
+daemon or node. The node writes a temporary sibling file and atomically
+publishes it when the stream finishes.
+
+Use it for prepared installer media such as an answer-file ISO or USB image.
+The uploaded object is an ordinary disk image and can be attached read-only as
+an IDE/SCSI CD-ROM or disk in a template. `--overwrite` only replaces an
+unattached image with exactly one placement on the chosen node.
 
 ## Overlays and Clones
 

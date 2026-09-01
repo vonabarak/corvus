@@ -863,6 +863,16 @@ instance CGNA.Session'server_ SessionCap where
                     Right () -> pure ()
           pure CGNA.Session'diskImportFromPeer'results
 
+  session'diskOpenWrite sc =
+    handleParsed $ \CGNA.Session'diskOpenWrite'params {CGNA.destPath = destPathTxt} -> do
+      -- The daemon resolves and validates this path before asking the node to
+      -- open it.  The sink itself writes to a sibling .upload.part and only
+      -- renames on end(), so a disconnected client cannot publish a partial
+      -- installer medium.
+      (sinkImpl, _done) <- NTr.newAtomicFileWriterSink (T.unpack destPathTxt)
+      sinkClient <- C.export @CGS.ByteSink (scSup sc) sinkImpl
+      pure CGNA.Session'diskOpenWrite'results {CGNA.sink = sinkClient}
+
 -- ---------------------------------------------------------------------------
 -- Encoders / parsers
 

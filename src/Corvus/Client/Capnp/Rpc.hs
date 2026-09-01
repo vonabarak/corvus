@@ -87,6 +87,7 @@ module Corvus.Client.Capnp.Rpc
   , rpcDiskRegister
   , rpcDiskRefresh
   , rpcDiskImport
+  , rpcDiskUpload
   , rpcDiskClone
   , rpcDiskRebase
   , rpcDiskCopy
@@ -224,6 +225,7 @@ import qualified Data.Maybe
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Word (Word32)
+import System.IO (IOMode (ReadMode), withBinaryFile)
 
 -- ---------------------------------------------------------------------
 -- Internal helpers
@@ -937,6 +939,52 @@ rpcDiskImport conn name srcPath fmt ephemeral nodeRef = do
   CGDisk.Disk'show'results {CGDisk.info = info} <-
     callOn #show CGDisk.Disk'show'params dClient
   case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
+
+-- | Stream a client-local file to the selected Corvus node.  The source path
+-- is deliberately never sent over the wire: only bytes cross the client →
+-- daemon → nodeagent relay.
+rpcDiskUpload
+  :: CapnpConnection
+  -> Text
+  -> FilePath
+  -> DriveFormat
+  -> Maybe Text
+  -> Bool
+  -> EntityRef
+  -> Bool
+  -> IO Int64
+rpcDiskUpload conn name source fmt mPath ephemeral nodeRef overwrite = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  let params =
+        CGDisk.DiskUploadParams
+          { CGDisk.name = name
+          , CGDisk.format = toCapnpDriveFormat fmt
+          , CGDisk.path = Data.Maybe.fromMaybe "" mPath
+          , CGDisk.ephemeral = ephemeral
+          , CGDisk.node = toCapnpEntityRef nodeRef
+          , CGDisk.overwrite = overwrite
+          }
+  CGDisk.DiskManager'beginUpload'results {CGDisk.upload = upload} <-
+    callOn #beginUpload CGDisk.DiskManager'beginUpload'params {CGDisk.params = params} mgr
+  let send h = do
+        chunk <- BS.hGet h (1024 * 1024)
+        if BS.null chunk
+          then pure ()
+          else do
+            _ <- callOn #write CGDisk.DiskUpload'write'params {CGDisk.chunk = chunk} upload
+            send h
+  uploadResult <- try @SomeException $ withBinaryFile source ReadMode send
+  case uploadResult of
+    Left err -> do
+      _ <- try @SomeException (callOn #abort CGDisk.DiskUpload'abort'params upload)
+      fail (show err)
+    Right () -> do
+      CGDisk.DiskUpload'finish'results {CGDisk.disk = disk} <-
+        callOn #finish CGDisk.DiskUpload'finish'params upload
+      CGDisk.Disk'show'results {CGDisk.info = info} <-
+        callOn #show CGDisk.Disk'show'params disk
+      case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
 
 rpcDiskClone :: CapnpConnection -> EntityRef -> Text -> Bool -> IO Int64
 rpcDiskClone conn srcRef newName ephemeral = do

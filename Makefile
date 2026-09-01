@@ -274,7 +274,7 @@ test-image-windows-clean:
 #
 # The ISO is tiny (~13 MB): an Alpine `linux-virt` kernel +
 # busybox-static initramfs + isolinux. Its PID 1 (sourced from
-# yaml/corvus-test-installer/init.sh) mounts the floppy supplied
+# yaml/corvus-test-installer/init.sh) mounts uploaded answer media
 # by `crv build`, copies the marker payload onto /dev/vda, and
 # powers off — exercising Corvus's `installer` build path
 # end-to-end without any vendor installer.

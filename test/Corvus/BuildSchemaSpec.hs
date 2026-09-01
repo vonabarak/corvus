@@ -28,6 +28,7 @@ firstBuild :: PipelineConfig -> Build
 firstBuild cfg = case pcSteps cfg of
   (PipelineBuild b : _) -> b
   (PipelineApply _ : _) -> error "expected a build step, got apply"
+  (PipelineUpload _ : _) -> error "expected a build step, got upload"
   [] -> error "expected a non-empty pipeline"
 
 spec :: Spec
@@ -387,29 +388,23 @@ spec = describe "Schema.Build" $ do
           Left _ -> True
           _ -> False
 
-  describe "Floppy" $ do
-    it "parses the post-preprocess form (contentBase64 + filename)" $ do
+  describe "Upload" $ do
+    it "parses client upload defaults" $ do
       let yaml =
             BS8.unlines
               [ "pipeline:"
-              , "  - build:"
-              , "      name: x"
-              , "      template: t"
-              , "      target: {}"
-              , "      strategy: installer"
-              , "      floppy:"
-              , "        contentBase64: ZXhhbXBsZQo="
-              , "        filename: autounattend.xml"
+              , "  - upload:"
+              , "      name: answer"
+              , "      from: answer.iso"
+              , "      format: raw"
               ]
       case decodePipeline yaml of
-        Right c -> do
-          let b = firstBuild c
-          case buildFloppy b of
-            Just f -> do
-              floppyContentBase64 f `shouldBe` Just "ZXhhbXBsZQo="
-              floppyFilename f `shouldBe` Just "autounattend.xml"
-              floppyFrom f `shouldBe` Nothing
-            Nothing -> expectationFailure "floppy parsed as Nothing"
+        Right c -> case pcSteps c of
+          [PipelineUpload upload] -> do
+            uploadName upload `shouldBe` "answer"
+            uploadEphemeral upload `shouldBe` True
+            uploadIfExists upload `shouldBe` IfExistsError
+          other -> expectationFailure $ "unexpected: " ++ show other
         Left e -> expectationFailure e
 
     it "parses target.path" $ do
@@ -426,7 +421,7 @@ spec = describe "Schema.Build" $ do
         Right c -> btPath (buildTarget (firstBuild c)) `shouldBe` Just "alpine-test/"
         Left e -> expectationFailure e
 
-    it "leaves buildFloppy=Nothing when no floppy: key is present" $ do
+    it "rejects removed build.floppy syntax" $ do
       let yaml =
             BS8.unlines
               [ "pipeline:"
@@ -434,10 +429,11 @@ spec = describe "Schema.Build" $ do
               , "      name: x"
               , "      template: t"
               , "      target: {}"
+              , "      floppy: { from: answer.xml }"
               ]
-      case decodePipeline yaml of
-        Right c -> buildFloppy (firstBuild c) `shouldBe` Nothing
-        Left e -> expectationFailure e
+      decodePipeline yaml `shouldSatisfy` \case
+        Left _ -> True
+        Right _ -> False
 
   describe "ShellDefaults" $ do
     let parseSd yaml = case decodePipeline yaml of

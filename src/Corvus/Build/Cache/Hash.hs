@@ -15,7 +15,7 @@
 -- envelope captures every YAML field that affects what the bake
 -- VM does AT BAKE TIME: template, target spec (size/format/compact/
 -- path/ifExists), strategy, bake VM (cpu/ram), shell defaults, boot
--- keys, floppy. Explicitly excluded: 'buildName' (operator label
+-- keys. Explicitly excluded: 'buildName' (operator label
 -- that already scopes the pipeline key), 'buildDescription' /
 -- 'buildNode' / 'buildCleanup' / 'buildWaitForShutdownSec' / the
 -- cache flags themselves (operator policy, not bake content).
@@ -23,7 +23,6 @@
 -- For provisioner steps, the canonical form filters out the
 -- runtime-injected @CORVUS_BAKEVM_ID@ / @CORVUS_BUILD_TASK_ID@ envs
 -- (they change every invocation) and any 'shellScript' / 'fileFrom' /
--- 'floppyFrom' fields (always 'Nothing' post-client-inline; including
 -- them risks @Maybe@-vs-@null@ wire drift).
 module Corvus.Build.Cache.Hash
   ( provisionerCanonicalBytes
@@ -110,7 +109,6 @@ envelopeValue b =
     , ("vm", buildVmValue (buildVm b))
     , ("shellDefaults", shellDefaultsValue (buildShellDefaults b))
     , ("bootKeys", Array (V.fromList (map bootKeyValue (buildBootKeys b))))
-    , ("floppy", maybe Null floppyValue (buildFloppy b))
     , -- The cache mode is in the envelope because switching modes
       -- swaps the on-disk artifact shape: 'CacheModeMemory' rows
       -- carry vmstate inside their qcow2; 'CacheModeDisk' rows
@@ -167,18 +165,6 @@ bootKeyValue bk =
     , ("delaySec", intValue (bkDelaySec bk))
     , ("repeat", intValue (bkRepeat bk))
     , ("intervalSec", intValue (bkIntervalSec bk))
-    ]
-
-floppyValue :: Floppy -> Value
-floppyValue f =
-  -- Strip 'floppyFrom': it should be 'Nothing' at this point (the
-  -- client inlines it as 'floppyContentBase64'). Including the
-  -- 'Maybe FilePath' field would let the same floppy hash differently
-  -- depending on whether the client preprocessed it locally vs the
-  -- daemon side parsing the raw YAML.
-  obj
-    [ ("contentBase64", maybe Null String (floppyContentBase64 f))
-    , ("filename", maybe Null String (floppyFilename f))
     ]
 
 --------------------------------------------------------------------------------

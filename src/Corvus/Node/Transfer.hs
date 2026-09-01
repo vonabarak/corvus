@@ -52,6 +52,7 @@ module Corvus.Node.Transfer
   , newFileReader
   , FileWriterSink (..)
   , newFileWriterSink
+  , newAtomicFileWriterSink
   , FileWriterDone (..)
   , waitFileWriter
   )
@@ -81,6 +82,8 @@ import qualified Data.Map.Strict as Map
 import Data.Text (Text)
 import qualified Data.Text as T
 import Numeric (showHex)
+import System.Directory (createDirectoryIfMissing, renameFile)
+import System.FilePath (takeDirectory)
 import System.IO
   ( BufferMode (..)
   , Handle
@@ -250,6 +253,7 @@ data FileWriterSink = FileWriterSink
   { fwsHandle :: !(MVar (Maybe Handle))
   , fwsBytes :: !(MVar Int)
   , fwsDone :: !FileWriterDone
+  , fwsOnClose :: !(IO ())
   }
 
 instance SomeServer FileWriterSink
@@ -278,7 +282,18 @@ instance CGS.ByteSink'server_ FileWriterSink where
 -- | Build a 'FileWriterSink' that writes to @path@. Caller fsyncs
 -- + renames the resulting file after 'waitFileWriter' returns.
 newFileWriterSink :: FilePath -> IO (FileWriterSink, FileWriterDone)
-newFileWriterSink path = do
+newFileWriterSink path = newFileWriterSinkWith path (pure ())
+
+-- | A writer for client uploads.  Bytes land in a sibling temporary file and
+-- are atomically promoted only after the sender closes the stream.
+newAtomicFileWriterSink :: FilePath -> IO (FileWriterSink, FileWriterDone)
+newAtomicFileWriterSink destPath = do
+  let partPath = destPath <> ".upload.part"
+  createDirectoryIfMissing True (takeDirectory destPath)
+  newFileWriterSinkWith partPath (renameFile partPath destPath)
+
+newFileWriterSinkWith :: FilePath -> IO () -> IO (FileWriterSink, FileWriterDone)
+newFileWriterSinkWith path onClose = do
   h <- openBinaryFile path WriteMode
   hSetBuffering h (BlockBuffering (Just transferChunkBytes))
   hv <- newMVar (Just h)
@@ -289,6 +304,7 @@ newFileWriterSink path = do
           { fwsHandle = hv
           , fwsBytes = bv
           , fwsDone = done
+          , fwsOnClose = onClose
           }
   pure (fws, done)
 
@@ -313,6 +329,7 @@ closeWriter fws =
     Just h -> do
       hFlush h
       hClose h
+      fwsOnClose fws
       pure Nothing
 
 signalDone :: FileWriterSink -> Maybe Text -> IO ()

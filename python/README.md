@@ -96,8 +96,8 @@ won't break existing code immediately.
 ### Build pipelines
 
 `AsyncClient.build_stream(yaml_path)` (or `Client.build_stream`) reads
-a YAML pipeline file, **inlines** `shell.script:` / `file.from:` /
-`floppy.from:` references into the request payload, then streams the
+a YAML pipeline file, inlines `shell.script:` / `file.from:` references, runs
+leading `upload:` media declarations from the client, then streams the
 daemon's `BuildEvent`s back:
 
 ```python

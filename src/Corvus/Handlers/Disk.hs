@@ -23,6 +23,8 @@ module Corvus.Handlers.Disk
   , DiskDetachByDisk (..)
   , DiskRebase (..)
   , DiskImportAction (..)
+  , DiskUploadFinalize (..)
+  , DiskUploadPlan (..)
 
     -- * Disk image handlers
   , handleDiskCreate
@@ -39,6 +41,8 @@ module Corvus.Handlers.Disk
   , handleDiskRefresh
   , handleDiskCopy
   , handleDiskMove
+  , prepareDiskUpload
+  , handleDiskUploadFinalize
 
     -- * Snapshot handlers
   , handleSnapshotCreate
@@ -109,6 +113,94 @@ resolveTargetDiskNode state nodeRefText
   | otherwise = do
       r <- resolveNode (Ref nodeRefText) (ssDbPool state)
       pure $ fmap (M.toSqlKey :: Int64 -> M.NodeId) r
+
+-- | Resolved destination for a client-upload stream. Planning only reads
+-- state; the Action below publishes the completed node-side file.
+data DiskUploadPlan = DiskUploadPlan
+  { dupName :: !Text
+  , dupFormat :: !DriveFormat
+  , dupEphemeral :: !Bool
+  , dupNodeId :: !M.NodeId
+  , dupFilePath :: !FilePath
+  , dupStoredPath :: !Text
+  , dupOverwrite :: !Bool
+  }
+
+prepareDiskUpload
+  :: ServerState -> Text -> DriveFormat -> Maybe Text -> Bool -> Text -> Bool -> IO (Either Text DiskUploadPlan)
+prepareDiskUpload state name format mPath ephemeral nodeRefText overwrite =
+  case sanitizeDiskName name of
+    Left err -> pure (Left err)
+    Right safeName -> do
+      mNid <- resolveTargetDiskNode state nodeRefText
+      case mNid of
+        Left err -> pure (Left err)
+        Right nid -> do
+          basePath <- getEffectiveBasePath (ssQemuConfig state)
+          let defaultPath = resolveDiskFilePathPure basePath mPath (T.unpack safeName <> "." <> T.unpack (enumToText format))
+              mkPlan = DiskUploadPlan safeName format ephemeral nid
+          existing <- runSqlPool (getBy (UniqueDiskImageName safeName)) (ssDbPool state)
+          case existing of
+            Nothing -> pure (Right (mkPlan defaultPath (makeRelativeToBase basePath defaultPath) False))
+            Just (Entity diskKey _)
+              | not overwrite -> pure (Left $ "disk image '" <> safeName <> "' already exists (set ifExists: overwrite to replace it)")
+              | otherwise -> do
+                  attached <- runSqlPool (getAttachedVms (fromSqlKey diskKey)) (ssDbPool state)
+                  placements <- runSqlPool (listDiskImageNodes diskKey) (ssDbPool state)
+                  case placements of
+                    [Entity _ placement]
+                      | null attached && diskImageNodeNodeId placement == nid -> do
+                          let stored = diskImageNodeFilePath placement
+                              raw = T.unpack stored
+                              path = if "/" `isPrefixOf` raw then raw else basePath </> raw
+                          case mPath of
+                            Just p
+                              | resolveDiskFilePathPure basePath (Just p) (takeFileName path) /= path ->
+                                  pure (Left "overwrite uses the existing disk path; omit path or supply the same path")
+                            _ -> pure (Right (mkPlan path stored True))
+                    _ -> pure (Left "overwrite requires an unattached disk with exactly one placement on the target node")
+
+newtype DiskUploadFinalize = DiskUploadFinalize {dufPlan :: DiskUploadPlan}
+
+instance Action DiskUploadFinalize where
+  actionSubsystem _ = SubDisk
+  actionCommand _ = "upload"
+  actionEntityName = Just . dupName . dufPlan
+  actionExecute ctx a = handleDiskUploadFinalize (acState ctx) (dufPlan a)
+
+handleDiskUploadFinalize :: ServerState -> DiskUploadPlan -> IO Response
+handleDiskUploadFinalize state plan = runServerLogging state $ do
+  sizeMb <- liftIO $ getImageSizeMbViaAgent state (dupNodeId plan) (dupFilePath plan)
+  now <- liftIO getCurrentTime
+  liftIO $
+    runSqlPool
+      ( do
+          existing <- getBy (UniqueDiskImageName (dupName plan))
+          key <- case existing of
+            Nothing ->
+              insert
+                DiskImage
+                  { diskImageName = dupName plan
+                  , diskImageFormat = dupFormat plan
+                  , diskImageSizeMb = sizeMb
+                  , diskImageCreatedAt = now
+                  , diskImageBackingImageId = Nothing
+                  , diskImageEphemeral = dupEphemeral plan
+                  }
+            Just (Entity key _)
+              | dupOverwrite plan -> do
+                  update
+                    key
+                    [ DiskImageFormat =. dupFormat plan
+                    , DiskImageSizeMb =. sizeMb
+                    , DiskImageEphemeral =. dupEphemeral plan
+                    ]
+                  pure key
+              | otherwise -> fail "disk image appeared while upload was in progress"
+          recordDiskImageNode key (dupNodeId plan) (dupStoredPath plan)
+          pure (RespDiskCreated (fromSqlKey key))
+      )
+      (ssDbPool state)
 
 -- | Create a new disk image. An empty/zero @nodeRefText@ means
 -- "no explicit placement" — defer to 'pickNodeForDisk'.

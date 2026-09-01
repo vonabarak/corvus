@@ -112,6 +112,7 @@ module Corvus.NodeAgentClient
   , attachReader
   , diskReaderPipeInto
   , diskImportFromPeer
+  , diskOpenWrite
   )
 where
 
@@ -1470,3 +1471,18 @@ diskImportFromPeer nac destPath peerHost peerPort token expectedBytes expectedMd
         }
       (nacSession nac)
   pure ()
+
+-- | Open a node-local atomic writer used by daemon-mediated client uploads.
+-- The returned capability remains routed through the daemon connection when
+-- it is handed back to an API client.
+diskOpenWrite
+  :: NodeAgentClient
+  -> T.Text
+  -> IO (Either NodeAgentError (C.Client CGS.ByteSink))
+diskOpenWrite nac destPath = remote $ do
+  CGNA.Session'diskOpenWrite'results {CGNA.sink = sink} <-
+    callOn
+      #diskOpenWrite
+      CGNA.Session'diskOpenWrite'params {CGNA.destPath = destPath}
+      (nacSession nac)
+  pure sink

@@ -3,8 +3,8 @@
 #
 # Exercises Corvus's `installer` build path end-to-end without any
 # vendor installer in the loop. The bake VM boots a tiny ISO9660
-# image (corvus-test-installer-iso) whose PID 1 mounts the floppy
-# supplied by `crv build`, copies the marker payload onto /dev/vda,
+# image (corvus-test-installer-iso) whose PID 1 mounts uploaded
+# answer media, copies the marker payload onto /dev/vda,
 # and powers off. The daemon then publishes /dev/vda as the
 # artifact.
 #
@@ -21,7 +21,7 @@
 #     a tiny synthetic installer.
 #
 # The test feeds this YAML to `crv build` after patching
-# `build.target.name` and `build.floppy.contentBase64` for the
+# `build.target.name` and marker-media disk name for the
 # specific run.
 #
 # Usage (test-driven; not for manual runs unless debugging):
@@ -60,10 +60,15 @@ pipeline:
               media: cdrom
               readOnly: true
               strategy: direct
+            - diskImageName: corvus-test-installer-marker
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
 
   - build:
       name: corvus-test-installer-artifact
-      description: "Synthetic installer bake — exercises floppy + waitForShutdown + publish"
+      description: "Synthetic installer bake — exercises answer media + waitForShutdown + publish"
       template: corvus-test-installer
 
       target:
@@ -91,14 +96,6 @@ pipeline:
       # KVM and the init script finishes in milliseconds. Anything
       # past this budget is a regression.
       waitForShutdownSec: 120
-
-      # Floppy payload is supplied by the test as `contentBase64`
-      # carrying a per-run UUID. We deliberately leave it unset
-      # here so a stray `crv build <this-file>` fails fast at
-      # attach time with "floppy missing contentBase64" rather
-      # than silently baking with an empty marker.
-      floppy:
-        filename: marker.txt
 
       provisioners: []
 

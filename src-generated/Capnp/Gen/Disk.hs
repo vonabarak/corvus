@@ -555,6 +555,61 @@ instance (GH.HasField "ephemeral" GH.Slot DiskImportParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 16 0 1 0)
 instance (GH.HasField "node" GH.Slot DiskImportParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
     fieldByLabel  = (GH.ptrField 2)
+data DiskUploadParams 
+type instance (R.ReprFor DiskUploadParams) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskUploadParams) where
+    typeId  = 15076162066251495298
+instance (C.TypedStruct DiskUploadParams) where
+    numStructWords  = 1
+    numStructPtrs  = 3
+instance (C.Allocate DiskUploadParams) where
+    type AllocHint DiskUploadParams = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskUploadParams (C.Parsed DiskUploadParams))
+instance (C.AllocateList DiskUploadParams) where
+    type ListAllocHint DiskUploadParams = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskUploadParams (C.Parsed DiskUploadParams))
+data instance C.Parsed DiskUploadParams
+    = DiskUploadParams 
+        {name :: (RP.Parsed Basics.Text)
+        ,format :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat)
+        ,path :: (RP.Parsed Basics.Text)
+        ,ephemeral :: (RP.Parsed Std_.Bool)
+        ,node :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)
+        ,overwrite :: (RP.Parsed Std_.Bool)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskUploadParams))
+deriving instance (Std_.Eq (C.Parsed DiskUploadParams))
+instance (C.Parse DiskUploadParams (C.Parsed DiskUploadParams)) where
+    parse raw_ = (DiskUploadParams <$> (GH.parseField #name raw_)
+                                   <*> (GH.parseField #format raw_)
+                                   <*> (GH.parseField #path raw_)
+                                   <*> (GH.parseField #ephemeral raw_)
+                                   <*> (GH.parseField #node raw_)
+                                   <*> (GH.parseField #overwrite raw_))
+instance (C.Marshal DiskUploadParams (C.Parsed DiskUploadParams)) where
+    marshalInto raw_ DiskUploadParams{..} = (do
+        (GH.encodeField #name name raw_)
+        (GH.encodeField #format format raw_)
+        (GH.encodeField #path path raw_)
+        (GH.encodeField #ephemeral ephemeral raw_)
+        (GH.encodeField #node node raw_)
+        (GH.encodeField #overwrite overwrite raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "name" GH.Slot DiskUploadParams Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "format" GH.Slot DiskUploadParams Capnp.Gen.ById.Xbf9b09f64c0dd40d.DriveFormat) where
+    fieldByLabel  = (GH.dataField 0 0 16 0)
+instance (GH.HasField "path" GH.Slot DiskUploadParams Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+instance (GH.HasField "ephemeral" GH.Slot DiskUploadParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 16 0 1 0)
+instance (GH.HasField "node" GH.Slot DiskUploadParams Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 2)
+instance (GH.HasField "overwrite" GH.Slot DiskUploadParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 17 0 1 0)
 data DiskCopyParams 
 type instance (R.ReprFor DiskCopyParams) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskCopyParams) where
@@ -665,9 +720,10 @@ instance (GH.Export DiskManager) where
                                                                              ,(GH.toUntypedMethodHandler ((diskManager'import_) s_))
                                                                              ,(GH.toUntypedMethodHandler ((diskManager'flatten) s_))
                                                                              ,(GH.toUntypedMethodHandler ((diskManager'copy) s_))
-                                                                             ,(GH.toUntypedMethodHandler ((diskManager'move) s_))] [])
+                                                                             ,(GH.toUntypedMethodHandler ((diskManager'move) s_))
+                                                                             ,(GH.toUntypedMethodHandler ((diskManager'beginUpload) s_))] [])
 class (DiskManager'server_ s_) where
-    {-# MINIMAL diskManager'list,diskManager'get,diskManager'create,diskManager'register,diskManager'createOverlay,diskManager'clone,diskManager'rebase,diskManager'importUrl,diskManager'import_,diskManager'flatten,diskManager'copy,diskManager'move #-}
+    {-# MINIMAL diskManager'list,diskManager'get,diskManager'create,diskManager'register,diskManager'createOverlay,diskManager'clone,diskManager'rebase,diskManager'importUrl,diskManager'import_,diskManager'flatten,diskManager'copy,diskManager'move,diskManager'beginUpload #-}
     diskManager'list :: s_ -> (GH.MethodHandler DiskManager'list'params DiskManager'list'results)
     diskManager'list _ = GH.methodUnimplemented
     diskManager'get :: s_ -> (GH.MethodHandler DiskManager'get'params DiskManager'get'results)
@@ -692,6 +748,8 @@ class (DiskManager'server_ s_) where
     diskManager'copy _ = GH.methodUnimplemented
     diskManager'move :: s_ -> (GH.MethodHandler DiskManager'move'params DiskManager'move'results)
     diskManager'move _ = GH.methodUnimplemented
+    diskManager'beginUpload :: s_ -> (GH.MethodHandler DiskManager'beginUpload'params DiskManager'beginUpload'results)
+    diskManager'beginUpload _ = GH.methodUnimplemented
 instance (GH.HasMethod "list" DiskManager DiskManager'list'params DiskManager'list'results) where
     methodByLabel  = (GH.Method 14751763957337118315 0)
 instance (GH.HasMethod "get" DiskManager DiskManager'get'params DiskManager'get'results) where
@@ -716,6 +774,8 @@ instance (GH.HasMethod "copy" DiskManager DiskManager'copy'params DiskManager'co
     methodByLabel  = (GH.Method 14751763957337118315 10)
 instance (GH.HasMethod "move" DiskManager DiskManager'move'params DiskManager'move'results) where
     methodByLabel  = (GH.Method 14751763957337118315 11)
+instance (GH.HasMethod "beginUpload" DiskManager DiskManager'beginUpload'params DiskManager'beginUpload'results) where
+    methodByLabel  = (GH.Method 14751763957337118315 12)
 data DiskManager'list'params 
 type instance (R.ReprFor DiskManager'list'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskManager'list'params) where
@@ -1421,6 +1481,252 @@ instance (C.Marshal DiskManager'move'results (C.Parsed DiskManager'move'results)
         )
 instance (GH.HasField "taskId" GH.Slot DiskManager'move'results Std_.Int64) where
     fieldByLabel  = (GH.dataField 0 0 64 0)
+data DiskManager'beginUpload'params 
+type instance (R.ReprFor DiskManager'beginUpload'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'beginUpload'params) where
+    typeId  = 11118690551849368529
+instance (C.TypedStruct DiskManager'beginUpload'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate DiskManager'beginUpload'params) where
+    type AllocHint DiskManager'beginUpload'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'beginUpload'params (C.Parsed DiskManager'beginUpload'params))
+instance (C.AllocateList DiskManager'beginUpload'params) where
+    type ListAllocHint DiskManager'beginUpload'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'beginUpload'params (C.Parsed DiskManager'beginUpload'params))
+data instance C.Parsed DiskManager'beginUpload'params
+    = DiskManager'beginUpload'params 
+        {params :: (RP.Parsed DiskUploadParams)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'beginUpload'params))
+deriving instance (Std_.Eq (C.Parsed DiskManager'beginUpload'params))
+instance (C.Parse DiskManager'beginUpload'params (C.Parsed DiskManager'beginUpload'params)) where
+    parse raw_ = (DiskManager'beginUpload'params <$> (GH.parseField #params raw_))
+instance (C.Marshal DiskManager'beginUpload'params (C.Parsed DiskManager'beginUpload'params)) where
+    marshalInto raw_ DiskManager'beginUpload'params{..} = (do
+        (GH.encodeField #params params raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "params" GH.Slot DiskManager'beginUpload'params DiskUploadParams) where
+    fieldByLabel  = (GH.ptrField 0)
+data DiskManager'beginUpload'results 
+type instance (R.ReprFor DiskManager'beginUpload'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'beginUpload'results) where
+    typeId  = 13518445029670642475
+instance (C.TypedStruct DiskManager'beginUpload'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate DiskManager'beginUpload'results) where
+    type AllocHint DiskManager'beginUpload'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'beginUpload'results (C.Parsed DiskManager'beginUpload'results))
+instance (C.AllocateList DiskManager'beginUpload'results) where
+    type ListAllocHint DiskManager'beginUpload'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'beginUpload'results (C.Parsed DiskManager'beginUpload'results))
+data instance C.Parsed DiskManager'beginUpload'results
+    = DiskManager'beginUpload'results 
+        {upload :: (RP.Parsed DiskUpload)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'beginUpload'results))
+deriving instance (Std_.Eq (C.Parsed DiskManager'beginUpload'results))
+instance (C.Parse DiskManager'beginUpload'results (C.Parsed DiskManager'beginUpload'results)) where
+    parse raw_ = (DiskManager'beginUpload'results <$> (GH.parseField #upload raw_))
+instance (C.Marshal DiskManager'beginUpload'results (C.Parsed DiskManager'beginUpload'results)) where
+    marshalInto raw_ DiskManager'beginUpload'results{..} = (do
+        (GH.encodeField #upload upload raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "upload" GH.Slot DiskManager'beginUpload'results DiskUpload) where
+    fieldByLabel  = (GH.ptrField 0)
+data DiskUpload 
+type instance (R.ReprFor DiskUpload) = (R.Ptr (Std_.Just R.Cap))
+instance (C.HasTypeId DiskUpload) where
+    typeId  = 9634920040308778873
+instance (C.Parse DiskUpload (GH.Client DiskUpload)) where
+    parse  = GH.parseCap
+    encode  = GH.encodeCap
+instance (GH.Export DiskUpload) where
+    type Server DiskUpload = DiskUpload'server_
+    methodHandlerTree _ s_ = (GH.MethodHandlerTree (C.typeId @(DiskUpload)) [(GH.toUntypedMethodHandler ((diskUpload'write) s_))
+                                                                            ,(GH.toUntypedMethodHandler ((diskUpload'finish) s_))
+                                                                            ,(GH.toUntypedMethodHandler ((diskUpload'abort) s_))] [])
+class (DiskUpload'server_ s_) where
+    {-# MINIMAL diskUpload'write,diskUpload'finish,diskUpload'abort #-}
+    diskUpload'write :: s_ -> (GH.MethodHandler DiskUpload'write'params DiskUpload'write'results)
+    diskUpload'write _ = GH.methodUnimplemented
+    diskUpload'finish :: s_ -> (GH.MethodHandler DiskUpload'finish'params DiskUpload'finish'results)
+    diskUpload'finish _ = GH.methodUnimplemented
+    diskUpload'abort :: s_ -> (GH.MethodHandler DiskUpload'abort'params DiskUpload'abort'results)
+    diskUpload'abort _ = GH.methodUnimplemented
+instance (GH.HasMethod "write" DiskUpload DiskUpload'write'params DiskUpload'write'results) where
+    methodByLabel  = (GH.Method 9634920040308778873 0)
+instance (GH.HasMethod "finish" DiskUpload DiskUpload'finish'params DiskUpload'finish'results) where
+    methodByLabel  = (GH.Method 9634920040308778873 1)
+instance (GH.HasMethod "abort" DiskUpload DiskUpload'abort'params DiskUpload'abort'results) where
+    methodByLabel  = (GH.Method 9634920040308778873 2)
+data DiskUpload'write'params 
+type instance (R.ReprFor DiskUpload'write'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskUpload'write'params) where
+    typeId  = 11802940733315648903
+instance (C.TypedStruct DiskUpload'write'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate DiskUpload'write'params) where
+    type AllocHint DiskUpload'write'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskUpload'write'params (C.Parsed DiskUpload'write'params))
+instance (C.AllocateList DiskUpload'write'params) where
+    type ListAllocHint DiskUpload'write'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskUpload'write'params (C.Parsed DiskUpload'write'params))
+data instance C.Parsed DiskUpload'write'params
+    = DiskUpload'write'params 
+        {chunk :: (RP.Parsed Basics.Data)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskUpload'write'params))
+deriving instance (Std_.Eq (C.Parsed DiskUpload'write'params))
+instance (C.Parse DiskUpload'write'params (C.Parsed DiskUpload'write'params)) where
+    parse raw_ = (DiskUpload'write'params <$> (GH.parseField #chunk raw_))
+instance (C.Marshal DiskUpload'write'params (C.Parsed DiskUpload'write'params)) where
+    marshalInto raw_ DiskUpload'write'params{..} = (do
+        (GH.encodeField #chunk chunk raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "chunk" GH.Slot DiskUpload'write'params Basics.Data) where
+    fieldByLabel  = (GH.ptrField 0)
+data DiskUpload'write'results 
+type instance (R.ReprFor DiskUpload'write'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskUpload'write'results) where
+    typeId  = 17679149025513107491
+instance (C.TypedStruct DiskUpload'write'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskUpload'write'results) where
+    type AllocHint DiskUpload'write'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskUpload'write'results (C.Parsed DiskUpload'write'results))
+instance (C.AllocateList DiskUpload'write'results) where
+    type ListAllocHint DiskUpload'write'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskUpload'write'results (C.Parsed DiskUpload'write'results))
+data instance C.Parsed DiskUpload'write'results
+    = DiskUpload'write'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskUpload'write'results))
+deriving instance (Std_.Eq (C.Parsed DiskUpload'write'results))
+instance (C.Parse DiskUpload'write'results (C.Parsed DiskUpload'write'results)) where
+    parse raw_ = (Std_.pure DiskUpload'write'results)
+instance (C.Marshal DiskUpload'write'results (C.Parsed DiskUpload'write'results)) where
+    marshalInto _raw (DiskUpload'write'results) = (Std_.pure ())
+data DiskUpload'finish'params 
+type instance (R.ReprFor DiskUpload'finish'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskUpload'finish'params) where
+    typeId  = 12479714234013627419
+instance (C.TypedStruct DiskUpload'finish'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskUpload'finish'params) where
+    type AllocHint DiskUpload'finish'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskUpload'finish'params (C.Parsed DiskUpload'finish'params))
+instance (C.AllocateList DiskUpload'finish'params) where
+    type ListAllocHint DiskUpload'finish'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskUpload'finish'params (C.Parsed DiskUpload'finish'params))
+data instance C.Parsed DiskUpload'finish'params
+    = DiskUpload'finish'params 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskUpload'finish'params))
+deriving instance (Std_.Eq (C.Parsed DiskUpload'finish'params))
+instance (C.Parse DiskUpload'finish'params (C.Parsed DiskUpload'finish'params)) where
+    parse raw_ = (Std_.pure DiskUpload'finish'params)
+instance (C.Marshal DiskUpload'finish'params (C.Parsed DiskUpload'finish'params)) where
+    marshalInto _raw (DiskUpload'finish'params) = (Std_.pure ())
+data DiskUpload'finish'results 
+type instance (R.ReprFor DiskUpload'finish'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskUpload'finish'results) where
+    typeId  = 9284698822705774854
+instance (C.TypedStruct DiskUpload'finish'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate DiskUpload'finish'results) where
+    type AllocHint DiskUpload'finish'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskUpload'finish'results (C.Parsed DiskUpload'finish'results))
+instance (C.AllocateList DiskUpload'finish'results) where
+    type ListAllocHint DiskUpload'finish'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskUpload'finish'results (C.Parsed DiskUpload'finish'results))
+data instance C.Parsed DiskUpload'finish'results
+    = DiskUpload'finish'results 
+        {disk :: (RP.Parsed Disk)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskUpload'finish'results))
+deriving instance (Std_.Eq (C.Parsed DiskUpload'finish'results))
+instance (C.Parse DiskUpload'finish'results (C.Parsed DiskUpload'finish'results)) where
+    parse raw_ = (DiskUpload'finish'results <$> (GH.parseField #disk raw_))
+instance (C.Marshal DiskUpload'finish'results (C.Parsed DiskUpload'finish'results)) where
+    marshalInto raw_ DiskUpload'finish'results{..} = (do
+        (GH.encodeField #disk disk raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "disk" GH.Slot DiskUpload'finish'results Disk) where
+    fieldByLabel  = (GH.ptrField 0)
+data DiskUpload'abort'params 
+type instance (R.ReprFor DiskUpload'abort'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskUpload'abort'params) where
+    typeId  = 17332012442709323026
+instance (C.TypedStruct DiskUpload'abort'params) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskUpload'abort'params) where
+    type AllocHint DiskUpload'abort'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskUpload'abort'params (C.Parsed DiskUpload'abort'params))
+instance (C.AllocateList DiskUpload'abort'params) where
+    type ListAllocHint DiskUpload'abort'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskUpload'abort'params (C.Parsed DiskUpload'abort'params))
+data instance C.Parsed DiskUpload'abort'params
+    = DiskUpload'abort'params 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskUpload'abort'params))
+deriving instance (Std_.Eq (C.Parsed DiskUpload'abort'params))
+instance (C.Parse DiskUpload'abort'params (C.Parsed DiskUpload'abort'params)) where
+    parse raw_ = (Std_.pure DiskUpload'abort'params)
+instance (C.Marshal DiskUpload'abort'params (C.Parsed DiskUpload'abort'params)) where
+    marshalInto _raw (DiskUpload'abort'params) = (Std_.pure ())
+data DiskUpload'abort'results 
+type instance (R.ReprFor DiskUpload'abort'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskUpload'abort'results) where
+    typeId  = 18027354806982423214
+instance (C.TypedStruct DiskUpload'abort'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskUpload'abort'results) where
+    type AllocHint DiskUpload'abort'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskUpload'abort'results (C.Parsed DiskUpload'abort'results))
+instance (C.AllocateList DiskUpload'abort'results) where
+    type ListAllocHint DiskUpload'abort'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskUpload'abort'results (C.Parsed DiskUpload'abort'results))
+data instance C.Parsed DiskUpload'abort'results
+    = DiskUpload'abort'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskUpload'abort'results))
+deriving instance (Std_.Eq (C.Parsed DiskUpload'abort'results))
+instance (C.Parse DiskUpload'abort'results (C.Parsed DiskUpload'abort'results)) where
+    parse raw_ = (Std_.pure DiskUpload'abort'results)
+instance (C.Marshal DiskUpload'abort'results (C.Parsed DiskUpload'abort'results)) where
+    marshalInto _raw (DiskUpload'abort'results) = (Std_.pure ())
 data Disk 
 type instance (R.ReprFor Disk) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId Disk) where

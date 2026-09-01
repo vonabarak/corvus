@@ -375,9 +375,10 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotLoadWithVmstate) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotDeleteWithVmstate) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'guestSetTime) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'deleteTpmState) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'deleteTpmState) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'diskOpenWrite) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -468,6 +469,8 @@ class (Session'server_ s_) where
     session'guestSetTime _ = GH.methodUnimplemented
     session'deleteTpmState :: s_ -> (GH.MethodHandler Session'deleteTpmState'params Session'deleteTpmState'results)
     session'deleteTpmState _ = GH.methodUnimplemented
+    session'diskOpenWrite :: s_ -> (GH.MethodHandler Session'diskOpenWrite'params Session'diskOpenWrite'results)
+    session'diskOpenWrite _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -558,6 +561,8 @@ instance (GH.HasMethod "guestSetTime" Session Session'guestSetTime'params Sessio
     methodByLabel  = (GH.Method 11450192344861352079 43)
 instance (GH.HasMethod "deleteTpmState" Session Session'deleteTpmState'params Session'deleteTpmState'results) where
     methodByLabel  = (GH.Method 11450192344861352079 44)
+instance (GH.HasMethod "diskOpenWrite" Session Session'diskOpenWrite'params Session'diskOpenWrite'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 45)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -3413,7 +3418,7 @@ instance (C.Marshal Session'guestSetTime'results (C.Parsed Session'guestSetTime'
         )
 instance (GH.HasField "result" GH.Slot Session'guestSetTime'results DiskOpResult) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'deleteTpmState'params
+data Session'deleteTpmState'params 
 type instance (R.ReprFor Session'deleteTpmState'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'deleteTpmState'params) where
     typeId  = 14396184920231242233
@@ -3429,7 +3434,7 @@ instance (C.AllocateList Session'deleteTpmState'params) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'deleteTpmState'params (C.Parsed Session'deleteTpmState'params))
 data instance C.Parsed Session'deleteTpmState'params
-    = Session'deleteTpmState'params
+    = Session'deleteTpmState'params 
         {vmName :: (RP.Parsed Basics.Text)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'deleteTpmState'params))
@@ -3443,7 +3448,7 @@ instance (C.Marshal Session'deleteTpmState'params (C.Parsed Session'deleteTpmSta
         )
 instance (GH.HasField "vmName" GH.Slot Session'deleteTpmState'params Basics.Text) where
     fieldByLabel  = (GH.ptrField 0)
-data Session'deleteTpmState'results
+data Session'deleteTpmState'results 
 type instance (R.ReprFor Session'deleteTpmState'results) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'deleteTpmState'results) where
     typeId  = 18125263205622004658
@@ -3459,7 +3464,7 @@ instance (C.AllocateList Session'deleteTpmState'results) where
     newList  = C.newTypedStructList
 instance (C.EstimateListAlloc Session'deleteTpmState'results (C.Parsed Session'deleteTpmState'results))
 data instance C.Parsed Session'deleteTpmState'results
-    = Session'deleteTpmState'results
+    = Session'deleteTpmState'results 
         {}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed Session'deleteTpmState'results))
@@ -3468,6 +3473,66 @@ instance (C.Parse Session'deleteTpmState'results (C.Parsed Session'deleteTpmStat
     parse raw_ = (Std_.pure Session'deleteTpmState'results)
 instance (C.Marshal Session'deleteTpmState'results (C.Parsed Session'deleteTpmState'results)) where
     marshalInto _raw (Session'deleteTpmState'results) = (Std_.pure ())
+data Session'diskOpenWrite'params 
+type instance (R.ReprFor Session'diskOpenWrite'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskOpenWrite'params) where
+    typeId  = 13925541470899200758
+instance (C.TypedStruct Session'diskOpenWrite'params) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'diskOpenWrite'params) where
+    type AllocHint Session'diskOpenWrite'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'diskOpenWrite'params (C.Parsed Session'diskOpenWrite'params))
+instance (C.AllocateList Session'diskOpenWrite'params) where
+    type ListAllocHint Session'diskOpenWrite'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'diskOpenWrite'params (C.Parsed Session'diskOpenWrite'params))
+data instance C.Parsed Session'diskOpenWrite'params
+    = Session'diskOpenWrite'params 
+        {destPath :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'diskOpenWrite'params))
+deriving instance (Std_.Eq (C.Parsed Session'diskOpenWrite'params))
+instance (C.Parse Session'diskOpenWrite'params (C.Parsed Session'diskOpenWrite'params)) where
+    parse raw_ = (Session'diskOpenWrite'params <$> (GH.parseField #destPath raw_))
+instance (C.Marshal Session'diskOpenWrite'params (C.Parsed Session'diskOpenWrite'params)) where
+    marshalInto raw_ Session'diskOpenWrite'params{..} = (do
+        (GH.encodeField #destPath destPath raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "destPath" GH.Slot Session'diskOpenWrite'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+data Session'diskOpenWrite'results 
+type instance (R.ReprFor Session'diskOpenWrite'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'diskOpenWrite'results) where
+    typeId  = 12295800475057107102
+instance (C.TypedStruct Session'diskOpenWrite'results) where
+    numStructWords  = 0
+    numStructPtrs  = 1
+instance (C.Allocate Session'diskOpenWrite'results) where
+    type AllocHint Session'diskOpenWrite'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'diskOpenWrite'results (C.Parsed Session'diskOpenWrite'results))
+instance (C.AllocateList Session'diskOpenWrite'results) where
+    type ListAllocHint Session'diskOpenWrite'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'diskOpenWrite'results (C.Parsed Session'diskOpenWrite'results))
+data instance C.Parsed Session'diskOpenWrite'results
+    = Session'diskOpenWrite'results 
+        {sink :: (RP.Parsed Capnp.Gen.ById.X9bd452a518ed3917.ByteSink)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'diskOpenWrite'results))
+deriving instance (Std_.Eq (C.Parsed Session'diskOpenWrite'results))
+instance (C.Parse Session'diskOpenWrite'results (C.Parsed Session'diskOpenWrite'results)) where
+    parse raw_ = (Session'diskOpenWrite'results <$> (GH.parseField #sink raw_))
+instance (C.Marshal Session'diskOpenWrite'results (C.Parsed Session'diskOpenWrite'results)) where
+    marshalInto raw_ Session'diskOpenWrite'results{..} = (do
+        (GH.encodeField #sink sink raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "sink" GH.Slot Session'diskOpenWrite'results Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
+    fieldByLabel  = (GH.ptrField 0)
 data DiskReader 
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where

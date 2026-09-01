@@ -31,11 +31,12 @@ module Corvus.Schema.Build
   , Reboot (..)
   , CleanupMode (..)
   , BootKey (..)
-  , Floppy (..)
+  , Upload (..)
   , IfExists (..)
   )
 where
 
+import Control.Monad (when)
 import Corvus.Model (DriveFormat (..))
 import Corvus.Schema.Apply (ApplyConfig, IfExists (..))
 import qualified Data.Aeson.Key as Key
@@ -63,17 +64,45 @@ instance FromJSON PipelineConfig where
 data PipelineStep
   = PipelineBuild Build
   | PipelineApply ApplyConfig
+  | PipelineUpload Upload
   deriving (Show)
 
 instance FromJSON PipelineStep where
   parseJSON = withObject "pipeline step" $ \o -> do
     mBuild <- o .:? "build"
     mApply <- o .:? "apply"
-    case (mBuild, mApply) of
-      (Just b, Nothing) -> pure (PipelineBuild b)
-      (Nothing, Just a) -> pure (PipelineApply a)
-      (Just _, Just _) -> fail "pipeline step has both 'build' and 'apply' — use one per list item"
-      (Nothing, Nothing) -> fail "pipeline step needs 'build' or 'apply'"
+    mUpload <- o .:? "upload"
+    case (mBuild, mApply, mUpload) of
+      (Just b, Nothing, Nothing) -> pure (PipelineBuild b)
+      (Nothing, Just a, Nothing) -> pure (PipelineApply a)
+      (Nothing, Nothing, Just u) -> pure (PipelineUpload u)
+      (Nothing, Nothing, Nothing) -> fail "pipeline step needs 'upload', 'build', or 'apply'"
+      _ -> fail "pipeline step must contain exactly one of: upload, build, apply"
+
+-- | Client-local upload declaration. It is parsed so clients can validate the
+-- complete pipeline, but @crv build@ consumes leading upload steps before the
+-- daemon receives the remaining apply/build pipeline.
+data Upload = Upload
+  { uploadName :: Text
+  , uploadFrom :: FilePath
+  , uploadFormat :: DriveFormat
+  , uploadPath :: Maybe Text
+  , uploadEphemeral :: Bool
+  , uploadNode :: Text
+  , uploadIfExists :: IfExists
+  }
+  deriving (Show)
+
+instance FromJSON Upload where
+  parseJSON = withObject "Upload" $ \o ->
+    Upload
+      <$> o .: "name"
+      <*> o .: "from"
+      <*> o .: "format"
+      <*> o .:? "path"
+      <*> o .:? "ephemeral" .!= True
+      <*> o .:? "node" .!= ""
+      <*> o .:? "ifExists" .!= IfExistsError
 
 data Build = Build
   { buildName :: Text
@@ -90,7 +119,6 @@ data Build = Build
   , buildCleanup :: CleanupMode
   , buildBootKeys :: [BootKey]
   , buildWaitForShutdownSec :: Int
-  , buildFloppy :: Maybe Floppy
   , buildUseCache :: Bool
   , buildBuildCache :: Bool
   , buildCacheMode :: BuildCacheMode
@@ -131,7 +159,9 @@ instance FromJSON BuildCacheMode where
     other -> fail ("cacheMode: expected 'memory' or 'disk', got: " <> T.unpack other)
 
 instance FromJSON Build where
-  parseJSON = withObject "Build" $ \o ->
+  parseJSON = withObject "Build" $ \o -> do
+    when (KM.member "floppy" o) $
+      fail "build.floppy was removed; upload prepared media with a leading pipeline upload step and attach it in the template"
     Build
       <$> o .: "name"
       <*> o .:? "description"
@@ -145,7 +175,6 @@ instance FromJSON Build where
       <*> o .:? "cleanup" .!= CleanupAlways
       <*> o .:? "bootKeys" .!= []
       <*> o .:? "waitForShutdownSec" .!= 3600
-      <*> o .:? "floppy"
       <*> o .:? "useCache" .!= False
       <*> o .:? "buildCache" .!= False
       <*> o .:? "cacheMode" .!= CacheModeMemory
@@ -409,28 +438,3 @@ instance FromJSON BootKey where
       <*> o .:? "delaySec" .!= 0
       <*> o .:? "repeat" .!= 1
       <*> o .:? "intervalSec" .!= 1
-
--- | An autounattend / kickstart / preseed floppy attached to the bake VM.
---
--- The client preprocesses the YAML before sending: a non-Nothing
--- 'floppyFrom' becomes a non-Nothing 'floppyContentBase64' carrying the
--- base64-encoded raw file bytes. The daemon never reads the operator's
--- filesystem; it sees only @contentBase64@. The daemon then wraps the
--- bytes in a 1.44 MB FAT12 floppy image (single file at the floppy
--- root), attaches it to the bake VM as @if=floppy@, and lets the
--- vendor installer find it.
---
--- A non-Nothing 'floppyFrom' on the daemon-side parse is a client bug.
-data Floppy = Floppy
-  { floppyFrom :: Maybe FilePath
-  , floppyContentBase64 :: Maybe Text
-  , floppyFilename :: Maybe Text
-  }
-  deriving (Eq, Show)
-
-instance FromJSON Floppy where
-  parseJSON = withObject "Floppy" $ \o ->
-    Floppy
-      <$> o .:? "from"
-      <*> o .:? "contentBase64"
-      <*> o .:? "filename"

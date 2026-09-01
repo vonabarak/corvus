@@ -1,4 +1,5 @@
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
@@ -18,8 +19,10 @@ module Corvus.Rpc.Disk
 where
 
 import Capnp (export)
+import qualified Capnp as C
 import qualified Capnp.Gen.Disk as CGDisk
 import qualified Capnp.Gen.Enums as CGE
+import qualified Capnp.Gen.Streams as CGS
 import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Corvus.Action (runAction, runActionAsyncWithId)
@@ -36,8 +39,11 @@ import Corvus.Handlers.Disk
   , DiskRefresh (..)
   , DiskRegister (..)
   , DiskResize (..)
+  , DiskUploadFinalize (..)
+  , DiskUploadPlan (..)
   , handleDiskList
   , handleDiskShow
+  , prepareDiskUpload
   )
 import Corvus.Handlers.Disk.Snapshot
   ( SnapshotCreate (..)
@@ -52,7 +58,8 @@ import qualified Corvus.NodeAgentClient as NOA
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
-import Corvus.Types (ServerState (..))
+import Corvus.Rpc.Streams (callSink)
+import Corvus.Types (ServerState (..), lookupNodeAgent)
 import Corvus.Wire.Disk (toCapnpDiskImageInfo, toCapnpSnapshotInfo)
 import Corvus.Wire.Enums (fromCapnpDriveFormat)
 import Data.Int (Int64)
@@ -294,12 +301,61 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
         RespError msg -> throwFailed msg
         _ -> throwFailed "diskManager'move: unexpected response"
 
+  diskManager'beginUpload (DiskManagerCap st sup cn) =
+    handleParsed $ \CGDisk.DiskManager'beginUpload'params {params = CGDisk.DiskUploadParams {..}} -> do
+      fmt <- enumOrThrow (fromCapnpDriveFormat format)
+      nodeRef' <- capnpRefToRef node
+      let mPath = emptyToNothing path
+      planResult <- prepareDiskUpload st name fmt mPath ephemeral (P.unRef nodeRef') overwrite
+      plan <- either throwFailed pure planResult
+      agentResult <- lookupNodeAgent st (dupNodeId plan)
+      agent <- either throwFailed pure agentResult
+      sinkResult <- NOA.diskOpenWrite agent (T.pack (dupFilePath plan))
+      sink <- either (throwFailed . T.pack . show) pure sinkResult
+      upload <- export @CGDisk.DiskUpload sup (DiskUploadCap st sup cn plan sink)
+      pure CGDisk.DiskManager'beginUpload'results {CGDisk.upload = upload}
+
 -- | Treat the wire's empty-string default as 'Nothing'. Cap'n
 -- Proto can't represent @Maybe Text@ natively without adding a
 -- group; using @""@ as the unset sentinel is the convention used
 -- elsewhere in the daemon (see e.g. @VmCreateParams@ handling).
 emptyToNothing :: T.Text -> Maybe T.Text
 emptyToNothing t = if T.null t then Nothing else Just t
+
+-- | Daemon-owned relay for a nodeagent atomic writer. The client only sees
+-- this capability, so uploads retain the normal daemon/node mTLS boundary.
+data DiskUploadCap = DiskUploadCap
+  { ducState :: !ServerState
+  , ducSup :: !Supervisor
+  , ducClientName :: !T.Text
+  , ducPlan :: !DiskUploadPlan
+  , ducSink :: !(C.Client CGS.ByteSink)
+  }
+
+instance SomeServer DiskUploadCap
+
+instance CGDisk.DiskUpload'server_ DiskUploadCap where
+  diskUpload'write cap =
+    handleParsed $ \CGDisk.DiskUpload'write'params {CGDisk.chunk = chunk} -> do
+      callSink #write CGS.ByteSink'write'params {CGS.chunk = chunk} (ducSink cap)
+      pure CGDisk.DiskUpload'write'results
+
+  diskUpload'finish cap =
+    handleParsed $ \_ -> do
+      callSink #end CGS.ByteSink'end'params (ducSink cap)
+      resp <- runAction (ducState cap) (ducClientName cap) (DiskUploadFinalize (ducPlan cap))
+      case resp of
+        RespDiskCreated did -> do
+          disk <- export @CGDisk.Disk (ducSup cap) (DiskCap (ducState cap) (ducSup cap) did (ducClientName cap))
+          pure CGDisk.DiskUpload'finish'results {CGDisk.disk = disk}
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "diskUpload'finish: unexpected response"
+
+  diskUpload'abort _ =
+    handleParsed $ \_ ->
+      -- The node writer has not received end(), therefore its .part file is
+      -- never published. A later upload truncates that same staging path.
+      pure CGDisk.DiskUpload'abort'results
 
 -- ---------------------------------------------------------------------
 -- Disk resource cap

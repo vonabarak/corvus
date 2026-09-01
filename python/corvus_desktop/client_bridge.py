@@ -43,12 +43,16 @@ import logging
 import threading
 from collections.abc import Coroutine
 from contextlib import AsyncExitStack
+from pathlib import Path
 from typing import Any
 
 import capnp
 from corvus_client._async.client import AsyncClient
+from corvus_client._async.disk import AsyncDiskManager
 from corvus_client.exceptions import CorvusError
 from PySide6.QtCore import QObject, Signal
+
+import yaml
 
 from .cli import DesktopConfig
 
@@ -640,7 +644,7 @@ class CorvusBridge(QObject):
     def network_detach_node(self, network_id: int, node_ref: int | str) -> None:
         self._enqueue(self._do_network_detach_node(network_id, node_ref))
 
-    def build_run(self, yaml_text: str) -> None:
+    def build_run(self, yaml_text: str, base_dir: str | None = None) -> None:
         """Stream daemon build events for ``yaml_text``.
 
         Emits one :attr:`build_event` per event, then
@@ -648,7 +652,7 @@ class CorvusBridge(QObject):
         :attr:`build_finished` on stream close (empty payload on
         success, error string otherwise).
         """
-        self._enqueue(self._do_build_run(yaml_text))
+        self._enqueue(self._do_build_run(yaml_text, base_dir))
 
     # ---------------------------------------------------- Phase 12 slots
 
@@ -1894,13 +1898,64 @@ class CorvusBridge(QObject):
 
     # ------------------------------------------------------------ build
 
-    async def _do_build_run(self, yaml_text: str) -> None:
+    async def _do_build_run(self, yaml_text: str, base_dir: str | None = None) -> None:
         client = self._client
         if client is None:
             self.operation_failed.emit("build", "not connected")
             self.build_finished.emit("not connected")
             return
         try:
+            doc = yaml.safe_load(yaml_text)
+            if isinstance(doc, dict) and isinstance(doc.get("pipeline"), list):
+                uploads: list[dict[str, Any]] = []
+                rest: list[Any] = []
+                seen_non_upload = False
+                for step in doc["pipeline"]:
+                    if isinstance(step, dict) and isinstance(step.get("upload"), dict):
+                        if seen_non_upload:
+                            raise ValueError(
+                                "pipeline upload steps must precede apply/build steps"
+                            )
+                        uploads.append(step["upload"])
+                    else:
+                        seen_non_upload = True
+                        rest.append(step)
+                if uploads:
+                    disks = AsyncDiskManager(client.daemon)
+                    root = Path(base_dir or ".").resolve()
+                    for upload in uploads:
+                        name = upload.get("name")
+                        source = upload.get("from")
+                        format = upload.get("format")
+                        if (
+                            not isinstance(name, str)
+                            or not isinstance(source, str)
+                            or not isinstance(format, str)
+                        ):
+                            raise ValueError(
+                                "upload name, from, and format must be strings"
+                            )
+                        if upload.get("ifExists", "error") not in {
+                            "error",
+                            "overwrite",
+                        }:
+                            raise ValueError(
+                                "upload.ifExists must be 'error' or 'overwrite'"
+                            )
+                        source_path = Path(source)
+                        if not source_path.is_absolute():
+                            source_path = root / source_path
+                        await disks.upload_from_file(
+                            name,
+                            source_path,
+                            format=format,
+                            path=upload.get("path"),
+                            ephemeral=upload.get("ephemeral", True),
+                            node=upload.get("node"),
+                            overwrite=upload.get("ifExists") == "overwrite",
+                        )
+                    doc["pipeline"] = rest
+                    yaml_text = yaml.safe_dump(doc, sort_keys=False)
             async for item in client.build_stream_text(yaml_text):
                 if isinstance(item, tuple) and len(item) == 2 and item[0] == "task_id":
                     self.build_started.emit(int(item[1]))

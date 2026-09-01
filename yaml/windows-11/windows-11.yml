@@ -1,0 +1,173 @@
+---
+# Windows 11 Pro image — unattended, VirtIO-enabled build pipeline.
+#
+# Before running this pipeline, register the Windows 11 x64 multi-edition ISO
+# and the VirtIO-Win driver ISO with Corvus using the exact disk names
+# `windows-11-iso` and `virtio-win-iso`. Then run:
+#
+#   crv build yaml/windows-11/windows-11.yml --wait
+#
+# The pipeline:
+#   1. uploads a locally prepared answer ISO, registers OVMF firmware, and
+#      creates a bake-only template that attaches the three ISO disks;
+#   2. installs Windows 11 Pro and publishes `windows-11-pro-base` beneath
+#      BaseImages/Windows11/;
+#   3. registers a runtime `windows-11-pro` overlay template.
+#
+# The image contains the VirtIO drivers, QEMU Guest Agent, SPICE guest tools,
+# WinFSP, and the VirtIO-FS guest service. Cloudbase-Init/cloud-init is not
+# installed or enabled.
+#
+# This legacy image recipe intentionally leaves Corvus vTPM support disabled
+# and retains the autounattend.xml TPM/Secure Boot installer bypass while using
+# UEFI boot. The resulting VM is not a Microsoft-supported hardware
+# configuration. Set `tpm: true` in a separate template when TPM-backed runtime
+# behavior is wanted; Secure Boot remains a separate firmware concern.
+#
+# Requirements:
+#   * The `windows-11-iso` disk must be a registered Windows 11 x64
+#     multi-edition installation ISO.
+#   * The `virtio-win-iso` disk must be a registered VirtIO-Win driver ISO.
+#   * The `corvus` managed network must exist and provide outbound internet;
+#     first-logon provisioning downloads a pinned, checksummed WinFSP MSI.
+#   * The host must provide the OVMF files registered below.
+#
+# Expect roughly 45-70 minutes on KVM. The bake is graphical so failures can be
+# inspected over SPICE. Provisioning logs are under C:\Windows\Temp\; failures
+# deliberately leave the VM running until the installer build times out.
+
+_ovmf_code_drive: &ovmf_code
+  diskImageName: ovmf-code-secboot
+  interface: pflash
+  readOnly: true
+  strategy: direct
+
+_ovmf_vars_drive: &ovmf_vars
+  diskImageName: ovmf-vars-secboot
+  interface: pflash
+  strategy: clone
+
+pipeline:
+  # The Makefile creates this ISO with Autounattend.xml at its root. Upload
+  # steps are client-local and must lead the pipeline; the resulting disk is
+  # otherwise ordinary template media.
+  - upload:
+      name: windows-11-autounattend
+      from: ./build/autounattend.iso
+      format: raw
+      ephemeral: true
+      ifExists: overwrite
+
+  - apply:
+      ifExists: skip
+      disks:
+        - name: ovmf-code-secboot
+          register: "/usr/share/edk2/OvmfX64/OVMF_CODE_4M.secboot.qcow2"
+          format: qcow2
+        - name: ovmf-vars-secboot
+          register: "/usr/share/edk2/OvmfX64/OVMF_VARS_4M.secboot.qcow2"
+          format: qcow2
+
+      templates:
+        - name: windows-11-installer
+          description: "Windows 11 Pro unattended installer (bake-only)"
+          cpuCount: 4
+          ramMb: 8192
+          headless: false
+          cloudInit: false
+          tpm: true
+          # The installer strategy waits for guest-initiated shutdown and does
+          # not wait for QGA, which is installed during first logon.
+          guestAgent: false
+          drives:
+            # The installer strategy captures the first drive as the artifact.
+            # 80 GiB exceeds Windows 11's 64 GiB minimum and leaves room for
+            # updates and the guest integration packages.
+            - interface: virtio
+              media: disk
+              strategy: create
+              format: qcow2
+              sizeMb: 81920
+              cacheType: writeback
+            - *ovmf_code
+            - *ovmf_vars
+            # These ISO disks must already be registered with Corvus. Drive
+            # ordering is significant: autounattend.xml expects the Windows
+            # installer at D: and the VirtIO-Win media at E:.
+            - diskImageName: windows-11-iso
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
+            - diskImageName: virtio-win-iso
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
+            # Windows Setup searches removable media for a root-level
+            # Autounattend.xml. Keep this after the Windows and VirtIO ISOs so
+            # their expected D: and E: drive letters stay stable.
+            - diskImageName: windows-11-autounattend
+              interface: ide
+              media: cdrom
+              readOnly: true
+              strategy: direct
+          networkInterfaces:
+            - network: corvus
+
+  - build:
+      name: windows-11-pro-base
+      description: "Windows 11 Pro with VirtIO guest integration and no cloud-init"
+      template: windows-11-installer
+
+      target:
+        ifExists: skip
+        format: qcow2
+        compact: true
+        path: BaseImages/Windows11/
+
+      strategy: installer
+
+      vm:
+        cpuCount: 4
+        ramMb: 8192
+
+      # Dismiss OVMF's short "Press any key to boot from CD or DVD" prompt.
+      bootKeys:
+        - keys: ret
+          delaySec: 3
+          repeat: 6
+          intervalSec: 1
+
+      # Allow 90 minutes for Windows installation and guest setup. Successful
+      # provisioning ends with a guest-initiated shutdown.
+      waitForShutdownSec: 5400
+
+      provisioners: []
+
+      # Keep failed bake VMs available for SPICE and Panther/build-log
+      # diagnostics; clean up only after a successful artifact capture.
+      cleanup: onSuccess
+
+  - apply:
+      ifExists: skip
+      templates:
+        - name: windows-11-pro
+          description: "Windows 11 Pro with VirtIO, QGA, SPICE, and VirtIO-FS (no cloud-init)"
+          cpuCount: 4
+          ramMb: 8192
+          headless: false
+          cloudInit: false
+          guestAgent: true
+          tpm: false
+          drives:
+            - *ovmf_code
+            - *ovmf_vars
+            - diskImageName: windows-11-pro-base
+              interface: virtio
+              strategy: overlay
+              cacheType: writeback
+              discard: true
+              sizeMb: 81920
+          networkInterfaces:
+            - network: corvus

@@ -3,8 +3,8 @@
 Exercises Corvus's `installer` build strategy (the path taken by
 the Windows Server 2025 bake) using a synthetic installer ISO so a
 single run takes ~30-60 s instead of ~55 min. The synthetic ISO is
-a busybox initramfs whose PID 1 mounts the floppy supplied by
-`crv build`, copies a per-run marker payload onto /dev/vda, and
+a busybox initramfs whose PID 1 mounts uploaded answer media, copies a
+per-run marker payload onto /dev/vda, and
 powers off — exactly the contract `runInstallerPhase` (in
 `src/Corvus/Handlers/Build.hs`) expects from a real vendor
 installer.
@@ -22,7 +22,7 @@ What the assertions cover:
   * The artifact disk is registered under the per-run target name.
   * No `__build_*` orphan VMs/disks remain.
   * The marker payload (CORVUS-INSTALLER-OK + a per-run UUID)
-    survives publish, proving the floppy was actually attached and
+    survives publish, proving the uploaded CD-ROM was actually attached and
     read this run — which is the exact contract the recent
     `DiskImageNode` placement fix (commit 1c810b8) restored.
 """
@@ -31,7 +31,11 @@ from __future__ import annotations
 
 import base64
 import secrets
+import shutil
+import subprocess
+import tempfile
 import uuid
+from pathlib import Path
 
 import pytest
 from corvus_client.types import BuildPipelineEnd
@@ -58,33 +62,6 @@ class TestBuildInstaller(SingleNodeCase):
         """
         InstallerImageReady.ensure(crv)
 
-    @pytest.fixture(scope="class", autouse=True)
-    def _floppy_tools_present(self, _class_topology):
-        """Confirm the test-node has mkfs.fat + mcopy on PATH.
-
-        The installer-strategy build path shells out to those tools
-        from `Corvus.Handlers.Build.Floppy.buildFloppyImage` to wrap
-        the per-build marker into a FAT12 floppy image; without them
-        the bake fails with `posix_spawnp: does not exist` mid-
-        pipeline. The `corvus-test-node` bake adds them
-        (`sys-fs/dosfstools` + `sys-fs/mtools`), but a developer who
-        baked the test-node *before* those entries landed needs to
-        rebake. Surface that as a clear precondition error rather
-        than letting the build fail with a posix_spawnp message.
-        """
-        r = self.node.run(
-            "command -v mkfs.fat && command -v mcopy",
-            check=False,
-        )
-        if r.returncode != 0:
-            pytest.fail(
-                "test-node is missing mkfs.fat and/or mcopy on PATH. The "
-                "installer-strategy build's floppy materialisation step "
-                "needs both. Rebake the test-node:\n"
-                "  make test-image-node-clean && make test-image-node\n"
-                f"(probe stdout={r.stdout!r}, stderr={r.stderr!r})"
-            )
-
     def test_installer_strategy_roundtrip(self):
         """Synthetic installer bakes; marker survives the publish."""
         marker_uuid = uuid.uuid4().hex
@@ -100,27 +77,40 @@ class TestBuildInstaller(SingleNodeCase):
         # mis-classifies it otherwise).
         self.register_base_images()
 
-        # Patch the in-tree build YAML:
-        #   * inject the per-run marker as floppy.contentBase64
-        #     (the in-tree YAML leaves it unset so a stray manual
-        #     `crv build` of the file fails fast),
+        # Upload a per-run ISO answer medium, then patch the in-tree build YAML:
+        #   * attach that uploaded medium to the synthetic installer,
         #   * scope the build name (which now drives the published
         #     artifact's identity) to this run so concurrent workers
         #     / repeated runs don't collide.
-        marker_payload = f"marker={marker_uuid}\n".encode()
-        marker_b64 = base64.b64encode(marker_payload).decode("ascii")
-        doc = yamlmod.safe_load(_BUILD_YAML.read_text())
-        for step in doc["pipeline"]:
-            build = step.get("build")
-            if isinstance(build, dict):
-                build["name"] = artifact_name
-                build["floppy"] = {
-                    "contentBase64": marker_b64,
-                    "filename": "marker.txt",
-                }
-        pipeline_yaml = yamlmod.safe_dump(doc)
+        marker_disk_name = f"corvus-it-installer-marker-{target_token}"
 
         try:
+            iso_tool = shutil.which("mkisofs") or shutil.which("genisoimage")
+            assert iso_tool, (
+                "mkisofs or genisoimage is required for installer answer media"
+            )
+            with tempfile.TemporaryDirectory() as temp_dir:
+                marker_file = Path(temp_dir) / "marker.txt"
+                marker_iso = Path(temp_dir) / "marker.iso"
+                marker_file.write_text(f"marker={marker_uuid}\n")
+                subprocess.run(
+                    [iso_tool, "-quiet", "-o", str(marker_iso), str(marker_file)],
+                    check=True,
+                )
+                self.client.disks.upload_from_file(
+                    marker_disk_name, str(marker_iso), format="raw", ephemeral=True
+                )
+            doc = yamlmod.safe_load(_BUILD_YAML.read_text())
+            for step in doc["pipeline"]:
+                apply = step.get("apply")
+                if isinstance(apply, dict):
+                    for template in apply.get("templates", []):
+                        if template.get("name") == "corvus-test-installer":
+                            template["drives"][-1]["diskImageName"] = marker_disk_name
+                build = step.get("build")
+                if isinstance(build, dict):
+                    build["name"] = artifact_name
+            pipeline_yaml = yamlmod.safe_dump(doc)
             # The installer strategy doesn't run shell provisioners,
             # so BuildStepStart/BuildStepEnd never fire (those are
             # per-provisioner). We only look at BuildPipelineEnd's
@@ -172,7 +162,7 @@ class TestBuildInstaller(SingleNodeCase):
             # The installer's init script dd'd CORVUS-INSTALLER-OK\n
             # + the marker payload onto /dev/vda, so a `dd` from
             # the same offset must return both markers — proving
-            # the floppy was attached AND read this run.
+            # the uploaded answer medium was attached AND read this run.
             self._assert_marker_present(
                 artifact_name=artifact_name,
                 marker_uuid=marker_uuid,
@@ -181,8 +171,11 @@ class TestBuildInstaller(SingleNodeCase):
         finally:
             for d in self.client.disks.list():
                 if d.name == artifact_name:
-                    self.client.disks.get(artifact_name, by_name=True).delete()
-                    break
+                    self.client.disks.get(d.name, by_name=True).delete()
+            # The persistent test template retains a read-only drive to the
+            # per-run marker medium. It is ephemeral and the test topology's
+            # daemon is destroyed after this class, so deleting it here would
+            # violate that template drive's foreign-key reference.
 
     def _installer_failure_diagnostics(self) -> str:
         """Best-effort dump of the inner daemon journal + bake VM

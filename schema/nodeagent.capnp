@@ -462,6 +462,11 @@ interface Session {
      expectedBytes :Int64,
      expectedMd5 :Text)
     -> ();
+
+  # Open a node-local, atomic file writer for a daemon-mediated client upload.
+  # The returned ByteSink writes to a temporary sibling and renames it into
+  # place only after end().
+  diskOpenWrite @45 (destPath :Text) -> (sink :Streams.ByteSink);
 }
 
 # Handle the source agent hands out for one in-flight read. Held

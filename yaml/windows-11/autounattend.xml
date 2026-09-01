@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <SetupUILanguage>
+        <UILanguage>en-US</UILanguage>
+      </SetupUILanguage>
+      <InputLocale>en-US</InputLocale>
+      <SystemLocale>en-US</SystemLocale>
+      <UILanguage>en-US</UILanguage>
+      <UserLocale>en-US</UserLocale>
+    </component>
+
+    <!-- Load the Windows 11 VirtIO storage, network, serial, and firmware
+         drivers from the second CD-ROM before Setup enumerates devices. -->
+    <component name="Microsoft-Windows-PnpCustomizationsWinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <DriverPaths>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="1">
+          <Path>E:\vioserial\w11\amd64</Path>
+        </PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="2">
+          <Path>E:\viostor\w11\amd64</Path>
+        </PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="3">
+          <Path>E:\NetKVM\w11\amd64</Path>
+        </PathAndCredentials>
+        <PathAndCredentials wcm:action="add" wcm:keyValue="4">
+          <Path>E:\qemufwcfg\w11\amd64</Path>
+        </PathAndCredentials>
+      </DriverPaths>
+    </component>
+
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <!-- This legacy build intentionally leaves its Corvus vTPM flag off.
+           Keep the normal UEFI, RAM, storage, and CPU configuration, but
+           retain the TPM and Secure Boot installer bypasses. -->
+      <RunSynchronous>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <Path>reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+        <RunSynchronousCommand wcm:action="add">
+          <Order>2</Order>
+          <Path>reg.exe add "HKLM\SYSTEM\Setup\LabConfig" /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+        </RunSynchronousCommand>
+      </RunSynchronous>
+
+      <DiskConfiguration>
+        <Disk wcm:action="add">
+          <CreatePartitions>
+            <CreatePartition wcm:action="add">
+              <Order>1</Order>
+              <Type>EFI</Type>
+              <Size>260</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>2</Order>
+              <Type>MSR</Type>
+              <Size>16</Size>
+            </CreatePartition>
+            <CreatePartition wcm:action="add">
+              <Order>3</Order>
+              <Type>Primary</Type>
+              <Extend>true</Extend>
+            </CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add">
+              <Order>1</Order>
+              <PartitionID>1</PartitionID>
+              <Format>FAT32</Format>
+              <Label>System</Label>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>2</Order>
+              <PartitionID>2</PartitionID>
+            </ModifyPartition>
+            <ModifyPartition wcm:action="add">
+              <Order>3</Order>
+              <PartitionID>3</PartitionID>
+              <Format>NTFS</Format>
+              <Label>Windows</Label>
+            </ModifyPartition>
+          </ModifyPartitions>
+          <DiskID>0</DiskID>
+          <WillWipeDisk>true</WillWipeDisk>
+        </Disk>
+      </DiskConfiguration>
+
+      <ImageInstall>
+        <OSImage>
+          <InstallFrom>
+            <MetaData wcm:action="add">
+              <!-- Select Pro by name so edition selection does not depend on
+                   its numeric index within Microsoft's multi-edition ISO. -->
+              <Key>/IMAGE/NAME</Key>
+              <Value>Windows 11 Pro</Value>
+            </MetaData>
+          </InstallFrom>
+          <InstallTo>
+            <DiskID>0</DiskID>
+            <PartitionID>3</PartitionID>
+          </InstallTo>
+          <InstallToAvailablePartition>false</InstallToAvailablePartition>
+        </OSImage>
+      </ImageInstall>
+
+      <UserData>
+        <AcceptEula>true</AcceptEula>
+      </UserData>
+    </component>
+  </settings>
+
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <ComputerName>corvus-win11</ComputerName>
+      <TimeZone>UTC</TimeZone>
+    </component>
+  </settings>
+
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <!-- One automatic logon runs the fail-fast provisioning payload below.
+           The payload removes the Winlogon auto-logon values before capture. -->
+      <AutoLogon>
+        <Password>
+          <Value>corvus</Value>
+          <PlainText>true</PlainText>
+        </Password>
+        <Enabled>true</Enabled>
+        <LogonCount>1</LogonCount>
+        <Username>corvus</Username>
+      </AutoLogon>
+
+      <FirstLogonCommands>
+        <!-- UTF-16LE PowerShell payload, encoded to protect its quoting and
+             metacharacters from cmd.exe. It:
+               * downloads WinFSP 2.2 Beta4 and verifies its SHA-256;
+               * installs WinFSP and the x64 VirtIO guest-tools MSI;
+               * enables QEMU-GA and the SPICE agent;
+               * ensures the Windows 11 viofs driver and VirtioFsSvc exist;
+               * removes auto-logon and shuts down only on success.
+
+             Logs:
+               C:\Windows\Temp\corvus-build.log
+               C:\Windows\Temp\winfsp-install.log
+               C:\Windows\Temp\virtio-win-install.log
+
+             If any operation fails, the command exits without shutting down.
+             Corvus then retains the bake VM for SPICE/Panther diagnostics. -->
+        <SynchronousCommand wcm:action="add">
+          <Order>1</Order>
+          <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand JABFAHIAcgBvAHIAQQBjAHQAaQBvAG4AUAByAGUAZgBlAHIAZQBuAGMAZQAgAD0AIAAnAFMAdABvAHAAJwAKACQAUAByAG8AZwByAGUAcwBzAFAAcgBlAGYAZQByAGUAbgBjAGUAIAA9ACAAJwBTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlACcACgAKACQAbABvAGcAUABhAHQAaAAgAD0AIAAnAEMAOgBcAFcAaQBuAGQAbwB3AHMAXABUAGUAbQBwAFwAYwBvAHIAdgB1AHMALQBiAHUAaQBsAGQALgBsAG8AZwAnAAoAUwB0AGEAcgB0AC0AVAByAGEAbgBzAGMAcgBpAHAAdAAgAC0AUABhAHQAaAAgACQAbABvAGcAUABhAHQAaAAgAC0AQQBwAHAAZQBuAGQACgAKAHQAcgB5ACAAewAKACAAIAAgACAAJAB3AGkAbgBGAHMAcABNAHMAaQAgAD0AIAAnAEMAOgBcAFcAaQBuAGQAbwB3AHMAXABUAGUAbQBwAFwAdwBpAG4AZgBzAHAALQAyAC4AMgAuADIANgAyADEANQAuAG0AcwBpACcACgAgACAAIAAgAEkAbgB2AG8AawBlAC0AVwBlAGIAUgBlAHEAdQBlAHMAdAAgAC0AVQBzAGUAQgBhAHMAaQBjAFAAYQByAHMAaQBuAGcAIAAtAFUAcgBpACAAJwBoAHQAdABwAHMAOgAvAC8AZwBpAHQAaAB1AGIALgBjAG8AbQAvAHcAaQBuAGYAcwBwAC8AdwBpAG4AZgBzAHAALwByAGUAbABlAGEAcwBlAHMALwBkAG8AdwBuAGwAbwBhAGQALwB2ADIALgAyAEIANAAvAHcAaQBuAGYAcwBwAC0AMgAuADIALgAyADYAMgAxADUALgBtAHMAaQAnACAALQBPAHUAdABGAGkAbABlACAAJAB3AGkAbgBGAHMAcABNAHMAaQAKAAoAIAAgACAAIAAkAHcAaQBuAEYAcwBwAEgAYQBzAGgAIAA9ACAAKABHAGUAdAAtAEYAaQBsAGUASABhAHMAaAAgAC0AQQBsAGcAbwByAGkAdABoAG0AIABTAEgAQQAyADUANgAgAC0AUABhAHQAaAAgACQAdwBpAG4ARgBzAHAATQBzAGkAKQAuAEgAYQBzAGgACgAgACAAIAAgAGkAZgAgACgAJAB3AGkAbgBGAHMAcABIAGEAcwBoACAALQBuAGUAIAAnADIARQBDAEIANQBDADgAOQA0ADAANQA0ADgAOABBADkANQBCAEIARAA4AEEAMAAxADgANwA1AEUAMAAyAEMANAA4ADUAMwA0AEYARAAzADcAQgBCAEQARgBEADgANAA0ADgAOABGADcANQA5ADAANAA2ADQARAA2ADUAOQA0ADQAJwApACAAewAKACAAIAAgACAAIAAgACAAIAB0AGgAcgBvAHcAIAAiAFcAaQBuAEYAUwBQACAAYwBoAGUAYwBrAHMAdQBtACAAbQBpAHMAbQBhAHQAYwBoADoAIAAkAHcAaQBuAEYAcwBwAEgAYQBzAGgAIgAKACAAIAAgACAAfQAKAAoAIAAgACAAIAAkAHcAaQBuAEYAcwBwAEkAbgBzAHQAYQBsAGwAIAA9ACAAUwB0AGEAcgB0AC0AUAByAG8AYwBlAHMAcwAgAG0AcwBpAGUAeABlAGMALgBlAHgAZQAgAC0AQQByAGcAdQBtAGUAbgB0AEwAaQBzAHQAIAAnAC8AaQAnACwAIAAkAHcAaQBuAEYAcwBwAE0AcwBpACwAIAAnAC8AcQBuACcALAAgACcALwBuAG8AcgBlAHMAdABhAHIAdAAnACwAIAAnAC8AbAAqAHYAJwAsACAAJwBDADoAXABXAGkAbgBkAG8AdwBzAFwAVABlAG0AcABcAHcAaQBuAGYAcwBwAC0AaQBuAHMAdABhAGwAbAAuAGwAbwBnACcAIAAtAFcAYQBpAHQAIAAtAFAAYQBzAHMAVABoAHIAdQAKACAAIAAgACAAaQBmACAAKAAkAHcAaQBuAEYAcwBwAEkAbgBzAHQAYQBsAGwALgBFAHgAaQB0AEMAbwBkAGUAIAAtAG4AbwB0AGkAbgAgAEAAKAAwACwAIAAzADAAMQAwACkAKQAgAHsACgAgACAAIAAgACAAIAAgACAAdABoAHIAbwB3ACAAIgBXAGkAbgBGAFMAUAAgAGkAbgBzAHQAYQBsAGwAZQByACAAZQB4AGkAdABlAGQAIAB3AGkAdABoACAAYwBvAGQAZQAgACQAKAAkAHcAaQBuAEYAcwBwAEkAbgBzAHQAYQBsAGwALgBFAHgAaQB0AEMAbwBkAGUAKQAiAAoAIAAgACAAIAB9AAoACgAgACAAIAAgACQAdgBpAHIAdABpAG8ASQBuAHMAdABhAGwAbAAgAD0AIABTAHQAYQByAHQALQBQAHIAbwBjAGUAcwBzACAAbQBzAGkAZQB4AGUAYwAuAGUAeABlACAALQBBAHIAZwB1AG0AZQBuAHQATABpAHMAdAAgACcALwBpACcALAAgACcARQA6AFwAdgBpAHIAdABpAG8ALQB3AGkAbgAtAGcAdAAtAHgANgA0AC4AbQBzAGkAJwAsACAAJwAvAHEAbgAnACwAIAAnAC8AbgBvAHIAZQBzAHQAYQByAHQAJwAsACAAJwAvAGwAKgB2ACcALAAgACcAQwA6AFwAVwBpAG4AZABvAHcAcwBcAFQAZQBtAHAAXAB2AGkAcgB0AGkAbwAtAHcAaQBuAC0AaQBuAHMAdABhAGwAbAAuAGwAbwBnACcAIAAtAFcAYQBpAHQAIAAtAFAAYQBzAHMAVABoAHIAdQAKACAAIAAgACAAaQBmACAAKAAkAHYAaQByAHQAaQBvAEkAbgBzAHQAYQBsAGwALgBFAHgAaQB0AEMAbwBkAGUAIAAtAG4AbwB0AGkAbgAgAEAAKAAwACwAIAAzADAAMQAwACkAKQAgAHsACgAgACAAIAAgACAAIAAgACAAdABoAHIAbwB3ACAAIgBWAGkAcgB0AEkATwAgAGcAdQBlAHMAdAAgAHQAbwBvAGwAcwAgAGkAbgBzAHQAYQBsAGwAZQByACAAZQB4AGkAdABlAGQAIAB3AGkAdABoACAAYwBvAGQAZQAgACQAKAAkAHYAaQByAHQAaQBvAEkAbgBzAHQAYQBsAGwALgBFAHgAaQB0AEMAbwBkAGUAKQAiAAoAIAAgACAAIAB9AAoACgAgACAAIAAgAFMAZQB0AC0AUwBlAHIAdgBpAGMAZQAgAC0ATgBhAG0AZQAgAFEARQBNAFUALQBHAEEAIAAtAFMAdABhAHIAdAB1AHAAVAB5AHAAZQAgAEEAdQB0AG8AbQBhAHQAaQBjAAoAIAAgACAAIABTAHQAYQByAHQALQBTAGUAcgB2AGkAYwBlACAALQBOAGEAbQBlACAAUQBFAE0AVQAtAEcAQQAKAAoAIAAgACAAIAAkAHMAcABpAGMAZQBTAGUAcgB2AGkAYwBlACAAPQAgAEcAZQB0AC0AUwBlAHIAdgBpAGMAZQAgAC0ATgBhAG0AZQAgAHYAZABzAGUAcgB2AGkAYwBlACAALQBFAHIAcgBvAHIAQQBjAHQAaQBvAG4AIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlAAoAIAAgACAAIABpAGYAIAAoACQAbgB1AGwAbAAgAC0AbgBlACAAJABzAHAAaQBjAGUAUwBlAHIAdgBpAGMAZQApACAAewAKACAAIAAgACAAIAAgACAAIABTAGUAdAAtAFMAZQByAHYAaQBjAGUAIAAtAE4AYQBtAGUAIAB2AGQAcwBlAHIAdgBpAGMAZQAgAC0AUwB0AGEAcgB0AHUAcABUAHkAcABlACAAQQB1AHQAbwBtAGEAdABpAGMACgAgACAAIAAgACAAIAAgACAAUwB0AGEAcgB0AC0AUwBlAHIAdgBpAGMAZQAgAC0ATgBhAG0AZQAgAHYAZABzAGUAcgB2AGkAYwBlAAoAIAAgACAAIAB9AAoACgAgACAAIAAgACQAdgBpAHIAdABpAG8ARgBzAFMAZQByAHYAaQBjAGUAIAA9ACAARwBlAHQALQBTAGUAcgB2AGkAYwBlACAALQBOAGEAbQBlACAAVgBpAHIAdABpAG8ARgBzAFMAdgBjACAALQBFAHIAcgBvAHIAQQBjAHQAaQBvAG4AIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlAAoAIAAgACAAIABpAGYAIAAoACQAbgB1AGwAbAAgAC0AZQBxACAAJAB2AGkAcgB0AGkAbwBGAHMAUwBlAHIAdgBpAGMAZQApACAAewAKACAAIAAgACAAIAAgACAAIAAkAHYAaQBvAEYAcwBEAHIAaQB2AGUAcgAgAD0AIABTAHQAYQByAHQALQBQAHIAbwBjAGUAcwBzACAAcABuAHAAdQB0AGkAbAAuAGUAeABlACAALQBBAHIAZwB1AG0AZQBuAHQATABpAHMAdAAgACcALwBhAGQAZAAtAGQAcgBpAHYAZQByACcALAAgACcARQA6AFwAdgBpAG8AZgBzAFwAdwAxADEAXABhAG0AZAA2ADQAXAB2AGkAbwBmAHMALgBpAG4AZgAnACwAIAAnAC8AaQBuAHMAdABhAGwAbAAnACAALQBXAGEAaQB0ACAALQBQAGEAcwBzAFQAaAByAHUACgAgACAAIAAgACAAIAAgACAAaQBmACAAKAAkAHYAaQBvAEYAcwBEAHIAaQB2AGUAcgAuAEUAeABpAHQAQwBvAGQAZQAgAC0AbgBlACAAMAApACAAewAKACAAIAAgACAAIAAgACAAIAAgACAAIAAgAHQAaAByAG8AdwAgACIAVgBpAHIAdABJAE8ALQBGAFMAIABkAHIAaQB2AGUAcgAgAGkAbgBzAHQAYQBsAGwAYQB0AGkAbwBuACAAZQB4AGkAdABlAGQAIAB3AGkAdABoACAAYwBvAGQAZQAgACQAKAAkAHYAaQBvAEYAcwBEAHIAaQB2AGUAcgAuAEUAeABpAHQAQwBvAGQAZQApACIACgAgACAAIAAgACAAIAAgACAAfQAKAAoAIAAgACAAIAAgACAAIAAgACQAdgBpAHIAdABpAG8ARgBzAEQAaQByACAAPQAgACcAQwA6AFwAUAByAG8AZwByAGEAbQAgAEYAaQBsAGUAcwBcAFYAaQByAHQAaQBvAC0ARgBTACcACgAgACAAIAAgACAAIAAgACAATgBlAHcALQBJAHQAZQBtACAALQBQAGEAdABoACAAJAB2AGkAcgB0AGkAbwBGAHMARABpAHIAIAAtAEkAdABlAG0AVAB5AHAAZQAgAEQAaQByAGUAYwB0AG8AcgB5ACAALQBGAG8AcgBjAGUAIAB8ACAATwB1AHQALQBOAHUAbABsAAoAIAAgACAAIAAgACAAIAAgAEMAbwBwAHkALQBJAHQAZQBtACAALQBQAGEAdABoACAAJwBFADoAXAB2AGkAbwBmAHMAXAB3ADEAMQBcAGEAbQBkADYANABcAHYAaQByAHQAaQBvAGYAcwAuAGUAeABlACcAIAAtAEQAZQBzAHQAaQBuAGEAdABpAG8AbgAgACIAJAB2AGkAcgB0AGkAbwBGAHMARABpAHIAXAB2AGkAcgB0AGkAbwBmAHMALgBlAHgAZQAiACAALQBGAG8AcgBjAGUACgAgACAAIAAgACAAIAAgACAATgBlAHcALQBTAGUAcgB2AGkAYwBlACAALQBOAGEAbQBlACAAVgBpAHIAdABpAG8ARgBzAFMAdgBjACAALQBCAGkAbgBhAHIAeQBQAGEAdABoAE4AYQBtAGUAIAAnACIAQwA6AFwAUAByAG8AZwByAGEAbQAgAEYAaQBsAGUAcwBcAFYAaQByAHQAaQBvAC0ARgBTAFwAdgBpAHIAdABpAG8AZgBzAC4AZQB4AGUAIgAnACAALQBTAHQAYQByAHQAdQBwAFQAeQBwAGUAIABBAHUAdABvAG0AYQB0AGkAYwAgAC0ARABpAHMAcABsAGEAeQBOAGEAbQBlACAAJwBWAGkAcgB0AEkATwAtAEYAUwAgAFMAZQByAHYAaQBjAGUAJwAKACAAIAAgACAAfQAKACAAIAAgACAAZQBsAHMAZQAgAHsACgAgACAAIAAgACAAIAAgACAAUwBlAHQALQBTAGUAcgB2AGkAYwBlACAALQBOAGEAbQBlACAAVgBpAHIAdABpAG8ARgBzAFMAdgBjACAALQBTAHQAYQByAHQAdQBwAFQAeQBwAGUAIABBAHUAdABvAG0AYQB0AGkAYwAKACAAIAAgACAAfQAKAAoAIAAgACAAIABpAGYAIAAoACgARwBlAHQALQBTAGUAcgB2AGkAYwBlACAALQBOAGEAbQBlACAAUQBFAE0AVQAtAEcAQQApAC4AUwB0AGEAdAB1AHMAIAAtAG4AZQAgACcAUgB1AG4AbgBpAG4AZwAnACkAIAB7AAoAIAAgACAAIAAgACAAIAAgAHQAaAByAG8AdwAgACcAUQBFAE0AVQAgAEcAdQBlAHMAdAAgAEEAZwBlAG4AdAAgAGQAaQBkACAAbgBvAHQAIAByAGUAYQBjAGgAIAB0AGgAZQAgAFIAdQBuAG4AaQBuAGcAIABzAHQAYQB0AGUAJwAKACAAIAAgACAAfQAKACAAIAAgACAAaQBmACAAKAAkAG4AdQBsAGwAIAAtAGUAcQAgACgARwBlAHQALQBTAGUAcgB2AGkAYwBlACAALQBOAGEAbQBlACAAVgBpAHIAdABpAG8ARgBzAFMAdgBjACAALQBFAHIAcgBvAHIAQQBjAHQAaQBvAG4AIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlACkAKQAgAHsACgAgACAAIAAgACAAIAAgACAAdABoAHIAbwB3ACAAJwBWAGkAcgB0AEkATwAtAEYAUwAgAHMAZQByAHYAaQBjAGUAIAB3AGEAcwAgAG4AbwB0ACAAaQBuAHMAdABhAGwAbABlAGQAJwAKACAAIAAgACAAfQAKAAoAIAAgACAAIABSAGUAbQBvAHYAZQAtAEkAdABlAG0AIAAtAFAAYQB0AGgAIAAkAHcAaQBuAEYAcwBwAE0AcwBpACAALQBGAG8AcgBjAGUACgAgACAAIAAgACQAdwBpAG4AbABvAGcAbwBuAFAAYQB0AGgAIAA9ACAAJwBIAEsATABNADoAXABTAE8ARgBUAFcAQQBSAEUAXABNAGkAYwByAG8AcwBvAGYAdABcAFcAaQBuAGQAbwB3AHMAIABOAFQAXABDAHUAcgByAGUAbgB0AFYAZQByAHMAaQBvAG4AXABXAGkAbgBsAG8AZwBvAG4AJwAKACAAIAAgACAAUgBlAG0AbwB2AGUALQBJAHQAZQBtAFAAcgBvAHAAZQByAHQAeQAgAC0AUABhAHQAaAAgACQAdwBpAG4AbABvAGcAbwBuAFAAYQB0AGgAIAAtAE4AYQBtAGUAIABBAHUAdABvAEEAZABtAGkAbgBMAG8AZwBvAG4ALAAgAEQAZQBmAGEAdQBsAHQAVQBzAGUAcgBOAGEAbQBlACwAIABEAGUAZgBhAHUAbAB0AFAAYQBzAHMAdwBvAHIAZAAsACAAQQB1AHQAbwBMAG8AZwBvAG4AQwBvAHUAbgB0ACAALQBFAHIAcgBvAHIAQQBjAHQAaQBvAG4AIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlAAoACgAgACAAIAAgAFMAdABvAHAALQBUAHIAYQBuAHMAYwByAGkAcAB0AAoAIAAgACAAIABzAGgAdQB0AGQAbwB3AG4ALgBlAHgAZQAgAC8AcwAgAC8AdAAgADMAMAAgAC8AZgAKAH0ACgBjAGEAdABjAGgAIAB7AAoAIAAgACAAIAAkAF8AIAB8ACAATwB1AHQALQBTAHQAcgBpAG4AZwAgAHwAIABBAGQAZAAtAEMAbwBuAHQAZQBuAHQAIAAtAFAAYQB0AGgAIAAkAGwAbwBnAFAAYQB0AGgACgAgACAAIAAgAFMAdABvAHAALQBUAHIAYQBuAHMAYwByAGkAcAB0ACAALQBFAHIAcgBvAHIAQQBjAHQAaQBvAG4AIABTAGkAbABlAG4AdABsAHkAQwBvAG4AdABpAG4AdQBlAAoAIAAgACAAIABlAHgAaQB0ACAAMQAKAH0ACgA=</CommandLine>
+        </SynchronousCommand>
+      </FirstLogonCommands>
+
+      <OOBE>
+        <HideEULAPage>true</HideEULAPage>
+        <HideLocalAccountScreen>true</HideLocalAccountScreen>
+        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>
+        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+        <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+        <ProtectYourPC>3</ProtectYourPC>
+        <SkipMachineOOBE>true</SkipMachineOOBE>
+        <SkipUserOOBE>true</SkipUserOOBE>
+      </OOBE>
+
+      <UserAccounts>
+        <LocalAccounts>
+          <LocalAccount wcm:action="add">
+            <Password>
+              <Value>corvus</Value>
+              <PlainText>true</PlainText>
+            </Password>
+            <DisplayName>corvus</DisplayName>
+            <Group>Administrators</Group>
+            <Name>corvus</Name>
+          </LocalAccount>
+        </LocalAccounts>
+      </UserAccounts>
+    </component>
+  </settings>
+</unattend>

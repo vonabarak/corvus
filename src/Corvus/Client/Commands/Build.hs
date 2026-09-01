@@ -5,8 +5,8 @@
 --
 -- @crv build FILE@ reads a YAML build pipeline file, preprocesses
 -- it (inlines any referenced @shell.script@ files as
--- @shell.inline@, @file.from@ files as @file.content@, and
--- @floppy.from@ files as @floppy.contentBase64@), and forwards
+-- @shell.inline@ and @file.from@ files as @file.content@), uploads any
+-- leading @pipeline[].upload@ media declarations, and forwards
 -- it to the daemon via the Cap'n Proto @daemon.build@ method.
 -- With @--wait@ it streams each 'BuildEvent' to stdout via the
 -- @BuildEventSink@ cap until the pipeline finishes.
@@ -25,6 +25,7 @@ import Corvus.Client.Output (emitError, emitOkWith)
 import Corvus.Client.Types (BuildClientOptions (..), OutputFormat, WaitOptions (..))
 import Corvus.Model (EnumText (..), TaskResult (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildOne (..), BuildResult (..))
+import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
 import qualified Data.Aeson.Key as AK
 import qualified Data.Aeson.KeyMap as KM
@@ -32,12 +33,13 @@ import Data.Aeson.Types (Value (..))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Base64 as B64
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Vector as V
 import qualified Data.Yaml as Yaml
-import System.FilePath (takeDirectory, takeFileName, (</>))
+import System.FilePath (takeDirectory, (</>))
 
 -- | Top-level handler for @crv build FILE@.
 --
@@ -72,8 +74,15 @@ handleBuild fmt conn path bcOpts waitOpts = do
               emitError fmt "preprocess_error" msg $ TIO.putStrLn msg
               pure False
             Right inlined -> do
-              let yaml = TE.decodeUtf8 (Yaml.encode inlined)
-              runBuild fmt conn yaml bcOpts (woWait waitOpts)
+              uploadedResult <- try (preprocessUploads conn baseDir inlined) :: IO (Either SomeException Value)
+              case uploadedResult of
+                Left e -> do
+                  let msg = "upload error: " <> T.pack (show e)
+                  emitError fmt "upload_error" msg $ TIO.putStrLn msg
+                  pure False
+                Right daemonOnly -> do
+                  let yaml = TE.decodeUtf8 (Yaml.encode daemonOnly)
+                  runBuild fmt conn yaml bcOpts (woWait waitOpts)
 
 runBuild :: OutputFormat -> CapnpConnection -> T.Text -> BuildClientOptions -> Bool -> IO Bool
 runBuild fmt conn yaml bcOpts wait = do
@@ -155,9 +164,8 @@ runBuild fmt conn yaml bcOpts wait = do
 -- | Walk the parsed YAML root looking for
 -- @pipeline[].build.provisioners[].shell@ /
 -- @pipeline[].build.provisioners[].file@ /
--- @pipeline[].build.floppy@ entries; for each one with a
--- file-path reference, read the file and embed it inline. Apply
--- pipeline steps don't have provisioners or floppies, so they're
+-- file-path reference, read the file and embed it inline. Apply and upload
+-- pipeline steps do not carry provisioners, so they are
 -- skipped untouched.
 preprocessRoot :: FilePath -> Value -> IO Value
 preprocessRoot baseDir = walkPipeline
@@ -169,9 +177,7 @@ preprocessRoot baseDir = walkPipeline
       _ -> pure (Object o)
     walkPipeline v = pure v
 
-    -- A pipeline step is an object with exactly one of @build:@ or
-    -- @apply:@. Only build: carries provisioners and an optional
-    -- floppy that the client preprocesses.
+    -- Only build: carries provisioners that need preprocessing.
     walkStep (Object o) = do
       o' <- adjustField "build" rewriteBuild o
       pure (Object o')
@@ -183,8 +189,7 @@ preprocessRoot baseDir = walkPipeline
           ps' <- mapM walkProv (V.toList ps)
           pure $ KM.insert "provisioners" (Array (V.fromList ps')) bo
         _ -> pure bo
-      bo2 <- adjustField "floppy" rewriteFloppy bo1
-      pure (Object bo2)
+      pure (Object bo1)
     rewriteBuild v = pure v
 
     walkProv (Object o) = do
@@ -222,30 +227,6 @@ preprocessRoot baseDir = walkPipeline
       _ -> pure (Object o)
     rewriteFile other = pure other
 
-    -- Inline a build's autounattend / kickstart floppy. Read the
-    -- source file, base64-encode its raw bytes, and rewrite
-    -- @floppy.from@ into @floppy.contentBase64@. The default
-    -- @floppy.filename@ (the entry name on the FAT12 floppy
-    -- itself) is the basename of the source path; the daemon
-    -- wraps the content into a 1.44 MB FAT12 image and attaches
-    -- it to the bake VM.
-    rewriteFloppy :: Value -> IO Value
-    rewriteFloppy (Object o) = case KM.lookup "from" o of
-      Just (String relPath) -> do
-        bytes <- readFromFile (T.unpack relPath)
-        let basename = T.pack (takeFileName (T.unpack relPath))
-            withFilename = case KM.lookup "filename" o of
-              Just _ -> o
-              Nothing -> KM.insert "filename" (String basename) o
-            withContent =
-              KM.insert
-                "contentBase64"
-                (String (TE.decodeUtf8 (B64.encode bytes)))
-                (KM.delete "from" withFilename)
-        pure (Object withContent)
-      _ -> pure (Object o)
-    rewriteFloppy other = pure other
-
     readScript rel = do
       let p = if isAbsolute rel then rel else baseDir </> rel
       TIO.readFile p
@@ -254,3 +235,58 @@ preprocessRoot baseDir = walkPipeline
       BS.readFile p
     isAbsolute ('/' : _) = True
     isAbsolute _ = False
+
+-- | Execute the leading client-local media uploads, then remove them before
+-- the YAML reaches the daemon. Keeping this separate from apply preserves the
+-- invariant that apply documents are interpreted entirely server-side.
+preprocessUploads :: CapnpConnection -> FilePath -> Value -> IO Value
+preprocessUploads conn baseDir (Object root) = case KM.lookup "pipeline" root of
+  Just (Array steps) -> do
+    let values = V.toList steps
+        (uploadSteps, daemonSteps) = span isUpload values
+    if any isUpload daemonSteps
+      then fail "pipeline upload steps must appear before every apply/build step"
+      else do
+        mapM_ runUpload uploadSteps
+        pure $ Object (KM.insert "pipeline" (Array (V.fromList daemonSteps)) root)
+  _ -> pure (Object root)
+  where
+    isUpload (Object o) = KM.member "upload" o
+    isUpload _ = False
+
+    runUpload (Object step) = case KM.lookup "upload" step of
+      Just (Object o) -> do
+        name <- requiredText "name" o
+        from <- requiredText "from" o
+        formatText <- requiredText "format" o
+        format <- case enumFromText formatText of
+          Left err -> fail (T.unpack err)
+          Right value -> pure value
+        let source = if isAbsolute (T.unpack from) then T.unpack from else baseDir </> T.unpack from
+            mPath = optionalText "path" o
+            node = fromMaybe "" (optionalText "node" o)
+            ephemeral = fromMaybe True (optionalBool "ephemeral" o)
+        overwrite <- case optionalText "ifExists" o of
+          Nothing -> pure False
+          Just "error" -> pure False
+          Just "overwrite" -> pure True
+          Just other -> fail ("upload.ifExists must be 'error' or 'overwrite', got '" <> T.unpack other <> "'")
+        CR.rpcDiskUpload conn name source format mPath ephemeral (entityRefFromText node) overwrite
+        pure ()
+      _ -> fail "pipeline upload step must be an object"
+    runUpload _ = fail "pipeline upload step must be an object"
+
+    requiredText key o = case KM.lookup key o of
+      Just (String value) -> pure value
+      _ -> fail ("upload." <> T.unpack (AK.toText key) <> " is required and must be a string")
+    optionalText key o = case KM.lookup key o of
+      Nothing -> Nothing
+      Just (String value) -> Just value
+      Just _ -> error ("upload." <> T.unpack (AK.toText key) <> " must be a string")
+    optionalBool key o = case KM.lookup key o of
+      Nothing -> Nothing
+      Just (Bool value) -> Just value
+      Just _ -> error ("upload." <> T.unpack (AK.toText key) <> " must be a boolean")
+    isAbsolute ('/' : _) = True
+    isAbsolute _ = False
+preprocessUploads _ _ value = pure value
