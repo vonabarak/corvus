@@ -55,7 +55,9 @@ import System.IO (IOMode (ReadMode), withBinaryFile)
 import System.IO.Error (userError)
 
 currentSchemaVersion :: Int
-currentSchemaVersion = 1
+-- Bump whenever 'migrateAll' gains a persistent-schema change. Version 2
+-- adds the VM and template-VM TPM flags.
+currentSchemaVersion = 2
 
 data DatabaseEngine
   = DatabasePostgresql
