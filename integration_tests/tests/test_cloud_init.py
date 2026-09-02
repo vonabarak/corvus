@@ -162,6 +162,10 @@ class TestCloudInit(SingleNodeCase):
     def test_freebsd(self):
         class _FreeBsdCI(_CIBase):
             base_image_key = "freebsd-14-base"
+            # Under full parallel load, FreeBSD's first-boot nuageinit and
+            # sshd startup can take longer than the matrix-wide five-minute
+            # budget. Keep this scoped to the slowest guest.
+            ssh_ready_timeout_sec = 600.0
 
         with _FreeBsdCI(self) as vm:
             self._verify_login_freebsd(vm)
