@@ -23,6 +23,7 @@ class SyncDiskManager:
         size_mb: int,
         *,
         format: str | None = None,
+        path: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
     ):
@@ -32,6 +33,7 @@ class SyncDiskManager:
                     name,
                     size_mb,
                     format=format,
+                    path=path,
                     ephemeral=ephemeral,
                     node=node,
                 )
@@ -45,6 +47,7 @@ class SyncDiskManager:
         file_path: str,
         *,
         format: str | None = None,
+        backing_disk_ref: int | str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
     ):
@@ -54,6 +57,7 @@ class SyncDiskManager:
                     name,
                     file_path,
                     format=format,
+                    backing_disk_ref=backing_disk_ref,
                     ephemeral=ephemeral,
                     node=node,
                 )
@@ -61,10 +65,19 @@ class SyncDiskManager:
             self._rl,
         )
 
-    def create_overlay(self, name: str, backing_disk_ref, *, ephemeral: bool = False):
+    def create_overlay(
+        self,
+        name: str,
+        backing_disk_ref,
+        *,
+        path: str | None = None,
+        ephemeral: bool = False,
+    ):
         return SyncDisk(
             self._rl.run(
-                self._a.create_overlay(name, backing_disk_ref, ephemeral=ephemeral)
+                self._a.create_overlay(
+                    name, backing_disk_ref, path=path, ephemeral=ephemeral
+                )
             ),
             self._rl,
         )
@@ -84,8 +97,10 @@ class SyncDiskManager:
             self._rl,
         )
 
-    def rebase(self, disk_ref, new_backing_disk_ref):
-        return self._rl.run(self._a.rebase(disk_ref, new_backing_disk_ref))
+    def rebase(self, disk_ref, new_backing_disk_ref, *, unsafe: bool = False):
+        return self._rl.run(
+            self._a.rebase(disk_ref, new_backing_disk_ref, unsafe=unsafe)
+        )
 
     def flatten(self, disk_ref):
         return self._rl.run(self._a.flatten(disk_ref))
@@ -95,8 +110,8 @@ class SyncDiskManager:
         name: str,
         url: str,
         *,
+        path: str | None = None,
         format: str | None = None,
-        size_mb: int | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
     ) -> int:
@@ -104,8 +119,8 @@ class SyncDiskManager:
             self._a.import_url(
                 name,
                 url,
+                path=path,
                 format=format,
-                size_mb=size_mb,
                 ephemeral=ephemeral,
                 node=node,
             )
@@ -116,21 +131,20 @@ class SyncDiskManager:
         name: str,
         src_path: str,
         *,
+        path: str | None = None,
         format: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
     ):
-        return SyncDisk(
-            self._rl.run(
-                self._a.import_(
-                    name,
-                    src_path,
-                    format=format,
-                    ephemeral=ephemeral,
-                    node=node,
-                )
-            ),
-            self._rl,
+        return self._rl.run(
+            self._a.import_(
+                name,
+                src_path,
+                path=path,
+                format=format,
+                ephemeral=ephemeral,
+                node=node,
+            )
         )
 
     def upload_from_file(

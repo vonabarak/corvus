@@ -72,10 +72,10 @@ import Data.List (isPrefixOf, isSuffixOf)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time (UTCTime, getCurrentTime)
-import System.Directory (copyFile, doesFileExist, removeFile)
+import System.Directory (copyFile, createDirectoryIfMissing, doesFileExist, removeFile)
 import qualified System.Directory as D
 import System.Exit (ExitCode (..))
-import System.FilePath (takeExtension)
+import System.FilePath (takeDirectory, takeExtension)
 import qualified System.Posix.Files as Posix
 import System.Process
   ( ProcessHandle
@@ -140,6 +140,7 @@ createImage
   -- ^ Size in MB
   -> IO ImageResult
 createImage path format sizeMb = do
+  createDirectoryIfMissing True (takeDirectory path)
   exists <- doesFileExist path
   if exists
     then pure $ ImageError "File already exists"
@@ -162,6 +163,7 @@ createOverlay
   -- ^ Backing file format
   -> IO ImageResult
 createOverlay overlayPath backingPath backingFormat = do
+  createDirectoryIfMissing True (takeDirectory overlayPath)
   exists <- doesFileExist overlayPath
   if exists
     then pure $ ImageError "Overlay file already exists"
@@ -453,6 +455,7 @@ listSnapshots path = do
 -- only a few GB.
 cloneImage :: FilePath -> FilePath -> Text -> IO ImageResult
 cloneImage src dest destFormat = do
+  createDirectoryIfMissing True (takeDirectory dest)
   exists <- doesFileExist src
   if not exists
     then pure ImageNotFound
@@ -495,6 +498,7 @@ downloadImage
   -- @\_ _ -> pure ()@ when no progress reporting is wanted.
   -> IO ImageResult
 downloadImage destPath url onProgress = do
+  createDirectoryIfMissing True (takeDirectory destPath)
   exists <- doesFileExist destPath
   if exists
     then pure $ ImageError "Destination file already exists"

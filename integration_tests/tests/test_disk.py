@@ -234,7 +234,9 @@ class TestDisk(SingleNodeCase):
             # The harness's single-node topology has exactly one
             # placement; grab its file_path.
             src_path = src.show().placements[0].file_path
-            copy = self.client.disks.import_(copy_name, src_path, format="qcow2")
+            task_id = self.client.disks.import_(copy_name, src_path, format="qcow2")
+            self.wait_for_task(self.client, task_id, timeout_sec=60.0)
+            copy = self.client.disks.get(copy_name)
             try:
                 info = copy.show()
                 assert info.name == copy_name
@@ -258,11 +260,12 @@ class TestDisk(SingleNodeCase):
         disk = self.client.disks.create(name, size_mb=4, format="qcow2")
         try:
             src_path = disk.show().placements[0].file_path
-            with pytest.raises(Exception, match=r"(?i)same"):
+            task_id = self.client.disks.import_(name, src_path, format="qcow2")
+            with pytest.raises(AssertionError, match=r"(?i)same"):
                 # Re-importing under the same name targets the same
                 # `<basePath>/<name>.qcow2` destination — canonicalised
                 # source and dest collide.
-                self.client.disks.import_(name, src_path, format="qcow2")
+                self.wait_for_task(self.client, task_id, timeout_sec=60.0)
         finally:
             disk.delete()
 

@@ -92,7 +92,7 @@ Common use with async operations:
 ```bash
 # Import a disk asynchronously, then wait
 crv disk import large-image https://example.com/big.qcow2
-# Output: Import started (task ID: 42)
+# Output: Disk import started. Task ID: 42
 crv task wait 42
 ```
 

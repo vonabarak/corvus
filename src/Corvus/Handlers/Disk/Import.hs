@@ -9,17 +9,12 @@
 -- * 'handleDiskImportCopy' — copies a local file or downloads a URL to
 --   the base images directory (with optional destination path override)
 --   and registers the result. Also handles @.xz@ decompression.
---
--- * 'handleDiskImportUrl' — specialised URL-only import, kept for the
---   legacy @ReqDiskImportUrl@ protocol message.
 module Corvus.Handlers.Disk.Import
   ( -- * Action types
     DiskImportAction (..)
-  , DiskImportUrl (..)
 
     -- * Handlers
   , handleDiskImportCopy
-  , handleDiskImportUrl
   )
 where
 
@@ -29,6 +24,7 @@ import Corvus.Handlers.Disk.Agent
   , decompressXzViaAgent
   , deleteImageViaAgent
   , downloadImageViaAgent
+  , getImageInfoViaAgent
   , getImageSizeMbViaAgent
   , hashFileViaAgent
   )
@@ -53,8 +49,7 @@ import qualified Data.Text as T
 import Data.Time (getCurrentTime)
 import Database.Persist
 import Database.Persist.Sql (runSqlPool)
-import System.Directory (canonicalizePath, doesFileExist)
-import System.FilePath (takeDirectory, takeFileName, (</>))
+import System.FilePath ((</>))
 
 data ChecksumTarget
   = ChecksumTargetDownload
@@ -89,24 +84,12 @@ resolveImportTargetNode state nodeRefText
       r <- resolveNode (Ref nodeRefText) (ssDbPool state)
       pure $ fmap (M.toSqlKey :: Int64 -> M.NodeId) r
 
--- | Import a disk image from an HTTP/HTTPS URL.
--- Downloads the file to the base images directory, decompresses @.xz@ if
--- needed, and registers it in the database.
-handleDiskImportUrl :: ServerState -> ApplySink -> Text -> Text -> Maybe Text -> Bool -> Text -> IO Response
-handleDiskImportUrl state sink name url mFormatStr ephemeral nodeRefText =
-  case validateName "Disk image" name of
-    Left err -> pure $ RespError err
-    Right () -> runServerLogging state $ do
-      logInfoN $ "Importing disk image from URL: " <> name <> " <- " <> url
-      let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
-      result <- liftIO $ importDiskFromUrlIO state sink name url mExplicitFmt Nothing ephemeral nodeRefText
-      case result of
-        Left err -> do
-          logWarnN $ "URL import failed: " <> err
-          pure $ RespError err
-        Right diskId -> do
-          logInfoN $ "Imported disk image with ID: " <> T.pack (show diskId)
-          pure $ RespDiskCreated diskId
+nodeBasePathFor :: ServerState -> M.NodeId -> IO FilePath
+nodeBasePathFor state nid = do
+  mNode <- runSqlPool (get nid) (ssDbPool state)
+  case mNode of
+    Just node -> pure $ T.unpack (M.nodeBasePath node)
+    Nothing -> getEffectiveBasePath (ssQemuConfig state)
 
 -- | Import a disk image by copying from a local file or downloading from
 -- a URL. The file is placed in the daemon's base images directory (or a
@@ -133,7 +116,7 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
           case mNid of
             Left err -> pure $ RespError err
             Right nid -> do
-              basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+              basePath <- liftIO $ nodeBasePathFor state nid
 
               -- Detect format
               let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
@@ -173,30 +156,23 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
                           pure $ RespError err
                         Right diskPath -> registerImportedFile state nid basePath safeName format diskPath ephemeral
                     else do
-                      -- Local file copy
+                      -- Node-local file copy. Source validation and directory
+                      -- creation belong to the target nodeagent, never the
+                      -- daemon host running this orchestration code.
                       let srcPath = T.unpack source
-                      srcExists <- liftIO $ doesFileExist srcPath
-                      if not srcExists
-                        then pure $ RespError $ "Source file not found: " <> source
+                      destPath <- liftIO $ resolveDiskFilePath basePath mDestPath destFileName
+                      if srcPath == destPath
+                        then pure $ RespError "Source and destination paths are the same"
                         else do
-                          destPath <- liftIO $ resolveDiskFilePath basePath mDestPath destFileName
-                          -- Check same-path: canonicalize source, and for dest
-                          -- canonicalize the parent dir + filename (dest file may not exist yet)
-                          canonSrc <- liftIO $ canonicalizePath srcPath
-                          canonDestDir <- liftIO $ canonicalizePath (takeDirectory destPath)
-                          let canonDest = canonDestDir </> takeFileName destPath
-                          if canonSrc == canonDest
-                            then pure $ RespError "Source and destination paths are the same"
-                            else do
-                              logInfoN $ "Copying " <> T.pack canonSrc <> " to " <> T.pack canonDest
-                              copyResult <- liftIO $ cloneImageViaAgent state nid canonSrc canonDest format
-                              case copyResult of
-                                ImageSuccess -> registerImportedFile state nid basePath safeName format canonDest ephemeral
-                                ImageError err -> do
-                                  logWarnN $ "Copy failed: " <> err
-                                  pure $ RespError $ "Copy failed: " <> err
-                                ImageNotFound -> pure $ RespError "Source file not found"
-                                ImageFormatNotSupported msg -> pure $ RespError msg
+                          logInfoN $ "Copying " <> source <> " to " <> T.pack destPath
+                          copyResult <- liftIO $ cloneImageViaAgent state nid srcPath destPath format
+                          case copyResult of
+                            ImageSuccess -> registerImportedFile state nid basePath safeName format destPath ephemeral
+                            ImageError err -> do
+                              logWarnN $ "Copy failed: " <> err
+                              pure $ RespError $ "Copy failed: " <> err
+                            ImageNotFound -> pure $ RespError "Source file not found"
+                            ImageFormatNotSupported msg -> pure $ RespError msg
   where
     isXzUrl t = ".xz?" `T.isInfixOf` t
 
@@ -224,77 +200,6 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
             (ssDbPool state')
       logInfoN $ "Imported disk image with ID: " <> T.pack (show $ fromSqlKey diskId)
       pure $ RespDiskCreated $ fromSqlKey diskId
-
--- | Import a disk image from an HTTP/HTTPS URL and return its ID.
---
--- Downloads to the base images directory, decompresses @.xz@ if
--- needed. The optional checksum argument enables integrity-checking.
---
--- Exposed outside the Action typeclass so @crv apply@ can reuse it
--- directly when walking a YAML config.
-importDiskFromUrlIO :: ServerState -> ApplySink -> Text -> Text -> Maybe DriveFormat -> Maybe ImportChecksum -> Bool -> Text -> IO (Either Text Int64)
-importDiskFromUrlIO state sink name url mFormat mChecksum ephemeral nodeRefText = do
-  case sanitizeDiskName name of
-    Left err -> pure $ Left err
-    Right safeName -> do
-      mNid <- resolveImportTargetNode state nodeRefText
-      case mNid of
-        Left err -> pure $ Left err
-        Right nid -> importOnNode safeName nid
-  where
-    isInfixOf' needle haystack = needle `T.isInfixOf` T.pack haystack
-
-    importOnNode :: Text -> M.NodeId -> IO (Either Text Int64)
-    importOnNode safeName nid = do
-      let mUrlFmt = detectFormatFromUrl url
-      case mFormat <|> mUrlFmt of
-        Nothing -> pure $ Left "Cannot detect disk format from URL. Use --format to specify."
-        Just format -> do
-          basePath <- getEffectiveBasePath (ssQemuConfig state)
-          let urlStr = T.unpack url
-              isXz = ".xz" `isSuffixOf` urlStr || ".xz?" `isInfixOf'` urlStr
-              fmtExt = T.unpack (enumToText format)
-              downloadFileName = T.unpack safeName <> "." <> fmtExt <> if isXz then ".xz" else ""
-              downloadPath = basePath </> downloadFileName
-              finalFileName = T.unpack safeName <> "." <> fmtExt
-              finalPath = basePath </> finalFileName
-          fetchResult <-
-            fetchAndVerify
-              state
-              nid
-              sink
-              name
-              FetchSpec
-                { fsUrl = url
-                , fsDownloadPath = downloadPath
-                , fsFinalPath = finalPath
-                , fsIsXz = isXz
-                , fsChecksum = mChecksum
-                }
-          case fetchResult of
-            Left err -> pure $ Left err
-            Right diskPath -> do
-              let storedPath = makeRelativeToBase basePath diskPath
-              sizeMb <- getImageSizeMbViaAgent state nid diskPath
-              now <- getCurrentTime
-              diskId <-
-                runSqlPool
-                  ( do
-                      dkey <-
-                        insert
-                          DiskImage
-                            { diskImageName = safeName
-                            , diskImageFormat = format
-                            , diskImageSizeMb = sizeMb
-                            , diskImageCreatedAt = now
-                            , diskImageBackingImageId = Nothing
-                            , diskImageEphemeral = ephemeral
-                            }
-                      recordDiskImageNode dkey nid storedPath
-                      pure dkey
-                  )
-                  (ssDbPool state)
-              pure $ Right $ fromSqlKey diskId
 
 --------------------------------------------------------------------------------
 -- Fetch + verify
@@ -353,7 +258,10 @@ fetchAndVerify
   -> FetchSpec
   -> IO (Either Text FilePath)
 fetchAndVerify state nid sink diskName FetchSpec {..} = do
-  finalExists <- doesFileExist fsFinalPath
+  -- The final path belongs to the target node. Inspection through the
+  -- nodeagent keeps remote-node imports from accidentally probing the
+  -- daemon host's filesystem.
+  finalExists <- either (const False) (const True) <$> getImageInfoViaAgent state nid fsFinalPath
   case (finalExists, fsChecksum) of
     (True, Just cs@ImportChecksum {icTarget = ChecksumTargetFinal}) ->
       verifyExistingFinal cs
@@ -485,19 +393,3 @@ instance Action DiskImportAction where
       (fmap importChecksumFromTuple (diaChecksum a))
       (diaEphemeral a)
       (diaNodeRef a)
-
-data DiskImportUrl = DiskImportUrl
-  { diuName :: Text
-  , diuUrl :: Text
-  , diuFormat :: Maybe Text
-  , diuEphemeral :: Bool
-  , diuNodeRef :: Text
-  -- ^ Node where the import lands. Empty / @"0"@ defers to
-  -- 'Corvus.Handlers.Scheduler.pickNodeForDisk'.
-  }
-
-instance Action DiskImportUrl where
-  actionSubsystem _ = SubDisk
-  actionCommand _ = "import-url"
-  actionEntityName = Just . diuName
-  actionExecute ctx a = handleDiskImportUrl (acState ctx) (acApplySink ctx) (diuName a) (diuUrl a) (diuFormat a) (diuEphemeral a) (diuNodeRef a)

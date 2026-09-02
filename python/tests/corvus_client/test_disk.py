@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+
 import pytest
 from corvus_client import DiskNotFound
 
 from ._helpers import with_client
+from .conftest import _bin_search
 
 
 def test_disk_create_show_delete(daemon_socket):
@@ -33,6 +37,57 @@ def test_disk_create_show_delete(daemon_socket):
     run(go)
 
 
+def test_disk_create_with_custom_directory_path(daemon_socket):
+    run = with_client(daemon_socket)
+    name = "py-disk-custom-path"
+
+    async def go(c):
+        disk = await c.disks.create(name, size_mb=16, path="custom-create/")
+        try:
+            info = await disk.show()
+            paths = [placement.file_path for placement in info.placements]
+            assert any(path.endswith(f"custom-create/{name}.qcow2") for path in paths)
+        finally:
+            await disk.delete()
+
+    run(go)
+
+
+def test_cli_disk_create_with_custom_directory_path(daemon_socket):
+    name = "cli-disk-custom-path"
+    env = os.environ | {"CORVUS_SOCKET": str(daemon_socket)}
+    result = subprocess.run(
+        [
+            _bin_search("crv", "CORVUS_CRV"),
+            "disk",
+            "create",
+            name,
+            "--path",
+            "cli-create/",
+            "--size",
+            "16M",
+        ],
+        capture_output=True,
+        check=False,
+        env=env,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    run = with_client(daemon_socket)
+
+    async def go(c):
+        disk = await c.disks.get(name)
+        try:
+            info = await disk.show()
+            paths = [placement.file_path for placement in info.placements]
+            assert any(path.endswith(f"cli-create/{name}.qcow2") for path in paths)
+        finally:
+            await disk.delete()
+
+    run(go)
+
+
 def test_disk_overlay_and_clone(daemon_socket):
     run = with_client(daemon_socket)
 
@@ -40,10 +95,16 @@ def test_disk_overlay_and_clone(daemon_socket):
         base = await c.disks.create("py-base", size_mb=64)
         base_info = await base.show()
 
-        overlay = await c.disks.create_overlay("py-ovl", backing_disk_ref=base_info.id)
+        overlay = await c.disks.create_overlay(
+            "py-ovl", backing_disk_ref=base_info.id, path="custom-overlay/"
+        )
         ovl_info = await overlay.show()
         assert ovl_info.backing_image is not None
         assert ovl_info.backing_image.id == base_info.id
+        assert any(
+            path.endswith("custom-overlay/py-ovl.qcow2")
+            for path in (placement.file_path for placement in ovl_info.placements)
+        )
 
         cloned = await c.disks.clone(source_ref="py-base", new_name="py-clone")
         cloned_info = await cloned.show()

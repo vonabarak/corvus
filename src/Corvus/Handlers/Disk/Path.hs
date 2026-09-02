@@ -18,15 +18,14 @@ where
 import Corvus.Handlers.Resolve (validateName)
 import Corvus.Model
 import qualified Corvus.Model as M
-import Corvus.Qemu.Config (QemuConfig, getEffectiveBasePath)
+import Corvus.Qemu.Config (QemuConfig)
 import Data.List (isPrefixOf, isSuffixOf)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Database.Persist (Entity (..), getBy)
+import Database.Persist (Entity (..), get, getBy)
 import Database.Persist.Sql (SqlBackend, runSqlPool)
-import System.Directory (createDirectoryIfMissing)
-import System.FilePath (isRelative, takeDirectory, (</>))
+import System.FilePath (isRelative, (</>))
 
 -- | Sanitize a disk image name to prevent path traversal attacks.
 --
@@ -54,17 +53,18 @@ sanitizeDiskName name
 -- check should have rejected the request earlier).
 resolveDiskPath
   :: Pool SqlBackend -> QemuConfig -> DiskImageId -> NodeId -> IO FilePath
-resolveDiskPath pool config diskId nodeId = do
-  basePath <- getEffectiveBasePath config
+resolveDiskPath pool _config diskId nodeId = do
   mRow <- runSqlPool (getBy (M.UniqueDiskImageOnNode diskId nodeId)) pool
   case mRow of
     Nothing -> pure ""
-    Just (Entity _ row) ->
+    Just (Entity _ row) -> do
+      mNode <- runSqlPool (get nodeId) pool
       let stored = T.unpack (diskImageNodeFilePath row)
-       in pure $
-            if "/" `isPrefixOf` stored
-              then stored
-              else basePath </> stored
+          basePath = maybe "" (T.unpack . M.nodeBasePath) mNode
+      pure $
+        if "/" `isPrefixOf` stored
+          then stored
+          else basePath </> stored
 
 -- | Convert an absolute file path to a relative path if it falls within
 -- the base directory. Paths outside the base directory are returned as-is.
@@ -95,12 +95,11 @@ makeRelativeToBase basePath filePath
 --   * Ends with @\/@: treated as a directory — @fileName@ is appended
 --   * Does not end with @\/@: treated as the full file path
 --
--- The parent directory is created if it does not exist.
+-- This is deliberately pure from the daemon's perspective: the target
+-- path belongs to a nodeagent and its parent must be created on that node.
 resolveDiskFilePath :: FilePath -> Maybe Text -> FilePath -> IO FilePath
-resolveDiskFilePath basePath mPath fileName = do
-  let result = resolveDiskFilePathPure basePath mPath fileName
-  createDirectoryIfMissing True (takeDirectory result)
-  pure result
+resolveDiskFilePath basePath mPath fileName =
+  pure $ resolveDiskFilePathPure basePath mPath fileName
 
 -- | Pure path resolution logic (no IO). See 'resolveDiskFilePath' for rules.
 resolveDiskFilePathPure :: FilePath -> Maybe Text -> FilePath -> FilePath

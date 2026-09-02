@@ -58,6 +58,7 @@ import asyncio
 import capnp
 from corvus_client import AsyncClient
 
+
 async def main():
     async with capnp.kj_loop():
         async with AsyncClient(unix_socket="/run/.../corvus.sock") as c:
@@ -66,6 +67,7 @@ async def main():
             vms = await c.vms.list()
             for v in vms:
                 print(f"  [{v.id}] {v.name} -- {v.status}")
+
 
 asyncio.run(main())
 ```
@@ -124,17 +126,23 @@ The async generator equivalent is `AsyncClient.build_stream(...)`.
 import asyncio, capnp
 from corvus_client import AsyncClient
 
+
 async def main():
     async with capnp.kj_loop():
         async with AsyncClient(unix_socket="...") as c:
             vm = await c.vms.get("web-1")
+
             async def on_status(s):
-                print(f"vm {s.vm_id}: reachable={s.reachable}, last_hc={s.last_healthcheck}")
+                print(
+                    f"vm {s.vm_id}: reachable={s.reachable}, last_hc={s.last_healthcheck}"
+                )
+
             sub = await vm.subscribe_guest_agent(on_status)
             try:
-                await asyncio.sleep(60)   # receive events for a minute
+                await asyncio.sleep(60)  # receive events for a minute
             finally:
-                await sub.close()         # drop subscription
+                await sub.close()  # drop subscription
+
 
 asyncio.run(main())
 ```

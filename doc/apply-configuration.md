@@ -251,7 +251,7 @@ This is useful for UEFI OVMF variables: import the template once, then clone it 
 
 ### Create
 
-Creates a new empty disk image. Both `format` and `sizeMb` are required. The file is created in the daemon's base images directory.
+Creates a new empty disk image. Both `format` and `sizeMb` are required. The file is created in the selected node's base images directory.
 
 ### Custom Path
 
@@ -267,7 +267,7 @@ The optional `path` field controls where the disk image file is placed. It can b
 | `/data/vms/` | Absolute directory: `/data/vms/<name>.<ext>` |
 | `/data/disk.raw` | Absolute file path: `/data/disk.raw` |
 
-- Paths starting with `/` are absolute; otherwise they are resolved relative to the base images directory (`$HOME/VMs` by default).
+- Paths starting with `/` are absolute; otherwise they are resolved relative to the selected node's base images directory (`$HOME/VMs` by default).
 - Paths ending with `/` are treated as directories — the filename is auto-generated from the disk name and format extension (e.g., `my-disk.qcow2`). The directory is created if it does not exist.
 - Paths **not** ending with `/` are treated as the full file path.
 

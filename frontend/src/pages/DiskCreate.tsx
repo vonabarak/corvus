@@ -168,6 +168,7 @@ function BlankForm({
   const [name, setName] = useState("");
   const [sizeMb, setSizeMb] = useState<number>(4096);
   const [format, setFormat] = useState<string>("qcow2");
+  const [path, setPath] = useState("");
   const [node, setNode] = useState("");
   const [ephemeral, setEphemeral] = useState(false);
 
@@ -177,6 +178,7 @@ function BlankForm({
         name: name.trim(),
         size_mb: sizeMb,
         format,
+        path: path.trim() || null,
         ephemeral,
         node: node || null,
       }),
@@ -232,6 +234,15 @@ function BlankForm({
           </select>
         </div>
         <div className="space-y-1.5">
+          <Label htmlFor="blank-path">Destination path (optional)</Label>
+          <Input
+            id="blank-path"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            placeholder="<basePath>/<name>.qcow2"
+          />
+        </div>
+        <div className="space-y-1.5">
           <Label htmlFor="blank-node">Node</Label>
           <NodeSelect value={node} onChange={setNode} nodes={nodes} loading={nodesLoading} />
         </div>
@@ -253,6 +264,7 @@ function OverlayForm({
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [backing, setBacking] = useState("");
+  const [path, setPath] = useState("");
   const [ephemeral, setEphemeral] = useState(true);
 
   const mutation = useMutation({
@@ -260,6 +272,7 @@ function OverlayForm({
       createOverlay({
         name: name.trim(),
         backing_disk_ref: backing,
+        path: path.trim() || null,
         ephemeral,
       }),
     onSuccess: (disk) => {
@@ -296,6 +309,15 @@ function OverlayForm({
             disks={disks}
             loading={disksLoading}
             placeholder="— pick a backing image —"
+          />
+        </div>
+        <div className="space-y-1.5 md:col-span-2">
+          <Label htmlFor="overlay-path">Destination path (optional)</Label>
+          <Input
+            id="overlay-path"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            placeholder="<basePath>/<name>.qcow2"
           />
         </div>
       </div>
@@ -372,7 +394,7 @@ function CloneForm({
             placeholder={"<basePath>/<new_name>.<ext>"}
           />
           <p className="text-xs text-muted-foreground">
-            Leave blank for the default. Relative paths resolve against the daemon's
+            Leave blank for the default. Relative paths resolve against the source node's
             <code> basePath</code>; absolute paths are honoured as-is.
           </p>
         </div>
@@ -395,7 +417,7 @@ function ImportUrlForm({
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [format, setFormat] = useState<string>("");
-  const [sizeMb, setSizeMb] = useState<number | "">("");
+  const [path, setPath] = useState("");
   const [node, setNode] = useState("");
   const [ephemeral, setEphemeral] = useState(false);
 
@@ -404,8 +426,8 @@ function ImportUrlForm({
       importDiskUrl({
         name: name.trim(),
         url: url.trim(),
+        path: path.trim() || null,
         format: format || null,
-        size_mb: sizeMb === "" ? null : sizeMb,
         ephemeral,
         node: node || null,
       }),
@@ -464,17 +486,12 @@ function ImportUrlForm({
           </select>
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="imp-size">Resize after download (MB, optional)</Label>
+          <Label htmlFor="imp-path">Destination path (optional)</Label>
           <Input
-            id="imp-size"
-            type="number"
-            min={1}
-            value={sizeMb}
-            onChange={(e) => {
-              const v = e.target.value;
-              setSizeMb(v === "" ? "" : Math.max(1, Number(v) || 1));
-            }}
-            placeholder="(leave blank to keep original)"
+            id="imp-path"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            placeholder="<basePath>/<name>.<format>"
           />
         </div>
         <div className="space-y-1.5 md:col-span-2">

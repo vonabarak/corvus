@@ -37,14 +37,16 @@ class AsyncDiskManager:
         size_mb: int,
         *,
         format: str | None = None,
+        path: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
     ) -> AsyncDisk:
         """Create a new disk image.
 
-        Pass ``node=`` to pin the placement to a specific node
-        (name or numeric id). When omitted, the daemon's scheduler
-        picks one.
+        Pass ``path=`` to select the destination file or directory on
+        the selected node. Pass ``node=`` to pin that placement to a
+        specific node (name or numeric id). When omitted, the daemon's
+        scheduler picks one.
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskCreateParams.new_message()
@@ -52,6 +54,8 @@ class AsyncDiskManager:
         params.sizeMb = size_mb
         if format is not None:
             params.format = format
+        if path is not None:
+            params.path = path
         params.ephemeral = ephemeral
         if node is not None:
             params.node = entity_ref(node)
@@ -64,6 +68,7 @@ class AsyncDiskManager:
         file_path: str,
         *,
         format: str | None = None,
+        backing_disk_ref: int | str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
     ) -> AsyncDisk:
@@ -79,6 +84,10 @@ class AsyncDiskManager:
         params.filePath = file_path
         if format is not None:
             params.format = format
+            params.formatProvided = True
+        if backing_disk_ref is not None:
+            params.backingDiskRef = entity_ref(backing_disk_ref)
+            params.backingProvided = True
         params.ephemeral = ephemeral
         if node is not None:
             params.node = entity_ref(node)
@@ -90,12 +99,15 @@ class AsyncDiskManager:
         name: str,
         backing_disk_ref: int | str,
         *,
+        path: str | None = None,
         ephemeral: bool = False,
     ) -> AsyncDisk:
         mgr = await self._ensure()
         params = _schema.disk.DiskCreateOverlayParams.new_message()
         params.name = name
         params.backingDiskRef = entity_ref(backing_disk_ref)
+        if path is not None:
+            params.path = path
         params.ephemeral = ephemeral
         resp = await mgr.createOverlay(params=params)
         return AsyncDisk(resp.disk)
@@ -110,10 +122,10 @@ class AsyncDiskManager:
     ) -> AsyncDisk:
         """Clone an existing disk to a new disk record.
 
-        `path` is the destination on the daemon's filesystem; leave
-        `None` (the default) and the daemon writes to
+        `path` is the destination on the source placement's node; leave
+        `None` (the default) and Corvus writes to
         `<basePath>/<new_name>.<ext>`. Relative paths are resolved
-        against the daemon's basePath; absolute paths are honoured
+        against that node's basePath; absolute paths are honoured
         as-is.
 
         Pass ``ephemeral=True`` to mark the clone for auto-deletion
@@ -133,11 +145,15 @@ class AsyncDiskManager:
         self,
         disk_ref: int | str,
         new_backing_disk_ref: int | str,
+        *,
+        unsafe: bool = False,
     ) -> None:
         mgr = await self._ensure()
         params = _schema.disk.DiskRebaseParams.new_message()
         params.diskRef = entity_ref(disk_ref)
         params.newBackingDiskRef = entity_ref(new_backing_disk_ref)
+        params.newBackingProvided = True
+        params.unsafe = unsafe
         await mgr.rebase(params=params)
 
     async def flatten(self, disk_ref: int | str) -> None:
@@ -154,57 +170,52 @@ class AsyncDiskManager:
         name: str,
         url: str,
         *,
+        path: str | None = None,
         format: str | None = None,
-        size_mb: int | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
     ) -> int:
-        """Returns the task id; the disk is created asynchronously.
-
-        Pass ``node=`` to direct the import to a specific node;
-        defaults to the scheduler's pick.
-        """
-        mgr = await self._ensure()
-        params = _schema.disk.DiskImportUrlParams.new_message()
-        params.name = name
-        params.url = url
-        if format is not None:
-            params.format = format
-        if size_mb is not None:
-            params.sizeMb = size_mb
-        params.ephemeral = ephemeral
-        if node is not None:
-            params.node = entity_ref(node)
-        resp = await mgr.importUrl(params=params)
-        return resp.taskId
+        """Start an asynchronous HTTP(S) import and return its task id."""
+        return await self.import_(
+            name,
+            url,
+            path=path,
+            format=format,
+            ephemeral=ephemeral,
+            node=node,
+        )
 
     async def import_(
         self,
         name: str,
         src_path: str,
         *,
+        path: str | None = None,
         format: str | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
-    ) -> AsyncDisk:
-        """Import (copy) a local file as a new disk image.
+    ) -> int:
+        """Start an asynchronous disk import and return its task id.
 
-        Pass ``node=`` to direct the import to a specific node;
-        defaults to the scheduler's pick.
+        ``src_path`` is an HTTP(S) URL or a path visible on the selected
+        target node. Use :meth:`upload_from_file` for a client-local file.
         """
         mgr = await self._ensure()
         params = _schema.disk.DiskImportParams.new_message()
         params.name = name
         params.srcPath = src_path
+        if path is not None:
+            params.destPath = path
         if format is not None:
             params.format = format
+            params.formatProvided = True
         params.ephemeral = ephemeral
         if node is not None:
             params.node = entity_ref(node)
         # `import` is a Python keyword; pycapnp uses the schema name verbatim
         # as a method on the cap, so we call it through getattr.
         resp = await getattr(mgr, "import")(params=params)
-        return AsyncDisk(resp.disk)
+        return resp.taskId
 
     async def upload_from_file(
         self,

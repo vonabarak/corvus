@@ -53,6 +53,9 @@ class DiskCreateBody(BaseModel):
     format: str | None = Field(
         None, description="qcow2 (default) / raw / vmdk / vdi — see DriveFormat enum."
     )
+    path: str | None = Field(
+        None, description="Destination file or directory on the selected node."
+    )
     ephemeral: bool = Field(
         False,
         description=(
@@ -74,6 +77,7 @@ class DiskOverlayBody(BaseModel):
         ...,
         description="Source disk id or name. Use the name for human-edited apply YAML.",
     )
+    path: str | None = None
     ephemeral: bool = False
 
 
@@ -89,21 +93,14 @@ class DiskCloneBody(BaseModel):
 
 
 class DiskImportUrlBody(BaseModel):
-    """Download a disk image from an HTTP URL into the daemon's
-    storage. Runs asynchronously; the response includes a task id
+    """Download a disk image from an HTTP URL onto the selected node.
+    Runs asynchronously; the response includes a task id
     the frontend can watch on /tasks/{id}."""
 
     name: str = Field(..., min_length=1)
     url: str = Field(..., min_length=1)
+    path: str | None = None
     format: str | None = None
-    size_mb: int | None = Field(
-        None,
-        gt=0,
-        description=(
-            "Resize the downloaded image to this size after fetching. "
-            "Useful for cloud images that ship 2-GiB defaults."
-        ),
-    )
     ephemeral: bool = False
     node: str | None = None
 
@@ -149,6 +146,7 @@ async def create_disk(body: DiskCreateBody, client: ClientDep) -> dict[str, Any]
             body.name,
             body.size_mb,
             format=body.format,
+            path=body.path,
             ephemeral=body.ephemeral,
             node=_ref_to_int_or_str(body.node) if body.node else None,
         )
@@ -164,6 +162,7 @@ async def create_overlay(body: DiskOverlayBody, client: ClientDep) -> dict[str, 
         disk = await client.disks.create_overlay(
             body.name,
             _ref_to_int_or_str(body.backing_disk_ref),
+            path=body.path,
             ephemeral=body.ephemeral,
         )
     except CorvusError as exc:
@@ -195,8 +194,8 @@ async def import_url(body: DiskImportUrlBody, client: ClientDep) -> dict[str, in
         task_id = await client.disks.import_url(
             body.name,
             body.url,
+            path=body.path,
             format=body.format,
-            size_mb=body.size_mb,
             ephemeral=body.ephemeral,
             node=_ref_to_int_or_str(body.node) if body.node else None,
         )

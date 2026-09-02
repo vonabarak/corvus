@@ -263,6 +263,10 @@ def _ensure_self_node(sock: Path, agent_port: int) -> None:
             # will retry-and-warn on netd dial failure but the
             # nodeagent stays reachable.
             net_agent_port=agent_port,
+            # Keep the node record aligned with the HOME inherited by
+            # the nodeagent fixture. Disk paths are resolved from this
+            # target node's base path, not from the daemon process.
+            base_path=str(sock.parent / "home" / "VMs"),
         )
         # The daemon's per-node supervisor dials the agent
         # asynchronously from 'handleNodeAdd'; tests that hit

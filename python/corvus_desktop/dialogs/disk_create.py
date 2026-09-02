@@ -172,10 +172,6 @@ class _ImportUrlTab(QWidget):
         self.url = QLineEdit()
         self.url.setPlaceholderText("https://… cloud image URL")
         self.format = _format_combo()
-        self.size_mb = QSpinBox()
-        self.size_mb.setRange(0, 4 * 1024 * 1024)
-        self.size_mb.setSpecialValueText("— don't resize —")
-        self.size_mb.setSuffix(" MB")
         self.node = EntityCombo(
             bridge.request_node_list,
             bridge.node_list_ready,
@@ -186,20 +182,17 @@ class _ImportUrlTab(QWidget):
         form.addRow("Name:", self.name)
         form.addRow("URL:", self.url)
         form.addRow("Format:", self.format)
-        form.addRow("Resize to:", self.size_mb)
         form.addRow("Node:", self.node)
         form.addRow("Ephemeral:", self.ephemeral)
 
     def payload(self) -> dict[str, Any] | None:
         if not self.name.text().strip() or not self.url.text().strip():
             return None
-        size = self.size_mb.value() or None
         return {
             "mode": "import_url",
             "name": self.name.text().strip(),
             "url": self.url.text().strip(),
             "format": self.format.currentText(),
-            "size_mb": size,
             "node": self.node.selected_id(),
             "ephemeral": self.ephemeral.isChecked(),
         }

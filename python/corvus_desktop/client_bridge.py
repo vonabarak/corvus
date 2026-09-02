@@ -555,13 +555,10 @@ class CorvusBridge(QObject):
         url: str,
         *,
         format: str | None = None,
-        size_mb: int | None = None,
         ephemeral: bool = False,
         node: int | str | None = None,
     ) -> None:
-        self._enqueue(
-            self._do_disk_import_url(name, url, format, size_mb, ephemeral, node)
-        )
+        self._enqueue(self._do_disk_import_url(name, url, format, ephemeral, node))
 
     def disk_rebase(self, disk_id: int, new_backing_disk_ref: int | str) -> None:
         self._enqueue(self._do_disk_rebase(disk_id, new_backing_disk_ref))
@@ -1658,7 +1655,6 @@ class CorvusBridge(QObject):
         name: str,
         url: str,
         format: str | None,
-        size_mb: int | None,
         ephemeral: bool,
         node: int | str | None,
     ) -> None:
@@ -1671,7 +1667,6 @@ class CorvusBridge(QObject):
                 name,
                 url,
                 format=format,
-                size_mb=size_mb,
                 ephemeral=ephemeral,
                 node=node,
             )

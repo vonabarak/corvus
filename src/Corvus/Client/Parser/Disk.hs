@@ -113,8 +113,8 @@ diskAttachCommand =
           <> short 'i'
           <> metavar "INTERFACE"
           <> value "virtio"
-          <> help "Drive interface: virtio, ide, scsi, sata, nvme (default: virtio)"
-          <> completeWith ["virtio", "ide", "scsi", "sata", "nvme"]
+          <> help "Drive interface: virtio, ide, scsi, sata, nvme, pflash, floppy (default: virtio)"
+          <> completeWith ["virtio", "ide", "scsi", "sata", "nvme", "pflash", "floppy"]
       )
     <*> optional
       ( strOption
@@ -170,7 +170,7 @@ diskRegisterCommand =
     <*> argument
       str
       ( metavar "PATH"
-          <> help "Path to existing disk image file (local only, not copied)"
+          <> help "Path to existing disk image file on the target node (not copied)"
       )
     <*> optional
       ( strOption
@@ -206,7 +206,7 @@ diskImportCommand =
     <*> argument
       (T.pack <$> str)
       ( metavar "SOURCE"
-          <> help "Source file path or HTTP/HTTPS URL"
+          <> help "Source path on the target node or HTTP/HTTPS URL (use disk upload for a client-local file)"
       )
     <*> optional
       ( T.pack

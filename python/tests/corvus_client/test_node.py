@@ -51,10 +51,10 @@ def test_node_show_returns_full_details(daemon_socket):
         assert details.name == "self"
         assert details.host == "127.0.0.1"
         assert details.admin_state == "online"
-        # 'base_path' defaults to /home/corvus/VMs unless the
-        # AsyncNodeManager.create caller overrode it; the
-        # fixture takes the default.
-        assert details.base_path == "/home/corvus/VMs"
+        # The fixture explicitly matches this node record to its
+        # nodeagent's temporary HOME, so disk operations use a writable
+        # node-local base path.
+        assert details.base_path == str(daemon_socket.parent / "home" / "VMs")
 
     run(go)
 

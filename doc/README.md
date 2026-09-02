@@ -164,7 +164,7 @@ crv --socket /tmp/corvus.sock vm list
 
 ### Network Transparency
 
-Every `crv` command — including `vm view`, `vm monitor`, `vm exec`, `serial console`, and `apply` — runs over the daemon's RPC socket, so pointing `crv` at a daemon on another host with `--host <ip>` Just Works. The daemon relays serial and HMP I/O through the RPC connection using per-VM ring buffers; `vm view` for graphical VMs returns a short-lived SPICE host/port/password grant that `remote-viewer` on the client uses. Disk registration, import, and shared-directory paths are always interpreted on the daemon host (they refer to the daemon's filesystem).
+Every `crv` command — including `vm view`, `vm monitor`, `vm exec`, `serial console`, and `apply` — runs over the daemon's RPC socket, so pointing `crv` at a daemon on another host with `--host <ip>` Just Works. The daemon relays serial and HMP I/O through the RPC connection using per-VM ring buffers; `vm view` for graphical VMs returns a short-lived SPICE host/port/password grant that `remote-viewer` on the client uses. Disk registration and import paths are interpreted on the selected target node; use `crv disk upload` for a file on the client machine. Shared-directory paths refer to the daemon host's filesystem.
 
 The TCP listener requires mutual TLS — `corvus-admin deploy` provisions a per-host CA and per-client certificates, and the daemon rejects any peer whose CN doesn't begin with `corvus-client:`. Pass `--no-tls` on both the daemon and the client to bypass it in dev. The Unix socket relies on filesystem permissions, and TLS is skipped there even when configured.
 

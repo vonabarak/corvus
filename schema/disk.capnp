@@ -76,26 +76,31 @@ struct DiskCreateParams {
   format    @2 :Enums.DriveFormat = qcow2;
   ephemeral @3 :Bool = false;
   node      @4 :Common.EntityRef;
+  # Optional destination path. Empty means the default
+  # `<basePath>/<name>.<format>` location. A non-empty path follows the
+  # same relative/absolute and trailing-`/` rules as the CLI's `--path`.
+  path      @5 :Text;
 }
 
 struct DiskRegisterParams {
-  # `format` is left as the schema default (qcow2). Pass an explicit
-  # value when registering raw / vmdk / ... files; the daemon does
-  # NOT auto-detect at the wire level (the CLI's auto-detection is
-  # a client-side convenience). `node` is the node that hosts the
-  # file referenced by `filePath` (unset/byId 0 → defer to the
-  # scheduler).
+  # `filePath` is a path on `node`, not on the API client. When
+  # `formatProvided` is false, the daemon inspects the file on that
+  # node and falls back to the filename extension.
   name      @0 :Text;
   filePath  @1 :Text;
   format    @2 :Enums.DriveFormat = qcow2;
   ephemeral @3 :Bool = false;
   node      @4 :Common.EntityRef;
+  formatProvided  @5 :Bool = false;
+  backingDiskRef  @6 :Common.EntityRef;
+  backingProvided @7 :Bool = false;
 }
 
 struct DiskCreateOverlayParams {
   name           @0 :Text;
   backingDiskRef @1 :Common.EntityRef;
   ephemeral      @2 :Bool = false;
+  path           @3 :Text;
 }
 
 struct DiskCloneParams {
@@ -113,23 +118,21 @@ struct DiskCloneParams {
 struct DiskRebaseParams {
   diskRef           @0 :Common.EntityRef;
   newBackingDiskRef @1 :Common.EntityRef;
-}
-
-struct DiskImportUrlParams {
-  name      @0 :Text;
-  url       @1 :Text;
-  format    @2 :Enums.DriveFormat = qcow2;
-  sizeMb    @3 :Int64;                         # 0 == no resize after import
-  ephemeral @4 :Bool = false;
-  node      @5 :Common.EntityRef;
+  # False means flatten the disk. True selects the new backing ref.
+  newBackingProvided @2 :Bool = false;
+  unsafe             @3 :Bool = false;
 }
 
 struct DiskImportParams {
+  # `srcPath` is either an HTTP(S) URL or a path visible on `node`.
+  # API-client-local files must use DiskUpload instead.
   name      @0 :Text;
   srcPath   @1 :Text;
   format    @2 :Enums.DriveFormat = qcow2;
   ephemeral @3 :Bool = false;
   node      @4 :Common.EntityRef;
+  destPath       @5 :Text;
+  formatProvided @6 :Bool = false;
 }
 
 # Begins an upload of a file that exists on the API client's machine.
@@ -198,25 +201,24 @@ interface DiskManager {
   createOverlay @4 (params :DiskCreateOverlayParams) -> (disk :Disk);
   clone         @5 (params :DiskCloneParams) -> (disk :Disk);
   rebase        @6 (params :DiskRebaseParams) -> ();
-  importUrl     @7 (params :DiskImportUrlParams) -> (taskId :Int64);
-  import        @8 (params :DiskImportParams) -> (disk :Disk);
+  import        @7 (params :DiskImportParams) -> (taskId :Int64);
   # Flatten an overlay: consolidates its delta with all backing
   # images into a single standalone qcow2 with no backing image.
   # The disk record stays at the same id; only its `backingImage*`
   # fields go to null. VM must be stopped.
-  flatten       @9 (diskRef :Common.EntityRef) -> ();
+  flatten       @8 (diskRef :Common.EntityRef) -> ();
 
   # Copy a disk image's bytes to a new node, adding a placement
   # row on the destination while leaving the source intact. Bytes
   # flow agent → agent; the daemon orchestrates but does not relay.
   # Returns a task id for long-running progress observation.
-  copy          @10 (params :DiskCopyParams) -> (taskId :Int64);
+  copy          @9 (params :DiskCopyParams) -> (taskId :Int64);
 
   # Move a disk image's bytes to a new node, then delete the
   # source placement + file. Same data path as `copy`. Returns a
   # task id for long-running progress observation.
-  move          @11 (params :DiskMoveParams) -> (taskId :Int64);
-  beginUpload   @12 (params :DiskUploadParams) -> (upload :DiskUpload);
+  move          @10 (params :DiskMoveParams) -> (taskId :Int64);
+  beginUpload   @11 (params :DiskUploadParams) -> (upload :DiskUpload);
 }
 
 # A one-shot client-upload session. finish() publishes the completed image and
@@ -255,7 +257,7 @@ interface Disk {
   snapshotCreate    @4 (name        :Text,
                         quiesce     :Enums.QuiesceMode = auto,
                         fullMachine :Bool = false)
-                       -> (snapshot :Snapshot);
+                       -> (snapshot :Snapshot, snapshotId :Int64);
   snapshotList      @5 () -> (snapshots :List(SnapshotInfo));
   snapshotGet       @6 (ref :Common.EntityRef) -> (snapshot :Snapshot);
 }

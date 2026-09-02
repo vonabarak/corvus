@@ -62,8 +62,9 @@ than for VM migration:
 Additionally: a move/copy of an overlay whose backing image is
 *not* on the destination is refused, with the suggested fix
 (`crv disk copy <BACKING> --to-node <NODE>`). VM migration handles
-this implicitly; the manual commands stay strict so the operator
-explicitly stages the chain.
+this implicitly; the manual commands stay strict by default so the operator
+explicitly stages the chain. Pass `--with-backing-chain` to have a manual copy
+or move stage every missing backing ancestor first.
 
 ## What happens during a migration
 

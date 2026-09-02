@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -8,7 +9,6 @@ module Corvus.Handlers.Disk
     DiskCreate (..)
   , DiskCreateOverlay (..)
   , DiskRegister (..)
-  , DiskImportUrl (..)
   , DiskDelete (..)
   , DiskResize (..)
   , DiskClone (..)
@@ -30,7 +30,6 @@ module Corvus.Handlers.Disk
   , handleDiskCreate
   , handleDiskCreateOverlay
   , handleDiskRegister
-  , handleDiskImportUrl
   , handleDiskImportCopy
   , handleDiskDelete
   , handleDiskResize
@@ -63,7 +62,7 @@ where
 import Corvus.Action
 
 import Control.Exception (SomeException, try)
-import Control.Monad (forM_)
+import Control.Monad (forM, forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import Corvus.Handlers.Disk.Agent
@@ -77,7 +76,7 @@ import Corvus.Handlers.Disk.Agent
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..), handleDiskAttach, handleDiskDetach)
 import Corvus.Handlers.Disk.Db (deleteDiskAndSnapshots, deleteDiskImageNodeRow, diskImageNodeFilePathFor, getAttachedVms, getBackingChainIds, getDiskImageInfo, getOverlayIds, getReadWriteAttachedVms, getRunningAttachedVms, hasPlacementOnNode, listDiskImageNodes, listDiskImages, recordDiskImageNode)
-import Corvus.Handlers.Disk.Import (DiskImportAction (..), DiskImportUrl (..), handleDiskImportCopy, handleDiskImportUrl)
+import Corvus.Handlers.Disk.Import (DiskImportAction (..), handleDiskImportCopy)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, resolveDiskPath, sanitizeDiskName)
 import Corvus.Handlers.Disk.Rebase (DiskRebase (..), handleDiskRebase)
 import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), SnapshotMerge (..), SnapshotRollback (..), handleSnapshotCreate, handleSnapshotDelete, handleSnapshotList, handleSnapshotMerge, handleSnapshotRollback)
@@ -114,6 +113,15 @@ resolveTargetDiskNode state nodeRefText
       r <- resolveNode (Ref nodeRefText) (ssDbPool state)
       pure $ fmap (M.toSqlKey :: Int64 -> M.NodeId) r
 
+-- | Every relative disk path is rooted at the placement node's base path,
+-- never at the daemon process's local configuration.
+nodeBasePathFor :: ServerState -> M.NodeId -> IO FilePath
+nodeBasePathFor state nid = do
+  mNode <- runSqlPool (get nid) (ssDbPool state)
+  case mNode of
+    Just node -> pure $ T.unpack (M.nodeBasePath node)
+    Nothing -> getEffectiveBasePath (ssQemuConfig state)
+
 -- | Resolved destination for a client-upload stream. Planning only reads
 -- state; the Action below publishes the completed node-side file.
 data DiskUploadPlan = DiskUploadPlan
@@ -136,7 +144,7 @@ prepareDiskUpload state name format mPath ephemeral nodeRefText overwrite =
       case mNid of
         Left err -> pure (Left err)
         Right nid -> do
-          basePath <- getEffectiveBasePath (ssQemuConfig state)
+          basePath <- nodeBasePathFor state nid
           let defaultPath = resolveDiskFilePathPure basePath mPath (T.unpack safeName <> "." <> T.unpack (enumToText format))
               mkPlan = DiskUploadPlan safeName format ephemeral nid
           existing <- runSqlPool (getBy (UniqueDiskImageName safeName)) (ssDbPool state)
@@ -219,7 +227,7 @@ handleDiskCreate state name format sizeMb mPath ephemeral nodeRefText = runServe
         Left err -> pure $ RespError err
         Right nid -> do
           -- Generate file path using sanitized name
-          basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+          basePath <- liftIO $ nodeBasePathFor state nid
           let fileName = T.unpack safeName <> "." <> T.unpack (enumToText format)
           filePath <- liftIO $ resolveDiskFilePath basePath mPath fileName
 
@@ -280,7 +288,7 @@ handleDiskRegister state name filePath mFormat mBackingDiskId ephemeral nodeRefT
         Left err -> pure $ RespError err
         Right nid -> do
           -- Normalize path: strip base directory prefix if applicable
-          basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+          basePath <- liftIO $ nodeBasePathFor state nid
           let storedPath = makeRelativeToBase basePath (T.unpack filePath)
               resolvedPath =
                 if "/" `isPrefixOf` T.unpack storedPath
@@ -405,7 +413,7 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath ephemeral = r
                   logWarnN $ "Base image is attached read-write to VMs: " <> T.pack (show vmIds)
                   pure $ RespError "Cannot use as base: image is attached read-write to VM(s)"
                 else do
-                  basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+                  basePath <- liftIO $ nodeBasePathFor state nid
                   let overlayFileName = T.unpack safeName <> ".qcow2"
                   overlayFilePath <- liftIO $ resolveDiskFilePath basePath optDirPath overlayFileName
                   let pool = ssDbPool state
@@ -475,7 +483,7 @@ handleDiskClone state name baseDiskId mResizeMb optionalPath ephemeral = runServ
               if not (null runningVms)
                 then pure RespVmMustBeStopped
                 else do
-                  basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
+                  basePath <- liftIO $ nodeBasePathFor state nid
                   let pool = ssDbPool state
                       baseKey = toSqlKey baseDiskId :: DiskImageId
                   srcPath <- liftIO $ resolveDiskPath pool (ssQemuConfig state) baseKey nid
@@ -573,7 +581,6 @@ handleDiskDelete state diskId = runServerLogging state $ do
           if not (null overlayIds)
             then pure $ RespDiskHasOverlays overlayIds
             else do
-              basePath <- liftIO $ getEffectiveBasePath (ssQemuConfig state)
               placements <- liftIO $ runSqlPool (listDiskImageNodes key) pool
               -- Delete the on-disk file on every node we've ever
               -- recorded for this image. Per-node failures are
@@ -583,11 +590,7 @@ handleDiskDelete state diskId = runServerLogging state $ do
               -- the end is idempotent.
               forM_ placements $ \(Entity _ row) -> do
                 let nid = diskImageNodeNodeId row
-                    storedPath = T.unpack (diskImageNodeFilePath row)
-                    resolved =
-                      if "/" `isPrefixOf` storedPath
-                        then storedPath
-                        else basePath </> storedPath
+                resolved <- liftIO $ resolveDiskPath pool (ssQemuConfig state) key nid
                 result <- liftIO $ deleteImageViaAgent state nid resolved
                 case result of
                   ImageError err ->
@@ -613,41 +616,49 @@ handleDiskResize :: ServerState -> Int64 -> Int64 -> IO Response
 handleDiskResize state diskId newSizeMb = runServerLogging state $ do
   logInfoN $ "Resizing disk image " <> T.pack (show diskId) <> " to " <> T.pack (show newSizeMb) <> " MB"
 
-  mNid <- liftIO $ pickNodeForExistingDisk state (toSqlKey diskId :: DiskImageId)
-  case mNid of
-    Left err -> pure $ RespError err
-    Right nid -> do
-      mDisk <- liftIO $ runSqlPool (get (toSqlKey diskId :: DiskImageId)) (ssDbPool state)
-      case mDisk of
-        Nothing -> pure RespDiskNotFound
-        Just _disk -> do
-          let key = toSqlKey diskId :: DiskImageId
-          -- Check if any attached VM is running
-          runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) (ssDbPool state)
-          if not (null runningVms)
-            then pure RespVmMustBeStopped
+  let key = toSqlKey diskId :: DiskImageId
+      pool = ssDbPool state
+  mDisk <- liftIO $ runSqlPool (get key) pool
+  case mDisk of
+    Nothing -> pure RespDiskNotFound
+    Just _disk -> do
+      runningVms <- liftIO $ runSqlPool (getRunningAttachedVms diskId) pool
+      if not (null runningVms)
+        then pure RespVmMustBeStopped
+        else do
+          overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) pool
+          if not (null overlayIds)
+            then pure $ RespDiskHasOverlays overlayIds
             else do
-              -- Check if disk is used as backing image for overlays
-              overlayIds <- liftIO $ runSqlPool (getOverlayIds diskId) (ssDbPool state)
-              if not (null overlayIds)
-                then pure $ RespDiskHasOverlays overlayIds
+              placements <- liftIO $ runSqlPool (listDiskImageNodes key) pool
+              outcomes <- liftIO $ forM placements $ \(Entity _ row) -> do
+                let nid = diskImageNodeNodeId row
+                filePath <- resolveDiskPath pool (ssQemuConfig state) key nid
+                result <- resizeImageViaAgent state nid filePath newSizeMb
+                pure (nid, result)
+              let failures =
+                    [ "node " <> T.pack (show (fromSqlKey nid)) <> ": " <> renderResizeFailure result
+                    | (nid, result) <- outcomes
+                    , result /= ImageSuccess
+                    ]
+              if not (null failures)
+                then do
+                  let msg = "Resize failed on " <> T.intercalate "; " failures <> ". Logical size was not updated."
+                  logWarnN msg
+                  pure $ RespError msg
                 else do
-                  filePath <- liftIO $ resolveDiskPath (ssDbPool state) (ssQemuConfig state) key nid
-                  result <- liftIO $ resizeImageViaAgent state nid filePath newSizeMb
-                  case result of
-                    ImageSuccess -> do
-                      -- Update size in database
-                      liftIO $
-                        runSqlPool
-                          (update (toSqlKey diskId :: DiskImageId) [M.DiskImageSizeMb =. Just (fromIntegral newSizeMb)])
-                          (ssDbPool state)
-                      logInfoN "Disk resized successfully"
-                      pure RespDiskOk
-                    ImageError err -> do
-                      logWarnN $ "Failed to resize: " <> err
-                      pure $ RespError err
-                    ImageNotFound -> pure RespDiskNotFound
-                    ImageFormatNotSupported msg -> pure $ RespFormatNotSupported msg
+                  liftIO $
+                    runSqlPool
+                      (update key [M.DiskImageSizeMb =. Just (fromIntegral newSizeMb)])
+                      pool
+                  logInfoN "Disk resized successfully on every placement"
+                  pure RespDiskOk
+  where
+    renderResizeFailure = \case
+      ImageSuccess -> ""
+      ImageError err -> err
+      ImageNotFound -> "image not found"
+      ImageFormatNotSupported msg -> msg
 
 -- | List all disk images. The 'diiFilePath' field is rewritten to an
 -- absolute path so clients (Makefile, integration scripts) can use it
@@ -655,8 +666,7 @@ handleDiskResize state diskId newSizeMb = runServerLogging state $ do
 handleDiskList :: ServerState -> IO Response
 handleDiskList state = do
   disks <- runSqlPool listDiskImages (ssDbPool state)
-  basePath <- getEffectiveBasePath (ssQemuConfig state)
-  pure $ RespDiskList (map (absolutizeDiskFilePath basePath) disks)
+  RespDiskList <$> mapM (absolutizeDiskFilePath state) disks
 
 -- | Show disk image details. As with 'handleDiskList', 'diiFilePath'
 -- in the response is absolute.
@@ -665,21 +675,21 @@ handleDiskShow state diskId = do
   mInfo <- runSqlPool (getDiskImageInfo diskId) (ssDbPool state)
   case mInfo of
     Nothing -> pure RespDiskNotFound
-    Just info -> do
-      basePath <- getEffectiveBasePath (ssQemuConfig state)
-      pure $ RespDiskInfo (absolutizeDiskFilePath basePath info)
+    Just info -> RespDiskInfo <$> absolutizeDiskFilePath state info
 
 -- | Promote each placement's 'dipFilePath' to an absolute path.
 -- The DB stores paths relative to the daemon's base; clients
 -- need the absolute form.
-absolutizeDiskFilePath :: FilePath -> DiskImageInfo -> DiskImageInfo
-absolutizeDiskFilePath basePath info =
-  info {diiPlacements = map absolutizePlacement (diiPlacements info)}
+absolutizeDiskFilePath :: ServerState -> DiskImageInfo -> IO DiskImageInfo
+absolutizeDiskFilePath state info = do
+  placements <- mapM absolutizePlacement (diiPlacements info)
+  pure info {diiPlacements = placements}
   where
-    absolutizePlacement p =
+    absolutizePlacement p = do
+      basePath <- nodeBasePathFor state (toSqlKey (nrId (dipNode p)) :: M.NodeId)
       let raw = T.unpack (dipFilePath p)
           absPath = if "/" `isPrefixOf` raw then raw else basePath </> raw
-       in p {dipFilePath = T.pack absPath}
+      pure p {dipFilePath = T.pack absPath}
 
 --------------------------------------------------------------------------------
 -- Action Types
@@ -906,7 +916,6 @@ planTransfer state diskId destNode allowAttachedRO mToPath = do
                                   -- Compute paths according to the
                                   -- absolute-source / relative-source
                                   -- rules described in the docstring.
-                                  basePath <- getEffectiveBasePath (ssQemuConfig state)
                                   let srcEntity =
                                         head
                                           [ p
@@ -917,11 +926,12 @@ planTransfer state diskId destNode allowAttachedRO mToPath = do
                                       srcStored = M.diskImageNodeFilePath srcRow
                                       srcRel = T.unpack srcStored
                                       isSrcAbs = "/" `isPrefixOf` srcRel
-                                      srcAbs =
+                                      destBase = T.unpack (M.nodeBasePath destRow)
+                                  srcBase <- nodeBasePathFor state (M.diskImageNodeNodeId srcRow)
+                                  let srcAbs =
                                         if isSrcAbs
                                           then srcRel
-                                          else basePath </> srcRel
-                                      destBase = T.unpack (M.nodeBasePath destRow)
+                                          else srcBase </> srcRel
                                   case computeDestPaths isSrcAbs srcStored srcAbs destBase mToPath of
                                     Left err -> pure (Left err)
                                     Right (destAbs, destStored) -> do

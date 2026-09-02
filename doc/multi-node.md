@@ -42,7 +42,7 @@ crv node add <NAME> --host <IP> [--node-agent-port 9878] \
   * **--node-agent-port / --net-agent-port** — TCP ports the
     agents are listening on. Defaults match the upstream
     systemd units.
-  * **--base-path** — daemon basePath on the node (where VM
+  * **--base-path** — base path on the node (where VM
     images live). Disk file paths the daemon records in the
     `disk_image_node` join are resolved against this base. When
     omitted, defaults to `$HOME/VMs` resolved on the admin host —

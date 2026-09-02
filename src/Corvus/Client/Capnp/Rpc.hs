@@ -90,6 +90,7 @@ module Corvus.Client.Capnp.Rpc
   , rpcDiskUpload
   , rpcDiskClone
   , rpcDiskRebase
+  , rpcDiskFlatten
   , rpcDiskCopy
   , rpcDiskMove
   , rpcDiskDelete
@@ -539,12 +540,14 @@ rpcDiskCreate
   -- ^ size (MB)
   -> CGE.DriveFormat
   -- ^ format (wire-side enum)
+  -> Maybe Text
+  -- ^ optional destination path
   -> Bool
   -- ^ ephemeral
   -> EntityRef
   -- ^ target node (unset = scheduler picks)
   -> IO Int64
-rpcDiskCreate conn name sizeMb fmt ephemeral nodeRef = do
+rpcDiskCreate conn name sizeMb fmt mPath ephemeral nodeRef = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let inner =
@@ -554,6 +557,7 @@ rpcDiskCreate conn name sizeMb fmt ephemeral nodeRef = do
           , CGDisk.format = fmt
           , CGDisk.ephemeral = ephemeral
           , CGDisk.node = toCapnpEntityRef nodeRef
+          , CGDisk.path = Data.Maybe.fromMaybe "" mPath
           }
   CGDisk.DiskManager'create'results {CGDisk.disk = diskClient} <-
     callOn #create CGDisk.DiskManager'create'params {CGDisk.params = inner} mgr
@@ -860,8 +864,8 @@ rpcGuestExec conn ref cmd = do
 -- Disk additional wrappers
 -- =====================================================================
 
-rpcDiskCreateOverlay :: CapnpConnection -> Text -> EntityRef -> Bool -> IO Int64
-rpcDiskCreateOverlay conn name baseRef ephemeral = do
+rpcDiskCreateOverlay :: CapnpConnection -> Text -> EntityRef -> Maybe Text -> Bool -> IO Int64
+rpcDiskCreateOverlay conn name baseRef mPath ephemeral = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let inner =
@@ -869,6 +873,7 @@ rpcDiskCreateOverlay conn name baseRef ephemeral = do
           { CGDisk.name = name
           , CGDisk.backingDiskRef = toCapnpEntityRef baseRef
           , CGDisk.ephemeral = ephemeral
+          , CGDisk.path = Data.Maybe.fromMaybe "" mPath
           }
   CGDisk.DiskManager'createOverlay'results {CGDisk.disk = dClient} <-
     callOn #createOverlay CGDisk.DiskManager'createOverlay'params {CGDisk.params = inner} mgr
@@ -880,21 +885,25 @@ rpcDiskRegister
   :: CapnpConnection
   -> Text
   -> Text
-  -> DriveFormat
+  -> Maybe DriveFormat
+  -> Maybe EntityRef
   -> Bool
   -> EntityRef
   -- ^ target node (unset = scheduler picks)
   -> IO Int64
-rpcDiskRegister conn name filePath fmt ephemeral nodeRef = do
+rpcDiskRegister conn name filePath mFormat mBackingRef ephemeral nodeRef = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
         CGDisk.DiskRegisterParams
           { CGDisk.name = name
           , CGDisk.filePath = filePath
-          , CGDisk.format = capnpDriveFormat fmt
+          , CGDisk.format = maybe CGE.DriveFormat'qcow2 capnpDriveFormat mFormat
           , CGDisk.ephemeral = ephemeral
           , CGDisk.node = toCapnpEntityRef nodeRef
+          , CGDisk.formatProvided = Data.Maybe.isJust mFormat
+          , CGDisk.backingDiskRef = maybe emptyCapnpEntityRef toCapnpEntityRef mBackingRef
+          , CGDisk.backingProvided = Data.Maybe.isJust mBackingRef
           }
   CGDisk.DiskManager'register'results {CGDisk.disk = dClient} <-
     callOn #register CGDisk.DiskManager'register'params {CGDisk.params = p} mgr
@@ -909,36 +918,39 @@ rpcDiskRefresh conn ref = do
     callOn #refresh CGDisk.Disk'refresh'params dClient
   failOnWire (WDisk.fromCapnpDiskImageInfo info)
 
--- | Import a disk synchronously from a local source path.
+-- | Start an asynchronous import from an HTTP(S) URL or a path on the
+-- selected target node. Returns the task id.
 rpcDiskImport
   :: CapnpConnection
   -> Text
   -- ^ name
   -> Text
   -- ^ srcPath
-  -> DriveFormat
-  -- ^ format
+  -> Maybe Text
+  -- ^ optional destination path
+  -> Maybe DriveFormat
+  -- ^ optional format
   -> Bool
   -- ^ ephemeral
   -> EntityRef
   -- ^ target node (unset = scheduler picks)
   -> IO Int64
-rpcDiskImport conn name srcPath fmt ephemeral nodeRef = do
+rpcDiskImport conn name srcPath mDestPath mFormat ephemeral nodeRef = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
         CGDisk.DiskImportParams
           { CGDisk.name = name
           , CGDisk.srcPath = srcPath
-          , CGDisk.format = capnpDriveFormat fmt
+          , CGDisk.format = maybe CGE.DriveFormat'qcow2 capnpDriveFormat mFormat
           , CGDisk.ephemeral = ephemeral
           , CGDisk.node = toCapnpEntityRef nodeRef
+          , CGDisk.destPath = Data.Maybe.fromMaybe "" mDestPath
+          , CGDisk.formatProvided = Data.Maybe.isJust mFormat
           }
-  CGDisk.DiskManager'import'results {CGDisk.disk = dClient} <-
+  CGDisk.DiskManager'import'results {CGDisk.taskId = tid} <-
     callOn #import_ CGDisk.DiskManager'import'params {CGDisk.params = p} mgr
-  CGDisk.Disk'show'results {CGDisk.info = info} <-
-    callOn #show CGDisk.Disk'show'params dClient
-  case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
+  pure tid
 
 -- | Stream a client-local file to the selected Corvus node.  The source path
 -- is deliberately never sent over the wire: only bytes cross the client →
@@ -986,14 +998,15 @@ rpcDiskUpload conn name source fmt mPath ephemeral nodeRef overwrite = do
         callOn #show CGDisk.Disk'show'params disk
       case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
 
-rpcDiskClone :: CapnpConnection -> EntityRef -> Text -> Bool -> IO Int64
-rpcDiskClone conn srcRef newName ephemeral = do
+rpcDiskClone :: CapnpConnection -> EntityRef -> Text -> Maybe Text -> Bool -> IO Int64
+rpcDiskClone conn srcRef newName mPath ephemeral = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
         CGDisk.DiskCloneParams
           { CGDisk.sourceRef = toCapnpEntityRef srcRef
           , CGDisk.newName = newName
+          , CGDisk.path = Data.Maybe.fromMaybe "" mPath
           , CGDisk.ephemeral = ephemeral
           }
   CGDisk.DiskManager'clone'results {CGDisk.disk = dClient} <-
@@ -1002,16 +1015,25 @@ rpcDiskClone conn srcRef newName ephemeral = do
     callOn #show CGDisk.Disk'show'params dClient
   case info of CGDisk.DiskImageInfo {CGDisk.id = did} -> pure did
 
-rpcDiskRebase :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
-rpcDiskRebase conn diskRef newBackingRef = do
+rpcDiskRebase :: CapnpConnection -> EntityRef -> EntityRef -> Bool -> IO ()
+rpcDiskRebase conn diskRef newBackingRef unsafe = do
   CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
     callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
   let p =
         CGDisk.DiskRebaseParams
           { CGDisk.diskRef = toCapnpEntityRef diskRef
           , CGDisk.newBackingDiskRef = toCapnpEntityRef newBackingRef
+          , CGDisk.newBackingProvided = True
+          , CGDisk.unsafe = unsafe
           }
   _ <- callOn #rebase CGDisk.DiskManager'rebase'params {CGDisk.params = p} mgr
+  pure ()
+
+rpcDiskFlatten :: CapnpConnection -> EntityRef -> IO ()
+rpcDiskFlatten conn diskRef = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  _ <- callOn #flatten CGDisk.DiskManager'flatten'params {CGDisk.diskRef = toCapnpEntityRef diskRef} mgr
   pure ()
 
 -- | Copy a disk image to another node. Returns the task id for
@@ -1137,7 +1159,7 @@ rpcSnapshotCreate
   :: CapnpConnection -> EntityRef -> Text -> CGE.QuiesceMode -> Bool -> IO Int64
 rpcSnapshotCreate conn diskRef name quiesce fullMachine = do
   dClient <- getDiskClient conn diskRef
-  CGDisk.Disk'snapshotCreate'results {CGDisk.snapshot = sClient} <-
+  CGDisk.Disk'snapshotCreate'results {CGDisk.snapshot = sClient, CGDisk.snapshotId = sid} <-
     callOn
       #snapshotCreate
       CGDisk.Disk'snapshotCreate'params
@@ -1146,10 +1168,10 @@ rpcSnapshotCreate conn diskRef name quiesce fullMachine = do
         , CGDisk.fullMachine = fullMachine
         }
       dClient
-  -- Snapshot doesn't expose @show@; the Snapshot cap proves the
-  -- creation succeeded.
+  -- Keep the capability alive through the RPC result while returning
+  -- the daemon-assigned snapshot id to the CLI.
   _ <- pure sClient
-  pure 0
+  pure sid
 
 rpcSnapshotDelete :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
 rpcSnapshotDelete conn diskRef snapRef = do

@@ -3,9 +3,9 @@
 ## Commands
 
 ```bash
-crv disk create <name> --size <MB> [--format <fmt>] [--path <path>] [--ephemeral]
-crv disk register <name> <path> [--format <fmt>] [--backing <disk>] [--ephemeral]
-crv disk import <name> <source> [--path <dest>] [--format <fmt>] [--ephemeral] [--wait]
+crv disk create <name> --size <MB> [--format <fmt>] [--path <path>] [--node <node>] [--ephemeral]
+crv disk register <name> <path> [--format <fmt>] [--backing <disk>] [--node <node>] [--ephemeral]
+crv disk import <name> <source> [--path <dest>] [--format <fmt>] [--node <node>] [--ephemeral] [--wait]
 crv disk upload <name> <local-file> --format <fmt> [--path <dest>] [--node <node>] [--ephemeral] [--overwrite]
 crv disk overlay <name> <base_disk> [--path <path>] [--ephemeral]
 crv disk clone <name> <base_disk> [--path <path>] [--ephemeral]
@@ -16,12 +16,12 @@ crv disk list
 crv disk show <disk>
 crv disk delete <disk>
 crv disk attach <vm> <disk> [--interface <iface>] [--media <media>] [--read-only] [--discard] [--cache <cache>]
-crv disk detach <vm> <drive>
-crv disk copy <disk> --to-node <node>
-crv disk move <disk> --to-node <node>
+crv disk detach <vm> <disk>
+crv disk copy <disk> --to-node <node> [--to-path <path>] [--with-backing-chain]
+crv disk move <disk> --to-node <node> [--to-path <path>] [--with-backing-chain]
 ```
 
-`<disk>`, `<vm>`, `<drive>`, and `<node>` accept names or numeric IDs.
+`<disk>`, `<vm>`, and `<node>` accept names or numeric IDs.
 
 ## Per-node placement
 
@@ -86,7 +86,8 @@ the VM is gone, or attach them with `ephemeral=true` from the start.
 
 ## Registering Existing Files
 
-Register points the database at an existing file without copying it.
+Register points the database at an existing file without copying it. The path is
+resolved on the selected node, not on the machine running `crv`.
 
 ```bash
 crv disk register ovmf-code /usr/share/edk2/OvmfX64/OVMF_CODE.fd -f raw
@@ -94,13 +95,16 @@ crv disk register debian-base ~/VMs/debian.qcow2
 crv disk register ws25-overlay ~/VMs/ws25/overlay.qcow2 --backing ws25-base
 ```
 
-`--backing` records the overlay relationship in the database (for rebase/delete dependency tracking).
+`--backing` records the overlay relationship in the database (for rebase/delete dependency tracking). When `--format` is omitted,
+Corvus inspects the file with `qemu-img` and falls back to its extension.
 
 If the file is under the base images directory (`$HOME/VMs`), a relative path is stored for portability.
 
 ## Importing
 
-Import copies a local file or downloads from a URL to the managed images directory.
+Import copies a file visible on the selected node or downloads an HTTP(S) URL to
+the managed images directory. To import a file on the machine running `crv`, use
+[`crv disk upload`](#uploading-client-local-media).
 
 ```bash
 crv disk import alpine https://example.com/alpine.qcow2 --wait
@@ -108,7 +112,7 @@ crv disk import iso /data/isos/windows.iso -f raw -p vms/
 crv disk import local-copy /tmp/image.qcow2 --path project/ --wait
 ```
 
-- `--wait`: block until the import completes (default: async, returns a task ID).
+- `--wait`: block until the asynchronous import task completes (without it, the command returns a task ID).
 - `--path`: destination path (see [Path Resolution](#path-resolution)).
 - Compressed `.xz` files are automatically decompressed.
 
@@ -130,6 +134,7 @@ unattached image with exactly one placement on the chosen node.
 crv disk overlay web-root alpine-base                # Thin overlay (COW)
 crv disk clone vm1-vars ovmf-vars-template           # Full copy
 crv disk overlay web-root alpine-base --path web/    # Custom destination
+crv disk clone vm1-vars ovmf-vars-template --path firmware/
 ```
 
 **Overlay**: creates a qcow2 copy-on-write layer. The base image is not modified. Best for root disks where many VMs share the same base.
@@ -162,7 +167,7 @@ The VM must be stopped. Only grows — shrinking is not supported.
 crv disk attach my-vm boot --interface virtio
 crv disk attach my-vm iso -i ide -m cdrom --read-only
 crv disk attach my-vm data -i virtio --cache writeback --discard
-crv disk detach my-vm 3   # By drive ID (from `crv vm show`)
+crv disk detach my-vm boot   # By disk name or disk ID
 ```
 
 ## Moving / Copying Disks Between Nodes
@@ -179,7 +184,8 @@ data). They refuse for any disk attached read-write to a VM
 disks that are attached read-only anywhere — read-only
 attachments can only be copied. Both also refuse for overlays
 whose backing image is not already on the destination; copy
-the backing image first.
+the backing image first. Add `--with-backing-chain` to stage every missing
+backing ancestor automatically before the primary transfer.
 
 For migrating a whole VM (which moves r/w drives and copies
 r/o drives in one orchestrated step), see

@@ -42,6 +42,7 @@ export interface DiskCreateBody {
   name: string;
   size_mb: number;
   format?: string | null;
+  path?: string | null;
   ephemeral?: boolean;
   node?: string | null;
 }
@@ -49,6 +50,7 @@ export interface DiskCreateBody {
 export interface DiskOverlayBody {
   name: string;
   backing_disk_ref: string;
+  path?: string | null;
   ephemeral?: boolean;
 }
 
@@ -62,8 +64,8 @@ export interface DiskCloneBody {
 export interface DiskImportUrlBody {
   name: string;
   url: string;
+  path?: string | null;
   format?: string | null;
-  size_mb?: number | null;
   ephemeral?: boolean;
   node?: string | null;
 }

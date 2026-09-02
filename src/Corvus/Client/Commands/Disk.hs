@@ -45,6 +45,7 @@ import qualified Capnp.Gen.Enums as CGEnums
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
+import Corvus.Client.Commands.Task (handleTaskWait)
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printField, printTable)
 import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
@@ -78,15 +79,9 @@ parseMedia = enumFromText
 -- Disk Command Handlers
 --------------------------------------------------------------------------------
 
--- | Handle disk create command. The Cap'n Proto schema's
--- @DiskManager.create@ does not accept a custom @path@ — the daemon
--- always allocates a path under the configured base. We accept the
--- legacy @mPath@ argument and silently ignore it for backwards
--- compatibility with the CLI parser; an explicit path will be
--- reintroduced when @DiskCreateParams@ gains a @path@ field.
 handleDiskCreate :: OutputFormat -> CapnpConnection -> Text -> DriveFormat -> Int64 -> Maybe Text -> Bool -> Text -> IO Bool
-handleDiskCreate fmt conn name format sizeMb _mPath ephemeral nodeRef = do
-  r <- try @SomeException (CR.rpcDiskCreate conn name sizeMb (toCapnpDriveFormat format) ephemeral (entityRefFromText nodeRef))
+handleDiskCreate fmt conn name format sizeMb mPath ephemeral nodeRef = do
+  r <- try @SomeException (CR.rpcDiskCreate conn name sizeMb (toCapnpDriveFormat format) mPath ephemeral (entityRefFromText nodeRef))
   case r of
     Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
@@ -100,8 +95,8 @@ handleDiskCreate fmt conn name format sizeMb _mPath ephemeral nodeRef = do
 
 -- | Handle disk overlay command
 handleDiskCreateOverlay :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Bool -> IO Bool
-handleDiskCreateOverlay fmt conn name baseDiskRef _optDirPath ephemeral = do
-  r <- try @SomeException (CR.rpcDiskCreateOverlay conn name (entityRefFromText baseDiskRef) ephemeral)
+handleDiskCreateOverlay fmt conn name baseDiskRef mPath ephemeral = do
+  r <- try @SomeException (CR.rpcDiskCreateOverlay conn name (entityRefFromText baseDiskRef) mPath ephemeral)
   case r of
     Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
@@ -113,62 +108,49 @@ handleDiskCreateOverlay fmt conn name baseDiskRef _optDirPath ephemeral = do
         putStrLn ("Error creating overlay: " ++ show e)
       pure False
 
--- | Handle disk register command (registers local file in DB without
--- copying). The format must be supplied since the Cap'n Proto schema
--- doesn't carry the auto-detect path yet.
 handleDiskRegister :: OutputFormat -> CapnpConnection -> Text -> FilePath -> Maybe Text -> Maybe Text -> Bool -> Text -> IO Bool
-handleDiskRegister fmt conn name path mFormatStr _mBackingRef ephemeral nodeRef = do
-  exists <- doesFileExist path
-  if not exists
-    then do
-      emitError fmt "file_not_found" (T.pack $ "File not found: " ++ path) $
-        putStrLn $
-          "Error: File not found: " ++ path
-      pure False
-    else case mFormatStr >>= eitherToMaybe . parseFormat of
-      Nothing -> do
-        emitError
-          fmt
-          "invalid_format"
-          "--format must be supplied (Cap'n Proto schema mandates it)"
-          (putStrLn "Error: --format must be supplied for disk register.")
-        pure False
-      Just fmt' -> do
-        r <- try @SomeException (CR.rpcDiskRegister conn name (T.pack path) fmt' ephemeral (entityRefFromText nodeRef))
-        case r of
-          Right diskId -> do
-            emitOkWith fmt [("id", toJSON diskId)] $
-              putStrLn $
-                "Disk image registered with ID: " ++ show diskId
-            pure True
-          Left e -> do
-            emitError fmt "rpc_error" (T.pack (show e)) $
-              putStrLn ("Error registering disk: " ++ show e)
-            pure False
-
--- | Handle disk import command. The Cap'n Proto schema currently
--- only supports synchronous import from a local source; URL imports
--- and @--wait@ are not threaded through the wrapper. The legacy
--- 'WaitOptions' / format arguments are accepted to keep the CLI
--- parser happy.
-handleDiskImport :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Maybe Text -> Bool -> Text -> WaitOptions -> IO Bool
-handleDiskImport fmt conn name source _mPath mFormatStr ephemeral nodeRef _waitOpts = do
-  case mFormatStr >>= eitherToMaybe . parseFormat of
-    Nothing -> do
+handleDiskRegister fmt conn name path mFormatStr mBackingRef ephemeral nodeRef = do
+  case traverse parseFormat mFormatStr of
+    Left err -> do
       emitError
         fmt
         "invalid_format"
-        "--format must be supplied (Cap'n Proto schema mandates it)"
-        (putStrLn "Error: --format must be supplied for disk import.")
+        err
+        (putStrLn $ "Error: " <> T.unpack err)
       pure False
-    Just fmt' -> do
-      r <- try @SomeException (CR.rpcDiskImport conn name source fmt' ephemeral (entityRefFromText nodeRef))
+    Right mFormat -> do
+      r <- try @SomeException (CR.rpcDiskRegister conn name (T.pack path) mFormat (entityRefFromText <$> mBackingRef) ephemeral (entityRefFromText nodeRef))
       case r of
         Right diskId -> do
           emitOkWith fmt [("id", toJSON diskId)] $
             putStrLn $
-              "Disk image imported with ID: " ++ show diskId
+              "Disk image registered with ID: " ++ show diskId
           pure True
+        Left e -> do
+          emitError fmt "rpc_error" (T.pack (show e)) $
+            putStrLn ("Error registering disk: " ++ show e)
+          pure False
+
+handleDiskImport :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Maybe Text -> Bool -> Text -> WaitOptions -> IO Bool
+handleDiskImport fmt conn name source mPath mFormatStr ephemeral nodeRef waitOpts = do
+  case traverse parseFormat mFormatStr of
+    Left err -> do
+      emitError
+        fmt
+        "invalid_format"
+        err
+        (putStrLn $ "Error: " <> T.unpack err)
+      pure False
+    Right mFormat -> do
+      r <- try @SomeException (CR.rpcDiskImport conn name source mPath mFormat ephemeral (entityRefFromText nodeRef))
+      case r of
+        Right taskId
+          | woWait waitOpts -> handleTaskWait fmt conn taskId (woTimeout waitOpts)
+          | otherwise -> do
+              emitOkWith fmt [("taskId", toJSON taskId)] $
+                putStrLn $
+                  "Disk import started. Task ID: " ++ show taskId
+              pure True
         Left e -> do
           emitError fmt "rpc_error" (T.pack (show e)) $
             putStrLn ("Error importing disk: " ++ show e)
@@ -253,8 +235,8 @@ handleDiskShow fmt conn diskRef = do
 
 -- | Handle disk clone command
 handleDiskClone :: OutputFormat -> CapnpConnection -> Text -> Text -> Maybe Text -> Bool -> IO Bool
-handleDiskClone fmt conn name baseDiskRef _optionalPath ephemeral = do
-  r <- try @SomeException (CR.rpcDiskClone conn (entityRefFromText baseDiskRef) name ephemeral)
+handleDiskClone fmt conn name baseDiskRef mPath ephemeral = do
+  r <- try @SomeException (CR.rpcDiskClone conn (entityRefFromText baseDiskRef) name mPath ephemeral)
   case r of
     Right diskId -> do
       emitOkWith fmt [("id", toJSON diskId)] $
@@ -266,19 +248,13 @@ handleDiskClone fmt conn name baseDiskRef _optionalPath ephemeral = do
         putStrLn ("Error cloning disk: " ++ show e)
       pure False
 
--- | Handle disk rebase command. The Cap'n Proto schema currently
--- requires a new backing reference (flatten/unsafe are not threaded
--- through the wrapper yet); accept the legacy 'unsafe' argument as a
--- no-op for backwards compatibility.
 handleDiskRebase :: OutputFormat -> CapnpConnection -> Text -> Maybe Text -> Bool -> IO Bool
-handleDiskRebase fmt conn diskRef mNewBacking _unsafe = case mNewBacking of
+handleDiskRebase fmt conn diskRef mNewBacking unsafe = case mNewBacking of
   Nothing -> do
-    emitError
-      fmt
-      "not_implemented"
-      "disk rebase --flatten requires Cap'n Proto schema support (Phase 6, not yet implemented)"
-      (putStrLn "Error: --flatten not yet supported over Cap'n Proto.")
-    pure False
+    r <- try (CR.rpcDiskFlatten conn (entityRefFromText diskRef)) :: IO (Either SomeException ())
+    case r of
+      Right () -> emitOk fmt (putStrLn "Disk flattened.") >> pure True
+      Left e -> emitError fmt "rpc_error" (T.pack (show e)) (putStrLn ("Error: " ++ show e)) >> pure False
   Just newBacking -> do
     r <-
       try
@@ -286,6 +262,7 @@ handleDiskRebase fmt conn diskRef mNewBacking _unsafe = case mNewBacking of
             conn
             (entityRefFromText diskRef)
             (entityRefFromText newBacking)
+            unsafe
         )
         :: IO (Either SomeException ())
     case r of
@@ -537,15 +514,6 @@ snapshotColumns =
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
-
-eitherToMaybe :: Either a b -> Maybe b
-eitherToMaybe (Right x) = Just x
-eitherToMaybe (Left _) = Nothing
-
-readMaybeInt64 :: String -> Maybe Int64
-readMaybeInt64 s = case reads s of
-  [(n, "")] -> Just n
-  _ -> Nothing
 
 -- | Handle @crv disk copy <DISK> --to-node <NODE> [--to-path PATH]
 -- [--with-backing-chain]@.

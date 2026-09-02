@@ -104,7 +104,6 @@ class DiskListWidget(QWidget):
                     p["name"],
                     p["url"],
                     format=p["format"],
-                    size_mb=p["size_mb"],
                     ephemeral=p["ephemeral"],
                     node=p["node"],
                 )
