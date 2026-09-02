@@ -15,4 +15,8 @@ build: $(ANSWER_ISO)
 	crv build windows-server-2025.yml --wait
 
 clean:
+	crv template delete windows-server-2025 || true
+	crv template delete windows-server-2025-installer || true
+	crv disk delete windows-server-2025-eval || true
+	crv disk delete windows-server-2025-autounattend || true
 	rm -rf build

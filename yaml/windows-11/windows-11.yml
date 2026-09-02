@@ -7,22 +7,17 @@
 #
 #   crv build yaml/windows-11/windows-11.yml --wait
 #
-# The pipeline:
-#   1. uploads a locally prepared answer ISO, registers OVMF firmware, and
-#      creates a bake-only template that attaches the three ISO disks;
-#   2. installs Windows 11 Pro and publishes `windows-11-pro-base` beneath
-#      BaseImages/Windows11/;
-#   3. registers a runtime `windows-11-pro` overlay template.
+# The pipeline uploads a locally prepared answer ISO, registers OVMF firmware,
+# and creates a temporary installer template with the three ISO disks. It then
+# retains the completed bake VM as the ready-to-use Windows 11 instance.
 #
 # The image contains the VirtIO drivers, QEMU Guest Agent, SPICE guest tools,
 # WinFSP, and the VirtIO-FS guest service. Cloudbase-Init/cloud-init is not
 # installed or enabled.
 #
-# This legacy image recipe intentionally leaves Corvus vTPM support disabled
-# and retains the autounattend.xml TPM/Secure Boot installer bypass while using
-# UEFI boot. The resulting VM is not a Microsoft-supported hardware
-# configuration. Set `tpm: true` in a separate template when TPM-backed runtime
-# behavior is wanted; Secure Boot remains a separate firmware concern.
+# The installer and retained VM use the same vTPM. This lets Windows seal its
+# BitLocker protector to that VM's TPM state; the resulting disk must not be
+# cloned into another VM.
 #
 # Requirements:
 #   * The `windows-11-iso` disk must be a registered Windows 11 x64
@@ -75,6 +70,8 @@ pipeline:
           ramMb: 8192
           headless: false
           cloudInit: false
+          # The retained bake VM keeps this TPM state after installation, so
+          # Windows can use TPM-backed BitLocker/device encryption normally.
           tpm: true
           # The installer strategy waits for guest-initiated shutdown and does
           # not wait for QGA, which is installed during first logon.
@@ -117,7 +114,7 @@ pipeline:
 
   - build:
       name: windows-11-pro-base
-      description: "Windows 11 Pro with VirtIO guest integration and no cloud-init"
+      description: "Windows 11 Pro with TPM-backed BitLocker and VirtIO guest integration"
       template: windows-11-installer
 
       target:
@@ -145,29 +142,7 @@ pipeline:
 
       provisioners: []
 
-      # Keep failed bake VMs available for SPICE and Panther/build-log
-      # diagnostics; clean up only after a successful artifact capture.
-      cleanup: onSuccess
-
-  - apply:
-      ifExists: skip
-      templates:
-        - name: windows-11-pro
-          description: "Windows 11 Pro with VirtIO, QGA, SPICE, and VirtIO-FS (no cloud-init)"
-          cpuCount: 4
-          ramMb: 8192
-          headless: false
-          cloudInit: false
-          guestAgent: true
-          tpm: false
-          drives:
-            - *ovmf_code
-            - *ovmf_vars
-            - diskImageName: windows-11-pro-base
-              interface: virtio
-              strategy: overlay
-              cacheType: writeback
-              discard: true
-              sizeMb: 81920
-          networkInterfaces:
-            - network: corvus
+      # Preserve the actual bake VM rather than deleting it after the artifact
+      # is captured. Its generated name starts with `__build_` and it retains
+      # the vTPM state that unlocks its BitLocker-protected system disk.
+      cleanup: never
