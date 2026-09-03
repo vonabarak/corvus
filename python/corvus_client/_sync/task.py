@@ -17,10 +17,15 @@ class SyncTaskManager:
         subsystem: str | None = None,
         entity_id: int | None = None,
         result: str | None = None,
+        include_subtasks: bool = False,
     ):
         return self._rl.run(
             self._a.list(
-                limit=limit, subsystem=subsystem, entity_id=entity_id, result=result
+                limit=limit,
+                subsystem=subsystem,
+                entity_id=entity_id,
+                result=result,
+                include_subtasks=include_subtasks,
             )
         )
 

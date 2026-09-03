@@ -25,6 +25,7 @@ class AsyncTaskManager:
         subsystem: str | None = None,
         entity_id: int | None = None,
         result: str | None = None,
+        include_subtasks: bool = False,
     ):
         mgr = await self._ensure()
         params = _schema.task.TaskListParams.new_message()
@@ -38,6 +39,7 @@ class AsyncTaskManager:
         if result is not None:
             params.hasResult = True
             params.result = result
+        params.includeSubtasks = include_subtasks
         resp = await mgr.list(params=params)
         return [conv.task_info(t) for t in resp.tasks]
 

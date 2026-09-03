@@ -43,14 +43,15 @@ struct NetworkPeerParams {
 # ---------------------------------------------------------------------
 
 struct NetworkCreateParams {
-  # `name` and `subnet` are mandatory; the toggles default off to
-  # match `crv network create`.
+  # `name` is mandatory. An empty `subnet` creates an L2-only network; DHCP
+  # and NAT require a subnet. The toggles default off to match `crv network create`.
   name      @0 :Text;
   subnet    @1 :Text;
   dhcp      @2 :Bool = false;
   nat       @3 :Bool = false;
   autostart @4 :Bool = false;
-  # Node this network is bound to (multi-node slice 1c).
+  # Optional owner node. An unset reference lets the scheduler choose an
+  # online node.
   node      @5 :Common.EntityRef;
   # DNS servers to advertise via DHCP option 6 (empty = none).
   dnsServers @6 :List(Text);

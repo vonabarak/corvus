@@ -59,7 +59,8 @@ instance CGT.TaskManager'server_ TaskManagerCap where
           Right r -> pure (Just r)
           Left e -> throwFailed (showWireError e)
         else pure Nothing
-    resp <- handleTaskList st lim mSub mRes False
+    let mEntityId = if entityId == 0 then Nothing else Just entityId
+    resp <- handleTaskList st lim mSub mEntityId mRes includeSubtasks
     case resp of
       RespTaskList tasks ->
         pure CGT.TaskManager'list'results {CGT.tasks = map toCapnpTaskInfo tasks}

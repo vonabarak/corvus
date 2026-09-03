@@ -133,7 +133,8 @@ data instance C.Parsed TaskListParams
         ,hasSubsystem :: (RP.Parsed Std_.Bool)
         ,entityId :: (RP.Parsed Std_.Int64)
         ,result :: (RP.Parsed Capnp.Gen.ById.Xbf9b09f64c0dd40d.TaskResult)
-        ,hasResult :: (RP.Parsed Std_.Bool)}
+        ,hasResult :: (RP.Parsed Std_.Bool)
+        ,includeSubtasks :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed TaskListParams))
 deriving instance (Std_.Eq (C.Parsed TaskListParams))
@@ -143,7 +144,8 @@ instance (C.Parse TaskListParams (C.Parsed TaskListParams)) where
                                  <*> (GH.parseField #hasSubsystem raw_)
                                  <*> (GH.parseField #entityId raw_)
                                  <*> (GH.parseField #result raw_)
-                                 <*> (GH.parseField #hasResult raw_))
+                                 <*> (GH.parseField #hasResult raw_)
+                                 <*> (GH.parseField #includeSubtasks raw_))
 instance (C.Marshal TaskListParams (C.Parsed TaskListParams)) where
     marshalInto raw_ TaskListParams{..} = (do
         (GH.encodeField #limit limit raw_)
@@ -152,6 +154,7 @@ instance (C.Marshal TaskListParams (C.Parsed TaskListParams)) where
         (GH.encodeField #entityId entityId raw_)
         (GH.encodeField #result result raw_)
         (GH.encodeField #hasResult hasResult raw_)
+        (GH.encodeField #includeSubtasks includeSubtasks raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "limit" GH.Slot TaskListParams Std_.Int32) where
@@ -166,6 +169,8 @@ instance (GH.HasField "result" GH.Slot TaskListParams Capnp.Gen.ById.Xbf9b09f64c
     fieldByLabel  = (GH.dataField 0 2 16 0)
 instance (GH.HasField "hasResult" GH.Slot TaskListParams Std_.Bool) where
     fieldByLabel  = (GH.dataField 49 0 1 0)
+instance (GH.HasField "includeSubtasks" GH.Slot TaskListParams Std_.Bool) where
+    fieldByLabel  = (GH.dataField 50 0 1 0)
 data TaskManager 
 type instance (R.ReprFor TaskManager) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId TaskManager) where

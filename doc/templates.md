@@ -10,7 +10,7 @@ crv template edit <TEMPLATE>             # Edit existing template in $EDITOR
 crv template show <TEMPLATE>             # Show full details
 crv template list                        # List all templates
 crv template delete <TEMPLATE>           # Delete a template
-crv template instantiate <TEMPLATE> <VM> # Create a VM from the template
+crv template instantiate <TEMPLATE> <VM> [--node NODE] # Create a VM from the template
 ```
 
 `TEMPLATE` accepts a name or numeric ID. `VM` is the name for the new VM.
@@ -28,7 +28,7 @@ When `crv template create` is called without a file argument, the client writes 
 
 ### Instantiation
 
-`crv template instantiate <TEMPLATE> <VM>` creates a new VM with the template's settings. Each drive is handled according to its strategy (see [Drive Strategies](#drive-strategies)). Network interfaces get fresh MAC addresses. SSH keys and cloud-init configuration are copied to the new VM.
+`crv template instantiate <TEMPLATE> <VM> [--node NODE]` creates a new VM with the template's settings. When `--node` is omitted, the scheduler selects an online node. Each drive is handled according to its strategy (see [Drive Strategies](#drive-strategies)). Network interfaces get fresh MAC addresses. SSH keys and cloud-init configuration are copied to the new VM.
 
 **File layout**: all disk files created during instantiation are placed in a subdirectory named after the new VM, under the base images directory (`$HOME/VMs` by default). For example, `crv template instantiate webserver my-vm` produces:
 

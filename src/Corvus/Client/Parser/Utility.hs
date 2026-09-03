@@ -38,7 +38,7 @@ parseSizeWithUnit = eitherReader $ \s ->
     [(n, "T")] -> Right (n * 1024 * 1024)
     _ -> Left $ "Invalid size format: " ++ s ++ " (use number with optional M/G/T suffix)"
 
--- | Parser for the shared @--wait@ / @--timeout@ option pair.
+-- | Parser for the shared @--wait@ option.
 waitOptionsParser :: Parser WaitOptions
 waitOptionsParser =
   WaitOptions
@@ -47,14 +47,4 @@ waitOptionsParser =
           <> short 'w'
           <> help "Block until the operation completes"
       )
-    <*> optional
-      ( option
-          auto
-          ( long "timeout"
-              <> short 't'
-              <> metavar "SECONDS"
-              <> help
-                "For 'vm stop': graceful-shutdown window in seconds before \
-                \escalating to a hard kill (0 = immediate hard-kill; default 300)"
-          )
-      )
+    <*> pure Nothing

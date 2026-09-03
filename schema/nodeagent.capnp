@@ -9,9 +9,6 @@ using Vm = import "vm.capnp";
 # process supervision, qemu-img and cloud-init ISO generation, the
 # console ring buffer, and the guest-agent poller.
 #
-# Phase 1 ships the bootstrap surface only — `ping`, `version`,
-# `session`. Disk / VM / console methods land in later phases.
-#
 # Symmetric with `netagent.capnp`: stateless agent, declarative
 # `applyX` / `deleteX` / `listX` RPC, daemon-side reconnect-and-
 # re-apply. The two agents are fully independent of each other;
@@ -58,21 +55,12 @@ struct AgentInfo {
 }
 
 # ---------------------------------------------------------------------
-# Session — scoped to one owner tag.
-#
-# Phase 1: liveness only. Later phases extend with:
-#   * applyDisk / deleteDisk / snapshotDisk / rebaseDisk / importDisk
-#   * applyCloudInit / deleteCloudInit
-#   * applyVm / deleteVm / listVms / getVm / controlVm
-#   * setSpiceTicket / guestExec
-#   * openSerialConsole / openHmpMonitor
-#   * subscribeStatus
+# Session — scoped to one owner tag. It provides disk, VM, console,
+# guest-agent, status, and inter-agent transfer operations.
 # ---------------------------------------------------------------------
 
 interface Session {
-  # End-to-end check that the session is wired up. Phase 1 calls this
-  # from the daemon after `session(owner)` succeeds, to prove the
-  # session cap is live before declaring the connection healthy.
+  # End-to-end check that the session cap is live after `session(owner)`.
   ping @0 () -> ();
 
   # -------------------------------------------------------------------
@@ -232,7 +220,7 @@ interface Session {
     -> (isoPath :Text);
 
   # -------------------------------------------------------------------
-  # Process supervision primitives (Phase 3).
+  # Process supervision primitives.
   #
   # The agent owns every subprocess Corvus spawns: QEMU, virtiofsd, swtpm.
   # The daemon submits intent — "spawn this command", "kill that
@@ -391,7 +379,7 @@ interface Session {
   probeVsockCid @30 (cid :Int64) -> (free :Bool);
 
   # -------------------------------------------------------------------
-  # Inter-agent disk transfer (Phase: migration).
+  # Inter-agent disk transfer for migration.
   #
   # The data path stays off the daemon: the destination agent dials
   # the source agent's nodeagent port itself, calls `attachReader`
@@ -521,7 +509,7 @@ struct DiskSnapshotInfo {
 }
 
 # ---------------------------------------------------------------------
-# VM abstraction (Phase 3 refactor)
+# VM abstraction
 # ---------------------------------------------------------------------
 
 # VmSpec carries everything the agent needs to build the QEMU argv,
@@ -681,7 +669,7 @@ struct VmGuestExecInfo {
 struct VmStatusSnapshot {
   snapshotAtMillis @0 :Int64;            # agent wall-clock at tick start
   entries          @1 :List(VmStatusEntry);
-  # Per-node observation, populated on every tick. Phase 5: the
+  # Per-node observation, populated on every tick. The
   # daemon stamps these into the `Node` row's stat columns and
   # bumps `nodeAgentHealthcheck = snapshotAtMillis`. Optional
   # fields use 0 / empty as "unknown" sentinels.

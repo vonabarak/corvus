@@ -25,8 +25,8 @@ taskListCommand =
       ( strOption
           ( long "subsystem"
               <> metavar "SUB"
-              <> help "Filter by subsystem: vm, disk, network, ssh-key, template, snapshot, apply"
-              <> completeWith ["vm", "disk", "network", "ssh-key", "template", "shared-dir", "snapshot", "system", "apply"]
+              <> help "Filter by subsystem: vm, disk, network, ssh-key, template, shared-dir, snapshot, system, apply, build, node, migration"
+              <> completeWith ["vm", "disk", "network", "ssh-key", "template", "shared-dir", "snapshot", "system", "apply", "build", "node", "migration"]
           )
       )
     <*> optional

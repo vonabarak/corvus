@@ -12,6 +12,13 @@ import Corvus.Client.Types
 import qualified Data.Text as T
 import Options.Applicative
 
+nonNegativeInt :: ReadM Int
+nonNegativeInt =
+  eitherReader $ \raw ->
+    case reads raw of
+      [(n, "")] | n >= 0 -> Right n
+      _ -> Left "expected a non-negative integer"
+
 -- | Parser for vm list
 vmListCommand :: Parser Command
 vmListCommand = pure VmList
@@ -151,7 +158,22 @@ vmStopCommand =
           <> help "Name or ID of the VM to stop"
           <> completer vmCompleter
       )
-    <*> waitOptionsParser
+    <*> ( WaitOptions
+            <$> switch
+              ( long "wait"
+                  <> short 'w'
+                  <> help "Block until the operation completes"
+              )
+            <*> optional
+              ( option
+                  nonNegativeInt
+                  ( long "timeout"
+                      <> short 't'
+                      <> metavar "SECONDS"
+                      <> help "Graceful-shutdown window before hard kill (0 = immediate; default 300)"
+                  )
+              )
+        )
 
 -- | Parser for vm pause
 vmPauseCommand :: Parser Command
@@ -418,7 +440,7 @@ vmSnapshotCommandParser =
           )
     )
 
--- | Parser for @crv vm migrate@: move a stopped VM to another node.
+-- | Parser for @crv vm migrate@: move a VM to another node without live migration.
 vmMigrateCommand :: Parser Command
 vmMigrateCommand =
   VmMigrate
@@ -490,7 +512,7 @@ vmCommandParser =
           (info vmExecCommand (progDesc "Execute a command inside a VM via guest agent"))
         <> command
           "migrate"
-          (info vmMigrateCommand (progDesc "Migrate a stopped VM to another node (agent-to-agent)"))
+          (info vmMigrateCommand (progDesc "Migrate a VM to another node without live memory streaming (agent-to-agent)"))
         <> command
           "snapshot"
           ( info

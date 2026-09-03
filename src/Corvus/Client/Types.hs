@@ -41,7 +41,7 @@ data QuiesceModeFlag
 data WaitOptions = WaitOptions
   { woWait :: !Bool
   , woTimeout :: !(Maybe Int)
-  -- ^ Timeout in seconds. Nothing = default 120s.
+  -- ^ VM-stop graceful-shutdown window in seconds; absent for other commands.
   }
   deriving (Show, Eq)
 

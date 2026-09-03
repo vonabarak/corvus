@@ -131,7 +131,7 @@ crv disk import alpine https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/clou
 crv disk overlay my-root alpine
 
 # Create the VM
-crv vm create my-vm 2 2048 --cloud-init --guest-agent
+crv vm create my-vm --cpus 2 --ram 2048 --cloud-init --guest-agent
 
 # Attach the disk and a network interface
 crv disk attach my-vm my-root --interface virtio
@@ -181,13 +181,13 @@ crv disk show my-root -o yaml
 
 ```bash
 # Zsh
-crv --zsh-completion-script $(which crv) > ~/.local/share/zsh/site-functions/_crv
+crv completion zsh > ~/.local/share/zsh/site-functions/_crv
 
 # Bash
-crv --bash-completion-script $(which crv) > ~/.local/share/bash-completion/completions/crv
+crv completion bash > ~/.local/share/bash-completion/completions/crv
 
 # Fish
-crv --fish-completion-script $(which crv) > ~/.config/fish/completions/crv.fish
+crv completion fish > ~/.config/fish/completions/crv.fish
 ```
 
 ## Documentation

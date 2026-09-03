@@ -190,8 +190,8 @@ struct VmCreateParams {
   guestAgent      @5  :Bool = false;
   cloudInit       @6  :Bool = false;
   autostart       @7  :Bool = false;
-  # Node this VM is bound to. Required as of multi-node slice 1c
-  # (no scheduler yet). Resolved as `node-by-name` or `id:N`.
+  # Optional placement node. An unset reference lets the scheduler choose an
+  # online node; otherwise it is resolved as `node-by-name` or `id:N`.
   node            @8  :Common.EntityRef;
   rebootQuirk     @9  :Bool = false;
   # QEMU `-cpu` model. Empty string == use the daemon default
@@ -352,12 +352,12 @@ interface Vm {
   detachSshKey @28 (keyRef :Common.EntityRef) -> ();
   listSshKeys  @29 () -> (keys :List(SshKey.SshKeyInfo));
 
-  # Migrate this (stopped) VM to a different node. The bytes of
-  # every attached drive are streamed agent-to-agent; the daemon
-  # orchestrates but does not relay. The VM must be stopped, must
-  # have no shared dirs, and must use only `user`-type netifs (or
-  # none at all). Returns a task id for long-running progress
-  # observation.
+  # Migrate this VM to a different node without live memory streaming. Running
+  # and paused VMs are saved before transfer and restored on the destination.
+  # Every attached drive is streamed agent-to-agent; the daemon orchestrates
+  # but does not relay. The VM must have no shared dirs and must use only
+  # `user`-type netifs (or none at all). Returns a task id for long-running
+  # progress observation.
   migrate @30 (params :VmMigrateParams) -> (taskId :Int64);
 
   # Save the VM's running state to disk and terminate the QEMU

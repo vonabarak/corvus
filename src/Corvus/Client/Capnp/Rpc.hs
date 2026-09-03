@@ -183,6 +183,8 @@ import Corvus.Model
   , NetInterfaceType
   , NodeAdminState (..)
   , SharedDirCache
+  , TaskResult
+  , TaskSubsystem
   )
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.Apply as PA
@@ -210,6 +212,8 @@ import Corvus.Wire.Enums
   , toCapnpNetInterfaceType
   , toCapnpNodeAdminState
   , toCapnpSharedDirCache
+  , toCapnpTaskResult
+  , toCapnpTaskSubsystem
   )
 import Corvus.Wire.Errors (WireError, showWireError)
 import qualified Corvus.Wire.Network as WNet
@@ -382,18 +386,19 @@ rpcTemplateShow conn refIn = do
 -- Tasks
 -- ---------------------------------------------------------------------
 
-rpcTaskList :: CapnpConnection -> Int -> IO [PT.TaskInfo]
-rpcTaskList conn limit = do
+rpcTaskList :: CapnpConnection -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> Bool -> IO [PT.TaskInfo]
+rpcTaskList conn limit mSubsystem mResult includeSubtasks = do
   CGCorvus.Daemon'tasks'results {CGCorvus.mgr = mgr} <-
     callOn #tasks CGCorvus.Daemon'tasks'params (ccDaemon conn)
   let inner =
         CGTask.TaskListParams
           { CGTask.limit = fromIntegral limit
-          , CGTask.subsystem = toEnum 0
-          , CGTask.hasSubsystem = False
+          , CGTask.subsystem = maybe (toEnum 0) toCapnpTaskSubsystem mSubsystem
+          , CGTask.hasSubsystem = Data.Maybe.isJust mSubsystem
           , CGTask.entityId = 0
-          , CGTask.result = toEnum 0
-          , CGTask.hasResult = False
+          , CGTask.result = maybe (toEnum 0) toCapnpTaskResult mResult
+          , CGTask.hasResult = Data.Maybe.isJust mResult
+          , CGTask.includeSubtasks = includeSubtasks
           }
   CGTask.TaskManager'list'results {CGTask.tasks = ts} <-
     callOn #list CGTask.TaskManager'list'params {CGTask.params = inner} mgr

@@ -13,8 +13,7 @@ struct DiskImageInfo {
   name            @1 :Text;
   # Per-node placements. Multi-node deployments have one entry
   # per node the image has been replicated to; single-node
-  # deployments have exactly one entry. Phase-3 replacement for
-  # the legacy single 'filePath' field.
+  # deployments have exactly one entry.
   placements      @2 :List(DiskImagePlacement);
   format          @3 :Enums.DriveFormat;
   sizeMb          @4 :Int64;            # 0 == unknown

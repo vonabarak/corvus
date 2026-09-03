@@ -61,6 +61,7 @@ async def list_tasks(
     subsystem: str | None = None,
     entity_id: int | None = None,
     result: str | None = None,
+    include_subtasks: bool = False,
 ) -> list[dict[str, Any]]:
     """List tasks newest-first. Filter knobs match
     ``crv task list``: subsystem (vm/disk/network/ssh-key/template/
@@ -71,6 +72,7 @@ async def list_tasks(
         subsystem=subsystem,
         entity_id=entity_id,
         result=result,
+        include_subtasks=include_subtasks,
     )
     return [_as_dict(t) for t in tasks]
 

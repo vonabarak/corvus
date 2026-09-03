@@ -53,19 +53,20 @@ import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
 --------------------------------------------------------------------------------
 
 -- | List task history entries.
-handleTaskList :: ServerState -> Int -> Maybe TaskSubsystem -> Maybe TaskResult -> Bool -> IO Response
-handleTaskList state limit mSub mResult includeSubtasks = do
+handleTaskList :: ServerState -> Int -> Maybe TaskSubsystem -> Maybe Int64 -> Maybe TaskResult -> Bool -> IO Response
+handleTaskList state limit mSub mEntityId mResult includeSubtasks = do
   let parentFilter = [TaskParent ==. Nothing | not includeSubtasks]
   tasks <-
     runSqlPool
       ( selectList
-          (parentFilter ++ catMaybes [subFilter, resultFilter])
+          (parentFilter ++ catMaybes [subFilter, entityFilter, resultFilter])
           [Desc TaskStartedAt, LimitTo limit]
       )
       (ssDbPool state)
   pure $ RespTaskList $ map toTaskInfo tasks
   where
     subFilter = fmap (TaskSubsystem ==.) mSub
+    entityFilter = fmap ((TaskEntityId ==.) . Just . fromIntegral) mEntityId
     resultFilter = fmap (TaskResult ==.) mResult
 
 -- | Show a single task history entry

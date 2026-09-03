@@ -44,11 +44,9 @@ nodeAddCommand =
             ( long "base-path"
                 <> metavar "PATH"
                 <> help
-                  ( "Daemon basePath on the node (where VM images live). "
-                      <> "Defaults to $HOME/VMs resolved on the admin host — "
-                      <> "the common case where admin and node run as the "
-                      <> "same user. Pass an explicit absolute path when the "
-                      <> "node's daemon-user differs."
+                  ( "Base path on the node (where VM images live). "
+                      <> "Defaults to $HOME/VMs resolved by the target nodeagent. "
+                      <> "Pass an explicit absolute path to override it."
                   )
             )
       )

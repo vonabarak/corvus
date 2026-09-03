@@ -30,12 +30,14 @@ networkCreateCommand =
                   <> help "Name or ID of the node owning this network (optional; daemon picks via the scheduler when omitted)"
               )
         )
-    <*> argument
-      (T.pack <$> str)
-      ( metavar "SUBNET"
-          <> help "IPv4 subnet in CIDR notation (e.g., 10.0.1.0/24)"
-          <> value ""
-      )
+    <*> ( T.pack
+            <$> strOption
+              ( long "subnet"
+                  <> metavar "SUBNET"
+                  <> help "IPv4 subnet in CIDR notation (e.g., 10.0.1.0/24); omit for an L2-only network"
+                  <> value ""
+              )
+        )
     <*> switch
       ( long "dhcp"
           <> help "Enable DHCP (starts dnsmasq when network is running)"

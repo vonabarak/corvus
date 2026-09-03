@@ -176,7 +176,7 @@ interface DiskDownloadSink {
 }
 
 # ---------------------------------------------------------------------
-# Guest agent status subscription (new; replaces today's vmShow poll)
+# Guest agent status subscription
 # ---------------------------------------------------------------------
 
 struct GuestAgentStatus {
@@ -192,7 +192,7 @@ interface GuestAgentStatusSink {
 }
 
 # ---------------------------------------------------------------------
-# Task progress subscription (new; complements the Task table)
+# Task progress subscription
 # ---------------------------------------------------------------------
 
 struct TaskProgressEvent {

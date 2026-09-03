@@ -41,7 +41,7 @@ Per-entity refusal rules under `overwrite`:
 
 | Entity | Refused when | Recovery |
 |---|---|---|
-| `sshKeys` | The key is attached to any VM (`vm_ssh_key`) or template (`template_ssh_key`). | Detach via `crv vm key detach` / edit the template. |
+| `sshKeys` | The key is attached to any VM (`vm_ssh_key`) or template (`template_ssh_key`). | Detach via `crv ssh-key detach <VM> <KEY>` / edit the template. |
 | `disks` | A VM has it as a drive (`drive.disk_image_id`). | Stop and `crv vm delete` the attachers, or `crv disk detach`. |
 | `networks` | A VM has a NIC on it (`network_interface.network_id`). | Remove the NICs (or delete the attaching VMs). |
 | `vms` | The VM is in any state other than `stopped` or `error`. | `crv vm stop` first. The VM's ephemeral disks (cloud-init ISO, template-instantiated clones) are deleted along with it; non-ephemeral disks are detached and kept. |

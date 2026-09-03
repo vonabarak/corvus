@@ -13,10 +13,10 @@ Corvus uses [virtiofs](https://virtio-fs.gitlab.io/) to share host directories w
 ```bash
 crv shared-dir add <vm> <path> <tag> [--cache <mode>] [--read-only]
 crv shared-dir list <vm>
-crv shared-dir remove <vm> <shared_dir>
+crv shared-dir remove <vm> <shared_dir_id>
 ```
 
-`<shared_dir>` accepts a tag name or numeric ID.
+`<shared_dir_id>` is the numeric ID shown by `crv shared-dir list <vm>`.
 
 ## Adding a Shared Directory
 

@@ -18,7 +18,7 @@ import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitResult, isStructured, printTable)
 import Corvus.Client.Types (OutputFormat)
-import Corvus.Model (EnumText (..), TaskResult (..))
+import Corvus.Model (EnumText (..), TaskResult (..), TaskSubsystem)
 import Corvus.Protocol (NamedRef (..), TaskInfo (..))
 import Data.Int (Int64)
 import Data.Maybe (fromMaybe)
@@ -28,25 +28,29 @@ import Data.Time (UTCTime, defaultTimeLocale, diffUTCTime, formatTime, getCurren
 import System.IO (hFlush, hPutStr, stderr, stdout)
 import Text.Printf (printf)
 
--- | Handle task list command. Subsystem / result filters are
--- currently not threaded through the Cap'n Proto wrapper; the
--- wrapper takes only @limit@ and the daemon applies the rest of the
--- filtering server-side once the schema gains those params again.
 handleTaskList :: OutputFormat -> TableOpts -> CapnpConnection -> Int -> Maybe Text -> Maybe Text -> Bool -> IO Bool
-handleTaskList fmt tableOpts conn limit _mSubStr _mResultStr _includeSubtasks = do
-  r <- try @SomeException (CR.rpcTaskList conn limit)
-  case r of
-    Right tasks -> do
-      emitResult fmt tasks $
-        if null tasks
-          then putStrLn "No tasks found."
-          else do
-            now <- getCurrentTime
-            printTable tableOpts (taskColumns now) tasks
-      pure True
-    Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
-        putStrLn ("Error: " ++ show e)
+handleTaskList fmt tableOpts conn limit mSubText mResultText includeSubtasks =
+  case (traverse (enumFromText :: Text -> Either Text TaskSubsystem) mSubText, traverse (enumFromText :: Text -> Either Text TaskResult) mResultText) of
+    (Left err, _) -> invalidFilter err
+    (_, Left err) -> invalidFilter err
+    (Right mSub, Right mResult) -> do
+      r <- try @SomeException (CR.rpcTaskList conn limit mSub mResult includeSubtasks)
+      case r of
+        Right tasks -> do
+          emitResult fmt tasks $
+            if null tasks
+              then putStrLn "No tasks found."
+              else do
+                now <- getCurrentTime
+                printTable tableOpts (taskColumns now) tasks
+          pure True
+        Left e -> do
+          emitError fmt "rpc_error" (T.pack (show e)) $
+            putStrLn ("Error: " ++ show e)
+          pure False
+  where
+    invalidFilter err = do
+      emitError fmt "invalid_argument" err $ putStrLn ("Error: " ++ T.unpack err)
       pure False
 
 -- | Handle task show command
@@ -168,7 +172,7 @@ pollUntilDone fmt conn taskId startTime mTimeout = do
               unless (isStructured fmt) $ do
                 -- Surface the live "what it's waiting on" label the
                 -- daemon records in the task message during progress.
-                let lbl = maybe "" (\m -> " — " ++ T.unpack m) (tiMessage info)
+                let lbl = maybe "" (\m -> " - " ++ T.unpack m) (tiMessage info)
                 hPutStr stderr $
                   "\r\x1b[K" ++ "Waiting... (" ++ formatDuration elapsed ++ " elapsed)" ++ lbl
                 hFlush stderr
@@ -189,7 +193,7 @@ printCompletionMessage taskId info =
       ++ " completed: "
       ++ T.unpack (enumToText (tiResult info))
       ++ maybe "" (\d -> " (" ++ formatDuration d ++ ")") (durationOf info)
-      ++ " — "
+      ++ " - "
       ++ T.unpack (enumToText (tiSubsystem info))
       ++ " "
       ++ T.unpack (tiCommand info)

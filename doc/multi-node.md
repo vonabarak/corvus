@@ -30,29 +30,30 @@ crv node add <NAME> --host <IP> [--node-agent-port 9878] \
                                 [--net-agent-port 9877] \
                                 [--base-path PATH] \
                                 [--description TEXT] \
-                                [--admin-state online|draining|maintenance]
+                                [--admin-state online|draining|maintenance] \
+                                [--netd-disabled]
 ```
 
   * **NAME** — short identifier (unique across the cluster).
     Used everywhere the operator types `--node <NAME>`.
-  * **--host** — IPv4 / IPv6 / hostname the daemon will dial.
-    Defaults assume the daemon and the agents share `127.0.0.1`;
-    for a remote node, this is the address of that node's
-    nodeagent + netd listeners.
+  * **--host** — required IPv4 / IPv6 / hostname the daemon will dial;
+    use `127.0.0.1` when the daemon and agents share a host. For a remote
+    node, this is the address of that node's nodeagent + netd listeners.
   * **--node-agent-port / --net-agent-port** — TCP ports the
     agents are listening on. Defaults match the upstream
     systemd units.
   * **--base-path** — base path on the node (where VM
     images live). Disk file paths the daemon records in the
     `disk_image_node` join are resolved against this base. When
-    omitted, defaults to `$HOME/VMs` resolved on the admin host —
-    the common case for single-user / `--user-service` setups
-    where admin and node run as the same user. Pass an explicit
-    absolute path when the node's daemon-user differs.
+    omitted, the daemon asks the target nodeagent for its `$HOME/VMs`.
+    Pass an explicit absolute path to override that node-local default.
   * **--admin-state** — `online` (default), `maintenance`
     (refuse new VM placements), or `draining` (same as
     `maintenance`, but also a strong signal that ops is about
     to drain workloads off the node).
+  * **--netd-disabled** — register a node without `corvus-netd`.
+    Managed networks are unavailable; only `user` and `vde` interfaces can be
+    attached to VMs on the node.
 
 The daemon spawns the per-node reconnect supervisor as soon as
 the row insert succeeds — the new node is live without a
@@ -61,9 +62,9 @@ daemon restart.
 ### `crv node list`
 
 ```
-ID  NAME      HOST           STATE   CPUS  RAM_FREE  DISK_FREE_GB  LOAD1
-1   alpha     192.168.1.10   online    8     14336           400   0.42
-2   beta      192.168.1.11   online   16     30720           800   0.18
+ID  NAME      HOST           STATE   NETD  CPUS  RAM_FREE  DISK_FREE_GB  LOAD1
+1   alpha     192.168.1.10   online  up      8     14336           400   0.42
+2   beta      192.168.1.11   online  up     16     30720           800   0.18
 ```
 
 Capacity columns show `--` until the node's nodeagent has
@@ -138,7 +139,7 @@ that already host the backing image).
 Two daemon-side checks enforce the rule that resources qemu
 needs to open simultaneously must live on the same kernel:
 
-  * **Disk attach** (`crv vm attach-disk` / drive entries in
+  * **Disk attach** (`crv disk attach` / drive entries in
     apply YAML). The disk's `disk_image_node` row for the VM's
     node must exist. Without it qemu on the VM's host has no
     file to open. The daemon refuses the attach with a clear
@@ -253,7 +254,7 @@ Cap'n Proto schema additions for multi-node:
     component keeps using its existing cert until you redeploy
     or renew — Corvus does not consume a CRL.
 
-## Limitations (current Phase 1 shape)
+## Limitations
 
   * **Auth / TLS** on daemon↔agent links is via mutual TLS;
     see [doc/security.md](security.md) for the full picture
@@ -266,8 +267,8 @@ Cap'n Proto schema additions for multi-node:
     `doc/security.md`.
 
   * **No *live* migration** of a running VM between nodes.
-    Offline migration is supported: `crv vm migrate <VM>
-    --to-node <NEW>` stops, transfers disks agent-to-agent, and
+    `crv vm migrate <VM> --to-node <NEW>` saves running or paused VMs,
+    transfers disks agent-to-agent, restores the VM on the destination, and
     flips the placement in one transaction. See
     [doc/vm-migration.md](vm-migration.md) for constraints (no
     shared dirs, `user`-type netifs only, target node must have

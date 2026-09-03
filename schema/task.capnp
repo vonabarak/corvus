@@ -36,6 +36,7 @@ struct TaskListParams {
   entityId    @3 :Int64;        # 0 == any
   result      @4 :Enums.TaskResult;
   hasResult   @5 :Bool;
+  includeSubtasks @6 :Bool;     # false == only top-level tasks
 }
 
 # ---------------------------------------------------------------------

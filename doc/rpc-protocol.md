@@ -13,10 +13,11 @@ runnable Python example.
 |---|---|
 | `schema/corvus.capnp` | Root `Daemon` interface; entry point for everything. |
 | `schema/common.capnp` | Cross-cutting types: `EntityRef`, `StatusInfo`, `ViewGrant`. |
-| `schema/enums.capnp` | All 10 enums (`VmStatus`, `DriveFormat`, `TaskResult`, …). |
+| `schema/enums.capnp` | Shared enums (`VmStatus`, `DriveFormat`, `TaskResult`, …). |
 | `schema/vm.capnp` | `VmManager` + `Vm` cap; per-VM lifecycle, snapshots, console. |
 | `schema/disk.capnp` | `DiskManager` + `Disk` cap; CRUD, overlays, snapshots. |
 | `schema/network.capnp` | `NetworkManager` + `Network` cap; virtual networks. |
+| `schema/node.capnp` | `NodeManager` + `Node` cap; node registration, health, and scheduling metadata. |
 | `schema/sshkey.capnp` | `SshKeyManager` + `SshKey` cap. |
 | `schema/template.capnp` | `TemplateManager` + `Template` cap. |
 | `schema/task.capnp` | `TaskManager` + `Task` cap; async-op history + progress sub. |
@@ -32,6 +33,7 @@ Daemon
 ├── vms       → VmManager → Vm (lifecycle, console, snapshots…)
 ├── disks     → DiskManager → Disk (overlays, snapshots…)
 ├── networks  → NetworkManager → Network
+├── nodes     → NodeManager → Node
 ├── sshKeys   → SshKeyManager → SshKey
 ├── templates → TemplateManager → Template
 ├── tasks     → TaskManager → Task

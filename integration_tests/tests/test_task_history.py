@@ -15,6 +15,7 @@ synchronous CRUD calls (`disks.create`, `vms.create`, `apply`).
 
 from __future__ import annotations
 
+import json
 import secrets
 import textwrap
 
@@ -93,6 +94,10 @@ class TestTaskHistory(SingleNodeCase):
             assert all(t.subsystem == "vm" and t.result == "success" for t in ok_vm), [
                 (t.subsystem, t.result) for t in ok_vm
             ]
+
+            entity_tasks = self.client.tasks.list(entity_id=disk.show().id, limit=50)
+            assert entity_tasks, "no task rows returned for the created disk"
+            assert all(t.entity and t.entity.id == disk.show().id for t in entity_tasks)
             assert any(t.entity and t.entity.name == vm_name for t in ok_vm)
         finally:
             try:
@@ -187,7 +192,11 @@ class TestTaskHistory(SingleNodeCase):
         try:
             tasks = self.client.tasks.list(subsystem="disk", result="success", limit=20)
             assert tasks, "no recent disk-create tasks found"
-            tid = tasks[0].id
+            matching = [
+                t for t in tasks if t.entity and t.entity.name == disk.show().name
+            ]
+            assert matching, "no successful task recorded for the created disk"
+            tid = matching[0].id
             cp = _crv(self.node, f"task wait {tid} --timeout 30")
             _assert_ok(cp, what=f"crv task wait {tid}")
         finally:
@@ -207,11 +216,9 @@ class TestTaskHistory(SingleNodeCase):
             [Rpc/Daemon.hs:157](src/Corvus/Rpc/Daemon.hs#L157)).
             The task IS recorded in the DB; we recover the parent
             by listing the most-recent ``apply`` row.
-          * ``tasks.list`` excludes subtasks
-            ([Rpc/Task.hs:58](src/Corvus/Rpc/Task.hs#L58) passes
-            ``includeSubtasks=False`` unconditionally), so we
-            traverse children via ``list_children`` rather than
-            filtering ``tasks.list`` by subsystem.
+          * ``tasks.list`` excludes subtasks by default. This test
+            verifies both the default and ``include_subtasks=True``
+            behavior, then traverses the direct children separately.
         """
         token = secrets.token_hex(3)
         key_name = f"corvus-it-task-apply-key-{token}"
@@ -264,6 +271,10 @@ class TestTaskHistory(SingleNodeCase):
             assert all(c.result == "success" for c in children), [
                 (c.subsystem, c.result, c.message) for c in children
             ]
+            all_tasks = self.client.tasks.list(include_subtasks=True, limit=100)
+            all_task_ids = {t.id for t in all_tasks}
+            assert parent_id in all_task_ids
+            assert {child.id for child in children} <= all_task_ids
         finally:
             try:
                 self.client.disks.get(disk_name, by_name=True).delete()
@@ -336,10 +347,8 @@ class TestTaskHistory(SingleNodeCase):
 
     # ---- crv task list ---------------------------------------------------
 
-    def test_crv_task_list_filters_by_subsystem(self):
-        """`crv task list --subsystem disk` rows are all disk
-        subsystem. The CLI uses the same filter surface as the
-        typed client."""
+    def test_crv_task_list_filters_by_subsystem_and_result(self):
+        """`crv task list` forwards both subsystem and result filters."""
         # Make sure there's at least one fresh disk task in scope.
         disk = self.client.disks.create(
             f"corvus-it-task-cli-{secrets.token_hex(3)}",
@@ -349,17 +358,15 @@ class TestTaskHistory(SingleNodeCase):
         try:
             cp = _crv(
                 self.node,
-                "task list --subsystem disk --last 20 --output json",
+                "task list --subsystem disk --result success --last 20 --output json",
             )
             _assert_ok(cp, what="crv task list")
-            # Default JSON output is a single envelope around the
-            # rows. We don't parse it strictly — we just smoke-check
-            # that the subsystem appears for every printed row.
-            text = cp.stdout.decode()
-            assert '"subsystem"' in text or "subsystem" in text, text
-            # Negative check: a different subsystem would surface
-            # too — assert at least one occurrence of "disk".
-            assert "disk" in text, text
+            rows = json.loads(cp.stdout)
+            assert rows, rows
+            assert all(
+                row["subsystem"] == "disk" and row["result"] == "success"
+                for row in rows
+            ), rows
         finally:
             try:
                 disk.delete()

@@ -98,6 +98,7 @@ interface TemplateManager {
 interface Template {
   show         @0 () -> (details :TemplateDetails);
   delete       @1 () -> ();
+  # An unset `node` lets the scheduler choose an online placement node.
   instantiate  @2 (name :Text, node :Common.EntityRef) -> (vm :Vm.Vm);
   update       @3 (yaml :Text) -> ();
 }

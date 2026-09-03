@@ -1,10 +1,10 @@
 # VM Migration
 
-Corvus supports **offline** VM migration: stop a VM on one node, move
-its disk images to another node, and start it there. Bytes never
-pass through the daemon — the two `corvus-nodeagent` processes
-involved talk directly to each other over a separate Cap'n Proto
-session.
+Corvus supports **non-live** VM migration. Stopped and saved VMs retain their
+state; running and paused VMs are saved to disk before transfer and started on
+the destination after restore. Bytes never pass through the daemon — the two
+`corvus-nodeagent` processes involved talk directly to each other over a
+separate Cap'n Proto session.
 
 A standalone `crv disk copy` / `crv disk move` pair exposes the
 same byte-transfer machinery for disk-only operations.
@@ -19,19 +19,21 @@ crv disk move <DISK> --to-node <NODE>
 # source intact).
 crv disk copy <DISK> --to-node <NODE>
 
-# Migrate a stopped VM (with all its drives) to another node.
+# Migrate a VM (with all its drives) to another node.
 crv vm migrate <VM> --to-node <NODE>
 ```
 
-All three are asynchronous and return a task id; subscribe via
-`crv task watch <ID>` (or just `crv task show <ID>`) to follow
-progress.
+All three are asynchronous and return a task id; use `crv task wait <ID>` to
+block for completion or `crv task show <ID>` to inspect progress and results.
 
 ## Constraints
 
 `crv vm migrate` refuses unless **all** of the following hold:
 
-- The VM is in the `stopped` state and is not already mid-migration.
+- The VM is stopped, saved, running, or paused, and is not already
+  mid-migration. Running and paused VMs are saved before their disks transfer;
+  they start on the destination once restore completes. This is not live memory
+  migration, and a paused VM resumes as running after migration.
 - The destination node exists, is `online`, and is not the VM's
   current node.
 - The VM has no shared directories (host paths are node-local).

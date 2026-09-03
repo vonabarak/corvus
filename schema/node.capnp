@@ -5,10 +5,8 @@
 # ports), administrative state, and the latest agent-pushed
 # health/capacity snapshot (RAM / CPU / disk / load).
 #
-# Multi-node Phase 1 introduces only the data shape + the read
-# surface. The scheduler (Phase 2), per-resource node FKs in
-# disk/network attach paths (Phase 3-4), and the `NodeStats`
-# push from the agent (Phase 5) build on top.
+# The daemon uses these records for scheduling, same-node validation, and
+# nodeagent/netd health and capacity reporting.
 
 using Common = import "common.capnp";
 using Enums = import "enums.capnp";
@@ -77,10 +75,8 @@ struct NodeDetails {
 
 # Inline-param defaults mirror `crv node add`. Only `name` and
 # `host` are mandatory; ports default to the netd/nodeagent
-# convention (9877/9878). basePath has no wire-level default —
-# the CLI resolves it to `$HOME/VMs` on the admin host before
-# sending; pass an explicit absolute path here when calling from
-# a non-CLI client.
+# convention (9877/9878). An empty `basePath` asks the target nodeagent for
+# its own default `$HOME/VMs`; pass an explicit absolute path to override it.
 struct NodeAddParams {
   name           @0 :Text;
   host           @1 :Text;
@@ -130,6 +126,6 @@ interface Node {
   # scheduler skips draining nodes when picking placement.
   drain  @2 () -> ();
   # Refuses while any VMs / disks / networks reference this node.
-  # Cascade-with-confirm is a Phase-2 ergonomic.
+  # Deletion never cascades to referenced resources.
   delete @3 () -> ();
 }

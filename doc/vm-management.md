@@ -5,7 +5,7 @@
 ```bash
 crv vm list                       # List all VMs
 crv vm show <vm>                  # Show VM details (drives, network, sockets)
-crv vm create <name> <cpus> <ram> # Create a VM
+crv vm create <name> [--cpus COUNT] [--ram MB] # Create a VM
 crv vm edit <vm>                  # Edit VM settings
 crv vm delete <vm>                # Delete a VM
 crv vm start <vm>                 # Start a stopped/paused VM
@@ -22,16 +22,18 @@ crv vm monitor <vm>               # Connect to HMP monitor
 ## Creating a VM
 
 ```bash
-crv vm create my-vm 2 2048                    # 2 CPUs, 2 GB RAM
-crv vm create my-vm 4 4096 --headless         # Serial console only
-crv vm create my-vm 2 2048 --cloud-init       # Enable cloud-init
-crv vm create my-vm 2 2048 --guest-agent      # Enable guest agent
-crv vm create my-vm 2 2048 --tpm              # Attach an emulated TPM 2.0 CRB device
-crv vm create my-vm 2 2048 --autostart        # Auto-start on daemon startup
-crv vm create my-vm 2 2048 -d "Web server"    # With description
-crv vm create my-vm 2 2048 --node alpha       # Pin to a specific node
-crv vm create my-vm 2 2048 --cpu-model qemu64 # Migratable CPU model (see below)
+crv vm create my-vm --cpus 2 --ram 2048                    # 2 CPUs, 2 GB RAM
+crv vm create my-vm --cpus 4 --ram 4096 --headless         # Serial console only
+crv vm create my-vm --cpus 2 --ram 2048 --cloud-init       # Enable cloud-init
+crv vm create my-vm --cpus 2 --ram 2048 --guest-agent      # Enable guest agent
+crv vm create my-vm --cpus 2 --ram 2048 --tpm              # Attach an emulated TPM 2.0 CRB device
+crv vm create my-vm --cpus 2 --ram 2048 --autostart        # Auto-start on daemon startup
+crv vm create my-vm --cpus 2 --ram 2048 -d "Web server"    # With description
+crv vm create my-vm --cpus 2 --ram 2048 --node alpha       # Pin to a specific node
+crv vm create my-vm --cpus 2 --ram 2048 --cpu-model qemu64 # Migratable CPU model (see below)
 ```
+
+When omitted, `--cpus` defaults to `1` and `--ram` defaults to `1024` MB.
 
 ### `--cpu-model` and cross-host migration
 

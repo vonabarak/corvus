@@ -69,7 +69,7 @@ was actually frozen (`+`) or not (`-`).
 **Safety:** the daemon ALWAYS attempts the thaw, even when the
 snapshot itself errors. If both the snapshot and the thaw fail,
 the daemon's error reply includes a "guest may be wedged" hint —
-the operator should investigate via `crv vm guest-exec` or the
+the operator should investigate via `crv vm exec` or the
 serial console.
 
 ### Multi-disk caveat

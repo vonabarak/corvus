@@ -1,7 +1,7 @@
 @0xdc412029c77dfa4a;
 
 # Cap'n Proto wire schema for `corvus-netd`, the privileged network
-# agent. Phase 2.5: declarative model. The daemon expresses INTENT
+# agent. The daemon expresses intent
 # via `applyNetwork` / `applyTap`; the agent reconciles the kernel
 # to match. No per-resource Cap'n Proto interfaces (Bridge,
 # NatRule, DnsmasqHandle, Tap) and no orphan window — the agent is

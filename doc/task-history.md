@@ -23,6 +23,7 @@ The CN suffix is read out of the validated peer certificate during the TLS hands
 crv task list [options]     # List recent tasks
 crv task show <id>          # Show task details
 crv task wait <id> [--timeout <seconds>]   # Wait for a task to complete
+crv task cancel <id>        # Request cancellation of a running task
 ```
 
 ## Listing Tasks
@@ -86,6 +87,12 @@ crv task wait 42 --timeout 60 # Wait up to 60 seconds
 ```
 
 Blocks until the task finishes (success or error). Returns exit code 0 on success, 1 on error or timeout.
+
+## Cancelling a Task
+
+`crv task cancel <id>` requests best-effort cancellation of a running task. The
+task remains visible through `task show` and `task list`; use `task wait` to
+observe its final result.
 
 Common use with async operations:
 
