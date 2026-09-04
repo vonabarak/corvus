@@ -89,7 +89,8 @@ data VmSpec = VmSpec
   deriving (Eq, Show)
 
 data VmDriveSpec = VmDriveSpec
-  { vdsDiskFilePath :: !T.Text
+  { vdsDriveId :: !Int64
+  , vdsDiskFilePath :: !T.Text
   , vdsFormat :: !T.Text
   , vdsIfKind :: !T.Text
   , vdsMedia :: !T.Text

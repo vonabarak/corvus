@@ -60,12 +60,15 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       , memoryArgs
       , ["-smp", show (VS.vsCpuCount spec)]
       , hotplugPortArgs
+      , staticVirtioPortArgs
+      , staticScsiPortArgs
+      , scsiControllerArgs
       , vsockArgs
       , guestAgentArgs
       , tpmArgs
       , displayArgs
       , monitorArgs
-      , concatMap driveArgsSpec (zip [0 ..] (VS.vsDrives spec))
+      , concatMap driveArgsSpec (VS.vsDrives spec)
       , concatMap netArgsSpec (zip [0 ..] (VS.vsNetIfs spec))
       , concatMap sharedDirArgsSpec (zip [0 ..] (VS.vsSharedDirs spec))
       , -- Prefer CD-ROM boot when one is attached; see the
@@ -117,6 +120,42 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
       , "pcie-root-port,id=hotplug-rp,chassis=0,slot=0"
       , "-device"
       , "pcie-pci-bridge,id=hotplug,bus=hotplug-rp"
+      ]
+
+    -- Each boot-time virtio disk gets a native PCIe root port.  This
+    -- gives the device a hot-unplug-capable bus without putting the
+    -- boot disk behind a legacy PCI bridge, which some guest initramfs
+    -- configurations cannot enumerate early enough to mount root.
+    staticVirtioPortArgs =
+      concatMap
+        ( \(idx, d) ->
+            [ "-device"
+            , "pcie-root-port,id=virtio-rp-"
+                ++ show (VS.vdsDriveId d)
+                ++ ",chassis="
+                ++ show (idx + 2)
+                ++ ",slot="
+                ++ show (idx + 2)
+            ]
+        )
+        ( zip
+            [0 :: Int ..]
+            (filter ((== "virtio") . VS.vdsIfKind) (VS.vsDrives spec))
+        )
+
+    -- The controller is itself on a native PCIe root port. Its SCSI
+    -- child bus is then stable for boot-time and live-attached drives.
+    staticScsiPortArgs =
+      [ "-device"
+      , "pcie-root-port,id=scsi-rp,chassis=1,slot=1"
+      ]
+
+    -- Keep one SCSI controller in every VM so SCSI disks attached
+    -- before boot and disks added later use the same hot-pluggable
+    -- bus. The controller itself sits on a native PCIe root port.
+    scsiControllerArgs =
+      [ "-device"
+      , "virtio-scsi-pci,id=scsi0,bus=scsi-rp"
       ]
 
     vsockArgs = case VS.vsVsockCid spec of
@@ -216,13 +255,23 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
 -- | Per-drive argv assembly for 'buildQemuCommandFromSpec'.
 -- The wire-level 'VS.VmDriveSpec' already carries an absolute
 -- 'vdsDiskFilePath' — the daemon resolved it from the DB.
-driveArgsSpec :: (Int, VS.VmDriveSpec) -> [String]
-driveArgsSpec (_idx, d) =
+driveArgsSpec :: VS.VmDriveSpec -> [String]
+driveArgsSpec d =
   let ifKind = T.unpack (VS.vdsIfKind d)
       readOnlyFlag =
         if VS.vdsReadOnly d then Just "readonly=on" else Nothing
       formatStr = T.unpack (VS.vdsFormat d)
    in case ifKind of
+        "virtio" ->
+          hotpluggableDriveArgs
+            "virtio-blk-pci"
+            ("virtio-rp-" ++ driveId)
+            True
+        "scsi" ->
+          hotpluggableDriveArgs
+            (if VS.vdsMedia d == "cdrom" then "scsi-cd" else "scsi-hd")
+            "scsi0.0"
+            False
         "pflash" ->
           [ "-drive"
           , intercalate "," $
@@ -261,6 +310,47 @@ driveArgsSpec (_idx, d) =
                 ]
           ]
   where
+    driveId = show (VS.vdsDriveId d)
+    nodeName = "drive-" ++ driveId
+    deviceId = "device-" ++ driveId
+
+    hotpluggableDriveArgs driver bus supportsDiscard =
+      [ "-blockdev"
+      , intercalate
+          ","
+          [ "driver=" ++ T.unpack (VS.vdsFormat d)
+          , "node-name=" ++ nodeName
+          , "read-only=" ++ qemuBool (VS.vdsReadOnly d)
+          , "cache.direct=" ++ qemuBool cacheDirect
+          , "cache.no-flush=" ++ qemuBool cacheNoFlush
+          , "discard=" ++ if VS.vdsDiscard d then "unmap" else "ignore"
+          , "file.driver=file"
+          , "file.filename=" ++ T.unpack (VS.vdsDiskFilePath d)
+          , "file.read-only=" ++ qemuBool (VS.vdsReadOnly d)
+          ]
+      , "-device"
+      , intercalate "," $
+          [ driver
+          , "id=" ++ deviceId
+          , "drive=" ++ nodeName
+          , "bus=" ++ bus
+          , "write-cache=" ++ qemuBool writeCache
+          ]
+            ++ ["discard=" ++ qemuBool (VS.vdsDiscard d) | supportsDiscard]
+      ]
+
+    (cacheDirect, cacheNoFlush, writeCache) = cacheSettings (VS.vdsCache d)
+
+    cacheSettings "none" = (True, True, True)
+    cacheSettings "writeback" = (False, False, True)
+    cacheSettings "writethrough" = (False, False, False)
+    cacheSettings "directsync" = (True, False, True)
+    cacheSettings "unsafe" = (False, True, True)
+    cacheSettings _ = (False, False, True)
+
+    qemuBool True = "on"
+    qemuBool False = "off"
+
     ifForQemu "nvme" = "none" -- NVMe uses -device instead
     ifForQemu other = other
 

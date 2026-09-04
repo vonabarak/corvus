@@ -62,7 +62,7 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Exception (IOException, SomeException, bracket, catch, try)
-import Corvus.Model (DriveFormat (..), DriveInterface (..), EnumText (..))
+import Corvus.Model (CacheType (..), DriveFormat (..), DriveInterface (..), EnumText (..))
 import Corvus.Node.QmpQQ (qmpQQ)
 import Corvus.Node.Runtime (getQmpSocket, shellQuotePath)
 import Corvus.Qemu.Config (QemuConfig)
@@ -304,10 +304,17 @@ qmpBlockdevAdd
   -- ^ Disk format
   -> Bool
   -- ^ Read-only mode
+  -> CacheType
+  -- ^ Cache mode
+  -> Bool
+  -- ^ Enable discard/unmap
   -> IO QmpResult
-qmpBlockdevAdd config vmId nodeName filePath format readOnly = do
+qmpBlockdevAdd config vmId nodeName filePath format readOnly cache discard = do
   let formatStr = enumToText format
       filePathText = T.pack filePath
+      (cacheDirect, cacheNoFlush, _) = cacheSettings cache
+      discardMode :: Text
+      discardMode = if discard then "unmap" else "ignore"
       cmd =
         [qmpQQ|
           {
@@ -316,6 +323,11 @@ qmpBlockdevAdd config vmId nodeName filePath format readOnly = do
               "driver": #{formatStr},
               "node-name": #{nodeName},
               "read-only": #{readOnly},
+              "cache": {
+                "direct": #{cacheDirect},
+                "no-flush": #{cacheNoFlush}
+              },
+              "discard": #{discardMode},
               "file": {
                 "driver": "file",
                 "filename": #{filePathText},
@@ -337,11 +349,36 @@ qmpDeviceAddDrive
   -- ^ Block device node name (from qmpBlockdevAdd)
   -> DriveInterface
   -- ^ Drive interface type
+  -> Text
+  -- ^ Media type (@"disk"@ / @"cdrom"@)
+  -> CacheType
+  -- ^ Cache mode
+  -> Bool
+  -- ^ Enable discard/unmap
   -> IO QmpResult
-qmpDeviceAddDrive config vmId deviceId nodeName iface = do
-  let driver = T.pack $ interfaceToDriver iface
-      bus = "hotplug" :: Text
-      cmd =
+qmpDeviceAddDrive config vmId deviceId nodeName iface media cache discard =
+  case iface of
+    InterfaceVirtio ->
+      sendQmpCommand
+        config
+        vmId
+        [qmpQQ|
+          {
+            "execute": "device_add",
+            "arguments": {
+              "driver": "virtio-blk-pci",
+              "id": #{deviceId},
+              "drive": #{nodeName},
+              "bus": "hotplug",
+              "write-cache": #{writeCache},
+              "discard": #{discard}
+            }
+          }
+        |]
+    _ ->
+      sendQmpCommand
+        config
+        vmId
         [qmpQQ|
           {
             "execute": "device_add",
@@ -349,21 +386,37 @@ qmpDeviceAddDrive config vmId deviceId nodeName iface = do
               "driver": #{driver},
               "id": #{deviceId},
               "drive": #{nodeName},
-              "bus": #{bus}
+              "bus": #{bus},
+              "write-cache": #{writeCache}
             }
           }
         |]
-  sendQmpCommand config vmId cmd
+  where
+    (driver, bus) = deviceDriverAndBus iface media
+    (_, _, writeCacheEnabled) = cacheSettings cache
+    -- QMP exposes this as the OnOffAuto enum, unlike the command-line
+    -- spelling which also accepts a bare boolean-like value.
+    writeCache = if writeCacheEnabled then ("on" :: Text) else "off"
 
 -- | Map drive interface to QEMU device driver name
-interfaceToDriver :: DriveInterface -> String
-interfaceToDriver InterfaceVirtio = "virtio-blk-pci"
-interfaceToDriver InterfaceIde = "ide-hd"
-interfaceToDriver InterfaceScsi = "scsi-hd"
-interfaceToDriver InterfaceSata = "ide-hd"
-interfaceToDriver InterfaceNvme = "nvme"
-interfaceToDriver InterfacePflash = "pflash"
-interfaceToDriver InterfaceFloppy = "floppy"
+deviceDriverAndBus :: DriveInterface -> Text -> (Text, Text)
+deviceDriverAndBus InterfaceVirtio _ = ("virtio-blk-pci", "hotplug")
+deviceDriverAndBus InterfaceScsi "cdrom" = ("scsi-cd", "scsi0.0")
+deviceDriverAndBus InterfaceScsi _ = ("scsi-hd", "scsi0.0")
+deviceDriverAndBus InterfaceIde _ = ("ide-hd", "hotplug")
+deviceDriverAndBus InterfaceSata _ = ("ide-hd", "hotplug")
+deviceDriverAndBus InterfaceNvme _ = ("nvme", "hotplug")
+deviceDriverAndBus InterfacePflash _ = ("pflash", "hotplug")
+deviceDriverAndBus InterfaceFloppy _ = ("floppy", "hotplug")
+
+-- | Translate Corvus cache modes into QEMU's block-backend cache
+-- booleans plus the frontend write-cache switch.
+cacheSettings :: CacheType -> (Bool, Bool, Bool)
+cacheSettings CacheNone = (True, True, True)
+cacheSettings CacheWriteback = (False, False, True)
+cacheSettings CacheWritethrough = (False, False, False)
+cacheSettings CacheDirectsync = (True, False, True)
+cacheSettings CacheUnsafe = (False, True, True)
 
 -- | Remove a device (for hot-unplug)
 qmpDeviceDel
@@ -417,12 +470,11 @@ qmpBlockdevDel config vmId nodeName =
 -- flushing the writeback cache first so the snapshot captures
 -- a consistent disk view.
 --
--- The 'device' argument is a BlockBackend / device name.
--- Corvus's old-style @-drive@ command line does NOT pass an
--- explicit @id=@, so the BB name is auto-generated by QEMU from
--- the @if=@ + slot index. The reliable way to discover it is
--- 'qmpFindBlockDeviceByPath' (queries @query-block@ and matches
--- by file path).
+-- The 'device' argument accepts either a BlockBackend device name
+-- or a BlockDriverState node name. 'qmpFindBlockDeviceByPath'
+-- first resolves the legacy BlockBackend name through @query-block@,
+-- then falls back to the named node used by Corvus's @-blockdev@
+-- boot-time drive layout.
 --
 -- There is NO online equivalent of @qemu-img snapshot -a@
 -- (rollback) — the daemon's autoStop path stops the VM, applies
@@ -437,7 +489,7 @@ qmpBlockSnapshotCreate
   -> Int64
   -- ^ VM ID
   -> Text
-  -- ^ device name (BlockBackend name from query-block)
+  -- \^ device or node name
   -> Text
   -- ^ snapshot name
   -> IO QmpResult
@@ -462,8 +514,8 @@ qmpBlockSnapshotCreate config vmId device name =
 -- which is what the build-step cache wants (a partial cache row is
 -- worse than no cache row at all).
 --
--- Caller must have resolved each disk's BlockBackend device name
--- via 'qmpFindBlockDeviceByPath' first; this function just bundles
+-- Caller must have resolved each disk's device or node name via
+-- 'qmpFindBlockDeviceByPath' first; this function just bundles
 -- the pre-resolved @(device, snapshotName)@ pairs into the single
 -- atomic command.
 qmpBlockSnapshotCreateMany
@@ -522,10 +574,14 @@ qmpBlockSnapshotDelete config vmId device name =
       }
     |]
 
--- | Look up the QEMU BlockBackend name for a given absolute file
--- path on a running VM. @query-block@ returns one entry per BB
--- with @{ device, inserted: { file, ... }, ... }@; we walk the
--- list and match @inserted.file@ exactly.
+-- | Look up the QEMU device identifier for a given absolute file
+-- path on a running VM. @query-block@ returns one entry per
+-- BlockBackend with @{ device, inserted: { file, ... }, ... }@;
+-- we walk the list and match @inserted.file@ exactly. Drives created
+-- through @-blockdev@ do not get a BlockBackend, so their matching
+-- entry has an empty @device@. In that case we fall back to the
+-- BlockDriverState node name from @query-named-block-nodes@, which
+-- the snapshot commands also accept.
 --
 -- Returns @Left@ when the QMP call itself fails or the path isn't
 -- attached to the VM. The error message names the path so the
@@ -539,20 +595,15 @@ qmpFindBlockDeviceByPath
   -> IO (Either Text Text)
 qmpFindBlockDeviceByPath config vmId path = do
   raw <- sendQmpRaw config vmId [qmpQQ| { "execute": "query-block" } |]
-  pure $ do
-    bs <- raw
-    line <- extractReplyLine bs
-    case A.eitherDecodeStrict line of
-      Left e -> Left (T.pack ("query-block decode: " <> e))
-      Right (QueryBlockReply rows) ->
-        case filter ((== T.pack path) . qbiFilename) rows of
-          (m : _) -> Right (qbiDevice m)
-          [] ->
-            Left $
-              "no block device attached to VM "
-                <> T.pack (show vmId)
-                <> " has file="
-                <> T.pack path
+  case raw >>= extractReplyLine of
+    Left err -> pure (Left err)
+    Right line ->
+      case A.eitherDecodeStrict line of
+        Left e -> pure (Left (T.pack ("query-block decode: " <> e)))
+        Right (QueryBlockReply rows) ->
+          case filter ((== T.pack path) . qbiFilename) rows of
+            (m : _) | not (T.null (qbiDevice m)) -> pure (Right (qbiDevice m))
+            _ -> qmpFindBlockNodeByPath config vmId path
 
 data QueryBlockItem = QueryBlockItem
   { qbiDevice :: !Text

@@ -170,6 +170,13 @@ crv disk attach my-vm data -i virtio --cache writeback --discard
 crv disk detach my-vm boot   # By disk name or disk ID
 ```
 
+Virtio and SCSI drives can be detached while a VM is running. IDE, SATA,
+NVMe, pflash, and floppy drives are not live-detachable; stop the VM before
+detaching them. This includes IDE CD-ROM installer media.
+
+VMs already running when this support is deployed must be restarted once so
+QEMU is launched with the named-device layout required for live detach.
+
 ## Moving / Copying Disks Between Nodes
 
 ```bash

@@ -583,6 +583,7 @@ struct VmDriveSpec {
   readOnly     @4 :Bool;
   cache        @5 :Text;   # "none" / "writeback" / ...
   discard      @6 :Bool;
+  driveId      @7 :Int64;  # daemon Drive primary key; names QEMU nodes
 }
 
 struct VmNetIfSpec {
@@ -644,6 +645,9 @@ struct VmAttachDriveReq {
   format    @3 :Text;       # "qcow2" / "raw" / …
   ifKind    @4 :Text;       # "virtio" / "ide" / "scsi" / …
   readOnly  @5 :Bool;
+  media     @6 :Text;       # "disk" / "cdrom" (empty = disk)
+  cache     @7 :Text;       # "none" / "writeback" / …
+  discard   @8 :Bool;
 }
 
 # QGA exec request/response.

@@ -10,9 +10,10 @@ swap is gone).
 from __future__ import annotations
 
 import secrets
+import time
 
 import pytest
-from corvus_client import VmMustBeStopped
+from corvus_client import ServerError, VmMustBeStopped
 from corvus_test_harness import SingleNodeCase, Vm, VmSsh
 
 
@@ -316,6 +317,103 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(data_disk)
 
+    def test_preboot_virtio_and_scsi_drives_detach_live(self):
+        """Drives present at boot retain deterministic QEMU IDs, so
+        virtio and SCSI data drives can be detached and reattached
+        while the VM remains active.
+        """
+        virtio_disk = _uniq("preboot-virtio")
+        scsi_disk = _uniq("preboot-scsi")
+        self.client.disks.create(virtio_disk, size_mb=16, format="qcow2")
+        self.client.disks.create(scsi_disk, size_mb=16, format="qcow2")
+
+        class PrebootDataVm(Vm):
+            guest_agent = False
+
+            def _drives(self):
+                return super()._drives() + [
+                    {"disk_ref": virtio_disk, "interface": "virtio"},
+                    {"disk_ref": scsi_disk, "interface": "scsi"},
+                ]
+
+        def detach_when_qmp_ready(vm: Vm, drive_id: int) -> None:
+            deadline = time.monotonic() + 30
+            while True:
+                try:
+                    vm.cap.detach_disk(drive_id)
+                    return
+                except ServerError as e:
+                    if "QMP connect (device_del)" not in str(e):
+                        raise
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.25)
+
+        try:
+            with PrebootDataVm(self) as vm:
+                # A PCI device removal is acknowledged by the guest,
+                # so allow the no-QGA guest to finish its normal boot.
+                time.sleep(15)
+                initial = vm.cap.show().drives
+                virtio_id = next(
+                    d.id for d in initial if d.disk_image.name == virtio_disk
+                )
+                scsi_id = next(d.id for d in initial if d.disk_image.name == scsi_disk)
+
+                detach_when_qmp_ready(vm, virtio_id)
+                detach_when_qmp_ready(vm, scsi_id)
+                remaining = vm.cap.show().drives
+                assert all(d.id not in {virtio_id, scsi_id} for d in remaining), (
+                    remaining
+                )
+                assert vm.cap.show().status in {"starting", "running"}
+
+        finally:
+            self._delete_silent(virtio_disk)
+            self._delete_silent(scsi_disk)
+
+    def test_preboot_ide_cdrom_requires_stopping_before_detach(self):
+        """IDE installer media is not on a hot-pluggable QEMU bus, so
+        a live detach is rejected without changing the database row.
+        """
+        installer_disk = _uniq("preboot-installer")
+        self.client.disks.create(installer_disk, size_mb=4, format="raw")
+
+        class PrebootInstallerVm(Vm):
+            guest_agent = False
+
+            def _drives(self):
+                return super()._drives() + [
+                    {
+                        "disk_ref": installer_disk,
+                        "interface": "ide",
+                        "media": "cdrom",
+                        "read_only": True,
+                    }
+                ]
+
+        try:
+            with PrebootInstallerVm(self) as vm:
+                drive_id = next(
+                    d.id
+                    for d in vm.cap.show().drives
+                    if d.disk_image.name == installer_disk
+                )
+                with pytest.raises(
+                    ServerError, match=r"ide drive.*does not support hot unplug"
+                ):
+                    vm.cap.detach_disk(drive_id)
+
+                details = vm.cap.show()
+                assert details.status == "running"
+                assert any(d.id == drive_id for d in details.drives)
+
+                vm.cap.reset()
+                vm.cap.detach_disk(drive_id)
+                assert all(d.id != drive_id for d in vm.cap.show().drives)
+        finally:
+            self._delete_silent(installer_disk)
+
     def test_hot_attach_read_only(self):
         """`attach_disk(..., read_only=True)` surfaces as `read_only=True`
         on the matching drive in `vm.show()`."""
@@ -455,14 +553,27 @@ class TestDisk(SingleNodeCase):
                 f"--directory {srv_dir} > /tmp/url-srv-{token}.log 2>&1 &"
             )
             try:
-                # Give http.server a beat to bind.
-                import time
-
-                time.sleep(0.5)
+                # Wait until the node-local server is actually accepting
+                # connections. A fixed sleep races under a busy nested node.
+                url = f"http://127.0.0.1:{port}/payload.qcow2"
+                deadline = time.monotonic() + 10.0
+                while True:
+                    probe = self.node.run(
+                        f"curl --fail --silent --output /dev/null {url}",
+                        check=False,
+                    )
+                    if probe.returncode == 0:
+                        break
+                    if time.monotonic() >= deadline:
+                        raise AssertionError(
+                            f"HTTP server did not become reachable at {url}: "
+                            f"{probe.stderr.decode(errors='replace')}"
+                        )
+                    time.sleep(0.1)
 
                 task_id = self.client.disks.import_url(
                     url_name,
-                    f"http://127.0.0.1:{port}/payload.qcow2",
+                    url,
                     format="qcow2",
                 )
                 self.wait_for_task(self.client, task_id, timeout_sec=60.0)

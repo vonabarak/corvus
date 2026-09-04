@@ -962,7 +962,8 @@ encodeVmSpec s =
 encodeVmDriveSpec :: VmDriveSpec -> CGNA.Parsed CGNA.VmDriveSpec
 encodeVmDriveSpec d =
   CGNA.VmDriveSpec
-    { CGNA.diskFilePath = vdsDiskFilePath d
+    { CGNA.driveId = vdsDriveId d
+    , CGNA.diskFilePath = vdsDiskFilePath d
     , CGNA.format = vdsFormat d
     , CGNA.ifKind = vdsIfKind d
     , CGNA.media = vdsMedia d
@@ -1315,8 +1316,14 @@ vmAttachDrive
   -- ^ drive interface (@"virtio"@ / @"ide"@ / …)
   -> Bool
   -- ^ read-only
+  -> T.Text
+  -- ^ media (@"disk"@ / @"cdrom"@)
+  -> T.Text
+  -- ^ cache mode
+  -> Bool
+  -- ^ discard
   -> IO (Either NodeAgentError ())
-vmAttachDrive nac vmId driveId filePath fmt ifKind ro = remote $ do
+vmAttachDrive nac vmId driveId filePath fmt ifKind ro media cache discard = remote $ do
   let req =
         CGNA.VmAttachDriveReq
           { CGNA.vmId = vmId
@@ -1325,6 +1332,9 @@ vmAttachDrive nac vmId driveId filePath fmt ifKind ro = remote $ do
           , CGNA.format = fmt
           , CGNA.ifKind = ifKind
           , CGNA.readOnly = ro
+          , CGNA.media = media
+          , CGNA.cache = cache
+          , CGNA.discard = discard
           }
   _ :: C.Parsed CGNA.Session'vmAttachDrive'results <-
     callOn

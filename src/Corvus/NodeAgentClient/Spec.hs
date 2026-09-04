@@ -93,8 +93,8 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
         Left err -> pure (Left err)
         Right resolvedNetIfs -> do
           let driveSpecs =
-                [ encodeDriveSpec basePath drive di placement
-                | (drive, Just di, Just placement) <- drives
+                [ encodeDriveSpec basePath driveId drive di placement
+                | (driveId, drive, Just di, Just placement) <- drives
                 ]
               netIfSpecs = map encodeNetIfSpec resolvedNetIfs
               sharedDirSpecs = map (encodeSharedDirSpec . entityVal) sharedDirs
@@ -148,28 +148,29 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
 fetchDriveWithImage
   :: M.NodeId
   -> Entity Drive
-  -> Database.Persist.Sql.SqlPersistT IO (Drive, Maybe M.DiskImage, Maybe T.Text)
-fetchDriveWithImage vmNode (Entity _ drive) = do
+  -> Database.Persist.Sql.SqlPersistT IO (Int64, Drive, Maybe M.DiskImage, Maybe T.Text)
+fetchDriveWithImage vmNode (Entity driveId drive) = do
   mImg <- get (driveDiskImageId drive)
   mPath <-
     Database.Persist.getBy
       (M.UniqueDiskImageOnNode (driveDiskImageId drive) vmNode)
   let placementPath = fmap (M.diskImageNodeFilePath . entityVal) mPath
-  pure (drive, mImg, placementPath)
+  pure (fromSqlKey driveId, drive, mImg, placementPath)
 
 -- | Encode a (Drive, DiskImage, placement-path) triple as
 -- 'VS.VmDriveSpec'. The resulting @vdsDiskFilePath@ is an
 -- absolute host path (relative DB paths are resolved against
 -- @basePath@).
-encodeDriveSpec :: FilePath -> Drive -> M.DiskImage -> T.Text -> VS.VmDriveSpec
-encodeDriveSpec basePath drive img placement =
+encodeDriveSpec :: FilePath -> Int64 -> Drive -> M.DiskImage -> T.Text -> VS.VmDriveSpec
+encodeDriveSpec basePath driveId drive img placement =
   let raw = T.unpack placement
       absPath =
         if take 1 raw == "/"
           then raw
           else basePath </> raw
    in VS.VmDriveSpec
-        { VS.vdsDiskFilePath = T.pack absPath
+        { VS.vdsDriveId = driveId
+        , VS.vdsDiskFilePath = T.pack absPath
         , VS.vdsFormat = enumToText (M.diskImageFormat img)
         , VS.vdsIfKind = ifKindFor (driveInterface drive)
         , VS.vdsMedia = maybe "" enumToText (driveMedia drive)

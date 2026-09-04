@@ -655,6 +655,9 @@ instance CGNA.Session'server_ SessionCap where
             , CGNA.format = fmtTxt
             , CGNA.ifKind = ifTxt
             , CGNA.readOnly = ro
+            , CGNA.media = mediaTxt
+            , CGNA.cache = cacheTxt
+            , CGNA.discard = discard
             } = req
           filePath = T.unpack fpTxt
           nodeName = "drive-" <> T.pack (show drvId)
@@ -664,12 +667,16 @@ instance CGNA.Session'server_ SessionCap where
         case M.enumFromText ifTxt :: Either Text M.DriveInterface of
           Right k -> pure k
           Left _ -> throwFailed ("unknown drive interface: " <> ifTxt)
+      cache <-
+        case M.enumFromText cacheTxt :: Either Text M.CacheType of
+          Right c -> pure c
+          Left _ -> throwFailed ("unknown drive cache mode: " <> cacheTxt)
       blockResult <-
-        NQ.qmpBlockdevAdd agentQemuConfig vid nodeName filePath fmt ro
+        NQ.qmpBlockdevAdd agentQemuConfig vid nodeName filePath fmt ro cache discard
       case blockResult of
         NQ.QmpSuccess -> do
           deviceResult <-
-            NQ.qmpDeviceAddDrive agentQemuConfig vid deviceId nodeName ifKind
+            NQ.qmpDeviceAddDrive agentQemuConfig vid deviceId nodeName ifKind mediaTxt cache discard
           case deviceResult of
             NQ.QmpSuccess ->
               pure CGNA.Session'vmAttachDrive'results
@@ -706,6 +713,17 @@ instance CGNA.Session'server_ SessionCap where
               case blockResult of
                 NQ.QmpSuccess ->
                   pure CGNA.Session'vmDetachDrive'results
+                -- A guest may take longer than the synchronous
+                -- cleanup grace period to acknowledge a PCI
+                -- hot-unplug. The frontend is already gone, so
+                -- report the detach and keep trying to release its
+                -- backend in the agent.
+                NQ.QmpError err
+                  | isBlockdevBusy err -> do
+                      void . forkIO $ do
+                        void $
+                          retryBlockdevDel agentQemuConfig vid nodeName 600
+                      pure CGNA.Session'vmDetachDrive'results
                 NQ.QmpError err -> throwFailed ("blockdev-del: " <> err)
                 NQ.QmpConnectionFailed err ->
                   throwFailed ("QMP connect (blockdev-del): " <> err)
@@ -1027,7 +1045,8 @@ flushBufferForVm bufMapVar vid = do
 
 -- | QEMU @device_del@ completes asynchronously; an immediate
 -- @blockdev-del@ on the same node trips a "node N is busy"
--- error. Retry a few times with 100 ms backoff; mirrors the
+-- error. Retry for up to ten seconds with 100 ms backoff; this also
+-- leaves time for the guest to acknowledge PCI hot-unplug. Mirrors the
 -- pre-Phase-4 daemon-side retry loop in
 -- @Corvus.Handlers.Disk.Attach.qmpBlockdevDelRetry@.
 retryBlockdevDel
@@ -1038,11 +1057,14 @@ retryBlockdevDel cfg vid nodeName = go
     go n = do
       r <- NQ.qmpBlockdevDel cfg vid nodeName
       case r of
-        NQ.QmpError err
-          | "is in use" `T.isInfixOf` err || "is busy" `T.isInfixOf` err -> do
-              threadDelay 100000
-              go (n - 1)
+        NQ.QmpError err | isBlockdevBusy err -> do
+          threadDelay 100000
+          go (n - 1)
         _ -> pure r
+
+isBlockdevBusy :: Text -> Bool
+isBlockdevBusy err =
+  "is in use" `T.isInfixOf` err || "is busy" `T.isInfixOf` err
 
 -- ---------------------------------------------------------------------------
 -- Local QEMU/runtime config used by every VM-abstraction handler.
@@ -1107,6 +1129,7 @@ decodeVmDriveSpec :: CGNA.Parsed CGNA.VmDriveSpec -> VS.VmDriveSpec
 decodeVmDriveSpec
   CGNA.VmDriveSpec
     { CGNA.diskFilePath = p
+    , CGNA.driveId = did
     , CGNA.format = fmt
     , CGNA.ifKind = ik
     , CGNA.media = md
@@ -1115,7 +1138,8 @@ decodeVmDriveSpec
     , CGNA.discard = di
     } =
     VS.VmDriveSpec
-      { VS.vdsDiskFilePath = p
+      { VS.vdsDriveId = did
+      , VS.vdsDiskFilePath = p
       , VS.vdsFormat = fmt
       , VS.vdsIfKind = ik
       , VS.vdsMedia = md

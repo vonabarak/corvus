@@ -29,6 +29,7 @@ import secrets
 import textwrap
 
 import pytest
+from corvus_client import DiskNotFound
 from corvus_client.types import (
     BuildPipelineEnd,
     BuildStepCacheHit,
@@ -264,7 +265,12 @@ class TestBuildCache(SingleNodeCase):
             for v in self.client.vms.list():
                 if v.name.startswith("__build_"):
                     self.client.vms.get(v.name, by_name=True).delete()
-            self.client.disks.get(artifact_name, by_name=True).delete()
+            # cleanup: always removes the published artifact itself;
+            # only delete it here when a failing run left it behind.
+            try:
+                self.client.disks.get(artifact_name, by_name=True).delete()
+            except DiskNotFound:
+                pass
             tpl.delete()
 
     def test_rebuild_prunes_stale_tail_keeping_one_snapshot_per_step(self):

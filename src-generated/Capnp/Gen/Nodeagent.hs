@@ -4034,7 +4034,7 @@ type instance (R.ReprFor VmDriveSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmDriveSpec) where
     typeId  = 13130167343872007904
 instance (C.TypedStruct VmDriveSpec) where
-    numStructWords  = 1
+    numStructWords  = 2
     numStructPtrs  = 5
 instance (C.Allocate VmDriveSpec) where
     type AllocHint VmDriveSpec = ()
@@ -4052,7 +4052,8 @@ data instance C.Parsed VmDriveSpec
         ,media :: (RP.Parsed Basics.Text)
         ,readOnly :: (RP.Parsed Std_.Bool)
         ,cache :: (RP.Parsed Basics.Text)
-        ,discard :: (RP.Parsed Std_.Bool)}
+        ,discard :: (RP.Parsed Std_.Bool)
+        ,driveId :: (RP.Parsed Std_.Int64)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmDriveSpec))
 deriving instance (Std_.Eq (C.Parsed VmDriveSpec))
@@ -4063,7 +4064,8 @@ instance (C.Parse VmDriveSpec (C.Parsed VmDriveSpec)) where
                               <*> (GH.parseField #media raw_)
                               <*> (GH.parseField #readOnly raw_)
                               <*> (GH.parseField #cache raw_)
-                              <*> (GH.parseField #discard raw_))
+                              <*> (GH.parseField #discard raw_)
+                              <*> (GH.parseField #driveId raw_))
 instance (C.Marshal VmDriveSpec (C.Parsed VmDriveSpec)) where
     marshalInto raw_ VmDriveSpec{..} = (do
         (GH.encodeField #diskFilePath diskFilePath raw_)
@@ -4073,6 +4075,7 @@ instance (C.Marshal VmDriveSpec (C.Parsed VmDriveSpec)) where
         (GH.encodeField #readOnly readOnly raw_)
         (GH.encodeField #cache cache raw_)
         (GH.encodeField #discard discard raw_)
+        (GH.encodeField #driveId driveId raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "diskFilePath" GH.Slot VmDriveSpec Basics.Text) where
@@ -4089,6 +4092,8 @@ instance (GH.HasField "cache" GH.Slot VmDriveSpec Basics.Text) where
     fieldByLabel  = (GH.ptrField 4)
 instance (GH.HasField "discard" GH.Slot VmDriveSpec Std_.Bool) where
     fieldByLabel  = (GH.dataField 1 0 1 0)
+instance (GH.HasField "driveId" GH.Slot VmDriveSpec Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
 data VmNetIfSpec 
 type instance (R.ReprFor VmNetIfSpec) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmNetIfSpec) where
@@ -4388,7 +4393,7 @@ instance (C.HasTypeId VmAttachDriveReq) where
     typeId  = 13876782660338277154
 instance (C.TypedStruct VmAttachDriveReq) where
     numStructWords  = 3
-    numStructPtrs  = 3
+    numStructPtrs  = 5
 instance (C.Allocate VmAttachDriveReq) where
     type AllocHint VmAttachDriveReq = ()
     new _ = C.newTypedStruct
@@ -4404,7 +4409,10 @@ data instance C.Parsed VmAttachDriveReq
         ,filePath :: (RP.Parsed Basics.Text)
         ,format :: (RP.Parsed Basics.Text)
         ,ifKind :: (RP.Parsed Basics.Text)
-        ,readOnly :: (RP.Parsed Std_.Bool)}
+        ,readOnly :: (RP.Parsed Std_.Bool)
+        ,media :: (RP.Parsed Basics.Text)
+        ,cache :: (RP.Parsed Basics.Text)
+        ,discard :: (RP.Parsed Std_.Bool)}
     deriving(Generics.Generic)
 deriving instance (Std_.Show (C.Parsed VmAttachDriveReq))
 deriving instance (Std_.Eq (C.Parsed VmAttachDriveReq))
@@ -4414,7 +4422,10 @@ instance (C.Parse VmAttachDriveReq (C.Parsed VmAttachDriveReq)) where
                                    <*> (GH.parseField #filePath raw_)
                                    <*> (GH.parseField #format raw_)
                                    <*> (GH.parseField #ifKind raw_)
-                                   <*> (GH.parseField #readOnly raw_))
+                                   <*> (GH.parseField #readOnly raw_)
+                                   <*> (GH.parseField #media raw_)
+                                   <*> (GH.parseField #cache raw_)
+                                   <*> (GH.parseField #discard raw_))
 instance (C.Marshal VmAttachDriveReq (C.Parsed VmAttachDriveReq)) where
     marshalInto raw_ VmAttachDriveReq{..} = (do
         (GH.encodeField #vmId vmId raw_)
@@ -4423,6 +4434,9 @@ instance (C.Marshal VmAttachDriveReq (C.Parsed VmAttachDriveReq)) where
         (GH.encodeField #format format raw_)
         (GH.encodeField #ifKind ifKind raw_)
         (GH.encodeField #readOnly readOnly raw_)
+        (GH.encodeField #media media raw_)
+        (GH.encodeField #cache cache raw_)
+        (GH.encodeField #discard discard raw_)
         (Std_.pure ())
         )
 instance (GH.HasField "vmId" GH.Slot VmAttachDriveReq Std_.Int64) where
@@ -4437,6 +4451,12 @@ instance (GH.HasField "ifKind" GH.Slot VmAttachDriveReq Basics.Text) where
     fieldByLabel  = (GH.ptrField 2)
 instance (GH.HasField "readOnly" GH.Slot VmAttachDriveReq Std_.Bool) where
     fieldByLabel  = (GH.dataField 0 2 1 0)
+instance (GH.HasField "media" GH.Slot VmAttachDriveReq Basics.Text) where
+    fieldByLabel  = (GH.ptrField 3)
+instance (GH.HasField "cache" GH.Slot VmAttachDriveReq Basics.Text) where
+    fieldByLabel  = (GH.ptrField 4)
+instance (GH.HasField "discard" GH.Slot VmAttachDriveReq Std_.Bool) where
+    fieldByLabel  = (GH.dataField 1 2 1 0)
 data VmGuestExecReq 
 type instance (R.ReprFor VmGuestExecReq) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId VmGuestExecReq) where

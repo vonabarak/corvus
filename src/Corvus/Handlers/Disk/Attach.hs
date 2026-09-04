@@ -133,6 +133,8 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                           let driveIdInt = fromSqlKey driveId
                               fmtTxt = enumToText (diskImageFormat disk)
                               ifTxt = enumToText interface
+                              mediaTxt = maybe "" enumToText media
+                              cacheTxt = enumToText cache
                           outer <- liftIO $ withVmNodeAgent state vmId $ \nac ->
                             NOA.vmAttachDrive
                               nac
@@ -142,6 +144,9 @@ handleDiskAttach state vmId diskId interface media readOnly discard cache = runS
                               fmtTxt
                               ifTxt
                               readOnly
+                              mediaTxt
+                              cacheTxt
+                              discard
                           case outer of
                             Left err -> do
                               liftIO $ runSqlPool (delete driveId) (ssDbPool state)
@@ -180,25 +185,40 @@ handleDiskDetach state vmId diskId = runServerLogging state $ do
           -- Hot-unplug via the agent's vmDetachDrive RPC (the
           -- agent owns the QMP socket). The blockdev-del busy
           -- retry-loop lives agent-side.
-          if vmStatus vm `elem` [VmRunning, VmPaused]
-            then do
-              logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-unplug"
-              outer <- liftIO $ withVmNodeAgent state vmId $ \nac ->
-                NOA.vmDetachDrive nac vmId driveId
-              case outer of
-                Left err -> pure $ RespError err
-                Right r -> case r of
-                  Right () -> do
-                    liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
-                    logInfoN "Hot-unplug successful"
-                    pure RespDiskOk
-                  Left e ->
-                    pure $ RespError $ "vmDetachDrive: " <> T.pack (show e)
+          if vmStatus vm `elem` [VmStarting, VmRunning, VmPaused]
+            then
+              if not (supportsLiveDetach (driveInterface drive))
+                then
+                  pure $
+                    RespError $
+                      "Cannot detach a "
+                        <> enumToText (driveInterface drive)
+                        <> " drive while the VM is active because it does not support hot unplug; stop the VM first"
+                else do
+                  logInfoN $ "VM is " <> enumToText (vmStatus vm) <> ", performing hot-unplug"
+                  outer <- liftIO $ withVmNodeAgent state vmId $ \nac ->
+                    NOA.vmDetachDrive nac vmId driveId
+                  case outer of
+                    Left err -> pure $ RespError err
+                    Right r -> case r of
+                      Right () -> do
+                        liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
+                        logInfoN "Hot-unplug successful"
+                        pure RespDiskOk
+                      Left e ->
+                        pure $ RespError $ "vmDetachDrive: " <> T.pack (show e)
             else do
               -- Just remove from database
               liftIO $ runSqlPool (delete driveKey) (ssDbPool state)
               logInfoN "Drive detached from database"
               pure RespDiskOk
+
+-- | Interfaces that use an explicit QEMU hot-plug bus. Other
+-- interfaces must be detached after the VM has stopped.
+supportsLiveDetach :: DriveInterface -> Bool
+supportsLiveDetach InterfaceVirtio = True
+supportsLiveDetach InterfaceScsi = True
+supportsLiveDetach _ = False
 
 --------------------------------------------------------------------------------
 -- Action Types
