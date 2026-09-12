@@ -48,7 +48,7 @@ import Database.Persist.Sql (SqlPersistT)
 -- where a Drive row outlives its parent Vm row.
 getAttachedVms :: Int64 -> SqlPersistT IO [NamedRef]
 getAttachedVms diskId = do
-  drives <- selectList [M.DriveDiskImageId ==. toSqlKey diskId] []
+  drives <- selectList [M.DriveDiskImageId ==. Just (toSqlKey diskId)] []
   let vmKeys = map (driveVmId . entityVal) drives
   forM vmKeys $ \vmKey -> do
     mVm <- get vmKey
@@ -59,7 +59,7 @@ getAttachedVms diskId = do
 -- Both running and paused VMs have live QEMU processes holding disk files open.
 getRunningAttachedVms :: Int64 -> SqlPersistT IO [Int64]
 getRunningAttachedVms diskId = do
-  drives <- selectList [M.DriveDiskImageId ==. toSqlKey diskId] []
+  drives <- selectList [M.DriveDiskImageId ==. Just (toSqlKey diskId)] []
   let vmKeys = map (driveVmId . entityVal) drives
   activeVms <- selectList [M.VmId <-. vmKeys, M.VmStatus <-. [VmRunning, VmPaused]] []
   pure $ map (fromSqlKey . entityKey) activeVms
@@ -71,7 +71,7 @@ getReadWriteAttachedVms :: Int64 -> SqlPersistT IO [(Int64, T.Text)]
 getReadWriteAttachedVms diskId = do
   drives <-
     selectList
-      [ M.DriveDiskImageId ==. toSqlKey diskId
+      [ M.DriveDiskImageId ==. Just (toSqlKey diskId)
       , M.DriveReadOnly ==. False
       ]
       []

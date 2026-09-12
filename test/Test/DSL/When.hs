@@ -29,6 +29,8 @@ module Test.DSL.When
   , diskAttach
   , diskAttachReadOnly
   , diskDetach
+  , mediaEject
+  , mediaChange
 
     -- * Snapshot commands
   , snapshotCreate
@@ -132,6 +134,7 @@ import Corvus.Handlers.Disk
   )
 import Corvus.Handlers.Disk.Attach (DiskAttach (..), DiskDetachByDisk (..))
 import Corvus.Handlers.Disk.Import (DiskImportAction (..))
+import Corvus.Handlers.Disk.Media (MediaChange (..), MediaEject (..))
 import Corvus.Handlers.Disk.Rebase (DiskRebase (..))
 import Corvus.Handlers.Disk.Snapshot (SnapshotCreate (..), SnapshotDelete (..), SnapshotMerge (..), SnapshotRollback (..), handleSnapshotList)
 import Corvus.Handlers.GuestExec (GuestExec (..))
@@ -346,6 +349,13 @@ diskAttachReadOnly vmId diskId interface media =
 diskDetach :: Int64 -> Int64 -> TestM Response
 diskDetach vmId diskId =
   withState (\st -> runAction st "alice" (DiskDetachByDisk vmId diskId))
+
+mediaEject :: Int64 -> TestM Response
+mediaEject driveId = withState (\st -> runAction st "alice" (MediaEject driveId))
+
+mediaChange :: Int64 -> Int64 -> TestM Response
+mediaChange driveId newDiskId =
+  withState (\st -> runAction st "alice" (MediaChange driveId newDiskId))
 
 --------------------------------------------------------------------------------
 -- Snapshot Commands

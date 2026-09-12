@@ -204,9 +204,10 @@ buildPlanFromDrives state vmId vm destNode destRow = do
   drives <- runSqlPool (selectList [M.DriveVmId ==. vmId] []) pool
   let primaryOps =
         [ if M.driveReadOnly (entityVal e)
-          then OpCopy (M.driveDiskImageId (entityVal e))
-          else OpMove (M.driveDiskImageId (entityVal e))
+          then OpCopy imgKey
+          else OpMove imgKey
         | e <- drives
+        , Just imgKey <- [M.driveDiskImageId (entityVal e)]
         ]
       primaryDiskKeys = map opDiskKey primaryOps
   chains <-

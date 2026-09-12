@@ -90,7 +90,10 @@ data VmSpec = VmSpec
 
 data VmDriveSpec = VmDriveSpec
   { vdsDriveId :: !Int64
-  , vdsDiskFilePath :: !T.Text
+  , vdsDiskFilePath :: !(Maybe T.Text)
+  -- ^ 'Nothing' means the drive has no media (an ejected CD-ROM
+  -- tray); the agent omits @file=@/@format=@ from the QEMU argv
+  -- for it. On the wire an empty 'Text' encodes 'Nothing'.
   , vdsFormat :: !T.Text
   , vdsIfKind :: !T.Text
   , vdsMedia :: !T.Text

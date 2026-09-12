@@ -229,8 +229,14 @@ export function DrivesCard({ vm }: { vm: VmDetails }) {
               {vm.drives.map((d) => (
                 <TableRow key={d.id}>
                   <TableCell>
-                    <div className="font-medium">{d.disk_image.name}</div>
-                    <div className="text-xs text-muted-foreground">{d.file_path}</div>
+                    {d.disk_image !== null ? (
+                      <>
+                        <div className="font-medium">{d.disk_image.name}</div>
+                        <div className="text-xs text-muted-foreground">{d.file_path}</div>
+                      </>
+                    ) : (
+                      <div className="text-sm italic text-muted-foreground">no media</div>
+                    )}
                   </TableCell>
                   <TableCell>{d.interface}</TableCell>
                   <TableCell>{d.format}</TableCell>

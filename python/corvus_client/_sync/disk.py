@@ -105,6 +105,16 @@ class SyncDiskManager:
     def flatten(self, disk_ref):
         return self._rl.run(self._a.flatten(disk_ref))
 
+    def eject_media(self, drive_id: int):
+        """Eject the media of a CD-ROM drive (drive row id). See
+        :meth:`AsyncDiskManager.eject_media`."""
+        return self._rl.run(self._a.eject_media(drive_id))
+
+    def change_media(self, drive_id: int, new_disk: int | str):
+        """Swap the media of a CD-ROM drive for another disk image.
+        See :meth:`AsyncDiskManager.change_media`."""
+        return self._rl.run(self._a.change_media(drive_id, new_disk))
+
     def import_url(
         self,
         name: str,

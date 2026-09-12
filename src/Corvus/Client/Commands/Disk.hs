@@ -19,6 +19,8 @@ module Corvus.Client.Commands.Disk
   , handleDiskRefresh
   , handleDiskAttach
   , handleDiskDetach
+  , handleDiskMediaEject
+  , handleDiskMediaChange
   , handleDiskCopy
   , handleDiskMove
 
@@ -340,6 +342,42 @@ handleDiskDetach fmt conn vmRef diskRef = do
     Left e -> do
       emitError fmt "rpc_error" (T.pack (show e)) $
         putStrLn ("Error: " ++ show e)
+      pure False
+
+-- | Handle disk media eject command. Ejects the media of a CD-ROM
+-- drive (a drive attached with --media cdrom). Works on active VMs
+-- via QMP; on stopped VMs it clears the drive's media so the tray
+-- is empty at the next boot.
+handleDiskMediaEject :: OutputFormat -> CapnpConnection -> Int64 -> IO Bool
+handleDiskMediaEject fmt conn driveId = do
+  r <- try (CR.rpcDiskMediaEject conn driveId) :: IO (Either SomeException ())
+  case r of
+    Right () -> do
+      emitOk fmt $ putStrLn "Media ejected."
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error ejecting media: " ++ show e)
+      pure False
+
+-- | Handle disk media change command. Swaps the media of a CD-ROM
+-- drive for the referenced disk image. Works on active VMs via QMP;
+-- on stopped VMs the drive row is repointed and the new media is
+-- picked up at the next boot.
+handleDiskMediaChange
+  :: OutputFormat -> CapnpConnection -> Int64 -> Text -> IO Bool
+handleDiskMediaChange fmt conn driveId newDiskRef = do
+  r <-
+    try
+      (CR.rpcDiskMediaChange conn driveId (entityRefFromText newDiskRef))
+      :: IO (Either SomeException ())
+  case r of
+    Right () -> do
+      emitOk fmt $ putStrLn "Media changed."
+      pure True
+    Left e -> do
+      emitError fmt "rpc_error" (T.pack (show e)) $
+        putStrLn ("Error changing media: " ++ show e)
       pure False
 
 --------------------------------------------------------------------------------

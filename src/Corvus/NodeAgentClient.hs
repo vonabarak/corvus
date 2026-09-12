@@ -104,6 +104,8 @@ module Corvus.NodeAgentClient
     -- * QMP-mediated runtime changes
   , vmAttachDrive
   , vmDetachDrive
+  , vmEjectMedia
+  , vmChangeMedia
   , probeVsockCid
 
     -- * Inter-agent disk transfer
@@ -963,7 +965,9 @@ encodeVmDriveSpec :: VmDriveSpec -> CGNA.Parsed CGNA.VmDriveSpec
 encodeVmDriveSpec d =
   CGNA.VmDriveSpec
     { CGNA.driveId = vdsDriveId d
-    , CGNA.diskFilePath = vdsDiskFilePath d
+    , -- \^ a drive with no media (ejected CD-ROM tray) encodes as an
+      -- empty wire path
+      CGNA.diskFilePath = fromMaybe "" (vdsDiskFilePath d)
     , CGNA.format = vdsFormat d
     , CGNA.ifKind = vdsIfKind d
     , CGNA.media = vdsMedia d
@@ -1353,6 +1357,47 @@ vmDetachDrive nac vmId driveId = remote $ do
       CGNA.Session'vmDetachDrive'params
         { CGNA.vmId = vmId
         , CGNA.driveId = driveId
+        }
+      (nacSession nac)
+  pure ()
+
+-- | Eject the media of a CD-ROM drive (QMP @eject@). The agent
+-- verifies the drive is removable via @query-block@ first.
+vmEjectMedia :: NodeAgentClient -> Int64 -> Int64 -> IO (Either NodeAgentError ())
+vmEjectMedia nac vmId driveId = remote $ do
+  _ :: C.Parsed CGNA.Session'vmEjectMedia'results <-
+    callOn
+      #vmEjectMedia
+      CGNA.Session'vmEjectMedia'params
+        { CGNA.vmId = vmId
+        , CGNA.driveId = driveId
+        }
+      (nacSession nac)
+  pure ()
+
+-- | Replace the media of a CD-ROM drive (QMP
+-- @blockdev-change-medium@). The agent verifies the drive is
+-- removable via @query-block@ first.
+vmChangeMedia
+  :: NodeAgentClient
+  -> Int64
+  -- ^ vmId
+  -> Int64
+  -- ^ driveId (DB key)
+  -> T.Text
+  -- ^ resolved disk file path
+  -> T.Text
+  -- ^ disk format (@"qcow2"@ / @"raw"@ / …)
+  -> IO (Either NodeAgentError ())
+vmChangeMedia nac vmId driveId filePath fmt = remote $ do
+  _ :: C.Parsed CGNA.Session'vmChangeMedia'results <-
+    callOn
+      #vmChangeMedia
+      CGNA.Session'vmChangeMedia'params
+        { CGNA.vmId = vmId
+        , CGNA.driveId = driveId
+        , CGNA.filePath = filePath
+        , CGNA.format = fmt
         }
       (nacSession nac)
   pure ()

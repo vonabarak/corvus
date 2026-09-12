@@ -710,9 +710,11 @@ instance (GH.Export DiskManager) where
                                                                              ,(GH.toUntypedMethodHandler ((diskManager'flatten) s_))
                                                                              ,(GH.toUntypedMethodHandler ((diskManager'copy) s_))
                                                                              ,(GH.toUntypedMethodHandler ((diskManager'move) s_))
-                                                                             ,(GH.toUntypedMethodHandler ((diskManager'beginUpload) s_))] [])
+                                                                             ,(GH.toUntypedMethodHandler ((diskManager'beginUpload) s_))
+                                                                             ,(GH.toUntypedMethodHandler ((diskManager'mediaEject) s_))
+                                                                             ,(GH.toUntypedMethodHandler ((diskManager'mediaChange) s_))] [])
 class (DiskManager'server_ s_) where
-    {-# MINIMAL diskManager'list,diskManager'get,diskManager'create,diskManager'register,diskManager'createOverlay,diskManager'clone,diskManager'rebase,diskManager'import_,diskManager'flatten,diskManager'copy,diskManager'move,diskManager'beginUpload #-}
+    {-# MINIMAL diskManager'list,diskManager'get,diskManager'create,diskManager'register,diskManager'createOverlay,diskManager'clone,diskManager'rebase,diskManager'import_,diskManager'flatten,diskManager'copy,diskManager'move,diskManager'beginUpload,diskManager'mediaEject,diskManager'mediaChange #-}
     diskManager'list :: s_ -> (GH.MethodHandler DiskManager'list'params DiskManager'list'results)
     diskManager'list _ = GH.methodUnimplemented
     diskManager'get :: s_ -> (GH.MethodHandler DiskManager'get'params DiskManager'get'results)
@@ -737,6 +739,10 @@ class (DiskManager'server_ s_) where
     diskManager'move _ = GH.methodUnimplemented
     diskManager'beginUpload :: s_ -> (GH.MethodHandler DiskManager'beginUpload'params DiskManager'beginUpload'results)
     diskManager'beginUpload _ = GH.methodUnimplemented
+    diskManager'mediaEject :: s_ -> (GH.MethodHandler DiskManager'mediaEject'params DiskManager'mediaEject'results)
+    diskManager'mediaEject _ = GH.methodUnimplemented
+    diskManager'mediaChange :: s_ -> (GH.MethodHandler DiskManager'mediaChange'params DiskManager'mediaChange'results)
+    diskManager'mediaChange _ = GH.methodUnimplemented
 instance (GH.HasMethod "list" DiskManager DiskManager'list'params DiskManager'list'results) where
     methodByLabel  = (GH.Method 14751763957337118315 0)
 instance (GH.HasMethod "get" DiskManager DiskManager'get'params DiskManager'get'results) where
@@ -761,6 +767,10 @@ instance (GH.HasMethod "move" DiskManager DiskManager'move'params DiskManager'mo
     methodByLabel  = (GH.Method 14751763957337118315 10)
 instance (GH.HasMethod "beginUpload" DiskManager DiskManager'beginUpload'params DiskManager'beginUpload'results) where
     methodByLabel  = (GH.Method 14751763957337118315 11)
+instance (GH.HasMethod "mediaEject" DiskManager DiskManager'mediaEject'params DiskManager'mediaEject'results) where
+    methodByLabel  = (GH.Method 14751763957337118315 12)
+instance (GH.HasMethod "mediaChange" DiskManager DiskManager'mediaChange'params DiskManager'mediaChange'results) where
+    methodByLabel  = (GH.Method 14751763957337118315 13)
 data DiskManager'list'params 
 type instance (R.ReprFor DiskManager'list'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId DiskManager'list'params) where
@@ -1466,6 +1476,121 @@ instance (C.Marshal DiskManager'beginUpload'results (C.Parsed DiskManager'beginU
         )
 instance (GH.HasField "upload" GH.Slot DiskManager'beginUpload'results DiskUpload) where
     fieldByLabel  = (GH.ptrField 0)
+data DiskManager'mediaEject'params 
+type instance (R.ReprFor DiskManager'mediaEject'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'mediaEject'params) where
+    typeId  = 11118690551849368529
+instance (C.TypedStruct DiskManager'mediaEject'params) where
+    numStructWords  = 1
+    numStructPtrs  = 0
+instance (C.Allocate DiskManager'mediaEject'params) where
+    type AllocHint DiskManager'mediaEject'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'mediaEject'params (C.Parsed DiskManager'mediaEject'params))
+instance (C.AllocateList DiskManager'mediaEject'params) where
+    type ListAllocHint DiskManager'mediaEject'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'mediaEject'params (C.Parsed DiskManager'mediaEject'params))
+data instance C.Parsed DiskManager'mediaEject'params
+    = DiskManager'mediaEject'params 
+        {driveId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'mediaEject'params))
+deriving instance (Std_.Eq (C.Parsed DiskManager'mediaEject'params))
+instance (C.Parse DiskManager'mediaEject'params (C.Parsed DiskManager'mediaEject'params)) where
+    parse raw_ = (DiskManager'mediaEject'params <$> (GH.parseField #driveId raw_))
+instance (C.Marshal DiskManager'mediaEject'params (C.Parsed DiskManager'mediaEject'params)) where
+    marshalInto raw_ DiskManager'mediaEject'params{..} = (do
+        (GH.encodeField #driveId driveId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "driveId" GH.Slot DiskManager'mediaEject'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+data DiskManager'mediaEject'results 
+type instance (R.ReprFor DiskManager'mediaEject'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'mediaEject'results) where
+    typeId  = 13518445029670642475
+instance (C.TypedStruct DiskManager'mediaEject'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskManager'mediaEject'results) where
+    type AllocHint DiskManager'mediaEject'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'mediaEject'results (C.Parsed DiskManager'mediaEject'results))
+instance (C.AllocateList DiskManager'mediaEject'results) where
+    type ListAllocHint DiskManager'mediaEject'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'mediaEject'results (C.Parsed DiskManager'mediaEject'results))
+data instance C.Parsed DiskManager'mediaEject'results
+    = DiskManager'mediaEject'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'mediaEject'results))
+deriving instance (Std_.Eq (C.Parsed DiskManager'mediaEject'results))
+instance (C.Parse DiskManager'mediaEject'results (C.Parsed DiskManager'mediaEject'results)) where
+    parse raw_ = (Std_.pure DiskManager'mediaEject'results)
+instance (C.Marshal DiskManager'mediaEject'results (C.Parsed DiskManager'mediaEject'results)) where
+    marshalInto _raw (DiskManager'mediaEject'results) = (Std_.pure ())
+data DiskManager'mediaChange'params 
+type instance (R.ReprFor DiskManager'mediaChange'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'mediaChange'params) where
+    typeId  = 17815512011887687912
+instance (C.TypedStruct DiskManager'mediaChange'params) where
+    numStructWords  = 1
+    numStructPtrs  = 1
+instance (C.Allocate DiskManager'mediaChange'params) where
+    type AllocHint DiskManager'mediaChange'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'mediaChange'params (C.Parsed DiskManager'mediaChange'params))
+instance (C.AllocateList DiskManager'mediaChange'params) where
+    type ListAllocHint DiskManager'mediaChange'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'mediaChange'params (C.Parsed DiskManager'mediaChange'params))
+data instance C.Parsed DiskManager'mediaChange'params
+    = DiskManager'mediaChange'params 
+        {driveId :: (RP.Parsed Std_.Int64)
+        ,newDiskRef :: (RP.Parsed Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'mediaChange'params))
+deriving instance (Std_.Eq (C.Parsed DiskManager'mediaChange'params))
+instance (C.Parse DiskManager'mediaChange'params (C.Parsed DiskManager'mediaChange'params)) where
+    parse raw_ = (DiskManager'mediaChange'params <$> (GH.parseField #driveId raw_)
+                                                 <*> (GH.parseField #newDiskRef raw_))
+instance (C.Marshal DiskManager'mediaChange'params (C.Parsed DiskManager'mediaChange'params)) where
+    marshalInto raw_ DiskManager'mediaChange'params{..} = (do
+        (GH.encodeField #driveId driveId raw_)
+        (GH.encodeField #newDiskRef newDiskRef raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "driveId" GH.Slot DiskManager'mediaChange'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "newDiskRef" GH.Slot DiskManager'mediaChange'params Capnp.Gen.ById.X9b1373e2334a09e9.EntityRef) where
+    fieldByLabel  = (GH.ptrField 0)
+data DiskManager'mediaChange'results 
+type instance (R.ReprFor DiskManager'mediaChange'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId DiskManager'mediaChange'results) where
+    typeId  = 12484844956962460381
+instance (C.TypedStruct DiskManager'mediaChange'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate DiskManager'mediaChange'results) where
+    type AllocHint DiskManager'mediaChange'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc DiskManager'mediaChange'results (C.Parsed DiskManager'mediaChange'results))
+instance (C.AllocateList DiskManager'mediaChange'results) where
+    type ListAllocHint DiskManager'mediaChange'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc DiskManager'mediaChange'results (C.Parsed DiskManager'mediaChange'results))
+data instance C.Parsed DiskManager'mediaChange'results
+    = DiskManager'mediaChange'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed DiskManager'mediaChange'results))
+deriving instance (Std_.Eq (C.Parsed DiskManager'mediaChange'results))
+instance (C.Parse DiskManager'mediaChange'results (C.Parsed DiskManager'mediaChange'results)) where
+    parse raw_ = (Std_.pure DiskManager'mediaChange'results)
+instance (C.Marshal DiskManager'mediaChange'results (C.Parsed DiskManager'mediaChange'results)) where
+    marshalInto _raw (DiskManager'mediaChange'results) = (Std_.pure ())
 data DiskUpload 
 type instance (R.ReprFor DiskUpload) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskUpload) where

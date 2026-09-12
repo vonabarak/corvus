@@ -98,7 +98,7 @@ class VmInfo:
 @dataclass(frozen=True)
 class DriveInfo:
     id: int
-    disk_image: NamedRef
+    disk_image: NamedRef | None
     interface: str
     file_path: str
     format: str

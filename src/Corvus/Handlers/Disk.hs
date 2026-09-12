@@ -401,7 +401,7 @@ handleDiskCreateOverlay state name baseDiskId mResizeMb optDirPath ephemeral = r
                 liftIO $
                   runSqlPool
                     ( selectList
-                        [ M.DriveDiskImageId ==. toSqlKey baseDiskId
+                        [ M.DriveDiskImageId ==. Just (toSqlKey baseDiskId)
                         , M.DriveReadOnly ==. False
                         ]
                         []

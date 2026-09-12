@@ -376,9 +376,11 @@ instance (GH.Export Session) where
                                                                          ,(GH.toUntypedMethodHandler ((session'snapshotDeleteWithVmstate) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'guestSetTime) s_))
                                                                          ,(GH.toUntypedMethodHandler ((session'deleteTpmState) s_))
-                                                                         ,(GH.toUntypedMethodHandler ((session'diskOpenWrite) s_))] [])
+                                                                         ,(GH.toUntypedMethodHandler ((session'diskOpenWrite) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmEjectMedia) s_))
+                                                                         ,(GH.toUntypedMethodHandler ((session'vmChangeMedia) s_))] [])
 class (Session'server_ s_) where
-    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite #-}
+    {-# MINIMAL session'ping,session'diskCreate,session'diskCreateOverlay,session'diskDelete,session'diskResize,session'diskRebase,session'diskClone,session'diskInspect,session'snapshotCreate,session'snapshotDelete,session'snapshotRollback,session'diskDownload,session'diskDecompressXz,session'diskHash,session'cloudInitGenerateIso,session'vmStart,session'vmStopGraceful,session'vmStopHard,session'vmPause,session'vmResume,session'vmGuestExec,session'vmStatus,session'vmSetSpiceTicket,session'subscribeVmStatus,session'openSerialConsole,session'openHmpMonitor,session'flushSerialConsole,session'flushHmpMonitor,session'vmAttachDrive,session'vmDetachDrive,session'probeVsockCid,session'diskOpenRead,session'attachReader,session'diskImportFromPeer,session'vmGuestExecStream,session'vmSave,session'deleteSavedState,session'snapshotCreateLive,session'snapshotDeleteLive,session'snapshotCreateLiveMany,session'snapshotCreateWithVmstate,session'snapshotLoadWithVmstate,session'snapshotDeleteWithVmstate,session'guestSetTime,session'deleteTpmState,session'diskOpenWrite,session'vmEjectMedia,session'vmChangeMedia #-}
     session'ping :: s_ -> (GH.MethodHandler Session'ping'params Session'ping'results)
     session'ping _ = GH.methodUnimplemented
     session'diskCreate :: s_ -> (GH.MethodHandler Session'diskCreate'params Session'diskCreate'results)
@@ -471,6 +473,10 @@ class (Session'server_ s_) where
     session'deleteTpmState _ = GH.methodUnimplemented
     session'diskOpenWrite :: s_ -> (GH.MethodHandler Session'diskOpenWrite'params Session'diskOpenWrite'results)
     session'diskOpenWrite _ = GH.methodUnimplemented
+    session'vmEjectMedia :: s_ -> (GH.MethodHandler Session'vmEjectMedia'params Session'vmEjectMedia'results)
+    session'vmEjectMedia _ = GH.methodUnimplemented
+    session'vmChangeMedia :: s_ -> (GH.MethodHandler Session'vmChangeMedia'params Session'vmChangeMedia'results)
+    session'vmChangeMedia _ = GH.methodUnimplemented
 instance (GH.HasMethod "ping" Session Session'ping'params Session'ping'results) where
     methodByLabel  = (GH.Method 11450192344861352079 0)
 instance (GH.HasMethod "diskCreate" Session Session'diskCreate'params Session'diskCreate'results) where
@@ -563,6 +569,10 @@ instance (GH.HasMethod "deleteTpmState" Session Session'deleteTpmState'params Se
     methodByLabel  = (GH.Method 11450192344861352079 44)
 instance (GH.HasMethod "diskOpenWrite" Session Session'diskOpenWrite'params Session'diskOpenWrite'results) where
     methodByLabel  = (GH.Method 11450192344861352079 45)
+instance (GH.HasMethod "vmEjectMedia" Session Session'vmEjectMedia'params Session'vmEjectMedia'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 46)
+instance (GH.HasMethod "vmChangeMedia" Session Session'vmChangeMedia'params Session'vmChangeMedia'results) where
+    methodByLabel  = (GH.Method 11450192344861352079 47)
 data Session'ping'params 
 type instance (R.ReprFor Session'ping'params) = (R.Ptr (Std_.Just R.Struct))
 instance (C.HasTypeId Session'ping'params) where
@@ -3533,6 +3543,136 @@ instance (C.Marshal Session'diskOpenWrite'results (C.Parsed Session'diskOpenWrit
         )
 instance (GH.HasField "sink" GH.Slot Session'diskOpenWrite'results Capnp.Gen.ById.X9bd452a518ed3917.ByteSink) where
     fieldByLabel  = (GH.ptrField 0)
+data Session'vmEjectMedia'params 
+type instance (R.ReprFor Session'vmEjectMedia'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmEjectMedia'params) where
+    typeId  = 9547302620639351284
+instance (C.TypedStruct Session'vmEjectMedia'params) where
+    numStructWords  = 2
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmEjectMedia'params) where
+    type AllocHint Session'vmEjectMedia'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmEjectMedia'params (C.Parsed Session'vmEjectMedia'params))
+instance (C.AllocateList Session'vmEjectMedia'params) where
+    type ListAllocHint Session'vmEjectMedia'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmEjectMedia'params (C.Parsed Session'vmEjectMedia'params))
+data instance C.Parsed Session'vmEjectMedia'params
+    = Session'vmEjectMedia'params 
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,driveId :: (RP.Parsed Std_.Int64)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmEjectMedia'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmEjectMedia'params))
+instance (C.Parse Session'vmEjectMedia'params (C.Parsed Session'vmEjectMedia'params)) where
+    parse raw_ = (Session'vmEjectMedia'params <$> (GH.parseField #vmId raw_)
+                                              <*> (GH.parseField #driveId raw_))
+instance (C.Marshal Session'vmEjectMedia'params (C.Parsed Session'vmEjectMedia'params)) where
+    marshalInto raw_ Session'vmEjectMedia'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #driveId driveId raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'vmEjectMedia'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "driveId" GH.Slot Session'vmEjectMedia'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+data Session'vmEjectMedia'results 
+type instance (R.ReprFor Session'vmEjectMedia'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmEjectMedia'results) where
+    typeId  = 11251615629224092590
+instance (C.TypedStruct Session'vmEjectMedia'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmEjectMedia'results) where
+    type AllocHint Session'vmEjectMedia'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmEjectMedia'results (C.Parsed Session'vmEjectMedia'results))
+instance (C.AllocateList Session'vmEjectMedia'results) where
+    type ListAllocHint Session'vmEjectMedia'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmEjectMedia'results (C.Parsed Session'vmEjectMedia'results))
+data instance C.Parsed Session'vmEjectMedia'results
+    = Session'vmEjectMedia'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmEjectMedia'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmEjectMedia'results))
+instance (C.Parse Session'vmEjectMedia'results (C.Parsed Session'vmEjectMedia'results)) where
+    parse raw_ = (Std_.pure Session'vmEjectMedia'results)
+instance (C.Marshal Session'vmEjectMedia'results (C.Parsed Session'vmEjectMedia'results)) where
+    marshalInto _raw (Session'vmEjectMedia'results) = (Std_.pure ())
+data Session'vmChangeMedia'params 
+type instance (R.ReprFor Session'vmChangeMedia'params) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmChangeMedia'params) where
+    typeId  = 13072044293411856950
+instance (C.TypedStruct Session'vmChangeMedia'params) where
+    numStructWords  = 2
+    numStructPtrs  = 2
+instance (C.Allocate Session'vmChangeMedia'params) where
+    type AllocHint Session'vmChangeMedia'params = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmChangeMedia'params (C.Parsed Session'vmChangeMedia'params))
+instance (C.AllocateList Session'vmChangeMedia'params) where
+    type ListAllocHint Session'vmChangeMedia'params = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmChangeMedia'params (C.Parsed Session'vmChangeMedia'params))
+data instance C.Parsed Session'vmChangeMedia'params
+    = Session'vmChangeMedia'params 
+        {vmId :: (RP.Parsed Std_.Int64)
+        ,driveId :: (RP.Parsed Std_.Int64)
+        ,filePath :: (RP.Parsed Basics.Text)
+        ,format :: (RP.Parsed Basics.Text)}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmChangeMedia'params))
+deriving instance (Std_.Eq (C.Parsed Session'vmChangeMedia'params))
+instance (C.Parse Session'vmChangeMedia'params (C.Parsed Session'vmChangeMedia'params)) where
+    parse raw_ = (Session'vmChangeMedia'params <$> (GH.parseField #vmId raw_)
+                                               <*> (GH.parseField #driveId raw_)
+                                               <*> (GH.parseField #filePath raw_)
+                                               <*> (GH.parseField #format raw_))
+instance (C.Marshal Session'vmChangeMedia'params (C.Parsed Session'vmChangeMedia'params)) where
+    marshalInto raw_ Session'vmChangeMedia'params{..} = (do
+        (GH.encodeField #vmId vmId raw_)
+        (GH.encodeField #driveId driveId raw_)
+        (GH.encodeField #filePath filePath raw_)
+        (GH.encodeField #format format raw_)
+        (Std_.pure ())
+        )
+instance (GH.HasField "vmId" GH.Slot Session'vmChangeMedia'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 0 64 0)
+instance (GH.HasField "driveId" GH.Slot Session'vmChangeMedia'params Std_.Int64) where
+    fieldByLabel  = (GH.dataField 0 1 64 0)
+instance (GH.HasField "filePath" GH.Slot Session'vmChangeMedia'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 0)
+instance (GH.HasField "format" GH.Slot Session'vmChangeMedia'params Basics.Text) where
+    fieldByLabel  = (GH.ptrField 1)
+data Session'vmChangeMedia'results 
+type instance (R.ReprFor Session'vmChangeMedia'results) = (R.Ptr (Std_.Just R.Struct))
+instance (C.HasTypeId Session'vmChangeMedia'results) where
+    typeId  = 11993669989086491528
+instance (C.TypedStruct Session'vmChangeMedia'results) where
+    numStructWords  = 0
+    numStructPtrs  = 0
+instance (C.Allocate Session'vmChangeMedia'results) where
+    type AllocHint Session'vmChangeMedia'results = ()
+    new _ = C.newTypedStruct
+instance (C.EstimateAlloc Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedia'results))
+instance (C.AllocateList Session'vmChangeMedia'results) where
+    type ListAllocHint Session'vmChangeMedia'results = Std_.Int
+    newList  = C.newTypedStructList
+instance (C.EstimateListAlloc Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedia'results))
+data instance C.Parsed Session'vmChangeMedia'results
+    = Session'vmChangeMedia'results 
+        {}
+    deriving(Generics.Generic)
+deriving instance (Std_.Show (C.Parsed Session'vmChangeMedia'results))
+deriving instance (Std_.Eq (C.Parsed Session'vmChangeMedia'results))
+instance (C.Parse Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedia'results)) where
+    parse raw_ = (Std_.pure Session'vmChangeMedia'results)
+instance (C.Marshal Session'vmChangeMedia'results (C.Parsed Session'vmChangeMedia'results)) where
+    marshalInto _raw (Session'vmChangeMedia'results) = (Std_.pure ())
 data DiskReader 
 type instance (R.ReprFor DiskReader) = (R.Ptr (Std_.Just R.Cap))
 instance (C.HasTypeId DiskReader) where

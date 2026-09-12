@@ -165,6 +165,31 @@ class AsyncDiskManager:
         mgr = await self._ensure()
         await mgr.flatten(diskRef=entity_ref(disk_ref))
 
+    async def eject_media(self, drive_id: int) -> None:
+        """Eject the media of a CD-ROM drive.
+
+        ``drive_id`` is the drive row id (as listed by
+        ``VM.show().drives``). On an active VM the tray is opened and
+        the media removed via QMP; on a stopped VM the drive row is
+        cleared so the tray is empty at the next boot. Only drives
+        attached with ``media=cdrom`` support this.
+        """
+        mgr = await self._ensure()
+        await mgr.mediaEject(driveId=drive_id)
+
+    async def change_media(self, drive_id: int, new_disk: int | str) -> None:
+        """Swap the media of a CD-ROM drive for another disk image.
+
+        ``drive_id`` is the drive row id; ``new_disk`` is a disk
+        image name or numeric id resolved by the daemon. On an active
+        VM the media is swapped via QMP (works from an empty tray);
+        on a stopped VM the drive row is repointed and the new media
+        is picked up at the next boot. Only drives attached with
+        ``media=cdrom`` support this.
+        """
+        mgr = await self._ensure()
+        await mgr.mediaChange(driveId=drive_id, newDiskRef=entity_ref(new_disk))
+
     async def import_url(
         self,
         name: str,

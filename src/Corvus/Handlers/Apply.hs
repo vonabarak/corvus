@@ -361,7 +361,7 @@ preflightSshKeyOverwrite state eid = do
 -- avoid an import cycle (Build.hs imports Apply.hs already).
 vmsAttachedToDisk :: DiskImageId -> SqlPersistT IO [Text]
 vmsAttachedToDisk diskId = do
-  drives <- selectList [DriveDiskImageId ==. diskId] []
+  drives <- selectList [DriveDiskImageId ==. Just diskId] []
   let vmIds = map (driveVmId . entityVal) drives
   vms <- mapM get vmIds
   pure [vmName v | Just v <- vms]
@@ -806,7 +806,7 @@ attachDrives state diskMap vmId drives vmName = go drives
             ( insert_
                 Drive
                   { driveVmId = vmId
-                  , driveDiskImageId = toSqlKey diskId
+                  , driveDiskImageId = Just (toSqlKey diskId)
                   , driveInterface = adrInterface d
                   , driveMedia = adrMedia d
                   , driveReadOnly = adrReadOnly d

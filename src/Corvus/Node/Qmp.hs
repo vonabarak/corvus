@@ -34,6 +34,12 @@ module Corvus.Node.Qmp
   , qmpDeviceDel
   , qmpBlockdevDel
 
+    -- * Media eject / change (CD-ROM drives)
+  , BlockEntry (..)
+  , qmpQueryBlock
+  , qmpEject
+  , qmpChangeMedium
+
     -- * Live snapshots (qcow2 internal, online)
   , qmpBlockSnapshotCreate
   , qmpBlockSnapshotCreateMany
@@ -54,6 +60,7 @@ module Corvus.Node.Qmp
 
     -- * Low-level
   , classifyQmpResponse
+  , extractReplyLine
 
     -- * Re-export quasi-quoter
   , qmpQQ
@@ -71,6 +78,7 @@ import qualified Data.ByteString as BSWide
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -459,6 +467,119 @@ qmpBlockdevDel config vmId nodeName =
         }
       }
     |]
+
+--------------------------------------------------------------------------------
+-- Media eject / change (CD-ROM drives)
+--------------------------------------------------------------------------------
+
+-- | A single entry from a QMP @query-block@ reply.
+--
+-- 'beDevice' is present only for legacy @-drive id=...@ backends —
+-- the ones the @eject@ and @blockdev-change-medium@ commands can
+-- address; blockdev-graph-only drives carry no @device@ field.
+-- 'beInserted' is absent (Nothing) while the tray is empty.
+data BlockEntry = BlockEntry
+  { beDevice :: !(Maybe Text)
+  , beRemovable :: !Bool
+  , beTrayOpen :: !Bool
+  , beInserted :: !(Maybe A.Value)
+  }
+  deriving (Eq, Show)
+
+instance A.FromJSON BlockEntry where
+  parseJSON = A.withObject "BlockEntry" $ \o -> do
+    rem <- o A..: "removable"
+    -- 'tray_open' is @allow-omitted@ in QEMU's BlockInfo: it is present
+    -- only for removable cdrom block devices, absent on plain disks.
+    openM <- o A..:? "tray_open"
+    deviceM <- o A..:? "device"
+    insertedM <- o A..:? "inserted"
+    pure
+      BlockEntry
+        { beDevice = deviceM
+        , beRemovable = rem
+        , beTrayOpen = fromMaybe False openM
+        , beInserted = fromMaybe Nothing insertedM
+        }
+
+-- | Issue @query-block@ and decode the drive list. Used by the
+-- media eject / change capability check to find the legacy
+-- @-drive id=...@ backend for a drive and verify @removable@.
+qmpQueryBlock :: QemuConfig -> Int64 -> IO (Either Text [BlockEntry])
+qmpQueryBlock config vmId = do
+  raw <- sendQmpRaw config vmId [qmpQQ| { "execute": "query-block" } |]
+  pure $ do
+    bs <- raw
+    line <- extractReplyLine bs
+    case A.eitherDecodeStrict line of
+      Left e -> Left (T.pack ("query-block decode: " <> e))
+      Right (BlockReply entries) -> Right entries
+
+newtype BlockReply = BlockReply [BlockEntry]
+
+instance A.FromJSON BlockReply where
+  parseJSON = A.withObject "BlockReply" $ \o ->
+    BlockReply <$> o A..: "return"
+
+-- | Eject the media of a CD-ROM drive (@eject@). 'driveNode' is
+-- the legacy @-drive id=...@ backend name (@"drive-<N>"@).
+qmpEject :: QemuConfig -> Int64 -> Text -> IO QmpResult
+qmpEject config vmId driveNode =
+  sendQmpCommand
+    config
+    vmId
+    [qmpQQ|
+      {
+        "execute": "eject",
+        "arguments": {
+          "device": #{driveNode}
+        }
+      }
+    |]
+
+-- | Replace the media of a CD-ROM drive (@blockdev-change-medium@).
+-- 'mFormat' is the image format name (@raw@ / @qcow2@); pass
+-- Nothing to let QEMU probe it.
+qmpChangeMedium
+  :: QemuConfig
+  -> Int64
+  -- ^ VM ID
+  -> Text
+  -- ^ Legacy @-drive id=...@ backend name (@"drive-<N>"@)
+  -> Text
+  -- ^ New image file path
+  -> Maybe Text
+  -- ^ Image format (omitted when Nothing)
+  -> IO QmpResult
+qmpChangeMedium config vmId driveNode filePath mFormat =
+  case mFormat of
+    Nothing ->
+      sendQmpCommand
+        config
+        vmId
+        [qmpQQ|
+          {
+            "execute": "blockdev-change-medium",
+            "arguments": {
+              "device": #{driveNode},
+              "filename": #{filePath}
+            }
+          }
+        |]
+    Just fmt ->
+      sendQmpCommand
+        config
+        vmId
+        [qmpQQ|
+          {
+            "execute": "blockdev-change-medium",
+            "arguments": {
+              "device": #{driveNode},
+              "filename": #{filePath},
+              "format": #{fmt}
+            }
+          }
+        |]
 
 --------------------------------------------------------------------------------
 -- Live (online) qcow2 internal snapshots

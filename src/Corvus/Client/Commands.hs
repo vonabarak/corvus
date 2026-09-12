@@ -208,6 +208,8 @@ runCommand opts = do
                       pure False
                     Right parsedMedia -> handleDiskAttach fmt conn vmRef diskRef iface (Just parsedMedia) readOnly discard cache
       DiskDetach vmRef diskRef -> handleDiskDetach fmt conn vmRef diskRef
+      DiskMediaEject driveId -> handleDiskMediaEject fmt conn driveId
+      DiskMediaChange driveId newDiskRef -> handleDiskMediaChange fmt conn driveId newDiskRef
       DiskCopy diskRef toNodeRef mToPath withChain ->
         handleDiskCopy fmt conn diskRef toNodeRef mToPath withChain
       DiskMove diskRef toNodeRef mToPath withChain ->

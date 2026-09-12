@@ -88,42 +88,43 @@ writableCacheDisks state vmId artifactDiskId = do
     resolveOne (Entity _ drive)
       | M.driveReadOnly drive = pure (Right Nothing)
       | not (interfaceUsable (M.driveInterface drive)) = pure (Right Nothing)
-      | otherwise = do
-          let diskKey = M.driveDiskImageId drive
-          mDisk <- liftIO $ runSqlPool (get diskKey) (ssDbPool state)
-          case mDisk of
-            Nothing -> pure (Right Nothing)
-            Just disk
-              | M.diskImageFormat disk /= FormatQcow2 -> pure (Right Nothing)
-              | otherwise -> do
-                  placements <- liftIO $ runSqlPool (listDiskImageNodes diskKey) (ssDbPool state)
-                  case placements of
-                    [] ->
-                      pure (Left ("disk " <> T.pack (show (fromSqlKey diskKey)) <> " has no recorded placement"))
-                    (Entity _ row : _) -> do
-                      let nid = M.diskImageNodeNodeId row
-                      path <-
-                        liftIO $
-                          resolveDiskPath
-                            (ssDbPool state)
-                            (ssQemuConfig state)
-                            diskKey
-                            nid
-                      let role =
-                            if fromSqlKey diskKey == artifactDiskId
-                              then "artifact"
-                              else "system"
-                      pure
-                        ( Right
-                            ( Just
-                                CacheDisk
-                                  { cdRole = role
-                                  , cdDiskImageId = diskKey
-                                  , cdNodeId = nid
-                                  , cdFilePath = path
-                                  }
-                            )
-                        )
+      | otherwise = case M.driveDiskImageId drive of
+          Nothing -> pure (Right Nothing)
+          Just diskKey -> do
+            mDisk <- liftIO $ runSqlPool (get diskKey) (ssDbPool state)
+            case mDisk of
+              Nothing -> pure (Right Nothing)
+              Just disk
+                | M.diskImageFormat disk /= FormatQcow2 -> pure (Right Nothing)
+                | otherwise -> do
+                    placements <- liftIO $ runSqlPool (listDiskImageNodes diskKey) (ssDbPool state)
+                    case placements of
+                      [] ->
+                        pure (Left ("disk " <> T.pack (show (fromSqlKey diskKey)) <> " has no recorded placement"))
+                      (Entity _ row : _) -> do
+                        let nid = M.diskImageNodeNodeId row
+                        path <-
+                          liftIO $
+                            resolveDiskPath
+                              (ssDbPool state)
+                              (ssQemuConfig state)
+                              diskKey
+                              nid
+                        let role =
+                              if fromSqlKey diskKey == artifactDiskId
+                                then "artifact"
+                                else "system"
+                        pure
+                          ( Right
+                              ( Just
+                                  CacheDisk
+                                    { cdRole = role
+                                    , cdDiskImageId = diskKey
+                                    , cdNodeId = nid
+                                    , cdFilePath = path
+                                    }
+                              )
+                          )
     -- The list flattens Right Nothing entries out; this is the projection.
     sequence xs = concatMap collapse <$> traverse pickRight xs
       where

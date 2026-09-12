@@ -22,7 +22,7 @@ export interface VmInfo {
 
 export interface DriveInfo {
   id: number;
-  disk_image: NamedRef;
+  disk_image: NamedRef | null;
   interface: string;
   file_path: string;
   format: string;

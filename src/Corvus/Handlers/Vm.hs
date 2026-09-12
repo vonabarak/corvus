@@ -78,7 +78,7 @@ import qualified Data.ByteString.Base64.URL as B64URL
 import Data.Int (Int64)
 import Data.List (isPrefixOf)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe, isJust, isNothing)
+import Data.Maybe (fromMaybe, isJust, isNothing, mapMaybe)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -1220,11 +1220,13 @@ hasCloudInitIso vmId = do
   results <- mapM checkDrive drives
   pure $ or results
   where
-    checkDrive (Entity _ drive) = do
-      mDisk <- get (driveDiskImageId drive)
-      pure $ case mDisk of
-        Just disk -> "-cloud-init" `T.isSuffixOf` diskImageName disk
-        Nothing -> False
+    checkDrive (Entity _ drive) = case driveDiskImageId drive of
+      Nothing -> pure False
+      Just diskKey -> do
+        mDisk <- get diskKey
+        pure $ case mDisk of
+          Just disk -> "-cloud-init" `T.isSuffixOf` diskImageName disk
+          Nothing -> False
 
 -- | Set VM status (without changing PID). Clears any prior error
 -- reason when transitioning out of 'VmError'; leaves it alone for
@@ -1319,14 +1321,14 @@ getExclusiveDisks vmId = do
   let key = toSqlKey vmId :: VmId
   drives <- selectList [M.DriveVmId ==. key] []
   let writableDiskKeys =
-        map (driveDiskImageId . entityVal) $
+        mapMaybe (driveDiskImageId . entityVal) $
           filter (not . driveReadOnly . entityVal) drives
   notShared <- filterM (fmap not . isSharedDisk vmId) (map fromSqlKey writableDiskKeys)
   filterM (fmap not . isUsedByTemplate) notShared
   where
     isSharedDisk :: Int64 -> Int64 -> SqlPersistT IO Bool
     isSharedDisk thisVmId diskId = do
-      otherDrives <- selectList [M.DriveDiskImageId ==. toSqlKey diskId, M.DriveVmId !=. toSqlKey thisVmId] [LimitTo 1]
+      otherDrives <- selectList [M.DriveDiskImageId ==. Just (toSqlKey diskId), M.DriveVmId !=. toSqlKey thisVmId] [LimitTo 1]
       pure $ not (null otherDrives)
 
     isUsedByTemplate :: Int64 -> SqlPersistT IO Bool
@@ -1353,7 +1355,7 @@ getEphemeralAttachedDisks :: Int64 -> SqlPersistT IO [Int64]
 getEphemeralAttachedDisks vmId = do
   let key = toSqlKey vmId :: VmId
   drives <- selectList [M.DriveVmId ==. key] []
-  let diskKeys = map (driveDiskImageId . entityVal) drives
+  let diskKeys = mapMaybe (driveDiskImageId . entityVal) drives
   ephemKeys <- filterM isEphemeral diskKeys
   let ephemIds = map fromSqlKey ephemKeys
   filterM (fmap not . isSharedDisk vmId) ephemIds
@@ -1365,7 +1367,7 @@ getEphemeralAttachedDisks vmId = do
 
     isSharedDisk :: Int64 -> Int64 -> SqlPersistT IO Bool
     isSharedDisk thisVmId diskId = do
-      otherDrives <- selectList [M.DriveDiskImageId ==. toSqlKey diskId, M.DriveVmId !=. toSqlKey thisVmId] [LimitTo 1]
+      otherDrives <- selectList [M.DriveDiskImageId ==. Just (toSqlKey diskId), M.DriveVmId !=. toSqlKey thisVmId] [LimitTo 1]
       pure $ not (null otherDrives)
 
 -- | Delete a VM and all associated resources
@@ -1501,57 +1503,75 @@ getVmDetails config vmId = do
     -- threads it into 'toCapnpVmDetails' separately.
 
     toDriveInfo vmNode vmNodeBasePath (Entity driveKey drive) = do
-      let diskImageKey = driveDiskImageId drive
-      mDiskImage <- get diskImageKey
-      case mDiskImage of
+      case driveDiskImageId drive of
+        -- Ejected media drive: the tray is empty and no 'DiskImage'
+        -- is attached.
         Nothing ->
           pure
             DriveInfo
               { diId = fromSqlKey driveKey
-              , diDiskImage =
-                  NamedRef {nrId = fromSqlKey diskImageKey, nrName = "(deleted)"}
+              , diDiskImage = Nothing
               , diInterface = driveInterface drive
-              , diFilePath = "(deleted)"
+              , diFilePath = T.empty
               , diFormat = FormatRaw
               , diMedia = driveMedia drive
               , diReadOnly = driveReadOnly drive
               , diCacheType = driveCacheType drive
               , diDiscard = driveDiscard drive
               }
-        Just diskImage -> do
-          -- Resolve the file path from the DiskImageNode row for
-          -- the VM's node — single-node deployments produce exactly
-          -- one row, multi-node deployments resolve to the path on
-          -- the VM's host. Stored form is relative-to-basePath
-          -- (or absolute when registered outside basePath); we
-          -- absolutise here against the VM's node basePath so the
-          -- DTO matches what 'disks.show()' returns. Missing row
-          -- yields the empty string, which the CLI renders as
-          -- "(not present)".
-          mPath <- diskImageNodeFilePathFor diskImageKey vmNode
-          let absPath = case mPath of
-                Nothing -> T.empty
-                Just stored ->
-                  let raw = T.unpack stored
-                   in if "/" `isPrefixOf` raw
-                        then stored
-                        else T.pack (vmNodeBasePath </> raw)
-          pure
-            DriveInfo
-              { diId = fromSqlKey driveKey
-              , diDiskImage =
-                  NamedRef
-                    { nrId = fromSqlKey diskImageKey
-                    , nrName = diskImageName diskImage
-                    }
-              , diInterface = driveInterface drive
-              , diFilePath = absPath
-              , diFormat = diskImageFormat diskImage
-              , diMedia = driveMedia drive
-              , diReadOnly = driveReadOnly drive
-              , diCacheType = driveCacheType drive
-              , diDiscard = driveDiscard drive
-              }
+        Just diskImageKey -> do
+          mDiskImage <- get diskImageKey
+          case mDiskImage of
+            Nothing ->
+              pure
+                DriveInfo
+                  { diId = fromSqlKey driveKey
+                  , diDiskImage =
+                      Just (NamedRef {nrId = fromSqlKey diskImageKey, nrName = "(deleted)"})
+                  , diInterface = driveInterface drive
+                  , diFilePath = "(deleted)"
+                  , diFormat = FormatRaw
+                  , diMedia = driveMedia drive
+                  , diReadOnly = driveReadOnly drive
+                  , diCacheType = driveCacheType drive
+                  , diDiscard = driveDiscard drive
+                  }
+            Just diskImage -> do
+              -- Resolve the file path from the DiskImageNode row for
+              -- the VM's node — single-node deployments produce exactly
+              -- one row, multi-node deployments resolve to the path on
+              -- the VM's host. Stored form is relative-to-basePath
+              -- (or absolute when registered outside basePath); we
+              -- absolutise here against the VM's node basePath so the
+              -- DTO matches what 'disks.show()' returns. Missing row
+              -- yields the empty string, which the CLI renders as
+              -- "(not present)".
+              mPath <- diskImageNodeFilePathFor diskImageKey vmNode
+              let absPath = case mPath of
+                    Nothing -> T.empty
+                    Just stored ->
+                      let raw = T.unpack stored
+                       in if "/" `isPrefixOf` raw
+                            then stored
+                            else T.pack (vmNodeBasePath </> raw)
+              pure
+                DriveInfo
+                  { diId = fromSqlKey driveKey
+                  , diDiskImage =
+                      Just
+                        ( NamedRef
+                            { nrId = fromSqlKey diskImageKey
+                            , nrName = diskImageName diskImage
+                            }
+                        )
+                  , diInterface = driveInterface drive
+                  , diFilePath = absPath
+                  , diFormat = diskImageFormat diskImage
+                  , diMedia = driveMedia drive
+                  , diReadOnly = driveReadOnly drive
+                  , diCacheType = driveCacheType drive
+                  , diDiscard = driveDiscard drive
+                  }
     toNetIfInfo (Entity netIfKey netIf) = do
       networkRef <- case networkInterfaceNetworkId netIf of
         Nothing -> pure Nothing

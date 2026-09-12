@@ -112,6 +112,7 @@ library:
     - Corvus.Handlers.Disk.Agent
     - Corvus.Handlers.Disk.Snapshot
     - Corvus.Handlers.Disk.Attach
+    - Corvus.Handlers.Disk.Media
     - Corvus.Handlers.Disk.Import
     - Corvus.Handlers.Disk.Rebase
     - Corvus.Handlers.SharedDir

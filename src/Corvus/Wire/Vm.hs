@@ -115,7 +115,7 @@ toCapnpDriveInfo :: P.DriveInfo -> C.Parsed CGVm.DriveInfo
 toCapnpDriveInfo P.DriveInfo {..} =
   CGVm.DriveInfo
     { CGVm.id = diId
-    , CGVm.diskImage = toCapnpNamedRef diDiskImage
+    , CGVm.diskImage = toCapnpNamedRefOpt diDiskImage
     , CGVm.interface = toCapnpDriveInterface diInterface
     , CGVm.filePath = diFilePath
     , CGVm.format = toCapnpDriveFormat diFormat
@@ -134,7 +134,7 @@ fromCapnpDriveInfo CGVm.DriveInfo {..} = do
   pure
     P.DriveInfo
       { P.diId = id
-      , P.diDiskImage = fromCapnpNamedRef diskImage
+      , P.diDiskImage = fromCapnpNamedRefOpt diskImage
       , P.diInterface = iface
       , P.diFilePath = filePath
       , P.diFormat = fmt

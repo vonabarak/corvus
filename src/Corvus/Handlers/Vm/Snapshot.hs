@@ -57,7 +57,7 @@ import Corvus.Types
   , runServerLogging
   )
 import Data.Int (Int64)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Pool (Pool)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -238,7 +238,7 @@ findCarrierSnapshot
   -> SqlPersistT IO (Maybe (DiskImageId, Snapshot))
 findCarrierSnapshot vmId name = do
   drives <- selectList [DriveVmId ==. (toSqlKey vmId :: VmId)] [Asc DriveId]
-  let diskIds = map (driveDiskImageId . entityVal) drives
+  let diskIds = mapMaybe (driveDiskImageId . entityVal) drives
   rows <-
     selectList
       [ SnapshotDiskImageId <-. diskIds
@@ -456,7 +456,7 @@ handleVmSnapshotList state vmId = do
 collectVmSnapshotInfos :: Int64 -> SqlPersistT IO [VmSnapshotInfo]
 collectVmSnapshotInfos vmId = do
   drives <- selectList [DriveVmId ==. (toSqlKey vmId :: VmId)] [Asc DriveId]
-  let diskIds = map (driveDiskImageId . entityVal) drives
+  let diskIds = mapMaybe (driveDiskImageId . entityVal) drives
   rows <-
     selectList
       [SnapshotDiskImageId <-. diskIds]
@@ -505,7 +505,7 @@ buildVmSnapshotInfo
   :: Int64 -> Text -> SqlPersistT IO (Maybe VmSnapshotInfo)
 buildVmSnapshotInfo vmId name = do
   drives <- selectList [DriveVmId ==. (toSqlKey vmId :: VmId)] [Asc DriveId]
-  let diskIds = map (driveDiskImageId . entityVal) drives
+  let diskIds = mapMaybe (driveDiskImageId . entityVal) drives
   rows <-
     selectList
       [SnapshotDiskImageId <-. diskIds, SnapshotName ==. name]

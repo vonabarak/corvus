@@ -218,7 +218,7 @@ spec = sequential $ do
     describe "DriveInfo" $ do
       it "serializes interface and cache enums" $ do
         let diskRef = NamedRef {nrId = 10, nrName = "disk"}
-            drive = DriveInfo 1 diskRef InterfaceVirtio "/path/disk.qcow2" FormatQcow2 (Just MediaDisk) False CacheWriteback True
+            drive = DriveInfo 1 (Just diskRef) InterfaceVirtio "/path/disk.qcow2" FormatQcow2 (Just MediaDisk) False CacheWriteback True
             val = toJSON drive
         case val of
           Object obj -> do

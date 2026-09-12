@@ -1,6 +1,7 @@
 .mcp.json
 .claude/
 .claude/settings.local.json
+.qwen/
 .idea/
 .stack-work/
 dist-newstyle/

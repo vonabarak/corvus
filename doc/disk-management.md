@@ -17,11 +17,15 @@ crv disk show <disk>
 crv disk delete <disk>
 crv disk attach <vm> <disk> [--interface <iface>] [--media <media>] [--read-only] [--discard] [--cache <cache>]
 crv disk detach <vm> <disk>
+crv disk media eject <drive>
+crv disk media change <drive> <new_disk>
 crv disk copy <disk> --to-node <node> [--to-path <path>] [--with-backing-chain]
 crv disk move <disk> --to-node <node> [--to-path <path>] [--with-backing-chain]
 ```
 
 `<disk>`, `<vm>`, and `<node>` accept names or numeric IDs.
+`<drive>` is the numeric drive row id of a VM's drive (see
+`crv vm show <vm>`, the `ID` column of its drive list).
 
 ## Per-node placement
 
@@ -174,8 +178,45 @@ Virtio and SCSI drives can be detached while a VM is running. IDE, SATA,
 NVMe, pflash, and floppy drives are not live-detachable; stop the VM before
 detaching them. This includes IDE CD-ROM installer media.
 
+CD-ROM drives are a special case: rather than detaching the drive while the
+VM is running, keep the drive in place and swap the media in the tray with
+[`crv disk media eject` / `crv disk media change`](#ejecting-and-changing-cd-rom-media).
+This works on any interface (IDE, SATA, SCSI, …) because it never removes
+the device — it only opens the tray.
+
 VMs already running when this support is deployed must be restarted once so
 QEMU is launched with the named-device layout required for live detach.
+
+## Ejecting and Changing CD-ROM Media
+
+A drive attached with `--media cdrom` behaves like a physical tray: the
+drive row stays attached to the VM, and only the media in the tray changes.
+
+```bash
+crv disk media eject 3            # empty the tray
+crv disk media change 3 new-iso   # swap the tray contents
+```
+
+`<drive>` is the drive's numeric id from `crv vm show <vm>`; `<new_disk>`
+is a disk image name or id (typically a registered ISO).
+
+The daemon checks that the drive is a removable CD-ROM before doing
+anything and rejects non-`cdrom` drives with a clear error. Ejecting an
+already-empty tray is a no-op error.
+
+**Running or paused VM** — the daemon sends the QMP `eject` /
+`blockdev-change-medium` command to QEMU first and only updates the
+database after QEMU succeeds, so a failed QMP call never desynchronises
+the database from the running VM. Changing the media works from an empty
+tray too (that is how you load an ISO into a previously-ejected drive).
+
+**Stopped VM** — only the database is touched; the tray state is applied
+at the next boot, because the QEMU command line is generated from the
+`drive` row (an empty tray simply omits `file=`/`format=`).
+
+The tray state persists across VM reboots and daemon restarts: after an
+eject, the drive row has no media, and `crv vm show` / the web UI report
+the drive with no disk image.
 
 ## Moving / Copying Disks Between Nodes
 

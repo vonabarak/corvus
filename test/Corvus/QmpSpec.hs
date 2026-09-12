@@ -10,12 +10,78 @@
 module Corvus.QmpSpec (spec) where
 
 import Corvus.Node.Qmp
+import Data.Aeson (eitherDecode')
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 import Test.Hspec
 
 spec :: Spec
 spec = do
+  describe "BlockEntry decode" $ do
+    it "decodes a removable drive with inserted media" $ do
+      let json =
+            "{\"device\":\"drive-42\",\"removable\":true,\"tray_open\":false,\"inserted\":{\"file\":\"/iso.iso\",\"format\":\"raw\"}}"
+      case eitherDecode' (BSL.fromStrict (BS.pack json)) of
+        Right e -> do
+          beDevice e `shouldBe` Just "drive-42"
+          beRemovable e `shouldBe` True
+          beTrayOpen e `shouldBe` False
+          beInserted e `shouldSatisfy` (/= Nothing)
+        Left e -> expectationFailure (show e)
+
+    it "leaves inserted as Nothing when the tray is empty" $ do
+      let json = "{\"device\":\"drive-42\",\"removable\":true,\"tray_open\":false}"
+      eitherDecode' (BSL.fromStrict (BS.pack json))
+        `shouldBe` Right
+          BlockEntry
+            { beDevice = Just "drive-42"
+            , beRemovable = True
+            , beTrayOpen = False
+            , beInserted = Nothing
+            }
+
+    it "leaves device as Nothing when absent" $ do
+      let json = "{\"removable\":true,\"tray_open\":false}"
+      eitherDecode' (BSL.fromStrict (BS.pack json))
+        `shouldBe` Right
+          BlockEntry
+            { beDevice = Nothing
+            , beRemovable = True
+            , beTrayOpen = False
+            , beInserted = Nothing
+            }
+
+    it "defaults tray_open to False when absent (plain disk)" $ do
+      -- QEMU only emits 'tray_open' for removable cdrom devices; a plain
+      -- (non-removable) disk entry has no such key. Decoding must not
+      -- fail on its absence.
+      let json = "{\"device\":\"virtio1\",\"removable\":false,\"inserted\":{\"file\":\"/root.qcow2\",\"format\":\"qcow2\"}}"
+      case eitherDecode' (BSL.fromStrict (BS.pack json)) of
+        Right e -> do
+          beDevice e `shouldBe` Just "virtio1"
+          beRemovable e `shouldBe` False
+          beTrayOpen e `shouldBe` False
+          beInserted e `shouldSatisfy` (/= Nothing)
+        Left e -> expectationFailure (show e)
+
+  describe "extractReplyLine" $ do
+    it "returns the reply line when it is the only line" $ do
+      extractReplyLine "{\"return\":{}}" `shouldBe` Right "{\"return\":{}}"
+
+    it "picks the last reply line, skipping async event lines" $ do
+      let response =
+            BS.concat
+              [ "{\"return\":{\"qmp_capabilities\":true}}\n"
+              , "{\"event\":\"SHUTDOWN\",\"timestamp\":{\"seconds\":1,\"microseconds\":2}}\n"
+              , "{\"return\":{}}\n"
+              ]
+      extractReplyLine response `shouldBe` Right "{\"return\":{}}"
+
+    it "returns Left when no reply line is present" $ do
+      extractReplyLine "{\"event\":\"RESET\",\"timestamp\":{\"seconds\":1,\"microseconds\":2}}"
+        `shouldBe` Left "no QMP reply line in response"
+
   describe "classifyQmpResponse" $ do
     describe "success responses" $ do
       it "recognises {\"return\":{}}" $

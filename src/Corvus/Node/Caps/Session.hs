@@ -65,6 +65,7 @@ import qualified Data.ByteString as BS
 import Data.Either (lefts, rights)
 import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.Int (Int32, Int64)
+import Data.List (find)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
@@ -731,6 +732,36 @@ instance CGNA.Session'server_ SessionCap where
             NQ.QmpConnectionFailed err ->
               throwFailed ("QMP connect (device_del): " <> err)
 
+  session'vmEjectMedia _ =
+    handleParsed $
+      \CGNA.Session'vmEjectMedia'params
+        { CGNA.vmId = vid
+        , CGNA.driveId = drvId
+        } -> do
+          nodeName <- requireRemovableDrive vid drvId
+          result <- NQ.qmpEject agentQemuConfig vid nodeName
+          case result of
+            NQ.QmpSuccess -> pure CGNA.Session'vmEjectMedia'results
+            NQ.QmpError err -> throwFailed ("eject: " <> err)
+            NQ.QmpConnectionFailed err ->
+              throwFailed ("QMP connect (eject): " <> err)
+
+  session'vmChangeMedia _ =
+    handleParsed $
+      \CGNA.Session'vmChangeMedia'params
+        { CGNA.vmId = vid
+        , CGNA.driveId = drvId
+        , CGNA.filePath = fpTxt
+        , CGNA.format = fmtTxt
+        } -> do
+          nodeName <- requireRemovableDrive vid drvId
+          result <- NQ.qmpChangeMedium agentQemuConfig vid nodeName fpTxt (Just fmtTxt)
+          case result of
+            NQ.QmpSuccess -> pure CGNA.Session'vmChangeMedia'results
+            NQ.QmpError err -> throwFailed ("blockdev-change-medium: " <> err)
+            NQ.QmpConnectionFailed err ->
+              throwFailed ("QMP connect (blockdev-change-medium): " <> err)
+
   -- ---- Vsock probe ---------------------------------------------------------
 
   session'probeVsockCid _ =
@@ -1066,6 +1097,32 @@ isBlockdevBusy :: Text -> Bool
 isBlockdevBusy err =
   "is in use" `T.isInfixOf` err || "is busy" `T.isInfixOf` err
 
+-- | Verify via @query-block@ that the legacy @-drive id=...@ backend
+-- for 'driveId' exists and is @removable@, returning the backend
+-- name (@"drive-<driveId>"@) on success. Run before @eject@ /
+-- @blockdev-change-medium@ so a non-removable or unknown drive is
+-- rejected with a descriptive error instead of a raw QMP failure.
+requireRemovableDrive :: Int64 -> Int64 -> IO Text
+requireRemovableDrive vid driveId = do
+  let nodeName = "drive-" <> T.pack (show driveId)
+  qres <- NQ.qmpQueryBlock agentQemuConfig vid
+  case qres of
+    Left err -> throwFailed ("query-block: " <> err)
+    Right entries ->
+      case find (\be -> NQ.beDevice be == Just nodeName) entries of
+        Just be
+          | NQ.beRemovable be -> pure nodeName
+          | otherwise ->
+              throwFailed $
+                "drive "
+                  <> T.pack (show driveId)
+                  <> " does not support media eject/change (not removable)"
+        Nothing ->
+          throwFailed $
+            "drive "
+              <> T.pack (show driveId)
+              <> " has no QEMU block backend (drive unknown to QEMU)"
+
 -- ---------------------------------------------------------------------------
 -- Local QEMU/runtime config used by every VM-abstraction handler.
 --
@@ -1139,7 +1196,9 @@ decodeVmDriveSpec
     } =
     VS.VmDriveSpec
       { VS.vdsDriveId = did
-      , VS.vdsDiskFilePath = p
+      , -- \^ an empty wire path encodes a drive with no media (ejected
+        -- CD-ROM tray)
+        VS.vdsDiskFilePath = if T.null p then Nothing else Just p
       , VS.vdsFormat = fmt
       , VS.vdsIfKind = ik
       , VS.vdsMedia = md

@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Corvus.Database
@@ -27,7 +28,7 @@ module Corvus.Database
 where
 
 import Control.Exception (SomeException, bracket, try)
-import Control.Monad (when)
+import Control.Monad (forM_, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (LoggingT, logWarnN, runStdoutLoggingT)
 import Corvus.Model (migrateAll)
@@ -56,8 +57,10 @@ import System.IO.Error (userError)
 
 currentSchemaVersion :: Int
 -- Bump whenever 'migrateAll' gains a persistent-schema change. Version 2
--- adds the VM and template-VM TPM flags.
-currentSchemaVersion = 2
+-- adds the VM and template-VM TPM flags. Version 3 makes
+-- drive.disk_image_id nullable to represent a CD-ROM drive with no
+-- media (ejected tray).
+currentSchemaVersion = 3
 
 data DatabaseEngine
   = DatabasePostgresql
@@ -187,7 +190,7 @@ runDatabaseMigrations cfg =
       SchemaMigrationNotNeeded ->
         pure $ Right $ SchemaAlreadyCurrent storedVersion
       SchemaMigrationNeeded -> do
-        runBackendMigrations cfg
+        runBackendMigrations cfg storedVersion
         writeSchemaVersion currentSchemaVersion
         pure $ Right $ SchemaMigrated storedVersion currentSchemaVersion
       SchemaMigrationRefusedNewer ->
@@ -218,11 +221,35 @@ writeSchemaVersion version = do
     "INSERT INTO schema_version (id, version) VALUES (1, ?)"
     [PersistInt64 $ fromIntegral version]
 
-runBackendMigrations :: (MonadIO m) => DatabaseConfig -> ReaderT SqlBackend m ()
-runBackendMigrations cfg =
+runBackendMigrations :: (MonadIO m) => DatabaseConfig -> Int -> ReaderT SqlBackend m ()
+runBackendMigrations cfg storedVersion =
   case dcEngine cfg of
-    DatabaseSqlite -> runSqliteMigrations
-    DatabasePostgresql -> runMigration migrateAll
+    DatabaseSqlite -> do
+      -- A fresh database has no 'drive' table yet; 'runSqliteMigrations'
+      -- creates it with the nullable column directly. Only an existing
+      -- pre-v3 table (which has NOT NULL) needs the manual rebuild.
+      driveExists <- sqliteTableExists "drive"
+      when (storedVersion < 3 && driveExists) runSqliteDriveDiskImageNullable
+      runSqliteMigrations
+    DatabasePostgresql -> do
+      driveExists <- pgTableExists "drive"
+      when (storedVersion < 3 && driveExists) $
+        rawExecute "ALTER TABLE drive ALTER COLUMN disk_image_id DROP NOT NULL" []
+      runMigration migrateAll
+
+sqliteTableExists :: (MonadIO m) => Text -> ReaderT SqlBackend m Bool
+sqliteTableExists name = do
+  rows <-
+    rawSql
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
+      [PersistText name]
+  pure $ not (null (rows :: [Single PersistValue]))
+
+pgTableExists :: (MonadIO m) => Text -> ReaderT SqlBackend m Bool
+pgTableExists name = do
+  rows <-
+    rawSql "SELECT 1 FROM information_schema.tables WHERE table_name = ?" [PersistText name]
+  pure $ not (null (rows :: [Single PersistValue]))
 
 runSqliteMigrations :: (MonadIO m) => ReaderT SqlBackend m ()
 runSqliteMigrations = do
@@ -234,6 +261,48 @@ sqliteAutoincrementSql sql
   | "CREATE TABLE " `T.isPrefixOf` sql =
       T.replace "\"id\" INTEGER PRIMARY KEY" "\"id\" INTEGER PRIMARY KEY AUTOINCREMENT" sql
   | otherwise = sql
+
+-- | Schema 2 -> 3: make 'drive.disk_image_id' nullable so a CD-ROM drive
+-- can represent an ejected (empty) tray. SQLite has no 'ALTER COLUMN ...
+-- DROP NOT NULL', so we rebuild the table. The column list mirrors the
+-- persistent 'Drive' model with the NOT NULL constraint removed; any
+-- indexes persistent created on the old table are captured and recreated
+-- dynamically so the migration stays correct if the index names change.
+-- | Runs inside the caller's 'runSqlPool' transaction, which provides
+-- the atomicity (any failed step rolls the whole rebuild back). An
+-- explicit 'BEGIN' here would fail with "cannot start a transaction
+-- within a transaction"; note that 'PRAGMA foreign_keys' is also a
+-- no-op inside a transaction, so it is not toggled.
+runSqliteDriveDiskImageNullable :: (MonadIO m) => ReaderT SqlBackend m ()
+runSqliteDriveDiskImageNullable = do
+  indexSqls <-
+    rawSql
+      "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'drive' AND sql IS NOT NULL"
+      []
+  rawExecute createDriveNewSql []
+  rawExecute copyDriveRowsSql []
+  rawExecute "DROP TABLE drive" []
+  rawExecute "ALTER TABLE drive_new RENAME TO drive" []
+  forM_ indexSqls $
+    \case
+      Single (PersistText sqlText) -> rawExecute sqlText []
+      _ -> pure ()
+  where
+    createDriveNewSql =
+      "CREATE TABLE drive_new ("
+        <> "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        <> "vm_id INTEGER NOT NULL, "
+        <> "disk_image_id INTEGER, "
+        <> "interface TEXT NOT NULL, "
+        <> "media TEXT, "
+        <> "read_only INTEGER NOT NULL, "
+        <> "cache_type TEXT NOT NULL, "
+        <> "discard INTEGER NOT NULL, "
+        <> "FOREIGN KEY (vm_id) REFERENCES vm(id)"
+        <> ")"
+    copyDriveRowsSql =
+      "INSERT INTO drive_new (id, vm_id, disk_image_id, interface, media, read_only, cache_type, discard) "
+        <> "SELECT id, vm_id, disk_image_id, interface, media, read_only, cache_type, discard FROM drive"
 
 getDatabaseRuntimeInfo :: DatabaseConfig -> Pool SqlBackend -> IO DatabaseRuntimeInfo
 getDatabaseRuntimeInfo cfg pool = do

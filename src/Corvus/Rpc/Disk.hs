@@ -41,6 +41,7 @@ import Corvus.Handlers.Disk
   , handleDiskShow
   , prepareDiskUpload
   )
+import Corvus.Handlers.Disk.Media (MediaChange (..), MediaEject (..))
 import Corvus.Handlers.Disk.Snapshot
   ( SnapshotCreate (..)
   , SnapshotDelete (..)
@@ -309,6 +310,29 @@ instance CGDisk.DiskManager'server_ DiskManagerCap where
       sink <- either (throwFailed . T.pack . show) pure sinkResult
       upload <- export @CGDisk.DiskUpload sup (DiskUploadCap st sup cn plan sink)
       pure CGDisk.DiskManager'beginUpload'results {CGDisk.upload = upload}
+
+  diskManager'mediaEject (DiskManagerCap st _ cn) =
+    handleParsed $ \CGDisk.DiskManager'mediaEject'params {..} -> do
+      resp <- runAction st cn (MediaEject {meDriveId = driveId})
+      case resp of
+        RespDiskOk -> pure CGDisk.DiskManager'mediaEject'results
+        RespDriveNotFound -> throwFailed "Drive not found"
+        RespVmNotFound -> throwFailed "VM not found"
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "diskManager'mediaEject: unexpected response"
+
+  diskManager'mediaChange (DiskManagerCap st _ cn) =
+    handleParsed $ \CGDisk.DiskManager'mediaChange'params {..} -> do
+      newDiskRef' <- capnpRefToRef newDiskRef
+      newDiskId <- failOnLeft =<< resolveDisk newDiskRef' (ssDbPool st)
+      resp <- runAction st cn (MediaChange {mcDriveId = driveId, mcDiskId = newDiskId})
+      case resp of
+        RespDiskOk -> pure CGDisk.DiskManager'mediaChange'results
+        RespDriveNotFound -> throwFailed "Drive not found"
+        RespVmNotFound -> throwFailed "VM not found"
+        RespDiskNotFound -> throwFailed "Disk not found"
+        RespError msg -> throwFailed msg
+        _ -> throwFailed "diskManager'mediaChange: unexpected response"
 
 -- | Treat the wire's empty-string default as 'Nothing'. Cap'n
 -- Proto can't represent @Maybe Text@ natively without adding a

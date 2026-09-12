@@ -198,3 +198,147 @@ spec = sequential $ withTestDb $ do
       then_ $ do
         responseIs (== RespDiskOk)
         driveCountForVm 1 0
+
+  ------------------------------------------------------------------
+  -- media eject / change (CD-ROM drives)
+  --
+  -- The running-VM branch routes through the nodeagent; the test
+  -- fixture registers no real nodeagent, so that path deterministically
+  -- fails and the drive row must remain untouched (the QMP-failure →
+  -- no-DB-change guarantee). The stopped-VM branch is DB-only.
+
+  describe "mediaEject" $ do
+    testCase "returns DriveNotFound for unknown drive" $ do
+      when_ $ mediaEject 999
+      then_ $ responseIs (== RespDriveNotFound)
+
+    testCase "refuses a non-CD-ROM drive" $ do
+      given $ do
+        diskId <- insertDiskImageOnTestNode "boot" "/boot.qcow2" FormatQcow2
+        vmId <- insertVm "cd" VmStopped
+        -- media = disk, so eject must be refused regardless of state.
+        _ <- attachDriveFull vmId diskId InterfaceVirtio (Just MediaDisk) False CacheWriteback False
+        pure ()
+      when_ $ mediaEject 1
+      then_ $ responseIs $ \case
+        RespError _ -> True
+        _ -> False
+
+    testCase "refuses ejecting an already-ejected drive" $ do
+      given $ do
+        vmId <- insertVm "cd" VmStopped
+        -- tray already empty (driveDiskImageId = Nothing).
+        _ <- attachCdromDrive vmId Nothing
+        pure ()
+      when_ $ mediaEject 1
+      then_ $ responseIs $ \case
+        RespError _ -> True
+        _ -> False
+
+    testCase "ejects a stopped VM's drive (DB-only, no agent needed)" $ do
+      given $ do
+        diskId <- insertDiskImageOnTestNode "iso" "/iso.iso" FormatRaw
+        vmId <- insertVm "cd" VmStopped
+        _ <- attachCdromDrive vmId (Just diskId)
+        pure ()
+      when_ $ mediaEject 1
+      then_ $ do
+        responseIs (== RespDiskOk)
+        driveMediaIs 1 Nothing
+
+    testCase "running VM: QMP failure leaves the DB untouched" $ do
+      given $ do
+        diskId <- insertDiskImageOnTestNode "iso" "/iso.iso" FormatRaw
+        vmId <- insertVm "cd" VmRunning
+        _ <- attachCdromDrive vmId (Just diskId)
+        pure ()
+      when_ $ mediaEject 1
+      then_ $ do
+        -- No real nodeagent in the fixture → the QMP round-trip fails;
+        -- the drive row must still reference the original media.
+        responseIs $ \case
+          RespError _ -> True
+          _ -> False
+        driveMediaIs 1 (Just 1)
+
+  describe "mediaChange" $ do
+    testCase "returns DriveNotFound for unknown drive" $ do
+      when_ $ mediaChange 999 1
+      then_ $ responseIs (== RespDriveNotFound)
+
+    testCase "refuses a non-CD-ROM drive" $ do
+      given $ do
+        diskId <- insertDiskImageOnTestNode "boot" "/boot.qcow2" FormatQcow2
+        vmId <- insertVm "cd" VmStopped
+        _ <- attachDriveFull vmId diskId InterfaceVirtio (Just MediaDisk) False CacheWriteback False
+        pure ()
+      when_ $ mediaChange 1 1
+      then_ $ responseIs $ \case
+        RespError _ -> True
+        _ -> False
+
+    testCase "returns DiskNotFound for an unknown new disk" $ do
+      given $ do
+        diskId <- insertDiskImageOnTestNode "iso" "/iso.iso" FormatRaw
+        vmId <- insertVm "cd" VmStopped
+        _ <- attachCdromDrive vmId (Just diskId)
+        pure ()
+      when_ $ mediaChange 1 999
+      then_ responseIsDiskNotFound
+
+    testCase "refuses when the new disk has no placement on the VM's node" $ do
+      given $ do
+        diskId <- insertDiskImageOnTestNode "iso" "/iso.iso" FormatRaw
+        -- new image exists but has no DiskImageNode row → same-node
+        -- guard must reject it.
+        _ <- insertDiskImage "orphan" "/orphan.iso" FormatRaw
+        vmId <- insertVm "cd" VmStopped
+        _ <- attachCdromDrive vmId (Just diskId)
+        pure ()
+      when_ $ mediaChange 1 2
+      then_ $ responseIs $ \case
+        RespError _ -> True
+        _ -> False
+
+    testCase "refuses when the new disk is already attached to the VM" $ do
+      given $ do
+        diskA <- insertDiskImageOnTestNode "isoA" "/isoA.iso" FormatRaw
+        diskB <- insertDiskImageOnTestNode "isoB" "/isoB.iso" FormatRaw
+        vmId <- insertVm "cd" VmStopped
+        -- cdrom drive on disk A; a second drive already owns disk B.
+        _ <- attachCdromDrive vmId (Just diskA)
+        _ <- attachDriveFull vmId diskB InterfaceVirtio (Just MediaDisk) False CacheWriteback False
+        pure ()
+      when_ $ mediaChange 1 2
+      then_ $ do
+        responseIs $ \case
+          RespError _ -> True
+          _ -> False
+        -- original media untouched
+        driveMediaIs 1 (Just 1)
+
+    testCase "changes a stopped VM's drive (DB-only, no agent needed)" $ do
+      given $ do
+        diskA <- insertDiskImageOnTestNode "isoA" "/isoA.iso" FormatRaw
+        diskB <- insertDiskImageOnTestNode "isoB" "/isoB.iso" FormatRaw
+        vmId <- insertVm "cd" VmStopped
+        _ <- attachCdromDrive vmId (Just diskA)
+        pure ()
+      when_ $ mediaChange 1 2
+      then_ $ do
+        responseIs (== RespDiskOk)
+        driveMediaIs 1 (Just 2)
+
+    testCase "running VM: QMP failure leaves the DB untouched" $ do
+      given $ do
+        diskA <- insertDiskImageOnTestNode "isoA" "/isoA.iso" FormatRaw
+        diskB <- insertDiskImageOnTestNode "isoB" "/isoB.iso" FormatRaw
+        vmId <- insertVm "cd" VmRunning
+        _ <- attachCdromDrive vmId (Just diskA)
+        pure ()
+      when_ $ mediaChange 1 2
+      then_ $ do
+        responseIs $ \case
+          RespError _ -> True
+          _ -> False
+        driveMediaIs 1 (Just 1)

@@ -151,6 +151,10 @@ data Command
     DiskAttach !Text !Text !Text !(Maybe Text) !Bool !Bool !Text
   | -- | Detach disk from VM (vmRef, diskRef)
     DiskDetach !Text !Text
+  | -- | Eject the media of a CD-ROM drive (driveId)
+    DiskMediaEject !Int64
+  | -- | Change the media of a CD-ROM drive (driveId, newDiskRef)
+    DiskMediaChange !Int64 !Text
   | -- | Copy a disk image to another node (diskRef, toNodeRef, optional toPath, withBackingChain)
     DiskCopy !Text !Text !(Maybe Text) !Bool
   | -- | Move a disk image to another node (diskRef, toNodeRef, optional toPath, withBackingChain)

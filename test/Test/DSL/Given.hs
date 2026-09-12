@@ -24,6 +24,7 @@ module Test.DSL.Given
     -- * Drive setup
   , attachDrive
   , attachDriveFull
+  , attachCdromDrive
 
     -- * Snapshot setup
   , insertSnapshot
@@ -417,7 +418,7 @@ attachDrive vmId diskImageId interface = do
       insert
         Drive
           { driveVmId = toSqlKey vmId
-          , driveDiskImageId = toSqlKey diskImageId
+          , driveDiskImageId = Just (toSqlKey diskImageId)
           , driveInterface = interface
           , driveMedia = Nothing
           , driveReadOnly = False
@@ -442,7 +443,7 @@ attachDriveFull vmId diskImageId interface media readOnly cache discard = do
       insert
         Drive
           { driveVmId = toSqlKey vmId
-          , driveDiskImageId = toSqlKey diskImageId
+          , driveDiskImageId = Just (toSqlKey diskImageId)
           , driveInterface = interface
           , driveMedia = media
           , driveReadOnly = readOnly
@@ -451,12 +452,32 @@ attachDriveFull vmId diskImageId interface media readOnly cache discard = do
           }
   pure $ fromSqlKey key
 
+-- | Attach a CD-ROM drive (media = @cdrom@) to a VM. The tray is
+-- empty ('Nothing') when @mDiskImageId@ is 'Nothing' — i.e. the
+-- drive was already ejected; otherwise it references the given disk
+-- image. Used by the media eject / change handler tests.
+attachCdromDrive :: Int64 -> Maybe Int64 -> TestM Int64
+attachCdromDrive vmId mDiskImageId = do
+  key <-
+    runDb $
+      insert
+        Drive
+          { driveVmId = toSqlKey vmId
+          , driveDiskImageId = fmap toSqlKey mDiskImageId
+          , driveInterface = InterfaceIde
+          , driveMedia = Just MediaCdrom
+          , driveReadOnly = True
+          , driveCacheType = CacheWriteback
+          , driveDiscard = False
+          }
+  pure $ fromSqlKey key
+
 -- | Default drive values for reference
 defaultDrive :: Int64 -> Int64 -> Drive
 defaultDrive vmId diskImageId =
   Drive
     { driveVmId = toSqlKey vmId
-    , driveDiskImageId = toSqlKey diskImageId
+    , driveDiskImageId = Just (toSqlKey diskImageId)
     , driveInterface = InterfaceVirtio
     , driveMedia = Just MediaDisk
     , driveReadOnly = False

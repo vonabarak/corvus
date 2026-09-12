@@ -1117,8 +1117,10 @@ setupTargetDisk state parentTaskId stack vmIdLong strategy target targetTmpName 
             (ssDbPool state)
       case mDrive of
         Nothing -> pure $ Left "instantiated bake VM has no drives"
-        Just (Entity _ drv) ->
-          pure $ Right (fromSqlKey (driveDiskImageId drv), needFlatten)
+        Just (Entity _ drv) -> case driveDiskImageId drv of
+          Nothing -> pure $ Left "instantiated bake VM has no drive media"
+          Just diskImageId ->
+            pure $ Right (fromSqlKey diskImageId, needFlatten)
 
     createAndAttachTarget = do
       let sizeMb = fromIntegral (btSizeGb target) * 1024
@@ -2067,7 +2069,7 @@ deleteOverwriteTargetIfNeeded state parentTaskId name target
 -- overwrite check to refuse silently yanking a disk out of a VM.
 vmsAttachedToDisk :: DiskImageId -> SqlPersistT IO [Text]
 vmsAttachedToDisk diskId = do
-  drives <- selectList [DriveDiskImageId ==. diskId] []
+  drives <- selectList [DriveDiskImageId ==. Just diskId] []
   let vmIds = map (driveVmId . entityVal) drives
   vms <- mapM get vmIds
   pure [vmName v | Just v <- vms]

@@ -96,7 +96,10 @@ module Corvus.Client.Capnp.Rpc
   , rpcDiskDelete
   , rpcDiskResize
   , rpcDiskAttach
+  , rpcDiskDetach
   , rpcDiskDetachByDisk
+  , rpcDiskMediaEject
+  , rpcDiskMediaChange
 
     -- * Snapshot operations (per-disk)
   , rpcSnapshotList
@@ -1134,20 +1137,65 @@ rpcDiskDetach conn vmRef driveId = do
   _ <- callOn #detachDisk CGVm.Vm'detachDisk'params {CGVm.driveId = driveId} vmClient
   pure ()
 
--- | Detach a disk by name or numeric reference. Walks the VM's
--- drive list to find the drive whose backing disk image matches
--- @diskRef@ (matching the name when @diskRef@ is symbolic, or the
--- disk id when @diskRef@ is numeric), then issues the detach.
--- Throws an exception when no drive matches.
+-- | Detach a disk by name or numeric reference. A numeric ref that
+-- matches one of the VM's drive ids detaches that drive directly —
+-- that is the path for ejected CD-ROM drives, whose drive rows no
+-- longer reference a disk image. Otherwise the drive list is walked
+-- for a drive whose backing disk image matches @diskRef@ (matching
+-- the name when @diskRef@ is symbolic, the disk id when numeric),
+-- and the matching drive is detached. Throws an exception when
+-- nothing matches.
 rpcDiskDetachByDisk :: CapnpConnection -> EntityRef -> EntityRef -> IO ()
 rpcDiskDetachByDisk conn vmRef diskRef = do
   details <- rpcVmShow conn vmRef
-  let matches d = case diskRef of
-        WC.RefById did -> P.nrId (PV.diDiskImage d) == did
-        WC.RefByName name -> P.nrName (PV.diDiskImage d) == name
-  case filter matches (PV.vdDrives details) of
-    (drive : _) -> rpcDiskDetach conn vmRef (PV.diId drive)
-    [] -> fail ("no drive on VM with disk " <> show diskRef)
+  let drives = PV.vdDrives details
+      driveIds = map PV.diId drives
+      matches d = case (PV.diDiskImage d, diskRef) of
+        (Just di, WC.RefById did) -> P.nrId di == did
+        (Just di, WC.RefByName name) -> P.nrName di == name
+        (Nothing, _) -> False
+  case (diskRef, driveIds) of
+    (WC.RefById did, ids)
+      | did `elem` ids -> rpcDiskDetach conn vmRef did
+      | otherwise ->
+          case filter matches drives of
+            (drive : _) -> rpcDiskDetach conn vmRef (PV.diId drive)
+            [] -> fail ("no drive on VM with disk " <> show diskRef)
+    _ ->
+      case filter matches drives of
+        (drive : _) -> rpcDiskDetach conn vmRef (PV.diId drive)
+        [] -> fail ("no drive on VM with disk " <> show diskRef)
+
+-- | Eject the media of a CD-ROM drive (drive row id, as listed in
+-- @crv vm show@). The daemon checks that the drive is a CD-ROM and,
+-- for an active VM, sends the QMP @eject@ command; then the
+-- drive's media is cleared in the database so the tray is empty at
+-- the next boot.
+rpcDiskMediaEject :: CapnpConnection -> Int64 -> IO ()
+rpcDiskMediaEject conn driveId = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  _ <- callOn #mediaEject CGDisk.DiskManager'mediaEject'params {CGDisk.driveId = driveId} mgr
+  pure ()
+
+-- | Change the media of a CD-ROM drive (drive row id) for the
+-- referenced disk image. The daemon resolves @newDiskRef@, checks
+-- that the drive is a CD-ROM, and — for an active VM — sends the
+-- QMP @blockdev-change-medium@ command; then the drive row is
+-- repointed so the new media is picked up at the next boot.
+rpcDiskMediaChange :: CapnpConnection -> Int64 -> EntityRef -> IO ()
+rpcDiskMediaChange conn driveId newDiskRef = do
+  CGCorvus.Daemon'disks'results {CGCorvus.mgr = mgr} <-
+    callOn #disks CGCorvus.Daemon'disks'params (ccDaemon conn)
+  _ <-
+    callOn
+      #mediaChange
+      CGDisk.DiskManager'mediaChange'params
+        { CGDisk.driveId = driveId
+        , CGDisk.newDiskRef = toCapnpEntityRef newDiskRef
+        }
+      mgr
+  pure ()
 
 -- =====================================================================
 -- Snapshot wrappers (per-disk)

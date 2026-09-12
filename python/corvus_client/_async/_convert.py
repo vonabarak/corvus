@@ -110,7 +110,7 @@ def vm_info(r) -> t.VmInfo:
 def drive_info(r) -> t.DriveInfo:
     return t.DriveInfo(
         id=r.id,
-        disk_image=named_ref(r.diskImage),
+        disk_image=named_ref_or_none(r.diskImage),
         interface=str(r.interface),
         file_path=r.filePath,
         format=str(r.format),

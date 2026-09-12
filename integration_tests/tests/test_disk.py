@@ -414,6 +414,125 @@ class TestDisk(SingleNodeCase):
         finally:
             self._delete_silent(installer_disk)
 
+    def test_media_eject_live_persist_and_detach(self):
+        """Live-eject a CD-ROM drive's media, verify `vm show` reports the
+        empty tray, confirm the empty state survives a reboot, and detach
+        the now-medialess drive (IDE cdroms only detach while stopped)."""
+        cd_disk = _uniq("eject-cd")
+        self.client.disks.create(cd_disk, size_mb=4, format="raw")
+
+        class CdromVm(Vm):
+            guest_agent = False
+
+            def _drives(self):
+                return super()._drives() + [
+                    {
+                        "disk_ref": cd_disk,
+                        "interface": "ide",
+                        "media": "cdrom",
+                        "read_only": True,
+                    }
+                ]
+
+        try:
+            with CdromVm(self) as vm:
+                drive_id = next(
+                    d.id for d in vm.cap.show().drives if d.disk_image.name == cd_disk
+                )
+                drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
+                assert drive.media == "cdrom"
+                assert drive.disk_image is not None
+
+                # Live eject: QMP eject first, then the DB row clears.
+                self.client.disks.eject_media(drive_id)
+                drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
+                assert drive.media == "cdrom"
+                assert drive.disk_image is None
+
+                # The tray is already empty, so a second eject is
+                # rejected without side effects.
+                with pytest.raises(ServerError, match=r"no media inserted"):
+                    self.client.disks.eject_media(drive_id)
+
+                # The empty tray persists across a reboot.
+                vm.cap.reset()
+                vm.cap.start(wait=True)
+                drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
+                assert drive.media == "cdrom"
+                assert drive.disk_image is None
+
+                # A medialess drive detaches cleanly once the VM is
+                # stopped (IDE cdroms are not hot-pluggable).
+                vm.cap.reset()
+                vm.cap.detach_disk(drive_id)
+                assert all(d.id != drive_id for d in vm.cap.show().drives)
+        finally:
+            self._delete_silent(cd_disk)
+
+    def test_media_change_live_persist(self):
+        """Live-change a CD-ROM drive's media to a second image, change
+        from an empty tray, and confirm the new media is present after a
+        reboot."""
+        cd_a = _uniq("chg-cd-a")
+        cd_b = _uniq("chg-cd-b")
+        self.client.disks.create(cd_a, size_mb=4, format="raw")
+        self.client.disks.create(cd_b, size_mb=4, format="raw")
+
+        class CdromVm(Vm):
+            guest_agent = False
+
+            def _drives(self):
+                return super()._drives() + [
+                    {
+                        "disk_ref": cd_a,
+                        "interface": "ide",
+                        "media": "cdrom",
+                        "read_only": True,
+                    }
+                ]
+
+        try:
+            with CdromVm(self) as vm:
+                drive_id = next(
+                    d.id for d in vm.cap.show().drives if d.disk_image.name == cd_a
+                )
+                drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
+                assert drive.media == "cdrom"
+                assert drive.disk_image.name == cd_a
+
+                # Live change: the running VM now serves cd_b.
+                self.client.disks.change_media(drive_id, cd_b)
+                drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
+                assert drive.media == "cdrom"
+                assert drive.disk_image is not None
+                assert drive.disk_image.name == cd_b
+
+                # Eject to an empty tray, then change from the empty
+                # tray back to cd_b.
+                self.client.disks.eject_media(drive_id)
+                drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
+                assert drive.disk_image is None
+                self.client.disks.change_media(drive_id, cd_b)
+                drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
+                assert drive.disk_image is not None
+                assert drive.disk_image.name == cd_b
+
+                # The new media persists across a reboot.
+                vm.cap.reset()
+                vm.cap.start(wait=True)
+                drive = next(d for d in vm.cap.show().drives if d.id == drive_id)
+                assert drive.media == "cdrom"
+                assert drive.disk_image is not None
+                assert drive.disk_image.name == cd_b
+
+                # Detach the drive (stopped) so cleanup reaps nothing.
+                vm.cap.reset()
+                vm.cap.detach_disk(drive_id)
+                assert all(d.id != drive_id for d in vm.cap.show().drives)
+        finally:
+            self._delete_silent(cd_a)
+            self._delete_silent(cd_b)
+
     def test_hot_attach_read_only(self):
         """`attach_disk(..., read_only=True)` surfaces as `read_only=True`
         on the matching drive in `vm.show()`."""

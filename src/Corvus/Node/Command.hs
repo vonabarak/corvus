@@ -254,13 +254,16 @@ buildQemuCommandFromSpec QemuConfig {..} spec monitorSock qmpSock serialSock gue
 
 -- | Per-drive argv assembly for 'buildQemuCommandFromSpec'.
 -- The wire-level 'VS.VmDriveSpec' already carries an absolute
--- 'vdsDiskFilePath' — the daemon resolved it from the DB.
+-- 'vdsDiskFilePath' (or 'Nothing' for a drive with no media) —
+-- the daemon resolved it from the DB.
+--
+-- CD-ROM drives are always emitted in legacy @-drive@ form carrying
+-- an @id=@: the QMP media eject\/change commands address drives by
+-- that legacy id, and an empty tray is expressed by omitting
+-- @file=@\/@format=@.
 driveArgsSpec :: VS.VmDriveSpec -> [String]
 driveArgsSpec d =
   let ifKind = T.unpack (VS.vdsIfKind d)
-      readOnlyFlag =
-        if VS.vdsReadOnly d then Just "readonly=on" else Nothing
-      formatStr = T.unpack (VS.vdsFormat d)
    in case ifKind of
         "virtio" ->
           hotpluggableDriveArgs
@@ -268,16 +271,20 @@ driveArgsSpec d =
             ("virtio-rp-" ++ driveId)
             True
         "scsi" ->
-          hotpluggableDriveArgs
-            (if VS.vdsMedia d == "cdrom" then "scsi-cd" else "scsi-hd")
-            "scsi0.0"
-            False
+          if isCdrom
+            then
+              cdromDriveArgs
+                "none"
+                ++ [ "-device"
+                   , "scsi-cd,id=" ++ deviceId ++ ",drive=" ++ nodeName ++ ",bus=scsi0.0"
+                   ]
+            else hotpluggableDriveArgs "scsi-hd" "scsi0.0" False
         "pflash" ->
           [ "-drive"
           , intercalate "," $
               catMaybes
-                [ Just $ "file=" ++ T.unpack (VS.vdsDiskFilePath d)
-                , Just $ "format=" ++ formatStr
+                [ fileArg
+                , formatArg
                 , Just "if=pflash"
                 , readOnlyFlag
                 ]
@@ -286,18 +293,19 @@ driveArgsSpec d =
           [ "-drive"
           , intercalate "," $
               catMaybes
-                [ Just $ "file=" ++ T.unpack (VS.vdsDiskFilePath d)
-                , Just $ "format=" ++ formatStr
+                [ fileArg
+                , formatArg
                 , Just "if=floppy"
                 , readOnlyFlag
                 ]
           ]
+        _ | isCdrom -> cdromDriveArgs (ifForQemu ifKind)
         _ ->
           [ "-drive"
           , intercalate "," $
               catMaybes
-                [ Just $ "file=" ++ T.unpack (VS.vdsDiskFilePath d)
-                , Just $ "format=" ++ formatStr
+                [ fileArg
+                , formatArg
                 , Just $ "if=" ++ ifForQemu ifKind
                 , case T.unpack (VS.vdsMedia d) of
                     "" -> Nothing
@@ -313,21 +321,52 @@ driveArgsSpec d =
     driveId = show (VS.vdsDriveId d)
     nodeName = "drive-" ++ driveId
     deviceId = "device-" ++ driveId
+    isCdrom = VS.vdsMedia d == "cdrom"
+    readOnlyFlag =
+      if VS.vdsReadOnly d then Just "readonly=on" else Nothing
+    -- A drive with no media (ejected CD-ROM tray) gets neither
+    -- @file=@ nor @format=@.
+    (fileArg, formatArg) =
+      case VS.vdsDiskFilePath d of
+        Just path ->
+          ( Just ("file=" ++ T.unpack path)
+          , Just ("format=" ++ T.unpack (VS.vdsFormat d))
+          )
+        Nothing -> (Nothing, Nothing)
+    fileNodeArg = fmap ("file.filename=" ++) (T.unpack <$> VS.vdsDiskFilePath d)
+
+    -- Legacy @-drive@ line for CD-ROM drives. @if@ is @none@ for
+    -- drives attached through a @-device@ (SCSI) and the bus name
+    -- for IDE\/SATA\/NVMe.
+    cdromDriveArgs ifMode =
+      [ "-drive"
+      , intercalate "," $
+          catMaybes
+            [ Just ("id=" ++ nodeName)
+            , Just ("if=" ++ ifMode)
+            , fileArg
+            , formatArg
+            , Just "media=cdrom"
+            , readOnlyFlag
+            ]
+      ]
 
     hotpluggableDriveArgs driver bus supportsDiscard =
       [ "-blockdev"
       , intercalate
           ","
-          [ "driver=" ++ T.unpack (VS.vdsFormat d)
-          , "node-name=" ++ nodeName
-          , "read-only=" ++ qemuBool (VS.vdsReadOnly d)
-          , "cache.direct=" ++ qemuBool cacheDirect
-          , "cache.no-flush=" ++ qemuBool cacheNoFlush
-          , "discard=" ++ if VS.vdsDiscard d then "unmap" else "ignore"
-          , "file.driver=file"
-          , "file.filename=" ++ T.unpack (VS.vdsDiskFilePath d)
-          , "file.read-only=" ++ qemuBool (VS.vdsReadOnly d)
-          ]
+          ( [ "driver=" ++ T.unpack (VS.vdsFormat d)
+            , "node-name=" ++ nodeName
+            , "read-only=" ++ qemuBool (VS.vdsReadOnly d)
+            , "cache.direct=" ++ qemuBool cacheDirect
+            , "cache.no-flush=" ++ qemuBool cacheNoFlush
+            , "discard=" ++ if VS.vdsDiscard d then "unmap" else "ignore"
+            , "file.driver=file"
+            ]
+              ++ catMaybes [fileNodeArg]
+              ++ [ "file.read-only=" ++ qemuBool (VS.vdsReadOnly d)
+                 ]
+          )
       , "-device"
       , intercalate "," $
           [ driver

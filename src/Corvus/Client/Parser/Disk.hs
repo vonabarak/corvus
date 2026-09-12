@@ -158,6 +158,44 @@ diskDetachCommand =
           <> completer diskCompleter
       )
 
+-- | Parser for disk media eject
+diskMediaEjectCommand :: Parser Command
+diskMediaEjectCommand =
+  DiskMediaEject
+    <$> argument
+      auto
+      ( metavar "DRIVE"
+          <> help "Numeric drive id of the CD-ROM drive (from `crv vm show`)"
+      )
+
+-- | Parser for disk media change
+diskMediaChangeCommand :: Parser Command
+diskMediaChangeCommand =
+  DiskMediaChange
+    <$> argument
+      auto
+      ( metavar "DRIVE"
+          <> help "Numeric drive id of the CD-ROM drive (from `crv vm show`)"
+      )
+    <*> argument
+      (T.pack <$> str)
+      ( metavar "DISK"
+          <> help "Name or ID of the new disk image (e.g. an ISO)"
+          <> completer diskCompleter
+      )
+
+-- | Parser for the disk media subcommand group
+diskMediaCommandParser :: Parser Command
+diskMediaCommandParser =
+  subparser
+    ( command
+        "eject"
+        (info diskMediaEjectCommand (progDesc "Eject the media of a CD-ROM drive"))
+        <> command
+          "change"
+          (info diskMediaChangeCommand (progDesc "Swap the media of a CD-ROM drive for a new disk image"))
+    )
+
 -- | Parser for disk register (existing local file, no copy)
 diskRegisterCommand :: Parser Command
 diskRegisterCommand =
@@ -483,6 +521,9 @@ diskCommandParser =
         <> command
           "detach"
           (info diskDetachCommand (progDesc "Detach a disk from a VM"))
+        <> command
+          "media"
+          (info diskMediaCommandParser (progDesc "CD-ROM drive media management (eject/change)"))
         <> command
           "refresh"
           (info diskRefreshCommand (progDesc "Refresh disk image size from qemu-img"))

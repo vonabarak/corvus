@@ -680,13 +680,15 @@ Snapshot
 
 Drive
     vmId VmId
-    diskImageId DiskImageId
+    diskImageId DiskImageId Maybe
     interface DriveInterface
     media DriveMedia Maybe
     readOnly Bool default=false
     cacheType CacheType
     discard Bool default=false
-    UniqueDrive vmId diskImageId
+    -- !force: diskImageId is nullable; NULLs are treated as distinct so a VM
+    -- may have several CD-ROM drives with no media (ejected tray) at once.
+    UniqueDrive vmId diskImageId !force
     deriving Show Eq Generic
 
 Network

@@ -93,9 +93,10 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
         Left err -> pure (Left err)
         Right resolvedNetIfs -> do
           let driveSpecs =
-                [ encodeDriveSpec basePath driveId drive di placement
-                | (driveId, drive, Just di, Just placement) <- drives
-                ]
+                concatMap
+                  ( \(driveId, drive, mImg, mPath) -> driveToSpec basePath driveId drive mImg mPath
+                  )
+                  drives
               netIfSpecs = map encodeNetIfSpec resolvedNetIfs
               sharedDirSpecs = map (encodeSharedDirSpec . entityVal) sharedDirs
               spec =
@@ -140,38 +141,56 @@ assembleVmSpec pool config mNetAgent vmId waitMs = do
           pure (Right spec)
 
 -- | Load the 'DiskImage' row and the per-node placement
--- ('DiskImageNode'.filePath) each 'Drive' references. The
--- placement is keyed on the VM's node; missing placements
--- surface as 'Nothing' (the same-node attach check should have
--- caught the inconsistency, so reaching here with 'Nothing'
--- means an operator hand-edited the DB).
+-- ('DiskImageNode'.filePath) each 'Drive' references.
+--
+-- A drive whose @diskImageId@ is NULL (an ejected CD-ROM tray)
+-- comes back with both 'Maybe' fields 'Nothing' — the spec keeps
+-- the drive with an empty path so the empty tray exists at boot.
+--
+-- A drive that references an image whose row or placement has
+-- vanished (the same-node attach check should have caught the
+-- inconsistency, so this means an operator hand-edited the DB)
+-- comes back with the missing half as 'Nothing'; the spec builder
+-- drops such drives, matching the pre-nullable behaviour.
 fetchDriveWithImage
   :: M.NodeId
   -> Entity Drive
   -> Database.Persist.Sql.SqlPersistT IO (Int64, Drive, Maybe M.DiskImage, Maybe T.Text)
-fetchDriveWithImage vmNode (Entity driveId drive) = do
-  mImg <- get (driveDiskImageId drive)
-  mPath <-
-    Database.Persist.getBy
-      (M.UniqueDiskImageOnNode (driveDiskImageId drive) vmNode)
-  let placementPath = fmap (M.diskImageNodeFilePath . entityVal) mPath
-  pure (fromSqlKey driveId, drive, mImg, placementPath)
+fetchDriveWithImage vmNode (Entity driveId drive) =
+  case driveDiskImageId drive of
+    Nothing -> pure (fromSqlKey driveId, drive, Nothing, Nothing)
+    Just imgKey -> do
+      mImg <- get imgKey
+      mPath <- Database.Persist.getBy (M.UniqueDiskImageOnNode imgKey vmNode)
+      let placementPath = fmap (M.diskImageNodeFilePath . entityVal) mPath
+      pure (fromSqlKey driveId, drive, mImg, placementPath)
 
--- | Encode a (Drive, DiskImage, placement-path) triple as
--- 'VS.VmDriveSpec'. The resulting @vdsDiskFilePath@ is an
--- absolute host path (relative DB paths are resolved against
--- @basePath@).
-encodeDriveSpec :: FilePath -> Int64 -> Drive -> M.DiskImage -> T.Text -> VS.VmDriveSpec
-encodeDriveSpec basePath driveId drive img placement =
-  let raw = T.unpack placement
-      absPath =
-        if take 1 raw == "/"
-          then raw
-          else basePath </> raw
+-- | Turn a fetched drive into zero or one 'VS.VmDriveSpec'.
+--
+-- Ejected drives (no image id at all) are kept with an empty path
+-- so the empty tray exists at boot. Drives whose image id is set
+-- but whose 'DiskImage' row or per-node placement has vanished are
+-- dropped — the pre-nullable behaviour for hand-edited DBs.
+driveToSpec :: FilePath -> Int64 -> Drive -> Maybe M.DiskImage -> Maybe T.Text -> [VS.VmDriveSpec]
+driveToSpec basePath driveId drive mImg mPath =
+  case (driveDiskImageId drive, mImg, mPath) of
+    (Nothing, _, _) -> [encodeDriveSpec basePath driveId drive Nothing Nothing]
+    (Just _, Just img, Just placement) -> [encodeDriveSpec basePath driveId drive (Just img) (Just placement)]
+    _ -> []
+
+-- | Encode a (Drive, Maybe DiskImage, Maybe placement-path) triple
+-- as 'VS.VmDriveSpec'. The resulting @vdsDiskFilePath@ is either
+-- 'Nothing' (no media) or an absolute host path (relative DB paths
+-- are resolved against @basePath@).
+encodeDriveSpec :: FilePath -> Int64 -> Drive -> Maybe M.DiskImage -> Maybe T.Text -> VS.VmDriveSpec
+encodeDriveSpec basePath driveId drive mImg mPlacement =
+  let absPathT t
+        | T.take 1 t == "/" = t
+        | otherwise = T.pack (basePath </> T.unpack t)
    in VS.VmDriveSpec
         { VS.vdsDriveId = driveId
-        , VS.vdsDiskFilePath = T.pack absPath
-        , VS.vdsFormat = enumToText (M.diskImageFormat img)
+        , VS.vdsDiskFilePath = absPathT <$> mPlacement
+        , VS.vdsFormat = maybe "raw" (enumToText . M.diskImageFormat) mImg
         , VS.vdsIfKind = ifKindFor (driveInterface drive)
         , VS.vdsMedia = maybe "" enumToText (driveMedia drive)
         , VS.vdsReadOnly = driveReadOnly drive

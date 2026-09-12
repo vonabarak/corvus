@@ -59,7 +59,8 @@ data VmInfo = VmInfo
 -- | Drive info for details view
 data DriveInfo = DriveInfo
   { diId :: !Int64
-  , diDiskImage :: !NamedRef
+  , diDiskImage :: !(Maybe NamedRef)
+  -- ^ 'Nothing' for an ejected media drive (no disk in tray).
   , diInterface :: !DriveInterface
   , diFilePath :: !Text
   , diFormat :: !DriveFormat

@@ -455,6 +455,18 @@ interface Session {
   # The returned ByteSink writes to a temporary sibling and renames it into
   # place only after end().
   diskOpenWrite @45 (destPath :Text) -> (sink :Streams.ByteSink);
+
+  # Eject the media of a CD-ROM drive. QEMU `eject` against the
+  # legacy drive backend drive-<driveId>. Throws if the drive is
+  # not removable (checked via `query-block` before the command).
+  vmEjectMedia @46 (vmId :Int64, driveId :Int64) -> ();
+
+  # Replace the media of a CD-ROM drive in place. QEMU
+  # `blockdev-change-medium` against drive-<driveId>; `format` is
+  # the qcow2/raw image format name. Throws if the drive is not
+  # removable (checked via `query-block` before the command).
+  vmChangeMedia @47 (vmId :Int64, driveId :Int64,
+                     filePath :Text, format :Text) -> ();
 }
 
 # Handle the source agent hands out for one in-flight read. Held

@@ -92,7 +92,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Maybe
 import qualified Data.Sequence as Seq
 import qualified Data.Text as T
-import Database.Persist (get)
+import Database.Persist (delete, get)
 import Database.Persist.Sql (fromSqlKey, runSqlPool, toSqlKey)
 import Supervisors (Supervisor)
 
@@ -441,16 +441,35 @@ instance CGVm.Vm'server_ VmCap where
     -- up the Drive row to bridge between the two representations.
     mDrive <- runSqlPool (get (toSqlKey driveId :: M.DriveId)) (ssDbPool st)
     case mDrive of
-      Just drv | M.driveVmId drv == toSqlKey eid -> do
-        let diskImageId = fromSqlKey (M.driveDiskImageId drv)
-        resp <- runAction st cn (DiskDetachByDisk {ddbVmId = eid, ddbDiskId = diskImageId})
-        case resp of
-          RespOk -> pure CGVm.Vm'detachDisk'results
-          RespDiskOk -> pure CGVm.Vm'detachDisk'results
-          RespVmNotFound -> throwFailed "VM not found"
-          RespDriveNotFound -> throwFailed "Drive not found"
-          RespError msg -> throwFailed msg
-          _ -> throwFailed "vm'detachDisk: unexpected response"
+      Just drv | M.driveVmId drv == toSqlKey eid -> case M.driveDiskImageId drv of
+        Just diskImageKey -> do
+          let diskImageId = fromSqlKey diskImageKey
+          resp <- runAction st cn (DiskDetachByDisk {ddbVmId = eid, ddbDiskId = diskImageId})
+          case resp of
+            RespOk -> pure CGVm.Vm'detachDisk'results
+            RespDiskOk -> pure CGVm.Vm'detachDisk'results
+            RespVmNotFound -> throwFailed "VM not found"
+            RespDriveNotFound -> throwFailed "Drive not found"
+            RespError msg -> throwFailed msg
+            _ -> throwFailed "vm'detachDisk: unexpected response"
+        Nothing -> do
+          -- Ejected media drive: no image attached, so the
+          -- image-based action cannot bridge to it. CD-ROM drives
+          -- are not hot-pluggable, so require a stopped VM and
+          -- drop the row directly.
+          mVm <- runSqlPool (get (M.driveVmId drv)) (ssDbPool st)
+          case mVm of
+            Nothing -> throwFailed "VM not found"
+            Just vm
+              | M.vmStatus vm `elem` [M.VmStarting, M.VmRunning, M.VmPaused] ->
+                  throwFailed
+                    ( "Drive "
+                        <> T.pack (show driveId)
+                        <> " has no media attached; CD-ROM drives cannot be detached while the VM is active - stop the VM first"
+                    )
+            Just _ -> do
+              runSqlPool (delete (toSqlKey driveId :: M.DriveId)) (ssDbPool st)
+              pure CGVm.Vm'detachDisk'results
       _ -> throwFailed "Drive not found"
 
   -- -------------------------------------------------------------------

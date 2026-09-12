@@ -326,9 +326,10 @@ listVmstateSiblingDrives vmKey = do
       [DriveVmId ==. vmKey, DriveReadOnly ==. False]
       [Asc DriveId]
   let candidateIds =
-        [ driveDiskImageId (entityVal d)
+        [ imgKey
         | d <- drives
         , driveInterface (entityVal d) `notElem` [InterfacePflash, InterfaceFloppy]
+        , Just imgKey <- [driveDiskImageId (entityVal d)]
         ]
   qcow2Ids <- filterM isQcow2 candidateIds
   pure (Right qcow2Ids)

@@ -350,7 +350,7 @@ ensureDiskAttached pool vmKey diskId = do
   existing <-
     liftIO $
       runSqlPool
-        (selectList [DriveVmId ==. vmKey, DriveDiskImageId ==. diskId] [])
+        (selectList [DriveVmId ==. vmKey, DriveDiskImageId ==. Just diskId] [])
         pool
   case existing of
     (_ : _) -> logDebugN "Cloud-init disk already attached"
@@ -361,7 +361,7 @@ ensureDiskAttached pool vmKey diskId = do
             ( insert
                 Drive
                   { driveVmId = vmKey
-                  , driveDiskImageId = diskId
+                  , driveDiskImageId = Just diskId
                   , driveInterface = InterfaceIde
                   , driveMedia = Just MediaCdrom
                   , driveReadOnly = True

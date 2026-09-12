@@ -554,7 +554,7 @@ printVmDetails vm = do
   where
     printDrive d = do
       putStrLn $ "  - ID: " ++ show (diId d)
-      putStrLn $ "    Disk Image: " ++ T.unpack (nrName (diDiskImage d))
+      putStrLn $ "    Disk Image: " ++ maybe "(no media)" (T.unpack . nrName) (diDiskImage d)
       putStrLn $ "    Interface: " ++ T.unpack (enumToText $ diInterface d)
       putStrLn $ "    Path: " ++ T.unpack (diFilePath d)
       putStrLn $ "    Format: " ++ T.unpack (enumToText $ diFormat d)

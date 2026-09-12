@@ -218,6 +218,18 @@ interface DiskManager {
   # task id for long-running progress observation.
   move          @10 (params :DiskMoveParams) -> (taskId :Int64);
   beginUpload   @11 (params :DiskUploadParams) -> (upload :DiskUpload);
+
+  # Eject the media of a CD-ROM drive (a drive row attached with
+  # --media cdrom). For an active VM: sends QMP `eject` to the agent,
+  # then clears the drive's media. For a stopped VM: clears the drive's
+  # media; the tray is empty at the next boot.
+  mediaEject    @12 (driveId :Int64) -> ();
+
+  # Swap the media of a CD-ROM drive for `newDiskRef`. For an active
+  # VM: sends QMP `blockdev-change-medium` to the agent, then points
+  # the drive at the new image. For a stopped VM: only the drive row
+  # is updated; the new media is picked up at the next boot.
+  mediaChange   @13 (driveId :Int64, newDiskRef :Common.EntityRef) -> ();
 }
 
 # A one-shot client-upload session. finish() publishes the completed image and

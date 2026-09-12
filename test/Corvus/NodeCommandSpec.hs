@@ -47,7 +47,7 @@ virtioDrive :: VmDriveSpec
 virtioDrive =
   VmDriveSpec
     { vdsDriveId = 42
-    , vdsDiskFilePath = "/var/lib/corvus/data.qcow2"
+    , vdsDiskFilePath = Just "/var/lib/corvus/data.qcow2"
     , vdsFormat = "qcow2"
     , vdsIfKind = "virtio"
     , vdsMedia = "disk"
@@ -60,7 +60,7 @@ scsiDrive :: VmDriveSpec
 scsiDrive =
   VmDriveSpec
     { vdsDriveId = 43
-    , vdsDiskFilePath = "/var/lib/corvus/installer.iso"
+    , vdsDiskFilePath = Just "/var/lib/corvus/installer.iso"
     , vdsFormat = "raw"
     , vdsIfKind = "scsi"
     , vdsMedia = "cdrom"
@@ -100,8 +100,30 @@ spec = describe "buildQemuCommandFromSpec" $ do
     args `shouldContain` ["pcie-root-port,id=scsi-rp,chassis=1,slot=1"]
     args `shouldContain` ["virtio-scsi-pci,id=scsi0,bus=scsi-rp"]
     args
-      `shouldContain` [ "-blockdev"
-                      , "driver=raw,node-name=drive-43,read-only=on,cache.direct=on,cache.no-flush=on,discard=ignore,file.driver=file,file.filename=/var/lib/corvus/installer.iso,file.read-only=on"
+      `shouldContain` [ "-drive"
+                      , "id=drive-43,if=none,file=/var/lib/corvus/installer.iso,format=raw,media=cdrom,readonly=on"
                       , "-device"
-                      , "scsi-cd,id=device-43,drive=drive-43,bus=scsi0.0,write-cache=on"
+                      , "scsi-cd,id=device-43,drive=drive-43,bus=scsi0.0"
+                      ]
+
+  it "emits IDE CD-ROM drives as legacy -drive lines carrying an ejectable id" $ do
+    let ideCdrom =
+          scsiDrive
+            { vdsDriveId = 44
+            , vdsIfKind = "ide"
+            }
+        args = qemuArgs baseSpec {vsDrives = [ideCdrom]}
+    args
+      `shouldContain` [ "-drive"
+                      , "id=drive-44,if=ide,file=/var/lib/corvus/installer.iso,format=raw,media=cdrom,readonly=on"
+                      ]
+
+  it "omits file and format for a CD-ROM drive whose tray is empty" $ do
+    let emptyTray = scsiDrive {vdsDiskFilePath = Nothing}
+        args = qemuArgs baseSpec {vsDrives = [emptyTray]}
+    args
+      `shouldContain` [ "-drive"
+                      , "id=drive-43,if=none,media=cdrom,readonly=on"
+                      , "-device"
+                      , "scsi-cd,id=device-43,drive=drive-43,bus=scsi0.0"
                       ]

@@ -39,6 +39,7 @@ module Test.DSL.Then
   , driveNotExists
   , driveExistsForVm
   , driveCountForVm
+  , driveMediaIs
   , snapshotExists
   , snapshotNotExists
   , snapshotCountForDisk
@@ -243,7 +244,7 @@ driveExistsForVm :: Int64 -> Int64 -> TestM ()
 driveExistsForVm vmId diskImageId = do
   let vmKey = toSqlKey vmId :: VmId
       diskKey = toSqlKey diskImageId :: DiskImageId
-  drives <- runDb $ selectList [DriveVmId ==. vmKey, DriveDiskImageId ==. diskKey] []
+  drives <- runDb $ selectList [DriveVmId ==. vmKey, DriveDiskImageId ==. Just diskKey] []
   liftIO $ length drives `shouldSatisfy` (> 0)
 
 driveCountForVm :: Int64 -> Int -> TestM ()
@@ -251,6 +252,15 @@ driveCountForVm vmId expectedCount = do
   let vmKey = toSqlKey vmId :: VmId
   cnt <- runDb $ count [DriveVmId ==. vmKey]
   liftIO $ cnt `shouldBe` expectedCount
+
+-- | Assert that drive @driveId@'s @driveDiskImageId@ equals
+-- @mDiskImageId@ ('Nothing' for an ejected / empty tray).
+driveMediaIs :: Int64 -> Maybe Int64 -> TestM ()
+driveMediaIs driveId mDiskImageId = do
+  mDrive <- runDb $ get (toSqlKey driveId :: DriveId)
+  case mDrive of
+    Nothing -> liftIO $ fail $ "Drive not found: " <> show driveId
+    Just d -> liftIO $ fmap fromSqlKey (driveDiskImageId d) `shouldBe` mDiskImageId
 
 snapshotExists :: Int64 -> TestM ()
 snapshotExists snapshotId = do
