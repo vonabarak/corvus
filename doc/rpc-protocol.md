@@ -12,7 +12,7 @@ runnable Python example.
 | File | Purpose |
 |---|---|
 | `schema/corvus.capnp` | Root `Daemon` interface; entry point for everything. |
-| `schema/common.capnp` | Cross-cutting types: `EntityRef`, `StatusInfo`, `ViewGrant`. |
+| `schema/common.capnp` | Cross-cutting types: `EntityRef`, `NamedRef`, `StatusInfo`, `ViewGrant`. |
 | `schema/enums.capnp` | Shared enums (`VmStatus`, `DriveFormat`, `TaskResult`, …). |
 | `schema/vm.capnp` | `VmManager` + `Vm` cap; per-VM lifecycle, snapshots, console. |
 | `schema/disk.capnp` | `DiskManager` + `Disk` cap; CRUD, overlays, snapshots. |
@@ -50,6 +50,8 @@ ID confusion.
 
 ## Entity references
 
+### Input lookups
+
 Everywhere the legacy protocol accepted a textual `Ref` that the
 daemon parsed as an integer ID or a name, the Cap'n Proto schema
 uses a union:
@@ -69,6 +71,37 @@ or `crv vm start 42`): it parses bare digits as `id`, otherwise
 `name`, and encodes the union locally. Names that happen to be all
 digits are unaddressable by name from the CLI; library users can
 construct an `EntityRef.name = "42"` to reach them.
+
+### Output references
+
+Every JSON / REST response field that refers to a different entity must use the
+nested `{id, name}` shape, never flat `<role>_id` plus `<role>_name` fields. Use
+the shared `NamedRef` type:
+
+- **Cap'n Proto**: `Common.NamedRef` in [`schema/common.capnp`](../schema/common.capnp).
+- **Haskell**: `Corvus.Protocol.NamedRef` (record with `nrId`, `nrName`).
+- **Python**: `corvus_client.types.NamedRef`.
+- **TypeScript**: `NamedRef` in [`frontend/src/api/refs.ts`](../frontend/src/api/refs.ts).
+
+Optional references become `Maybe NamedRef` / `NamedRef | None` /
+`NamedRef | null`. On the wire the absence is encoded as `id == 0`; the
+language-level converters translate to the appropriate nullable type at the
+boundary so consumers never see the sentinel.
+
+The field name on the container is the role, not the entity's name: a drive's
+reference to its image is `disk_image: NamedRef`, not `image` or
+`disk_image_ref`. When in doubt, mirror the foreign-key column name in the
+database (`drive.disk_image_id` -> field `disk_image`).
+
+Two narrow carve-outs:
+
+- `TaskInfo.parent_id` stays flat (`Maybe Int64`) because tasks do not carry a
+  human-readable name field.
+- Input-side RPC lookups use `Common.EntityRef` (a separate id-or-name union; see
+  `Corvus.Wire.Common.EntityRef`). `NamedRef` is output-only.
+
+Database-only references that never surface in CLI / REST / client output, such
+as internal task-tracking columns, are exempt.
 
 ## Streaming
 

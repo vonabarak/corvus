@@ -36,6 +36,8 @@
 
 ## Development
 
+- [Architecture](architecture.md) -- Component ownership, source layout, runtime patterns, entities, and enums
+- [Development Guide](development.md) -- Build dependencies, Make targets, test structure, implementation conventions, and verification
 - [Database Migrations](database-migrations.md) -- Versioned upgrades, authoring and retiring migration modules, and backend tests
 
 ## Examples

@@ -223,15 +223,8 @@ crv shutdown         # Request daemon shutdown
 
 ### Building and Testing
 
-```bash
-make build                                # Build
-make unit-tests                           # Haskell unit tests
-make unit-tests MATCH="pattern"           # Filtered unit tests
-make integration-tests                    # Pytest integration suite (requires nested KVM)
-make integration-tests MATCH="pattern"    # Filtered integration tests
-make lint                                 # HLint
-make format                               # Fourmolu
-```
+See the [development guide](development.md) for build dependencies, Make targets,
+test structure, implementation conventions, and required verification.
 
 ### Test Images
 
@@ -259,6 +252,9 @@ stack exec crv -- vm list
 ```
 
 ## Architecture
+
+See the [architecture guide](architecture.md) for component ownership and the
+source layout. The sections below describe runtime behavior.
 
 ### Communication Protocol
 

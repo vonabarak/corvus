@@ -39,9 +39,12 @@ block for completion or `crv task show <ID>` to inspect progress and results.
 - The VM has no shared directories (host paths are node-local).
 - TPM is disabled. TPM state is node-local and is not transferred;
   disable TPM first, which permanently removes its persistent state.
-- The VM has zero network interfaces, or every interface is of type
-  `user` (SLIRP). Bridge / tap / macvtap / managed interfaces are
-  not yet supported — cross-node networks are out of scope.
+- Every network interface is of type `user` (SLIRP) — always
+  allowed — or `managed` on a network that includes the
+  destination node (as owner, or as a peer added with
+  `crv network attach-node`), so the VXLAN overlay carries the
+  L2 segment to the new host. Bridge / tap / macvtap interfaces
+  are node-local and still refuse migration.
 - For every disk attached to the VM, the destination has enough
   free storage to hold the bytes being copied (with a 1 GiB safety
   margin).
@@ -135,11 +138,15 @@ token providing per-transfer authorization on top of that.
 
 - **Offline only.** No live state migration; the VM is stopped on
   the source and started on the destination.
-- **No managed networks across nodes.** Per the existing networking
-  constraints (see [doc/multi-node.md](multi-node.md)).
-- **No VM-wide snapshots yet.** A pre-migration safety snapshot is
-  a planned follow-up; for now the orchestrator does not snapshot
-  before moving.
+- **Managed networks cross nodes only when the destination is a
+  member of the network** (owner, or a peer added with
+  `crv network attach-node`). Bridge / tap / macvtap interfaces
+  are node-local and never migrate. See
+  [doc/multi-node.md](multi-node.md).
+- **The orchestrator does not snapshot before moving.** If the VM
+  is running and you want a rollback point, take a full-VM
+  snapshot manually first with `crv vm snapshot create` (requires
+  the VM to be running; see [doc/snapshots.md](snapshots.md)).
 - **No bandwidth limiting, parallel transfers, or resumable
   retries.** Sequential, restart-on-failure.
 

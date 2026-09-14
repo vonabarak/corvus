@@ -147,9 +147,12 @@ needs to open simultaneously must live on the same kernel:
     the image over and run `crv disk register --node <vm-node>
     <name> <path>`.
   * **Network interface add** with a managed network
-    (`network: <name>` on a netif). The network's node and the
-    VM's node must match. A managed-NIC TAP can only join a
-    bridge that lives on the same kernel as qemu.
+    (`network: <name>` on a netif). The VM's node must be a
+    member of the network — its owner, or a peer added with
+    `crv network attach-node`. A managed-NIC TAP can only join a
+    bridge that lives on the same kernel as qemu; each member
+    runs its own bridge (peers get an L2-only bridge plus the
+    VXLAN VTEP), so the check is membership, not identity.
 
 ## Per-node connections
 
@@ -271,7 +274,8 @@ Cap'n Proto schema additions for multi-node:
     transfers disks agent-to-agent, restores the VM on the destination, and
     flips the placement in one transaction. See
     [doc/vm-migration.md](vm-migration.md) for constraints (no
-    shared dirs, `user`-type netifs only, target node must have
+    shared dirs, netifs limited to `user` or `managed` on a
+    network that includes the destination, target node must have
     enough RAM + disk).
 
   * **Disk replication via explicit verbs.** `crv disk copy
@@ -280,8 +284,11 @@ Cap'n Proto schema additions for multi-node:
     placement (and unlinks the source file). Both are
     agent-to-agent — no rsync, no daemon-side relay.
 
-  * **Per-node networks only**. Networks have a `node_id`
-    FK — overlays / cross-node VXLAN are out of scope.
+  * **Networks are anchored to one node.** Networks have a
+    `node_id` FK (the owner); other nodes join as peers with
+    `crv network attach-node`, and the VXLAN overlay carries the
+    L2 segment between members. A managed-NIC VM may sit on the
+    owner or any peer.
 
   * **No quotas** beyond the basic free-RAM / free-disk filter
     in the scheduler. `admin_state = draining` is the only

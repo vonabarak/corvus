@@ -110,10 +110,12 @@ Limitations:
   warning. dnsmasq still answers DNS on the bridge IP for any
   client that asks it directly.
 
-Networks are per-node — the bridge and dnsmasq instance live
-on the kernel of the node owning the network. The daemon's
-**same-node netif check** refuses to add a managed-NIC pointing
-at a network on a different node than the VM. See
+Networks are anchored to one node — the bridge and dnsmasq
+instance live on the kernel of the node owning the network.
+Other nodes join as peers with `crv network attach-node`, and
+the VXLAN overlay carries the L2 segment between members. The
+daemon's **member check** refuses a managed-NIC whose VM's node
+is neither the owner nor a peer of the network. See
 [multi-node.md](multi-node.md) for the full invariant.
 
 ### Network Lifecycle

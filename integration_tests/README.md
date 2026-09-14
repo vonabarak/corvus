@@ -160,10 +160,48 @@ integration_tests/.venv/bin/pytest integration_tests/tests/test_vm_lifecycle.py 
 integration_tests/.venv/bin/pytest integration_tests/tests -v -k TestDisk -s
 ```
 
-The repo pytest config uses `--dist=loadscope`; each test class stays on one
-worker so its class-scoped topology boots once. The harness also orders test
-methods by source line, starts `@pytest.mark.slow` classes early, and skips
-remaining methods in a class after the first real failure.
+The repo pytest config uses `--dist=loadscope`. See [Writing tests](#writing-tests)
+for class isolation, scheduling, and slow-test marking requirements.
+
+## Writing tests
+
+Use the topology base classes described above and keep shared state in their
+class-scoped fixtures. See [conftest.py](conftest.py) for collection and scheduler
+hooks and [the harness](corvus_test_harness/) for topology helpers.
+
+### Scheduling and shared state
+
+The custom xdist scheduler in [`conftest.py`](conftest.py)
+(`_LoadScopeShutdownSingleton`) enforces two invariants every new test must
+respect:
+
+1. **Class atomicity.** Every test method in a class runs on the same worker. The
+   class-scoped `topology` fixture in `IntegrationTestCase` boots one outer
+   test-node VM per class and relies on this. Design tests so all state shared
+   across methods of a class is held by the class fixture; never assume
+   coordination between methods on different workers.
+
+2. **On-demand scope dispatch.** A test class is assigned to a worker only when
+   that worker is down to one pending test (the running one). A slow class does
+   not accumulate a backlog of queued classes behind it on the same worker; idle
+   workers pick up queued classes from the global queue first. Design tests so
+   they do not depend on a specific cross-class execution order.
+
+When writing a multi-minute test class, mark it `@pytest.mark.slow` so it floats
+to the head of the dispatch queue (see `pytest_collection_modifyitems`) and
+can start as soon as a worker is available.
+
+The harness orders test methods by source line and skips remaining methods in
+a class after the first real failure.
+
+### Networking and logging
+
+Networking tests drive a `corvus-netd` instance with `CAP_NET_ADMIN`; the netd
+smoke path launches it through `systemd-run` on the test node and tunnels
+Cap'n Proto over SSH so pytest itself stays unprivileged.
+
+Log level during tests is controlled by `CORVUS_TEST_LOG_LEVEL` (default:
+`info`). Use `CORVUS_TEST_LOG_LEVEL=debug` for verbose output.
 
 ## Failure And Cleanup Behavior
 

@@ -88,7 +88,8 @@ The daemon enforces same-node invariants downstream:
 
   * A VM's drive must have a `disk_image_node` placement on the
     VM's node.
-  * A managed-NIC must point at a network on the VM's node.
+  * A managed-NIC must point at a network that includes the VM's
+    node (as owner or peer).
 
 So when you do pin one resource to a node, anything referencing
 it from the same apply YAML usually needs the same `node:`
