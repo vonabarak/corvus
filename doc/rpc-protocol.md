@@ -162,6 +162,156 @@ available"`, validation messages, etc. Pure result responses
 (state transitions, ids of newly-created entities) stay as
 struct returns.
 
+### Structured Wire Error Codes (B3)
+
+Starting with RPC protocol version **2**, the daemon emits **structured
+error codes** on the wire, enabling clients to map errors to typed
+exceptions via a simple dictionary lookup instead of regex-matching
+free-text messages.
+
+#### Wire Format
+
+Every RPC failure from the daemon is rendered as:
+
+```
+<code> :: <message>
+```
+
+- `<code>`: A stable snake_case token from the `ErrorCode` enum (see below)
+- `::`: The fixed delimiter (space-colon-colon-space)
+- `<message>`: Human-readable error description
+
+Example: `vm_not_found :: VM 'web-1' not found`
+
+#### Error Code Enum
+
+The `ErrorCode` enum in `schema/enums.capnp` defines the complete set
+of machine-readable codes (28 codes in protocol version 2):
+
+| Code | Meaning | HTTP Status (web gateway) |
+|---|---|---|
+| `vm_not_found` | No VM matches the reference | 404 |
+| `disk_not_found` | No disk image matches the reference | 404 |
+| `snapshot_not_found` | No snapshot matches the reference | 404 |
+| `drive_not_found` | VM has no drive matching the reference | 404 |
+| `network_not_found` | No network matches the reference | 404 |
+| `netif_not_found` | VM has no network interface with that id | 404 |
+| `ssh_key_not_found` | No SSH key matches the reference | 404 |
+| `shared_dir_not_found` | VM has no shared directory with that reference | 404 |
+| `template_not_found` | No template matches the reference | 404 |
+| `task_not_found` | No task with the given id | 404 |
+| `node_not_found` | No node matches the reference | 404 |
+| `disk_in_use` | Disk is still attached to running VMs | 409 |
+| `disk_has_overlays` | Disk is the backing image of overlays | 409 |
+| `vm_must_be_stopped` | Operation requires the VM to be stopped | 409 |
+| `vm_not_running` | VM is not running | 409 |
+| `vm_headless` | VM has no SPICE display | 409 |
+| `network_in_use` | Network is referenced by VMs/interfaces | 409 |
+| `network_already_running` | Network is already running | 409 |
+| `network_not_running` | Network must be running for this operation | 409 |
+| `ssh_key_in_use` | SSH key is attached to running VMs | 409 |
+| `node_in_use` | Node is still referenced by VMs/networks/disks | 409 |
+| `invalid_transition` | FSM rejected the state transition | 409 |
+| `format_not_supported` | Disk format doesn't support the operation | 400 |
+| `guest_agent_not_enabled` | QEMU guest agent not enabled | 503 |
+| `guest_agent_error` | Guest agent communication failed | 503 |
+| `ambiguous_ref` | Name matched multiple entities across nodes | 400 |
+| `internal_error` | Generic daemon error | 500 |
+| `protocol_error` | Malformed request or unknown enum | 400 |
+
+#### Client Handling
+
+**Haskell (`crv` CLI)**:
+- Structured output (JSON/YAML): Includes `code` field in `rpc_error` objects
+- Text output: Prints `Error [code]: message` format
+
+**Python (`corvus_client`)**:
+- Translates wire codes to typed exception classes via `_CODE_MAP` dict
+- Falls back to `ServerError` for unknown codes or legacy messages
+- Preserves `details` field with original daemon description
+
+**Web Gateway (`corvus_web`)**:
+- Extracts code from exception's `details` field
+- Includes `code` in JSON error responses
+- Maps codes to HTTP status codes (see table above)
+
+#### Version Compatibility
+
+- **New daemon (v2+) + new client**: Full structured codes
+- **New daemon (v2+) + old client**: Message has code prefix; old regex table misses it → `ServerError`
+- **Old daemon (v1) + new client**: No code prefix → falls back to generic error
+
+Both directions degrade gracefully; no crashes, only loss of typed exceptions
+until both sides update. The protocol version is exposed in `StatusInfo`
+(see `crv status`).
+
+#### Migration Guide for Clients
+
+**If you currently parse daemon error messages as free text:**
+
+The new wire format prefixes error messages with `<code> :: `. This means
+your existing text-matching logic may need adjustments:
+
+1. **Check for code prefix**: Error messages now start with tokens like `vm_not_found :: `
+2. **Update regex patterns**: If you match specific messages, prepend the code:
+   - Old: `"VM not found"`
+   - New: `"vm_not_found :: VM not found"`
+3. **Or better: parse the code**: Extract the code from the message prefix for reliable matching
+
+**If you use the Python client (`corvus_client`):**
+
+The client now raises typed exceptions directly. Instead of:
+
+```python
+# Old: regex-matching message text
+try:
+    vm = client.vms.get("nonexistent")
+except Exception as e:
+    if "not found" in str(e):
+        handle_not_found()
+```
+
+Use the typed exception classes:
+
+```python
+# New: catch specific exception types
+from corvus_client.exceptions import VmNotFound
+
+try:
+    vm = client.vms.get("nonexistent")
+except VmNotFound:
+    handle_not_found()
+```
+
+**New exception classes available:**
+- `VmNotRunning`, `VmHeadless` (subclasses of `VmRunning`)
+- `AmbiguousRef` (for name collisions across nodes)
+- All other existing exception classes now have corresponding wire codes
+
+**If you use the Haskell CLI (`crv`):**
+
+Structured output now includes error codes:
+
+```bash
+# JSON output
+$ crv -f json vm show nonexistent
+{"status":"error","error":"rpc_error","code":"vm_not_found","message":"VM not found"}
+
+# YAML output
+$ crv -f yaml vm show nonexistent
+status: error
+error: rpc_error
+code: vm_not_found
+message: VM not found
+
+# Text output
+$ crv vm show nonexistent
+Error [vm_not_found]: VM not found
+```
+
+The text format change (`Error [code]: message` instead of `Error: <full exception>`)
+makes errors more machine-readable for scripting.
+
 ## Python client
 
 Corvus ships a Python package at [`python/corvus_client/`](../python/corvus_client/)

@@ -22,7 +22,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (unless)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (emitError, emitResult)
+import Corvus.Client.Output (emitError, emitResult, emitRpcError)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), TaskResult (..))
 import Corvus.Protocol (ApplyCreated (..), ApplyEvent (..), ApplyResult (..))
@@ -71,7 +71,7 @@ runStreaming fmt conn yaml skipExisting = do
   r <- try @SomeException (CR.rpcApplyStream conn yaml skipExisting onEvent onEnd)
   case r of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Apply failed: " ++ show e)
       pure False
     Right _tid -> do
@@ -95,7 +95,7 @@ runLegacy fmt conn yaml skipExisting wait = do
               "Apply started (task ID: " ++ show taskId ++ ")"
           pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Apply failed: " ++ show e)
       pure False
 

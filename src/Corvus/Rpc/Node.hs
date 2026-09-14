@@ -1,5 +1,4 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -13,7 +12,6 @@ where
 
 import Capnp (export)
 import qualified Capnp.Gen.Node as CGNode
-import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Node
@@ -26,9 +24,10 @@ import Corvus.Handlers.Node
   )
 import qualified Corvus.Handlers.Resolve as Resolve
 import Corvus.Protocol (Response (..))
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
+import Corvus.Rpc.Common (capnpRefToRef, handleParsed, resolveOrThrow, throwError, throwWireError)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Enums (fromCapnpNodeAdminState)
+import Corvus.Wire.Error (ErrorCode (..))
 import Corvus.Wire.Errors (WireError)
 import Corvus.Wire.Node (toCapnpNodeDetails, toCapnpNodeInfo)
 import Data.Int (Int64)
@@ -52,13 +51,12 @@ instance CGNode.NodeManager'server_ NodeManagerCap where
     case resp of
       RespNodeList nodes ->
         pure CGNode.NodeManager'list'results {CGNode.nodes = map toCapnpNodeInfo nodes}
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "nodeManager'list: unexpected response"
+      _ -> throwError resp
 
   nodeManager'get (NodeManagerCap st sup cn) =
     handleParsed $ \CGNode.NodeManager'get'params {..} -> do
       ref' <- capnpRefToRef ref
-      eid <- failOnLeft =<< Resolve.resolveNode ref' (ssDbPool st)
+      eid <- resolveOrThrow =<< Resolve.resolveNode ref' (ssDbPool st)
       client <- export @CGNode.Node sup (NodeCap st eid cn)
       pure CGNode.NodeManager'get'results {CGNode.node = client}
 
@@ -81,8 +79,7 @@ instance CGNode.NodeManager'server_ NodeManagerCap where
         RespNodeCreated nid -> do
           client <- export @CGNode.Node sup (NodeCap st nid cn)
           pure CGNode.NodeManager'create'results {CGNode.node = client}
-        RespError msg -> throwFailed msg
-        _ -> throwFailed (T.pack ("nodeManager'create: unexpected response: " <> show resp))
+        _ -> throwError resp
 
 data NodeCap = NodeCap
   { ncState :: !ServerState
@@ -98,9 +95,7 @@ instance CGNode.Node'server_ NodeCap where
     case resp of
       RespNodeDetails det ->
         pure CGNode.Node'show'results {CGNode.details = toCapnpNodeDetails det}
-      RespNodeNotFound -> throwFailed "Node not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "node'show: unexpected response"
+      _ -> throwError resp
 
   node'edit (NodeCap st eid cn) =
     handleParsed $ \CGNode.Node'edit'params {params = CGNode.NodeEditParams {..}} -> do
@@ -127,26 +122,19 @@ instance CGNode.Node'server_ NodeCap where
       resp <- runAction st cn act
       case resp of
         RespNodeEdited -> pure CGNode.Node'edit'results
-        RespNodeNotFound -> throwFailed "Node not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "node'edit: unexpected response"
+        _ -> throwError resp
 
   node'drain (NodeCap st eid cn) = handleParsed $ \_ -> do
     resp <- runAction st cn (NodeDrain eid)
     case resp of
       RespNodeEdited -> pure CGNode.Node'drain'results
-      RespNodeNotFound -> throwFailed "Node not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "node'drain: unexpected response"
+      _ -> throwError resp
 
   node'delete (NodeCap st eid cn) = handleParsed $ \_ -> do
     resp <- runAction st cn (NodeDelete eid)
     case resp of
       RespNodeDeleted -> pure CGNode.Node'delete'results
-      RespNodeNotFound -> throwFailed "Node not found"
-      RespNodeInUse msg -> throwFailed msg
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "node'delete: unexpected response"
+      _ -> throwError resp
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -154,4 +142,4 @@ instance CGNode.Node'server_ NodeCap where
 
 failOnEnum :: Either WireError a -> IO a
 failOnEnum (Right x) = pure x
-failOnEnum (Left e) = throwFailed (T.pack (show e))
+failOnEnum (Left e) = throwWireError ProtocolError (T.pack (show e))

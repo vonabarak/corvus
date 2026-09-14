@@ -650,3 +650,167 @@ instance (C.Parse QuiesceMode QuiesceMode) where
 instance (C.AllocateList QuiesceMode) where
     type ListAllocHint QuiesceMode = Std_.Int
 instance (C.EstimateListAlloc QuiesceMode QuiesceMode)
+data ErrorCode 
+    = ErrorCode'vmNotFound 
+    | ErrorCode'diskNotFound 
+    | ErrorCode'snapshotNotFound 
+    | ErrorCode'driveNotFound 
+    | ErrorCode'networkNotFound 
+    | ErrorCode'netifNotFound 
+    | ErrorCode'sshKeyNotFound 
+    | ErrorCode'sharedDirNotFound 
+    | ErrorCode'templateNotFound 
+    | ErrorCode'taskNotFound 
+    | ErrorCode'nodeNotFound 
+    | ErrorCode'diskInUse 
+    | ErrorCode'diskHasOverlays 
+    | ErrorCode'vmMustBeStopped 
+    | ErrorCode'vmNotRunning 
+    | ErrorCode'vmHeadless 
+    | ErrorCode'networkInUse 
+    | ErrorCode'networkAlreadyRunning 
+    | ErrorCode'networkNotRunning 
+    | ErrorCode'sshKeyInUse 
+    | ErrorCode'nodeInUse 
+    | ErrorCode'invalidTransition 
+    | ErrorCode'formatNotSupported 
+    | ErrorCode'guestAgentNotEnabled 
+    | ErrorCode'guestAgentError 
+    | ErrorCode'ambiguousRef 
+    | ErrorCode'internalError 
+    | ErrorCode'protocolError 
+    | ErrorCode'unknown' Std_.Word16
+    deriving(Std_.Eq
+            ,Std_.Show
+            ,Generics.Generic)
+type instance (R.ReprFor ErrorCode) = (R.Data R.Sz16)
+instance (C.HasTypeId ErrorCode) where
+    typeId  = 11049940907491968090
+instance (Std_.Enum ErrorCode) where
+    toEnum n_ = case n_ of
+        0 ->
+            ErrorCode'vmNotFound
+        1 ->
+            ErrorCode'diskNotFound
+        2 ->
+            ErrorCode'snapshotNotFound
+        3 ->
+            ErrorCode'driveNotFound
+        4 ->
+            ErrorCode'networkNotFound
+        5 ->
+            ErrorCode'netifNotFound
+        6 ->
+            ErrorCode'sshKeyNotFound
+        7 ->
+            ErrorCode'sharedDirNotFound
+        8 ->
+            ErrorCode'templateNotFound
+        9 ->
+            ErrorCode'taskNotFound
+        10 ->
+            ErrorCode'nodeNotFound
+        11 ->
+            ErrorCode'diskInUse
+        12 ->
+            ErrorCode'diskHasOverlays
+        13 ->
+            ErrorCode'vmMustBeStopped
+        14 ->
+            ErrorCode'vmNotRunning
+        15 ->
+            ErrorCode'vmHeadless
+        16 ->
+            ErrorCode'networkInUse
+        17 ->
+            ErrorCode'networkAlreadyRunning
+        18 ->
+            ErrorCode'networkNotRunning
+        19 ->
+            ErrorCode'sshKeyInUse
+        20 ->
+            ErrorCode'nodeInUse
+        21 ->
+            ErrorCode'invalidTransition
+        22 ->
+            ErrorCode'formatNotSupported
+        23 ->
+            ErrorCode'guestAgentNotEnabled
+        24 ->
+            ErrorCode'guestAgentError
+        25 ->
+            ErrorCode'ambiguousRef
+        26 ->
+            ErrorCode'internalError
+        27 ->
+            ErrorCode'protocolError
+        tag_ ->
+            (ErrorCode'unknown' (Std_.fromIntegral tag_))
+    fromEnum value_ = case value_ of
+        (ErrorCode'vmNotFound) ->
+            0
+        (ErrorCode'diskNotFound) ->
+            1
+        (ErrorCode'snapshotNotFound) ->
+            2
+        (ErrorCode'driveNotFound) ->
+            3
+        (ErrorCode'networkNotFound) ->
+            4
+        (ErrorCode'netifNotFound) ->
+            5
+        (ErrorCode'sshKeyNotFound) ->
+            6
+        (ErrorCode'sharedDirNotFound) ->
+            7
+        (ErrorCode'templateNotFound) ->
+            8
+        (ErrorCode'taskNotFound) ->
+            9
+        (ErrorCode'nodeNotFound) ->
+            10
+        (ErrorCode'diskInUse) ->
+            11
+        (ErrorCode'diskHasOverlays) ->
+            12
+        (ErrorCode'vmMustBeStopped) ->
+            13
+        (ErrorCode'vmNotRunning) ->
+            14
+        (ErrorCode'vmHeadless) ->
+            15
+        (ErrorCode'networkInUse) ->
+            16
+        (ErrorCode'networkAlreadyRunning) ->
+            17
+        (ErrorCode'networkNotRunning) ->
+            18
+        (ErrorCode'sshKeyInUse) ->
+            19
+        (ErrorCode'nodeInUse) ->
+            20
+        (ErrorCode'invalidTransition) ->
+            21
+        (ErrorCode'formatNotSupported) ->
+            22
+        (ErrorCode'guestAgentNotEnabled) ->
+            23
+        (ErrorCode'guestAgentError) ->
+            24
+        (ErrorCode'ambiguousRef) ->
+            25
+        (ErrorCode'internalError) ->
+            26
+        (ErrorCode'protocolError) ->
+            27
+        (ErrorCode'unknown' tag_) ->
+            (Std_.fromIntegral tag_)
+instance (C.IsWord ErrorCode) where
+    fromWord w_ = (Std_.toEnum (Std_.fromIntegral w_))
+    toWord v_ = (Std_.fromIntegral (Std_.fromEnum v_))
+instance (C.Parse ErrorCode ErrorCode) where
+    parse  = GH.parseEnum
+    encode  = GH.encodeEnum
+instance (C.AllocateList ErrorCode) where
+    type ListAllocHint ErrorCode = Std_.Int
+instance (C.EstimateListAlloc ErrorCode ErrorCode)

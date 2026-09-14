@@ -17,7 +17,7 @@ where
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printTable)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), SharedDirCache)
 import Corvus.Protocol (SharedDirInfo (..))
@@ -42,7 +42,7 @@ handleSharedDirAdd fmt conn vmRef path tag cache readOnly = do
           "Shared directory added with ID: " ++ show dirId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to add shared directory: " ++ show e)
       pure False
 
@@ -61,7 +61,7 @@ handleSharedDirRemove fmt conn vmRef sharedDirIdText = do
           emitOk fmt $ putStrLn "Shared directory removed."
           pure True
         Left e -> do
-          emitError fmt "rpc_error" (T.pack (show e)) $
+          emitRpcError fmt e $
             putStrLn ("Error: " ++ show e)
           pure False
 
@@ -77,7 +77,7 @@ handleSharedDirList fmt tableOpts conn vmRef = do
           else printTable tableOpts sharedDirColumns dirs
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 

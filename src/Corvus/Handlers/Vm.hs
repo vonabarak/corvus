@@ -57,7 +57,7 @@ import Control.Monad.Logger (LoggingT, logDebugN, logInfoN, logWarnN)
 import Corvus.Handlers.CloudInit (RegenerateCloudInit (..))
 import Corvus.Handlers.Disk (DiskDelete (..))
 import Corvus.Handlers.Disk.Db (diskImageNodeFilePathFor)
-import Corvus.Handlers.Resolve (resolveNode, validateName)
+import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
 import Corvus.Handlers.Scheduler (pickNodeForVm)
 import Corvus.Model (DriveFormat (..), VmStatus (..))
 import Corvus.Model hiding (DriveFormat, VmStatus)
@@ -149,49 +149,53 @@ handleVmCreate state name nodeRefText cpuCount ramMb description headless guestA
           -- signal — fall back to "host" so existing callers and
           -- older wire clients keep working unchanged.
           cpuModel = if T.null cpuModel0 then "host" else cpuModel0
+          placeOn nodeKey = do
+            -- Try to allocate a CID via the target node's agent.
+            -- A 'Left' here typically means the agent's host has no
+            -- vhost-vsock support (or the agent is unreachable);
+            -- fall back to creating the VM with vsockCid = Nothing
+            -- — QEMU will start without a vhost-vsock-pci device
+            -- and operators just lose the @ssh user\@vsock/CID@
+            -- shortcut for that VM.
+            eVmId <- do
+              r <-
+                withAllocatedVsockCid state nodeKey $ \cid ->
+                  runSqlPool
+                    (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel (Just cid))
+                    pool
+              case r of
+                Right vmId -> pure (Right vmId)
+                Left _ -> do
+                  vmId <-
+                    runSqlPool
+                      (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel Nothing)
+                      pool
+                  pure (Right vmId)
+            case eVmId of
+              Left err -> pure $ RespError err
+              Right vmId -> do
+                -- Bump the scheduler's in-memory reservation so the
+                -- next 'pickNodeForVm' call (within the same daemon,
+                -- before the agent's next stats push) doesn't
+                -- double-spend this VM's RAM share. The reservation
+                -- clears when fresh 'NodeStats' arrive (Phase 5).
+                reserveRam state nodeKey ramMb
+                pure $ RespVmCreated vmId
       -- Empty text == operator did not pass @--node@; capnp's
       -- unset-EntityRef default ('byId 0') also lands here.
       -- Either way, defer to the scheduler.
-      eNodeKey <-
-        if T.null nodeRefText || nodeRefText == "0"
-          then pickNodeForVm state ramMb
-          else do
-            r <- resolveNode (Ref nodeRefText) pool
-            pure $ fmap (M.toSqlKey :: Int64 -> M.NodeId) r
-      case eNodeKey of
-        Left err -> pure $ RespError err
-        Right nodeKey -> do
-          -- Try to allocate a CID via the target node's agent.
-          -- A 'Left' here typically means the agent's host has no
-          -- vhost-vsock support (or the agent is unreachable);
-          -- fall back to creating the VM with vsockCid = Nothing
-          -- — QEMU will start without a vhost-vsock-pci device
-          -- and operators just lose the @ssh user\@vsock/CID@
-          -- shortcut for that VM.
-          eVmId <- do
-            r <-
-              withAllocatedVsockCid state nodeKey $ \cid ->
-                runSqlPool
-                  (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel (Just cid))
-                  pool
-            case r of
-              Right vmId -> pure (Right vmId)
-              Left _ -> do
-                vmId <-
-                  runSqlPool
-                    (createVm name nodeKey cpuCount ramMb description headless guestAgent tpm cloudInit autostart rebootQuirk cpuModel Nothing)
-                    pool
-                pure (Right vmId)
-          case eVmId of
+      if T.null nodeRefText || nodeRefText == "0"
+        then do
+          eNid <- pickNodeForVm state ramMb
+          case eNid of
             Left err -> pure $ RespError err
-            Right vmId -> do
-              -- Bump the scheduler's in-memory reservation so the
-              -- next 'pickNodeForVm' call (within the same daemon,
-              -- before the agent's next stats push) doesn't
-              -- double-spend this VM's RAM share. The reservation
-              -- clears when fresh 'NodeStats' arrive (Phase 5).
-              reserveRam state nodeKey ramMb
-              pure $ RespVmCreated vmId
+            Right nodeKey -> placeOn nodeKey
+        else do
+          r <- resolveNode (Ref nodeRefText) pool
+          case r of
+            Left (RefNotFound _ _) -> pure RespNodeNotFound
+            Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
+            Right nidRaw -> placeOn (M.toSqlKey nidRaw)
 
 -- | Handle VM delete command. Reaps ephemeral disks attached to the
 -- VM (cloud-init ISOs, template-instantiated disks) unless 'keepDisks'
@@ -1037,10 +1041,8 @@ handleSerialConsole state vmId = do
   pure $ case result of
     Nothing -> RespVmNotFound
     Just (vm, status)
-      | not (isViewable status) ->
-          RespError $ "VM is not running (status: " <> enumToText status <> ")"
-      | not (vmHeadless vm) ->
-          RespError "VM is not headless — use SPICE viewer instead"
+      | not (isViewable status) -> RespVmNotRunning
+      | not (vmHeadless vm) -> RespVmHeadless
       | otherwise -> RespSerialConsoleOk
 
 -- | Validate the VM for serial-console flush (same predicate as
@@ -1061,8 +1063,7 @@ handleHmpMonitor state vmId = do
   pure $ case result of
     Nothing -> RespVmNotFound
     Just (_, status)
-      | not (isViewable status) ->
-          RespError $ "VM is not running (status: " <> enumToText status <> ")"
+      | not (isViewable status) -> RespVmNotRunning
       | otherwise -> RespHmpMonitorOk
 
 -- | Validate the VM for HMP-monitor flush; actual flush dispatches

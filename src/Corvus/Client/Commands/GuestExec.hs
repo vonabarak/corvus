@@ -11,7 +11,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (unless)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (emitError, emitOkWith)
+import Corvus.Client.Output (emitOkWith, emitRpcError)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Wire.Common (entityRefFromText)
 import Data.Aeson (toJSON)
@@ -37,6 +37,6 @@ handleVmExec fmt conn vmRef command = do
           unless (T.null stdErr) $ TIO.hPutStr stderr stdErr
       pure (exitcode == 0)
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Guest agent error: " ++ show e)
       pure False

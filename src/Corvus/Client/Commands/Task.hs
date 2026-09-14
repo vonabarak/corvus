@@ -16,7 +16,7 @@ import Control.Exception (SomeException, try)
 import Control.Monad (unless)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitResult, isStructured, printTable)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitResult, emitRpcError, isStructured, printTable)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), TaskResult (..), TaskSubsystem)
 import Corvus.Protocol (NamedRef (..), TaskInfo (..))
@@ -45,7 +45,7 @@ handleTaskList fmt tableOpts conn limit mSubText mResultText includeSubtasks =
                 printTable tableOpts (taskColumns now) tasks
           pure True
         Left e -> do
-          emitError fmt "rpc_error" (T.pack (show e)) $
+          emitRpcError fmt e $
             putStrLn ("Error: " ++ show e)
           pure False
   where
@@ -59,7 +59,7 @@ handleTaskShow fmt conn taskId = do
   r <- try @SomeException (CR.rpcTaskShow conn taskId)
   case r of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
     Right info -> do
@@ -92,7 +92,7 @@ handleTaskWait fmt conn taskId mTimeout = do
   r <- try @SomeException (CR.rpcTaskShow conn taskId)
   case r of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
     Right info
@@ -120,7 +120,7 @@ handleTaskCancel fmt conn taskId = do
   r <- try @SomeException (CR.rpcTaskCancel conn taskId)
   case r of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
     Right () -> do
@@ -163,7 +163,7 @@ pollUntilDone fmt conn taskId startTime mTimeout = do
       case r of
         Left e -> do
           unless (isStructured fmt) $ putStrLn ""
-          emitError fmt "rpc_error" (T.pack $ show e) $
+          emitRpcError fmt e $
             putStrLn $
               "Error polling task: " ++ show e
           pure False

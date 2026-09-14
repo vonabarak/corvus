@@ -121,6 +121,9 @@ data Response
   | RespStatus {info :: !StatusInfo}
   | RespShutdownAck {ack :: !Bool}
   | RespError {message :: !Text}
+  | -- | A textual entity reference matched more than one row and the
+    -- operator must disambiguate with a numeric id.
+    RespAmbiguousRef {message :: !Text}
   | RespVmList {vms :: ![VmInfo]}
   | RespVmDetails {details :: !VmDetails}
   | RespVmNotFound

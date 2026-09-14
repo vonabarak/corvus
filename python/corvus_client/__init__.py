@@ -13,6 +13,7 @@ from ._async.client import AsyncClient
 from ._entityref import entity_ref
 from ._sync.client import Client
 from .exceptions import (
+    AmbiguousRef,
     BadEnvelope,
     ConnectError,
     CorvusError,
@@ -40,13 +41,16 @@ from .exceptions import (
     SshKeyNotFound,
     TaskNotFound,
     TemplateNotFound,
+    VmHeadless,
     VmMustBeStopped,
     VmNotFound,
+    VmNotRunning,
     VmRunning,
 )
 from .types import QuiesceMode
 
 __all__ = [
+    "AmbiguousRef",
     "AsyncClient",
     "BadEnvelope",
     "Client",
@@ -77,8 +81,10 @@ __all__ = [
     "SshKeyNotFound",
     "TaskNotFound",
     "TemplateNotFound",
+    "VmHeadless",
     "VmMustBeStopped",
     "VmNotFound",
+    "VmNotRunning",
     "VmRunning",
     "entity_ref",
 ]

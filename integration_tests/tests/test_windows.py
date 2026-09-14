@@ -36,7 +36,7 @@ import threading
 import time
 
 import pytest
-from corvus_client import ServerError
+from corvus_client import GuestAgentError, ServerError
 from corvus_test_harness import SingleNodeCase, VmWindows
 
 
@@ -121,7 +121,7 @@ class TestWindows(SingleNodeCase):
         for letter in candidate_letters:
             try:
                 probe = vm.cap.guest_exec(f"cmd.exe /c type {letter}:\\from-host.txt")
-            except ServerError:
+            except (GuestAgentError, ServerError):
                 continue
             if probe.exit_code == 0 and "HOST-WROTE" in probe.stdout:
                 return letter
@@ -137,8 +137,8 @@ class TestWindows(SingleNodeCase):
             try:
                 rr = vm.cap.guest_exec(cmd)
                 return f"exit={rr.exit_code} stdout={rr.stdout!r} stderr={rr.stderr!r}"
-            except ServerError as e:
-                return f"ServerError({e!r})"
+            except (GuestAgentError, ServerError) as e:
+                return f"{type(e).__name__}({e!r})"
 
         svc = _probe(_ps("(Get-Service VirtioFsSvc).Status"))
         winfsp = _probe(
@@ -276,8 +276,9 @@ class TestWindows(SingleNodeCase):
                     # seconds on Windows; while cloudbase-init is actively
                     # running, QGA's process-spawning path can be slow
                     # enough that the daemon's 60-s QGA timeout fires and
-                    # `guest_exec` raises ServerError with body
-                    # `Connection failed: <<timeout>>`. Treat those as
+                    # `guest_exec` raises `GuestAgentError` (the
+                    # `guest_agent_error` wire code, body like
+                    # `Connection failed: <<timeout>>`). Treat those as
                     # "QGA-busy, try again later" — the underlying
                     # healthcheck (`guest-ping`) is much lighter and keeps
                     # working through the storm. Poll sparsely: 30 iters
@@ -289,7 +290,7 @@ class TestWindows(SingleNodeCase):
                     for _ in range(30):
                         try:
                             last_r = vm.cap.guest_exec(f"cmd.exe /c type {marker_path}")
-                        except ServerError as e:
+                        except (GuestAgentError, ServerError) as e:
                             last_err = e
                             time.sleep(10)
                             continue
@@ -305,7 +306,7 @@ class TestWindows(SingleNodeCase):
                         # log tells us whether cloudbase-init even ran.
                         # Each helper is wrapped in its own try — if QGA
                         # is still flaky we want partial info, not a
-                        # swallowed ServerError.
+                        # swallowed guest-agent error.
                         def _probe(cmd: str) -> str:
                             try:
                                 rr = vm.cap.guest_exec(cmd)
@@ -313,8 +314,8 @@ class TestWindows(SingleNodeCase):
                                     f"exit={rr.exit_code} "
                                     f"stdout={rr.stdout!r} stderr={rr.stderr!r}"
                                 )
-                            except ServerError as e:
-                                return f"ServerError({e!r})"
+                            except (GuestAgentError, ServerError) as e:
+                                return f"{type(e).__name__}({e!r})"
 
                         # Read the daemon's view of the VM first. If
                         # `guest_exec` is failing with "VM is stopping"

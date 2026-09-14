@@ -1,5 +1,4 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -13,14 +12,13 @@ where
 
 import Capnp (export)
 import qualified Capnp.Gen.Sshkey as CGSsh
-import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer, methodUnimplemented)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Resolve (resolveSshKey)
 import Corvus.Handlers.SshKey (SshKeyCreate (..), SshKeyDelete (..), handleSshKeyList)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol.SshKey as P
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
+import Corvus.Rpc.Common (capnpRefToRef, handleParsed, resolveOrThrow, throwError)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.SshKey (toCapnpSshKeyInfo)
 import Data.Int (Int64)
@@ -44,13 +42,12 @@ instance CGSsh.SshKeyManager'server_ SshKeyManagerCap where
     case resp of
       RespSshKeyList keys ->
         pure CGSsh.SshKeyManager'list'results {CGSsh.keys = map toCapnpSshKeyInfo keys}
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "sshKeyManager'list: unexpected response"
+      _ -> throwError resp
 
   sshKeyManager'get (SshKeyManagerCap st sup cn) =
     handleParsed $ \CGSsh.SshKeyManager'get'params {..} -> do
       ref' <- capnpRefToRef ref
-      eid <- failOnLeft =<< resolveSshKey ref' (ssDbPool st)
+      eid <- resolveOrThrow =<< resolveSshKey ref' (ssDbPool st)
       client <- export @CGSsh.SshKey sup (SshKeyCap st eid cn)
       pure CGSsh.SshKeyManager'get'results {CGSsh.key = client}
 
@@ -61,8 +58,7 @@ instance CGSsh.SshKeyManager'server_ SshKeyManagerCap where
         RespSshKeyCreated kid -> do
           client <- export @CGSsh.SshKey sup (SshKeyCap st kid cn)
           pure CGSsh.SshKeyManager'create'results {CGSsh.key = client}
-        RespError msg -> throwFailed msg
-        _ -> throwFailed (T.pack ("sshKeyManager'create: unexpected response: " <> show resp))
+        _ -> throwError resp
 
 data SshKeyCap = SshKeyCap
   { _skState :: !ServerState
@@ -82,15 +78,11 @@ instance CGSsh.SshKey'server_ SshKeyCap where
       RespSshKeyList keys ->
         case [k | k <- keys, P.skiId k == kid] of
           [k] -> pure CGSsh.SshKey'show'results {CGSsh.info = toCapnpSshKeyInfo k}
-          _ -> throwFailed "SSH key not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "sshKey'show: unexpected response"
+          _ -> throwError RespSshKeyNotFound
+      _ -> throwError resp
 
   sshKey'delete (SshKeyCap st eid cn) = handleParsed $ \_ -> do
     resp <- runAction st cn (SshKeyDelete eid)
     case resp of
       RespSshKeyOk -> pure CGSsh.SshKey'delete'results
-      RespSshKeyNotFound -> throwFailed "SSH key not found"
-      RespSshKeyInUse _ -> throwFailed "SSH key in use"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "sshKey'delete: unexpected response"
+      _ -> throwError resp

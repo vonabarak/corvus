@@ -20,7 +20,7 @@ where
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printTable)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Protocol (NamedRef (..), SshKeyInfo (..))
 import Corvus.Wire.Common (entityRefFromText)
@@ -39,7 +39,7 @@ handleSshKeyCreate fmt conn name publicKey = do
           "SSH key created with ID: " ++ show keyId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error creating SSH key: " ++ show e)
       pure False
 
@@ -52,7 +52,7 @@ handleSshKeyDelete fmt conn keyRef = do
       emitOk fmt $ putStrLn "SSH key deleted."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -68,7 +68,7 @@ handleSshKeyList fmt tableOpts conn = do
           else printTable tableOpts sshKeyColumns keys
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -81,7 +81,7 @@ handleSshKeyAttach fmt conn vmRef keyRef = do
       emitOk fmt $ putStrLn "SSH key attached to VM."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error attaching SSH key: " ++ show e)
       pure False
 
@@ -94,7 +94,7 @@ handleSshKeyDetach fmt conn vmRef keyRef = do
       emitOk fmt $ putStrLn "SSH key detached from VM."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error detaching SSH key: " ++ show e)
       pure False
 
@@ -110,7 +110,7 @@ handleSshKeyListForVm fmt tableOpts conn vmRef = do
           else printTable tableOpts (filter (\c -> colName c /= "ATTACHED_VMS") sshKeyColumns) keys
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 

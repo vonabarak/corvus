@@ -30,7 +30,7 @@ import Corvus.Handlers.Disk.Agent
   )
 import Corvus.Handlers.Disk.Db (recordDiskImageNode)
 import Corvus.Handlers.Disk.Path (makeRelativeToBase, resolveDiskFilePath, resolveDiskFilePathPure, sanitizeDiskName)
-import Corvus.Handlers.Resolve (resolveNode, validateName)
+import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
 
 import Control.Applicative ((<|>))
 import Control.Monad.IO.Class (liftIO)
@@ -74,16 +74,6 @@ importChecksumFromTuple (algorithm, expected, target) =
           else ChecksumTargetDownload
     }
 
--- | Resolve a (possibly empty) node-ref text used by every
--- import path. Empty / @"0"@ defers to 'pickNodeForDisk';
--- everything else parses as a 'Ref' and looks up via 'resolveNode'.
-resolveImportTargetNode :: ServerState -> Text -> IO (Either Text M.NodeId)
-resolveImportTargetNode state nodeRefText
-  | T.null nodeRefText || nodeRefText == "0" = pickNodeForDisk state
-  | otherwise = do
-      r <- resolveNode (Ref nodeRefText) (ssDbPool state)
-      pure $ fmap (M.toSqlKey :: Int64 -> M.NodeId) r
-
 nodeBasePathFor :: ServerState -> M.NodeId -> IO FilePath
 nodeBasePathFor state nid = do
   mNode <- runSqlPool (get nid) (ssDbPool state)
@@ -112,67 +102,78 @@ handleDiskImportCopy state sink name source mDestPath mFormatStr mChecksum ephem
           logWarnN $ "Invalid disk name: " <> err
           pure $ RespError err
         Right safeName -> do
-          mNid <- liftIO $ resolveImportTargetNode state nodeRefText
-          case mNid of
-            Left err -> pure $ RespError err
-            Right nid -> do
-              basePath <- liftIO $ nodeBasePathFor state nid
+          let placeOn nid = do
+                basePath <- liftIO $ nodeBasePathFor state nid
 
-              -- Detect format
-              let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
-                  mDetectedFmt =
+                -- Detect format
+                let mExplicitFmt = mFormatStr >>= either (const Nothing) Just . enumFromText
+                    mDetectedFmt =
+                      if isHttpUrl source
+                        then detectFormatFromUrl source
+                        else detectFormatFromPath source
+                case mExplicitFmt <|> mDetectedFmt of
+                  Nothing -> pure $ RespError "Cannot detect disk format. Use --format to specify."
+                  Just format -> do
+                    let fmtExt = T.unpack (enumToText format)
+                        destFileName = T.unpack safeName <> "." <> fmtExt
                     if isHttpUrl source
-                      then detectFormatFromUrl source
-                      else detectFormatFromPath source
-              case mExplicitFmt <|> mDetectedFmt of
-                Nothing -> pure $ RespError "Cannot detect disk format. Use --format to specify."
-                Just format -> do
-                  let fmtExt = T.unpack (enumToText format)
-                      destFileName = T.unpack safeName <> "." <> fmtExt
-                  if isHttpUrl source
-                    then do
-                      -- URL download
-                      let isXz = ".xz" `isSuffixOf` T.unpack source || isXzUrl source
-                          downloadFileName = destFileName <> if isXz then ".xz" else ""
-                      downloadDest <- liftIO $ resolveDiskFilePath basePath mDestPath downloadFileName
-                      let finalDest = resolveDiskFilePathPure basePath mDestPath destFileName
-                      fetchResult <-
-                        liftIO $
-                          fetchAndVerify
-                            state
-                            nid
-                            sink
-                            name
-                            FetchSpec
-                              { fsUrl = source
-                              , fsDownloadPath = downloadDest
-                              , fsFinalPath = finalDest
-                              , fsIsXz = isXz
-                              , fsChecksum = mChecksum
-                              }
-                      case fetchResult of
-                        Left err -> do
-                          logWarnN err
-                          pure $ RespError err
-                        Right diskPath -> registerImportedFile state nid basePath safeName format diskPath ephemeral
-                    else do
-                      -- Node-local file copy. Source validation and directory
-                      -- creation belong to the target nodeagent, never the
-                      -- daemon host running this orchestration code.
-                      let srcPath = T.unpack source
-                      destPath <- liftIO $ resolveDiskFilePath basePath mDestPath destFileName
-                      if srcPath == destPath
-                        then pure $ RespError "Source and destination paths are the same"
-                        else do
-                          logInfoN $ "Copying " <> source <> " to " <> T.pack destPath
-                          copyResult <- liftIO $ cloneImageViaAgent state nid srcPath destPath format
-                          case copyResult of
-                            ImageSuccess -> registerImportedFile state nid basePath safeName format destPath ephemeral
-                            ImageError err -> do
-                              logWarnN $ "Copy failed: " <> err
-                              pure $ RespError $ "Copy failed: " <> err
-                            ImageNotFound -> pure $ RespError "Source file not found"
-                            ImageFormatNotSupported msg -> pure $ RespError msg
+                      then do
+                        -- URL download
+                        let isXz = ".xz" `isSuffixOf` T.unpack source || isXzUrl source
+                            downloadFileName = destFileName <> if isXz then ".xz" else ""
+                        downloadDest <- liftIO $ resolveDiskFilePath basePath mDestPath downloadFileName
+                        let finalDest = resolveDiskFilePathPure basePath mDestPath destFileName
+                        fetchResult <-
+                          liftIO $
+                            fetchAndVerify
+                              state
+                              nid
+                              sink
+                              name
+                              FetchSpec
+                                { fsUrl = source
+                                , fsDownloadPath = downloadDest
+                                , fsFinalPath = finalDest
+                                , fsIsXz = isXz
+                                , fsChecksum = mChecksum
+                                }
+                        case fetchResult of
+                          Left err -> do
+                            logWarnN err
+                            pure $ RespError err
+                          Right diskPath -> registerImportedFile state nid basePath safeName format diskPath ephemeral
+                      else do
+                        -- Node-local file copy. Source validation and directory
+                        -- creation belong to the target nodeagent, never the
+                        -- daemon host running this orchestration code.
+                        let srcPath = T.unpack source
+                        destPath <- liftIO $ resolveDiskFilePath basePath mDestPath destFileName
+                        if srcPath == destPath
+                          then pure $ RespError "Source and destination paths are the same"
+                          else do
+                            logInfoN $ "Copying " <> source <> " to " <> T.pack destPath
+                            copyResult <- liftIO $ cloneImageViaAgent state nid srcPath destPath format
+                            case copyResult of
+                              ImageSuccess -> registerImportedFile state nid basePath safeName format destPath ephemeral
+                              ImageError err -> do
+                                logWarnN $ "Copy failed: " <> err
+                                pure $ RespError $ "Copy failed: " <> err
+                              ImageNotFound -> pure $ RespError "Source file not found"
+                              ImageFormatNotSupported msg -> pure $ RespError msg
+          -- Empty text or capnp's unset-EntityRef default ('byId 0')
+          -- both mean "no explicit placement" — defer to the scheduler.
+          if T.null nodeRefText || nodeRefText == "0"
+            then do
+              eNid <- pickNodeForDisk state
+              case eNid of
+                Left err -> pure $ RespError err
+                Right nid -> placeOn nid
+            else do
+              r <- liftIO $ resolveNode (Ref nodeRefText) (ssDbPool state)
+              case r of
+                Left (RefNotFound _ _) -> pure RespNodeNotFound
+                Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
+                Right nidRaw -> placeOn (M.toSqlKey nidRaw)
   where
     isXzUrl t = ".xz?" `T.isInfixOf` t
 

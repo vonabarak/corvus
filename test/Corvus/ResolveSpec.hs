@@ -10,7 +10,9 @@ module Corvus.ResolveSpec (spec) where
 
 import Control.Monad.IO.Class (liftIO)
 import Corvus.Handlers.Resolve
-  ( resolveDisk
+  ( ResolveError (..)
+  , resolveDisk
+  , resolveErrorMessage
   , resolveNetwork
   , resolveSshKey
   , resolveTemplate
@@ -87,7 +89,25 @@ spec = sequential $ withTestDb $ do
       _ <- insertVmOnNode "shared" node1
       _ <- insertVmOnNode "shared" node2
       r <- withPool $ resolveVm (Ref "shared")
-      liftIO $ r `shouldSatisfy` isLeft
+      liftIO $ r `shouldBe` Left (RefAmbiguous "VM" "shared" 2)
+
+  ----------------------------------------------------------------
+  -- resolveErrorMessage: the canonical human-readable rendering
+  -- that both the typed Response path and the wire code carry.
+
+  describe "resolveErrorMessage" $ do
+    testCase "renders a numeric not-found ref" $
+      liftIO $
+        resolveErrorMessage (RefNotFound "VM" "42")
+          `shouldBe` "VM #42 not found"
+    testCase "renders a name not-found ref" $
+      liftIO $
+        resolveErrorMessage (RefNotFound "VM" "web-1")
+          `shouldBe` "VM 'web-1' not found"
+    testCase "renders an ambiguous ref with the match count" $
+      liftIO $
+        resolveErrorMessage (RefAmbiguous "VM" "shared" 2)
+          `shouldBe` "VM 'shared' is ambiguous: 2 matches across nodes; use the numeric id"
 
   ----------------------------------------------------------------
   -- resolveDisk + resolveSshKey: simpler, cluster-unique name

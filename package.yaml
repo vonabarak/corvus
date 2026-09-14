@@ -199,6 +199,7 @@ library:
     - Corvus.Client.BuildVars
     - Corvus.Client.Completion
     - Corvus.Wire
+    - Corvus.Wire.Error
     - Corvus.Wire.Errors
     - Corvus.Wire.Time
     - Corvus.Wire.Enums
@@ -216,6 +217,7 @@ library:
     - Corvus.Wire.Template
     - Corvus.Rpc.Server
     - Corvus.Rpc.Common
+    - Corvus.Rpc.Error
     - Corvus.Rpc.Streams
     - Corvus.Rpc.Daemon
     - Corvus.Rpc.Vm

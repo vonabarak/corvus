@@ -47,7 +47,7 @@ import Control.Monad (unless, when)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Config (ClientConfig (..))
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, isStructured, printField, printTable)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitOk, emitOkWith, emitResult, emitRpcError, isStructured, printField, printTable)
 import Corvus.Client.Types (OutputFormat (..), WaitOptions (..))
 import Corvus.Model (EnumText (..), VmStatus (..))
 import Corvus.Protocol (DriveInfo (..), DriveIo (..), NamedRef (..), NetIfInfo (..), NetIo (..), VmDetails (..), VmInfo (..), VmSnapshotInfo (..), VmStats (..))
@@ -82,7 +82,7 @@ tryRpcUnit fmt successText action = do
       emitOk fmt successText
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) (putStrLn ("Error: " <> show e))
+      emitRpcError fmt e (putStrLn ("Error: " <> show e))
       pure False
 
 -- ---------------------------------------------------------------------
@@ -119,7 +119,7 @@ handleVmCreate fmt conn name nodeRef cpuCount ramMb mDesc headless guestAgent tp
           "VM '" ++ T.unpack name ++ "' created with ID: " ++ show vmId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn $
           "Failed to create VM: " ++ show e
       pure False
@@ -143,7 +143,7 @@ handleVmAction fmt actionName vmRef action = do
       emitOk fmt $ putStrLn $ "VM '" ++ T.unpack vmRef ++ "' " ++ actionName ++ ": OK"
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn $
           "Cannot " ++ actionName ++ " VM '" ++ T.unpack vmRef ++ "': " ++ show e
       pure False
@@ -224,7 +224,7 @@ handleVmMigrate fmt conn vmRef toNodeRef = do
           "VM migration started. Task ID: " ++ show tid
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error migrating VM: " ++ show e)
       pure False
 
@@ -705,7 +705,7 @@ handleVmSnapshotCreate fmt conn vmRef name = do
         printField "Total size (MB)" (show (vsiTotalSizeMb info))
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -720,7 +720,7 @@ handleVmSnapshotList fmt tableOpts conn vmRef = do
           else printTable tableOpts vmSnapshotColumns snaps
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -736,7 +736,7 @@ handleVmSnapshotRollback fmt conn vmRef name = do
           "Rolled back '" <> T.unpack vmRef <> "' to snapshot '" <> T.unpack name <> "'."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -750,7 +750,7 @@ handleVmSnapshotDelete fmt conn vmRef name = do
       emitOk fmt $ putStrLn $ "Snapshot '" <> T.unpack name <> "' deleted."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 

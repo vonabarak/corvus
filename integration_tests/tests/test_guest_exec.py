@@ -20,10 +20,9 @@ What's covered:
 * ``vm.guest_exec`` on a stopped VM is refused with the daemon's
   guest-exec-specific message ``"VM is <status>; VM must be
   running for guest-exec"`` (see
-  [src/Corvus/Rpc/Vm.hs:310-311] — distinct shape from the
-  canonical ``invalid transition from <s>: <r>`` format, so
-  surfaces as :class:`ServerError`, not
-  :class:`InvalidTransition`).
+  [src/Corvus/Rpc/Vm.hs:310-311], thrown as the
+  ``vm_not_running`` wire code) — which surfaces as
+  :class:`VmNotRunning`, not :class:`InvalidTransition`.
 * ``vm.guest_exec`` on a running VM with ``guest_agent=False`` is
   refused with ``RespGuestAgentNotEnabled``
   (:class:`GuestAgentNotEnabled`).
@@ -52,7 +51,7 @@ import json
 import secrets
 
 import pytest
-from corvus_client.exceptions import GuestAgentNotEnabled, ServerError
+from corvus_client.exceptions import GuestAgentNotEnabled, VmNotRunning
 from corvus_test_harness import SingleNodeCase, Vm
 
 
@@ -135,11 +134,11 @@ class TestGuestExecRejections(SingleNodeCase):
 
         Unlike the canonical ``invalid transition from <s>: <r>``
         shape used by stop/start/pause (see :mod:`test_state_machine_errors`),
-        the guest-exec handler at [src/Corvus/Rpc/Vm.hs:310-311]
+        the guest-exec handler at [src/Corvus/Rpc/Vm.hs:303]
         emits ``"VM is <status>; VM must be running for guest-exec"``
-        — which the client's regex translator (no match for
-        ``_INVALID_TRANSITION_RE``) maps to :class:`ServerError`,
-        not :class:`InvalidTransition`. We pin the message so a
+        under the ``vm_not_running`` wire code, so the client
+        translator raises :class:`VmNotRunning`, not
+        :class:`InvalidTransition`. We pin the message so a
         refactor that changes the wording (or unifies the two
         FSM-rejection shapes) flags here."""
         vm = self.client.vms.create(
@@ -150,7 +149,7 @@ class TestGuestExecRejections(SingleNodeCase):
             guest_agent=True,
         )
         try:
-            with pytest.raises(ServerError) as exc_info:
+            with pytest.raises(VmNotRunning) as exc_info:
                 vm.guest_exec("echo hi")
             msg = str(exc_info.value).lower()
             assert "stopped" in msg, f"missing 'stopped': {msg!r}"
@@ -160,9 +159,9 @@ class TestGuestExecRejections(SingleNodeCase):
 
     def test_running_vm_without_qga_rejected(self):
         """A running VM whose ``guest_agent`` flag was never enabled
-        has no QGA chardev attached; the daemon refuses with
-        :class:`GuestAgentNotEnabled` from the regex translation in
-        ``python/corvus_client/exceptions.py:171``."""
+        has no QGA chardev attached; the daemon refuses with the
+        ``guest_agent_not_enabled`` wire code, which the client
+        translator maps to :class:`GuestAgentNotEnabled`."""
 
         class _NoQgaVm(Vm):
             guest_agent = False

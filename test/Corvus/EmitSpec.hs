@@ -8,7 +8,8 @@
 -- across the entire CLI, so direct tests earn their keep.
 module Corvus.EmitSpec (spec) where
 
-import Control.Exception (ErrorCall (..))
+import Capnp.Rpc.Errors (eFailed)
+import Control.Exception (ErrorCall (..), SomeException, toException)
 import Corvus.Client.Output
 import Corvus.Client.Types (OutputFormat (..))
 import Data.Aeson (toJSON, (.=))
@@ -89,22 +90,52 @@ spec = sequential $ do
       readIORef ref `shouldReturn` False
 
   describe "emitRpcError" $ do
-    it "prints 'Error: <show>' on text output" $ do
-      out <- grab (emitRpcError TextOutput (ErrorCall "boom"))
-      out `shouldContain` "Error:"
-      out `shouldContain` "boom"
+    it "runs the text action for non-Cap'n-Proto exceptions under TextOutput" $ do
+      (ref, action) <- mkSentinel
+      emitRpcError TextOutput (ErrorCall "boom") action
+      readIORef ref `shouldReturn` True
 
-    it "emits error code rpc_error under JsonOutput" $ do
-      out <- grab (emitRpcError JsonOutput (ErrorCall "boom"))
+    it "does not run the text action for structured Cap'n Proto errors under TextOutput" $ do
+      (ref, action) <- mkSentinel
+      let exn = toException (eFailed "vm_not_found :: VM 'web-1' not found") :: SomeException
+      emitRpcError TextOutput exn action
+      -- Text mode with structured code prints its own message and skips textAction
+      readIORef ref `shouldReturn` False
+
+    it "runs the text action for code-less Cap'n Proto errors under TextOutput" $ do
+      (ref, action) <- mkSentinel
+      let exn = toException (eFailed "connection reset by peer") :: SomeException
+      emitRpcError TextOutput exn action
+      readIORef ref `shouldReturn` True
+
+    it "emits a generic rpc_error for non-Cap'n-Proto exceptions" $ do
+      (_, action) <- mkSentinel
+      out <- grab (emitRpcError JsonOutput (ErrorCall "boom") action)
       out `shouldContain` "\"status\":\"error\""
       out `shouldContain` "\"error\":\"rpc_error\""
       out `shouldContain` "boom"
+      out `shouldNotContain` "\"code\""
 
-    it "works with any Show instance" $ do
-      let _ = ErrorCall "unused" :: ErrorCall -- typeable constraint sanity
-      out <- grab (emitRpcError JsonOutput (42 :: Int))
+    it "extracts the structured wire code from a Cap'n Proto exception" $ do
+      (_, action) <- mkSentinel
+      let exn =
+            toException (eFailed "vm_not_found :: VM 'web-1' not found") :: SomeException
+      out <- grab (emitRpcError JsonOutput exn action)
       out `shouldContain` "\"error\":\"rpc_error\""
-      out `shouldContain` "42"
+      out `shouldContain` "\"code\":\"vm_not_found\""
+      out `shouldContain` "\"message\":\"VM 'web-1' not found\""
+
+    it "keeps a code-less Cap'n Proto reason as a plain rpc_error" $ do
+      (_, action) <- mkSentinel
+      let exn = toException (eFailed "connection reset by peer") :: SomeException
+      out <- grab (emitRpcError JsonOutput exn action)
+      out `shouldContain` "\"error\":\"rpc_error\""
+      out `shouldContain` "\"message\":\"connection reset by peer\""
+      out `shouldNotContain` "\"code\""
+
+    it "emits code in text mode for structured errors" $ do
+      out <- grab (emitRpcError TextOutput (toException (eFailed "vm_not_found :: test message") :: SomeException) (pure ()))
+      out `shouldContain` "Error [vm_not_found]: test message"
 
   describe "emitResult" $ do
     it "runs the text action under TextOutput" $ do

@@ -28,7 +28,7 @@ import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGTask
 import qualified Capnp.Gen.Template as CGTmpl
 import qualified Capnp.Gen.Vm as CGVm
-import Capnp.Rpc (IsClient (..), throwFailed)
+import Capnp.Rpc (IsClient (..))
 import Capnp.Rpc.Server (SomeServer)
 import Capnp.Rpc.Untyped (nullClient)
 import Control.Concurrent.Async (async)
@@ -43,8 +43,9 @@ import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol.Apply as PA
 import qualified Corvus.Protocol.Build as PB
 import Corvus.Rpc.CloudInit (newCloudInitManagerCap)
-import Corvus.Rpc.Common (handleParsed)
+import Corvus.Rpc.Common (handleParsed, throwError, throwWireError)
 import Corvus.Rpc.Disk (newDiskManagerCap)
+import Corvus.Rpc.Error (responseError)
 import Corvus.Rpc.Network (newNetworkManagerCap)
 import Corvus.Rpc.Node (newNodeManagerCap)
 import Corvus.Rpc.SshKey (newSshKeyManagerCap)
@@ -90,7 +91,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
     case resp of
       RespStatus info ->
         pure CGCorvus.Daemon'status'results {CGCorvus.info = toCapnpStatusInfo info}
-      _ -> throwFailed "daemon'status: unexpected response"
+      _ -> throwError resp
 
   daemon'shutdown (DaemonCap st _ _) = handleParsed $ \_ -> do
     _ <- handleShutdown st
@@ -170,8 +171,7 @@ instance CGCorvus.Daemon'server_ DaemonCap where
         } -> do
           validated <- handleApplyValidate st yamlText
           case validated of
-            Left (RespError msg) -> throwFailed msg
-            Left _ -> throwFailed "apply: validation failed"
+            Left resp -> throwError resp
             Right cfg ->
               if wait
                 then runApplyNonStreaming st cn cfg skipExisting sinkClient
@@ -298,8 +298,9 @@ runApplyNonStreaming st cn cfg skipExisting sinkCap = do
   mErr <- actionValidate st action
   case mErr of
     Just errResp -> do
-      finalize (PA.ApplyEnd TaskError (errText errResp) 0)
-      throwFailed (errText errResp)
+      let (code, msg) = responseError errResp
+      finalize (PA.ApplyEnd TaskError msg 0)
+      throwWireError code msg
     Nothing -> do
       taskKey <- createTaskRecord st cn action Nothing
       let tid = fromSqlKey taskKey
@@ -313,16 +314,10 @@ runApplyNonStreaming st cn cfg skipExisting sinkCap = do
               { CGCorvus.result = toCapnpApplyResult ar
               , CGCorvus.taskId = tid
               }
-        RespError msg -> do
+        errResp -> do
+          let (code, msg) = responseError errResp
           finalize (PA.ApplyEnd TaskError msg tid)
-          throwFailed msg
-        other -> do
-          let msg = "apply: unexpected response: " <> T.pack (show other)
-          finalize (PA.ApplyEnd TaskError msg tid)
-          throwFailed msg
-  where
-    errText (RespError msg) = msg
-    errText other = "apply: validation failed: " <> T.pack (show other)
+          throwWireError code msg
 
 -- | Apply path used when a streaming sink was supplied. Mirrors
 -- 'daemon'build': create the parent task synchronously, fork an

@@ -119,3 +119,40 @@ enum QuiesceMode {
   # fsfreeze.
   skip    @2;
 }
+
+# Stable machine-readable error codes the daemon prepends to
+# Cap'n Proto exception messages (`<code> :: <message>`). The
+# member names here are the single source of truth; the wire
+# tokens are their snake_case form (e.g. vmNotFound ->
+# "vm_not_found"). The Haskell Corvus.Wire.Error mirror and the
+# Python client's code map must stay in sync with this enum.
+enum ErrorCode {
+  vmNotFound            @0;
+  diskNotFound          @1;
+  snapshotNotFound      @2;
+  driveNotFound         @3;
+  networkNotFound       @4;
+  netifNotFound         @5;
+  sshKeyNotFound        @6;
+  sharedDirNotFound     @7;
+  templateNotFound      @8;
+  taskNotFound          @9;
+  nodeNotFound          @10;
+  diskInUse             @11;
+  diskHasOverlays       @12;
+  vmMustBeStopped       @13;
+  vmNotRunning          @14;
+  vmHeadless            @15;
+  networkInUse          @16;
+  networkAlreadyRunning @17;
+  networkNotRunning     @18;
+  sshKeyInUse           @19;
+  nodeInUse             @20;
+  invalidTransition     @21;
+  formatNotSupported    @22;
+  guestAgentNotEnabled  @23;
+  guestAgentError       @24;
+  ambiguousRef          @25;
+  internalError         @26;
+  protocolError         @27;
+}

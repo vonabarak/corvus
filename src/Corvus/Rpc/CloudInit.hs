@@ -1,5 +1,4 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- | CloudInitManager cap implementation.
@@ -21,7 +20,7 @@ import Corvus.Handlers.CloudInit (CloudInitDelete (..), CloudInitSet (..), handl
 import Corvus.Handlers.Resolve (resolveVm)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol.CloudInit as P
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
+import Corvus.Rpc.Common (capnpRefToRef, handleParsed, resolveOrThrow, throwError)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (fromCapnpCloudInitInfo, toCapnpCloudInitInfo)
 import Data.Maybe (fromMaybe)
@@ -43,7 +42,7 @@ instance CGCI.CloudInitManager'server_ CloudInitManagerCap where
   cloudInitManager'get (CloudInitManagerCap st _ cn) =
     handleParsed $ \CGCI.CloudInitManager'get'params {..} -> do
       ref' <- capnpRefToRef vmRef
-      eid <- failOnLeft =<< resolveVm ref' (ssDbPool st)
+      eid <- resolveOrThrow =<< resolveVm ref' (ssDbPool st)
       resp <- handleCloudInitGet st eid
       let emptyInfo =
             P.CloudInitInfo
@@ -55,14 +54,12 @@ instance CGCI.CloudInitManager'server_ CloudInitManagerCap where
         RespCloudInitConfig mInfo ->
           let cfg = toCapnpCloudInitInfo (fromMaybe emptyInfo mInfo)
            in pure CGCI.CloudInitManager'get'results {CGCI.config = cfg}
-        RespVmNotFound -> throwFailed "VM not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "cloudInitManager'get: unexpected response"
+        _ -> throwError resp
 
   cloudInitManager'set (CloudInitManagerCap st _ cn) =
     handleParsed $ \CGCI.CloudInitManager'set'params {params = CGCI.CloudInitSetParams {..}} -> do
       ref' <- capnpRefToRef vmRef
-      eid <- failOnLeft =<< resolveVm ref' (ssDbPool st)
+      eid <- resolveOrThrow =<< resolveVm ref' (ssDbPool st)
       let info = fromCapnpCloudInitInfo config
           act =
             CloudInitSet
@@ -74,17 +71,13 @@ instance CGCI.CloudInitManager'server_ CloudInitManagerCap where
       resp <- runAction st cn act
       case resp of
         RespCloudInitOk -> pure CGCI.CloudInitManager'set'results
-        RespVmNotFound -> throwFailed "VM not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "cloudInitManager'set: unexpected response"
+        _ -> throwError resp
 
   cloudInitManager'delete (CloudInitManagerCap st _ cn) =
     handleParsed $ \CGCI.CloudInitManager'delete'params {..} -> do
       ref' <- capnpRefToRef vmRef
-      eid <- failOnLeft =<< resolveVm ref' (ssDbPool st)
+      eid <- resolveOrThrow =<< resolveVm ref' (ssDbPool st)
       resp <- runAction st cn (CloudInitDelete eid)
       case resp of
         RespCloudInitOk -> pure CGCI.CloudInitManager'delete'results
-        RespVmNotFound -> throwFailed "VM not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "cloudInitManager'delete: unexpected response"
+        _ -> throwError resp

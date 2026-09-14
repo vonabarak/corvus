@@ -48,7 +48,7 @@ import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Task (handleTaskWait)
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printField, printTable)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printField, printTable)
 import Corvus.Client.Types (OutputFormat, WaitOptions (..))
 import Corvus.Model (CacheType, DriveFormat, DriveInterface, DriveMedia, EnumText (..))
 import Corvus.Protocol (DiskImageInfo (..), DiskImagePlacement (..), NamedRef (..), SnapshotInfo (..))
@@ -91,7 +91,7 @@ handleDiskCreate fmt conn name format sizeMb mPath ephemeral nodeRef = do
           "Disk image created with ID: " ++ show diskId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error creating disk: " ++ show e)
       pure False
 
@@ -106,7 +106,7 @@ handleDiskCreateOverlay fmt conn name baseDiskRef mPath ephemeral = do
           "Overlay created with ID: " ++ show diskId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error creating overlay: " ++ show e)
       pure False
 
@@ -129,7 +129,7 @@ handleDiskRegister fmt conn name path mFormatStr mBackingRef ephemeral nodeRef =
               "Disk image registered with ID: " ++ show diskId
           pure True
         Left e -> do
-          emitError fmt "rpc_error" (T.pack (show e)) $
+          emitRpcError fmt e $
             putStrLn ("Error registering disk: " ++ show e)
           pure False
 
@@ -154,7 +154,7 @@ handleDiskImport fmt conn name source mPath mFormatStr ephemeral nodeRef waitOpt
                   "Disk import started. Task ID: " ++ show taskId
               pure True
         Left e -> do
-          emitError fmt "rpc_error" (T.pack (show e)) $
+          emitRpcError fmt e $
             putStrLn ("Error importing disk: " ++ show e)
           pure False
 
@@ -177,7 +177,7 @@ handleDiskUpload outFmt conn name source formatStr mPath ephemeral nodeRef overw
             emitOkWith outFmt [("id", toJSON diskId)] $ putStrLn ("Disk image uploaded with ID: " <> show diskId)
             pure True
           Left e -> do
-            emitError outFmt "rpc_error" (T.pack (show e)) $ putStrLn ("Error uploading disk: " <> show e)
+            emitRpcError outFmt e $ putStrLn ("Error uploading disk: " <> show e)
             pure False
 
 -- | Handle disk delete command
@@ -189,7 +189,7 @@ handleDiskDelete fmt conn diskRef = do
       emitOk fmt $ putStrLn "Disk image deleted."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -202,7 +202,7 @@ handleDiskResize fmt conn diskRef newSizeMb = do
       emitOk fmt $ putStrLn $ "Disk resized to " ++ show newSizeMb ++ " MB."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -218,7 +218,7 @@ handleDiskList fmt tableOpts conn = do
           else printTable tableOpts diskColumns disks
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -231,7 +231,7 @@ handleDiskShow fmt conn diskRef = do
       emitResult fmt info $ printDiskDetails info
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -246,7 +246,7 @@ handleDiskClone fmt conn name baseDiskRef mPath ephemeral = do
           "Disk cloned successfully. New disk ID: " ++ show diskId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error cloning disk: " ++ show e)
       pure False
 
@@ -256,7 +256,7 @@ handleDiskRebase fmt conn diskRef mNewBacking unsafe = case mNewBacking of
     r <- try (CR.rpcDiskFlatten conn (entityRefFromText diskRef)) :: IO (Either SomeException ())
     case r of
       Right () -> emitOk fmt (putStrLn "Disk flattened.") >> pure True
-      Left e -> emitError fmt "rpc_error" (T.pack (show e)) (putStrLn ("Error: " ++ show e)) >> pure False
+      Left e -> emitRpcError fmt e (putStrLn ("Error: " ++ show e)) >> pure False
   Just newBacking -> do
     r <-
       try
@@ -272,7 +272,7 @@ handleDiskRebase fmt conn diskRef mNewBacking unsafe = case mNewBacking of
         emitOk fmt $ putStrLn "Disk rebased to new backing image."
         pure True
       Left e -> do
-        emitError fmt "rpc_error" (T.pack (show e)) $
+        emitRpcError fmt e $
           putStrLn ("Error: " ++ show e)
         pure False
 
@@ -285,7 +285,7 @@ handleDiskRefresh fmt conn diskRef = do
       emitOk fmt $ putStrLn "Disk size refreshed"
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -321,7 +321,7 @@ handleDiskAttach fmt conn vmRef diskRef iface media readOnly discard cache = do
           "Disk attached. Drive ID: " ++ show driveId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error attaching disk: " ++ show e)
       pure False
 
@@ -340,7 +340,7 @@ handleDiskDetach fmt conn vmRef diskRef = do
       emitOk fmt $ putStrLn "Disk detached."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -356,7 +356,7 @@ handleDiskMediaEject fmt conn driveId = do
       emitOk fmt $ putStrLn "Media ejected."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error ejecting media: " ++ show e)
       pure False
 
@@ -376,7 +376,7 @@ handleDiskMediaChange fmt conn driveId newDiskRef = do
       emitOk fmt $ putStrLn "Media changed."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error changing media: " ++ show e)
       pure False
 
@@ -403,7 +403,7 @@ handleSnapshotCreate fmt conn diskRef name quiesce fullMachine = do
           "Snapshot created with ID: " ++ show snapId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -418,7 +418,7 @@ handleSnapshotDelete fmt conn diskRef snapshotRef = do
       emitOk fmt $ putStrLn "Snapshot deleted."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -438,7 +438,7 @@ handleSnapshotRollback fmt conn diskRef snapshotRef autoStop = do
       emitOk fmt $ putStrLn "Rollback complete."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -453,7 +453,7 @@ handleSnapshotMerge fmt conn diskRef snapshotRef = do
       emitOk fmt $ putStrLn "Snapshot merged."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -468,7 +468,7 @@ handleSnapshotList fmt tableOpts conn diskRef = do
           else printTable tableOpts snapshotColumns snaps
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -579,7 +579,7 @@ handleDiskCopy fmt conn diskRef toNodeRef mToPath withBackingChain = do
           "Disk copy started. Task ID: " ++ show tid
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error copying disk: " ++ show e)
       pure False
 
@@ -609,6 +609,6 @@ handleDiskMove fmt conn diskRef toNodeRef mToPath withBackingChain = do
           "Disk move started. Task ID: " ++ show tid
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error moving disk: " ++ show e)
       pure False

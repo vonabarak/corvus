@@ -38,12 +38,18 @@ module Corvus.Client.Output
   )
 where
 
+import Capnp (Parsed)
+import qualified Capnp.Gen.Capnp.Rpc as CapnpRpc
+import Capnp.Rpc.Errors ()
+import Control.Exception (Exception, SomeException, fromException, toException)
 import Corvus.Client.Types (BorderStyleOpt (..), Options (..), OutputFormat (..))
+import Corvus.Wire.Error (errorCodeText, parseWireError)
 import Data.Aeson (Key, ToJSON, Value, encode, object, toJSON, (.=))
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Char (toLower)
 import Data.List (sortOn)
+import Data.Maybe (fromMaybe, maybe)
 import Data.Ord (Down (..))
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -74,24 +80,62 @@ outputOkWith :: OutputFormat -> [(Key, Value)] -> IO ()
 outputOkWith fmt fields =
   outputValue fmt (object (("status" .= ("ok" :: Text)) : fields))
 
-outputError :: OutputFormat -> Text -> Text -> IO ()
-outputError fmt code msg =
+-- | @outputError fmt code mWireCode msg@. 'mWireCode' is an optional
+-- stable machine-readable code emitted as its own @code@ field,
+-- distinct from the coarse @error@ discriminator.
+outputError :: OutputFormat -> Text -> Maybe Text -> Text -> IO ()
+outputError fmt code mWireCode msg =
   outputValue fmt $
-    object
+    object $
       [ "status" .= ("error" :: Text)
       , "error" .= code
-      , "message" .= msg
       ]
+        ++ maybe [] (\wc -> ["code" .= wc]) mWireCode
+        ++ [ "message" .= msg
+           ]
 
 --------------------------------------------------------------------------------
 -- Dispatching Emitters
 --------------------------------------------------------------------------------
 
 -- | Emit a generic RPC error — the canonical @Left err@ branch.
-emitRpcError :: (Show e) => OutputFormat -> e -> IO ()
-emitRpcError fmt err
-  | isStructured fmt = outputError fmt "rpc_error" (T.pack (show err))
-  | otherwise = putStrLn $ "Error: " ++ show err
+--
+-- When the exception is a Cap'n Proto exception whose @reason@
+-- carries the daemon's structured wire form (@<code> :: <message>@,
+-- see "Corvus.Wire.Error"), the structured object gains a
+-- machine-readable @code@ field and @message@ holds the human text
+-- alone. Code-less (older daemon) and non-Cap'n-Proto exceptions
+-- degrade to the generic @rpc_error@ shape.
+--
+-- In text mode, if a structured code is present, it prints
+-- @Error [code]: message@ for scripting; otherwise falls back to
+-- the caller's action (which typically prints the full exception).
+emitRpcError :: (Exception e) => OutputFormat -> e -> IO () -> IO ()
+emitRpcError fmt err textAction
+  | isStructured fmt = case parseWireError reason of
+      Just (code, msg) -> outputError fmt "rpc_error" (Just (errorCodeText code)) msg
+      Nothing -> outputError fmt "rpc_error" Nothing reason
+  | otherwise = case parseWireError reason of
+      Just (code, msg) ->
+        -- Text mode with structured code: print "Error [code]: message"
+        -- This replaces the caller's action to avoid duplicate output
+        TIO.putStrLn $ "Error [" <> errorCodeText code <> "]: " <> msg
+      Nothing -> textAction
+  where
+    reason =
+      fromMaybe
+        (T.pack (show err))
+        (capnpReason (toException err))
+
+-- | The @reason@ field of a Cap'n Proto RPC exception, if the
+-- caught value is one. Capnp-backed client calls surface a daemon
+-- failure as this record (see "Corvus.Client.Capnp.Rpc"), with the
+-- wire error text in @reason@.
+capnpReason :: SomeException -> Maybe Text
+capnpReason err =
+  case (fromException err :: Maybe (Parsed CapnpRpc.Exception)) of
+    Just exn -> Just (CapnpRpc.reason exn)
+    Nothing -> Nothing
 
 -- | Emit a plain success response.
 emitOk :: OutputFormat -> IO () -> IO ()
@@ -108,7 +152,7 @@ emitOkWith fmt fields textAction
 -- | Emit a specific error code with a text-mode callback.
 emitError :: OutputFormat -> Text -> Text -> IO () -> IO ()
 emitError fmt code msg textAction
-  | isStructured fmt = outputError fmt code msg
+  | isStructured fmt = outputError fmt code Nothing msg
   | otherwise = textAction
 
 -- | Emit a full 'ToJSON' value for list/show commands.

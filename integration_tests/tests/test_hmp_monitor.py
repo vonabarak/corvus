@@ -24,7 +24,7 @@ import secrets
 import time
 
 import pytest
-from corvus_client.exceptions import VmNotFound, VmRunning
+from corvus_client.exceptions import VmNotFound, VmNotRunning
 from corvus_test_harness import SingleNodeCase, Vm
 
 
@@ -97,7 +97,8 @@ class TestHmpMonitor(SingleNodeCase):
         """Attaching HMP to a stopped VM raises with the
         documented "not running" daemon message — the cap method
         gates on VM status before reaching the buffer map (see
-        `Handlers/Vm.hs::handleHmpMonitor`)."""
+        `Handlers/Vm.hs::handleHmpMonitor`), throwing the
+        `vm_not_running` wire error ("VM not running")."""
         name = f"corvus-it-hmp-stopped-{secrets.token_hex(3)}"
         vm = self.client.vms.create(
             name,
@@ -106,11 +107,10 @@ class TestHmpMonitor(SingleNodeCase):
             headless=True,
         )
         try:
-            with pytest.raises(VmRunning) as excinfo:
+            with pytest.raises(VmNotRunning) as excinfo:
                 vm.hmp_monitor()
             msg = str(excinfo.value)
             assert "not running" in msg, msg
-            assert "stopped" in msg, msg
         finally:
             vm.delete(keep_disks=True)
 

@@ -457,6 +457,7 @@ classifyResponse = \case
   RespInvalidTransition _ msg -> (TaskError, Just msg)
   RespFormatNotSupported msg -> (TaskError, Just msg)
   RespTaskNotFound -> (TaskError, Just "Task not found")
+  RespAmbiguousRef msg -> (TaskError, Just msg)
   -- Successes
   RespVmCreated vid -> (TaskSuccess, Just $ "Created with ID " <> T.pack (show vid))
   RespVmDeleted -> (TaskSuccess, Just "Deleted")

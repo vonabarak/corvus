@@ -55,7 +55,9 @@ handleStatus state = do
         , siVersion = versionString
         , -- 1 = Cap'n Proto wire (Phase 5+). The legacy
           -- 'Data.Binary' protocolVersion is gone.
-          siProtocolVersion = 1
+          -- 2 = structured wire error codes (B3): daemon
+          -- exceptions carry a "<code> :: <message>" prefix.
+          siProtocolVersion = 2
         , siDatabaseBackend = driBackend dbRuntimeInfo
         , siDatabaseVersion = driVersion dbRuntimeInfo
         }

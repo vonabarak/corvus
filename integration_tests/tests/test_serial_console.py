@@ -32,8 +32,7 @@ import subprocess
 import time
 
 import pytest
-from corvus_client import ServerError
-from corvus_client.exceptions import VmRunning
+from corvus_client.exceptions import GuestAgentError, VmHeadless, VmNotRunning
 from corvus_test_harness import SingleNodeCase, Vm
 
 LOGIN_PROMPT = b"login:"
@@ -110,33 +109,34 @@ class TestSerialConsole(SingleNodeCase):
             # reading from the same serial chardev.
             try:
                 vm.cap.guest_exec("/sbin/reboot -f")
-            except ServerError:
+            except GuestAgentError:
                 # `reboot -f` kills init while QGA is mid-exec; the
-                # QGA→daemon path may timeout. We only care about
-                # the side-effect.
+                # QGA→daemon path may timeout (daemon answers with
+                # the `guest_agent_error` wire code). We only care
+                # about the side-effect.
                 pass
             with vm.cap.serial_console() as stream3:
                 data = _drain_until(stream3, LOGIN_PROMPT, timeout=120.0)
                 assert LOGIN_PROMPT in data
 
-            # ── Phase F: stop the VM; the cap rejects with
-            # "VM is not running (status: stopped)" — the rich
+            # ── Phase F: stop the VM; the cap rejects with the
+            # `vm_not_running` wire error ("VM not running") — the
             # message restored by routing `vm'serialConsole` through
             # `handleSerialConsole`.
             vm.cap.stop(wait=True)
-            with pytest.raises(VmRunning) as excinfo:
+            with pytest.raises(VmNotRunning) as excinfo:
                 vm.cap.serial_console()
             msg = str(excinfo.value)
             assert "not running" in msg, msg
-            assert "stopped" in msg, msg
 
     def test_rejects_non_headless_vm(self):
         """Daemon refuses serial console for graphical VMs.
 
         The cap method routes through `handleSerialConsole`, whose
-        headlessness check emits "VM is not headless — use SPICE
-        viewer instead" before the buffer lookup. The Python client
-        classifies the message as `VmRunning` (see exceptions table).
+        headlessness check rejects with the `vm_headless` wire error
+        ("VM has no SPICE display") before the buffer lookup. The
+        Python client maps the code to `VmHeadless` (a `VmRunning`
+        subclass, so the web gateway's 409 mapping still holds).
         """
 
         class _GraphicalVm(Vm):
@@ -145,15 +145,16 @@ class TestSerialConsole(SingleNodeCase):
             wait_for_qga = True  # gate __enter__ on QGA so the VM is up
 
         with _GraphicalVm(self) as vm:
-            with pytest.raises(VmRunning) as excinfo:
+            with pytest.raises(VmHeadless) as excinfo:
                 vm.cap.serial_console()
-            assert "not headless" in str(excinfo.value)
+            assert "no SPICE display" in str(excinfo.value)
 
     def test_rejects_stopped_vm(self):
         """Daemon refuses serial console for stopped VMs.
 
         `handleSerialConsole` rejects on status before reaching the
-        buffer map — error reads "VM is not running (status: stopped)".
+        buffer map — the `vm_not_running` wire error ("VM not
+        running").
         """
         name = f"corvus-it-serial-stopped-{secrets.token_hex(4)}"
         vm_cap = self.client.vms.create(
@@ -165,11 +166,10 @@ class TestSerialConsole(SingleNodeCase):
             cloud_init=False,
         )
         try:
-            with pytest.raises(VmRunning) as excinfo:
+            with pytest.raises(VmNotRunning) as excinfo:
                 vm_cap.serial_console()
             msg = str(excinfo.value)
             assert "not running" in msg, msg
-            assert "stopped" in msg, msg
         finally:
             vm_cap.delete(keep_disks=True)
 

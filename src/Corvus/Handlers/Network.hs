@@ -41,7 +41,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (logInfoN, logWarnN)
 import qualified Corvus.Handlers.Network.Ipam as Ipam
 import qualified Corvus.Handlers.Network.PeerSpec as PS
-import Corvus.Handlers.Resolve (resolveNode, validateName)
+import Corvus.Handlers.Resolve (ResolveError (..), resolveErrorMessage, resolveNode, validateName)
 import Corvus.Handlers.Scheduler (pickNodeForNetwork)
 import Corvus.Model (Network (..), TaskId, TaskResult (..), TaskSubsystem (..), Vm (..), VmStatus (..))
 import qualified Corvus.Model as M
@@ -91,26 +91,32 @@ handleNetworkCreate state name nodeRefText subnet dhcp nat autostart dnsServers 
       let pool = ssDbPool state
       -- Empty text or capnp's unset-EntityRef default ('byId 0')
       -- both mean "no explicit placement" — defer to the scheduler.
-      eNodeKey <-
-        if T.null nodeRefText || nodeRefText == "0"
-          then pickNodeForNetwork state
-          else do
-            r <- resolveNode (Ref nodeRefText) pool
-            pure $ fmap (M.toSqlKey :: Int64 -> M.NodeId) r
-      case eNodeKey of
-        Left err -> pure $ RespNetworkError err
-        Right nodeKey -> do
-          mNode <- runSqlPool (get nodeKey) pool
-          case mNode of
-            Just n
-              | M.nodeNetdDisabled n ->
-                  pure $
-                    RespNetworkError $
-                      "Node '"
-                        <> M.nodeName n
-                        <> "' has netdDisabled=true; managed networks are not allowed."
-            _ -> createWithSubnet nodeKey
+      if T.null nodeRefText || nodeRefText == "0"
+        then do
+          eNid <- pickNodeForNetwork state
+          case eNid of
+            Left err -> pure $ RespNetworkError err
+            Right nodeKey -> placeOn nodeKey
+        else do
+          r <- resolveNode (Ref nodeRefText) pool
+          case r of
+            Left (RefNotFound _ _) -> pure RespNodeNotFound
+            Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
+            Right nidRaw -> placeOn (M.toSqlKey nidRaw)
   where
+    placeOn nodeKey = do
+      let pool = ssDbPool state
+      mNode <- runSqlPool (get nodeKey) pool
+      case mNode of
+        Just n
+          | M.nodeNetdDisabled n ->
+              pure $
+                RespNetworkError $
+                  "Node '"
+                    <> M.nodeName n
+                    <> "' has netdDisabled=true; managed networks are not allowed."
+        _ -> createWithSubnet nodeKey
+
     createWithSubnet nodeKey = do
       let pool = ssDbPool state
           validatedSubnet
@@ -418,7 +424,8 @@ handleNetworkAttachNode state networkId nodeRefText = runServerLogging state $ d
     Just network -> do
       resolved <- liftIO $ resolveNode (Ref nodeRefText) pool
       case resolved of
-        Left err -> pure $ RespNetworkError err
+        Left (RefNotFound _ _) -> pure RespNodeNotFound
+        Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
         Right peerNodeIdRaw -> do
           let peerNodeId = toSqlKey peerNodeIdRaw :: M.NodeId
           mPeerNode <- liftIO $ runSqlPool (get peerNodeId) pool
@@ -491,7 +498,8 @@ handleNetworkDetachNode state networkId nodeRefText = runServerLogging state $ d
     Just network -> do
       resolved <- liftIO $ resolveNode (Ref nodeRefText) pool
       case resolved of
-        Left err -> pure $ RespNetworkError err
+        Left (RefNotFound _ _) -> pure RespNodeNotFound
+        Left re -> pure $ RespAmbiguousRef (resolveErrorMessage re)
         Right peerNodeIdRaw ->
           let peerNodeId = toSqlKey peerNodeIdRaw :: M.NodeId
            in if peerNodeId == M.networkNodeId network

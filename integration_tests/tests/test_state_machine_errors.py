@@ -9,10 +9,11 @@ forgets to reject ``start`` while saving) fails loudly here rather
 than in production.
 
 Refusals come back as :class:`corvus_client.InvalidTransition`
-because the daemon emits ``"invalid transition from <status>:
-<reason>"`` via ``statusOrThrow`` in ``src/Corvus/Rpc/Vm.hs:621``, and
-the client's regex table at ``python/corvus_client/exceptions.py:210``
-translates that shape to the typed exception.
+because the daemon emits the ``invalid_transition`` wire error with a
+message of ``"invalid transition from <status>: <reason>"`` (see
+``statusOrThrow`` in ``src/Corvus/Rpc/Vm.hs``), and the client's code
+map in ``python/corvus_client/exceptions.py`` recognises the code and
+extracts the ``(status, reason)`` pair from the message part.
 
 What's covered:
 

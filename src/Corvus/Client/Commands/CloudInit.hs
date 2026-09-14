@@ -16,7 +16,7 @@ import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Editor (editInEditor)
-import Corvus.Client.Output (emitError, emitOk, emitResult)
+import Corvus.Client.Output (emitError, emitOk, emitResult, emitRpcError)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Protocol (CloudInitInfo (..))
 import Corvus.Schema.CloudInit (CloudInitConfigYaml (..))
@@ -40,7 +40,7 @@ handleCloudInitGenerate fmt conn vmRef = do
       emitOk fmt $ putStrLn "Cloud-init ISO generated."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -72,7 +72,7 @@ handleCloudInitEdit fmt conn vmRef = do
   r <- try @SomeException (CR.rpcCloudInitGet conn (entityRefFromText vmRef))
   case r of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
     Right mConfig -> do
@@ -94,7 +94,7 @@ handleCloudInitShow fmt conn vmRef = do
   r <- try @SomeException (CR.rpcCloudInitGet conn (entityRefFromText vmRef))
   case r of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
     Right mConfig -> do
@@ -127,7 +127,7 @@ handleCloudInitDelete fmt conn vmRef = do
       emitResult fmt ("ok" :: Text) $ putStrLn "Cloud-init config deleted. Using defaults."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -159,7 +159,7 @@ sendCloudInitConfig fmt conn vmRef content =
           emitResult fmt ("ok" :: Text) $ putStrLn "Cloud-init config updated."
           pure True
         Left e -> do
-          emitError fmt "rpc_error" (T.pack (show e)) $
+          emitRpcError fmt e $
             putStrLn ("Error: " ++ show e)
           pure False
 

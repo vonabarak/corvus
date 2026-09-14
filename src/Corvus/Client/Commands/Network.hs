@@ -59,7 +59,7 @@ handleNetworkCreate fmt conn name nodeRef subnet dhcp nat autostart dnsServers d
           "Network created with ID: " ++ show nwId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to create network: " ++ show e)
       pure False
 
@@ -72,7 +72,7 @@ handleNetworkDelete fmt conn nwRef = do
       emitOk fmt $ putStrLn "Network deleted."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -85,7 +85,7 @@ handleNetworkStart fmt conn nwRef = do
       emitOk fmt $ putStrLn "Network started."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to start network: " ++ show e)
       pure False
 
@@ -98,7 +98,7 @@ handleNetworkStop fmt conn nwRef force = do
       emitOk fmt $ putStrLn "Network stopped."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to stop network: " ++ show e)
       pure False
 
@@ -114,7 +114,7 @@ handleNetworkList fmt tableOpts conn = do
           else printTable tableOpts networkColumns networks
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -158,7 +158,7 @@ handleNetworkShow fmt conn nwRef = do
         printField "Host DNS" (if nwiHostDns info then "enabled" else "disabled")
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -208,7 +208,7 @@ handleNetworkEdit fmt conn nwRef mSubnet mDhcp mNat mAutostart mDnsServers mDoma
       emitOk fmt $ putStrLn $ "Network '" ++ T.unpack nwRef ++ "' updated."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to edit network: " ++ show e)
       pure False
 
@@ -231,7 +231,7 @@ handleNetworkAttachNode fmt conn nwRef nodeRef = do
           "Node '" ++ T.unpack nodeRef ++ "' attached to network '" ++ T.unpack nwRef ++ "'."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to attach node: " ++ show e)
       pure False
 
@@ -254,6 +254,6 @@ handleNetworkDetachNode fmt conn nwRef nodeRef = do
           "Node '" ++ T.unpack nodeRef ++ "' detached from network '" ++ T.unpack nwRef ++ "'."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to detach node: " ++ show e)
       pure False

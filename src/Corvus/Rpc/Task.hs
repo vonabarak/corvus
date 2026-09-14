@@ -1,5 +1,4 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -15,7 +14,6 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Streams as CGS
 import qualified Capnp.Gen.Task as CGT
-import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
 import Control.Concurrent (forkIO, throwTo)
 import Control.Concurrent.STM (atomically, modifyTVar', writeTVar)
@@ -23,10 +21,11 @@ import Control.Monad (void)
 import Corvus.Action (TaskCancelledException (..))
 import Corvus.Handlers (handleTaskList, handleTaskListChildren, handleTaskShow)
 import Corvus.Protocol (Response (..))
-import Corvus.Rpc.Common (handleParsed)
+import Corvus.Rpc.Common (handleParsed, throwError, throwWireError)
 import Corvus.Rpc.Streams (EmptyHandle (..))
 import Corvus.Types (ServerState (..), lookupTaskCancelToken, lookupTaskThread)
 import Corvus.Wire.Enums (fromCapnpTaskResult, fromCapnpTaskSubsystem)
+import Corvus.Wire.Error (ErrorCode (..))
 import Corvus.Wire.Errors (showWireError)
 import Corvus.Wire.Task (toCapnpTaskInfo)
 import Data.Foldable (for_)
@@ -51,21 +50,20 @@ instance CGT.TaskManager'server_ TaskManagerCap where
       if hasSubsystem
         then case fromCapnpTaskSubsystem subsystem of
           Right s -> pure (Just s)
-          Left e -> throwFailed (showWireError e)
+          Left e -> throwWireError ProtocolError (showWireError e)
         else pure Nothing
     mRes <-
       if hasResult
         then case fromCapnpTaskResult result of
           Right r -> pure (Just r)
-          Left e -> throwFailed (showWireError e)
+          Left e -> throwWireError ProtocolError (showWireError e)
         else pure Nothing
     let mEntityId = if entityId == 0 then Nothing else Just entityId
     resp <- handleTaskList st lim mSub mEntityId mRes includeSubtasks
     case resp of
       RespTaskList tasks ->
         pure CGT.TaskManager'list'results {CGT.tasks = map toCapnpTaskInfo tasks}
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "taskManager'list: unexpected response"
+      _ -> throwError resp
 
   taskManager'get (TaskManagerCap st sup) = handleParsed $ \CGT.TaskManager'get'params {..} -> do
     client <- export @CGT.Task sup (TaskCap st taskId)
@@ -77,8 +75,7 @@ instance CGT.TaskManager'server_ TaskManagerCap where
       case resp of
         RespTaskList tasks ->
           pure CGT.TaskManager'listChildren'results {CGT.tasks = map toCapnpTaskInfo tasks}
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "taskManager'listChildren: unexpected response"
+        _ -> throwError resp
 
   -- Register a 'TaskProgressSink' against the given task id.
   -- The Action runtime pushes a @finished@ event when the task
@@ -120,6 +117,4 @@ instance CGT.Task'server_ TaskCap where
     case resp of
       RespTaskInfo info ->
         pure CGT.Task'show'results {CGT.info = toCapnpTaskInfo info}
-      RespTaskNotFound -> throwFailed "Task not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "task'show: unexpected response"
+      _ -> throwError resp

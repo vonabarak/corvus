@@ -101,7 +101,7 @@ runCommand opts = do
             emitOk fmt $ putStrLn "pong"
             pure True
           Left e -> do
-            emitError fmt "rpc_error" (T.pack (show e)) $
+            emitRpcError fmt e $
               putStrLn ("Error: " ++ show e)
             pure False
       Status -> do
@@ -117,7 +117,7 @@ runCommand opts = do
               putStrLn $ "Database version: " ++ T.unpack siDatabaseVersion
             pure True
           Left e -> do
-            emitError fmt "rpc_error" (T.pack (show e)) $
+            emitRpcError fmt e $
               putStrLn ("Error: " ++ show e)
             pure False
       Shutdown -> do
@@ -127,7 +127,7 @@ runCommand opts = do
             emitOk fmt $ putStrLn "Shutdown acknowledged"
             pure True
           Left e -> do
-            emitError fmt "rpc_error" (T.pack (show e)) $
+            emitRpcError fmt e $
               putStrLn ("Error: " ++ show e)
             pure False
       VmList -> do
@@ -142,7 +142,7 @@ runCommand opts = do
                   printTable tableOpts (vmColumns now) vms
             pure True
           Left e -> do
-            emitError fmt "rpc_error" (T.pack (show e)) $
+            emitRpcError fmt e $
               putStrLn ("Error: " ++ show e)
             pure False
       VmShow vmRef -> do
@@ -152,7 +152,7 @@ runCommand opts = do
             emitResult fmt details $ printVmDetails details
             pure True
           Left e -> do
-            emitError fmt "rpc_error" (T.pack (show e)) $
+            emitRpcError fmt e $
               putStrLn ("Error: " ++ show e)
             pure False
       VmCreate name nodeRef cpuCount ramMb mDesc headless ga tpm ci as rq cm ->
@@ -331,7 +331,7 @@ handleVmView opts fmt conn vmRef = do
   r <- try (CR.rpcVmShow conn (entityRefFromText vmRef)) :: IO (Either SomeException VmDetails)
   case r of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
     Right details -> do
@@ -363,7 +363,7 @@ runSerialConsoleSession fmt conn vmRef vmName = do
       :: IO (Either SomeException (BS.ByteString -> IO (), IO ()))
   case attached of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error attaching serial console: " <> show e)
       pure False
     Right (writeInput, endInput) -> do
@@ -396,7 +396,7 @@ runHmpMonitorSession fmt conn vmRef = do
       :: IO (Either SomeException (BS.ByteString -> IO (), IO ()))
   case attached of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error attaching HMP monitor: " <> show e)
       pure False
     Right (writeInput, endInput) -> do
@@ -423,7 +423,7 @@ handleGraphicalViewGrant opts fmt conn vmRef vmName = do
   result <- try (CR.rpcVmViewGrant conn (entityRefFromText vmRef)) :: IO (Either SomeException ViewGrant)
   case result of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to obtain SPICE grant: " ++ show e)
       pure False
     Right grant0 -> do

@@ -21,7 +21,7 @@ import Control.Monad (when)
 import Corvus.Client.BuildVars (applyBuildVars, renderVarError)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (emitError, emitOkWith)
+import Corvus.Client.Output (emitError, emitOkWith, emitRpcError)
 import Corvus.Client.Types (BuildClientOptions (..), OutputFormat, WaitOptions (..))
 import Corvus.Model (EnumText (..), TaskResult (..))
 import Corvus.Protocol.Build (BuildEvent (..), BuildOne (..), BuildResult (..))
@@ -102,7 +102,7 @@ runBuild fmt conn yaml bcOpts wait = do
       :: IO (Either SomeException Int64)
   case r of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error invoking build: " <> show e)
       pure False
     Right tid -> do

@@ -1,5 +1,4 @@
 {-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -19,7 +18,6 @@ where
 import Capnp (export)
 import qualified Capnp.Gen.Template as CGT
 import qualified Capnp.Gen.Vm as CGVm
-import Capnp.Rpc (throwFailed)
 import Capnp.Rpc.Server (SomeServer)
 import Corvus.Action (runAction)
 import Corvus.Handlers.Resolve (resolveTemplate)
@@ -33,7 +31,7 @@ import Corvus.Handlers.Template
   )
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
+import Corvus.Rpc.Common (capnpRefToRef, handleParsed, resolveOrThrow, throwError)
 import Corvus.Rpc.Vm (VmCap (..))
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.Template (toCapnpTemplateDetails, toCapnpTemplateVmInfo)
@@ -61,13 +59,12 @@ instance CGT.TemplateManager'server_ TemplateManagerCap where
           CGT.TemplateManager'list'results
             { CGT.templates = map toCapnpTemplateVmInfo templates
             }
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "templateManager'list: unexpected response"
+      _ -> throwError resp
 
   templateManager'get (TemplateManagerCap st sup cn) =
     handleParsed $ \CGT.TemplateManager'get'params {..} -> do
       ref' <- capnpRefToRef ref
-      eid <- failOnLeft =<< resolveTemplate ref' (ssDbPool st)
+      eid <- resolveOrThrow =<< resolveTemplate ref' (ssDbPool st)
       client <- export @CGT.Template sup (TemplateCap st sup eid cn)
       pure CGT.TemplateManager'get'results {CGT.template = client}
 
@@ -78,8 +75,7 @@ instance CGT.TemplateManager'server_ TemplateManagerCap where
         RespTemplateCreated tid -> do
           client <- export @CGT.Template sup (TemplateCap st sup tid cn)
           pure CGT.TemplateManager'create'results {CGT.template = client}
-        RespError msg -> throwFailed msg
-        _ -> throwFailed (T.pack ("templateManager'create: unexpected: " <> show resp))
+        _ -> throwError resp
 
 data TemplateCap = TemplateCap
   { _tmplState :: !ServerState
@@ -96,26 +92,20 @@ instance CGT.Template'server_ TemplateCap where
     case resp of
       RespTemplateInfo det ->
         pure CGT.Template'show'results {CGT.details = toCapnpTemplateDetails det}
-      RespTemplateNotFound -> throwFailed "Template not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "template'show: unexpected response"
+      _ -> throwError resp
 
   template'delete (TemplateCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- runAction st cn (TemplateDelete eid)
     case resp of
       RespTemplateDeleted -> pure CGT.Template'delete'results
-      RespTemplateNotFound -> throwFailed "Template not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "template'delete: unexpected response"
+      _ -> throwError resp
 
   template'update (TemplateCap st _ eid cn) =
     handleParsed $ \CGT.Template'update'params {..} -> do
       resp <- runAction st cn (TemplateUpdate {tupOldId = eid, tupYaml = yaml})
       case resp of
         RespTemplateUpdated _ -> pure CGT.Template'update'results
-        RespTemplateNotFound -> throwFailed "Template not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "template'update: unexpected response"
+        _ -> throwError resp
 
   template'instantiate (TemplateCap st sup eid cn) =
     handleParsed $ \CGT.Template'instantiate'params {..} -> do
@@ -134,6 +124,4 @@ instance CGT.Template'server_ TemplateCap where
         RespTemplateInstantiated newVmId -> do
           client <- export @CGVm.Vm sup (VmCap st sup newVmId cn)
           pure CGT.Template'instantiate'results {CGT.vm = client}
-        RespTemplateNotFound -> throwFailed "Template not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "template'instantiate: unexpected response"
+        _ -> throwError resp

@@ -70,7 +70,7 @@ import Corvus.NodeRouting (withVmNodeAgent)
 import Corvus.Protocol (Response (..))
 import qualified Corvus.Protocol as P
 import qualified Corvus.Protocol.CloudInit as PCI
-import Corvus.Rpc.Common (capnpRefToRef, failOnLeft, handleParsed)
+import Corvus.Rpc.Common (capnpRefToRef, handleParsed, resolveOrThrow, throwError, throwWireError)
 import Corvus.Rpc.Streams (EmptyHandle (..), runByteSinkRelay)
 import Corvus.Types (ServerState (..))
 import Corvus.Wire.CloudInit (toCapnpCloudInitInfo)
@@ -83,6 +83,7 @@ import Corvus.Wire.Enums
   , fromCapnpSharedDirCache
   , toCapnpVmStatus
   )
+import Corvus.Wire.Error (ErrorCode (..))
 import Corvus.Wire.SharedDir (toCapnpSharedDirInfo)
 import Corvus.Wire.SshKey (toCapnpSshKeyInfo)
 import Corvus.Wire.Vm (toCapnpNetIfInfo, toCapnpVmDetails, toCapnpVmInfo, toCapnpVmSnapshotInfo, zeroVmStats)
@@ -116,12 +117,11 @@ instance CGVm.VmManager'server_ VmManagerCap where
     resp <- handleVmList st
     case resp of
       RespVmList vms -> pure CGVm.VmManager'list'results {CGVm.vms = map toCapnpVmInfo vms}
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vmManager'list: unexpected response"
+      _ -> throwError resp
 
   vmManager'get (VmManagerCap st sup cn) = handleParsed $ \CGVm.VmManager'get'params {..} -> do
     ref' <- capnpRefToRef ref
-    eid <- failOnLeft =<< resolveVm ref' (ssDbPool st)
+    eid <- resolveOrThrow =<< resolveVm ref' (ssDbPool st)
     client <- export @CGVm.Vm sup (VmCap st sup eid cn)
     pure CGVm.VmManager'get'results {CGVm.vm = client}
 
@@ -148,8 +148,7 @@ instance CGVm.VmManager'server_ VmManagerCap where
         RespVmCreated newId -> do
           client <- export @CGVm.Vm sup (VmCap st sup newId cn)
           pure CGVm.VmManager'create'results {CGVm.vm = client}
-        RespError msg -> throwFailed msg
-        _ -> throwFailed (T.pack ("vmManager'create: unexpected response: " <> show resp))
+        _ -> throwError resp
 
 -- ---------------------------------------------------------------------
 -- Vm resource cap
@@ -178,9 +177,7 @@ instance CGVm.Vm'server_ VmCap where
           CGVm.Vm'show'results
             { CGVm.details = toCapnpVmDetails det sds stats
             }
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'show: unexpected response"
+      _ -> throwError detResp
 
   vm'start (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'start'params {wait = wait'} -> do
     resp <-
@@ -236,17 +233,13 @@ instance CGVm.Vm'server_ VmCap where
       resp <- runAction st cn act
       case resp of
         RespVmEdited -> pure CGVm.Vm'edit'results
-        RespVmNotFound -> throwFailed "VM not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "vm'edit: unexpected response"
+        _ -> throwError resp
 
   vm'delete (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'delete'params {..} -> do
     resp <- runAction st cn (VmDelete {vdelVmId = eid, vdelKeepDisks = keepDisks})
     case resp of
       RespVmDeleted -> pure CGVm.Vm'delete'results
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'delete: unexpected response"
+      _ -> throwError resp
 
   -- -------------------------------------------------------------------
   -- Misc read / one-shot
@@ -270,9 +263,7 @@ instance CGVm.Vm'server_ VmCap where
       -- exit code), so an empty payload is fine.
       RespVmEdited ->
         pure CGVm.Vm'cloudInit'results {CGVm.config = toCapnpCloudInitInfo emptyInfo}
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'cloudInit: unexpected response"
+      _ -> throwError resp
 
   vm'viewGrant (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleVmViewGrant st eid
@@ -289,11 +280,7 @@ instance CGVm.Vm'server_ VmCap where
                     , vgTtlSeconds = ttl
                     }
             }
-      RespVmNotFound -> throwFailed "VM not found"
-      RespVmNotRunning -> throwFailed "VM not running"
-      RespVmHeadless -> throwFailed "VM has no SPICE display"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'viewGrant: unexpected response"
+      _ -> throwError resp
 
   vm'guestExec (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'guestExec'params {..} -> do
     resp <- runAction st cn (GuestExec {geVmId = eid, geCommand = command})
@@ -308,26 +295,19 @@ instance CGVm.Vm'server_ VmCap where
                   , CGVm.stderr = errT
                   }
             }
-      RespGuestAgentNotEnabled -> throwFailed "Guest agent not enabled"
-      RespGuestAgentError msg -> throwFailed msg
       -- VM is mid-transition (e.g. an in-flight reboot_quirk
       -- re-spawn, or a reset/stop in progress). Surface the
       -- actual state so callers can decide whether to back off
       -- and retry.
       RespInvalidTransition status msg ->
-        throwFailed $ "VM is " <> M.enumToText status <> "; " <> msg
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'guestExec: unexpected response"
+        throwWireError VmNotRunning ("VM is " <> M.enumToText status <> "; " <> msg)
+      _ -> throwError resp
 
   vm'sendCtrlAltDel (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleVmSendCtrlAltDel st eid
     case resp of
       RespOk -> pure CGVm.Vm'sendCtrlAltDel'results
-      RespVmNotFound -> throwFailed "VM not found"
-      RespVmNotRunning -> throwFailed "VM not running"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'sendCtrlAltDel: unexpected response"
+      _ -> throwError resp
 
   -- -------------------------------------------------------------------
   -- Streaming methods
@@ -340,13 +320,10 @@ instance CGVm.Vm'server_ VmCap where
   -- QEMU.
   vm'serialConsole (VmCap st _sup eid _cn) =
     handleParsed $ \CGVm.Vm'serialConsole'params {CGVm.sink = sinkClient} -> do
-      -- Validator first, so rejections preserve the rich
-      -- pre-Cap'n-Proto messages ("VM is not running ...",
-      -- "VM is not headless ...").
+      -- Validator first; rejections throw their structured wire
+      -- error before anything touches the agent.
       resp <- handleSerialConsole st eid
       case resp of
-        RespVmNotFound -> throwFailed "VM not found"
-        RespError msg -> throwFailed msg
         RespSerialConsoleOk -> do
           r <-
             withVmNodeAgent st eid $ \nac ->
@@ -355,7 +332,7 @@ instance CGVm.Vm'server_ VmCap where
             Left err -> throwFailed err
             Right (Left e) -> throwFailed (T.pack (show e))
             Right (Right inp) -> pure CGVm.Vm'serialConsole'results {CGVm.input = inp}
-        _ -> throwFailed "Unexpected serial console response"
+        _ -> throwError resp
 
   -- HMP monitor: identical shape to serialConsole but rides the
   -- per-VM monitor buffer. Same validator-first dispatch.
@@ -363,8 +340,6 @@ instance CGVm.Vm'server_ VmCap where
     handleParsed $ \CGVm.Vm'hmpMonitor'params {CGVm.sink = sinkClient} -> do
       resp <- handleHmpMonitor st eid
       case resp of
-        RespVmNotFound -> throwFailed "VM not found"
-        RespError msg -> throwFailed msg
         RespHmpMonitorOk -> do
           r <-
             withVmNodeAgent st eid $ \nac ->
@@ -373,7 +348,7 @@ instance CGVm.Vm'server_ VmCap where
             Left err -> throwFailed err
             Right (Left e) -> throwFailed (T.pack (show e))
             Right (Right inp) -> pure CGVm.Vm'hmpMonitor'results {CGVm.input = inp}
-        _ -> throwFailed "Unexpected HMP monitor response"
+        _ -> throwError resp
 
   -- Register a 'GuestAgentStatusSink' against the per-VM
   -- subscriber list. Returns an empty 'Handle' cap; when the
@@ -411,7 +386,7 @@ instance CGVm.Vm'server_ VmCap where
   vm'attachDisk (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'attachDisk'params {params = CGVm.DriveAttachParams {..}} -> do
       diskRef' <- capnpRefToRef diskRef
-      diskId <- failOnLeft =<< resolveDisk diskRef' (ssDbPool st)
+      diskId <- resolveOrThrow =<< resolveDisk diskRef' (ssDbPool st)
       iface <- enumOrThrow (fromCapnpDriveInterface interface)
       med <- enumOrThrow (fromCapnpDriveMedia media)
       cache <- enumOrThrow (fromCapnpCacheType cacheType)
@@ -429,10 +404,7 @@ instance CGVm.Vm'server_ VmCap where
       case resp of
         RespDiskAttached driveId ->
           pure CGVm.Vm'attachDisk'results {CGVm.driveId = driveId}
-        RespVmNotFound -> throwFailed "VM not found"
-        RespDiskNotFound -> throwFailed "Disk not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "vm'attachDisk: unexpected response"
+        _ -> throwError resp
 
   vm'detachDisk (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'detachDisk'params {..} -> do
     -- The schema's driveId is the row id of the Drive table
@@ -448,10 +420,7 @@ instance CGVm.Vm'server_ VmCap where
           case resp of
             RespOk -> pure CGVm.Vm'detachDisk'results
             RespDiskOk -> pure CGVm.Vm'detachDisk'results
-            RespVmNotFound -> throwFailed "VM not found"
-            RespDriveNotFound -> throwFailed "Drive not found"
-            RespError msg -> throwFailed msg
-            _ -> throwFailed "vm'detachDisk: unexpected response"
+            _ -> throwError resp
         Nothing -> do
           -- Ejected media drive: no image attached, so the
           -- image-based action cannot bridge to it. CD-ROM drives
@@ -459,10 +428,11 @@ instance CGVm.Vm'server_ VmCap where
           -- drop the row directly.
           mVm <- runSqlPool (get (M.driveVmId drv)) (ssDbPool st)
           case mVm of
-            Nothing -> throwFailed "VM not found"
+            Nothing -> throwError RespVmNotFound
             Just vm
               | M.vmStatus vm `elem` [M.VmStarting, M.VmRunning, M.VmPaused] ->
-                  throwFailed
+                  throwWireError
+                    VmMustBeStopped
                     ( "Drive "
                         <> T.pack (show driveId)
                         <> " has no media attached; CD-ROM drives cannot be detached while the VM is active - stop the VM first"
@@ -470,7 +440,7 @@ instance CGVm.Vm'server_ VmCap where
             Just _ -> do
               runSqlPool (delete (toSqlKey driveId :: M.DriveId)) (ssDbPool st)
               pure CGVm.Vm'detachDisk'results
-      _ -> throwFailed "Drive not found"
+      _ -> throwError RespDriveNotFound
 
   -- -------------------------------------------------------------------
   -- Net interfaces
@@ -480,7 +450,7 @@ instance CGVm.Vm'server_ VmCap where
     handleParsed $ \CGVm.Vm'addNetIf'params {params = CGVm.NetIfAddParams {..}} -> do
       iface <- enumOrThrow (fromCapnpNetInterfaceType type_)
       mNetId <- case fromCapnpRefMaybe networkRef of
-        Just r -> Just <$> (failOnLeft =<< resolveNetwork r (ssDbPool st))
+        Just r -> Just <$> (resolveOrThrow =<< resolveNetwork r (ssDbPool st))
         Nothing -> pure Nothing
       let act =
             NetIfAdd
@@ -493,27 +463,20 @@ instance CGVm.Vm'server_ VmCap where
       resp <- runAction st cn act
       case resp of
         RespNetIfAdded nid -> pure CGVm.Vm'addNetIf'results {CGVm.netIfId = nid}
-        RespVmNotFound -> throwFailed "VM not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "vm'addNetIf: unexpected response"
+        _ -> throwError resp
 
   vm'removeNetIf (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'removeNetIf'params {..} -> do
     resp <- runAction st cn (NetIfRemove {nirVmId = eid, nirNetIfId = netIfId})
     case resp of
       RespOk -> pure CGVm.Vm'removeNetIf'results
-      RespNetIfNotFound -> throwFailed "Net-if not found"
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'removeNetIf: unexpected response"
+      _ -> throwError resp
 
   vm'listNetIfs (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleNetIfList st eid
     case resp of
       RespNetIfList nis ->
         pure CGVm.Vm'listNetIfs'results {CGVm.netIfs = map toCapnpNetIfInfo nis}
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'listNetIfs: unexpected response"
+      _ -> throwError resp
 
   -- -------------------------------------------------------------------
   -- Shared directories
@@ -534,28 +497,21 @@ instance CGVm.Vm'server_ VmCap where
       case resp of
         RespSharedDirAdded sid ->
           pure CGVm.Vm'addSharedDir'results {CGVm.sharedDirId = sid}
-        RespVmNotFound -> throwFailed "VM not found"
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "vm'addSharedDir: unexpected response"
+        _ -> throwError resp
 
   vm'removeSharedDir (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'removeSharedDir'params {..} -> do
     resp <- runAction st cn (SharedDirRemove {sdrVmId = eid, sdrDirId = sharedDirId})
     case resp of
       RespOk -> pure CGVm.Vm'removeSharedDir'results
       RespSharedDirOk -> pure CGVm.Vm'removeSharedDir'results
-      RespSharedDirNotFound -> throwFailed "Shared directory not found"
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'removeSharedDir: unexpected response"
+      _ -> throwError resp
 
   vm'listSharedDirs (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleSharedDirList st eid
     case resp of
       RespSharedDirList sds ->
         pure CGVm.Vm'listSharedDirs'results {CGVm.sharedDirs = map toCapnpSharedDirInfo sds}
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'listSharedDirs: unexpected response"
+      _ -> throwError resp
 
   -- -------------------------------------------------------------------
   -- SSH keys attached to the VM
@@ -563,36 +519,28 @@ instance CGVm.Vm'server_ VmCap where
 
   vm'attachSshKey (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'attachSshKey'params {..} -> do
     keyRef' <- capnpRefToRef keyRef
-    keyId <- failOnLeft =<< resolveSshKey keyRef' (ssDbPool st)
+    keyId <- resolveOrThrow =<< resolveSshKey keyRef' (ssDbPool st)
     resp <- runAction st cn (SshKeyAttach {skaVmId = eid, skaKeyId = keyId})
     case resp of
       RespSshKeyOk -> pure CGVm.Vm'attachSshKey'results
       RespOk -> pure CGVm.Vm'attachSshKey'results
-      RespVmNotFound -> throwFailed "VM not found"
-      RespSshKeyNotFound -> throwFailed "SSH key not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'attachSshKey: unexpected response"
+      _ -> throwError resp
 
   vm'detachSshKey (VmCap st _ eid cn) = handleParsed $ \CGVm.Vm'detachSshKey'params {..} -> do
     keyRef' <- capnpRefToRef keyRef
-    keyId <- failOnLeft =<< resolveSshKey keyRef' (ssDbPool st)
+    keyId <- resolveOrThrow =<< resolveSshKey keyRef' (ssDbPool st)
     resp <- runAction st cn (SshKeyDetach {skdetVmId = eid, skdetKeyId = keyId})
     case resp of
       RespSshKeyOk -> pure CGVm.Vm'detachSshKey'results
       RespOk -> pure CGVm.Vm'detachSshKey'results
-      RespVmNotFound -> throwFailed "VM not found"
-      RespSshKeyNotFound -> throwFailed "SSH key not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'detachSshKey: unexpected response"
+      _ -> throwError resp
 
   vm'listSshKeys (VmCap st _ eid cn) = handleParsed $ \_ -> do
     resp <- handleSshKeyListForVm st eid
     case resp of
       RespSshKeyList keys ->
         pure CGVm.Vm'listSshKeys'results {CGVm.keys = map toCapnpSshKeyInfo keys}
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'listSshKeys: unexpected response"
+      _ -> throwError resp
 
   vm'snapshotCreate (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'snapshotCreate'params {..} -> do
@@ -600,11 +548,7 @@ instance CGVm.Vm'server_ VmCap where
       case resp of
         RespVmSnapshotCreated info ->
           pure CGVm.Vm'snapshotCreate'results {CGVm.info = toCapnpVmSnapshotInfo info}
-        RespVmNotFound -> throwFailed "VM not found"
-        RespSnapshotNotFound -> throwFailed "Snapshot not found"
-        RespError msg -> throwFailed msg
-        RespFormatNotSupported msg -> throwFailed msg
-        _ -> throwFailed "vm'snapshotCreate: unexpected response"
+        _ -> throwError resp
 
   vm'snapshotList (VmCap st _ eid _) = handleParsed $ \_ -> do
     resp <- handleVmSnapshotList st eid
@@ -614,9 +558,7 @@ instance CGVm.Vm'server_ VmCap where
           CGVm.Vm'snapshotList'results
             { CGVm.snapshots = map toCapnpVmSnapshotInfo snaps
             }
-      RespVmNotFound -> throwFailed "VM not found"
-      RespError msg -> throwFailed msg
-      _ -> throwFailed "vm'snapshotList: unexpected response"
+      _ -> throwError resp
 
   vm'snapshotRollback (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'snapshotRollback'params {..} -> do
@@ -624,11 +566,7 @@ instance CGVm.Vm'server_ VmCap where
       case resp of
         RespSnapshotOk -> pure CGVm.Vm'snapshotRollback'results
         RespOk -> pure CGVm.Vm'snapshotRollback'results
-        RespVmNotFound -> throwFailed "VM not found"
-        RespSnapshotNotFound -> throwFailed "Snapshot not found"
-        RespError msg -> throwFailed msg
-        RespFormatNotSupported msg -> throwFailed msg
-        _ -> throwFailed "vm'snapshotRollback: unexpected response"
+        _ -> throwError resp
 
   vm'snapshotDelete (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'snapshotDelete'params {..} -> do
@@ -636,23 +574,18 @@ instance CGVm.Vm'server_ VmCap where
       case resp of
         RespSnapshotOk -> pure CGVm.Vm'snapshotDelete'results
         RespOk -> pure CGVm.Vm'snapshotDelete'results
-        RespVmNotFound -> throwFailed "VM not found"
-        RespSnapshotNotFound -> throwFailed "Snapshot not found"
-        RespError msg -> throwFailed msg
-        RespFormatNotSupported msg -> throwFailed msg
-        _ -> throwFailed "vm'snapshotDelete: unexpected response"
+        _ -> throwError resp
 
   vm'migrate (VmCap st _ eid cn) =
     handleParsed $ \CGVm.Vm'migrate'params {params = CGVm.VmMigrateParams {..}} -> do
       nr <- capnpRefToRef toNodeRef
-      destNode <- failOnLeft =<< resolveNode nr (ssDbPool st)
+      destNode <- resolveOrThrow =<< resolveNode nr (ssDbPool st)
       let act = VmMigrate {vmiVmId = eid, vmiDestNodeId = destNode}
       resp <- runActionAsyncWithId st cn act RespDiskTransferStarted
       case resp of
         RespDiskTransferStarted tid ->
           pure CGVm.Vm'migrate'results {CGVm.taskId = tid}
-        RespError msg -> throwFailed msg
-        _ -> throwFailed "vm'migrate: unexpected response"
+        _ -> throwError resp
 
   -- Per-VM resource stats subscribe + history fetch. The agent's
   -- StatusPoller pushes one VmStats sample per VM every ~10 s up
@@ -690,20 +623,11 @@ statusOrThrow :: Response -> IO CGE.VmStatus
 statusOrThrow resp = case resp of
   RespVmStateChanged s -> pure (toCapnpVmStatus s)
   RespVmRunning -> pure (toCapnpVmStatus M.VmRunning)
-  RespError msg -> throwFailed msg
-  RespInvalidTransition st reason ->
-    throwFailed $
-      "invalid transition from "
-        <> M.enumToText st
-        <> ": "
-        <> reason
-  RespVmNotFound -> throwFailed "VM not found"
-  RespVmMustBeStopped -> throwFailed "VM must be stopped for this operation"
-  _ -> throwFailed "vm action: unexpected response"
+  _ -> throwError resp
 
 enumOrThrow :: Either e a -> IO a
 enumOrThrow (Right a) = pure a
-enumOrThrow (Left _) = throwFailed "unknown enum tag in request"
+enumOrThrow (Left _) = throwWireError ProtocolError "unknown enum tag in request"
 
 -- | Treat an EntityRef as 'Nothing' if both branches are
 -- absent-equivalent (id == 0 / name == ""). Used for the optional

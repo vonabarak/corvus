@@ -2,14 +2,12 @@
 
 The Corvus daemon emits Cap'n Proto exceptions via `Capnp.Rpc.throwFailed
 "<message>"`. pycapnp surfaces these as `capnp.KjException` with a
-`.description` field. We pattern-match the message against a small list
-of canonical strings and raise typed Python exceptions; anything we
-don't recognize becomes a plain `CorvusError` so a new daemon-side
-message doesn't crash the client.
-
-This is a temporary translation layer. If/when the daemon adopts
-structured exception codes on the wire (see `src/Corvus/Wire/Errors.hs`),
-this module shrinks to a dict lookup.
+`.description` field. The daemon renders each error in the canonical
+form "<code> :: <message>" (see `src/Corvus/Wire/Error.hs` and the
+`ErrorCode` enum in `schema/enums.capnp`); this module maps the code
+via a dict lookup to a typed Python exception. Anything unrecognized
+degrades to `ServerError` so a new daemon-side error never crashes the
+client.
 """
 
 from __future__ import annotations
@@ -42,7 +40,7 @@ class ProtocolError(CorvusError):
 
 
 class ServerError(CorvusError):
-    """The daemon returned a generic RespError."""
+    """The daemon returned a generic error (`internal_error` code)."""
 
 
 class BadEnvelope(CorvusError):
@@ -54,7 +52,20 @@ class VmNotFound(CorvusError):
 
 
 class VmRunning(CorvusError):
-    """Operation requires the VM to be stopped, but it's running."""
+    """A VM running-state condition blocks the operation.
+
+    Base of a small family: the daemon's `vm_not_running` and
+    `vm_headless` codes map to the subclasses below, so catching this
+    covers either.
+    """
+
+
+class VmNotRunning(VmRunning):
+    """The VM is not running, but the operation requires it to be."""
+
+
+class VmHeadless(VmRunning):
+    """The VM has no SPICE display, so no console is available."""
 
 
 class InvalidTransition(CorvusError):
@@ -64,6 +75,10 @@ class InvalidTransition(CorvusError):
         super().__init__(f"cannot transition from {status}: {reason}")
         self.status = status
         self.reason = reason
+
+
+class AmbiguousRef(CorvusError):
+    """A name ref matched multiple entities across nodes; use the numeric id."""
 
 
 class TaskNotFound(CorvusError):
@@ -155,65 +170,83 @@ class GuestAgentError(CorvusError):
 
 
 # ---------------------------------------------------------------------------
-# Message → exception mapping
+# Code → exception mapping
 # ---------------------------------------------------------------------------
 
-# Regex-match table: case-sensitive, ordered most-specific first.
-#
-# The daemon emits either a static message ("Disk not found") or a
-# decorated form from Corvus.Handlers.Resolve ("Disk '<name>' not found",
-# "Disk #42 not found"). The patterns below match both shapes.
-_MESSAGE_TABLE = (
-    # In-use / state errors first (specific phrases).
-    (re.compile(r"^Disk has overlays$"), DiskHasOverlays),
-    (re.compile(r"^Disk in use\b"), DiskInUse),
-    (re.compile(r"^Drive not found"), DriveNotFound),
-    (re.compile(r"^Guest agent not enabled"), GuestAgentNotEnabled),
-    (re.compile(r"^Net-if not found"), NetIfNotFound),
-    (re.compile(r"^Network already running"), NetworkAlreadyRunning),
-    (re.compile(r"^Network in use\b"), NetworkInUse),
-    (re.compile(r"^Network not running"), NetworkNotRunning),
-    (re.compile(r"^SSH key in use\b"), SshKeyInUse),
-    (re.compile(r"^Serial console buffer not available"), GuestAgentError),
-    (re.compile(r"^HMP monitor buffer not available"), GuestAgentError),
-    (re.compile(r"^VM has no SPICE display"), VmRunning),
-    (re.compile(r"^VM is not running"), VmRunning),
-    (re.compile(r"^VM is not headless"), VmRunning),
-    (re.compile(r"^VM not running"), VmRunning),
-    (re.compile(r"^VM must be stopped"), VmMustBeStopped),
-    # Not-found patterns. Match either the static message or the
-    # Resolve-helper decorated form ("Type '<name>' not found",
-    # "Type #<id> not found").
-    (re.compile(r"^VM\b.*\bnot found"), VmNotFound),
-    (re.compile(r"^Disk\b.*\bnot found"), DiskNotFound),
-    (re.compile(r"^Snapshot\b.*\bnot found"), SnapshotNotFound),
-    (re.compile(r"^Network\b.*\bnot found"), NetworkNotFound),
-    (re.compile(r"^SSH key\b.*\bnot found"), SshKeyNotFound),
-    (re.compile(r"^Template\b.*\bnot found"), TemplateNotFound),
-    (re.compile(r"^Task\b.*\bnot found"), TaskNotFound),
-    (re.compile(r"^Node\b.*\bnot found"), NodeNotFound),
-    (re.compile(r"^Node\b.*\bis still referenced"), NodeInUse),
-    (re.compile(r"^Shared directory\b.*\bnot found"), SharedDirNotFound),
-)
+# The closed set of daemon wire error codes — the snake_case tokens of
+# the `ErrorCode` enum in `schema/enums.capnp` (the single source of
+# truth) — mapped to typed exceptions. The daemon renders errors as
+# "<code> :: <message>"; the code picks the class, the message stays
+# the human-readable body.
+_CODE_MAP: dict[str, type[CorvusError]] = {
+    "vm_not_found": VmNotFound,
+    "disk_not_found": DiskNotFound,
+    "snapshot_not_found": SnapshotNotFound,
+    "drive_not_found": DriveNotFound,
+    "network_not_found": NetworkNotFound,
+    "netif_not_found": NetIfNotFound,
+    "ssh_key_not_found": SshKeyNotFound,
+    "shared_dir_not_found": SharedDirNotFound,
+    "template_not_found": TemplateNotFound,
+    "task_not_found": TaskNotFound,
+    "node_not_found": NodeNotFound,
+    "disk_in_use": DiskInUse,
+    "disk_has_overlays": DiskHasOverlays,
+    "vm_must_be_stopped": VmMustBeStopped,
+    "vm_not_running": VmNotRunning,
+    "vm_headless": VmHeadless,
+    "network_in_use": NetworkInUse,
+    "network_already_running": NetworkAlreadyRunning,
+    "network_not_running": NetworkNotRunning,
+    "ssh_key_in_use": SshKeyInUse,
+    "node_in_use": NodeInUse,
+    "invalid_transition": InvalidTransition,
+    "format_not_supported": FormatNotSupported,
+    "guest_agent_not_enabled": GuestAgentNotEnabled,
+    "guest_agent_error": GuestAgentError,
+    "ambiguous_ref": AmbiguousRef,
+    "internal_error": ServerError,
+    "protocol_error": ProtocolError,
+}
+
+# The wire delimiter, matching 'renderWireError' in
+# src/Corvus/Wire/Error.hs.
+_DELIMITER = " :: "
+
+
+def _split_wire_error(body: str) -> tuple[str, str] | None:
+    """Split a daemon error message into (code, message).
+
+    Codes are matched longest-first against the head of the body, so a
+    message that itself contains the delimiter ("code :: a :: b") still
+    round-trips. Returns None for a legacy (code-less) message or an
+    unknown code.
+    """
+    for code in sorted(_CODE_MAP, key=len, reverse=True):
+        if body.startswith(code + _DELIMITER):
+            return code, body[len(code) + len(_DELIMITER) :]
+    return None
+
 
 # Match `(remote):0: failed: remote exception: <message>` envelopes that
 # pycapnp wraps around the daemon's throwFailed strings.
 _REMOTE_EXC_RE = re.compile(r"remote exception:\s*(.*)$", re.DOTALL)
 
 # FSM transition rejection. The daemon's `statusOrThrow` in
-# `src/Corvus/Rpc/Vm.hs` formats it as
+# `src/Corvus/Rpc/Vm.hs` formats the `invalid_transition` message part as
 # `"invalid transition from <status>: <reason>"`, where <status> is the
-# lower-case enumToText for VmStatus. Special-cased ahead of the
-# `_MESSAGE_TABLE` lookup because `InvalidTransition.__init__` takes
-# (status, reason) — group extraction doesn't fit the table's
-# (body, details) constructor shape.
+# lower-case enumToText for VmStatus. The code tells the translator it's
+# an invalid_transition; this regex extracts the (status, reason) pair
+# from the message part because `InvalidTransition.__init__` takes
+# (status, reason), which doesn't fit the (body, details) constructor
+# shape used by the other codes.
 _INVALID_TRANSITION_RE = re.compile(
     r"^invalid transition from (\w+):\s*(.*)$", re.DOTALL
 )
 
 
 def _bare_message(description: str) -> str:
-    """Strip pycapnp's envelope so substring matches see just the daemon msg."""
+    """Strip pycapnp's envelope so we see just the daemon message."""
     m = _REMOTE_EXC_RE.search(description)
     return m.group(1).strip() if m else description.strip()
 
@@ -222,12 +255,17 @@ def translate_kj_exception(exc: capnp.KjException) -> CorvusError:
     """Map a `capnp.KjException` to a typed Python exception."""
     description = getattr(exc, "description", None) or str(exc)
     body = _bare_message(description)
-    m = _INVALID_TRANSITION_RE.match(body)
-    if m:
-        return InvalidTransition(m.group(1), m.group(2).strip())
-    for pattern, cls in _MESSAGE_TABLE:
-        if pattern.search(body):
-            return cls(body, details=description)
+    split = _split_wire_error(body)
+    if split is not None:
+        code, message = split
+        if code == "invalid_transition":
+            m = _INVALID_TRANSITION_RE.match(message)
+            if m:
+                return InvalidTransition(m.group(1), m.group(2).strip())
+            return ServerError(message, details=description)
+        return _CODE_MAP[code](message, details=description)
+    # Legacy daemon (no code prefix) or a code this client doesn't know:
+    # degrade to the generic error instead of crashing.
     return ServerError(body, details=description)
 
 

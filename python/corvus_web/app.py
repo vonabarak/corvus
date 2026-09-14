@@ -9,6 +9,7 @@ dependency.
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 
@@ -60,6 +61,11 @@ from .routes import (
     templates,
     vms,
 )
+
+# Pattern to extract the wire error code from the daemon's message.
+# The daemon emits "<code> :: <message>", and the client stores the
+# full description in the exception's `details` field.
+_WIRE_CODE_RE = re.compile(r"^(\w+(?:_\w+)*) :: ")
 
 # Map daemon-typed exceptions to HTTP status codes. Anything outside
 # these tuples falls back to 400 (the daemon rejected the request).
@@ -175,9 +181,24 @@ def create_app(config: CorvusWebConfig) -> FastAPI:
     # handle the exception itself.
     @app.exception_handler(CorvusError)
     async def _corvus_error_handler(_req: Request, exc: CorvusError) -> JSONResponse:
+        # Try to extract the structured error code from the daemon's
+        # wire message. The code is stored in the exception's `details`
+        # field (the original KjException description) in the format
+        # "<code> :: <message>".
+        code: str | None = None
+        if hasattr(exc, "details") and exc.details is not None:
+            details_str = str(exc.details)
+            match = _WIRE_CODE_RE.match(details_str)
+            if match:
+                code = match.group(1)
+
+        content: dict[str, object] = {"detail": str(exc)}
+        if code is not None:
+            content["code"] = code
+
         return JSONResponse(
             status_code=_corvus_error_status(exc),
-            content={"detail": str(exc)},
+            content=content,
         )
 
     # API routes mounted under /api/. The SPA mount is last so it

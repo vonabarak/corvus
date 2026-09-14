@@ -24,7 +24,7 @@ import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
 import Corvus.Client.Commands.Template.Yaml (skeletonTemplateYaml, templateDetailsToYaml)
 import Corvus.Client.Editor (editInEditor)
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printField, printTable, tableFormat)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, emitRpcError, printField, printTable, tableFormat)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..))
 import Corvus.Protocol (NamedRef (..), TemplateDetails (..), TemplateDriveInfo (..), TemplateNetIfInfo (..), TemplateSharedDirInfo (..), TemplateSshKeyInfo (..), TemplateVmInfo (..))
@@ -69,7 +69,7 @@ sendCreate fmt conn content = do
           "Template created with ID: " ++ show tid
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -79,7 +79,7 @@ handleTemplateEdit fmt conn tRef = do
   r <- try @SomeException (CR.rpcTemplateShow conn (entityRefFromText tRef))
   case r of
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
     Right details -> do
@@ -100,7 +100,7 @@ handleTemplateEdit fmt conn tRef = do
                   emitOk fmt $ putStrLn $ "Template '" ++ T.unpack tRef ++ "' updated."
                   pure True
                 Left e -> do
-                  emitError fmt "rpc_error" (T.pack (show e)) $
+                  emitRpcError fmt e $
                     putStrLn ("Error: " ++ show e)
                   pure False
 
@@ -113,7 +113,7 @@ handleTemplateDelete fmt conn tid = do
       emitOk fmt $ putStrLn "Template deleted."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -129,7 +129,7 @@ handleTemplateList fmt tableOpts conn = do
           else printTable tableOpts templateVmColumns templates
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -142,7 +142,7 @@ handleTemplateShow fmt conn tid = do
       emitResult fmt details $ printTemplateDetails details
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -166,7 +166,7 @@ handleTemplateInstantiate fmt conn tid name nodeRef = do
           "VM instantiated with ID: " ++ show vmId
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 

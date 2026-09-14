@@ -65,7 +65,7 @@ handleNodeAdd fmt conn name host nodeAgentPort netAgentPort mBasePath mDesc admi
               "Node created with ID: " ++ show nid
           pure True
         Left e -> do
-          emitError fmt "rpc_error" (T.pack (show e)) $
+          emitRpcError fmt e $
             putStrLn ("Failed to add node: " ++ show e)
           pure False
 
@@ -84,7 +84,7 @@ handleNodeList fmt tableOpts conn = do
           else printTable tableOpts nodeColumns nodes
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -100,7 +100,7 @@ handleNodeShow fmt conn nRef = do
       emitResult fmt d $ printDetails d
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
   where
@@ -190,7 +190,7 @@ handleNodeEdit fmt conn nRef mName mHost mNodeAgentPort mNetAgentPort mBasePath 
           emitOk fmt $ putStrLn "Node updated."
           pure True
         Left e -> do
-          emitError fmt "rpc_error" (T.pack (show e)) $
+          emitRpcError fmt e $
             putStrLn ("Failed to edit node: " ++ show e)
           pure False
   where
@@ -208,7 +208,7 @@ handleNodeDrain fmt conn nRef = do
       emitOk fmt $ putStrLn "Node set to draining; scheduler will skip it."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to drain node: " ++ show e)
       pure False
 
@@ -224,7 +224,7 @@ handleNodeDelete fmt conn nRef = do
       emitOk fmt $ putStrLn "Node deleted."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to delete node: " ++ show e)
       pure False
 

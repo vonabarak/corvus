@@ -9,7 +9,9 @@ module Corvus.Rpc.Common
     capnpRefToRef
 
     -- * Failures
-  , failOnLeft
+  , resolveOrThrow
+  , throwError
+  , throwWireError
 
     -- * Method-handler wrappers (connection-safe)
   , handleParsed
@@ -26,8 +28,11 @@ import qualified Capnp.Rpc.Server as CapnpServer
 import Control.Concurrent (forkIO)
 import Control.Exception (SomeException, catch)
 import Control.Monad (void)
+import Corvus.Handlers.Resolve (ResolveError (..))
 import qualified Corvus.Protocol as P
+import Corvus.Rpc.Error (resolveErrorWire, responseError)
 import Corvus.Wire.Common (EntityRef (..), fromCapnpEntityRef)
+import Corvus.Wire.Error (ErrorCode (..), WireErrorInfo (..), renderWireError)
 import Corvus.Wire.Errors (WireError, showWireError)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -41,9 +46,31 @@ capnpRefToRef raw = case fromCapnpEntityRef raw of
   Right (RefByName t) -> pure $ P.Ref t
   Left e -> throwFailed (showWireError e)
 
-failOnLeft :: Either Text a -> IO a
-failOnLeft (Right a) = pure a
-failOnLeft (Left e) = throwFailed e
+-- | Render a failed 'P.Response' in the structured wire format
+-- (@<code> :: <message>@) and throw it as a Cap'n Proto exception.
+--
+-- The code/message choice lives in 'responseError'; this is only
+-- the wire rendering.
+throwError :: P.Response -> IO a
+throwError resp =
+  let (code, message) = responseError resp
+   in throwFailed (renderWireError (WireErrorInfo code message))
+
+-- | Resolve-or-fail: render a 'ResolveError' in the structured wire
+-- format and throw it. A not-found ref carries the entity-specific
+-- code; an ambiguous match carries 'AmbiguousRef'.
+resolveOrThrow :: Either ResolveError a -> IO a
+resolveOrThrow (Right a) = pure a
+resolveOrThrow (Left e) =
+  let (code, message) = resolveErrorWire e
+   in throwFailed (renderWireError (WireErrorInfo code message))
+
+-- | Render a pre-chosen wire error (code + message) and throw it as a
+-- Cap'n Proto exception. Used where the caller already knows the code
+-- (e.g. a state-rejection specific to one RPC) and wants to skip the
+-- 'P.Response' indirection of 'throwError'.
+throwWireError :: ErrorCode -> Text -> IO a
+throwWireError code message = throwFailed (renderWireError (WireErrorInfo code message))
 
 -- | Connection-safe replacement for 'Capnp.Rpc.Server.handleParsed'.
 --

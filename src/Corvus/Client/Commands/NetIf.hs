@@ -17,7 +17,7 @@ where
 import Control.Exception (SomeException, try)
 import Corvus.Client.Capnp.Connection (CapnpConnection)
 import qualified Corvus.Client.Capnp.Rpc as CR
-import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitError, emitOk, emitOkWith, emitResult, printTable)
+import Corvus.Client.Output (Align (..), Column (..), TableOpts, emitOk, emitOkWith, emitResult, emitRpcError, printTable)
 import Corvus.Client.Types (OutputFormat)
 import Corvus.Model (EnumText (..), NetInterfaceType)
 import Corvus.Protocol (NetIfInfo (..))
@@ -43,7 +43,7 @@ handleNetIfAdd fmt conn vmRef ifaceType hostDevice macAddress mNetworkRef = do
           "Network interface added with ID: " ++ show nid
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Failed to add network interface: " ++ show e)
       pure False
 
@@ -56,7 +56,7 @@ handleNetIfRemove fmt conn vmRef netIfId = do
       emitOk fmt $ putStrLn "Network interface removed."
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
@@ -72,7 +72,7 @@ handleNetIfList fmt tableOpts conn vmRef = do
           else printTable tableOpts netIfColumns netIfs
       pure True
     Left e -> do
-      emitError fmt "rpc_error" (T.pack (show e)) $
+      emitRpcError fmt e $
         putStrLn ("Error: " ++ show e)
       pure False
 
