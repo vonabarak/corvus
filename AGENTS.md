@@ -125,8 +125,11 @@ integration_tests/       # Pytest nested-VM harness
   deploys certs/systemd units to local or SSH targets, and registers nodes.
 - **Concurrency**: STM (`TVar`) for shared daemon state; `async` and supervisors
   for background listeners, reconnect loops, process monitors, and streams.
-- **Database**: Persistent + Esqueleto ORM with PostgreSQL; `runSqlPool` pattern;
-  daemon runs migrations on startup.
+- **Database**: Persistent + Esqueleto ORM with SQLite or PostgreSQL;
+  `runSqlPool` pattern. Fresh databases use the current model; existing
+  databases use versioned modules under `src/Corvus/Database/Migrations/`.
+  See [`doc/database-migrations.md`](doc/database-migrations.md) for authoring,
+  retiring, and testing migrations.
 - **Logging**: `MonadLogger` (`LoggingT`) with component CLI log-level flags.
 - **Task tracking**: mutating daemon operations are recorded in the `task` table
   through `Action`/task wrappers; read-only list/show/get/ping style operations
@@ -265,6 +268,7 @@ for the full list.
 | `doc/templates.md` | VM template YAML schema and instantiation |
 | `doc/apply-configuration.md` | Declarative environment YAML reference |
 | `doc/rpc-protocol.md` | Cap'n Proto protocol tour and pycapnp example |
+| `doc/database-migrations.md` | Developer guide to schema versions, migration modules, retirement, and backend tests |
 | `doc/dev-node.md` | Manual-testing VM and helper scripts |
 | `python/README.md` | Python client usage and coverage |
 | `integration_tests/README.md` | Nested-VM integration harness |

@@ -385,3 +385,21 @@ sources needed by the `make test-image*` targets.
 Most test classes boot one 8 vCPU / 8 GiB test node. Multi-node classes boot
 more than one. If the host starts swapping or QEMU processes get killed, lower
 parallelism with `WORKERS=N` and clean up leaked nodes before retrying.
+
+## Database migration coverage
+
+`tests/test_database_migrations.py` runs separate PostgreSQL and SQLite classes
+in the normal suite. Each owns an isolated test node, loads the frozen version-2
+schema and sample rows from `test/fixtures/database/`, then starts the current
+daemon to execute the actual upgrade. Assertions cover preserved data and
+constraints, nullable CD-ROM drives, startup logs, and migration skipping after
+a restart. Both backends also cover fresh creation and refusal when a required
+migration has been retired. The host's `TEST_DB_BACKEND` does not select or skip
+either integration class.
+
+```sh
+make integration-tests MATCH=database_migrations
+```
+
+See [Database Migrations](../doc/database-migrations.md) for the framework and
+fixture-maintenance rules.

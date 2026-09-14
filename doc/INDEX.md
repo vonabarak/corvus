@@ -34,6 +34,10 @@
 - [Integration Test Suite](../integration_tests/README.md) -- Python harness that runs the freshly-compiled Corvus inside nested VMs
 - [Dev Node](dev-node.md) -- Long-lived manual-testing VM for iterating on the daemon and web UI against uncommitted source
 
+## Development
+
+- [Database Migrations](database-migrations.md) -- Versioned upgrades, authoring and retiring migration modules, and backend tests
+
 ## Examples
 
 YAML configurations live under [yaml/](../yaml/), with one subdirectory per

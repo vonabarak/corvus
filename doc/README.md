@@ -72,7 +72,10 @@ make install  # Installs binaries to ~/.local/bin/ + pipx-installs corvus-admin
 The default database is SQLite. When the daemon starts without `--database`, it
 uses `$XDG_DATA_HOME/corvus/corvus.db` or
 `~/.local/share/corvus/corvus.db`, creates the parent directory if needed, and
-runs migrations automatically.
+creates the latest schema for an empty database or runs the retained versioned
+migrations for an existing database. Startup fails if a required migration is
+no longer included or the database is newer than the binary. See the
+[database migration developer guide](database-migrations.md) for details.
 
 To use PostgreSQL instead, create the database and pass a PostgreSQL URL:
 

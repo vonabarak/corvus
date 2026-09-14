@@ -82,8 +82,8 @@ spec = do
         nodeTableExists <- sqliteTableExists pool "node"
         destroyAllResources pool
 
-        result `shouldBe` Right (SchemaMigrated 0 currentSchemaVersion)
-        storedVersion `shouldBe` currentSchemaVersion
+        result `shouldBe` Right (SchemaCreated currentSchemaVersion)
+        storedVersion `shouldBe` Just currentSchemaVersion
         nodeTableExists `shouldBe` True
 
     it "skips Persistent migrations when the stored version is already current" $
@@ -99,29 +99,16 @@ spec = do
         result `shouldBe` Right (SchemaAlreadyCurrent currentSchemaVersion)
         nodeTableExists `shouldBe` False
 
-    it "upgrades version 1 databases with the TPM columns" $
-      withSystemTempDirectory "corvus-db-schema-tpm" $ \dir -> do
+    it "rejects version 1 before changing the database" $
+      withSystemTempDirectory "corvus-db-schema-old" $ \dir -> do
         let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
         pool <- createDatabasePool cfg
-        _ <- runDatabaseMigrations cfg pool
-        runSqlPool
-          ( do
-              rawExecute "ALTER TABLE \"vm\" DROP COLUMN \"tpm\"" []
-              rawExecute "ALTER TABLE \"template_vm\" DROP COLUMN \"tpm\"" []
-              writeSchemaVersion 1
-          )
-          pool
-
+        installSchemaVersionOnly pool 1
         result <- runDatabaseMigrations cfg pool
-        vmHasTpm <- sqliteColumnExists pool "vm" "tpm"
-        templateHasTpm <- sqliteColumnExists pool "template_vm" "tpm"
-        storedVersion <- runSqlPool readSchemaVersion pool
+        result `shouldBe` Left (SchemaMigrationMissing 1 currentSchemaVersion 2)
+        runSqlPool readSchemaVersion pool `shouldReturn` Just 1
+        sqliteTableExists pool "node" `shouldReturn` False
         destroyAllResources pool
-
-        result `shouldBe` Right (SchemaMigrated 1 currentSchemaVersion)
-        vmHasTpm `shouldBe` True
-        templateHasTpm `shouldBe` True
-        storedVersion `shouldBe` currentSchemaVersion
 
     it "rejects a database created by a newer binary" $
       withSystemTempDirectory "corvus-db-schema-newer" $ \dir -> do
@@ -170,7 +157,7 @@ spec = do
         let cfg = DatabaseConfig DatabaseSqlite (dir </> "corvus.db")
         pool <- createDatabasePool cfg
         migrationResult <- runDatabaseMigrations cfg pool
-        migrationResult `shouldBe` Right (SchemaMigrated 0 currentSchemaVersion)
+        migrationResult `shouldBe` Right (SchemaCreated currentSchemaVersion)
         info <- getDatabaseRuntimeInfo cfg pool
         sqliteMasterRows <-
           runSqlPool
@@ -196,15 +183,6 @@ spec = do
       withIsolatedTestDb $ \env -> do
         result <- runDatabaseMigrations (envDatabaseConfig env) (TestDb.tePool env)
         result `shouldBe` Right (SchemaAlreadyCurrent currentSchemaVersion)
-
-    it "upgrades when the stored version is older" $
-      withIsolatedTestDb $ \env -> do
-        runSqlPool (writeSchemaVersion (currentSchemaVersion - 1)) (TestDb.tePool env)
-        result <- runDatabaseMigrations (envDatabaseConfig env) (TestDb.tePool env)
-        storedVersion <- runSqlPool readSchemaVersion (TestDb.tePool env)
-
-        result `shouldBe` Right (SchemaMigrated (currentSchemaVersion - 1) currentSchemaVersion)
-        storedVersion `shouldBe` currentSchemaVersion
 
     it "fails when the stored version is newer" $
       withIsolatedTestDb $ \env -> do
@@ -271,17 +249,6 @@ sqliteTableExists pool tableName = do
       ( rawSql
           "SELECT name FROM sqlite_master WHERE type='table' AND name = ?;"
           [PersistText tableName]
-      )
-      pool
-  pure $ not (null (rows :: [Single T.Text]))
-
-sqliteColumnExists :: Pool SqlBackend -> T.Text -> T.Text -> IO Bool
-sqliteColumnExists pool tableName columnName = do
-  rows <-
-    runSqlPool
-      ( rawSql
-          "SELECT name FROM pragma_table_info(?) WHERE name = ?"
-          [PersistText tableName, PersistText columnName]
       )
       pool
   pure $ not (null (rows :: [Single T.Text]))

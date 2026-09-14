@@ -26,7 +26,7 @@ where
 
 import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import Corvus.Database (DatabaseConfig (..), DatabaseEngine (..), SchemaMigrationError (..), createDatabasePool, runDatabaseMigrations)
+import Corvus.Database (DatabaseConfig (..), DatabaseEngine (..), createDatabasePool, renderSchemaMigrationError, runDatabaseMigrations)
 import qualified Corvus.Model as M
 import Corvus.Protocol (Response)
 import Data.IORef (IORef, newIORef)
@@ -101,13 +101,7 @@ setupTestDb = do
   migrationResult <- runDatabaseMigrations dbConfig pool
   case migrationResult of
     Right _ -> pure ()
-    Left SchemaVersionTooNew {sveStoredVersion = storedVersion, sveCurrentVersion = currentVersion} ->
-      fail $
-        "test database schema version "
-          <> show storedVersion
-          <> " is newer than this binary supports ("
-          <> show currentVersion
-          <> ")"
+    Left err -> fail $ T.unpack $ renderSchemaMigrationError err
 
   -- Seed a default 'test-node' so handlers that insert VMs /
   -- networks / disks have a satisfiable FK target. Recreated by

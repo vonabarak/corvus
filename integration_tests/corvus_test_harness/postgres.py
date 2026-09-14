@@ -9,6 +9,8 @@ the helpers those tests need.
 
 from __future__ import annotations
 
+import shlex
+
 from .ssh import NodeShell
 
 
@@ -38,5 +40,7 @@ def wait_for_postgres(shell: NodeShell, *, timeout_sec: float = 60.0) -> None:
 
 def psql(shell: NodeShell, sql: str, *, db: str = "corvus") -> str:
     """Run a SQL statement via `psql` on the node; return stdout."""
-    out = shell.run(f"sudo -u postgres psql -d {db} -tA -v ON_ERROR_STOP=1 -c {sql!r}")
+    out = shell.run(
+        f"sudo -u postgres psql -d {shlex.quote(db)} -tA -v ON_ERROR_STOP=1 -c {shlex.quote(sql)}"
+    )
     return out.stdout.decode("utf-8", errors="replace").strip()

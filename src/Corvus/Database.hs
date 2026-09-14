@@ -1,5 +1,4 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Corvus.Database
@@ -16,6 +15,8 @@ module Corvus.Database
   , decideSchemaMigration
   , readSchemaVersion
   , runDatabaseMigrations
+  , runDatabaseMigrationsWith
+  , renderSchemaMigrationError
   , writeSchemaVersion
   , databaseEngineLabel
   , databaseEngineId
@@ -27,10 +28,13 @@ module Corvus.Database
   )
 where
 
-import Control.Exception (SomeException, bracket, try)
-import Control.Monad (forM_, when)
+import Control.Exception (SomeException, bracket, throwIO, try)
+import Control.Monad (when)
+import Control.Monad.Catch (throwM)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Logger (LoggingT, logWarnN, runStdoutLoggingT)
+import Corvus.Database.Migration
+import qualified Corvus.Database.Migrations as Migrations
 import Corvus.Model (migrateAll)
 import qualified Data.ByteString as BS
 import Data.ByteString.Char8 (pack)
@@ -62,11 +66,6 @@ currentSchemaVersion :: Int
 -- media (ejected tray).
 currentSchemaVersion = 3
 
-data DatabaseEngine
-  = DatabasePostgresql
-  | DatabaseSqlite
-  deriving (Eq, Show)
-
 data DatabaseConfig = DatabaseConfig
   { dcEngine :: !DatabaseEngine
   , dcValue :: !String
@@ -85,14 +84,9 @@ data SchemaMigrationDecision
   | SchemaMigrationRefusedNewer
   deriving (Eq, Show)
 
-data SchemaMigrationError = SchemaVersionTooNew
-  { sveStoredVersion :: !Int
-  , sveCurrentVersion :: !Int
-  }
-  deriving (Eq, Show)
-
 data SchemaMigrationResult
-  = SchemaAlreadyCurrent !Int
+  = SchemaCreated !Int
+  | SchemaAlreadyCurrent !Int
   | SchemaMigrated !Int !Int
   deriving (Eq, Show)
 
@@ -182,24 +176,39 @@ decideSchemaMigration storedVersion expectedVersion
   | otherwise = SchemaMigrationRefusedNewer
 
 runDatabaseMigrations :: DatabaseConfig -> Pool SqlBackend -> IO (Either SchemaMigrationError SchemaMigrationResult)
-runDatabaseMigrations cfg =
-  runSqlPool $ do
-    ensureSchemaVersionTable
-    storedVersion <- readSchemaVersion
-    case decideSchemaMigration storedVersion currentSchemaVersion of
-      SchemaMigrationNotNeeded ->
-        pure $ Right $ SchemaAlreadyCurrent storedVersion
-      SchemaMigrationNeeded -> do
-        runBackendMigrations cfg storedVersion
-        writeSchemaVersion currentSchemaVersion
-        pure $ Right $ SchemaMigrated storedVersion currentSchemaVersion
-      SchemaMigrationRefusedNewer ->
-        pure $
-          Left $
-            SchemaVersionTooNew
-              { sveStoredVersion = storedVersion
-              , sveCurrentVersion = currentSchemaVersion
-              }
+runDatabaseMigrations = runDatabaseMigrationsWith currentSchemaVersion Migrations.migrations
+
+-- | Injectable registry for testing ordering, retirement and atomic failure.
+runDatabaseMigrationsWith :: Int -> [Migration] -> DatabaseConfig -> Pool SqlBackend -> IO (Either SchemaMigrationError SchemaMigrationResult)
+runDatabaseMigrationsWith current migrations cfg pool = try $ runSqlPool initialize pool
+  where
+    initialize = do
+      -- Validate the registry even on fresh/current databases.
+      _ <- either throwM pure $ planMigrations current migrations current
+      tables <- databaseTables (dcEngine cfg)
+      stored <- if "schema_version" `elem` tables then readSchemaVersion else pure Nothing
+      case stored of
+        Nothing
+          | not (any (/= "schema_version") tables) -> do
+              createCurrentSchema (dcEngine cfg)
+              ensureSchemaVersionTable
+              writeSchemaVersion current
+              pure $ SchemaCreated current
+          | otherwise -> throwM $ SchemaVersionInvalid "existing tables have no recorded version"
+        Just version -> do
+          pending <- either throwM pure $ planMigrations current migrations version
+          if null pending
+            then pure $ SchemaAlreadyCurrent version
+            else do
+              executeMigrations (dcEngine cfg) writeSchemaVersion pending
+              pure $ SchemaMigrated version current
+
+databaseTables :: (MonadIO m) => DatabaseEngine -> ReaderT SqlBackend m [Text]
+databaseTables engine = map unSingle <$> rawSql query []
+  where
+    query = case engine of
+      DatabaseSqlite -> "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+      DatabasePostgresql -> "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'"
 
 ensureSchemaVersionTable :: (MonadIO m) => ReaderT SqlBackend m ()
 ensureSchemaVersionTable =
@@ -207,12 +216,15 @@ ensureSchemaVersionTable =
     "CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)"
     []
 
-readSchemaVersion :: (MonadIO m) => ReaderT SqlBackend m Int
+-- | The caller first checks whether the metadata table exists. An absent row
+-- is distinct from version zero, which is never a supported stored version.
+readSchemaVersion :: (MonadIO m) => ReaderT SqlBackend m (Maybe Int)
 readSchemaVersion = do
-  rows <- rawSql "SELECT version FROM schema_version WHERE id = 1" []
+  rows <- rawSql "SELECT id, version FROM schema_version" []
   case rows of
-    Single version : _ -> pure version
-    [] -> pure 0
+    [] -> pure Nothing
+    [(Single rowId, Single version)] | (rowId :: Int) == 1 && version > 0 -> pure $ Just version
+    _ -> liftIO $ throwIO $ SchemaVersionInvalid "expected one row with id = 1 and a positive version"
 
 writeSchemaVersion :: (MonadIO m) => Int -> ReaderT SqlBackend m ()
 writeSchemaVersion version = do
@@ -221,35 +233,10 @@ writeSchemaVersion version = do
     "INSERT INTO schema_version (id, version) VALUES (1, ?)"
     [PersistInt64 $ fromIntegral version]
 
-runBackendMigrations :: (MonadIO m) => DatabaseConfig -> Int -> ReaderT SqlBackend m ()
-runBackendMigrations cfg storedVersion =
-  case dcEngine cfg of
-    DatabaseSqlite -> do
-      -- A fresh database has no 'drive' table yet; 'runSqliteMigrations'
-      -- creates it with the nullable column directly. Only an existing
-      -- pre-v3 table (which has NOT NULL) needs the manual rebuild.
-      driveExists <- sqliteTableExists "drive"
-      when (storedVersion < 3 && driveExists) runSqliteDriveDiskImageNullable
-      runSqliteMigrations
-    DatabasePostgresql -> do
-      driveExists <- pgTableExists "drive"
-      when (storedVersion < 3 && driveExists) $
-        rawExecute "ALTER TABLE drive ALTER COLUMN disk_image_id DROP NOT NULL" []
-      runMigration migrateAll
-
-sqliteTableExists :: (MonadIO m) => Text -> ReaderT SqlBackend m Bool
-sqliteTableExists name = do
-  rows <-
-    rawSql
-      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
-      [PersistText name]
-  pure $ not (null (rows :: [Single PersistValue]))
-
-pgTableExists :: (MonadIO m) => Text -> ReaderT SqlBackend m Bool
-pgTableExists name = do
-  rows <-
-    rawSql "SELECT 1 FROM information_schema.tables WHERE table_name = ?" [PersistText name]
-  pure $ not (null (rows :: [Single PersistValue]))
+-- | Used only for an empty database, never to reconcile an existing schema.
+createCurrentSchema :: (MonadIO m) => DatabaseEngine -> ReaderT SqlBackend m ()
+createCurrentSchema DatabaseSqlite = runSqliteMigrations
+createCurrentSchema DatabasePostgresql = runMigration migrateAll
 
 runSqliteMigrations :: (MonadIO m) => ReaderT SqlBackend m ()
 runSqliteMigrations = do
@@ -261,48 +248,6 @@ sqliteAutoincrementSql sql
   | "CREATE TABLE " `T.isPrefixOf` sql =
       T.replace "\"id\" INTEGER PRIMARY KEY" "\"id\" INTEGER PRIMARY KEY AUTOINCREMENT" sql
   | otherwise = sql
-
--- | Schema 2 -> 3: make 'drive.disk_image_id' nullable so a CD-ROM drive
--- can represent an ejected (empty) tray. SQLite has no 'ALTER COLUMN ...
--- DROP NOT NULL', so we rebuild the table. The column list mirrors the
--- persistent 'Drive' model with the NOT NULL constraint removed; any
--- indexes persistent created on the old table are captured and recreated
--- dynamically so the migration stays correct if the index names change.
--- | Runs inside the caller's 'runSqlPool' transaction, which provides
--- the atomicity (any failed step rolls the whole rebuild back). An
--- explicit 'BEGIN' here would fail with "cannot start a transaction
--- within a transaction"; note that 'PRAGMA foreign_keys' is also a
--- no-op inside a transaction, so it is not toggled.
-runSqliteDriveDiskImageNullable :: (MonadIO m) => ReaderT SqlBackend m ()
-runSqliteDriveDiskImageNullable = do
-  indexSqls <-
-    rawSql
-      "SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'drive' AND sql IS NOT NULL"
-      []
-  rawExecute createDriveNewSql []
-  rawExecute copyDriveRowsSql []
-  rawExecute "DROP TABLE drive" []
-  rawExecute "ALTER TABLE drive_new RENAME TO drive" []
-  forM_ indexSqls $
-    \case
-      Single (PersistText sqlText) -> rawExecute sqlText []
-      _ -> pure ()
-  where
-    createDriveNewSql =
-      "CREATE TABLE drive_new ("
-        <> "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        <> "vm_id INTEGER NOT NULL, "
-        <> "disk_image_id INTEGER, "
-        <> "interface TEXT NOT NULL, "
-        <> "media TEXT, "
-        <> "read_only INTEGER NOT NULL, "
-        <> "cache_type TEXT NOT NULL, "
-        <> "discard INTEGER NOT NULL, "
-        <> "FOREIGN KEY (vm_id) REFERENCES vm(id)"
-        <> ")"
-    copyDriveRowsSql =
-      "INSERT INTO drive_new (id, vm_id, disk_image_id, interface, media, read_only, cache_type, discard) "
-        <> "SELECT id, vm_id, disk_image_id, interface, media, read_only, cache_type, discard FROM drive"
 
 getDatabaseRuntimeInfo :: DatabaseConfig -> Pool SqlBackend -> IO DatabaseRuntimeInfo
 getDatabaseRuntimeInfo cfg pool = do

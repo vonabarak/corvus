@@ -12,6 +12,10 @@ author:         Author
 maintainer:     author@example.com
 license:        BSD-3-Clause
 build-type:     Simple
+extra-source-files:
+    test/fixtures/database/postgresql-v2.sql
+    test/fixtures/database/seed.sql
+    test/fixtures/database/sqlite-v2.sql
 
 flag with-postgresql
   manual: True
@@ -38,6 +42,7 @@ library
       Corvus.Protocol.Task
       Corvus.Types
       Corvus.Database
+      Corvus.Database.Migration
       Corvus.Tls
       Corvus.Server
       Corvus.Action
@@ -206,6 +211,8 @@ library
       Capnp.Gen.Nodeagent
   other-modules:
       Corvus.Client.Commands.Network
+      Corvus.Database.Migrations
+      Corvus.Database.Migrations.V003
       Corvus.Handlers.Disk.Transfer
       Corvus.Handlers.Vm.Migrate
       Corvus.Handlers.Vm.Migrate.PreCheck
@@ -604,6 +611,7 @@ test-suite corvus-test
       Corvus.ClientOutputSpec
       Corvus.CloudInitSpec
       Corvus.CoreSpec
+      Corvus.DatabaseMigrationSpec
       Corvus.DatabaseSpec
       Corvus.DiskSpec
       Corvus.DnsmasqArgsSpec

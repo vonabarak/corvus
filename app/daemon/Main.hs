@@ -11,12 +11,12 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Logger (LogLevel (..), logErrorN, logInfoN)
 import Corvus.Database
   ( DatabaseConfig (..)
-  , SchemaMigrationError (..)
   , SchemaMigrationResult (..)
   , createDatabasePool
   , databaseEngineLabel
   , getDatabaseRuntimeInfo
   , parseDatabase
+  , renderSchemaMigrationError
   , runDatabaseMigrations
   , warnIfSqliteHeaderVersionMismatch
   )
@@ -170,6 +170,8 @@ main = do
 
     logInfoN "Checking database schema version..."
     liftIO (runDatabaseMigrations dbConfig pool) >>= \case
+      Right (SchemaCreated version) ->
+        logInfoN $ "Created database schema at version " <> T.pack (show version) <> "."
       Right (SchemaAlreadyCurrent version) ->
         logInfoN $
           "Database schema version "
@@ -182,13 +184,8 @@ main = do
             <> " to "
             <> T.pack (show newVersion)
             <> "."
-      Left SchemaVersionTooNew {sveStoredVersion = storedVersion, sveCurrentVersion = currentVersion} -> do
-        logErrorN $
-          "Database schema version "
-            <> T.pack (show storedVersion)
-            <> " is newer than this binary supports ("
-            <> T.pack (show currentVersion)
-            <> "); refusing startup."
+      Left err -> do
+        logErrorN $ renderSchemaMigrationError err <> "; refusing startup."
         liftIO $ exitWith (ExitFailure 1)
 
     -- SPICE bind: defaults to the TCP listener's bind host when the

@@ -2,6 +2,9 @@ name: corvus
 version: 0.15.0.0
 synopsis: Daemon/client application with RPC communication
 description: A Haskell daemon that runs as a systemd service with a CLI client
+extra-source-files:
+  - test/fixtures/database/*.sql
+
 license: BSD-3-Clause
 author: Author
 maintainer: author@example.com
@@ -98,6 +101,7 @@ library:
     - Corvus.Protocol.Task
     - Corvus.Types
     - Corvus.Database
+    - Corvus.Database.Migration
     - Corvus.Tls
     - Corvus.Server
     - Corvus.Action
