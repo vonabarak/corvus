@@ -335,23 +335,30 @@ reapplyRunningNetworks state nodeKey nodeLabel nac = do
       pool
   -- Networks where this node is a peer (lookup via NetworkPeer).
   peerRows <- runSqlPool peerNetworksFor pool
+  -- Build a map from primary key → value so we can handle the
+  -- race where a peer row references a network that was deleted
+  -- between the 'selectList' and the 'get' without crashing the
+  -- daemon with 'error'.
+  let nwMap = Map.fromList [(enw, nw) | Entity enw nw <- ownedRows]
   let owned = [(PS.RoleOwner, e) | e <- ownedRows]
-      peered = [(PS.RolePeer, e) | e <- peerRows]
+      peered =
+        [ (PS.RolePeer, Entity (M.networkPeerNetworkId (entityVal e)) nw)
+        | e <- peerRows
+        , let k = M.networkPeerNetworkId (entityVal e)
+        , Just nw <- [Map.lookup k nwMap]
+        ]
+  -- If any peer rows referenced networks that no longer exist,
+  -- warn but continue with what we have. The supervisor will
+  -- re-apply on next connect.
+  when (length peered < length peerRows) $
+    runFilteredLogging (ssLogLevel state) $
+      logWarnN $
+        "node " <> nodeLabel <> " peer network row(s) disappeared from DB; skipping"
   forM_ (owned <> peered) $ \(role, Entity nwKey nw) -> reapplyOne role nwKey nw
   where
-    peerNetworksFor :: SqlPersistT IO [Entity M.Network]
+    peerNetworksFor :: SqlPersistT IO [Entity M.NetworkPeer]
     peerNetworksFor = do
-      pe <- selectList [M.NetworkPeerNodeId ==. nodeKey] []
-      let nwKeys = map (M.networkPeerNetworkId . entityVal) pe
-      -- Persistent doesn't have a built-in 'in' filter against keys
-      -- that's compatible across our setup; do an in-memory lookup.
-      mapM (\k -> Entity k . fromMaybe (error "missing network row") <$> get k)
-        =<< filterM
-          ( \k -> do
-              mNw <- get k
-              pure (maybe False M.networkRunning mNw)
-          )
-          nwKeys
+      selectList [M.NetworkPeerNodeId ==. nodeKey] []
 
     reapplyOne :: PS.PeerRole -> M.NetworkId -> M.Network -> IO ()
     reapplyOne role nwKey nw = do
