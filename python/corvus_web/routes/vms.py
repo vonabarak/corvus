@@ -11,8 +11,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from dataclasses import asdict, is_dataclass
-from datetime import date, datetime
 from typing import TYPE_CHECKING, Annotated, Any
 
 from corvus_client.exceptions import CorvusError, VmNotFound
@@ -20,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from pydantic import BaseModel, Field
 
 from ..deps import get_client
+from ..lib import to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -31,33 +30,11 @@ ClientDep = Annotated["AsyncClient", Depends(get_client)]
 logger = logging.getLogger(__name__)
 
 
-def _as_dict(obj: Any) -> Any:
-    """Recursively convert a frozen dataclass tree (incl. datetimes,
-    nested lists) into JSON-friendly primitives.
-
-    REST handlers used to rely on FastAPI's default JSON encoder to
-    stringify datetimes — but the WebSocket path goes through
-    Starlette's ``ws.send_json`` which calls plain ``json.dumps`` and
-    raises ``TypeError`` on a raw ``datetime``. Convert ISO 8601 here
-    so both surfaces emit the same string and the WS doesn't crash on
-    fields like ``GuestAgentStatus.last_healthcheck``.
-    """
-    if is_dataclass(obj) and not isinstance(obj, type):
-        return {k: _as_dict(v) for k, v in asdict(obj).items()}
-    if isinstance(obj, list):
-        return [_as_dict(v) for v in obj]
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if isinstance(obj, date):
-        return obj.isoformat()
-    return obj
-
-
 @router.get("")
 async def list_vms(client: ClientDep) -> list[dict[str, Any]]:
     """List every VM. Mirrors ``crv vm list``."""
     vms = await client.vms.list()
-    return [_as_dict(v) for v in vms]
+    return [to_dict(v) for v in vms]
 
 
 class VmCreateBody(BaseModel):
@@ -115,7 +92,7 @@ async def create_vm(body: VmCreateBody, client: ClientDep) -> dict[str, Any]:
         # so the form can re-render with the daemon's message.
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     details = await vm.show()
-    return _as_dict(details)
+    return to_dict(details)
 
 
 @router.get("/{vm_id}")
@@ -126,7 +103,7 @@ async def get_vm(vm_id: int, client: ClientDep) -> dict[str, Any]:
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     details = await vm.show()
-    return _as_dict(details)
+    return to_dict(details)
 
 
 @router.post("/{vm_id}/start")
@@ -229,7 +206,7 @@ async def get_cloud_init(vm_id: int, client: ClientDep) -> dict[str, Any]:
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     info = await vm.cloud_init()
-    return _as_dict(info)
+    return to_dict(info)
 
 
 # ---- attach/detach: drives, NICs, SSH keys -------------------------------
@@ -383,7 +360,7 @@ async def list_vm_ssh_keys(vm_id: int, client: ClientDep) -> list[dict[str, Any]
     except VmNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     keys = await vm.list_ssh_keys()
-    return [_as_dict(k) for k in keys]
+    return [to_dict(k) for k in keys]
 
 
 @router.post("/{vm_id}/ssh-keys")
@@ -554,7 +531,7 @@ async def guest_agent_ws(ws: WebSocket, vm_id: int) -> None:
         while True:
             status = await queue.get()
             try:
-                await ws.send_json(_as_dict(status))
+                await ws.send_json(to_dict(status))
             except (WebSocketDisconnect, RuntimeError):
                 return
 
@@ -600,7 +577,7 @@ async def vm_stats_history(
     except VmNotFound:
         raise HTTPException(404, "VM not found") from None
     history = await vm.get_stats_history()
-    return [_as_dict(s) for s in history]
+    return [to_dict(s) for s in history]
 
 
 @router.websocket("/{vm_id}/stats/ws")
@@ -633,7 +610,7 @@ async def vm_stats_ws(ws: WebSocket, vm_id: int) -> None:
         while True:
             stats = await queue.get()
             try:
-                await ws.send_json(_as_dict(stats))
+                await ws.send_json(to_dict(stats))
             except (WebSocketDisconnect, RuntimeError):
                 return
 

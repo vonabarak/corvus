@@ -10,7 +10,6 @@ the CLI already covers and aren't on the v1 critical path.
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
 from corvus_client.exceptions import CorvusError, DiskNotFound, SnapshotNotFound
@@ -18,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..deps import get_client
+from ..lib import to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -25,14 +25,6 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/disks", tags=["disks"])
 
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
-
-
-def _as_dict(obj: Any) -> Any:
-    if is_dataclass(obj) and not isinstance(obj, type):
-        return {k: _as_dict(v) for k, v in asdict(obj).items()}
-    if isinstance(obj, list):
-        return [_as_dict(v) for v in obj]
-    return obj
 
 
 class ResizeBody(BaseModel):
@@ -113,7 +105,7 @@ async def list_disks(client: ClientDep) -> list[dict[str, Any]]:
     """Mirrors ``crv disk list``. Returns every registered disk with
     its placements, attached-VMs summary, backing-image link, and
     ephemeral flag."""
-    return [_as_dict(d) for d in await client.disks.list()]
+    return [to_dict(d) for d in await client.disks.list()]
 
 
 @router.get("/{disk_id}")
@@ -124,7 +116,7 @@ async def get_disk(disk_id: int, client: ClientDep) -> dict[str, Any]:
         disk = await client.disks.get(disk_id)
     except DiskNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _as_dict(await disk.show())
+    return to_dict(await disk.show())
 
 
 def _ref_to_int_or_str(ref: str) -> int | str:
@@ -152,7 +144,7 @@ async def create_disk(body: DiskCreateBody, client: ClientDep) -> dict[str, Any]
         )
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _as_dict(await disk.show())
+    return to_dict(await disk.show())
 
 
 @router.post("/overlay")
@@ -167,7 +159,7 @@ async def create_overlay(body: DiskOverlayBody, client: ClientDep) -> dict[str, 
         )
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _as_dict(await disk.show())
+    return to_dict(await disk.show())
 
 
 @router.post("/clone")
@@ -182,7 +174,7 @@ async def clone_disk(body: DiskCloneBody, client: ClientDep) -> dict[str, Any]:
         )
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _as_dict(await disk.show())
+    return to_dict(await disk.show())
 
 
 @router.post("/import-url")
@@ -241,7 +233,7 @@ async def list_snapshots(disk_id: int, client: ClientDep) -> list[dict[str, Any]
         disk = await client.disks.get(disk_id)
     except DiskNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return [_as_dict(s) for s in await disk.snapshot_list()]
+    return [to_dict(s) for s in await disk.snapshot_list()]
 
 
 @router.post("/{disk_id}/snapshots")
@@ -254,7 +246,7 @@ async def create_snapshot(
     except DiskNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     snap = await disk.snapshot_create(body.name)
-    return _as_dict(await snap.show())
+    return to_dict(await snap.show())
 
 
 async def _get_snapshot(client: AsyncClient, disk_id: int, snap_id: int):  # type: ignore[no-untyped-def]

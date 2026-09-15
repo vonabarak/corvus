@@ -7,7 +7,6 @@ multi-node overlays are still TODO.
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
 from corvus_client.exceptions import CorvusError, NetworkNotFound
@@ -15,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..deps import get_client
+from ..lib import to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -24,21 +24,10 @@ router = APIRouter(prefix="/networks", tags=["networks"])
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 
-def _as_dict(obj: Any) -> Any:
-    if is_dataclass(obj) and not isinstance(obj, type):
-        d = {k: _as_dict(v) for k, v in asdict(obj).items()}
-        # NetworkInfo.peer_node_ids is a tuple in the dataclass; flatten to
-        # list so the JSON encoder treats it as an array.
-        return d
-    if isinstance(obj, list | tuple):
-        return [_as_dict(v) for v in obj]
-    return obj
-
-
 @router.get("")
 async def list_networks(client: ClientDep) -> list[dict[str, Any]]:
     """Mirrors ``crv network list``."""
-    return [_as_dict(n) for n in await client.networks.list()]
+    return [to_dict(n) for n in await client.networks.list()]
 
 
 class NetworkCreateBody(BaseModel):
@@ -91,7 +80,7 @@ async def create_network(body: NetworkCreateBody, client: ClientDep) -> dict[str
         )
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _as_dict(await net.show())
+    return to_dict(await net.show())
 
 
 @router.get("/{network_id}")
@@ -101,7 +90,7 @@ async def get_network(network_id: int, client: ClientDep) -> dict[str, Any]:
         net = await client.networks.get(network_id)
     except NetworkNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _as_dict(await net.show())
+    return to_dict(await net.show())
 
 
 @router.post("/{network_id}/start")

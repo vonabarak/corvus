@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Annotated, Any
 
 from corvus_client.exceptions import CorvusError, TaskNotFound
@@ -35,6 +35,7 @@ from fastapi import (
 )
 
 from ..deps import get_client
+from ..lib import to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -44,14 +45,6 @@ router = APIRouter(prefix="/tasks", tags=["tasks"])
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
 
 logger = logging.getLogger(__name__)
-
-
-def _as_dict(obj: Any) -> Any:
-    if is_dataclass(obj) and not isinstance(obj, type):
-        return {k: _as_dict(v) for k, v in asdict(obj).items()}
-    if isinstance(obj, list | tuple):
-        return [_as_dict(v) for v in obj]
-    return obj
 
 
 @router.get("")
@@ -74,7 +67,7 @@ async def list_tasks(
         result=result,
         include_subtasks=include_subtasks,
     )
-    return [_as_dict(t) for t in tasks]
+    return [to_dict(t) for t in tasks]
 
 
 @router.get("/{task_id}")
@@ -84,7 +77,7 @@ async def get_task(task_id: int, client: ClientDep) -> dict[str, Any]:
         task = await client.tasks.get(task_id)
     except TaskNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _as_dict(await task.show())
+    return to_dict(await task.show())
 
 
 @router.get("/{task_id}/children")
@@ -92,7 +85,7 @@ async def list_task_children(task_id: int, client: ClientDep) -> list[dict[str, 
     """Sub-tasks spawned by this task. Apply and build flows record a
     parent task and one child per resource they touch."""
     children = await client.tasks.list_children(task_id)
-    return [_as_dict(t) for t in children]
+    return [to_dict(t) for t in children]
 
 
 def _task_progress_event_to_dict(event: Any) -> dict[str, Any]:

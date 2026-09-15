@@ -12,7 +12,6 @@ shape because the typical apply is small (a handful of resources).
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
 from corvus_client.exceptions import CorvusError
@@ -20,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..deps import get_client
+from ..lib import to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -27,14 +27,6 @@ if TYPE_CHECKING:
 router = APIRouter(tags=["apply"])
 
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
-
-
-def _as_dict(obj: Any) -> Any:
-    if is_dataclass(obj) and not isinstance(obj, type):
-        return {k: _as_dict(v) for k, v in asdict(obj).items()}
-    if isinstance(obj, list | tuple):
-        return [_as_dict(v) for v in obj]
-    return obj
 
 
 class ApplyBody(BaseModel):
@@ -62,4 +54,4 @@ async def run_apply(body: ApplyBody, client: ClientDep) -> dict[str, Any]:
         )
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"result": _as_dict(result), "task_id": task_id}
+    return {"result": to_dict(result), "task_id": task_id}

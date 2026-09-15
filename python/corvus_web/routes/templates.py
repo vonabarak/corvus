@@ -7,7 +7,6 @@ operator iterates by editing locally or in the browser.
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
 from corvus_client.exceptions import CorvusError, TemplateNotFound
@@ -24,6 +23,7 @@ from pydantic import BaseModel, Field
 import yaml as yamllib
 
 from ..deps import get_client
+from ..lib import to_dict
 
 if TYPE_CHECKING:
     from corvus_client import AsyncClient
@@ -31,14 +31,6 @@ if TYPE_CHECKING:
 router = APIRouter(prefix="/templates", tags=["templates"])
 
 ClientDep = Annotated["AsyncClient", Depends(get_client)]
-
-
-def _as_dict(obj: Any) -> Any:
-    if is_dataclass(obj) and not isinstance(obj, type):
-        return {k: _as_dict(v) for k, v in asdict(obj).items()}
-    if isinstance(obj, list | tuple):
-        return [_as_dict(v) for v in obj]
-    return obj
 
 
 class InstantiateBody(BaseModel):
@@ -137,7 +129,7 @@ def template_details_to_yaml(t: TemplateDetails) -> str:
 
 @router.get("")
 async def list_templates(client: ClientDep) -> list[dict[str, Any]]:
-    return [_as_dict(t) for t in await client.templates.list()]
+    return [to_dict(t) for t in await client.templates.list()]
 
 
 @router.get("/{template_id}")
@@ -146,7 +138,7 @@ async def get_template(template_id: int, client: ClientDep) -> dict[str, Any]:
         tmpl = await client.templates.get(template_id)
     except TemplateNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return _as_dict(await tmpl.show())
+    return to_dict(await tmpl.show())
 
 
 @router.get("/{template_id}/yaml")
@@ -171,7 +163,7 @@ async def create_template(body: TemplateYamlBody, client: ClientDep) -> dict[str
         tmpl = await client.templates.create(body.yaml)
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return _as_dict(await tmpl.show())
+    return to_dict(await tmpl.show())
 
 
 @router.put("/{template_id}")
@@ -190,7 +182,7 @@ async def update_template(
     except CorvusError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # Fetch the post-update details so the frontend can refresh.
-    return _as_dict(await tmpl.show())
+    return to_dict(await tmpl.show())
 
 
 @router.post("/{template_id}/instantiate")
@@ -205,7 +197,7 @@ async def instantiate_template(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     vm = await tmpl.instantiate(body.name, node=body.node)
     details = await vm.show()
-    return _as_dict(details)
+    return to_dict(details)
 
 
 @router.delete("/{template_id}")
