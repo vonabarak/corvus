@@ -61,6 +61,7 @@ from .routes import (
     templates,
     vms,
 )
+from .routes import config as config_router
 
 # Pattern to extract the wire error code from the daemon's message.
 # The daemon emits "<code> :: <message>", and the client stores the
@@ -205,6 +206,7 @@ def create_app(config: CorvusWebConfig) -> FastAPI:
     # catches everything else and serves index.html for client-side
     # routing.
     app.include_router(system.router, prefix="/api")
+    app.include_router(config_router.router, prefix="/api")
     app.include_router(vms.router, prefix="/api")
     app.include_router(disks.router, prefix="/api")
     app.include_router(networks.router, prefix="/api")

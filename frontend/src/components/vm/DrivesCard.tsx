@@ -15,10 +15,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-
-const INTERFACES = ["", "virtio", "scsi", "ide", "sata", "floppy"] as const;
-const MEDIA = ["", "disk", "cdrom", "floppy"] as const;
-const CACHE_TYPES = ["", "none", "writethrough", "writeback", "directsync", "unsafe"] as const;
+import { fetchConfig } from "@/api/config";
 
 function selectClass(): string {
   return "flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
@@ -30,6 +27,14 @@ function AttachForm({ vmId, onClose }: { vmId: number; onClose: () => void }) {
     queryKey: ["disks"],
     queryFn: ({ signal }) => listDisks(signal),
     staleTime: 10_000,
+  });
+
+  // Enum values from ``/api/config`` so the form stays in sync
+  // with the daemon across deploys.
+  const { data: config } = useQuery({
+    queryKey: ["config"],
+    queryFn: fetchConfig,
+    staleTime: Infinity,
   });
 
   const [diskRef, setDiskRef] = useState("");
@@ -95,11 +100,13 @@ function AttachForm({ vmId, onClose }: { vmId: number; onClose: () => void }) {
             onChange={(e) => setIface(e.target.value)}
             className={selectClass()}
           >
-            {INTERFACES.map((v) => (
-              <option key={v} value={v}>
-                {v === "" ? "default (virtio)" : v}
-              </option>
-            ))}
+            {(config?.drive_interfaces ?? ["", "virtio", "scsi", "ide", "sata", "floppy"]).map(
+              (v) => (
+                <option key={v} value={v}>
+                  {v === "" ? "default (virtio)" : v}
+                </option>
+              ),
+            )}
           </select>
         </div>
         <div className="space-y-1">
@@ -110,7 +117,7 @@ function AttachForm({ vmId, onClose }: { vmId: number; onClose: () => void }) {
             onChange={(e) => setMedia(e.target.value)}
             className={selectClass()}
           >
-            {MEDIA.map((v) => (
+            {(config?.drive_media ?? ["", "disk", "cdrom", "floppy"]).map((v) => (
               <option key={v} value={v}>
                 {v === "" ? "default (disk)" : v}
               </option>
@@ -125,7 +132,16 @@ function AttachForm({ vmId, onClose }: { vmId: number; onClose: () => void }) {
             onChange={(e) => setCache(e.target.value)}
             className={selectClass()}
           >
-            {CACHE_TYPES.map((v) => (
+            {(
+              config?.cache_types ?? [
+                "",
+                "none",
+                "writethrough",
+                "writeback",
+                "directsync",
+                "unsafe",
+              ]
+            ).map((v) => (
               <option key={v} value={v}>
                 {v === "" ? "daemon default" : v}
               </option>

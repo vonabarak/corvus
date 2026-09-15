@@ -23,6 +23,7 @@ import { DrivesCard } from "@/components/vm/DrivesCard";
 import { NetIfsCard } from "@/components/vm/NetIfsCard";
 import { ResourceUsageCard } from "@/components/vm/ResourceUsageCard";
 import { SshKeysCard } from "@/components/vm/SshKeysCard";
+import { fetchConfig } from "@/api/config";
 
 interface GuestAgentFrame {
   vm_id: number;
@@ -46,54 +47,16 @@ function Field({ label, value }: FieldProps) {
   );
 }
 
-/** Map a VM's current status to the lifecycle actions that are
- * legal from that state. Mirrors `validateTransition` in
- * src/Corvus/Model/VmState.hs exactly — the daemon is authoritative,
- * the frontend just disables buttons that would 4xx so the user
- * doesn't have to learn the rules by trial and error.
- *
- * Quick reference (Ctrl+Alt+Del rides along with anything that can
- * pause/save — it makes sense to send it whenever the guest is
- * actually running):
- *   stopped  → start
- *   starting → stop, reset
- *   running  → stop, pause, reset, save, send-ctrl-alt-del
- *   stopping → reset
- *   paused   → start (resume), reset, save
- *   saved    → start (resume), reset
- *   error    → reset
- */
-function allowedActions(status: string): VmAction[] {
-  switch (status) {
-    case "stopped":
-      return ["start"];
-    case "starting":
-      return ["stop", "reset"];
-    case "running":
-      return ["stop", "pause", "reset", "save", "send-ctrl-alt-del"];
-    case "stopping":
-      return ["reset"];
-    case "paused":
-      return ["start", "reset", "save"];
-    case "saved":
-      return ["start", "reset"];
-    case "error":
-      return ["reset"];
-    default:
-      return [];
-  }
-}
-
 interface ActionButtonProps {
   vmId: number;
-  status: string;
   action: VmAction;
   icon: React.ReactNode;
   label: string;
   variant?: "default" | "destructive" | "outline";
+  allowed: string[];
 }
 
-function ActionButton({ vmId, status, action, icon, label, variant }: ActionButtonProps) {
+function ActionButton({ vmId, action, icon, label, variant, allowed }: ActionButtonProps) {
   const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: () => vmAction(vmId, action),
@@ -103,7 +66,7 @@ function ActionButton({ vmId, status, action, icon, label, variant }: ActionButt
     },
     onError: (e) => toast.error(`${label} failed`, { description: (e as Error).message }),
   });
-  const disabled = !allowedActions(status).includes(action) || mutation.isPending;
+  const disabled = !allowed.includes(action) || mutation.isPending;
   return (
     <Button
       variant={variant ?? "outline"}
@@ -181,6 +144,15 @@ export default function VmDetail() {
     enabled: Number.isFinite(id) && !!vm?.cloud_init,
   });
 
+  // Lifecycle transition table from ``/api/config``.  Fetched once
+  // and cached for the session so the action buttons stay in sync
+  // with the daemon without hard-coding the table.
+  const { data: config } = useQuery({
+    queryKey: ["config"],
+    queryFn: fetchConfig,
+    staleTime: Infinity,
+  });
+
   if (!Number.isFinite(id)) {
     return <p className="text-destructive">Invalid VM id.</p>;
   }
@@ -227,38 +199,38 @@ export default function VmDetail() {
       <div className="flex flex-wrap gap-2">
         <ActionButton
           vmId={vm.id}
-          status={vm.status}
           action="start"
           icon={<Play className="h-3.5 w-3.5" />}
           label="Start"
+          allowed={config?.transitions[vm.status] ?? []}
         />
         <ActionButton
           vmId={vm.id}
-          status={vm.status}
           action="stop"
           icon={<Square className="h-3.5 w-3.5" />}
           label="Stop"
+          allowed={config?.transitions[vm.status] ?? []}
         />
         <ActionButton
           vmId={vm.id}
-          status={vm.status}
           action="pause"
           icon={<Pause className="h-3.5 w-3.5" />}
           label="Pause"
+          allowed={config?.transitions[vm.status] ?? []}
         />
         <ActionButton
           vmId={vm.id}
-          status={vm.status}
           action="reset"
           icon={<RotateCcw className="h-3.5 w-3.5" />}
           label="Reset"
+          allowed={config?.transitions[vm.status] ?? []}
         />
         <ActionButton
           vmId={vm.id}
-          status={vm.status}
           action="save"
           icon={<Save className="h-3.5 w-3.5" />}
           label="Save"
+          allowed={config?.transitions[vm.status] ?? []}
         />
         {/* Console kind tracks the VM's display mode: headless VMs
             get the xterm.js serial console, graphical VMs get the
