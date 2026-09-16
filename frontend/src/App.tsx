@@ -22,35 +22,38 @@ import VmCreate from "./pages/VmCreate";
 import NodeList from "./pages/NodeList";
 import NodeDetail from "./pages/NodeDetail";
 import Layout from "./components/Layout";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 export default function App() {
   return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route index element={<Dashboard />} />
-        <Route path="vms" element={<VmList />} />
-        <Route path="vms/new" element={<VmCreate />} />
-        <Route path="vms/:id" element={<VmDetail />} />
-        <Route path="vms/:id/console" element={<Console />} />
-        <Route path="vms/:id/spice" element={<SpiceConsole />} />
-        <Route path="disks" element={<DiskList />} />
-        <Route path="disks/new" element={<DiskCreate />} />
-        <Route path="disks/:id" element={<DiskDetail />} />
-        <Route path="networks" element={<NetworkList />} />
-        <Route path="networks/new" element={<NetworkCreate />} />
-        <Route path="networks/:id" element={<NetworkDetail />} />
-        <Route path="ssh-keys" element={<SshKeyList />} />
-        <Route path="ssh-keys/:id" element={<SshKeyDetail />} />
-        <Route path="templates" element={<TemplateList />} />
-        <Route path="templates/new" element={<TemplateEdit />} />
-        <Route path="templates/:id" element={<TemplateDetail />} />
-        <Route path="templates/:id/edit" element={<TemplateEdit />} />
-        <Route path="tasks" element={<TaskList />} />
-        <Route path="tasks/:id" element={<TaskDetail />} />
-        <Route path="nodes" element={<NodeList />} />
-        <Route path="nodes/:id" element={<NodeDetail />} />
-        <Route path="apply" element={<Apply />} />
-      </Route>
-    </Routes>
+    <ErrorBoundary>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<Dashboard />} />
+          <Route path="vms" element={<VmList />} />
+          <Route path="vms/new" element={<VmCreate />} />
+          <Route path="vms/:id" element={<VmDetail />} />
+          <Route path="vms/:id/console" element={<Console />} />
+          <Route path="vms/:id/spice" element={<SpiceConsole />} />
+          <Route path="disks" element={<DiskList />} />
+          <Route path="disks/new" element={<DiskCreate />} />
+          <Route path="disks/:id" element={<DiskDetail />} />
+          <Route path="networks" element={<NetworkList />} />
+          <Route path="networks/new" element={<NetworkCreate />} />
+          <Route path="networks/:id" element={<NetworkDetail />} />
+          <Route path="ssh-keys" element={<SshKeyList />} />
+          <Route path="ssh-keys/:id" element={<SshKeyDetail />} />
+          <Route path="templates" element={<TemplateList />} />
+          <Route path="templates/new" element={<TemplateEdit />} />
+          <Route path="templates/:id" element={<TemplateDetail />} />
+          <Route path="templates/:id/edit" element={<TemplateEdit />} />
+          <Route path="tasks" element={<TaskList />} />
+          <Route path="tasks/:id" element={<TaskDetail />} />
+          <Route path="nodes" element={<NodeList />} />
+          <Route path="nodes/:id" element={<NodeDetail />} />
+          <Route path="apply" element={<Apply />} />
+        </Route>
+      </Routes>
+    </ErrorBoundary>
   );
 }
