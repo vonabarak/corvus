@@ -58,6 +58,11 @@ class _ClassState:
     # stderr to find what actually broke.
     setup_error: str | None = None
     base_images_cache: dict[str, str] | None = None
+    # Scratch directory on the test node, created by the class
+    # fixture.  Test classes that need a writable temp dir on the
+    # node (e.g. corvus-admin deploy tests) set this; it is cleaned
+    # up in teardown.
+    scratch_dir: str | None = None
 
 
 # Keyed by the concrete subclass `type`. Read by both `cases.py` (the
@@ -263,6 +268,24 @@ class IntegrationTestCase:
             for node in self.topology.nodes
             if node.role is NodeRole.FULL_STACK
         ]
+
+    @property
+    def scratch_dir(self) -> str:
+        """Writable temp directory on the **test node**.
+
+        Created by the class fixture via ``mktemp -d`` on the test
+        node.  Tests that need to run ``corvus-admin`` or other
+        tools that write to disk on the node use this instead of
+        the ``tmp_path`` fixture (which is not available in
+        class-based integration tests).
+        """
+        state = state_for(type(self))
+        if state.scratch_dir is None:
+            raise RuntimeError(
+                f"{type(self).__qualname__}: scratch_dir not set — "
+                "class fixture did not create one (attach_source=False?)"
+            )
+        return state.scratch_dir
 
     # ---- Convenience helpers -----------------------------------------------
 
